@@ -1,6 +1,21 @@
 import threading
 from copy import deepcopy
 from datetime import datetime, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
+
+_EASTERN = ZoneInfo("America/New_York")
+
+
+def _eastern_offset(now: datetime | None = None) -> int:
+    """Return pyqtgraph utcOffset for Eastern Time (positive = behind UTC).
+
+    EDT (UTC-4) -> 14400, EST (UTC-5) -> 18000. Uses live DST.
+    """
+    ts = now if now is not None else datetime.now(_EASTERN)
+    return -int(ts.utcoffset().total_seconds())  # type: ignore[union-attr]
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
@@ -174,9 +189,8 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(self.conn_badge)
 
         # ── Central chart area ────────────────────────────────────────────────
-        # ET offset: 18000 (EST) / 14400 (EDT) - default to EST
-        # pyqtgraph's DateAxisItem uses LOCAL = UTC + offset convention
-        self._tz_offset = 18000
+        # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000
+        self._tz_offset = _eastern_offset()
         self.chart_panel = ChartPanel(tz_offset=self._tz_offset)
         central = QWidget()
         vbox = QVBoxLayout(central)
@@ -384,9 +398,11 @@ class MainWindow(QMainWindow):
                 f"{symbol} — {len(cached)} cached bars. Fetching delta…"
             )
 
-        # Step 2: Fetch delta from IBKR (only the gap since the last cached bar)
-        last_ts = BarCache.get_last_timestamp(symbol, timeframe)
-        end_dt = _ibkr_end_date(last_ts + 60) if last_ts else ""
+        # Step 2: Fetch delta from IBKR up to now (covers gap since cache).
+        # Previously end_dt = last_ts+60 anchored the window to the stale cache
+        # end, so bars after the cache (e.g., Fri 14:00-20:00) were never fetched.
+        # end_dt="" means up-to-now; overlap is deduped by INSERT OR REPLACE.
+        end_dt = ""
         contract = get_contract_for_symbol(symbol)
         ext_hours = self.ext_hours_btn.isChecked()
         self._current_req_id = self.md_manager.req_historical_data(
@@ -651,10 +667,7 @@ class MainWindow(QMainWindow):
     def _on_tz_changed(self, label: str):
         """Change chart x-axis timezone."""
         if label == "Eastern Time":
-            # Use EDT (14400) or EST (18000) based on current date
-            # For simplicity, use 14400 (EDT) as it's more common for trading
-            # pyqtgraph's DateAxisItem uses LOCAL = UTC + offset convention (positive for ET)
-            self._tz_offset = 14400
+            self._tz_offset = _eastern_offset()
         else:  # UTC
             self._tz_offset = 0
         self.chart_panel.set_timezone(self._tz_offset)
