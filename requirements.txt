@@ -1,0 +1,4 @@
+PyQt6>=6.6
+pyqtgraph>=0.13
+ibapi>=9.81
+numpy>=1.26

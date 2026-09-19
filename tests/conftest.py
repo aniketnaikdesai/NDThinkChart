@@ -1,0 +1,106 @@
+"""Shared fixtures. Deterministic candle datasets for pure-logic services."""
+
+import os
+import tempfile
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+_TEST_DB_PATH = os.path.join(tempfile.gettempdir(), "tos_charting_test.sqlite3")
+try:
+    os.remove(_TEST_DB_PATH)
+except OSError:
+    pass
+os.environ["DB_PATH"] = _TEST_DB_PATH
+
+import pytest
+
+from data.models import Bar
+
+
+BASE_TS = 1_700_000_000
+DAY = 86_400
+
+
+def _bar(i: int, value: float, ts: int | None = None, volume: float = 1000.0) -> Bar:
+    return Bar(
+        symbol="TEST",
+        timeframe="5 mins",
+        ts=ts if ts is not None else BASE_TS + i * 60,
+        open=value,
+        high=value + 0.5,
+        low=value - 0.5,
+        close=value,
+        volume=volume,
+    )
+
+
+@pytest.fixture
+def sample_bars() -> list[Bar]:
+    """200 one-minute bars with monotonically rising closes (no gaps)."""
+    return [_bar(i, 100 + i * 0.1) for i in range(200)]
+
+
+@pytest.fixture
+def impulse_bars() -> list[Bar]:
+    """Deterministic alternating impulse dataset rich enough for ICT concepts.
+
+    Builds swings: sharp displacement moves, small retracements, and a couple
+    of fair-value-gap-sized gaps between closes.
+    """
+    bars = []
+    base = 100.0
+    ts = BASE_TS
+    for i in range(300):
+        phase = (i // 20) % 4
+        if phase == 0:
+            o = base
+            c = base + 6.0
+        elif phase == 1:
+            o = base + 6.0
+            c = base + 1.0
+        elif phase == 2:
+            o = base + 1.0
+            c = base - 3.0
+        else:
+            o = base - 3.0
+            c = base + 2.0
+        h, l = max(o, c) + 0.5, min(o, c) - 0.5
+        bars.append(Bar("TEST", "5 mins", ts, o, h, l, c, 1000.0))
+        base = c
+        ts += 60
+    return bars
+
+
+@pytest.fixture
+def gap_bars() -> list[Bar]:
+    """Two sessions with an up gap, plus a bar that fills it back in.
+
+    Day 1 closes at 103.5, day 2 opens at 110.0 (up gap). A following bar
+    trades down to 99.0, which fills the gap.
+    """
+    day1 = [_bar(0, 100.0 + i * 0.5, ts=BASE_TS + i * 300) for i in range(8)]
+    day2_open = BASE_TS + DAY
+    day2 = [
+        Bar("TEST", "5 mins", day2_open, 110.0, 110.5, 109.5, 110.0, 1000.0),
+        Bar("TEST", "5 mins", day2_open + 300, 110.0, 111.0, 99.0, 108.0, 1000.0),
+        Bar("TEST", "5 mins", day2_open + 600, 108.0, 108.5, 107.5, 108.0, 1000.0),
+    ]
+    return day1 + day2
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Single offscreen QApplication for the whole test session."""
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    yield app
+
+
+@pytest.fixture
+def chart_panel(qapp):
+    from ui.chart_panel import ChartPanel
+
+    panel = ChartPanel()
+    yield panel
+    panel.close()

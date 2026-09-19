@@ -1,0 +1,1 @@
+"""Study renderers extracted from ChartPanel."""

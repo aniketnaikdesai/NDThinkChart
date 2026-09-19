@@ -1,0 +1,87 @@
+/* Tailwind-inspired Dense Dark Theme */
+
+* {
+    font-family: "Inter", "Segoe UI", sans-serif;
+    font-size: 11px;
+    color: #a3a3a3; /* neutral-400 */
+}
+
+QMainWindow, QDialog, QWidget {
+    background-color: #0d0f14;
+}
+
+QDockWidget {
+    color: #e5e5e5; /* neutral-200 */
+    font-weight: bold;
+    titlebar-close-icon: url(close.png); /* Mock, adjust as needed */
+    titlebar-normal-icon: url(float.png);
+}
+
+QDockWidget::title {
+    background: #141822;
+    padding-left: 5px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #232938;
+}
+
+QTableWidget {
+    background-color: #101218;
+    border: 1px solid #2b3345;
+    gridline-color: #232938;
+    color: #a3a3a3;
+    selection-background-color: #1f273a;
+    selection-color: #e5e5e5;
+}
+
+QHeaderView::section {
+    background-color: #141822;
+    color: #e5e5e5;
+    padding: 2px 4px;
+    border: 1px solid #2b3345;
+}
+
+/* Numeric columns should ideally use tabular figures */
+.Tabular {
+    font-family: monospace;
+}
+
+/* Toolbars and Tabs */
+QToolBar {
+    background-color: #0d0f14;
+    border-bottom: 1px solid #232938;
+    padding: 2px;
+}
+
+QTabBar::tab {
+    background: #101218;
+    border: 1px solid #232938;
+    border-bottom: none;
+    padding: 4px 8px;
+    color: #a3a3a3;
+}
+
+QTabBar::tab:selected {
+    background: #141822;
+    color: #e5e5e5;
+    border-top: 2px solid #34d399; /* emerald-400 accent */
+}
+
+/* Scrollbars */
+QScrollBar:vertical {
+    border: none;
+    background: #0d0f14;
+    width: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: #2b3345;
+    min-height: 20px;
+    border-radius: 5px;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+}

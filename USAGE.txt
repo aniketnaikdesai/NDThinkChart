@@ -1,0 +1,78 @@
+NDThinkChart Usage
+==================
+
+Exact command to start the app
+------------------------------
+
+Run this from Terminal:
+
+cd /Users/aniket-desai/Documents/python_development/NDThinkChart
+.venv/bin/python main.py
+
+
+Requirements before running
+---------------------------
+
+1. Python virtual environment
+
+   The project expects a local virtual environment at:
+
+   /Users/aniket-desai/Documents/python_development/NDThinkChart/.venv
+
+   If the virtual environment does not exist, create it with Python 3.11:
+
+   python3.11 -m venv .venv
+
+
+2. Python packages
+
+   The virtual environment must have these packages installed:
+
+   PyQt6
+   pyqtgraph
+   ibapi
+
+   Install them with:
+
+   .venv/bin/pip install PyQt6 pyqtgraph ibapi
+
+   Note: For the most reliable IBKR compatibility, install ibapi from the TWS API
+   installer bundled by Interactive Brokers if the PyPI package does not match
+   your installed TWS version.
+
+
+3. Interactive Brokers TWS Desktop
+
+   TWS Desktop must be installed, running, and logged in before starting the app.
+   This app connects to TWS through the local IBKR API socket; it does not launch
+   or bundle TWS.
+
+
+4. TWS API settings
+
+   In TWS, API socket access must be enabled.
+
+   Required default connection settings used by this app:
+
+   Host: 127.0.0.1
+   Port: 7496
+   Client ID: 1
+
+   Port 7496 is the default live TWS API port. If you want to use paper trading,
+   set the app to the paper trading port before launching:
+
+   IBKR_PORT=7497 .venv/bin/python main.py
+
+
+5. Market data permissions
+
+   The app can open without market data subscriptions, but live charts, watchlist
+   quotes, realtime bars, and depth/DOM features require the relevant IBKR market
+   data entitlements for the symbols being viewed.
+
+
+6. macOS notes
+
+   The current implementation targets macOS with PyQt6 and pyqtgraph. If macOS
+   blocks network/socket access on first launch, allow the Python process to
+   connect to localhost/TWS.

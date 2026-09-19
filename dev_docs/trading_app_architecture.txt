@@ -1,0 +1,223 @@
+=================================================================
+  IBKR TRADING TERMINAL - ARCHITECTURE DOCUMENT
+  All-Python Desktop App (PyQt6 + pyqtgraph + ib_insync)
+=================================================================
+
+1. OVERVIEW
+-----------------------------------------------------------------
+Goal: a single-process, all-Python desktop trading terminal with
+a thinkorswim-style dark UI, real-time IBKR market data, and
+hyperfast charting (candlesticks, support/resistance zones,
+alarms, volume).
+
+Why single-process Python (no Electron, no separate backend):
+- ib_insync + PyQt6 both run comfortably in one Python process
+  using asyncio + qasync, avoiding IPC/serialization overhead.
+- pyqtgraph is GPU/Qt-accelerated and handles high-frequency
+  tick updates natively (no browser rendering layer involved).
+- Simpler packaging: one PyInstaller executable, no bundling a
+  second runtime (Node/Electron) alongside Python.
+
+-----------------------------------------------------------------
+2. TECH STACK
+-----------------------------------------------------------------
+UI Framework:        PyQt6
+Charting:            pyqtgraph (custom candlestick GraphicsObject)
+Market Data / Orders: ib_insync (wraps IBKR TWS API / IB Gateway)
+Async integration:   qasync (bridges asyncio event loop with Qt's
+                      event loop, since ib_insync is asyncio-based
+                      and PyQt6 is not)
+Local persistence:   SQLite (via sqlite3 or SQLAlchemy) for:
+                      - historical bar cache
+                      - saved chart layouts / drawings
+                      - alarm definitions
+                      - watchlist config
+Styling:             QSS stylesheets + qt-material or a custom
+                      dark theme file
+Packaging:           PyInstaller (single executable) +
+                      platform installers (NSIS/Inno Setup on
+                      Windows, .app bundle on Mac)
+
+-----------------------------------------------------------------
+3. HIGH-LEVEL PROCESS ARCHITECTURE
+-----------------------------------------------------------------
+
+    ┌─────────────────────────────────────────────────────┐
+    │                  Single Python Process                │
+    │                                                       │
+    │   ┌───────────────┐        ┌───────────────────┐    │
+    │   │   PyQt6 GUI    │◄──────►│   ib_insync client  │    │
+    │   │  (main thread, │  Qt    │  (asyncio, via      │    │
+    │   │   qasync loop) │ signals│   qasync event loop) │    │
+    │   └───────┬───────┘        └──────────┬──────────┘    │
+    │           │                            │               │
+    │   ┌───────▼───────┐        ┌──────────▼──────────┐    │
+    │   │  Chart/Table   │        │   TWS / IB Gateway    │    │
+    │   │  Widgets       │        │   (localhost socket) │    │
+    │   └───────────────┘        └───────────────────────┘    │
+    │           │                                              │
+    │   ┌───────▼───────┐                                      │
+    │   │  SQLite cache  │                                      │
+    │   │  (bars, config)│                                      │
+    │   └───────────────┘                                      │
+    └─────────────────────────────────────────────────────┘
+
+Key point: qasync lets asyncio (which ib_insync requires) and
+Qt's own event loop run together in one thread, so no manual
+thread-safety plumbing (queues, locks) is needed to move data
+from ib_insync callbacks into the UI - it is all one event loop.
+
+-----------------------------------------------------------------
+4. MODULE / FOLDER STRUCTURE
+-----------------------------------------------------------------
+trading_app/
+├── main.py                     # app entrypoint, sets up qasync loop
+├── config/
+│   ├── settings.py              # IBKR host/port, account mode (paper/live)
+│   └── theme.qss                # dark ToS-style stylesheet
+├── ibkr/
+│   ├── connection.py            # ib_insync IB() connection lifecycle
+│   ├── market_data.py           # subscribe to bars/ticks, normalize data
+│   ├── orders.py                # order placement/mgmt wrappers
+│   └── contracts.py             # contract lookup/qualification helpers
+├── ui/
+│   ├── main_window.py           # QMainWindow, docks all panels
+│   ├── toolbar.py                # top bar: account info, timeframe buttons
+│   ├── watchlist_panel.py        # QTableWidget-based watchlist dock
+│   ├── chart_panel.py            # pyqtgraph chart + volume subplot
+│   ├── candlestick_item.py       # custom pg.GraphicsObject for OHLC bars
+│   ├── price_scale_overlay.py    # floating current-price tag on axis
+│   ├── zone_overlay.py           # support/resistance LinearRegionItems
+│   ├── alarm_overlay.py          # alarm label TextItems + trigger logic
+│   └── active_trader_panel.py    # optional: order ladder / DOM view
+├── data/
+│   ├── db.py                     # SQLite schema + access layer
+│   ├── bar_cache.py              # historical bar caching logic
+│   └── models.py                 # dataclasses: Bar, Alarm, DrawingSet
+├── services/
+│   ├── alarm_service.py          # evaluates price vs alarm levels
+│   └── indicator_service.py      # SMA/EMA/etc. calculations
+└── packaging/
+    └── build.spec                # PyInstaller spec file
+
+-----------------------------------------------------------------
+5. DATA FLOW: LIVE PRICE UPDATE
+-----------------------------------------------------------------
+1. ib_insync's IB() instance holds a live subscription
+   (reqMktData / reqRealTimeBars) for each watchlist symbol.
+2. On each tick/bar update, ib_insync fires an event
+   (e.g. ib.pendingTickersEvent or bar update callback).
+3. Because qasync merges the asyncio loop into Qt's loop, this
+   callback runs safely alongside GUI code - no thread hopping.
+4. The callback updates:
+     a. an in-memory data model (list/deque of Bar objects)
+     b. the watchlist QTableWidget row (last price, net change,
+        color flash green/red)
+     c. the active chart's CandlestickItem (repaint last bar or
+        append a new one)
+     d. the volume subplot's BarGraphItem
+     e. AlarmService, which checks the new price against any
+        configured alarm levels and fires a visual/audio alert
+        if crossed
+5. Historical bars (for chart backfill) are fetched once via
+   ib_insync's reqHistoricalData and cached in SQLite so re-
+   opening a chart doesn't always require a fresh IBKR request.
+
+-----------------------------------------------------------------
+6. DATA FLOW: PLACING AN ORDER
+-----------------------------------------------------------------
+1. User interacts with an order entry widget (buy/sell buttons,
+   quantity, order type).
+2. UI builds an ib_insync Order + Contract object.
+3. Calls ib.placeOrder(contract, order) - async, non-blocking.
+4. ib_insync's orderStatusEvent / execDetailsEvent fires as fills
+   or status changes occur; UI updates a "Positions" or "Orders"
+   panel reactively via the same qasync-integrated event flow.
+
+-----------------------------------------------------------------
+7. UI LAYOUT (MAPS TO SCREENSHOT REFERENCE)
+-----------------------------------------------------------------
+QMainWindow
+ ├── Top Toolbar (QWidget, fixed height)
+ │     - account/net liq/P&L labels
+ │     - streaming status badge
+ │     - timeframe buttons (1m/5m/15m/1h/4h/1D/1W)
+ ├── QDockWidget: Watchlist (left)
+ │     - QTableWidget: symbol, last, net chg
+ ├── QDockWidget: Active Trader / Level II (left, tabbed w/ Watchlist)
+ ├── Central Widget: Chart Panel
+ │     - Sub-toolbar: chart type, studies, zones, cursor, alarm count
+ │     - pyqtgraph PlotWidget (candles + overlays: SMAs, zones, alarms)
+ │     - pyqtgraph PlotWidget (volume, X-axis linked to chart above)
+ │     - Bottom range bar (1D/5D/1M/.../ALL, zoom controls)
+ └── Status bar (bottom)
+       - gateway connection status, data reliability indicator
+
+All docks are QDockWidget so panels can be rearranged/floated,
+matching ToS's flexible grid behavior.
+
+-----------------------------------------------------------------
+8. STYLING STRATEGY (TOS LOOK)
+-----------------------------------------------------------------
+- Global QSS file (config/theme.qss) sets base colors, fonts,
+  and widget-specific rules (QTableWidget, QPushButton, QTabBar,
+  QDockWidget title bars).
+- pyqtgraph config set globally:
+    pg.setConfigOption('background', '#131316')
+    pg.setConfigOption('foreground', '#c8c8cc')
+- Candles: custom CandlestickItem(pg.GraphicsObject) drawing
+  QPicture-based wicks/bodies in green/red.
+- Zones: pg.LinearRegionItem with translucent brush fill (green/
+  red at ~15-20% opacity) for support/resistance bands; pg.TextItem
+  anchored at the right edge for zone labels.
+- Alarms: same TextItem approach, styled with a solid colored
+  background rect to mimic the orange/red banner look.
+- Current price tag: a floating QLabel repositioned each frame
+  to sit at the last price's Y pixel on the axis, colored red/
+  green depending on tick direction.
+- Font: a clean sans-serif (Segoe UI/Inter) for general UI, with
+  QFont tabular figures or a monospace font for all numeric
+  columns so digits align vertically like a real terminal.
+
+-----------------------------------------------------------------
+9. PERFORMANCE NOTES
+-----------------------------------------------------------------
+- pyqtgraph's PlotWidget uses OpenGL-backed QGraphicsView; can
+  comfortably redraw thousands of points without frame drops.
+- Only repaint the last candle (not the whole series) on
+  intra-bar tick updates; append a new candle only when a new
+  bar period starts.
+- Downsample historical data when zoomed out (pyqtgraph has
+  built-in clipping/downsampling options: setDownsampling()).
+- Cap in-memory bar history per symbol (e.g. last 5,000 bars);
+  older data stays in SQLite and is paged in on demand.
+
+-----------------------------------------------------------------
+10. PACKAGING & DISTRIBUTION
+-----------------------------------------------------------------
+- Development: run directly via `python main.py` against IB
+  Gateway/TWS in paper trading mode on localhost.
+- Distribution: PyInstaller bundles the app + Python interpreter
+  + dependencies into a single executable per OS.
+- IB Gateway/TWS itself is NOT bundled - it must be installed
+  and running separately, logged into the user's IBKR account
+  (this matches how ToS/IBKR's own tools work too).
+- Auto-reconnect logic in ibkr/connection.py handles TWS/Gateway
+  restarts or dropped sessions gracefully (ib_insync supports
+  reconnect callbacks).
+
+-----------------------------------------------------------------
+11. FUTURE EXTENSIONS
+-----------------------------------------------------------------
+- Multi-monitor / multi-window chart pop-outs (QDockWidget
+  floating supports this natively).
+- Custom indicator scripting (expose a simple Python plugin
+  interface under services/indicator_service.py).
+- Alerts via desktop notifications (Qt's QSystemTrayIcon) or
+  sound (QSoundEffect) when AlarmService triggers.
+- Optional cloud sync of watchlists/drawings (swap SQLite layer
+  for a lightweight backend later without touching the UI layer).
+
+=================================================================
+  END OF DOCUMENT
+=================================================================
