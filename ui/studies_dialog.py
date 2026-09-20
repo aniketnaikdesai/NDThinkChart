@@ -162,7 +162,7 @@ class StudiesDialog(QDialog):
         scroll.setFrameShape(scroll.Shape.NoFrame)
         container = QWidget()
         container_layout = QVBoxLayout(container)
-        container_layout.setSpacing(2)
+        container_layout.setSpacing(10)
 
         studies = deepcopy(current_studies or DEFAULT_STUDIES)
         self._rows: List[StudyRow] = []

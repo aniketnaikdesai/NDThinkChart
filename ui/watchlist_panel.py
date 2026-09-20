@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QLabel, QPushButton, QHeaderView
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings
 from PyQt6.QtGui import QColor, QBrush
 
 # Column indices
@@ -26,12 +26,70 @@ GREEN = QColor('#34d399')  # emerald-400
 RED   = QColor('#f87171')  # red-400
 DIM   = QColor('#a3a3a3')  # neutral-400
 
+# ── Watchlist width limits (D13) ───────────────────────────────────────────────
+WATCHLIST_MIN_WIDTH = 150
+CHART_MIN_WIDTH = 400
+DEFAULT_WATCHLIST_WIDTH = 220
+WATCHLIST_WIDTH_KEY = "watchlist/width"
+
+
+def watchlist_max_width(window_width: int) -> int:
+    """Maximum docked watchlist width: ~50% of the window, but the chart keeps
+    at least CHART_MIN_WIDTH px, and the watchlist never exceeds the window."""
+    half = int(window_width * 0.50)
+    return max(WATCHLIST_MIN_WIDTH, min(half, window_width - CHART_MIN_WIDTH))
+
+
+def clamp_watchlist_width(width: int, window_width: int) -> int:
+    """Clamp a requested watchlist width into [min, max] for the window size."""
+    return max(WATCHLIST_MIN_WIDTH, min(int(width), watchlist_max_width(window_width)))
+
+
+def load_watchlist_width(settings: QSettings, window_width: int) -> int:
+    """Return the persisted watchlist width, clamped for the current window."""
+    try:
+        raw = settings.value(WATCHLIST_WIDTH_KEY)
+        width = int(raw) if raw is not None else DEFAULT_WATCHLIST_WIDTH
+    except (TypeError, ValueError):
+        width = DEFAULT_WATCHLIST_WIDTH
+    return clamp_watchlist_width(width, window_width)
+
+
+def save_watchlist_width(settings: QSettings, width: int, window_width: int) -> int:
+    """Persist the (clamped) watchlist width and return it."""
+    clamped = clamp_watchlist_width(width, window_width)
+    settings.setValue(WATCHLIST_WIDTH_KEY, clamped)
+    return clamped
+
+
+def should_load_on_double_click(current_symbol: str, requested_symbol: str,
+                                connected: bool) -> str:
+    """D14 decision helper.
+
+    Returns one of:
+      "load"               — a different symbol while connected
+      "noop_same"          — the requested symbol already matches the chart
+      "noop_disconnected"  — IBKR is not connected
+      "noop_empty"         — nothing meaningful was double-clicked
+    """
+    clean = (requested_symbol or "").strip().upper()
+    if not clean:
+        return "noop_empty"
+    current = (current_symbol or "").strip().upper()
+    if clean == current:
+        return "noop_same"
+    if not connected:
+        return "noop_disconnected"
+    return "load"
+
 
 class WatchlistPanel(QWidget):
     """
     Dense watchlist table. Each row subscribes to IBKR reqMktData.
     Cells flash green/red on tick updates using a QTimer fade.
     """
+
+    row_double_clicked = pyqtSignal(str)  # symbol (D14)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,7 +131,18 @@ class WatchlistPanel(QWidget):
         """)
         layout.addWidget(self.table)
 
+        # D14: double-click anywhere on a row requests the chart load
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+
     # ── Public API ─────────────────────────────────────────────────────────────
+
+    def _on_cell_double_clicked(self, row: int, column: int) -> None:
+        item = self.table.item(row, COL_SYMBOL)
+        if item is None:
+            return
+        symbol = (item.text() or "").strip()
+        if symbol and symbol != "—":
+            self.row_double_clicked.emit(symbol)
 
     def set_depth_manager(self, depth_manager):
         """Inject MarketDepthManager for position mapping."""

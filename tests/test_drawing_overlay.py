@@ -45,15 +45,16 @@ def overlay(chart_panel, sample_bars):
 
 class TestCoordinateMapping:
     def test_ts_to_x(self, overlay, sample_bars):
-        assert overlay._ts_to_x(sample_bars[0].ts) == 0.0
-        assert overlay._ts_to_x(sample_bars[7].ts) == 7.0
+        # x-space is timestamps since the DateAxisItem migration
+        assert overlay._ts_to_x(sample_bars[0].ts) == float(sample_bars[0].ts)
+        assert overlay._ts_to_x(sample_bars[7].ts) == float(sample_bars[7].ts)
 
     def test_x_to_ts(self, overlay, sample_bars):
-        assert overlay._x_to_ts(3.0) == sample_bars[3].ts
+        assert overlay._x_to_ts(float(sample_bars[3].ts) + 0.4) == sample_bars[3].ts
 
-    def test_x_to_ts_clamps(self, overlay, sample_bars):
-        assert overlay._x_to_ts(-50) == sample_bars[0].ts
-        assert overlay._x_to_ts(10_000) == sample_bars[-1].ts
+    def test_round_trip(self, overlay, sample_bars):
+        for bar in sample_bars[:10]:
+            assert overlay._x_to_ts(overlay._ts_to_x(bar.ts)) == bar.ts
 
 
 class TestCreation:
@@ -62,9 +63,9 @@ class TestCreation:
         overlay.created.connect(created.append)
         overlay.set_tool("trendline")
 
-        overlay.view_mouse_press(event_at(overlay, 2.0, 100.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[2], 100.0))
         assert overlay._draft is not None
-        overlay.view_mouse_press(event_at(overlay, 10.0, 110.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[10], 110.0))
 
         assert len(created) == 1
         drawing = created[0]
@@ -78,9 +79,9 @@ class TestCreation:
         overlay.created.connect(created.append)
         overlay.set_tool("horizontal")
 
-        overlay.view_mouse_press(event_at(overlay, 5.0, 120.0))
-        overlay.view_mouse_drag(event_at(overlay, 5.0, 130.0))
-        overlay.view_mouse_drag(event_at(overlay, 5.0, 125.0, finish=True))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[5], 120.0))
+        overlay.view_mouse_drag(event_at(overlay, overlay._bar_ts[5], 130.0))
+        overlay.view_mouse_drag(event_at(overlay, overlay._bar_ts[5], 125.0, finish=True))
         assert len(created) == 1
         assert created[0].payload["y"] == pytest.approx(125.0)
 
@@ -88,8 +89,8 @@ class TestCreation:
         created = []
         overlay.created.connect(created.append)
         overlay.set_tool("zone")
-        overlay.view_mouse_press(event_at(overlay, 1.0, 130.0))
-        overlay.view_mouse_press(event_at(overlay, 9.0, 110.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[1], 130.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[9], 110.0))
         payload = created[0].payload
         assert payload["y1"] < payload["y2"]
         assert payload["x1"] < payload["x2"]
@@ -107,8 +108,8 @@ class TestCreation:
         created = []
         overlay.created.connect(created.append)
         overlay.set_tool("horizontal")
-        overlay.view_mouse_press(event_at(overlay, 1.0, 100.0))
-        overlay.view_mouse_press(event_at(overlay, 1.0, 101.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[1], 100.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[1], 101.0))
         assert created[0].group_id == 42
         assert created[0].color == "#f472b6"
 
@@ -118,7 +119,8 @@ class TestRendering:
         drawings = [Drawing(id=1, symbol="TEST", kind="horizontal", payload={"y": 105.0})]
         overlay.set_data("TEST", drawings, [])
         assert 1 in overlay._items
-        assert len(overlay._items[1]) == 1
+        # D11: horizontal now renders the line plus an inner-right price label
+        assert len(overlay._items[1]) == 2
 
     def test_hidden_group_not_rendered(self, overlay):
         group = DrawingGroup(id=7, symbol="TEST", name="G", seq_number=1, visible=False)
@@ -145,7 +147,7 @@ class TestHitTesting:
                      "p2": {"x": overlay._bar_ts[20], "y": 120.0}},
         )
         overlay.set_data("TEST", [drawing], [])
-        mid = scene_at(overlay, 10.0, 110.0)
+        mid = scene_at(overlay, overlay._bar_ts[10], 110.0)
         assert overlay._hit_drawing(mid).id == 1
 
     def test_miss_returns_none(self, overlay):
@@ -155,14 +157,14 @@ class TestHitTesting:
                      "p2": {"x": overlay._bar_ts[20], "y": 120.0}},
         )
         overlay.set_data("TEST", [drawing], [])
-        far = scene_at(overlay, 10.0, 105.0)
+        far = scene_at(overlay, overlay._bar_ts[10], 105.0)
         assert overlay._hit_drawing(far) is None
 
     def test_hit_horizontal(self, overlay):
         drawing = Drawing(id=1, symbol="TEST", kind="horizontal",
                           payload={"y": 108.0})
         overlay.set_data("TEST", [drawing], [])
-        pos = scene_at(overlay, 5.0, 108.0)
+        pos = scene_at(overlay, overlay._bar_ts[5], 108.0)
         assert overlay._hit_drawing(pos).id == 1
 
     def test_hidden_group_not_hittable(self, overlay):
@@ -170,7 +172,7 @@ class TestHitTesting:
         drawing = Drawing(id=1, symbol="TEST", kind="horizontal",
                           payload={"y": 108.0}, group_id=7)
         overlay.set_data("TEST", [drawing], [group])
-        pos = scene_at(overlay, 5.0, 108.0)
+        pos = scene_at(overlay, overlay._bar_ts[5], 108.0)
         assert overlay._hit_drawing(pos) is None
 
 
@@ -184,7 +186,7 @@ class TestSelectionAndEdit:
 
     def test_select_by_click(self, overlay):
         overlay.set_data("TEST", [self._trendline(overlay)], [])
-        overlay.view_mouse_press(event_at(overlay, 7.0, 110.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[7], 110.0))
         assert overlay._selected_id == 1
 
     def test_drag_handle_updates_payload(self, overlay):
@@ -194,12 +196,12 @@ class TestSelectionAndEdit:
         overlay.updated.connect(lambda did, payload: updated.append((did, payload)))
         overlay._select(1)
 
-        p1_scene = scene_at(overlay, 2.0, 100.0)
+        p1_scene = scene_at(overlay, overlay._bar_ts[2], 100.0)
         overlay.view_mouse_press(FakeEvent(p1_scene))
         assert overlay._drag is not None
         assert overlay._drag["point_index"] == 0
 
-        overlay.view_mouse_drag(event_at(overlay, 2.0, 90.0, finish=True))
+        overlay.view_mouse_drag(event_at(overlay, overlay._bar_ts[2], 90.0, finish=True))
         assert updated
         assert updated[-1][1]["p1"]["y"] == pytest.approx(90.0)
         assert overlay._drag is None
@@ -212,9 +214,9 @@ class TestSelectionAndEdit:
         updated = []
         overlay.updated.connect(lambda did, payload: updated.append((did, payload)))
 
-        overlay.view_mouse_press(event_at(overlay, 7.0, 110.0))
+        overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[7], 110.0))
         assert overlay._selected_id == 1
-        overlay.view_mouse_drag(event_at(overlay, 7.0, 100.0, finish=True))
+        overlay.view_mouse_drag(event_at(overlay, overlay._bar_ts[7], 100.0, finish=True))
         assert updated == []
 
     def test_delete_selected(self, overlay):

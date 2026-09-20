@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QComboBox,
     QStatusBar, QDockWidget
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 
 from config import settings
 from ibkr.client import IBApiClient, ConnectionState
@@ -36,7 +36,15 @@ from ibkr.pacing import pacing_manager
 from ibkr.subscription_manager import SubscriptionManager
 from ui.chart_panel import ChartPanel
 from ui.candlestick_item import ChartMode
-from ui.watchlist_panel import WatchlistPanel
+from ui.watchlist_panel import (
+    WatchlistPanel,
+    WATCHLIST_MIN_WIDTH,
+    load_watchlist_width,
+    save_watchlist_width,
+    clamp_watchlist_width,
+    watchlist_max_width,
+    should_load_on_double_click,
+)
 from ui.studies_dialog import StudiesDialog, DEFAULT_STUDIES
 from ui.alarm_dialog import AlarmDialog
 from ui.drawing_groups_dialog import DrawingGroupsDialog
@@ -202,13 +210,20 @@ class MainWindow(QMainWindow):
 
         # ── Watchlist dock ────────────────────────────────────────────────────
         self.watchlist_panel = WatchlistPanel()
-        dock = QDockWidget("Watchlist", self)
-        dock.setWidget(self.watchlist_panel)
-        dock.setFeatures(
+        self.watchlist_dock = QDockWidget("Watchlist", self)
+        self.watchlist_dock.setWidget(self.watchlist_panel)
+        self.watchlist_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
+        self.watchlist_panel.setMinimumWidth(WATCHLIST_MIN_WIDTH)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.watchlist_dock)
+        # D13: restore persisted width (clamped) and clamp on window resize
+        self._settings = QSettings("NDThinkChart", "NDThinkChart")
+        self._watchlist_width = load_watchlist_width(self._settings, self.width())
+        self.resizeDocks([self.watchlist_dock], [self._watchlist_width], Qt.Orientation.Horizontal)
+        # D14: double-click a row loads the chart
+        self.watchlist_panel.row_double_clicked.connect(self._on_watchlist_row_double_clicked)
 
         # ── Active Trader dock (DOM) ──────────────────────────────────────
         self.active_trader = ActiveTraderPanel()
@@ -375,6 +390,7 @@ class MainWindow(QMainWindow):
         self._pending_bars = []
         self.chart_panel.set_symbol(symbol)
         self.chart_panel.set_timeframe(timeframe)
+        self.chart_panel.set_extended_hours(self.ext_hours_btn.isChecked())
         self._reload_drawings(symbol)
         self._refresh_drawing_groups(symbol)
         self._current_studies = self._load_studies_for_symbol(symbol)
@@ -653,6 +669,39 @@ class MainWindow(QMainWindow):
 
     def _on_sound_toggled(self, enabled: bool):
         self.sound_service.set_enabled(enabled)
+
+    # ── Watchlist width / double-click slots (D13 / D14) ─────────────────────
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        try:
+            if getattr(self, "watchlist_dock", None) is not None and self.watchlist_dock.isVisible():
+                max_w = watchlist_max_width(self.width())
+                if self.watchlist_dock.width() > max_w:
+                    self._watchlist_width = clamp_watchlist_width(max_w, self.width())
+                    self.resizeDocks(
+                        [self.watchlist_dock], [self._watchlist_width], Qt.Orientation.Horizontal
+                    )
+        except Exception:
+            pass
+
+    def _on_watchlist_row_double_clicked(self, symbol: str):
+        """D14: load the double-clicked symbol exactly like Load Chart."""
+        connected = False
+        try:
+            connected = bool(self.ib_client.connected)
+        except Exception:
+            connected = False
+        decision = should_load_on_double_click(
+            getattr(self, "_current_symbol", ""), symbol, connected
+        )
+        if decision == "noop_disconnected":
+            self.status_bar.showMessage("Disconnected — cannot load chart.", 3000)
+            return
+        if decision != "load":
+            return
+        self.symbol_input.setText((symbol or "").strip().upper())
+        self.load_chart()
 
     # ── Extended Hours / Timezone slots ────────────────────────────────────────
 
@@ -1044,6 +1093,14 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
+        # Persist watchlist dock width (D13)
+        try:
+            if getattr(self, "watchlist_dock", None) is not None:
+                self._watchlist_width = save_watchlist_width(
+                    self._settings, self.watchlist_dock.width(), self.width()
+                )
+        except Exception:
+            pass
         # Cancel realtime bar subscription
         if self._rt_req_id is not None:
             self.rt_manager.unsubscribe(self._rt_req_id)

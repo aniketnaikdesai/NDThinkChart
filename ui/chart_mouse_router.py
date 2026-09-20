@@ -12,11 +12,15 @@ class ChartMouseRouter:
     def __init__(self):
         self.drawing = None
         self.alarm = None
+        self.zoom = None
 
     def _drawing_active(self) -> bool:
         return self.drawing is not None and self.drawing.tool_active()
 
     def view_mouse_press(self, ev) -> bool:
+        if self.zoom is not None and self.zoom.is_active():
+            if self.zoom.view_mouse_press(ev):
+                return True
         if not self._drawing_active() and self.alarm is not None:
             if self.alarm.view_mouse_press(ev):
                 return True
@@ -25,6 +29,9 @@ class ChartMouseRouter:
         return False
 
     def view_mouse_drag(self, ev) -> bool:
+        if self.zoom is not None and self.zoom.is_active():
+            if self.zoom.view_mouse_drag(ev):
+                return True
         if not self._drawing_active() and self.alarm is not None:
             if self.alarm.view_mouse_drag(ev):
                 return True
@@ -33,6 +40,9 @@ class ChartMouseRouter:
         return False
 
     def view_mouse_click(self, ev) -> bool:
+        if self.zoom is not None and self.zoom.is_active():
+            if self.zoom.view_mouse_click(ev):
+                return True
         if self.alarm is not None:
             if self.alarm.view_mouse_click(ev):
                 return True

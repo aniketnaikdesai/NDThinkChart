@@ -70,6 +70,7 @@ class DrawingOverlay(QObject):
     deleted = pyqtSignal(int)             # drawing_id
     selection_changed = pyqtSignal(int)   # drawing id or -1
     mode_changed = pyqtSignal(str)        # active tool name
+    settings_requested = pyqtSignal(object)  # Drawing opened for editing
 
     def __init__(self, plot: pg.PlotWidget):
         super().__init__()
@@ -95,6 +96,10 @@ class DrawingOverlay(QObject):
         self._move_proxy = pg.SignalProxy(
             plot.scene().sigMouseMoved, rateLimit=60, slot=self._on_mouse_moved
         )
+        try:
+            self._view.sigRangeChanged.connect(self._on_view_range_changed)
+        except Exception:
+            pass
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -204,13 +209,35 @@ class DrawingOverlay(QObject):
     def _clear_all_items(self) -> None:
         for items in self._items.values():
             for item in items:
-                self._plot.removeItem(item)
+                self._detach_item(item)
         self._items.clear()
         self._handles.setData([])
 
-    def _remove_items(self, drawing_id) -> None:
-        for item in self._items.pop(drawing_id, []):
+    def _detach_item(self, item) -> None:
+        """Remove an item from the scene or plot safely.
+
+        Inner price labels are added directly to the scene (not the PlotItem),
+        so removeItem must be called on the item's own scene to avoid leaking
+        stale labels across rebuilds.
+        """
+        scene = self._plot.scene()
+        if scene is not None and getattr(scene, "dragItem", None) is item:
+            scene.dragItem = None
+        try:
+            it_scene = item.scene()
+            if it_scene is not None:
+                it_scene.removeItem(item)
+        except Exception:
+            pass
+        try:
             self._plot.removeItem(item)
+        except Exception:
+            pass
+
+    def _remove_items(self, drawing_id) -> None:
+        items = self._items.pop(drawing_id, [])
+        for item in items:
+            self._detach_item(item)
 
     def _build_items(self, drawing: Drawing) -> None:
         key = drawing.id if drawing.id is not None else id(drawing)
@@ -231,11 +258,15 @@ class DrawingOverlay(QObject):
                 [payload["p1"]["y"], payload["p2"]["y"]],
                 pen=pg.mkPen(color, width=1.4),
             ))
+            # Inner-right price labels for both endpoints
+            items.append(self._add_inner_price_label(payload["p1"]["y"], color))
+            items.append(self._add_inner_price_label(payload["p2"]["y"], color))
 
         elif kind == "horizontal":
             items.append(pg.InfiniteLine(
                 pos=payload["y"], angle=0, pen=pg.mkPen(color, width=1.2)
             ))
+            items.append(self._add_inner_price_label(payload["y"], color))
 
         elif kind == "zone":
             brush = QColor(color)
@@ -249,6 +280,8 @@ class DrawingOverlay(QObject):
             )
             region.setZValue(-4)
             items.append(region)
+            items.append(self._add_inner_price_label(payload["y1"], color))
+            items.append(self._add_inner_price_label(payload["y2"], color))
 
         elif kind == "fibonacci":
             for ratio, price in fib_levels(
@@ -256,10 +289,10 @@ class DrawingOverlay(QObject):
                 line = pg.InfiniteLine(pos=price, angle=0, pen=pg.mkPen(color, width=1.0))
                 line.setZValue(-3)
                 items.append(line)
-                label = pg.TextItem(
-                    f"{ratio * 100:.1f}%  {price:.2f}", color=color, anchor=(1, 0.5)
-                )
-                label.setPos(self._bar_ts[-1] if self._bar_ts else 0, price)
+                # Level label at inner right (price only, ratio in text)
+                label = self._add_inner_price_label(price, color)
+                # Keep ratio in text as before but use inner position
+                label.setPlainText(f"{ratio * 100:.1f}%  {price:.2f}")
                 items.append(label)
 
         elif kind == "measure":
@@ -274,8 +307,93 @@ class DrawingOverlay(QObject):
 
         for item in items:
             item.setZValue(10)
-            self._plot.addItem(item)
+            # For scene TextItems (inner-right labels), add to scene instead of plot
+            # to keep them inside the data area and not clipped by the axis.
+            # Distinguish by checking if item is a TextItem with anchor (1,0.5) and high Z
+            # — those are inner labels, add to scene.
+            try:
+                if isinstance(item, pg.TextItem) and item.anchor == pg.Point(1, 0.5) and item.zValue() == 10:
+                    scene = self._plot.scene()
+                    if scene is not None:
+                        scene.addItem(item)
+                    else:
+                        self._plot.addItem(item)
+                else:
+                    self._plot.addItem(item)
+            except Exception:
+                self._plot.addItem(item)
         self._items[key] = items
+        # Update inner label positions for stacking
+        self._update_inner_labels()
+
+    def _add_inner_price_label(self, price: float, color: str) -> pg.TextItem:
+        """Create a price label anchored inside the plot at the right edge (not yet added).
+
+        Positioning and stacking are finalized by _update_inner_labels(), which runs
+        after every rebuild and on every view-range change.
+        """
+        label = pg.TextItem(f"{price:.2f}", color=color, anchor=(1, 0.5))
+        label.setZValue(10)
+        try:
+            vb = self._view
+            view_rect_scene = vb.mapRectToScene(vb.rect())
+            scene_y = vb.mapViewToScene(pg.Point(0, price)).y()
+            scene_y = max(view_rect_scene.top(), min(view_rect_scene.bottom(), scene_y))
+            label.setPos(view_rect_scene.right() - 4, scene_y)
+        except Exception:
+            try:
+                label.setPos(self._bar_ts[-1] if self._bar_ts else 0, price)
+            except Exception:
+                label.setPos(0, price)
+        return label
+
+    def _is_inner_price_label(self, item) -> bool:
+        try:
+            return (isinstance(item, pg.TextItem)
+                    and item.anchor == pg.Point(1, 0.5)
+                    and item.zValue() == 10)
+        except Exception:
+            return False
+
+    def _update_inner_labels(self):
+        """Reposition all inner-right labels to the right edge with stacking.
+
+        Labels are sorted by scene-y (top to bottom); any label closer than
+        15px to the previously placed one is pushed down so prices remain
+        legible when drawings share similar levels.
+        """
+        try:
+            vb = self._view
+            if vb.scene() is None:
+                return
+            view_rect_scene = vb.mapRectToScene(vb.rect())
+            entries = []
+            for items in self._items.values():
+                for item in items:
+                    if not self._is_inner_price_label(item):
+                        continue
+                    try:
+                        txt = item.toPlainText().strip()
+                        price = float(txt.split()[-1]) if txt else None
+                    except Exception:
+                        price = None
+                    if price is None:
+                        continue
+                    scene_y = vb.mapViewToScene(pg.Point(0, price)).y()
+                    entries.append((item, scene_y))
+            entries.sort(key=lambda t: t[1])
+            last_y = None
+            for item, y in entries:
+                y = max(view_rect_scene.top(), min(view_rect_scene.bottom(), y))
+                if last_y is not None and y - last_y < 15:
+                    y = min(last_y + 15, view_rect_scene.bottom())
+                last_y = y
+                item.setPos(view_rect_scene.right() - 4, y)
+        except Exception:
+            pass
+
+    def _on_view_range_changed(self):
+        self._update_inner_labels()
 
     def _restore_drawing_style(self, drawing: Drawing) -> None:
         key = drawing.id if drawing.id is not None else id(drawing)
@@ -375,9 +493,10 @@ class DrawingOverlay(QObject):
                     return drawing
 
             elif kind == "zone":
-                y1 = self._scene(0, max(payload["y1"], payload["y2"])).y()
-                y2 = self._scene(0, min(payload["y1"], payload["y2"])).y()
-                if y2 <= scene_pos.y() <= y1:
+                # Scene y grows downward: top edge = scene of max price (smaller y)
+                top_y = self._scene(0, max(payload["y1"], payload["y2"])).y()
+                bottom_y = self._scene(0, min(payload["y1"], payload["y2"])).y()
+                if top_y <= scene_pos.y() <= bottom_y:
                     return drawing
         return None
 
@@ -449,7 +568,19 @@ class DrawingOverlay(QObject):
 
     def view_mouse_click(self, ev) -> bool:
         # A click (no drag) ends any pending drag session.
+        was_drag = self._drag is not None
         self._drag = None
+        # Double-click on a zone / horizontal line opens its settings dialog.
+        try:
+            is_double = ev.double()
+        except Exception:
+            is_double = False
+        if is_double and ev.button() == Qt.MouseButton.LeftButton:
+            drawing = self._hit_drawing(ev.scenePos())
+            if drawing is not None and drawing.id is not None and drawing.kind in ("zone", "horizontal"):
+                if not self._is_locked_group(drawing):
+                    self.settings_requested.emit(drawing)
+                    return True
         return False
 
     # ── Draft (tool mode) ──────────────────────────────────────────────────────
@@ -604,7 +735,68 @@ class DrawingOverlay(QObject):
         except ValueError:
             return
         drawing.payload = payload
-        self._restore_drawing_style(drawing)
+
+        # Update items in place instead of removing/recreating to avoid
+        # pyqtgraph scene dragItem reference to deleted C++ objects
+        key = drawing.id if drawing.id is not None else id(drawing)
+        items = self._items.get(key, [])
+
+        if kind == "trendline":
+            # items[0] is PlotDataItem
+            if items:
+                x1 = self._ts_to_x(payload["p1"]["x"])
+                x2 = self._ts_to_x(payload["p2"]["x"])
+                items[0].setData([x1, x2], [payload["p1"]["y"], payload["p2"]["y"]])
+
+        elif kind == "horizontal":
+            # items[0] is InfiniteLine
+            if items:
+                items[0].setPos(payload["y"])
+
+        elif kind == "zone":
+            # items[0] is LinearRegionItem
+            if items:
+                items[0].setRegion((payload["y1"], payload["y2"]))
+
+        elif kind == "fibonacci":
+            # items: [InfiniteLine, TextItem, InfiniteLine, TextItem, ...]
+            # Update in place if number of levels matches, else rebuild
+            new_levels = list(fib_levels(
+                payload["p1"]["y"], payload["p2"]["y"], payload["type"]))
+            num_new = len(new_levels)
+            num_existing_lines = (len(items) + 1) // 2  # each level has line + label
+            
+            if num_new == num_existing_lines:
+                # Update existing items in place
+                for i, (ratio, price) in enumerate(new_levels):
+                    line_idx = i * 2
+                    label_idx = i * 2 + 1
+                    if line_idx < len(items):
+                        items[line_idx].setPos(price)
+                    if label_idx < len(items):
+                        items[label_idx].setText(f"{ratio * 100:.1f}%  {price:.2f}")
+                        items[label_idx].setPos(self._bar_ts[-1] if self._bar_ts else 0, price)
+            else:
+                # Number of levels changed, need to rebuild
+                self._restore_drawing_style(drawing)
+                self._style_selected(drawing)
+                self._refresh_handles()
+                self.updated.emit(int(drawing.id), payload)
+                return
+
+        elif kind == "measure":
+            # items[0] is PlotDataItem, items[1] is TextItem
+            if items:
+                x1, y1 = self._ts_to_x(payload["p1"]["x"]), payload["p1"]["y"]
+                x2, y2 = self._ts_to_x(payload["p2"]["x"]), payload["p2"]["y"]
+                items[0].setData([x1, x2], [y1, y2])
+                dy_val = y2 - y1
+                pct = (dy_val / y1 * 100.0) if y1 else 0.0
+                if len(items) > 1:
+                    items[1].setText(f"Δ {dy_val:+.2f}  ({pct:+.2f}%)")
+                    items[1].setPos((x1 + x2) / 2, (y1 + y2) / 2)
+
+        # For non-fibonacci, apply selection styling and refresh handles
         self._style_selected(drawing)
         self._refresh_handles()
         self.updated.emit(int(drawing.id), payload)

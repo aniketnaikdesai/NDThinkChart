@@ -12,7 +12,7 @@ from enum import Enum
 from typing import List, Tuple, Optional
 import pyqtgraph as pg
 from PyQt6.QtGui import QPicture, QPainter, QColor, QPen, QBrush, QPainterPath
-from PyQt6.QtCore import QRectF, QPointF
+from PyQt6.QtCore import QRectF, QPointF, Qt
 
 GREEN  = QColor('#34d399')  # emerald-400
 RED    = QColor('#f87171')  # red-400
@@ -91,19 +91,40 @@ class CandlestickItem(pg.GraphicsObject):
         data = data or self._raw_data
         # Compute candle half-width as a fraction of typical bar spacing
         if len(data) > 1:
-            # Use median time diff between bars to set width (e.g., 40% of spacing)
+            # Use median time diff between bars to set width (e.g., 32.5% of spacing, gap 35%)
             time_diffs = [data[i][0] - data[i-1][0] for i in range(1, len(data))]
             time_diffs.sort()
             median_diff = time_diffs[len(time_diffs)//2]
-            w = median_diff * 0.4  # half-width = 40% of spacing
+            w = median_diff * 0.325  # half-width = 32.5% of spacing (gap 35%)
         else:
             w = 0.25  # fallback for single bar
 
-        # Body pens (slightly thicker for visible edges)
-        green_pen   = QPen(GREEN); green_pen.setWidthF(1.0)
-        red_pen     = QPen(RED);   red_pen.setWidthF(1.0)
-        # Wick pen (thin, 0.5px - half the body width)
-        wick_pen    = QPen(QColor('#9ca3af')); wick_pen.setWidthF(0.5)  # gray-400
+        # Body pens — cosmetic 1px so border stays device-pixel stable
+        green_pen   = QPen(GREEN); green_pen.setWidthF(1.0); green_pen.setCosmetic(True)
+        red_pen     = QPen(RED);   red_pen.setWidthF(1.0); red_pen.setCosmetic(True)
+        # Wick pens — cosmetic 1px body-coloured, behind the body
+        wick_green = QPen(GREEN); wick_green.setWidthF(1.0); wick_green.setCosmetic(True); wick_green.setCapStyle(Qt.PenCapStyle.FlatCap)
+        wick_red   = QPen(RED);   wick_red.setWidthF(1.0);   wick_red.setCosmetic(True); wick_red.setCapStyle(Qt.PenCapStyle.FlatCap)
+
+        # Clamp body half-width to at least 4 device pixels when ViewBox is available
+        # so wick (1px) stays thinner than body even at high density
+        try:
+            vb = self.getViewBox() if hasattr(self, "getViewBox") else None
+            if vb is None:
+                # fallback: parent ViewBox
+                parent = self.parentItem()
+                if parent is not None and hasattr(parent, "viewRange"):
+                    vb = parent
+            if vb is not None and hasattr(vb, "width") and vb.width() > 50:
+                x_range = vb.viewRange()[0]
+                x_span = x_range[1] - x_range[0]
+                if x_span > 0:
+                    px_per_sec = vb.width() / x_span
+                    min_w = 2.0 / px_per_sec  # half-width for 4px total
+                    if w < min_w:
+                        w = min_w
+        except Exception:
+            pass
 
         green_brush = QBrush(GREEN)
         red_brush   = QBrush(RED)
@@ -113,7 +134,8 @@ class CandlestickItem(pg.GraphicsObject):
             bull = c >= o
             body_pen   = green_pen if bull else red_pen
             body_brush = (no_brush if hollow else (green_brush if bull else red_brush))
-            # Wick (thin, neutral color)
+            wick_pen = wick_green if bull else wick_red
+            # Wick behind body
             p.setPen(wick_pen)
             p.drawLine(QPointF(t, l), QPointF(t, h))
             # Body

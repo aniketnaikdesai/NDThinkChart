@@ -1,6 +1,7 @@
 """Real Qt event-path tests for alarm interaction, mirroring the drawing tests."""
 
 import pytest
+import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
@@ -22,17 +23,10 @@ def panel(chart_panel, sample_bars, qapp):
 
 def price_point(panel, overlay, price: float, ts: float | None = None) -> QPoint:
     vb = panel.price_plot.getViewBox()
-    x_range, y_range = vb.viewRange()
-    x_min, x_max = x_range
-    y_min, y_max = y_range
-    vp = panel.price_plot.viewport()
-    w = vp.width()
-    h = vp.height()
     if ts is None:
         ts = panel._bars[len(panel._bars) // 2].ts if panel._bars else 0
-    px = int((ts - x_min) / (x_max - x_min) * w)
-    py = int(h - (price - y_min) / (y_max - y_min) * h)
-    return QPoint(px, py)
+    scene_pos = vb.mapViewToScene(pg.Point(ts, price))
+    return QPoint(int(scene_pos.x()), int(scene_pos.y()))
 
 
 def move_with_button(panel, pos: QPoint):

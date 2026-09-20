@@ -6,6 +6,7 @@ or pyqtgraph stops delivering drag and click events.
 """
 
 import pytest
+import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
@@ -36,17 +37,12 @@ def move_with_button(panel, pos: QPoint):
 
 
 def viewport_point(panel, overlay, x: float, y: float) -> QPoint:
-    # Manually calculate pixel position using ViewBox's view range
+    # Map view (data) coordinates to viewport pixels through the ViewBox.
+    # Manual viewport-width lerping is wrong: the ViewBox only occupies the
+    # region inside the axis strips, so scene x/y are offset from widget px.
     vb = panel.price_plot.getViewBox()
-    x_range, y_range = vb.viewRange()
-    x_min, x_max = x_range
-    y_min, y_max = y_range
-    vp = panel.price_plot.viewport()
-    w = vp.width()
-    h = vp.height()
-    px = int((x - x_min) / (x_max - x_min) * w)
-    py = int(h - (y - y_min) / (y_max - y_min) * h)  # invert Y
-    return QPoint(px, py)
+    scene_pos = vb.mapViewToScene(pg.Point(x, y))
+    return QPoint(int(scene_pos.x()), int(scene_pos.y()))
 
 
 def test_click_click_creates_trendline(panel, sample_bars):

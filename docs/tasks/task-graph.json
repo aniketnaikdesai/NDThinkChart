@@ -1,0 +1,1118 @@
+{
+  "status": "READY_FOR_BUILD",
+  "generated": "2026-09-20",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Implement pure session band computation service (D1)",
+      "description": "Create services/session_service.py that computes ET pre/post-market intervals (DST-aware) for intraday timeframes and returns empty for 1 day, intersected with the loaded data range.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given bars spanning multiple ET session days on an intraday timeframe, When session_bands is computed, Then it returns only pre-market 04:00-09:30 ET and post-market 16:00-20:00 ET intervals and no RTH or overnight intervals.",
+        "Given timeframe is \"1 day\", When session_bands is computed, Then it returns an empty list.",
+        "Given the chart display timezone is UTC, When session bands are computed, Then boundaries are the same absolute ET instants (e.g., pre-market 04:00 ET appears at 09:00 UTC in EST).",
+        "Given bars crossing a US DST transition day, When session_bands is computed, Then boundaries remain at ET local session times 04:00, 09:30, 16:00, 20:00 ET.",
+        "Given a bar timestamp exactly at 09:30 ET or 16:00 ET and the loaded range [t_min, t_max], When bands are classified, Then 09:30 belongs to RTH and 16:00 belongs to post-market and no band extends outside [t_min, t_max]."
+      ],
+      "tests": [
+        {
+          "test_id": "T1-T01",
+          "linked_acceptance_criterion": "Given bars spanning multiple ET session days on an intraday timeframe, When session_bands is computed, Then it returns only pre-market 04:00-09:30 ET and post-market 16:00-20:00 ET intervals and no RTH or overnight intervals.",
+          "type": "unit",
+          "description": "Call session_bands over 3 session days of 5-min bars and assert only pre/post kinds, correct start/end timestamps.",
+          "expected_result": "Result contains 6 intervals (3 pre + 3 post) with correct ET boundaries and kinds pre/post only."
+        },
+        {
+          "test_id": "T1-T02",
+          "linked_acceptance_criterion": "Given timeframe is \"1 day\", When session_bands is computed, Then it returns an empty list.",
+          "type": "unit",
+          "description": "Call session_bands with timeframe=\"1 day\" for any range.",
+          "expected_result": "Returns [] regardless of bars."
+        },
+        {
+          "test_id": "T1-T03",
+          "linked_acceptance_criterion": "Given the chart display timezone is UTC, When session bands are computed, Then boundaries are the same absolute ET instants (e.g., pre-market 04:00 ET appears at 09:00 UTC in EST).",
+          "type": "unit",
+          "description": "Compare UTC timestamps of bands computed for EST session day and verify they equal ET wall time converted to UTC.",
+          "expected_result": "Pre band start equals ET 04:00 converted to UTC (09:00 UTC in EST) and post band start equals 16:00 ET = 21:00 UTC."
+        },
+        {
+          "test_id": "T1-T04",
+          "linked_acceptance_criterion": "Given bars crossing a US DST transition day, When session_bands is computed, Then boundaries remain at ET local session times 04:00, 09:30, 16:00, 20:00 ET.",
+          "type": "unit",
+          "description": "Generate bars for week containing 2nd Sun Mar transition and verify boundaries shift by 1h UTC but stay fixed in ET local.",
+          "expected_result": "Boundaries on post-DST day are 1h earlier in UTC, still 04:00 ET local."
+        },
+        {
+          "test_id": "T1-T05",
+          "linked_acceptance_criterion": "Given a bar timestamp exactly at 09:30 ET or 16:00 ET and the loaded range [t_min, t_max], When bands are classified, Then 09:30 belongs to RTH and 16:00 belongs to post-market and no band extends outside [t_min, t_max].",
+          "type": "unit",
+          "description": "Create bands where t_min=t_max at session boundaries and check classification and clipping.",
+          "expected_result": "Band containing 09:30 not classified as pre; 16:00 classified as post; all band intervals within [t_min, t_max]."
+        }
+      ],
+      "expected_artifacts": [
+        "services/session_service.py",
+        "tests/test_session_service.py"
+      ],
+      "inputs": [
+        "docs/requirements/requirements.md#D1",
+        "docs/architecture.md#session_service",
+        "data/models.py:Bar",
+        "ibkr/market_data.py:TIMEFRAME_CONFIG"
+      ],
+      "outputs": [
+        "services/session_service.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T2",
+      "title": "Render pre/post session shading in chart (D1)",
+      "description": "Add ui/overlays/session_overlay.py and plumb ChartPanel.set_extended_hours and MainWindow so session bands shade orange/blue at 10% only when Ext Hours ON and timeframe intraday, with stale-band cleanup.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T1"
+      ],
+      "acceptance_criteria": [
+        "Given Ext Hours is ON and timeframe is intraday, When the chart renders, Then pre-market bands are orange at 10% opacity and post-market bands are blue at 10% opacity while RTH and overnight remain unshaded.",
+        "Given Ext Hours is OFF, When the chart renders, Then no pre/post session bands are rendered.",
+        "Given timeframe is \"1 day\", When the chart renders, Then no intraday session bands are rendered.",
+        "Given Ext Hours is toggled, the symbol or timeframe changes, or a new candle arrives, When the chart updates, Then stale bands are cleared and correct bands are redrawn, and intra-bar ticks do not recompute bands."
+      ],
+      "tests": [
+        {
+          "test_id": "T2-T01",
+          "linked_acceptance_criterion": "Given Ext Hours is ON and timeframe is intraday, When the chart renders, Then pre-market bands are orange at 10% opacity and post-market bands are blue at 10% opacity while RTH and overnight remain unshaded.",
+          "type": "integration",
+          "description": "Offscreen ChartPanel with intraday bars and Ext ON: call update_chart and assert session overlay contains pre/post LinearRegionItems with correct brushes at 0.10 alpha.",
+          "expected_result": "Overlay item_count equals 2*session_days with orange brush alpha 0.10 for pre and blue 0.10 for post; no RTH items."
+        },
+        {
+          "test_id": "T2-T02",
+          "linked_acceptance_criterion": "Given Ext Hours is OFF, When the chart renders, Then no pre/post session bands are rendered.",
+          "type": "integration",
+          "description": "Set Ext OFF then update_chart with same bars and assert overlay cleared.",
+          "expected_result": "Overlay item_count == 0."
+        },
+        {
+          "test_id": "T2-T03",
+          "linked_acceptance_criterion": "Given timeframe is \"1 day\", When the chart renders, Then no intraday session bands are rendered.",
+          "type": "integration",
+          "description": "Set timeframe=\"1 day\" and render; assert no bands.",
+          "expected_result": "Overlay item_count == 0 for 1 day."
+        },
+        {
+          "test_id": "T2-T04",
+          "linked_acceptance_criterion": "Given Ext Hours is toggled, the symbol or timeframe changes, or a new candle arrives, When the chart updates, Then stale bands are cleared and correct bands are redrawn, and intra-bar ticks do not recompute bands.",
+          "type": "unit",
+          "description": "Spy session_service.session_bands; verify call count increments on toggle/timeframe/new-candle but not on intra-bar update_last_bar with same ts.",
+          "expected_result": "session_bands called on full reload/new candle/toggle, not on same-ts intra-bar tick; stale items removed."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/overlays/session_overlay.py",
+        "ui/chart_panel.py",
+        "ui/main_window.py",
+        "tests/test_session_overlay.py"
+      ],
+      "inputs": [
+        "services/session_service.py",
+        "ui/chart_panel.py",
+        "ui/overlays/base.py:StudyOverlay",
+        "ui/main_window.py:_eastern_offset"
+      ],
+      "outputs": [
+        "ui/overlays/session_overlay.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T3",
+      "title": "Right-align crosshair price chip inside plot (D2)",
+      "description": "Change ChartPanel crosshair price TextItem to anchor (1,0.5) a few pixels inside the plot right edge and update the existing test assertion so decimals are never covered by the right axis or right-hand dock.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T2"
+      ],
+      "acceptance_criteria": [
+        "Given a loaded chart with the Active Trader and/or Portfolio dock open and the cursor inside the price plot, When the price chip renders, Then the complete label including all decimals is visible and is not overlapped by the axis or right-hand dock.",
+        "Given the chart is panned or zoomed, When the cursor moves, Then the price chip stays fully within the plot's right edge and tracks the cursor price.",
+        "Given the cursor leaves the price plot, When the leave event fires, Then the price chip is hidden.",
+        "Given a long price string such as 123,456.78 or the cursor near the top/bottom edge or a narrow window, When the chip renders, Then it remains fully visible without clipping or bleeding under the dock."
+      ],
+      "tests": [
+        {
+          "test_id": "T3-T01",
+          "linked_acceptance_criterion": "Given a loaded chart with the Active Trader and/or Portfolio dock open and the cursor inside the price plot, When the price chip renders, Then the complete label including all decimals is visible and is not overlapped by the axis or right-hand dock.",
+          "type": "integration",
+          "description": "Offscreen ChartPanel with dock open: update crosshair at bar price and assert price_tag pos.x()+ boundingRect width <= view_right and pos.x()-width>=view_left margin, and text contains decimals.",
+          "expected_result": "price_tag right edge <= view_rect_scene.right() - 1 and left edge >= view_rect_scene.right() - labelWidth; visible true."
+        },
+        {
+          "test_id": "T3-T02",
+          "linked_acceptance_criterion": "Given the chart is panned or zoomed, When the cursor moves, Then the price chip stays fully within the plot's right edge and tracks the cursor price.",
+          "type": "integration",
+          "description": "Scale ViewBox (zoom) and move cursor; assert chip still inside right edge and text equals cursor y formatted.",
+          "expected_result": "Chip inside bounds after zoom and text matches y:,.2f."
+        },
+        {
+          "test_id": "T3-T03",
+          "linked_acceptance_criterion": "Given the cursor leaves the price plot, When the leave event fires, Then the price chip is hidden.",
+          "type": "unit",
+          "description": "Fire Leave event via eventFilter and assert chip hidden.",
+          "expected_result": "price_tag.isVisible() == False and crosshair lines hidden."
+        },
+        {
+          "test_id": "T3-T04",
+          "linked_acceptance_criterion": "Given a long price string such as 123,456.78 or the cursor near the top/bottom edge or a narrow window, When the chip renders, Then it remains fully visible without clipping or bleeding under the dock.",
+          "type": "integration",
+          "description": "Set y=123456.78 and test near top/bottom y and narrow panel width 500px; assert boundingRect fully inside scene rect.",
+          "expected_result": "BoundingRect of price_tag fully contained within view_rect_scene."
+        },
+        {
+          "test_id": "T3-T05",
+          "linked_acceptance_criterion": "Given a loaded chart with the Active Trader and/or Portfolio dock open and the cursor inside the price plot, When the price chip renders, Then the complete label including all decimals is visible and is not overlapped by the axis or right-hand dock.",
+          "type": "unit",
+          "description": "Verify updated existing test tests/test_chart_crosshair.py now asserts chip anchor (1,0.5) and inside-right position rather than previous >= view_right.",
+          "expected_result": "Legacy assertion changed to assert price_tag anchor 1,0.5 and pos inside; test passes."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_chip_bounds.py"
+      ],
+      "inputs": [
+        "ui/chart_panel.py:_create_crosshair",
+        "ui/chart_panel.py:_update_crosshair",
+        "tests/test_chart_crosshair.py"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T4",
+      "title": "Add zoom control cluster widget top-right outlined (D3)",
+      "description": "Create ui/chart_controls.py as an outlined QFrame with minus, plus, magnifier, and reset buttons, pin it top-right of the chart area via resizeEvent, and emit zoom_in/zoom_out/magnify_toggled/reset signals.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T3"
+      ],
+      "acceptance_criteria": [
+        "Given any loaded chart, When the chart panel is shown, Then a control cluster is rendered at the top-right of the chart area inside a visible outlined border containing minus, plus, magnifier, and reset buttons.",
+        "Given the control cluster is visible, When each button is interacted with, Then it emits the corresponding signal zoom_in, zoom_out, magnify_toggled, or reset and the magnifier button is checkable."
+      ],
+      "tests": [
+        {
+          "test_id": "T4-T01",
+          "linked_acceptance_criterion": "Given any loaded chart, When the chart panel is shown, Then a control cluster is rendered at the top-right of the chart area inside a visible outlined border containing minus, plus, magnifier, and reset buttons.",
+          "type": "integration",
+          "description": "Offscreen ChartPanel: show, processEvents, assert ChartControls exists, isVisible, has 4 buttons, frame has border style, and geometry near top-right within 10px margin.",
+          "expected_result": "controls widget found, button count 4, styleSheet contains border, x >= width-150 and y <= 10."
+        },
+        {
+          "test_id": "T4-T02",
+          "linked_acceptance_criterion": "Given the control cluster is visible, When each button is interacted with, Then it emits the corresponding signal zoom_in, zoom_out, magnify_toggled, or reset and the magnifier button is checkable.",
+          "type": "unit",
+          "description": "Connect spies to signals; click each button via QTest.mouseClick and toggle magnifier; assert signals emitted and magnifier checked state toggles.",
+          "expected_result": "Each click emits exactly one corresponding signal; magnify button isCheckable and checked mirrors magnify_toggled bool."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_controls.py",
+        "ui/chart_panel.py",
+        "tests/test_chart_controls.py"
+      ],
+      "inputs": [
+        "ui/chart_panel.py",
+        "config/theme.qss"
+      ],
+      "outputs": [
+        "ui/chart_controls.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T5",
+      "title": "Implement zoom in/out around centre and reset to default framing (D3)",
+      "description": "Wire ChartControls zoom_in/zoom_out/reset to ChartPanel ViewBox scaleBy around centre on both axes and reset via _refresh_candles auto_range, with clamping and no-op when no bars.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T4"
+      ],
+      "acceptance_criteria": [
+        "Given a loaded chart, When the plus button is clicked, Then the view zooms in around the chart centre on both axes, and when minus is clicked it zooms out around the centre.",
+        "Given Reset is clicked, When the action completes, Then the view returns to the default framing equivalent to a fresh chart load, including volume pane Y refit.",
+        "Given no bars are loaded or the view is at its range limits, When plus/minus or reset is invoked, Then the action is a safe no-op or is clamped and the application remains stable."
+      ],
+      "tests": [
+        {
+          "test_id": "T5-T01",
+          "linked_acceptance_criterion": "Given a loaded chart, When the plus button is clicked, Then the view zooms in around the chart centre on both axes, and when minus is clicked it zooms out around the centre.",
+          "type": "integration",
+          "description": "Record viewRange, emit zoom_in, assert xRange and yRange shrink symmetrically around centre; emit zoom_out and assert expansion.",
+          "expected_result": "xRange width *0.8 approx on zoom_in and *1.25 on zoom_out; centre unchanged within epsilon."
+        },
+        {
+          "test_id": "T5-T02",
+          "linked_acceptance_criterion": "Given Reset is clicked, When the action completes, Then the view returns to the default framing equivalent to a fresh chart load, including volume pane Y refit.",
+          "type": "integration",
+          "description": "Zoom in twice, then emit reset and compare viewRange to that after update_chart auto_range.",
+          "expected_result": "Post-reset xRange and yRange equal fresh-load range within epsilon; volume Y refitted."
+        },
+        {
+          "test_id": "T5-T03",
+          "linked_acceptance_criterion": "Given no bars are loaded or the view is at its range limits, When plus/minus or reset is invoked, Then the action is a safe no-op or is clamped and the application remains stable.",
+          "type": "unit",
+          "description": "Call zoom slots with empty bars and with extreme zoom; assert no exception and range remains valid.",
+          "expected_result": "No exception, viewRange unchanged for empty bars, clamped finite range at limits."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_zoom_behavior.py"
+      ],
+      "inputs": [
+        "ui/chart_controls.py",
+        "ui/chart_panel.py:_refresh_candles"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T6",
+      "title": "Implement magnifier area-zoom with router precedence and cancel (D3)",
+      "description": "Create ui/zoom_overlay.py rubber-band selection that sets both x and y range to the dragged rectangle, stays active after zoom, cancels on Esc/right-click, and has highest precedence in ChartMouseRouter.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T5"
+      ],
+      "acceptance_criteria": [
+        "Given magnifier mode is active, When the user drags a rectangle and releases, Then the view sets both x and y range to that rectangle so it fills the chart.",
+        "Given magnifier mode is active and a drag is in progress, When Esc is pressed or a right-click occurs before release, Then the selection is cancelled and the view range is unchanged.",
+        "Given one magnifier zoom has completed, When the view has updated, Then magnifier mode remains active for a further selection.",
+        "Given a near-zero area drag or a drag starting outside the plot, When the gesture is released, Then the selection is ignored and no zoom occurs.",
+        "Given the symbol or timeframe changes while magnifier is active, When the new chart loads, Then magnifier mode resets to the default cursor. And given magnifier is active, magnifier has highest precedence in the mouse router."
+      ],
+      "tests": [
+        {
+          "test_id": "T6-T01",
+          "linked_acceptance_criterion": "Given magnifier mode is active, When the user drags a rectangle and releases, Then the view sets both x and y range to that rectangle so it fills the chart.",
+          "type": "integration",
+          "description": "Enable magnifier, synthesize press-drag-release rectangle in scene coords, assert ViewBox range equals rectangle (both axes).",
+          "expected_result": "viewRange x and y equal dragged rect within epsilon; rubber band cleared."
+        },
+        {
+          "test_id": "T6-T02",
+          "linked_acceptance_criterion": "Given magnifier mode is active and a drag is in progress, When Esc is pressed or a right-click occurs before release, Then the selection is cancelled and the view range is unchanged.",
+          "type": "unit",
+          "description": "Start drag, send Esc key event and separately right-click; assert range unchanged and rubber band removed.",
+          "expected_result": "Range before equals range after; overlay selection cleared; mode still active."
+        },
+        {
+          "test_id": "T6-T03",
+          "linked_acceptance_criterion": "Given one magnifier zoom has completed, When the view has updated, Then magnifier mode remains active for a further selection.",
+          "type": "unit",
+          "description": "Complete one zoom, assert magnifier active flag true and button checked.",
+          "expected_result": "magnifier_active == True and ChartControls magnifier checked == True."
+        },
+        {
+          "test_id": "T6-T04",
+          "linked_acceptance_criterion": "Given a near-zero area drag or a drag starting outside the plot, When the gesture is released, Then the selection is ignored and no zoom occurs.",
+          "type": "unit",
+          "description": "Drag 2px rectangle and drag starting outside view rect; assert no range change.",
+          "expected_result": "No zoom; range unchanged."
+        },
+        {
+          "test_id": "T6-T05",
+          "linked_acceptance_criterion": "Given the symbol or timeframe changes while magnifier is active, When the new chart loads, Then magnifier mode resets to the default cursor. And given magnifier is active, magnifier has highest precedence in the mouse router.",
+          "type": "integration",
+          "description": "Enable magnifier, call set_timeframe/set_symbol; assert mode false/cursor Arrow; then test router returns True for magnifier before alarm/drawing when active.",
+          "expected_result": "Mode reset to false and cursor Arrow; router.view_mouse_press returns True for magnifier and does not reach alarm/drawing."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/zoom_overlay.py",
+        "ui/chart_mouse_router.py",
+        "ui/chart_panel.py",
+        "tests/test_zoom_overlay.py",
+        "tests/test_chart_mouse_router.py"
+      ],
+      "inputs": [
+        "ui/chart_controls.py",
+        "ui/chart_mouse_router.py",
+        "ui/chart_panel.py"
+      ],
+      "outputs": [
+        "ui/zoom_overlay.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T7",
+      "title": "Verification and regression hardening (Global)",
+      "description": "Run the full offscreen pytest suite, verify no test connects to TWS or transmits an order, and confirm every per-defect test condition passes.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6"
+      ],
+      "acceptance_criteria": [
+        "Given all defect fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
+        "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
+        "Given the per-defect test conditions defined in the Defect Register, When their corresponding tests are executed, Then each condition passes."
+      ],
+      "tests": [
+        {
+          "test_id": "T7-T01",
+          "linked_acceptance_criterion": "Given all defect fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
+          "type": "integration",
+          "description": "Run pytest via .venv/bin/python -m pytest and assert exit code 0 and all tests passed.",
+          "expected_result": "290+ tests passed, 0 failed (including new session/crosshair/zoom tests)."
+        },
+        {
+          "test_id": "T7-T02",
+          "linked_acceptance_criterion": "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
+          "type": "manual",
+          "description": "Static inspection and offscreen run: verify no test imports or calls IBApiClient.eConnect/placeOrder and that TWS is not required; grep test suite for eConnect/reqHistoricalData transmit.",
+          "expected_result": "No test file contains live TWS connection or order transmission; suite runs without TWS."
+        },
+        {
+          "test_id": "T7-T03",
+          "linked_acceptance_criterion": "Given the per-defect test conditions defined in the Defect Register, When their corresponding tests are executed, Then each condition passes.",
+          "type": "e2e",
+          "description": "Execute the new per-defect test modules (test_session_service, test_session_overlay, test_crosshair_chip_bounds, test_chart_controls, test_zoom_behavior, test_zoom_overlay) in isolation.",
+          "expected_result": "All per-defect modules pass in isolation."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_session_service.py",
+        "tests/test_session_overlay.py",
+        "tests/test_crosshair_chip_bounds.py",
+        "tests/test_chart_controls.py",
+        "tests/test_zoom_behavior.py",
+        "tests/test_zoom_overlay.py",
+        "pytest run log"
+      ],
+      "inputs": [
+        "tests/test_session_service.py",
+        "tests/test_session_overlay.py",
+        "tests/test_crosshair_chip_bounds.py",
+        "tests/test_chart_controls.py",
+        "tests/test_zoom_behavior.py",
+        "tests/test_zoom_overlay.py",
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6"
+      ],
+      "outputs": [
+        "pytest green run"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T8",
+      "title": "Refine zoom control magnifier glyph to 21px (D4)",
+      "description": "Update ui/chart_controls.py so the magnifier button renders at 21px/700 while minus, plus and Reset stay 14px/700, keeping button size 28x24 unchanged.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T7"
+      ],
+      "acceptance_criteria": [
+        "Given any loaded chart, When the zoom cluster renders, Then '-' / '+' / 'Reset' are at 14px / 700 and magnifier '\u2315' is at 21px / 700.",
+        "Given any window size, When the cluster renders, Then its right edge is left of the price axis (ctrl.right() <= panel.width() - axis_width) and fully inside the panel (ctrl.right() <= panel.width()), with y <= 15."
+      ],
+      "tests": [
+        {
+          "test_id": "T8-T01",
+          "linked_acceptance_criterion": "Given any loaded chart, When the zoom cluster renders, Then '-' / '+' / 'Reset' are at 14px / 700 and magnifier '\u2315' is at 21px / 700.",
+          "type": "unit",
+          "description": "Check ChartControls stylesheet contains 14px for general buttons and 21px for magnifier (objectName Magnifier) and button fonts.",
+          "expected_result": "stylesheet contains '14px' and '21px'; magnifier button objectName is 'Magnifier' and font larger than 14px."
+        },
+        {
+          "test_id": "T8-T02",
+          "linked_acceptance_criterion": "Given any window size, When the cluster renders, Then its right edge is left of the price axis (ctrl.right() <= panel.width() - axis_width) and fully inside the panel (ctrl.right() <= panel.width()), with y <= 15.",
+          "type": "integration",
+          "description": "Offscreen ChartPanel with varying widths: assert cluster geometry left of axis and inside panel.",
+          "expected_result": "ctrl.right() <= panel.width() - axis_width and <= panel.width(); y <=15."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_controls.py",
+        "tests/test_chart_controls.py"
+      ],
+      "inputs": [
+        "ui/chart_controls.py",
+        "docs/requirements/requirements.md#D4",
+        "docs/architecture.md#D4"
+      ],
+      "outputs": [
+        "ui/chart_controls.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T9",
+      "title": "Render candlestick wick as 1 device-pixel behind body (D6)",
+      "description": "Modify ui/candlestick_item.py to draw the wick as a cosmetic 1px body-coloured line behind the body and clamp body data width to a >=4 device-pixel minimum derived from the current ViewBox, so wick remains thinner than body at any density.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T7"
+      ],
+      "acceptance_criteria": [
+        "Given a loaded chart with candles, When candles render at default zoom, Then each wick is ~1px and each body is noticeably wider (body width >= 4x wick width), and the wick passes behind the body.",
+        "Given a candle has a shadow, When rendered, Then the wick extends beyond the body's top/bottom by at least 1px and is fully visible.",
+        "Given up vs down candles, When rendered, Then body and wick share the candle's direction colour."
+      ],
+      "tests": [
+        {
+          "test_id": "T9-T01",
+          "linked_acceptance_criterion": "Given a loaded chart with candles, When candles render at default zoom, Then each wick is ~1px and each body is noticeably wider (body width >= 4x wick width), and the wick passes behind the body.",
+          "type": "integration",
+          "description": "Offscreen check: inspect CandlestickItem QPicture pen for wick cosmetic True width 1.0 and body width >=4x, and that wick is drawn before body.",
+          "expected_result": "wick pen isCosmetic True width 1.0, body width >=4, wick behind body."
+        },
+        {
+          "test_id": "T9-T02",
+          "linked_acceptance_criterion": "Given a candle has a shadow, When rendered, Then the wick extends beyond the body's top/bottom by at least 1px and is fully visible.",
+          "type": "integration",
+          "description": "Create candle with high>max(open,close) and low<min(open,close), render and check wick line extends beyond body rect by >=1px.",
+          "expected_result": "wick line y-range exceeds body top/bottom by >=1px."
+        },
+        {
+          "test_id": "T9-T03",
+          "linked_acceptance_criterion": "Given up vs down candles, When rendered, Then body and wick share the candle's direction colour.",
+          "type": "unit",
+          "description": "Create bull and bear candles, inspect pen/brush colours match direction (teal/red).",
+          "expected_result": "Up candle green #34d399, down candle red #f87171 for both wick and body."
+        },
+        {
+          "test_id": "T9-T04",
+          "linked_acceptance_criterion": "Given a loaded chart with candles, When candles render at default zoom, Then each wick is ~1px and each body is noticeably wider (body width >= 4x wick width), and the wick passes behind the body.",
+          "type": "integration",
+          "description": "Dense 1-min view (~960 bars): verify body still >=4x wick due to minimum clamp, and wick stays 1px cosmetic.",
+          "expected_result": "Even at high density, body pixel width >=4 and wick 1px."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/candlestick_item.py",
+        "tests/test_candlestick_wick.py"
+      ],
+      "inputs": [
+        "ui/candlestick_item.py",
+        "docs/architecture.md#D6",
+        "docs/requirements/requirements.md#D6"
+      ],
+      "outputs": [
+        "ui/candlestick_item.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T10",
+      "title": "Verification and regression for Batch 2 (D4\u2013D6)",
+      "description": "Run offscreen pytest for Batch 2 per-defect checks (magnifier 21px, wick/body, volume log) and full suite green, with no live-TWS traffic.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T8",
+        "T9"
+      ],
+      "acceptance_criteria": [
+        "Given all Batch 2 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
+        "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
+        "Given the per-defect test conditions for D4 magnifier 21px, D6 wick/body, and D5 volume log, When their corresponding tests are executed, Then each condition passes."
+      ],
+      "tests": [
+        {
+          "test_id": "T10-T01",
+          "linked_acceptance_criterion": "Given all Batch 2 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
+          "type": "integration",
+          "description": "Run pytest via .venv/bin/python -m pytest and assert exit code 0 and all tests passed.",
+          "expected_result": "310+ tests passed, 0 failed (including new Batch 2 tests)."
+        },
+        {
+          "test_id": "T10-T02",
+          "linked_acceptance_criterion": "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
+          "type": "manual",
+          "description": "Static inspection: grep tests for eConnect/placeOrder and verify suite runs without TWS.",
+          "expected_result": "No test contains live TWS connection; suite runs without TWS."
+        },
+        {
+          "test_id": "T10-T03",
+          "linked_acceptance_criterion": "Given the per-defect test conditions for D4 magnifier 21px, D6 wick/body, and D5 volume log, When their corresponding tests are executed, Then each condition passes.",
+          "type": "e2e",
+          "description": "Execute per-defect modules for Batch 2 (test_chart_controls magnifier, test_candlestick_wick, test_volume_log) in isolation.",
+          "expected_result": "All Batch 2 per-defect modules pass."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_chart_controls.py",
+        "tests/test_candlestick_wick.py",
+        "tests/test_volume_log.py",
+        "pytest run log"
+      ],
+      "inputs": [
+        "tests/test_chart_controls.py",
+        "tests/test_candlestick_wick.py",
+        "T8",
+        "T9"
+      ],
+      "outputs": [
+        "pytest green run"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T11",
+      "title": "Increase inter-candle gap to 35% (D7)",
+      "description": "Modify ui/candlestick_item.py to reduce body half-width from 0.40 to 0.325 of median_diff (gap 35%), keeping single-bar fallback and 4px minimum, for Candles/Hollow/Heikin modes.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T10"
+      ],
+      "acceptance_criteria": [
+        "Given a loaded chart at default zoom, When candles render, Then the gap between adjacent bodies is ~35% of bar spacing (body half-width is 0.325\u00d7 median_diff), visibly larger than the current 20% gap.",
+        "Given the same data, When compared to the current rendering, Then the on-screen distance between bodies is larger by ~15\u201318% of bar spacing (the gap grows from 0.20 to 0.35 of spacing)."
+      ],
+      "tests": [
+        {
+          "test_id": "T11-T01",
+          "linked_acceptance_criterion": "Given a loaded chart at default zoom, When candles render, Then the gap between adjacent bodies is ~35% of bar spacing (body half-width is 0.325\u00d7 median_diff), visibly larger than the current 20% gap.",
+          "type": "unit",
+          "description": "Inspect CandlestickItem source for half-width 0.325 and calculate gap ratio; offscreen render check that body width is 0.65\u00d7 spacing.",
+          "expected_result": "Source contains '0.325' and gap ratio 0.35; rendered body width is 0.65\u00d7 median_diff."
+        },
+        {
+          "test_id": "T11-T02",
+          "linked_acceptance_criterion": "Given the same data, When compared to the current rendering, Then the on-screen distance between bodies is larger by ~15\u201318% of bar spacing (the gap grows from 0.20 to 0.35 of spacing).",
+          "type": "integration",
+          "description": "Compare old 0.40 vs new 0.325 by measuring gap in data units for same median_diff.",
+          "expected_result": "New gap is 0.35\u00d7 spacing, old was 0.20\u00d7, increase is 0.15\u00d7 spacing."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/candlestick_item.py",
+        "tests/test_candle_spacing.py"
+      ],
+      "inputs": [
+        "ui/candlestick_item.py",
+        "docs/requirements/requirements.md#D7"
+      ],
+      "outputs": [
+        "ui/candlestick_item.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T12",
+      "title": "Make volume Y linear with dynamic nice ticks and price-coloured bars (D8)",
+      "description": "Revert volume ViewBox to linear Y, implement yRange=(0, nice_max) with nice_max rounded to next nice value from [10k..10M], map zero volumes, format ticks as 500.0K/1.0M, and colour bars green/red by close>=open, revising D5 log decision.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T11"
+      ],
+      "acceptance_criteria": [
+        "Given any loaded chart, When the volume panel renders, Then the Y is linear (logMode == (False, False)), lower bound is 0, no negative tick is shown, and the upper bound is the dynamic nice max (max_vol*1.1 rounded up).",
+        "Given volumes, When bars render, Then each bar is green when its price candle has close >= open and red otherwise, and the yRange upper covers the max with the nice tick above it.",
+        "Given a max volume, When formatted, Then ticks appear as 10k / 100k / 500.0K / 1.0M / 1.5M etc., with 0 at the bottom and no -200."
+      ],
+      "tests": [
+        {
+          "test_id": "T12-T01",
+          "linked_acceptance_criterion": "Given any loaded chart, When the volume panel renders, Then the Y is linear (logMode == (False, False)), lower bound is 0, no negative tick is shown, and the upper bound is the dynamic nice max (max_vol*1.1 rounded up).",
+          "type": "integration",
+          "description": "Offscreen ChartPanel: check volume ViewBox logMode is (False, False), yRange lower 0, upper is nice_max, no negative tick.",
+          "expected_result": "logMode (False, False), yRange low 0, upper is next nice from set, no negative tick."
+        },
+        {
+          "test_id": "T12-T02",
+          "linked_acceptance_criterion": "Given volumes, When bars render, Then each bar is green when its price candle has close >= open and red otherwise, and the yRange upper covers the max with the nice tick above it.",
+          "type": "integration",
+          "description": "Create bars with up/down closes, check volume bar brushes are green/red matching price direction.",
+          "expected_result": "Volume brushes green for up, red for down."
+        },
+        {
+          "test_id": "T12-T03",
+          "linked_acceptance_criterion": "Given a max volume, When formatted, Then ticks appear as 10k / 100k / 500.0K / 1.0M / 1.5M etc., with 0 at the bottom and no -200.",
+          "type": "unit",
+          "description": "Test volume tick formatter for various max values produces expected nice_max and tick labels.",
+          "expected_result": "Ticks formatted as 500.0K, 1.0M etc., 0 at bottom."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_volume_linear.py"
+      ],
+      "inputs": [
+        "ui/chart_panel.py",
+        "docs/requirements/requirements.md#D8"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T13",
+      "title": "Make volume bar width follow price candle width (D9)",
+      "description": "Change volume BarGraphItem width from fixed 0.6 to w*2 (same w as price, 35% gap), so price and volume gaps are identical and vertically aligned, including the dense 4px minimum.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T12"
+      ],
+      "acceptance_criteria": [
+        "Given a loaded chart, When volume and price render at the same timeframe/zoom, Then the volume bar width equals the price body width (w*2) and the inter-bar gaps are identical.",
+        "Given a dense 1-min view where the 4px body minimum applies, When rendered, Then volume bars follow the same clamped w so gaps stay aligned with price gaps."
+      ],
+      "tests": [
+        {
+          "test_id": "T13-T01",
+          "linked_acceptance_criterion": "Given a loaded chart, When volume and price render at the same timeframe/zoom, Then the volume bar width equals the price body width (w*2) and the inter-bar gaps are identical.",
+          "type": "integration",
+          "description": "Offscreen ChartPanel: check volume BarGraphItem width equals price w*2 and gaps identical.",
+          "expected_result": "Volume width == price body width, gaps identical."
+        },
+        {
+          "test_id": "T13-T02",
+          "linked_acceptance_criterion": "Given a dense 1-min view where the 4px body minimum applies, When rendered, Then volume bars follow the same clamped w so gaps stay aligned with price gaps.",
+          "type": "integration",
+          "description": "Dense view with 960 bars: check volume width follows clamped w.",
+          "expected_result": "Volume width follows clamped w, gaps aligned."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_volume_width.py"
+      ],
+      "inputs": [
+        "ui/chart_panel.py",
+        "ui/candlestick_item.py",
+        "docs/requirements/requirements.md#D9"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T14",
+      "title": "Add volume panel show/hide toggle at top left of volume panel (D10)",
+      "description": "Add a checkable toggle at the top left of the volume panel (bottom left of price chart), default visible, that hides/shows volume_plot and its axis and rebalances the splitter so price expands, not persisted.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T13"
+      ],
+      "acceptance_criteria": [
+        "Given the volume panel is visible, When the user toggles the control, Then volume_plot becomes hidden and the price plot expands to fill the freed vertical space; toggling again shows it.",
+        "Given the app is restarted, When launched, Then the volume panel is visible by default (no persistence in this proposal)."
+      ],
+      "tests": [
+        {
+          "test_id": "T14-T01",
+          "linked_acceptance_criterion": "Given the volume panel is visible, When the user toggles the control, Then volume_plot becomes hidden and the price plot expands to fill the freed vertical space; toggling again shows it.",
+          "type": "integration",
+          "description": "Offscreen toggle click: check volume_plot visibility toggles and price plot height increases when hidden.",
+          "expected_result": "volume_plot isVisible toggles, price plot height larger when volume hidden."
+        },
+        {
+          "test_id": "T14-T02",
+          "linked_acceptance_criterion": "Given the app is restarted, When launched, Then the volume panel is visible by default (no persistence in this proposal).",
+          "type": "unit",
+          "description": "Check default visibility is true on new ChartPanel.",
+          "expected_result": "volume_plot isVisible true by default."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_volume_toggle.py"
+      ],
+      "inputs": [
+        "ui/chart_panel.py",
+        "docs/requirements/requirements.md#D10"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T15",
+      "title": "Render drawing price labels on inner right side of chart (D11)",
+      "description": "For any drawing type, render price label TextItem inside the plot at view_rect.right() - 4, anchor=(1,0.5), Z=10, colour-matched, with stacking offset when nearby.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T14"
+      ],
+      "acceptance_criteria": [
+        "Given any drawing with a price, When rendered, Then a price label is visible inside the plot near the right edge (x = view_rect.right() - 4, anchor=(1,0.5)) and is not clipped by the axis/dock.",
+        "Given a zone with top/bottom prices, When rendered, Then two labels are visible at the zone's top and bottom edges on the inner right.",
+        "Given multiple drawings at nearby prices, When rendered, Then labels remain legible (small vertical offset, not fully overlapping)."
+      ],
+      "tests": [
+        {
+          "test_id": "T15-T01",
+          "linked_acceptance_criterion": "Given any drawing with a price, When rendered, Then a price label is visible inside the plot near the right edge (x = view_rect.right() - 4, anchor=(1,0.5)) and is not clipped by the axis/dock.",
+          "type": "integration",
+          "description": "Create horizontal line drawing, render, check label pos and anchor and that boundingRect is inside view_rect.",
+          "expected_result": "Label pos x == view_rect.right() -4, anchor (1,0.5), visible and inside."
+        },
+        {
+          "test_id": "T15-T02",
+          "linked_acceptance_criterion": "Given a zone with top/bottom prices, When rendered, Then two labels are visible at the zone's top and bottom edges on the inner right.",
+          "type": "integration",
+          "description": "Create zone drawing with y1/y2, check two labels at top/bottom on inner right.",
+          "expected_result": "Two labels visible at zone top and bottom, inner right."
+        },
+        {
+          "test_id": "T15-T03",
+          "linked_acceptance_criterion": "Given multiple drawings at nearby prices, When rendered, Then labels remain legible (small vertical offset, not fully overlapping).",
+          "type": "integration",
+          "description": "Create two drawings with close prices, check labels have vertical offset and not fully overlapping.",
+          "expected_result": "Labels offset vertically, not overlapping."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/drawing_overlay.py",
+        "tests/test_drawing_labels.py"
+      ],
+      "inputs": [
+        "ui/drawing_overlay.py",
+        "docs/requirements/requirements.md#D11"
+      ],
+      "outputs": [
+        "ui/drawing_overlay.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T16",
+      "title": "Open zone settings popup on double-click with 4 tabs (D12)",
+      "description": "Create ui/zone_settings_dialog.py Rectangle dialog with Style (no Extend), Text, Coordinates, Visibility tabs; double-click on zone opens it with current values pre-filled, Extend omitted always both sides.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T15"
+      ],
+      "acceptance_criteria": [
+        "Given a zone exists, When the user double-clicks the zone body, Then the Rectangle popup opens with four tabs and the zone's current values pre-filled, and Extend is not shown.",
+        "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the zone updates and re-renders with the new values.",
+        "Given the popup is open, When the user opens the Visibility tab, Then the time-frame checkboxes/sliders match the attachments and are interactable."
+      ],
+      "tests": [
+        {
+          "test_id": "T16-T01",
+          "linked_acceptance_criterion": "Given a zone exists, When the user double-clicks the zone body, Then the Rectangle popup opens with four tabs and the zone's current values pre-filled, and Extend is not shown.",
+          "type": "integration",
+          "description": "Offscreen double-click on zone: check dialog opens, has 4 tabs, Extend not present, values pre-filled.",
+          "expected_result": "Dialog visible, 4 tabs, no Extend, values match zone."
+        },
+        {
+          "test_id": "T16-T02",
+          "linked_acceptance_criterion": "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the zone updates and re-renders with the new values.",
+          "type": "integration",
+          "description": "Change border color, text, coordinates in dialog and confirm, check DrawingStore updated.",
+          "expected_result": "Drawing updated with new values."
+        },
+        {
+          "test_id": "T16-T03",
+          "linked_acceptance_criterion": "Given the popup is open, When the user opens the Visibility tab, Then the time-frame checkboxes/sliders match the attachments and are interactable.",
+          "type": "unit",
+          "description": "Check Visibility tab has Ticks, Seconds 1-59, etc., and sliders work.",
+          "expected_result": "Visibility tab controls match spec and are interactable."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/zone_settings_dialog.py",
+        "ui/drawing_overlay.py",
+        "tests/test_zone_dialog.py"
+      ],
+      "inputs": [
+        "ui/drawing_overlay.py",
+        "data/models.py:Drawing",
+        "docs/requirements/requirements.md#D12"
+      ],
+      "outputs": [
+        "ui/zone_settings_dialog.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T17",
+      "title": "Make watchlist dock resizable to 50% with persistence (D13)",
+      "description": "Implement watchlist dock width clamped to [150, min(floor(0.50*W), W-400)] with chart >=400px, persisted via QSettings watchlist/width, default ~220px, clamped on restore/resize, floating unconstrained.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T16"
+      ],
+      "acceptance_criteria": [
+        "Given a docked Watchlist at default width, When the user drags the vertical splitter right/left, Then watchlist width is clamped to [150, floor(0.50*W)] (and also W\u2212400 for the chart minimum) and the chart width adjusts, with the handle remaining draggable across the range.",
+        "Given a persisted width, When the app restarts, Then the watchlist restores to the persisted integer width clamped to the current floor(0.50*W) (default ~220px if none saved, never <150).",
+        "Given a wide watchlist and the main window is narrowed, When the width would exceed 50%, Then the watchlist is auto-clamped to 50% without error and remains resizable."
+      ],
+      "tests": [
+        {
+          "test_id": "T17-T01",
+          "linked_acceptance_criterion": "Given a docked Watchlist at default width, When the user drags the vertical splitter right/left, Then watchlist width is clamped to [150, floor(0.50*W)] (and also W\u2212400 for the chart minimum) and the chart width adjusts, with the handle remaining draggable across the range.",
+          "type": "integration",
+          "description": "Offscreen MainWindow: drag splitter to various widths, check clamped to 150..50% and chart >=400.",
+          "expected_result": "Watchlist width clamped correctly, chart >=400."
+        },
+        {
+          "test_id": "T17-T02",
+          "linked_acceptance_criterion": "Given a persisted width, When the app restarts, Then the watchlist restores to the persisted integer width clamped to the current floor(0.50*W) (default ~220px if none saved, never <150).",
+          "type": "integration",
+          "description": "Set QSettings watchlist/width, restart MainWindow, check restored width clamped.",
+          "expected_result": "Restored width matches persisted clamped to 50%."
+        },
+        {
+          "test_id": "T17-T03",
+          "linked_acceptance_criterion": "Given a wide watchlist and the main window is narrowed, When the width would exceed 50%, Then the watchlist is auto-clamped to 50% without error and remains resizable.",
+          "type": "integration",
+          "description": "Set wide watchlist, narrow window, check auto-clamped to 50%.",
+          "expected_result": "Watchlist auto-clamped to 50% on window resize."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py",
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist_resize.py"
+      ],
+      "inputs": [
+        "ui/main_window.py",
+        "ui/watchlist_panel.py",
+        "docs/requirements/requirements.md#D13"
+      ],
+      "outputs": [
+        "ui/main_window.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T18",
+      "title": "Double-click watchlist row loads chart identical to Load Chart (D14)",
+      "description": "Handle cellDoubleClicked to set symbol_input to row symbol uppercased and invoke MainWindow.load_chart() with current timeframe/ext-hours, with no-op on same symbol/disconnected/header/empty area.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T17"
+      ],
+      "acceptance_criteria": [
+        "Given the Watchlist has symbols, IBKR is connected, and the current chart is SPY, When the user double-clicks any cell in the AAPL row, Then symbol_input becomes AAPL and the chart loads for AAPL with the current timeframe/ext-hours via the same sequence as manual Load Chart (cached bars shown, delta fetched, RT started).",
+        "Given the current chart is AAPL, When the user double-clicks the AAPL row, Then no reload occurs \u2014 no new reqId is issued, the RT subscription for AAPL remains, and the chart does not flicker.",
+        "Given IBKR is disconnected, When the user double-clicks any watchlist row, Then no historical/RT request is made and the status bar shows Disconnected \u2014 cannot load chart. Double-click on header or empty area also does nothing."
+      ],
+      "tests": [
+        {
+          "test_id": "T18-T01",
+          "linked_acceptance_criterion": "Given the Watchlist has symbols, IBKR is connected, and the current chart is SPY, When the user double-clicks any cell in the AAPL row, Then symbol_input becomes AAPL and the chart loads for AAPL with the current timeframe/ext-hours via the same sequence as manual Load Chart (cached bars shown, delta fetched, RT started).",
+          "type": "integration",
+          "description": "Offscreen double-click on watchlist row: check symbol_input updated and load_chart sequence invoked.",
+          "expected_result": "symbol_input AAPL, chart loads via same sequence."
+        },
+        {
+          "test_id": "T18-T02",
+          "linked_acceptance_criterion": "Given the current chart is AAPL, When the user double-clicks the AAPL row, Then no reload occurs \u2014 no new reqId is issued, the RT subscription for AAPL remains, and the chart does not flicker.",
+          "type": "unit",
+          "description": "Double-click same symbol, check no new reqId and no RT cancel.",
+          "expected_result": "No new reqId, RT remains."
+        },
+        {
+          "test_id": "T18-T03",
+          "linked_acceptance_criterion": "Given IBKR is disconnected, When the user double-clicks any watchlist row, Then no historical/RT request is made and the status bar shows Disconnected \u2014 cannot load chart. Double-click on header or empty area also does nothing.",
+          "type": "integration",
+          "description": "Disconnect IBKR, double-click row and header/empty, check no request and status message.",
+          "expected_result": "No request, status message shown, header/empty no-op."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/watchlist_panel.py",
+        "ui/main_window.py",
+        "tests/test_watchlist_doubleclick.py"
+      ],
+      "inputs": [
+        "ui/watchlist_panel.py",
+        "ui/main_window.py:load_chart",
+        "docs/requirements/requirements.md#D14"
+      ],
+      "outputs": [
+        "ui/watchlist_panel.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T19",
+      "title": "Double-click horizontal line opens settings popup with 4 tabs (D15)",
+      "description": "Create ui/horizontal_line_settings_dialog.py Horizontal line dialog with Style (Line), Text (12, B/I, Add text, Top/Right), Coordinates #1 (price), Visibility 8 rows; double-click on horizontal line opens it with current values.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T18"
+      ],
+      "acceptance_criteria": [
+        "Given a horizontal line exists, When the user double-clicks the line, Then the Horizontal line popup opens with four tabs and the line's current values pre-filled.",
+        "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the line updates and re-renders with the new values.",
+        "Given the popup is open, When the user opens the Visibility tab, Then the timeframe checkboxes/sliders match the attachments and are interactable."
+      ],
+      "tests": [
+        {
+          "test_id": "T19-T01",
+          "linked_acceptance_criterion": "Given a horizontal line exists, When the user double-clicks the line, Then the Horizontal line popup opens with four tabs and the line's current values pre-filled.",
+          "type": "integration",
+          "description": "Offscreen double-click on horizontal line: check dialog opens, has 4 tabs, Line style, single coordinate pre-filled.",
+          "expected_result": "Dialog visible, 4 tabs, Line style, #1 price matches line."
+        },
+        {
+          "test_id": "T19-T02",
+          "linked_acceptance_criterion": "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the line updates and re-renders with the new values.",
+          "type": "integration",
+          "description": "Change line color, text, price in dialog and confirm, check DrawingStore updated.",
+          "expected_result": "Drawing updated with new values."
+        },
+        {
+          "test_id": "T19-T03",
+          "linked_acceptance_criterion": "Given the popup is open, When the user opens the Visibility tab, Then the timeframe checkboxes/sliders match the attachments and are interactable.",
+          "type": "unit",
+          "description": "Check Visibility tab has 8 rows with sliders and checkboxes.",
+          "expected_result": "Visibility tab controls match spec and are interactable."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/horizontal_line_settings_dialog.py",
+        "ui/drawing_overlay.py",
+        "tests/test_horizontal_line_dialog.py"
+      ],
+      "inputs": [
+        "ui/drawing_overlay.py",
+        "data/models.py:Drawing",
+        "docs/requirements/requirements.md#D15"
+      ],
+      "outputs": [
+        "ui/horizontal_line_settings_dialog.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T20",
+      "title": "Verification and regression for Batches 3\u20139 (D7\u2013D15)",
+      "description": "Run offscreen pytest for all Batch 3\u20139 per-defect checks and full suite green, with no live-TWS traffic, covering candle spacing, volume linear, volume width, volume toggle, drawing labels, zone/horizontal dialogs, watchlist resize and double-click.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T11",
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T16",
+        "T17",
+        "T18",
+        "T19"
+      ],
+      "acceptance_criteria": [
+        "Given all Batches 3\u20139 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
+        "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
+        "Given the per-defect test conditions for D7\u2013D15, When their corresponding tests are executed, Then each condition passes."
+      ],
+      "tests": [
+        {
+          "test_id": "T20-T01",
+          "linked_acceptance_criterion": "Given all Batches 3\u20139 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
+          "type": "integration",
+          "description": "Run pytest via .venv/bin/python -m pytest and assert exit code 0 and all tests passed.",
+          "expected_result": "330+ tests passed, 0 failed (including new Batch 3\u20139 tests)."
+        },
+        {
+          "test_id": "T20-T02",
+          "linked_acceptance_criterion": "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
+          "type": "manual",
+          "description": "Static inspection: grep tests for eConnect/placeOrder and verify suite runs without TWS.",
+          "expected_result": "No test contains live TWS connection; suite runs without TWS."
+        },
+        {
+          "test_id": "T20-T03",
+          "linked_acceptance_criterion": "Given the per-defect test conditions for D7\u2013D15, When their corresponding tests are executed, Then each condition passes.",
+          "type": "e2e",
+          "description": "Execute per-defect modules for Batches 3\u20139 (test_candle_spacing, test_volume_linear, test_volume_width, test_volume_toggle, test_drawing_labels, test_zone_dialog, test_horizontal_line_dialog, test_watchlist_resize, test_watchlist_doubleclick) in isolation.",
+          "expected_result": "All Batch 3\u20139 per-defect modules pass."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_candle_spacing.py",
+        "tests/test_volume_linear.py",
+        "tests/test_volume_width.py",
+        "tests/test_volume_toggle.py",
+        "tests/test_drawing_labels.py",
+        "tests/test_zone_dialog.py",
+        "tests/test_horizontal_line_dialog.py",
+        "tests/test_watchlist_resize.py",
+        "tests/test_watchlist_doubleclick.py",
+        "pytest run log"
+      ],
+      "inputs": [
+        "T11",
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T16",
+        "T17",
+        "T18",
+        "T19"
+      ],
+      "outputs": [
+        "pytest green run"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    }
+  ]
+}

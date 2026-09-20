@@ -85,3 +85,38 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     border: none;
     background: none;
 }
+
+/* Group boxes and check boxes */
+QGroupBox {
+    border: 1px solid #2b3345;
+    border-radius: 4px;
+    margin-top: 0;
+    padding-top: 22px;
+    background: #12151d;
+}
+
+QGroupBox::title {
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: 8px;
+    top: 3px;
+    padding: 0 4px;
+    color: #e5e5e5;
+}
+
+QCheckBox::indicator, QGroupBox::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #64748b;
+    border-radius: 3px;
+    background: #171b24;
+}
+
+QCheckBox::indicator:hover, QGroupBox::indicator:hover {
+    border-color: #94a3b8;
+}
+
+QCheckBox::indicator:checked, QGroupBox::indicator:checked {
+    background: #34d399;
+    border-color: #34d399;
+}

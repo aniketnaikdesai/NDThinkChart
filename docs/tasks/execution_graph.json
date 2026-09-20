@@ -1,0 +1,271 @@
+{
+  "nodes": [
+    {
+      "id": "T1",
+      "type": "Task",
+      "title": "Implement pure session band computation service (D1)"
+    },
+    {
+      "id": "T2",
+      "type": "Task",
+      "title": "Render pre/post session shading in chart (D1)"
+    },
+    {
+      "id": "T3",
+      "type": "Task",
+      "title": "Right-align crosshair price chip inside plot (D2)"
+    },
+    {
+      "id": "T4",
+      "type": "Task",
+      "title": "Add zoom control cluster widget top-right outlined (D3)"
+    },
+    {
+      "id": "T5",
+      "type": "Task",
+      "title": "Implement zoom in/out around centre and reset to default framing (D3)"
+    },
+    {
+      "id": "T6",
+      "type": "Task",
+      "title": "Implement magnifier area-zoom with router precedence and cancel (D3)"
+    },
+    {
+      "id": "T7",
+      "type": "Task",
+      "title": "Verification and regression hardening (Global)"
+    },
+    {
+      "id": "T8",
+      "type": "Task",
+      "title": "Refine zoom control magnifier glyph to 21px (D4)"
+    },
+    {
+      "id": "T9",
+      "type": "Task",
+      "title": "Render candlestick wick as 1 device-pixel behind body (D6)"
+    },
+    {
+      "id": "T10",
+      "type": "Task",
+      "title": "Verification and regression for Batch 2 (D4–D6)"
+    },
+    {
+      "id": "T11",
+      "type": "Task",
+      "title": "Increase inter-candle gap to 35% (D7)"
+    },
+    {
+      "id": "T12",
+      "type": "Task",
+      "title": "Make volume Y linear with dynamic nice ticks and price-coloured bars (D8)"
+    },
+    {
+      "id": "T13",
+      "type": "Task",
+      "title": "Make volume bar width follow price candle width (D9)"
+    },
+    {
+      "id": "T14",
+      "type": "Task",
+      "title": "Add volume panel show/hide toggle at top left of volume panel (D10)"
+    },
+    {
+      "id": "T15",
+      "type": "Task",
+      "title": "Render drawing price labels on inner right side of chart (D11)"
+    },
+    {
+      "id": "T16",
+      "type": "Task",
+      "title": "Open zone settings popup on double-click with 4 tabs (D12)"
+    },
+    {
+      "id": "T17",
+      "type": "Task",
+      "title": "Make watchlist dock resizable to 50% with persistence (D13)"
+    },
+    {
+      "id": "T18",
+      "type": "Task",
+      "title": "Double-click watchlist row loads chart identical to Load Chart (D14)"
+    },
+    {
+      "id": "T19",
+      "type": "Task",
+      "title": "Double-click horizontal line opens settings popup with 4 tabs (D15)"
+    },
+    {
+      "id": "T20",
+      "type": "Task",
+      "title": "Verification and regression for Batches 3–9 (D7–D15)"
+    }
+  ],
+  "edges": [
+    {
+      "source": "T2",
+      "target": "T1",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T3",
+      "target": "T2",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T4",
+      "target": "T3",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T5",
+      "target": "T4",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T6",
+      "target": "T5",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T7",
+      "target": "T1",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T7",
+      "target": "T2",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T7",
+      "target": "T3",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T7",
+      "target": "T4",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T7",
+      "target": "T5",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T7",
+      "target": "T6",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T8",
+      "target": "T7",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T9",
+      "target": "T7",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T10",
+      "target": "T8",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T10",
+      "target": "T9",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T11",
+      "target": "T10",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T12",
+      "target": "T11",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T13",
+      "target": "T12",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T14",
+      "target": "T13",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T15",
+      "target": "T14",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T16",
+      "target": "T15",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T17",
+      "target": "T16",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T18",
+      "target": "T17",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T19",
+      "target": "T18",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T11",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T12",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T13",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T14",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T15",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T16",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T17",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T18",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T20",
+      "target": "T19",
+      "type": "DEPENDS_ON"
+    }
+  ]
+}
