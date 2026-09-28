@@ -1,94 +1,165 @@
-# Plan Review — NDThinkChart Stabilization Batches 3–9 (D7–D15)
+# Plan Review — NDThinkChart Stabilization revision (ESC-002 / ESC-003 / ESC-006 / ESC-007)
 
 ## Review Status
 Status: APPROVED
 
 ## Validation Summary
-The Plan proposal for Batches 3–9 (D7–D15) was validated against
-`docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`; Batch 1 built,
-Batches 2–9 D4–D15 clarified per Q15–Q30). Every clarified defect is covered by the
-architecture and the phased plan; the architecture is internally consistent; each
-meaningful decision carries a rationale and considered alternatives.
+Validated **revision 2** of `docs/plan_proposal.md` + `docs/architecture_proposal.md`
+(`Status: READY_FOR_VALIDATION`) against `docs/requirements/requirements.md`
+(`Status: READY_FOR_PLAN`, settled 2026-09-27), reading the source under question
+directly (`ui/chart_mouse_router.py`, `tests/test_chart_mouse_router.py`,
+`ui/chart_panel.py`, `tests/test_volume_linear.py`,
+`docs/code_review/escalations.md` ESC-002/003/006/007, `docs/requirements` D2/D3/D8/D10/D11,
+the Assumptions Log A22–A26). This is **validation pass 2** (`plan_validator_retries: 1`
+of 3); pass 1 returned `CHANGES_REQUIRED` with RC-1…RC-4.
 
-A previous review of this same proposal returned `BLOCKED` for requirements gap
-`RG-001` (the D13/D14 Defect Register blocks and their `AC-D13.1`–`AC-D14.3`
-criteria were missing from `requirements.md`). The Requirements Analyst has since
-restored D13 and D14 (with decisions Q25–Q29, acceptance criteria, and edge cases)
-and restored the watchlist assumptions `A17`–`A19` and risks `R15`–`R17` (D15 moved
-to `A20`/`R18`). `RG-001` is now `addressed` in `docs/plan_notes.md`. The canonical
-`docs/architecture.md` and `docs/plan.md` were updated from the proposal, and
-`docs/plan.md` now carries `Status: READY_FOR_TASK_MANAGER`. No unresolved
-architectural decision remains. Task Manager may proceed.
+Revision 2 addresses **every** item from pass 1, and the two requirements-rooted
+problems (RG-002, RG-003) are now **resolved in `requirements.md`** and consumed as
+settled text rather than flagged assumptions. The canonical `docs/architecture.md` and
+`docs/plan.md` have been rewritten with the validated content and marked
+`READY_FOR_TASK_MANAGER`.
+
+## Verdict on the previously-required changes
+| RC | Item | Verdict |
+|---|---|---|
+| **RC-1** | Nice-number section single, self-consistent, reproduces confirmed set + examples, old list fixture-only, `(0) == 10_000 → 100` noted | **Resolved** |
+| **RC-2** | Revised D2/Q33 carried: Y-axis lane, grey pill/white text, tick overlap permitted; inside-plot wording superseded; dock-open visibility retained as required AC + independent CR verification; `AC-D11.4` re-scoped to label-vs-label | **Resolved** |
+| **RC-3** | `_active_mode` derivation/synchronisation explicit and sufficient for the five preserved router tests | **Resolved** |
+| **RC-4** | D10 affordance corrected to checkable text label `Volume`; `view_mouse_click` in `DRAWING` documented | **Resolved** |
+
+### RC-1 — ESC-003 nice-number section (resolved)
+`architecture_proposal.md` §3 now defines **one** candidate family
+**`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (`AC-D8.1`, A24) and **one** formula
+`nice_max = min { v in family, v >= 100 : v >= max_vol * 1.1 }`, with `max_vol == 0 → 100`.
+Every worked example agrees with the formula, including the previously contradictory
+cases: `1_050_000 → 1_500_000` (the `1.5` mantissa is now in the family) and
+`10_500_000 → 15_000_000`; the `50_000_000 → 75_000_000` case is valid precisely because
+the family keeps the `7.5` mantissa (a strict `{1,2,2.5,5}` set would overshoot to
+`100M`, which `AC-D8.5` rejects). The original fixed list is retained **only as a test
+fixture** and every member is a family member, so no retained fixture contradicts the
+formula. §3.4 correctly flags that of `tests/test_volume_linear.py:57–61` **only**
+`_nice_volume_max(0) == 10_000` is stale and becomes **`100`**; the `8_000`, `80_000`,
+`2_200_000`, `1_050_000` assertions stay valid. The coverage bound is correct: worst
+case is the `2.5 → 5` step, ratio `≈ 5/(1.1×2.5) ≈ 1.82 <= 2`, asserted only above the
+`100` floor (PA-R8). **RC-1 closed.**
+
+### RC-2 — D2/Q33 and `AC-D11.4` (resolved)
+§5.1–§5.3 carry the re-opened D2: chip in the **Y-axis lane outside the plot**, right of
+the plot’s vertical axis line (`x >= view_rect.right()`), **grey pill with white text**,
+left-anchored `anchor=(0,0.5)`, **axis-tick-label overlap permitted** (no deconfliction
+offset). The superseded Batch-1 inside-plot wording is explicitly retired (§5.5 rewrites
+the canonical `architecture.md` row; the canonical file now reads it). **Dock-open
+visibility** is retained as the required `AC-D2.1` + edge case with **independent Code
+Reviewer verification after Build** (A25 carve-out) — the Batch-1 fix is *not* assumed to
+still hold. `AC-D11.4` is re-scoped to **label-vs-label stacking inside the plot only**
+(§5.4), with the chip lane-separated and `_update_inner_labels` unchanged. Phase **R2**
+owns the work and names `test_crosshair_chip_renders_in_axis_lane`. **RC-2 closed.**
+
+### RC-3 — `_active_mode` derivation (resolved)
+§2.5 pins the mechanism: `drawing`/`alarm`/`zoom` become **properties** whose setters
+call `_reconcile_mode_from_overlays()`, deriving `_active_mode` with precedence
+**`DRAWING > ZOOMING > ALARM_PLACING > IDLE`** using defensive `getattr` probes (the test
+`FakeOverlay` implements only `tool_active()`). Hot handlers dispatch only on
+`_active_mode`; the `IDLE` dispatch keeps the existing `not drawing.tool_active()` guard
+as a defensive tie-break. Walked through against `tests/test_chart_mouse_router.py:28–68`:
+`router.drawing = FakeOverlay(tool_active=True)` derives `DRAWING`; the subsequent
+`router.alarm = …` re-derives to `DRAWING`; `view_mouse_press` dispatches **drawing only**,
+so `test_drawing_tool_blocks_alarm_press` passes **verbatim**; `test_alarm_press_wins_in_cursor_mode`
+(tool inactive → `IDLE` → alarm first), `test_alarm_miss_falls_through_to_drawing`,
+`test_click_prefers_alarm_then_drawing`, and `test_missing_overlays_are_safe` all pass.
+The mechanism is explicit, complete, and adds `test_reconcile_mode_from_wired_overlays`.
+**RC-3 closed.**
+
+### RC-4 — D10 affordance + `view_mouse_click` in `DRAWING` (resolved)
+§5.5 corrects the canonical D10 row to the checkable **text label `Volume`**
+(Q31/A22/`AC-D10.1`), at the top left of the volume panel (bottom left of the price
+chart, A23), **not** an eye icon; it notes the built control is `👁 Volume`
+(`ui/chart_panel.py:250`) but that its user-facing affordance is the `Volume` label.
+Phase 3 and the coverage matrix carry the correction. §2.3 documents the
+`view_mouse_click`-in-`DRAWING` behaviour change (drawing only) with the rationale
+(alarm mode is force-cleared whenever a drawing tool is armed, so alarm click is
+unreachable in production wiring) and pins it with
+`test_click_in_drawing_reaches_only_drawing`; `IDLE` click keeps
+`test_click_prefers_alarm_then_drawing` intact. **RC-4 closed.**
+
+## `AC-D3.7` / `AC-D3.8` / `AC-D3.9` — transition table totality
+The transition table (`architecture_proposal.md` §2.4, carried verbatim into canonical
+`docs/architecture.md`) covers all three:
+- **`AC-D3.7` forward** — TR-4: magnifier during `DRAWING` cancels the drawing, discards
+  the draft, enters `ZOOMING`; `test_zoom_during_draw_cancels_draw`.
+- **`AC-D3.7` reverse** — TR-5: drawing tool during `ZOOMING` exits `ZOOMING` and
+  activates the tool; `test_draw_blocked_during_zoom` (name retained per PA-R3, asserting
+  the confirmed reverse rule).
+- **`AC-D3.8`** — TR-6: alarm placement during `ZOOMING` exits `ZOOMING` and enters
+  `ALARM_PLACING`; `test_alarm_placement_blocks_zoom`.
+- **`AC-D3.9`** — **TR-9**: magnifier during `ALARM_PLACING` is **REFUSED** (mode
+  unchanged, pending placement intact, status-bar hint, control left unchecked);
+  `test_magnifier_refused_during_alarm_placement`. This is the cell that makes the table
+  **total** for every `(mode, trigger)` pair the router exposes — including
+  `ALARM_PLACING + magnifier → ALARM_PLACING`. TR-14/TR-15 keep `AC-D3.3`/`AC-D3.4`
+  as sub-state resets rather than mode changes.
+The table is declared total in §2.4 and no `(mode, trigger)` pair is left unspecified.
 
 ## Requirements Coverage
-| Requirement / Journey | Architectural treatment | Phase |
+| Requirement / AC | Proposal treatment | Verdict |
 |---|---|---|
-| D7 / AC-D7.1–7.2 / Journey 8 | Body half-width `median_diff*0.325` (35% gap); single-bar `0.25`; D6 4px minimum kept; `xRange` unchanged | Phase 1 |
-| D8 / AC-D8.1–8.3 / Journey 9 | Volume `ViewBox` linear Y, `yRange=(0, nice_max)` (`max_vol*1.1` rounded via the nice set), `0` lower bound, no negatives, price-coloured bars, `500.0K / 1.0M` ticks — **supersedes D5** | Phase 1 |
-| D9 / AC-D9.1–9.2 / Journey 10 | `volume_bars.width = w*2` (same `w` as price), `y0=0`, X linked | Phase 1 |
-| D10 / AC-D10.1–10.2 / Journey 11 | Checkable control at the top left of the volume panel, default visible, `setVisible()` + splitter rebalance, not persisted | Phase 3 |
-| D11 / AC-D11.1–11.3 / Journey 12 | Inner-right `TextItem` labels `view_rect.right()-4`, `anchor=(1,0.5)`, colour-matched, stacking | Phase 2 |
-| D12 / AC-D12.1–12.3 / Journey 13 | `Rectangle` dialog, 4 tabs, `Extend` omitted, `#1/#2 (price, bar)`, 8-row Visibility | Phase 2 |
-| D13 / AC-D13.1–13.3 / Journey 14 | Watchlist draggable to `min(floor(0.50×W), W−400)`, min 150px, chart min 400px, `QSettings` persistence, clamped on restore/resize | Phase 4 |
-| D14 / AC-D14.1–14.3 / Journey 15 | `cellDoubleClicked` → `symbol_input` + existing `load_chart()`; no-op on same symbol/disconnected/header | Phase 4 |
-| D15 / AC-D15.1–15.3 / Journey 16 | `Horizontal line` dialog, 4 tabs, `Line` style, Text `12`, single `#1 (price)` | Phase 2 |
-| Global AC (all batches) | Offscreen suite green; no live-TWS traffic | Phase 5 |
-| D1–D6 (Batch 1–2, built) | Unchanged — preserved in the canonical artifacts as built | Completed — not replanned |
+| `AC-D3.7` forward (Q35 (a)) | TR-4 cancels/discards the draft, enters `ZOOMING` | Covered |
+| `AC-D3.7` reverse (A26) | TR-5 exits zoom, activates tool | Covered |
+| `AC-D3.8` | TR-6 exits zoom, enters `ALARM_PLACING` | Covered |
+| `AC-D3.9` (Q36 (b)) | TR-9 refusal + status hint; `test_magnifier_refused_during_alarm_placement` | Covered |
+| `AC-D3.3` / `AC-D3.4` | TR-14/TR-15 sub-state reset, mode retained | Covered |
+| `AC-D8.1`–`AC-D8.5` (ESC-003/008, RG-002) | §3 pinned family, floor `100`, old list = fixture; `(0)→100` only stale edit | Covered |
+| `AC-D8.6` / `AC-D8.7` (ESC-007) | §4 O(1) cached running max, only-widen; `auto_range=False` re-apply | Covered |
+| D2 / `AC-D2.1`–`AC-D2.3` (Q33/A25) | R2: Y-axis lane, grey pill/white text, overlap permitted; independent CR dock-open verification | Covered |
+| `AC-D11.4` (ESC-006) | §5.4 label-vs-label only; chip lane-separated | Covered |
+| `AC-D10.1` (Q31/A22) | §5.5 canonical affordance = text label `Volume` | Covered |
+| `AC-D14.4` (ESC-010) | TR-17 + Phase 4: symbol change also resets router mode to `IDLE` | Covered |
+| `AC-D7.*`, `AC-D8.1`–`AC-D8.3`, `AC-D9.*`, D12, D13, D15 | Unchanged, re-affirmed | Covered |
+| Global AC | Phase 5 offscreen suite green, no live-TWS traffic (Q8/Q9) | Covered |
 
-No in-scope requirement is weakened, reinterpreted, or removed. Out-of-scope items
-(FS1–FS5, Phase 12 combo orders, paper mode) remain excluded.
+## Parallel-build consequences
+Adequately reflected and carried into the canonical `docs/architecture.md` and
+`docs/plan.md`. The file map names `ui/chart_panel.py` as the serial hot file shared by
+R1/R2/Phase 1/Phase 3, `ui/main_window.py` as serial between R1 and Phase 4, states R1
+must be its own wave, and requires per-test-file serialisation. `touches_files` and
+`docs/build/build_config.json` (`max_parallel_tasks`, default 4) are cited as the Task
+Manager’s input and Build’s wave rule; the Lead is the sole writer of task status.
+This is sufficient for a valid task graph. Code Reviewer writes no `task-graph.json`
+field in any case.
 
-## Architecture Findings
-- **Completeness:** Tech stack, components, responsibilities, relationships, data
-  model, integration points, non-functional approach, and risks are all present;
-  each D7–D15 decision carries a rationale and considered alternatives.
-- **Consistency:** D8 is explicitly recorded as superseding D5’s log decision in
-  both requirements and architecture; D9 uses the post-D7 `w`; D13/D14 reuse the
-  existing `load_chart()` path. No contradictions found.
-- **Data model:** explicitly unchanged for D7–D11. D12/D15 read/write the existing
-  `drawings` via `DrawingStore`; D13 persists an `int` width via `QSettings` (no
-  `watchlist` migration) — documented with the SQLite alternative.
-- **Integration:** no new IBKR calls; no new SQLite schema; only `QSettings` and the
-  existing Qt signal bus are added.
-- **Flagged, out of scope:** `data/db.py` defines `_init_schema` twice (second
-  shadows the first) — low-severity, unchanged.
-
-## Plan Findings
-- Phases are ordered logically, state a goal, name the requirements/journeys they
-  cover, and declare dependencies. Phases 1–2 share `chart_panel.py`/
-  `drawing_overlay.py` and Phase 3 shares the volume plot, so the plan states they
-  build serially; Phase 4 is isolated to the watchlist; Phase 5 verifies.
-- Phases are at the correct abstraction — no task-level breakdown, no dependency
-  graph, no per-task test specifications.
-- Assumptions PA1–PA8 are plan-level, map to answered Q19–Q30, and do not redefine
-  requirements.
-
-## Required Changes
-None. `RG-001` (the sole blocking item in the prior review) is resolved by the
-Requirements Analyst, and no new issues were found on re-validation.
+## Plan-level assumptions (PA-R2…PA-R8)
+All are implementation-detail assumptions; **none** requires a Requirements Analyst
+decision or a Plan change:
+- **PA-R2** (DRAWING ≡ tool_active) — reasonable, preserves widget-state sync.
+- **PA-R3** (test name retained while asserting the confirmed reverse) — naming note.
+- **PA-R4** (only-widen satisfies `AC-D8.6`) — explicitly permitted by the requirement’s
+  “or the bound is explicitly documented” clause.
+- **PA-R5** (old list fixture-only; only `(0)` changes) — requirement-backed
+  (`AC-D8.4`/A24).
+- **PA-R6** (chip pixel geometry) — the lane/style/overlap are requirements; the pad is
+  detail.
+- **PA-R7** (`zoom_refused` wiring + hint string) — the requirement mandates *a* hint,
+  not the wiring/text.
+- **PA-R8** (`<= 2` bound asserted only above the `100` floor) — resolves the literal
+  tension between `AC-D8.4`’s tightness bound and its own required floor; transparent and
+  consistent with A24.
+- **PA-R1** is **RETIRED** (superseded by `AC-D3.9`).
 
 ## Requirements Escalations
-None outstanding. `RG-001` was raised under `ESCALATED_TO_REQUIREMENTS` in
-`docs/plan_notes.md` and is now marked **addressed** (D13/D14 restored;
-`A17`–`A19` and `R15`–`R17` restored; D15 moved to `A20`/`R18`). No
-`ESCALATED_TO_PLAN` entry exists (`docs/debug/escalations.md` absent). No new
-requirements gap requires `plan_notes.md`.
-
-Non-blocking requirements-document notes (no action needed to proceed): the
-`Per-defect criteria` intro still phrases D15 as `proposed` in one place while the
-authoritative Defect Register marks D15 `clarified 2026-09-20 — Q30 correct` (AC
-governs); `A9` (volume log) remains marked unconfirmed in source although Q17/D5
-record it confirmed; and D5’s log decision is superseded by D8 in the same document.
+None open. `docs/plan_notes.md` records:
+- **RG-002** — **RESOLVED 2026-09-27** (family pinned to `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`,
+  no `10K` floor, smallest value `100`; old list = fixture only).
+- **RG-003** — **RESOLVED 2026-09-27** (Q36 option (b) → new `AC-D3.9`; TR-9 rewritten
+  as a refusal; PA-R1 retired).
+- **RG-001** — previously addressed 2026-09-20 (D13/D14 register restored); no action.
 
 ## Task Manager Readiness
-Yes — `READY_FOR_TASK_MANAGER`. Every technology, component boundary, interface, and
-behaviour needed to build a task graph is specified: the `0.325` body factor and
-4px minimum; the volume linear `0`–nice-max with price colours and tick format; the
-shared `w` volume width; the top-left volume toggle and splitter handling; the
-inner-right label geometry and stacking; the two 4-tab dialogs (`Extend` omitted;
-single `#1 (price)` for horizontal); the watchlist 50% clamp/persistence; and the
-double-click load semantics with no-ops. Task Manager can decompose all four phases
-without making a new architectural decision.
+**Yes.** `docs/plan.md` ends with `Status: READY_FOR_TASK_MANAGER`. The canonical
+`docs/architecture.md` and `docs/plan.md` carry the validated router state machine +
+transition table, the pinned nice-number family and live-ceiling statement, the D2/Q33
+chip relocation, the `AC-D11.4` re-scope, the D10 affordance correction, and the
+`touches_files`/`build_config.json` sequencing constraint. The Task Manager can produce
+a valid task graph with per-task `touches_files`.
 
 ## Final Decision
 Status: APPROVED

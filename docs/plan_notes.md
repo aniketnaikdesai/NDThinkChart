@@ -41,3 +41,88 @@ the D15 assumption to `A20`, and restored risks `R15`–`R17` (D15 risk now `R18
 Validation re-run passes; the block is cleared.
 
 **Escalation:** ESCALATED_TO_REQUIREMENTS — resolved 2026-09-20.
+
+---
+
+## RG-002 — D8 nice-number family contradicts its own examples and fixtures
+
+**Requirement/Journey:** D8 (`AC-D8.1`, `AC-D8.4`, `AC-D8.5`, D8 edge cases),
+Journey 9; A24; ESC-003/ESC-008. Also blocks the Plan revision's Phase-1 Amendment A.
+
+**Problem:** `AC-D8.1` defines the volume ceiling as "a 1/2/2.5/5×10^k value that is
+`>= max_vol*1.1`". But the requirement's own examples and the retained regression
+fixture assert values that are **not** in that family:
+- `AC-D8.4` low-volume edge case: `nice_max(3_000) = 5000` (fine), but the D8 edge
+  cases state "a max just below a boundary (e.g., 1.05M) rounds up to the next
+  1/2/2.5/5×10^k value (`1.5M`)". `1.5M` is `1.5×10^6`, i.e. a `1.5` mantissa — it is
+  **not** a 1/2/2.5/5×10^k value.
+- `AC-D8.5` high-end example: "`10.5M → 15M`". `15M` is a `1.5` mantissa — likewise
+  **not** a 1/2/2.5/5×10^k value.
+- The remaining fixture `tests/test_volume_linear.py:61`
+  (`_nice_volume_max(1_050_000) == 1_500_000`) encodes the same `1.5M` value.
+
+**Why it cannot be satisfied as currently written:** Under the stated formula
+(smallest `1/2/2.5/5×10^k` candidate `>= max_vol*1.1`), the answers are
+`1.05M → 2.0M` and `10.5M → 20.0M`. No generator can return `1.5M`/`15M` for these
+inputs while also being the smallest `{1,2,2.5,5}` candidate. The Plan revision
+(`architecture_proposal.md` §3.2) repeats the contradictory set — its candidate list
+omits the `2` mantissa (`…, 100, 250, 500, 1000, 2500, …`) while both proposals retain
+the `1_050_000 → 1_500_000` fixture. Task Manager cannot write a D8 test that satisfies
+`AC-D8.1` and `AC-D8.4`/`AC-D8.5` simultaneously without inventing the family.
+
+**Suggested Direction:** Decide the canonical nice family explicitly:
+- **Option A — strictly `{1, 2, 2.5, 5} × 10^k`:** correct `AC-D8.4`/`AC-D8.5` and the
+  D8 edge cases (`1.05M → 2M`, `10.5M → 20M`), and the retained
+  `1_050_000 → 1_500_000` fixture is updated (Build-owned). Re-check the `50M` case
+  (`50M → 100M` under this family).
+- **Option B — a family that includes `1.5`/`7.5`** (as the old fixed list did): state
+  it explicitly in `AC-D8.1` (e.g. `1/1.5/2/2.5/5/7.5 × 10^k`) so `1.05M → 1.5M` and
+  `10.5M → 15M` are valid, and reconcile the `50M` case (next `7.5`-family value is
+  `75M`, which is *coarser* than the `60M` the requirement rejects — decide the rule).
+
+Once Requirements fixes the family, Plan re-validates Phase-1 Amendment A against it.
+
+**Status:** RESOLVED — 2026-09-27. The Requirements Analyst pinned the family to
+**`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (`AC-D8.1`, A24), reproducing every confirmed
+value (`750K`, `1.5M`); the `10K` floor is removed (smallest generated value **`100`**)
+and the old list is retained only as a test fixture. Revision 2 of the Plan proposal
+(`docs/architecture_proposal.md` §3.2/§3.4) now uses the one formula and agrees on every
+example and fixture — including `1_050_000 → 1_500_000` and `50M → 75M`. Validation
+pass 2 confirms **RC-1** is closed. Block cleared.
+
+**Escalation:** ESCALATED_TO_REQUIREMENTS — resolved 2026-09-27 (folded into
+`AC-D8.1`/`A24`).
+
+---
+
+## RG-003 — `ALARM_PLACING → ZOOMING` transition is unspecified (PA-R1)
+
+**Requirement/Journey:** D3 (`AC-D3.7`, `AC-D3.8`), Journey 4; Plan assumption PA-R1.
+
+**Problem:** The Plan revision makes `ChartMouseRouter` a single-valued `RouterMode`
+state machine whose transition table must be total. The requirements decide
+`DRAWING↔ZOOMING` (`AC-D3.7`, both directions) and `ZOOMING → ALARM_PLACING`
+(`AC-D3.8`), but are silent on the corner **invoking the magnifier while alarm
+placement mode is active** (`ALARM_PLACING → ZOOMING`). Plan derived TR-9 (exit alarm
+mode and enter `ZOOMING`) and flagged it as PA-R1 because the table must be total to be
+testable.
+
+**Why it matters:** TR-9 encodes required runtime behaviour that will be tested; it
+should be a confirmed requirement rather than a plan-level assumption, so no reader
+mistakes an invented transition for settled intent.
+
+**Suggested Direction:** Requirements Analyst confirms (or corrects) PA-R1: activating
+the magnifier while `ALARM_PLACING` exits alarm mode and enters `ZOOMING`, consistent
+with the "one mode at a time" precedent (`main_window._on_draw_tool_changed` unchecks
+alarm). If confirmed, fold it into D3's transition semantics alongside `AC-D3.7`/
+`AC-D3.8`.
+
+**Status:** RESOLVED — 2026-09-27. The Requirements Analyst answered Q36 with **option
+(b)** and recorded it as **`AC-D3.9`**: invoking the magnifier while `ALARM_PLACING` is
+active is **REFUSED** — the router stays in `ALARM_PLACING`, the pending placement is
+**not** cancelled, and a status-bar hint is shown (the `ALARM_PLACING + magnifier →
+ALARM_PLACING` cell that makes the transition table total). This supersedes Plan's
+derived TR-9 and **retires PA-R1**; revision 2 rewrites TR-9 accordingly. Validation
+pass 2 confirms the cell is total and refuses zoom. Block cleared.
+
+**Escalation:** ESCALATED_TO_REQUIREMENTS — resolved 2026-09-27 (folded into `AC-D3.9`).

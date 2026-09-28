@@ -25,7 +25,18 @@
 - **Why it matters:** "Stays active after one zoom" is specified, but behaviour
   when the chart reloads for a new symbol/timeframe is not.
 - **Suggested resolution:** Adopt assumption A6 (revert to Cursor) as the default.
-- **Status:** open
+  **Related — fully specified 2026-09-27:** the magnifier ↔ drawing ↔ alarm transitions
+  are now all requirements (no provisional/assumption wording remains) — the forward
+  direction (Q35 option (a): magnifier cancels the drawing and enters `ZOOMING`) and the
+  reverse direction (A26, **CONFIRMED**: selecting a tool exits `ZOOMING` and activates
+  it) are both `AC-D3.7`; alarm-mode activation cancels `ZOOMING` (`AC-D3.8`); and
+  invoking the magnifier while `ALARM_PLACING` is active **refuses to enter `ZOOMING`**,
+  keeping alarm placement priority with a status-bar hint (Q36 option (b), answered
+  2026-09-27; `AC-D3.9`). The `ALARM_PLACING → ZOOMING` corner (formerly Plan PA-R1 /
+  TR-9, Q36) is therefore **specified required behaviour**, and the router transition
+  table is total.
+- **Status:** open (only the symbol/timeframe-change lifecycle sub-question remains; it is
+  non-blocking — the transition-specification part is resolved)
 
 ## DG4 — No GUI-level regression tests exist despite the `test_gui.md` spec
 - **Where it shows up:** Test coverage for all D1–D3 UI changes.
@@ -46,13 +57,14 @@
   clamp. See Q16, R6, A8.
 - **Status:** open
 
-## DG6 — D5 volume log scale cannot display zero
-- **Where it shows up:** D5 / AC-D5.2.
-- **Why it matters:** Logarithmic Y cannot show `0`; the mapping `0 → 1.0` is a
-  visual interpretation — a minimal tick at the bottom could be mistaken for data.
-- **Suggested resolution:** Keep the proposed `0 → 1.0` floor and document it as a
-  minimal tick, not a gap; keep `yRange=(1.0, max*1.1)`. See Q17, R7, A9.
-- **Status:** open
+## DG6 — ~~D5 volume log scale cannot display zero~~ SUPERSEDED by D8
+- **Where it shows up:** D5 / AC-D5.2 — **superseded** (see D8 / `AC-D8.1`).
+- **Why it matters:** This gap described the log `0 → 1.0` mapping. D8/Q20 replaced
+  the log axis with a linear axis whose lower bound is `0`, so the zero-display
+  problem no longer exists. Retained for history only.
+- **Suggested resolution:** No action — implement D8 (linear) instead. See D8, Q20,
+  A12; D5 is marked `SUPERSEDED BY D8` in `requirements.md`.
+- **Status:** closed (superseded by D8)
 
 ## DG7 — D6 wick/body thickness distinction
 - **Where it shows up:** D6 / AC-D6.1.
@@ -73,15 +85,16 @@
 - **Status:** open
 
 ## DG9 — D8 volume nice-max and tick formatting — which set?
-- **Where it shows up:** D8 / AC-D8.1, AC-D8.3.
-- **Why it matters:** "Like 10k, 100k, 500k, 1.0M, 1.5M, 2.0M" covers different max
-  ranges; the exact nice values and the rounding rule determine whether the max bar
-  fits with headroom and whether ticks look clean.
-- **Suggested resolution:** Use `nice_max = ceil(max_vol*1.1 / step) * step` with the
-  next nice from `[10k, 50k, 100k, 250k, 500k, 750k, 1.0M, 1.5M, 2.0M, 2.5M, 5M, 10M]`
-  and format ticks as `500.0K / 1.0M` (one decimal for K, same for M). See Q20, A12,
-  R10.
-- **Status:** open
+- **Where it shows up:** D8 / AC-D8.1, AC-D8.3, AC-D8.4, AC-D8.5.
+- **Why it matters:** The original fixed list (`[10k, …, 10M]`) was coarse above 10M
+  and floored at 10k, flattening low-volume symbols (ESC-003/ESC-008). The live rule
+  is now a continuous **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** scale (pinned by
+  RG-002, 2026-09-27, to reproduce the user-confirmed Q20 values `750K` and `1.5M`);
+  the old list is only a test fixture.
+- **Suggested resolution:** `nice_max` = the smallest family value `>= max_vol*1.1`
+  (no fixed `10k` floor, no fixed ceiling); format ticks as `500.0K / 1.0M` (one
+  decimal for K and M). See Q20, A12 (revised by A24), R10, R20.
+- **Status:** resolved (family pinned by RG-002; criteria updated 2026-09-27)
 
 ## DG10 — D9 volume width — should it be exactly price width?
 - **Where it shows up:** D9 / AC-D9.1.
@@ -97,8 +110,10 @@
 - **Why it matters:** "Allow the user to show/hide" is vague on affordance and
   persistence; the current proposal is a toolbar toggle that resets to visible.
 - **Suggested resolution:** **Top left of the volume panel** (bottom left of price
-  chart) as confirmed Q22, no persistence. See Q22, A14, R12.
-- **Status:** open
+  chart) as confirmed Q22, no persistence; the toggle is a checkable text label
+  **`Volume`** (Q31) and the placement is now **confirmed 2026-09-27** (A23). See Q22,
+  Q31–Q32, A14, A22–A23, R12.
+- **Status:** resolved (placement confirmed 2026-09-27, A23; D10 `CONFIRMED`)
 
 ## DG12 — D11 drawing price labels — inner right side placement
 - **Where it shows up:** D11 / AC-D11.1, AC-D11.2.
@@ -136,8 +151,36 @@
 - **Suggested resolution:** Enforce `[150, min(floor(0.50×W), W−400)]` for docked watchlist (chart ≥400px) with resize-time clamping; persist via `QSettings("NDThinkChart","watchlist/width")` (or DB key) as integer pixels, restore clamped to current 50%, default 220px; floating dock not constrained. See Q25–Q26, A17, R15, R17.
 - **Status:** open
 
+## DG16 — ESC-006: crosshair chip and drawing labels shared the right-edge lane
+- **Where it shows up:** D11 / AC-D11.4 / ESC-006.
+- **Why it matters:** The crosshair chip (`anchor=(1,0.5)`, `x = right()-2`) and D11
+  drawing labels (`anchor=(1,0.5)`, `x = right()-4`) previously occupied the same
+  inside-plot lane, so hovering at a drawing's price could stack two chips and the
+  overflow priority was a product choice.
+- **Suggested resolution (resolved 2026-09-27, Q33):** the chip moved to the **Y-axis
+  lane outside the plot** (see D2), while D11 labels stay inside the plot; the two are in
+  different lanes, so the chip-vs-label overflow collision no longer applies. `AC-D11.4`
+  is re-scoped to **label-vs-label** stacking (`>= 15 px`, clamped to
+  `view_rect.bottom()`); the Code Reviewer must re-scope ESC-006 accordingly. See
+  AC-D11.4, R21.
+- **Status:** closed (resolved by Q33 lane separation, 2026-09-27)
+
+## DG17 — ESC-011: repository doc drift (test counts, phase markers, orphaned `.pyc`)
+- **Where it shows up:** Documentation Maintenance Requirements DOC-1..DOC-4.
+- **Why it matters:** `usage.md:166` and `PENDING_IMPLEMENTATION_PLAN.md:364/:412/:458`
+  state "269 tests" (measured: **339**); Phases 1–5 carry no completion marker though
+  their files exist; a source-less `.pyc` remains. Stale docs mislead every later agent.
+- **Suggested resolution:** DOC-1 correction is mechanical (use measured 339 / ~2.9s).
+  DOC-2 ownership is decided (Q34, answered 2026-09-27): the **Requirements Analyst owns
+  closing DOC-2** (mark Phases 1–5 `✅ COMPLETE`); **Code Reviewer verification** is the
+  confirming step. Because `PENDING_IMPLEMENTATION_PLAN.md` is outside the Analyst's
+  file-ownership table, the Analyst records the requirement/ownership in `requirements.md`
+  rather than editing the root doc; any residual owner action is a recorded dependency. DOC-3
+  is covered by ESC-001 (BUILD).
+- **Status:** open — DOC-2 decided/owned (Analyst closes; Code Reviewer verifies); physical root-doc edit remains a recorded dependency
+
 ## DG15 — D14 double-click row to load chart — scope and no-ops
-- **Where it shows up:** D14 / AC-D14.1–D14.3 / Journey 15.
+- **Where it shows up:** D14 / AC-D14.1–D14.4 / Journey 15.
 - **Why it matters:** "Double-click anywhere on the row" must be distinguished from header/empty-area clicks and from same-symbol/disconnected no-ops; otherwise single-click selection could be mistaken for a load or a disconnected double-click could queue a request.
 - **Suggested resolution:** Wire `QTableWidget.cellDoubleClicked(int,int)` and resolve row Symbol via `COL_SYMBOL`; ignore when `row<0` or `symbol` empty/header; case-insensitive compare to `_current_symbol` for no-op; check `ConnectionState` / `load_btn.isEnabled()` before issuing `req_historical_data`; show status message on disconnected as specified. See Q27–Q29, A18–A19, R16.
 - **Status:** open

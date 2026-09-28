@@ -2,8 +2,39 @@
 
 > Owned by Requirements Analyst. Other agents may read; only Requirements Analyst edits.
 >
-> **No open blocking questions remain.** Batch 1 (D1–D3) is built. Batches 2–9
-> (D4–D15) are now fully clarified 2026-09-19/20 and awaiting the next plan pass.
+> **NO blocking questions remain as of 2026-09-27.** Every question is closed and nothing
+> dangles. **`Q36` (RG-003 — `ALARM_PLACING → ZOOMING`) was answered 2026-09-27 with
+> option (b):** invoking the magnifier while `ALARM_PLACING` is active **REFUSES to enter
+> `ZOOMING`** (the router stays in `ALARM_PLACING`) and shows a status-bar hint; alarm
+> placement keeps priority and the pending alarm placement is **not** cancelled. It is
+> recorded as requirement **`AC-D3.9`** in `requirements.md` (D3 / ESC-002), which makes
+> the router transition table **total** — the `ALARM_PLACING → ZOOMING` cell is now
+> **specified required behaviour**, no longer Plan assumption **PA-R1** / **RG-003**.
+> All post-review questions **Q31–Q36** are answered and all four follow-up confirmations
+> are closed.
+> Q35 (ESC-002 magnifier/drawing transition semantics) is fully resolved: the forward
+> direction is option **(a)** — invoking the magnifier while a drawing tool is active
+> **cancels the in-progress drawing and enters `ZOOMING`** — and the **reverse direction** (a
+> drawing tool selected while `ZOOMING` is active) was subsequently **CONFIRMED by the user
+> on 2026-09-27**: it **exits `ZOOMING` and activates the drawing tool** (assumption A26 is
+> now a requirement, folded into `AC-D3.7`; no provisional wording remains). The formerly
+> **undecided** alarm-vs-zoom branch is also decided: **alarm-mode activation cancels
+> `ZOOMING`** (now `AC-D3.8`; supplies the expected behaviour for
+> `test_alarm_placement_blocks_zoom`). Q32's D10 placement (A23) and Q33's D2 visual
+> reference (A25) were likewise **confirmed 2026-09-27**. Q31–Q34 were answered 2026-09-27
+> (see below).
+> **RG-002 (D8 nice-number family) was resolved by the Requirements Analyst on 2026-09-27**
+> — the family is pinned to `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k` (see `requirements.md`
+> D8 / A24); no user question was needed because the contested values `750K` and `1.5M` are
+> user-confirmed (Q20). **RG-003 is now resolved by Q36 option (b)** — the
+> `ALARM_PLACING → ZOOMING` corner is a specified requirement (`AC-D3.9`), so Plan's
+> assumption PA-R1 / derived transition TR-9 is superseded and the ESC-002 transition
+> table is total. The post-review
+> batch (Q31–Q36) was added 2026-09-27 as the Code Reviewer/Plan escalations arrived.
+> Batches 2–9 (D4–D15) were clarified 2026-09-19/20. The ESC-002 fix (the
+> `chart_mouse_router` transition table) is now specified in both drawing directions, for
+> the `ZOOMING → ALARM_PLACING` alarm transition, **and for the `ALARM_PLACING → ZOOMING`
+> refusal**, so it is **total and ready for Plan**.
 
 ## Answered
 
@@ -75,9 +106,13 @@
   4 hours**. (Exact set: `1 min, 5 mins, 15 mins, 1 hour, 4 hours`; `1 day` excluded.)
 
 ## Q12 — D2: where should the crosshair price label sit?
-- **Status:** answered 2026-09-19
+- **Status:** answered 2026-09-19; **SUPERSEDED 2026-09-27 by Q33**
 - **Answer:** Option **(a)** — right-align the chip so it ends inside the plot's
   right edge, never under the axis or right dock.
+- **Superseded:** Q33 (answered 2026-09-27) **revised the placement by design change** —
+  the chip now renders in the **Y-axis lane outside the plot** as a grey pill with white
+  text (see D2). The option-(a) inside-plot right-alignment no longer applies; retained
+  for history only.
 
 ## Q13 — D3: where do the zoom controls live?
 - **Status:** answered 2026-09-19
@@ -208,3 +243,186 @@
 ## Q30 — D15: horizontal line double-click should open settings popup with 4 tabs — is the tab content correct?
 - **Status:** answered 2026-09-20
 - **Answer:** Correct — the four tabs (Style with `Line`, Text, Coordinates with single `#1 (price)`, Visibility) as proposed are correct.
+- **Affected requirement section:** D15 / AC-D15.1–D15.3
+
+---
+
+# Post-review requirements questions — added 2026-09-27 (Code Reviewer escalations)
+
+## Q31 — D10: what icon represents the volume show/hide toggle?
+- **Status:** answered 2026-09-27
+- **Answer:** The user chose the **text label `Volume`** — a checkable text-label toggle
+  (not an eye icon, not a bar glyph). This confirms the D10 icon/affordance decision;
+  the *placement* was subsequently confirmed 2026-09-27 (see Q32 / A23).
+- **Affected requirement section:** D10 (Visual reference line; AC-D10.1); Assumptions A22.
+
+## Q32 — D10: is the Q22 placement (top-left of the volume panel) confirmed by a visual reference, or does D10 proceed as a provisional assumption?
+- **Status:** answered 2026-09-27; **placement subsequently CONFIRMED 2026-09-27** (A23 flipped to confirmed)
+- **Answer:** Originally **accepted as a provisional assumption (A23)**, then **CONFIRMED by the
+  user on 2026-09-27**: the toggle sits at the **top left of the volume panel (bottom left of
+  the price chart)**. With the icon (text label `Volume`, Q31) and this placement both
+  confirmed, **D10 is now `CONFIRMED`** under AC-G.1 and no provisional wording remains.
+- **Affected requirement section:** D10 (Visual reference line; AC-D10.1); Assumptions A23.
+
+## Q33 — D11/ESC-006: when a drawing label run overflows the pane height, which element wins — the crosshair chip or the drawing label?
+- **Status:** **answered 2026-09-27** — resolved by a **design/placement change**, not by
+  choosing one of the options below.
+- **Answer:** The crosshair price chip is relocated to the **Y-axis lane** — to the RIGHT
+  of the plot's vertical axis line, **outside the data area** — as a **grey pill with
+  white text**, and overlapping the Y-axis tick label at the same price is **permitted**
+  (see the revised **D2**). D11's drawing price labels remain **INSIDE the plot** at
+  `view_rect.right() - 4`. Because the chip and the labels now occupy **different lanes**,
+  the crosshair-vs-label overflow collision no longer applies and **no priority rule is
+  needed**.
+- **Consequence for `AC-D11.4`:** it is **re-scoped to label-vs-label stacking inside the
+  plot only** (`>= 15 px`, clamped to `view_rect.bottom()`); the chip is removed from the
+  collision accounting. The **Code Reviewer MUST re-scope ESC-006** accordingly.
+- **Supersedes:** the earlier (a)/(b)/(c)-style priority framing below (options 1–4); that
+  framing was predicated on the chip and drawing labels sharing one lane.
+- **Re-opened defect (independent verification required):** because D2's chip placement
+  changed, the original D2 defect surface — chip decimals covered by the Active Trader /
+  Portfolio dock — is **re-opened**. It MUST be independently verified by the Code Reviewer
+  after Build; the Batch-1 inside-plot fix cannot be assumed to still hold. See D2
+  (AC-D2.1 + dock-open edge case).
+- **Confirmed 2026-09-27 (A25):** the D2 **appearance and lane placement** reference is now
+  **CONFIRMED** as the agreed target. **Scoped carve-out:** **dock-open visibility** is
+  **not** covered by that reference and remains a separately verified acceptance criterion
+  (`AC-D2.1`) + edge case requiring independent Code Reviewer verification after Build.
+- **Affected requirement section:** D2 (revised placement/style); D11 / `AC-D11.4`
+  (re-scoped); ESC-006.
+
+*(Original question, context and options retained for history — not adopted:)*
+- **Blocks (historical):** `AC-D11.4` (crosshair-chip vs drawing-label separation) for the
+  overflow case.
+- **Context (historical):** Chip and drawing labels shared the right-edge lane and were
+  deconflicted to `>= 15 px` vertical separation. When many drawings sat at nearby prices
+  and the run exceeded the pane height (labels clamped to `view_rect.bottom()`), two labels
+  could still land on the same y, so the "must not overlap" rule needed a priority choice.
+- **Options (historical, none adopted):**
+  1. **Crosshair chip has priority** — always full opacity/on top; the drawing label at
+     the same price is hidden or dimmed while the cursor is there.
+  2. **Drawing label has priority** — the chip is offset/hidden when a label occupies the lane.
+  3. **Both stack** — keep offsetting both, allowing the run to clamp at the pane bottom
+     (accept possible coincidence in extreme cases).
+  4. **Hide labels at the exact price under the cursor** — show only the chip there.
+
+## Q34 — Docs owner: should Phases 1–5 of `PENDING_IMPLEMENTATION_PLAN.md` be marked `✅ COMPLETE`, and who confirms it?
+- **Status:** answered 2026-09-27
+- **Answer:** **Option 1 — mark Phases 1–5 `✅ COMPLETE`.** Ownership split: the
+  **Requirements Analyst owns closing `DOC-2`** (the mark-complete correction) and
+  **Code Reviewer verification is the confirming step** (it confirms the drift, then verifies
+  the correction was applied). Because `PENDING_IMPLEMENTATION_PLAN.md` is **not in the
+  Analyst's file-ownership table**, the Analyst records the requirement and this ownership
+  split in `requirements.md` (`DOC-2`) rather than editing that root doc. Any residual
+  user/owner action needed to physically apply the markers is a **recorded dependency**, not
+  a blocking question. **Not blocking — closed.**
+- **Affected requirement section:** Documentation Maintenance Requirements (`DOC-2`); ESC-011.
+
+## Q35 — ESC-002: when the magnifier is invoked while a drawing tool is active, does zoom cancel the drawing or refuse to activate? (and the reverse)
+- **Status:** **answered + confirmed 2026-09-27** — the **forward direction** is resolved
+  (option (a)); the **reverse direction** was subsequently **CONFIRMED 2026-09-27** (A26 is
+  now a requirement, `AC-D3.7` reverse); the formerly-undecided **alarm-vs-zoom branch** is
+  also decided (`AC-D3.8`). Fully closed — nothing dangles. **Not blocking.**
+- **Answer (forward direction — user-confirmed, option (a)):** invoking the magnifier while
+  a drawing tool is active **CANCELS the in-progress drawing and enters `ZOOMING`**.
+  Option (b) (refuse and show a status-bar hint) is **not adopted**. Consequence: the active
+  drawing tool and any in-progress draft are cleared/discarded — **no half-drawn artefact is
+  left behind** — and `ZOOMING` and `DRAWING` can never be active together. This is recorded
+  as a requirement-side note and acceptance criterion **AC-D3.7** in `requirements.md` (D3,
+  ESC-002 transition semantics). The explicit `RouterMode` state machine
+  (`IDLE/DRAWING/ZOOMING/ALARM_PLACING`, single `_active_mode`) encodes it as a requirement.
+- **Answer (reverse direction — CONFIRMED 2026-09-27; A26):** selecting a drawing tool while
+  `ZOOMING` is active **exits `ZOOMING` and activates the drawing tool** (mirroring the
+  forward precedence and the alarm-mode precedent that forces the draw tool back to
+  `Cursor`). This is now a **requirement**, folded into `AC-D3.7` (reverse), not an
+  assumption; Plan MUST encode it in the router transition table as required behaviour.
+- **Blocks (resolved):** the ESC-002 fix — the explicit `RouterMode` state machine
+  (`IDLE/DRAWING/ZOOMING/ALARM_PLACING`), single `_active_mode`, guard clauses and the
+  **router transition table** in `ui/chart_mouse_router.py`, currently routed to **PLAN**.
+  Both directions are now user-specified (`AC-D3.7`) and the alarm transition is decided
+  (`AC-D3.8`); Plan must not invent them from the architecture alone.
+- **Context:** Today the magnifier and a drawing tool can both be active at once; activating
+  the magnifier does **not** clear the drawing tool (`ui/chart_panel.py:538–548` — `set_zoom_mode`
+  only syncs the overlay/button), and zoom simply wins by handler call order in the router.
+  The existing tests cover only alarm-vs-drawing precedence; the draw+zoom interaction is
+  undefined (ESC-002; review finding F2). **Precedent:** alarm mode already forces the draw
+  tool back to `Cursor` (`ui/main_window.py:487–488`, `:664–665`) and selecting a drawing tool
+  turns alarm mode off.
+- **Forward direction — magnifier invoked while a drawing tool is active (answered
+  2026-09-27 — option (a)):** option 1 below was adopted; option 2 was not.
+  1. **Cancel the drawing** — activating the magnifier clears the active drawing tool/draft
+     and enters `ZOOMING` (consistent with the alarm-mode precedent). Consequence: the
+     in-progress draft on the chart is discarded with no half-drawn artefact left behind,
+     so zoom and drawing can never be active together. **← ADOPTED (option (a)); AC-D3.7.**
+  2. **Refuse to enter `ZOOMING`** — keep the drawing tool active and show a status-bar hint
+     (e.g. "Finish or cancel the current drawing before zooming"). Consequence: zoom is blocked
+     until the user returns to `Cursor`; no draft is ever silently lost. **← NOT adopted.**
+- **Reverse direction — a drawing tool selected while `ZOOMING` is active (CONFIRMED
+  2026-09-27; A26):** behaviour is **exit `ZOOMING` and activate the drawing tool**, mirroring
+  the forward precedence. Alternative (keep `ZOOMING` and refuse the tool selection with a
+  hint) is not adopted. Now a requirement (`AC-D3.7` reverse) — see A26.
+- **Alarm-mode activation cancels `ZOOMING` — DECIDED 2026-09-27:** activating alarm
+  placement mode while the router is in `ZOOMING` **exits `ZOOMING` and enters alarm
+  placement** (mirroring the alarm-vs-drawing precedent; named test
+  `test_alarm_placement_blocks_zoom`). Now a requirement (`AC-D3.8`); no longer undecided.
+- **Affected requirement section:** ESC-002 companion / **router transition table**
+  (`docs/code_review/escalations.md` ESC-002; `docs/code_review/review_log.md` F2); D3 zoom
+  edge cases; task `T6`.
+
+---
+
+# Answered (post-review)
+
+## Q36 — ESC-002 / RG-003: what happens when the magnifier is invoked while alarm placement mode (`ALARM_PLACING`) is active?
+- **Status:** **answered 2026-09-27 — the user chose option (b).** No blocking questions remain.
+- **Answer (user-confirmed 2026-09-27, option (b)):** invoking the magnifier while
+  `ALARM_PLACING` is active **REFUSES to enter `ZOOMING`** — the router **stays in
+  `ALARM_PLACING`** and shows a **status-bar hint** (e.g. "Finish or cancel alarm
+  placement before zooming"). Alarm placement keeps priority and the pending alarm
+  placement is **not cancelled**. Option (a) (magnifier cancels the pending alarm
+  placement and enters `ZOOMING`) was **not adopted**.
+  - **Consequence:** the transition table encodes `ALARM_PLACING + magnifier →
+    ALARM_PLACING` (no mode change); a pending alarm placement — a trading action — is
+    never silently discarded; the magnifier is blocked while `ALARM_PLACING` is active.
+  - **Requirement record:** this is now **`AC-D3.9`** in `requirements.md` (D3 / ESC-002),
+    cross-referenced from the ESC-002 transition area as **REQUIRED behaviour**. It makes
+    the router transition table **total**, superseding Plan's derived **TR-9** /
+    assumption **PA-R1**.
+- **Blocks (resolved):** the ESC-002 fix — the explicit `RouterMode` state machine and the
+  **router transition table** in `ui/chart_mouse_router.py`. That table must be
+  **total** (every mode × event cell defined) to be testable and implementable without
+  invention. The requirements previously left the **`ALARM_PLACING → ZOOMING`** cell
+  unspecified; it is now **specified by `AC-D3.9`**, so nothing must be invented.
+- **Context:** The other ESC-002 corners are decided — `AC-D3.7` forward (magnifier invoked
+  while a drawing tool is active → cancel the in-progress draft, enter `ZOOMING`);
+  `AC-D3.7` reverse (a drawing tool selected while `ZOOMING` → exit `ZOOMING`, activate the
+  tool); `AC-D3.8` (`ZOOMING → ALARM_PLACING`: activating alarm placement while `ZOOMING`
+  exits `ZOOMING` and enters `ALARM_PLACING`). The final corner — **invoking the magnifier
+  while `ALARM_PLACING` is active** — was the open question; the "one mode at a time"
+  precedent suggested zoom could win, but the user instead chose option (b) to protect a
+  pending alarm order. See
+  `docs/plan_notes.md` RG-003; `docs/plan_review.md` (PA-R1; transition-table totality);
+  `docs/code_review/escalations.md` ESC-002.
+- **Options (historical — option (b) was chosen by the user; option (a) was not adopted):**
+  1. **(a) Magnifier cancels the pending alarm placement and enters `ZOOMING`** —
+     symmetric with the drawing rule in `AC-D3.7` forward: the in-progress/pending alarm
+     placement is cleared/discarded and `ZOOMING` becomes the active mode. Consequence:
+     `ZOOMING` and `ALARM_PLACING` are mutually exclusive with one precedence rule in both
+     directions (`ZOOMING` wins over `ALARM_PLACING`); the transition table stays total;
+     no half-placed alarm is left behind. This matched Plan's derived TR-9.
+     **← NOT adopted (would have silently discarded a pending alarm order).**
+  2. **(b) Refuse to enter `ZOOMING`; show a status-bar hint** (alarm placement keeps
+     priority — e.g. "Finish or cancel alarm placement before zooming"). Consequence: the
+     magnifier is blocked while `ALARM_PLACING` is active, a pending alarm placement is
+     never silently discarded, and the transition table encodes `ALARM_PLACING + magnifier
+     → ALARM_PLACING` (no mode change). **← ADOPTED (option (b)); `AC-D3.9`.**
+- **Why the user decided (b):** both were defensible product behaviours — (a) follows the
+  drawing-cancels precedent and keeps a single "zoom wins" precedence, while (b) protects
+  a pending alarm order (a trading action) from being silently dropped. The requirements
+  contained **no evidence** that settled it, so the user chose: **protect the pending
+  alarm placement** (option (b)).
+- **Affected requirement section:** D3 ESC-002 transition semantics (`AC-D3.7`,
+  `AC-D3.8`, and the new **`AC-D3.9`** recording this answer); the
+  `chart_mouse_router` **transition table** (now total; `ALARM_PLACING + magnifier →
+  `ALARM_PLACING`); `docs/plan_notes.md` RG-003 (resolved); `docs/plan_review.md` PA-R1
+  (superseded).

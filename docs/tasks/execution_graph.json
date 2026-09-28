@@ -99,6 +99,61 @@
       "id": "T20",
       "type": "Task",
       "title": "Verification and regression for Batches 3–9 (D7–D15)"
+    },
+    {
+      "id": "T21",
+      "type": "Task",
+      "title": "Replace tri-boolean precedence with the RouterMode state machine (Phase R1 / ESC-002)"
+    },
+    {
+      "id": "T22",
+      "type": "Task",
+      "title": "Replace the fixed volume nice list with the 1/1.5/2/2.5/5/7.5x10^k scaling generator (ESC-003/ESC-008)"
+    },
+    {
+      "id": "T23",
+      "type": "Task",
+      "title": "Track the live volume ceiling in O(1) against a cached running max (ESC-007)"
+    },
+    {
+      "id": "T24",
+      "type": "Task",
+      "title": "Relocate the crosshair price chip to the Y-axis lane as a grey pill with white text (Phase R2 / D2 Q33)"
+    },
+    {
+      "id": "T25",
+      "type": "Task",
+      "title": "Re-scope D11 label collision to label-vs-label inside the plot (ESC-006 / AC-D11.4)"
+    },
+    {
+      "id": "T26",
+      "type": "Task",
+      "title": "Deduplicate the data/db.py _init_schema definition and add the schema regression test (ESC-001/DOC-3)"
+    },
+    {
+      "id": "T27",
+      "type": "Task",
+      "title": "Correct the D10 volume toggle affordance to the checkable text label Volume (RC-4a)"
+    },
+    {
+      "id": "T28",
+      "type": "Task",
+      "title": "Add the combined D10 + D13 integration test (hide volume and drag the watchlist to its max clamp) (ESC-005)"
+    },
+    {
+      "id": "T29",
+      "type": "Task",
+      "title": "Add DPR=2 parametrized coverage for the wick/body clamp and label positioning (ESC-009)"
+    },
+    {
+      "id": "T30",
+      "type": "Task",
+      "title": "Reset the router mode on symbol change and add the D14 mid-drag regression test (ESC-010 / TR-17 / AC-D14.4)"
+    },
+    {
+      "id": "T31",
+      "type": "Task",
+      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010)"
     }
   ],
   "edges": [
@@ -265,6 +320,96 @@
     {
       "source": "T20",
       "target": "T19",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T22",
+      "target": "T21",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T23",
+      "target": "T22",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T24",
+      "target": "T23",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T27",
+      "target": "T24",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T28",
+      "target": "T27",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T28",
+      "target": "T17",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T30",
+      "target": "T28",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T30",
+      "target": "T18",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T21",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T22",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T23",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T24",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T25",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T26",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T27",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T28",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T29",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T30",
       "type": "DEPENDS_ON"
     }
   ]

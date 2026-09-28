@@ -1113,6 +1113,772 @@
       ],
       "architecture_dependency": false,
       "status": "done"
+    },
+    {
+      "id": "T21",
+      "title": "Replace tri-boolean precedence with the RouterMode state machine (Phase R1 / ESC-002)",
+      "description": "Add RouterMode { IDLE, DRAWING, ZOOMING, ALARM_PLACING } with a single ChartMouseRouter._active_mode as the sole source of truth, guard-clause dispatch in view_mouse_press/view_mouse_drag/view_mouse_click, and intent helpers (enter_zoom, enter_drawing, enter_alarm_placing, exit_to_idle). Implement the RC-3 reconciliation: drawing/alarm/zoom become properties whose setters call _reconcile_mode_from_overlays() with precedence DRAWING > ZOOMING > ALARM_PLACING > IDLE and defensive overlay probes, so the five preserved tests pass verbatim. Implement TR-4 (zoom cancels an in-progress draw draft), TR-5 (draw exits zoom), TR-6 (alarm placement exits zoom) and TR-9 (magnifier refused while ALARM_PLACING). Make ChartPanel.set_zoom_mode/set_drawing_tool/set_alarm_mode thin adapters (signatures unchanged) and add a ChartPanel.zoom_refused signal that MainWindow connects to status_bar.showMessage with the hint 'Finish or cancel alarm placement before zooming', re-unchecking the magnifier via blockSignals.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D3.7 (forward): Given a drawing tool is active with an in-progress draft, When the magnifier is invoked, Then the drawing tool is cleared, the draft is discarded with no half-drawn artefact left behind, and _active_mode == RouterMode.ZOOMING.",
+        "AC-D3.7 (reverse): Given _active_mode == RouterMode.ZOOMING, When a drawing tool is selected, Then the router exits ZOOMING (zoom.set_active(False) plus zoom.cancel()) and _active_mode == RouterMode.DRAWING.",
+        "AC-D3.8: Given _active_mode == RouterMode.ZOOMING, When alarm placement mode is activated, Then the router exits ZOOMING and _active_mode == RouterMode.ALARM_PLACING; alarm placement is not blocked by the active zoom.",
+        "AC-D3.9: Given _active_mode == RouterMode.ALARM_PLACING, When the magnifier is invoked, Then enter_zoom() returns False, _active_mode stays ALARM_PLACING, the pending alarm placement is not cancelled, no zoom-selection gesture is active, the magnifier control is left unchecked (blockSignals), and ChartPanel.zoom_refused is emitted so MainWindow shows the status-bar hint.",
+        "AC-D3.2 / AC-D3.4 preserved: Given ZOOMING, When a rectangle drag is released, Then both axes are set to the rectangle, and after a completed zoom _active_mode stays ZOOMING for another selection.",
+        "AC-D3.3 preserved: Given a magnifier drag is in progress, When Esc or a right-click occurs before release, Then only zoom.cancel() runs and _active_mode remains ZOOMING.",
+        "RC-3 reconciliation: Given the router is wired by direct attribute assignment (router.drawing = ..., router.alarm = ..., router.zoom = ...) with no intent call, When any overlay property setter fires, Then _reconcile_mode_from_overlays() derives _active_mode with precedence DRAWING > ZOOMING > ALARM_PLACING > IDLE using defensive probes.",
+        "RC-4b dispatch: Given _active_mode == RouterMode.DRAWING, When view_mouse_click is invoked, Then only the drawing overlay is reached (the alarm overlay is not clicked).",
+        "Mutual exclusivity: DRAWING and ZOOMING can never be true together; the single _active_mode is the sole source of truth and only the router writes it.",
+        "Preserved semantics: the five existing router tests (test_alarm_press_wins_in_cursor_mode, test_drawing_tool_blocks_alarm_press, test_alarm_miss_falls_through_to_drawing, test_click_prefers_alarm_then_drawing, test_missing_overlays_are_safe) pass verbatim."
+      ],
+      "tests": [
+        {
+          "test_id": "T21-T01",
+          "linked_acceptance_criterion": "AC-D3.7 (forward)",
+          "type": "unit",
+          "description": "Named test_zoom_during_draw_cancels_draw: construct the router with a drawing overlay holding an in-progress draft and a magnifier overlay; call enter_zoom(); assert the drawing tool is cleared, the draft is discarded, and _active_mode == ZOOMING.",
+          "expected_result": "drawing tool reset to Cursor, no draft/preview items remain, _active_mode == RouterMode.ZOOMING."
+        },
+        {
+          "test_id": "T21-T02",
+          "linked_acceptance_criterion": "AC-D3.7 (reverse)",
+          "type": "unit",
+          "description": "Named test_draw_blocked_during_zoom asserting the confirmed reverse rule: start in ZOOMING then call enter_drawing(tool); assert ZOOMING exits (zoom inactive and cancel called) and _active_mode == DRAWING.",
+          "expected_result": "zoom.is_active() is False, _active_mode == RouterMode.DRAWING, drawing tool armed."
+        },
+        {
+          "test_id": "T21-T03",
+          "linked_acceptance_criterion": "AC-D3.8",
+          "type": "unit",
+          "description": "Named test_alarm_placement_blocks_zoom: start ZOOMING then call enter_alarm_placing(); assert ZOOMING exits and _active_mode == ALARM_PLACING with alarm mode armed.",
+          "expected_result": "zoom inactive and cancelled; _active_mode == RouterMode.ALARM_PLACING."
+        },
+        {
+          "test_id": "T21-T04",
+          "linked_acceptance_criterion": "AC-D3.9",
+          "type": "unit",
+          "description": "Named test_magnifier_refused_during_alarm_placement: start ALARM_PLACING with a pending placement; call enter_zoom(); assert it returns False, the mode is unchanged, the pending placement is intact, and the zoom overlay was not activated.",
+          "expected_result": "enter_zoom() is False; _active_mode == RouterMode.ALARM_PLACING; pending placement unchanged; zoom.is_active() is False."
+        },
+        {
+          "test_id": "T21-T05",
+          "linked_acceptance_criterion": "AC-D3.9",
+          "type": "integration",
+          "description": "Offscreen ChartPanel in alarm placement mode: toggle the magnifier on; assert zoom_refused is emitted, the magnify button is left unchecked, and MainWindow.status_bar shows the refusal hint.",
+          "expected_result": "zoom_refused emitted once; btn_magnify.isChecked() is False; status bar message 'Finish or cancel alarm placement before zooming'."
+        },
+        {
+          "test_id": "T21-T06",
+          "linked_acceptance_criterion": "RC-3 reconciliation",
+          "type": "unit",
+          "description": "Named test_reconcile_mode_from_wired_overlays: assign FakeOverlays by attribute (drawing tool_active True, alarm mode True) and assert _active_mode == DRAWING; clear drawing and assert ZOOMING/ALARM_PLACING follow the documented precedence.",
+          "expected_result": "precedence DRAWING > ZOOMING > ALARM_PLACING > IDLE derived on every property setter."
+        },
+        {
+          "test_id": "T21-T07",
+          "linked_acceptance_criterion": "RC-4b dispatch",
+          "type": "unit",
+          "description": "Named test_click_in_drawing_reaches_only_drawing: wire _active_mode == DRAWING via the properties; call view_mouse_click; assert only the drawing overlay handled the click.",
+          "expected_result": "drawing.calls == ['click']; alarm.calls == []."
+        },
+        {
+          "test_id": "T21-T08",
+          "linked_acceptance_criterion": "Mutual exclusivity",
+          "type": "unit",
+          "description": "Named test_router_mode_is_mutually_exclusive: enter zoom while a drawing tool is armed and vice versa; assert _active_mode is always exactly one value and DRAWING/ZOOMING are never both active.",
+          "expected_result": "single enum value at all times; DRAWING xor ZOOMING."
+        },
+        {
+          "test_id": "T21-T09",
+          "linked_acceptance_criterion": "AC-D3.2 / AC-D3.4 preserved",
+          "type": "integration",
+          "description": "Named test_zoom_stays_active_after_completed_zoom: in ZOOMING complete a selection; assert the mode is still ZOOMING and the magnifier control remains checked.",
+          "expected_result": "_active_mode == RouterMode.ZOOMING; magnifier checked."
+        },
+        {
+          "test_id": "T21-T10",
+          "linked_acceptance_criterion": "AC-D3.3 preserved",
+          "type": "unit",
+          "description": "Named test_esc_cancels_selection_not_mode: start a magnifier drag and send Esc; assert zoom.cancel() ran and _active_mode is still ZOOMING.",
+          "expected_result": "selection cancelled; _active_mode unchanged (ZOOMING)."
+        },
+        {
+          "test_id": "T21-T11",
+          "linked_acceptance_criterion": "Preserved semantics",
+          "type": "unit",
+          "description": "Run the five existing tests verbatim (test_alarm_press_wins_in_cursor_mode, test_drawing_tool_blocks_alarm_press, test_alarm_miss_falls_through_to_drawing, test_click_prefers_alarm_then_drawing, test_missing_overlays_are_safe) against the new router.",
+          "expected_result": "all five pass unchanged."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_mouse_router.py",
+        "ui/chart_panel.py",
+        "ui/main_window.py",
+        "tests/test_chart_mouse_router.py"
+      ],
+      "inputs": [
+        "docs/architecture.md#Router state machine (ESC-002)",
+        "docs/plan.md#Phase R1",
+        "ui/chart_mouse_router.py",
+        "ui/zoom_overlay.py",
+        "ui/drawing_overlay.py",
+        "ui/alarm_overlay.py",
+        "tests/test_chart_mouse_router.py"
+      ],
+      "outputs": [
+        "ui/chart_mouse_router.py"
+      ],
+      "architecture_dependency": true,
+      "touches_files": [
+        "ui/chart_mouse_router.py",
+        "ui/chart_panel.py",
+        "ui/main_window.py",
+        "tests/test_chart_mouse_router.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T22",
+      "title": "Replace the fixed volume nice list with the 1/1.5/2/2.5/5/7.5x10^k scaling generator (ESC-003/ESC-008)",
+      "description": "Replace the fixed [10k..10M] lookup in ui/chart_panel.py::_nice_volume_max with one pure, importable generator over the single family 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k, floored at 100, with no fixed ceiling: nice_max = smallest family value >= max_vol*1.1, and max_vol == 0 -> 100. Keep the volume ViewBox linear with yRange=(0, nice_max), the 500.0K/1.0M tick formatter, and price-coloured bars. Retain the old fixed list only as a test fixture in tests/test_volume_linear.py and update the single stale expectation _nice_volume_max(0) == 10_000 -> 100.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T21"
+      ],
+      "acceptance_criteria": [
+        "AC-D8.1: Given any loaded chart, When the volume axis is computed, Then nice_max is the smallest family value (1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k) that is >= max_vol*1.1, the ViewBox is linear (logMode == (False, False)) with yRange=(0, nice_max), and no negative tick is shown.",
+        "AC-D8.4: Given a low-volume symbol, When nice_max is computed, Then no 10k floor applies: nice_max(0) == 100, nice_max(800) == 1000, nice_max(3_000) == 5_000, and nice_max/(max_vol*1.1) <= 2 wherever the ceiling is above the 100 floor (PA-R8: the ratio bound is asserted only where max_vol >= ~45.5; below that the ceiling is the 100 floor and the ratio may exceed 2).",
+        "AC-D8.5: Given a very large max volume (40M-50M), When nice_max is computed, Then it uses the same family with tight coverage: 10_500_000 -> 15_000_000, 45_000_000 -> 50_000_000, 50_000_000 -> 75_000_000, monotonic non-decreasing; the old fixed list is retained only as a test fixture.",
+        "AC-D8.2 / AC-D8.3: Given volumes, When bars render, Then each bar is green (#34d399) when close >= open and red (#f87171) otherwise, and ticks are formatted 500.0K / 1.0M with 0 at the bottom.",
+        "Fixture fixed points: every retained tests/test_volume_linear.py expectation is a fixed point of the generator (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000) and only _nice_volume_max(0) changes to 100."
+      ],
+      "tests": [
+        {
+          "test_id": "T22-T01",
+          "linked_acceptance_criterion": "AC-D8.4",
+          "type": "unit",
+          "description": "Update tests/test_volume_linear.py: assert _nice_volume_max(0) == 100; keep 8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000.",
+          "expected_result": "all assertions pass with the new generator."
+        },
+        {
+          "test_id": "T22-T02",
+          "linked_acceptance_criterion": "Fixture fixed points",
+          "type": "unit",
+          "description": "For every member of the legacy fixture list and every confirmed value, assert _nice_volume_max(v) == v (each is a fixed point).",
+          "expected_result": "each value is returned unchanged."
+        },
+        {
+          "test_id": "T22-T03",
+          "linked_acceptance_criterion": "AC-D8.5",
+          "type": "unit",
+          "description": "Assert 10_500_000 -> 15_000_000, 45_000_000 -> 50_000_000, 50_000_000 -> 75_000_000 (no coarse 100M fallback and no clamp).",
+          "expected_result": "family values returned exactly; not 100_000_000."
+        },
+        {
+          "test_id": "T22-T04",
+          "linked_acceptance_criterion": "AC-D8.4",
+          "type": "unit",
+          "description": "Assert the fine low end: 0 -> 100, 800 -> 1000, 3_000 -> 5_000.",
+          "expected_result": "nice_max values match; no 10k floor."
+        },
+        {
+          "test_id": "T22-T05",
+          "linked_acceptance_criterion": "AC-D8.4",
+          "type": "unit",
+          "description": "Sweep max_vol across decades; assert nice_max is monotonic non-decreasing and nice_max/(max_vol*1.1) <= 2 above the floor.",
+          "expected_result": "monotonic and tight coverage within bound."
+        },
+        {
+          "test_id": "T22-T06",
+          "linked_acceptance_criterion": "AC-D8.5",
+          "type": "unit",
+          "description": "Assert every member of the old fixed list is a family member and a fixed point (fixture cross-check).",
+          "expected_result": "all legacy entries are fixed points."
+        },
+        {
+          "test_id": "T22-T07",
+          "linked_acceptance_criterion": "AC-D8.1",
+          "type": "integration",
+          "description": "Offscreen ChartPanel: after update_chart, assert volume ViewBox logMode == (False, False), yRange lower 0, upper == _nice_volume_max(max_vol), no negative tick.",
+          "expected_result": "linear axis with 0-based nice max."
+        },
+        {
+          "test_id": "T22-T08",
+          "linked_acceptance_criterion": "AC-D8.2 / AC-D8.3",
+          "type": "unit",
+          "description": "Assert the volume tick formatter renders 500.0K and 1.0M and that bar brushes stay price-coloured.",
+          "expected_result": "labels 500.0K / 1.0M; green/red brushes by direction."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_volume_linear.py"
+      ],
+      "inputs": [
+        "docs/architecture.md#Volume nice-number generator",
+        "docs/requirements/requirements.md#D8",
+        "ui/chart_panel.py:_nice_volume_max",
+        "tests/test_volume_linear.py"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": true,
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_volume_linear.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T23",
+      "title": "Track the live volume ceiling in O(1) against a cached running max (ESC-007)",
+      "description": "Add a cached running max (_vol_max) on ChartPanel and widen the volume nice_max in O(1) on real-time volume changes: on an intra-bar tick compute live_max = max(_vol_max, last_bar.volume) and only widen the ceiling when live_max crosses the current nice_max (a non-crossing tick performs no range write). Refresh _vol_max O(N) on a new data load or new bar, and re-apply the cached ceiling on auto_range=False refresh paths such as set_timezone().",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T22"
+      ],
+      "acceptance_criteria": [
+        "AC-D8.6: Given a loaded chart, When the forming last bar's volume grows past the initially computed nice_max on a live tick, Then the volume Y ceiling is recomputed/widened so the forming bar's rendered height is <= the pane top and > 0 (not clipped).",
+        "AC-D8.7: Given set_timezone() or any _refresh_candles() path with auto_range=False, When the volume range would be stale, Then the volume Y range is refit consistently with AC-D8.6 using the cached running max.",
+        "O(1) only-widen: the intra-bar ceiling update is O(1) against the cached running max and only widens; a tick that does not cross the ceiling performs no range write.",
+        "Load refresh: on a new data load or a new bar the cached running max is recomputed O(N) once."
+      ],
+      "tests": [
+        {
+          "test_id": "T23-T01",
+          "linked_acceptance_criterion": "AC-D8.6",
+          "type": "integration",
+          "description": "Named test_volume_ceiling_tracks_live_bar: load bars whose max volume gives a known nice_max; call update_last_bar on the same bar with a larger volume (no full reload); assert the volume ViewBox upper bound equals _nice_volume_max(new max) and the bar height <= pane top.",
+          "expected_result": "ceiling raised to _nice_volume_max(live max); forming bar not clipped."
+        },
+        {
+          "test_id": "T23-T02",
+          "linked_acceptance_criterion": "AC-D8.7",
+          "type": "integration",
+          "description": "Named test_volume_ceiling_refit_on_timezone_refresh: after a live tick widened the ceiling, call set_timezone(); assert the volume Y range still reflects the cached ceiling rather than a stale value.",
+          "expected_result": "volume Y upper bound equals the cached ceiling after the refresh."
+        },
+        {
+          "test_id": "T23-T03",
+          "linked_acceptance_criterion": "O(1) only-widen",
+          "type": "unit",
+          "description": "Record the ceiling, send a tick below it, and assert the ceiling is unchanged and no setRange widening occurs (spy/counter).",
+          "expected_result": "non-crossing tick leaves the ceiling untouched."
+        },
+        {
+          "test_id": "T23-T04",
+          "linked_acceptance_criterion": "Load refresh",
+          "type": "unit",
+          "description": "After a full update_chart or a new bar, assert _vol_max equals the O(N) max bar volume.",
+          "expected_result": "cached running max refreshed on load/new bar."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_volume_ceiling.py"
+      ],
+      "inputs": [
+        "docs/architecture.md#Live volume ceiling",
+        "ui/chart_panel.py:update_last_bar",
+        "ui/chart_panel.py:_refresh_candles",
+        "ui/chart_panel.py:set_timezone"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": true,
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_volume_ceiling.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T24",
+      "title": "Relocate the crosshair price chip to the Y-axis lane as a grey pill with white text (Phase R2 / D2 Q33)",
+      "description": "Move ChartPanel._price_tag from the inside-plot right-align to the Y-axis lane outside the plot: left-anchored at the plot's vertical axis line (anchor=(0,0.5), scene x = view_rect_scene.right() plus a small pad), extending right into the Y-axis lane; render as a grey pill with white text; permit axis-tick-label overlap (no deconfliction offset). Retain the show-only-inside-plot / hide-on-leave behaviour and pan/zoom tracking, and add a right-edge guard so a long price is not clipped. Dock-open visibility (AC-D2.1) is a required criterion requiring independent Code Reviewer verification after Build (A25).",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T23"
+      ],
+      "acceptance_criteria": [
+        "AC-D2.1: Given a loaded symbol, the cursor inside the price plot, and the Active Trader and/or Portfolio dock open, When the price chip renders, Then the complete label including all decimals is visible as a grey pill with white text in the Y-axis lane to the right of the plot's vertical axis line (scene x >= view_rect.right()) and is not covered by the dock; overlapping an axis tick label at the same price is permitted. Dock-open visibility is independently verified by the Code Reviewer after Build (A25); the Batch-1 inside-plot fix is not assumed to hold.",
+        "AC-D2.1 edge: Given a long price string (e.g. 123,456.78) or a narrow window, When the chip renders, Then it remains fully in the axis lane without clipping or bleeding under the dock.",
+        "AC-D2.2: Given pan or zoom, When the cursor moves, Then the chip stays in the Y-axis lane and continues to track the cursor's price.",
+        "AC-D2.3: Given the cursor leaves the plot, Then the chip is hidden (existing behaviour retained)."
+      ],
+      "tests": [
+        {
+          "test_id": "T24-T01",
+          "linked_acceptance_criterion": "AC-D2.1",
+          "type": "integration",
+          "description": "Named test_crosshair_chip_renders_in_axis_lane: offscreen ChartPanel, move the cursor over the plot, assert price_tag scene x >= view_rect.right(), anchor (0, 0.5), grey fill, white text, and full decimals.",
+          "expected_result": "chip in the axis lane; grey pill; white text; pos.x() >= view_rect_scene.right()."
+        },
+        {
+          "test_id": "T24-T02",
+          "linked_acceptance_criterion": "AC-D2.1",
+          "type": "integration",
+          "description": "Open the right dock (Active Trader/Portfolio) and update the crosshair; assert the chip bounding rect is visible and not intersected by the dock geometry.",
+          "expected_result": "chip not covered by the dock; isVisible True."
+        },
+        {
+          "test_id": "T24-T03",
+          "linked_acceptance_criterion": "AC-D2.2",
+          "type": "integration",
+          "description": "Pan/zoom the ViewBox and move the cursor; assert the chip stays in the lane at x >= view_rect.right() and its text equals the cursor y formatted.",
+          "expected_result": "lane position and text tracking preserved after pan/zoom."
+        },
+        {
+          "test_id": "T24-T04",
+          "linked_acceptance_criterion": "AC-D2.3",
+          "type": "unit",
+          "description": "Fire a Leave event on the price plot viewport and assert the chip is hidden.",
+          "expected_result": "price_tag not visible; crosshair lines hidden."
+        },
+        {
+          "test_id": "T24-T05",
+          "linked_acceptance_criterion": "AC-D2.1 edge",
+          "type": "integration",
+          "description": "Set a long price (123,456.78) and a narrow 500px panel; assert the chip bounding rect stays inside the lane/panel without clipping.",
+          "expected_result": "chip fully visible and not clipped."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_crosshair_axis_lane.py"
+      ],
+      "inputs": [
+        "docs/architecture.md#Crosshair chip (D2 revised)",
+        "docs/requirements/requirements.md#D2",
+        "ui/chart_panel.py:_create_crosshair",
+        "ui/chart_panel.py:_update_crosshair",
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_chip_bounds.py"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": true,
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_crosshair_axis_lane.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T25",
+      "title": "Re-scope D11 label collision to label-vs-label inside the plot (ESC-006 / AC-D11.4)",
+      "description": "Add label-vs-label collision coverage for D11 after the ESC-006 re-scope: the crosshair chip now lives in the Y-axis lane and is out of scope for AC-D11.4, so the drawing-label stacking test asserts only that consecutive inner-right labels do not overlap (>= 15 px offset, each fully inside view_rect) and that the chip is excluded from collision accounting.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D11.4: Given multiple drawing price labels at (or within the label band of) each other's prices, When they render inside the plot near the right edge (anchor=(1,0.5), x = view_rect.right()-4), Then their scene bounding boxes do not intersect: each consecutive pair is offset by >= 15 px and each remains fully inside view_rect on the right edge.",
+        "AC-D11.4 edge: the crosshair chip is out of scope: a crosshair at a drawing's price does not participate in label collision accounting.",
+        "AC-D11.1 / AC-D11.2 / AC-D11.3 preserved: a drawing price label is visible inside the plot near the right edge; a zone shows two labels at its top/bottom; nearby labels remain legible."
+      ],
+      "tests": [
+        {
+          "test_id": "T25-T01",
+          "linked_acceptance_criterion": "AC-D11.4",
+          "type": "integration",
+          "description": "Create two drawings at nearby prices, render, and assert the two label scene bounding boxes do not intersect and each is inside view_rect on the right edge.",
+          "expected_result": "consecutive labels offset >= 15px; no bbox intersection."
+        },
+        {
+          "test_id": "T25-T02",
+          "linked_acceptance_criterion": "AC-D11.4 edge",
+          "type": "integration",
+          "description": "Render a drawing label plus an active crosshair chip at the same price; assert the drawing labels remain label-vs-label consistent and no label is displaced by the chip.",
+          "expected_result": "chip excluded from collision accounting; labels unaffected."
+        },
+        {
+          "test_id": "T25-T03",
+          "linked_acceptance_criterion": "AC-D11.1 / AC-D11.2 / AC-D11.3 preserved",
+          "type": "integration",
+          "description": "Retain the existing inner-right horizontal/zone label tests and the nearby-label stacking test.",
+          "expected_result": "all existing D11 label tests still pass."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_drawing_labels.py"
+      ],
+      "inputs": [
+        "docs/architecture.md#D11 drawing price labels",
+        "ui/drawing_overlay.py:_update_inner_labels",
+        "tests/test_drawing_labels.py"
+      ],
+      "outputs": [
+        "tests/test_drawing_labels.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "tests/test_drawing_labels.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T26",
+      "title": "Deduplicate the data/db.py _init_schema definition and add the schema regression test (ESC-001/DOC-3)",
+      "description": "Remove the duplicate _init_schema definition in data/db.py (keep exactly one), commit tests/test_db_schema.py as a real source file asserting a fresh DB() creates the full table set, and remove the orphaned tests/__pycache__/test_db_schema*.pyc.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "ESC-001 table set: data/db.py defines _init_schema once; a fresh DB() creates the full table set: bars, watchlist, alarms, zones, drawing_groups, drawings, studies, positions, trade_groups, position_group_map.",
+        "ESC-001 single definition: a test guards that only one _init_schema definition exists in data/db.py.",
+        "DOC-3: the orphaned tests/__pycache__/test_db_schema.cpython-311-*.pyc is removed and tests/test_db_schema.py exists as source."
+      ],
+      "tests": [
+        {
+          "test_id": "T26-T01",
+          "linked_acceptance_criterion": "ESC-001 table set",
+          "type": "integration",
+          "description": "Instantiate a fresh DB() against a temp DB path and assert the full table list via sqlite_master.",
+          "expected_result": "all ten tables present; no missing-table error."
+        },
+        {
+          "test_id": "T26-T02",
+          "linked_acceptance_criterion": "ESC-001 single definition",
+          "type": "unit",
+          "description": "Read/parse data/db.py and assert the count of _init_schema definitions is exactly one.",
+          "expected_result": "exactly one definition."
+        },
+        {
+          "test_id": "T26-T03",
+          "linked_acceptance_criterion": "DOC-3",
+          "type": "manual",
+          "description": "Confirm no orphaned test_db_schema *.pyc remains and tests/test_db_schema.py is tracked source.",
+          "expected_result": "no orphaned bytecode; source test committed."
+        }
+      ],
+      "expected_artifacts": [
+        "data/db.py",
+        "tests/test_db_schema.py"
+      ],
+      "inputs": [
+        "data/db.py",
+        "docs/code_review/escalations.md#ESC-001",
+        "docs/requirements/requirements.md#DOC-3"
+      ],
+      "outputs": [
+        "data/db.py",
+        "tests/test_db_schema.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "data/db.py",
+        "tests/test_db_schema.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T27",
+      "title": "Correct the D10 volume toggle affordance to the checkable text label Volume (RC-4a)",
+      "description": "Correct the D10 volume toggle affordance (RC-4a): the control is the checkable text label Volume at the top left of the volume panel (bottom left of the price chart), not an eye icon. Update ui/chart_panel.py so the toggle's user-facing label is Volume while retaining the checkable behaviour, default visible, splitter rebalance, and non-persistence.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T24"
+      ],
+      "acceptance_criteria": [
+        "AC-D10.1: Given the volume panel is visible, When the user toggles the checkable text label Volume at the top left of the volume panel, Then volume_plot (and its axis) becomes hidden and the price plot expands; toggling again shows it.",
+        "AC-D10.2: Given the app is launched/restarted, Then the volume panel is visible by default (no persistence).",
+        "RC-4a: the affordance is the text label Volume; no eye icon or bar glyph is shown."
+      ],
+      "tests": [
+        {
+          "test_id": "T27-T01",
+          "linked_acceptance_criterion": "RC-4a",
+          "type": "unit",
+          "description": "Assert panel._volume_toggle.text() == 'Volume' (no eye glyph) and isCheckable().",
+          "expected_result": "label is exactly Volume and the control is checkable."
+        },
+        {
+          "test_id": "T27-T02",
+          "linked_acceptance_criterion": "AC-D10.1",
+          "type": "integration",
+          "description": "Toggle the control off: assert volume_plot is hidden and the price plot height grows; toggle on and assert it is restored.",
+          "expected_result": "volume visibility toggles; price plot expands when hidden."
+        },
+        {
+          "test_id": "T27-T03",
+          "linked_acceptance_criterion": "AC-D10.2",
+          "type": "unit",
+          "description": "Assert the default state is checked/visible on a new ChartPanel and that toggling with no bars does not error.",
+          "expected_result": "default visible; no exception with empty bars."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_volume_toggle.py"
+      ],
+      "inputs": [
+        "docs/requirements/requirements.md#D10",
+        "ui/chart_panel.py:_volume_toggle",
+        "tests/test_volume_toggle.py"
+      ],
+      "outputs": [
+        "ui/chart_panel.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_volume_toggle.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T28",
+      "title": "Add the combined D10 + D13 integration test (hide volume and drag the watchlist to its max clamp) (ESC-005)",
+      "description": "Add the combined D10 + D13 integration test ESC-005: in one test hide the volume panel and drag the watchlist dock to its maximum clamp, asserting the price panel never drops below its minimum (chart >= 400px). If the existing splitter refresh is insufficient, add a single rebalance helper in ui/chart_panel.py; note the QSplitter/QDockWidget structure in the code if the reconciliation changes layout handling.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T27",
+        "T17"
+      ],
+      "acceptance_criteria": [
+        "ESC-005: Given the volume panel is hidden and the watchlist is dragged to its max clamp in the same test, When the layout settles, Then the price panel never drops below its minimum (chart >= 400px wide) and no error is raised.",
+        "AC-D13.1 / AC-D10.1 combined: the watchlist width clamps to [150, min(floor(0.50xW), W-400)] while the volume panel is hidden, and the volume hide/show cycle restores the splitter correctly."
+      ],
+      "tests": [
+        {
+          "test_id": "T28-T01",
+          "linked_acceptance_criterion": "ESC-005",
+          "type": "integration",
+          "description": "In one offscreen MainWindow test, hide the volume panel and drag the watchlist to its max clamp; assert the price panel width never drops below its 400px minimum and the app does not error.",
+          "expected_result": "price panel >= 400px; no exception."
+        },
+        {
+          "test_id": "T28-T02",
+          "linked_acceptance_criterion": "AC-D13.1 / AC-D10.1 combined",
+          "type": "integration",
+          "description": "Assert the watchlist width clamps to [150, min(floor(0.50xW), W-400)] with the volume hidden, then re-show the volume and assert the splitter sizes are restored.",
+          "expected_result": "clamp respected; splitter restored after the hide/show cycle."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d10_d13_integration.py",
+        "ui/chart_panel.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-005",
+        "ui/chart_panel.py:_on_volume_toggled",
+        "ui/chart_panel.py:_splitter",
+        "ui/main_window.py:watchlist_dock",
+        "ui/watchlist_panel.py"
+      ],
+      "outputs": [
+        "tests/test_d10_d13_integration.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "tests/test_d10_d13_integration.py",
+        "ui/chart_panel.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T29",
+      "title": "Add DPR=2 parametrized coverage for the wick/body clamp and label positioning (ESC-009)",
+      "description": "Add high-DPI coverage: run the wick/body clamp assertion (AC-D6.4) and the drawing-label in-bounds assertion (AC-D11.5) at device pixel ratio 1 and 2 (QT_SCALE_FACTOR=2), using an isolated offscreen QApplication so the session-scale-factor-1 qapp is not disturbed.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D6.4: Given the app renders at DPR 2, When candles render, Then the wick stays a cosmetic 1-device-pixel line and the body's device-pixel width is >= 4 and strictly greater than the wick's, with no rounding collapse to a single line.",
+        "AC-D11.5: Given the app renders at DPR 2, When drawing price labels render, Then each label's scene bounding rect is fully inside view_rect on the right edge (x + width <= view_rect.right()) and is not clipped."
+      ],
+      "tests": [
+        {
+          "test_id": "T29-T01",
+          "linked_acceptance_criterion": "AC-D6.4",
+          "type": "integration",
+          "description": "Parametrized over SCALE_FACTOR 1 and 2: render candles and assert the wick pen is cosmetic width 1.0 and the body device-pixel width >= 4 and > wick width.",
+          "expected_result": "wick 1 device pixel; body >= 4 device pixels at both scales."
+        },
+        {
+          "test_id": "T29-T02",
+          "linked_acceptance_criterion": "AC-D11.5",
+          "type": "integration",
+          "description": "Parametrized over SCALE_FACTOR 1 and 2: render drawing labels and assert each label scene bounding rect is inside view_rect on the right edge.",
+          "expected_result": "labels fully inside view_rect at DPR 2."
+        },
+        {
+          "test_id": "T29-T03",
+          "linked_acceptance_criterion": "AC-D6.4",
+          "type": "manual",
+          "description": "Confirm the DPR-2 harness runs offscreen with no live TWS and does not mutate the session qapp scale factor.",
+          "expected_result": "isolated DPR-2 run; no live connection."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_chart_dpi.py",
+        "tests/conftest.py"
+      ],
+      "inputs": [
+        "docs/requirements/requirements.md#AC-D6.4",
+        "docs/requirements/requirements.md#AC-D11.5",
+        "docs/code_review/escalations.md#ESC-009",
+        "ui/candlestick_item.py",
+        "ui/drawing_overlay.py",
+        "tests/conftest.py"
+      ],
+      "outputs": [
+        "tests/test_chart_dpi.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "tests/test_chart_dpi.py",
+        "tests/conftest.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T30",
+      "title": "Reset the router mode on symbol change and add the D14 mid-drag regression test (ESC-010 / TR-17 / AC-D14.4)",
+      "description": "Wire the Phase-4 amendment (TR-17): a symbol change, including the D14 mid-drag double-click path, clears the drawing draft/drag and returns the router to IDLE (ChartPanel.set_symbol -> router.exit_to_idle(), alongside the existing zoom reset). Add the ESC-010 regression test that changes symbol while a drawing drag is in flight and asserts no RuntimeError/RuntimeWarning and _active_mode == IDLE.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T28",
+        "T18"
+      ],
+      "acceptance_criteria": [
+        "AC-D14.4: Given a drawing drag gesture is in progress, When the user changes to a different symbol, Then the chart loads for the new symbol with no RuntimeError/RuntimeWarning raised and renders normally afterward.",
+        "TR-17: Given _active_mode == DRAWING (including mid-drag), When the symbol changes, Then the drawing draft/drag is cleared and _active_mode == IDLE.",
+        "AC-D14.1-3 preserved: symbol change still follows the existing load_chart path; the same-symbol and disconnected no-ops are unchanged."
+      ],
+      "tests": [
+        {
+          "test_id": "T30-T01",
+          "linked_acceptance_criterion": "AC-D14.4",
+          "type": "integration",
+          "description": "Start a drawing drag, change to a different symbol (watchlist double-click path), and assert zero unhandled exceptions and that the new chart renders.",
+          "expected_result": "no RuntimeError/RuntimeWarning; new symbol chart displayed."
+        },
+        {
+          "test_id": "T30-T02",
+          "linked_acceptance_criterion": "TR-17",
+          "type": "unit",
+          "description": "With _active_mode == DRAWING and a drag in progress, call the symbol-change path and assert the draft/drag is cleared and _active_mode == IDLE.",
+          "expected_result": "draft/drag cleared; _active_mode == RouterMode.IDLE."
+        },
+        {
+          "test_id": "T30-T03",
+          "linked_acceptance_criterion": "AC-D14.1-3 preserved",
+          "type": "integration",
+          "description": "Re-run the existing same-symbol and disconnected no-op double-click tests unchanged.",
+          "expected_result": "existing D14 no-op tests still pass."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_watchlist_d14_midrag.py"
+      ],
+      "inputs": [
+        "docs/architecture.md#D14 mid-drag mode reset (ESC-010)",
+        "docs/plan.md#Phase 4",
+        "ui/main_window.py:_on_watchlist_row_double_clicked",
+        "ui/chart_panel.py:set_symbol",
+        "ui/drawing_overlay.py:set_data"
+      ],
+      "outputs": [
+        "ui/chart_panel.py",
+        "tests/test_watchlist_d14_midrag.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_watchlist_d14_midrag.py"
+      ],
+      "status": "not_started"
+    },
+    {
+      "id": "T31",
+      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010)",
+      "description": "Run the full offscreen pytest suite plus the new/modified per-defect modules in isolation for the ESC revision, confirm no test connects to live TWS or transmits an order, and confirm touches_files-aware sequencing was honoured during Build.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T21",
+        "T22",
+        "T23",
+        "T24",
+        "T25",
+        "T26",
+        "T27",
+        "T28",
+        "T29",
+        "T30"
+      ],
+      "acceptance_criteria": [
+        "Global full suite: Given all revision fixes are applied, When the full suite runs offscreen (QT_QPA_PLATFORM=offscreen), Then every new per-defect test and every pre-existing test passes.",
+        "Global Q8/Q9: Given the test suite runs, Then no test connects to live TWS or transmits an order.",
+        "Global sequencing: the touches_files-aware sequencing was honoured (no two built tasks in a wave shared a file)."
+      ],
+      "tests": [
+        {
+          "test_id": "T31-T01",
+          "linked_acceptance_criterion": "Global full suite",
+          "type": "integration",
+          "description": "Run .venv/bin/python -m pytest offscreen and assert exit code 0 with all tests passed.",
+          "expected_result": "full suite green with the new revision tests included."
+        },
+        {
+          "test_id": "T31-T02",
+          "linked_acceptance_criterion": "Global Q8/Q9",
+          "type": "manual",
+          "description": "Grep the test suite for eConnect/placeOrder/reqHistoricalData transmission and confirm the suite runs without TWS.",
+          "expected_result": "no live TWS connection or order transmission in any test."
+        },
+        {
+          "test_id": "T31-T03",
+          "linked_acceptance_criterion": "Global sequencing",
+          "type": "e2e",
+          "description": "Execute the new/modified modules in isolation: test_chart_mouse_router, test_volume_linear, test_volume_ceiling, test_crosshair_axis_lane, test_drawing_labels, test_db_schema, test_volume_toggle, test_d10_d13_integration, test_chart_dpi, test_watchlist_d14_midrag.",
+          "expected_result": "all listed modules pass in isolation."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_chart_mouse_router.py",
+        "tests/test_volume_linear.py",
+        "tests/test_volume_ceiling.py",
+        "tests/test_crosshair_axis_lane.py",
+        "tests/test_drawing_labels.py",
+        "tests/test_db_schema.py",
+        "tests/test_volume_toggle.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_chart_dpi.py",
+        "tests/test_watchlist_d14_midrag.py",
+        "pytest run log"
+      ],
+      "inputs": [
+        "T21",
+        "T22",
+        "T23",
+        "T24",
+        "T25",
+        "T26",
+        "T27",
+        "T28",
+        "T29",
+        "T30"
+      ],
+      "outputs": [
+        "pytest green run"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [],
+      "status": "not_started"
     }
   ]
 }

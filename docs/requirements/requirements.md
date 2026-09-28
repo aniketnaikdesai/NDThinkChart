@@ -1,6 +1,6 @@
 # NDThinkChart — Requirements
 
-> Status: READY_FOR_PLAN — Batch 1 built; Batches 2–9 (D4–D15) clarified 2026-09-19/20 and ready for the next plan pass. See Defect Register D4–D15 and open_questions Q15–Q30.
+> Status: READY_FOR_PLAN — Batch 1 built; Batches 2–9 (D4–D15) clarified 2026-09-19/20 and ready for the next plan pass. **Revised 2026-09-27** to resolve Code Reviewer escalations ESC-004/ESC-006/ESC-008/ESC-011/ESC-012 and companions (ESC-003/ESC-007/ESC-009/ESC-010): D5 marked superseded by D8, visual-reference gate (AC-G.1), volume nice-max criteria, D11 crosshair-chip deconfliction, D14 mid-drag AC, high-DPI ACs, and Documentation Maintenance Requirements (DOC-1..4). **Second pass 2026-09-27:** Q31 (D10 icon = text label `Volume`), Q32 (D10 placement originally recorded as provisional assumption A23 — later confirmed, see fifth pass) and Q34 (DOC-2 ownership split) answered. **Third pass 2026-09-27:** **Q33 answered by a design change** — the crosshair price chip is relocated to the **Y-axis lane outside the plot** (revising D2: grey pill + white text; axis-tick-label overlap permitted; this re-opens the D2 defect surface for independent Code Reviewer verification) while D11 drawing labels stay inside the plot, so **`AC-D11.4` is re-scoped to label-vs-label stacking only** (ESC-006). **Fourth pass 2026-09-27:** **Q35 answered** — forward direction (magnifier invoked while a drawing tool is active) is **option (a): cancel the in-progress drawing and enter `ZOOMING`** (the draft is discarded, no half-drawn artefact is left behind), recorded in D3 as ESC-002 transition semantics. **Fifth pass (confirmations) 2026-09-27:** all four post-review follow-ups are now **closed and confirmed** — (1) **A26 reverse direction CONFIRMED** (selecting a drawing tool while `ZOOMING` is active exits `ZOOMING` and activates the tool; now a requirement folded into `AC-D3.7`, no longer an assumption); (2) **A23 D10 placement CONFIRMED** (volume show/hide at the top left of the volume panel / bottom left of the price chart; D10 fully `CONFIRMED`); (3) **alarm-mode activation cancels `ZOOMING` — now a requirement** (added as `AC-D3.8`; supplies the expected behaviour for `test_alarm_placement_blocks_zoom`); and (4) **A25 D2 visual reference CONFIRMED with a scoped carve-out** (the reference is the agreed target for D2's appearance and lane placement; **dock-open visibility remains a separately verified AC/edge case** requiring independent Code Reviewer verification after Build). **Sixth pass 2026-09-27:** **RG-002 resolved** — the D8 nice-number family is pinned to the self-consistent mantissa set **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (which reproduces every user-confirmed Q20 value, including `750K` and `1.5M`, and the retained `1_050_000 → 1_500_000` fixture); `AC-D8.1`/`AC-D8.4`/`AC-D8.5` and the D8 edge cases were reconciled to it, with **no fixed `10k` floor, no fixed ceiling, and the old list retained only as a test fixture**. **Seventh pass 2026-09-27:** **Q36 answered — the last question is closed, so NO blocking questions remain.** Invoking the magnifier while `ALARM_PLACING` is active is **option (b): REFUSE to enter `ZOOMING`** — the router **stays in `ALARM_PLACING`**, alarm placement keeps priority, the pending alarm placement is **not** cancelled, and a **status-bar hint** is shown. Recorded as **`AC-D3.9`** (D3 / ESC-002), cross-referenced from the ESC-002 transition area as **required behaviour**. This makes the `chart_mouse_router` transition table **total** (`ALARM_PLACING + magnifier → ALARM_PLACING`), superseding Plan assumption **PA-R1** / derived transition **TR-9** and closing **RG-003**. See Defect Register D4–D15 and open_questions Q15–Q36.
 
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
@@ -10,8 +10,9 @@ phase**: the user reviewed the running app and reported functional issues and UI
 bugs, which this run must triage and fix. Batch 1 (D1–D3) was the complete list
 for the first stabilization run and is clarified and built. Batch 2 (D4–D6) is now
 fully clarified from post-build UI feedback 2026-09-19 (zoom label size with
-magnifier +50% and position fine — Q15/Q16 — volume log lower bound 1.0 — Q17 —
-and candlestick wick 1px vs body ≥4× — Q18). Batch 3 (D7 35% gap) is a time-axis
+magnifier +50% and position fine — Q15/Q16 — **volume log lower bound 1.0 — Q17 —
+SUPERSEDED by D8 (linear, Q20); see D5** — and candlestick wick 1px vs body ≥4× —
+Q18). Batch 3 (D7 35% gap) is a time-axis
 spacing refinement confirmed 2026-09-19. Batch 4 (D8) is a volume-panel revision
 (linear, no negatives, dynamic nice ticks, price-coloured) confirmed 2026-09-19.
 Batch 5 (D9 volume spacing follow and D10 volume show/hide at top left of volume
@@ -114,12 +115,16 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 ### Journey 3 — D2: read the exact price under the crosshair
 - **Preconditions:** A symbol is loaded; the Active Trader and/or Portfolio dock is
   open on the right.
-- **Steps:** 1) Hover the cursor over the price plot. 2) Read the price chip.
-- **Postconditions:** The full price, including all decimal places, is visible and
-  never overlapped by the axis or right-hand dock.
-- **Edge Cases:** A long price (`123,456.78`) does not bleed under the dock; hovering
-  at the top/bottom edge keeps the chip in view; the chip is hidden when the cursor
-  leaves the plot.
+- **Steps:** 1) Hover the cursor over the price plot. 2) Read the price chip in the
+  Y-axis lane to the right of the plot's vertical axis line.
+- **Postconditions:** The full price, including all decimal places, is visible as a
+  grey pill with white text in the Y-axis lane; it is never covered by the right-hand
+  dock. Overlapping the Y-axis price tick label at the same price is expected and
+  permitted.
+- **Edge Cases:** A long price (`123,456.78`) does not bleed under the dock while the
+  chip remains in the axis lane; hovering at the top/bottom edge keeps the chip in view;
+  the chip is hidden when the cursor leaves the plot; a Y-axis tick label at the same
+  price may sit underneath the chip by design.
 
 ### Journey 4 — D3: zoom into a chosen area
 - **Preconditions:** A symbol is loaded.
@@ -147,7 +152,8 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 - **Steps:** 1) Observe the volume histogram. 2) Note small-volume bars vs the
   spike.
 - **Postconditions:** Small volumes are visibly distinct; Y is logarithmic and
-  ticked at 1e6/1e7.
+  ticked at 1e6/1e7. **(Superseded by Journey 9 / D8: Y is linear from `0` with a
+  dynamic nice max; retained for history.)**
 - **Edge Cases:** Zero-volume bars appear as a 1-unit minimal tick, not a gap;
   max-volume spike does not collapse the rest; X remains linked to price.
 
@@ -173,7 +179,9 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 - **Preconditions:** A symbol is loaded with varied volumes (e.g., spikes and quiet periods).
 - **Steps:** 1) Observe the volume histogram’s Y axis. 2) Note the bar colours vs the price candles above.
 - **Postconditions:** Y is linear starting at `0` with no negatives; the max is a nice value like `500.0K / 1.0M / 2.5M` that contains the tallest bar; bars are green when the price candle was up and red when down.
-- **Edge Cases:** All-zero volumes show `0–10k` with minimal bars; a max just below a nice boundary rounds up; small and large volumes remain distinguishable.
+- **Edge Cases:** All-zero volumes show `0–100` (smallest nice value, no fixed `10k`
+  floor) with minimal bars; a max just below a nice boundary rounds up; small and large
+  volumes remain distinguishable.
 
 ### Journey 10 — D9: see aligned price and volume spacing
 - **Preconditions:** A symbol is loaded on an intraday timeframe with both price and volume visible.
@@ -191,7 +199,11 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 - **Preconditions:** A symbol is loaded and a drawing (horizontal line or zone) exists.
 - **Steps:** 1) Observe the right edge of the price plot interior.
 - **Postconditions:** The drawing’s price(s) are visible as labels inside the plot near the right edge, not on the axis.
-- **Edge Cases:** Multiple zones at nearby prices stack without full overlap; zoom/pan keeps labels at the right edge and at the correct price; no drawing → no label.
+- **Edge Cases:** Multiple zones at nearby prices stack without full overlap; zoom/pan
+  keeps labels at the right edge and at the correct price; a crosshair hovering at a
+  drawing's price no longer collides — the chip is in the Y-axis lane and the drawing
+  label is inside the plot (D2/Q33), so `AC-D11.4` covers label-vs-label stacking only;
+  no drawing → no label.
 
 ### Journey 13 — D12: edit a zone via double-click
 - **Preconditions:** A zone (rectangle) drawing exists on the chart.
@@ -227,6 +239,33 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 - **Given** a change touching the live-order path,
   **when** tests are run,
   **then** no test connects to live TWS or transmits an order.
+- **AC-G.1 (Visual reference gate — ESC-004)** Given a defect whose fix depends on a
+  **UI-visual** decision (icon shape, placement, colour, dialog layout/tab content,
+  label position, size), **when** the decision is considered clarified, **then** the
+  Defect Register entry MUST carry a `Visual reference:` line naming a concrete
+  artifact (screenshot/video/annotated mock, with a path or attachment reference) and
+  that reference MUST be marked **confirmed by the user** *before* the fix enters
+  implementation.
+  - A prose-only description, or a reference the user has not confirmed, does **not**
+    satisfy the gate; the decision stays open and must be logged in
+    `open_questions.md` (do not mark the entry "clarified").
+  - If no reference can be provided, the entry MUST instead state, in the
+    Assumptions Log, that the decision is a **provisional assumption** and record the
+    user as the confirmer with a date — and the fix may proceed only on that explicit
+    basis.
+  - **Applies now to:** D10 (volume toggle icon + placement), D12 (zone `Rectangle`
+    dialog), D15 (horizontal line dialog), D2 (crosshair chip appearance/lane placement),
+    and any future UI-visual defect. See Assumptions Log A21–A26 for the per-defect
+    reference status of this run.
+  - **Per-defect status 2026-09-27 (all confirmed):** D12 `CONFIRMED` (screenshots
+    supplied/confirmed 2026-09-19); D15 `CONFIRMED` (screenshots supplied/confirmed
+    2026-09-20); **D10 `CONFIRMED`** — icon/affordance is the text label `Volume` (Q31) and
+    the placement at the **top left of the volume panel (bottom left of the price chart)**
+    was confirmed by the user 2026-09-27 (A23); **D2 `CONFIRMED`** for appearance and lane
+    placement (A25, 2026-09-27) with a scoped carve-out — **dock-open visibility** is **not**
+    covered by the reference and remains a separately verified acceptance criterion
+    (`AC-D2.1`) + edge case requiring independent Code Reviewer verification after Build.
+    Every UI-visual decision for this run is now confirmed.
 
 ### Per-defect criteria
 Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-19), D9–D11 (Batches 5–6, D9–D10 clarified, D11 clarified), D12 (Batch 7, clarified) and D13–D15 (Batches 8–9, D13–D14 clarified, D15 clarified 2026-09-20) each carry their own Given/When/Then criteria and documented edge cases in the **Defect Register** below. Those criteria are the authoritative acceptance tests and are the "test conditions" referenced throughout.
@@ -235,8 +274,8 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 
 > Batch 1 (built): three defects reported 2026-09-19 (D1–D3), all clarified and
 > built. Batch 2 (clarified 2026-09-19): three refinements confirmed — D4 zoom
-> label 21px/position left of axis, D5 volume log lower 1.0, D6 wick 1px vs body
-> ≥4×. Batch 3 (clarified 2026-09-19): D7 time-axis 35% gap. Batch 4 (clarified
+> label 21px/position left of axis, D5 volume log lower 1.0 (**SUPERSEDED by D8**),
+> D6 wick 1px vs body ≥4×. Batch 3 (clarified 2026-09-19): D7 time-axis 35% gap. Batch 4 (clarified
 > 2026-09-19): D8 volume linear, no negatives, dynamic nice ticks, price-coloured.
 > Batch 5 (clarified 2026-09-19): D9 volume spacing follow + D10 volume show/hide at
 > top left of volume panel. Batch 6 (clarified 2026-09-19): D11 drawing price labels
@@ -276,29 +315,63 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 - Toggling Ext Hours / changing timeframe or symbol removes stale bands and redraws.
 
 ### D2 — Crosshair price label decimals covered by right-side panels
-- **Area:** Chart panel → Active Trader / Portfolio dock
-- **Status:** clarified — criteria defined 2026-09-19
+- **Area:** Chart panel → price-axis lane / Active Trader / Portfolio dock
+- **Status:** clarified — criteria defined 2026-09-19; **placement + styling revised
+  2026-09-27 (Q33 — see below)**. This revision **re-opens** the original D2 defect
+  surface ("decimals covered by the element to its right"), so it MUST be independently
+  re-verified by the Code Reviewer after Build — the Batch-1 fix cannot be assumed to
+  still hold.
+- **Visual reference (ESC-004 gate):** **CONFIRMED (2026-09-27).** The reference is the
+  agreed target for D2's **appearance and lane placement** — the Y-axis lane to the right
+  of the plot's vertical axis line, a **grey pill**, **white text**, and axis-tick-label
+  overlap permitted. **NOT covered by this reference/confirmation:** **dock-open
+  visibility** — the chip must not be hidden by the Active Trader / Portfolio dock. That
+  remains a **separately verified acceptance criterion** (`AC-D2.1`) and an edge case, and
+  because it re-opens the original D2 defect surface it requires **independent Code
+  Reviewer verification after Build**. Gate status: **CONFIRMED for appearance/lane
+  placement only** (see A25).
 - **Reported:** the crosshair price label's decimal places are hidden behind the
   element to its right (the Active Trader / Portfolio panels).
-- **Observed in code:** `ChartPanel._price_tag` is a scene `TextItem` with
-  `anchor=(0, 0.5)` positioned at `view_rect_scene.right()`; the text therefore
-  extends rightward past the plot viewport, under the right-hand axis/dock region.
+- **Observed in code:** `ChartPanel._price_tag` is a scene `TextItem`; the Batch-1 fix
+  right-aligned it **inside** the plot at `view_rect.right() - 2` with a `#94a3b8` fill
+  and dark `#0d0f14` text. `anchor=(0, 0.5)` originally; right-aligned to `anchor=(1,
+  0.5)` in the fix.
 
-**Decisions (2026-09-19):**
-- Fix = **option (a)**: right-align the chip so it ends *inside* the plot's right
-  edge and can never be covered by the axis or a right-hand dock.
+**Decisions (2026-09-19; placement + styling revised 2026-09-27 — Q33):**
+- The chip renders to the **RIGHT of the plot's vertical axis line, in the Y-axis lane**
+  (the same strip where the Y-axis price tick labels are printed). It is therefore
+  **OUTSIDE the data area** — the opposite of the Batch-1 decision, which placed it
+  **INSIDE** the plot at `view_rect.right() - 2`.
+- **Style:** a **grey background pill with WHITE text** (replacing the current
+  `#94a3b8` fill with dark `#0d0f14` text).
+- **Axis-tick-label overlap is EXPECTED and REQUIRED:** the chip MAY paint over the
+  Y-axis price tick label at the same price. No separation between the chip and the
+  Y-axis tick label is required — do **not** add a deconfliction offset between them.
+- **Dock-open visibility is a required acceptance criterion:** with the Active Trader
+  and/or Portfolio dock open, the chip must **not** be covered by the dock. Because this
+  re-opens the original D2 defect surface, it is an edge case that requires independent
+  Code Reviewer verification (the Batch-1 inside-plot fix no longer applies).
 
 **Acceptance Criteria (Given/When/Then):**
 - **AC-D2.1** Given a loaded symbol and the cursor inside the price plot, When the
   price chip renders with the Active Trader and/or Portfolio dock open, Then the
-  complete label including all decimals is visible and not overlapped.
-- **AC-D2.2** Given pan or zoom, Then the chip stays fully within the plot's right
-  edge and continues to track the cursor's price.
+  complete label including all decimals is visible as a **grey pill with white text
+  positioned in the Y-axis lane to the right of the plot's vertical axis line**, and is
+  **not covered by the dock**. Painting over a Y-axis price tick label at the same price
+  is permitted and is **not** a failure.
+- **AC-D2.2** Given pan or zoom, Then the chip stays in the Y-axis lane and continues
+  to track the cursor's price; it is not covered by the right dock.
 - **AC-D2.3** Given the cursor leaves the plot, Then the chip is hidden (existing
   behaviour retained).
 
 **Edge Cases:**
-- Long price strings (e.g. `123,456.78`) must not bleed under the dock or axis.
+- Long price strings (e.g. `123,456.78`) must not bleed under the dock while remaining
+  in the axis lane.
+- **Dock-open edge case (re-opened D2 — requires independent Code Reviewer
+  verification):** with the dock open/expanded, the chip's full decimals stay visible —
+  the chip is not covered by the dock, even though it now sits outside the plot.
+- A Y-axis tick label at the same price is expected to be overlapped by the chip — this
+  is by design, not a defect.
 - Cursor near the top/bottom of the view keeps the chip vertically in-view.
 - Dock closed, floating, or hidden still renders the chip correctly.
 - Small window widths / narrow plot do not clip the label.
@@ -322,6 +395,35 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 - `+`/`−` zoom around the **chart centre**. **Reset** button restores the default
   framing.
 
+**ESC-002 transition semantics (magnifier ↔ drawing tool ↔ alarm) — decided/confirmed 2026-09-27 (Q35 + follow-up confirmations):**
+- **Forward direction — CONFIRMED (Q35 option (a)):** invoking the magnifier while a
+  drawing tool is active **cancels the in-progress drawing and enters `ZOOMING`**. The
+  active drawing tool / in-progress draft is cleared and **discarded** — **no half-drawn
+  artefact is left behind** (the draft is not silently committed). `ZOOMING` and
+  `DRAWING` are therefore mutually exclusive router modes, and the explicit
+  `RouterMode` state machine (`IDLE/DRAWING/ZOOMING/ALARM_PLACING`) with a single
+  `_active_mode` encodes this as a requirement (`AC-D3.7`, forward).
+- **Reverse direction — CONFIRMED 2026-09-27 (was provisional A26):** selecting a
+  drawing tool while `ZOOMING` is active **exits `ZOOMING` and activates the drawing
+  tool**. This mirrors the forward rule (one precedence rule both ways) and the existing
+  precedent that alarm mode forces the draw tool back to `Cursor`. It is now a
+  **requirement** (folded into `AC-D3.7`, reverse), **not** an assumption; Plan MUST
+  encode it in the router transition table as required behaviour.
+- **Alarm-mode activation cancels `ZOOMING` — CONFIRMED (decided 2026-09-27):** when alarm
+  placement mode is activated while the router is in `ZOOMING`, the app **exits `ZOOMING`
+  and enters alarm placement**. This supplies the expected behaviour for the named test
+  `test_alarm_placement_blocks_zoom` — alarm placement **blocks/ends** an active zoom
+  rather than being blocked **by** it. Recorded as `AC-D3.8`.
+- **Magnifier invoked while `ALARM_PLACING` is active — REFUSE (Q36 option (b), answered
+  2026-09-27):** invoking the magnifier while alarm placement mode is active does **NOT**
+  enter `ZOOMING`. The router **stays in `ALARM_PLACING`**, alarm placement keeps priority,
+  the pending alarm placement is **not cancelled**, and a **status-bar hint** is shown
+  (e.g. "Finish or cancel alarm placement before zooming"). Recorded as **`AC-D3.9`**. This
+  is the final cell required to make the `chart_mouse_router` **transition table total**
+  (`ALARM_PLACING + magnifier → ALARM_PLACING`, no mode change) and is **REQUIRED
+  behaviour** — it supersedes Plan's derived transition **TR-9** and assumption **PA-R1**
+  (RG-003, now closed).
+
 **Acceptance Criteria (Given/When/Then):**
 - **AC-D3.1** Given a loaded chart, When `+` is clicked, Then the view zooms in
   around the centre; `−` zooms out around the centre.
@@ -336,6 +438,34 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
   equivalent to a fresh chart load (price x/y and volume Y refit).
 - **AC-D3.6** Then the zoom control cluster is rendered top-right of the chart
   area inside a visible outline.
+- **AC-D3.7 (ESC-002 — both directions, confirmed 2026-09-27)** Given a drawing tool and
+  the zoom magnifier can both be activated, When a transition between them occurs, Then
+  drawing and zoom are **never simultaneously active**:
+  - **Forward (Q35 option (a)):** Given a drawing tool is active with an in-progress
+    draft, When the magnifier is invoked, Then the drawing tool is cleared, the
+    in-progress draft is discarded with **no half-drawn artefact left behind**, and the
+    router enters `ZOOMING`.
+  - **Reverse (A26 — now CONFIRMED; was provisional):** Given the router is in `ZOOMING`,
+    When a drawing tool is selected, Then the router **exits `ZOOMING`** and activates the
+    drawing tool. (Measurable: after selecting the tool, `_active_mode == DRAWING` and no
+    zoom-selection gesture is active.)
+- **AC-D3.8 (ESC-002 — alarm placement cancels `ZOOMING`; decided 2026-09-27)** Given the
+  router is in `ZOOMING`, When alarm placement mode is activated, Then the router **exits
+  `ZOOMING`** and enters **alarm placement**, and alarm placement is **not** blocked or
+  deferred by the active zoom. (Measurable: after activating alarm placement,
+  `_active_mode == ALARM_PLACING`; the named test `test_alarm_placement_blocks_zoom`
+  encodes that alarm placement **blocks/ends** zoom rather than being blocked **by** it.)
+- **AC-D3.9 (ESC-002 — magnifier is refused during alarm placement; Q36 option (b),
+  answered 2026-09-27)** Given alarm placement mode is active (`_active_mode ==
+  ALARM_PLACING`), When the magnifier is invoked, Then the router **stays in
+  `ALARM_PLACING`**, it does **NOT** enter `ZOOMING`, the pending alarm placement is
+  **not cancelled**, and a **status-bar hint** is shown. (Measurable: after the magnifier
+  is invoked, `_active_mode == ALARM_PLACING`, no zoom-selection gesture is active, the
+  pending alarm placement is unchanged, and the status bar displays the hint.) This is the
+  cell that makes the ESC-002 router transition table **total** — the
+  **`ALARM_PLACING → ZOOMING`** cell is **specified required behaviour**
+  (`ALARM_PLACING + magnifier → ALARM_PLACING`), superseding Plan's derived **TR-9** /
+  assumption **PA-R1**.
 
 **Edge Cases:**
 - Degenerate selection (near-zero width/height) → ignored, no zoom.
@@ -343,6 +473,18 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 - No bars loaded → controls are disabled / no-op.
 - Zoom at range limits → clamped, app remains stable.
 - Changing symbol/timeframe while magnifier is active resets mode to default cursor.
+- Activating the magnifier while a drawing tool is active **cancels the in-progress
+  drawing** (the draft is discarded, no half-drawn artefact is left behind) and enters
+  `ZOOMING` — Q35 option (a); selecting a drawing tool while the magnifier is active
+  **exits `ZOOMING` and activates the tool** — **CONFIRMED 2026-09-27** (A26; `AC-D3.7`
+  reverse). Both rules keep `DRAWING` and `ZOOMING` mutually exclusive.
+- Activating alarm placement mode while `ZOOMING` is active **exits `ZOOMING`** and enters
+  alarm placement (decided 2026-09-27, `AC-D3.8`) — alarm placement is never blocked by an
+  active zoom (`test_alarm_placement_blocks_zoom`).
+- Invoking the magnifier while `ALARM_PLACING` is active **does not enter `ZOOMING`** — the
+  router stays in `ALARM_PLACING`, keeps the pending alarm placement, and shows a
+  status-bar hint (Q36 option (b), answered 2026-09-27; `AC-D3.9`). This makes the ESC-002
+  transition table total.
 - Reset also refits the linked volume (and oscillator) panes consistently.
 
 ### D4 — Zoom control cluster refinement: glyphs too small and outline clipped outside chart area
@@ -377,14 +519,18 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 
 ### D5 — Volume panel Y axis is linear and compresses small volumes
 - **Area:** Chart panel volume plot / `ui/chart_panel.py`
-- **Status:** clarified 2026-09-19 — criteria defined, Q17 (lower bound 1.0) confirmed
+- **Status:** **SUPERSEDED BY D8** (2026-09-19) — originally clarified 2026-09-19 with Q17 (log lower bound 1.0) confirmed; retained for history only.
+- **Authoritative decision:** D8 (below) revises this defect to a **linear** Y axis with
+  `yRange=(0, nice_max)` and bars coloured by price direction. **Do not implement D5 as
+  written.** The details below are the superseded log proposal and are kept solely to
+  record why it was changed; no criterion in this section is a live test condition.
 - **Reported:** Volume panel linear Y makes small volumes invisible when a spike is
   present (see screenshot: spike at 16:00 dominates; 3e7 scale). User requested
   logarithmic Y.
 - **Observed in code at time of report:** `volume_plot.getViewBox()` used linear mode
   (`yRange 0.0 .. max*1.1`) and `vol_h` used raw volume including `0`.
 
-**Decisions confirmed 2026-09-19 (Q17):**
+**Decisions confirmed 2026-09-19 (Q17) — SUPERSEDED by D8/Q20; do not implement:**
 - Volume `ViewBox` is **always log on Y** (`setLogMode(y=True)`), X remains linear
   and linked to the price plot.
 - Zero-volume bars mapped to **`1.0`** (minimal tick, not a gap) — confirmed lower
@@ -392,18 +538,23 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 - Auto-range is **`yRange=(1.0, max_vol*1.1)`** where `max_vol` is the maximum of
   mapped volumes.
 
-**Acceptance Criteria (Given/When/Then):**
-- **AC-D5.1** Given any loaded chart with volumes, When the volume panel renders,
+**Acceptance Criteria (Given/When/Then) — SUPERSEDED, not live test conditions:**
+- **AC-D5.1 (superseded by AC-D8.1)** Given any loaded chart with volumes, When the volume panel renders,
   Then the ViewBox is in log mode on Y (`getViewBox().logMode == (False, True)`).
 - **AC-D5.2** Given bars with zero volume, When `vol_h` is computed, Then the height
   is `1.0` and the volume `yRange` lower bound is `1.0`, not `0.0`.
 - **AC-D5.3** Given a max volume, When auto-ranged, Then the upper bound is
   `max_vol*1.1` and small-volume bars are visibly distinct from the spike.
 
-**Edge Cases:**
+**Edge Cases (superseded — see D8 edge cases for the live ones):**
 - All bars have zero volume → `max_vol` floor is `1.0`; range becomes `(1.0, 1.1)`.
 - Very small vs very large volumes remain distinguishable on log scale; X remains
   linked to price plot and is unaffected; Reset refits the volume pane consistently.
+
+> **Note:** Journey 6 (above) describes the superseded log behaviour and is retained
+> only for historical traceability. The live journey is Journey 9 (D8) and the live
+> criteria are `AC-D8.1`–`AC-D8.7`. The Batch-2 register header and Assumption A9 are
+> annotated `SUPERSEDED by D8`.
 
 ### D6 — Candlestick wick not clearly distinguishable from body
 - **Area:** Chart panel / `ui/candlestick_item.py`
@@ -435,6 +586,12 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
   beyond the body’s top/bottom by at least 1px and is fully visible.
 - **AC-D6.3** Given up vs down candles, When rendered, Then body and wick share the
   candle’s direction colour.
+- **AC-D6.4 (ESC-009 — high-DPI coverage)** Given the app renders at a device pixel
+  ratio of `2` (`QT_SCALE_FACTOR=2` / `devicePixelRatio == 2`), When the candles
+  render, Then the wick stays a cosmetic 1-device-pixel line and the body remains
+  `>= 4` device pixels wide, so wick and body do not merge. Measurable: at DPR 2, the
+  body’s device-pixel width is `>= 4` and strictly greater than the wick’s, with no
+  rounding collapse to a single line.
 
 **Edge Cases:**
 - Very dense bars (e.g., 1-min over multiple days, hundreds of candles) keep the
@@ -481,7 +638,7 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 
 ### D8 — Volume panel shows negatives, log scale not desired, bars not price-coloured
 - **Area:** Chart panel volume plot / `ui/chart_panel.py`
-- **Status:** clarified 2026-09-19 — criteria defined, Q20 confirmed — revises D5’s prior log decision
+- **Status:** clarified 2026-09-19 — criteria defined, Q20 confirmed — revises D5’s prior log decision; **criteria revised 2026-09-27** for the ESC-003/ESC-007/ESC-008 build fix (scaling nice formula, no `10k` floor, live ceiling)
 - **Reported:** New volume screenshots 2026-09-19: current app shows **negative**
   ticks (e.g., `-200`) on the right axis — volume cannot be negative; and the log
   scale "looks" not desired. The desired look (second screenshot) has **no
@@ -496,36 +653,95 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
   indicating the log change did not produce the desired look and the yRange still
   dips below zero.
 
-**Decisions confirmed 2026-09-19 (Q20):**
+**Decisions confirmed 2026-09-19 (Q20); nice-number family pinned 2026-09-27 (RG-002):**
 - Volume `ViewBox` is **linear on Y** (`setLogMode(y=False)`, X stays linear/linked);
-  `yRange=(0, nice_max)` with `nice_max` as `max_vol*1.1` rounded up to the next
-  nice value from `[10k, 50k, 100k, 250k, 500k, 750k, 1.0M, 1.5M, 2.0M, 2.5M, 5M, 10M]`
-  so the axis shows 3–5 ticks (e.g., max ~2.8M → `0, 500.0K, 1.0M, 1.5M, 2.0M, 2.5M`
-  as in the desired screenshot; max ~80K → `0, 25K, 50K, 75K, 100K`).
+  `yRange=(0, nice_max)` where `nice_max` is `max_vol*1.1` rounded up to the next
+  **nice value generated by a continuous scaling formula whose mantissa set is
+  `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (`10 × 10^k` is the next decade's `1` and needs
+  no separate mantissa) so the axis shows 3–5 ticks (e.g., max ~2.2M → `0, 500.0K, 1.0M,
+  1.5M, 2.0M, 2.5M` as in the desired screenshot; max ~80K → `0, 25K, 50K, 75K, 100K`).
+  - **RG-002 (resolved 2026-09-27):** the earlier `1 / 2 / 2.5 / 5 × 10^k` wording was
+    **internally inconsistent** with this defect's own examples and the retained fixture
+    — `1.5M`, `15M` and `750K` are `1.5×` and `7.5×` mantissas that the strict set
+    **cannot produce**. Because **`1.5M` (the screenshot's `500.0K / 1.0M / 1.5M / 2.0M /
+    2.5M` run) and `750K` are user-confirmed (Q20)**, the family is pinned to
+    **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`**, which reproduces every confirmed value
+    exactly. `AC-D8.1`, `AC-D8.4`, `AC-D8.5` and the D8 edge cases all use this one
+    family. **Still true:** **no fixed `10k` floor** (smallest generated value `100`),
+    **no fixed ceiling** (it scales as `10^k`), and the old fixed list is retained
+    **only** as a regression-test fixture.
+  - **Revises A12 (2026-09-27; family pinned by RG-002):** the earlier fixed list
+    `[10k, 50k, 100k, 250k, 500k, 750k, 1.0M, 1.5M, 2.0M, 2.5M, 5M, 10M]` is **no
+    longer the live rule** — it is retained only as a regression-test fixture. Every
+    entry in it is a member of the pinned family, so the fixture stays valid for those
+    values. Its `10k` floor and its coarse rounding above 10M are corrected by the
+    scaling formula (ESC-003 / ESC-008). The floor is no longer `10k`; the smallest
+    generated nice value is `100` (see the low-volume edge case below).
 - Volume bars are **coloured by price candle direction** (`#34d399` when `close >=
   open`, `#f87171` otherwise) — matching `CandlestickItem` bodies. This revises the
   prior log decision; no toggle is proposed — linear is the sole mode.
 - Y ticks are formatted as `500.0K / 1.0M` (one decimal for K, same for M) via the
   right-axis tick formatter; no negative ticks are ever shown.
 
+> **Fixture note (RG-002 — retained regression fixture, `tests/test_volume_linear.py`):**
+> with the family pinned, the retained fixture values that are **valid and stay** are
+> `_nice_volume_max(80_000) == 100_000`, `_nice_volume_max(2_200_000) == 2_500_000`,
+> `_nice_volume_max(1_050_000) == 1_500_000` (the RG-002 contested case — it **is**
+> correct under the pinned family), and `_nice_volume_max(8_000) == 10_000`. The only
+> **stale** expectation is `_nice_volume_max(0) == 10_000`, which must become **`100`**
+> per `AC-D8.4` (smallest nice value, no `10k` floor). Build owns the test edit.
+
 **Acceptance Criteria (Given/When/Then):**
 - **AC-D8.1** Given any loaded chart, When the volume panel renders, Then the Y is
   linear (`logMode == (False, False)`), lower bound is `0`, no negative tick is
-  shown, and the upper bound is the dynamic nice max (`max_vol*1.1` rounded up).
+  shown, and the upper bound is the dynamic nice max — the **smallest value of the
+  form `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (the pinned RG-002 family) that is
+  `>= max_vol*1.1`, so it reproduces the user-confirmed `750K` and `1.5M`.
 - **AC-D8.2** Given volumes, When bars render, Then each bar is green when its price
   candle has `close >= open` and red otherwise, and the yRange upper covers the max
   with the nice tick above it.
 - **AC-D8.3** Given a max volume, When formatted, Then ticks appear as `10k / 100k /
   500.0K / 1.0M / 1.5M` etc., with `0` at the bottom and no `-200`.
+- **AC-D8.4 (ESC-008 — fine low end)** Given a low-volume symbol, When the volume
+  axis is computed, Then `nice_max` uses the **smallest value of the AC-D8.1 family
+  (`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`)** that is `>= max_vol*1.1`, so for any
+  `max_vol > 0` the ceiling satisfies `nice_max <= max_vol*1.1 * (1 + tolerance)`
+  (tight, i.e. `nice_max / (max_vol*1.1) <= 2`), and no fixed `10k` floor is applied.
+  - `nice_max(800) = 1000` (not `10_000`), `nice_max(3_000) = 5000` (not `10_000`);
+    an 800–3,000 share symbol fills `>= 30%` of the pane (currently `< 30%`).
+  - The floor for `max_vol == 0` is the smallest nice value, **`100`** (not `10k`).
+- **AC-D8.5 (ESC-003 — fine high end)** Given a very large max volume (`40M–50M`),
+  When `nice_max` is computed, Then it uses the same
+  **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** family (AC-D8.1) with tight coverage — the
+  smallest family value `>= max_vol*1.1`. Worked examples (each verified against the
+  family): `10.5M → 15M`, `45M → 50M`, and `50M → 75M` (since `50M×1.1 = 55M` and the
+  next family value is `75M`). A coarser ceiling such as `100M` is **not** acceptable
+  while the tighter family value `75M` exists — this is precisely why the family keeps
+  the `7.5` mantissa: the strict `1/2/2.5/5` set would overshoot `50M` to `100M`. The
+  result is monotonic non-decreasing in `max_vol`, and the old fixed list is retained
+  **only** as a test fixture.
+- **AC-D8.6 (ESC-007 — live ceiling)** Given a loaded chart, When the forming last
+  bar's volume grows past the initially computed `nice_max`, Then either the ceiling is
+  recomputed/widened so the bar is not clipped, or the bound is explicitly documented
+  and the bar never exceeds the Y range. (Measurable: after the live max doubles, the
+  forming bar's rendered height is `<=` the pane top and `> 0`.)
+- **AC-D8.7 (ESC-007 — timezone/refresh)** Given `set_timezone()` or any
+  `_refresh_candles()` path with `auto_range=False`, When the volume range would be
+  stale, Then the volume Y range is refit consistently with `AC-D8.6`.
 
 **Edge Cases:**
-- All bars have zero volume → `max_vol` floor is `10k`; yRange becomes `(0, 10k)` and
-  bars are minimal/gaps.
-- Single bar with very small max (e.g., 8K) still picks a sensible nice max (10k) and
-  shows ticks `0, 2.5K, 5K, 7.5K, 10K`.
-- Max just below a boundary (e.g., 1.05M with nice 1.0M/1.5M) correctly rounds up to
-  `1.5M`, not `1.0M`.
+- All bars have zero volume → `max_vol` floor is the smallest nice value **`100`**
+  (not `10k`); yRange becomes `(0, 100)` and bars are minimal/gaps.
+- Single bar with very small max (e.g., 800) → `nice_max = 1000`; ticks
+  `0, 250, 500, 750, 1000`.
+- Max just below a boundary (e.g., 1.05M) rounds up to the next
+  `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k` value (`1.5M`), not down; a max of exactly
+  `10_000` no longer jumps to `50_000` (it rounds to `15_000`).
+- Very large max (40M–50M) keeps a tight ceiling and stays monotonic (e.g.,
+  `45M → 50M`, `50M → 75M`).
 - Volume bars remain green/red even when price is a Doji (`open==close` → green).
+- A live tick that grows the forming bar past the initial ceiling must not clip the
+  bar (see `AC-D8.6`).
 
 ### D9 — Volume bar spacing should follow price candle spacing
 - **Area:** Chart panel volume plot / `ui/chart_panel.py` (`volume_bars` width)
@@ -561,7 +777,12 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 
 ### D10 — Volume panel show/hide toggle
 - **Area:** Chart panel volume plot / `ui/chart_panel.py` — top left of volume panel (bottom left of price chart)
-- **Status:** clarified 2026-09-19 — criteria defined, Q22 top left of volume panel
+- **Status:** clarified 2026-09-19 — criteria defined, Q22 top left of volume panel; **updated 2026-09-27** — icon confirmed as the text label `Volume` (Q31) and **placement CONFIRMED** (A23, 2026-09-27)
+- **Visual reference (ESC-004 gate):** **CONFIRMED (2026-09-27).** The **icon/affordance**
+  is the **text label `Volume`** (Q31 — a checkable text-label toggle, not an eye icon or a
+  bar glyph) and the **placement** — **top left of the volume panel (bottom left of the
+  price chart)** — is likewise user-confirmed (A23, 2026-09-27). Gate status: **CONFIRMED**
+  (see AC-G.1).
 - **Reported:** User feedback 2026-09-19: allow the user to show/hide (toggle) the
   volume panel to maximize price-chart vertical space. No toggle exists today; the
   volume `PlotWidget` is always visible in the splitter.
@@ -569,17 +790,21 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
   vertical `QSplitter` with `price_plot` and `osc_plot`; it is always added and
   shown. No user-facing visibility control exists.
 
-**Decisions confirmed 2026-09-19 (Q22 top left of volume panel):**
-- **Top left of the volume panel** (bottom left of price chart) hosts a
-  **checkable toggle**, default **visible**. Toggling hides/shows `volume_plot`
-  (and its axis) and the `QSplitter` is rebalanced so the price plot expands when
-  hidden. The toggle state is **not persisted** in this proposal (resets to visible
-  on launch).
+**Decisions confirmed 2026-09-19 (Q22 top left of volume panel); icon + placement confirmed 2026-09-27 (Q31, A23):**
+- The toggle is a **checkable text-label control showing `Volume`** (Q31), default **visible**
+  — not an eye icon or a bar glyph.
+- **Placement (CONFIRMED 2026-09-27 — A23):** **top left of the volume panel** (bottom left of
+  the price chart).
+- Toggling hides/shows `volume_plot` (and its axis) and the `QSplitter` is rebalanced so the
+  price plot expands when hidden. The toggle state is **not persisted** in this proposal
+  (resets to visible on launch).
 
 **Acceptance Criteria (Given/When/Then):**
-- **AC-D10.1** Given the volume panel is visible, When the user toggles the
-  control, Then `volume_plot` becomes hidden and the price plot expands to fill the
-  freed vertical space; toggling again shows it.
+- **AC-D10.1** Given the volume panel is visible, When the user toggles the `Volume`
+  control (a checkable text label, Q31) at its **confirmed placement** (top left of the
+  volume panel / bottom left of the price chart, A23 confirmed 2026-09-27), Then
+  `volume_plot` becomes hidden and the price plot expands to fill the freed vertical
+  space; toggling again shows it.
 - **AC-D10.2** Given the app is restarted, When launched, Then the volume panel is
   visible by default (no persistence in this proposal).
 
@@ -612,7 +837,12 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 - Labels are children of the price plot’s scene (like the crosshair chip), so they
   are never clipped by the right axis/dock and remain visible at any zoom.
 - When multiple drawings share a similar price, labels stack with a small vertical
-  offset to avoid overlap (or the topmost remains).
+  offset to avoid overlap (or the topmost remains). **Revised 2026-09-27 (Q33 —
+  ESC-006 re-scoped):** the crosshair price chip now lives in the **Y-axis lane outside
+  the plot** (see D2), while D11 drawing labels remain **inside the plot at `x =
+  view_rect.right() - 4`**. The two occupy **different lanes**, so the chip is **no
+  longer included** in the label collision accounting; `AC-D11.4` now applies only to
+  **label-vs-label stacking inside the plot**.
 
 **Acceptance Criteria (Given/When/Then):**
 - **AC-D11.1** Given any drawing with a price, When rendered, Then a price label
@@ -622,15 +852,46 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
   are visible at the zone’s top and bottom edges on the inner right.
 - **AC-D11.3** Given multiple drawings at nearby prices, When rendered, Then
   labels remain legible (small vertical offset, not fully overlapping).
+- **AC-D11.4 (ESC-006 — re-scoped to label-vs-label; Q33 answered 2026-09-27)** Given
+  multiple drawing price labels at (or within the label band of) each other's prices,
+  When those labels render **inside the plot** near the right edge
+  (`anchor=(1,0.5)`, `x = view_rect.right() - 4`), Then their text bounding boxes MUST
+  NOT overlap: consecutive labels are offset by `>= 15 px` (the existing stacking
+  threshold) and each remains fully inside `view_rect` on the right edge.
+  - Measurable: for each consecutive pair of drawing labels,
+    `abs(label_a_bbox.center().y() - label_b_bbox.center().y()) >= bbox_height`
+    (their scene bounding rects do not intersect).
+  - **The crosshair chip is out of scope for this criterion.** It now lives in the
+    Y-axis lane outside the plot (see D2), so crosshair-vs-label overflow collision no
+    longer applies; the earlier `>= 15 px` chip-vs-label requirement is retired. The
+    Code Reviewer MUST **re-scope ESC-006** accordingly (label-vs-label only).
+  - A label run longer than the pane height is still clamped to `view_rect.bottom()`;
+    with lane separation this is a pure label-vs-label stacking concern, not a
+    chip-vs-label priority question.
+
+- **AC-D11.5 (ESC-009 — high-DPI coverage)** Given the app renders at device pixel
+  ratio `2`, When drawing price labels render, Then each label’s scene bounding rect
+  remains fully inside `view_rect` on the right edge (`x + width <= view_rect.right()`)
+  and is not clipped by the axis/dock. Measurable at DPR 2: the label bbox is on-screen
+  and within `view_rect`.
 
 **Edge Cases:**
 - Very narrow window or wide axis keeps labels inside (clamped to `view_rect`).
 - Zooming/panning keeps labels at the right edge and at the correct price.
+- High-DPI (DPR 2) keeps labels inside the plot and legible (AC-D11.5).
 - No drawing → no label.
+- Crosshair resting exactly on a drawing price is no longer a collision: the chip is in
+  the Y-axis lane and the drawing label is inside the plot (D2 / Q33). The remaining
+  label-vs-label stacking when a run exceeds the pane height stays as `AC-D11.4`.
 
 ### D12 — Zone double-click should open settings popup with 4 tabs (Extend omitted)
 - **Area:** Drawings / `ui/drawing_overlay.py` + new `ui/drawings_dialog.py` (or `ui/zone_settings_dialog.py`)
 - **Status:** clarified 2026-09-19 — criteria defined, Q24 Extend omitted confirmed — revises prior popup assumptions
+- **Visual reference (ESC-004 gate):** Q24 confirmed the four attached screenshots as
+  the spec (Style with `Extend` omitted, Text, Coordinates, Visibility). The visual
+  reference for this defect is the **user-confirmed screenshots**; the one deliberate
+  divergence from the reference (`Extend` dropped) is explicitly user-directed. Gate
+  status: **CONFIRMED** (screenshots supplied and confirmed 2026-09-19).
 - **Reported:** User wants double-click on a zone (rectangle) to open the zone
   settings popup as per the four attached screenshots. The Style tab in the
   reference shows an `Extend` dropdown (`Extend right`), but the user says
@@ -744,6 +1005,14 @@ Chart; Q29 no-op semantics):**
   row, Then no historical/RT request is made and the status bar shows
   `Disconnected — cannot load chart.` Double-click on the header or an empty area
   also does nothing.
+- **AC-D14.4 (ESC-010 — mid-drag symbol change)** Given a drawing is being dragged
+  (a drag gesture is in progress on the chart), When the user double-clicks a watchlist
+  row for a **different** symbol, Then the chart loads for the new symbol and **no
+  `RuntimeError` / `RuntimeWarning` is raised** (the overlay's drag/draft state is
+  cleared before the items are detached), and the chart renders normally afterward.
+  - Measurable: running the mid-drag double-click against a drag-active overlay
+    produces zero unhandled exceptions in the app's exception hook / pytest-qt
+    `qt_log` and the new symbol's chart is displayed.
 
 **Edge Cases:**
 - Symbol case differences (`aapl` vs `AAPL`) are treated as the same symbol
@@ -751,10 +1020,16 @@ Chart; Q29 no-op semantics):**
 - Double-click during an in-flight load for a different symbol cancels that RT and
   loads the new symbol (existing `load_chart` behaviour).
 - No symbols in the watchlist → double-click does nothing.
+- Double-click a different symbol while a drawing drag is in progress → no crash
+  (`AC-D14.4`); the defensive `dragItem` clearing must be exercised, not assumed.
 
 ### D15 — Double-click horizontal line should open settings popup with 4 tabs
 - **Area:** Drawings / `ui/drawing_overlay.py` + new `ui/horizontal_line_settings_dialog.py` (or `ui/drawing_settings_dialog.py`)
 - **Status:** clarified 2026-09-20 — criteria defined, Q30 correct
+- **Visual reference (ESC-004 gate):** Q30 confirmed the four attached `Horizontal line`
+  screenshots as the spec (Style `Line`, Text 12, Coordinates single `#1 (price)`,
+  Visibility). Gate status: **CONFIRMED** (screenshots supplied and confirmed
+  2026-09-20).
 - **Reported:** User double-click on a horizontal line should open the line settings
   popup as per the four attached screenshots for `Horizontal line`.
 - **Observed in code at time of report:** `DrawingOverlay` handles single-click
@@ -798,12 +1073,12 @@ Chart; Q29 no-op semantics):**
 | A2 | Phases 1–10 of `PENDING_IMPLEMENTATION_PLAN.md` are effectively implemented | All referenced modules and tests exist on disk | n | 2026-09-19 |
 | A3 | Defects are diagnosed against the dev build (`python main.py`), not the packaged `.app` | Dev build is the working target; bundle untested per-defect unless stated | n | 2026-09-19 |
 | A4 | "Test conditions pass" means the existing offscreen suite plus new per-defect checks | Q3 + Q8 confirmed + repo test conventions | y | 2026-09-19 |
-| A5 | D2 chip keeps current 2-decimal format, or matches axis tick precision if that differs | User chose placement "(a)" only; decimals unspecified | n | 2026-09-19 |
+| A5 | D2 chip keeps current 2-decimal format, or matches axis tick precision if that differs | Decimals still unspecified; **placement since revised by Q33** (chip moved to the Y-axis lane, grey pill + white text) — see D2/A25. The original "option (a)" inside-plot right-alignment no longer applies | n | 2026-09-19 (placement revised 2026-09-27) |
 | A6 | D3 magnifier reverts to Cursor when symbol/timeframe changes | Not stated by user; safety default | n | 2026-09-19 |
 | A7 | D1 exact orange/blue hex picked to match the app theme at 10% alpha | User specified colour name + opacity only | n | 2026-09-19 |
 | A8 | D4 glyph size is 14px/700 for `-`/`+`/`Reset` and 21px/700 for `⌕` (magnifier 50% larger), and the inside-data-area position is `panel.width - ctrl.width - axis_width - 12` | Q15 confirmed with magnifier +50% (21px vs 14px); Q16 confirmed current fine | y | 2026-09-19 |
 | A10 | D6 wick is ~1px thin line behind the body (body ≥4× wick), colour follows direction, wick extends beyond body when shadow exists | Q18 confirmed 2026-09-19 | y | 2026-09-19 |
-| A9 | D5 volume log is always on, X stays linear, zero-volume bars map to 1.0 with yRange lower 1.0 | User said "y-axis needs to be logarithmic" without specifying toggle or zero handling | n | 2026-09-19 |
+| A9 | ~~D5 volume log is always on, X stays linear, zero-volume bars map to 1.0 with yRange lower 1.0~~ **SUPERSEDED by A12 (D8 linear)** | User said "y-axis needs to be logarithmic" without specifying toggle or zero handling — later rejected in favour of linear (Q20) | n (superseded) | 2026-09-19 |
 | A11 | D7 gap is 35% of bar spacing (body half-width 0.325× median_diff) rather than the current 20% (0.40) | Q19 confirmed "go 35% gap for now" | y | 2026-09-19 |
 | A12 | D8 volume is linear on Y with `yRange=(0, nice_max)` where `nice_max` is `max_vol*1.1` rounded to the next nice tick from `[10k, 50k, 100k, 250k, 500k, 1.0M, 1.5M, 2.0M, 2.5M, 5M, 10M]`, no negatives, and bars are green/red by `close>=open` | Q20 confirmed 2026-09-19 | y | 2026-09-19 |
 | A13 | D9 volume bar width follows price candle width (`width = w*2`, gap 35% of `median_diff`) | Q21 correct — matching price 35% gap | y | 2026-09-19 |
@@ -814,6 +1089,54 @@ Chart; Q29 no-op semantics):**
 | A18 | D14 watchlist double-click anywhere on row (any column) triggers chart load identical to manual Load Chart with current timeframe/ext-hours, updates symbol_input | Q27 double-click row + Q28 identical to Load Chart confirmed 2026-09-20 | y | 2026-09-20 |
 | A19 | D14 no-op when double-clicked symbol equals _current_symbol (case-insensitive) or when IBKR disconnected (status message only, no request); header/empty area also no-op | Q29 no-op confirmed 2026-09-20 | y | 2026-09-20 |
 | A20 | D15 horizontal line settings popup is titled `Horizontal line` with 4 tabs Style (Line) / Text (12, B/I, Add text, Top/Right) / Coordinates #1 (price) 7548.85 / Visibility (Ticks–Ranges) | Q30 correct — four tabs as per attachments | y | 2026-09-20 |
+| A21 | **ESC-004 visual gate applied:** a UI-visual decision is only "clarified" once its Defect-Entry `Visual reference:` line names a concrete artifact and the user has confirmed it; otherwise it is a provisional assumption recorded here | Process fix for the D5→D8 rework (screenshot arrived after build); see AC-G.1 | n | 2026-09-27 |
+| A22 | D10 volume toggle **icon/affordance** is the **text label `Volume`** (a checkable text-label control), confirmed by the user — not an eye icon or a bar glyph | Q31 answered 2026-09-27 (user chose the text label `Volume`) | y | 2026-09-27 |
+| A23 | D10 volume toggle **placement** is the **top left of the volume panel (bottom left of the price chart)** — **CONFIRMED 2026-09-27** (flipped from provisional) | Q22 named the location; Q32 originally accepted it as provisional; the user confirmed the placement on 2026-09-27 | y | 2026-09-27 |
+| A24 | D8 volume `nice_max` is generated by a continuous scaling formula whose mantissa set is **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (pinned by RG-002, resolved 2026-09-27, to reproduce the user-confirmed Q20 values `750K` and `1.5M`), not the original fixed list. **No fixed `10k` floor** (smallest generated value `100`) and **no fixed ceiling** (scales as `10^k`). The old list is retained **only** as a test fixture. | ESC-003/ESC-008 fix; RG-002 resolved 2026-09-27 — the family is pinned by confirmed Q20 evidence, so no further user confirmation is needed for the value set. Supersedes A12's list and removes the D8 10k floor | n | 2026-09-27 |
+| A25 | D2 chip **appearance and lane placement** (Y-axis lane outside the plot, right of the vertical axis line; grey pill with white text; axis-tick-label overlap permitted) is **CONFIRMED 2026-09-27** — the reference is the agreed target. **Scoped carve-out:** **dock-open visibility** (the chip must not be hidden by the Active Trader / Portfolio dock) is **NOT** covered by this reference and remains a separately verified acceptance criterion (`AC-D2.1`) + edge case requiring independent Code Reviewer verification after Build | Q33 answered 2026-09-27 by a design change; the user confirmed the appearance/placement reference on 2026-09-27 | y (appearance/placement) — dock-open visibility separately verified | 2026-09-27 |
+| A26 | **ESC-002 reverse direction (Q35):** selecting a drawing tool while the router is in `ZOOMING` **exits `ZOOMING` and activates the drawing tool**. Now a **requirement** (folded into `AC-D3.7` together with the forward direction), **CONFIRMED 2026-09-27** (flipped from provisional) | Originally carried as an assumption because only the forward direction had been answered; the user confirmed the reverse rule on 2026-09-27. Plan MUST encode it in the router transition table as required behaviour, not as an assumption | y | 2026-09-27 |
+
+## Documentation Maintenance Requirements
+
+> Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
+> ESC-004 process gate. These are requirements on the *repository's own docs*, not on
+> shipped code; the Requirements Analyst records them here because the owning files
+> (`usage.md`, `PENDING_IMPLEMENTATION_PLAN.md`) are root-level docs the Analyst does
+> not edit.
+
+- **DOC-1 (test count/timing accuracy, ESC-011):** `usage.md` and
+  `PENDING_IMPLEMENTATION_PLAN.md` MUST NOT state a test count or runtime that
+  differs from a measured run at the current revision.
+  - **Measured 2026-09-27 at `09070e8`:** `QT_QPA_PLATFORM=offscreen python -m pytest
+    tests/` → **339 passed in 2.87s**.
+  - **Stale values to correct:** `usage.md:166` "Full suite (269 tests, ~1.5s)";
+    `PENDING_IMPLEMENTATION_PLAN.md:364`, `:412`, `:458` "269 passed".
+  - **Recommended correction:** update each to **339 tests / ~2.9s** (or replace the
+    hard-coded numbers with a pointer to the CI/build log so they cannot drift again).
+- **DOC-2 (phase completion markers, ESC-011):** `PENDING_IMPLEMENTATION_PLAN.md`
+  MUST carry a completion marker that matches reality for every phase whose target
+  files exist. Phases 1–5 (`:69`, `:129`, `:172`, `:213`, `:243`) currently have **no
+  marker** although `ui/drawing_overlay.py`, `ibkr/market_depth.py`, `ibkr/orders.py`,
+  `ui/active_trader_panel.py`, `ui/stop_loss_target_dialog.py` exist.
+  - **Correction (decided 2026-09-27, Q34):** mark Phases 1–5 as `✅ COMPLETE` (matching
+    the `Phase 6`/`Phase 7` style).
+  - **Ownership split (Q34):** the **Requirements Analyst owns closing DOC-2** (this
+    requirement and the mark-complete correction); **Code Reviewer verification is the
+    confirming step** — Code Reviewer confirms the drift and then verifies the correction
+    was applied (see ESC-011).
+  - **Dependency note:** `PENDING_IMPLEMENTATION_PLAN.md` is **not in the Analyst's
+    file-ownership table**, so the Analyst records the requirement and the ownership split
+    here rather than editing that root doc. If a user/owner action is still needed to
+    physically apply the `✅ COMPLETE` markers, that is a **recorded dependency**, not a
+    blocking open question (Q34 is answered; DOC-2 is Analyst-owned to close).
+- **DOC-3 (no orphaned build artifacts, ESC-011):** the source-less
+  `tests/__pycache__/test_db_schema.cpython-311-*.pyc` must be removed and the
+  corresponding `tests/test_db_schema.py` committed as source (tracked by **ESC-001**,
+  owned by BUILD).
+- **DOC-4 (markdown-history retention):** superseded requirement sections (e.g., D5)
+  are kept for history but MUST carry an explicit `SUPERSEDED BY <defect>` marker and
+  a one-line pointer to the authoritative section, so no reader can mistake them for
+  live criteria (this is the fix applied for **ESC-012**).
 
 ## Risks / Unknowns
 | # | Risk | Severity | Likelihood | Mitigation |
@@ -824,18 +1147,21 @@ Chart; Q29 no-op semantics):**
 | R4 | Vague UI defects ("looks wrong") yield untestable criteria | M | H | Every defect must have measurable Given/When/Then criteria and an edge case |
 | R5 | Fixing one UI defect may regress another (shared chart/dock code) | M | M | Re-run full suite per fix; note regression risk per defect |
 | R6 | D4 axis width varies with price magnitude; fixed 28px margin may still clip | M | M | Position left of dynamic `getAxis('right').width()` with 12px margin and `x>=8` clamp |
-| R7 | D5 log scale cannot display 0; zero-volume handling may be interpreted as data | L | M | Map 0→1.0 with documented minimal tick; keep yRange lower 1.0 |
+| R7 | ~~D5 log scale cannot display 0~~ **Resolved by D8** (linear axis, lower bound `0`); retained for history | — | — | Superseded by D8/Q20: linear `yRange=(0, nice_max)` has no zero-display problem |
 | R8 | D6 wick/body thickness ratio may still be indistinct at extreme zoom/density | M | M | Fix wick at 1px regardless of zoom; body narrows with density but wick does not |
 | R9 | D7 slightly narrower bodies could reduce legibility at very high density | L | M | Keep 4px body minimum from D6; gap remains positive; verify at 1-min dense view |
 | R10 | D8 nice-max rounding could still leave little headroom if max is just above a nice boundary | L | M | Use `max*1.1` before rounding up; verify tick count stays 3–5 |
 | R11 | D9 volume and price widths could diverge on Line/Area modes where price has no bodies | L | L | Define volume width from the same `w` even when price mode has no bodies; keep XLink |
-| R12 | D10 toggle placement/persistence may not match user expectation | L | M | Top left of volume panel (bottom left of price chart) as confirmed Q22, not persisted |
+| R12 | D10 toggle placement/affordance may not match user expectation | L | L | Icon = text label `Volume` confirmed (Q31); placement = top left of volume panel (bottom left of price chart) **confirmed 2026-09-27** (A23), not persisted; D10 is `CONFIRMED` under AC-G.1 |
 | R13 | D11 price labels could overlap when many drawings share a similar price | L | M | Stack with small vertical offset or show topmost; verify at 09:00–10:00 dense zones |
 | R14 | D12 zone popup with 4 tabs adds non-trivial UI surface; Extend omission may surprise users expecting the control | L | M | Omit Extend per user’s "extend both sides is required"; keep the other Style controls as shown |
 | R15 | D13 50% max may still crowd chart on small screens; persistence restore could exceed new window size | L | M | Enforce chart ≥400px via `min(0.50×W, W−400)` and clamp on restore/resize; min watchlist 150px |
 | R16 | D14 double-click could be mistaken for single-click row selection; accidental reloads | L | M | Require double-click (not single), any column; same-symbol and disconnected are no-ops; status message for disconnected |
 | R17 | D13 floating vs docked width confusion — 50% rule mismatch | L | L | Apply 50% only when docked in LeftDockWidgetArea; floating geometry unconstrained |
 | R18 | D15 horizontal line popup duplicates zone popup structure; Text tab font size 12 vs zone 14 may confuse | L | L | Keep D15 Style as Line only and Text size 12 as per attachment; keep D12 Style with Border/Middle/Background |
+| R19 | A UI-visual decision implemented without a confirmed visual reference (the D5→D8 failure mode) | M | M | AC-G.1 visual gate: no UI-visual fix proceeds until its `Visual reference:` line names a user-confirmed artifact; otherwise it is a provisional assumption (A21–A26) |
+| R20 | D8 `nice_max` scaling formula changes the axis values of already-built (Batch 4) behaviour, invalidating the old fixed-list test | L | M | Keep the old list only as a fixture; update `tests/test_volume_linear.py` to the pinned `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k` scale (AC-D8.4/8.5) — `1_050_000 → 1_500_000` and `2_200_000 → 2_500_000` are already correct, but `_nice_volume_max(0)` must become `100` (not `10_000`) per AC-D8.4 |
+| R21 | D11 drawing price labels (inside the plot) can stack when a label run overflows the pane; the crosshair chip no longer shares that lane | L | M | Chip moved to the Y-axis lane (D2/Q33), so `AC-D11.4` is **label-vs-label only** (`>= 15 px` stacking, clamped to `view_rect.bottom()`); chip-vs-label priority no longer applies (ESC-006 re-scope by Code Reviewer) |
 
 ---
 
