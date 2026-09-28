@@ -1237,7 +1237,7 @@
         "ui/main_window.py",
         "tests/test_chart_mouse_router.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T22",
@@ -1331,7 +1331,7 @@
         "ui/chart_panel.py",
         "tests/test_volume_linear.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T23",
@@ -1396,7 +1396,7 @@
         "ui/chart_panel.py",
         "tests/test_volume_ceiling.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T24",
@@ -1470,7 +1470,7 @@
         "ui/chart_panel.py",
         "tests/test_crosshair_axis_lane.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T25",
@@ -1522,7 +1522,7 @@
       "touches_files": [
         "tests/test_drawing_labels.py"
       ],
-      "status": "not_started"
+      "status": "blocked"
     },
     {
       "id": "T26",
@@ -1577,7 +1577,7 @@
         "data/db.py",
         "tests/test_db_schema.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T27",
@@ -1633,7 +1633,7 @@
         "ui/chart_panel.py",
         "tests/test_volume_toggle.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T28",
@@ -1684,7 +1684,7 @@
         "tests/test_d10_d13_integration.py",
         "ui/chart_panel.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T29",
@@ -1740,7 +1740,7 @@
         "tests/test_chart_dpi.py",
         "tests/conftest.py"
       ],
-      "status": "not_started"
+      "status": "blocked"
     },
     {
       "id": "T30",
@@ -1800,7 +1800,7 @@
         "ui/chart_panel.py",
         "tests/test_watchlist_d14_midrag.py"
       ],
-      "status": "not_started"
+      "status": "done"
     },
     {
       "id": "T31",

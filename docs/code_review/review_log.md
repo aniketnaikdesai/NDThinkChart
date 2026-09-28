@@ -297,3 +297,171 @@ test exercises it. The original defect and fix are documented at
    rounding above 10M. The concern (coarse >10M steps) is real; the premise as stated is not.
 3. **HA "Phases 1–5 unchecked":** the file has no `[ ]` checkboxes at all; the accurate statement is
    that Phases 1–5 carry no completion marker while their files exist.
+
+---
+
+# Revision 2 review — Build ESC revision (T21–T31), 2026-09-28
+
+**Scope reviewed:** `docs/build/build_log.md` (ends `Status: NEEDS_CODE_REVIEW`), `docs/build/failures.json`,
+`docs/tasks/task-graph.json`, `docs/architecture.md`, `docs/plan.md`, `docs/requirements/requirements.md`,
+existing `docs/code_review/escalations.md` (ESC-001…ESC-012), and the uncommitted Build changes in
+`data/db.py`, `ui/chart_mouse_router.py`, `ui/chart_panel.py`, `ui/main_window.py`, and the tests.
+Repo `286028a` (docs checkpoint) + uncommitted code changes. No live TWS was used — all runs were
+`QT_QPA_PLATFORM=offscreen`.
+
+**Independent test evidence (run by the reviewer, not taken from Build's report):**
+
+- Full suite: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` →
+  **`8 failed, 372 passed in 5.95s`**, matching Build's count exactly. The 8:
+  `test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips`,
+  `test_chart_dpi.py::test_wick_stays_1_device_px_and_body_clamped_at_dpr[dpr1]` and `[dpr2]`,
+  `test_crosshair_chip_bounds.py::test_chip_visible_inside_right_edge` /
+  `::test_chip_stays_inside_after_zoom` / `::test_long_price_and_edge_positions`,
+  `test_drawing_labels.py::test_label_vs_label_bbox_no_intersection`,
+  `test_volume_log.py::test_volume_zero_mapped_to_one`.
+- New/modified per-task modules re-run green (45 passed):
+  `test_chart_mouse_router.py`, `test_volume_linear.py`, `test_volume_ceiling.py`,
+  `test_crosshair_axis_lane.py`, `test_db_schema.py`, `test_volume_toggle.py`,
+  `test_d10_d13_integration.py`, `test_watchlist_d14_midrag.py`.
+
+## A. Failure diagnosis (both blocked tasks — reproduced, then routed)
+
+### R-01 — T25 `blocked`: D11 label bboxes overlap (code bug → BUILD)
+Reproduced `tests/test_drawing_labels.py::test_label_vs_label_bbox_no_intersection` →
+`1 failed, 4 passed`, `AssertionError: D11 label bounding boxes overlap: centre separation 15.0px <
+label bbox height 23.0px`. Confirmed root cause: `ui/drawing_overlay.py::_update_inner_labels()`
+(`:386–391`) enforces a fixed 15 px centre offset (`if last_y is not None and y - last_y < 15`), while
+real `TextItem` scene bboxes are ~23 px tall (measured 48.06×23.00 and 48.20×23.00, `intersects()==True`).
+AC-D11.4's normative clause ("bounding boxes MUST NOT overlap"; measurable `centerΔ >= bbox_height`) is
+therefore unmet. **Classification `code_bug`** (the AC's `>= 15 px` parenthetical is the *existing*
+threshold, but the binding clause is non-overlap). **Routed: BUILD (ESC-014).** Build's own diagnosis
+was accepted as accurate; the fix is outside T25's `touches_files` (`ui/drawing_overlay.py`).
+
+### R-02 — T29 `blocked`: D6 body clamp never fires (code bug → BUILD)
+Reproduced `tests/test_chart_dpi.py` → `2 failed, 3 passed`; measured `body_device_px ≈ 0.53` (dpr1)
+and `1.06` (dpr2) against `>= 4`. Confirmed root cause: `ui/chart_panel.py::_refresh_candles()` calls
+`self.candlestick.set_data(...)` at `:831` **before** `vb.setRange(...)` at `:844`; the `>=4-device-px`
+clamp in `ui/candlestick_item.py::_draw_candles()` (`:118–125`) reads `vb.viewRange()` **at generation
+time**, when it is the default `[[-0.5, 0.5]]` (`px_per_sec ≈ 863`), so `min_w` never binds and the
+stored `w = median_diff*0.325` survives the later real range. **Classification `code_bug`** — a
+pre-existing ordering bug the new DPR coverage exposed (the clamp math is DPR-safe). **Routed: BUILD
+(ESC-015).** Build's diagnosis accepted.
+
+## B. Quality review of what passed (T21–T30)
+
+- **T21 RouterMode** (`ui/chart_mouse_router.py`): implemented as a genuine single-valued state machine
+  — intent helpers (`enter_zoom`/`enter_drawing`/`enter_alarm_placing`/`exit_to_idle`), guard-clause
+  dispatch on `_active_mode`, RC-3 property reconciliation with defensive probes. Test suite is real
+  (exercises live overlays, not only doubles) and non-tautological; the 5 preserved tests pass
+  verbatim. **One consistency gap:** TR-4's required side effect "uncheck the draw combo" is missing
+  (see R-07 below).
+- **T22 volume nice generator**: `_volume_nice_max`/`_volume_nice_family` implement the pinned family
+  correctly; tests assert real mappings and a monotonic/tight sweep. `_volume_nice_family()` is only
+  used by tests (production re-implements the same loop) — minor duplication, nice-to-have, not worth
+  an escalation. The T22 "fixed point" AC wording is a task-definition defect (R-06).
+- **T23 live ceiling**: `_recompute_vol_max` (O(N) load/new-bar), `_ensure_volume_range` (only-widen,
+  no write on non-crossing tick), `_widen_volume_for` (O(1) intra-bar), empty-load resets caches.
+  `tests/test_volume_ceiling.py` is a strong, real test (the `setRange` spy genuinely proves O(1)
+  only-widen). Correct.
+- **T24 crosshair chip relocation**: lane reservation via a `TextItem` probe, left-anchor, right-edge
+  guard, vertical clamp. Tests are real geometry assertions. Dock-open visibility independently
+  verified — see C.
+- **T26 DB dedupe**: exactly one `_init_schema`; `tests/test_db_schema.py` asserts the ten-table set
+  and single-definition via AST. Good, real regression test.
+- **T27 volume toggle**: label is exactly `Volume`, checkable, default visible, splitter restores.
+  Stronger than before (axis hide/show + strict height direction). Good.
+- **T28 D10+D13 integration**: real `MainWindow` test with no TWS; genuinely covers the ESC-005 gap.
+- **T30 D14 mid-drag reset**: drives the real double-click path mid-drag, asserts no
+  `RuntimeError`/`RuntimeWarning` and the router returns to `IDLE`; has a discrimination check. Good.
+- **T29 DPI harness**: a genuine isolated-subprocess DPR probe (does not mutate the session qapp);
+  the `dense_after_regen` figure is diagnostic-only and correctly not asserted. Good test design.
+- **Test quality note (nice-to-have):** `tests/test_drawing_labels.py:67`
+  `assert label.isVisible() or True` is vacuously true (asserts nothing). It should be folded into the
+  T25 test-file update (noted in ESC-014). No test in the changed set is otherwise tautological or
+  over-mocked; none was weakened to pass.
+
+## C. Independent AC-D2.1 dock-open verification (A25) — **PASS**
+
+Performed by the reviewer (not T24-T02): a real `MainWindow` (with `IBApiClient.connect` no-op) at
+1400×800, 1100×700 and 900×650, both right docks (`Active Trader`, `Portfolio`) shown, real bars
+loaded, crosshair moved over the plot, then the **window was grabbed to a `QImage`** and the pill
+colour sampled.
+
+| Size | chip visible | in lane (`x >= view_rect.right()`) | intersects dock | grey-pill pixels in chip rect | inside central |
+|---|---|---|---|---|---|
+| 1400×800 | yes | yes | no / no | 63.8 % (1176 px) | yes |
+| 1100×700 | yes | yes | no / no | 67.7 % | yes |
+| 900×650  | yes | yes | no / no | 67.7 % | yes |
+
+The chip renders as a grey pill with white text at scene `x >= view_rect.right()`, is **actually
+painted** (≈64–68 % of its rect is the `#4b5563` fill in the grabbed window), lies inside the central
+widget, and does **not** intersect either open dock's `frameGeometry()`. **AC-D2.1 verified.** No
+escalation.
+
+## D. Escalation close-out (ESC-001…ESC-012)
+
+Re-checked each open entry against what changed and re-verified the fix directly. Closed as
+`addressed` (edited in place, with a `Verified:` line): **ESC-001, ESC-002, ESC-003, ESC-004,
+ESC-005, ESC-006, ESC-007, ESC-008, ESC-009, ESC-010, ESC-012** (11 entries).
+- ESC-001: one `_init_schema` (`:14`) + real `tests/test_db_schema.py` green.
+- ESC-002: RouterMode state machine in `architecture.md` + `ui/chart_mouse_router.py`; T21 tests green.
+- ESC-003/ESC-008: pinned family generator; 40–50M mapping and low end (`0→100`, `800→1000`) green.
+- ESC-004: **AC-G.1** visual-reference gate present in `requirements.md`.
+- ESC-005: `tests/test_d10_d13_integration.py` green.
+- ESC-006: chip relocated to the lane (Q33); T24 tests + C above; chip-vs-label collision retired. The
+  remaining label-vs-label overlap is a distinct new finding (ESC-014).
+- ESC-007: O(1) live ceiling + timezone re-apply; `test_volume_ceiling.py` green.
+- ESC-009: DPR-1/2 isolated coverage exists and runs; it exposed a real D6 bug (ESC-015), i.e. the
+  coverage did its job.
+- ESC-010: `test_watchlist_d14_midrag.py` green + TR-17 reset in `set_symbol()`.
+- ESC-012: D5 marked superseded + header index corrected.
+
+**ESC-011 left `open` (partially addressed).** DOC-3 (orphaned `.pyc` / missing source) is resolved by
+ESC-001, and DOC-4 by ESC-012; but DOC-1 (test counts) and DOC-2 (phase completion markers) are **not**
+applied — `usage.md:166` still reads "269 tests, ~1.5s", `PENDING_IMPLEMENTATION_PLAN.md:364/:412/:458`
+still read "269 passed", and Phases 1–5 still carry no `✅ COMPLETE` marker. `requirements.md`
+DOC-1..4 records these as root-level docs no pipeline agent owns (a recorded user/owner dependency), so
+this escalation cannot be closed by an agent this pass. Left `open`; no re-diagnosis beyond the above.
+
+## E. New findings and routing (details in `escalations.md`)
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-013 | T29 | BUILD | bug / blocking | candle picture generated before `setRange`; D6 clamp never fires |
+| ESC-014 | T25 | BUILD | bug / blocking | label stacking 15 px < 23 px bbox height |
+| ESC-015 | T22 | BUILD | gap / should-fix | `test_volume_log.py` stale 10k expectation (blocks T31) |
+| ESC-016 | T24 | BUILD | consistency / should-fix | 4 stale inside-plot crosshair assertions (blocks T31) |
+| ESC-017 | T21 | BUILD | consistency / should-fix | TR-4 "uncheck the draw combo" not implemented (stale combo) |
+| ESC-018 | T22 | TASK_MANAGER | gap / nice-to-have | "each is a fixed point" AC predicate unachievable as worded |
+| ESC-019 | T27 | PLAN | consistency / nice-to-have | stale `👁 Volume` prose in plan/architecture_proposal/plan_review |
+
+**Routing notes / judgement calls:**
+- **ESC-018 owner:** the "fixed point" predicate exists **only** in `docs/tasks/task-graph.json`
+  (`:1256`, `:1270`, `:1298`); `requirements.md` and `architecture.md` D8 wording is consistent (grep
+  confirmed no "fixed point" anywhere else in `docs/`). It is therefore a Task-Manager task-definition
+  wording fix, **not** a requirements/plan gap — Build's own note and failures.json said
+  "Task Manager/Plan/Requirements", and the evidence localises it to the Task Manager.
+- **T28 layout note (failures.json index 6) — decided ACCEPTABLE as-is; no task raised.** The D13
+  clamp `[150, min(floor(0.50×W), W−400)]` is implemented faithfully at the mandated points
+  (`clamp_watchlist_width` for restore/`resizeEvent`), and AC-D13.1's drag-to-`max_w` scenario is met
+  (T28-T01). The residual observations are real but non-blocking: (a) a *raw* dock-drag beyond `max_w`
+  is bounded by Qt's central-widget `minimumSizeHint` (1716 px offscreen), not by the D13 clamp, so the
+  `W−400` branch is never binding; (b) `watchlist_max_width()` reserves 400 px against the whole window
+  and ignores right docks. Both are inherent in the AC's own formula, so correcting them would be a
+  requirements/design change, not a Build bug. Recorded here for transparency; if the team wants it
+  enforced on a raw drag, it should be a Requirements Analyst wording decision plus a Task Manager
+  follow-up task. No escalation.
+- **ESC-017 verification caveat:** the combo staleness is a code-reading finding (the router clears the
+  overlay tool but no signal reaches `MainWindow.draw_combo`); I verified the code paths and the
+  alarm-path contrast at `ui/main_window.py:672`, but did not build a focused failing test for it
+  (T21's ACs do not cover the combo). Flagged `should-fix`; Build can confirm with a UI assertion.
+- **Could-not-verify:** none of the two blocked failures were unverifiable (both reproduced exactly). The
+  ESC-018 predicate is unachievable by construction (proved algebraically against the pinned formula),
+  so it is a wording defect rather than a test failure to reproduce.
+
+**Pipeline state for the Orchestrator:** open escalations remain (4 BUILD items block T31 via the full
+suite: ESC-013/ESC-014/ESC-015/ESC-016; plus ESC-017, ESC-018, ESC-019 and the pre-existing ESC-011).
+T31 remains unreachable until the blocked T25/T29 code fixes land and the two stale-test items are
+corrected.
+
+Status: REVIEW_COMPLETE

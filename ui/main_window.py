@@ -267,6 +267,13 @@ class MainWindow(QMainWindow):
         self.chart_panel.drawing_overlay.deleted.connect(self._on_drawing_deleted)
         self.chart_panel.drawing_overlay.selection_changed.connect(self._on_drawing_selection_changed)
 
+        # AC-D3.9: the magnifier is refused while alarm placement is armed.
+        self.chart_panel.zoom_refused.connect(
+            lambda: self.status_bar.showMessage(
+                "Finish or cancel alarm placement before zooming", 4000
+            )
+        )
+
         # Alarm overlay wiring
         aov = self.chart_panel.alarm_overlay
         aov.create_requested.connect(self._on_alarm_create_requested)

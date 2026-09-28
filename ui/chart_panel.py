@@ -8,12 +8,12 @@ Supports 5 render modes and dynamic study overlays.
 import hashlib
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 
 from ui.candlestick_item import CandlestickItem, ChartMode
-from ui.drawing_overlay import DrawingViewBox, DrawingOverlay
+from ui.drawing_overlay import DrawingViewBox, DrawingOverlay, TOOL_CURSOR
 from ui.alarm_overlay import AlarmOverlay
-from ui.chart_mouse_router import ChartMouseRouter
+from ui.chart_mouse_router import ChartMouseRouter, RouterMode
 from ui.overlays.gap_overlay import RthGapOverlay
 from ui.overlays.vix_overlay import VixOverlay
 from ui.overlays.ict_overlay import ICTStudyOverlay
@@ -42,17 +42,70 @@ def _custom_date_axis(utc: bool = True, tz_offset: int = 0) -> "pg.DateAxisItem"
     return axis
 
 
+# D8 / RG-002: the single pinned volume nice-number family. The old fixed list
+# [10k .. 10M] is retained ONLY as a regression fixture in
+# tests/test_volume_linear.py and is never a live code path.
+VOLUME_NICE_MANTISSAS = (1.0, 1.5, 2.0, 2.5, 5.0, 7.5)
+VOLUME_NICE_FLOOR = 100.0
+
+
+def _volume_nice_family(max_exponent: int = 12) -> tuple[float, ...]:
+    """Return the pinned volume family ``1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k`` (RG-002).
+
+    Values are generated from ``1 x 10^2`` — the required ``100`` floor
+    (AC-D8.4) — upward, so the sequence scales with ``k`` and has no fixed
+    ceiling. This is the only live volume nice-number family; the old fixed
+    ``[10k .. 10M]`` list is a test fixture only.
+    """
+    values: list[float] = []
+    for k in range(2, max_exponent + 1):
+        base = 10.0 ** k
+        for mantissa in VOLUME_NICE_MANTISSAS:
+            values.append(mantissa * base)
+    return tuple(values)
+
+
 def _nice_volume_max(max_vol: float) -> float:
-    """Return next nice max for volume axis from set [10k, 50k, 100k, 250k, 500k, 750k, 1M, 1.5M, 2M, 2.5M, 5M, 10M]."""
-    nice = [10_000, 50_000, 100_000, 250_000, 500_000, 750_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 5_000_000, 10_000_000]
-    target = max_vol * 1.1 if max_vol > 0 else 10_000
-    if target <= nice[0]:
-        return float(nice[0])
-    for n in nice:
-        if target <= n:
-            return float(n)
-    # Beyond 10M, round up to next 5M
-    return float(((int(target // 5_000_000) + 1) * 5_000_000))
+    """Return the smallest pinned-family value ``>= max_vol * 1.1``.
+
+    Family (RG-002 / AC-D8.1): ``1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k``, floored at
+    ``100`` with no fixed ceiling. ``max_vol == 0`` (or any target at or below the
+    floor) returns ``100`` (AC-D8.4). This replaces the coarse fixed
+    ``[10k .. 10M]`` list whose ``10k`` floor and 5M fallback are the
+    ESC-003 / ESC-008 defects.
+    """
+    if max_vol <= 0:
+        return VOLUME_NICE_FLOOR
+    target = float(max_vol) * 1.1
+    if target <= VOLUME_NICE_FLOOR:
+        return VOLUME_NICE_FLOOR
+    k = 2
+    while True:
+        base = 10.0 ** k
+        for mantissa in VOLUME_NICE_MANTISSAS:
+            value = mantissa * base
+            if value >= target:
+                return value
+        k += 1
+
+
+def _format_volume_tick(value: float) -> str:
+    """Format a volume-axis tick as ``500.0K`` / ``1.0M`` (AC-D8.3)."""
+    v = float(value)
+    if v >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"{v / 1_000:.1f}K"
+    if v == int(v):
+        return str(int(v))
+    return f"{v:g}"
+
+
+class _VolumeAxisItem(pg.AxisItem):
+    """Right axis for the volume subplot using the D8 tick formatter (AC-D8.3)."""
+
+    def tickStrings(self, values, scale, spacing):
+        return [_format_volume_tick(v * scale) for v in values]
 
 
 from services.indicator_service import (
@@ -114,7 +167,21 @@ class _StudyCache:
                 self._cache.pop(k, None)
 
 
+# D2 / Q33 crosshair price chip: the chip renders in the Y-axis lane (outside
+# the plot, right of the vertical axis line) as a grey pill with white text.
+# Axis tick-label overlap is by design (no deconfliction offset), so the lane
+# is reserved wide enough for a long price to keep the pill unclipped and
+# clear of a right-side dock.
+PRICE_TAG_FILL = "#4b5563"
+PRICE_TAG_TEXT_COLOR = "#ffffff"
+PRICE_TAG_PAD = 3.0
+PRICE_TAG_LANE_SAMPLE = "123,456.78"
+
+
 class ChartPanel(QWidget):
+    # AC-D3.9: emitted when the magnifier is refused because alarm placement is armed.
+    zoom_refused = pyqtSignal()
+
     def __init__(self, tz_offset: int = 0):
         super().__init__()
         self._bars: list = []
@@ -125,6 +192,12 @@ class ChartPanel(QWidget):
         self._current_timeframe: str | None = None
         self._study_cache = _StudyCache()
         self._tz_offset = tz_offset  # timezone offset in seconds (positive behind UTC, e.g., 18000 for EST, 14400 for EDT)
+
+        # ESC-007 / AC-D8.6: cached running volume max and the ceiling last
+        # applied to the volume ViewBox. Rebuilt O(N) on a load / new bar and
+        # widened O(1) on intra-bar ticks (the forming last bar grows live).
+        self._vol_max: float = 0.0
+        self._volume_nice_max: float = VOLUME_NICE_FLOOR
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -215,6 +288,8 @@ class ChartPanel(QWidget):
         self.volume_plot.setMaximumHeight(120)
         self.volume_plot.showGrid(x=True, y=True, alpha=0.05)
         self.volume_plot.hideAxis('left')
+        # Right axis uses the D8 volume tick formatter (AC-D8.3: 500.0K / 1.0M).
+        self.volume_plot.setAxisItems({'right': _VolumeAxisItem(orientation='right')})
         self.volume_plot.showAxis('right')
         self.volume_plot.getAxis('right').setStyle(tickFont=None)
         self.volume_plot.setXLink(self.price_plot)
@@ -245,9 +320,11 @@ class ChartPanel(QWidget):
         self._splitter.setSizes([600, 120, 120])
         layout.addWidget(self._splitter)
 
-        # Volume show/hide toggle — top left of volume panel (bottom left of price chart)
+        # Volume show/hide toggle — top left of volume panel (bottom left of price chart).
+        # RC-4a: the affordance is the checkable text label "Volume" (no eye
+        # icon or bar glyph); the checkable behaviour is retained.
         from PyQt6.QtWidgets import QPushButton as _VolumeToggleButton
-        self._volume_toggle = _VolumeToggleButton("👁 Volume", self)
+        self._volume_toggle = _VolumeToggleButton("Volume", self)
         self._volume_toggle.setCheckable(True)
         self._volume_toggle.setChecked(True)
         self._volume_toggle.setToolTip("Show/hide volume panel")
@@ -309,6 +386,9 @@ class ChartPanel(QWidget):
             axis_w = self.price_plot.getAxis('right').width()
         except Exception:
             axis_w = 50
+        # The price-chip lane may be reserved wider than the laid-out axis
+        # (D2/Q33, AC-D2.1); keep the floating controls clear of it too.
+        axis_w = max(axis_w, getattr(self, "_price_lane_width", 0))
         if axis_w < 20:
             axis_w = 50
         margin = 12
@@ -374,15 +454,62 @@ class ChartPanel(QWidget):
         self.price_plot.addItem(self.crosshair_h)
 
         # Axis chips drawn over the right/bottom axes. Scene items so they
-        # never affect the view's auto-range.
+        # never affect the view's auto-range. D2/Q33: the price chip is a grey
+        # pill with white text, left-anchored at the plot's vertical axis line
+        # so it grows rightward into the Y-axis lane — overlapping the tick
+        # label at the same price is by design (no deconfliction offset).
         scene = self.price_plot.getViewBox().scene()
-        self._price_tag = pg.TextItem(anchor=(1, 0.5), fill=pg.mkColor('#94a3b8'))
+        self._price_tag = pg.TextItem(anchor=(0, 0.5), fill=pg.mkColor(PRICE_TAG_FILL))
         self._time_tag = pg.TextItem(anchor=(0.5, 0), fill=pg.mkColor('#94a3b8'))
+        self._price_tag.setColor(PRICE_TAG_TEXT_COLOR)
+        self._time_tag.setColor('#0d0f14')
         for tag in (self._price_tag, self._time_tag):
-            tag.setColor('#0d0f14')
             tag.setZValue(999)
             tag.hide()
             scene.addItem(tag)
+        self._reserve_price_tag_lane()
+
+    def _reserve_price_tag_lane(self) -> None:
+        """Reserve Y-axis lane width for the price chip (D2/Q33, AC-D2.1).
+
+        The pill grows rightward from the plot's vertical axis line, so the
+        Y-axis lane must be wide enough for a long price (e.g. ``123,456.78``)
+        to stay unclipped and outside any right-side dock. Reserving the width
+        once, up front, avoids growing the axis while the cursor moves — which
+        would position the pill against a stale lane until the next layout.
+        """
+        probe = pg.TextItem(anchor=(0, 0.5))
+        probe.setText(PRICE_TAG_LANE_SAMPLE)
+        needed = int(probe.boundingRect().width() + 2 * PRICE_TAG_PAD) + 1
+        self._price_lane_width = needed
+        axis = self.price_plot.getAxis('right')
+        fixed = getattr(axis, 'fixedWidth', None)
+        if fixed is None or fixed < needed:
+            axis.setWidth(needed)
+
+    def _position_price_tag(self, view_rect_scene, price_y: float) -> None:
+        """Place the price pill in the Y-axis lane at the cursor's price (D2/Q33).
+
+        Left-anchored at the plot's vertical axis line — scene
+        ``x = view_rect_scene.right() + PRICE_TAG_PAD`` — extending right into
+        the lane. A right-edge guard shifts the pill left when the label is
+        wider than the lane, so it is never clipped at the widget's right edge
+        (and therefore never bleeds under a right-side dock); the vertical
+        clamp keeps the pill inside the plot near the top/bottom edges.
+        """
+        chip = self._price_tag.boundingRect()
+        chip_w, chip_h = chip.width(), chip.height()
+        lane_left = view_rect_scene.right()
+        lane_right = lane_left + float(self.price_plot.getAxis('right').width())
+        x = lane_left + PRICE_TAG_PAD
+        if x + chip_w > lane_right:
+            x = lane_right - chip_w
+        half = chip_h / 2.0
+        if price_y - half < view_rect_scene.top():
+            price_y = view_rect_scene.top() + half
+        elif price_y + half > view_rect_scene.bottom():
+            price_y = view_rect_scene.bottom() - half
+        self._price_tag.setPos(x, price_y)
 
     def _hide_crosshair(self):
         """Hide crosshair lines and both axis chips."""
@@ -410,10 +537,10 @@ class ChartPanel(QWidget):
         self.crosshair_v.show()
         self.crosshair_h.show()
 
-        # Price chip on the right axis at the cursor's price level — right-aligned inside plot
+        # D2/Q33: price pill in the Y-axis lane at the cursor's price level.
         self._price_tag.setText(f"{y:,.2f}")
         price_y = vb.mapViewToScene(pg.Point(0, y)).y()
-        self._price_tag.setPos(view_rect_scene.right() - 2, price_y)
+        self._position_price_tag(view_rect_scene, price_y)
         self._price_tag.show()
 
         # Time chip on the bottom axis, snapped to the nearest candle
@@ -472,8 +599,19 @@ class ChartPanel(QWidget):
         self.candlestick.set_mode(mode)
 
     def set_alarm_mode(self, enabled: bool):
-        if self.alarm_overlay is not None:
-            self.alarm_overlay.set_alarm_mode(enabled)
+        """Thin adapter (signature unchanged): route alarm intent through the router.
+
+        Enabling exits any active zoom (TR-6); disabling returns to IDLE (TR-13).
+        """
+        enabled = bool(enabled)
+        if enabled:
+            self.mouse_router.enter_alarm_placing()
+        else:
+            if self.alarm_overlay is not None:
+                self.alarm_overlay.set_alarm_mode(False)
+            if self.mouse_router.active_mode == RouterMode.ALARM_PLACING:
+                self.mouse_router.exit_to_idle()
+        self._sync_magnifier(self.mouse_router.active_mode == RouterMode.ZOOMING)
 
     def set_alarms(self, alarms):
         if self.alarm_overlay is not None:
@@ -483,14 +621,23 @@ class ChartPanel(QWidget):
         self._symbol = symbol
         if self.drawing_overlay is not None:
             self.drawing_overlay.set_symbol(symbol)
+        # TR-17 / AC-D14.4 (ESC-010): a symbol change — including the D14
+        # mid-drag double-click path — must clear any in-progress drawing
+        # draft/drag and return the router to IDLE *before* the overlay items
+        # are detached, so no stale gesture state survives into the new symbol.
+        if self.drawing_overlay is not None:
+            self.drawing_overlay.set_tool(TOOL_CURSOR)
+        if self.mouse_router is not None:
+            self.mouse_router.exit_to_idle()
         # Reset magnifier on symbol change (A6)
         if hasattr(self, "_zoom_overlay"):
             self.set_zoom_mode(False)
 
     def set_drawing_tool(self, tool: str):
+        """Thin adapter (signature unchanged): route drawing intent through the router."""
         self.setFocus()
-        if self.drawing_overlay is not None:
-            self.drawing_overlay.set_tool(tool)
+        self.mouse_router.enter_drawing(tool)
+        self._sync_magnifier(self.mouse_router.active_mode == RouterMode.ZOOMING)
 
     def set_studies(self, studies: list):
         self._studies = studies
@@ -514,6 +661,9 @@ class ChartPanel(QWidget):
         vol_date_axis = _custom_date_axis(utc=(tz_offset == 0), tz_offset=tz_offset)
         self.volume_plot.setAxisItems({'bottom': vol_date_axis})
         self._refresh_candles()  # Redraw to update axis labels
+        # AC-D8.7: re-apply the cached ceiling on this auto_range=False path so
+        # the volume Y range is never left stale after the axis swap.
+        self._ensure_volume_range(force=True)
 
     def set_extended_hours(self, enabled: bool):
         self._ext_hours = enabled
@@ -535,16 +685,36 @@ class ChartPanel(QWidget):
             return
         self._refresh_candles(auto_range=True)
 
-    def set_zoom_mode(self, enabled: bool):
-        # Keep button and overlay in sync without recursion
-        if hasattr(self, "_zoom_overlay") and self._zoom_overlay is not None:
-            self._zoom_overlay.set_active(bool(enabled))
+    def _sync_magnifier(self, active: bool):
+        """Check/uncheck the magnifier control without re-emitting ``toggled``."""
         if hasattr(self, "_chart_controls") and self._chart_controls is not None:
             btn = self._chart_controls.btn_magnify
-            if btn.isChecked() != bool(enabled):
+            if btn.isChecked() != bool(active):
                 btn.blockSignals(True)
-                btn.setChecked(bool(enabled))
+                btn.setChecked(bool(active))
                 btn.blockSignals(False)
+
+    def set_zoom_mode(self, enabled: bool):
+        """Thin adapter (signature unchanged): route magnifier intent through the router.
+
+        ``enter_zoom()`` returns ``False`` while alarm placement is armed
+        (TR-9 / AC-D3.9): the magnifier is re-unchecked via ``blockSignals`` and
+        ``zoom_refused`` is emitted so MainWindow can show the status hint.
+        """
+        enabled = bool(enabled)
+        if enabled:
+            if not self.mouse_router.enter_zoom():
+                self._sync_magnifier(False)
+                self.zoom_refused.emit()
+                return
+            self._sync_magnifier(True)
+            return
+        if self.mouse_router.active_mode == RouterMode.ZOOMING:
+            self.mouse_router.exit_to_idle()
+        elif hasattr(self, "_zoom_overlay") and self._zoom_overlay is not None:
+            # Keep the overlay in sync without disturbing DRAWING / ALARM_PLACING.
+            self._zoom_overlay.set_active(False)
+        self._sync_magnifier(False)
 
     def is_zoom_active(self) -> bool:
         return bool(getattr(self, "_zoom_overlay", None) and self._zoom_overlay.is_active())
@@ -569,6 +739,8 @@ class ChartPanel(QWidget):
             # Clear chart explicitly for empty load (e.g., SPY first load
             # before IBKR delta returns). Avoid stale data from previous symbol.
             self._bars = []
+            self._vol_max = 0.0
+            self._volume_nice_max = VOLUME_NICE_FLOOR
             self._hide_crosshair()
             self._refresh_candles()
             if hasattr(self, "_session_overlay"):
@@ -586,10 +758,15 @@ class ChartPanel(QWidget):
         only when a new candle period closes so live ticks stay responsive."""
         if not self._bars:
             return
-        if is_new_candle or self._bars[-1].ts != bar.ts:
+        new_period = is_new_candle or self._bars[-1].ts != bar.ts
+        if new_period:
             self._bars.append(bar)
+            # New bar / load: refresh the cached running max O(N) once.
+            self._recompute_vol_max()
         else:
             self._bars[-1] = bar
+            # Intra-bar tick: widen the ceiling O(1) against the cached max.
+            self._widen_volume_for(bar)
         self._refresh_candles()
         if self.drawing_overlay is not None:
             self.drawing_overlay.set_bars(self._bars)
@@ -666,9 +843,45 @@ class ChartPanel(QWidget):
                 highs = lows + max(abs(lows), 1.0)
             vb.setRange(xRange=(t0 - 2 * bar_w, t1 + 8 * bar_w),
                         yRange=(lows, highs), padding=0.03)
-            max_vol = max((b.volume for b in self._bars), default=0.0)
-            nice_max = _nice_volume_max(max_vol)
-            self.volume_plot.getViewBox().setRange(yRange=(0, nice_max), padding=0)
+            # Full load: rebuild the cached running max O(N) once, then apply.
+            self._recompute_vol_max()
+            self._ensure_volume_range(force=True)
+        elif self._bars:
+            # auto_range=False refresh (intra-bar redraw / set_timezone): re-apply
+            # the cached ceiling so the range tracks the cached running max.
+            self._ensure_volume_range()
+
+    def _recompute_vol_max(self) -> float:
+        """Refresh the cached running volume max O(N) over the current bars.
+
+        Called once per data load (``_refresh_candles(auto_range=True)``) and
+        once per new bar (``update_last_bar`` with a new period).
+        """
+        self._vol_max = max((float(b.volume) for b in self._bars), default=0.0)
+        return self._vol_max
+
+    def _ensure_volume_range(self, force: bool = False) -> float:
+        """Apply the volume ceiling derived from the cached running max.
+
+        O(1): recompute the nice ceiling from ``self._vol_max`` and write the
+        volume Y range only when the ceiling changes (or when ``force`` is set).
+        Returns the ceiling currently applied.
+        """
+        nice = _nice_volume_max(self._vol_max)
+        if force or nice > self._volume_nice_max:
+            self._volume_nice_max = nice
+            self.volume_plot.getViewBox().setRange(yRange=(0, nice), padding=0)
+        return self._volume_nice_max
+
+    def _widen_volume_for(self, bar) -> float:
+        """O(1) only-widen ceiling update for one live (intra-bar) tick.
+
+        Computes ``live_max = max(_vol_max, bar.volume)`` against the cached
+        running max and widens the ceiling only when that crosses the current
+        nice_max; a non-crossing tick performs no range write.
+        """
+        self._vol_max = max(self._vol_max, float(bar.volume))
+        return self._ensure_volume_range()
 
     def _clear_overlays(self):
         for item in self._overlay_items:
