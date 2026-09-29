@@ -801,7 +801,40 @@ class ChartPanel(QWidget):
 
     def _refresh_candles(self, auto_range: bool = False):
         candle_data, vol_x, vol_h, vol_colors = [], [], [], []
-        # Compute w for volume to match price (35% gap)
+        for bar in self._bars:
+            candle_data.append((bar.ts, bar.open, bar.high, bar.low, bar.close))
+            vol_x.append(bar.ts)
+            vol_h.append(float(bar.volume))
+            vol_colors.append('#34d399' if bar.close >= bar.open else '#f87171')
+
+        # Frame the view explicitly from the data: ViewBox.autoRange() mis-computes
+        # childrenBounds for epoch-magnitude x-coordinates (anchors xMin at 0),
+        # leaving candles as a sub-pixel sliver off-screen.
+        if auto_range and self._bars:
+            vb = self.price_plot.getViewBox()
+            t0, t1 = self._bars[0].ts, self._bars[-1].ts
+            bar_w = self._bars[1].ts - self._bars[0].ts if len(self._bars) > 1 else 300
+            lows = min(b.low for b in self._bars)
+            highs = max(b.high for b in self._bars)
+            if highs - lows <= 0:
+                highs = lows + max(abs(lows), 1.0)
+            # AC-D6.4 / ESC-013: apply the real x-range BEFORE generating the
+            # candle picture.  The D6 body clamp in
+            # ui/candlestick_item.py::_draw_candles reads the ViewBox range at
+            # generation time; if the picture is built first the clamp sees the
+            # untouched default range, never binds, and the dense-view body
+            # collapses to a sub-pixel sliver.
+            vb.setRange(xRange=(t0 - 2 * bar_w, t1 + 8 * bar_w),
+                        yRange=(lows, highs), padding=0.03)
+
+        # AC-D9.1 / ESC-020: derive the volume half-width from the *final* view
+        # range, after the auto-range branch above has applied it.  This is the
+        # same generate-before-setRange ordering defect T32/ESC-013 fixed for the
+        # candle picture: if w_vol is computed before `vb.setRange(...)`, the
+        # min_w_vol clamp sees the untouched default range on a first load, never
+        # binds, and the volume bars come out far narrower than the price bodies.
+        # Sharing the price's `w` (65% of median_diff, 35% gap) keeps the two
+        # panels vertically aligned, including the dense 4px minimum.
         if len(self._bars) > 1:
             time_diffs_vol = [self._bars[i].ts - self._bars[i-1].ts for i in range(1, len(self._bars))]
             time_diffs_vol.sort()
@@ -822,34 +855,23 @@ class ChartPanel(QWidget):
         else:
             w_vol = 0.25
 
-        for bar in self._bars:
-            candle_data.append((bar.ts, bar.open, bar.high, bar.low, bar.close))
-            vol_x.append(bar.ts)
-            vol_h.append(float(bar.volume))
-            vol_colors.append('#34d399' if bar.close >= bar.open else '#f87171')
-
-        self.candlestick.set_data(candle_data)
         self.volume_bars.setOpts(x=vol_x, height=vol_h, width=w_vol*2, brushes=vol_colors)
-        # Frame the view explicitly from the data: ViewBox.autoRange() mis-computes
-        # childrenBounds for epoch-magnitude x-coordinates (anchors xMin at 0),
-        # leaving candles as a sub-pixel sliver off-screen.
+
         if auto_range and self._bars:
-            vb = self.price_plot.getViewBox()
-            t0, t1 = self._bars[0].ts, self._bars[-1].ts
-            bar_w = self._bars[1].ts - self._bars[0].ts if len(self._bars) > 1 else 300
-            lows = min(b.low for b in self._bars)
-            highs = max(b.high for b in self._bars)
-            if highs - lows <= 0:
-                highs = lows + max(abs(lows), 1.0)
-            vb.setRange(xRange=(t0 - 2 * bar_w, t1 + 8 * bar_w),
-                        yRange=(lows, highs), padding=0.03)
+            # Generate the candle picture now that the real range is known.
+            self.candlestick.set_data(candle_data)
             # Full load: rebuild the cached running max O(N) once, then apply.
             self._recompute_vol_max()
             self._ensure_volume_range(force=True)
-        elif self._bars:
-            # auto_range=False refresh (intra-bar redraw / set_timezone): re-apply
-            # the cached ceiling so the range tracks the cached running max.
-            self._ensure_volume_range()
+        else:
+            # Non-auto-range refresh (intra-bar redraw / set_timezone / empty
+            # load): the ViewBox range is already the real one, so the clamp
+            # computes against it.  Still regenerate to clear/refresh the picture.
+            self.candlestick.set_data(candle_data)
+            if self._bars:
+                # auto_range=False refresh: re-apply the cached ceiling so the
+                # range tracks the cached running max.
+                self._ensure_volume_range()
 
     def _recompute_vol_max(self) -> float:
         """Refresh the cached running volume max O(N) over the current bars.

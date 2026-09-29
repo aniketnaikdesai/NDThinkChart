@@ -64,7 +64,13 @@ def test_horizontal_label_inner_right(panel, qapp):
     pos = label.pos()
     # pos is in scene coords, should be right -4
     assert pos.x() == pytest.approx(view_rect_scene.right() - 4, abs=2)
-    assert label.isVisible() or True  # may be inside
+    # The label is actually visible and its full box stays inside the plot,
+    # anchored against the right edge (AC-D11.1).
+    assert label.isVisible()
+    label_bbox = _scene_bbox(label)
+    assert label_bbox.width() > 0 and label_bbox.height() > 0
+    assert label_bbox.right() <= view_rect_scene.right() + 1
+    assert label_bbox.left() >= view_rect_scene.left() - 1
 
 def test_zone_two_labels_inner_right(panel, qapp):
     drawing = Drawing(symbol="TEST", kind="zone", payload={"x1": 1_700_000_000, "x2": 1_700_000_300, "y1": 102, "y2": 98}, color="#00ff00", id=2)

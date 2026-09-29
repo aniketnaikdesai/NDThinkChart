@@ -49,11 +49,11 @@ all items are labelled `[existing]`, `[new]`, or `[new/changed]`.
 | `ui/zoom_overlay.py` | `[existing]` | `ZoomOverlay.is_active()` / `set_active(bool)` / `cancel()`; owns the rubber-band drag. Consulted by the router per handler |
 | `ui/drawing_overlay.py` | `[existing]` | `DrawingOverlay.tool_active()` → `self._tool != TOOL_CURSOR`; `set_tool(tool)` clears the draft (`_clear_draft()`) and emits `mode_changed(str)`; `_clear_draft()` discards in-progress preview items. D11 inner-right labels live here (`:335`, `:342`, `_update_inner_labels` `:358–393`) |
 | `ui/alarm_overlay.py` | `[existing]` | `AlarmOverlay.set_alarm_mode(bool)` / `is_alarm_mode()`; press/drag/click handlers |
-| `ui/chart_panel.py` | `[existing]` | Owns the router wiring (`self.mouse_router.zoom = self._zoom_overlay`, `:273`; `.drawing`/`.alarm` at `:188–189`), `set_zoom_mode()` (`:538–547`), `set_drawing_tool()`, `set_alarm_mode()`, `is_zoom_active()`, `keyPressEvent` Esc handling; `_nice_volume_max()` (`:45–55`); the volume range site (`:659–671`); the crosshair `_price_tag` (`:379`, positioned `:413–417`); the D10 toggle `_volume_toggle = QPushButton("👁 Volume")` (`:250`) |
+| `ui/chart_panel.py` | `[existing]` | Owns the router wiring (`self.mouse_router.zoom = self._zoom_overlay`, `:273`; `.drawing`/`.alarm` at `:188–189`), `set_zoom_mode()` (`:538–547`), `set_drawing_tool()`, `set_alarm_mode()`, `is_zoom_active()`, `keyPressEvent` Esc handling; `_nice_volume_max()` (`:45–55`); the volume range site (`:659–671`); the crosshair `_price_tag` (`:379`, positioned `:413–417`); the D10 toggle `_volume_toggle` (a checkable text label `Volume`, RC-4a) |
 | `ui/main_window.py` | `[existing]` | `_on_alarm_mode_toggled` forces the drawing combo to `Cursor` (`:662–668`); `_on_draw_tool_changed` unchecks the alarm button (`:478–489`); `magnify_toggled` reaches `ChartPanel.set_zoom_mode` via `chart_panel.py:274`; `status_bar` (`:249–251`) |
 | `tests/test_chart_mouse_router.py` | `[existing]` | 5 "precedence" tests that `build(drawing, alarm)` the router by **direct attribute assignment** (`:28–32`) and never set a mode. These remain valid and must keep passing **verbatim** (the RC-3 fence) |
 | `tests/test_volume_linear.py` | `[existing]` | Encodes the old fixed-list fixture (`:57–61`). Only `_nice_volume_max(0) == 10_000` (`:57`) conflicts with the pinned family; the rest (`8_000→10_000`, `80_000→100_000`, `2_200_000→2_500_000`, `1_050_000→1_500_000`) stay valid (see §3.4) |
-| `docs/architecture.md` | `[new/changed]` | Canonical rows to rewrite: `:23` (crosshair chip — inside-plot, now superseded) and `:30` (D10 — "(eye icon)", now superseded) |
+| `docs/architecture.md` | `[new/changed]` | Canonical rows updated by revision 2: the crosshair chip (now the Y-axis lane per D2/Q33) and the D10 toggle (now the checkable text label `Volume`) |
 
 ### 1.2 Existing data models / integrations (unchanged)
 
@@ -448,7 +448,7 @@ old proposal's claim that the `(8_000) == 10_000` assertion also had to change w
 
 ### 4.1 The inaccurate canonical claim
 
-`docs/architecture.md:110–111` currently states:
+The pre-revision `docs/architecture.md` (performance section) read:
 
 > **Performance:** `w` and `nice_max` are O(N) per data load over bars (**not per
 > intra-bar tick**); dialogs are created on demand; labels are bounded by drawing count.
@@ -523,9 +523,10 @@ the defect (`AC-D8.6`, `AC-D8.7`).
 this re-opens the original D2 defect ("decimals covered by the element to its
 right"), **dock-open visibility** is a separately verified acceptance criterion
 (`AC-D2.1`) + edge case that requires **independent Code Reviewer verification after
-Build** (A25 carve-out). The canonical `docs/architecture.md:23` still documents the
-**superseded** inside-plot chip, and revision 1 of this proposal addressed neither
-D2 nor its verification. RC-2 corrects both.
+Build** (A25 carve-out). The pre-revision `docs/architecture.md` documented the
+**superseded** inside-plot chip (revision 2 replaces that row with the D2/Q33
+Y-axis-lane design), and revision 1 of this proposal addressed neither D2 nor its
+verification. RC-2 corrects both.
 
 ### 5.2 Decision — chip renders in the Y-axis lane (supersedes the Batch-1 inside-plot chip)
 
@@ -588,13 +589,14 @@ now occupies a **different lane** (the Y-axis lane, §5.2), so:
 - The Code Reviewer must **re-scope ESC-006** to label-vs-label only when it
   re-checks its own escalations.
 
-### 5.5 Canonical `docs/architecture.md` rows to rewrite (RC-2 + RC-4a)
+### 5.5 Canonical `docs/architecture.md` rows (RC-2 + RC-4a) — required wording
 
-The Validator must rewrite these two canonical rows; the proposal's text is the
-replacement:
+The Validator must ensure these two canonical rows carry the wording below
+(revision 2's validated `docs/architecture.md` already reflects this):
 
-1. **`docs/architecture.md:23` — "Crosshair chip (Batch 1)"** (currently: "Right-align
-   `TextItem` (`anchor=(1,0.5)`) inside the plot's right edge"). **Replace with:**
+1. **`docs/architecture.md` — crosshair chip row** (pre-revision Batch-1 wording:
+   "Right-align `TextItem` (`anchor=(1,0.5)`) inside the plot's right edge").
+   **Required wording:**
    > **Crosshair chip (D2, revised Q33 2026-09-27)** — grey pill (`TextItem`) with
    > **white** text in the **Y-axis lane outside the plot**, left-anchored at the
    > plot's vertical axis line (`anchor=(0,0.5)`, scene `x >= view_rect.right()`);
@@ -602,17 +604,16 @@ replacement:
    > verified acceptance criterion (`AC-D2.1`) requiring **independent Code Reviewer
    > verification after Build** (A25). Supersedes the Batch-1 inside-plot right-align.
 
-2. **`docs/architecture.md:30` — "D10 volume toggle"** (currently: "checkable
-   `QToolButton` (eye icon) in the volume panel header"). **Replace the affordance
-   description with:**
+2. **`docs/architecture.md` — "D10 volume toggle" row.** **Required affordance
+   wording:**
    > a **checkable text label `Volume`** (Q31/A22; `AC-D10.1`) at the **top left of
    > the volume panel (bottom left of the price chart)** (A23 confirmed 2026-09-27),
    > default **visible**, toggles `volume_plot.setVisible()` and rebalances the
    > `QSplitter` so `price_plot` expands; **not persisted**.
    >
-   > *(The built control is `QPushButton("👁 Volume")` at `ui/chart_panel.py:250`; its
-   > user-facing affordance is the `Volume` text label, not an eye icon. The `(eye
-   > icon)` wording is stale and must not be carried.)*
+   > *(Shipped as the checkable text label `Volume` — `QPushButton("Volume")` at
+   > `ui/chart_panel.py:327` (RC-4a/T27) — so the affordance and the implementation
+   > agree.)*
 
 ---
 

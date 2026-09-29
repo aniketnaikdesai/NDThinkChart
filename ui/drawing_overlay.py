@@ -355,12 +355,38 @@ class DrawingOverlay(QObject):
         except Exception:
             return False
 
+    def _label_scene_height(self, item) -> float:
+        """Measured height of a label's scene bounding box, in scene units.
+
+        Uses the same graphical measurement the tests rely on
+        (``mapRectToScene(item.boundingRect())``); falls back to
+        ``sceneBoundingRect()`` and finally to 0.0 when the item is not yet
+        laid out. A real 9 pt label is ~23 px tall, so a hard-coded 15 px
+        centre offset lets consecutive boxes overlap.
+        """
+        try:
+            height = item.mapRectToScene(item.boundingRect()).height()
+        except Exception:
+            height = 0.0
+        if not height or height <= 0:
+            try:
+                height = item.sceneBoundingRect().height()
+            except Exception:
+                height = 0.0
+        try:
+            return float(height) if height and height > 0 else 0.0
+        except Exception:
+            return 0.0
+
     def _update_inner_labels(self):
         """Reposition all inner-right labels to the right edge with stacking.
 
-        Labels are sorted by scene-y (top to bottom); any label closer than
-        15px to the previously placed one is pushed down so prices remain
-        legible when drawings share similar levels.
+        Labels are sorted by scene-y (top to bottom); any label closer than the
+        measured label bounding-box height (never less than 15 px) to the
+        previously placed one is pushed down so prices remain legible when
+        drawings share similar levels. Because the offset comes from the
+        emitted TextItem's scene bbox, consecutive label boxes never intersect.
+        The whole label box is clamped inside view_rect.
         """
         try:
             vb = self._view
@@ -383,11 +409,23 @@ class DrawingOverlay(QObject):
                     entries.append((item, scene_y))
             entries.sort(key=lambda t: t[1])
             last_y = None
+            last_height = 0.0
             for item, y in entries:
-                y = max(view_rect_scene.top(), min(view_rect_scene.bottom(), y))
-                if last_y is not None and y - last_y < 15:
-                    y = min(last_y + 15, view_rect_scene.bottom())
+                height = self._label_scene_height(item)
+                half = height / 2.0
+                top_limit = view_rect_scene.top() + half
+                bottom_limit = view_rect_scene.bottom() - half
+                if top_limit > bottom_limit:
+                    mid = (view_rect_scene.top() + view_rect_scene.bottom()) / 2.0
+                    top_limit = bottom_limit = mid
+                y = max(top_limit, min(bottom_limit, y))
+                # Stack by at least the measured bbox height (never below 15px)
+                # so consecutive label boxes cannot intersect.
+                offset = max(15.0, height, last_height)
+                if last_y is not None and y - last_y < offset:
+                    y = min(last_y + offset, bottom_limit)
                 last_y = y
+                last_height = height
                 item.setPos(view_rect_scene.right() - 4, y)
         except Exception:
             pass

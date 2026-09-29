@@ -153,7 +153,32 @@
     {
       "id": "T31",
       "type": "Task",
-      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010)"
+      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010/013/014/015/016/017)"
+    },
+    {
+      "id": "T32",
+      "type": "Task",
+      "title": "Fix the D6 dense-view candle body clamp ordering (ESC-013)"
+    },
+    {
+      "id": "T33",
+      "type": "Task",
+      "title": "Stack D11 drawing labels by measured bbox height (ESC-014)"
+    },
+    {
+      "id": "T34",
+      "type": "Task",
+      "title": "Update tests/test_volume_log.py to the pinned nice-family expectation (ESC-015)"
+    },
+    {
+      "id": "T35",
+      "type": "Task",
+      "title": "Update stale crosshair-chip assertions to the Y-axis-lane contract (ESC-016)"
+    },
+    {
+      "id": "T36",
+      "type": "Task",
+      "title": "Sync MainWindow.draw_combo to Cursor when the router clears the drawing tool (ESC-017)"
     }
   ],
   "edges": [
@@ -384,11 +409,6 @@
     },
     {
       "source": "T31",
-      "target": "T25",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
       "target": "T26",
       "type": "DEPENDS_ON"
     },
@@ -404,12 +424,52 @@
     },
     {
       "source": "T31",
-      "target": "T29",
+      "target": "T30",
       "type": "DEPENDS_ON"
     },
     {
       "source": "T31",
+      "target": "T32",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T33",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T34",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T35",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T31",
+      "target": "T36",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T32",
       "target": "T30",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T36",
+      "target": "T21",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T25",
+      "target": "T33",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "source": "T29",
+      "target": "T32",
       "type": "DEPENDS_ON"
     }
   ]

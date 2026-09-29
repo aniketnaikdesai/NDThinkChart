@@ -163,7 +163,7 @@ Tables:
 ## Testing
 
 ```bash
-# Full suite (269 tests, ~1.5s)
+# Full suite (383 tests, ~6s)
 python -m pytest tests/ -v
 
 # Phase 10 core logic tests only (105 tests, ~0.2s)

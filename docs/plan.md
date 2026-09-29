@@ -109,9 +109,9 @@ the two dialogs `[new]`.
 Canonical Phase 3 stands with **one documentation correction** (RC-4a): the D10
 affordance is the checkable **text label `Volume`** (Q31/A22/`AC-D10.1`) at the top
 left of the volume panel (bottom left of the price chart, A23), **not** an eye icon.
-This corrects the canonical architecture row only; the built control remains
-`QPushButton("👁 Volume")` (`ui/chart_panel.py:250`) and its user-facing affordance is
-the `Volume` text label.
+This corrects the canonical architecture row only; the shipped control is the
+checkable text label `Volume` — `QPushButton("Volume")` at `ui/chart_panel.py:327`
+(RC-4a/T27) — so the affordance and the implementation agree.
 - **Requirements / journeys covered:** D10 (`AC-D10.1`–`AC-D10.2`); A14, A22, A23; R12;
   Journey 11.
 - **Files:** `ui/chart_panel.py` `[new/changed]` (volume plot + splitter).

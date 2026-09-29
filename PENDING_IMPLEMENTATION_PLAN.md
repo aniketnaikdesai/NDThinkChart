@@ -66,7 +66,7 @@ green.
 
 ---
 
-## Phase 1: Drawing Tools System
+## Phase 1: Drawing Tools System ✅ COMPLETE
 
 ### Goal
 Implement the chart drawing workflow from the reference React app: trendlines,
@@ -126,7 +126,7 @@ drag-editing, grouping, lock/visibility controls, and SQLite persistence.
 
 ---
 
-## Phase 2: Full Alarm UX
+## Phase 2: Full Alarm UX ✅ COMPLETE
 
 ### Goal
 Bring alarms closer to reference: chart-click creation, draggable alarm lines,
@@ -169,7 +169,7 @@ rearm/mute/delete, optional sound, visible trigger feedback.
 
 ---
 
-## Phase 3: Advanced Study Rendering Parity
+## Phase 3: Advanced Study Rendering Parity ✅ COMPLETE
 
 ### Goal
 Improve ICT, RTH gaps, VIX expected-move rendering to match reference.
@@ -210,7 +210,7 @@ Improve ICT, RTH gaps, VIX expected-move rendering to match reference.
 
 ---
 
-## Phase 4: DOM / Market Depth
+## Phase 4: DOM / Market Depth ✅ COMPLETE
 
 ### Target Files
 - `ibkr/bridge.py` (signal `update_mkt_depth` already declared)
@@ -240,7 +240,7 @@ Improve ICT, RTH gaps, VIX expected-move rendering to match reference.
 
 ---
 
-## Phase 5: Order Entry
+## Phase 5: Order Entry ✅ COMPLETE
 
 ### Target Files
 - `ibkr/orders.py` (new: pure builders)
@@ -361,7 +361,7 @@ Improve ICT, RTH gaps, VIX expected-move rendering to match reference.
 ### Verification
 - Unit tests for validation logic; manual review of generated orders in TWS.
   - ✅ `tests/test_stop_loss_target.py` (15 tests)
-  - ✅ Full suite: 269 passed
+  - ✅ Full suite: 383 passed
 
 ---
 
@@ -409,7 +409,7 @@ Improve ICT, RTH gaps, VIX expected-move rendering to match reference.
 ### Verification
 - Manual TWS close/reopen test; unit test subscription registry; DB writes remain
   main-thread only.
-- ✅ Full test suite: 269 passed
+- ✅ Full test suite: 383 passed
 
 ---
 
@@ -455,7 +455,7 @@ Improve ICT, RTH gaps, VIX expected-move rendering to match reference.
 - ✅ PyInstaller build completed successfully
 - ✅ Bundle structure verified
 - ✅ Theme included in bundle
-- ✅ 269 tests pass
+- ✅ 383 tests pass
 
 ---
 

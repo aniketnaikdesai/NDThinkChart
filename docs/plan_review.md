@@ -1,59 +1,98 @@
-# Plan Review — NDThinkChart Stabilization revision (ESC-002 / ESC-003 / ESC-006 / ESC-007)
+# Plan Review — NDThinkChart Stabilization (ESC-002 / ESC-003 / ESC-006 / ESC-007 revision + ESC-019 prose re-validation)
 
 ## Review Status
 Status: APPROVED
 
 ## Validation Summary
-Validated **revision 2** of `docs/plan_proposal.md` + `docs/architecture_proposal.md`
-(`Status: READY_FOR_VALIDATION`) against `docs/requirements/requirements.md`
-(`Status: READY_FOR_PLAN`, settled 2026-09-27), reading the source under question
-directly (`ui/chart_mouse_router.py`, `tests/test_chart_mouse_router.py`,
-`ui/chart_panel.py`, `tests/test_volume_linear.py`,
-`docs/code_review/escalations.md` ESC-002/003/006/007, `docs/requirements` D2/D3/D8/D10/D11,
-the Assumptions Log A22–A26). This is **validation pass 2** (`plan_validator_retries: 1`
-of 3); pass 1 returned `CHANGES_REQUIRED` with RC-1…RC-4.
+This is **validation cycle 3** (`plan_validator_retries: 2` of 3). Cycle 1 returned
+`CHANGES_REQUIRED` (RC-1…RC-4); cycle 2 approved **revision 2** of the
+architecture/phasing — the ESC-002 `RouterMode` state machine, the ESC-003/007/008
+volume nice-number family + live ceiling, the re-opened D2/Q33 crosshair-chip
+relocation, the ESC-006 `AC-D11.4` re-scope, and the `touches_files` parallel-build
+constraint. That architecture remains the **standing approved basis** and is
+**unchanged** by this cycle.
 
-Revision 2 addresses **every** item from pass 1, and the two requirements-rooted
-problems (RG-002, RG-003) are now **resolved in `requirements.md`** and consumed as
-settled text rather than flagged assumptions. The canonical `docs/architecture.md` and
-`docs/plan.md` have been rewritten with the validated content and marked
-`READY_FOR_TASK_MANAGER`.
+**Cycle 3 scope — ESC-019 (prose only).** Code Reviewer raised `ESC-019`
+(`ESCALATED_TO_PLAN`): after RC-4a changed the D10 affordance to the checkable text
+label `Volume`, the Plan-owned artifacts still carried stale eye-glyph `Volume` prose. Plan revised `docs/plan_proposal.md` + `docs/architecture_proposal.md`
+(**revision 3**) to correct that wording and re-marked `Status: READY_FOR_VALIDATION`.
+This cycle validates that revision and mirrors the correction into the
+Validator-owned canonical files.
 
-## Verdict on the previously-required changes
+Validated against `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`),
+reading the source under question directly (`ui/chart_panel.py` D10 toggle) and
+`docs/code_review/escalations.md` ESC-019.
+
+## Validation cycle 3 — ESC-019 (prose-only)
+**Finding.** Code Reviewer, after RC-4a changed the D10 affordance in code to the
+checkable text label `Volume`, found the Plan-owned artifacts still described an
+eye-glyph label.
+
+**Verified.**
+- **Proposal prose corrected.** `docs/plan_proposal.md` revision-3 header (`:15–19`),
+  scope item RC-4a (`:45–46`), Phase 3 (`:207–212`) and coverage matrix (`:341`) now
+  state the checkable **text label `Volume`**; `docs/architecture_proposal.md` §1.1
+  `chart_panel` row (`:52`), §5.5 required wording (`:607–616`), Phase 3 (`:675–680`)
+  and coverage (`:827`) likewise. **No eye-glyph remains in either proposal**
+  (grep-verified).
+- **Shipped-control fact verified.** `ui/chart_panel.py:327` is
+  `self._volume_toggle = _VolumeToggleButton("Volume", self)`
+  (`_VolumeToggleButton` aliases `QPushButton`); it is checkable (`setCheckable(True)`,
+  `:328`) and default-checked/visible (`:329`). The proposal's
+  `` `QPushButton("Volume")` at `ui/chart_panel.py:327` `` is accurate; an earlier
+  edition cited a stale line number.
+- **Prose-only, bounded diff.** `git diff` touches only the two proposal files
+  (`docs/architecture_proposal.md` and `docs/plan_proposal.md`; 2 files changed,
+  +26/−19). It removes obsolete line-number references
+  (`:23`, `:30`, `:110–111`) and the stale eye-glyph wording and restates the rows
+  descriptively. **No** architectural decision, phase, requirement mapping, transition
+  or assumption changed. **No other prose regression** was introduced.
+- **Canonical `docs/architecture.md` already correct.** Its D2 row (`:34`) and D10 row
+  (`:41`) already carry the corrected wording; no change needed there.
+
+**Canonical mirror applied this cycle.**
+- `docs/plan.md` — Phase 3 corrected: the shipped control is the checkable text label
+  `Volume` (`QPushButton("Volume")`, `ui/chart_panel.py:327`); the stale eye-glyph label
+  and its obsolete line-number reference were removed.
+- `docs/plan_review.md` — this file's RC-4 entry corrected.
+- `docs/architecture.md` — no change required (already correct).
+
+## Verdict on the previously-required changes (revision 2)
 | RC | Item | Verdict |
 |---|---|---|
 | **RC-1** | Nice-number section single, self-consistent, reproduces confirmed set + examples, old list fixture-only, `(0) == 10_000 → 100` noted | **Resolved** |
 | **RC-2** | Revised D2/Q33 carried: Y-axis lane, grey pill/white text, tick overlap permitted; inside-plot wording superseded; dock-open visibility retained as required AC + independent CR verification; `AC-D11.4` re-scoped to label-vs-label | **Resolved** |
 | **RC-3** | `_active_mode` derivation/synchronisation explicit and sufficient for the five preserved router tests | **Resolved** |
-| **RC-4** | D10 affordance corrected to checkable text label `Volume`; `view_mouse_click` in `DRAWING` documented | **Resolved** |
+| **RC-4** | D10 affordance corrected to checkable text label `Volume`; `view_mouse_click` in `DRAWING` documented | **Resolved** (D10 prose re-corrected in cycle 3, ESC-019) |
 
 ### RC-1 — ESC-003 nice-number section (resolved)
-`architecture_proposal.md` §3 now defines **one** candidate family
+`architecture_proposal.md` §3 defines **one** candidate family
 **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (`AC-D8.1`, A24) and **one** formula
 `nice_max = min { v in family, v >= 100 : v >= max_vol * 1.1 }`, with `max_vol == 0 → 100`.
 Every worked example agrees with the formula, including the previously contradictory
-cases: `1_050_000 → 1_500_000` (the `1.5` mantissa is now in the family) and
-`10_500_000 → 15_000_000`; the `50_000_000 → 75_000_000` case is valid precisely because
-the family keeps the `7.5` mantissa (a strict `{1,2,2.5,5}` set would overshoot to
-`100M`, which `AC-D8.5` rejects). The original fixed list is retained **only as a test
-fixture** and every member is a family member, so no retained fixture contradicts the
-formula. §3.4 correctly flags that of `tests/test_volume_linear.py:57–61` **only**
-`_nice_volume_max(0) == 10_000` is stale and becomes **`100`**; the `8_000`, `80_000`,
-`2_200_000`, `1_050_000` assertions stay valid. The coverage bound is correct: worst
-case is the `2.5 → 5` step, ratio `≈ 5/(1.1×2.5) ≈ 1.82 <= 2`, asserted only above the
-`100` floor (PA-R8). **RC-1 closed.**
+cases: `1_050_000 → 1_500_000` (the `1.5` mantissa is in the family) and
+`10_500_000 → 15_000_000`; the `50_000_000 → 75_000_000` case is valid precisely
+because the family keeps the `7.5` mantissa (a strict `{1,2,2.5,5}` set would
+overshoot to `100M`, which `AC-D8.5` rejects). The original fixed list is retained
+**only as a test fixture** and every member is a family member, so no retained fixture
+contradicts the formula. §3.4 correctly flags that of
+`tests/test_volume_linear.py:57–61` **only** `_nice_volume_max(0) == 10_000` is stale
+and becomes **`100`**; the `8_000`, `80_000`, `2_200_000`, `1_050_000` assertions stay
+valid. The coverage bound is correct: worst case is the `2.5 → 5` step, ratio
+`≈ 5/(1.1×2.5) ≈ 1.82 <= 2`, asserted only above the `100` floor (PA-R8).
+**RC-1 closed.**
 
 ### RC-2 — D2/Q33 and `AC-D11.4` (resolved)
 §5.1–§5.3 carry the re-opened D2: chip in the **Y-axis lane outside the plot**, right of
-the plot’s vertical axis line (`x >= view_rect.right()`), **grey pill with white text**,
+the plot's vertical axis line (`x >= view_rect.right()`), **grey pill with white text**,
 left-anchored `anchor=(0,0.5)`, **axis-tick-label overlap permitted** (no deconfliction
 offset). The superseded Batch-1 inside-plot wording is explicitly retired (§5.5 rewrites
-the canonical `architecture.md` row; the canonical file now reads it). **Dock-open
-visibility** is retained as the required `AC-D2.1` + edge case with **independent Code
-Reviewer verification after Build** (A25 carve-out) — the Batch-1 fix is *not* assumed to
-still hold. `AC-D11.4` is re-scoped to **label-vs-label stacking inside the plot only**
-(§5.4), with the chip lane-separated and `_update_inner_labels` unchanged. Phase **R2**
-owns the work and names `test_crosshair_chip_renders_in_axis_lane`. **RC-2 closed.**
+the canonical `architecture.md` row). **Dock-open visibility** is retained as the
+required `AC-D2.1` + edge case with **independent Code Reviewer verification after
+Build** (A25 carve-out) — the Batch-1 fix is *not* assumed to still hold. `AC-D11.4` is
+re-scoped to **label-vs-label stacking inside the plot only** (§5.4), with the chip
+lane-separated and `_update_inner_labels` unchanged. Phase **R2** owns the work and names
+`test_crosshair_chip_renders_in_axis_lane`. **RC-2 closed.**
 
 ### RC-3 — `_active_mode` derivation (resolved)
 §2.5 pins the mechanism: `drawing`/`alarm`/`zoom` become **properties** whose setters
@@ -70,11 +109,14 @@ so `test_drawing_tool_blocks_alarm_press` passes **verbatim**; `test_alarm_press
 The mechanism is explicit, complete, and adds `test_reconcile_mode_from_wired_overlays`.
 **RC-3 closed.**
 
-### RC-4 — D10 affordance + `view_mouse_click` in `DRAWING` (resolved)
+### RC-4 — D10 affordance + `view_mouse_click` in `DRAWING` (resolved; D10 prose re-fixed cycle 3)
 §5.5 corrects the canonical D10 row to the checkable **text label `Volume`**
 (Q31/A22/`AC-D10.1`), at the top left of the volume panel (bottom left of the price
-chart, A23), **not** an eye icon; it notes the built control is `👁 Volume`
-(`ui/chart_panel.py:250`) but that its user-facing affordance is the `Volume` label.
+chart, A23), **not** an eye icon; the shipped control is the checkable text label
+`Volume` (`QPushButton("Volume")`, `ui/chart_panel.py:327`, RC-4a/T27), so the
+affordance and the implementation agree. *(Cycle 3 corrected residual eye-glyph
+`Volume` prose in `docs/plan.md` and this file, per ESC-019; the canonical
+`docs/architecture.md` D2/D10 rows were already correct.)*
 Phase 3 and the coverage matrix carry the correction. §2.3 documents the
 `view_mouse_click`-in-`DRAWING` behaviour change (drawing only) with the rationale
 (alarm mode is force-cleared whenever a drawing tool is armed, so alarm click is
@@ -112,10 +154,52 @@ The table is declared total in §2.4 and no `(mode, trigger)` pair is left unspe
 | `AC-D8.6` / `AC-D8.7` (ESC-007) | §4 O(1) cached running max, only-widen; `auto_range=False` re-apply | Covered |
 | D2 / `AC-D2.1`–`AC-D2.3` (Q33/A25) | R2: Y-axis lane, grey pill/white text, overlap permitted; independent CR dock-open verification | Covered |
 | `AC-D11.4` (ESC-006) | §5.4 label-vs-label only; chip lane-separated | Covered |
-| `AC-D10.1` (Q31/A22) | §5.5 canonical affordance = text label `Volume` | Covered |
+| `AC-D10.1` (Q31/A22) | §5.5 canonical affordance = text label `Volume` (prose re-fixed cycle 3) | Covered |
 | `AC-D14.4` (ESC-010) | TR-17 + Phase 4: symbol change also resets router mode to `IDLE` | Covered |
 | `AC-D7.*`, `AC-D8.1`–`AC-D8.3`, `AC-D9.*`, D12, D13, D15 | Unchanged, re-affirmed | Covered |
 | Global AC | Phase 5 offscreen suite green, no live-TWS traffic (Q8/Q9) | Covered |
+
+## Architecture Findings
+- Internally consistent; no contradiction found in revision 3.
+- The D10 affordance is now stated identically in `docs/plan_proposal.md`,
+  `docs/architecture_proposal.md`, canonical `docs/architecture.md`, and canonical
+  `docs/plan.md`, and matches the shipped control (`ui/chart_panel.py:327`).
+- No component boundary, data-model, integration, security or performance decision
+  changed in this cycle. The `RouterMode` state machine, the pinned nice-number family,
+  the live-ceiling statement and the D2/Q33 lane design remain as approved in cycle 2.
+
+## Plan Findings
+- Phases R1, R2, 1, 2, 3, 4, 5 are unchanged and remain coarse enough for Task Manager
+  to decompose without inventing architecture.
+- Phase 3's change this cycle is a **documentation correction only**; it implies no task
+  re-scoping. The `touches_files` serial-chain constraint on `ui/chart_panel.py` is
+  unaffected.
+
+## Existing Repo Compliance
+This is a stabilization run against an existing PyQt6/pyqtgraph/`ibapi` terminal, and
+every prior cycle has reviewed it as such. Note on the step-7 trigger: the literal
+sentence `"This is an existing repository"` is **not present** in
+`docs/requirements/requirements.md`; the requirements instead carry the equivalent
+existing-repo content — `### Observed from repository (confirmed, Q5)` (stack), the
+`Changing the tech stack` non-goal, and the `[existing]`/`[new/changed]` labelling basis.
+Reviewed on the substance:
+- **Codebase Summary present and substantive — PASS.** `docs/architecture.md` inventories
+  the existing layers (`config/`, `data/`, `services/`, `ibkr/`, `ui/`), the built
+  components, existing data models (`Bar`, `Alarm`, `Drawing`, `DrawingGroup`,
+  `Position`, `TradeGroup`, `OrderBookLevel`, `UserOrder`), tables, and integrations
+  (IBKR, SQLite, QSettings, Qt signal bus).
+- **Existing stack respected — PASS.** Tech Stack Decisions row 1 fixes
+  Python 3.11+/PyQt6/pyqtgraph as unchanged; No new stack item replaces an existing one.
+- **Labels present — PASS.** System Components, Data Model and Integration Points carry
+  `[existing]` / `[new]` / `[new/changed]` markers.
+- **Additive-only — PASS.** No existing component is redesigned beyond what a
+  requirement calls for; new/changed work is separated from existing.
+- **Consistency — PASS.** Entities/components treated as `[existing]` appear in the
+  Codebase Summary.
+- **Observation (non-blocking, not an ESC-019 item):** the Requirements Analyst may wish
+  to add the standard `This is an existing repository.` marker sentence during a future
+  requirements pass so the pipeline's literal trigger matches the intent. It does not
+  affect Task Manager readiness and is not escalated here.
 
 ## Parallel-build consequences
 Adequately reflected and carried into the canonical `docs/architecture.md` and
@@ -123,17 +207,16 @@ Adequately reflected and carried into the canonical `docs/architecture.md` and
 R1/R2/Phase 1/Phase 3, `ui/main_window.py` as serial between R1 and Phase 4, states R1
 must be its own wave, and requires per-test-file serialisation. `touches_files` and
 `docs/build/build_config.json` (`max_parallel_tasks`, default 4) are cited as the Task
-Manager’s input and Build’s wave rule; the Lead is the sole writer of task status.
-This is sufficient for a valid task graph. Code Reviewer writes no `task-graph.json`
-field in any case.
+Manager's input and Build's wave rule; the Lead is the sole writer of task status.
+This is sufficient for a valid task graph.
 
 ## Plan-level assumptions (PA-R2…PA-R8)
 All are implementation-detail assumptions; **none** requires a Requirements Analyst
 decision or a Plan change:
 - **PA-R2** (DRAWING ≡ tool_active) — reasonable, preserves widget-state sync.
 - **PA-R3** (test name retained while asserting the confirmed reverse) — naming note.
-- **PA-R4** (only-widen satisfies `AC-D8.6`) — explicitly permitted by the requirement’s
-  “or the bound is explicitly documented” clause.
+- **PA-R4** (only-widen satisfies `AC-D8.6`) — explicitly permitted by the requirement's
+  "or the bound is explicitly documented" clause.
 - **PA-R5** (old list fixture-only; only `(0)` changes) — requirement-backed
   (`AC-D8.4`/A24).
 - **PA-R6** (chip pixel geometry) — the lane/style/overlap are requirements; the pad is
@@ -141,25 +224,30 @@ decision or a Plan change:
 - **PA-R7** (`zoom_refused` wiring + hint string) — the requirement mandates *a* hint,
   not the wiring/text.
 - **PA-R8** (`<= 2` bound asserted only above the `100` floor) — resolves the literal
-  tension between `AC-D8.4`’s tightness bound and its own required floor; transparent and
+  tension between `AC-D8.4`'s tightness bound and its own required floor; transparent and
   consistent with A24.
 - **PA-R1** is **RETIRED** (superseded by `AC-D3.9`).
 
 ## Requirements Escalations
-None open. `docs/plan_notes.md` records:
+None open. `docs/plan_notes.md` records (all resolved; not reopened):
+- **RG-001** — addressed 2026-09-20 (D13/D14 register restored); no action.
 - **RG-002** — **RESOLVED 2026-09-27** (family pinned to `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`,
   no `10K` floor, smallest value `100`; old list = fixture only).
 - **RG-003** — **RESOLVED 2026-09-27** (Q36 option (b) → new `AC-D3.9`; TR-9 rewritten
   as a refusal; PA-R1 retired).
-- **RG-001** — previously addressed 2026-09-20 (D13/D14 register restored); no action.
+
+ESC-019 is a documentation-drift escalation resolved by Plan's revision 3 and the
+Validator's canonical mirror above — it is **not** a requirements gap, so no new
+`plan_notes.md` entry is needed.
 
 ## Task Manager Readiness
 **Yes.** `docs/plan.md` ends with `Status: READY_FOR_TASK_MANAGER`. The canonical
 `docs/architecture.md` and `docs/plan.md` carry the validated router state machine +
 transition table, the pinned nice-number family and live-ceiling statement, the D2/Q33
-chip relocation, the `AC-D11.4` re-scope, the D10 affordance correction, and the
-`touches_files`/`build_config.json` sequencing constraint. The Task Manager can produce
-a valid task graph with per-task `touches_files`.
+chip relocation, the `AC-D11.4` re-scope, the corrected D10 affordance (text label
+`Volume`), and the `touches_files`/`build_config.json` sequencing constraint. The Task
+Manager can produce a valid task graph with per-task `touches_files` without making a new
+architectural decision.
 
 ## Final Decision
 Status: APPROVED

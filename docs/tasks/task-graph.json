@@ -732,6 +732,10 @@
         "ui/chart_panel.py"
       ],
       "architecture_dependency": false,
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_volume_width.py"
+      ],
       "status": "done"
     },
     {
@@ -1253,7 +1257,7 @@
         "AC-D8.4: Given a low-volume symbol, When nice_max is computed, Then no 10k floor applies: nice_max(0) == 100, nice_max(800) == 1000, nice_max(3_000) == 5_000, and nice_max/(max_vol*1.1) <= 2 wherever the ceiling is above the 100 floor (PA-R8: the ratio bound is asserted only where max_vol >= ~45.5; below that the ceiling is the 100 floor and the ratio may exceed 2).",
         "AC-D8.5: Given a very large max volume (40M-50M), When nice_max is computed, Then it uses the same family with tight coverage: 10_500_000 -> 15_000_000, 45_000_000 -> 50_000_000, 50_000_000 -> 75_000_000, monotonic non-decreasing; the old fixed list is retained only as a test fixture.",
         "AC-D8.2 / AC-D8.3: Given volumes, When bars render, Then each bar is green (#34d399) when close >= open and red (#f87171) otherwise, and ticks are formatted 500.0K / 1.0M with 0 at the bottom.",
-        "Fixture fixed points: every retained tests/test_volume_linear.py expectation is a fixed point of the generator (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000) and only _nice_volume_max(0) changes to 100."
+        "Fixture mappings (ESC-018): every retained tests/test_volume_linear.py expectation is reproduced as the confirmed input -> output mapping (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000); every legacy fixed-list entry and every confirmed output is a member of the pinned family 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k; and only _nice_volume_max(0) changes to 100."
       ],
       "tests": [
         {
@@ -1265,10 +1269,10 @@
         },
         {
           "test_id": "T22-T02",
-          "linked_acceptance_criterion": "Fixture fixed points",
+          "linked_acceptance_criterion": "Fixture mappings (ESC-018)",
           "type": "unit",
-          "description": "For every member of the legacy fixture list and every confirmed value, assert _nice_volume_max(v) == v (each is a fixed point).",
-          "expected_result": "each value is returned unchanged."
+          "description": "Reproduce every retained tests/test_volume_linear.py expectation as an input -> output mapping (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000) and assert every legacy fixed-list entry and every confirmed output is a member of the pinned family 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k.",
+          "expected_result": "each mapping reproduced exactly; every legacy entry and confirmed output is a family member."
         },
         {
           "test_id": "T22-T03",
@@ -1295,8 +1299,8 @@
           "test_id": "T22-T06",
           "linked_acceptance_criterion": "AC-D8.5",
           "type": "unit",
-          "description": "Assert every member of the old fixed list is a family member and a fixed point (fixture cross-check).",
-          "expected_result": "all legacy entries are fixed points."
+          "description": "Fixture cross-check (ESC-018): assert every member of the old fixed list is a member of the pinned 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k family, and assert the confirmed input -> output mappings (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000).",
+          "expected_result": "all legacy entries are family members; each confirmed mapping reproduced."
         },
         {
           "test_id": "T22-T07",
@@ -1522,7 +1526,7 @@
       "touches_files": [
         "tests/test_drawing_labels.py"
       ],
-      "status": "blocked"
+      "status": "done"
     },
     {
       "id": "T26",
@@ -1740,7 +1744,7 @@
         "tests/test_chart_dpi.py",
         "tests/conftest.py"
       ],
-      "status": "blocked"
+      "status": "done"
     },
     {
       "id": "T30",
@@ -1804,8 +1808,8 @@
     },
     {
       "id": "T31",
-      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010)",
-      "description": "Run the full offscreen pytest suite plus the new/modified per-defect modules in isolation for the ESC revision, confirm no test connects to live TWS or transmits an order, and confirm touches_files-aware sequencing was honoured during Build.",
+      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010/013/014/015/016/017)",
+      "description": "Run the full offscreen pytest suite plus the new/modified per-defect modules in isolation for the ESC revision, covering the ESC-013 through ESC-017 rework fixes, confirm no test connects to live TWS or transmits an order, and confirm touches_files-aware sequencing was honoured during Build.",
       "agent": "Build",
       "task_type": "verification",
       "dependencies": [
@@ -1813,12 +1817,15 @@
         "T22",
         "T23",
         "T24",
-        "T25",
         "T26",
         "T27",
         "T28",
-        "T29",
-        "T30"
+        "T30",
+        "T32",
+        "T33",
+        "T34",
+        "T35",
+        "T36"
       ],
       "acceptance_criteria": [
         "Global full suite: Given all revision fixes are applied, When the full suite runs offscreen (QT_QPA_PLATFORM=offscreen), Then every new per-defect test and every pre-existing test passes.",
@@ -1844,7 +1851,7 @@
           "test_id": "T31-T03",
           "linked_acceptance_criterion": "Global sequencing",
           "type": "e2e",
-          "description": "Execute the new/modified modules in isolation: test_chart_mouse_router, test_volume_linear, test_volume_ceiling, test_crosshair_axis_lane, test_drawing_labels, test_db_schema, test_volume_toggle, test_d10_d13_integration, test_chart_dpi, test_watchlist_d14_midrag.",
+          "description": "Execute the new/modified modules in isolation: test_chart_mouse_router, test_volume_linear, test_volume_ceiling, test_crosshair_axis_lane, test_drawing_labels, test_db_schema, test_volume_toggle, test_d10_d13_integration, test_chart_dpi, test_watchlist_d14_midrag, test_volume_log, test_chart_crosshair, test_crosshair_chip_bounds, test_draw_combo_sync.",
           "expected_result": "all listed modules pass in isolation."
         }
       ],
@@ -1859,6 +1866,10 @@
         "tests/test_d10_d13_integration.py",
         "tests/test_chart_dpi.py",
         "tests/test_watchlist_d14_midrag.py",
+        "tests/test_volume_log.py",
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_chip_bounds.py",
+        "tests/test_draw_combo_sync.py",
         "pytest run log"
       ],
       "inputs": [
@@ -1866,19 +1877,290 @@
         "T22",
         "T23",
         "T24",
-        "T25",
         "T26",
         "T27",
         "T28",
-        "T29",
-        "T30"
+        "T30",
+        "T32",
+        "T33",
+        "T34",
+        "T35",
+        "T36"
       ],
       "outputs": [
         "pytest green run"
       ],
       "architecture_dependency": false,
       "touches_files": [],
-      "status": "not_started"
+      "status": "done"
+    },
+    {
+      "id": "T32",
+      "title": "Fix the D6 dense-view candle body clamp ordering (ESC-013)",
+      "description": "Fix ui/chart_panel.py::_refresh_candles so the price x-range is applied before candlestick.set_data(...), or the candle picture is regenerated after vb.setRange(...), so the >=4-device-px body clamp in ui/candlestick_item.py::_draw_candles computes against the real ViewBox range instead of the untouched default; the dense-view body must render >= 4 device px at DPR 1 and 2 and stay strictly wider than the 1-device-px wick.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T30"
+      ],
+      "acceptance_criteria": [
+        "AC-D6.4: Given the dense 1-min view (~960 bars) at DPR 1, When candles render, Then the body's device-pixel width is >= 4 and strictly greater than the 1-device-px wick, with no rounding collapse to a single line.",
+        "AC-D6.4 (DPR 2): Given the same dense view at QT_SCALE_FACTOR=2, When candles render, Then the body's device-pixel width is >= 4 and strictly greater than the wick's, so tests/test_chart_dpi.py::T29-T01 passes at both DPR 1 and 2.",
+        "AC-D6.1/6.2/6.3 preserved: Given a default-zoom chart, When candles render, Then the wick is a cosmetic ~1px line drawn behind the body, extends beyond the body by at least 1px, and shares the candle's direction colour (tests/test_candlestick_wick.py stays green)."
+      ],
+      "tests": [
+        {
+          "test_id": "T32-T01",
+          "linked_acceptance_criterion": "AC-D6.4",
+          "type": "integration",
+          "description": "Run tests/test_chart_dpi.py::T29-T01 at DPR 1 and assert the dense-view body device-pixel width >= 4 and > wick width after the ordering fix.",
+          "expected_result": "body >= 4 device px at DPR 1; wick 1 device px."
+        },
+        {
+          "test_id": "T32-T02",
+          "linked_acceptance_criterion": "AC-D6.4 (DPR 2)",
+          "type": "integration",
+          "description": "Run tests/test_chart_dpi.py::T29-T01 at QT_SCALE_FACTOR=2 and assert the dense-view body device-pixel width >= 4 and > wick width.",
+          "expected_result": "body >= 4 device px at DPR 2; wick 1 device px."
+        },
+        {
+          "test_id": "T32-T03",
+          "linked_acceptance_criterion": "AC-D6.1/6.2/6.3 preserved",
+          "type": "unit",
+          "description": "Re-run tests/test_candlestick_wick.py unchanged and assert the wick cosmetic pen, shadow overshoot and direction colour still hold.",
+          "expected_result": "all wick/body regression tests pass unchanged."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "ui/candlestick_item.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-013",
+        "tests/test_chart_dpi.py::T29-T01",
+        "ui/chart_panel.py:_refresh_candles",
+        "ui/candlestick_item.py:_draw_candles"
+      ],
+      "outputs": [
+        "ui/chart_panel.py",
+        "ui/candlestick_item.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "ui/chart_panel.py",
+        "ui/candlestick_item.py"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "T33",
+      "title": "Stack D11 drawing labels by measured bbox height (ESC-014)",
+      "description": "Fix ui/drawing_overlay.py::_update_inner_labels so consecutive inner-right drawing price labels are stacked by at least the measured TextItem scene bounding-box height (max(15, bbox height)) rather than a fixed 15 px, clamped inside view_rect, so consecutive label bounding boxes never intersect.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D11.4: Given two drawing price labels at nearby prices (< label bbox height apart), When they render inside the plot near the right edge (anchor=(1,0.5), x = view_rect.right()-4), Then their scene bounding boxes do not intersect (centre separation >= measured bbox height) and each label remains fully inside view_rect.",
+        "AC-D11.4 (ESC-014): the stacking offset is derived from the measured/graphical bbox height, not a hard-coded 15 px, so tests/test_drawing_labels.py::T25-T01 passes.",
+        "AC-D11.1/2/3 preserved: a drawing price label is visible inside the plot near the right edge, a zone shows two labels at top/bottom, and nearby labels remain legible."
+      ],
+      "tests": [
+        {
+          "test_id": "T33-T01",
+          "linked_acceptance_criterion": "AC-D11.4",
+          "type": "integration",
+          "description": "Run tests/test_drawing_labels.py::T25-T01 (test_label_vs_label_bbox_no_intersection); assert the two label scene bounding boxes do not intersect and each is inside view_rect.",
+          "expected_result": "no bbox intersection; labels fully inside view_rect."
+        },
+        {
+          "test_id": "T33-T02",
+          "linked_acceptance_criterion": "AC-D11.4 (ESC-014)",
+          "type": "unit",
+          "description": "Assert the computed stacking offset is >= the emitted TextItem scene bbox height (and >= 15 px), i.e. driven by the measured height rather than the literal 15.",
+          "expected_result": "offset >= measured bbox height for the pair."
+        },
+        {
+          "test_id": "T33-T03",
+          "linked_acceptance_criterion": "AC-D11.1/2/3 preserved",
+          "type": "integration",
+          "description": "Re-run the existing D11 inner-right horizontal/zone label tests and the nearby-label legibility test unchanged.",
+          "expected_result": "all pre-existing D11 label tests still pass."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/drawing_overlay.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-014",
+        "tests/test_drawing_labels.py::T25-T01",
+        "ui/drawing_overlay.py:_update_inner_labels"
+      ],
+      "outputs": [
+        "ui/drawing_overlay.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "ui/drawing_overlay.py"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "T34",
+      "title": "Update tests/test_volume_log.py to the pinned nice-family expectation (ESC-015)",
+      "description": "Update tests/test_volume_log.py::test_volume_zero_mapped_to_one to expect the pinned family value (1_500 rather than the removed 10_000), preferably asserting against ui.chart_panel._nice_volume_max(max_vol) to prevent drift, and correct the stale 'nice_max for max 1000 -> 10k' comment.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "ESC-015: Given a max volume of 1_000, When the volume Y range is computed, Then the upper bound is _nice_volume_max(1_000) == 1_500 (not the removed 10_000), asserted against the product function so the test cannot drift.",
+        "ESC-015 comment: the stale comment 'nice_max for max 1000 -> 10k' is corrected to the pinned family value."
+      ],
+      "tests": [
+        {
+          "test_id": "T34-T01",
+          "linked_acceptance_criterion": "ESC-015",
+          "type": "unit",
+          "description": "Run tests/test_volume_log.py::test_volume_zero_mapped_to_one; assert y_range[1] == ui.chart_panel._nice_volume_max(max_vol) (== 1_500 for max_vol 1_000).",
+          "expected_result": "expectation matches the pinned family; test passes."
+        },
+        {
+          "test_id": "T34-T02",
+          "linked_acceptance_criterion": "ESC-015 comment",
+          "type": "manual",
+          "description": "Inspect the updated comment near test_volume_zero_mapped_to_one to confirm it no longer references the removed 10k floor.",
+          "expected_result": "comment references 1_500 / the pinned family."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_volume_log.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-015",
+        "tests/test_volume_log.py::test_volume_zero_mapped_to_one",
+        "ui/chart_panel.py:_nice_volume_max"
+      ],
+      "outputs": [
+        "tests/test_volume_log.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "tests/test_volume_log.py"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "T35",
+      "title": "Update stale crosshair-chip assertions to the Y-axis-lane contract (ESC-016)",
+      "description": "Update the four stale assertions that still expect the superseded inside-plot chip position to the mandated D2/Q33 Y-axis-lane contract: anchor=(0,0.5), scene x >= view_rect.right(), fully inside the lane/panel and not clipped, in tests/test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips and the three tests test_chip_visible_inside_right_edge, test_chip_stays_inside_after_zoom, test_long_price_and_edge_positions in tests/test_crosshair_chip_bounds.py, without weakening to a tautology.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "ESC-016: Given a cursor inside the price plot, When the crosshair chip renders, Then tests/test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips asserts anchor=(0,0.5) and scene x >= view_rect.right() (lane position), not the superseded inside-plot right-align.",
+        "ESC-016: the three tests/test_crosshair_chip_bounds.py assertions assert the lane contract (scene x >= view_rect.right(), fully inside the lane/panel, not clipped) and are non-tautological.",
+        "AC-D2.1/2.2/2.3 preserved: the chip still tracks the cursor price on pan/zoom and is hidden when the cursor leaves the plot."
+      ],
+      "tests": [
+        {
+          "test_id": "T35-T01",
+          "linked_acceptance_criterion": "ESC-016",
+          "type": "integration",
+          "description": "Run the updated tests/test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips; assert anchor (0,0.5) and scene x >= view_rect.right().",
+          "expected_result": "chip asserted in the Y-axis lane; test passes."
+        },
+        {
+          "test_id": "T35-T02",
+          "linked_acceptance_criterion": "ESC-016",
+          "type": "integration",
+          "description": "Run the three updated tests/test_crosshair_chip_bounds.py tests; assert lane geometry (x >= view_rect.right()), inside panel, not clipped, and that the assertions are not vacuously true.",
+          "expected_result": "all three pass with real lane-geometry assertions."
+        },
+        {
+          "test_id": "T35-T03",
+          "linked_acceptance_criterion": "AC-D2.1/2.2/2.3 preserved",
+          "type": "integration",
+          "description": "Re-run the T24 lane tests (tests/test_crosshair_axis_lane.py) and the leave-hides-chip test to confirm no behaviour regression.",
+          "expected_result": "tracking and hide-on-leave still pass."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_chip_bounds.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-016",
+        "docs/architecture.md#Crosshair chip (D2 revised)",
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_chip_bounds.py"
+      ],
+      "outputs": [
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_chip_bounds.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_chip_bounds.py"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "T36",
+      "title": "Sync MainWindow.draw_combo to Cursor when the router clears the drawing tool (ESC-017)",
+      "description": "When the router clears the drawing tool (TR-4 zoom-cancels-draw and TR-17 symbol change), reset MainWindow.draw_combo to 'Cursor' using blockSignals so no spurious currentTextChanged re-arms the tool, mirroring the existing alarm-mode reset path; add tests/test_draw_combo_sync.py.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T21"
+      ],
+      "acceptance_criteria": [
+        "AC-D3.7 side effect / ESC-017: Given a drawing tool is selected and active, When the magnifier is invoked (TR-4 zoom-cancels-draw), Then MainWindow.draw_combo displays 'Cursor' and selecting the same tool again re-arms it (no stale combo).",
+        "TR-17 / ESC-017: Given a drawing tool is active, When the symbol changes, Then MainWindow.draw_combo is reset to 'Cursor' consistently with the router returning to IDLE.",
+        "ESC-017 guard: the combo reset uses blockSignals (or equivalent) so it does not emit a spurious currentTextChanged, mirroring the alarm-mode path; no regression to the alarm-mode reset."
+      ],
+      "tests": [
+        {
+          "test_id": "T36-T01",
+          "linked_acceptance_criterion": "AC-D3.7 side effect / ESC-017",
+          "type": "integration",
+          "description": "Named test_zoom_clears_draw_combo: arm a drawing tool, invoke the magnifier (enter_zoom), and assert draw_combo.currentText() == 'Cursor'; then re-select the tool and assert it re-arms.",
+          "expected_result": "combo shows 'Cursor' after zoom; re-selecting the tool re-arms it."
+        },
+        {
+          "test_id": "T36-T02",
+          "linked_acceptance_criterion": "TR-17 / ESC-017",
+          "type": "integration",
+          "description": "Named test_symbol_change_clears_draw_combo: with a drawing tool active, trigger the symbol-change path and assert draw_combo.currentText() == 'Cursor' and the router is IDLE.",
+          "expected_result": "combo 'Cursor'; router IDLE."
+        },
+        {
+          "test_id": "T36-T03",
+          "linked_acceptance_criterion": "ESC-017 guard",
+          "type": "unit",
+          "description": "Assert the reset does not emit a spurious currentTextChanged (blockSignals) and that the existing alarm-mode combo reset still works.",
+          "expected_result": "no spurious signal; alarm path unchanged."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py",
+        "tests/test_draw_combo_sync.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-017",
+        "docs/architecture.md#Router state machine (ESC-002)",
+        "ui/main_window.py:draw_combo",
+        "ui/chart_mouse_router.py:enter_zoom"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_draw_combo_sync.py"
+      ],
+      "architecture_dependency": false,
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_draw_combo_sync.py"
+      ],
+      "status": "done"
     }
   ]
 }

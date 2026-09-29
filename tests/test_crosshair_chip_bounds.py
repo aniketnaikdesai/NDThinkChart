@@ -1,4 +1,8 @@
-"""Tests for D2: crosshair price chip stays inside plot right edge."""
+"""Tests for D2/Q33: crosshair price chip renders in the Y-axis lane.
+
+The chip is left-anchored at the plot's vertical axis line
+(``anchor=(0, 0.5)``, scene x >= ``view_rect.right()``) and grows rightward
+into the Y-axis lane, staying fully inside the lane (never clipped)."""
 
 import pyqtgraph as pg
 import pytest
@@ -27,11 +31,16 @@ def test_chip_visible_inside_right_edge(panel2, sample_bars):
     assert panel2._price_tag.isVisible()
     vb = panel2.price_plot.getViewBox()
     view_right = vb.mapRectToScene(vb.rect()).right()
-    # right-aligned: pos.x <= view_right
-    assert panel2._price_tag.pos().x() <= view_right - 1
-    # bounding rect inside
+    lane_right = view_right + float(panel2.price_plot.getAxis('right').width())
+    # D2/Q33: left-anchored in the Y-axis lane at the plot's vertical axis line.
+    assert panel2._price_tag.pos().x() >= view_right
+    anchor = panel2._price_tag.anchor
+    assert float(anchor.x()) == pytest.approx(0.0)
+    assert float(anchor.y()) == pytest.approx(0.5)
+    # bounding rect fully inside the lane (never clipped)
     br = panel2._price_tag.mapRectToScene(panel2._price_tag.boundingRect())
-    assert br.right() <= view_right + 1
+    assert br.left() >= view_right - 1e-6
+    assert br.right() <= lane_right + 1e-6
     assert panel2._price_tag.toPlainText() == "105.50"
 
 def test_chip_stays_inside_after_zoom(panel2, sample_bars, qapp):
@@ -43,10 +52,13 @@ def test_chip_stays_inside_after_zoom(panel2, sample_bars, qapp):
     qapp.processEvents()
     panel2._update_crosshair(scene_point(panel2, bar.ts, 112.34))
     view_right = vb.mapRectToScene(vb.rect()).right()
+    lane_right = view_right + float(panel2.price_plot.getAxis('right').width())
     assert panel2._price_tag.isVisible()
-    assert panel2._price_tag.pos().x() <= view_right - 1
+    # still lane-placed after zoom: scene x >= view_rect.right()
+    assert panel2._price_tag.pos().x() >= view_right
     br = panel2._price_tag.mapRectToScene(panel2._price_tag.boundingRect())
-    assert br.right() <= view_right + 1
+    assert br.left() >= view_right - 1e-6
+    assert br.right() <= lane_right + 1e-6
     assert panel2._price_tag.toPlainText() == "112.34"
 
 def test_leave_hides_chip(panel2, sample_bars):
@@ -65,9 +77,14 @@ def test_long_price_and_edge_positions(panel2, sample_bars, qapp):
     pos = scene_point(panel2, sample_bars[80].ts, 123456.78)
     panel2._update_crosshair(pos)
     view_right = vb.mapRectToScene(vb.rect()).right()
+    lane_right = view_right + float(panel2.price_plot.getAxis('right').width())
     br = panel2._price_tag.mapRectToScene(panel2._price_tag.boundingRect())
     assert panel2._price_tag.isVisible()
-    assert br.right() <= view_right + 1
+    assert panel2._price_tag.toPlainText() == "123,456.78"
+    # D2/Q33: long price is still lane-placed and fully inside the lane
+    assert panel2._price_tag.pos().x() >= view_right
+    assert br.left() >= view_right - 1e-6
+    assert br.right() <= lane_right + 1e-6
     # near top edge — reset view to sample range first
     panel2.update_chart(sample_bars)
     qapp.processEvents()
@@ -84,5 +101,10 @@ def test_long_price_and_edge_positions(panel2, sample_bars, qapp):
     pos_narrow = scene_point(panel2, sample_bars[60].ts, 108.5)
     panel2._update_crosshair(pos_narrow)
     view_right_n = vb.mapRectToScene(vb.rect()).right()
+    lane_right_n = view_right_n + float(panel2.price_plot.getAxis('right').width())
     br_n = panel2._price_tag.mapRectToScene(panel2._price_tag.boundingRect())
-    assert br_n.right() <= view_right_n + 1
+    # lane contract holds in a narrow (500px) window too: chip in lane, not clipped
+    assert panel2._price_tag.isVisible()
+    assert panel2._price_tag.pos().x() >= view_right_n
+    assert br_n.left() >= view_right_n - 1e-6
+    assert br_n.right() <= lane_right_n + 1e-6

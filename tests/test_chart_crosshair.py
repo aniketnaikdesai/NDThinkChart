@@ -44,17 +44,22 @@ def test_hover_inside_shows_lines_and_axis_chips(panel, sample_bars):
     assert panel.crosshair_v.angle == 90
     assert panel._price_tag.toPlainText() == "110.50"
     assert panel._price_tag.isVisible()
-    # Price chip right-aligned inside plot (never covered by dock)
+    # D2/Q33: the price chip lives in the Y-axis lane, left-anchored at the
+    # plot's vertical axis line (scene x >= view_rect.right()) so it grows
+    # rightward into the lane instead of being right-aligned inside the plot.
     vb = panel.price_plot.getViewBox()
-    view_right = vb.mapRectToScene(vb.rect()).right()
-    assert panel._price_tag.pos().x() <= view_right - 1
-    # anchor (1,0.5) — stored as Point
+    view_rect = vb.mapRectToScene(vb.rect())
+    view_right = view_rect.right()
+    lane_right = view_right + float(panel.price_plot.getAxis('right').width())
+    assert panel._price_tag.pos().x() >= view_right
+    # anchor (0,0.5) — left-anchored, vertically centred; stored as Point
     anchor = panel._price_tag.anchor
-    assert float(anchor.x()) == pytest.approx(1.0)
+    assert float(anchor.x()) == pytest.approx(0.0)
     assert float(anchor.y()) == pytest.approx(0.5)
-    # bounding rect fully inside view
+    # bounding rect fully inside the Y-axis lane (never clipped)
     br = panel._price_tag.mapRectToScene(panel._price_tag.boundingRect())
-    assert br.right() <= view_right + 1
+    assert br.left() >= view_right - 1e-6
+    assert br.right() <= lane_right + 1e-6
     expected = datetime.fromtimestamp(bar.ts, tz=timezone.utc).strftime("%m/%d %H:%M")
     assert panel._time_tag.toPlainText() == expected
     assert panel._time_tag.isVisible()

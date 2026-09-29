@@ -5,6 +5,20 @@
 **Note:** original pass (ESC-001…ESC-012). Second pass closed out every entry whose fix the Code
 Reviewer independently verified; ESC-011 stays `open` (residual drift — see `review_log.md`).
 New findings from the second pass are appended as ESC-013 … ESC-019.
+Third pass (2026-09-28, rework round; `952a083` + uncommitted Build changes) independently re-verified
+and closed **ESC-013, ESC-014, ESC-015, ESC-016, ESC-017, ESC-018, ESC-019**; ESC-011 remains open
+(owner dependency). One new finding appended: **ESC-020** (D9 volume-width ordering).
+Fourth pass (2026-09-28, focused ESC-021 rework; `952a083` + uncommitted Build changes) independently
+re-verified and closed **ESC-020** (product ordering) and then **ESC-021** (test robustness) on the
+wave-13 rework. ESC-011 remains open (owner dependency). No new finding this pass.
+Sixth pass (2026-09-28, root-doc verification, no Build output change) independently re-verified and
+closed **ESC-011** — the owner's residual fixes to `usage.md` / `PENDING_IMPLEMENTATION_PLAN.md` check out
+(no `269` left, suite re-measured at 383, all ten phases `✅ COMPLETE`). One same-class finding was surfaced
+outside ESC-011's enumerated scope and appended as **ESC-022** (`test_plan.md:76`).
+Seventh pass (2026-09-28, ESC-022 verification, no Build output change) independently re-verified and closed
+**ESC-022** — `test_plan.md:76` now reads the current full-suite figure (`383 passed in ~6.5s`; independently
+re-measured at **383 passed in 6.13s**, exit 0), and no `269` remains in any root doc.
+**All escalations ESC-001…ESC-022 are now `addressed`; none remain open.**
 
 Routing legend: `ESCALATED_TO_BUILD`, `ESCALATED_TO_TASK_MANAGER`, `ESCALATED_TO_PLAN`,
 `ESCALATED_TO_REQUIREMENTS`.
@@ -211,7 +225,28 @@ Routing legend: `ESCALATED_TO_BUILD`, `ESCALATED_TO_TASK_MANAGER`, `ESCALATED_TO
 - **Root cause:** docs were not updated after later batches landed.
 - **Suggested direction:** Requirements Analyst updates `usage.md` / `PENDING_IMPLEMENTATION_PLAN.md`;
   the orphaned `.pyc` should be removed (covered by ESC-001).
-- **Status: ESCALATED_TO_REQUIREMENTS**
+- **Status: addressed**
+  - Verified (2026-09-28, sixth pass): the repository owner applied the residual fixes to both root docs
+    and I re-checked the live tree myself (not from the owner's word). `grep -n "269" usage.md
+    PENDING_IMPLEMENTATION_PLAN.md` → **0 hits** (previously 1 in `usage.md`, 3 in the plan). `usage.md:166`
+    now reads `# Full suite (383 tests, ~6s)`, and the current suite was independently re-measured this
+    pass at **383 passed in 6.49s** (`QT_QPA_PLATFORM=offscreen`, exit 0) — the stated size is accurate.
+    `PENDING_IMPLEMENTATION_PLAN.md:364`/`:412`/`:458` now read **383 passed**; all ten phase headers
+    (`:69`, `:129`, `:172`, `:213`, `:243`, `:282`, `:326`, `:368`, `:416`, `:462`) now carry
+    `✅ COMPLETE` (previously only Phases 6–10). The orphaned-`.pyc` part stays resolved via ESC-001 and
+    the D5-index part via ESC-012. **ESC-011's enumerated residual is fully closed** — the three listed
+    locations above are the entire scope this entry named. (A newly-noted, same-class instance in a
+    *different* root doc — `test_plan.md:76` — was surfaced this pass and is tracked separately as
+    **ESC-022**; it was never part of ESC-011's enumerated scope.)
+- **Residual (re-checks 2026-09-28 second pass and 2026-09-28 third pass):** the orphaned-bytecode and
+  D5-index parts are resolved (ESC-001 / ESC-012). What **remains**, unchanged, is root-doc drift that no
+  pipeline agent owns:
+  - `usage.md:166` still reads "Full suite (269 tests, ~1.5s)"; the current suite is **383 passed**.
+  - `PENDING_IMPLEMENTATION_PLAN.md:364`, `:412`, `:458` still read "269 passed".
+  - `PENDING_IMPLEMENTATION_PLAN.md` Phases 1–5 still carry no `✅ COMPLETE` marker (only Phases 6–10 do).
+  Owner: **Requirements Analyst / repository owner (user)** — this is a recorded root-doc owner
+  dependency (`requirements.md` DOC-1/DOC-2), not a Build task and not dispatchable by Build. Left open;
+  no re-diagnosis beyond this.
 
 ## ESC-012 — `requirements.md` still presents D5 (log) although D8 (linear) supersedes it
 
@@ -262,7 +297,15 @@ against Build's report: each of the two blocked tasks was reproduced by running 
   regenerate the picture after `setRange`, e.g. a second `set_data`/`update`), and/or compute the
   clamp from the target range. Fix sites are `ui/chart_panel.py` (ordering) and/or
   `ui/candlestick_item.py`; both are outside T29's `touches_files`.
-- **Status: ESCALATED_TO_BUILD**
+- **Status: addressed**
+  - Verified: `ui/chart_panel.py::_refresh_candles()` now applies `vb.setRange(...)` **before**
+    `self.candlestick.set_data(...)` on the `auto_range` path, and the non-auto path regenerates the
+    picture against the already-real range. Independently re-ran `tests/test_chart_dpi.py` → **5 passed**
+    (dense body 4.004 device px @DPR1 / 8.007 @DPR2, wick 1). Reviewer probe (offscreen, 900×600,
+    960×60s bars) confirmed the clamp binds on every path: first load 4.004 px, `set_timezone(-5h)`
+    4.004 px, non-auto `_refresh_candles()` 4.004 px, empty load no error, symbol change returns the
+    router to `IDLE`. T29 re-run green. (The sibling volume-width ordering defect this left in place is
+    a distinct new finding — ESC-020.)
 
 ## ESC-014 — D11 label stacking only guarantees 15 px but real label bboxes are ~23 px tall
 
@@ -284,7 +327,16 @@ against Build's report: each of the two blocked tasks was reproduced by running 
   `view_rect.bottom()` stays. Fix site `ui/drawing_overlay.py`, outside T25's `touches_files`.
   While in `tests/test_drawing_labels.py` (inside T25's footprint) also remove the vacuous
   assertion at `:67` `assert label.isVisible() or True` (always true — asserts nothing).
-- **Status: ESCALATED_TO_BUILD**
+- **Status: addressed**
+  - Verified: `ui/drawing_overlay.py::_update_inner_labels()` now stacks by
+    `offset = max(15.0, height, last_height)` using `_label_scene_height()` (measured
+    `mapRectToScene(boundingRect()).height()`) and clamps the whole label box inside `view_rect`.
+    Reviewer probe measured the two near-price labels at **separation 23.00 px == measured bbox height**
+    (was 15 px), no intersection; a degenerate collapsed y-range raised no exception. `T25-T01` genuinely
+    discriminates — it asserts `centerΔ >= max(bbox height)` and `not intersects()`, both false under the
+    old 15 px offset (fails at 15 < 23; non-tautological, and the pre-fix failure was reproduced). The
+    vacuous `assert label.isVisible() or True` was replaced with real visibility + right-edge containment
+    assertions (`tests/test_drawing_labels.py:69–73`). Re-ran the file → **5 passed** (×3, no flakiness).
 
 ## ESC-015 — `tests/test_volume_log.py` still expects the removed 10k floor
 
@@ -297,7 +349,13 @@ against Build's report: each of the two blocked tasks was reproduced by running 
   (T22's mandated behaviour change). `tests/test_volume_log.py` is in no task's `touches_files`.
 - **Suggested direction:** one-line update `10_000 → 1_500` (preferably assert against
   `_nice_volume_max(max_vol)` so it cannot drift). Test-only change; owner inherits T22.
-- **Status: ESCALATED_TO_BUILD**
+- **Status: addressed**
+  - Verified: `tests/test_volume_log.py::test_volume_zero_mapped_to_one` now asserts
+    `y_range[1] == approx(_nice_volume_max(max_vol), rel=0.02)` **and** pins
+    `_nice_volume_max(max_vol) == approx(1_500, rel=0.02)`; the stale `max 1000 -> 10k` comment is
+    corrected. Real, not looser: the previous `approx(10_000, rel=0.1)` fails against the measured
+    `1500.0`, and the pinned `== 1_500` fails if the family regresses to the removed 10k floor.
+    Independently re-ran `tests/test_volume_log.py` → **3 passed**.
 
 ## ESC-016 — Four stale crosshair assertions still expect the superseded inside-plot chip
 
@@ -314,7 +372,15 @@ against Build's report: each of the two blocked tasks was reproduced by running 
 - **Suggested direction:** update both files to the axis-lane contract (scene `x >= view_rect.right()`,
   `anchor=(0,0.5)`, grey pill/white text, not clipped). Do not weaken to a tautology — assert the new
   geometry. Test-only change.
-- **Status: ESCALATED_TO_BUILD**
+- **Status: addressed**
+  - Verified: the four assertions in `tests/test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips`
+    and `tests/test_crosshair_chip_bounds.py` (`::test_chip_visible_inside_right_edge`,
+    `::test_chip_stays_inside_after_zoom`, `::test_long_price_and_edge_positions`) now assert the
+    D2/Q33 lane contract — `anchor=(0,0.5)`, scene `pos().x() >= view_rect.right()`, and the bbox inside
+    `[view_rect.right(), view_rect.right()+axis('right').width()]`. Non-tautological: the old inside-plot
+    behaviour (`anchor=(1,0.5)`, `pos().x() <= view_right-1`) fails both `>= view_right` and
+    `anchor.x()==0`. Independently re-ran both files → **16 passed** (12 + 4); the pre-change baseline
+    reproduced ESC-016's exact 4 failures.
 
 ## ESC-017 — TR-4 side effect "uncheck the draw combo" is not implemented (combo goes stale)
 
@@ -332,7 +398,16 @@ against Build's report: each of the two blocked tasks was reproduced by running 
 - **Suggested direction:** on `enter_zoom()` from `DRAWING` (and on the TR-17 symbol reset), reset
   `MainWindow.draw_combo` to `"Cursor"` (guard against recurrence with `blockSignals` if needed), or
   emit a router/adapter signal the window can observe. UI-consistency fix.
-- **Status: ESCALATED_TO_BUILD**
+- **Status: addressed**
+  - Verified: `ui/main_window.py` connects `drawing_overlay.mode_changed` →
+    `_on_drawing_tool_mode_changed`, which calls a `blockSignals`-guarded
+    `_reset_draw_combo_to_cursor()` when the tool falls back to `"cursor"`; the alarm-mode reset routes
+    through the same helper. Re-running `tests/test_draw_combo_sync.py` → **3 passed** (`T36-T01`
+    zoom-cancels-draw, `T36-T02` TR-17 symbol change, `T36-T03` no spurious signal + alarm path intact).
+    Re-entrancy is genuinely prevented: `_on_draw_tool_changed` is only reachable via
+    `currentTextChanged`, which `blockSignals(True)` suppresses (asserted `seen == []`), and the helper
+    early-returns when the combo already reads `"Cursor"`. The legitimate user re-arm path
+    (`_arm` → `DRAWING`) and the alarm-mode reset both still work.
 
 ## ESC-018 — T22 "each is a fixed point" acceptance/test predicate is unachievable as worded
 
@@ -351,7 +426,12 @@ against Build's report: each of the two blocked tasks was reproduced by running 
 - **Suggested direction:** reword the `"Fixture fixed points"` AC and T22-T02/T22-T06 to the
   input→output mapping (or "every retained expectation is reproduced / a family member"), and drop
   the term "fixed point". Wording-only; no code change.
-- **Status: ESCALATED_TO_TASK_MANAGER**
+- **Status: addressed**
+  - Verified: `docs/tasks/task-graph.json:1256` now reads `"Fixture mappings (ESC-018)"` and the T22-T02
+    (`:1270`) / T22-T06 (`:1298`) descriptions assert the confirmed `input -> output` mappings plus family
+    membership; the term "fixed point" no longer appears in any task graph acceptance criterion or test
+    description (remaining hits are only in build/review history). `tests/test_volume_linear.py` T22-T02/
+    T22-T06 implement exactly that wording. Re-ran `tests/test_volume_linear.py` → **11 passed**.
 
 ## ESC-019 — Stale `👁 Volume` prose in the Plan-owned artifacts
 
@@ -365,7 +445,146 @@ against Build's report: each of the two blocked tasks was reproduced by running 
 - **Suggested direction:** update the stale `👁 Volume` wording in `docs/plan.md`,
   `docs/plan_review.md`, and `docs/architecture_proposal.md` to the text label `Volume`.
   Wording-only; Build must not edit these files.
-- **Status: ESCALATED_TO_PLAN**
+- **Status: addressed**
+  - Verified: no eye glyph remains in any Plan-owned artifact — `grep -rn "👁" docs/` returns hits only in
+    `docs/build/**` and this review's own historical entries. `docs/plan.md:111,113` now read "not an eye
+    icon" and `QPushButton("Volume")`; `docs/plan_proposal.md:16,46,208,341` and
+    `docs/architecture_proposal.md:26,52,56,609,614,678,827` all describe the checkable text label
+    `Volume`; `docs/plan_review.md` records the correction.
+
+## ESC-020 — D9 volume bar width does not follow the clamped price body width on the first (auto-range) load
+
+- **Linked task/defect:** T13 (D9) — sibling ordering defect exposed while verifying ESC-013/T32
+- **Observed:** In `ui/chart_panel.py::_refresh_candles()` the volume half-width `w_vol` is computed by
+  reading the price `ViewBox.viewRange()` (`:805–823`) **before** the auto-range branch applies
+  `vb.setRange(...)` (`:849`); `volume_bars.setOpts(width=w_vol*2)` is likewise called at `:831`, before
+  the range is set. On a first load the range is still the untouched default, so the volume
+  `min_w_vol` clamp never binds and the unclamped width is used. Reviewer probe (offscreen, 900×600,
+  960×60 s bars): first load candle body = **4.004 device px** but volume bar = **0.517 device px**
+  (39 data units vs the price body's 302); after one non-auto `_refresh_candles()` the volume width jumps
+  to **4.000 device px** and matches. T32 fixed this ordering for the candle picture; the identical
+  ordering defect remains for `w_vol`.
+- **Expected:** `AC-D9.1` / `AC-D9.2` (`docs/requirements/requirements.md:765–770`) — "the volume bar
+  width equals the price body width (`w*2`)"; "Given a dense 1-min view where the 4px body minimum
+  applies … Then volume bars follow the same clamped `w`". Architecture D9 row (`docs/architecture.md:40`)
+  states the shared `w` "guarantees vertical alignment including the dense 4px minimum".
+- **Root cause:** `w_vol` and its `setOpts` are evaluated before the target x-range is applied — the same
+  generate-before-`setRange` ordering T32 fixed for the candle picture, left in place for the volume
+  width. Not a regression introduced by T32; a sibling instance of the same defect.
+- **Witness the current test misses it:** `tests/test_volume_width.py::test_volume_width_dense_clamped`
+  only asserts `vol_width > 10` (39 passes) and `!= 0.6`; it never compares the volume width to the
+  clamped candle body width, so it passes with the unclamped value.
+- **Suggested direction:** compute `w_vol` / call `volume_bars.setOpts` **after** the real x-range is
+  applied on the auto-range path (or derive the clamp from the target span), mirroring T32's reorder; and
+  strengthen `test_volume_width_dense_clamped` to assert the dense-view volume width equals the clamped
+  price body width (`w*2`), not merely `> 10`.
+- **Status: addressed**
+  - Verified: `ui/chart_panel.py::_refresh_candles()` now applies `vb.setRange(...)` (`:827–828`) **before**
+    the `w_vol` / `min_w_vol` block (`:838–854`) and `volume_bars.setOpts(width=w_vol*2)` (`:858`), so
+    `w_vol` is derived from the **final** range on every path — first/auto-range load, non-auto/intra-bar
+    refresh, `set_timezone`, empty load (`w_vol=0.25`) and symbol change. Reviewer offscreen probe
+    (900×600, 960×60 s bars): first load candle body **4.0036 device px** vs volume bar **4.0000 device px**
+    (pre-fix sibling value was 0.517); dense 301.730 vs 301.730 data units at the final range, non-dense
+    195 vs 195 (17.28 device px both). The strengthened
+    `tests/test_volume_width.py::test_volume_width_dense_clamped` is **real, not tautological**: run against
+    the pre-fix ordering (HEAD `952a083`, `setOpts` at `:832` before `setRange` at `:844`) it fails
+    `assert 39.0 == 301.73023255860653 ± 3.0173`, and passes on the fixed tree (`2 passed`). No
+    candle-fix regression: `tests/test_chart_dpi.py` 5 passed, `tests/test_volume_linear.py` +
+    `test_volume_log.py` + `test_volume_ceiling.py` + `test_volume_toggle.py` 26 passed; full suite
+    **383 passed, 0 failed**. Residual (non-blocking) test-robustness gap recorded as the new ESC-021.
+
+## ESC-021 — D9 width test binds the volume width to a re-derived formula, not to the rendered candle body
+
+- **Linked task/defect:** T13 (D9) — strengthened `tests/test_volume_width.py`
+- **Observed:** the strengthened D9 tests compute the "expected price body width" analytically in the test
+  helper `_clamped_price_body_width()` (`tests/test_volume_width.py:9–23`), duplicating the production
+  candle formula (`median_diff * 0.325`, `min_w = 2.0 / px_per_sec`), and assert `vol_width` against that
+  re-derivation. They never read the **actual** `CandlestickItem` body geometry. Concrete demonstration:
+  taking the fixed working tree and changing only the candle half-width in
+  `ui/candlestick_item.py:98` from `median_diff * 0.325` to `median_diff * 0.30` (a genuine D9
+  misalignment — real candle bodies now narrower than the volume bars) still yields
+  `tests/test_volume_width.py` → **2 passed**. So a future D7-style gap change applied to only one of the
+  two duplicated constants would silently break the D9 "volume width equals price body width" contract
+  without failing this test.
+- **Expected:** the D9 test should bind the volume bar width to the **rendered candle body** width (as
+  `tests/test_chart_dpi.py::body_geometry` already does by measuring the item's `QPicture`), not to a
+  second copy of the formula. Today's alignment does hold (probe: dense 301.730 == 301.730 data units,
+  non-dense 195 == 195), so this is a robustness gap, not a present defect.
+- **Root cause:** the `w` computation is duplicated across `ui/candlestick_item.py::_draw_candles`
+  (generation) and `ui/chart_panel.py::_refresh_candles` (volume width); the test mirrors the second copy,
+  so it can only detect volume-side regressions (which is how ESC-020 was caught), not candle-side drift.
+- **Suggested direction:** in `test_volume_width_*`, derive the expected body width from the rendered
+  `panel.candlestick` picture (bbox width − timestamp span, accounting for cosmetic-pen inflation) and
+  compare the volume width to that, or factor the shared `w` computation into one helper both production
+  sites call. Test-only or small-refactor change; not blocking any acceptance criterion.
+- **Status: addressed**
+  - Verified: `tests/test_volume_width.py` no longer re-derives the production formula. The duplicated
+    helper `_clamped_price_body_width()` is gone (grep shows no references; no live `0.325`/`median_diff`
+    formula in the file — only the two docstring/comments that explain its removal). Both tests now obtain
+    the expected width by **measuring the rendered item**: `_measured_body_width()` reads
+    `panel.candlestick.boundingRect()` (the recorded `QPicture` bbox) and subtracts the timestamp span,
+    exactly `tests/test_chart_dpi.py::body_geometry`; `_px_per_sec()` derives the scale from the final
+    `ViewBox.viewRange()`. Neither `candlestick` nor `volume_bars` appears in any expected-value
+    derivation, so the two sides are genuinely independent.
+  - **Drift experiment re-run by the reviewer** (not taken from Build's report): backed up
+    `ui/candlestick_item.py` (sha256 `6eb4dc49…58ffb`), applied only `median_diff * 0.325 → 0.30` at
+    `:98`, cleared `__pycache__`, ran `tests/test_volume_width.py` → **1 failed, 1 passed**, non-dense
+    `T13-T01` `assert 195.0 == 180.0 ± 3.6` (exactly Build's reported figure); restored from backup and
+    re-verified the same sha256 `6eb4dc49…58ffb` with `git status --short ui/candlestick_item.py` empty
+    (clean vs HEAD), then re-ran the file → **2 passed**. The candle-side drift the old formula-mirror
+    missed is now caught.
+  - **No assertion weakened or made tautological:** the expected value is a *different* quantity from the
+    asserted one (measured candle render vs volume `opts['width']`), so the equality is non-tautological
+    (the drift run proves it fails). The dense 4-device-px checks survive
+    (`measured_body * px_per_sec ≈ 4.0` and `vol_width * px_per_sec ≈ 4.0`), as do both real regressions
+    (`!= 0.6`, `!= 39.0`). The dense tolerance stays **2%** (`rel=0.02`) and is meaningful: it absorbs
+    only the integer `QPicture` bbox quantisation (~1.0 data unit on the non-dense 195 / ~0.27 on the
+    dense 301.7), while the `39.0` regression sits ~9.8% away — far outside it. Counter-check: Build's own
+    pre-fix ordering experiment (`ESC-020` re-simulated) makes dense `T13-T02` fail `assert 39.0 == 302.0
+    ± 6.04`, which I re-confirmed independently on the wave-11 tree in the previous pass; the ESC-020
+    witness is therefore retained.
+  - Suite re-verified: full offscreen run **383 passed, 0 failed, exit 0**; `test_volume_width` +
+    `test_chart_dpi` + `test_chart_mouse_router` spot-check **22 passed**. `ui/candlestick_item.py` and
+    `ui/chart_panel.py` sha256s match the pre-rework values (no product change, no diagnostic residue).
+
+---
+
+## Sixth-pass finding (2026-09-28) — root-doc drift outside ESC-011's enumerated scope
+
+Surfaced while verifying ESC-011: the owner's fix correctly closed every location ESC-011 named, but the
+same documentation-drift class still persists in a *third* root doc that ESC-011 never listed.
+
+## ESC-022 — `test_plan.md` still advertises the stale full-suite figure "269 passed in ~1.5s"
+
+- **Linked task/defect:** n/a (root-level doc, no pipeline agent owns it)
+- **Observed:** `test_plan.md:76`, in section `### 4.3 Run Full Test Suite (all tests)`, shows
+  `python -m pytest tests/ -v` with the comment `# → 269 passed in ~1.5s (all phases)`. The current suite
+  is **383 passed in ~6.5s** (independently re-measured this pass: `383 passed in 6.49s`, exit 0,
+  `QT_QPA_PLATFORM=offscreen`). This is the identical drift class ESC-011 tracked, but in `test_plan.md`,
+  which ESC-011's observed/residual scope (`usage.md`, `PENDING_IMPLEMENTATION_PLAN.md`) never named, so it
+  survived the owner's fix. `test_plan.md` presents itself as a current living doc (Purpose: "defines the
+  scope, organization, and execution strategy for the automated GUI test suite"), so the figure reads as
+  the present full-suite output, not a historical snapshot.
+- **Expected:** an accurate current full-suite figure/timing, consistent with `usage.md:166`
+  (`# Full suite (383 tests, ~6s)`) and `PENDING_IMPLEMENTATION_PLAN.md:364`/`:412`/`:458` (383).
+- **Root cause:** the doc was not updated after later batches landed — same cause as ESC-011.
+- **Suggested direction:** the repository owner updates `test_plan.md:76` to the current figure
+  (e.g. `# → 383 passed in ~6s (all phases)`). Wording-only; not a Build task and not dispatchable by
+  Build. (Line `:149` "All 98 GUI tests pass" refers to the GUI subset, not the full suite, and is not
+  asserted to be stale.)
+- **Status: addressed**
+  - Verified (2026-09-28, seventh pass): the repository owner updated `test_plan.md:76` and I re-checked the
+    live tree myself (not from the owner's word). `test_plan.md:76` (section
+    `### 4.3 Run Full Test Suite (all tests)`) now reads `# → 383 passed in ~6.5s (all phases)` (was
+    `269 passed in ~1.5s`). I independently re-measured the current suite this pass:
+    `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` → **`383 passed in 6.13s`**,
+    exit 0 — the count is exact and the timing is the same order. A repo-root `*.md` sweep confirms **no
+    `269` remains in any root doc** (`grep -rn "269"` now hits only pipeline history: `docs/code_review/**`
+    and `docs/requirements/**`). No other full-suite count in `test_plan.md` is stale: `:149`/`:159`/`:175`
+    ("98 GUI tests") are the legitimate GUI subset, and `:151`'s `< 5s full suite runtime` is a stated CI
+    target/acceptance criterion, not a present-tense measured output — not a count claim, so not treated as
+    drift. `usage.md:166` (383) and `PENDING_IMPLEMENTATION_PLAN.md:364`/`:412`/`:458` (383) remain
+    consistent; `:322`'s "254 passed" is inside Phase 6's historical completion record, not a living figure.
 
 ---
 

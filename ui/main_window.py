@@ -266,6 +266,12 @@ class MainWindow(QMainWindow):
         self.chart_panel.drawing_overlay.updated.connect(self._on_drawing_updated)
         self.chart_panel.drawing_overlay.deleted.connect(self._on_drawing_deleted)
         self.chart_panel.drawing_overlay.selection_changed.connect(self._on_drawing_selection_changed)
+        # ESC-017: when the router clears the drawing tool (TR-4 zoom-cancels-draw,
+        # TR-17 symbol change) the overlay emits mode_changed("cursor"); mirror it
+        # back into the toolbar combo so it never goes stale.
+        self.chart_panel.drawing_overlay.mode_changed.connect(
+            self._on_drawing_tool_mode_changed
+        )
 
         # AC-D3.9: the magnifier is refused while alarm placement is armed.
         self.chart_panel.zoom_refused.connect(
@@ -495,6 +501,29 @@ class MainWindow(QMainWindow):
             self.alarm_mode_btn.setChecked(False)
         self.chart_panel.set_drawing_tool(tool)
 
+    def _reset_draw_combo_to_cursor(self):
+        """Show "Cursor" in the drawing combo without re-arming the tool (ESC-017).
+
+        The router clears the drawing overlay tool when the magnifier is invoked
+        mid-draw (TR-4) or when the symbol changes (TR-17). The combo must follow,
+        or the stale label swallows the next ``currentTextChanged`` and the same
+        tool can never be re-armed. ``blockSignals`` keeps this programmatic reset
+        from looping back into ``_on_draw_tool_changed`` mid-transition.
+        """
+        combo = getattr(self, "draw_combo", None)
+        if combo is None or combo.currentText() == "Cursor":
+            return
+        combo.blockSignals(True)
+        try:
+            combo.setCurrentText("Cursor")
+        finally:
+            combo.blockSignals(False)
+
+    def _on_drawing_tool_mode_changed(self, tool: str):
+        """Mirror the overlay's active tool: fall back to Cursor when it clears."""
+        if tool == "cursor":
+            self._reset_draw_combo_to_cursor()
+
     def _on_drawing_created(self, drawing):
         drawing_id = DrawingStore.create_drawing(drawing)
         drawing.id = drawing_id
@@ -669,7 +698,8 @@ class MainWindow(QMainWindow):
     def _on_alarm_mode_toggled(self, enabled: bool):
         self.chart_panel.set_alarm_mode(enabled)
         if enabled:
-            self.draw_combo.setCurrentText("Cursor")
+            # ESC-017: same signal-blocked reset the router-driven path uses.
+            self._reset_draw_combo_to_cursor()
             self.status_bar.showMessage(
                 "Alarm mode: click the chart to place a price alarm.", 4000
             )

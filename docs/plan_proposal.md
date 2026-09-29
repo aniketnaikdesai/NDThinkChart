@@ -12,6 +12,12 @@
 > RG-003) are now **resolved in `requirements.md`** (2026-09-27), so this revision
 > consumes settled requirements rather than flagged assumptions.
 >
+> **Revision 3 (ESC-019, prose only).** Corrects stale D10 affordance wording in the
+> Plan-owned artifacts: the D10 toggle is the checkable **text label `Volume`**
+> (implemented as `QPushButton("Volume")`, `ui/chart_panel.py:327`; RC-4a/T27), not an
+> eye-icon label. No architectural decision changes. The Validator owns the canonical
+> files and must mirror the same correction into `docs/plan.md` and `docs/plan_review.md`.
+>
 > The full architecture and transition-table detail lives in
 > `docs/architecture_proposal.md`; this file is the phased plan and its coverage /
 > sequencing consequences. The canonical `docs/plan.md` Phases 1–5 remain valid and
@@ -201,8 +207,8 @@ two dialogs.
 Canonical Phase 3 stands with **one documentation correction** (RC-4a): the D10
 affordance is the checkable **text label `Volume`** (Q31/A22/`AC-D10.1`) at the top
 left of the volume panel (bottom left of the price chart, A23), **not** an eye icon.
-The canonical `docs/architecture.md:30` "(eye icon)" wording must be rewritten (§5.5
-of the architecture). Files: `ui/chart_panel.py` (volume plot + splitter). **Note the
+The canonical `docs/architecture.md` D10 row carries this corrected wording (§5.5 of
+the architecture). Files: `ui/chart_panel.py` (volume plot + splitter). **Note the
 `chart_panel.py` overlap** with R1/R2/Phase 1 — see sequencing.
 
 ### Phase 4 (AMENDED) — Watchlist resize + double-click load (D13, D14)

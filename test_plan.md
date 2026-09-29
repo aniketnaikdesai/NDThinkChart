@@ -73,7 +73,7 @@ python -m pytest tests/test_ui_smoke.py -v
 
 ```bash
 python -m pytest tests/ -v
-# → 269 passed in ~1.5s (all phases)
+# → 383 passed in ~6.5s (all phases)
 ```
 
 ### 4.3 Run With Coverage
