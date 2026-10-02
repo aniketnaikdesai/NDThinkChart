@@ -18,7 +18,25 @@ outside ESC-011's enumerated scope and appended as **ESC-022** (`test_plan.md:76
 Seventh pass (2026-09-28, ESC-022 verification, no Build output change) independently re-verified and closed
 **ESC-022** — `test_plan.md:76` now reads the current full-suite figure (`383 passed in ~6.5s`; independently
 re-measured at **383 passed in 6.13s**, exit 0), and no `269` remains in any root doc.
-**All escalations ESC-001…ESC-022 are now `addressed`; none remain open.**
+Eighth pass (2026-10-02, D16 batch) opened **ESC-023** (calendar year-end, REQUIREMENTS) and **ESC-024**
+(dropped-connection mid-wave, BUILD).
+Ninth pass (2026-10-02, ESC-023 correction round; `9c2fafa` + uncommitted D16 changes) independently
+re-verified and closed **ESC-023** (T37 rework + T42 gate); **ESC-024** was re-routed from BUILD to
+**TASK_MANAGER** (no task carries it and it is incompatible with the T42 unchanged-consumer constraint).
+Tenth pass (2026-10-02, ESC-024 rework round; T43 done) independently re-verified and closed **ESC-024**
+(reproduced the disconnect drain and the watchdog path, confirmed the shortfall is surfaced, no bar is
+fabricated, the generation advance rejects late events, and a no-op disconnect does not double-finalise
+or raise; full suite re-run **489 passed**). One new non-blocking quality finding appended: **ESC-025**
+(`closeEvent` leaves the watchdog armed; the stranded-wave `reason` parameter is unused).
+**ESC-024 is `addressed`; the only open entry is ESC-025 (`ESCALATED_TO_BUILD`, nice-to-have).**
+Eleventh pass (2026-10-02, ESC-025 rework round; T44 done) independently re-verified and closed **ESC-025**
+on the live tree (offscreen probes, not Build's report): `closeEvent` now disarms the watchdog via the
+shared `_disarm_history_wave_watchdog()` helper (armed → `isActive()` False after close), close cancels
+exactly the in-flight reqIds / empties the set / advances the generation, and the stranded-wave `reason`
+is diagnostic-live so a timeout and a disconnect are distinguishable — while the AC-D16.4 shortfall wording
+(`"incomplete"` + a named missing day + `"Historical backfill shortfall"`) and the no-fabrication guarantee
+are preserved. Full offscreen suite re-run **493 passed, 0 failed, exit 0**. **No open escalations remain**
+(ESC-001…ESC-025 all `addressed`).
 
 Routing legend: `ESCALATED_TO_BUILD`, `ESCALATED_TO_TASK_MANAGER`, `ESCALATED_TO_PLAN`,
 `ESCALATED_TO_REQUIREMENTS`.
@@ -595,3 +613,219 @@ same documentation-drift class still persists in a *third* root doc that ESC-011
   (`services/drawing_service.py:61–71`), rendering consumes `y1/y2` (`ui/drawing_overlay.py:275–284`),
   dialog omits the control (`ui/zone_settings_dialog.py:4–5`, `:54`). Prior zones render unchanged;
   no migration required.
+
+---
+
+## D16 batch (Batch 10, T37–T41) — new findings, 2026-10-02
+
+Source: `docs/code_review/review_log.md` §"Revision 8 review — D16". Reviewed against the live tree
+(every base-file read from disk, suite re-run by the reviewer), not Build's report. No live TWS was
+used — all runs were `QT_QPA_PLATFORM=offscreen`.
+
+## ESC-023 — Calendar marks the year-end Friday (Dec 31) closed when New Year's Day falls on Saturday
+
+- **Linked task/defect:** T37 (D16) — the ET trading-day/holiday calendar
+- **Observed:** `services/market_calendar.py::_observed()` (`:82–92`) shifts **any** Saturday
+  fixed-date holiday to the preceding Friday, and is applied to New Year's Day at `:112`. In every
+  year whose Jan 1 is a Saturday it therefore flags **Dec 31 of the prior year** as a market closure.
+  Reviewer probe: `is_trading_day(date(2021,12,31)) is False`, and likewise for `2027-12-31`,
+  `2032-12-31`, `2038-12-31`. This behaviour is asserted deliberately by the acceptance criterion
+  `docs/tasks/task-graph.json` T37-T03 ("New Year's 2022-01-01 Saturday gives 2021-12-31 Friday
+  closed") and by `tests/test_market_calendar.py:112–114` (`assert is_trading_day(date(2021, 12, 31))
+  is False`).
+- **Expected:** US equity markets do **not** close on the preceding Friday when that Friday is the
+  **year-end accounting date**. NYSE Rule 7.2's Saturday→preceding-Friday rule carries an explicit
+  exception for "unusual business conditions … such as the ending of a … yearly accounting period",
+  and the market was in fact **open on Friday 2021-12-31** (independent sources: Bloomberg, "Why
+  Stock Market Will Be Open on New Year's Eve 2021"; Benzinga quoting NYSE on the calendar/fourth-
+  quarter accounting-period end; USA Today). So Dec 31 of a Jan-1-Saturday year is a **trading day**
+  and must be treated as one; the other observed-shift cases (Independence Day Sat→Fri, Christmas
+  Sat→Fri/Sun→Mon, Juneteenth) are correct and unchanged.
+- **Consequence for D16 (`AC-D16.1` / `AC-D16.4`):** `find_missing_spans` classifies days via
+  `is_trading_day`, so a genuine missing-bar hole on such a Dec 31 is treated as a "genuine closure":
+  it is never requested and never surfaced by `_finalize_history_wave`. That is exactly the **silent
+  hole** `AC-D16.1` ("no artificial hole") and `AC-D16.4` ("never a silent hole") forbid. It is
+  latent (next occurrence 2027-12-31) and does not affect the reported Sept-2026 repro, so it is not
+  blocking — but it is a real calendar-correctness defect.
+- **Root cause:** the **acceptance criterion itself** encodes an inaccurate US-equity convention
+  (a naive Saturday→preceding-Friday shift with no year-end exception); the code faithfully
+  implements that AC, so this is a requirements/domain gap, not an implementation deviation.
+- **Suggested direction:** the Requirements Analyst corrects the D16 holiday convention to include
+  the NYSE year-end (monthly/yearly accounting-period) exception. Then Task Manager updates the
+  T37-T03 AC, and Build adjusts `services/market_calendar.py::_observed` (and
+  `tests/test_market_calendar.py:112–114`) so Dec 31 stays open when it is the preceding Friday of a
+  Saturday New Year's Day. No other observed-shift case changes; no bars are fabricated.
+- **Status: addressed**
+  - Verified (2026-10-02, ESC-023 correction round; HEAD `9c2fafa` + uncommitted D16 changes):
+    independently re-checked on the live tree, not from Build's report.
+    - **Requirements corrected:** `docs/requirements/requirements.md` now carries **`AC-D16.7`**
+      (`:1233–1251`) — Dec 31 of a Jan-1-Saturday year returns **True** (NYSE Rule 7.2 year-end
+      accounting-period exception), with the four dates and the unchanged-shift regression guards;
+      A33 (`:1322`) and R27 (`:1395`) record it; the Status header (`:3`) and Journey 17 (`:298`)
+      both state Dec 31 is a trading session. The old naive Saturday-to-preceding-Friday rule is gone.
+    - **Task graph corrected:** `docs/tasks/task-graph.json` T37 acceptance criterion 3 + T37-T03
+      now require `is_trading_day(2021-12-31/2027-12-31/2032-12-31/2038-12-31) is True`, keep the
+      unchanged shifts (2026-07-03/2022-12-26/2027-06-18/2023-01-02 closed), and assert the
+      Saturday legal date 2022-01-01 non-trading with 2022-01-03 trading; **no** assertion expects a
+      Dec 31 closure any more.
+    - **Code corrected:** `services/market_calendar.py::_holidays_for_year()` (`:116–121`) now adds a
+      New Year's closure only when Jan 1 is **not** Saturday; `_observed()` itself is unchanged.
+    - **Behaviour re-verified by the reviewer** (offscreen, no live TWS), against the live module:
+      `is_trading_day` is **True** for 2021-12-31, 2027-12-31, 2032-12-31, 2038-12-31 (all Fridays;
+      each Jan 1 is a Saturday); `2022-01-01` (Sat) is False, `2022-01-03` (Mon) is True; the Sunday
+      Jan 1 2023 case is still observed `2023-01-02 is False`; and every other observed shift is
+      unchanged (`2026-07-03` False, `2022-12-26` False, `2027-06-18` False; legal weekend dates
+      2026-07-04 / 2022-12-25 / 2027-06-19 all False). No substitute closure is created.
+    - **Tests corrected and green:** `tests/test_market_calendar.py::test_t37_t03_new_years_year_end_exception_keeps_dec31_open`
+      (`:128–145`) asserts exactly the corrected contract; the wrong `date(2021,12,31)` entry was
+      removed from the weekend-legal-dates loop. Independently re-ran
+      `tests/test_market_calendar.py` -> **35 passed** (T37-T01…T37-T06).
+    - **No weakening:** the corrected assertions are discriminating (they would fail under the old
+      unconditional Saturday-to-Friday shift), and no other observed-shift guard was removed.
+
+## ESC-024 — A dropped connection (or a stalled request) mid-wave never finalises and never surfaces the shortfall
+
+- **Linked task/defect:** T39 (D16) — `ui/main_window.py` backfill orchestration
+- **Observed:** `_on_disconnected` (`ui/main_window.py:392–396`) only updates the badge/status and
+  disables the load button. It does **not** cancel or invalidate an in-flight backfill wave. If the
+  connection drops mid-wave — or a request never yields `historical_data_end` (and no `error_msg`) —
+  `_history_req_ids` never empties, `_finalize_history_wave` never runs, and the chart keeps the
+  un-backfilled cached bars (including the internal hole). The only feedback is the generic
+  "Disconnected" status; no shortfall is surfaced by the D16 mechanism. There is also no timeout /
+  watchdog around a wave.
+- **Expected:** `AC-D16.4` requires that where data genuinely cannot be obtained, the chart shows
+  only available bars and the shortfall is **surfaced explicitly — never a silent hole**. A
+  dropped/stalled wave is exactly that case.
+- **Root cause:** the wave lifecycle handles switch/close (cancel + generation advance) and per-chunk
+  errors, but not a transport drop or a request that never completes.
+- **Suggested direction:** on `_on_disconnected`, cancel/drain the tracked wave, advance
+  `_history_generation` so late responses are ignored, and surface the outstanding shortfall; and/or
+  add a bounded timeout for a wave with no progress. **Do not fabricate any bar.** (Nice-to-have: the
+  current reported repro and the suite pass without this; it is a robustness edge, not a live defect.)
+- **History — re-routed by Code Reviewer on the ESC-023 correction pass (2026-10-02):** the finding itself was
+  unchanged and still reproduced by code reading against the live tree: `_on_disconnected`
+  (`ui/main_window.py:392–396`) did not touch `_history_req_ids`/`_history_generation`, and there was no
+  wave timeout. It was a genuine, unmitigated robustness edge under `AC-D16.4` ("surfaced explicitly —
+  never a silent hole"), not accepted scope: no requirement, assumption, risk row, AC, or task covered a
+  transport drop or a stalled request (R22 covers pacing/shortfall from a *responding* peer only; the
+  switch/close cancel path and `_on_error` do not cover a peer that goes silent). The owner moved from
+  BUILD to TASK_MANAGER because there was no task carrying ESC-024 and the then-current graph's
+  **T42-T02** required `ui/main_window.py` to be unchanged, so an ESC-024 fix would have failed T42's own
+  gate by construction; the missing piece was a Task-Manager-owned task/AC. Task Manager added **T43**
+  (with T43 AC1–AC6 and T43-T01…T43-T06) and, since T42 is now `done`, actioned it this round.
+- **Status: addressed**
+  - Verified (2026-10-02, ESC-024 rework round; T43 `done`, HEAD + uncommitted D16 changes). Independently
+    re-verified on the live tree by re-running the T43 module and by reviewer probes (offscreen, no live
+    TWS), not from Build's report:
+    - **Disconnect drain (AC1):** a real 3-request wave (`load_chart`, seeded internal hole covering two
+      full trading weeks) then `_on_disconnected()` with no responses delivered → `cancel_historical_data`
+      called for exactly `{8000,8001,8002}`, `_history_req_ids == set()`. `tests/test_history_backfill_disconnect.py`
+      → **6 passed** in isolation; reviewer probe reproduced the same set equality.
+    - **Generation advance / late-event rejection (AC2):** `_history_generation` strictly increased;
+      `_history_event_accepted(pre_drop_rid) is False`; a late `_on_historical_bar` + `_on_historical_data_end`
+      for a pre-drop reqId appended nothing to `_pending_bars` and did **not** run `_finalize_history_wave`
+      a second time (finalise spy recorded exactly one call).
+    - **Shortfall surfaced exactly once (AC3):** status bar now reads
+      `"<SYM> — backfill incomplete: 10 trading day(s) still missing (2026-10-19, …)"` and a
+      `"Historical backfill shortfall …"` WARNING is emitted; finalise ran exactly once.
+    - **No fabricated bar (AC4):** post-drop `BarCache.get_bars` timestamps equal the seeded set exactly;
+      no missing-span day leaks into `_bars` or the volume `x` series; `_pending_bars == []`.
+    - **Watchdog (AC5):** with no connection drop, `_on_history_wave_timeout()` cancels every tracked reqId,
+      empties the set, advances the generation, disarms the timer, surfaces the same shortfall once, and
+      fabricates no bar (probe: timer `remainingTime ~29868 ms` while armed; disarmed after).
+    - **No-op disconnect (AC6):** with a completed single-request wave (`_history_req_ids == set()`),
+      `_on_disconnected()` ran `_finalize_history_wave` **zero** times, did not raise, and set the badge
+      `"● Disconnected"` / status `"Disconnected from IBKR"`. Double-disconnect is idempotent (one finalise).
+    - **No regression:** full offscreen suite re-run by the reviewer → **489 passed, 0 failed, exit 0**
+      (9.22s), confirming the D16 batch (T37–T42, incl. the ESC-023 year-end correction: `is_trading_day`
+      True for 2021-12-31/2027-12-31, False for 2022-01-01) and the ESC-023 correction still hold. The
+      worker's three flagged flaky tests pass in isolation (`5 passed`). All D16 modules
+      (`market_calendar`, `backfill_service`, `history_backfill_loadpath`, `history_backfill`,
+      `history_backfill_disconnect`) → **106 passed**; no live-TWS references in the new test.
+    - ESC-024's originally observed gap (no `_history_req_ids`/`_history_generation` handling on
+      `_on_disconnected`, no wave timeout) is closed: `_finalize_stranded_history_wave` (shared by
+      `_on_disconnected` and the 30 s `QTimer` watchdog) cancels the wave, advances the generation, and
+      finalises once. Two non-blocking residual quality items surfaced by this pass are tracked separately
+      as **ESC-025**.
+
+## ESC-023 correction pass — no new findings (2026-10-02)
+
+The ESC-023 correction round (T37 rework + T42 regression gate) introduced no new finding. Review
+verified the full D16 batch still holds — see `review_log.md` §"Revision 9 review".
+
+## ESC-024 rework round — new findings, 2026-10-02
+
+Source: `docs/code_review/review_log.md` §"Revision 10 review — ESC-024 rework". Reviewed against the
+live tree (T43's `ui/main_window.py` + `tests/test_history_backfill_disconnect.py` read from disk, the
+T43 module and the full suite re-run by the reviewer); no live TWS was used (all runs
+`QT_QPA_PLATFORM=offscreen`). ESC-024 itself is verified and closed; the two residual items below are
+non-blocking quality notes on the new code.
+
+## ESC-025 — New watchdog QTimer outlives `closeEvent`, and the stranded-wave `reason` is discarded
+
+- **Linked task/defect:** T43 (D16 / ESC-024) — `ui/main_window.py` wave lifecycle
+- **Category / severity:** `quality` / **nice-to-have** (no functional or AC impact; latent tidiness)
+- **Observed (two small items, one entry):**
+  1. **Watchdog not disarmed on close.** `closeEvent` (`ui/main_window.py:1357–1390`) calls
+     `_cancel_history_requests()` + `_history_generation += 1` (lines 1370–1373) but never calls
+     `_disarm_history_wave_watchdog()`. Reviewer probe (offscreen, seeded 3-request wave):
+     `win._history_wave_timer.isActive()` was `True` **before** `win.close()` and still `True`
+     **after** it, with `_history_req_ids == set()` and the ids cancelled. The single-shot timer is
+     parented to the window (`timer.parent() is win`) and `close()` does not destroy the object, so if
+     the event loop keeps running after the window closes, the timer fires `_on_history_wave_timeout`
+     ~30 s later. That path is currently *benign* — `_finalize_stranded_history_wave` returns `False`
+     immediately because `_history_req_ids` is empty, so there is no double-finalise and no exception
+     (verified: firing it manually post-close is a no-op) — but the armed timer outliving the window is
+     untidy and relies on the empty-set guard rather than symmetry.
+  2. **`reason` is a dead parameter.** `_finalize_stranded_history_wave(reason=...)`
+     (`ui/main_window.py:412`) accepts `reason` and both call sites pass a meaningful string —
+     `"Disconnected from IBKR"` (`:409`) and `"Historical backfill timed out"` (`:443`) — but the
+     parameter is never read or logged anywhere (grep for `reason` in `ui/main_window.py` → only the
+     3 definition/call-site lines). Consequently a **watchdog timeout** and a **transport disconnect**
+     produce the identical surfaced message (`"<SYM> — backfill incomplete: N trading day(s) still
+     missing (…)"`) with no indication of which cause stranded the wave — the diagnostic distinction
+     the call sites clearly intended is silently lost.
+- **Expected / direction (for Build, wording-only / small code change, no AC change):**
+  1. Add `self._disarm_history_wave_watchdog()` to `closeEvent` (next to the existing
+     `_cancel_history_requests()` call) so arm/disarm is symmetric across all wave-terminating paths
+     (finalise, disconnect, watchdog, switch/`load_chart`, close).
+  2. Either use `reason` (e.g. append it to the status-bar/log shortfall line, or `_LOG.warning` it) so
+     a timeout and a disconnect are distinguishable in diagnostics — as the two call sites already
+     imply — or drop the parameter entirely if it is not wanted. This is a **behaviour-neutral**
+     diagnostics improvement; it does **not** require an acceptance-criterion or test change and must
+     **not** alter the shortfall wording that T43-T03/T43-T05 assert on (`"incomplete"` + a named
+     missing day + the `"Historical backfill shortfall"` log record must still hold).
+- **Not blocking:** full offscreen suite **489 passed / 0 failed**; T43's own 6 tests all pass. Neither
+  item affects any T43 acceptance criterion or fabricates a bar. No test should be weakened to fit it.
+- **Status: addressed**
+  - Verified (2026-10-02, ESC-025 rework round; T44 `done`). Independently re-verified on the live tree
+    by reading `ui/main_window.py` and by reviewer probes (offscreen, no live TWS), not from Build's report:
+    - **Item 1 — arm/disarm symmetry on close:** `closeEvent` (`ui/main_window.py:1397`) now calls
+      `self._disarm_history_wave_watchdog()` before `_cancel_history_requests()` + the
+      `_history_generation += 1` bump. Reviewer probe (seeded 3-request wave): `_history_wave_timer.isActive()`
+      was **True** before `win.close()` and **False** afterwards; the cancelled set equalled the in-flight
+      reqId set exactly, `_history_req_ids == set()`, and the generation advanced. Firing
+      `_on_history_wave_timeout()` post-close ran `_finalize_history_wave` **zero** times (benign no-op
+      preserved; the empty-set guard remains). Disarm now routes through the same shared
+      `_disarm_history_wave_watchdog()` helper used by finalise/disconnect/timeout/load_chart, satisfying
+      T44-AC2's symmetry requirement.
+    - **Item 2 — `reason` is diagnostic-live and distinguishes the two causes:** my probe stranded the same
+      3-request wave two ways. Timeout (`_on_history_wave_timeout`, reason `"Historical backfill timed out"`)
+      produced status `"… backfill incomplete: 10 trading day(s) still missing (2026-10-19, …). [Historical
+      backfill timed out]"` + WARNING `"Historical backfill shortfall … [Historical backfill timed out]"`;
+      disconnect (`_on_disconnected`, reason `"Disconnected from IBKR"`) produced the same shortfall with
+      `[Disconnected from IBKR]`. The two diagnostics genuinely differ by the named cause — `reason` is
+      read (stashed at `:434`, consumed at `:787`, cleared at `:788`), no longer dead.
+    - **AC-D16.4 / D16 wording preserved:** both shortfall lines still contain `"incomplete"` and name a
+      still-missing trading day; both WARNINGs still read `"Historical backfill shortfall"`. T43-T03/T43-T05
+      remain green (retained verbatim), so the wording contract is unbroken.
+    - **Behaviour-neutral (no stale suffix leak):** `_history_stranded_reason` is cleared to `""` by the
+      finaliser on **every** path; a subsequent normal finalise produced `"… backfill incomplete: …"`
+      with **no** bracket suffix (probe: `" [" not in msg`), and the stash read back `''` after both a
+      stranded finalise and a normal one. No bar fabricated: post-drop cache timestamps and
+      `chart_panel._bars` equalled the seeded set, `_pending_bars == []` (T44-T04 + reviewer probe).
+    - **Tests:** `tests/test_history_backfill_disconnect.py` → **10 passed** (T44-T01…T44-T04 + retained
+      T43-T01…T43-T06). Full offscreen suite re-run by the reviewer → **493 passed, 0 failed, exit 0**;
+      D16 modules in isolation → **110 passed**; ESC-023 year-end exception intact
+      (`is_trading_day` True for 2021-12-31/2027-12-31, False for 2022-01-01); no live-TWS references in
+      the new tests. All four T44 acceptance criteria independently verified.

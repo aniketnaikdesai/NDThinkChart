@@ -2,8 +2,17 @@
 
 > Owned by Requirements Analyst. Other agents may read; only Requirements Analyst edits.
 >
-> **NO blocking questions remain as of 2026-09-27.** Every question is closed and nothing
-> dangles. **`Q36` (RG-003 — `ALARM_PLACING → ZOOMING`) was answered 2026-09-27 with
+> **2026-10-02 — D16 batch RESOLVED.** The new D16 report (historical bars missing
+> 2026-09-19…2026-09-27 on `SPY 5 mins`, price **and** volume panels) has been
+> clarified: **Q37–Q39 were answered by the user 2026-10-02** and are recorded below
+> under "Answered (D16 intake)". No blocking question remains for D16, so
+> `requirements.md` carries `Status: READY_FOR_PLAN`. Q1–Q36 remain closed for the
+> D1–D15 run. **ESC-023 (Code Reviewer escalation, approved for correction 2026-10-02) is
+> resolved and recorded as Q40 below** — Dec 31 is a trading day when New Year's Day falls on
+> a Saturday (`AC-D16.7`); no blocking question remains.
+>
+> **Resolved and closed as of 2026-09-27 for the D1–D15 run:** Every question was closed and nothing
+> dangled. **`Q36` (RG-003 — `ALARM_PLACING → ZOOMING`) was answered 2026-09-27 with
 > option (b):** invoking the magnifier while `ALARM_PLACING` is active **REFUSES to enter
 > `ZOOMING`** (the router stays in `ALARM_PLACING`) and shows a status-bar hint; alarm
 > placement keeps priority and the pending alarm placement is **not** cancelled. It is
@@ -426,3 +435,71 @@
   `chart_mouse_router` **transition table** (now total; `ALARM_PLACING + magnifier →
   `ALARM_PLACING`); `docs/plan_notes.md` RG-003 (resolved); `docs/plan_review.md` PA-R1
   (superseded).
+
+
+---
+# Answered (D16 intake — 2026-10-02)
+
+> All three D16 blocking questions were answered by the user on 2026-10-02. D16 is now
+> clarified in `requirements.md` (Defect Register `### D16`, Journey 17,
+> `AC-D16.1`–`AC-D16.6`; assumptions A27–A32; risks R22–R26). **No blocking question
+> remains.**
+
+## Q37 — D16: when the app is reopened after a closure longer than the fetch window, what should the chart show?
+- **Status:** answered 2026-10-02
+- **Answer (user-confirmed, option (a)):** **Backfill the whole gap.** When the app is
+  reopened after a closure longer than the fetch window, the chart must backfill the whole
+  gap from the last cached bar up to now — requesting enough history (chunking if needed) —
+  so the chart is continuous. Options (b) (drop/limit old cached bars so no hole shows) and
+  (c) (fetch a fixed larger window on every load) are **not adopted**.
+  - **Interpretation recorded (A32 / DG21):** the reported repro is an **internal** hole
+    (older block through 2026-09-18, newer block 2026-09-28…now, hole 2026-09-19…2026-09-27),
+    so "from the last cached bar" is implemented as filling the missing span **between cached
+    blocks within the displayed range** — a tail-only anchor on `MAX(ts)` would leave the
+    reported hole unfixed.
+- **Affected requirement section:** D16 / Journey 17 / `AC-D16.1`, `AC-D16.4`, `AC-D16.5`.
+
+## Q38 — D16: how should genuine market closures (weekend/holiday/overnight) render?
+- **Status:** answered 2026-10-02
+- **Answer (user-confirmed):** **Stay empty.** Genuine market closures render **empty** as
+  today and are **not** filled, compressed, or interpolated. D16 is scoped to missing
+  **trading-session** bars only. (Collapsing non-trading time remains an out-of-scope feature
+  suggestion — `feature_suggestions.md` FS7.)
+- **Affected requirement section:** D16 / `AC-D16.3`.
+
+## Q39 — D16: which symbols and timeframes must the fix and verification cover?
+- **Status:** answered 2026-10-02
+- **Answer (user-confirmed):** **All timeframes + any symbol.** The fix and its verification
+  must cover all timeframes (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`, `1 day`) and
+  any symbol, not just `SPY 5 mins`.
+- **Affected requirement section:** D16 / `AC-D16.1`, `AC-D16.5`, `AC-D16.6`.
+
+---
+
+# Answered (ESC-023 — Code Reviewer escalation, 2026-10-02)
+
+> ESC-023 (`docs/code_review/escalations.md`) was raised by the Code Reviewer and **approved by
+> the user for correction on 2026-10-02**. The correct behaviour is unambiguous from the
+> escalation's diagnosis and authoritative sources (NYSE Rule 7.2 year-end accounting-period
+> exception; NYSE's own calendar: "Because the holiday falls on Saturday, January 1, 2028, no New
+> Year's Day holiday is observed"; the market was open Fri 2021-12-31), so **no blocking question
+> was required**. Recorded here as **Q40** for traceability.
+
+## Q40 — ESC-023: is Dec 31 a trading day when New Year's Day falls on a Saturday?
+- **Status:** answered 2026-10-02 (resolved from ESC-023's domain evidence; user approved the
+  correction). **Not blocking.**
+- **Answer:** **Yes — Dec 31 is a trading day.** The Saturday→preceding-Friday observed-day shift
+  for New Year's Day carries an explicit **year-end accounting-period exception** (NYSE Rule 7.2):
+  when the preceding Friday is Dec 31, the closure is **not** shifted onto it, **no New Year's
+  holiday is observed**, and no substitute closure is created (the Saturday Jan 1 is itself
+  non-trading as a weekend). `is_trading_day` must return **True** for `2021-12-31`, `2027-12-31`,
+  `2032-12-31` and `2038-12-31`.
+- **Requirement record:** recorded as **`AC-D16.7`** in `requirements.md`; `AC-D16.3` now excludes
+  Dec 31 of a Jan-1-Saturday year from "genuine closure"; assumption **A33** and risk **R27** added;
+  `design_gaps.md` **DG22** records the defect's resolution.
+- **Downstream (both must change):** the **Task Manager** corrects the wrong `T37-T03` acceptance
+  criterion in `docs/tasks/task-graph.json` (which currently asserts "New Year's 2022-01-01 Saturday
+  gives 2021-12-31 Friday closed"); the **Build** agent updates `services/market_calendar.py::_observed`
+  (New Year's case) and the `T37-T03` assertions in `tests/test_market_calendar.py`. The **Code
+  Reviewer** re-verifies ESC-023 on its next pass.
+- **Affected requirement section:** D16 / Journey 17 / `AC-D16.3`, new `AC-D16.7`; A33; R27.

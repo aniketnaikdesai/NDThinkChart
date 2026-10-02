@@ -32,3 +32,18 @@
 - **Gap/opportunity:** Avoids the mis-shading flagged in `design_gaps.md` DG1.
 - **Why not in the original ask:** Accepted default applies equity sessions for now.
 - **Suggested priority:** medium
+
+
+## FS6 — User-selectable date range / window for the chart
+- **Gap/opportunity:** The chart auto-frames all cached bars with no date-range control
+  (see `design_gaps.md` DG20). A range picker would let users request a specific window and
+  make long backfills explicit.
+- **Why not in the original ask:** D16 asks only that existing history stop showing holes.
+- **Suggested priority:** medium
+
+## FS7 — Compress/collapse non-trading time (weekends, holidays, overnight)
+- **Gap/opportunity:** D16 leaves genuine closures as empty spans (`AC-D16.3`). Some
+  terminals collapse them to reduce dead space.
+- **Why not in the original ask:** The user's complaint is missing *trading* data, not the
+  weekend gap; compressing time is a separate x-axis design change.
+- **Suggested priority:** low

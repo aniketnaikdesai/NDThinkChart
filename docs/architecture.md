@@ -1,4 +1,4 @@
-# Architecture — NDThinkChart Stabilization (as-built: D1–D15 + ESC revision + post-document rework ESC-013…ESC-021; verified 2026-09-28, 383 passed)
+# Architecture — NDThinkChart Stabilization (as-built D1–D15 + ESC revision + post-document rework ESC-013…ESC-021, verified 2026-09-28, 383 passed; **increment D16 historical-bar gap backfill, validated 2026-10-02; ESC-023 trading-day calendar correction, validated 2026-10-02**)
 
 ## Summary
 An **as-built** description of a stabilization change-set against an existing
@@ -25,8 +25,96 @@ rework wave (ESC-013, ESC-014, ESC-015, ESC-016, ESC-017, ESC-020, ESC-021 — s
 existing-repo mode every item below is labelled `[existing]`, `[new]`, or
 `[new/changed]`.
 
-Persistence, broker I/O, and the live-order path remain untouched — no new tables,
-no new IBKR calls, no new external integrations.
+**D16 increment (validated 2026-10-02):** two new pure services —
+`services/market_calendar.py` (ET trading-day/holiday calendar) and
+`services/backfill_service.py` (missing-span + chunk-request planner) — let
+`ui/main_window.py::load_chart` detect the missing trading sessions between the cached
+series and *now* and backfill them with a correlated set of historical requests,
+finalising with one save + re-read + render. The `ui/chart_panel.py` render path and the
+`bars` schema are **unchanged**: a continuous `_bars` list fixes the price **and** volume
+panels, and genuine closures (weekend/holiday/overnight) stay empty. D1–D15 are frozen
+and are **not** re-planned.
+
+**ESC-023 correction (validated 2026-10-02):** the D16 trading-day calendar's New Year's
+observed-day rule is corrected to carry the **NYSE Rule 7.2 year-end accounting-period
+exception** (`AC-D16.7`, A33, R27, DG22). The D16 batch (T37–T41) is **built**, but its
+`services/market_calendar.py::_observed` naively shifted a Saturday Jan 1 onto the
+preceding Friday **Dec 31**, marking that genuine trading day (e.g. `2021-12-31`,
+`2027-12-31`, `2032-12-31`, `2038-12-31`) as a closure — so a real bar hole there would be
+misclassified as a "genuine closure" and left a silent hole. The correction makes the New
+Year's observed shift **New-Year's-specific**: when Jan 1 is a Saturday **no New Year's
+closure is observed**, Dec 31 stays a trading day, and no substitute closure is created
+(Jan 1 itself remains non-trading as an ordinary weekend). All other observed shifts
+(Independence Day, Christmas, Juneteenth, New Year's-on-a-Sunday) are unchanged. The
+existing `T37-T03` acceptance criterion and `tests/test_market_calendar.py` encode the old
+(wrong) convention and are corrected under this increment.
+
+Persistence and the live-order path remain untouched — no new tables, no new external
+integrations, and no new IBKR call *type*. D16 adds **additional historical requests per
+load** (chunked backfill through the existing `reqHistoricalData` path) plus the two pure
+services above.
+
+## Codebase Summary (existing repository — D16 surface)
+
+> Inventory gathered with the **graphify** skill (`graphify-out/graph.json`) and then
+> **validated against the current source files** (the repository is authoritative). Only
+> the parts D16 touches are listed here; the full existing layer inventory is under
+> *System Components*.
+>
+> **Graphify staleness (D16 increment).** The committed graph (`graph.json`, 1969 nodes)
+> predates the D16 modules: it contains **no `market_calendar` and no `backfill_service`
+> node** (confirmed by direct grep of `graphify-out/graph.json`, 2026-10-02). Per the
+> existing-repo rule, the D16 sections below were therefore inventoried and validated by
+> **direct source inspection** of the current tree, not from the graph.
+
+**Existing bar-load path (the D16 surface):**
+- `[existing] ui/main_window.py::MainWindow.load_chart` — cancels the previous RT
+  subscription, sets `_current_symbol`/`_current_tf`, shows cached bars
+  (`BarCache.get_bars` → `ChartPanel.update_chart`), then issues **one**
+  `MarketDataManager.req_historical_data(endDateTime="", whatToShow="TRADES", useRTH=1,
+  extended_hours=…)` with the fixed `TIMEFRAME_CONFIG` duration, then starts the RT
+  stream. `_on_historical_bar` filters `reqId != self._current_req_id` and appends to
+  `_pending_bars`; `_on_historical_data_end` filters the single reqId, `BarCache.save_bars`,
+  re-reads **all** cached bars, and renders. `closeEvent` cancels the single
+  `_current_req_id`; `_on_error` is already connected to `bridge.error_msg`.
+- `[existing] ibkr/market_data.py` — `TIMEFRAME_CONFIG` (per-timeframe
+  `duration`/`bar_size`: `1 min`→`1 D`, `5 mins`→`5 D`, `15 mins`→`5 D`, `1 hour`→`10 D`,
+  `4 hours`→`30 D`, `1 day`→`1 Y`). `req_historical_data()` already accepts an
+  `endDateTime` and already applies `id_manager.get_id()` + `pacing_manager.throttle()`
+  per request; it has **no caller besides `load_chart`** outside tests.
+- `[existing] ibkr/client.py` / `ibkr/bridge.py` — `historicalData` → `bridge.historical_bar`;
+  `historicalDataEnd` → `bridge.historical_data_end`; `historical_bar`/`historical_data_end`/
+  `error_msg` are the signals `MainWindow` consumes.
+- `[existing] data/bar_cache.py` — `save_bars` (`INSERT OR REPLACE`; PK
+  `(symbol, timeframe, ts)`), `get_bars` (all cached, ascending), `get_last_timestamp`
+  (`MAX(ts)`; **present but unused by `load_chart`**).
+- `[existing] data/bar_aggregator.py` — `TIMEFRAME_SECONDS` maps every timeframe to its
+  per-bar period in seconds.
+- `[existing] ui/main_window.py::_ibkr_end_date` — formats a unix ts as the IBKR
+  `yyyyMMdd-HH:mm:ss` **UTC hyphenated** `endDateTime`; currently has **no caller**.
+- `[existing] services/session_service.py` — pure, Qt-free ET
+  (`ZoneInfo("America/New_York")`) session math. **Before D16 there was no
+  trading-day/holiday logic anywhere in the repo**; D16 added the separate
+  `services/market_calendar.py` module inventoried under “D16 additions/changes”
+  below (validated by direct source inspection).
+- `[existing] ui/chart_panel.py` — `update_chart` sets `self._bars`; `_refresh_candles`
+  builds **both** the candle data and the volume `BarGraphItem` from the same `self._bars`
+  list, so a continuous `_bars` list fixes candles **and** volume.
+
+**Existing data models / tables:** `Bar` (symbol, timeframe, ts, open, high, low, close,
+volume); SQLite `bars` table with `PRIMARY KEY (symbol, timeframe, ts)`. No migration is
+needed.
+
+**Existing components / integrations:** `config/`, `data/`, `services/` (pure), `ibkr/`
+(client/bridge/market_data/pacing/id_manager/contracts/realtime_bars/…), `ui/`
+(main_window/chart_panel/…); external integrations in play: IBKR historical/RT data,
+SQLite, Qt signals, `pacing_manager`, `id_manager`. **No new external integration is
+introduced by D16.**
+
+**Existing relevant test pattern:** `tests/test_watchlist_d14_midrag.py` boots a real
+offscreen `MainWindow` with `IBApiClient.connect` monkeypatched and
+`md_manager.req_historical_data`/`rt_manager.subscribe` stubbed — the established pattern
+for the D16 integration test. No test currently drives the historical load/backfill path.
 
 ## Tech Stack Decisions
 | Decision | Choice | Rationale | Alternatives considered |
@@ -52,6 +140,13 @@ no new IBKR calls, no new external integrations.
 | **D14 mid-drag mode reset (ESC-010)** | A symbol change (including the mid-drag double-click path, `AC-D14.4`) clears the drawing draft/drag **and** returns the router to `IDLE` (transition TR-17) | `DrawingOverlay.set_data()` already clears the draft defensively (`:112–118`); without the mode reset `_active_mode` can read `DRAWING` after the tool was implicitly cleared | Rely on `set_data()` alone (leaves the router mode stale) |
 | Drawing drag stability (runtime fix 2026-09-19) | `DrawingOverlay._apply_drag` mutates items **in place**; `_remove_items`/`_clear_all_items` defensively clear `GraphicsScene.dragItem` before `removeItem`; `fibonacci` rebuilds only on level-count change | Remove+rebuild mid-drag left `dragItem` dangling → `sendDragEvent` → `InfiniteLine.mouseDragEvent` on a deleted C++ object → `RuntimeError`. In-place mutation preserves C++ identity | Suppress the warning (hides bug); fork pyqtgraph (maintenance); retain refs (leaks) |
 | Testing | pytest + pytest-qt, offscreen, no live TWS | Repo standard; confirmed Q8/Q9 | Manual-only (rejected) |
+| **D16 backfill planning service** `[new]` | **`services/backfill_service.py`** — pure, Qt-free: `bar_period_seconds`, `find_missing_spans(cached_ts, now_ts, timeframe)`, `plan_requests(missing_spans, timeframe)` | Matches the repo's pure-service pattern (`session_service`, `indicator_service`); unit-testable offscreen with no Qt/TWS; keeps `MainWindow` orchestration-only | Inline in `load_chart` (untestable, duplicates logic); inside `MarketDataManager` (mixes transport with planning, needs an `ibapi` Contract); inside `BarCache` (data layer must not know fetch windows) |
+| **D16 trading-day/holiday calendar** `[existing]` / `[new/changed]` | **`services/market_calendar.py`** — ET weekday + US equity holidays **by rule** (fixed-date, nth-weekday, Good Friday), no external dependency. `[new/changed]` for the ESC-023 correction: the New Year's observed shift is **New-Year's-specific** and carries the **NYSE Rule 7.2 year-end accounting exception** (`AC-D16.7`) — when Jan 1 is a Saturday, **no New Year's closure is observed** and **Dec 31 stays a trading day** (no substitute closure) | Required by `AC-D16.3` (holidays are genuine closures), `AC-D16.1`/`AC-D16.5` (only trading-session bars required) and `AC-D16.7` (Dec 31 of a Jan-1-Saturday year is a trading day, never a closure); by-rule avoids a dead fixed year list. The year-end exception prevents a genuine Dec 31 bar hole from being misclassified as a closure and left silent (`AC-D16.1`/`AC-D16.4`) | Weekday-only (flags every US holiday as a hole — violates `AC-D16.3`); "empty response = closure" (cannot distinguish a real shortfall without error codes); `pandas_market_calendars` — rejected (new dependency; A7/DG1 already accept a hand-rolled ET model); changing the **generic** `_observed` for all holidays (would scramble the still-correct Independence Day/Christmas/Juneteenth shifts) — **rejected** |
+| **D16 missing-span detection granularity** | **Trading-day/session presence**: a trading day between `min(cached_ts)` and `now` with **zero** cached bars is missing; adjacent missing days merge into one span; the tail (`last cached day`→`now`) uses the same rule | The reported defect is a whole-session hole (DG21/`AC-D16.5`); day presence avoids false positives from illiquid periods and from Ext-Hours toggling (an RTH-only cache still has bars that day) | Per-period cadence (illiquid/empty pre-market periods look like holes → churn + false shortfall); fetch-window threshold (fails for `1 day`, whose window is `1 Y`); `MAX(ts)` tail-only anchor (**rejected by DG21** — leaves the reported internal hole) |
+| **D16 anchoring/chunking** | Reuse `[existing] MarketDataManager.req_historical_data(endDateTime=…)` **unchanged**, stepping `endDateTime` back by `TIMEFRAME_CONFIG[timeframe]["duration"]` until the span start is covered; anchor format = existing `_ibkr_end_date` UTC-hyphenated | The method already accepts `endDateTime` and already throttles/allocates a reqId per request; the configured duration is the natural chunk size; no new IBKR call shape and no signature change | Enlarging `duration` (may exceed IBKR per-request limits; still one request); adding a `duration` parameter (unnecessary) |
+| **D16 multi-request correlation** | `[new/changed] ui/main_window.py`: keep `_current_req_id` as the primary id; add `_history_req_ids: set[int]`, a `_history_generation` token, `_backfill_missing_spans`, `_backfill_failed_req_ids`; accept bars from any id in the set; finalise (save + re-read + render) only when the set empties | Preserves single-request behaviour as a set-of-one (no D1–D15 regression); one write + one render per load avoids flicker; generation token + cancel prevents cross-contamination on symbol/timeframe switch | Per-chunk save/render (multiple re-reads + flicker); a dedicated controller class (more surface for little gain) |
+| **D16 shortfall surfacing** | Status-bar message + log when a backfill reqId errors or a trading day is still empty after the wave; **never** fabricate a bar | Required by `AC-D16.4` ("surfaced explicitly … never a silent hole") | Silent acceptance of empty chunks (violates `AC-D16.4`) |
+| **D16 persistence** | **No schema change**; chunk overlap deduped by `INSERT OR REPLACE` on the existing `(symbol,timeframe,ts)` PK | The `bars` table already keys by symbol/timeframe/ts, so overlapping chunks are idempotent | New `spans`/job table (unneeded) |
 
 ## System Components
 
@@ -200,6 +295,58 @@ This is the documented exception to the per-load rule, and it never clips the fo
 bar. *(Corrects the earlier canonical claim that `nice_max` is “not per intra-bar
 tick”.)*
 
+### D16 additions/changes (increment validated 2026-10-02; ESC-023 calendar correction 2026-10-02)
+> The D16 batch (T37–T41) is **built**. Every D16 component below is therefore
+> `[existing]`; the one active change in this pass is the `[new/changed]` New Year's rule in
+> `services/market_calendar.py` (ESC-023 / `AC-D16.7`) and its test.
+- **`[existing] services/market_calendar.py`** (built T37) — pure, Qt-free ET calendar:
+  `is_trading_day(date)`, `trading_days(start_ts, end_ts)`, and
+  `session_windows(start_ts, end_ts, ext_hours)` (intraday `04:00–20:00 ET` on trading
+  days; one window per trading day for `1 day`). Holidays computed **by rule** (fixed-date
+  + nth-weekday + Good Friday) so future years need no data edit.
+- **`[new/changed] services/market_calendar.py` — ESC-023 correction (`AC-D16.7`).** The
+  New Year's observed shift becomes **New-Year's-specific** and gains an explicit
+  **year-end accounting-period exception**: when Jan 1 is a **Saturday** it returns **no
+  closure** — so nothing is shifted onto Dec 31, Dec 31 stays a trading day, and **no
+  substitute closure is created** (Jan 1 itself is a weekend and remains non-trading). Jan 1
+  on a **Sunday** still observes the following Monday; a **weekday** Jan 1 stays a closure.
+  `_observed` for Juneteenth / Independence Day / Christmas is **unchanged**, and the
+  remaining observed-shift assertions stay as regression guards. `_holidays_for_year`'s
+  adjacent-year union is retained as a defensive guard, with its stale “New Year's observed
+  on the preceding Dec 31” docstring/comment corrected.
+- **`[existing] services/backfill_service.py`** (built T37/T38) — pure, Qt-free planner:
+  `bar_period_seconds(timeframe)` (from `data.bar_aggregator.TIMEFRAME_SECONDS`);
+  `find_missing_spans(cached_ts, now_ts, timeframe) -> list[MissingSpan]` (trading-day
+  presence → merged spans; empty cache → `[]` and the caller falls back to the configured
+  window); `plan_requests(missing_spans, timeframe) -> list[RequestPlan]` (each plan =
+  `{endDateTime, bar_size, duration}` from `TIMEFRAME_CONFIG` + the `_ibkr_end_date` anchor
+  format; ordered newest chunk first; chunk count bounded by the span). In-memory
+  dataclasses only (`MissingSpan`, `RequestPlan`); nothing persisted.
+- **`[existing] ui/main_window.py`** (built T39; unchanged by this correction) — `load_chart` shows cached bars, calls the pure
+  planner, then either skips redundant history requests (empty plan **and** cache current)
+  or issues one `req_historical_data(endDateTime=…)` per `RequestPlan` (empty cache → the
+  configured-window fallback). `_on_historical_bar` / `_on_historical_data_end` accept any
+  reqId in `_history_req_ids` and finalise (save + re-read + render) only when the set
+  empties; stale `_history_generation` is dropped. `_on_error` correlates a failed backfill
+  reqId with its span, removes it from the set so the wave can finalise, and the shortfall
+  is surfaced (status bar + log). `closeEvent` and symbol/timeframe switch cancel every id
+  in the set.
+- **`[existing] ibkr/market_data.py` — no change required.** Chunking reuses `endDateTime`
+  + the configured duration; `pacing_manager.throttle()` and `id_manager.get_id()` are
+  already applied per request.
+- **`[existing] data/bar_cache.py`** — reused as-is (`get_bars`/`save_bars`);
+  `get_last_timestamp` remains available but is **not** required (DG21).
+- **`[existing] ui/chart_panel.py`** — unchanged; continuity of `_bars` fixes both panels
+  (`AC-D16.2`).
+
+**D16 design flow:** `MainWindow.load_chart` calls
+`services.backfill_service.find_missing_spans` + `plan_requests` (pure), then issues one
+`MarketDataManager.req_historical_data` per `RequestPlan`. `IBBridge.historical_bar` /
+`historical_data_end` feed `MainWindow`, which accumulates `Bar` objects in `_pending_bars`,
+saves once via `BarCache.save_bars`, re-reads with `BarCache.get_bars`, and calls
+`ChartPanel.update_chart`; `ChartPanel._refresh_candles` drives both candles and volume.
+`services.market_calendar` is consumed only by `backfill_service` (via `find_missing_spans`).
+
 ### Component relationships
 `MainWindow` owns `ChartPanel`, the Watchlist dock, and the Ext-Hours state.
 `ChartPanel` owns the price plot, `CandlestickItem`, `SessionOverlay`, `ZoomOverlay`,
@@ -229,6 +376,14 @@ field** on `ChartPanel`. The existing models (`Bar`, `Alarm`, `Drawing`, `Drawin
 `alarms`, `zones`, `drawing_groups`, `drawings`, `studies`, `positions`,
 `trade_groups`, `position_group_map`) are unchanged.
 
+**D16 (no schema change).** The `bars` table and `Bar` model are unchanged; chunk overlap
+is deduped by the existing `(symbol,timeframe,ts)` primary key. D16 adds only in-memory
+value types in `services/backfill_service.py` (`MissingSpan {start_ts, end_ts}`,
+`RequestPlan {endDateTime, duration, bar_size, span_start_ts, span_end_ts}`) and ephemeral
+`MainWindow` runtime state (`_history_req_ids`, `_history_generation`,
+`_backfill_missing_spans`, `_backfill_failed_req_ids`); the existing `_pending_bars`
+retains its role, now shared across the chunk set.
+
 *As-built note:* `data/db.py` defines `_init_schema` **once** (`data/db.py:14–111`;
 the file is 154 lines), followed by `_migrate_schema` (`:113–121`) and
 `_table_columns` (`:118`). T26/ESC-001 removed the former shadowed second definition;
@@ -246,6 +401,14 @@ flagged latent hygiene debt (audit `D-6`) is **resolved** — no behaviour chang
   MainWindow._reset_draw_combo_to_cursor()` (ESC-017); `IBBridge` unchanged.
 - **pyqtgraph GraphicsScene** — `DrawingOverlay` touches `scene.dragItem` only via
   defensive nulling before `removeItem` (runtime fix). No fork.
+- **D16 IBKR historical data** — now invoked **one request per chunk** instead of one per
+  load, through the same `reqHistoricalData` call shape (`whatToShow="TRADES"`, current
+  `useRTH`/`extended_hours`); pacing via the existing `pacing_manager.throttle()` and
+  reqIds via `id_manager`. The IBKR error stream (`bridge.error_msg`) is correlated to
+  backfill reqIds for `AC-D16.4` shortfall surfacing. **No new external service, no new
+  dependency, no new IBKR request type.**
+- **D16 trading-day calendar (ESC-023)** — internal to `services/market_calendar.py`; the
+  year-end correction adds **no** integration, dependency, or persisted state.
 
 ## Non-Functional Approach
 - **Correctness (gesture routing):** the `RouterMode` enum makes `DRAWING` and
@@ -283,6 +446,24 @@ flagged latent hygiene debt (audit `D-6`) is **resolved** — no behaviour chang
   live TWS or transmits an order.
 - **Scalability:** overlay/label counts bound to drawing count; volume/price item
   counts bound to bar count; no per-frame allocation added.
+- **Correctness (D16 backfill, `AC-D16.1`/`AC-D16.5`):** the planner's outcome is "every
+  trading day between the oldest displayed bar and *now* has cached bars" (a tail gap is
+  the special case where the missing days run to the end). DG21's internal hole is healed
+  because detection is on **trading-day presence**, not `MAX(ts)`. Detection is O(trading
+  days in `[min(ts), now]`) + O(N) over cached bars; chunk count is bounded by
+  span/configured duration; `pacing_manager` spaces requests; residual empty trading days
+  + IBKR errors produce an explicit status-bar/log shortfall and **no bar is ever
+  fabricated** (`AC-D16.4`). Both panels are fixed by the single continuous `_bars` list
+  (no `ChartPanel` change, `AC-D16.2`). Symbol/timeframe switch is made safe by
+  `_history_generation` + cancelling every id in `_history_req_ids`. Genuine closures are
+  defined by `market_calendar`; **Dec 31 of a year whose next Jan 1 is a Saturday is
+  explicitly *not* a closure** (`AC-D16.7`, ESC-023) — it is a trading day, so a genuine
+  hole there is backfilled (`AC-D16.1`) or its shortfall surfaced (`AC-D16.4`), never left
+  as a silent hole.
+- **D16 testability:** the two new services are **pure and parameterized** over all six
+  timeframes and ≥2 symbols (Q39); one offscreen `MainWindow` integration test stubs the
+  historical feed (pattern from `tests/test_watchlist_d14_midrag.py`), so no test connects
+  to live TWS or transmits an order (Q9).
 
 ## Parallel-Build Sequencing Constraint (`touches_files`)
 The pipeline now runs Build as a **Lead + Worker pair**: the Lead dispatches only tasks
@@ -350,3 +531,12 @@ architectural decision changed**. Full offscreen suite: **383 passed**.
 | `data/db.py` duplicate `_init_schema` (latent hygiene debt) | — **resolved** | T26/ESC-001 deduplicated it: `_init_schema` is defined once (`data/db.py:14–111`), guarded by `tests/test_db_schema.py` (audit `D-6`) |
 | Drawing `InfiniteLine` use-after-free during drag (fixed 2026-09-19) | L (was H) | In-place mutation + defensive `scene.dragItem` clear; 26 drawing tests; suite green |
 | `fibonacci` rebuild on level-count change still calls `_restore_drawing_style` mid-drag | L | Guarded by defensive `dragItem` clear; rebuild only when count changes |
+| D16 holiday calendar drifts for future years | M | Holidays computed **by rule** (nth-weekday/fixed-date/Good Friday), not a fixed list; `tests/test_market_calendar.py` pins known holidays incl. Good Friday, Juneteenth, observed-day shifts |
+| Observed-day shift misclassifies a genuine trading day (Dec 31) as a closure → silent hole (ESC-023 / R27) | M | `AC-D16.7` states the NYSE Rule 7.2 year-end accounting exception; the New Year's-specific rule never shifts a closure onto Dec 31 (no substitute closure); `tests/test_market_calendar.py` asserts `is_trading_day` is **True** for `2021-12-31`, `2027-12-31`, `2032-12-31`, `2038-12-31`, and keeps every other observed shift (Independence Day/Christmas/Juneteenth/New Year's-Sunday) as a regression guard |
+| D16 IBKR long-ago data beyond retention returns nothing/errors → chart still has a hole | M | Chunk requests respect `pacing_manager`; residual missing trading days + `error_msg` on a backfill reqId are **surfaced** (status bar + log); never fabricate (`AC-D16.4`) |
+| D16 many chunks hit IBKR's historical pacing limit | M | Chunk count bounded by span/configured duration; every request already goes through `pacing_manager.throttle()`; a rate-limit `error_msg` is surfaced, not retried in a tight loop |
+| D16 stale in-flight responses after a symbol/timeframe switch | H | `_history_generation` token + cancel every id in `_history_req_ids` on switch/close; `_on_historical_bar`/`_on_historical_data_end` drop non-current generation and non-member reqIds |
+| D16 reusing `_pending_bars` for the chunk set regresses the single-request path | M | The set-of-one case is behaviourally identical; the existing reqId filter becomes set membership; D1–D15 tests must stay green |
+| D16 equity calendar mis-models futures (which trade some US holidays) | L | Consistent with the accepted `session_service`/DG1/A7 default (equity sessions for all symbols); recorded as PA-D16-3 and flagged (FI-D16-2, accepted with the futures caveat) |
+| D16 illiquid symbols have legitimately empty trading sessions → false "missing" | M | Day presence needs only **≥1** bar; a wholly empty day is the reported defect class; the shortfall is surfaced (not fatal), and the per-day cadence assertion applies only to the stubbed liquid scenarios (FI-D16-1) |
+| D16 detection window grows unbounded if the cache is very old | L | Detection is bounded by `min(cached_ts)`; chunking is bounded by the span; shortfall surfaced when retention is exceeded |

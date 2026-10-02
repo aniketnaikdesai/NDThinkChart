@@ -1,2165 +1,613 @@
 {
   "status": "READY_FOR_BUILD",
-  "generated": "2026-09-20",
+  "generated": "2026-10-02",
   "tasks": [
     {
-      "id": "T1",
-      "title": "Implement pure session band computation service (D1)",
-      "description": "Create services/session_service.py that computes ET pre/post-market intervals (DST-aware) for intraday timeframes and returns empty for 1 day, intersected with the loaded data range.",
+      "id": "T37",
+      "title": "Implement the ET trading-day/holiday calendar service incl. the ESC-023 New Year's year-end exception (D16)",
+      "description": "Create the pure, Qt-free services/market_calendar.py exposing is_trading_day(date), trading_days(start_ts, end_ts) and session_windows(start_ts, end_ts, ext_hours), with US equity holidays computed by rule (fixed-date, nth-weekday, Good Friday) in America/New_York. Ship its offscreen unit tests. Corrected for ESC-023: the New Year's observed shift carries the NYSE Rule 7.2 year-end accounting-period exception (AC-D16.7) so Dec 31 stays a trading day when the next Jan 1 is a Saturday, and no substitute closure is created.",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given bars spanning multiple ET session days on an intraday timeframe, When session_bands is computed, Then it returns only pre-market 04:00-09:30 ET and post-market 16:00-20:00 ET intervals and no RTH or overnight intervals.",
-        "Given timeframe is \"1 day\", When session_bands is computed, Then it returns an empty list.",
-        "Given the chart display timezone is UTC, When session bands are computed, Then boundaries are the same absolute ET instants (e.g., pre-market 04:00 ET appears at 09:00 UTC in EST).",
-        "Given bars crossing a US DST transition day, When session_bands is computed, Then boundaries remain at ET local session times 04:00, 09:30, 16:00, 20:00 ET.",
-        "Given a bar timestamp exactly at 09:30 ET or 16:00 ET and the loaded range [t_min, t_max], When bands are classified, Then 09:30 belongs to RTH and 16:00 belongs to post-market and no band extends outside [t_min, t_max]."
+        "Given the ET trading calendar, When is_trading_day is called for a US equity holiday computed by rule (fixed-date New Year's Day, Juneteenth, Independence Day, Christmas; nth-weekday MLK, Presidents, Memorial, Labor, Thanksgiving; Good Friday), Then it returns False for each such date in a given year including a future year, proving no fixed year list.",
+        "Given the ET trading calendar, When is_trading_day is called, Then an ordinary weekday with no holiday (e.g. 2026-09-21) returns True and a Saturday or Sunday returns False.",
+        "Given the US-equity ET trading-day calendar, When is_trading_day is called for a weekend-falling fixed-date US holiday, Then the observed market-closure day is non-trading per US-equity convention, EXCEPT that New Year's Day carries the NYSE Rule 7.2 year-end accounting-period exception (ESC-023, AC-D16.7): when Jan 1 is a Saturday no New Year's closure is observed and Dec 31 of that year returns True as a trading day (e.g. 2021-12-31, 2027-12-31, 2032-12-31, 2038-12-31), while Independence Day 2026-07-04 Sat gives 2026-07-03 Fri closed, Christmas 2022-12-25 Sun gives 2022-12-26 Mon closed, Juneteenth 2027-06-19 Sat gives 2027-06-18 Fri closed, and New Year's Day 2023-01-01 Sun is still observed Mon 2023-01-02 closed.",
+        "Given a start_ts and end_ts spanning at least one week, When trading_days(start_ts, end_ts) is called, Then it returns exactly the ET trading days in the inclusive range, ascending, excluding every weekend and every holiday.",
+        "Given a range spanning trading and non-trading days, When session_windows(start_ts, end_ts, ext_hours) is called, Then it returns one window per trading day, 04:00-20:00 ET when ext_hours is True and 09:30-16:00 ET when ext_hours is False, clipped to [start_ts, end_ts], with no window for a non-trading day.",
+        "Given services/market_calendar.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication."
       ],
       "tests": [
         {
-          "test_id": "T1-T01",
-          "linked_acceptance_criterion": "Given bars spanning multiple ET session days on an intraday timeframe, When session_bands is computed, Then it returns only pre-market 04:00-09:30 ET and post-market 16:00-20:00 ET intervals and no RTH or overnight intervals.",
+          "test_id": "T37-T01",
+          "linked_acceptance_criterion": "Given the ET trading calendar, When is_trading_day is called for a US equity holiday computed by rule (fixed-date New Year's Day, Juneteenth, Independence Day, Christmas; nth-weekday MLK, Presidents, Memorial, Labor, Thanksgiving; Good Friday), Then it returns False for each such date in a given year including a future year, proving no fixed year list.",
           "type": "unit",
-          "description": "Call session_bands over 3 session days of 5-min bars and assert only pre/post kinds, correct start/end timestamps.",
-          "expected_result": "Result contains 6 intervals (3 pre + 3 post) with correct ET boundaries and kinds pre/post only."
+          "description": "Parameterized holiday dates for each by-rule holiday across at least two years including a future year; assert is_trading_day returns False.",
+          "expected_result": "Every listed holiday date returns False, including a future-year date and the Good Friday date derived for that year."
         },
         {
-          "test_id": "T1-T02",
-          "linked_acceptance_criterion": "Given timeframe is \"1 day\", When session_bands is computed, Then it returns an empty list.",
+          "test_id": "T37-T02",
+          "linked_acceptance_criterion": "Given the ET trading calendar, When is_trading_day is called, Then an ordinary weekday with no holiday (e.g. 2026-09-21) returns True and a Saturday or Sunday returns False.",
           "type": "unit",
-          "description": "Call session_bands with timeframe=\"1 day\" for any range.",
-          "expected_result": "Returns [] regardless of bars."
+          "description": "Check one ordinary weekday and the adjacent weekend days in ET.",
+          "expected_result": "2026-09-21 (Monday) returns True; 2026-09-19 (Saturday) and 2026-09-20 (Sunday) return False."
         },
         {
-          "test_id": "T1-T03",
-          "linked_acceptance_criterion": "Given the chart display timezone is UTC, When session bands are computed, Then boundaries are the same absolute ET instants (e.g., pre-market 04:00 ET appears at 09:00 UTC in EST).",
+          "test_id": "T37-T03",
+          "linked_acceptance_criterion": "Given the US-equity ET trading-day calendar, When is_trading_day is called for a weekend-falling fixed-date US holiday, Then the observed market-closure day is non-trading per US-equity convention, EXCEPT that New Year's Day carries the NYSE Rule 7.2 year-end accounting-period exception (ESC-023, AC-D16.7): when Jan 1 is a Saturday no New Year's closure is observed and Dec 31 of that year returns True as a trading day (e.g. 2021-12-31, 2027-12-31, 2032-12-31, 2038-12-31), while Independence Day 2026-07-04 Sat gives 2026-07-03 Fri closed, Christmas 2022-12-25 Sun gives 2022-12-26 Mon closed, Juneteenth 2027-06-19 Sat gives 2027-06-18 Fri closed, and New Year's Day 2023-01-01 Sun is still observed Mon 2023-01-02 closed.",
           "type": "unit",
-          "description": "Compare UTC timestamps of bands computed for EST session day and verify they equal ET wall time converted to UTC.",
-          "expected_result": "Pre band start equals ET 04:00 converted to UTC (09:00 UTC in EST) and post band start equals 16:00 ET = 21:00 UTC."
+          "description": "Assert the observed-shift behaviour in tests/test_market_calendar.py: keep the unchanged weekend-falling closure shifts (Independence Day 2026-07-03, Christmas 2022-12-26, Juneteenth 2027-06-18, New Year's 2023-01-02) as non-trading regression guards, and assert the New Year's year-end exception - is_trading_day is True for 2021-12-31, 2027-12-31, 2032-12-31 and 2038-12-31 (Jan 1 Saturday -> no New Year's closure; Dec 31 stays open), with the Saturday legal date 2022-01-01 non-trading as a weekend and 2022-01-03 a trading day. Drop the wrong date(2021, 12, 31) entry from the weekend-legal-dates loop.",
+          "expected_result": "is_trading_day(2026-07-03) is False, (2022-12-26) is False, (2027-06-18) is False, (2023-01-02) is False; is_trading_day(2021-12-31) is True and likewise for 2027-12-31, 2032-12-31, 2038-12-31; is_trading_day(2022-01-01) is False and (2022-01-03) is True; no assertion expects a Dec 31 year-end closure."
         },
         {
-          "test_id": "T1-T04",
-          "linked_acceptance_criterion": "Given bars crossing a US DST transition day, When session_bands is computed, Then boundaries remain at ET local session times 04:00, 09:30, 16:00, 20:00 ET.",
+          "test_id": "T37-T04",
+          "linked_acceptance_criterion": "Given a start_ts and end_ts spanning at least one week, When trading_days(start_ts, end_ts) is called, Then it returns exactly the ET trading days in the inclusive range, ascending, excluding every weekend and every holiday.",
           "type": "unit",
-          "description": "Generate bars for week containing 2nd Sun Mar transition and verify boundaries shift by 1h UTC but stay fixed in ET local.",
-          "expected_result": "Boundaries on post-DST day are 1h earlier in UTC, still 04:00 ET local."
+          "description": "Call trading_days over a week that contains a US holiday and assert the exact ascending set.",
+          "expected_result": "Returns exactly the non-holiday weekdays for that range in ascending order, with the weekend and holiday absent."
         },
         {
-          "test_id": "T1-T05",
-          "linked_acceptance_criterion": "Given a bar timestamp exactly at 09:30 ET or 16:00 ET and the loaded range [t_min, t_max], When bands are classified, Then 09:30 belongs to RTH and 16:00 belongs to post-market and no band extends outside [t_min, t_max].",
+          "test_id": "T37-T05",
+          "linked_acceptance_criterion": "Given a range spanning trading and non-trading days, When session_windows(start_ts, end_ts, ext_hours) is called, Then it returns one window per trading day, 04:00-20:00 ET when ext_hours is True and 09:30-16:00 ET when ext_hours is False, clipped to [start_ts, end_ts], with no window for a non-trading day.",
           "type": "unit",
-          "description": "Create bands where t_min=t_max at session boundaries and check classification and clipping.",
-          "expected_result": "Band containing 09:30 not classified as pre; 16:00 classified as post; all band intervals within [t_min, t_max]."
+          "description": "Call session_windows with ext_hours True and False over a multi-day range including a weekend/holiday; check window count, ET boundaries and clipping.",
+          "expected_result": "One window per trading day: 04:00-20:00 ET (ext_hours True) or 09:30-16:00 ET (ext_hours False), each clipped to the range; no window for a non-trading day."
+        },
+        {
+          "test_id": "T37-T06",
+          "linked_acceptance_criterion": "Given services/market_calendar.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication.",
+          "type": "unit",
+          "description": "Import the module in an isolated offscreen interpreter and assert no Qt module is loaded (or assert the source imports no PyQt6/pyqtgraph).",
+          "expected_result": "Import succeeds without QApplication and without importing PyQt6/pyqtgraph."
         }
       ],
       "expected_artifacts": [
-        "services/session_service.py",
-        "tests/test_session_service.py"
+        "services/market_calendar.py",
+        "tests/test_market_calendar.py"
+      ],
+      "touches_files": [
+        "services/market_calendar.py",
+        "tests/test_market_calendar.py"
       ],
       "inputs": [
-        "docs/requirements/requirements.md#D1",
-        "docs/architecture.md#session_service",
-        "data/models.py:Bar",
+        "docs/requirements/requirements.md#D16",
+        "docs/requirements/requirements.md#AC-D16.1",
+        "docs/requirements/requirements.md#AC-D16.3",
+        "docs/architecture.md#D16 additions/changes",
+        "services/session_service.py (ET ZoneInfo pattern)",
+        "docs/requirements/requirements.md#AC-D16.7",
+        "docs/code_review/escalations.md#ESC-023"
+      ],
+      "outputs": [
+        "services/market_calendar.py",
+        "tests/test_market_calendar.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T38",
+      "title": "Implement the pure missing-span and chunk-request planner (D16)",
+      "description": "Create the pure, Qt-free services/backfill_service.py with bar_period_seconds(timeframe), find_missing_spans(cached_ts, now_ts, timeframe) and plan_requests(missing_spans, timeframe), plus the MissingSpan/RequestPlan dataclasses. Detection is trading-day presence so internal holes and tail gaps are both healed; empty cache returns [] and chunking uses the TIMEFRAME_CONFIG duration, newest chunk first, with a Qt-free UTC hyphenated anchor. Ship its offscreen unit tests.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "T37"
+      ],
+      "acceptance_criteria": [
+        "Given each of the six timeframes, When bar_period_seconds(timeframe) is called, Then it returns the per-bar period from data.bar_aggregator.TIMEFRAME_SECONDS (1 min 60, 5 mins 300, 15 mins 900, 1 hour 3600, 4 hours 14400, 1 day 86400).",
+        "Given a seeded cached ts series with bars before and after a missing trading-session span (the reported internal hole), When find_missing_spans(cached_ts, now_ts, timeframe) is called, Then it returns the missing span(s), merging adjacent missing trading days and excluding weekends/holidays; the assertion is parameterized over all six timeframes and at least two distinct seeded series scenarios.",
+        "Given a seeded cached series whose newest bar is before now (tail gap), When find_missing_spans is called, Then the missing trading days between the last cached trading day and now are returned as a span.",
+        "Given a cached series whose latest trading day already reaches now, or whose only gap is a weekend, When find_missing_spans is called, Then it returns [] so no redundant backfill is requested.",
+        "Given an empty cache (cached_ts == []), When find_missing_spans is called, Then it returns [] so the caller falls back to the configured window.",
+        "Given a missing span whose duration exceeds TIMEFRAME_CONFIG[timeframe]['duration'], When plan_requests(missing_spans, timeframe) is called, Then it returns multiple RequestPlans ordered newest chunk first whose combined coverage spans the whole missing span, each carrying the timeframe bar_size and duration and an endDateTime in the UTC hyphenated yyyyMMdd-HH:mm:ss format, with successive anchors stepping back by one configured duration.",
+        "Given a missing span shorter than the configured duration, When plan_requests is called, Then it returns exactly one RequestPlan covering the span with the anchor at the span end.",
+        "Given services/backfill_service.py, When imported offscreen, Then it imports no PyQt6/pyqtgraph/Qt and does not require a live IBKR connection."
+      ],
+      "tests": [
+        {
+          "test_id": "T38-T01",
+          "linked_acceptance_criterion": "Given each of the six timeframes, When bar_period_seconds(timeframe) is called, Then it returns the per-bar period from data.bar_aggregator.TIMEFRAME_SECONDS (1 min 60, 5 mins 300, 15 mins 900, 1 hour 3600, 4 hours 14400, 1 day 86400).",
+          "type": "unit",
+          "description": "Parameterized call over the six timeframes comparing against TIMEFRAME_SECONDS.",
+          "expected_result": "Each timeframe returns the matching period in seconds."
+        },
+        {
+          "test_id": "T38-T02",
+          "linked_acceptance_criterion": "Given a seeded cached ts series with bars before and after a missing trading-session span (the reported internal hole), When find_missing_spans(cached_ts, now_ts, timeframe) is called, Then it returns the missing span(s), merging adjacent missing trading days and excluding weekends/holidays; the assertion is parameterized over all six timeframes and at least two distinct seeded series scenarios.",
+          "type": "unit",
+          "description": "For each of the six timeframes and two seeded series (internal hole spanning a weekend), assert find_missing_spans covers exactly the missing weekdays and merges adjacent missing days.",
+          "expected_result": "Exactly the missing trading-weekday span(s) are returned; weekend days are excluded and adjacent missing days are merged into one span."
+        },
+        {
+          "test_id": "T38-T03",
+          "linked_acceptance_criterion": "Given a seeded cached series whose newest bar is before now (tail gap), When find_missing_spans is called, Then the missing trading days between the last cached trading day and now are returned as a span.",
+          "type": "unit",
+          "description": "Seed a series ending mid-week with now several trading days later.",
+          "expected_result": "The span covers every trading day after the last cached day up to now (weekends excluded)."
+        },
+        {
+          "test_id": "T38-T04",
+          "linked_acceptance_criterion": "Given a cached series whose latest trading day already reaches now, or whose only gap is a weekend, When find_missing_spans is called, Then it returns [] so no redundant backfill is requested.",
+          "type": "unit",
+          "description": "Two cases: cache current at now, and cache ending Friday with now on Sunday.",
+          "expected_result": "Both cases return an empty list."
+        },
+        {
+          "test_id": "T38-T05",
+          "linked_acceptance_criterion": "Given an empty cache (cached_ts == []), When find_missing_spans is called, Then it returns [] so the caller falls back to the configured window.",
+          "type": "unit",
+          "description": "Call find_missing_spans with an empty cached ts list.",
+          "expected_result": "Returns []."
+        },
+        {
+          "test_id": "T38-T06",
+          "linked_acceptance_criterion": "Given a missing span whose duration exceeds TIMEFRAME_CONFIG[timeframe]['duration'], When plan_requests(missing_spans, timeframe) is called, Then it returns multiple RequestPlans ordered newest chunk first whose combined coverage spans the whole missing span, each carrying the timeframe bar_size and duration and an endDateTime in the UTC hyphenated yyyyMMdd-HH:mm:ss format, with successive anchors stepping back by one configured duration.",
+          "type": "unit",
+          "description": "Give a span longer than one configured duration and assert chunk count, newest-first order, full coverage, duration/bar_size and anchor format.",
+          "expected_result": "Chunk count equals the configured-duration ceiling of the span; plans are newest-first; together they cover the span; anchors parse as UTC yyyyMMdd-HH:mm:ss and step back by one duration."
+        },
+        {
+          "test_id": "T38-T07",
+          "linked_acceptance_criterion": "Given a missing span shorter than the configured duration, When plan_requests is called, Then it returns exactly one RequestPlan covering the span with the anchor at the span end.",
+          "type": "unit",
+          "description": "Give a short missing span and assert a single plan whose anchor is at the span end.",
+          "expected_result": "Exactly one RequestPlan covering the span, anchor at the span end."
+        },
+        {
+          "test_id": "T38-T08",
+          "linked_acceptance_criterion": "Given services/backfill_service.py, When imported offscreen, Then it imports no PyQt6/pyqtgraph/Qt and does not require a live IBKR connection.",
+          "type": "unit",
+          "description": "Import the module in an isolated offscreen interpreter and assert no Qt module is loaded and no connection is attempted.",
+          "expected_result": "Import succeeds without QApplication and without importing PyQt6/pyqtgraph or contacting TWS."
+        }
+      ],
+      "expected_artifacts": [
+        "services/backfill_service.py",
+        "tests/test_backfill_service.py"
+      ],
+      "touches_files": [
+        "services/backfill_service.py",
+        "tests/test_backfill_service.py"
+      ],
+      "inputs": [
+        "docs/requirements/requirements.md#AC-D16.1",
+        "docs/requirements/requirements.md#AC-D16.4",
+        "docs/architecture.md#D16 additions/changes",
+        "services/market_calendar.py",
+        "data/bar_aggregator.py:TIMEFRAME_SECONDS",
         "ibkr/market_data.py:TIMEFRAME_CONFIG"
       ],
       "outputs": [
-        "services/session_service.py"
+        "services/backfill_service.py",
+        "tests/test_backfill_service.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T2",
-      "title": "Render pre/post session shading in chart (D1)",
-      "description": "Add ui/overlays/session_overlay.py and plumb ChartPanel.set_extended_hours and MainWindow so session bands shade orange/blue at 10% only when Ext Hours ON and timeframe intraday, with stale-band cleanup.",
+      "id": "T39",
+      "title": "Make the MainWindow load path backfill the whole gap with correlated multi-request orchestration (D16)",
+      "description": "Change ui/main_window.py::load_chart to call the pure planner and issue one req_historical_data per RequestPlan through the existing endDateTime parameter (market_data.py signature unchanged), skip redundant requests when the cache is current, fall back to the configured window on an empty cache, add _history_req_ids/_history_generation/_backfill_missing_spans/_backfill_failed_req_ids state, accept any member reqId, finalise once when the set empties, cancel every id on switch/close, and correlate _on_error shortfall without fabricating bars. Ship focused offscreen load-path tests.",
       "agent": "Build",
       "task_type": "bugfix",
       "dependencies": [
-        "T1"
+        "T38"
       ],
       "acceptance_criteria": [
-        "Given Ext Hours is ON and timeframe is intraday, When the chart renders, Then pre-market bands are orange at 10% opacity and post-market bands are blue at 10% opacity while RTH and overnight remain unshaded.",
-        "Given Ext Hours is OFF, When the chart renders, Then no pre/post session bands are rendered.",
-        "Given timeframe is \"1 day\", When the chart renders, Then no intraday session bands are rendered.",
-        "Given Ext Hours is toggled, the symbol or timeframe changes, or a new candle arrives, When the chart updates, Then stale bands are cleared and correct bands are redrawn, and intra-bar ticks do not recompute bands."
+        "Given a seeded cached series with a missing trading-session span whose closure exceeds the timeframe configured fetch window, When load_chart runs, Then it issues one historical request per planned chunk through the existing req_historical_data(endDateTime=...) (the market_data.py signature is unchanged) and records each returned reqId in _history_req_ids.",
+        "Given an empty plan and a cache whose latest bar reaches now, When load_chart runs, Then no historical request is issued for that load (no redundant request).",
+        "Given an empty cache, When load_chart runs, Then the configured-window fallback request (endDateTime empty) is issued so the single-request path is preserved as a set of one.",
+        "Given a backfill wave with multiple in-flight reqIds, When _on_historical_bar/_on_historical_data_end fire for any member, Then bars accumulate across all members and BarCache.save_bars plus re-read plus ChartPanel.update_chart happen exactly once, only after the last member's end empties the set; a non-member or stale-generation event is ignored.",
+        "Given backfill requests in flight, When the symbol/timeframe switches or closeEvent runs, Then every reqId in _history_req_ids is cancelled and _history_generation is advanced so late responses cannot mix symbols/timeframes.",
+        "Given a backfill reqId raises error_msg, When _on_error handles it, Then the reqId is removed from _history_req_ids so the wave can still finalise, and the shortfall is surfaced (status bar plus log) with no fabricated bar.",
+        "Given a wave completes and a trading day in the target span is still empty, When finalisation runs, Then the shortfall is surfaced explicitly (status-bar message and/or log); no bar is fabricated or interpolated."
       ],
       "tests": [
         {
-          "test_id": "T2-T01",
-          "linked_acceptance_criterion": "Given Ext Hours is ON and timeframe is intraday, When the chart renders, Then pre-market bands are orange at 10% opacity and post-market bands are blue at 10% opacity while RTH and overnight remain unshaded.",
+          "test_id": "T39-T01",
+          "linked_acceptance_criterion": "Given a seeded cached series with a missing trading-session span whose closure exceeds the timeframe configured fetch window, When load_chart runs, Then it issues one historical request per planned chunk through the existing req_historical_data(endDateTime=...) (the market_data.py signature is unchanged) and records each returned reqId in _history_req_ids.",
           "type": "integration",
-          "description": "Offscreen ChartPanel with intraday bars and Ext ON: call update_chart and assert session overlay contains pre/post LinearRegionItems with correct brushes at 0.10 alpha.",
-          "expected_result": "Overlay item_count equals 2*session_days with orange brush alpha 0.10 for pre and blue 0.10 for post; no RTH items."
+          "description": "Offscreen MainWindow with IBApiClient.connect monkeypatched and md_manager.req_historical_data stubbed to capture calls and return distinct reqIds; seed a BarCache with an internal hole; call load_chart.",
+          "expected_result": "The number of req_historical_data calls equals the planner chunk count; every call passes a non-empty endDateTime; every returned reqId is present in _history_req_ids."
         },
         {
-          "test_id": "T2-T02",
-          "linked_acceptance_criterion": "Given Ext Hours is OFF, When the chart renders, Then no pre/post session bands are rendered.",
+          "test_id": "T39-T02",
+          "linked_acceptance_criterion": "Given an empty plan and a cache whose latest bar reaches now, When load_chart runs, Then no historical request is issued for that load (no redundant request).",
           "type": "integration",
-          "description": "Set Ext OFF then update_chart with same bars and assert overlay cleared.",
-          "expected_result": "Overlay item_count == 0."
+          "description": "Seed a cache current at now, stub req_historical_data as a spy, call load_chart.",
+          "expected_result": "req_historical_data is never called and no reqId is added to _history_req_ids."
         },
         {
-          "test_id": "T2-T03",
-          "linked_acceptance_criterion": "Given timeframe is \"1 day\", When the chart renders, Then no intraday session bands are rendered.",
+          "test_id": "T39-T03",
+          "linked_acceptance_criterion": "Given an empty cache, When load_chart runs, Then the configured-window fallback request (endDateTime empty) is issued so the single-request path is preserved as a set of one.",
           "type": "integration",
-          "description": "Set timeframe=\"1 day\" and render; assert no bands.",
-          "expected_result": "Overlay item_count == 0 for 1 day."
+          "description": "Seed no cached bars; call load_chart with a stubbed manager.",
+          "expected_result": "Exactly one fallback request is issued with an empty endDateTime and behaves as a set of one."
         },
         {
-          "test_id": "T2-T04",
-          "linked_acceptance_criterion": "Given Ext Hours is toggled, the symbol or timeframe changes, or a new candle arrives, When the chart updates, Then stale bands are cleared and correct bands are redrawn, and intra-bar ticks do not recompute bands.",
-          "type": "unit",
-          "description": "Spy session_service.session_bands; verify call count increments on toggle/timeframe/new-candle but not on intra-bar update_last_bar with same ts.",
-          "expected_result": "session_bands called on full reload/new candle/toggle, not on same-ts intra-bar tick; stale items removed."
+          "test_id": "T39-T04",
+          "linked_acceptance_criterion": "Given a backfill wave with multiple in-flight reqIds, When _on_historical_bar/_on_historical_data_end fire for any member, Then bars accumulate across all members and BarCache.save_bars plus re-read plus ChartPanel.update_chart happen exactly once, only after the last member's end empties the set; a non-member or stale-generation event is ignored.",
+          "type": "integration",
+          "description": "Drive _on_historical_bar for each member reqId, then _on_historical_data_end for all but the last, then for the last; spy on save_bars/update_chart; also emit a non-member and a stale-generation bar.",
+          "expected_result": "No save/render before the set empties; exactly one save plus one re-read plus one update_chart at set-empty; non-member and stale-generation bars are ignored."
+        },
+        {
+          "test_id": "T39-T05",
+          "linked_acceptance_criterion": "Given backfill requests in flight, When the symbol/timeframe switches or closeEvent runs, Then every reqId in _history_req_ids is cancelled and _history_generation is advanced so late responses cannot mix symbols/timeframes.",
+          "type": "integration",
+          "description": "Start a multi-request wave, then switch symbol/timeframe (and separately invoke closeEvent); spy on cancel_historical_data and read the generation token.",
+          "expected_result": "cancel_historical_data is called once per tracked id; the generation token advances; late responses from the previous generation do not reach the render path."
+        },
+        {
+          "test_id": "T39-T06",
+          "linked_acceptance_criterion": "Given a backfill reqId raises error_msg, When _on_error handles it, Then the reqId is removed from _history_req_ids so the wave can still finalise, and the shortfall is surfaced (status bar plus log) with no fabricated bar.",
+          "type": "integration",
+          "description": "Raise _on_error for one member reqId mid-wave, then end the remaining members and assert finalisation still occurs and a shortfall message is shown.",
+          "expected_result": "The failed reqId leaves _history_req_ids; the wave finalises when the rest end; a status-bar/log shortfall is emitted and no bar is fabricated for the failed chunk."
+        },
+        {
+          "test_id": "T39-T07",
+          "linked_acceptance_criterion": "Given a wave completes and a trading day in the target span is still empty, When finalisation runs, Then the shortfall is surfaced explicitly (status-bar message and/or log); no bar is fabricated or interpolated.",
+          "type": "integration",
+          "description": "Complete a wave whose responses omit one target trading day; assert the shortfall is surfaced and the rendered bars contain no fabricated entries.",
+          "expected_result": "A shortfall status-bar/log message is produced and the bar list contains only genuinely returned bars."
         }
       ],
       "expected_artifacts": [
-        "ui/overlays/session_overlay.py",
-        "ui/chart_panel.py",
         "ui/main_window.py",
-        "tests/test_session_overlay.py"
+        "tests/test_history_backfill_loadpath.py"
       ],
-      "inputs": [
-        "services/session_service.py",
-        "ui/chart_panel.py",
-        "ui/overlays/base.py:StudyOverlay",
-        "ui/main_window.py:_eastern_offset"
-      ],
-      "outputs": [
-        "ui/overlays/session_overlay.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T3",
-      "title": "Right-align crosshair price chip inside plot (D2)",
-      "description": "Change ChartPanel crosshair price TextItem to anchor (1,0.5) a few pixels inside the plot right edge and update the existing test assertion so decimals are never covered by the right axis or right-hand dock.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T2"
-      ],
-      "acceptance_criteria": [
-        "Given a loaded chart with the Active Trader and/or Portfolio dock open and the cursor inside the price plot, When the price chip renders, Then the complete label including all decimals is visible and is not overlapped by the axis or right-hand dock.",
-        "Given the chart is panned or zoomed, When the cursor moves, Then the price chip stays fully within the plot's right edge and tracks the cursor price.",
-        "Given the cursor leaves the price plot, When the leave event fires, Then the price chip is hidden.",
-        "Given a long price string such as 123,456.78 or the cursor near the top/bottom edge or a narrow window, When the chip renders, Then it remains fully visible without clipping or bleeding under the dock."
-      ],
-      "tests": [
-        {
-          "test_id": "T3-T01",
-          "linked_acceptance_criterion": "Given a loaded chart with the Active Trader and/or Portfolio dock open and the cursor inside the price plot, When the price chip renders, Then the complete label including all decimals is visible and is not overlapped by the axis or right-hand dock.",
-          "type": "integration",
-          "description": "Offscreen ChartPanel with dock open: update crosshair at bar price and assert price_tag pos.x()+ boundingRect width <= view_right and pos.x()-width>=view_left margin, and text contains decimals.",
-          "expected_result": "price_tag right edge <= view_rect_scene.right() - 1 and left edge >= view_rect_scene.right() - labelWidth; visible true."
-        },
-        {
-          "test_id": "T3-T02",
-          "linked_acceptance_criterion": "Given the chart is panned or zoomed, When the cursor moves, Then the price chip stays fully within the plot's right edge and tracks the cursor price.",
-          "type": "integration",
-          "description": "Scale ViewBox (zoom) and move cursor; assert chip still inside right edge and text equals cursor y formatted.",
-          "expected_result": "Chip inside bounds after zoom and text matches y:,.2f."
-        },
-        {
-          "test_id": "T3-T03",
-          "linked_acceptance_criterion": "Given the cursor leaves the price plot, When the leave event fires, Then the price chip is hidden.",
-          "type": "unit",
-          "description": "Fire Leave event via eventFilter and assert chip hidden.",
-          "expected_result": "price_tag.isVisible() == False and crosshair lines hidden."
-        },
-        {
-          "test_id": "T3-T04",
-          "linked_acceptance_criterion": "Given a long price string such as 123,456.78 or the cursor near the top/bottom edge or a narrow window, When the chip renders, Then it remains fully visible without clipping or bleeding under the dock.",
-          "type": "integration",
-          "description": "Set y=123456.78 and test near top/bottom y and narrow panel width 500px; assert boundingRect fully inside scene rect.",
-          "expected_result": "BoundingRect of price_tag fully contained within view_rect_scene."
-        },
-        {
-          "test_id": "T3-T05",
-          "linked_acceptance_criterion": "Given a loaded chart with the Active Trader and/or Portfolio dock open and the cursor inside the price plot, When the price chip renders, Then the complete label including all decimals is visible and is not overlapped by the axis or right-hand dock.",
-          "type": "unit",
-          "description": "Verify updated existing test tests/test_chart_crosshair.py now asserts chip anchor (1,0.5) and inside-right position rather than previous >= view_right.",
-          "expected_result": "Legacy assertion changed to assert price_tag anchor 1,0.5 and pos inside; test passes."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_chip_bounds.py"
-      ],
-      "inputs": [
-        "ui/chart_panel.py:_create_crosshair",
-        "ui/chart_panel.py:_update_crosshair",
-        "tests/test_chart_crosshair.py"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T4",
-      "title": "Add zoom control cluster widget top-right outlined (D3)",
-      "description": "Create ui/chart_controls.py as an outlined QFrame with minus, plus, magnifier, and reset buttons, pin it top-right of the chart area via resizeEvent, and emit zoom_in/zoom_out/magnify_toggled/reset signals.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T3"
-      ],
-      "acceptance_criteria": [
-        "Given any loaded chart, When the chart panel is shown, Then a control cluster is rendered at the top-right of the chart area inside a visible outlined border containing minus, plus, magnifier, and reset buttons.",
-        "Given the control cluster is visible, When each button is interacted with, Then it emits the corresponding signal zoom_in, zoom_out, magnify_toggled, or reset and the magnifier button is checkable."
-      ],
-      "tests": [
-        {
-          "test_id": "T4-T01",
-          "linked_acceptance_criterion": "Given any loaded chart, When the chart panel is shown, Then a control cluster is rendered at the top-right of the chart area inside a visible outlined border containing minus, plus, magnifier, and reset buttons.",
-          "type": "integration",
-          "description": "Offscreen ChartPanel: show, processEvents, assert ChartControls exists, isVisible, has 4 buttons, frame has border style, and geometry near top-right within 10px margin.",
-          "expected_result": "controls widget found, button count 4, styleSheet contains border, x >= width-150 and y <= 10."
-        },
-        {
-          "test_id": "T4-T02",
-          "linked_acceptance_criterion": "Given the control cluster is visible, When each button is interacted with, Then it emits the corresponding signal zoom_in, zoom_out, magnify_toggled, or reset and the magnifier button is checkable.",
-          "type": "unit",
-          "description": "Connect spies to signals; click each button via QTest.mouseClick and toggle magnifier; assert signals emitted and magnifier checked state toggles.",
-          "expected_result": "Each click emits exactly one corresponding signal; magnify button isCheckable and checked mirrors magnify_toggled bool."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_controls.py",
-        "ui/chart_panel.py",
-        "tests/test_chart_controls.py"
-      ],
-      "inputs": [
-        "ui/chart_panel.py",
-        "config/theme.qss"
-      ],
-      "outputs": [
-        "ui/chart_controls.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T5",
-      "title": "Implement zoom in/out around centre and reset to default framing (D3)",
-      "description": "Wire ChartControls zoom_in/zoom_out/reset to ChartPanel ViewBox scaleBy around centre on both axes and reset via _refresh_candles auto_range, with clamping and no-op when no bars.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T4"
-      ],
-      "acceptance_criteria": [
-        "Given a loaded chart, When the plus button is clicked, Then the view zooms in around the chart centre on both axes, and when minus is clicked it zooms out around the centre.",
-        "Given Reset is clicked, When the action completes, Then the view returns to the default framing equivalent to a fresh chart load, including volume pane Y refit.",
-        "Given no bars are loaded or the view is at its range limits, When plus/minus or reset is invoked, Then the action is a safe no-op or is clamped and the application remains stable."
-      ],
-      "tests": [
-        {
-          "test_id": "T5-T01",
-          "linked_acceptance_criterion": "Given a loaded chart, When the plus button is clicked, Then the view zooms in around the chart centre on both axes, and when minus is clicked it zooms out around the centre.",
-          "type": "integration",
-          "description": "Record viewRange, emit zoom_in, assert xRange and yRange shrink symmetrically around centre; emit zoom_out and assert expansion.",
-          "expected_result": "xRange width *0.8 approx on zoom_in and *1.25 on zoom_out; centre unchanged within epsilon."
-        },
-        {
-          "test_id": "T5-T02",
-          "linked_acceptance_criterion": "Given Reset is clicked, When the action completes, Then the view returns to the default framing equivalent to a fresh chart load, including volume pane Y refit.",
-          "type": "integration",
-          "description": "Zoom in twice, then emit reset and compare viewRange to that after update_chart auto_range.",
-          "expected_result": "Post-reset xRange and yRange equal fresh-load range within epsilon; volume Y refitted."
-        },
-        {
-          "test_id": "T5-T03",
-          "linked_acceptance_criterion": "Given no bars are loaded or the view is at its range limits, When plus/minus or reset is invoked, Then the action is a safe no-op or is clamped and the application remains stable.",
-          "type": "unit",
-          "description": "Call zoom slots with empty bars and with extreme zoom; assert no exception and range remains valid.",
-          "expected_result": "No exception, viewRange unchanged for empty bars, clamped finite range at limits."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_zoom_behavior.py"
-      ],
-      "inputs": [
-        "ui/chart_controls.py",
-        "ui/chart_panel.py:_refresh_candles"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T6",
-      "title": "Implement magnifier area-zoom with router precedence and cancel (D3)",
-      "description": "Create ui/zoom_overlay.py rubber-band selection that sets both x and y range to the dragged rectangle, stays active after zoom, cancels on Esc/right-click, and has highest precedence in ChartMouseRouter.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T5"
-      ],
-      "acceptance_criteria": [
-        "Given magnifier mode is active, When the user drags a rectangle and releases, Then the view sets both x and y range to that rectangle so it fills the chart.",
-        "Given magnifier mode is active and a drag is in progress, When Esc is pressed or a right-click occurs before release, Then the selection is cancelled and the view range is unchanged.",
-        "Given one magnifier zoom has completed, When the view has updated, Then magnifier mode remains active for a further selection.",
-        "Given a near-zero area drag or a drag starting outside the plot, When the gesture is released, Then the selection is ignored and no zoom occurs.",
-        "Given the symbol or timeframe changes while magnifier is active, When the new chart loads, Then magnifier mode resets to the default cursor. And given magnifier is active, magnifier has highest precedence in the mouse router."
-      ],
-      "tests": [
-        {
-          "test_id": "T6-T01",
-          "linked_acceptance_criterion": "Given magnifier mode is active, When the user drags a rectangle and releases, Then the view sets both x and y range to that rectangle so it fills the chart.",
-          "type": "integration",
-          "description": "Enable magnifier, synthesize press-drag-release rectangle in scene coords, assert ViewBox range equals rectangle (both axes).",
-          "expected_result": "viewRange x and y equal dragged rect within epsilon; rubber band cleared."
-        },
-        {
-          "test_id": "T6-T02",
-          "linked_acceptance_criterion": "Given magnifier mode is active and a drag is in progress, When Esc is pressed or a right-click occurs before release, Then the selection is cancelled and the view range is unchanged.",
-          "type": "unit",
-          "description": "Start drag, send Esc key event and separately right-click; assert range unchanged and rubber band removed.",
-          "expected_result": "Range before equals range after; overlay selection cleared; mode still active."
-        },
-        {
-          "test_id": "T6-T03",
-          "linked_acceptance_criterion": "Given one magnifier zoom has completed, When the view has updated, Then magnifier mode remains active for a further selection.",
-          "type": "unit",
-          "description": "Complete one zoom, assert magnifier active flag true and button checked.",
-          "expected_result": "magnifier_active == True and ChartControls magnifier checked == True."
-        },
-        {
-          "test_id": "T6-T04",
-          "linked_acceptance_criterion": "Given a near-zero area drag or a drag starting outside the plot, When the gesture is released, Then the selection is ignored and no zoom occurs.",
-          "type": "unit",
-          "description": "Drag 2px rectangle and drag starting outside view rect; assert no range change.",
-          "expected_result": "No zoom; range unchanged."
-        },
-        {
-          "test_id": "T6-T05",
-          "linked_acceptance_criterion": "Given the symbol or timeframe changes while magnifier is active, When the new chart loads, Then magnifier mode resets to the default cursor. And given magnifier is active, magnifier has highest precedence in the mouse router.",
-          "type": "integration",
-          "description": "Enable magnifier, call set_timeframe/set_symbol; assert mode false/cursor Arrow; then test router returns True for magnifier before alarm/drawing when active.",
-          "expected_result": "Mode reset to false and cursor Arrow; router.view_mouse_press returns True for magnifier and does not reach alarm/drawing."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/zoom_overlay.py",
-        "ui/chart_mouse_router.py",
-        "ui/chart_panel.py",
-        "tests/test_zoom_overlay.py",
-        "tests/test_chart_mouse_router.py"
-      ],
-      "inputs": [
-        "ui/chart_controls.py",
-        "ui/chart_mouse_router.py",
-        "ui/chart_panel.py"
-      ],
-      "outputs": [
-        "ui/zoom_overlay.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T7",
-      "title": "Verification and regression hardening (Global)",
-      "description": "Run the full offscreen pytest suite, verify no test connects to TWS or transmits an order, and confirm every per-defect test condition passes.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "T1",
-        "T2",
-        "T3",
-        "T4",
-        "T5",
-        "T6"
-      ],
-      "acceptance_criteria": [
-        "Given all defect fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
-        "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
-        "Given the per-defect test conditions defined in the Defect Register, When their corresponding tests are executed, Then each condition passes."
-      ],
-      "tests": [
-        {
-          "test_id": "T7-T01",
-          "linked_acceptance_criterion": "Given all defect fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
-          "type": "integration",
-          "description": "Run pytest via .venv/bin/python -m pytest and assert exit code 0 and all tests passed.",
-          "expected_result": "290+ tests passed, 0 failed (including new session/crosshair/zoom tests)."
-        },
-        {
-          "test_id": "T7-T02",
-          "linked_acceptance_criterion": "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
-          "type": "manual",
-          "description": "Static inspection and offscreen run: verify no test imports or calls IBApiClient.eConnect/placeOrder and that TWS is not required; grep test suite for eConnect/reqHistoricalData transmit.",
-          "expected_result": "No test file contains live TWS connection or order transmission; suite runs without TWS."
-        },
-        {
-          "test_id": "T7-T03",
-          "linked_acceptance_criterion": "Given the per-defect test conditions defined in the Defect Register, When their corresponding tests are executed, Then each condition passes.",
-          "type": "e2e",
-          "description": "Execute the new per-defect test modules (test_session_service, test_session_overlay, test_crosshair_chip_bounds, test_chart_controls, test_zoom_behavior, test_zoom_overlay) in isolation.",
-          "expected_result": "All per-defect modules pass in isolation."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_session_service.py",
-        "tests/test_session_overlay.py",
-        "tests/test_crosshair_chip_bounds.py",
-        "tests/test_chart_controls.py",
-        "tests/test_zoom_behavior.py",
-        "tests/test_zoom_overlay.py",
-        "pytest run log"
-      ],
-      "inputs": [
-        "tests/test_session_service.py",
-        "tests/test_session_overlay.py",
-        "tests/test_crosshair_chip_bounds.py",
-        "tests/test_chart_controls.py",
-        "tests/test_zoom_behavior.py",
-        "tests/test_zoom_overlay.py",
-        "T1",
-        "T2",
-        "T3",
-        "T4",
-        "T5",
-        "T6"
-      ],
-      "outputs": [
-        "pytest green run"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T8",
-      "title": "Refine zoom control magnifier glyph to 21px (D4)",
-      "description": "Update ui/chart_controls.py so the magnifier button renders at 21px/700 while minus, plus and Reset stay 14px/700, keeping button size 28x24 unchanged.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T7"
-      ],
-      "acceptance_criteria": [
-        "Given any loaded chart, When the zoom cluster renders, Then '-' / '+' / 'Reset' are at 14px / 700 and magnifier '\u2315' is at 21px / 700.",
-        "Given any window size, When the cluster renders, Then its right edge is left of the price axis (ctrl.right() <= panel.width() - axis_width) and fully inside the panel (ctrl.right() <= panel.width()), with y <= 15."
-      ],
-      "tests": [
-        {
-          "test_id": "T8-T01",
-          "linked_acceptance_criterion": "Given any loaded chart, When the zoom cluster renders, Then '-' / '+' / 'Reset' are at 14px / 700 and magnifier '\u2315' is at 21px / 700.",
-          "type": "unit",
-          "description": "Check ChartControls stylesheet contains 14px for general buttons and 21px for magnifier (objectName Magnifier) and button fonts.",
-          "expected_result": "stylesheet contains '14px' and '21px'; magnifier button objectName is 'Magnifier' and font larger than 14px."
-        },
-        {
-          "test_id": "T8-T02",
-          "linked_acceptance_criterion": "Given any window size, When the cluster renders, Then its right edge is left of the price axis (ctrl.right() <= panel.width() - axis_width) and fully inside the panel (ctrl.right() <= panel.width()), with y <= 15.",
-          "type": "integration",
-          "description": "Offscreen ChartPanel with varying widths: assert cluster geometry left of axis and inside panel.",
-          "expected_result": "ctrl.right() <= panel.width() - axis_width and <= panel.width(); y <=15."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_controls.py",
-        "tests/test_chart_controls.py"
-      ],
-      "inputs": [
-        "ui/chart_controls.py",
-        "docs/requirements/requirements.md#D4",
-        "docs/architecture.md#D4"
-      ],
-      "outputs": [
-        "ui/chart_controls.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T9",
-      "title": "Render candlestick wick as 1 device-pixel behind body (D6)",
-      "description": "Modify ui/candlestick_item.py to draw the wick as a cosmetic 1px body-coloured line behind the body and clamp body data width to a >=4 device-pixel minimum derived from the current ViewBox, so wick remains thinner than body at any density.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T7"
-      ],
-      "acceptance_criteria": [
-        "Given a loaded chart with candles, When candles render at default zoom, Then each wick is ~1px and each body is noticeably wider (body width >= 4x wick width), and the wick passes behind the body.",
-        "Given a candle has a shadow, When rendered, Then the wick extends beyond the body's top/bottom by at least 1px and is fully visible.",
-        "Given up vs down candles, When rendered, Then body and wick share the candle's direction colour."
-      ],
-      "tests": [
-        {
-          "test_id": "T9-T01",
-          "linked_acceptance_criterion": "Given a loaded chart with candles, When candles render at default zoom, Then each wick is ~1px and each body is noticeably wider (body width >= 4x wick width), and the wick passes behind the body.",
-          "type": "integration",
-          "description": "Offscreen check: inspect CandlestickItem QPicture pen for wick cosmetic True width 1.0 and body width >=4x, and that wick is drawn before body.",
-          "expected_result": "wick pen isCosmetic True width 1.0, body width >=4, wick behind body."
-        },
-        {
-          "test_id": "T9-T02",
-          "linked_acceptance_criterion": "Given a candle has a shadow, When rendered, Then the wick extends beyond the body's top/bottom by at least 1px and is fully visible.",
-          "type": "integration",
-          "description": "Create candle with high>max(open,close) and low<min(open,close), render and check wick line extends beyond body rect by >=1px.",
-          "expected_result": "wick line y-range exceeds body top/bottom by >=1px."
-        },
-        {
-          "test_id": "T9-T03",
-          "linked_acceptance_criterion": "Given up vs down candles, When rendered, Then body and wick share the candle's direction colour.",
-          "type": "unit",
-          "description": "Create bull and bear candles, inspect pen/brush colours match direction (teal/red).",
-          "expected_result": "Up candle green #34d399, down candle red #f87171 for both wick and body."
-        },
-        {
-          "test_id": "T9-T04",
-          "linked_acceptance_criterion": "Given a loaded chart with candles, When candles render at default zoom, Then each wick is ~1px and each body is noticeably wider (body width >= 4x wick width), and the wick passes behind the body.",
-          "type": "integration",
-          "description": "Dense 1-min view (~960 bars): verify body still >=4x wick due to minimum clamp, and wick stays 1px cosmetic.",
-          "expected_result": "Even at high density, body pixel width >=4 and wick 1px."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/candlestick_item.py",
-        "tests/test_candlestick_wick.py"
-      ],
-      "inputs": [
-        "ui/candlestick_item.py",
-        "docs/architecture.md#D6",
-        "docs/requirements/requirements.md#D6"
-      ],
-      "outputs": [
-        "ui/candlestick_item.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T10",
-      "title": "Verification and regression for Batch 2 (D4\u2013D6)",
-      "description": "Run offscreen pytest for Batch 2 per-defect checks (magnifier 21px, wick/body, volume log) and full suite green, with no live-TWS traffic.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "T8",
-        "T9"
-      ],
-      "acceptance_criteria": [
-        "Given all Batch 2 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
-        "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
-        "Given the per-defect test conditions for D4 magnifier 21px, D6 wick/body, and D5 volume log, When their corresponding tests are executed, Then each condition passes."
-      ],
-      "tests": [
-        {
-          "test_id": "T10-T01",
-          "linked_acceptance_criterion": "Given all Batch 2 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
-          "type": "integration",
-          "description": "Run pytest via .venv/bin/python -m pytest and assert exit code 0 and all tests passed.",
-          "expected_result": "310+ tests passed, 0 failed (including new Batch 2 tests)."
-        },
-        {
-          "test_id": "T10-T02",
-          "linked_acceptance_criterion": "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
-          "type": "manual",
-          "description": "Static inspection: grep tests for eConnect/placeOrder and verify suite runs without TWS.",
-          "expected_result": "No test contains live TWS connection; suite runs without TWS."
-        },
-        {
-          "test_id": "T10-T03",
-          "linked_acceptance_criterion": "Given the per-defect test conditions for D4 magnifier 21px, D6 wick/body, and D5 volume log, When their corresponding tests are executed, Then each condition passes.",
-          "type": "e2e",
-          "description": "Execute per-defect modules for Batch 2 (test_chart_controls magnifier, test_candlestick_wick, test_volume_log) in isolation.",
-          "expected_result": "All Batch 2 per-defect modules pass."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_chart_controls.py",
-        "tests/test_candlestick_wick.py",
-        "tests/test_volume_log.py",
-        "pytest run log"
-      ],
-      "inputs": [
-        "tests/test_chart_controls.py",
-        "tests/test_candlestick_wick.py",
-        "T8",
-        "T9"
-      ],
-      "outputs": [
-        "pytest green run"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T11",
-      "title": "Increase inter-candle gap to 35% (D7)",
-      "description": "Modify ui/candlestick_item.py to reduce body half-width from 0.40 to 0.325 of median_diff (gap 35%), keeping single-bar fallback and 4px minimum, for Candles/Hollow/Heikin modes.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T10"
-      ],
-      "acceptance_criteria": [
-        "Given a loaded chart at default zoom, When candles render, Then the gap between adjacent bodies is ~35% of bar spacing (body half-width is 0.325\u00d7 median_diff), visibly larger than the current 20% gap.",
-        "Given the same data, When compared to the current rendering, Then the on-screen distance between bodies is larger by ~15\u201318% of bar spacing (the gap grows from 0.20 to 0.35 of spacing)."
-      ],
-      "tests": [
-        {
-          "test_id": "T11-T01",
-          "linked_acceptance_criterion": "Given a loaded chart at default zoom, When candles render, Then the gap between adjacent bodies is ~35% of bar spacing (body half-width is 0.325\u00d7 median_diff), visibly larger than the current 20% gap.",
-          "type": "unit",
-          "description": "Inspect CandlestickItem source for half-width 0.325 and calculate gap ratio; offscreen render check that body width is 0.65\u00d7 spacing.",
-          "expected_result": "Source contains '0.325' and gap ratio 0.35; rendered body width is 0.65\u00d7 median_diff."
-        },
-        {
-          "test_id": "T11-T02",
-          "linked_acceptance_criterion": "Given the same data, When compared to the current rendering, Then the on-screen distance between bodies is larger by ~15\u201318% of bar spacing (the gap grows from 0.20 to 0.35 of spacing).",
-          "type": "integration",
-          "description": "Compare old 0.40 vs new 0.325 by measuring gap in data units for same median_diff.",
-          "expected_result": "New gap is 0.35\u00d7 spacing, old was 0.20\u00d7, increase is 0.15\u00d7 spacing."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/candlestick_item.py",
-        "tests/test_candle_spacing.py"
-      ],
-      "inputs": [
-        "ui/candlestick_item.py",
-        "docs/requirements/requirements.md#D7"
-      ],
-      "outputs": [
-        "ui/candlestick_item.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T12",
-      "title": "Make volume Y linear with dynamic nice ticks and price-coloured bars (D8)",
-      "description": "Revert volume ViewBox to linear Y, implement yRange=(0, nice_max) with nice_max rounded to next nice value from [10k..10M], map zero volumes, format ticks as 500.0K/1.0M, and colour bars green/red by close>=open, revising D5 log decision.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T11"
-      ],
-      "acceptance_criteria": [
-        "Given any loaded chart, When the volume panel renders, Then the Y is linear (logMode == (False, False)), lower bound is 0, no negative tick is shown, and the upper bound is the dynamic nice max (max_vol*1.1 rounded up).",
-        "Given volumes, When bars render, Then each bar is green when its price candle has close >= open and red otherwise, and the yRange upper covers the max with the nice tick above it.",
-        "Given a max volume, When formatted, Then ticks appear as 10k / 100k / 500.0K / 1.0M / 1.5M etc., with 0 at the bottom and no -200."
-      ],
-      "tests": [
-        {
-          "test_id": "T12-T01",
-          "linked_acceptance_criterion": "Given any loaded chart, When the volume panel renders, Then the Y is linear (logMode == (False, False)), lower bound is 0, no negative tick is shown, and the upper bound is the dynamic nice max (max_vol*1.1 rounded up).",
-          "type": "integration",
-          "description": "Offscreen ChartPanel: check volume ViewBox logMode is (False, False), yRange lower 0, upper is nice_max, no negative tick.",
-          "expected_result": "logMode (False, False), yRange low 0, upper is next nice from set, no negative tick."
-        },
-        {
-          "test_id": "T12-T02",
-          "linked_acceptance_criterion": "Given volumes, When bars render, Then each bar is green when its price candle has close >= open and red otherwise, and the yRange upper covers the max with the nice tick above it.",
-          "type": "integration",
-          "description": "Create bars with up/down closes, check volume bar brushes are green/red matching price direction.",
-          "expected_result": "Volume brushes green for up, red for down."
-        },
-        {
-          "test_id": "T12-T03",
-          "linked_acceptance_criterion": "Given a max volume, When formatted, Then ticks appear as 10k / 100k / 500.0K / 1.0M / 1.5M etc., with 0 at the bottom and no -200.",
-          "type": "unit",
-          "description": "Test volume tick formatter for various max values produces expected nice_max and tick labels.",
-          "expected_result": "Ticks formatted as 500.0K, 1.0M etc., 0 at bottom."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_linear.py"
-      ],
-      "inputs": [
-        "ui/chart_panel.py",
-        "docs/requirements/requirements.md#D8"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T13",
-      "title": "Make volume bar width follow price candle width (D9)",
-      "description": "Change volume BarGraphItem width from fixed 0.6 to w*2 (same w as price, 35% gap), so price and volume gaps are identical and vertically aligned, including the dense 4px minimum.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T12"
-      ],
-      "acceptance_criteria": [
-        "Given a loaded chart, When volume and price render at the same timeframe/zoom, Then the volume bar width equals the price body width (w*2) and the inter-bar gaps are identical.",
-        "Given a dense 1-min view where the 4px body minimum applies, When rendered, Then volume bars follow the same clamped w so gaps stay aligned with price gaps."
-      ],
-      "tests": [
-        {
-          "test_id": "T13-T01",
-          "linked_acceptance_criterion": "Given a loaded chart, When volume and price render at the same timeframe/zoom, Then the volume bar width equals the price body width (w*2) and the inter-bar gaps are identical.",
-          "type": "integration",
-          "description": "Offscreen ChartPanel: check volume BarGraphItem width equals price w*2 and gaps identical.",
-          "expected_result": "Volume width == price body width, gaps identical."
-        },
-        {
-          "test_id": "T13-T02",
-          "linked_acceptance_criterion": "Given a dense 1-min view where the 4px body minimum applies, When rendered, Then volume bars follow the same clamped w so gaps stay aligned with price gaps.",
-          "type": "integration",
-          "description": "Dense view with 960 bars: check volume width follows clamped w.",
-          "expected_result": "Volume width follows clamped w, gaps aligned."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_width.py"
-      ],
-      "inputs": [
-        "ui/chart_panel.py",
-        "ui/candlestick_item.py",
-        "docs/requirements/requirements.md#D9"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": false,
       "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_volume_width.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T14",
-      "title": "Add volume panel show/hide toggle at top left of volume panel (D10)",
-      "description": "Add a checkable toggle at the top left of the volume panel (bottom left of price chart), default visible, that hides/shows volume_plot and its axis and rebalances the splitter so price expands, not persisted.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T13"
-      ],
-      "acceptance_criteria": [
-        "Given the volume panel is visible, When the user toggles the control, Then volume_plot becomes hidden and the price plot expands to fill the freed vertical space; toggling again shows it.",
-        "Given the app is restarted, When launched, Then the volume panel is visible by default (no persistence in this proposal)."
-      ],
-      "tests": [
-        {
-          "test_id": "T14-T01",
-          "linked_acceptance_criterion": "Given the volume panel is visible, When the user toggles the control, Then volume_plot becomes hidden and the price plot expands to fill the freed vertical space; toggling again shows it.",
-          "type": "integration",
-          "description": "Offscreen toggle click: check volume_plot visibility toggles and price plot height increases when hidden.",
-          "expected_result": "volume_plot isVisible toggles, price plot height larger when volume hidden."
-        },
-        {
-          "test_id": "T14-T02",
-          "linked_acceptance_criterion": "Given the app is restarted, When launched, Then the volume panel is visible by default (no persistence in this proposal).",
-          "type": "unit",
-          "description": "Check default visibility is true on new ChartPanel.",
-          "expected_result": "volume_plot isVisible true by default."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_toggle.py"
-      ],
-      "inputs": [
-        "ui/chart_panel.py",
-        "docs/requirements/requirements.md#D10"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T15",
-      "title": "Render drawing price labels on inner right side of chart (D11)",
-      "description": "For any drawing type, render price label TextItem inside the plot at view_rect.right() - 4, anchor=(1,0.5), Z=10, colour-matched, with stacking offset when nearby.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T14"
-      ],
-      "acceptance_criteria": [
-        "Given any drawing with a price, When rendered, Then a price label is visible inside the plot near the right edge (x = view_rect.right() - 4, anchor=(1,0.5)) and is not clipped by the axis/dock.",
-        "Given a zone with top/bottom prices, When rendered, Then two labels are visible at the zone's top and bottom edges on the inner right.",
-        "Given multiple drawings at nearby prices, When rendered, Then labels remain legible (small vertical offset, not fully overlapping)."
-      ],
-      "tests": [
-        {
-          "test_id": "T15-T01",
-          "linked_acceptance_criterion": "Given any drawing with a price, When rendered, Then a price label is visible inside the plot near the right edge (x = view_rect.right() - 4, anchor=(1,0.5)) and is not clipped by the axis/dock.",
-          "type": "integration",
-          "description": "Create horizontal line drawing, render, check label pos and anchor and that boundingRect is inside view_rect.",
-          "expected_result": "Label pos x == view_rect.right() -4, anchor (1,0.5), visible and inside."
-        },
-        {
-          "test_id": "T15-T02",
-          "linked_acceptance_criterion": "Given a zone with top/bottom prices, When rendered, Then two labels are visible at the zone's top and bottom edges on the inner right.",
-          "type": "integration",
-          "description": "Create zone drawing with y1/y2, check two labels at top/bottom on inner right.",
-          "expected_result": "Two labels visible at zone top and bottom, inner right."
-        },
-        {
-          "test_id": "T15-T03",
-          "linked_acceptance_criterion": "Given multiple drawings at nearby prices, When rendered, Then labels remain legible (small vertical offset, not fully overlapping).",
-          "type": "integration",
-          "description": "Create two drawings with close prices, check labels have vertical offset and not fully overlapping.",
-          "expected_result": "Labels offset vertically, not overlapping."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/drawing_overlay.py",
-        "tests/test_drawing_labels.py"
-      ],
-      "inputs": [
-        "ui/drawing_overlay.py",
-        "docs/requirements/requirements.md#D11"
-      ],
-      "outputs": [
-        "ui/drawing_overlay.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T16",
-      "title": "Open zone settings popup on double-click with 4 tabs (D12)",
-      "description": "Create ui/zone_settings_dialog.py Rectangle dialog with Style (no Extend), Text, Coordinates, Visibility tabs; double-click on zone opens it with current values pre-filled, Extend omitted always both sides.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T15"
-      ],
-      "acceptance_criteria": [
-        "Given a zone exists, When the user double-clicks the zone body, Then the Rectangle popup opens with four tabs and the zone's current values pre-filled, and Extend is not shown.",
-        "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the zone updates and re-renders with the new values.",
-        "Given the popup is open, When the user opens the Visibility tab, Then the time-frame checkboxes/sliders match the attachments and are interactable."
-      ],
-      "tests": [
-        {
-          "test_id": "T16-T01",
-          "linked_acceptance_criterion": "Given a zone exists, When the user double-clicks the zone body, Then the Rectangle popup opens with four tabs and the zone's current values pre-filled, and Extend is not shown.",
-          "type": "integration",
-          "description": "Offscreen double-click on zone: check dialog opens, has 4 tabs, Extend not present, values pre-filled.",
-          "expected_result": "Dialog visible, 4 tabs, no Extend, values match zone."
-        },
-        {
-          "test_id": "T16-T02",
-          "linked_acceptance_criterion": "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the zone updates and re-renders with the new values.",
-          "type": "integration",
-          "description": "Change border color, text, coordinates in dialog and confirm, check DrawingStore updated.",
-          "expected_result": "Drawing updated with new values."
-        },
-        {
-          "test_id": "T16-T03",
-          "linked_acceptance_criterion": "Given the popup is open, When the user opens the Visibility tab, Then the time-frame checkboxes/sliders match the attachments and are interactable.",
-          "type": "unit",
-          "description": "Check Visibility tab has Ticks, Seconds 1-59, etc., and sliders work.",
-          "expected_result": "Visibility tab controls match spec and are interactable."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/zone_settings_dialog.py",
-        "ui/drawing_overlay.py",
-        "tests/test_zone_dialog.py"
-      ],
-      "inputs": [
-        "ui/drawing_overlay.py",
-        "data/models.py:Drawing",
-        "docs/requirements/requirements.md#D12"
-      ],
-      "outputs": [
-        "ui/zone_settings_dialog.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T17",
-      "title": "Make watchlist dock resizable to 50% with persistence (D13)",
-      "description": "Implement watchlist dock width clamped to [150, min(floor(0.50*W), W-400)] with chart >=400px, persisted via QSettings watchlist/width, default ~220px, clamped on restore/resize, floating unconstrained.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T16"
-      ],
-      "acceptance_criteria": [
-        "Given a docked Watchlist at default width, When the user drags the vertical splitter right/left, Then watchlist width is clamped to [150, floor(0.50*W)] (and also W\u2212400 for the chart minimum) and the chart width adjusts, with the handle remaining draggable across the range.",
-        "Given a persisted width, When the app restarts, Then the watchlist restores to the persisted integer width clamped to the current floor(0.50*W) (default ~220px if none saved, never <150).",
-        "Given a wide watchlist and the main window is narrowed, When the width would exceed 50%, Then the watchlist is auto-clamped to 50% without error and remains resizable."
-      ],
-      "tests": [
-        {
-          "test_id": "T17-T01",
-          "linked_acceptance_criterion": "Given a docked Watchlist at default width, When the user drags the vertical splitter right/left, Then watchlist width is clamped to [150, floor(0.50*W)] (and also W\u2212400 for the chart minimum) and the chart width adjusts, with the handle remaining draggable across the range.",
-          "type": "integration",
-          "description": "Offscreen MainWindow: drag splitter to various widths, check clamped to 150..50% and chart >=400.",
-          "expected_result": "Watchlist width clamped correctly, chart >=400."
-        },
-        {
-          "test_id": "T17-T02",
-          "linked_acceptance_criterion": "Given a persisted width, When the app restarts, Then the watchlist restores to the persisted integer width clamped to the current floor(0.50*W) (default ~220px if none saved, never <150).",
-          "type": "integration",
-          "description": "Set QSettings watchlist/width, restart MainWindow, check restored width clamped.",
-          "expected_result": "Restored width matches persisted clamped to 50%."
-        },
-        {
-          "test_id": "T17-T03",
-          "linked_acceptance_criterion": "Given a wide watchlist and the main window is narrowed, When the width would exceed 50%, Then the watchlist is auto-clamped to 50% without error and remains resizable.",
-          "type": "integration",
-          "description": "Set wide watchlist, narrow window, check auto-clamped to 50%.",
-          "expected_result": "Watchlist auto-clamped to 50% on window resize."
-        }
-      ],
-      "expected_artifacts": [
         "ui/main_window.py",
-        "ui/watchlist_panel.py",
-        "tests/test_watchlist_resize.py"
+        "tests/test_history_backfill_loadpath.py"
       ],
       "inputs": [
+        "docs/requirements/requirements.md#AC-D16.1",
+        "docs/requirements/requirements.md#AC-D16.2",
+        "docs/requirements/requirements.md#AC-D16.4",
+        "docs/requirements/requirements.md#AC-D16.5",
+        "docs/architecture.md#D16 additions/changes",
+        "services/backfill_service.py",
+        "ui/main_window.py:load_chart/_on_historical_bar/_on_historical_data_end/_on_error/closeEvent",
+        "tests/test_watchlist_d14_midrag.py (offscreen MainWindow stub pattern)"
+      ],
+      "outputs": [
         "ui/main_window.py",
-        "ui/watchlist_panel.py",
-        "docs/requirements/requirements.md#D13"
-      ],
-      "outputs": [
-        "ui/main_window.py"
+        "tests/test_history_backfill_loadpath.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T18",
-      "title": "Double-click watchlist row loads chart identical to Load Chart (D14)",
-      "description": "Handle cellDoubleClicked to set symbol_input to row symbol uppercased and invoke MainWindow.load_chart() with current timeframe/ext-hours, with no-op on same symbol/disconnected/header/empty area.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T17"
-      ],
-      "acceptance_criteria": [
-        "Given the Watchlist has symbols, IBKR is connected, and the current chart is SPY, When the user double-clicks any cell in the AAPL row, Then symbol_input becomes AAPL and the chart loads for AAPL with the current timeframe/ext-hours via the same sequence as manual Load Chart (cached bars shown, delta fetched, RT started).",
-        "Given the current chart is AAPL, When the user double-clicks the AAPL row, Then no reload occurs \u2014 no new reqId is issued, the RT subscription for AAPL remains, and the chart does not flicker.",
-        "Given IBKR is disconnected, When the user double-clicks any watchlist row, Then no historical/RT request is made and the status bar shows Disconnected \u2014 cannot load chart. Double-click on header or empty area also does nothing."
-      ],
-      "tests": [
-        {
-          "test_id": "T18-T01",
-          "linked_acceptance_criterion": "Given the Watchlist has symbols, IBKR is connected, and the current chart is SPY, When the user double-clicks any cell in the AAPL row, Then symbol_input becomes AAPL and the chart loads for AAPL with the current timeframe/ext-hours via the same sequence as manual Load Chart (cached bars shown, delta fetched, RT started).",
-          "type": "integration",
-          "description": "Offscreen double-click on watchlist row: check symbol_input updated and load_chart sequence invoked.",
-          "expected_result": "symbol_input AAPL, chart loads via same sequence."
-        },
-        {
-          "test_id": "T18-T02",
-          "linked_acceptance_criterion": "Given the current chart is AAPL, When the user double-clicks the AAPL row, Then no reload occurs \u2014 no new reqId is issued, the RT subscription for AAPL remains, and the chart does not flicker.",
-          "type": "unit",
-          "description": "Double-click same symbol, check no new reqId and no RT cancel.",
-          "expected_result": "No new reqId, RT remains."
-        },
-        {
-          "test_id": "T18-T03",
-          "linked_acceptance_criterion": "Given IBKR is disconnected, When the user double-clicks any watchlist row, Then no historical/RT request is made and the status bar shows Disconnected \u2014 cannot load chart. Double-click on header or empty area also does nothing.",
-          "type": "integration",
-          "description": "Disconnect IBKR, double-click row and header/empty, check no request and status message.",
-          "expected_result": "No request, status message shown, header/empty no-op."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/watchlist_panel.py",
-        "ui/main_window.py",
-        "tests/test_watchlist_doubleclick.py"
-      ],
-      "inputs": [
-        "ui/watchlist_panel.py",
-        "ui/main_window.py:load_chart",
-        "docs/requirements/requirements.md#D14"
-      ],
-      "outputs": [
-        "ui/watchlist_panel.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T19",
-      "title": "Double-click horizontal line opens settings popup with 4 tabs (D15)",
-      "description": "Create ui/horizontal_line_settings_dialog.py Horizontal line dialog with Style (Line), Text (12, B/I, Add text, Top/Right), Coordinates #1 (price), Visibility 8 rows; double-click on horizontal line opens it with current values.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T18"
-      ],
-      "acceptance_criteria": [
-        "Given a horizontal line exists, When the user double-clicks the line, Then the Horizontal line popup opens with four tabs and the line's current values pre-filled.",
-        "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the line updates and re-renders with the new values.",
-        "Given the popup is open, When the user opens the Visibility tab, Then the timeframe checkboxes/sliders match the attachments and are interactable."
-      ],
-      "tests": [
-        {
-          "test_id": "T19-T01",
-          "linked_acceptance_criterion": "Given a horizontal line exists, When the user double-clicks the line, Then the Horizontal line popup opens with four tabs and the line's current values pre-filled.",
-          "type": "integration",
-          "description": "Offscreen double-click on horizontal line: check dialog opens, has 4 tabs, Line style, single coordinate pre-filled.",
-          "expected_result": "Dialog visible, 4 tabs, Line style, #1 price matches line."
-        },
-        {
-          "test_id": "T19-T02",
-          "linked_acceptance_criterion": "Given the popup is open, When the user changes Style/Text/Coordinates and confirms, Then the line updates and re-renders with the new values.",
-          "type": "integration",
-          "description": "Change line color, text, price in dialog and confirm, check DrawingStore updated.",
-          "expected_result": "Drawing updated with new values."
-        },
-        {
-          "test_id": "T19-T03",
-          "linked_acceptance_criterion": "Given the popup is open, When the user opens the Visibility tab, Then the timeframe checkboxes/sliders match the attachments and are interactable.",
-          "type": "unit",
-          "description": "Check Visibility tab has 8 rows with sliders and checkboxes.",
-          "expected_result": "Visibility tab controls match spec and are interactable."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/horizontal_line_settings_dialog.py",
-        "ui/drawing_overlay.py",
-        "tests/test_horizontal_line_dialog.py"
-      ],
-      "inputs": [
-        "ui/drawing_overlay.py",
-        "data/models.py:Drawing",
-        "docs/requirements/requirements.md#D15"
-      ],
-      "outputs": [
-        "ui/horizontal_line_settings_dialog.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T20",
-      "title": "Verification and regression for Batches 3\u20139 (D7\u2013D15)",
-      "description": "Run offscreen pytest for all Batch 3\u20139 per-defect checks and full suite green, with no live-TWS traffic, covering candle spacing, volume linear, volume width, volume toggle, drawing labels, zone/horizontal dialogs, watchlist resize and double-click.",
+      "id": "T40",
+      "title": "Offscreen end-to-end verification of D16 whole-gap backfill (panels, closures, chunking, switch safety)",
+      "description": "Add tests/test_history_backfill.py booting a real offscreen MainWindow with IBApiClient.connect monkeypatched and the managers stubbed, seed BarCache with the AC-D16.5 repro and drive the stubbed historical feed, proving the whole-gap backfill, both panels, empty closures, chunking, all six timeframes and at least two symbols, switch-mid-flight isolation and the empty-cache fallback.",
       "agent": "Build",
       "task_type": "verification",
       "dependencies": [
-        "T11",
-        "T12",
-        "T13",
-        "T14",
-        "T15",
-        "T16",
-        "T17",
-        "T18",
-        "T19"
+        "T39"
       ],
       "acceptance_criteria": [
-        "Given all Batches 3\u20139 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
-        "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
-        "Given the per-defect test conditions for D7\u2013D15, When their corresponding tests are executed, Then each condition passes."
+        "Given a seeded SPY 5 mins cache holding bars for 2026-09-14 to 2026-09-18 and 2026-09-28 to 2026-10-02 with 2026-09-19 to 2026-09-27 missing and now = 2026-10-02, When SPY 5 mins is loaded and the stubbed requests complete, Then ChartPanel._bars contains the expected per-trading-day bars for 2026-09-21 to 2026-09-25 and BarCache.get_bars returns no rows for 2026-09-19/20 and 2026-09-26/27.",
+        "Given the same run, When the chart renders, Then the candle item data and the volume_bars x/height arrays both span the backfilled timestamps with non-zero volume heights wherever a candle exists.",
+        "Given a span containing a genuine market closure (weekend, holiday or overnight), When the chart renders, Then that interval has no bars and is neither fabricated nor interpolated, and the time axis is not compressed.",
+        "Given a requested missing span longer than one IBKR request configured duration, When the load path runs against the stubbed feed, Then multiple requests are issued and the resulting bar list is continuous across the span (or the residual shortfall is surfaced), parameterized over all six timeframes and at least two symbols.",
+        "Given a symbol/timeframe switch while a backfill wave is in flight, When the switch occurs and the prior wave responses arrive late, Then the new symbol/timeframe chart is not contaminated by the previous wave bars and receives its own continuity treatment.",
+        "Given an empty cache for a symbol/timeframe, When it is loaded, Then the configured-window fallback is fetched and rendered without error."
       ],
       "tests": [
         {
-          "test_id": "T20-T01",
-          "linked_acceptance_criterion": "Given all Batches 3\u20139 fixes are applied, When the full pytest suite is run offscreen with QT_QPA_PLATFORM=offscreen, Then every new per-defect test and every pre-existing test passes.",
-          "type": "integration",
-          "description": "Run pytest via .venv/bin/python -m pytest and assert exit code 0 and all tests passed.",
-          "expected_result": "330+ tests passed, 0 failed (including new Batch 3\u20139 tests)."
-        },
-        {
-          "test_id": "T20-T02",
-          "linked_acceptance_criterion": "Given the test suite runs, When no live TWS connection is available, Then no test attempts to connect to TWS or transmit an order.",
-          "type": "manual",
-          "description": "Static inspection: grep tests for eConnect/placeOrder and verify suite runs without TWS.",
-          "expected_result": "No test contains live TWS connection; suite runs without TWS."
-        },
-        {
-          "test_id": "T20-T03",
-          "linked_acceptance_criterion": "Given the per-defect test conditions for D7\u2013D15, When their corresponding tests are executed, Then each condition passes.",
+          "test_id": "T40-T01",
+          "linked_acceptance_criterion": "Given a seeded SPY 5 mins cache holding bars for 2026-09-14 to 2026-09-18 and 2026-09-28 to 2026-10-02 with 2026-09-19 to 2026-09-27 missing and now = 2026-10-02, When SPY 5 mins is loaded and the stubbed requests complete, Then ChartPanel._bars contains the expected per-trading-day bars for 2026-09-21 to 2026-09-25 and BarCache.get_bars returns no rows for 2026-09-19/20 and 2026-09-26/27.",
           "type": "e2e",
-          "description": "Execute per-defect modules for Batches 3\u20139 (test_candle_spacing, test_volume_linear, test_volume_width, test_volume_toggle, test_drawing_labels, test_zone_dialog, test_horizontal_line_dialog, test_watchlist_resize, test_watchlist_doubleclick) in isolation.",
-          "expected_result": "All Batch 3\u20139 per-defect modules pass."
+          "description": "Seed the AC-D16.5 repro, boot the offscreen MainWindow with a stubbed historical feed, load SPY 5 mins and assert the per-weekday counts and weekend absence.",
+          "expected_result": "Bars exist for 2026-09-21, 09-22, 09-23, 09-24 and 09-25 with the expected intraday cadence; no cached rows for the weekend days."
+        },
+        {
+          "test_id": "T40-T02",
+          "linked_acceptance_criterion": "Given the same run, When the chart renders, Then the candle item data and the volume_bars x/height arrays both span the backfilled timestamps with non-zero volume heights wherever a candle exists.",
+          "type": "e2e",
+          "description": "After the backfill render, inspect the candle item data and the volume_bars x/height arrays over the backfilled span.",
+          "expected_result": "The volume height array is non-zero wherever a candle exists in the span, so the price and volume panels have no hole together."
+        },
+        {
+          "test_id": "T40-T03",
+          "linked_acceptance_criterion": "Given a span containing a genuine market closure (weekend, holiday or overnight), When the chart renders, Then that interval has no bars and is neither fabricated nor interpolated, and the time axis is not compressed.",
+          "type": "e2e",
+          "description": "Seed a span crossing a weekend and a US holiday and assert no bars are fabricated across the closure and no x-axis compression occurs.",
+          "expected_result": "No bars exist within the closure intervals; only trading-session bars are present and the axis spans the real timestamps."
+        },
+        {
+          "test_id": "T40-T04",
+          "linked_acceptance_criterion": "Given a requested missing span longer than one IBKR request configured duration, When the load path runs against the stubbed feed, Then multiple requests are issued and the resulting bar list is continuous across the span (or the residual shortfall is surfaced), parameterized over all six timeframes and at least two symbols.",
+          "type": "e2e",
+          "description": "Parameterize a long-gap scenario over the six timeframes and at least two symbols (for example SPY and AAPL), drive the stubbed feed per issued chunk and assert continuity or a surfaced shortfall.",
+          "expected_result": "For each timeframe/symbol combination the resulting bar list is continuous across the span (or the shortfall is explicitly surfaced) with no silent hole."
+        },
+        {
+          "test_id": "T40-T05",
+          "linked_acceptance_criterion": "Given a symbol/timeframe switch while a backfill wave is in flight, When the switch occurs and the prior wave responses arrive late, Then the new symbol/timeframe chart is not contaminated by the previous wave bars and receives its own continuity treatment.",
+          "type": "e2e",
+          "description": "Start a backfill wave, switch symbol/timeframe, deliver the previous wave responses late, and assert isolation of the new chart.",
+          "expected_result": "No previous-wave bar appears in the new symbol/timeframe chart; the new load backfills its own gap."
+        },
+        {
+          "test_id": "T40-T06",
+          "linked_acceptance_criterion": "Given an empty cache for a symbol/timeframe, When it is loaded, Then the configured-window fallback is fetched and rendered without error.",
+          "type": "e2e",
+          "description": "Load a symbol/timeframe with no cached bars against the stubbed feed.",
+          "expected_result": "The configured-window fallback is fetched and the chart renders the returned bars with no error."
         }
       ],
       "expected_artifacts": [
-        "tests/test_candle_spacing.py",
-        "tests/test_volume_linear.py",
-        "tests/test_volume_width.py",
-        "tests/test_volume_toggle.py",
-        "tests/test_drawing_labels.py",
-        "tests/test_zone_dialog.py",
-        "tests/test_horizontal_line_dialog.py",
-        "tests/test_watchlist_resize.py",
-        "tests/test_watchlist_doubleclick.py",
-        "pytest run log"
+        "tests/test_history_backfill.py"
+      ],
+      "touches_files": [
+        "tests/test_history_backfill.py"
       ],
       "inputs": [
-        "T11",
-        "T12",
-        "T13",
-        "T14",
-        "T15",
-        "T16",
-        "T17",
-        "T18",
-        "T19"
+        "docs/requirements/requirements.md#AC-D16.1",
+        "docs/requirements/requirements.md#AC-D16.2",
+        "docs/requirements/requirements.md#AC-D16.3",
+        "docs/requirements/requirements.md#AC-D16.4",
+        "docs/requirements/requirements.md#AC-D16.5",
+        "docs/plan.md#Phase 3",
+        "ui/main_window.py",
+        "services/backfill_service.py",
+        "services/market_calendar.py",
+        "tests/test_watchlist_d14_midrag.py (offscreen MainWindow stub pattern)"
       ],
       "outputs": [
-        "pytest green run"
+        "tests/test_history_backfill.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T21",
-      "title": "Replace tri-boolean precedence with the RouterMode state machine (Phase R1 / ESC-002)",
-      "description": "Add RouterMode { IDLE, DRAWING, ZOOMING, ALARM_PLACING } with a single ChartMouseRouter._active_mode as the sole source of truth, guard-clause dispatch in view_mouse_press/view_mouse_drag/view_mouse_click, and intent helpers (enter_zoom, enter_drawing, enter_alarm_placing, exit_to_idle). Implement the RC-3 reconciliation: drawing/alarm/zoom become properties whose setters call _reconcile_mode_from_overlays() with precedence DRAWING > ZOOMING > ALARM_PLACING > IDLE and defensive overlay probes, so the five preserved tests pass verbatim. Implement TR-4 (zoom cancels an in-progress draw draft), TR-5 (draw exits zoom), TR-6 (alarm placement exits zoom) and TR-9 (magnifier refused while ALARM_PLACING). Make ChartPanel.set_zoom_mode/set_drawing_tool/set_alarm_mode thin adapters (signatures unchanged) and add a ChartPanel.zoom_refused signal that MainWindow connects to status_bar.showMessage with the hint 'Finish or cancel alarm placement before zooming', re-unchecking the magnifier via blockSignals.",
+      "id": "T41",
+      "title": "D16 verification and regression gate (full offscreen suite, unchanged render path)",
+      "description": "Run the full offscreen suite after the D16 changes and confirm it stays green with no D1-D15 regression, and confirm the render path and request signature were reused unchanged (ui/chart_panel.py and ibkr/market_data.py untouched).",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T40"
+      ],
+      "acceptance_criteria": [
+        "Given the D16 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 acceptance-criteria test still passes.",
+        "Given the D16 changes, When the working-tree diff is inspected, Then ui/chart_panel.py and ibkr/market_data.py are unchanged, so both panels are fixed solely by the continuous _bars list and chunking reuses the existing req_historical_data(endDateTime) signature."
+      ],
+      "tests": [
+        {
+          "test_id": "T41-T01",
+          "linked_acceptance_criterion": "Given the D16 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 acceptance-criteria test still passes.",
+          "type": "integration",
+          "description": "Run the full offscreen suite and compare the pass/fail count against the pre-D16 383-green baseline.",
+          "expected_result": "Zero failures; the suite is green (the pre-D16 383 passes plus the new D16 tests); no D1-D15 test regressed."
+        },
+        {
+          "test_id": "T41-T02",
+          "linked_acceptance_criterion": "Given the D16 changes, When the working-tree diff is inspected, Then ui/chart_panel.py and ibkr/market_data.py are unchanged, so both panels are fixed solely by the continuous _bars list and chunking reuses the existing req_historical_data(endDateTime) signature.",
+          "type": "manual",
+          "description": "Inspect the working-tree diff/status for ui/chart_panel.py and ibkr/market_data.py.",
+          "expected_result": "Neither file is modified by the D16 changes."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/build/build_log.md (Build-owned verification entry; no new source files)"
+      ],
+      "touches_files": [],
+      "inputs": [
+        "docs/requirements/requirements.md#AC-D16.6",
+        "docs/architecture.md#D16 additions/changes",
+        "docs/plan.md#Phase 3"
+      ],
+      "outputs": [],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T42",
+      "title": "ESC-023 correction regression gate (full offscreen suite, corrected calendar consumed unchanged)",
+      "description": "Re-run the full offscreen suite after the ESC-023 New Year's year-end calendar correction (T37) and confirm it stays green with no D1-D15 or D16 regression, and that only services/market_calendar.py and tests/test_market_calendar.py changed - the backfill planner and load path consume the corrected is_trading_day contract unchanged.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T37"
+      ],
+      "acceptance_criteria": [
+        "Given the ESC-023 calendar correction, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 and D16 (T37-T41) test still passes.",
+        "Given the ESC-023 calendar correction, When the working-tree diff is inspected, Then only services/market_calendar.py and tests/test_market_calendar.py changed (services/backfill_service.py, ui/main_window.py, ui/chart_panel.py and ibkr/market_data.py are unchanged), so the corrected is_trading_day contract is consumed with no consumer-side change."
+      ],
+      "tests": [
+        {
+          "test_id": "T42-T01",
+          "linked_acceptance_criterion": "Given the ESC-023 calendar correction, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 and D16 (T37-T41) test still passes.",
+          "type": "integration",
+          "description": "Run the full offscreen suite and compare against the pre-D16 383-green baseline plus the D16 tests; assert zero failures.",
+          "expected_result": "Zero failures; the suite is green with no D1-D15 or D16 test regressed."
+        },
+        {
+          "test_id": "T42-T02",
+          "linked_acceptance_criterion": "Given the ESC-023 calendar correction, When the working-tree diff is inspected, Then only services/market_calendar.py and tests/test_market_calendar.py changed (services/backfill_service.py, ui/main_window.py, ui/chart_panel.py and ibkr/market_data.py are unchanged), so the corrected is_trading_day contract is consumed with no consumer-side change.",
+          "type": "manual",
+          "description": "Inspect the working-tree diff/status for the T37 correction.",
+          "expected_result": "Only services/market_calendar.py and tests/test_market_calendar.py are modified; the planner, load path and render path are untouched."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/build/build_log.md (Build-owned ESC-023 verification entry; no new source files)"
+      ],
+      "touches_files": [],
+      "inputs": [
+        "docs/requirements/requirements.md#AC-D16.6",
+        "docs/requirements/requirements.md#AC-D16.7",
+        "docs/plan.md#Phase 4",
+        "docs/architecture.md#ESC-023 correction",
+        "docs/code_review/escalations.md#ESC-023"
+      ],
+      "outputs": [],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T43",
+      "title": "Cancel and finalise the backfill wave on disconnect or a stalled request so the shortfall is surfaced (D16 / ESC-024)",
+      "description": "Extend the existing D16 backfill-wave lifecycle in ui/main_window.py so a silent transport drop or a request that never yields historical_data_end can no longer strand the wave. On _on_disconnected (and on a bounded wave timeout), drop every tracked backfill reqId, cancel it, advance _history_generation so late responses are ignored, and finalise exactly once through the existing _finalize_history_wave so the AC-D16.4 shortfall (status bar + log) IS surfaced, with no bar fabricated. Ship focused offscreen tests.",
       "agent": "Build",
       "task_type": "implementation",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D3.7 (forward): Given a drawing tool is active with an in-progress draft, When the magnifier is invoked, Then the drawing tool is cleared, the draft is discarded with no half-drawn artefact left behind, and _active_mode == RouterMode.ZOOMING.",
-        "AC-D3.7 (reverse): Given _active_mode == RouterMode.ZOOMING, When a drawing tool is selected, Then the router exits ZOOMING (zoom.set_active(False) plus zoom.cancel()) and _active_mode == RouterMode.DRAWING.",
-        "AC-D3.8: Given _active_mode == RouterMode.ZOOMING, When alarm placement mode is activated, Then the router exits ZOOMING and _active_mode == RouterMode.ALARM_PLACING; alarm placement is not blocked by the active zoom.",
-        "AC-D3.9: Given _active_mode == RouterMode.ALARM_PLACING, When the magnifier is invoked, Then enter_zoom() returns False, _active_mode stays ALARM_PLACING, the pending alarm placement is not cancelled, no zoom-selection gesture is active, the magnifier control is left unchecked (blockSignals), and ChartPanel.zoom_refused is emitted so MainWindow shows the status-bar hint.",
-        "AC-D3.2 / AC-D3.4 preserved: Given ZOOMING, When a rectangle drag is released, Then both axes are set to the rectangle, and after a completed zoom _active_mode stays ZOOMING for another selection.",
-        "AC-D3.3 preserved: Given a magnifier drag is in progress, When Esc or a right-click occurs before release, Then only zoom.cancel() runs and _active_mode remains ZOOMING.",
-        "RC-3 reconciliation: Given the router is wired by direct attribute assignment (router.drawing = ..., router.alarm = ..., router.zoom = ...) with no intent call, When any overlay property setter fires, Then _reconcile_mode_from_overlays() derives _active_mode with precedence DRAWING > ZOOMING > ALARM_PLACING > IDLE using defensive probes.",
-        "RC-4b dispatch: Given _active_mode == RouterMode.DRAWING, When view_mouse_click is invoked, Then only the drawing overlay is reached (the alarm overlay is not clicked).",
-        "Mutual exclusivity: DRAWING and ZOOMING can never be true together; the single _active_mode is the sole source of truth and only the router writes it.",
-        "Preserved semantics: the five existing router tests (test_alarm_press_wins_in_cursor_mode, test_drawing_tool_blocks_alarm_press, test_alarm_miss_falls_through_to_drawing, test_click_prefers_alarm_then_drawing, test_missing_overlays_are_safe) pass verbatim."
-      ],
-      "tests": [
-        {
-          "test_id": "T21-T01",
-          "linked_acceptance_criterion": "AC-D3.7 (forward)",
-          "type": "unit",
-          "description": "Named test_zoom_during_draw_cancels_draw: construct the router with a drawing overlay holding an in-progress draft and a magnifier overlay; call enter_zoom(); assert the drawing tool is cleared, the draft is discarded, and _active_mode == ZOOMING.",
-          "expected_result": "drawing tool reset to Cursor, no draft/preview items remain, _active_mode == RouterMode.ZOOMING."
-        },
-        {
-          "test_id": "T21-T02",
-          "linked_acceptance_criterion": "AC-D3.7 (reverse)",
-          "type": "unit",
-          "description": "Named test_draw_blocked_during_zoom asserting the confirmed reverse rule: start in ZOOMING then call enter_drawing(tool); assert ZOOMING exits (zoom inactive and cancel called) and _active_mode == DRAWING.",
-          "expected_result": "zoom.is_active() is False, _active_mode == RouterMode.DRAWING, drawing tool armed."
-        },
-        {
-          "test_id": "T21-T03",
-          "linked_acceptance_criterion": "AC-D3.8",
-          "type": "unit",
-          "description": "Named test_alarm_placement_blocks_zoom: start ZOOMING then call enter_alarm_placing(); assert ZOOMING exits and _active_mode == ALARM_PLACING with alarm mode armed.",
-          "expected_result": "zoom inactive and cancelled; _active_mode == RouterMode.ALARM_PLACING."
-        },
-        {
-          "test_id": "T21-T04",
-          "linked_acceptance_criterion": "AC-D3.9",
-          "type": "unit",
-          "description": "Named test_magnifier_refused_during_alarm_placement: start ALARM_PLACING with a pending placement; call enter_zoom(); assert it returns False, the mode is unchanged, the pending placement is intact, and the zoom overlay was not activated.",
-          "expected_result": "enter_zoom() is False; _active_mode == RouterMode.ALARM_PLACING; pending placement unchanged; zoom.is_active() is False."
-        },
-        {
-          "test_id": "T21-T05",
-          "linked_acceptance_criterion": "AC-D3.9",
-          "type": "integration",
-          "description": "Offscreen ChartPanel in alarm placement mode: toggle the magnifier on; assert zoom_refused is emitted, the magnify button is left unchecked, and MainWindow.status_bar shows the refusal hint.",
-          "expected_result": "zoom_refused emitted once; btn_magnify.isChecked() is False; status bar message 'Finish or cancel alarm placement before zooming'."
-        },
-        {
-          "test_id": "T21-T06",
-          "linked_acceptance_criterion": "RC-3 reconciliation",
-          "type": "unit",
-          "description": "Named test_reconcile_mode_from_wired_overlays: assign FakeOverlays by attribute (drawing tool_active True, alarm mode True) and assert _active_mode == DRAWING; clear drawing and assert ZOOMING/ALARM_PLACING follow the documented precedence.",
-          "expected_result": "precedence DRAWING > ZOOMING > ALARM_PLACING > IDLE derived on every property setter."
-        },
-        {
-          "test_id": "T21-T07",
-          "linked_acceptance_criterion": "RC-4b dispatch",
-          "type": "unit",
-          "description": "Named test_click_in_drawing_reaches_only_drawing: wire _active_mode == DRAWING via the properties; call view_mouse_click; assert only the drawing overlay handled the click.",
-          "expected_result": "drawing.calls == ['click']; alarm.calls == []."
-        },
-        {
-          "test_id": "T21-T08",
-          "linked_acceptance_criterion": "Mutual exclusivity",
-          "type": "unit",
-          "description": "Named test_router_mode_is_mutually_exclusive: enter zoom while a drawing tool is armed and vice versa; assert _active_mode is always exactly one value and DRAWING/ZOOMING are never both active.",
-          "expected_result": "single enum value at all times; DRAWING xor ZOOMING."
-        },
-        {
-          "test_id": "T21-T09",
-          "linked_acceptance_criterion": "AC-D3.2 / AC-D3.4 preserved",
-          "type": "integration",
-          "description": "Named test_zoom_stays_active_after_completed_zoom: in ZOOMING complete a selection; assert the mode is still ZOOMING and the magnifier control remains checked.",
-          "expected_result": "_active_mode == RouterMode.ZOOMING; magnifier checked."
-        },
-        {
-          "test_id": "T21-T10",
-          "linked_acceptance_criterion": "AC-D3.3 preserved",
-          "type": "unit",
-          "description": "Named test_esc_cancels_selection_not_mode: start a magnifier drag and send Esc; assert zoom.cancel() ran and _active_mode is still ZOOMING.",
-          "expected_result": "selection cancelled; _active_mode unchanged (ZOOMING)."
-        },
-        {
-          "test_id": "T21-T11",
-          "linked_acceptance_criterion": "Preserved semantics",
-          "type": "unit",
-          "description": "Run the five existing tests verbatim (test_alarm_press_wins_in_cursor_mode, test_drawing_tool_blocks_alarm_press, test_alarm_miss_falls_through_to_drawing, test_click_prefers_alarm_then_drawing, test_missing_overlays_are_safe) against the new router.",
-          "expected_result": "all five pass unchanged."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_mouse_router.py",
-        "ui/chart_panel.py",
-        "ui/main_window.py",
-        "tests/test_chart_mouse_router.py"
-      ],
-      "inputs": [
-        "docs/architecture.md#Router state machine (ESC-002)",
-        "docs/plan.md#Phase R1",
-        "ui/chart_mouse_router.py",
-        "ui/zoom_overlay.py",
-        "ui/drawing_overlay.py",
-        "ui/alarm_overlay.py",
-        "tests/test_chart_mouse_router.py"
-      ],
-      "outputs": [
-        "ui/chart_mouse_router.py"
-      ],
-      "architecture_dependency": true,
-      "touches_files": [
-        "ui/chart_mouse_router.py",
-        "ui/chart_panel.py",
-        "ui/main_window.py",
-        "tests/test_chart_mouse_router.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T22",
-      "title": "Replace the fixed volume nice list with the 1/1.5/2/2.5/5/7.5x10^k scaling generator (ESC-003/ESC-008)",
-      "description": "Replace the fixed [10k..10M] lookup in ui/chart_panel.py::_nice_volume_max with one pure, importable generator over the single family 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k, floored at 100, with no fixed ceiling: nice_max = smallest family value >= max_vol*1.1, and max_vol == 0 -> 100. Keep the volume ViewBox linear with yRange=(0, nice_max), the 500.0K/1.0M tick formatter, and price-coloured bars. Retain the old fixed list only as a test fixture in tests/test_volume_linear.py and update the single stale expectation _nice_volume_max(0) == 10_000 -> 100.",
-      "agent": "Build",
-      "task_type": "bugfix",
       "dependencies": [
-        "T21"
+        "T39"
       ],
+      "escalation": "ESC-024",
       "acceptance_criteria": [
-        "AC-D8.1: Given any loaded chart, When the volume axis is computed, Then nice_max is the smallest family value (1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k) that is >= max_vol*1.1, the ViewBox is linear (logMode == (False, False)) with yRange=(0, nice_max), and no negative tick is shown.",
-        "AC-D8.4: Given a low-volume symbol, When nice_max is computed, Then no 10k floor applies: nice_max(0) == 100, nice_max(800) == 1000, nice_max(3_000) == 5_000, and nice_max/(max_vol*1.1) <= 2 wherever the ceiling is above the 100 floor (PA-R8: the ratio bound is asserted only where max_vol >= ~45.5; below that the ceiling is the 100 floor and the ratio may exceed 2).",
-        "AC-D8.5: Given a very large max volume (40M-50M), When nice_max is computed, Then it uses the same family with tight coverage: 10_500_000 -> 15_000_000, 45_000_000 -> 50_000_000, 50_000_000 -> 75_000_000, monotonic non-decreasing; the old fixed list is retained only as a test fixture.",
-        "AC-D8.2 / AC-D8.3: Given volumes, When bars render, Then each bar is green (#34d399) when close >= open and red (#f87171) otherwise, and ticks are formatted 500.0K / 1.0M with 0 at the bottom.",
-        "Fixture mappings (ESC-018): every retained tests/test_volume_linear.py expectation is reproduced as the confirmed input -> output mapping (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000); every legacy fixed-list entry and every confirmed output is a member of the pinned family 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k; and only _nice_volume_max(0) changes to 100."
+        "Given a multi-request backfill wave is in flight (load_chart has registered more than one reqId in _history_req_ids), When the connection drops (_on_disconnected fires) before any historical_data_end arrives, Then every tracked reqId is dropped from _history_req_ids, cancel_historical_data is called for each, and _history_req_ids is empty afterwards.",
+        "Given the same disconnect, When _on_disconnected fires mid-wave, Then _history_generation is advanced so that a late historical_data_end / historical_bar for a pre-drop reqId is rejected by _history_event_accepted and neither finalises the wave nor accumulates bars (no double finalise, no late contamination).",
+        "Given the wave is stranded by a disconnect (or a bounded timeout) with trading sessions in _backfill_missing_spans still empty in the cache, When the wave finalises, Then _finalize_history_wave runs exactly once and surfaces the outstanding shortfall explicitly (status bar message and log) — the 'incomplete'/'missing' shortfall path of AC-D16.4 — rather than leaving a silent hole.",
+        "Given a backfill wave is stranded, When it finalises, Then no bar is fabricated or interpolated: the chart and BarCache contain only the bars actually received, and _pending_bars holds no bar that was not delivered by the stub.",
+        "Given a backfill wave has been in flight with no historical_data_end and no error_msg, When a bounded timeout elapses (a wave watchdog), Then the stalled wave is finalised through the same path as the disconnect case (cancel remaining reqIds, advance the generation, surface the shortfall once), so a request that never ends cannot strand the wave indefinitely.",
+        "Given a disconnect occurs after the wave has already finalised (or with no wave in flight), When _on_disconnected fires, Then it does not run _finalize_history_wave again and does not raise — the existing badge/status update still happens."
       ],
       "tests": [
         {
-          "test_id": "T22-T01",
-          "linked_acceptance_criterion": "AC-D8.4",
-          "type": "unit",
-          "description": "Update tests/test_volume_linear.py: assert _nice_volume_max(0) == 100; keep 8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000.",
-          "expected_result": "all assertions pass with the new generator."
-        },
-        {
-          "test_id": "T22-T02",
-          "linked_acceptance_criterion": "Fixture mappings (ESC-018)",
-          "type": "unit",
-          "description": "Reproduce every retained tests/test_volume_linear.py expectation as an input -> output mapping (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000) and assert every legacy fixed-list entry and every confirmed output is a member of the pinned family 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k.",
-          "expected_result": "each mapping reproduced exactly; every legacy entry and confirmed output is a family member."
-        },
-        {
-          "test_id": "T22-T03",
-          "linked_acceptance_criterion": "AC-D8.5",
-          "type": "unit",
-          "description": "Assert 10_500_000 -> 15_000_000, 45_000_000 -> 50_000_000, 50_000_000 -> 75_000_000 (no coarse 100M fallback and no clamp).",
-          "expected_result": "family values returned exactly; not 100_000_000."
-        },
-        {
-          "test_id": "T22-T04",
-          "linked_acceptance_criterion": "AC-D8.4",
-          "type": "unit",
-          "description": "Assert the fine low end: 0 -> 100, 800 -> 1000, 3_000 -> 5_000.",
-          "expected_result": "nice_max values match; no 10k floor."
-        },
-        {
-          "test_id": "T22-T05",
-          "linked_acceptance_criterion": "AC-D8.4",
-          "type": "unit",
-          "description": "Sweep max_vol across decades; assert nice_max is monotonic non-decreasing and nice_max/(max_vol*1.1) <= 2 above the floor.",
-          "expected_result": "monotonic and tight coverage within bound."
-        },
-        {
-          "test_id": "T22-T06",
-          "linked_acceptance_criterion": "AC-D8.5",
-          "type": "unit",
-          "description": "Fixture cross-check (ESC-018): assert every member of the old fixed list is a member of the pinned 1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k family, and assert the confirmed input -> output mappings (8_000 -> 10_000, 80_000 -> 100_000, 2_200_000 -> 2_500_000, 1_050_000 -> 1_500_000).",
-          "expected_result": "all legacy entries are family members; each confirmed mapping reproduced."
-        },
-        {
-          "test_id": "T22-T07",
-          "linked_acceptance_criterion": "AC-D8.1",
+          "test_id": "T43-T01",
+          "linked_acceptance_criterion": "Given a multi-request backfill wave is in flight (load_chart has registered more than one reqId in _history_req_ids), When the connection drops (_on_disconnected fires) before any historical_data_end arrives, Then every tracked reqId is dropped from _history_req_ids, cancel_historical_data is called for each, and _history_req_ids is empty afterwards.",
           "type": "integration",
-          "description": "Offscreen ChartPanel: after update_chart, assert volume ViewBox logMode == (False, False), yRange lower 0, upper == _nice_volume_max(max_vol), no negative tick.",
-          "expected_result": "linear axis with 0-based nice max."
+          "description": "Offscreen MainWindow with the stubbed md_manager (the tests/test_history_backfill.py pattern): start a multi-request wave for a seeded internal hole, capture the registered reqIds, then call _on_disconnected without driving any _on_historical_data_end; assert the previously registered reqIds are exactly the cancelled set and _history_req_ids is empty.",
+          "expected_result": "After _on_disconnected, set(stub.cancelled) == the set of in-flight reqIds, and win._history_req_ids == set()."
         },
         {
-          "test_id": "T22-T08",
-          "linked_acceptance_criterion": "AC-D8.2 / AC-D8.3",
-          "type": "unit",
-          "description": "Assert the volume tick formatter renders 500.0K and 1.0M and that bar brushes stay price-coloured.",
-          "expected_result": "labels 500.0K / 1.0M; green/red brushes by direction."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_linear.py"
-      ],
-      "inputs": [
-        "docs/architecture.md#Volume nice-number generator",
-        "docs/requirements/requirements.md#D8",
-        "ui/chart_panel.py:_nice_volume_max",
-        "tests/test_volume_linear.py"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": true,
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_volume_linear.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T23",
-      "title": "Track the live volume ceiling in O(1) against a cached running max (ESC-007)",
-      "description": "Add a cached running max (_vol_max) on ChartPanel and widen the volume nice_max in O(1) on real-time volume changes: on an intra-bar tick compute live_max = max(_vol_max, last_bar.volume) and only widen the ceiling when live_max crosses the current nice_max (a non-crossing tick performs no range write). Refresh _vol_max O(N) on a new data load or new bar, and re-apply the cached ceiling on auto_range=False refresh paths such as set_timezone().",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T22"
-      ],
-      "acceptance_criteria": [
-        "AC-D8.6: Given a loaded chart, When the forming last bar's volume grows past the initially computed nice_max on a live tick, Then the volume Y ceiling is recomputed/widened so the forming bar's rendered height is <= the pane top and > 0 (not clipped).",
-        "AC-D8.7: Given set_timezone() or any _refresh_candles() path with auto_range=False, When the volume range would be stale, Then the volume Y range is refit consistently with AC-D8.6 using the cached running max.",
-        "O(1) only-widen: the intra-bar ceiling update is O(1) against the cached running max and only widens; a tick that does not cross the ceiling performs no range write.",
-        "Load refresh: on a new data load or a new bar the cached running max is recomputed O(N) once."
-      ],
-      "tests": [
-        {
-          "test_id": "T23-T01",
-          "linked_acceptance_criterion": "AC-D8.6",
+          "test_id": "T43-T02",
+          "linked_acceptance_criterion": "Given the same disconnect, When _on_disconnected fires mid-wave, Then _history_generation is advanced so that a late historical_data_end / historical_bar for a pre-drop reqId is rejected by _history_event_accepted and neither finalises the wave nor accumulates bars (no double finalise, no late contamination).",
           "type": "integration",
-          "description": "Named test_volume_ceiling_tracks_live_bar: load bars whose max volume gives a known nice_max; call update_last_bar on the same bar with a larger volume (no full reload); assert the volume ViewBox upper bound equals _nice_volume_max(new max) and the bar height <= pane top.",
-          "expected_result": "ceiling raised to _nice_volume_max(live max); forming bar not clipped."
+          "description": "Capture _history_generation before the drop, call _on_disconnected, then deliver _on_historical_bar and _on_historical_data_end for a pre-drop reqId; assert the generation advanced, _history_event_accepted(rid) is False, no bar was appended to _pending_bars, and _finalize_history_wave was not invoked a second time (spy on the method).",
+          "expected_result": "_history_generation increased; _history_event_accepted(rid) is False for the pre-drop reqId; _pending_bars is empty after the late events; the finalise spy records exactly one call."
         },
         {
-          "test_id": "T23-T02",
-          "linked_acceptance_criterion": "AC-D8.7",
+          "test_id": "T43-T03",
+          "linked_acceptance_criterion": "Given the wave is stranded by a disconnect (or a bounded timeout) with trading sessions in _backfill_missing_spans still empty in the cache, When the wave finalises, Then _finalize_history_wave runs exactly once and surfaces the outstanding shortfall explicitly (status bar message and log) — the 'incomplete'/'missing' shortfall path of AC-D16.4 — rather than leaving a silent hole.",
           "type": "integration",
-          "description": "Named test_volume_ceiling_refit_on_timezone_refresh: after a live tick widened the ceiling, call set_timezone(); assert the volume Y range still reflects the cached ceiling rather than a stale value.",
-          "expected_result": "volume Y upper bound equals the cached ceiling after the refresh."
+          "description": "Seed the AC-D16.5-style internal hole, start the wave, then drop the connection before any response and assert the status bar now carries the AC-D16.4 shortfall wording ('incomplete' and the still-missing trading days) and that a WARNING shortfall line was logged, proving the hole is surfaced rather than silent.",
+          "expected_result": "status bar message contains 'incomplete' and names at least one still-missing trading day; the log carries the 'Historical backfill shortfall' record; finalise ran exactly once."
         },
         {
-          "test_id": "T23-T03",
-          "linked_acceptance_criterion": "O(1) only-widen",
-          "type": "unit",
-          "description": "Record the ceiling, send a tick below it, and assert the ceiling is unchanged and no setRange widening occurs (spy/counter).",
-          "expected_result": "non-crossing tick leaves the ceiling untouched."
-        },
-        {
-          "test_id": "T23-T04",
-          "linked_acceptance_criterion": "Load refresh",
-          "type": "unit",
-          "description": "After a full update_chart or a new bar, assert _vol_max equals the O(N) max bar volume.",
-          "expected_result": "cached running max refreshed on load/new bar."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_ceiling.py"
-      ],
-      "inputs": [
-        "docs/architecture.md#Live volume ceiling",
-        "ui/chart_panel.py:update_last_bar",
-        "ui/chart_panel.py:_refresh_candles",
-        "ui/chart_panel.py:set_timezone"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": true,
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_volume_ceiling.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T24",
-      "title": "Relocate the crosshair price chip to the Y-axis lane as a grey pill with white text (Phase R2 / D2 Q33)",
-      "description": "Move ChartPanel._price_tag from the inside-plot right-align to the Y-axis lane outside the plot: left-anchored at the plot's vertical axis line (anchor=(0,0.5), scene x = view_rect_scene.right() plus a small pad), extending right into the Y-axis lane; render as a grey pill with white text; permit axis-tick-label overlap (no deconfliction offset). Retain the show-only-inside-plot / hide-on-leave behaviour and pan/zoom tracking, and add a right-edge guard so a long price is not clipped. Dock-open visibility (AC-D2.1) is a required criterion requiring independent Code Reviewer verification after Build (A25).",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T23"
-      ],
-      "acceptance_criteria": [
-        "AC-D2.1: Given a loaded symbol, the cursor inside the price plot, and the Active Trader and/or Portfolio dock open, When the price chip renders, Then the complete label including all decimals is visible as a grey pill with white text in the Y-axis lane to the right of the plot's vertical axis line (scene x >= view_rect.right()) and is not covered by the dock; overlapping an axis tick label at the same price is permitted. Dock-open visibility is independently verified by the Code Reviewer after Build (A25); the Batch-1 inside-plot fix is not assumed to hold.",
-        "AC-D2.1 edge: Given a long price string (e.g. 123,456.78) or a narrow window, When the chip renders, Then it remains fully in the axis lane without clipping or bleeding under the dock.",
-        "AC-D2.2: Given pan or zoom, When the cursor moves, Then the chip stays in the Y-axis lane and continues to track the cursor's price.",
-        "AC-D2.3: Given the cursor leaves the plot, Then the chip is hidden (existing behaviour retained)."
-      ],
-      "tests": [
-        {
-          "test_id": "T24-T01",
-          "linked_acceptance_criterion": "AC-D2.1",
+          "test_id": "T43-T04",
+          "linked_acceptance_criterion": "Given a backfill wave is stranded, When it finalises, Then no bar is fabricated or interpolated: the chart and BarCache contain only the bars actually received, and _pending_bars holds no bar that was not delivered by the stub.",
           "type": "integration",
-          "description": "Named test_crosshair_chip_renders_in_axis_lane: offscreen ChartPanel, move the cursor over the plot, assert price_tag scene x >= view_rect.right(), anchor (0, 0.5), grey fill, white text, and full decimals.",
-          "expected_result": "chip in the axis lane; grey pill; white text; pos.x() >= view_rect_scene.right()."
+          "description": "Seed an internal hole, start the wave, call _on_disconnected without delivering any historical bar, then assert ChartPanel._bars and BarCache.get_bars hold exactly the pre-existing seeded bars and none of the missing-span timestamps, and the volume heights contain no injected value for a missing date.",
+          "expected_result": "The set of rendered/persisted timestamps equals the seeded pre-drop set; no timestamp inside the missing span is present in _bars, BarCache, or the volume x/height arrays; no missing trading day is filled."
         },
         {
-          "test_id": "T24-T02",
-          "linked_acceptance_criterion": "AC-D2.1",
+          "test_id": "T43-T05",
+          "linked_acceptance_criterion": "Given a backfill wave has been in flight with no historical_data_end and no error_msg, When a bounded timeout elapses (a wave watchdog), Then the stalled wave is finalised through the same path as the disconnect case (cancel remaining reqIds, advance the generation, surface the shortfall once), so a request that never ends cannot strand the wave indefinitely.",
           "type": "integration",
-          "description": "Open the right dock (Active Trader/Portfolio) and update the crosshair; assert the chip bounding rect is visible and not intersected by the dock geometry.",
-          "expected_result": "chip not covered by the dock; isVisible True."
+          "description": "Start a wave, deliver no response, and trigger the bounded timeout without a connection drop (fire the watchdog timer or call its handler directly); assert the remaining reqIds were cancelled, the generation advanced, _history_req_ids is empty, and the shortfall was surfaced exactly once.",
+          "expected_result": "The timeout handler cancels all remaining reqIds, empties _history_req_ids, advances _history_generation, surfaces the AC-D16.4 shortfall once, and fabricates no bar."
         },
         {
-          "test_id": "T24-T03",
-          "linked_acceptance_criterion": "AC-D2.2",
+          "test_id": "T43-T06",
+          "linked_acceptance_criterion": "Given a disconnect occurs after the wave has already finalised (or with no wave in flight), When _on_disconnected fires, Then it does not run _finalize_history_wave again and does not raise — the existing badge/status update still happens.",
           "type": "integration",
-          "description": "Pan/zoom the ViewBox and move the cursor; assert the chip stays in the lane at x >= view_rect.right() and its text equals the cursor y formatted.",
-          "expected_result": "lane position and text tracking preserved after pan/zoom."
-        },
-        {
-          "test_id": "T24-T04",
-          "linked_acceptance_criterion": "AC-D2.3",
-          "type": "unit",
-          "description": "Fire a Leave event on the price plot viewport and assert the chip is hidden.",
-          "expected_result": "price_tag not visible; crosshair lines hidden."
-        },
-        {
-          "test_id": "T24-T05",
-          "linked_acceptance_criterion": "AC-D2.1 edge",
-          "type": "integration",
-          "description": "Set a long price (123,456.78) and a narrow 500px panel; assert the chip bounding rect stays inside the lane/panel without clipping.",
-          "expected_result": "chip fully visible and not clipped."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_crosshair_axis_lane.py"
-      ],
-      "inputs": [
-        "docs/architecture.md#Crosshair chip (D2 revised)",
-        "docs/requirements/requirements.md#D2",
-        "ui/chart_panel.py:_create_crosshair",
-        "ui/chart_panel.py:_update_crosshair",
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_chip_bounds.py"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": true,
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_crosshair_axis_lane.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T25",
-      "title": "Re-scope D11 label collision to label-vs-label inside the plot (ESC-006 / AC-D11.4)",
-      "description": "Add label-vs-label collision coverage for D11 after the ESC-006 re-scope: the crosshair chip now lives in the Y-axis lane and is out of scope for AC-D11.4, so the drawing-label stacking test asserts only that consecutive inner-right labels do not overlap (>= 15 px offset, each fully inside view_rect) and that the chip is excluded from collision accounting.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D11.4: Given multiple drawing price labels at (or within the label band of) each other's prices, When they render inside the plot near the right edge (anchor=(1,0.5), x = view_rect.right()-4), Then their scene bounding boxes do not intersect: each consecutive pair is offset by >= 15 px and each remains fully inside view_rect on the right edge.",
-        "AC-D11.4 edge: the crosshair chip is out of scope: a crosshair at a drawing's price does not participate in label collision accounting.",
-        "AC-D11.1 / AC-D11.2 / AC-D11.3 preserved: a drawing price label is visible inside the plot near the right edge; a zone shows two labels at its top/bottom; nearby labels remain legible."
-      ],
-      "tests": [
-        {
-          "test_id": "T25-T01",
-          "linked_acceptance_criterion": "AC-D11.4",
-          "type": "integration",
-          "description": "Create two drawings at nearby prices, render, and assert the two label scene bounding boxes do not intersect and each is inside view_rect on the right edge.",
-          "expected_result": "consecutive labels offset >= 15px; no bbox intersection."
-        },
-        {
-          "test_id": "T25-T02",
-          "linked_acceptance_criterion": "AC-D11.4 edge",
-          "type": "integration",
-          "description": "Render a drawing label plus an active crosshair chip at the same price; assert the drawing labels remain label-vs-label consistent and no label is displaced by the chip.",
-          "expected_result": "chip excluded from collision accounting; labels unaffected."
-        },
-        {
-          "test_id": "T25-T03",
-          "linked_acceptance_criterion": "AC-D11.1 / AC-D11.2 / AC-D11.3 preserved",
-          "type": "integration",
-          "description": "Retain the existing inner-right horizontal/zone label tests and the nearby-label stacking test.",
-          "expected_result": "all existing D11 label tests still pass."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_drawing_labels.py"
-      ],
-      "inputs": [
-        "docs/architecture.md#D11 drawing price labels",
-        "ui/drawing_overlay.py:_update_inner_labels",
-        "tests/test_drawing_labels.py"
-      ],
-      "outputs": [
-        "tests/test_drawing_labels.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "tests/test_drawing_labels.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T26",
-      "title": "Deduplicate the data/db.py _init_schema definition and add the schema regression test (ESC-001/DOC-3)",
-      "description": "Remove the duplicate _init_schema definition in data/db.py (keep exactly one), commit tests/test_db_schema.py as a real source file asserting a fresh DB() creates the full table set, and remove the orphaned tests/__pycache__/test_db_schema*.pyc.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "ESC-001 table set: data/db.py defines _init_schema once; a fresh DB() creates the full table set: bars, watchlist, alarms, zones, drawing_groups, drawings, studies, positions, trade_groups, position_group_map.",
-        "ESC-001 single definition: a test guards that only one _init_schema definition exists in data/db.py.",
-        "DOC-3: the orphaned tests/__pycache__/test_db_schema.cpython-311-*.pyc is removed and tests/test_db_schema.py exists as source."
-      ],
-      "tests": [
-        {
-          "test_id": "T26-T01",
-          "linked_acceptance_criterion": "ESC-001 table set",
-          "type": "integration",
-          "description": "Instantiate a fresh DB() against a temp DB path and assert the full table list via sqlite_master.",
-          "expected_result": "all ten tables present; no missing-table error."
-        },
-        {
-          "test_id": "T26-T02",
-          "linked_acceptance_criterion": "ESC-001 single definition",
-          "type": "unit",
-          "description": "Read/parse data/db.py and assert the count of _init_schema definitions is exactly one.",
-          "expected_result": "exactly one definition."
-        },
-        {
-          "test_id": "T26-T03",
-          "linked_acceptance_criterion": "DOC-3",
-          "type": "manual",
-          "description": "Confirm no orphaned test_db_schema *.pyc remains and tests/test_db_schema.py is tracked source.",
-          "expected_result": "no orphaned bytecode; source test committed."
-        }
-      ],
-      "expected_artifacts": [
-        "data/db.py",
-        "tests/test_db_schema.py"
-      ],
-      "inputs": [
-        "data/db.py",
-        "docs/code_review/escalations.md#ESC-001",
-        "docs/requirements/requirements.md#DOC-3"
-      ],
-      "outputs": [
-        "data/db.py",
-        "tests/test_db_schema.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "data/db.py",
-        "tests/test_db_schema.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T27",
-      "title": "Correct the D10 volume toggle affordance to the checkable text label Volume (RC-4a)",
-      "description": "Correct the D10 volume toggle affordance (RC-4a): the control is the checkable text label Volume at the top left of the volume panel (bottom left of the price chart), not an eye icon. Update ui/chart_panel.py so the toggle's user-facing label is Volume while retaining the checkable behaviour, default visible, splitter rebalance, and non-persistence.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T24"
-      ],
-      "acceptance_criteria": [
-        "AC-D10.1: Given the volume panel is visible, When the user toggles the checkable text label Volume at the top left of the volume panel, Then volume_plot (and its axis) becomes hidden and the price plot expands; toggling again shows it.",
-        "AC-D10.2: Given the app is launched/restarted, Then the volume panel is visible by default (no persistence).",
-        "RC-4a: the affordance is the text label Volume; no eye icon or bar glyph is shown."
-      ],
-      "tests": [
-        {
-          "test_id": "T27-T01",
-          "linked_acceptance_criterion": "RC-4a",
-          "type": "unit",
-          "description": "Assert panel._volume_toggle.text() == 'Volume' (no eye glyph) and isCheckable().",
-          "expected_result": "label is exactly Volume and the control is checkable."
-        },
-        {
-          "test_id": "T27-T02",
-          "linked_acceptance_criterion": "AC-D10.1",
-          "type": "integration",
-          "description": "Toggle the control off: assert volume_plot is hidden and the price plot height grows; toggle on and assert it is restored.",
-          "expected_result": "volume visibility toggles; price plot expands when hidden."
-        },
-        {
-          "test_id": "T27-T03",
-          "linked_acceptance_criterion": "AC-D10.2",
-          "type": "unit",
-          "description": "Assert the default state is checked/visible on a new ChartPanel and that toggling with no bars does not error.",
-          "expected_result": "default visible; no exception with empty bars."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_toggle.py"
-      ],
-      "inputs": [
-        "docs/requirements/requirements.md#D10",
-        "ui/chart_panel.py:_volume_toggle",
-        "tests/test_volume_toggle.py"
-      ],
-      "outputs": [
-        "ui/chart_panel.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_volume_toggle.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T28",
-      "title": "Add the combined D10 + D13 integration test (hide volume and drag the watchlist to its max clamp) (ESC-005)",
-      "description": "Add the combined D10 + D13 integration test ESC-005: in one test hide the volume panel and drag the watchlist dock to its maximum clamp, asserting the price panel never drops below its minimum (chart >= 400px). If the existing splitter refresh is insufficient, add a single rebalance helper in ui/chart_panel.py; note the QSplitter/QDockWidget structure in the code if the reconciliation changes layout handling.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "T27",
-        "T17"
-      ],
-      "acceptance_criteria": [
-        "ESC-005: Given the volume panel is hidden and the watchlist is dragged to its max clamp in the same test, When the layout settles, Then the price panel never drops below its minimum (chart >= 400px wide) and no error is raised.",
-        "AC-D13.1 / AC-D10.1 combined: the watchlist width clamps to [150, min(floor(0.50xW), W-400)] while the volume panel is hidden, and the volume hide/show cycle restores the splitter correctly."
-      ],
-      "tests": [
-        {
-          "test_id": "T28-T01",
-          "linked_acceptance_criterion": "ESC-005",
-          "type": "integration",
-          "description": "In one offscreen MainWindow test, hide the volume panel and drag the watchlist to its max clamp; assert the price panel width never drops below its 400px minimum and the app does not error.",
-          "expected_result": "price panel >= 400px; no exception."
-        },
-        {
-          "test_id": "T28-T02",
-          "linked_acceptance_criterion": "AC-D13.1 / AC-D10.1 combined",
-          "type": "integration",
-          "description": "Assert the watchlist width clamps to [150, min(floor(0.50xW), W-400)] with the volume hidden, then re-show the volume and assert the splitter sizes are restored.",
-          "expected_result": "clamp respected; splitter restored after the hide/show cycle."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_d10_d13_integration.py",
-        "ui/chart_panel.py"
-      ],
-      "inputs": [
-        "docs/code_review/escalations.md#ESC-005",
-        "ui/chart_panel.py:_on_volume_toggled",
-        "ui/chart_panel.py:_splitter",
-        "ui/main_window.py:watchlist_dock",
-        "ui/watchlist_panel.py"
-      ],
-      "outputs": [
-        "tests/test_d10_d13_integration.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "tests/test_d10_d13_integration.py",
-        "ui/chart_panel.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T29",
-      "title": "Add DPR=2 parametrized coverage for the wick/body clamp and label positioning (ESC-009)",
-      "description": "Add high-DPI coverage: run the wick/body clamp assertion (AC-D6.4) and the drawing-label in-bounds assertion (AC-D11.5) at device pixel ratio 1 and 2 (QT_SCALE_FACTOR=2), using an isolated offscreen QApplication so the session-scale-factor-1 qapp is not disturbed.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D6.4: Given the app renders at DPR 2, When candles render, Then the wick stays a cosmetic 1-device-pixel line and the body's device-pixel width is >= 4 and strictly greater than the wick's, with no rounding collapse to a single line.",
-        "AC-D11.5: Given the app renders at DPR 2, When drawing price labels render, Then each label's scene bounding rect is fully inside view_rect on the right edge (x + width <= view_rect.right()) and is not clipped."
-      ],
-      "tests": [
-        {
-          "test_id": "T29-T01",
-          "linked_acceptance_criterion": "AC-D6.4",
-          "type": "integration",
-          "description": "Parametrized over SCALE_FACTOR 1 and 2: render candles and assert the wick pen is cosmetic width 1.0 and the body device-pixel width >= 4 and > wick width.",
-          "expected_result": "wick 1 device pixel; body >= 4 device pixels at both scales."
-        },
-        {
-          "test_id": "T29-T02",
-          "linked_acceptance_criterion": "AC-D11.5",
-          "type": "integration",
-          "description": "Parametrized over SCALE_FACTOR 1 and 2: render drawing labels and assert each label scene bounding rect is inside view_rect on the right edge.",
-          "expected_result": "labels fully inside view_rect at DPR 2."
-        },
-        {
-          "test_id": "T29-T03",
-          "linked_acceptance_criterion": "AC-D6.4",
-          "type": "manual",
-          "description": "Confirm the DPR-2 harness runs offscreen with no live TWS and does not mutate the session qapp scale factor.",
-          "expected_result": "isolated DPR-2 run; no live connection."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_chart_dpi.py",
-        "tests/conftest.py"
-      ],
-      "inputs": [
-        "docs/requirements/requirements.md#AC-D6.4",
-        "docs/requirements/requirements.md#AC-D11.5",
-        "docs/code_review/escalations.md#ESC-009",
-        "ui/candlestick_item.py",
-        "ui/drawing_overlay.py",
-        "tests/conftest.py"
-      ],
-      "outputs": [
-        "tests/test_chart_dpi.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "tests/test_chart_dpi.py",
-        "tests/conftest.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T30",
-      "title": "Reset the router mode on symbol change and add the D14 mid-drag regression test (ESC-010 / TR-17 / AC-D14.4)",
-      "description": "Wire the Phase-4 amendment (TR-17): a symbol change, including the D14 mid-drag double-click path, clears the drawing draft/drag and returns the router to IDLE (ChartPanel.set_symbol -> router.exit_to_idle(), alongside the existing zoom reset). Add the ESC-010 regression test that changes symbol while a drawing drag is in flight and asserts no RuntimeError/RuntimeWarning and _active_mode == IDLE.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T28",
-        "T18"
-      ],
-      "acceptance_criteria": [
-        "AC-D14.4: Given a drawing drag gesture is in progress, When the user changes to a different symbol, Then the chart loads for the new symbol with no RuntimeError/RuntimeWarning raised and renders normally afterward.",
-        "TR-17: Given _active_mode == DRAWING (including mid-drag), When the symbol changes, Then the drawing draft/drag is cleared and _active_mode == IDLE.",
-        "AC-D14.1-3 preserved: symbol change still follows the existing load_chart path; the same-symbol and disconnected no-ops are unchanged."
-      ],
-      "tests": [
-        {
-          "test_id": "T30-T01",
-          "linked_acceptance_criterion": "AC-D14.4",
-          "type": "integration",
-          "description": "Start a drawing drag, change to a different symbol (watchlist double-click path), and assert zero unhandled exceptions and that the new chart renders.",
-          "expected_result": "no RuntimeError/RuntimeWarning; new symbol chart displayed."
-        },
-        {
-          "test_id": "T30-T02",
-          "linked_acceptance_criterion": "TR-17",
-          "type": "unit",
-          "description": "With _active_mode == DRAWING and a drag in progress, call the symbol-change path and assert the draft/drag is cleared and _active_mode == IDLE.",
-          "expected_result": "draft/drag cleared; _active_mode == RouterMode.IDLE."
-        },
-        {
-          "test_id": "T30-T03",
-          "linked_acceptance_criterion": "AC-D14.1-3 preserved",
-          "type": "integration",
-          "description": "Re-run the existing same-symbol and disconnected no-op double-click tests unchanged.",
-          "expected_result": "existing D14 no-op tests still pass."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_watchlist_d14_midrag.py"
-      ],
-      "inputs": [
-        "docs/architecture.md#D14 mid-drag mode reset (ESC-010)",
-        "docs/plan.md#Phase 4",
-        "ui/main_window.py:_on_watchlist_row_double_clicked",
-        "ui/chart_panel.py:set_symbol",
-        "ui/drawing_overlay.py:set_data"
-      ],
-      "outputs": [
-        "ui/chart_panel.py",
-        "tests/test_watchlist_d14_midrag.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_watchlist_d14_midrag.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T31",
-      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010/013/014/015/016/017)",
-      "description": "Run the full offscreen pytest suite plus the new/modified per-defect modules in isolation for the ESC revision, covering the ESC-013 through ESC-017 rework fixes, confirm no test connects to live TWS or transmits an order, and confirm touches_files-aware sequencing was honoured during Build.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "T21",
-        "T22",
-        "T23",
-        "T24",
-        "T26",
-        "T27",
-        "T28",
-        "T30",
-        "T32",
-        "T33",
-        "T34",
-        "T35",
-        "T36"
-      ],
-      "acceptance_criteria": [
-        "Global full suite: Given all revision fixes are applied, When the full suite runs offscreen (QT_QPA_PLATFORM=offscreen), Then every new per-defect test and every pre-existing test passes.",
-        "Global Q8/Q9: Given the test suite runs, Then no test connects to live TWS or transmits an order.",
-        "Global sequencing: the touches_files-aware sequencing was honoured (no two built tasks in a wave shared a file)."
-      ],
-      "tests": [
-        {
-          "test_id": "T31-T01",
-          "linked_acceptance_criterion": "Global full suite",
-          "type": "integration",
-          "description": "Run .venv/bin/python -m pytest offscreen and assert exit code 0 with all tests passed.",
-          "expected_result": "full suite green with the new revision tests included."
-        },
-        {
-          "test_id": "T31-T02",
-          "linked_acceptance_criterion": "Global Q8/Q9",
-          "type": "manual",
-          "description": "Grep the test suite for eConnect/placeOrder/reqHistoricalData transmission and confirm the suite runs without TWS.",
-          "expected_result": "no live TWS connection or order transmission in any test."
-        },
-        {
-          "test_id": "T31-T03",
-          "linked_acceptance_criterion": "Global sequencing",
-          "type": "e2e",
-          "description": "Execute the new/modified modules in isolation: test_chart_mouse_router, test_volume_linear, test_volume_ceiling, test_crosshair_axis_lane, test_drawing_labels, test_db_schema, test_volume_toggle, test_d10_d13_integration, test_chart_dpi, test_watchlist_d14_midrag, test_volume_log, test_chart_crosshair, test_crosshair_chip_bounds, test_draw_combo_sync.",
-          "expected_result": "all listed modules pass in isolation."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_chart_mouse_router.py",
-        "tests/test_volume_linear.py",
-        "tests/test_volume_ceiling.py",
-        "tests/test_crosshair_axis_lane.py",
-        "tests/test_drawing_labels.py",
-        "tests/test_db_schema.py",
-        "tests/test_volume_toggle.py",
-        "tests/test_d10_d13_integration.py",
-        "tests/test_chart_dpi.py",
-        "tests/test_watchlist_d14_midrag.py",
-        "tests/test_volume_log.py",
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_chip_bounds.py",
-        "tests/test_draw_combo_sync.py",
-        "pytest run log"
-      ],
-      "inputs": [
-        "T21",
-        "T22",
-        "T23",
-        "T24",
-        "T26",
-        "T27",
-        "T28",
-        "T30",
-        "T32",
-        "T33",
-        "T34",
-        "T35",
-        "T36"
-      ],
-      "outputs": [
-        "pytest green run"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [],
-      "status": "done"
-    },
-    {
-      "id": "T32",
-      "title": "Fix the D6 dense-view candle body clamp ordering (ESC-013)",
-      "description": "Fix ui/chart_panel.py::_refresh_candles so the price x-range is applied before candlestick.set_data(...), or the candle picture is regenerated after vb.setRange(...), so the >=4-device-px body clamp in ui/candlestick_item.py::_draw_candles computes against the real ViewBox range instead of the untouched default; the dense-view body must render >= 4 device px at DPR 1 and 2 and stay strictly wider than the 1-device-px wick.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T30"
-      ],
-      "acceptance_criteria": [
-        "AC-D6.4: Given the dense 1-min view (~960 bars) at DPR 1, When candles render, Then the body's device-pixel width is >= 4 and strictly greater than the 1-device-px wick, with no rounding collapse to a single line.",
-        "AC-D6.4 (DPR 2): Given the same dense view at QT_SCALE_FACTOR=2, When candles render, Then the body's device-pixel width is >= 4 and strictly greater than the wick's, so tests/test_chart_dpi.py::T29-T01 passes at both DPR 1 and 2.",
-        "AC-D6.1/6.2/6.3 preserved: Given a default-zoom chart, When candles render, Then the wick is a cosmetic ~1px line drawn behind the body, extends beyond the body by at least 1px, and shares the candle's direction colour (tests/test_candlestick_wick.py stays green)."
-      ],
-      "tests": [
-        {
-          "test_id": "T32-T01",
-          "linked_acceptance_criterion": "AC-D6.4",
-          "type": "integration",
-          "description": "Run tests/test_chart_dpi.py::T29-T01 at DPR 1 and assert the dense-view body device-pixel width >= 4 and > wick width after the ordering fix.",
-          "expected_result": "body >= 4 device px at DPR 1; wick 1 device px."
-        },
-        {
-          "test_id": "T32-T02",
-          "linked_acceptance_criterion": "AC-D6.4 (DPR 2)",
-          "type": "integration",
-          "description": "Run tests/test_chart_dpi.py::T29-T01 at QT_SCALE_FACTOR=2 and assert the dense-view body device-pixel width >= 4 and > wick width.",
-          "expected_result": "body >= 4 device px at DPR 2; wick 1 device px."
-        },
-        {
-          "test_id": "T32-T03",
-          "linked_acceptance_criterion": "AC-D6.1/6.2/6.3 preserved",
-          "type": "unit",
-          "description": "Re-run tests/test_candlestick_wick.py unchanged and assert the wick cosmetic pen, shadow overshoot and direction colour still hold.",
-          "expected_result": "all wick/body regression tests pass unchanged."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "ui/candlestick_item.py"
-      ],
-      "inputs": [
-        "docs/code_review/escalations.md#ESC-013",
-        "tests/test_chart_dpi.py::T29-T01",
-        "ui/chart_panel.py:_refresh_candles",
-        "ui/candlestick_item.py:_draw_candles"
-      ],
-      "outputs": [
-        "ui/chart_panel.py",
-        "ui/candlestick_item.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "ui/chart_panel.py",
-        "ui/candlestick_item.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T33",
-      "title": "Stack D11 drawing labels by measured bbox height (ESC-014)",
-      "description": "Fix ui/drawing_overlay.py::_update_inner_labels so consecutive inner-right drawing price labels are stacked by at least the measured TextItem scene bounding-box height (max(15, bbox height)) rather than a fixed 15 px, clamped inside view_rect, so consecutive label bounding boxes never intersect.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D11.4: Given two drawing price labels at nearby prices (< label bbox height apart), When they render inside the plot near the right edge (anchor=(1,0.5), x = view_rect.right()-4), Then their scene bounding boxes do not intersect (centre separation >= measured bbox height) and each label remains fully inside view_rect.",
-        "AC-D11.4 (ESC-014): the stacking offset is derived from the measured/graphical bbox height, not a hard-coded 15 px, so tests/test_drawing_labels.py::T25-T01 passes.",
-        "AC-D11.1/2/3 preserved: a drawing price label is visible inside the plot near the right edge, a zone shows two labels at top/bottom, and nearby labels remain legible."
-      ],
-      "tests": [
-        {
-          "test_id": "T33-T01",
-          "linked_acceptance_criterion": "AC-D11.4",
-          "type": "integration",
-          "description": "Run tests/test_drawing_labels.py::T25-T01 (test_label_vs_label_bbox_no_intersection); assert the two label scene bounding boxes do not intersect and each is inside view_rect.",
-          "expected_result": "no bbox intersection; labels fully inside view_rect."
-        },
-        {
-          "test_id": "T33-T02",
-          "linked_acceptance_criterion": "AC-D11.4 (ESC-014)",
-          "type": "unit",
-          "description": "Assert the computed stacking offset is >= the emitted TextItem scene bbox height (and >= 15 px), i.e. driven by the measured height rather than the literal 15.",
-          "expected_result": "offset >= measured bbox height for the pair."
-        },
-        {
-          "test_id": "T33-T03",
-          "linked_acceptance_criterion": "AC-D11.1/2/3 preserved",
-          "type": "integration",
-          "description": "Re-run the existing D11 inner-right horizontal/zone label tests and the nearby-label legibility test unchanged.",
-          "expected_result": "all pre-existing D11 label tests still pass."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/drawing_overlay.py"
-      ],
-      "inputs": [
-        "docs/code_review/escalations.md#ESC-014",
-        "tests/test_drawing_labels.py::T25-T01",
-        "ui/drawing_overlay.py:_update_inner_labels"
-      ],
-      "outputs": [
-        "ui/drawing_overlay.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "ui/drawing_overlay.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T34",
-      "title": "Update tests/test_volume_log.py to the pinned nice-family expectation (ESC-015)",
-      "description": "Update tests/test_volume_log.py::test_volume_zero_mapped_to_one to expect the pinned family value (1_500 rather than the removed 10_000), preferably asserting against ui.chart_panel._nice_volume_max(max_vol) to prevent drift, and correct the stale 'nice_max for max 1000 -> 10k' comment.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "ESC-015: Given a max volume of 1_000, When the volume Y range is computed, Then the upper bound is _nice_volume_max(1_000) == 1_500 (not the removed 10_000), asserted against the product function so the test cannot drift.",
-        "ESC-015 comment: the stale comment 'nice_max for max 1000 -> 10k' is corrected to the pinned family value."
-      ],
-      "tests": [
-        {
-          "test_id": "T34-T01",
-          "linked_acceptance_criterion": "ESC-015",
-          "type": "unit",
-          "description": "Run tests/test_volume_log.py::test_volume_zero_mapped_to_one; assert y_range[1] == ui.chart_panel._nice_volume_max(max_vol) (== 1_500 for max_vol 1_000).",
-          "expected_result": "expectation matches the pinned family; test passes."
-        },
-        {
-          "test_id": "T34-T02",
-          "linked_acceptance_criterion": "ESC-015 comment",
-          "type": "manual",
-          "description": "Inspect the updated comment near test_volume_zero_mapped_to_one to confirm it no longer references the removed 10k floor.",
-          "expected_result": "comment references 1_500 / the pinned family."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_volume_log.py"
-      ],
-      "inputs": [
-        "docs/code_review/escalations.md#ESC-015",
-        "tests/test_volume_log.py::test_volume_zero_mapped_to_one",
-        "ui/chart_panel.py:_nice_volume_max"
-      ],
-      "outputs": [
-        "tests/test_volume_log.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "tests/test_volume_log.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T35",
-      "title": "Update stale crosshair-chip assertions to the Y-axis-lane contract (ESC-016)",
-      "description": "Update the four stale assertions that still expect the superseded inside-plot chip position to the mandated D2/Q33 Y-axis-lane contract: anchor=(0,0.5), scene x >= view_rect.right(), fully inside the lane/panel and not clipped, in tests/test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips and the three tests test_chip_visible_inside_right_edge, test_chip_stays_inside_after_zoom, test_long_price_and_edge_positions in tests/test_crosshair_chip_bounds.py, without weakening to a tautology.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "ESC-016: Given a cursor inside the price plot, When the crosshair chip renders, Then tests/test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips asserts anchor=(0,0.5) and scene x >= view_rect.right() (lane position), not the superseded inside-plot right-align.",
-        "ESC-016: the three tests/test_crosshair_chip_bounds.py assertions assert the lane contract (scene x >= view_rect.right(), fully inside the lane/panel, not clipped) and are non-tautological.",
-        "AC-D2.1/2.2/2.3 preserved: the chip still tracks the cursor price on pan/zoom and is hidden when the cursor leaves the plot."
-      ],
-      "tests": [
-        {
-          "test_id": "T35-T01",
-          "linked_acceptance_criterion": "ESC-016",
-          "type": "integration",
-          "description": "Run the updated tests/test_chart_crosshair.py::test_hover_inside_shows_lines_and_axis_chips; assert anchor (0,0.5) and scene x >= view_rect.right().",
-          "expected_result": "chip asserted in the Y-axis lane; test passes."
-        },
-        {
-          "test_id": "T35-T02",
-          "linked_acceptance_criterion": "ESC-016",
-          "type": "integration",
-          "description": "Run the three updated tests/test_crosshair_chip_bounds.py tests; assert lane geometry (x >= view_rect.right()), inside panel, not clipped, and that the assertions are not vacuously true.",
-          "expected_result": "all three pass with real lane-geometry assertions."
-        },
-        {
-          "test_id": "T35-T03",
-          "linked_acceptance_criterion": "AC-D2.1/2.2/2.3 preserved",
-          "type": "integration",
-          "description": "Re-run the T24 lane tests (tests/test_crosshair_axis_lane.py) and the leave-hides-chip test to confirm no behaviour regression.",
-          "expected_result": "tracking and hide-on-leave still pass."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_chip_bounds.py"
-      ],
-      "inputs": [
-        "docs/code_review/escalations.md#ESC-016",
-        "docs/architecture.md#Crosshair chip (D2 revised)",
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_chip_bounds.py"
-      ],
-      "outputs": [
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_chip_bounds.py"
-      ],
-      "architecture_dependency": false,
-      "touches_files": [
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_chip_bounds.py"
-      ],
-      "status": "done"
-    },
-    {
-      "id": "T36",
-      "title": "Sync MainWindow.draw_combo to Cursor when the router clears the drawing tool (ESC-017)",
-      "description": "When the router clears the drawing tool (TR-4 zoom-cancels-draw and TR-17 symbol change), reset MainWindow.draw_combo to 'Cursor' using blockSignals so no spurious currentTextChanged re-arms the tool, mirroring the existing alarm-mode reset path; add tests/test_draw_combo_sync.py.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T21"
-      ],
-      "acceptance_criteria": [
-        "AC-D3.7 side effect / ESC-017: Given a drawing tool is selected and active, When the magnifier is invoked (TR-4 zoom-cancels-draw), Then MainWindow.draw_combo displays 'Cursor' and selecting the same tool again re-arms it (no stale combo).",
-        "TR-17 / ESC-017: Given a drawing tool is active, When the symbol changes, Then MainWindow.draw_combo is reset to 'Cursor' consistently with the router returning to IDLE.",
-        "ESC-017 guard: the combo reset uses blockSignals (or equivalent) so it does not emit a spurious currentTextChanged, mirroring the alarm-mode path; no regression to the alarm-mode reset."
-      ],
-      "tests": [
-        {
-          "test_id": "T36-T01",
-          "linked_acceptance_criterion": "AC-D3.7 side effect / ESC-017",
-          "type": "integration",
-          "description": "Named test_zoom_clears_draw_combo: arm a drawing tool, invoke the magnifier (enter_zoom), and assert draw_combo.currentText() == 'Cursor'; then re-select the tool and assert it re-arms.",
-          "expected_result": "combo shows 'Cursor' after zoom; re-selecting the tool re-arms it."
-        },
-        {
-          "test_id": "T36-T02",
-          "linked_acceptance_criterion": "TR-17 / ESC-017",
-          "type": "integration",
-          "description": "Named test_symbol_change_clears_draw_combo: with a drawing tool active, trigger the symbol-change path and assert draw_combo.currentText() == 'Cursor' and the router is IDLE.",
-          "expected_result": "combo 'Cursor'; router IDLE."
-        },
-        {
-          "test_id": "T36-T03",
-          "linked_acceptance_criterion": "ESC-017 guard",
-          "type": "unit",
-          "description": "Assert the reset does not emit a spurious currentTextChanged (blockSignals) and that the existing alarm-mode combo reset still works.",
-          "expected_result": "no spurious signal; alarm path unchanged."
+          "description": "Drive a normal single-request wave to completion (set empty, already finalised), then call _on_disconnected with a spy on _finalize_history_wave; assert no extra finalise, no exception, and the badge/status show 'Disconnected'.",
+          "expected_result": "_finalize_history_wave is not called again; no exception is raised; conn_badge text is '● Disconnected' and the status bar reads the disconnected message."
         }
       ],
       "expected_artifacts": [
         "ui/main_window.py",
-        "tests/test_draw_combo_sync.py"
+        "tests/test_history_backfill_disconnect.py"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_history_backfill_disconnect.py"
       ],
       "inputs": [
-        "docs/code_review/escalations.md#ESC-017",
-        "docs/architecture.md#Router state machine (ESC-002)",
-        "ui/main_window.py:draw_combo",
-        "ui/chart_mouse_router.py:enter_zoom"
+        "docs/code_review/escalations.md#ESC-024",
+        "docs/requirements/requirements.md#AC-D16.4",
+        "docs/requirements/requirements.md#AC-D16.1",
+        "docs/architecture.md#D16 additions/changes",
+        "ui/main_window.py::_on_disconnected",
+        "ui/main_window.py::_cancel_history_requests",
+        "ui/main_window.py::_finalize_history_wave",
+        "ui/main_window.py::_missing_backfill_trading_days",
+        "tests/test_history_backfill.py (offscreen stubbed-manager pattern)"
       ],
       "outputs": [
         "ui/main_window.py",
-        "tests/test_draw_combo_sync.py"
+        "tests/test_history_backfill_disconnect.py"
       ],
       "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T44",
+      "title": "Disarm the backfill wave watchdog in closeEvent and make the stranded-wave reason diagnostic live (D16 / ESC-025)",
+      "description": "Close the two ESC-025 nice-to-have items in ui/main_window.py: add the missing _disarm_history_wave_watchdog() call to closeEvent so arm/disarm is symmetric across every wave-terminating path, and make the stranded-wave _finalize_stranded_history_wave(reason=...) parameter live so a watchdog timeout and a transport disconnect are distinguishable in diagnostics (or remove it cleanly if not wanted). Behaviour-neutral: no bar is fabricated and the AC-D16.4 shortfall wording T43-T03/T43-T05 assert on is preserved. Ship focused offscreen tests.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T43"
+      ],
+      "escalation": "ESC-025",
+      "acceptance_criteria": [
+        "Given an in-flight backfill wave has armed the 30 s watchdog (_history_wave_timer.isActive() is True, e.g. after load_chart registered reqIds), When closeEvent runs (win.close()), Then the watchdog is disarmed by closeEvent so that _history_wave_timer.isActive() is False afterwards.",
+        "Given closeEvent, When it terminates an in-flight backfill wave, Then it disarms the watchdog and cancels/invalidates the wave symmetrically with the other wave-terminating paths (finalise, disconnect, watchdog timeout, load_chart/switch) — i.e. closeEvent calls the same _disarm_history_wave_watchdog() helper those paths use, and _history_req_ids is empty and _history_generation has advanced after close.",
+        "Given a wave was stranded by a watchdog timeout (reason \"Historical backfill timed out\") versus by a transport disconnect (reason \"Disconnected from IBKR\"), When the stranded wave finalises, Then the reason is used in diagnostics so the two causes are distinguishable — the status-bar shortfall line and/or the logged record identifies the cause — while the AC-D16.4/D16 shortfall wording that T43-T03/T43-T05 assert on is preserved (status message still contains \"incomplete\" and names a still-missing trading day; the WARNING still reads \"Historical backfill shortfall\").",
+        "Given the stranded-wave finalise path, When it is invoked, Then using reason is behaviour-neutral: it fabricates no bar, cancels every tracked reqId, advances _history_generation, and finalises exactly once, with the same set of in-flight reqIds cancelled and _history_req_ids empty as before the change."
+      ],
+      "tests": [
+        {
+          "test_id": "T44-T01",
+          "linked_acceptance_criterion": "Given an in-flight backfill wave has armed the 30 s watchdog (_history_wave_timer.isActive() is True, e.g. after load_chart registered reqIds), When closeEvent runs (win.close()), Then the watchdog is disarmed by closeEvent so that _history_wave_timer.isActive() is False afterwards.",
+          "type": "integration",
+          "description": "Offscreen MainWindow with the stubbed md_manager (tests/test_history_backfill_disconnect.py pattern): seed PRESENT_DAYS, load to start a multi-request wave, assert win._history_wave_timer.isActive() is True; then call win.close() and assert win._history_wave_timer.isActive() is False.",
+          "expected_result": "The watchdog is active before close; after win.close() it is disarmed (isActive() is False)."
+        },
+        {
+          "test_id": "T44-T02",
+          "linked_acceptance_criterion": "Given closeEvent, When it terminates an in-flight backfill wave, Then it disarms the watchdog and cancels/invalidates the wave symmetrically with the other wave-terminating paths (finalise, disconnect, watchdog timeout, load_chart/switch) — i.e. closeEvent calls the same _disarm_history_wave_watchdog() helper those paths use, and _history_req_ids is empty and _history_generation has advanced after close.",
+          "type": "integration",
+          "description": "Start a multi-request wave, capture the registered reqIds and _history_generation, then invoke closeEvent; assert every tracked reqId was cancelled, _history_req_ids == set(), _history_generation increased, and (spy on _disarm_history_wave_watchdog) the same helper was called by closeEvent.",
+          "expected_result": "closeEvent cancels exactly the in-flight reqIds, empties the set, advances the generation, and disarms via _disarm_history_wave_watchdog — the same helper used by finalise/disconnect/timeout/load_chart."
+        },
+        {
+          "test_id": "T44-T03",
+          "linked_acceptance_criterion": "Given a wave was stranded by a watchdog timeout (reason \"Historical backfill timed out\") versus by a transport disconnect (reason \"Disconnected from IBKR\"), When the stranded wave finalises, Then the reason is used in diagnostics so the two causes are distinguishable — the status-bar shortfall line and/or the logged record identifies the cause — while the AC-D16.4/D16 shortfall wording that T43-T03/T43-T05 assert on is preserved (status message still contains \"incomplete\" and names a still-missing trading day; the WARNING still reads \"Historical backfill shortfall\").",
+          "type": "integration",
+          "description": "Start a multi-request wave and strand it two ways: (a) via _on_history_wave_timeout (timeout reason) and (b) via _on_disconnected (disconnect reason); for each, capture the status-bar shortfall line and the WARNING log record. Assert each still contains 'incomplete' and names a still-missing trading day, and the log still matches 'Historical backfill shortfall'; assert the two surfaced diagnostics differ in the cause they name (timeout vs disconnect) so the reason is no longer dead.",
+          "expected_result": "Both runs surface the AC-D16.4 shortfall ('incomplete' + a named missing day + 'Historical backfill shortfall' WARNING) and the two differ in the cause reported, proving reason is read and distinguishes timeout from disconnect."
+        },
+        {
+          "test_id": "T44-T04",
+          "linked_acceptance_criterion": "Given the stranded-wave finalise path, When it is invoked, Then using reason is behaviour-neutral: it fabricates no bar, cancels every tracked reqId, advances _history_generation, and finalises exactly once, with the same set of in-flight reqIds cancelled and _history_req_ids empty as before the change.",
+          "type": "integration",
+          "description": "Start a multi-request wave, spy on _finalize_history_wave, strand the wave via _on_disconnected, and assert the set of cancelled reqIds equals the in-flight set, _history_req_ids == set(), finalise ran exactly once, BarCache/ChartPanel contain only the seeded bars, and _pending_bars == [] (no fabrication).",
+          "expected_result": "Exactly the in-flight reqIds are cancelled, the set empties, finalise runs once, no bar is fabricated, and behaviour matches the pre-change stranded-wave path."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py",
+        "tests/test_history_backfill_disconnect.py"
+      ],
       "touches_files": [
         "ui/main_window.py",
-        "tests/test_draw_combo_sync.py"
+        "tests/test_history_backfill_disconnect.py"
       ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-025",
+        "docs/code_review/escalations.md#ESC-024",
+        "docs/requirements/requirements.md#AC-D16.4",
+        "ui/main_window.py::closeEvent",
+        "ui/main_window.py::_disarm_history_wave_watchdog",
+        "ui/main_window.py::_finalize_stranded_history_wave",
+        "ui/main_window.py::_on_history_wave_timeout",
+        "ui/main_window.py::_on_disconnected",
+        "tests/test_history_backfill_disconnect.py (T43-T01..T43-T06 pattern)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_history_backfill_disconnect.py"
+      ],
+      "architecture_dependency": false,
       "status": "done"
     }
   ]

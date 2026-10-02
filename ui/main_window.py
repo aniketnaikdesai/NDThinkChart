@@ -1,4 +1,6 @@
+import logging
 import threading
+import time
 from copy import deepcopy
 from datetime import datetime, timezone
 try:
@@ -21,7 +23,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QLineEdit, QComboBox,
     QStatusBar, QDockWidget
 )
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, QTimer
 
 from config import settings
 from ibkr.client import IBApiClient, ConnectionState
@@ -61,6 +63,10 @@ from data.db import db
 from services.alarm_service import evaluate_alarms
 from services.drawing_service import DEFAULT_DRAWING_COLOR
 from services.sound_service import SoundService
+from services.backfill_service import find_missing_spans, plan_requests
+from services.market_calendar import trading_days
+
+_LOG = logging.getLogger(__name__)
 
 # Default watchlist symbols — used only on first run before DB persistence
 DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
@@ -336,6 +342,20 @@ class MainWindow(QMainWindow):
         self._current_tf: str = "5 mins"
         self._rt_req_id: int | None = None
         self._aggregator: BarAggregator | None = None
+        # D16 correlated backfill wave: the reqIds of the in-flight historical
+        # request set, the generation token they belong to, the spans that wave
+        # is expected to fill, and the reqIds that errored mid-wave.
+        self._history_req_ids: set[int] = set()
+        self._history_req_generation: dict[int, int] = {}
+        self._history_generation: int = 0
+        # ESC-024: bounded watchdog for a wave that never yields an end marker,
+        # and a one-shot guard so a stranded finalise is never repeated.
+        self._history_wave_timeout_ms: int = 30_000
+        self._history_wave_timer = QTimer(self)
+        self._history_wave_timer.setSingleShot(True)
+        self._history_wave_timer.timeout.connect(self._on_history_wave_timeout)
+        self._backfill_missing_spans: list = []
+        self._backfill_failed_req_ids: set[int] = set()
         self._current_studies: list[dict] = deepcopy(DEFAULT_STUDIES)
         self._current_alarms = []
         self._last_chart_price: float | None = None
@@ -379,9 +399,83 @@ class MainWindow(QMainWindow):
         self.conn_badge.setText("● Disconnected")
         self.conn_badge.setStyleSheet("color: #f87171;")
         self.load_btn.setEnabled(False)
-        self.status_bar.showMessage("Disconnected from IBKR")
+        # D16 / ESC-024: a transport drop must not strand an in-flight backfill
+        # wave. Cancel every tracked reqId, advance the generation so late
+        # responses are rejected, and finalise once so AC-D16.4's shortfall is
+        # surfaced rather than leaving a silent hole. With no wave in flight this
+        # is a no-op (no second finalise, no exception).
+        # The stranded-wave path writes the AC-D16.4 shortfall message; only fall
+        # back to the generic disconnected message when there was no wave.
+        if not self._finalize_stranded_history_wave(reason="Disconnected from IBKR"):
+            self.status_bar.showMessage("Disconnected from IBKR")
+
+    def _finalize_stranded_history_wave(self, reason: str = "") -> bool:
+        """Drop and finalise an in-flight backfill wave that can no longer complete.
+
+        Used by ``_on_disconnected`` and the wave watchdog. Returns True when a
+        wave was actually stranded and finalised, False when there was nothing to
+        do — so callers never run ``_finalize_history_wave`` twice and never
+        fabricate a bar. Cancels every tracked reqId, advances the generation so
+        late responses for pre-drop reqIds are rejected by
+        ``_history_event_accepted``, then finalises exactly once through
+        ``_finalize_history_wave`` so AC-D16.4's shortfall is surfaced.
+        """
+        if not self._history_req_ids:
+            return False
+        self._cancel_history_requests()
+        # Advance the generation: any late historical_bar / historical_data_end
+        # for a pre-drop reqId now fails _history_event_accepted and can neither
+        # accumulate bars nor finalise the wave a second time.
+        self._history_generation += 1
+        # Make the cause live for the shortfall diagnostics. Held on the instance
+        # (rather than passed as an argument) so ``_finalize_history_wave`` keeps
+        # its zero-argument contract for normal-path callers and spies; the real
+        # finaliser reads and clears it. Empty for a normal finalise.
+        self._history_stranded_reason = reason
+        self._finalize_history_wave()
+        return True
+
+    def _on_history_wave_timeout(self):
+        """Watchdog: a wave that never yields historical_data_end is bounded.
+
+        ESC-024: a request that never ends must not strand the wave forever. The
+        stalled wave is finalised through the same path as a disconnect (cancel
+        remaining reqIds, advance the generation, surface the shortfall once).
+        """
+        # Finalising through the shared stranded-wave path already surfaces the
+        # AC-D16.4 shortfall; leave that message in place (it is the meaningful
+        # signal) rather than overwriting it with a generic timeout notice.
+        self._finalize_stranded_history_wave(reason="Historical backfill timed out")
+
+    def _arm_history_wave_watchdog(self):
+        """(Re)start the bounded timeout for the current backfill wave."""
+        timer = getattr(self, "_history_wave_timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.start(self._history_wave_timeout_ms)
+
+    def _disarm_history_wave_watchdog(self):
+        timer = getattr(self, "_history_wave_timer", None)
+        if timer is not None:
+            timer.stop()
 
     def _on_error(self, reqId: int, errorCode: int, errorString: str):
+        # D16: a failure on a backfill member must not strand the wave. Drop the
+        # reqId (so the set can still empty and finalise) and remember it so the
+        # shortfall is correlated at finalisation. No bar is fabricated.
+        if reqId in self._history_req_ids:
+            self._history_req_ids.discard(reqId)
+            self._backfill_failed_req_ids.add(reqId)
+            _LOG.warning(
+                "Historical request %s failed [%s]: %s",
+                reqId, errorCode, errorString,
+            )
+            self.status_bar.showMessage(
+                f"Error [{errorCode}]: {errorString}", 8000
+            )
+            if not self._history_req_ids:
+                self._finalize_history_wave()
+            return
         self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)
 
     # ── Chart loading ─────────────────────────────────────────────────────────
@@ -400,7 +494,17 @@ class MainWindow(QMainWindow):
 
         self._current_symbol = symbol
         self._current_tf = timeframe
+        self._current_req_id = None
         self._pending_bars = []
+
+        # D16: cancel any in-flight backfill wave from the previous load and
+        # advance the generation so its late responses cannot mix series.
+        self._disarm_history_wave_watchdog()
+        self._cancel_history_requests()
+        self._history_generation += 1
+        self._backfill_failed_req_ids = set()
+        self._backfill_missing_spans = []
+
         self.chart_panel.set_symbol(symbol)
         self.chart_panel.set_timeframe(timeframe)
         self.chart_panel.set_extended_hours(self.ext_hours_btn.isChecked())
@@ -427,21 +531,62 @@ class MainWindow(QMainWindow):
                 f"{symbol} — {len(cached)} cached bars. Fetching delta…"
             )
 
-        # Step 2: Fetch delta from IBKR up to now (covers gap since cache).
-        # Previously end_dt = last_ts+60 anchored the window to the stale cache
-        # end, so bars after the cache (e.g., Fri 14:00-20:00) were never fetched.
-        # end_dt="" means up-to-now; overlap is deduped by INSERT OR REPLACE.
-        end_dt = ""
+        # Step 2: Plan the backfill. The pure planner (services.backfill_service)
+        # decides which trading sessions are missing and how to chunk them; the
+        # window only issues one historical request per plan and correlates the
+        # returned reqIds. market_data.py's signature is unchanged — each chunk
+        # rides the existing endDateTime parameter.
+        now_ts = self._now_ts()
+        cached_ts = [b.ts for b in cached]
+        missing_spans = (
+            find_missing_spans(cached_ts, now_ts, timeframe) if cached else []
+        )
+        plans = plan_requests(missing_spans, timeframe)
+        self._backfill_missing_spans = list(missing_spans)
+
         contract = get_contract_for_symbol(symbol)
         ext_hours = self.ext_hours_btn.isChecked()
-        self._current_req_id = self.md_manager.req_historical_data(
-            contract=contract,
-            timeframe=timeframe,
-            endDateTime=end_dt,
-            whatToShow="TRADES",
-            useRTH=1,
-            extended_hours=ext_hours,
-        )
+
+        if plans:
+            # One request per planned chunk, newest-first (the planner's order).
+            for plan in plans:
+                req_id = self.md_manager.req_historical_data(
+                    contract=contract,
+                    timeframe=timeframe,
+                    endDateTime=plan.endDateTime,
+                    whatToShow="TRADES",
+                    useRTH=1,
+                    extended_hours=ext_hours,
+                )
+                self._register_history_request(req_id)
+            self.status_bar.showMessage(
+                f"{symbol} — backfilling {len(plans)} historical chunk(s)…"
+            )
+        elif not cached:
+            # Empty cache: preserve the configured-window single-request path
+            # (endDateTime="" = up to now) as a backfill set of one.
+            req_id = self.md_manager.req_historical_data(
+                contract=contract,
+                timeframe=timeframe,
+                endDateTime="",
+                whatToShow="TRADES",
+                useRTH=1,
+                extended_hours=ext_hours,
+            )
+            self._register_history_request(req_id)
+            self.status_bar.showMessage(
+                f"Requesting {symbol} [{timeframe}]… (hist reqId {req_id})"
+            )
+        else:
+            # The cache already reaches now: no redundant request is issued.
+            self.status_bar.showMessage(
+                f"{symbol} — {len(cached)} cached bars. Cache current."
+            )
+
+        # ESC-024: bound the wave — a request that never yields an end marker
+        # must not strand the chart indefinitely.
+        if self._history_req_ids:
+            self._arm_history_wave_watchdog()
 
         # Step 3: Start real-time bar stream
         self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
@@ -450,10 +595,39 @@ class MainWindow(QMainWindow):
         if self.dom_btn.isChecked():
             self._subscribe_dom()
 
-        self.status_bar.showMessage(
-            f"Requesting {symbol} [{timeframe}]… (hist reqId {self._current_req_id},"
-            f" rt reqId {self._rt_req_id})"
-        )
+    def _now_ts(self) -> int:
+        """Wall-clock epoch seconds; a seam for deterministic load-path tests."""
+        return int(time.time())
+
+    def _register_history_request(self, req_id: int) -> None:
+        """Track one in-flight backfill request against the current generation."""
+        self._history_req_ids.add(req_id)
+        self._history_req_generation[req_id] = self._history_generation
+        self._current_req_id = req_id
+
+    def _cancel_history_requests(self) -> list[int]:
+        """Cancel every tracked backfill request and drop the wave state.
+
+        Returns the ids that were cancelled so callers/tests can assert the
+        exact set. The generation token is *not* advanced here; callers advance
+        it when they invalidate the wave (symbol/timeframe switch, close).
+        """
+        req_ids = list(self._history_req_ids)
+        for req_id in req_ids:
+            try:
+                self.md_manager.cancel_historical_data(req_id)
+            except Exception:
+                pass
+        self._history_req_ids.clear()
+        self._history_req_generation.clear()
+        self._pending_bars = []
+        return req_ids
+
+    def _history_event_accepted(self, req_id: int) -> bool:
+        """True only for a reqId belonging to the current backfill wave."""
+        if req_id not in self._history_req_ids:
+            return False
+        return self._history_req_generation.get(req_id) == self._history_generation
 
     # ── Drawing slots ─────────────────────────────────────────────────────────
 
@@ -564,7 +738,9 @@ class MainWindow(QMainWindow):
     # ── Historical data slots ─────────────────────────────────────────────────
 
     def _on_historical_bar(self, reqId: int, bar):
-        if reqId != self._current_req_id:
+        # D16: accept bars from any member of the in-flight backfill wave; a
+        # non-member or stale-generation response is ignored outright.
+        if not self._history_event_accepted(reqId):
             return
         ts = parse_ibkr_date(bar.date)
         self._pending_bars.append(Bar(
@@ -579,17 +755,88 @@ class MainWindow(QMainWindow):
         ))
 
     def _on_historical_data_end(self, reqId: int):
-        if reqId != self._current_req_id:
+        if not self._history_event_accepted(reqId):
             return
-        BarCache.save_bars(self._pending_bars)
+        self._history_req_ids.discard(reqId)
+        # Finalise exactly once, only after the last member has ended.
+        if self._history_req_ids:
+            return
+        self._finalize_history_wave()
+
+    def _finalize_history_wave(self) -> None:
+        """Persist, re-read and render once the last backfill request ends.
+
+        If the wave was *stranded* (watchdog timeout or transport disconnect),
+        ``_finalize_stranded_history_wave`` has set ``_history_stranded_reason``.
+        That cause is purely diagnostic: it fabricates no bar and changes no
+        behaviour — it is appended to the AC-D16.4 shortfall line and the
+        WARNING record so a timeout and a disconnect are distinguishable. For a
+        normal (non-stranded) finalise the reason is empty and the wording is
+        unchanged.
+        """
+        self._disarm_history_wave_watchdog()
+        new_count = len(self._pending_bars)
+        if self._pending_bars:
+            BarCache.save_bars(self._pending_bars)
         all_bars = BarCache.get_bars(self._current_symbol, self._current_tf)
         self.chart_panel.update_chart(all_bars)
         self._last_chart_price = all_bars[-1].close if all_bars else None
-        self.status_bar.showMessage(
-            f"{self._current_symbol} — {len(all_bars)} bars "
-            f"({len(self._pending_bars)} new). Live stream active."
-        )
         self._pending_bars = []
+
+        # Read and clear the stranded-wave cause (diagnostic suffix only).
+        reason = getattr(self, "_history_stranded_reason", "")
+        self._history_stranded_reason = ""
+        cause = f" [{reason}]" if reason else ""
+
+        missing_days = self._missing_backfill_trading_days(all_bars)
+        failed_count = len(self._backfill_failed_req_ids)
+        if missing_days:
+            preview = ", ".join(d.isoformat() for d in missing_days[:5])
+            self.status_bar.showMessage(
+                f"{self._current_symbol} — backfill incomplete: "
+                f"{len(missing_days)} trading day(s) still missing ({preview})."
+                f"{cause}",
+                10000,
+            )
+            _LOG.warning(
+                "Historical backfill shortfall for %s [%s]: %s%s",
+                self._current_symbol,
+                self._current_tf,
+                [d.isoformat() for d in missing_days],
+                cause,
+            )
+        elif failed_count:
+            self.status_bar.showMessage(
+                f"{self._current_symbol} — {failed_count} historical request(s) "
+                f"failed; chart may be incomplete.{cause}",
+                10000,
+            )
+            _LOG.warning(
+                "Historical backfill failed requests for %s [%s]: %s%s",
+                self._current_symbol,
+                self._current_tf,
+                sorted(self._backfill_failed_req_ids),
+                cause,
+            )
+        else:
+            self.status_bar.showMessage(
+                f"{self._current_symbol} — {len(all_bars)} bars "
+                f"({new_count} new). Live stream active{cause}."
+            )
+
+    def _missing_backfill_trading_days(self, bars) -> list:
+        """Trading days the completed wave left empty (no bar fabricated)."""
+        if not self._backfill_missing_spans:
+            return []
+        present_days = {
+            datetime.fromtimestamp(b.ts, tz=_EASTERN).date() for b in bars
+        }
+        missing = []
+        for span in self._backfill_missing_spans:
+            for day in trading_days(span.start_ts, span.end_ts):
+                if day not in present_days:
+                    missing.append(day)
+        return missing
 
     # ── Real-time bar slot ────────────────────────────────────────────────────
 
@@ -1142,10 +1389,15 @@ class MainWindow(QMainWindow):
         if self._rt_req_id is not None:
             self.rt_manager.unsubscribe(self._rt_req_id)
             self._rt_req_id = None
-        # Cancel historical data request
-        if self._current_req_id is not None:
-            self.md_manager.cancel_historical_data(self._current_req_id)
-            self._current_req_id = None
+        # Cancel every in-flight backfill request and invalidate the generation
+        # so late responses cannot mix symbols/timeframes. Disarm the backfill
+        # watchdog too, so arm/disarm stays symmetric with the other
+        # wave-terminating paths (finalise, disconnect, watchdog timeout,
+        # load_chart/switch) and the timer cannot outlive the window.
+        self._disarm_history_wave_watchdog()
+        self._cancel_history_requests()
+        self._history_generation += 1
+        self._current_req_id = None
         # Cancel market depth subscription
         if self._depth_req_id is not None:
             self.depth_manager.cancel(self._depth_req_id)

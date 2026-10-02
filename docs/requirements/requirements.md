@@ -1,6 +1,6 @@
 # NDThinkChart — Requirements
 
-> Status: READY_FOR_PLAN — Batch 1 built; Batches 2–9 (D4–D15) clarified 2026-09-19/20 and ready for the next plan pass. **Revised 2026-09-27** to resolve Code Reviewer escalations ESC-004/ESC-006/ESC-008/ESC-011/ESC-012 and companions (ESC-003/ESC-007/ESC-009/ESC-010): D5 marked superseded by D8, visual-reference gate (AC-G.1), volume nice-max criteria, D11 crosshair-chip deconfliction, D14 mid-drag AC, high-DPI ACs, and Documentation Maintenance Requirements (DOC-1..4). **Second pass 2026-09-27:** Q31 (D10 icon = text label `Volume`), Q32 (D10 placement originally recorded as provisional assumption A23 — later confirmed, see fifth pass) and Q34 (DOC-2 ownership split) answered. **Third pass 2026-09-27:** **Q33 answered by a design change** — the crosshair price chip is relocated to the **Y-axis lane outside the plot** (revising D2: grey pill + white text; axis-tick-label overlap permitted; this re-opens the D2 defect surface for independent Code Reviewer verification) while D11 drawing labels stay inside the plot, so **`AC-D11.4` is re-scoped to label-vs-label stacking only** (ESC-006). **Fourth pass 2026-09-27:** **Q35 answered** — forward direction (magnifier invoked while a drawing tool is active) is **option (a): cancel the in-progress drawing and enter `ZOOMING`** (the draft is discarded, no half-drawn artefact is left behind), recorded in D3 as ESC-002 transition semantics. **Fifth pass (confirmations) 2026-09-27:** all four post-review follow-ups are now **closed and confirmed** — (1) **A26 reverse direction CONFIRMED** (selecting a drawing tool while `ZOOMING` is active exits `ZOOMING` and activates the tool; now a requirement folded into `AC-D3.7`, no longer an assumption); (2) **A23 D10 placement CONFIRMED** (volume show/hide at the top left of the volume panel / bottom left of the price chart; D10 fully `CONFIRMED`); (3) **alarm-mode activation cancels `ZOOMING` — now a requirement** (added as `AC-D3.8`; supplies the expected behaviour for `test_alarm_placement_blocks_zoom`); and (4) **A25 D2 visual reference CONFIRMED with a scoped carve-out** (the reference is the agreed target for D2's appearance and lane placement; **dock-open visibility remains a separately verified AC/edge case** requiring independent Code Reviewer verification after Build). **Sixth pass 2026-09-27:** **RG-002 resolved** — the D8 nice-number family is pinned to the self-consistent mantissa set **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (which reproduces every user-confirmed Q20 value, including `750K` and `1.5M`, and the retained `1_050_000 → 1_500_000` fixture); `AC-D8.1`/`AC-D8.4`/`AC-D8.5` and the D8 edge cases were reconciled to it, with **no fixed `10k` floor, no fixed ceiling, and the old list retained only as a test fixture**. **Seventh pass 2026-09-27:** **Q36 answered — the last question is closed, so NO blocking questions remain.** Invoking the magnifier while `ALARM_PLACING` is active is **option (b): REFUSE to enter `ZOOMING`** — the router **stays in `ALARM_PLACING`**, alarm placement keeps priority, the pending alarm placement is **not** cancelled, and a **status-bar hint** is shown. Recorded as **`AC-D3.9`** (D3 / ESC-002), cross-referenced from the ESC-002 transition area as **required behaviour**. This makes the `chart_mouse_router` transition table **total** (`ALARM_PLACING + magnifier → ALARM_PLACING`), superseding Plan assumption **PA-R1** / derived transition **TR-9** and closing **RG-003**. See Defect Register D4–D15 and open_questions Q15–Q36.
+> Status: READY_FOR_PLAN — D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped.
 
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
@@ -23,6 +23,8 @@ Batch 7 (D12) zone double-click settings popup with 4 tabs is clarified 2026-09-
 D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 (D15) horizontal line double-click settings popup with 4 tabs is clarified 2026-09-20 per Q30.
 
+**New work item — 2026-10-02 (defect D16) — CLARIFIED.** The user reported that historical bars are **missing across 2026-09-19…2026-09-27** on `SPY` `5 mins` (price candles) and that the **volume panel is empty over the same span**; 2026-09-21…2026-09-25 are normal trading weekdays, so this is a bar-data hole, not weekend session shading. The hole is an **internal** discontinuity in the cache: the screen shows bars 09/14–09/18, nothing 09/19–09/27, and bars 09/28–10/02 (validated live against `SPY 5 mins` in the user-space SQLite cache). D16 is captured in the Defect Register + Journey 17 and is the sole open requirement for this new batch. **Decisions (2026-10-02, Q37–Q39):** the app backfills the whole gap so the chart is continuous (chunking requests if needed); genuine market closures (weekend/holiday/overnight) stay **empty** and are not filled or compressed; the fix and its verification cover **all timeframes** (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`, `1 day`) and **any symbol**. **Correction (ESC-023, 2026-10-02):** the D16 trading-day calendar's New Year's observed-day shift is corrected to carry the **NYSE Rule 7.2 year-end accounting exception** — when Jan 1 falls on a Saturday, the preceding Friday (Dec 31) is a **trading day**, not a closure, and no New Year's holiday is observed; a genuine bar hole on such a day is therefore a missing trading session, not a genuine closure (see D16 / `AC-D16.7`). The corrected `T37-T03` acceptance criterion and the `market_calendar` observed-shift rule must both change (Task Manager / Build). All D1–D15 acceptance criteria are built and remain frozen/unchanged.
+
 ## Goals
 - Collect and triage the user's reported functional issues and UI bugs.
 - Fix each reported defect such that its per-task **test condition** passes.
@@ -39,6 +41,49 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 - Introducing a paper/simulated trading mode, or changing the live-only port 7496
   model.
 - Changing the tech stack.
+
+## Existing Repository
+
+This is an existing repository. NDThinkChart is a stabilization/extension run against an
+already-built PyQt6 + pyqtgraph + `ibapi` desktop trading terminal (development build:
+`python main.py`; bundled: PyInstaller windowed `.app`, bundle id `com.ndthinkchart.app`).
+The D1–D15 work is built and green. This section is preserved through every rewrite because
+Plan, the Plan Artifact Editor & Validator, and the Orchestrator key **existing-repo mode**
+off of the marker sentence above.
+
+**What is being built/changed in this run:** defect **D16** — backfill of missing historical
+bars across a cache/reopen gap (reported 2026-10-02; the price candles **and** the volume
+panel both lose 2026-09-20…2026-09-27 on `SPY 5 mins`). No new product features, no stack
+change. The fix is expected to live in the existing bar-load path
+(`ui/main_window.py::load_chart` / `_on_historical_bar` / `_on_historical_data_end`,
+`ibkr/market_data.py`, `ibkr/client.py`), with the chart render path
+(`ui/chart_panel.py::update_chart` / `_refresh_candles`) unchanged except where acceptance
+requires it.
+
+**Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
+(`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
+Editor & Validator, Task Manager, Build/Build Worker, and Code Reviewer — **may use the
+graphify tool** to map existing components, data models, integrations, and relationships.
+Graphify findings are discovery inputs only and MUST be validated against the current
+repository files, which remain authoritative if the two disagree.
+
+**Current Tech Stack:**
+- **Language/runtime:** Python 3.11+ (`.venv`), macOS Apple Silicon (arm64).
+- **UI:** PyQt6 (`PyQt6>=6.6`), pyqtgraph (`>=0.13`).
+- **Broker:** official `ibapi` (`>=9.81`), Interactive Brokers TWS, **live port 7496 only — no paper mode**.
+- **Numerics:** numpy (`>=1.26`).
+- **Persistence:** SQLite. `config/paths.get_db_path()` always resolves to the user-space
+  database `~/Library/Application Support/NDThinkChart/charting_app.sqlite3` (the filename
+  can be overridden with the `DB_PATH` env var). A stale repo-root `./charting_app.sqlite3`
+  exists but is not the path `get_db_path()` returns.
+- **Packaging:** PyInstaller windowed `.app`, bundle id `com.ndthinkchart.app`.
+- **Tests:** pytest + pytest-qt, run offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS
+  required by default.
+- **Existing bar-load path (reference):** `ui/main_window.py::load_chart` →
+  `BarCache.get_bars` → `MarketDataManager.req_historical_data` (`TIMEFRAME_CONFIG`
+  duration/bar size) → `IBApiClient.historicalData` → `_on_historical_bar` /
+  `_on_historical_data_end` → `BarCache.save_bars` → `ChartPanel.update_chart` →
+  `ChartPanel._refresh_candles` (shared by the price **and** volume panels).
 
 ## Constraints
 
@@ -82,6 +127,7 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 | Drawing | A user chart annotation (trendline, horizontal, zone, fibonacci, measure), optionally in a group. |
 | DOM / Ladder | Level II market-depth ladder with click-to-trade rows. |
 | Live-order path | Code that builds/transmits orders via `ibkr/orders.py` + `IBApiClient`; gated in TWS for now. |
+| Genuine closure | A market-closed interval that is legitimately non-trading (weekend, actual US-equity holiday, or overnight). Stays **empty** per D16 (`AC-D16.3`). **Dec 31 of a year whose next Jan 1 is a Saturday is NOT a genuine closure** — it is a trading day (`AC-D16.7`, ESC-023). |
 
 ## User Journeys
 
@@ -229,6 +275,28 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 - **Postconditions:** Double-click opens `Horizontal line` popup with four tabs and current price pre-filled; changes update the line.
 - **Edge Cases:** Double-click on a zone/non-horizontal does not open this popup; Cancel discards; single line coordinate only.
 
+### Journey 17 — D16: reload after a cache gap shows continuous history
+- **Preconditions:** The SQLite `bars` cache holds `SPY` `5 mins` bars in two blocks separated by a
+  missing trading-session span (reported repro: bars through Fri 2026-09-18, nothing
+  2026-09-19…2026-09-27, bars 2026-09-28…now); the closure exceeded the timeframe's IBKR fetch
+  window (for `5 mins`, `5 D`); IBKR is connected; Ext Hours is ON.
+- **Steps:** 1) Launch the app. 2) Load `SPY` on `5 mins`. 3) Wait for the historical request(s)
+  to complete. 4) Inspect the price panel and the volume panel.
+- **Postconditions:** The displayed bar series is continuous over the span it covers — bars exist
+  for every trading session from the oldest displayed bar through now (including the missing
+  2026-09-21…2026-09-25 weekdays); the app backfills the whole gap, issuing additional request(s)
+  when the gap exceeds one IBKR request's duration. The price candles **and** the volume bars both
+  render across that span; the only empty x-intervals are genuine market closures (weekend,
+  holiday, overnight), which stay empty and are not filled, compressed, or interpolated.
+- **Edge Cases:** weekend/holiday/overnight render as empty and are **not** treated as missing
+  data; a cache gap larger than IBKR's maximum single-request duration is bridged with multiple
+  requests (chunking) or the shortfall is surfaced explicitly, never left as a silent hole; an
+  **internal hole** (newer cached bars separated from an older block by a missing span — the
+  reported repro) is healed, not only a hole after the newest cached bar; an empty cache fetches
+  the configured window; a cache newer than now is not redundantly re-requested; symbol/timeframe
+  switch while a backfill request is in flight does not mix symbols/timeframes; the same behaviour
+  holds on every timeframe (`1 min`…`1 day`) and any symbol (Q39); **Dec 31 of a year whose next Jan 1 is a Saturday is a trading session, not a closure (e.g. 2021-12-31, 2027-12-31, 2032-12-31, 2038-12-31), so a hole there must be backfilled/surfaced like any other trading day (`AC-D16.7`, ESC-023)**.
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)
@@ -268,7 +336,7 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
     Every UI-visual decision for this run is now confirmed.
 
 ### Per-defect criteria
-Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-19), D9–D11 (Batches 5–6, D9–D10 clarified, D11 clarified), D12 (Batch 7, clarified) and D13–D15 (Batches 8–9, D13–D14 clarified, D15 clarified 2026-09-20) each carry their own Given/When/Then criteria and documented edge cases in the **Defect Register** below. Those criteria are the authoritative acceptance tests and are the "test conditions" referenced throughout.
+Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-19), D9–D11 (Batches 5–6), D12 (Batch 7), D13–D15 (Batches 8–9) and **D16 (Batch 10, 2026-10-02, clarified — Q37–Q39 answered)** each carry their own Given/When/Then criteria and documented edge cases in the **Defect Register** below. Those criteria are the authoritative acceptance tests and are the "test conditions" referenced throughout.
 
 ## Defect Register
 
@@ -1066,6 +1134,156 @@ Chart; Q29 no-op semantics):**
 - Double-click with no selection does nothing.
 - Cancel/X discards changes; the line remains as before.
 
+### D16 — Historical bars missing across a cache/reopen gap (price **and** volume panels)
+- **Area:** Bar-load path — `ui/main_window.py::load_chart` / `_on_historical_bar` /
+  `_on_historical_data_end`; `ibkr/market_data.py::MarketDataManager.req_historical_data`;
+  `ibkr/client.py::IBApiClient.historicalData`; `data/bar_cache.py`; rendered by
+  `ui/chart_panel.py::update_chart` / `_refresh_candles` (shared by price + volume).
+- **Status:** **clarified — criteria finalised 2026-10-02 (Q37–Q39 answered).**
+- **Visual reference (ESC-004 gate):** **N/A** — D16 is a data/behaviour defect, not a UI-visual
+  decision; no visual reference is required and AC-G.1 does not apply.
+- **Reported (2026-10-02, screenshot):** symbol `SPY`, TF `5 mins`, Mode `Candles`, Extended Hours
+  ON, Eastern Time. Price candles are present 09/14–09/18, **entirely absent 09/19–09/27**, and
+  resume 09/28–10/02. The **volume panel** is absent over the same span. 09/21–09/25 are normal
+  trading weekdays, so this is not merely weekend session shading.
+- **Observed in repository (validated against the current files, 2026-10-02):**
+  - `load_chart()` shows cached bars, then issues **one** `req_historical_data` with
+    `endDateTime=""` (up to now) and the fixed `TIMEFRAME_CONFIG` duration (`5 mins` → `5 D`);
+    `_on_historical_data_end` then saves the fetched bars and re-reads **all** cached bars
+    (`BarCache.get_bars`) — the union of the old cache and the last 5 days.
+  - `_refresh_candles` frames `xRange` from `_bars[0].ts` to `_bars[-1].ts` and drives **both** the
+    candle item and the volume bars from the same `self._bars` list, so a hole in the bar list
+    shows as a hole in **both** panels. No separate volume fix is needed once the bar list is
+    continuous.
+  - `BarCache.get_last_timestamp(symbol, timeframe)` (`data/bar_cache.py:33`) returns `MAX(ts)` but
+    is **not** used by `load_chart` (`ui/main_window.py:430–444` does not read it); the fetch is
+    neither anchored to, nor sized to reach, the cached span.
+  - **Empirically confirmed against the live SQLite cache** (read-only inspection of
+    `~/Library/Application Support/NDThinkChart/charting_app.sqlite3`, 2026-10-02): `SPY 5 mins`
+    has 192 bars/day for 2026-09-14…09-18, then **no bars for 2026-09-19…2026-09-27**, then
+    192/day for 2026-09-28…10-01 and 110 for 10-02. The hole is a real missing-bar span in the
+    cache, not a rendering artefact, and it is **internal** (newer bars are already cached after
+    it). (`AAPL 5 mins` similarly ends at 2026-09-18.)
+  - **Root cause (diagnosis):** the delta fetch is anchored to **now** with a fixed duration and is
+    **not** anchored to (or sized to reach) the cached span, so any closure longer than that
+    duration leaves an unfetched span between the cache and `now − duration`. For `5 mins`
+    (`5 D`) a >5-day closure produces exactly the observed hole. Git history shows the path:
+    commit `2c5616c` changed Step 2 from `end_dt=last_ts+60` to `end_dt=""` (fixing a stale-cache
+    *tail* gap) but did not enlarge the window to reach the cache or detect an internal hole. See
+    `design_gaps.md` DG21.
+
+**Decisions (2026-10-02 — Q37, Q38, Q39 answered):**
+- **Q37 — backfill the whole gap.** On load, the app determines the missing span from the cached
+  series to now and fetches enough history to make the bar list continuous, issuing **additional
+  request(s) (chunking)** when the span exceeds one IBKR request's duration. Options (b) (drop/limit
+  old cached bars so no hole shows) and (c) (fixed larger window on every load) are **not adopted**.
+  It is not acceptable to display a range wider than the data fetched in a way that leaves a silent
+  hole. Because the reported repro is an **internal** hole, "from the last cached bar" is
+  implemented as filling the missing span **between cached blocks within the displayed range** (not
+  merely the span after the newest cached bar) — see DG21.
+- **Q38 — closures stay empty.** Genuine market closures (weekend/holiday/overnight) render
+  **empty** and are **not** filled, compressed, or interpolated. D16 is scoped to missing
+  **trading-session** bars only; no x-axis compressing/collapsing change is in scope (FS7).
+- **Q39 — all timeframes + any symbol.** The fix and verification cover **all** timeframes
+  (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`, `1 day`) and **any symbol**; `SPY 5 mins`
+  is the reported repro only.
+- **ESC-023 — trading-day calendar correction (2026-10-02):** the US-equity observed-day convention applies to New Year's Day **except** when the Saturday→preceding-Friday shift would place the closure on **Dec 31**, the year-end accounting date. Per **NYSE Rule 7.2**'s explicit year-end accounting-period exception, when Jan 1 is a Saturday **no New Year's holiday is observed** and **Dec 31 stays open**; no substitute closure is created (the Saturday Jan 1 itself is non-trading as a weekend). All other observed-shift cases are unchanged (Independence Day Sat→Fri, Christmas Sat→Fri / Sun→Mon, Juneteenth Sat→Fri, New Year's Sun→Mon). See `AC-D16.7`.
+
+**Acceptance Criteria (Given/When/Then) — FINAL:**
+- **AC-D16.1 (backfill the whole gap — all timeframes and any symbol; Q37/Q39)** Given a seeded
+  `bars` cache whose series has a missing **trading-session** span between cached bars and now
+  (tail gap **or** internal hole) and the elapsed closure exceeds the timeframe's fetch window,
+  When the symbol/timeframe is loaded and all historical request(s) complete, Then the resulting
+  bar list is continuous over the span from the oldest displayed bar through now — bars exist for
+  every trading session, including every weekday in the missing span, with no artificial hole.
+  - Measurable (offscreen, no live TWS): drive the real load path with a seeded cache and a
+    stubbed historical feed; assert the resulting `ChartPanel._bars` (and `BarCache.get_bars`)
+    contain the expected per-trading-day bar counts for the missing weekdays and that the maximum
+    inter-bar gap **within** a trading session does not exceed one bar period. Run the assertion
+    **parameterized over all six timeframes** (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`,
+    `1 day`) and at least two symbols (Q39) — not `SPY 5 mins` alone.
+- **AC-D16.2 (both panels; Q37)** Given the same scenario, When the chart renders, Then **both**
+  the price candles and the volume bars are present across the backfilled span (the volume panel is
+  not empty where the price panel has bars).
+  - Measurable: the candle item data and the `volume_bars` `x`/`height` arrays both span the
+    backfilled timestamps with non-zero heights; a bar-list hole and a volume-panel hole fail
+    together.
+- **AC-D16.3 (genuine breaks stay empty; Q38)** Given a genuine market closure (weekend, holiday,
+  or overnight), When the chart renders, Then that interval is **empty** and is **not** counted as
+  a missing-bar defect; no bar is fabricated or interpolated across it and the time axis is **not**
+  compressed/collapsed. Only trading-session bars are required. **Dec 31 of a year whose next Jan 1 is a Saturday is NOT a genuine closure** and must not be treated as one — it is a trading day (`AC-D16.7`, ESC-023).
+- **AC-D16.4 (bounded by IBKR availability; chunking; Q37/Q39)** Given the requested span exceeds
+  what a single IBKR historical request returns (or exceeds IBKR retention), Then the app bridges
+  it with additional request(s) where possible (respecting `pacing_manager`), and where data
+  genuinely cannot be obtained the chart shows only the available bars and the shortfall is
+  **surfaced explicitly** (e.g., status-bar message and/or log) — never a silent hole. No bar is
+  ever fabricated to hide an unfillable gap.
+- **AC-D16.5 (reported repro — date range spanning 2026-09-19→2026-09-28)** Given a seeded
+  `SPY 5 mins` cache holding bars for 2026-09-14…2026-09-18 **and** bars for 2026-09-28…2026-10-02
+  with the span 2026-09-19…2026-09-27 missing, and "now" = 2026-10-02, When `SPY` `5 mins` is
+  loaded and requests complete, Then the bar list contains trading-session bars for **2026-09-21,
+  09-22, 09-23, 09-24 and 09-25** (the missing weekdays), contains **no** bars for the weekend days
+  2026-09-19/20 and 2026-09-26/27, and both the price candles and the volume bars render
+  continuously across 2026-09-19→2026-09-28 modulo those genuine closures.
+  - Measurable: per-weekday bar counts for 09/21–09/25 match the expected intraday cadence;
+    `get_bars` for the weekend timestamps returns none; the volume `height` array is non-zero
+    wherever a candle exists in the span.
+- **AC-D16.6 (no regression)** Given the fix, When the full offscreen suite runs, Then it remains
+  green and no existing acceptance criterion (D1–D15) regresses.
+- **AC-D16.7 (trading-day calendar — New Year's year-end accounting exception; ESC-023, corrected
+  2026-10-02)** Given the US-equity ET trading-day calendar, When `is_trading_day(date)` is
+  evaluated for the last calendar day of a year whose next January 1 is a **Saturday** (i.e. Dec 31
+  is that year's last trading day and the naive Saturday→preceding-Friday New Year's shift would
+  otherwise close it — e.g. `2021-12-31`, `2027-12-31`, `2032-12-31`, `2038-12-31`), Then it
+  returns **True**: that Friday is a **trading day**. The New Year's observed-day shift carries an
+  explicit **year-end accounting-period exception** (NYSE Rule 7.2) and MUST NOT mark Dec 31
+  closed, and MUST NOT substitute any other closure for it.
+  - Measurable (offscreen, no live TWS): `is_trading_day(date(2021, 12, 31)) is True`, and likewise
+    for `2027-12-31`, `2032-12-31` and `2038-12-31`; the following Monday of the Jan-1-Saturday
+    year (e.g. `2022-01-03`) remains a trading day.
+  - Unchanged (regression guard): the other weekend-falling fixed-date observed shifts remain
+    closures — Independence Day Sat `2026-07-04` → Fri `2026-07-03` closed; Christmas Sun
+    `2022-12-25` → Mon `2022-12-26` closed; Juneteenth Sat `2027-06-19` → Fri `2027-06-18` closed;
+    and New Year's Day on a Sunday (e.g. `2023-01-01`) is still observed the following Monday
+    (`2023-01-02` closed).
+  - Consequence binding `AC-D16.1`/`AC-D16.4`: a genuine missing-bar hole on such a Dec 31 is a
+    **missing trading session**, so it must be backfilled (`AC-D16.1`) or its shortfall surfaced
+    explicitly (`AC-D16.4`) — **never** classified as a genuine closure and left as a silent hole.
+
+**Correction record (ESC-023, 2026-10-02) — artifacts that must change:**
+- **Task Manager:** the `T37-T03` acceptance criterion in `docs/tasks/task-graph.json` currently
+  encodes "New Year's 2022-01-01 Saturday gives 2021-12-31 Friday closed" — this is **wrong** and
+  must be corrected to the year-end accounting exception (`AC-D16.7`); its test description and
+  expected result must change accordingly, and `2021-12-31`, `2027-12-31`, `2032-12-31`,
+  `2038-12-31` must be asserted **trading days**.
+- **Build:** `services/market_calendar.py::_observed` (as applied to New Year's Day) must not shift
+  the closure onto Dec 31, and the `T37-T03` assertions in `tests/test_market_calendar.py` (which
+  currently assert `is_trading_day(date(2021, 12, 31)) is False`, around `:105`–`:124`) must be
+  updated to the corrected convention. The remaining observed-shift cases and their assertions stay
+  unchanged.
+- **Code Reviewer:** re-verify ESC-023 on the next pass.
+
+**Edge Cases:**
+- Internal hole (**the reported repro**) — newer cached bars separated from an older block by a
+  missing trading-session span — must be healed, not only a tail gap after `MAX(ts)` (DG21).
+- App closed for less than the fetch window → no hole today; must stay that way.
+- App closed much longer than IBKR retention → the span cannot be filled; the chart must not
+  fabricate or interpolate bars and must surface the shortfall (`AC-D16.4`).
+- Ext Hours OFF vs ON changes `useRTH`; the backfill must respect the current setting and not
+  leave a hole because of a mode switch.
+- Symbol/timeframe switched while a backfill request is in flight → no cross-contamination
+  (`_current_req_id` filtering already exists — verify), and the new symbol/timeframe still gets its
+  own continuity treatment.
+- Empty cache / brand-new symbol → fetch the configured window and render it.
+- Cache end already at now (fresh) → no redundant requests; `INSERT OR REPLACE` dedupes any
+  overlap.
+- Weekend-only gap (cache ends Fri, reopened Mon) → must **not** be "filled"; renders as an empty
+  weekend (`AC-D16.3`).
+- A cache with a hole whose newest bar is older than the fetch window → covered by the same
+  mechanism (tail gap).
+- All timeframes and any symbol must behave identically (Q39), including `1 day` (which has a much
+  wider configured duration).
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -1095,6 +1313,13 @@ Chart; Q29 no-op semantics):**
 | A24 | D8 volume `nice_max` is generated by a continuous scaling formula whose mantissa set is **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`** (pinned by RG-002, resolved 2026-09-27, to reproduce the user-confirmed Q20 values `750K` and `1.5M`), not the original fixed list. **No fixed `10k` floor** (smallest generated value `100`) and **no fixed ceiling** (scales as `10^k`). The old list is retained **only** as a test fixture. | ESC-003/ESC-008 fix; RG-002 resolved 2026-09-27 — the family is pinned by confirmed Q20 evidence, so no further user confirmation is needed for the value set. Supersedes A12's list and removes the D8 10k floor | n | 2026-09-27 |
 | A25 | D2 chip **appearance and lane placement** (Y-axis lane outside the plot, right of the vertical axis line; grey pill with white text; axis-tick-label overlap permitted) is **CONFIRMED 2026-09-27** — the reference is the agreed target. **Scoped carve-out:** **dock-open visibility** (the chip must not be hidden by the Active Trader / Portfolio dock) is **NOT** covered by this reference and remains a separately verified acceptance criterion (`AC-D2.1`) + edge case requiring independent Code Reviewer verification after Build | Q33 answered 2026-09-27 by a design change; the user confirmed the appearance/placement reference on 2026-09-27 | y (appearance/placement) — dock-open visibility separately verified | 2026-09-27 |
 | A26 | **ESC-002 reverse direction (Q35):** selecting a drawing tool while the router is in `ZOOMING` **exits `ZOOMING` and activates the drawing tool**. Now a **requirement** (folded into `AC-D3.7` together with the forward direction), **CONFIRMED 2026-09-27** (flipped from provisional) | Originally carried as an assumption because only the forward direction had been answered; the user confirmed the reverse rule on 2026-09-27. Plan MUST encode it in the router transition table as required behaviour, not as an assumption | y | 2026-09-27 |
+| A27 | **D16 diagnosis:** the hole is caused by the delta fetch being anchored to *now* with the fixed `TIMEFRAME_CONFIG` duration instead of reaching the cached span / detecting a missing span; both the price and volume panels consume the same `_bars` list, so one bar-list fix serves both | Validated against the live `SPY 5 mins` cache (internal hole 2026-09-19…09-27 with newer bars 09/28+) and the current `load_chart`/`_refresh_candles` code; `get_last_timestamp` exists but is unused | y (repo-validated 2026-10-02) | 2026-10-02 |
+| A28 | IBKR will actually return the missing 5-min bars for 2026-09-21…2026-09-25 (the hole is within IBKR's intraday retention), so the backfill can fill it; if not, `AC-D16.4` applies (shortfall surfaced, no fabrication) | The span is ~1–2 weeks old at report time; IBKR normally retains 5-min data far longer. Not user-confirmable — a data-availability risk, not a requirements ambiguity | n | 2026-10-02 |
+| A29 | Genuine non-trading spans (weekend/holiday/overnight) render **empty** and are **not** compressed or filled; only missing **trading-session** bars count as the defect | **Q38 answered 2026-10-02** — user confirmed "stay empty"; collapsing non-trading time is out of scope (FS7) | y | 2026-10-02 |
+| A30 | The D16 fix and its verification apply to **all** timeframes (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`, `1 day`) and **any symbol**, not only `SPY 5 mins` | **Q39 answered 2026-10-02** — user confirmed "all timeframes + any symbol"; the fetch-window mechanism is timeframe-generic (`TIMEFRAME_CONFIG`) | y | 2026-10-02 |
+| A31 | Live/real-time bars are not persisted to the cache (only historical fetches call `BarCache.save_bars`); this is not the cause of the reported hole but is a related latent gap (see `design_gaps.md` DG18) and does not change D16, because the load-time backfill covers it | Code inspection: `_on_aggregated_bar` → `update_last_bar` only touches the in-memory `_bars`; only `_on_historical_data_end` calls `save_bars` | n | 2026-10-02 |
+| A32 | The Q37 phrase "from the last cached bar up to now" is implemented as an **outcome** requirement — the bar series is continuous over its displayed span — which necessarily heals the reported **internal** hole, not only a tail gap after `MAX(ts)` (a tail-only anchor would leave the reported hole unfixed) | The user's own goal in Q37 was "so the chart is continuous"; the reported repro is an internal discontinuity; recorded in `design_gaps.md` DG21 and observed by `AC-D16.1`/`AC-D16.5` | y (derived from Q37) | 2026-10-02 |
+| A33 | **ESC-023 correction — New Year's year-end accounting exception:** the US-equity New Year's observed-day shift does not apply when the preceding Friday is Dec 31; **Dec 31 is a trading day** when Jan 1 of the next year is a Saturday, and **no New Year's holiday is observed**. Only **actual** market holidays (shifted normally) and weekends are genuine closures | Code Reviewer ESC-023 (a naive Saturday→preceding-Friday shift closed Dec 31; wrong for US equities — NYSE Rule 7.2 year-end accounting-period exception; NYSE's own calendar states no New Year's Day holiday is observed when Jan 1 is a Saturday); user approved the correction 2026-10-02 | y (approved for correction 2026-10-02) | 2026-10-02 |
 
 ## Documentation Maintenance Requirements
 
@@ -1162,7 +1387,23 @@ Chart; Q29 no-op semantics):**
 | R19 | A UI-visual decision implemented without a confirmed visual reference (the D5→D8 failure mode) | M | M | AC-G.1 visual gate: no UI-visual fix proceeds until its `Visual reference:` line names a user-confirmed artifact; otherwise it is a provisional assumption (A21–A26) |
 | R20 | D8 `nice_max` scaling formula changes the axis values of already-built (Batch 4) behaviour, invalidating the old fixed-list test | L | M | Keep the old list only as a fixture; update `tests/test_volume_linear.py` to the pinned `1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k` scale (AC-D8.4/8.5) — `1_050_000 → 1_500_000` and `2_200_000 → 2_500_000` are already correct, but `_nice_volume_max(0)` must become `100` (not `10_000`) per AC-D8.4 |
 | R21 | D11 drawing price labels (inside the plot) can stack when a label run overflows the pane; the crosshair chip no longer shares that lane | L | M | Chip moved to the Y-axis lane (D2/Q33), so `AC-D11.4` is **label-vs-label only** (`>= 15 px` stacking, clamped to `view_rect.bottom()`); chip-vs-label priority no longer applies (ESC-006 re-scope by Code Reviewer) |
+| R22 | D16 backfill of a very long closure could exceed IBKR pacing/bar limits if requested in one call | M | M | Chunk requests, respect `pacing_manager`, and bound each request's duration; surface any shortfall (`AC-D16.4`) |
+| R23 | Backfilling/displaying a much larger cached range could degrade chart load/render performance for large caches | M | M | Keep the load O(N) and verify offscreen with a large seeded cache; bound displayed bars if needed; chunk backfill asynchronously |
+| R24 | A naive "no gaps" rule could wrongly try to fill genuine closures/holidays | M | L | `AC-D16.3` scopes the requirement to trading-session bars only (Q38 confirmed): weekends/holidays/overnight stay empty and are not interpolated |
+| R25 | ~~`requirements.md` was missing the literal existing-repo marker, so downstream agents could treat this repo as greenfield~~ **Fixed and stable** — the **Existing Repository** section (marker sentence + **Current Tech Stack**) is present and preserved on every rewrite | — | — | Retained as a standing rule: never drop, reword, or restructure away the marker sentence or the Current Tech Stack |
+| R26 | D16's reported repro is an **internal** cache hole (newer bars cached after an older block); a tail-only "anchor to `MAX(ts)`" implementation would leave it unfixed and the defect would appear unresolved | M | M | `AC-D16.1`/`AC-D16.5` require continuity across the displayed span including internal holes; DG21 directs Plan to detect the missing span from the cached series, not just `MAX(ts)` |
+| R27 | A naive Saturday→preceding-Friday observed shift can mark a genuine trading day (Dec 31) as a market closure, so a real bar hole there is misclassified as a "genuine closure" and left as a silent hole (ESC-023) | M | L | `AC-D16.7` states the explicit year-end accounting exception and `AC-D16.3` excludes Dec 31 of a Jan-1-Saturday year from "genuine closure"; Task Manager corrects `T37-T03`, Build updates `market_calendar` and its test, and Code Reviewer re-verifies ESC-023 |
 
 ---
+
+## Status
+
+**Status: READY_FOR_PLAN** — D16 (historical-bar hole, reported 2026-10-02) is **clarified and
+finalised**: Q37–Q39 were answered 2026-10-02 and the **ESC-023** correction was applied
+2026-10-02, so `AC-D16.1`–`AC-D16.7` are settled (price **and** volume panels, a date range
+spanning 2026-09-19→2026-09-28, all timeframes plus any symbol, and the New Year's year-end
+accounting exception so Dec 31 stays open when Jan 1 is a Saturday). No blocking open question
+remains. The D1–D15 batch remains built and green. The Existing Repository section (marker
+sentence + Current Tech Stack) is preserved.
 
 Status: READY_FOR_PLAN

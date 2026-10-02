@@ -184,3 +184,73 @@
 - **Why it matters:** "Double-click anywhere on the row" must be distinguished from header/empty-area clicks and from same-symbol/disconnected no-ops; otherwise single-click selection could be mistaken for a load or a disconnected double-click could queue a request.
 - **Suggested resolution:** Wire `QTableWidget.cellDoubleClicked(int,int)` and resolve row Symbol via `COL_SYMBOL`; ignore when `row<0` or `symbol` empty/header; case-insensitive compare to `_current_symbol` for no-op; check `ConnectionState` / `load_btn.isEnabled()` before issuing `req_historical_data`; show status message on disconnected as specified. See Q27–Q29, A18–A19, R16.
 - **Status:** open
+
+
+---
+
+## DG18 — D16: live/real-time bars are never persisted to the cache
+- **Where it shows up:** D16 / Journey 17; `ui/main_window.py::_on_aggregated_bar` →
+  `ChartPanel.update_last_bar` vs `_on_historical_data_end` → `BarCache.save_bars`.
+- **Why it matters:** only historical fetches call `BarCache.save_bars`; bars aggregated
+  from the live stream update the in-memory `_bars` but are lost on restart. This is not the
+  cause of the reported 09/20–09/27 hole (the app was most likely closed), but if the app
+  *was* running across those days, live bars would not have survived a restart. The
+  load-time backfill (D16) covers the visible hole either way.
+- **Suggested resolution:** out of D16's minimal scope; if live-bar persistence is wanted,
+  add a periodic/on-close `save_bars` of the current session's bars as a separate item.
+- **Status:** open (non-blocking; surfaced for awareness)
+
+## DG19 — D16: IBKR per-request duration/bar limits vs a long backfill
+- **Where it shows up:** D16 / `AC-D16.4`; `TIMEFRAME_CONFIG` is a single fixed duration per
+  timeframe.
+- **Why it matters:** if the cache gap exceeds what one IBKR request returns for that bar
+  size, a single enlarged request may still leave a hole. The fix must chunk or the
+  shortfall must be surfaced.
+- **Suggested resolution:** chunk backfill requests (respecting `pacing_manager`) or size a
+  single request to the gap when within IBKR limits; document the bound.
+- **Status:** open (non-blocking; implementation detail for Plan, but it constrains
+  `AC-D16.4`)
+
+## DG20 — D16: no user-facing date-range control exists
+- **Where it shows up:** D16 / Journey 17.
+- **Why it matters:** the chart auto-frames all cached bars; there is no way for the user to
+  request a specific window. This is why a cache hole is immediately visible and why the
+  fix is about the load/backfill path rather than a display filter.
+- **Suggested resolution:** keep auto-framing; D16 backfills the underlying bar list. A
+  date-range selector, if wanted, is a feature suggestion (see `feature_suggestions.md`
+  FS6), not part of D16.
+- **Status:** open (non-blocking; informational)
+
+## DG21 — D16: the literal "last cached bar" anchor does not heal the reported internal hole
+- **Where it shows up:** D16 / Journey 17 / `AC-D16.1`, `AC-D16.5`; `ui/main_window.py::load_chart`.
+- **Why it matters:** The Q37 answer says "backfill the whole gap from the last cached bar up to
+  now", but the reported repro cache is an **internal** discontinuity: `SPY 5 mins` holds bars
+  through Fri 2026-09-18 **and** bars for 2026-09-28…now, with 2026-09-19…2026-09-27 missing. A fix
+  anchored only to `BarCache.get_last_timestamp` (`MAX(ts)` = the 09/28+ block) would see no gap and
+  leave the reported hole unfixed. `get_last_timestamp` exists (`data/bar_cache.py:33`) but is not
+  used by `load_chart`, which fetches `endDateTime=""` with the fixed `TIMEFRAME_CONFIG` duration
+  (`ui/main_window.py:430–444`).
+- **Suggested resolution:** State the requirement as an outcome (continuous bar series over the
+  displayed span) — already done in `AC-D16.1`/`AC-D16.5` — and have Plan detect the missing span
+  from the cached series (e.g., the largest gap between consecutive cached blocks, or between the
+  last pre-gap bar and now) rather than only `MAX(ts)`, then backfill that span in chunks. The
+  tail-gap case is a special case of the same mechanism.
+- **Status:** open (non-blocking; recorded so Plan does **not** implement a tail-only anchor that
+  silently leaves the reported hole in place).
+
+---
+
+## DG22 — D16 calendar encoded the wrong New Year's observed-day convention (ESC-023)
+- **Where it shows up:** D16 / Journey 17 / `services/market_calendar.py::_observed` →
+  `is_trading_day`; the `T37-T03` acceptance criterion in `docs/tasks/task-graph.json`; and
+  `tests/test_market_calendar.py`.
+- **Why it matters:** the naive Saturday→preceding-Friday shift marked **Dec 31** (the year-end
+  accounting date) as closed in every year whose Jan 1 is a Saturday, so a genuine missing-bar hole
+  on that day would be misclassified as a "genuine closure" and left as a **silent hole**
+  (`AC-D16.1`/`AC-D16.4`). Latent; next occurrence `2027-12-31`.
+- **Suggested resolution:** state the explicit year-end accounting-period exception (`AC-D16.7`):
+  when Jan 1 is a Saturday, no New Year's holiday is observed and Dec 31 stays a trading day; Task
+  Manager corrects `T37-T03`; Build updates the observed-shift rule and its test; Code Reviewer
+  re-verifies ESC-023.
+- **Status:** resolved (requirement corrected 2026-10-02 — `AC-D16.7`; implementation change tracked
+  under ESC-023).

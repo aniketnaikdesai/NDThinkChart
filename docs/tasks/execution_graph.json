@@ -1,475 +1,80 @@
 {
   "nodes": [
     {
-      "id": "T1",
+      "id": "T37",
       "type": "Task",
-      "title": "Implement pure session band computation service (D1)"
+      "title": "Implement the ET trading-day/holiday calendar service incl. the ESC-023 New Year's year-end exception (D16)"
     },
     {
-      "id": "T2",
+      "id": "T38",
       "type": "Task",
-      "title": "Render pre/post session shading in chart (D1)"
+      "title": "Implement the pure missing-span and chunk-request planner (D16)"
     },
     {
-      "id": "T3",
+      "id": "T39",
       "type": "Task",
-      "title": "Right-align crosshair price chip inside plot (D2)"
+      "title": "Make the MainWindow load path backfill the whole gap with correlated multi-request orchestration (D16)"
     },
     {
-      "id": "T4",
+      "id": "T40",
       "type": "Task",
-      "title": "Add zoom control cluster widget top-right outlined (D3)"
+      "title": "Offscreen end-to-end verification of D16 whole-gap backfill (panels, closures, chunking, switch safety)"
     },
     {
-      "id": "T5",
+      "id": "T41",
       "type": "Task",
-      "title": "Implement zoom in/out around centre and reset to default framing (D3)"
+      "title": "D16 verification and regression gate (full offscreen suite, unchanged render path)"
     },
     {
-      "id": "T6",
+      "id": "T42",
       "type": "Task",
-      "title": "Implement magnifier area-zoom with router precedence and cancel (D3)"
+      "title": "ESC-023 correction regression gate (full offscreen suite, corrected calendar consumed unchanged)"
     },
     {
-      "id": "T7",
+      "id": "T43",
       "type": "Task",
-      "title": "Verification and regression hardening (Global)"
+      "title": "Cancel and finalise the backfill wave on disconnect or a stalled request so the shortfall is surfaced (D16 / ESC-024)"
     },
     {
-      "id": "T8",
+      "id": "T44",
       "type": "Task",
-      "title": "Refine zoom control magnifier glyph to 21px (D4)"
-    },
-    {
-      "id": "T9",
-      "type": "Task",
-      "title": "Render candlestick wick as 1 device-pixel behind body (D6)"
-    },
-    {
-      "id": "T10",
-      "type": "Task",
-      "title": "Verification and regression for Batch 2 (D4–D6)"
-    },
-    {
-      "id": "T11",
-      "type": "Task",
-      "title": "Increase inter-candle gap to 35% (D7)"
-    },
-    {
-      "id": "T12",
-      "type": "Task",
-      "title": "Make volume Y linear with dynamic nice ticks and price-coloured bars (D8)"
-    },
-    {
-      "id": "T13",
-      "type": "Task",
-      "title": "Make volume bar width follow price candle width (D9)"
-    },
-    {
-      "id": "T14",
-      "type": "Task",
-      "title": "Add volume panel show/hide toggle at top left of volume panel (D10)"
-    },
-    {
-      "id": "T15",
-      "type": "Task",
-      "title": "Render drawing price labels on inner right side of chart (D11)"
-    },
-    {
-      "id": "T16",
-      "type": "Task",
-      "title": "Open zone settings popup on double-click with 4 tabs (D12)"
-    },
-    {
-      "id": "T17",
-      "type": "Task",
-      "title": "Make watchlist dock resizable to 50% with persistence (D13)"
-    },
-    {
-      "id": "T18",
-      "type": "Task",
-      "title": "Double-click watchlist row loads chart identical to Load Chart (D14)"
-    },
-    {
-      "id": "T19",
-      "type": "Task",
-      "title": "Double-click horizontal line opens settings popup with 4 tabs (D15)"
-    },
-    {
-      "id": "T20",
-      "type": "Task",
-      "title": "Verification and regression for Batches 3–9 (D7–D15)"
-    },
-    {
-      "id": "T21",
-      "type": "Task",
-      "title": "Replace tri-boolean precedence with the RouterMode state machine (Phase R1 / ESC-002)"
-    },
-    {
-      "id": "T22",
-      "type": "Task",
-      "title": "Replace the fixed volume nice list with the 1/1.5/2/2.5/5/7.5x10^k scaling generator (ESC-003/ESC-008)"
-    },
-    {
-      "id": "T23",
-      "type": "Task",
-      "title": "Track the live volume ceiling in O(1) against a cached running max (ESC-007)"
-    },
-    {
-      "id": "T24",
-      "type": "Task",
-      "title": "Relocate the crosshair price chip to the Y-axis lane as a grey pill with white text (Phase R2 / D2 Q33)"
-    },
-    {
-      "id": "T25",
-      "type": "Task",
-      "title": "Re-scope D11 label collision to label-vs-label inside the plot (ESC-006 / AC-D11.4)"
-    },
-    {
-      "id": "T26",
-      "type": "Task",
-      "title": "Deduplicate the data/db.py _init_schema definition and add the schema regression test (ESC-001/DOC-3)"
-    },
-    {
-      "id": "T27",
-      "type": "Task",
-      "title": "Correct the D10 volume toggle affordance to the checkable text label Volume (RC-4a)"
-    },
-    {
-      "id": "T28",
-      "type": "Task",
-      "title": "Add the combined D10 + D13 integration test (hide volume and drag the watchlist to its max clamp) (ESC-005)"
-    },
-    {
-      "id": "T29",
-      "type": "Task",
-      "title": "Add DPR=2 parametrized coverage for the wick/body clamp and label positioning (ESC-009)"
-    },
-    {
-      "id": "T30",
-      "type": "Task",
-      "title": "Reset the router mode on symbol change and add the D14 mid-drag regression test (ESC-010 / TR-17 / AC-D14.4)"
-    },
-    {
-      "id": "T31",
-      "type": "Task",
-      "title": "Verification and regression for the ESC revision (R1/R2 + ESC-001/003/005/006/007/008/009/010/013/014/015/016/017)"
-    },
-    {
-      "id": "T32",
-      "type": "Task",
-      "title": "Fix the D6 dense-view candle body clamp ordering (ESC-013)"
-    },
-    {
-      "id": "T33",
-      "type": "Task",
-      "title": "Stack D11 drawing labels by measured bbox height (ESC-014)"
-    },
-    {
-      "id": "T34",
-      "type": "Task",
-      "title": "Update tests/test_volume_log.py to the pinned nice-family expectation (ESC-015)"
-    },
-    {
-      "id": "T35",
-      "type": "Task",
-      "title": "Update stale crosshair-chip assertions to the Y-axis-lane contract (ESC-016)"
-    },
-    {
-      "id": "T36",
-      "type": "Task",
-      "title": "Sync MainWindow.draw_combo to Cursor when the router clears the drawing tool (ESC-017)"
+      "title": "Disarm the backfill wave watchdog in closeEvent and make the stranded-wave reason diagnostic live (D16 / ESC-025)"
     }
   ],
   "edges": [
     {
-      "source": "T2",
-      "target": "T1",
+      "source": "T38",
+      "target": "T37",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T3",
-      "target": "T2",
+      "source": "T39",
+      "target": "T38",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T4",
-      "target": "T3",
+      "source": "T40",
+      "target": "T39",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T5",
-      "target": "T4",
+      "source": "T41",
+      "target": "T40",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T6",
-      "target": "T5",
+      "source": "T42",
+      "target": "T37",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T7",
-      "target": "T1",
+      "source": "T43",
+      "target": "T39",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T7",
-      "target": "T2",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T7",
-      "target": "T3",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T7",
-      "target": "T4",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T7",
-      "target": "T5",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T7",
-      "target": "T6",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T8",
-      "target": "T7",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T9",
-      "target": "T7",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T10",
-      "target": "T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T10",
-      "target": "T9",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T11",
-      "target": "T10",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T12",
-      "target": "T11",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T13",
-      "target": "T12",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T14",
-      "target": "T13",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T15",
-      "target": "T14",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T16",
-      "target": "T15",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T17",
-      "target": "T16",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T18",
-      "target": "T17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T19",
-      "target": "T18",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T11",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T12",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T13",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T14",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T15",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T16",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T18",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T20",
-      "target": "T19",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T22",
-      "target": "T21",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T23",
-      "target": "T22",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T24",
-      "target": "T23",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T27",
-      "target": "T24",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T28",
-      "target": "T27",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T28",
-      "target": "T17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T30",
-      "target": "T28",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T30",
-      "target": "T18",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T21",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T22",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T23",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T24",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T26",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T27",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T28",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T30",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T32",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T33",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T34",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T35",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T31",
-      "target": "T36",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T32",
-      "target": "T30",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T36",
-      "target": "T21",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T25",
-      "target": "T33",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "T29",
-      "target": "T32",
+      "source": "T44",
+      "target": "T43",
       "type": "DEPENDS_ON"
     }
   ]

@@ -126,3 +126,69 @@ derived TR-9 and **retires PA-R1**; revision 2 rewrites TR-9 accordingly. Valida
 pass 2 confirms the cell is total and refuses zoom. Block cleared.
 
 **Escalation:** ESCALATED_TO_REQUIREMENTS — resolved 2026-09-27 (folded into `AC-D3.9`).
+
+---
+
+## FI-D16-1 — AC-D16.1's per-bar cadence measurable cannot hold for illiquid symbols
+
+**Requirement/Journey:** `AC-D16.1` (measurable clause), against Q39 / A30 ("any symbol");
+D16, Journey 17; raised by Plan as Flagged Issue FI-D16-1.
+
+**Problem:** `AC-D16.1`'s measurable clause requires that "the maximum inter-bar gap
+**within** a trading session does not exceed one bar period", asserted parameterized over
+all six timeframes and at least two symbols. IBKR omits bars for periods with no trades, so
+a thinly traded symbol (or an empty pre-market period) legitimately has inter-bar gaps
+larger than one bar period even with a complete, correct bar list. Asserting cadence for
+"any symbol" against real illiquid data would fail on correct data and would push the fix
+toward fabricating/interpolating bars — which `AC-D16.3` and `AC-D16.4` explicitly forbid.
+
+**Why it cannot be satisfied as currently written:** taken literally over live illiquid
+symbols, the cadence clause contradicts the requirement's own no-fabrication clauses
+(`AC-D16.3`/`AC-D16.4`). However, the measurable procedure in `AC-D16.1` is explicitly an
+**offscreen test with a seeded cache and a stubbed historical feed**, so the test controls
+the bar series and cadence is assertable there.
+
+**Resolution (accepted by Validator, 2026-10-02 — no Requirements escalation):** the
+cadence assertion is applied to the **stubbed/liquid test scenarios** (the `SPY 5 mins`
+repro and a liquid second symbol per timeframe), and for illiquid symbols the requirement is
+satisfied by **session-presence** continuity (every trading session has ≥1 bar). The
+mechanism stays symbol-generic (Q39). This keeps the fix honest and matches the defect
+class. Carried into `docs/plan.md` as `PA-D16-7` and into `docs/architecture.md`
+(detection granularity + risks).
+
+**Status:** addressed — accepted interpretation; no escalation.
+
+**Escalation:** none (satisfiable under `AC-D16.1`'s offscreen stubbed-feed measurable
+clause).
+
+---
+
+## FI-D16-2 — "any symbol" vs an equity holiday calendar for instruments that trade US equity holidays
+
+**Requirement/Journey:** Q39 / A30 ("any symbol"), `AC-D16.3` (holidays are closures);
+D16, Journey 17; also `design_gaps.md` DG1 (open); raised by Plan as Flagged Issue FI-D16-2.
+
+**Problem:** a calendar that treats a US equity holiday as non-trading is wrong for futures
+(which trade some of those days), while a per-instrument calendar is not feasible from the
+current contract model. One calendar cannot be simultaneously correct for equities and for
+all futures. So the literal "any symbol" continuity guarantee cannot hold for every
+instrument under a single equity calendar.
+
+**Why it cannot be satisfied as currently written:** a single equity holiday calendar is
+not simultaneously correct for equities and futures. But the requirement does not ask for
+per-instrument session modelling; Q39/A30 asks that the **fix and its verification be
+symbol-generic**, and D1 already accepted the equity-session model as the default for every
+symbol (A7 / DG1 / `services/session_service.py`).
+
+**Resolution (accepted by Validator, 2026-10-02 — no Requirements escalation):** D16's
+continuity guarantee is scoped to the **accepted equity-session model** (the existing
+DG1/A7/D1 default), which is a standing accepted decision, not a new one. The futures
+caveat is recorded (PA-D16-3, architecture risk row, DG1 remains the tracked open design
+gap). If truly symbol-generic per-instrument session handling is ever required, that is a
+separate requirements change for the Requirements Analyst — it is not needed to satisfy
+`AC-D16.1`–`AC-D16.6` for the reported defect and the accepted model.
+
+**Status:** addressed — accepted interpretation; no escalation.
+
+**Escalation:** none (satisfiable under the accepted equity-session default; futures caveat
+recorded, DG1 retained).

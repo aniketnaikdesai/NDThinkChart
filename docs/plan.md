@@ -1,219 +1,215 @@
-# Implementation Plan — NDThinkChart Stabilization (Batch 3–9: D7–D15 + ESC-002/003/006/007 revision)
+# Implementation Plan — NDThinkChart Stabilization (Batch 10: D16 historical-bar gap backfill; ESC-023 calendar correction)
 
-Scope: the Batch 3–9 refinements in `docs/requirements/requirements.md` (D7–D15)
-**plus** the validated revision (2026-09-27) — the ESC-002 gesture state machine
-(`AC-D3.7`–`AC-D3.9`), the ESC-003/ESC-007/ESC-008 volume nice-number formula and live
-ceiling (`AC-D8.1`–`AC-D8.7`), the re-opened D2/Q33 crosshair-chip relocation
-(`AC-D2.1`–`AC-D2.3`), and the ESC-006 `AC-D11.4` re-scope. This is a stabilization
-run; no new features, no schema changes, no new integrations. Items are labelled
-`[existing]`, `[new]`, or `[new/changed]`.
+Scope: the current stabilization batch is **D16 only** — backfill of missing historical
+bars across a cache/reopen gap (reported 2026-10-02). It is planned on top of the
+**as-built, frozen D1–D15 baseline** (383 passed, verified 2026-09-28). D1–D15 are **not**
+re-planned. This is an existing-repo run: items are labelled `[existing]`, `[new]`, or
+`[new/changed]`; the existing tech stack is a hard constraint and nothing existing is
+replaced. No new product features, no schema changes, no new external integrations.
 
-## Completed — Batch 1 and Batch 2
-Batch 1 (D1–D3: session shading, crosshair chip, zoom controls/magnifier) and
-Batch 2 (D4–D6: zoom label/position, volume log, pixel-stable wick) were approved,
-built, and verified, plus the 2026-09-19 `DrawingOverlay` drag-lifecycle runtime
-stability fix (see `docs/build/build_log.md` and `docs/debug/debug_log.md`). Note:
-**D8 supersedes D5’s log decision** — the volume axis returns to linear. The
-Batch-1 crosshair chip was an inside-plot right-align; **D2/Q33 now supersedes it**
-(chip moves to the Y-axis lane).
+D16 Phases 1–3 below are **built** (tasks T37–T41, all `done`). The sole **active
+increment** in this pass is **Phase 4 — the ESC-023 New Year's trading-day calendar
+correction** (`AC-D16.7`, A33, R27, DG22), which is a behaviour/acceptance-criterion
+correction, not a new subsystem. It does **not** re-plan any other part of D16.
+
+> Companion architecture: `docs/architecture.md` (Codebase Summary, D16 tech-stack rows,
+> D16 components/data-model/integration/non-functional/risk sections). Requirements:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`; D16 / Journey 17 /
+> `AC-D16.1`–`AC-D16.7` / A27–A33 / R22–R27 / DG19–DG22; ESC-023 correction 2026-10-02).
+
+## Completed baseline — D1–D15 (as-built, frozen)
+D1–D15 (session shading, crosshair chip, zoom controls/magnifier, zoom label/position,
+linear volume axis with the pinned scaling nice-max + live ceiling, price-coloured volume,
+volume/price width alignment, volume show/hide, inner-right drawing labels, zone and
+horizontal-line double-click dialogs, resizable/persistent watchlist with double-click load,
+and the `RouterMode` gesture state machine incl. the ESC-002/003/006/007 revision and the
+ESC-013…ESC-021 rework) are **built and verified** (tasks T1–T36 `done`; full offscreen
+suite green). They remain frozen and are not modified by D16. See `docs/architecture.md`
+for the as-built description.
 
 ## Phases
 
-### Phase R1 (NEW) — Router state machine (ESC-002, `AC-D3.9`, RC-3, RC-4b)
-- **Goal:** Replace the implicit tri-boolean precedence in
-  `ui/chart_mouse_router.py` (`ZoomOverlay.is_active()` / `DrawingOverlay.tool_active()` /
-  `AlarmOverlay.is_alarm_mode()`, resolved only by call order) with an explicit
-  `RouterMode { IDLE, DRAWING, ZOOMING, ALARM_PLACING }`, a single `_active_mode`, a
-  guard clause at the top of every handler, and the **total normative transition table**
-  (`docs/architecture.md` → “Router state machine”), including TR-4 (`AC-D3.7`
-  forward), TR-5 (`AC-D3.7` reverse), TR-6 (`AC-D3.8`), and **TR-9** (`AC-D3.9` —
-  magnifier refused during alarm placement: mode unchanged, placement intact, status
-  hint). Implement the **RC-3** reconciliation (properties whose setters call
-  `_reconcile_mode_from_overlays()`, precedence `DRAWING > ZOOMING > ALARM_PLACING >
-  IDLE`, defensive probes) so the five preserved router tests pass verbatim; document
-  the **RC-4b** `view_mouse_click`-in-`DRAWING` behaviour. The router is the single
-  writer of `_active_mode`; `ChartPanel.set_zoom_mode`/`set_drawing_tool`/`set_alarm_mode`
-  become thin adapters (signatures unchanged), plus a `zoom_refused` signal connected in
-  `MainWindow` to `status_bar.showMessage(...)` for `AC-D3.9`.
-- **Named tests:** new `test_zoom_during_draw_cancels_draw`,
-  `test_draw_blocked_during_zoom` (asserts the confirmed reverse rule),
-  `test_alarm_placement_blocks_zoom`, `test_magnifier_refused_during_alarm_placement`,
-  `test_click_in_drawing_reaches_only_drawing`; mode-model
-  `test_router_mode_is_mutually_exclusive`, `test_zoom_stays_active_after_completed_zoom`,
-  `test_esc_cancels_selection_not_mode`, `test_reconcile_mode_from_wired_overlays`;
-  preserved verbatim `test_alarm_press_wins_in_cursor_mode`,
-  `test_drawing_tool_blocks_alarm_press`, `test_alarm_miss_falls_through_to_drawing`,
-  `test_click_prefers_alarm_then_drawing`, `test_missing_overlays_are_safe`.
-- **Requirements / journeys covered:** `AC-D3.7` (both directions), `AC-D3.8`,
-  `AC-D3.9`, `AC-D3.3`, `AC-D3.4`; Journey 4 edge cases; ESC-002.
-- **Files `[new/changed]`:** `ui/chart_mouse_router.py`, `ui/chart_panel.py`
-  (adapters + `zoom_refused`), `ui/main_window.py` (one status-bar connection),
-  `tests/test_chart_mouse_router.py`.
-- **Dependencies on earlier phases:** None. **Must be its own wave** — it modifies
-  `ui/chart_panel.py` (also touched by R2/Phase 1/Phase 3) and `ui/main_window.py`
-  (also touched by Phase 4).
+> **Build status:** Phases 1–3 are **built** (T37–T41, all `done`) and are listed for
+> completeness; **Phase 4 is the one active increment** in this pass (ESC-023 /
+> `AC-D16.7`). Nothing else in D16 is re-planned.
 
-### Phase R2 (NEW) — D2/Q33 crosshair chip relocation (RC-2)
-- **Goal:** Move `_price_tag` from the Batch-1 **inside-plot** right-aligned position
-  (`view_rect.right() - 2`) to the **Y-axis lane outside the plot**, right of the
-  plot’s vertical axis line; render it as a **grey pill with white text**
-  (`anchor=(0,0.5)`), and **permit** axis-tick-label overlap (no deconfliction offset).
-  Retain the show-only-inside-plot / hide-on-leave behaviour (`AC-D2.3`) and pan/zoom
-  tracking (`AC-D2.2`). Because this **re-opens the original D2 defect surface**,
-  dock-open visibility (`AC-D2.1` + edge case) must be **independently verified by the
-  Code Reviewer after Build** (A25) — the Batch-1 fix must not be assumed to still hold.
-- **D11 re-scope:** `AC-D11.4` applies to **label-vs-label stacking inside the plot
-  only**; the chip is lane-separated and out of scope for that criterion (ESC-006).
-- **Named test:** `test_crosshair_chip_renders_in_axis_lane` (chip scene
-  `x >= view_rect.right()`, left anchor, grey fill, white text). The dock-open check is
-  the Code Reviewer’s independent verification.
-- **Requirements covered:** D2 (`AC-D2.1`–`AC-D2.3`), Q33/A25; `AC-D11.4`.
-- **Files `[new/changed]`:** `ui/chart_panel.py`; new/updated crosshair test `[new]`.
-- **Dependencies on earlier phases:** None, but shares `ui/chart_panel.py` with
-  R1/Phase 1/Phase 3 (serial chain).
+### Phase 1 — Backfill planning (pure services) `[new]`
+- **Goal:** Add the pure, Qt-free decision layer that says *which* historical spans are
+  missing and *how* to request them — the trading calendar and the missing-span/request
+  planner. No UI, no TWS.
+- **Deliverables:**
+  - `services/market_calendar.py` — ET trading-day/holiday calendar (holidays by rule;
+    New Year's carries the `AC-D16.7` year-end accounting exception — Dec 31 stays a
+    trading day when the next Jan 1 is a Saturday); `is_trading_day`,
+    `trading_days(start_ts, end_ts)`, `session_windows(...)`.
+  - `services/backfill_service.py` — `bar_period_seconds`, `find_missing_spans(
+    cached_ts, now_ts, timeframe)`, `plan_requests(missing_spans, timeframe)` (chunk step =
+    `TIMEFRAME_CONFIG[timeframe]["duration"]`; anchors formatted with the existing
+    `ui.main_window._ibkr_end_date` behaviour, factored so the pure service does not import
+    Qt).
+- **Requirements / journeys covered:** Journey 17; D16; `AC-D16.1`, `AC-D16.3`,
+  `AC-D16.4`, `AC-D16.5` (planning halves); A27, A29, A32; DG21; DG19.
+- **Dependencies on earlier phases:** none.
 
-### Phase 1 (AMENDED) — Chart geometry: gap, volume width, volume axis (D7, D9, D8)
-Canonical Phase 1 stands, with two amendments:
-- **Amendment A — nice-number formula (`AC-D8.1`–`AC-D8.5`; RC-1 / ESC-003/ESC-008,
-  RG-002 resolved).** Replace the fixed list with **one** pure, importable generator
-  over **one** candidate family **`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`**, floor `100`,
-  no fixed ceiling: `nice_max = smallest family value >= max_vol * 1.1`;
-  `max_vol == 0 → 100`. The original list becomes a **test fixture only**. Of
-  `tests/test_volume_linear.py:57–61`, **only** `_nice_volume_max(0) == 10_000` changes
-  (→ `100`); the `8_000`, `80_000`, `2_200_000`, `1_050_000` assertions stay valid.
-- **Amendment B — live ceiling (`AC-D8.6`/`AC-D8.7`; ESC-007).** The volume ceiling also
-  updates on RT volume changes in **O(1) against a cached running max** (only-widen),
-  and `auto_range=False` refresh paths (`set_timezone()`) re-apply the cached ceiling.
-  Named tests: `test_volume_ceiling_tracks_live_bar`,
-  `test_volume_ceiling_refit_on_timezone_refresh`.
-- **Requirements / journeys covered:** D7 (`AC-D7.1`–`7.2`), D9 (`AC-D9.1`–`9.2`),
-  D8 (`AC-D8.1`–`AC-D8.7`); A11, A24, R9, R10, R20; DG8, DG9; Journey 8/9/10.
-- **Files:** `ui/candlestick_item.py` `[new/changed]`, `ui/chart_panel.py`
-  `[new/changed]`, `tests/test_volume_linear.py` + new volume-ceiling tests
-  `[new/changed]`.
-- **Dependencies on earlier phases:** None technically; shares `ui/chart_panel.py`
-  with R1/R2/Phase 3 (serial chain).
+### Phase 2 — Load-path backfill orchestration (multi-request) `[new/changed]`
+- **Goal:** Make `MainWindow` issue and correlate the chunk set, accumulate results, and
+  finalise with a single save + re-read + render — keeping the single-request path
+  behaviourally intact as a set of one.
+- **Deliverables:** `[new/changed] ui/main_window.py`:
+  - `load_chart` calls the planner; empty plan + current cache → **no redundant request**
+    (edge case "cache end already at now"); otherwise issues one `req_historical_data` per
+    `RequestPlan` using the existing `endDateTime` parameter (no `market_data.py` change).
+    Empty cache → the configured-window fallback.
+  - Multi-id state: `_history_req_ids: set[int]`, `_history_generation: int`,
+    `_backfill_missing_spans`, `_backfill_failed_req_ids`; `_on_historical_bar` /
+    `_on_historical_data_end` accept members and finalise only when the set empties.
+  - Symbol/timeframe switch and `closeEvent` cancel **every** id in the set (extend the
+    current single-id cancellation).
+  - `_on_error` correlates a failed backfill reqId with its span and removes it from
+    `_history_req_ids` so the wave can still finalise (required by `AC-D16.4`).
+  - **Shortfall surfacing** (`AC-D16.4`): status-bar message + log when a backfill request
+    errors or a trading day is still empty after the wave; never fabricate a bar.
+- **Requirements / journeys covered:** Journey 17; `AC-D16.1`, `AC-D16.2`, `AC-D16.4`,
+  `AC-D16.5`; edge cases (internal hole, tail gap, closures, Ext Hours, switch mid-flight,
+  empty cache, fresh cache, retention shortfall); A28, A31.
+- **Dependencies on earlier phases:** Phase 1 (its planner is the input).
 
-### Phase 2 (AMENDED) — Drawing visuals: inner-right labels + double-click dialogs (D11, D12, D15)
-Canonical Phase 2 stands. `AC-D11.4` is scoped to **label-vs-label stacking** only —
-the crosshair chip now lives in the Y-axis lane (D2/Q33), so chip-vs-label
-deconfliction is retired (ESC-006). Files: `ui/drawing_overlay.py` `[new/changed]` and
-the two dialogs `[new]`.
-- **Requirements / journeys covered:** D11 (`AC-D11.1`–`AC-D11.5`), D12
-  (`AC-D12.1`–`AC-D12.3`), D15 (`AC-D15.1`–`AC-D15.3`); A15, A16, A20; R13, R14, R18,
-  R21; Journeys 12/13/16.
-- **Dependencies on earlier phases:** None technically; shares `ui/drawing_overlay.py`
-  with the Phase-4 mode-reset amendment (serial).
+### Phase 3 — Verification & regression `[new]`
+- **Goal:** Prove D16 end-to-end offscreen (no live TWS) and prove no D1–D15 regression.
+- **Deliverables (tests):**
+  - `tests/test_market_calendar.py` — weekends/holidays (incl. Good Friday, Juneteenth,
+    observed-day shifts) are non-trading; trading days are correct.
+  - `tests/test_backfill_service.py` — **parameterized over all six timeframes × ≥2
+    symbols** (Q39): seeded `ts` lists with a tail gap and an internal hole →
+    `find_missing_spans` returns the expected missing weekdays; `plan_requests` covers the
+    span and chunks when it exceeds the configured duration.
+  - `tests/test_history_backfill.py` — offscreen real `MainWindow` (stubbed
+    `IBApiClient.connect`/managers, pattern from `tests/test_watchlist_d14_midrag.py`):
+    seed `BarCache` with the `AC-D16.5` repro, drive the stubbed historical feed, assert
+    `ChartPanel._bars` has the expected per-trading-day counts for 2026-09-21…09-25,
+    **no** weekend bars, and the volume `height` array is non-zero wherever a candle
+    exists (`AC-D16.2`); assert chunking (`AC-D16.4`); assert switch-mid-flight does not
+    mix symbols/timeframes.
+  - `tests/test_history_backfill.py` also covers the `AC-D16.5` date range (2026-09-19 →
+    2026-09-28 modulo closures) and an empty-cache fetch.
+  - Full offscreen suite re-run must stay green (`AC-D16.6`).
+- **Requirements / journeys covered:** `AC-D16.1`–`AC-D16.6` (as built). The `AC-D16.7`
+  calendar correction and its test updates are delivered by Phase 4.
+- **Dependencies on earlier phases:** Phase 1 and Phase 2.
 
-### Phase 3 (AMENDED) — Volume panel visibility toggle (D10)
-Canonical Phase 3 stands with **one documentation correction** (RC-4a): the D10
-affordance is the checkable **text label `Volume`** (Q31/A22/`AC-D10.1`) at the top
-left of the volume panel (bottom left of the price chart, A23), **not** an eye icon.
-This corrects the canonical architecture row only; the shipped control is the
-checkable text label `Volume` — `QPushButton("Volume")` at `ui/chart_panel.py:327`
-(RC-4a/T27) — so the affordance and the implementation agree.
-- **Requirements / journeys covered:** D10 (`AC-D10.1`–`AC-D10.2`); A14, A22, A23; R12;
-  Journey 11.
-- **Files:** `ui/chart_panel.py` `[new/changed]` (volume plot + splitter).
-- **Dependencies on earlier phases:** Phase 1 (shares `ui/chart_panel.py`), so build
-  serially after it.
+### Phase 4 — ESC-023 New Year's calendar correction `[new/changed]`
+> **Active increment.** D16 is built; this is the only open work. It is a behaviour/AC
+> correction, not a new subsystem: the D16 architecture otherwise stays as built.
 
-### Phase 4 (AMENDED) — Watchlist resize + double-click load (D13, D14)
-Canonical Phase 4 stands, with one amendment:
-- **Amendment — symbol change resets router mode.** A symbol change (including the D14
-  mid-drag double-click path, `AC-D14.4`) while a drawing drag/draft is in progress must
-  return the router to `IDLE` (TR-17) in addition to clearing the overlay’s draft/drag
-  state (`DrawingOverlay.set_data()` already clears it defensively at `:112–118`).
-  Verified by the ESC-010 regression test (`AC-D14.4`) plus a mode assertion.
-- **Soft dependency:** the mode-reset clause is only verifiable once Phase R1 lands;
-  the watchlist/QSettings work itself is independent.
-- **Requirements / journeys covered:** D13 (`AC-D13.1`–`AC-D13.3`), D14
-  (`AC-D14.1`–`AC-D14.4`); A17–A19; R15–R17; Journeys 14/15.
-- **Files:** `ui/watchlist_panel.py` `[new/changed]`, `ui/main_window.py`
-  `[new/changed]`, the `QSettings` read/write site, `tests/` (watchlist + `AC-D14.4`
-  regression) `[new/changed]`.
-- **Dependencies on earlier phases:** None, but its `ui/main_window.py` change
-  serializes with Phase R1.
-
-### Phase 5 (AMENDED) — Verification and regression (all batches)
-Canonical Phase 5 stands, with added coverage:
-- Router mode transitions — the Phase R1 named tests (new + `AC-D3.9` + preserved +
-  mode-model + reconciliation).
-- Nice-number generator — family/formula, monotonic, tight coverage (`<= 2`), floor
-  `100`, the `40M–50M` cases, and the legacy-list fixture cross-checks.
-- Live ceiling — `test_volume_ceiling_tracks_live_bar`,
-  `test_volume_ceiling_refit_on_timezone_refresh`.
-- D2 chip — `test_crosshair_chip_renders_in_axis_lane`, plus the **Code Reviewer’s
-  independent dock-open verification** for `AC-D2.1`.
-- `touches_files`-aware sequencing honoured (no two built tasks in a wave share a file).
-- Global criteria unchanged: the pre-existing suite stays green offscreen
-  (`QT_QPA_PLATFORM=offscreen`, measured 339 passed at `09070e8`), no live-TWS connection
-  or order transmission (Q8/Q9).
-- **Dependencies on earlier phases:** Phases R1, R2, 1, 2, 3, and 4.
+- **Goal:** Correct the trading-day calendar so **Dec 31 is a trading day** whenever the
+  next Jan 1 falls on a Saturday (NYSE Rule 7.2 year-end accounting exception), and update
+  the `T37-T03` acceptance criterion/test that deliberately encoded the wrong convention —
+  so a genuine bar hole on such a Dec 31 is backfilled (`AC-D16.1`) or its shortfall
+  surfaced (`AC-D16.4`), never silently treated as a genuine closure.
+- **Deliverables:**
+  - **Task Manager (task graph only):** correct the `T37-T03` acceptance criterion in
+    `docs/tasks/task-graph.json` — replace “New Year's 2022-01-01 Saturday gives 2021-12-31
+    Friday closed” with the year-end accounting exception; its test description and
+    `expected_result` must assert `2021-12-31`, `2027-12-31`, `2032-12-31`, `2038-12-31` are
+    **trading days**.
+  - **`[new/changed] services/market_calendar.py`:** make the New Year's observed shift
+    **New-Year's-specific** and add the year-end exception. When Jan 1 is a **Saturday**,
+    add **no** New Year's closure (nothing is shifted onto Dec 31; Jan 1 remains
+    non-trading as a weekend); Jan 1 on a **Sunday** still observes the following Monday; a
+    **weekday** Jan 1 stays a closure. `_observed` for Juneteenth / Independence Day /
+    Christmas is unchanged. Correct the stale “New Year's observed on the preceding Dec 31”
+    docstring/comment.
+  - **`[new/changed] tests/test_market_calendar.py`:** update T37-T03 — `is_trading_day`
+    is **True** for `2021-12-31` (and `2027-12-31`, `2032-12-31`, `2038-12-31`); drop the
+    wrong `date(2021, 12, 31)` entry from the “weekend legal dates” loop (its Saturday
+    legal date is `2022-01-01`); keep every other observed-shift assertion (Independence
+    Day Sat→Fri, Christmas Sun→Mon, Juneteenth Sat→Fri, New Year's Sun→Mon) as the
+    unchanged regression guard.
+  - **Regression:** re-run the full offscreen suite; it must stay green (`AC-D16.6`).
+- **Requirements / journeys covered:** D16 / Journey 17; `AC-D16.7` (primary), plus the
+  `AC-D16.3` “not a genuine closure” carve-out and the `AC-D16.1`/`AC-D16.4`
+  backfill-or-surface consequence; A33; R27; DG22; ESC-023.
+- **Dependencies on earlier phases:** Phase 1 (the calendar this corrects). The corrected
+  `T37-T03` acceptance criterion must be written by Task Manager **before** Build edits the
+  module/test, so the module implements the corrected criterion rather than the old one.
 
 ## Parallel sequencing (`touches_files` contract)
-The Task Manager must add a **`touches_files`** field to every task so Build’s Lead (a
+The Task Manager must add a **`touches_files`** field to every task so Build's Lead (a
 Lead + Worker pair) can dispatch non-conflicting tasks in parallel up to
-`max_parallel_tasks` (default 4; optional user-owned `docs/build/build_config.json`).
-The Lead is the sole writer of task status, so concurrent workers never race on the
-graph. Sequencing consequence for this revision:
+`max_parallel_tasks` (default 4; optional user-owned `docs/build/build_config.json`). The
+Lead is the sole writer of task status, so concurrent workers never race on the graph.
+D16 sequencing consequences:
 
-| File | Phases that touch it | Consequence |
+| File | Phase | Consequence |
 |---|---|---|
-| `ui/chart_panel.py` | R1 (router adapters + `zoom_refused`), R2 (crosshair chip), 1 (volume axis/ceiling/width), 3 (volume toggle + splitter) | **Serial chain** — must not share a wave |
-| `ui/main_window.py` | R1 (status-bar connection), 4 (watchlist wiring) | **Serial** — R1 and Phase 4 must not share a wave |
-| `ui/chart_mouse_router.py` | R1 only | R1’s core file |
-| `ui/drawing_overlay.py` | 2, plus the Phase-4 mode-reset amendment | Serial |
-| `ui/zoom_overlay.py` | R1 (read-mostly; any change must be flagged) | Serial with R1 |
-| `ui/candlestick_item.py` | 1 (D7 gap) | May run parallel with `chart_panel`/`main_window` tasks |
-| `ui/watchlist_panel.py`, `QSettings` site | 4 | May run concurrently with R2/Phase 1/3 (its `main_window.py` part serializes with R1) |
-| New dialog files (`ui/zone_settings_dialog.py`, `ui/horizontal_line_settings_dialog.py`) | 2 | New files → may run concurrently with R1/R2/Phase 1/3 |
-| `tests/test_chart_mouse_router.py` | R1 | Serial per file |
-| `tests/test_volume_linear.py` + new volume tests | 1 | Serial per file |
-| New crosshair test | R2 | Serial per file |
-| `tests/` watchlist + D14 regression | 4 | Serial per file |
+| `services/market_calendar.py` | 1 (built), 4 (correction) | Built as a new file; **Phase 4 edits it** → serial with any other task touching it |
+| `services/backfill_service.py` | 1 | New file — may run in parallel; depends on `market_calendar` only at import level |
+| `ui/main_window.py` | 2 | **Serialization point** — depends on Phase 1; must not share a wave with another task touching it |
+| `tests/test_market_calendar.py` | 3 (built), 4 (correction) | Built as a new file; **Phase 4 edits it** → serial per file |
+| `tests/test_backfill_service.py` | 3 | New file — serial per file |
+| `tests/test_history_backfill.py` | 3 | New file — serial per file |
+| `docs/tasks/task-graph.json` | 4 | Task-Manager-owned; the `T37-T03` AC correction precedes the Phase-4 Build edit |
 
-Practical rule: **Phase R1 must be scheduled alone or only with tasks that touch
-neither `ui/chart_panel.py` nor `ui/main_window.py`**; **Phase R2** is serial with
-R1/Phase 1/Phase 3 on `ui/chart_panel.py`. This is an architecture-level constraint on
-the task graph, not a task decomposition: the Task Manager populates `touches_files`
-accurately and the Lead enforces the wave rule.
+Practical rule: the Phase-1/Phase-2/Phase-3 split is inherently serial (Phase 2 consumes
+Phase 1's planner; Phase 3 verifies Phase 2). `ui/main_window.py` is the single shared
+production file touched by this batch, so at most one task may touch it per wave. Phase 4
+touches `services/market_calendar.py` and `tests/test_market_calendar.py`; the corrected
+`T37-T03` acceptance criterion is written by Task Manager before Build edits the module/
+test. This is an architecture-level constraint on the task graph, not a task
+decomposition — the Task Manager populates `touches_files` accurately and the Lead
+enforces the wave rule.
 
 ## Assumptions
-Inherited and confirmed from `docs/requirements/requirements.md`: A8, A10–A26 (including
-the canonical `PA1-batch3`…`PA8-batch3`), all unchanged.
+Derived from `docs/requirements/requirements.md` (A27–A33, confirmed where noted) and Plan's
+D16 proposal; these are implementation details only — no requirements gap.
 
-Plan-level assumptions for this revision (implementation details only; **no requirements
-gap**):
-- **PA-R2** — `RouterMode.DRAWING` is synonymous with `DrawingOverlay.tool_active()`;
-  an unarmed drawing tool is `IDLE`.
-- **PA-R3** — `test_draw_blocked_during_zoom` keeps its escalation-assigned **name**
-  while asserting the **confirmed reverse** rule (draw exits zoom).
-- **PA-R4** — only-widen on intra-bar ceiling updates satisfies `AC-D8.6`’s
-  “recomputed/**widened** … or the bound is explicitly documented” clause.
-- **PA-R5** — the original fixed nice list is retained **as a test fixture only**; of
-  the existing `tests/test_volume_linear.py` assertions, **only**
-  `_nice_volume_max(0) == 10_000` changes (→ `100`) — requirement-backed (Journey 1
-  edge case), not a silent test edit.
-- **PA-R6** — D2 chip implementation geometry: left-anchored at the axis line
-  (`anchor=(0,0.5)`, scene `x = view_rect_scene.right()` + small pad), extending right
-  into the Y-axis lane, with the existing in-view clamp and a right-edge guard so a long
-  price is not clipped. The lane/style/overlap are requirements; the pad is detail.
-- **PA-R7** — `AC-D3.9`’s status-bar hint is surfaced by a new
-  `ChartPanel.zoom_refused` signal connected in `MainWindow`; the exact hint string is a
-  plan-level choice (“Finish or cancel alarm placement before zooming”).
-- **PA-R8** — the `<= 2` tightness bound in `AC-D8.4` is asserted only where the ceiling
-  is above the required `100` floor (`max_vol >= 100/2.2 ≈ 45.5`); below that the ceiling
-  is the floor and the ratio may exceed `2`. Build must not write a test that contradicts
-  the required floor.
-- ~~**PA-R1** (`ALARM_PLACING → ZOOMING`)~~ — **RETIRED:** superseded by `AC-D3.9`
-  (Q36 option (b)); the router refuses and stays in `ALARM_PLACING`.
+- **PA-D16-1 (detection granularity):** missing-span detection operates at **session/day
+  presence** (a trading day with zero cached bars is missing), which matches the reported
+  whole-session defect and avoids false positives from illiquid periods and from toggling
+  Extended Hours on an RTH-only cache. Within-session partial holes below one trading day
+  are out of D16's scope.
+- **PA-D16-2 (`now` seam):** `now_ts = int(time.time())` is captured at load time in
+  `MainWindow` and passed into the pure planner as a parameter, so the planner is
+  deterministic under test.
+- **PA-D16-3 (calendar applies to all symbols):** the ET equity holiday/session calendar is
+  used for every symbol, consistent with the accepted D1/`session_service`/DG1 default;
+  futures that trade some US holidays are not specially modelled (FI-D16-2, accepted with
+  this caveat).
+- **PA-D16-4 (chunk size):** the chunk step is the existing
+  `TIMEFRAME_CONFIG[timeframe]["duration"]`; `MarketDataManager.req_historical_data` and its
+  signature are unchanged.
+- **PA-D16-5 (anchor format):** chunk `endDateTime` uses the existing
+  `ui/main_window._ibkr_end_date` UTC hyphenated format (avoids TWS warning 2174),
+  reimplemented as a tiny pure helper so `backfill_service` stays Qt-free.
+- **PA-D16-6 (shortfall trigger):** a shortfall is surfaced when a backfill reqId raises an
+  `error_msg`, or when a trading day in the target span is still empty after all requests
+  complete. It is a status-bar + log message; requests are not retried in a loop.
+- **PA-D16-7 (day presence; FI-D16-1 accepted):** a day counts as present if it holds at
+  least one cached bar; the per-day cadence assertion in `AC-D16.1` is applied to the
+  stubbed, liquid test scenarios, not to illiquid symbols (which are held to session-presence
+  continuity). Recorded in `docs/plan_notes.md`.
+- **PA-D16-8 (idempotence):** chunk overlap is deduped by the existing
+  `(symbol, timeframe, ts)` primary key; no migration is required.
+- **PA-D16-9 (render path):** `ui/chart_panel.py` is unchanged; continuity of `_bars` fixes
+  both the price and volume panels (`AC-D16.2`).
+- **PA-D16-10 (out of scope):** DG18 (persisting live/RT bars to the cache) remains out of
+  D16's scope, as the Requirements Analyst recorded; the load-time backfill covers the
+  visible hole either way.
+- **PA-D16-11 (year-end exception is New-Year's-specific):** the `AC-D16.7` exception is
+  implemented as a **New Year's-specific** observed-day rule, not by changing the generic
+  `_observed` used by the other fixed-date holidays (Independence Day / Christmas /
+  Juneteenth). When Jan 1 is a Saturday the corrected rule adds **no** closure at all — Dec
+  31 stays a trading day and Jan 1 is non-trading as an ordinary weekend — so no substitute
+  closure is introduced. This keeps the still-correct observed shifts untouched and is the
+  minimal change to the built module.
 
-The two requirements escalations raised during validation pass 1 are **resolved in
-`requirements.md` (2026-09-27)**: **RG-002** (nice-number family pinned to
-`1 / 1.5 / 2 / 2.5 / 5 / 7.5 × 10^k`, no `10K` floor, value `100`) and **RG-003**
-(Q36 option (b) → `AC-D3.9`). No requirements gaps remain.
+No open requirements escalations: FI-D16-1 and FI-D16-2 were accepted by the Validator with
+recorded resolutions (`docs/plan_notes.md`); RG-001/RG-002/RG-003 remain resolved and are
+not reopened. **ESC-023** (the New Year's calendar defect) was escalated to the Requirements
+Analyst and is now **resolved in requirements** as `AC-D16.7` / A33 / R27 / DG22; Phase 4
+implements it. No open escalation remains.
 
 ---
 
 Status: READY_FOR_TASK_MANAGER
+
