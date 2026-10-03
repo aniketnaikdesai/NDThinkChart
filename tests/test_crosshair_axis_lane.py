@@ -4,7 +4,7 @@ The chip is a grey pill with white text, left-anchored at the plot's vertical
 axis line (``anchor=(0, 0.5)``, scene x >= ``view_rect.right()``) and grows
 rightward into the Y-axis lane; overlapping the price tick label at the same
 level is by design. It must stay fully visible (never clipped, never covered
-by the Active Trader / Portfolio dock) and keep tracking the cursor's price
+by the single right region — the Active Trader ladder and Portfolio sections) and keep tracking the cursor's price
 under pan/zoom, hiding when the cursor leaves the plot.
 """
 
@@ -99,10 +99,12 @@ def test_crosshair_chip_not_covered_by_right_dock(monkeypatch, qapp, sample_bars
         qapp.processEvents()
 
         docks = {d.windowTitle(): d for d in win.findChildren(QDockWidget)}
-        trader = docks["Active Trader"]
-        portfolio = docks["Portfolio"]
-        trader.show()
-        portfolio.show()
+        # D18 Phase 3: the ladder and portfolio are now stacked sections of one
+        # right region titled "Active Trader"; there is no separate "Portfolio"
+        # dock any more. The chip must stay clear of that single region.
+        region = docks["Active Trader"]
+        assert "Portfolio" not in docks
+        region.show()
         qapp.processEvents()
 
         panel = win.chart_panel
@@ -116,12 +118,11 @@ def test_crosshair_chip_not_covered_by_right_dock(monkeypatch, qapp, sample_bars
         assert panel._price_tag.isVisible()
 
         chip_rect = global_rect(panel, panel._price_tag)
-        for dock in (trader, portfolio):
-            assert dock.isVisible()
-            assert not chip_rect.intersects(dock.frameGeometry()), (
-                f"chip {chip_rect} is covered by the {dock.windowTitle()} dock "
-                f"{dock.frameGeometry()}"
-            )
+        assert region.isVisible()
+        assert not chip_rect.intersects(region.frameGeometry()), (
+            f"chip {chip_rect} is covered by the {region.windowTitle()} region "
+            f"{region.frameGeometry()}"
+        )
         # And the chip stays inside the chart area, i.e. clear of the dock band.
         central = win.centralWidget()
         central_rect = QRect(central.mapToGlobal(QPoint(0, 0)), central.size())

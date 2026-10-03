@@ -1,80 +1,147 @@
 {
+  "status": "READY_FOR_BUILD",
+  "generated": "2026-10-03",
+  "batch": "Batch 11 \u2014 D17 + D18",
   "nodes": [
     {
-      "id": "T37",
+      "id": "T45",
       "type": "Task",
-      "title": "Implement the ET trading-day/holiday calendar service incl. the ESC-023 New Year's year-end exception (D16)"
+      "title": "Create the shared chart-area dock-width model ui/dock_layout.py (D17/D18 Phase 1)",
+      "task_type": "implementation",
+      "agent": "Build",
+      "touches_files": [
+        "ui/dock_layout.py",
+        "tests/test_dock_layout.py"
+      ]
     },
     {
-      "id": "T38",
+      "id": "T46",
       "type": "Task",
-      "title": "Implement the pure missing-span and chunk-request planner (D16)"
+      "title": "Re-parameterise the D13 watchlist width helpers to the chart-area denominator (D17 Phase 1)",
+      "task_type": "bugfix",
+      "agent": "Build",
+      "touches_files": [
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist.py"
+      ]
     },
     {
-      "id": "T39",
+      "id": "T47",
       "type": "Task",
-      "title": "Make the MainWindow load path backfill the whole gap with correlated multi-request orchestration (D16)"
+      "title": "Enforce the watchlist cap live during the drag and on resize/full-screen (D17 Phase 2)",
+      "task_type": "bugfix",
+      "agent": "Build",
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_dock_widths_d17.py"
+      ]
     },
     {
-      "id": "T40",
+      "id": "T48",
       "type": "Task",
-      "title": "Offscreen end-to-end verification of D16 whole-gap backfill (panels, closures, chunking, switch safety)"
+      "title": "Reshape Active Trader + Portfolio into one right-dock region (D18 Phase 3)",
+      "task_type": "implementation",
+      "agent": "Build",
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_dock_d18_region.py",
+        "tests/test_crosshair_axis_lane.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_watchlist_d14_midrag.py",
+        "tests/test_history_backfill.py",
+        "tests/test_history_backfill_loadpath.py",
+        "tests/test_history_backfill_disconnect.py"
+      ]
     },
     {
-      "id": "T41",
+      "id": "T49",
       "type": "Task",
-      "title": "D16 verification and regression gate (full offscreen suite, unchanged render path)"
+      "title": "Add the right-region 40% cap, cross-clamp, content bound and full-screen normalize (D18 Phase 4)",
+      "task_type": "implementation",
+      "agent": "Build",
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_dock_widths_d18_impl.py"
+      ]
     },
     {
-      "id": "T42",
+      "id": "T50",
       "type": "Task",
-      "title": "ESC-023 correction regression gate (full offscreen suite, corrected calendar consumed unchanged)"
+      "title": "Offscreen end-to-end verification of D17/D18 dock geometry (full screen, caps, cross-clamp, equal width, content bound)",
+      "task_type": "verification",
+      "agent": "Build",
+      "touches_files": [
+        "tests/test_dock_widths_d18.py"
+      ]
     },
     {
-      "id": "T43",
+      "id": "T51",
       "type": "Task",
-      "title": "Cancel and finalise the backfill wave on disconnect or a stalled request so the shortfall is surfaced (D16 / ESC-024)"
+      "title": "Batch-11 regression gate (full offscreen suite green, D2 chip/dock non-overlap, no live TWS)",
+      "task_type": "verification",
+      "agent": "Build",
+      "touches_files": []
     },
     {
-      "id": "T44",
+      "id": "T52",
       "type": "Task",
-      "title": "Disarm the backfill wave watchdog in closeEvent and make the stranded-wave reason diagnostic live (D16 / ESC-025)"
+      "title": "Fix plan_dock_widths to never return below a dock minimum, add the one-sided-over-budget regression test, and remove the T49 MainWindow workaround (ESC-026)",
+      "task_type": "bugfix",
+      "agent": "Build",
+      "touches_files": [
+        "ui/dock_layout.py",
+        "tests/test_dock_layout.py",
+        "ui/main_window.py"
+      ]
     }
   ],
   "edges": [
     {
-      "source": "T38",
-      "target": "T37",
+      "from": "T45",
+      "to": "T46",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T39",
-      "target": "T38",
+      "from": "T46",
+      "to": "T47",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T40",
-      "target": "T39",
+      "from": "T47",
+      "to": "T48",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T41",
-      "target": "T40",
+      "from": "T48",
+      "to": "T49",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T42",
-      "target": "T37",
+      "from": "T49",
+      "to": "T50",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T43",
-      "target": "T39",
+      "from": "T49",
+      "to": "T51",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "T44",
-      "target": "T43",
+      "from": "T50",
+      "to": "T51",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T52",
+      "to": "T45",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T52",
+      "to": "T49",
       "type": "DEPENDS_ON"
     }
   ]

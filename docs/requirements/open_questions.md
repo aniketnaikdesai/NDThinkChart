@@ -503,3 +503,61 @@
   (New Year's case) and the `T37-T03` assertions in `tests/test_market_calendar.py`. The **Code
   Reviewer** re-verifies ESC-023 on its next pass.
 - **Affected requirement section:** D16 / Journey 17 / `AC-D16.3`, new `AC-D16.7`; A33; R27.
+
+
+# Answered (D17/D18 intake — 2026-10-03, B1–B4)
+
+> The user answered all four blocking questions **B1–B4** on **2026-10-03**. D17 and D18 are now
+> **clarified and finalised** in `requirements.md` (Defect Register `### D17`/`### D18`, Journeys
+> 18–19, `AC-D17.1`–`AC-D17.6` and `AC-D18.1`–`AC-D18.8`; assumptions A34–A36; risks R28–R31).
+> **No blocking question remains.** The prior wording framed each question with a "(Recommended)"
+> option; the user selected a specific decision for each, recorded verbatim below.
+
+## B1 — D17: what is the denominator for the Watchlist "50%" cap — window width or chart area?
+- **Status:** **answered 2026-10-03**
+- **Answer (user-confirmed, verbatim: "Change to 50% of chart area"):** the watchlist maximum width
+  is **`floor(0.50 × chart_area)`** — measured against the **chart area** (the central region excluding
+  both docked panels), **not** `MainWindow` width. This **corrects/supersedes D13's Q25 denominator**
+  ("~50% of MainWindow width"): `AC-D13.1`–`AC-D13.3`, Journey 14, **A17** and **R15** are updated in
+  lockstep, and the D13 section carries an explicit **supersession note**. Option 1 (keep window-width)
+  is **not adopted**.
+- **Affected requirement section:** D17 / D13 / Journey 14 + 18 / `AC-D13.1`, `AC-D17.1`; A34; R15/R28.
+
+## B2 — D18: are Active Trader and Portfolio **one dock** or **two docks** that must be equal width?
+- **Status:** **answered 2026-10-03**
+- **Answer (user-confirmed, verbatim: "One right-dock region, stacked (Recommended)"):** Active Trader
+  and Portfolio live in **ONE right-dock region** containing both sections **stacked vertically**, so
+  they are **inherently equal width by construction** (the region's width). The **40%-of-chart-area**
+  cap applies to that **single region**. Option 2 (two separate docks forced equal) is **not adopted**.
+  The current two-`QDockWidget` structure is a wrong shape and is expected to become one region/container
+  with the two panels stacked inside (implementation is Plan/Build's call; behaviour must satisfy
+  `AC-D18.1`–`AC-D18.8`).
+- **Affected requirement section:** D18 / `AC-D18.1`, `AC-D18.3`; A35.
+
+## B3 — D18/B1: how do the Watchlist 50% and Active Trader 40% caps combine?
+- **Status:** **answered 2026-10-03**
+- **Answer (user-confirmed, verbatim: "Independent caps + chart-minimum rule (Recommended)"):** the
+  watchlist (50% of chart area) and the right region (40% of chart area) keep **independent caps**, each
+  **additionally clamped against the remaining space** so the chart area keeps a **minimum (~400px)**.
+  Consequently **enlarging one dock can force the other to shrink**; both cannot sit at their individual
+  maxima if that would starve the chart. Option 2 (a single shared panel budget) is **not adopted**.
+  This also settles that the D13 clamp must account for the right dock, not only the window.
+- **Affected requirement section:** D17 + D18 / `AC-D13.1`, `AC-D17.1`, `AC-D17.5`, `AC-D18.2`,
+  `AC-D18.5`; A34–A35; R29.
+
+## B4 — D17: must the Watchlist handle move in **both** directions, and what are the exact min/cap?
+- **Status:** **answered 2026-10-03**
+- **Answer (user-confirmed, verbatim: "Confirm defaults (Recommended)"):** the handle must drag **both
+  wider and narrower** between the minimum and the cap; the minimum stays **150px**; the default stays
+  **~220px**; and the persisted width (D13, Q26) is **still required**. The cap itself is the B1 rule
+  (`floor(0.50 × chart_area)`), enforced **during the drag** (the D17 root-cause fix), additionally
+  bounded by the B3 chart-minimum rule.
+- **Affected requirement section:** D17 / Journey 18 / `AC-D17.1`–`AC-D17.4`; A34; R31.
+
+---
+
+# Open Questions — Batch 12 (D17/D18) — status
+
+> **No open (blocking) question remains for the D17/D18 batch.** All four (B1–B4) were answered
+> 2026-10-03 and are recorded above. `requirements.md` is finalised and carries `Status: READY_FOR_PLAN`.
+> Any **new** defect reported later starts a fresh intake pass (it does not silently extend this batch).

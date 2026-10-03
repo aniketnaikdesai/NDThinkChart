@@ -16,7 +16,8 @@ minimum. These tests cover that combination in one offscreen ``MainWindow``.
 
 The right-hand docks (Active Trader / Portfolio) are hidden for the duration
 of each test so that D10/D13 is the only horizontal constraint under test --
-the D13 clamp reserves ``CHART_MIN_WIDTH`` against the whole window width.
+the D13/D17 clamp reserves ``CHART_MIN_WIDTH`` against the **chart area**
+(``centralWidget().width()``), not the whole window width (D17/B1).
 """
 
 from PyQt6.QtCore import Qt
@@ -29,8 +30,9 @@ from ui.watchlist_panel import (
     clamp_watchlist_width,
 )
 
-# Right-hand docks are unrelated to the D10/D13 interaction under test.
-_RIGHT_DOCKS = ("Active Trader", "Portfolio")
+# The single right region (Active Trader ladder + Portfolio, D18 Phase 3) is
+# unrelated to the D10/D13 interaction under test.
+_RIGHT_DOCKS = ("Active Trader",)
 
 
 def _make_main_window(monkeypatch, qapp):
@@ -74,20 +76,22 @@ def test_T28_T01_volume_hidden_and_watchlist_max_clamp_keeps_price_panel(
         assert not cp.volume_plot.isVisible()
         assert not cp.volume_plot.getAxis('right').isVisible()
 
-        window_w = win.width()
-        max_w = watchlist_max_width(window_w)
+        # D17/B1: the denominator is the chart area (central widget width), not
+        # the whole window width.
+        chart_area_w = win.centralWidget().width()
+        max_w = watchlist_max_width(chart_area_w)
 
-        # D13: drag the watchlist to its maximum clamp for this window.
+        # D13/D17: drag the watchlist to its maximum clamp for this chart area.
         _drag_watchlist_to(win, max_w, qapp)
 
         # ESC-005: the price panel never drops below its 400px minimum, and
-        # the dock stays inside the D13 range.
+        # the dock stays inside the D13/D17 range.
         assert WATCHLIST_MIN_WIDTH <= win.watchlist_dock.width() <= max_w
         assert cp.width() >= CHART_MIN_WIDTH
         assert cp.price_plot.width() >= CHART_MIN_WIDTH
         assert win.centralWidget().width() >= CHART_MIN_WIDTH
-        # The clamp reserves CHART_MIN_WIDTH against the window width.
-        assert win.width() - win.watchlist_dock.width() >= CHART_MIN_WIDTH
+        # The clamp reserves CHART_MIN_WIDTH against the chart area (D17/B1).
+        assert win.centralWidget().width() >= CHART_MIN_WIDTH
 
         # Overshooting the clamp must still never shrink the price panel below
         # its minimum.
@@ -105,8 +109,9 @@ def test_T28_T02_watchlist_clamp_with_volume_hidden_and_splitter_restored(
     win = _make_main_window(monkeypatch, qapp)
     try:
         cp = win.chart_panel
-        window_w = win.width()
-        max_w = watchlist_max_width(window_w)
+        # D17/B1: the watchlist cap is derived from the chart area.
+        chart_area_w = win.centralWidget().width()
+        max_w = watchlist_max_width(chart_area_w)
 
         # Baseline while the volume panel is visible.
         assert cp.volume_plot.isVisible()
@@ -117,15 +122,17 @@ def test_T28_T02_watchlist_clamp_with_volume_hidden_and_splitter_restored(
         qapp.processEvents()
         assert not cp.volume_plot.isVisible()
 
-        # AC-D13.1: the clamp is [150, min(floor(0.50 x W), W - 400)].
+        # AC-D13.1/D17: the clamp is [150, min(floor(0.50 x chart_area),
+        # chart_area - 400)], measured against the chart area (D17/B1).
         assert max_w == max(
-            WATCHLIST_MIN_WIDTH, min(int(window_w * 0.50), window_w - CHART_MIN_WIDTH)
+            WATCHLIST_MIN_WIDTH,
+            min(int(chart_area_w * 0.50), chart_area_w - CHART_MIN_WIDTH),
         )
-        assert clamp_watchlist_width(10 ** 6, window_w) == max_w
-        assert clamp_watchlist_width(0, window_w) == WATCHLIST_MIN_WIDTH
+        assert clamp_watchlist_width(10 ** 6, chart_area_w) == max_w
+        assert clamp_watchlist_width(0, chart_area_w) == WATCHLIST_MIN_WIDTH
         if max_w > WATCHLIST_MIN_WIDTH:
             assert (
-                clamp_watchlist_width(WATCHLIST_MIN_WIDTH + 1, window_w)
+                clamp_watchlist_width(WATCHLIST_MIN_WIDTH + 1, chart_area_w)
                 == WATCHLIST_MIN_WIDTH + 1
             )
 

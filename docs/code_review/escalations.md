@@ -829,3 +829,85 @@ non-blocking quality notes on the new code.
       D16 modules in isolation → **110 passed**; ESC-023 year-end exception intact
       (`is_trading_day` True for 2021-12-31/2027-12-31, False for 2022-01-01); no live-TWS references in
       the new tests. All four T44 acceptance criteria independently verified.
+
+---
+
+## Batch 11 (D17 + D18, T45–T51) — new finding, 2026-10-03
+
+Reviewed against the live tree (full offscreen suite re-run by the reviewer → **562 passed / exit 0**, two
+runs, no segfault; the pure helper and the T49 `MainWindow` workaround probed directly; the D2/D17/D18 test
+suites re-run). `failures.json.blocked` is empty; T45–T51 are all `done`. ESC-001…ESC-025 remain `addressed`
+(verified — nothing relevant changed for them). One new escalation below.
+
+## ESC-026 — `ui/dock_layout.py::plan_dock_widths` can return a width below a dock minimum
+
+- **Linked task/defect:** T45 (D17/D18 Phase 1, `ui/dock_layout.py`) — reported in
+  `docs/build/failures.json.pending_routing` `kind: dock_layout_plan_below_minimum`.
+- **Routed to:** BUILD.
+- **Category / severity:** `bug` / **should-fix** (not blocking — no task is held by it; the only production
+  consumer, `MainWindow._plan_dock_widths`, carries a verified workaround, so AC-D18.4/AC-D18.5 hold at the
+  MainWindow layer today. Fix it properly so the pure helper is not a latent trap.)
+- **Root-cause classification:** `code_bug`. AC-D18.4 (`docs/requirements/requirements.md`, "never below the
+  minimum") and the architecture row (`docs/architecture.md:663`) both specify the correct behaviour, and the
+  function's own docstring (`ui/dock_layout.py:79–81`) promises it — the implementation simply violates them.
+  This is not an AC or task-breakdown gap.
+- **Observed vs. expected:**
+  - **Observed** (`ui/dock_layout.py:100–114`, reproduced by the reviewer):
+    `plan_dock_widths(750, 100000, 200) -> (350, 0)` (right `0 < RIGHT_DOCK_MIN_WIDTH = 200`);
+    `plan_dock_widths(750, 200, 0) -> (175, 175)` (both below their minimums).
+    A coarse reviewer grid (chart_area 100..3000 step 50 × requests {0,200,400,700,100000}²) found
+    **108/1475** below-minimum combinations (Build's finer enumeration: 2158).
+  - **Expected** (docstring lines 79–81; AC-D18.4): "neither width ever drops below its dock minimum … on an
+    infeasible window … the dock minimums win." Each returned width must be `>= WATCHLIST_MIN_WIDTH`
+    (`150`) / `RIGHT_DOCK_MIN_WIDTH` (`200`).
+  - **Root cause:** the `while left + right > budget:` shrink loop decrements `left`/`right` (lines 107–114)
+    **without re-flooring** at the dock minimums, so a dock that was already capped-floored at lines 89–90
+    can be decremented below its own minimum.
+- **Test gap (same route, worth fixing together):** T45's own tests never exercised the one-sided
+  over-budget combination that starves the other dock — `test_T45_T06_one_side_over_budget` uses
+  `(1200, 100000, 10)` (feasible at chart_area 1200), and `test_T45_T06_never_raises_and_integer_stable`
+  asserts only `int`/stability. So T45 legitimately reported `done` with green tests. This is a coverage gap,
+  **not** an incorrect AC, so it belongs with the code fix rather than a task-manager re-scope.
+- **T49 workaround (context, verified sound — not the fix):** `MainWindow._plan_dock_widths`
+  (`ui/main_window.py:1055–1118`) floors each width and re-shrinks the over-budget dock. The reviewer
+  brute-forced it over **4,340** chart_area/request combos → **0 below-minimum, 0 raises**, including the
+  exact repro inputs. So D18's ACs hold *today*, but the repo now has two divergent cross-clamp
+  implementations and a future direct call of `plan_dock_widths` (or removal of the repair) reintroduces the
+  defect.
+- **Suggested direction (optional, for Build):** re-floor `left`/`right` at their minimums inside the shrink
+  loop (or restructure so the chart minimum yields before a dock minimum is crossed); add a regression test
+  for `plan_dock_widths(750, 100000, 200)` / `(750, 200, 0)`; once the helper is correct, remove the T49
+  `_plan_dock_widths` repair to restore the single source of truth. No AC, architecture, or task-breakdown
+  change is required or proposed.
+- **Evidence retained:** reviewer reproduction commands and the 108/1475 grid result; Build's independent
+  reproduction in `docs/build/failures.json.pending_routing` (wave-6 consolidation); T45's worker log
+  (`docs/build/logs/T45.md`) and the untested combination in `tests/test_dock_layout.py`.
+- **Status: addressed**
+  - Verified (2026-10-03, ESC-026 rework round; T52 `done`). Independently re-verified on the live tree by the
+    reviewer — my own probes and runs, not Build's report:
+    - **Witnesses fixed:** `plan_dock_widths(750, 100000, 200) -> (150, 200)` and
+      `plan_dock_widths(750, 200, 0) -> (150, 200)` — each component `>=` its dock minimum; the pre-fix
+      `(350, 0)` / `(175, 175)` are gone.
+    - **Grid clean:** my own coarse grid (chart_area 100..3000 step 50 × requests {0,200,400,700,100000}²) →
+      **1475 total, 0 below-minimum, 0 raises** (was 108 below-minimum). I re-derived the pre-fix loop
+      in-memory (no repo edit) and reproduced exactly 108/1475 + `(350,0)` + `(175,175)`, confirming the
+      T52-T01/T52-T02 witnesses genuinely discriminate the bug (non-tautological).
+    - **Precedence preserved:** infeasible `plan_dock_widths(400, 500, 500) == (150, 200)` (dock minimums win,
+      chart minimum yields); feasible over-budget `plan_dock_widths(1000, 500, 400) == (200, 400)` and
+      `(1000, 100000, 100000) == (200, 400)` keep `chart_area - left - right >= 400`.
+    - **T49 workaround genuinely removed:** `MainWindow._plan_dock_widths` (`ui/main_window.py:1055–1099`) now
+      contains no re-floor / combined-shrink repair — it only iterates the pure
+      `ui.dock_layout.plan_dock_widths` to its post-resize fixed point (invariant `S = chart_area + cur_left +
+      cur_right`, ≤24 passes). `git diff` shows the repair block added by T49 is gone.
+    - **MainWindow path still enforces D18 cap + cross-clamp (reviewer probe, offscreen, no TWS, 1600×900):**
+      over-cap drag → `right == 200 <= floor(0.40·chart_area)+1`; under-min drag →
+      `right == RIGHT_DOCK_MIN_WIDTH (200)`, `watchlist == 150`; cross-clamp → `chart_area == 1716 >= 400`
+      with `left=150 right=200`. So the D18 guarantees now rest solely on the corrected helper.
+    - **Tests:** `tests/test_dock_layout.py` → **40 passed** (T45-T01…T06 + T52-T01…T04); retained
+      Batch-11 D17/D18 set (`test_dock_widths_d18_impl`, `test_dock_widths_d18`, `test_dock_widths_d17`,
+      `test_dock_d18_region`, `test_d10_d13_integration`, `test_watchlist`) → **40 passed**; full offscreen
+      suite re-run **twice** → **566 passed, 0 failed, exit 0** each time.
+    - **T45-T01 Qt-free guard still holds:** `test_dock_layout.py` has no module-scope Qt import; the only
+      `PyQt6` reference outside the guard's string assertions is the function-local `from PyQt6.QtCore import
+      Qt` inside T52-T04. Isolated `import ui.dock_layout` loads no PyQt6/pyqtgraph/PySide6, and the two
+      T45-T01 tests pass in isolation. No test was weakened, skipped, or rewritten.

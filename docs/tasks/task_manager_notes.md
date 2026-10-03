@@ -302,3 +302,171 @@ T43's new code (both confirmed against the live tree):
 `not_started`. Unique task/test ids; every acceptance criterion has ≥1 linked test and every
 test links an existing criterion; `execution_graph.json` nodes match the task set and all
 edges resolve with no cycles.
+
+## Batch 11 — D17 (watchlist live resize) + D18 (single right-dock region) (T45–T51)
+
+Revision date: 2026-10-03. Source of truth: `docs/plan.md` (`Status:
+READY_FOR_TASK_MANAGER`, Batch 11, 5 phases) and `docs/architecture.md` (D17/D18 increment,
+validated 2026-10-03). Input: `docs/requirements/requirements.md` (`AC-D17.1`–`AC-D17.6`,
+`AC-D18.1`–`AC-D18.8`, Journeys 18–19, A34–A36, R28–R31, B1–B4 answered). No open
+`ESCALATED_TO_TASK_MANAGER` entry exists. D1–D16 (T1–T44) are `done` and are deliberately
+**not** re-listed in the rebuilt graph.
+
+**No architecture assumptions were invented and no requirements ambiguity was found.**
+The architecture fixes the new pure module (`ui/dock_layout.py`, its constants, and the
+three function signatures `watchlist_max_width` / `right_dock_max_width` /
+`plan_dock_widths`), the single shared `MainWindow._apply_dock_widths()`, the
+`splitterMoved` / `resizeEvent` / `changeEvent(WindowStateChange)` wiring, the single
+right-region container, and the panel width bound, so every task is
+`architecture_dependency: false`.
+
+### Tasks and `touches_files`
+- **T45** (Phase 1) — `ui/dock_layout.py` + `tests/test_dock_layout.py` (pure width model). No deps.
+- **T46** (Phase 1) — `ui/watchlist_panel.py` + `tests/test_watchlist.py` (chart-area denominator). deps [T45].
+- **T47** (Phase 2, D17) — `ui/main_window.py` + `tests/test_d10_d13_integration.py` + new
+  `tests/test_dock_widths_d17.py`. deps [T46].
+- **T48** (Phase 3, D18 shape) — `ui/main_window.py` (one right region) + new
+  `tests/test_dock_d18_region.py` + right-dock lookup updates in
+  `tests/test_crosshair_axis_lane.py`, `tests/test_d10_d13_integration.py`,
+  `tests/test_watchlist_d14_midrag.py`, `tests/test_history_backfill.py`,
+  `tests/test_history_backfill_loadpath.py`, `tests/test_history_backfill_disconnect.py`.
+  deps [T47].
+- **T49** (Phase 4, D18 cap/bound) — `ui/main_window.py`, `ui/active_trader_panel.py`,
+  `ui/active_portfolio_panel.py`, new `tests/test_dock_widths_d18_impl.py`. deps [T48].
+- **T50** (Phase 4/5, e2e) — new `tests/test_dock_widths_d18.py`. deps [T49].
+- **T51** (Phase 5, regression gate) — `touches_files: []` (writes only Build's own log).
+  deps [T49, T50].
+
+### Sequencing (why this is an inherently serial chain)
+- `ui/main_window.py` is the single shared production file and is touched by **T47, T48 and
+  T49**. Per the dependency-mapping rules and the plan's explicit architecture constraint,
+  those three are a serial chain: `T47 → T48 → T49`. T48 assumes T47's `_apply_dock_widths`
+  / width model exist and wires the single region into that shared path; T49 assumes T48's
+  single right region exists before it can cap/cross-clamp it. The edges are logical
+  (assumed interface/contract), not merely file-overlap.
+- **T46 → T45** is a real contract dependency: `ui/watchlist_panel.py` delegates its cap to
+  `ui/dock_layout.watchlist_max_width`, so T46's correctness assumes T45's function
+  signature and formula. **T47 → T46** is likewise real: T47's live clamp reads the corrected
+  chart-area denominator and (for the D18 cross-clamp to come) the shared `plan_dock_widths`
+  rule.
+- **T45 and T46 are disjoint files** (`ui/dock_layout.py`/its test vs
+  `ui/watchlist_panel.py`/`tests/test_watchlist.py`) but still get an edge for the
+  contract reason above (a missing edge here would be a semantic race, not a file race).
+- No wave contains two writers on the same file: each `id` row above is the only live writer
+  of its files (T47/T48/T49's shared `ui/main_window.py` is serialized by the edges).
+
+### Compatibility surface (D18 reshape) — why the test updates sit in T48
+The single right region necessarily changes the dock structure that existing tests key on:
+- `_on_dom_toggled` does `findChild(QDockWidget, "Active Trader")`; the architecture keeps a
+  stable title/`objectName` on the one region, so the production lookup keeps working.
+- `tests/test_crosshair_axis_lane.py` uses `docks["Portfolio"]` (**dict indexing**) — this
+  **breaks** with the reshape and must be updated to resolve the single region. It is
+  updated in T48, not deferred, because T48 cannot satisfy its own regression AC otherwise.
+- `tests/test_d10_d13_integration.py`, `tests/test_watchlist_d14_midrag.py`,
+  `tests/test_history_backfill*.py` use **membership** hides (`if title in (...)`), which are
+  tolerant of the removed "Portfolio" dock. They are updated in T48 anyway, per the plan's
+  Phase-3/Phase-5 lockstep intent and `AC-D18.8`, so the single-region shape is explicit
+  rather than implicitly tolerated.
+
+Deviation from the plan's literal phase table (documented, not a scope change): the plan
+lists the right-dock lookup updates as Phase 5. They are placed in **T48** (Phase 3) because
+the reshape that removes the "Portfolio" dock and the reconciliation of the tests that
+reference it are one independently-verifiable unit — leaving them in a later phase would make
+T48 fail its own regression criterion. `tests/test_d10_d13_integration.py` is therefore
+touched by both T47 (denominator, Phase 1/2) and T48 (lookup, Phase 3); they are already
+serial (`T48 → T47`), so there is no file race and the denominator update lands first.
+
+### Acceptance-criteria coverage
+- `AC-D13.1`–`AC-D13.3` (denominator corrected by B1): T46-T01/T02/T03 (helpers/round-trip)
+  and T47-T07 (`test_d10_d13_integration.py` in lockstep).
+- `AC-D17.1`: T47-T01. `AC-D17.2`: T47-T02. `AC-D17.3`: T47-T03. `AC-D17.4`: T47-T04.
+  `AC-D17.5`: T47-T05 (and cross-checked e2e in T50-T04's cross-clamp). `AC-D17.6`: T51-T01.
+- `AC-D18.1`: T49-T04 (implementation) and T50-T01 (e2e). `AC-D18.2`: T49-T01 / T50-T02.
+  `AC-D18.3`: T48-T01 / T50-T03. `AC-D18.4`: T49-T02 / T50-T02. `AC-D18.5`: T45-T05
+  (pure rule) + T49-T03 (applied) + T50-T04 (e2e). `AC-D18.6`: T49-T05 / T50-T05.
+  `AC-D18.7`: T49-T06 / T50-T06. `AC-D18.8`: T48-T04 + T51-T01.
+- `AC-D2.1` (unchanged D2 chip/dock non-overlap, now against the single region): T48-T04 and
+  T51-T02.
+
+### Carried assumptions (from the approved plan, not invented here)
+- `RIGHT_DOCK_MIN_WIDTH = 200` follows plan assumption **PA-D17D18-2** (the requirements
+  specify that a right-region minimum exists — `AC-D18.4` — but not its value; the plan
+  proposes ~200px). T45 encodes 200.
+- The single right region keeps the title **"Active Trader"** with the Portfolio section
+  stacked inside, per the architecture's chosen shape (`QDockWidget("Active Trader")`), which
+  is what preserves `_on_dom_toggled` and the tolerant test lookups.
+- The `splitterMoved` source may fall back to an event filter after `show()` (PA-D17D18-4);
+  T47 explicitly carries the deferred acquisition + fallback so the Qt-version-dependent
+  wiring is not a correctness gap, and T45 verifies the pure rule independently of the event
+  source.
+
+### Graph state
+`task-graph.json` metadata is `"status": "READY_FOR_BUILD"`; T45–T51 are `not_started`.
+Unique task/test ids; every acceptance criterion has >=1 linked test and every test links an
+existing criterion (36 tests, 1:1); `execution_graph.json` nodes match the task set and all 7
+edges resolve with no cycles.
+
+## ESC-026 — plan_dock_widths below-minimum dock width (T52 added)
+
+Revision date: 2026-10-03. Source of truth: `docs/plan.md` (`Status: READY_FOR_TASK_MANAGER`,
+Batch 11) and `docs/architecture.md` (D17/D18 increment). Input: `docs/code_review/escalations.md`
+**ESC-026** (`Status: open`, routed to BUILD, user-approved for a proper fix). No open
+`ESCALATED_TO_TASK_MANAGER` entry exists — this reconciliation adds the missing task that ESC-026's
+`kind: dock_layout_plan_below_minimum` finding requires.
+
+### Diagnosis (root cause is a code bug — AC and architecture are correct)
+ESC-026 is classified `code_bug`: `AC-D18.4` ("never below the minimum") and the architecture
+cross-clamp row both specify the correct behaviour, and `plan_dock_widths`'s own docstring
+(`ui/dock_layout.py:79–81`) promises it. The implementation violates it: the
+`while left + right > budget:` shrink loop (`:100–114`) decrements `left`/`right` **without
+re-flooring**, so a dock already capped-floored at `:89–90` can be pushed below its own minimum.
+Independently reproduced against the live tree this round:
+`plan_dock_widths(750, 100000, 200) -> (350, 0)` (right `0 < RIGHT_DOCK_MIN_WIDTH = 200`) and
+`plan_dock_widths(750, 200, 0) -> (175, 175)` (both below their minimums). T45 legitimately
+reported `done` with green tests because its one over-budget case (`(1200, 100000, 10)`) is
+feasible at chart_area 1200 — a **coverage gap**, not an incorrect AC. The T49
+`MainWindow._plan_dock_widths` in-place repair (`ui/main_window.py:1055–1118`, verified sound:
+0/4340 violations) currently masks the defect at the MainWindow layer, but leaves two divergent
+cross-clamp implementations in the repo.
+
+### New task T52 (bugfix) — `escalation: "ESC-026"`
+- `dependencies`: `["T45", "T49"]`. **T52 → T45** is the logical ordering edge: T52 corrects the
+  function T45 created, so it assumes T45's signature/contract. **T52 → T49** is a real assumed-
+  contract edge, not a file-overlap shortcut: T52 removes the T49 workaround, so the correctness
+  of the T49 `MainWindow` path (cap + cross-clamp) is re-established by T52 and the earlier T49
+  tests must still pass. `touches_files`: `ui/dock_layout.py`, `tests/test_dock_layout.py`,
+  `ui/main_window.py` — the three files the fix writes (`tests/test_dock_layout.py` is
+  `tests/test_dock_layout.py`'s existing T45 test file extended in place; `ui/main_window.py`'s
+  shared footprint is serialized by the T52 → T49 edge).
+- `architecture_dependency`: `false`. ESC-026 explicitly proposes **no AC, architecture, or
+  task-breakdown change**; the fix is confined to the shrink loop and the workaround removal, so no
+  architectural choice is required.
+- **Acceptance criteria (4) with matching tests, 1:1:**
+  - **T52-AC1 → T52-T01**: `plan_dock_widths` never returns below `WATCHLIST_MIN_WIDTH` (150) /
+    `RIGHT_DOCK_MIN_WIDTH` (200) for any input, including one-sided and both-over-budget requests
+    (grid enumeration clears the 108/1475 coarse-grid violations).
+  - **T52-AC2 → T52-T02**: the exact reproduced cases `(750, 100000, 200)` and `(750, 200, 0)`
+    return values `>=` the dock minimums (not `(350, 0)` / `(175, 175)`).
+  - **T52-AC3 → T52-T03**: documented precedence is preserved — infeasible window returns exactly
+    the dock minimums; a feasible over-budget window keeps `chart_area_w - left - right >=
+    CHART_MIN_WIDTH` and never crosses a dock minimum, matching the unchanged docstring.
+  - **T52-AC4 → T52-T04**: after the T49 repair is removed, the `MainWindow` shared apply path
+    still enforces the 40% cap (`right <= floor(0.40 * chart_area)`) and the chart-area cross-clamp,
+    so the retained T49/T50 tests still pass with `plan_dock_widths` as the single source of truth.
+- **Status is `not_started`** (Task Manager only ever initializes to `not_started`; Build advances
+  it). `escalation: "ESC-026"` is carried on the task so Build sees the diagnosis and evidence.
+
+### Graph state
+`task-graph.json` metadata remains `"status": "READY_FOR_BUILD"`; T45–T51 stay `done`/`done`/`done`/
+`done`/`done`/`done`/`done` and T52 is `not_started`. `execution_graph.json` gains node `T52` and
+edges `T52 → T45`, `T52 → T49` (9 edges total). Validation this round: unique task ids (8) and
+test ids (40); every acceptance criterion has `>=1` linked test and every test links an existing
+criterion (1:1); every edge references an existing task id; acyclicity confirmed via DFS — no
+cycles. No wave can contain two writers on the same file: T52 is the only live writer of
+`ui/dock_layout.py` and `tests/test_dock_layout.py`, and its `ui/main_window.py` write is serialized
+behind T49 by the dependency edge.
+
+### Out of scope (unchanged)
+All other ESC-001…ESC-025 entries remain `addressed` and are not touched. T45's acceptance criteria
+are **not** reworded: ESC-026's own root-cause classification confirms the AC is correct and only
+the code and its test coverage were deficient.

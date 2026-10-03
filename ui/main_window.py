@@ -21,9 +21,9 @@ def _eastern_offset(now: datetime | None = None) -> int:
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
-    QStatusBar, QDockWidget
+    QStatusBar, QDockWidget, QSplitter
 )
-from PyQt6.QtCore import Qt, QSettings, QTimer
+from PyQt6.QtCore import Qt, QSettings, QTimer, QEvent
 
 from config import settings
 from ibkr.client import IBApiClient, ConnectionState
@@ -41,11 +41,19 @@ from ui.candlestick_item import ChartMode
 from ui.watchlist_panel import (
     WatchlistPanel,
     WATCHLIST_MIN_WIDTH,
+    DEFAULT_WATCHLIST_WIDTH,
+    WATCHLIST_WIDTH_KEY,
     load_watchlist_width,
     save_watchlist_width,
     clamp_watchlist_width,
     watchlist_max_width,
     should_load_on_double_click,
+)
+from ui.dock_layout import (
+    CHART_MIN_WIDTH,
+    RIGHT_DOCK_MIN_WIDTH,
+    right_dock_max_width,
+    plan_dock_widths,
 )
 from ui.studies_dialog import StudiesDialog, DEFAULT_STUDIES
 from ui.alarm_dialog import AlarmDialog
@@ -224,32 +232,78 @@ class MainWindow(QMainWindow):
         )
         self.watchlist_panel.setMinimumWidth(WATCHLIST_MIN_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.watchlist_dock)
-        # D13: restore persisted width (clamped) and clamp on window resize
+        # D17 Phase 2: live clamp plumbing. ``_apply_dock_widths`` is the single
+        # shared entry point that reads the *chart area* (central widget width)
+        # and re-clamps the watchlist width; it is driven by the dock-area
+        # splitter hook (or the event-filter fallback), the two-directional
+        # ``resizeEvent`` and the deferred normalize. See ``_apply_dock_widths``.
         self._settings = QSettings("NDThinkChart", "NDThinkChart")
-        self._watchlist_width = load_watchlist_width(self._settings, self.width())
+        self._applying_dock_widths = False       # re-entrancy guard
+        self._dock_clamp_scheduled = False       # deferred clamp coalescing
+        self._dock_splitter = None               # acquired defensively after show
+        # Restore persisted width (clamped for the current chart area). During
+        # construction the central widget is not yet laid out, so this is a
+        # provisional clamp; the *raw persisted request* is remembered and
+        # re-applied by ``_deferred_dock_setup`` once the real chart area exists
+        # (AC-D17.4: restore as the persisted value clamped to the current cap).
+        self._persisted_watchlist_width = self._read_persisted_width()
+        self._watchlist_width = load_watchlist_width(
+            self._settings, self._chart_area_width()
+        )
         self.resizeDocks([self.watchlist_dock], [self._watchlist_width], Qt.Orientation.Horizontal)
+        # D17 Phase 2: enforce the cap *during* the drag. The dock-area's
+        # internal QSplitter is not reachable through PyQt6's public API, so the
+        # event-filter fallback (per the architecture risk row) is installed on
+        # the dock; a deferred attempt to acquire the real splitter runs after
+        # show() and, if successful, connects its ``splitterMoved`` signal.
+        self.watchlist_dock.installEventFilter(self)
+        QTimer.singleShot(0, self._deferred_dock_setup)
         # D14: double-click a row loads the chart
         self.watchlist_panel.row_double_clicked.connect(self._on_watchlist_row_double_clicked)
 
-        # ── Active Trader dock (DOM) ──────────────────────────────────────
+        # ── Single right dock region (D18 Phase 3) ────────────────────────
+        # Active Trader and Portfolio used to be two separate RightDockWidgetArea
+        # docks; they are now stacked sections of ONE region so they share the
+        # region's width by construction (AC-D18.3). The region keeps the
+        # "Active Trader" title + objectName so ``_on_dom_toggled``'s
+        # ``findChild(QDockWidget, "Active Trader")`` still resolves it. The
+        # ladder/portfolio panels and all their signal wiring are unchanged —
+        # only the container around them. No width cap is added here (T49).
         self.active_trader = ActiveTraderPanel()
-        trader_dock = QDockWidget("Active Trader", self)
-        trader_dock.setWidget(self.active_trader)
-        trader_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, trader_dock)
-
-        # ── Portfolio dock ─────────────────────────────────────────────────────
         self.portfolio_panel = ActivePortfolioPanel()
-        portfolio_dock = QDockWidget("Portfolio", self)
-        portfolio_dock.setWidget(self.portfolio_panel)
-        portfolio_dock.setFeatures(
+        self.right_dock_container = QWidget()
+        self.right_dock_container.setObjectName("RightDockContainer")
+        right_layout = QVBoxLayout(self.right_dock_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+        right_layout.addWidget(self.active_trader)
+        right_layout.addWidget(self.portfolio_panel)
+
+        self.right_dock = QDockWidget("Active Trader", self)
+        self.right_dock.setObjectName("Active Trader")
+        self.right_dock.setWidget(self.right_dock_container)
+        self.right_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, portfolio_dock)
+        # D18 Phase 4: pin the single region's minimum to the shared constant so
+        # ``_apply_dock_widths`` can shrink it exactly to RIGHT_DOCK_MIN_WIDTH
+        # and the panels' bounded content cannot raise it (AC-D18.4/AC-D18.6).
+        self.right_dock.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
+        # D18 Phase 4: in-memory-only right-region width. Never persisted — no new
+        # QSettings key (AC-D18.7 / A36), matching D10's volume-toggle precedent.
+        self._right_dock_width = RIGHT_DOCK_MIN_WIDTH
+        # The right region participates in the shared clamp via resizeEvent and a
+        # second event filter (the watchlist filter above is D17-only).
+        self.right_dock.installEventFilter(self)
+        # Hide/show re-applies the clamp: with the region hidden the watchlist
+        # regains its own cap (D17 behaviour restored); with it shown the B3
+        # cross-clamp governs again. This is what keeps D17's watchlist-cap
+        # assertions true whenever the right region is not participating.
+        self.right_dock.visibilityChanged.connect(
+            self._on_right_dock_visibility_changed
+        )
 
         # ── Status bar ────────────────────────────────────────────────────────
         self.status_bar = QStatusBar()
@@ -954,18 +1008,384 @@ class MainWindow(QMainWindow):
     def _on_sound_toggled(self, enabled: bool):
         self.sound_service.set_enabled(enabled)
 
-    # ── Watchlist width / double-click slots (D13 / D14) ─────────────────────
+    # ── D17 Phase 2: live dock-width clamp + Watchlist width slots ───────────
+
+    def _read_persisted_width(self) -> int:
+        """The raw persisted watchlist width (default ~220, never <150).
+
+        Kept separately from the provisional clamped value so the deferred
+        post-``show()`` setup can re-apply the *user's request* against the real
+        chart area rather than merely re-clamping the provisional width.
+        """
+        try:
+            raw = self._settings.value(WATCHLIST_WIDTH_KEY)
+            width = int(raw) if raw is not None else DEFAULT_WATCHLIST_WIDTH
+        except (TypeError, ValueError):
+            width = DEFAULT_WATCHLIST_WIDTH
+        return max(WATCHLIST_MIN_WIDTH, width)
+
+    def _chart_area_width(self) -> int:
+        """The chart-area width: ``centralWidget().width()`` (B1).
+
+        Falls back to the window width when the central widget is absent or not
+        yet laid out (e.g. during ``__init__``, before ``show()``), so the
+        helpers never see a zero denominator.
+        """
+        central = self.centralWidget()
+        width = central.width() if central is not None else 0
+        if width <= 0:
+            width = self.width()
+        return int(width)
+
+    def _right_dock_available(self) -> bool:
+        """True when the single right region exists and is visible on screen.
+
+        When it is hidden/detached (D17's tests hide the right docks) the shared
+        clamp must fall back to the watchlist-only rule so a phantom right region
+        does not reserve chart-area budget it is not using.
+        """
+        dock = getattr(self, "right_dock", None)
+        if dock is None:
+            return False
+        try:
+            return bool(dock.isVisible())
+        except Exception:
+            return False
+
+    def _plan_dock_widths(self, chart_area: int, requested_left, requested_right):
+        """Resolve ``(left, right)`` for the chart area, never below a dock minimum.
+
+        Delegates to the pure :func:`ui.dock_layout.plan_dock_widths` (B3
+        cross-clamp, single source of truth). The pure helper owns *all* of the
+        clamp logic — per-dock caps, the combined chart-minimum cross-clamp, and
+        the hard guarantee that neither width drops below its dock minimum (its
+        shrink loop was corrected under T52/ESC-026). This method adds no repair
+        of its own: the D18 guarantees rest solely on the helper.
+
+        Because the cap denominator is the **post-resize** chart area
+        (``centralWidget().width()`` changes as the docks resize), a single pass
+        would leave the dock over ``floor(0.40 × chart_area_after)`` — the
+        accepted reading of AC-D18.2 is the chart area *after* the resize. The
+        plan is therefore iterated to a fixed point: each pass plans against the
+        chart area that the previous pass would produce, using the invariant
+        ``S = chart_area + current_left + current_right`` (the region housing the
+        chart and both docks). The cap contraction (0.4 / 0.5 < 1) makes this
+        converge, so the returned width is self-consistent with the chart area it
+        leaves behind.
+        """
+        try:
+            cur_left = self.watchlist_dock.width()
+            cur_right = self.right_dock.width()
+        except Exception:
+            cur_left = requested_left if requested_left is not None else 0
+            cur_right = requested_right if requested_right is not None else 0
+        invariant = chart_area + int(cur_left) + int(cur_right)
+
+        ca = chart_area
+        left, right = None, None
+        previous = None
+        for _ in range(24):
+            left, right = plan_dock_widths(
+                ca, int(requested_left), int(requested_right)
+            )
+
+            if (left, right) == previous:
+                break
+            previous = (left, right)
+            next_ca = invariant - left - right
+            if next_ca <= 0:
+                break
+            ca = next_ca
+        return int(left), int(right)
+
+    def _apply_dock_widths(self, requested_left: int | None = None,
+                           requested_right: int | None = None) -> int:
+        """Shared, idempotent dock-width clamp (D17 watchlist + D18 right region).
+
+        Reads the current chart area (``centralWidget().width()``) and clamps both
+        docks against it. When the single right region is visible, the combined
+        B3 cross-clamp :meth:`_plan_dock_widths` is used so ``chart_area`` keeps
+        its ~400px minimum and enlarging one dock forces the other to shrink
+        (AC-D18.5); when it is hidden, only the watchlist rule applies (D17).
+
+        ``requested_left`` / ``requested_right`` are the widths the user is
+        dragging toward; ``None`` means "clamp whatever the dock currently is"
+        (the drag/resize path). ``resizeDocks`` is issued only when a computed
+        size differs from the dock's current width by more than 1px, and
+        re-entrant invocations are suppressed by ``_applying_dock_widths`` so an
+        applied resize cannot recurse or jitter (AC-D17.6 / T49-T07).
+
+        Returns the applied (clamped) watchlist width. Never raises.
+        """
+        if getattr(self, "_applying_dock_widths", False):
+            return getattr(self, "_watchlist_width", WATCHLIST_MIN_WIDTH)
+        dock = getattr(self, "watchlist_dock", None)
+        if dock is None:
+            return getattr(self, "_watchlist_width", WATCHLIST_MIN_WIDTH)
+        self._applying_dock_widths = True
+        try:
+            chart_area = self._chart_area_width()
+            current_left = dock.width()
+            base_left = current_left if requested_left is None else int(requested_left)
+
+            right_dock = getattr(self, "right_dock", None)
+            use_right = self._right_dock_available() and right_dock is not None
+
+            if use_right:
+                current_right = right_dock.width()
+                base_right = (
+                    current_right
+                    if requested_right is None
+                    else int(requested_right)
+                )
+                plan_left, plan_right = self._plan_dock_widths(
+                    chart_area, base_left, base_right
+                )
+                self._watchlist_width = plan_left
+                self._right_dock_width = plan_right
+                # Both docks are passed together whenever anything changes:
+                # ``resizeDocks`` distributes slack among the *listed* docks, so
+                # resizing only one would hand it all the leftover space and
+                # overshoot the cap. Listing both with their exact planned sizes
+                # keeps each dock at its plan value.
+                if (
+                    abs(current_left - plan_left) > 1
+                    or abs(current_right - plan_right) > 1
+                ):
+                    self._resize_docks_guarded(
+                        [dock, right_dock], [plan_left, plan_right]
+                    )
+            else:
+                cap = watchlist_max_width(chart_area)
+                desired = max(WATCHLIST_MIN_WIDTH, min(base_left, cap))
+                self._watchlist_width = desired
+                if abs(current_left - desired) > 1:
+                    self._resize_docks_guarded([dock], [desired])
+        except Exception:
+            pass
+        finally:
+            self._applying_dock_widths = False
+        return self._watchlist_width
+
+    def _resize_docks_guarded(self, docks, sizes) -> None:
+        """Issue ``resizeDocks`` with the acquired splitter's signals blocked.
+
+        The dock-area splitter is normally not reachable via PyQt6's public API
+        (see ``_acquire_dock_splitter``); when it was acquired, block its signals
+        for the duration of the resize so the programmatic change cannot
+        re-enter ``_apply_dock_widths``.
+        """
+        splitter = getattr(self, "_dock_splitter", None)
+        blocked = False
+        if splitter is not None:
+            try:
+                splitter.blockSignals(True)
+                blocked = True
+            except Exception:
+                blocked = False
+        try:
+            self.resizeDocks(docks, sizes, Qt.Orientation.Horizontal)
+        finally:
+            if blocked:
+                try:
+                    splitter.blockSignals(False)
+                except Exception:
+                    pass
+
+    def _acquire_dock_splitter(self):
+        """Defensively obtain the dock-area internal ``QSplitter`` (D17 risk).
+
+        Qt's ``QMainWindowLayout`` owns the dock-area splitter at the C++ level
+        and it is **not** exposed as a ``QSplitter`` in PyQt6's object tree
+        (``findChildren(QSplitter)`` only finds the chart's own vertical
+        splitter). Picking that one would wire the watchlist clamp to chart
+        layout changes — wrong. So a candidate is only accepted when it actually
+        governs the watchlist dock: it must not belong to the ``ChartPanel`` and
+        one of its sections must be the dock's ancestor chain. In practice this
+        returns ``None`` on the current PyQt6, and the event-filter fallback
+        (``eventFilter``) carries the live clamp. The connection is still
+        attempted so a future Qt that *does* expose the splitter is covered.
+        """
+        try:
+            for splitter in self.findChildren(QSplitter):
+                if splitter is getattr(self.chart_panel, "_splitter", None):
+                    continue
+                if self._splitter_contains_watchlist(splitter):
+                    try:
+                        splitter.splitterMoved.connect(self._on_dock_splitter_moved)
+                    except Exception:
+                        continue
+                    return splitter
+        except Exception:
+            pass
+        return None
+
+    def _splitter_contains_watchlist(self, splitter) -> bool:
+        """True when ``splitter`` has a section that contains the watchlist dock."""
+        try:
+            for i in range(splitter.count()):
+                widget = splitter.widget(i)
+                if widget is None:
+                    continue
+                if widget is self.watchlist_dock:
+                    return True
+                if widget.isAncestorOf(self.watchlist_dock):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _deferred_dock_setup(self) -> None:
+        """Post-``show()`` normalize + deferred splitter acquisition (D17).
+
+        Runs once the event loop has laid the window out: acquires the
+        dock-area splitter if Qt exposes it, then re-applies the persisted width
+        clamped for the now-real chart area. Swallows all exceptions so a
+        Qt-version-dependent wiring path can never break window start-up.
+        """
+        try:
+            if getattr(self, "_dock_splitter", None) is None:
+                self._dock_splitter = self._acquire_dock_splitter()
+            # Re-apply the persisted request (not just the provisional clamp) so
+            # the restore honours AC-D17.4 against the now-real chart area.
+            self._apply_dock_widths(
+                requested_left=getattr(
+                    self, "_persisted_watchlist_width", DEFAULT_WATCHLIST_WIDTH
+                )
+            )
+        except Exception:
+            pass
+
+    def _on_right_dock_visibility_changed(self, _visible: bool) -> None:
+        """Re-clamp after the right region is shown/hidden.
+
+        A dock's ``visibilityChanged`` fires before the main layout has
+        re-assigned the central widget's new width, so the apply is deferred
+        until the layout settles. Hiding the region lets the watchlist regain its
+        own cap (D17), so the *persisted/requested* width is re-honoured rather
+        than the momentarily-clamped width; showing it re-applies the B3
+        cross-clamp. Several deferred passes are used because a single
+        event-loop turn can still see the dock as visible and the old chart area.
+        """
+        requested = getattr(self, "_persisted_watchlist_width", None)
+        self._deferred_dock_clamp(requested, passes=8)
+
+    def _deferred_dock_clamp(self, requested_left, passes: int = 8) -> None:
+        """Apply the shared clamp over deferred event-loop turns until settled.
+
+        A dock's ``visibilityChanged`` fires before the layout has re-assigned the
+        central widget's width, so a single apply can read a stale chart area and
+        the applied resize can itself change that area. Each pass is therefore
+        followed by another until the dock widths are self-consistent with the
+        chart area they leave behind (or ``passes`` is exhausted). Hiding the
+        region lets the watchlist regain its own cap; showing it re-applies the
+        B3 cross-clamp.
+        """
+        def _pass(remaining: int):
+            try:
+                self._apply_dock_widths(requested_left=requested_left)
+            except Exception:
+                pass
+            if remaining > 1 and not self._dock_widths_consistent():
+                QTimer.singleShot(0, lambda: _pass(remaining - 1))
+
+        QTimer.singleShot(0, lambda: _pass(passes))
+
+    def _dock_widths_consistent(self) -> bool:
+        """True when the applied dock widths self-consistently match the chart area.
+
+        The comparison is *predictive*: applying a width ``L`` leaves the chart
+        area at ``T - L`` (with ``T`` the invariant chart-plus-docks width), so
+        the width is settled when it equals its own cap for the chart area it
+        would produce. This avoids reading a chart area that Qt has not yet
+        re-laid-out after the previous ``resizeDocks``.
+        """
+        try:
+            ca = self._chart_area_width()
+            if self._right_dock_available():
+                plan_left, plan_right = self._plan_dock_widths(
+                    ca, self.watchlist_dock.width(), self.right_dock.width()
+                )
+                return self.right_dock.width() == plan_right and (
+                    ca - plan_left - plan_right >= CHART_MIN_WIDTH - 1
+                )
+            invariant = ca + self.watchlist_dock.width()
+            return self._watchlist_width == watchlist_max_width(
+                invariant - self._watchlist_width
+            )
+        except Exception:
+            return True
+
+    def _on_dock_splitter_moved(self, pos: int, index: int) -> None:
+        """``QSplitter.splitterMoved`` hook: clamp live during the drag (AC-D17.3)."""
+        self._apply_dock_widths()
+
+    def _on_dock_drag_event(self) -> None:
+        """Event-filter fallback clamp while the dock handle is being dragged.
+
+        Called from :meth:`eventFilter` on the watchlist dock for the mouse
+        move/release sequence, so the cap binds **during** the drag even when the
+        dock-area internal splitter cannot be acquired. The apply is deferred
+        with a coalescing single-shot because an event filter runs *before* the
+        dock consumes the drag, so the dock width is only settled on the next
+        event-loop turn.
+        """
+        self._schedule_dock_clamp()
+
+    def _schedule_dock_clamp(self) -> None:
+        """Coalesce deferred ``_apply_dock_widths`` calls (one per event loop turn)."""
+        if getattr(self, "_dock_clamp_scheduled", False):
+            return
+        self._dock_clamp_scheduled = True
+
+        def _run():
+            self._dock_clamp_scheduled = False
+            try:
+                self._apply_dock_widths()
+            except Exception:
+                pass
+
+        QTimer.singleShot(0, _run)
+
+    def eventFilter(self, obj, event):
+        # D17/D18: fallback enforcement for the dock-area splitter on both dock
+        # regions. ``resizeDocks`` cannot re-enter us (guard), and this only
+        # observes — never consumes — the drag events.
+        try:
+            if obj is getattr(self, "watchlist_dock", None) or obj is getattr(
+                self, "right_dock", None
+            ):
+                et = event.type()
+                if et in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonRelease):
+                    self._on_dock_drag_event()
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+    def changeEvent(self, event):
+        """Full-screen / window-state normalize (D18, AC-D18.1).
+
+        No ``showFullScreen`` is added (PA-D17D18-5): full screen remains an
+        OS/WM state. When the window state changes — in particular into/out of
+        full screen — the right region's cap is re-applied against the now-real
+        window rect via a deferred one-shot, so the region is laid out on-screen
+        with a non-zero width without manual repositioning.
+        """
+        super().changeEvent(event)
+        try:
+            if event.type() == QEvent.Type.WindowStateChange:
+                self._schedule_dock_clamp()
+        except Exception:
+            pass
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        # D17/D18 Phase 2/4: re-clamp in *both* directions on any window resize
+        # (the shared ``_apply_dock_widths`` shrinks over-cap widths and never
+        # lets either dock fall below its minimum).
         try:
-            if getattr(self, "watchlist_dock", None) is not None and self.watchlist_dock.isVisible():
-                max_w = watchlist_max_width(self.width())
-                if self.watchlist_dock.width() > max_w:
-                    self._watchlist_width = clamp_watchlist_width(max_w, self.width())
-                    self.resizeDocks(
-                        [self.watchlist_dock], [self._watchlist_width], Qt.Orientation.Horizontal
-                    )
+            if getattr(self, "watchlist_dock", None) is not None:
+                self._apply_dock_widths()
         except Exception:
             pass
 
@@ -1377,11 +1797,14 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
-        # Persist watchlist dock width (D13)
+        # Persist watchlist dock width (D13/D17): re-clamp to the current
+        # chart-area cap before saving so an over-cap width cannot leak into
+        # the next session (AC-D17.4).
         try:
             if getattr(self, "watchlist_dock", None) is not None:
+                self._apply_dock_widths()
                 self._watchlist_width = save_watchlist_width(
-                    self._settings, self.watchlist_dock.width(), self.width()
+                    self._settings, self._watchlist_width, self._chart_area_width()
                 )
         except Exception:
             pass

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -22,6 +23,13 @@ from data.models import Position
 from services.strategy_detection import detect_and_group
 from ui.stop_loss_target_dialog import StopLossTargetDialog
 from ui.trade_context_menu import TradeContextMenu
+
+import ui.dock_layout as dock_layout
+
+#: Bounded minimum width of this panel (D18 Phase 4). Shared with the right
+#: region so the 10-column positions table can never demand more width than the
+#: region is allowed and push it off-screen (AC-D18.6).
+RIGHT_DOCK_MIN_WIDTH = dock_layout.RIGHT_DOCK_MIN_WIDTH
 
 
 class ActivePortfolioPanel(QWidget):
@@ -45,6 +53,14 @@ class ActivePortfolioPanel(QWidget):
         self._summary: dict[str, str] = {}
         self._positions: list[Position] = []
         self._groups: dict[int, str] = {}
+
+        # D18 Phase 4: bound the panel so its 10-column positions table scrolls or
+        # clips internally rather than forcing the right region past the 40% cap
+        # (AC-D18.6).
+        self.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored, self.sizePolicy().verticalPolicy()
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -72,6 +88,17 @@ class ActivePortfolioPanel(QWidget):
         self.positions_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.positions_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.positions_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # D18 Phase 4: the table itself must not demand the sum of its column
+        # widths; Stretch columns fill the available region width and the table
+        # scrolls horizontally if it ever needs to (AC-D18.6).
+        self.positions_table.setMinimumWidth(0)
+        self.positions_table.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            self.positions_table.sizePolicy().verticalPolicy(),
+        )
+        self.positions_table.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
         self.positions_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.positions_table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.positions_table)

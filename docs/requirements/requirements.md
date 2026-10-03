@@ -1,6 +1,6 @@
 # NDThinkChart — Requirements
 
-> Status: READY_FOR_PLAN — D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped.
+> Status: **D17/D18 (panel layout / resizing in full screen, reported 2026-10-03) — CLARIFIED 2026-10-03 (B1–B4 answered; see `open_questions.md` Q/B1–B4).** D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped.
 
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
@@ -24,6 +24,30 @@ D14 double-click row to load chart) clarified 2026-09-20 per Q25–Q29. Batch 9
 (D15) horizontal line double-click settings popup with 4 tabs is clarified 2026-09-20 per Q30.
 
 **New work item — 2026-10-02 (defect D16) — CLARIFIED.** The user reported that historical bars are **missing across 2026-09-19…2026-09-27** on `SPY` `5 mins` (price candles) and that the **volume panel is empty over the same span**; 2026-09-21…2026-09-25 are normal trading weekdays, so this is a bar-data hole, not weekend session shading. The hole is an **internal** discontinuity in the cache: the screen shows bars 09/14–09/18, nothing 09/19–09/27, and bars 09/28–10/02 (validated live against `SPY 5 mins` in the user-space SQLite cache). D16 is captured in the Defect Register + Journey 17 and is the sole open requirement for this new batch. **Decisions (2026-10-02, Q37–Q39):** the app backfills the whole gap so the chart is continuous (chunking requests if needed); genuine market closures (weekend/holiday/overnight) stay **empty** and are not filled or compressed; the fix and its verification cover **all timeframes** (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`, `1 day`) and **any symbol**. **Correction (ESC-023, 2026-10-02):** the D16 trading-day calendar's New Year's observed-day shift is corrected to carry the **NYSE Rule 7.2 year-end accounting exception** — when Jan 1 falls on a Saturday, the preceding Friday (Dec 31) is a **trading day**, not a closure, and no New Year's holiday is observed; a genuine bar hole on such a day is therefore a missing trading session, not a genuine closure (see D16 / `AC-D16.7`). The corrected `T37-T03` acceptance criterion and the `market_calendar` observed-shift rule must both change (Task Manager / Build). All D1–D15 acceptance criteria are built and remain frozen/unchanged.
+
+
+**New work item — 2026-10-03 (defects D17 + D18) — CLARIFIED 2026-10-03 (B1–B4 answered).** The user
+reviewed the running app **in full screen** and reported two panel-layout problems (verbatim in the
+Defect Register): **(D17)** the **Watchlist** dock on the left is too small and "does not extend or
+reduce in width if user tries it"; the fix requested is to allow it to be extended **till 50% of the
+chart area**, with the chart narrowing as the watchlist grows. **(D18)** the right-side **Active
+Trader** section (which contains the ladder, with **Portfolio** below it) "does not even be visible
+to user if the app is made full screen"; the fix requested is to reposition it so it fits the visible
+full-screen area, allow it to be enlarged **till 40% of the chart area**, keep **Active Trader and
+Portfolio at the same width**, and narrow the chart as it grows. D17 is diagnosed as a **likely defect
+in the built D13 behaviour** (the 50% cap exists as helpers but is never enforced during a dock drag —
+see D17), while D18 is a **new requirement** (no prior defect covers the right dock's width or
+full-screen visibility — see D18). Both are captured in the Defect Register + Journeys 18–19 with
+**final** acceptance criteria. **Decisions (2026-10-03, B1–B4 answered):** **(B1)** the watchlist cap
+is **50% of the CHART AREA**, not of the window — this **supersedes and corrects D13's Q25
+denominator** ("50% of MainWindow width"), and `AC-D13.1`–`AC-D13.3`, Journey 14, A17 and R15 are
+updated in lockstep. **(B2)** Active Trader and Portfolio live in **ONE right-dock region** containing
+both stacked sections, so they share equal width by construction; the **40%-of-chart-area** cap
+applies to that one region. **(B3)** **independent caps + a chart-minimum rule**: each dock clamps
+against its own % (watchlist 50%, right dock 40%) **and** against the remaining space so the chart
+keeps a minimum (~400px); enlarging one can force the other to shrink. **(B4)** the watchlist handle
+drags **both wider and narrower** between min (150px) and cap; min stays 150px, default ~220px, and
+persistence (Q26) is **still required**. See `open_questions.md` (B1–B4 answered) and DG23–DG26.
 
 ## Goals
 - Collect and triage the user's reported functional issues and UI bugs.
@@ -51,14 +75,22 @@ The D1–D15 work is built and green. This section is preserved through every re
 Plan, the Plan Artifact Editor & Validator, and the Orchestrator key **existing-repo mode**
 off of the marker sentence above.
 
-**What is being built/changed in this run:** defect **D16** — backfill of missing historical
-bars across a cache/reopen gap (reported 2026-10-02; the price candles **and** the volume
-panel both lose 2026-09-20…2026-09-27 on `SPY 5 mins`). No new product features, no stack
-change. The fix is expected to live in the existing bar-load path
-(`ui/main_window.py::load_chart` / `_on_historical_bar` / `_on_historical_data_end`,
-`ibkr/market_data.py`, `ibkr/client.py`), with the chart render path
-(`ui/chart_panel.py::update_chart` / `_refresh_candles`) unchanged except where acceptance
-requires it.
+**What is being built/changed in this run:** the **D16** historical-bar backfill (built and green,
+2026-10-02) plus two **2026-10-03 panel-layout defects (D17 + D18), clarified 2026-10-03 (B1–B4
+answered)**:
+- **D17 — Watchlist resize in full screen (CLARIFIED):** the Watchlist dock must be draggable in
+  **both directions** between its minimum (150px) and its cap of **50% of the chart area**, with the
+  chart area narrowing as it grows and the cap enforced **during the drag** (not only on window
+  `resizeEvent`); the width persists per Q26. Expected to live in the existing dock/splitter wiring
+  (`ui/main_window.py` dock setup + resize handling; `ui/watchlist_panel.py` clamp helpers).
+- **D18 — Active Trader/Portfolio right dock in full screen (CLARIFIED, new requirement):** a
+  **single right-dock region** (Active Trader ladder + Portfolio stacked) must be fully visible in
+  full screen, resizable up to **40% of the chart area**, with the two stacked sections inherently at
+  equal width (one region) and the chart narrowing as it grows; combined with D17 under the
+  chart-minimum rule (B3). Expected to live in `ui/main_window.py` (`RightDockWidgetArea` setup)
+  and/or the panel classes (`ui/active_trader_panel.py`, `ui/active_portfolio_panel.py`).
+No new product features beyond these layout fixes, and **no stack change**. Both are finalised by
+B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
 
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
@@ -128,6 +160,9 @@ repository files, which remain authoritative if the two disagree.
 | DOM / Ladder | Level II market-depth ladder with click-to-trade rows. |
 | Live-order path | Code that builds/transmits orders via `ibkr/orders.py` + `IBApiClient`; gated in TWS for now. |
 | Genuine closure | A market-closed interval that is legitimately non-trading (weekend, actual US-equity holiday, or overnight). Stays **empty** per D16 (`AC-D16.3`). **Dec 31 of a year whose next Jan 1 is a Saturday is NOT a genuine closure** — it is a trading day (`AC-D16.7`, ESC-023). |
+| Chart area | The central region of `MainWindow` holding the chart, excluding the docked panels (Watchlist on the left; the single Active Trader + Portfolio right dock). Panel caps in D17/D18 are percentages of **this** region (B1/B2), not of the whole window. |
+| Chart-minimum rule | The hard floor (~400px) the chart area must keep, independent of the two docks (B3): each dock clamps against its own % **and** against the space left so the chart never drops below the minimum. Enlarging one dock can force the other to shrink. |
+| Right dock (D18) | The **single** `RightDockWidgetArea` region containing the Active Trader ladder and the Portfolio section stacked vertically (B2). Because it is one region, its two sections are inherently equal width; the 40%-of-chart-area cap applies to the region as a whole. |
 
 ## User Journeys
 
@@ -260,8 +295,11 @@ repository files, which remain authoritative if the two disagree.
 ### Journey 14 — D13: resize watchlist panel to see more symbols/columns
 - **Preconditions:** App is running; Watchlist dock is docked on the left; window is at default 1400×900.
 - **Steps:** 1) Hover over the vertical splitter handle between Watchlist and chart. 2) Drag right to widen.
-- **Postconditions:** Watchlist width grows, chart narrows, handle remains draggable across `[150, floor(0.50×W)]` (and `W−400`), clamped on window resize.
-- **Edge Cases:** At max 50% the handle stops; at min 150px it stops; floating Watchlist is unconstrained.
+- **Postconditions:** Watchlist width grows, chart narrows, handle remains draggable across
+  `[150, floor(0.50×chart_area)]` (and the chart-minimum rule from B3), clamped both **during the drag**
+  and on window resize. **Superseded denominator (B1, 2026-10-03):** the cap is 50% of the **chart
+  area**, not of `MainWindow` width as originally stated in Q25 — see `AC-D13.1` and A17.
+- **Edge Cases:** At max 50%-of-chart-area the handle stops; at min 150px it stops; floating Watchlist is unconstrained.
 
 ### Journey 15 — D14: double-click watchlist row to load chart
 - **Preconditions:** Watchlist has symbols; IBKR may be connected or not; current chart may be `SPY`.
@@ -296,6 +334,36 @@ repository files, which remain authoritative if the two disagree.
   the configured window; a cache newer than now is not redundantly re-requested; symbol/timeframe
   switch while a backfill request is in flight does not mix symbols/timeframes; the same behaviour
   holds on every timeframe (`1 min`…`1 day`) and any symbol (Q39); **Dec 31 of a year whose next Jan 1 is a Saturday is a trading session, not a closure (e.g. 2021-12-31, 2027-12-31, 2032-12-31, 2038-12-31), so a hole there must be backfilled/surfaced like any other trading day (`AC-D16.7`, ESC-023)**.
+
+### Journey 18 — D17: resize the Watchlist in full screen
+- **Preconditions:** App is running (dev build, `python main.py`) shown **full screen**; Watchlist dock
+  is docked on the left; chart is loaded; a thin splitter handle sits between the Watchlist and the chart.
+- **Steps:** 1) Drag the splitter handle to the right. 2) Observe the Watchlist widen and the chart
+  narrow. 3) Drag back to the left. 4) Drag past the cap. 5) Restart the app.
+- **Postconditions:** The Watchlist widens continuously up to **50% of the chart area** (B1) and the
+  chart narrows correspondingly; dragging back reduces it (both directions work — B4); at the cap the
+  handle stops without pushing the chart below its ~400px minimum (B3); the width survives a restart
+  (Q26 persistence still required — B4). The cap is enforced **during the drag**, not only on
+  `resizeEvent`.
+- **Edge Cases:** Window is already full screen (no window resize fires during the drag → the cap must
+  still be enforced during/after the drag, not only on `resizeEvent`); floating Watchlist unconstrained;
+  dragging below the minimum stops at 150px; the right dock being enlarged shrinks the watchlist's
+  available space so its effective cap drops (B3 cross-clamping); restart restores the persisted width
+  clamped to the current cap (50% of the current chart area).
+
+### Journey 19 — D18: use the Active Trader (+ Portfolio) dock in full screen
+- **Preconditions:** App is running shown **full screen**; the **single right dock** (Active Trader
+  ladder with Portfolio stacked below) is visible on the right; a chart is loaded.
+- **Steps:** 1) Observe the right-hand region in full screen. 2) Enlarge the right dock. 3) Observe the
+  chart narrow. 4) Compare Active Trader and Portfolio widths.
+- **Postconditions:** The single right-dock region (Active Trader + Portfolio) is entirely within the
+  visible window area (not clipped/off-screen); enlarging it grows it up to **40% of the chart area**
+  (B2/B3) and the chart area narrows; Active Trader and Portfolio render at **equal width** because
+  they are two stacked sections of one region (B2).
+- **Edge Cases:** Both left (watchlist) and right docks enlarged at once must not squeeze the chart
+  below its minimum — each clamps against the remaining space so the chart keeps ~400px, and enlarging
+  one can force the other to shrink (B3); cross-clamping is exercised in the criteria; small full-screen
+  display; docks hidden/floating; ladder content wider than the dock must not force the dock off-screen.
 
 ## Acceptance Criteria (feature-level)
 
@@ -347,7 +415,7 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 > 2026-09-19): D8 volume linear, no negatives, dynamic nice ticks, price-coloured.
 > Batch 5 (clarified 2026-09-19): D9 volume spacing follow + D10 volume show/hide at
 > top left of volume panel. Batch 6 (clarified 2026-09-19): D11 drawing price labels
-> on inner right side. Batch 7 (clarified 2026-09-19): D12 zone double-click settings popup (Extend omitted). Batch 8 (clarified 2026-09-20): D13 watchlist resizable to 50% with persistence + D14 double-click row to load chart (identical to Load Chart, no-op on same symbol/disconnected). Batch 9 (clarified 2026-09-20): D15 horizontal line double-click settings popup.
+> on inner right side. Batch 7 (clarified 2026-09-19): D12 zone double-click settings popup (Extend omitted). Batch 8 (clarified 2026-09-20): D13 watchlist resizable to 50% with persistence + D14 double-click row to load chart (identical to Load Chart, no-op on same symbol/disconnected). Batch 9 (clarified 2026-09-20): D15 horizontal line double-click settings popup. Batch 10 (clarified 2026-10-02): D16 historical-bar cache-gap backfill (Q37–Q39; ESC-023 calendar correction). **Batch 11 (D17 + D18, panel layout / resizing in full screen) — CLARIFIED AND FINALISED 2026-10-03 (B1–B4 answered 2026-10-03):** D17 watchlist drag both directions up to **50% of the chart area** (min 150px, default ~220px, persisted, cap enforced during the drag); D18 one right-dock region (Active Trader + Portfolio stacked) up to **40% of the chart area**, equal width by construction, full-screen visible; combined under the **independent-caps + ~400px chart-minimum** rule (B3). See D13/D17/D18, `AC-D13.1`, `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`, A34–A36, R28–R31, and `open_questions.md` B1–B4 (answered). D17 supersedes/corrects D13's Q25 denominator (B1). **No blocking question remains.**
 
 ### D1 — No RTH / ETH session shading on chart
 - **Area:** Chart panel (price plot)
@@ -1000,42 +1068,51 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 - Double-click with no selection does nothing.
 - Cancel/X discards changes; the zone remains as before.
 
-### D13 — Watchlist dock resizable to 50% of window width with persistence
+### D13 — Watchlist dock resizable to 50% of the **chart area** with persistence
 - **Area:** Watchlist dock / `ui/main_window.py`, `ui/watchlist_panel.py`
-- **Status:** clarified 2026-09-20 — criteria defined, Q25/Q26 confirmed
+- **Status:** clarified 2026-09-20 (Q25/Q26) — **denominator SUPERSEDED/CORRECTED 2026-10-03 by B1**
+  to **50% of the chart area** (was "50% of `MainWindow` width"); enforced during the drag (D17).
+- **Supersession note (B1, 2026-10-03):** D17's report ("extend till **50% of the chart area**") is
+  authoritative. The Q25 answer ("~50% of `MainWindow` width") is **corrected** so the cap is measured
+  against the **chart area** (the central region excluding both docks), which matters once the right
+  dock (D18) is visible. `AC-D13.1`–`AC-D13.3`, Journey 14, A17 and R15 are updated in lockstep; the
+  D13 intent (freely draggable up to the cap, persisted) is unchanged.
 - **Reported:** The watchlist panel should extend more so the user can see more
   symbols/columns; the current width is limited and is not remembered.
 - **Observed in code at time of report:** the Watchlist is a `QDockWidget` in
   `LeftDockWidgetArea` (`ui/main_window.py`); its width was not explicitly bounded
-  to a percentage of the window and was not persisted across restarts.
+  to a percentage and was not persisted across restarts.
 
-**Decisions confirmed 2026-09-20 (Q25 50% freely draggable; Q26 persist yes):**
-- Docked Watchlist is freely draggable up to **~50% of `MainWindow` width**,
-  clamped to `[150, min(floor(0.50×W), W−400)]` so the chart central panel keeps
-  **≥400px**; minimum watchlist `150px`; clamped on window resize; floating geometry
-  is unconstrained.
+**Decisions confirmed 2026-09-20 (Q26 persist yes); denominator corrected 2026-10-03 (B1):**
+- Docked Watchlist is freely draggable **in both directions** up to **`floor(0.50 × chart_area)`**,
+  additionally clamped by the **chart-minimum rule (B3)** so the chart area keeps **≥400px**; minimum
+  watchlist `150px`; the clamp is applied **during the drag** as well as on window resize; floating
+  geometry is unconstrained. Default width **~220px**.
 - Watchlist width persists across restarts as an **integer pixel** value (e.g.,
   `QSettings watchlist/width` or a DB key); default **~220px** if none saved;
-  restore is clamped to the current 50%.
+  restore is clamped to the current cap.
 
 **Acceptance Criteria (Given/When/Then):**
-- **AC-D13.1** Given a docked Watchlist at default width, When the user drags the
-  vertical splitter right/left, Then watchlist width is clamped to
-  `[150, floor(0.50×W)]` (and also `W−400` for the chart minimum) and the chart
-  width adjusts, with the handle remaining draggable across the range.
+- **AC-D13.1 (denominator corrected by B1)** Given a docked Watchlist at default width and a loaded
+  chart, When the user drags the vertical splitter **either direction**, Then the watchlist width is
+  clamped to `[150, floor(0.50 × chart_area)]`, further limited by the chart-minimum rule (`chart_area
+  ≥ 400px`), the chart width adjusts, and the handle remains draggable across the range — **including
+  during the drag** (not only on window resize).
 - **AC-D13.2** Given a persisted width, When the app restarts, Then the watchlist
-  restores to the persisted integer width clamped to the current `floor(0.50×W)`
-  (default ~220px if none saved, never <150).
-- **AC-D13.3** Given a wide watchlist and the main window is narrowed, When the
-  width would exceed 50%, Then the watchlist is auto-clamped to 50% without error
-  and remains resizable.
+  restores to the persisted integer width clamped to the current
+  `floor(0.50 × chart_area)` (default ~220px if none saved, never <150).
+- **AC-D13.3** Given a wide watchlist and the width available to it shrinks (main window narrowed, or
+  the right dock enlarged per B3), When the width would exceed the current cap, Then the watchlist is
+  auto-clamped to the cap without error and remains resizable.
 
 **Edge Cases:**
 - Floating Watchlist is not constrained to 50%; docking it again re-applies the
   clamp.
-- Extremely narrow windows keep `150px` watchlist and `≥400px` chart; if the window
+- Extremely narrow windows keep `150px` watchlist and the chart minimum; if the window
   is smaller than the sum, the watchlist yields to the chart minimum.
 - No saved width on first run uses ~220px.
+- The right dock (D18) grows while the watchlist is at its cap → the watchlist is re-clamped
+  (effective cap shrinks) per `AC-D18.5`/B3.
 
 ### D14 — Double-click Watchlist row loads chart (identical to Load Chart)
 - **Area:** Watchlist dock / `ui/watchlist_panel.py` + `ui/main_window.py`
@@ -1284,6 +1361,195 @@ Chart; Q29 no-op semantics):**
 - All timeframes and any symbol must behave identically (Q39), including `1 day` (which has a much
   wider configured duration).
 
+### D17 — Watchlist dock will not extend/reduce in full screen (D13 resize not effective)
+- **Area:** Watchlist dock / `ui/main_window.py` (`resizeEvent` clamp, `resizeDocks`, dock drag hook),
+  `ui/watchlist_panel.py` (`watchlist_max_width` / `clamp_watchlist_width`).
+- **Status:** **clarified 2026-10-03 — final criteria (B1, B4 answered).** D17 is a **defect in the
+  built D13 behaviour**: the D13 intent is correct but not enforced. B1 **corrects D13's denominator**
+  to 50% of the chart area (see D13 supersession note); B4 confirms the handle moves both directions,
+  min 150px, default ~220px, persistence still required.
+- **Visual reference (ESC-004 gate):** the user supplied a full-screen screenshot of the running app
+  (2026-10-03) showing the narrow watchlist on the left with a thin drag handle and the chart occupying
+  almost the whole width. This is accepted as evidence of the **reported state**; the target geometry is
+  now **specified numerically** by B1/B4 (50% of chart area, min 150px, default ~220px, both drag
+  directions) so no further visual reference is required — the target is a measurable geometry, not a
+  visual-design choice (AC-G.1 does not require a screenshot for a numeric layout rule). Gate: **N/A
+  for a visual reference**; geometry resolved by B1/B4 (see A34).
+- **Reported (verbatim intent):** "the watch list section (left side) is too small and does not extend
+  or reduce in width if user tries it. Fix: allow watch list section to be extended till 50% of the
+  chart area. the chart area should become smaller if watch list is made bigger."
+- **Observed in repository (validated 2026-10-03 against the current files):**
+  - `WatchlistPanel.setMinimumWidth(WATCHLIST_MIN_WIDTH)` = 150px is set (`ui/main_window.py:225`);
+    **no maximum width is ever set on the dock** and there is no `setMaximumWidth` anywhere.
+  - The clamp helpers exist and are correct in isolation (`watchlist_max_width` = `max(150, min(int(W*0.50),
+    W-400))`, `clamp_watchlist_width`), but they are applied **only** at construction and inside
+    `resizeEvent`, and `resizeEvent` re-clamps **only when the dock is already wider than max**
+    (`if self.watchlist_dock.width() > max_w`, `ui/main_window.py:962-968`). `resizeEvent` fires on
+    *window* resize, **not** on a dock-splitter drag, so a user drag that stays within the window can
+    move the dock freely and the cap is not enforced during the drag.
+  - No `splitterMoved`/`dockLocationChanged` handler exists; nothing wires the dock's internal splitter
+    handle to the clamp helpers, so D13's "handle remains draggable across the range" is **not actually
+    enforced** — the likely root cause of "does not extend".
+  - **Full-screen interaction:** `MainWindow` never calls `showFullScreen`; full screen is an OS window
+    state. Because there is no width cap during a drag and no handler on drag completion, "in full
+    screen" does not by itself disable resizing — but the reported symptom (narrow, non-resizing
+    watchlist) is consistent with the drag not being clamped/bounded and the restore only running at
+    construction/`resizeEvent`.
+  - **Diagnosis:** a **defect in the built D13 behaviour**, not a wrong D13 intent — the D13 intent
+    (freely draggable to the cap, persisted) stands; the built code does not enforce it during a drag.
+    B1 additionally **corrects** D13's denominator from window width to chart area (superseded in D13).
+
+**Decisions confirmed 2026-10-03 (B1 + B4):**
+- **Cap denominator (B1):** the watchlist maximum width is `floor(0.50 × chart_area)` — measured against
+  the **chart area**, not `MainWindow` width. This **supersedes D13's Q25 denominator** and is applied
+  in `AC-D13.1`.
+- **Both drag directions (B4):** the splitter handle must drag **wider and narrower** between the
+  minimum and the cap. Minimum stays **150px**; default stays **~220px**; the persisted width (D13/Q26)
+  is **still required**.
+- **Enforcement during the drag (D17 root cause):** the cap must be enforced **while the user drags**
+  (reusing `watchlist_max_width` / `clamp_watchlist_width` as the single source of truth), not only in
+  `resizeEvent`.
+- **Chart-minimum coupling (B3):** the effective cap is additionally bounded so the chart area keeps
+  **≥400px** and the right dock (D18) is accounted for — see `AC-D18.5`.
+
+**Acceptance Criteria (Given/When/Then) — FINAL:**
+- **AC-D17.1 (drag wider; 50%-of-chart-area cap; B1)** Given a docked Watchlist and a loaded chart,
+  When the user drags the splitter handle to the **right**, Then the watchlist width grows continuously
+  up to `floor(0.50 × chart_area)` and the chart area narrows correspondingly. (Measurable: watchlist
+  width `<= floor(0.50 × chart_area)` at all times during and after the drag; the width increases
+  monotonically with the drag.)
+- **AC-D17.2 (drag narrower; both directions work; B4)** Given the watchlist is wider than its minimum,
+  When the user drags the handle to the **left**, Then the watchlist width **reduces** continuously down
+  to **150px** and stops there, with the chart area growing correspondingly. (Measurable: the width
+  decreases with a leftward drag, and never goes below `150px`.)
+- **AC-D17.3 (cap enforced during the drag in full screen; the D17 root cause)** Given the app is shown
+  **full screen** (no window `resizeEvent` fires during the drag), When the user drags past the cap,
+  Then the width **stops at the cap** during the drag itself — not merely re-clamped later on a window
+  resize — and the app remains stable with no overshoot into the chart. (Measurable: perform the drag
+  without any window resize and assert the final width equals the cap, not the pre-clamp width.)
+- **AC-D17.4 (persistence; Q26 still required; B4)** Given a Watchlist width persisted by a previous
+  session, When the app restarts, Then the width is restored as the persisted integer pixel value,
+  clamped to the current `floor(0.50 × chart_area)` and the chart minimum (default ~220px if none saved,
+  never <150px).
+- **AC-D17.5 (re-clamp on available-space change; B3)** Given the watchlist is at/near its cap, When the
+  available chart-area width shrinks (main window narrowed **or** the right dock enlarged), Then the
+  watchlist is re-clamped to the new cap without error and remains resizable.
+- **AC-D17.6 (regression)** Given the fix, Then the pre-existing D13 acceptance criteria
+  (`AC-D13.1`–`AC-D13.3`, updated in lockstep per B1) and `test_d10_d13_integration.py` remain green
+  (or are updated in lockstep where B1 changes the denominator — never left contradicting D17).
+
+**Edge Cases:**
+- Floating watchlist: **unconstrained** (per D13); re-docking re-applies the cap.
+- Extremely narrow window keeps the watchlist min (150px) and the chart minimum (~400px); if the window
+  is smaller than the sum, the watchlist yields to the chart minimum.
+- Dragging below the minimum stops at **150px**.
+- Restart restores the persisted width clamped to the current cap.
+- Right dock (D18) enlarged while the watchlist is at its cap → the watchlist is re-clamped (its
+  effective cap shrinks) so the chart keeps its minimum (`AC-D18.5`/B3).
+- Cap sits between min and default-invalid cases: a window/chart area so small that `floor(0.50 ×
+  chart_area) < 150px` → the 150px minimum wins, and the chart-minimum rule still applies.
+
+### D18 — Active Trader (+ Portfolio) right dock not visible in full screen; 40% / equal-width sizing (NEW)
+- **Area:** Active Trader / Portfolio right dock / `ui/main_window.py` (`RightDockWidgetArea` setup),
+  `ui/active_trader_panel.py`, `ui/active_portfolio_panel.py`.
+- **Status:** **clarified 2026-10-03 — final criteria (B2, B3 answered). NEW requirement (not covered
+  by any existing defect).** B2 makes Active Trader + Portfolio **one right-dock region** (both sections
+  stacked), so the 40% cap applies to that region and the two sections are equal width by construction.
+  B3 gives the combined rule: independent caps + chart minimum, so enlarging one dock can force the
+  other to shrink.
+- **Visual reference (ESC-004 gate):** the user supplied a full-screen screenshot (2026-10-03) showing
+  the right side clipped off-screen — "Active Trader" title truncated at the far right ("Active Tra..."),
+  with "Ladder / Ask Size" headers and a mostly empty ladder, then a "Portfolio" section ("Account
+  su..." + column headers). This is accepted as evidence of the **reported state**. The target is a
+  measurable layout (one region, 40% cap, on-screen, equal width), specified numerically by B2/B3, so
+  no further visual reference is required (AC-G.1 N/A for a numeric layout rule). Gate: **N/A for a
+  visual reference**; geometry resolved by B2/B3 (see A35).
+- **Reported (verbatim intent):** "the right side is the active trader section, it does not even be
+  visible to user if the app is made full screen. fix: active trader section should reposition so that
+  it fits in the visible area of the full screen. also, if user wants the user should be able to
+  increase the size of active trader section till 40% of the chart area. active trader section and
+  portfolio should have same width. The chart area should become smaller if active trader section is
+  made bigger."
+- **Observed in repository (validated 2026-10-03 against the current files):**
+  - `ActiveTraderPanel` and `ActivePortfolioPanel` are currently added as **two separate `QDockWidget`s**
+    in `RightDockWidgetArea` (`ui/main_window.py:234-252`). Neither panel sets any
+    `setMinimumWidth`/`setMaximumWidth`/`setMinimumSize`/`sizeHint`, and **no `resizeDocks` call is
+    made for either right dock** — unlike the watchlist, they get no explicit width at all.
+  - There is **no 40% rule, no equal-width rule, no chart-shrink coupling, and no full-screen
+    reposition/visibility handling** anywhere in the codebase (searched: no `showFullScreen`,
+    `setWindowState`, `WindowFullScreen`, or full-screen branch exists in `ui/`).
+  - Both docks are user-hidden by default in the existing integration tests
+    (`tests/test_d10_d13_integration.py:33,50-52`), confirming they are an **independent horizontal
+    consumer** that the current D13 clamp does not account for — the existing clamp uses the whole
+    window width, not the width left after the right region.
+  - This is a **new requirement**, distinct from D13.
+
+**Decisions confirmed 2026-10-03 (B2 + B3):**
+- **One right-dock region (B2):** Active Trader and Portfolio are **one right-dock region** containing
+  both sections **stacked vertically**. They are therefore **inherently equal width** (the region's
+  width); the **40%-of-chart-area cap applies to that single region**. The current two-`QDockWidget`
+  structure is a wrong shape for this requirement and is expected to become a single region/container
+  (with the two panels stacked inside) — the exact implementation is Plan/Build's call, but the
+  behaviour must satisfy the criteria below.
+- **Combined width rule (B3):** the watchlist (50% of chart area) and the right region (40% of chart
+  area) have **independent caps**, each **additionally clamped against the remaining space** so the
+  chart area keeps a **minimum (~400px)**. Consequently, enlarging one dock **can force the other to
+  shrink**; both cannot sit at their individual maxima if that would starve the chart.
+- **Full-screen visibility (reported defect):** the right region must be fully within the visible
+  window in full screen (not clipped/off-screen), and content minimums (ladder/portfolio) must not
+  force it off-screen.
+
+**Acceptance Criteria (Given/When/Then) — FINAL:**
+- **AC-D18.1 (full-screen visibility; reported defect)** Given the app is shown **full screen**, When
+  the chart and the right region render, Then the right region (Active Trader ladder + Portfolio) is
+  **fully within the visible window area** — its left edge `>= chart area right edge` and its right edge
+  `<= window right edge`, with a **non-zero visible width** — and is on-screen **without manual
+  repositioning**. (Measurable: assert the dock's `geometry()` lies within the window's `rect()` and
+  `width() > 0` in an offscreen full-screen-sized window.)
+- **AC-D18.2 (grow up to the 40%-of-chart-area cap; chart shrinks)** Given the right region is visible,
+  When the user enlarges it (drag the handle / `resizeDocks`), Then its width grows continuously up to
+  `floor(0.40 × chart_area)` and the **chart area narrows correspondingly**. (Measurable: right-region
+  width `<= floor(0.40 × chart_area)` during and after the resize; chart width decreases as the region
+  grows.)
+- **AC-D18.3 (equal width by construction; B2)** Given the single right region is visible, Then the
+  Active Trader ladder section and the Portfolio section render at **equal width** — i.e. each section's
+  width equals the region's content width (they are stacked in one region). (Measurable: `active_trader
+  section width ≤ region content width` and `portfolio section width ≤ region content width`, and the
+  two sections' widths are equal within a 1px tolerance.)
+- **AC-D18.4 (reduce direction + stop at cap and minimum)** Given the right region is at/near its cap,
+  When the user drags further to enlarge, Then the width **stops at the cap** with no overshoot; When
+  the user drags to shrink, Then the region reduces down to its minimum and stops. (Measurable: no
+  resize leaves the width above the cap or below the minimum.)
+- **AC-D18.5 (combined cross-clamping; chart minimum; B3)** Given both the watchlist and the right
+  region are enlarged, When their combined width would push the chart area below its **~400px**
+  minimum, Then **both** docks are clamped so the chart area stays `>= 400px`; enlarging one dock
+  **forces the other to shrink** rather than letting the chart collapse. (Measurable: set both docks
+  near their individual maxima, then enlarge one; assert `chart_area >= 400px` and the other dock's
+  width decreased.)
+- **AC-D18.6 (content must not push the dock off-screen)** Given the ladder/portfolio content is wider
+  than the region (e.g. a wide ladder), When the region renders, Then the region's own geometry still
+  satisfies `AC-D18.1`/`AC-D18.2` — content minimums do not force it past the window edge or past the
+  cap. (Measurable: with wide content, the region's `width()` and right edge still satisfy the
+  visibility + cap assertions; content scrolls/clips internally instead.)
+- **AC-D18.7 (persistence — non-blocking default)** Given the app restarts, Then the right region's
+  width/visibility is restored **only if persistence is specified**; the **default is not persisted**
+  (A36), matching D10's volume-toggle precedent. *(Non-blocking default — see A36; not a blocking
+  question.)*
+- **AC-D18.8 (regression)** Given the fix, Then the pre-existing suite remains green and D13's
+  watchlist behaviour is unchanged except where B3 explicitly couples the two.
+
+**Edge Cases:**
+- Both left (watchlist) and right docks enlarged at once → each clamps against the remaining space so
+  the chart keeps its minimum; enlarging one can force the other to shrink (`AC-D18.5`, B3).
+- Full screen on a small display (e.g. laptop) → the region still fits (`AC-D18.1`) and the chart keeps
+  its minimum; on a very small window the chart minimum wins and the dock is capped accordingly.
+- Docks hidden/detached (floating) → floating geometry is **unconstrained**; re-docking re-applies the
+  cap. Content minimums must not force the dock off-screen (`AC-D18.6`).
+- Ladder/portfolio content wider than the dock → dock must not be forced off-screen (`AC-D18.6`); the
+  screenshot's clipped ladder suggests an unbounded content width today.
+- A window small enough that `floor(0.40 × chart_area) < region minimum` → the region minimum wins, and
+  the chart-minimum rule still applies.
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -1320,6 +1586,9 @@ Chart; Q29 no-op semantics):**
 | A31 | Live/real-time bars are not persisted to the cache (only historical fetches call `BarCache.save_bars`); this is not the cause of the reported hole but is a related latent gap (see `design_gaps.md` DG18) and does not change D16, because the load-time backfill covers it | Code inspection: `_on_aggregated_bar` → `update_last_bar` only touches the in-memory `_bars`; only `_on_historical_data_end` calls `save_bars` | n | 2026-10-02 |
 | A32 | The Q37 phrase "from the last cached bar up to now" is implemented as an **outcome** requirement — the bar series is continuous over its displayed span — which necessarily heals the reported **internal** hole, not only a tail gap after `MAX(ts)` (a tail-only anchor would leave the reported hole unfixed) | The user's own goal in Q37 was "so the chart is continuous"; the reported repro is an internal discontinuity; recorded in `design_gaps.md` DG21 and observed by `AC-D16.1`/`AC-D16.5` | y (derived from Q37) | 2026-10-02 |
 | A33 | **ESC-023 correction — New Year's year-end accounting exception:** the US-equity New Year's observed-day shift does not apply when the preceding Friday is Dec 31; **Dec 31 is a trading day** when Jan 1 of the next year is a Saturday, and **no New Year's holiday is observed**. Only **actual** market holidays (shifted normally) and weekends are genuine closures | Code Reviewer ESC-023 (a naive Saturday→preceding-Friday shift closed Dec 31; wrong for US equities — NYSE Rule 7.2 year-end accounting-period exception; NYSE's own calendar states no New Year's Day holiday is observed when Jan 1 is a Saturday); user approved the correction 2026-10-02 | y (approved for correction 2026-10-02) | 2026-10-02 |
+| A34 | **D17 target geometry — RESOLVED (B1, B4).** The watchlist cap is `floor(0.50 × chart_area)` (B1; **supersedes D13's Q25 window-width denominator**), the handle drags **both directions** (B4), min **150px**, default **~220px**, persistence still required (Q26), and the cap is enforced **during the drag** (not only on `resizeEvent`). Chart minimum ~400px per B3. | B1/B4 answered by the user 2026-10-03; B1 explicitly corrected the Q25 denominator | y | 2026-10-03 |
+| A35 | **D18 grouping — RESOLVED (B2).** Active Trader and Portfolio are **one right-dock region** containing both sections stacked vertically, so they are inherently equal width; the **40%-of-chart-area** cap applies to that single region. The current two-`QDockWidget` structure is re-shaped into one region. | B2 answered by the user 2026-10-03 ("one right-dock region, stacked — Recommended") | y | 2026-10-03 |
+| A36 | **D18 persistence default (non-blocking, UNCHANGED):** the right region's width/visibility is **not persisted** unless the user asks, matching D10's volume-toggle precedent (Q22: not persisted). B3/B4 did not add a persistence requirement for the right dock (only the watchlist keeps Q26 persistence, per B4). | D13 explicitly required persistence for the watchlist (Q26) and B4 re-confirmed it, but the user did not request it for the right region; recorded as a non-blocking default (not a blocking question) | n | 2026-10-03 |
 
 ## Documentation Maintenance Requirements
 
@@ -1393,17 +1662,31 @@ Chart; Q29 no-op semantics):**
 | R25 | ~~`requirements.md` was missing the literal existing-repo marker, so downstream agents could treat this repo as greenfield~~ **Fixed and stable** — the **Existing Repository** section (marker sentence + **Current Tech Stack**) is present and preserved on every rewrite | — | — | Retained as a standing rule: never drop, reword, or restructure away the marker sentence or the Current Tech Stack |
 | R26 | D16's reported repro is an **internal** cache hole (newer bars cached after an older block); a tail-only "anchor to `MAX(ts)`" implementation would leave it unfixed and the defect would appear unresolved | M | M | `AC-D16.1`/`AC-D16.5` require continuity across the displayed span including internal holes; DG21 directs Plan to detect the missing span from the cached series, not just `MAX(ts)` |
 | R27 | A naive Saturday→preceding-Friday observed shift can mark a genuine trading day (Dec 31) as a market closure, so a real bar hole there is misclassified as a "genuine closure" and left as a silent hole (ESC-023) | M | L | `AC-D16.7` states the explicit year-end accounting exception and `AC-D16.3` excludes Dec 31 of a Jan-1-Saturday year from "genuine closure"; Task Manager corrects `T37-T03`, Build updates `market_calendar` and its test, and Code Reviewer re-verifies ESC-023 |
+| R28 | D17: fixing the watchlist to clamp during the drag could regress the existing D13 integration tests (`test_d10_d13_integration.py`) that assert the **old window-width** clamp math | M | M | Keep the `watchlist_max_width`/`clamp_watchlist_width` helpers as the single source of the cap; add a drag/dock-change hook that reuses them; **update D13's denominator to 50%-of-chart-area in lockstep (B1)** — update `AC-D13.1` and the integration tests to the chart-area cap rather than leaving them contradicting D17 |
+| R29 | D18: raising the right-dock width could push the chart below its 400px minimum when the watchlist is also enlarged | M | H | **Resolved by B3 rule (`AC-D18.5`):** independent caps (watchlist 50%, right region 40% of chart area) each clamped against the remaining space with a hard ~400px chart minimum; clamp on resize **and on every dock change**; enlarging one dock can force the other to shrink, and the criteria assert `chart_area >= 400px` |
+| R30 | D18: full-screen "reposition so it fits" could hide the right dock entirely on small displays | M | M | Made measurable by `AC-D18.1`: the region's geometry must lie within the window rect with a non-zero visible width; cap it at 40% of the chart area, keep the chart minimum (B3), and do not let content `sizeHint` force it off-screen (`AC-D18.6`) |
+| R31 | D17: enforcing a cap during the drag could make the handle feel "stuck"; the user's report says it currently does not move at all, so both over- and under-enforcement are failure modes | L | M | Verify the handle moves **freely in both directions** between min (150px) and cap (`AC-D17.1`/`AC-D17.2`); only clamp past the cap (`AC-D17.3`). B4 confirmed both drag directions are required |
+
 
 ---
 
 ## Status
 
-**Status: READY_FOR_PLAN** — D16 (historical-bar hole, reported 2026-10-02) is **clarified and
-finalised**: Q37–Q39 were answered 2026-10-02 and the **ESC-023** correction was applied
-2026-10-02, so `AC-D16.1`–`AC-D16.7` are settled (price **and** volume panels, a date range
-spanning 2026-09-19→2026-09-28, all timeframes plus any symbol, and the New Year's year-end
-accounting exception so Dec 31 stays open when Jan 1 is a Saturday). No blocking open question
-remains. The D1–D15 batch remains built and green. The Existing Repository section (marker
-sentence + Current Tech Stack) is preserved.
+**Status: READY_FOR_PLAN.** The 2026-10-03 batch — **D17** (Watchlist dock resize not effective in
+full screen) and **D18** (Active Trader + Portfolio right dock not visible in full screen; new 40% /
+equal-width sizing) — is **clarified and finalised**. All four blocking questions **B1–B4 were
+answered by the user on 2026-10-03** (recorded in `open_questions.md`):
+**(B1)** the watchlist cap is **50% of the chart area** (supersedes/corrects D13's Q25 window-width
+denominator — D13, `AC-D13.1`–`AC-D13.3`, Journey 14, A17 and R15 updated in lockstep);
+**(B2)** Active Trader + Portfolio are **one right-dock region** (stacked, inherently equal width)
+with the 40%-of-chart-area cap on that single region;
+**(B3)** **independent caps + ~400px chart-minimum rule** (each dock clamps against its own % **and**
+the remaining space; enlarging one can force the other to shrink);
+**(B4)** the watchlist handle drags **both directions** between min **150px** and cap, default
+**~220px**, persistence (Q26) still required.
+D17/D18 now carry **final** criteria (`AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`), Journeys 18–19,
+assumptions A34–A36 and risks R28–R31. D16 remains clarified and finalised (Q37–Q39, ESC-023);
+D1–D15 remain built and green. **No blocking open question remains.** The Existing Repository section
+(marker sentence + Current Tech Stack) is preserved.
 
 Status: READY_FOR_PLAN

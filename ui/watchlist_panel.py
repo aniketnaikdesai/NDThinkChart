@@ -5,6 +5,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings
 from PyQt6.QtGui import QColor, QBrush
 
+import ui.dock_layout as dock_layout
+
 # Column indices
 COL_SYMBOL = 0
 COL_LAST   = 1
@@ -27,37 +29,45 @@ RED   = QColor('#f87171')  # red-400
 DIM   = QColor('#a3a3a3')  # neutral-400
 
 # ── Watchlist width limits (D13) ───────────────────────────────────────────────
-WATCHLIST_MIN_WIDTH = 150
-CHART_MIN_WIDTH = 400
-DEFAULT_WATCHLIST_WIDTH = 220
+# Constants are kept in agreement with the pure ``ui.dock_layout`` model, which
+# is the single source of truth for the width caps (D17 Phase 1). The cap
+# formula is NOT duplicated here any more — the helpers below delegate to it.
+WATCHLIST_MIN_WIDTH = dock_layout.WATCHLIST_MIN_WIDTH
+CHART_MIN_WIDTH = dock_layout.CHART_MIN_WIDTH
+DEFAULT_WATCHLIST_WIDTH = dock_layout.DEFAULT_WATCHLIST_WIDTH
 WATCHLIST_WIDTH_KEY = "watchlist/width"
 
 
-def watchlist_max_width(window_width: int) -> int:
-    """Maximum docked watchlist width: ~50% of the window, but the chart keeps
-    at least CHART_MIN_WIDTH px, and the watchlist never exceeds the window."""
-    half = int(window_width * 0.50)
-    return max(WATCHLIST_MIN_WIDTH, min(half, window_width - CHART_MIN_WIDTH))
+def watchlist_max_width(chart_area_w: int) -> int:
+    """Maximum docked watchlist width for a given **chart-area** width (D17/B1).
+
+    Delegates the cap formula to :func:`ui.dock_layout.watchlist_max_width`, the
+    single source of truth: ~50% of the chart area, but the chart keeps at least
+    ``CHART_MIN_WIDTH`` px and the watchlist never drops below
+    ``WATCHLIST_MIN_WIDTH``. The one-argument signature shape is preserved.
+    """
+    return dock_layout.watchlist_max_width(chart_area_w)
 
 
-def clamp_watchlist_width(width: int, window_width: int) -> int:
-    """Clamp a requested watchlist width into [min, max] for the window size."""
-    return max(WATCHLIST_MIN_WIDTH, min(int(width), watchlist_max_width(window_width)))
+def clamp_watchlist_width(width: int, chart_area_w: int) -> int:
+    """Clamp a requested watchlist width into [min, max] for the chart area."""
+    return max(WATCHLIST_MIN_WIDTH,
+               min(int(width), dock_layout.watchlist_max_width(chart_area_w)))
 
 
-def load_watchlist_width(settings: QSettings, window_width: int) -> int:
-    """Return the persisted watchlist width, clamped for the current window."""
+def load_watchlist_width(settings: QSettings, chart_area_w: int) -> int:
+    """Return the persisted watchlist width, clamped for the chart area."""
     try:
         raw = settings.value(WATCHLIST_WIDTH_KEY)
         width = int(raw) if raw is not None else DEFAULT_WATCHLIST_WIDTH
     except (TypeError, ValueError):
         width = DEFAULT_WATCHLIST_WIDTH
-    return clamp_watchlist_width(width, window_width)
+    return clamp_watchlist_width(width, chart_area_w)
 
 
-def save_watchlist_width(settings: QSettings, width: int, window_width: int) -> int:
+def save_watchlist_width(settings: QSettings, width: int, chart_area_w: int) -> int:
     """Persist the (clamped) watchlist width and return it."""
-    clamped = clamp_watchlist_width(width, window_width)
+    clamped = clamp_watchlist_width(width, chart_area_w)
     settings.setValue(WATCHLIST_WIDTH_KEY, clamped)
     return clamped
 

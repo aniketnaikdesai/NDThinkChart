@@ -1,224 +1,205 @@
-# Plan Proposal — NDThinkChart D16 (historical-bar gap backfill)
+# Plan Proposal — NDThinkChart D17 + D18 (incremental panel-layout change)
 
-> **Status: DRAFT for Plan Artifact Editor & Validator. Not canonical.**
-> **Revision 2 (2026-10-02) — ESC-023 correction increment.** The D16 batch (T37–T41) is now
-> **built**; this revision adds the one corrective increment the `AC-D16.7` / A33 / R27 / DG22
-> requirements change implies (New Year's year-end accounting exception) and records the rest
-> of D16 as built/unchanged. It does **not** re-plan D1–D15 or any other part of D16.
-> Incremental plan for **D16 only**, on top of the **as-built** D1–D15 baseline
-> (`docs/architecture.md`; 383 passed, verified 2026-09-28). D1–D15 are frozen and are
-> **not** re-planned. Companion proposal: `docs/architecture_proposal.md` (read the
-> Codebase Summary there; it is the first section by requirement).
+> Draft proposal owned by **Plan**. Not canonical. Plan Artifact Editor & Validator
+> checks this against `docs/requirements/requirements.md` (Status: `READY_FOR_PLAN`,
+> Batch 11 D17+D18) and writes `docs/plan.md`.
+>
+> **Scope:** incremental change on top of the built, green D1–D16 system. **D1–D16 are
+> not re-planned.** Existing-repo run: `docs/architecture.md` is the as-built baseline,
+> PyQt6 + pyqtgraph is a hard constraint, no stack change, no schema change, no new
+> dependency, no new integration, no live-order-path change.
+>
+> Companion: `docs/architecture_proposal.md` (component/data/integration design).
 
-## Context / baseline
+---
 
-- **Defect:** `SPY` `5 mins` shows price candles 09/14–09/18, nothing 09/19–09/27, then
-  09/28–10/02; the volume panel is empty over the same span. `_refresh_candles` drives
-  both panels from the same `_bars`, so one bar-list fix serves both (AC-D16.2).
-- **Root cause (A27, DG21):** `load_chart` issues **one** `req_historical_data` with
-  `endDateTime=""` (up to now) and the fixed `TIMEFRAME_CONFIG` duration (`5 mins` →
-  `5 D`). Any closure longer than that leaves an unfetched span. The reported hole is an
-  **internal** discontinuity (newer bars are already cached after it), so a literal
-  `BarCache.get_last_timestamp`/`MAX(ts)` tail anchor would **not** heal it (A32).
-- **Outcome required:** the bar series is **continuous over its displayed span**; genuine
-  market closures stay empty; backfill is chunked when the span exceeds one IBKR request;
-  all six timeframes and any symbol (Q37–Q39 / AC-D16.1–AC-D16.5).
-- **Build status:** D16 Phases 1–3 below are **built** (T37–T41, all done). This pass adds
-  the **ESC-023 correction** (Phase 4): the D16 trading-day calendar wrongly marks **Dec 31**
-  closed in every year whose next Jan 1 is a Saturday (a naive Saturday→preceding-Friday New
-  Year's shift). `AC-D16.7` / A33 / R27 / DG22 record the corrected convention — per NYSE Rule
-  7.2's year-end accounting-period exception **no New Year's holiday is observed and Dec 31
-  stays a trading day**; the `T37-T03` acceptance criterion and `services/market_calendar.py`
-  must both change, so a genuine bar hole on such a Dec 31 is backfilled (AC-D16.1) or its
-  shortfall surfaced (AC-D16.4), never silently classified as a closure.
+## Coverage map (requirements → phases)
+
+| Requirement / journey / AC | Phase |
+|---|---|
+| Shared width model + constants (`ui/dock_layout.py`) | **Phase 1** |
+| D13 helpers re-denominated to chart area (B1); `AC-D13.1`–`AC-D13.3` updated in lockstep | **Phase 1** |
+| D17 live watchlist clamp during the drag (min 150 / cap 50% chart area), both directions; `AC-D17.1`–`AC-D17.3`; Journey 18 | **Phase 2** |
+| D17 chart-minimum/cross-clamp hook on both dock regions (B3); `AC-D17.5` | **Phase 2** |
+| D17 persistence re-clamped to the new cap; `AC-D17.4` | **Phase 2** |
+| D18 single right-dock region (Active Trader + Portfolio stacked, equal width); `AC-D18.3`; Journey 19 | **Phase 3** |
+| D18 right-region 40% cap + grow/reduce + content-bounded (`AC-D18.2`, `AC-D18.4`, `AC-D18.6`) | **Phase 4** |
+| D18 full-screen visibility / normalize (`AC-D18.1`) | **Phase 4** |
+| D18 combined cross-clamping (`AC-D18.5`) | **Phase 4** |
+| D18 not-persisted default (`AC-D18.7`) | **Phase 4** |
+| Regression: D13/D14/D10/D2 dock-lookup tests + full suite (`AC-D17.6`, `AC-D18.8`) | **Phase 5** |
+
+---
 
 ## Phases
 
-> **Build status:** Phases 1–3 are **built** (T37–T41, all done) and are listed for
-> completeness; **Phase 4 is the one active increment** in this pass (ESC-023 / `AC-D16.7`).
-> Nothing else in D16 is re-planned.
+Each phase is a milestone, coarser than Task Manager’s per-task decomposition. Files
+touched are listed so Task Manager can populate `touches_files` and Build can schedule
+waves without file overlap.
 
-### Phase 1 — Backfill planning (pure services) `[new]`
-- **Goal:** Add the pure, Qt-free decision layer that says *which* historical spans are
-  missing and *how* to request them — the trading calendar and the missing-span/request
-  planner. No UI, no TWS.
-- **Deliverables:**
-  - `services/market_calendar.py` — ET trading-day/holiday calendar (holidays by rule;
-    New Year's carries the `AC-D16.7` year-end accounting exception — Dec 31 stays a
-    trading day when the next Jan 1 is a Saturday);
-    `is_trading_day`, `trading_days(start_ts, end_ts)`, `session_windows(...)`.
-  - `services/backfill_service.py` — `bar_period_seconds`, `find_missing_spans(
-    cached_ts, now_ts, timeframe)`, `plan_requests(missing_spans, timeframe)`
-    (chunk step = `TIMEFRAME_CONFIG[timeframe]["duration"]`; anchors formatted with the
-    existing `ui.main_window._ibkr_end_date` behaviour, factored so the pure service does
-    not import Qt).
-- **Requirements/journeys covered:** Journey 17; D16; AC-D16.1, AC-D16.3, AC-D16.4,
-  AC-D16.5 (planning halves); A27, A29, A32; DG21; DG19.
-- **Dependencies:** none.
+### Phase 1 — Shared width model and re-denominated D13 helpers (pure, no UI behaviour yet)
 
-### Phase 2 — Load-path backfill orchestration (multi-request) `[new/changed]`
-- **Goal:** Make `MainWindow` issue and correlate the chunk set, accumulate results, and
-  finalise with a single save + re-read + render — keeping the single-request path
-  behaviourally intact as a set of one.
-- **Deliverables:** `[new/changed] ui/main_window.py`:
-  - `load_chart` calls the planner; empty plan + current cache → **no redundant request**
-    (edge case "cache end already at now"); otherwise issues one `req_historical_data`
-    per `RequestPlan` using the existing `endDateTime` parameter (no `market_data.py`
-    change).
-  - Multi-id state: `_history_req_ids: set[int]`, `_history_generation: int`,
-    `_backfill_missing_spans`, `_backfill_failed_req_ids`; `_on_historical_bar` /
-    `_on_historical_data_end` accept members and finalise only when the set empties.
-  - Symbol/timeframe switch and `closeEvent` cancel **every** id in the set (extend the
-    current single-id cancellation).
-  - `_on_error` correlates a failed backfill reqId with its span.
-  - **Shortfall surfacing** (AC-D16.4): status-bar message + log when a backfill request
-    errors or a trading day is still empty after the wave; never fabricate a bar.
-- **Requirements/journeys covered:** Journey 17; AC-D16.1, AC-D16.2, AC-D16.4, AC-D16.5;
-  edge cases (internal hole, tail gap, closures, Ext Hours, switch mid-flight, empty
-  cache, fresh cache, retention shortfall); A28, A31.
-- **Dependencies:** Phase 1 (its planner is the input).
+- **Goal:** introduce the single source of truth for dock widths and the chart-minimum
+  rule, measured against the **chart area** (B1/B3), before any live wiring.
+- **Requirements covered:** the numerical foundations of D13 (corrected denominator),
+  D17 and D18; enables `AC-D13.1`–`AC-D13.3`, `AC-D17.1`–`AC-D17.5`, `AC-D18.2`,
+  `AC-D18.5`.
+- **Files touched:** `ui/dock_layout.py` (**new**), `ui/watchlist_panel.py`
+  (re-parameterise `watchlist_max_width`/`clamp_watchlist_width`/`load_`/`save_` to the
+  chart-area denominator, delegating to `ui/dock_layout`), and the pure-function tests
+  `tests/test_watchlist.py` (update clamp-math assertions to the chart-area cap in
+  lockstep per R28).
+- **Deliverables:** `watchlist_max_width(chart_area_w)`,
+  `right_dock_max_width(chart_area_w)`, and `plan_dock_widths(chart_area_w,
+  requested_left, requested_right)` returning `(left, right)` that guarantees
+  `chart_area ≥ 400px`; constants for min/default/cap fractions.
+- **Dependencies:** none (pure functions; safe first wave).
+- **Exit condition:** pure-function unit tests pass for all six timeframes-independent
+  edge cases (tiny window, cap < min, both docks near max, one side over budget);
+  pre-existing tests that do not depend on the denominator stay green.
 
-### Phase 3 — Verification & regression `[new]`
-- **Goal:** Prove D16 end-to-end offscreen (no live TWS) and prove no D1–D15 regression.
-- **Deliverables (tests):**
-  - `tests/test_market_calendar.py` — weekends/holidays (incl. Good Friday, Juneteenth,
-    observed-day shifts) are non-trading; trading days are correct; **plus the `AC-D16.7`
-    guard** — `is_trading_day` is **True** for `2021-12-31`, `2027-12-31`, `2032-12-31` and
-    `2038-12-31`, and the other observed shifts (Independence Day/Christmas/Juneteenth/New
-    Year's-on-a-Sunday) remain unchanged.
-  - `tests/test_backfill_service.py` — **parameterized over all six timeframes × ≥2
-    symbols** (Q39): seeded `ts` lists with a tail gap and an internal hole →
-    `find_missing_spans` returns the expected missing weekdays; `plan_requests` covers
-    the span and chunks when it exceeds the configured duration.
-  - `tests/test_history_backfill.py` — offscreen real `MainWindow` (stubbed
-    `IBApiClient.connect`/managers, pattern from `tests/test_watchlist_d14_midrag.py`):
-    seed `BarCache` with the AC-D16.5 repro, drive the stubbed historical feed, assert
-    `ChartPanel._bars` has the expected per-trading-day counts for 2026-09-21…09-25,
-    **no** weekend bars, and the volume `height` array is non-zero wherever a candle
-    exists (AC-D16.2); assert chunking (AC-D16.4); assert switch-mid-flight does not mix
-    symbols/timeframes.
-  - `tests/test_history_backfill` also covers the AC-D16.5 date range (2026-09-19 →
-    2026-09-28 modulo closures) and an empty-cache fetch.
-  - Full offscreen suite re-run must stay green (AC-D16.6).
-- **Requirements/journeys covered:** AC-D16.1–AC-D16.6 (as built); the `AC-D16.7` calendar
-  correction and its test updates are delivered by Phase 4.
-- **Dependencies:** Phase 1 and Phase 2.
+### Phase 2 — D17: live watchlist clamp + chart-minimum hook
 
-### Phase 4 — ESC-023 New Year's calendar correction `[new/changed]`
-> **Active increment.** D16 is built; this is the only open work. It is a behaviour/AC
-> correction, not a new subsystem: the D16 architecture otherwise stays as built.
+- **Goal:** enforce the watchlist cap **during the drag** and on window resize, in both
+  directions, against the corrected chart-area denominator, and re-clamp the persisted
+  width on restore.
+- **Requirements covered:** D17 (`AC-D17.1`–`AC-D17.5`), Journey 18; keeps D13
+  semantics (min 150px, default ~220px, Q26 persistence).
+- **Files touched:** `ui/main_window.py` (add `_apply_dock_widths`, the
+  `splitterMoved`/dock-change hook, a two-directional `resizeEvent` re-clamp, and the
+  persistence re-clamp on restore/`closeEvent`; **no right-region changes yet**),
+  `ui/dock_layout.py` (only if Phase 1 surfaced a needed helper).
+- **Deliverables:** the watchlist handle moves freely between 150px and the cap; the
+  cap stops the drag **without any window resize**; width restored clamped to the
+  current cap; no recursion/jitter.
+- **Dependencies:** Phase 1 (the width model and corrected denominator).
+- **Exit condition:** `AC-D17.1`–`AC-D17.4` pass in an offscreen `MainWindow` with no
+  `resizeEvent` during the drag (`AC-D17.3`); `tests/test_watchlist.py` and
+  `tests/test_d10_d13_integration.py` updated to the new denominator and green.
 
-- **Goal:** Correct the trading-day calendar so **Dec 31 is a trading day** whenever the next
-  Jan 1 falls on a Saturday (NYSE Rule 7.2 year-end accounting exception), and update the
-  `T37-T03` acceptance criterion/test that deliberately encoded the wrong convention — so a
-  genuine bar hole on such a Dec 31 is backfilled (`AC-D16.1`) or its shortfall surfaced
-  (`AC-D16.4`), never silently treated as a genuine closure.
-- **Deliverables:**
-  - **Task Manager (task-graph only):** correct the `T37-T03` acceptance criterion
-    (`docs/tasks/task-graph.json`), test description and `expected_result` — replace "New
-    Year's 2022-01-01 Saturday gives 2021-12-31 Friday closed" with the year-end exception;
-    assert `2021-12-31`, `2027-12-31`, `2032-12-31`, `2038-12-31` are **trading days**.
-  - **`[new/changed] services/market_calendar.py`:** add the New Year's year-end exception to
-    the observed-day rule. When Jan 1 is a **Saturday**, add **no** New Year's closure (so
-    nothing is shifted onto Dec 31; Jan 1 remains non-trading as a weekend); Jan 1 on a
-    **Sunday** still observes the following Monday; a **weekday** Jan 1 stays a closure.
-    `_observed` for Juneteenth / Independence Day / Christmas is unchanged. Correct the stale
-    "New Year's observed on the preceding Dec 31" docstring/comment.
-  - **`[new/changed] tests/test_market_calendar.py`:** update T37-T03 — `is_trading_day`
-    is **True** for `2021-12-31` (+ `2027-12-31`, `2032-12-31`, `2038-12-31`); drop the wrong
-    `date(2021, 12, 31)` entry from the "weekend legal dates" loop (the Saturday legal date is
-    `2022-01-01`); keep every other observed-shift assertion (Independence Day Sat→Fri,
-    Christmas Sun→Mon, Juneteenth Sat→Fri, New Year's Sun→Mon) as the unchanged regression
-    guard.
-  - **Regression:** re-run the full offscreen suite; it must stay green (`AC-D16.6`).
-- **Requirements/journeys covered:** D16 / Journey 17; `AC-D16.7` (primary), plus the
-  `AC-D16.3` "not a genuine closure" carve-out and the `AC-D16.1`/`AC-D16.4`
-  backfill-or-surface consequence; A33; R27; DG22; ESC-023.
-- **Dependencies:** Phase 1 (the calendar this corrects). The corrected `T37-T03` AC must be
-  written by Task Manager **before** Build edits the module/test, so Build implements the
-  corrected criterion rather than the old one.
+### Phase 3 — D18: single right-dock region (Active Trader + Portfolio stacked)
+
+- **Goal:** re-shape the two right `QDockWidget`s into **one** right-dock region whose
+  stacked sections are inherently equal width (B2), without changing ladder/portfolio
+  behaviour or signals.
+- **Requirements covered:** D18 `AC-D18.3`, and the container prerequisite for
+  `AC-D18.1`–`AC-D18.2`; Journey 19.
+- **Files touched:** `ui/main_window.py` (replace `:234–252` two-dock setup with one
+  region; keep the title/`objectName` resolvable by `_on_dom_toggled` and tests),
+  `ui/active_trader_panel.py`, `ui/active_portfolio_panel.py` (container-friendly
+  layout only; **no width bound or cap yet** — that is Phase 4).
+- **Deliverables:** one right region containing `ActiveTraderPanel` over
+  `ActivePortfolioPanel`; both sections render at equal width; the DOM toggle and
+  existing dock-title lookups still resolve.
+- **Dependencies:** Phase 1 (constants/model), Phase 2 (so only one region is wired to
+  the shared clamp and the left side is already correct).
+- **Exit condition:** `AC-D18.3` passes (section widths equal within 1px); the
+  pre-existing tests that hide/seek `"Active Trader"`/`"Portfolio"` are updated in
+  lockstep and green; ladder/portfolio signal wiring untouched.
+
+### Phase 4 — D18: 40% cap, cross-clamp, content bound, and full-screen visibility
+
+- **Goal:** give the single right region the live 40%-of-chart-area cap, the grow/reduce
+  behaviour, the content bound that keeps it on-screen, and the full-screen normalize;
+  wire it into the **same** `_apply_dock_widths` so B3 cross-clamping is coherent.
+- **Requirements covered:** D18 `AC-D18.1`, `AC-D18.2`, `AC-D18.4`, `AC-D18.5`,
+  `AC-D18.6`, `AC-D18.7`; B3.
+- **Files touched:** `ui/main_window.py` (right region in `_apply_dock_widths`; the
+  full-screen `changeEvent(WindowStateChange)` + `resizeEvent` normalize; no
+  persistence for the region), `ui/active_trader_panel.py`,
+  `ui/active_portfolio_panel.py` (bounded minimum/ideal width; tables scroll/clip
+  internally), `ui/dock_layout.py` (only if a helper needs adjustment).
+- **Deliverables:** right region grows up to `floor(0.40 × chart_area)` and shrinks to
+  its minimum; both regions enlarged still keeps `chart_area ≥ 400px` and one shrinking
+  when the other grows; region `geometry()` inside the window `rect()` with
+  `width() > 0` in a full-screen-sized offscreen window; wide content does not push it
+  off-screen; not persisted.
+- **Dependencies:** Phase 1 (model), Phase 2 (shared apply path), Phase 3 (single
+  region exists).
+- **Exit condition:** `AC-D18.1`–`AC-D18.7` pass offscreen; no recursion between the
+  two regions’ rescale.
+
+### Phase 5 — Regression, lookups, and full-suite green
+
+- **Goal:** prove no D1–D16 regression and reconcile every dock-lookup test with the new
+  shape.
+- **Requirements covered:** `AC-D17.6`, `AC-D18.8`, global acceptance criteria
+  (full pre-existing suite green; no live-TWS test).
+- **Files touched:** `tests/test_d10_d13_integration.py`,
+  `tests/test_watchlist_d14_midrag.py`, `tests/test_history_backfill*.py`,
+  `tests/test_crosshair_axis_lane.py` (dock lookup by title/`objectName` against the
+  single region; D2 chip non-overlap assertion), plus any remaining test touched by the
+  denominator change.
+- **Deliverables:** full offscreen suite green (D1–D16 frozen behaviour preserved);
+  the D2 chip/dock non-overlap assertion (`AC-D2.1`) still holds against the single
+  right region.
+- **Dependencies:** Phases 1–4.
+- **Exit condition:** `QT_QPA_PLATFORM=offscreen python -m pytest tests/` is green with
+  no test connecting to live TWS or transmitting an order (Q9). Per project memory, if
+  an intermittent failure appears, confirm it against a clean full-suite run before
+  treating it as a regression (shared test-DB contention).
+
+---
+
+## Sequencing / parallel-build notes (for Task Manager’s `touches_files`)
+
+- `ui/dock_layout.py` is **new** and should be authored in Phase 1; after that it is
+  read-only unless Phase 4 adjusts a helper.
+- `ui/main_window.py` is touched by **Phases 2, 3, and 4** → a **serial chain** for
+  those phases (they must not share a wave).
+- `ui/active_trader_panel.py` / `ui/active_portfolio_panel.py` are touched by **Phases 3
+  and 4** → serial with each other; Phase 3 may run in parallel with the Phase 2
+  `main_window.py` work only if their `touches_files` do not overlap (they do not —
+  panel files vs `main_window.py`), but Phase 4 depends on both.
+- Test-file updates in Phase 5 may parallelise across the four test modules.
+- Build must not run two tasks with overlapping `touches_files` in one wave (the
+  existing parallel-build constraint in `docs/architecture.md`).
+
+---
 
 ## Assumptions
-Plan-level assumptions not already in `requirements.md`'s Assumptions Log (A27–A33):
 
-- **PA-D16-1 (detection granularity):** missing-span detection operates at **session/day
-  presence** (a trading day with zero cached bars is missing), which matches the reported
-  whole-session defect and avoids false positives from illiquid periods and from toggling
-  Extended Hours on an RTH-only cache. Within-session partial holes below one trading day
-  are out of D16's scope.
-- **PA-D16-2 (`now` seam):** `now_ts = int(time.time())` is captured at load time in
-  `MainWindow` and passed into the pure planner as a parameter, so the planner is
-  deterministic under test.
-- **PA-D16-3 (calendar applies to all symbols):** the ET equity holiday/session calendar
-  is used for every symbol, consistent with the accepted D1/`session_service`/DG1 default;
-  futures that trade some US holidays are not specially modelled.
-- **PA-D16-4 (chunk size):** the chunk step is the existing
-  `TIMEFRAME_CONFIG[timeframe]["duration"]`; `MarketDataManager.req_historical_data` and
-  its signature are unchanged.
-- **PA-D16-5 (anchor format):** chunk `endDateTime` uses the existing
-  `ui/main_window._ibkr_end_date` UTC hyphenated format (avoids TWS warning 2174),
-  reimplemented as a tiny pure helper so `backfill_service` stays Qt-free.
-- **PA-D16-6 (shortfall trigger):** a shortfall is surfaced when a backfill reqId raises
-  an `error_msg`, or when a trading day in the target span is still empty after all
-  requests complete. It is a status-bar + log message; requests are not retried in a loop.
-- **PA-D16-7 (day presence):** a day counts as present if it holds at least one cached
-  bar; the per-day cadence assertion in AC-D16.1 is applied to the stubbed, liquid test
-  scenarios, not to illiquid symbols.
-- **PA-D16-8 (idempotence):** chunk overlap is deduped by the existing
-  `(symbol, timeframe, ts)` primary key; no migration is required.
-- **PA-D16-9 (render path):** `ui/chart_panel.py` is unchanged; continuity of `_bars`
-  fixes both the price and volume panels (AC-D16.2).
-- **PA-D16-10 (out of scope):** DG18 (persisting live/RT bars to the cache) remains out
-  of D16's scope, as the Requirements Analyst recorded; the load-time backfill covers the
-  visible hole either way.
-- **PA-D16-11 (year-end exception is New-Year's-specific):** the `AC-D16.7` exception is
-  implemented as a **New Year's-specific** observed-day rule, not by changing the generic
-  `_observed` used by the other fixed-date holidays (Independence Day / Christmas /
-  Juneteenth). When Jan 1 is a Saturday the corrected rule adds **no** closure at all — Dec 31
-  stays a trading day and Jan 1 is non-trading as an ordinary weekend — so no substitute
-  closure is introduced. This keeps the still-correct observed shifts untouched and is the
-  minimal change to the built module.
+These are plan-level assumptions not already captured in `requirements.md`’s
+Assumptions Log (A34–A36 already cover the D17/D18 geometry decisions).
+
+1. **Chart-area denominator = central widget width.** `chart_area` is measured as
+   `MainWindow.centralWidget().width()` (the toolbar + `ChartPanel` region excluding
+   both dock regions). No separate “chart plot” width is used, because the central
+   widget is the region the docks take space from. (Consistent with the Glossary
+   “Chart area” definition in `requirements.md`.)
+2. **Right-region minimum ≈ 200px.** The requirement specifies the 40% cap and that a
+   minimum exists (`AC-D18.4`) but not its value; a ~200px min is proposed so the
+   ladder/portfolio remain usable, mirroring the watchlist’s 150px role.
+3. **The “stacked splitter” is optional.** B2 requires one region with the two sections
+   **equal width**; a vertical `QSplitter` between them is allowed (so the user can
+   adjust the vertical split) but is not required — a plain `QVBoxLayout` is the default.
+   Either way, width equality is guaranteed by the single region.
+4. **Searching for a `splitterMoved` source is allowed to fall back.** The exact
+   Qt-internal handle signal for dock areas is version/layout dependent; the design
+   permits an event-filter fallback, with the pure width rule verified independently
+   (see Architecture Risks).
+5. **No `showFullScreen` call is added.** Full screen remains an OS/WM state; the fix is
+   to react to the state change and resize, so the region fits the **visible** window.
+6. **D13’s helper names/signatures are preserved where possible** so the D14/D10 test
+   surface updates minimally; only the denominator semantics change (B1).
+7. **The right region is not persisted** (A36), so no new `QSettings` key is added and
+   `AC-D18.7` is satisfied by the default.
+8. **Regression policy unchanged** — every fix ships with an offscreen check that fails
+   before and passes after (Q8), and no automated test touches live TWS (Q9).
+
+---
 
 ## Flagged Issues
-Requirements the proposal cannot satisfy cleanly as written with any reasonable
-architecture. Each has a suggested direction; the Validator turns accepted ones into the
-official `plan_notes.md` escalation (Plan does not file it).
 
-- **FI-D16-1 — AC-D16.1's measurable "maximum inter-bar gap within a trading session does
-  not exceed one bar period" cannot hold for all symbols.**
-  - *Which requirement:* AC-D16.1 (measurable clause), against Q39's "any symbol".
-  - *Why it cannot be satisfied as written:* IBKR omits bars for periods with no trades,
-    so a thinly traded symbol (or an empty pre-market period) legitimately has
-    inter-bar gaps larger than one bar period even with a complete, correct bar list.
-    Asserting cadence for "any symbol" would fail on correct data and would push the fix
-    toward fabricating/interpolating bars — which AC-D16.3 and AC-D16.4 explicitly forbid.
-  - *Suggested direction:* apply the cadence assertion to the stubbed/liquid scenarios
-    (the SPY 5-min repro and a liquid second symbol per timeframe), and assert
-    **session-presence** continuity for illiquid symbols. This keeps the fix honest and
-    matches the defect class.
+None. Requirements `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`, Journeys 18–19,
+A34–A36 and R28–R31 are **satisfiable as written** with the architecture above; B1–B4
+are answered and no blocking question remains. The one point worth surfacing for the
+Validator (not an escalation — a note, not a gap) is that satisfying B2’s “one region”
+necessarily changes the dock structure that four existing tests key on by title; this
+is handled inside this plan (Phase 3 + Phase 5 update those tests in lockstep), and
+`AC-D18.8` explicitly permits that. No requirement is narrowed, reinterpreted, or left
+unsatisfied.
 
-- **FI-D16-2 — "all timeframes and any symbol" vs. an equity holiday calendar for
-  instruments that trade on US equity holidays.**
-  - *Which requirement:* Q39 / A30 ("any symbol"), AC-D16.3 (holidays are closures).
-  - *Why it cannot be satisfied as written:* a calendar that treats a US equity holiday
-    as non-trading is wrong for futures (which trade some of those days), while a
-    per-instrument calendar is not feasible from the current contract model. One calendar
-    cannot be simultaneously correct for equities and for all futures.
-  - *Suggested direction:* scope D16's continuity guarantee to the accepted equity-session
-    model (the existing DG1/A7 default) and record the futures caveat; or, if truly
-    symbol-generic behaviour is required, escalate to the Requirements Analyst to define
-    per-instrument session handling.
-
-**ESC-023 correction pass — no new Flagged Issues.** `AC-D16.7` is satisfiable as written:
-it is a self-contained holiday-rule correction with clear, measurable offscreen assertions
-(`is_trading_day(2021-12-31/2027-12-31/2032-12-31/2038-12-31) is True`) plus an unchanged
-observed-shift regression guard. It requires no requirements escalation, and the earlier
-FI-D16-1 / FI-D16-2 remain accepted and unchanged.
-
-## Handoff
-`docs/architecture_proposal.md` and this file are complete pending validation. The
-Validator reads both, checks them against `requirements.md`, and — if they pass — writes
-the canonical `docs/architecture.md` / `docs/plan.md` itself. Nothing here is canonical
-until then.
+---
 
 Status: READY_FOR_VALIDATION

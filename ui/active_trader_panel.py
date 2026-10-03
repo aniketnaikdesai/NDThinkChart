@@ -17,8 +17,15 @@ from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import (
     QCheckBox, QLabel, QPushButton, QSpinBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QVBoxLayout, QHBoxLayout,
-    QWidget, QHeaderView, QComboBox, QLineEdit,
+    QWidget, QHeaderView, QComboBox, QLineEdit, QSizePolicy,
 )
+
+import ui.dock_layout as dock_layout
+
+#: Bounded minimum width of this panel (D18 Phase 4). Shared with the right
+#: region's own minimum so the ladder/book tables can never demand more width
+#: than the region is allowed to have and push it off-screen (AC-D18.6).
+RIGHT_DOCK_MIN_WIDTH = dock_layout.RIGHT_DOCK_MIN_WIDTH
 
 GREEN = QColor('#34d399')
 RED = QColor('#f87171')
@@ -43,6 +50,15 @@ class LadderTable(QTableWidget):
         self.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # D18 Phase 4: bound the table's width demand. ``Ignored`` horizontal
+        # policy + a zero minimum means the Stretch columns are laid out to the
+        # available width instead of forcing a content-driven minimum that would
+        # push the whole right region off-screen (AC-D18.6).
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored, self.sizePolicy().verticalPolicy()
+        )
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._flash_timers: dict[int, QTimer] = {}
         self._prev_sizes: dict[tuple, int] = {}
         self._last_price: float | None = None
@@ -175,6 +191,13 @@ class BookTable(QTableWidget):
         self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        # D18 Phase 4: same width bound as LadderTable — content must not force
+        # the right region past its cap (AC-D18.6).
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored, self.sizePolicy().verticalPolicy()
+        )
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def render(self, asks: list, bids: list, cumulative: bool):
         self.setRowCount(0)
@@ -212,6 +235,13 @@ class OrderEntryWidget(QWidget):
         self._symbol: str = ""
         self._last_price: float | None = None
         self._pending: dict | None = None
+
+        # D18 Phase 4: bound the order-entry form width so its price fields cannot
+        # force the right region past the 40% cap (AC-D18.6).
+        self.setMinimumWidth(0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored, self.sizePolicy().verticalPolicy()
+        )
 
         layout = QVBoxLayout(self)
 
@@ -418,6 +448,15 @@ class ActiveTraderPanel(QWidget):
         self._num_levels = num_levels
         self._symbol: str = ""
         self._last_price: float | None = None
+
+        # D18 Phase 4: the panel's own width is bounded to the shared right-region
+        # minimum and its horizontal size policy ignores the content size hint, so
+        # the ladder/book tabs scroll or clip internally rather than forcing the
+        # region wider than the 40% cap (AC-D18.6).
+        self.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Ignored, self.sizePolicy().verticalPolicy()
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)

@@ -1321,4 +1321,205 @@ T43/T44 seeding harness so `load_chart` issues a real **3-request** wave), not t
 green (**493 passed, 0 failed, exit 0**). **ESC-025 is closed. No open escalations remain** — ESC-001…ESC-025
 are all `addressed`. The pipeline can advance.
 
+---
+
+# Revision 11 review — Batch 11 (D17 watchlist live resize + D18 single right dock region) — 2026-10-03
+
+**Reviewer:** Code Reviewer agent. **Scope:** `docs/build/build_log.md` Batch 11 (T45–T51, all `done`;
+`failures.json.blocked` empty; one `pending_routing` routed to me), plus the one `pending_routing` item
+`dock_layout_plan_below_minimum`. **Method:** the full offscreen suite re-run by the reviewer; the failing
+pure helper reproduced directly; the T49 `MainWindow` workaround brute-forced over 4,340 input combos; the
+D2 chip test, D17/D18 focused suites and the segfault minimal-repro re-run; the test diffs read to confirm
+none was weakened. Nothing was fixed. Only `docs/code_review/` was written.
+
+**Verdict: build is green and the D17/D18 behaviour is correct at the `MainWindow` layer, but there is ONE
+genuine, independently reproduced correctness defect in a `done` task (`T45 ui/dock_layout.py::plan_dock_widths`).
+It does not block any task (the T49 workaround covers the only production consumer), so it is a
+`should-fix` routed to BUILD — not a build-stopping issue.**
+
+### A. Build claims re-verified (independently, on the live tree)
+
+- **Full offscreen suite green: CONFIRMED.** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q`
+  → **562 passed, exit 0** on two consecutive reviewer runs; **no segfault**. The wave-7 report's "did not
+  reproduce" is accurate.
+- **Minimal segfault repro: CONFIRMED clean.** `… -q tests/test_history_backfill_disconnect.py tests/test_session_overlay.py`
+  → **14 passed, exit 0** (report claimed 14/14). The latent crash is genuinely absent on this tree, consistent
+  with the project-memory shared-SQLite/teardown-contention gotcha.
+- **D17/D18 focused suites: CONFIRMED.** `test_dock_layout.py test_dock_widths_d17.py test_dock_d18_region.py
+  test_dock_widths_d18_impl.py test_dock_widths_d18.py test_watchlist.py test_d10_d13_integration.py`
+  → **76 passed, exit 0**.
+- **D2 chip/dock non-overlap (AC-D2.1): CONFIRMED.** `tests/test_crosshair_axis_lane.py` → **5 passed**; the
+  test (T24-T02) now resolves the single `"Active Trader"` region, asserts `"Portfolio" not in docks`, and
+  asserts `chip_rect` does not intersect the region's `frameGeometry()` — a real assertion against the new
+  shape, not a weakened one.
+- **T50 addendum artifact (`tests/test_watchlist` ⇒ `watchlist_max_width` for `1400`, `900`, `1400`, `1200'n`):
+  CONFIRMED** the report's below-minimum malformed case for `900 ⇒ 450` fell under chart minimum and is
+  handled.
+- **No test weakened: CONFIRMED.** `grep -E "pytest.mark.skip|pytest.mark.xfail|pytest.skip|deselect|--ignore"`
+  over all seven D17/D18 test files → **0 hits**. All test diffs against HEAD are shape adaptations
+  (`"Portfolio"`→`"Active Trader"`, `window_w`→`chart_area_w`) that *strengthen* (`test_watchlist.py` adds
+  delegation cross-checks; `test_crosshair_axis_lane.py` still asserts non-overlap).
+- **No new QSettings key (AC-D18.7): CONFIRMED.** The only `setValue` writing a width is
+  `ui/watchlist_panel.py:71` (`watchlist/width`); the right region is in-memory only.
+- **D17 "watchlist no longer stuck in full screen": CONFIRMED.** T47-T03 drives the drag hook
+  (`_on_dock_splitter_moved`) directly with **no window resize** and asserts the overshoot is clamped to the
+  cap and `resize_events == []` — i.e. the cap binds *during* the drag with no `resizeEvent`, which was the
+  D17 root cause. `changeEvent(WindowStateChange)` covers the full-screen state entry (T49-T04/T50-T01).
+
+### B. Finding — T45 `ui/dock_layout.py::plan_dock_widths` returns widths below a dock minimum (verified)
+
+- **Id:** F1 · **Linked task:** T45 · **Category:** `bug` · **Root-cause classification:** `code_bug`
+- **Severity:** `should-fix` (does not block any task; AC-D18.4/AC-D18.5 hold at the `MainWindow` layer via
+  the T49 workaround, and only `MainWindow._plan_dock_widths` consumes the helper in production)
+- **Evidence (reproduced by the reviewer, `ui/dock_layout.py:100–114`):**
+  - `plan_dock_widths(750, 100000, 200) -> (350, 0)` — right width `0 < RIGHT_DOCK_MIN_WIDTH (200)`.
+  - `plan_dock_widths(750, 200, 0) -> (175, 175)` — both widths below their minimums (`150`/`200`).
+  - Coarse grid (chart_area 100..3000 step 50 × requests {0,200,400,700,100000}²) → **108/1475 below-minimum
+    combinations** (Build's finer enumeration: 2158), matching the report.
+  - Root cause: the `while left + right > budget:` loop decrements `left`/`right` (lines 105–114) with **no
+    re-flooring** at `WATCHLIST_MIN_WIDTH`/`RIGHT_DOCK_MIN_WIDTH`, so once a dock's cap was already floored
+    (line 89–90) it can be driven under its minimum. This directly contradicts the function's own docstring
+    ("neither width ever drops below its dock minimum", lines 79–81) and T45's own AC-D18.4 ("never below
+    the minimum").
+- **Why the tests missed it (test gap, folded into the same route):** `tests/test_dock_layout.py`
+  `test_T45_T06_one_side_over_budget` uses `(1200, 100000, 10)` — the over-budget side is the *left*, and at
+  chart_area 1200 the result stays feasible, so the defect never fires. The one-sided over-budget case that
+  starves the *other* dock (`750, 100000, 200`) is untested; `test_T45_T06_never_raises_and_integer_stable`
+  asserts only `int`/stability, not the minimum. So T45's `done` was legitimate against its own tests.
+- **T49 workaround — independently verified sound, but a workaround, not a fix:** `MainWindow._plan_dock_widths`
+  (`ui/main_window.py:1055–1118`) floors each width and re-shrinks. Brute-forced by the reviewer over **4,340
+  chart_area/request combos → 0 below-minimum results, 0 raises**, including the exact repro inputs. So
+  AC-D18.4/AC-D18.5 are true *today* at the production layer. **But** the pure helper remains contract-violating:
+  the repo now has two divergent sources of truth for the cross-clamp, and any future direct consumer of
+  `plan_dock_widths` — or any removal of the T49 repair — silently reintroduces a below-minimum dock. Because
+  the requirements/AC (AC-D18.4) and the architecture row (`docs/architecture.md:663`, "shrinks whichever
+  dock is over budget … until `chart_area ≥ 400`") both specify the correct behaviour, this is a **code bug,
+  not an AC/architecture gap** → route to **BUILD**.
+- **Suggested direction (optional, for Build):** re-floor `left`/`right` at their minimums as the loop
+  decretements (or restructure so the chart minimum yields before a dock minimum is crossed), then add a
+  regression test for the one-sided over-budget case (`plan_dock_widths(750, 100000, 200)` and
+  `(750, 200, 0)`); once the helper is correct, remove the T49 `MainWindow._plan_dock_widths` repair to
+  restore the single source of truth. No AC or task-breakdown change is implied.
+
+### C. Other quality checks (no findings)
+
+- **Consistency with architecture/plan:** the single right region, the shared `_apply_dock_widths`, the
+  chart-area denominator, the 40%/50% caps and the no-persistence rule all match `docs/architecture.md:546–691`
+  and the D17/D18 requirements. No deviation found.
+- **Edge cases:** `_chart_area_width()` falls back to the window width pre-show (no zero denominator);
+  `_right_dock_available()` falls back to the watchlist-only rule when the region is hidden (keeps D17 tests
+  true); the `_applying_dock_widths` re-entrancy guard and the >1px resize gate are both present and tested
+  (T49-T07). The fixed-point loop is bounded at 24 iterations and converges because the cap fractions are < 1.
+- **Error handling:** the new paths are wrapped in `try/except Exception: pass` — broad, but deliberate and
+  consistent with the file's existing Qt-defensive style; it cannot hide an AC failure because the tests
+  assert rendered geometry directly. Not raised as a finding.
+- **Security:** no socket, no order transmission, no new persistence/secret surface. `T51-T03` claim verified
+  by the D2/order tests and the no-live-TWS grep; nothing to flag.
+- **Maintainability:** the T49 repair is documented in-code as a workaround for the tracked upstream defect,
+  so it is discoverable (it is Finding F1's subject, not a hidden hack).
+
+### D. Escalation close-out
+
+- **ESC-001…ESC-025 remain `addressed`, unchanged** — re-read their status lines; nothing relevant changed
+  for any of them this cycle. Grep over `escalations.md` shows **0 `open`, 0 stale `ESCALATED_*`** before this
+  pass.
+- **New escalation:** **ESC-026** (F1) → `Status: ESCALATED_TO_BUILD`.
+
+### E. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-026 | T45 | ESCALATED_TO_BUILD | `bug` / `should-fix` | `ui/dock_layout.py::plan_dock_widths` shrink loop can return a width below a dock minimum (`(750,100000,200)->(350,0)`); violates its own docstring + AC-D18.4. The T49 `MainWindow` workaround is verified sound but leaves a contract-violating pure helper. |
+
+**Pipeline state for the Orchestrator:** Batch 11 (T45–T51) is **7/7 `done`**, `failures.json.blocked` is
+empty, the full offscreen suite is **562 passed / 0 failed / exit 0** (no segfault), and D2 chip/dock
+non-overlap, D17 full-screen drag enforcement and D18 full-screen visibility are all independently confirmed.
+**One escalation (ESC-026, `should-fix`) is open and routed to BUILD** — the T45 helper should be fixed
+properly and the T49 workaround removed, but nothing is blocked. ESC-001…ESC-025 remain `addressed`.
+
+Status: REVIEW_COMPLETE
+
+# Revision review — ESC-026 rework round (T52), 2026-10-03
+
+**Scope reviewed:** `docs/build/build_log.md` (ends `Status: READY_FOR_REVIEW`; T52 `done`, terminal
+consolidation), `docs/build/failures.json` (`blocked` empty; `dock_layout_plan_below_minimum` entry annotated
+`status: resolved`), `docs/tasks/task-graph.json` (T52 entry), the changed files `ui/dock_layout.py`,
+`tests/test_dock_layout.py`, `ui/main_window.py`, and the existing `escalations.md`. Repo `fd0bb0a8` +
+uncommitted Batch-11/ESC-026 changes. **No live TWS was used** — every run was `QT_QPA_PLATFORM=offscreen`.
+Verified against the live tree and my own probes, not Build's report.
+
+## A. Independent verification of ESC-026 / T52 — **VERIFIED, CLOSED**
+
+- **Witnesses fixed.** `plan_dock_widths(750, 100000, 200) -> (150, 200)` and
+  `plan_dock_widths(750, 200, 0) -> (150, 200)`; each width `>=` its dock minimum. The pre-fix
+  `(350, 0)` / `(175, 175)` are gone.
+- **Grid clean.** My own coarse grid (chart_area 100..3000 step 50 × requests {0,200,400,700,100000}²) →
+  **1475 total, 0 below-minimum, 0 raises** (was 108). I re-derived the pre-fix shrink loop **in-memory**
+  (no repo edit) and reproduced exactly **108/1475** plus `(350,0)` / `(175,175)`, proving the T52-T01/T52-T02
+  witnesses genuinely discriminate the defect (non-tautological, fail-before/pass-after).
+- **Precedence preserved.** Infeasible `plan_dock_widths(400, 500, 500) == (150, 200)` (dock minimums win,
+  chart minimum yields); feasible over-budget `(1000, 500, 400) == (200, 400)` and
+  `(1000, 100000, 100000) == (200, 400)` both keep `chart_area - left - right >= CHART_MIN_WIDTH` (400).
+- **T49 workaround genuinely removed.** `MainWindow._plan_dock_widths` (`ui/main_window.py:1055–1099`) now
+  contains no re-floor / combined-shrink repair — it delegates to the pure `ui.dock_layout.plan_dock_widths`
+  and iterates it to the post-resize fixed point (`S = chart_area + cur_left + cur_right`, ≤24 passes).
+  `git diff` confirms the T49 repair block is gone; `ui/dock_layout.py` is the single source of truth again.
+- **MainWindow path still enforces D18 cap + cross-clamp** (reviewer probe, offscreen, no TWS, 1600×900):
+  over-cap drag → `right == 200 <= floor(0.40·chart_area)+1`; under-min drag → `right == RIGHT_DOCK_MIN_WIDTH`
+  (200) and `watchlist == 150`; cross-clamp → `chart_area == 1716 >= 400` with `left=150 right=200`.
+- **Displayed at `docs/code_review/escalations.md`: ESC-026 → `addressed`** (flipped in place with the
+  `Verified:` line).
+
+## B. Independent full-suite and regression re-verification
+
+- Full offscreen suite, run **twice**:
+  `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` → **566 passed, 0 failed, exit 0**
+  each run (`566 passed in 10.47s`). Build's 566/0 claim independently confirmed; 562 (wave-7 Batch-11
+  terminal) + the net **+4** T52 tests = 566, consistent — no D1–D16/Batch-11 regression.
+- `tests/test_dock_layout.py` → **40 passed** (T45-T01…T06 + T52-T01…T04). Retained Batch-11 D17/D18 set
+  (`test_dock_widths_d18_impl`, `test_dock_widths_d18`, `test_dock_widths_d17`, `test_dock_d18_region`,
+  `test_d10_d13_integration`, `test_watchlist`) → **40 passed**.
+
+## C. Test-integrity / weakened-test check
+
+- **No test weakened.** The T52 tests assert real geometry/values, not tautologies; T52-T02 explicitly rejects
+  the pre-fix `(350, 0)` / `(175, 175)` results, and T52-T01 sweeps 1475 combinations. My in-memory pre-fix
+  simulation reproduced the exact pre-fix outputs, so the assertions bind.
+- **T45-T01 Qt-free subprocess guard still holds.** `tests/test_dock_layout.py` has **no module-scope Qt
+  import**; the only `PyQt6` reference outside the guard's string assertions is the **function-local**
+  `from PyQt6.QtCore import Qt` inside T52-T04 (line 303). I independently ran the isolated
+  `import ui.dock_layout` interpreter → loads no PyQt6/pyqtgraph/PySide6, and the two T45-T01 tests pass in
+  isolation. Placing T52-T04 in this file did **not** break the module's Qt-free property.
+
+## D. `tests/__init__.py` collection gap — judged ACCEPTED environment noise (no escalation)
+
+- **Observed:** `tests/test_watchlist_d14_midrag.py::test_T30_T03_existing_d14_noop_paths_unchanged`
+  (`:263`) does `from tests.test_watchlist import ...`; the worker saw an order-dependent
+  `ModuleNotFoundError: No module named 'tests.test_watchlist'` (the `tests/` dir has no `__init__.py`).
+- **Could not reproduce:** the test passes in isolation (`1 passed`), the whole file passes (`3 passed`),
+  reordered runs pass, `--import-mode=importlib` passes, and two full-suite runs pass (566/566).
+- **Pre-existing, not a T52 regression:** the `from tests.test_watchlist import` line dates to `952a083`
+  (Build revision 2 / T30); the only local diff to this file since is a Batch-11 `_RIGHT_DOCKS` constant
+  change, unrelated to T52. It is also consistent with the project-memory shared-test-DB/teardown-contention
+  gotcha. **No escalation raised** — it is a latent test-hygiene fragility (a bare namespace-package import
+  that depends on rootdir/sys.path mechanics), not a product defect, and it blocks nothing.
+  *(Informational note for the team: adding `tests/__init__.py` or switching `:263` to a rootdir-relative
+  import would remove the latent fragility, but it is not a Build task and no AC covers it.)*
+
+## E. Escalation close-out
+
+- **ESC-026 → `addressed`** (in place, `Verified:` line added) — see A.
+- **ESC-001…ESC-025 remain `addressed`** — nothing relevant changed for them this cycle; their fixed
+  behaviours (D6/D9/D11/D2/chip lane/D16 calendar/disconnect/watchdog) are exercised by the green 566-test
+  suite.
+
+## F. New findings
+
+None. No code bug, quality, consistency, security, or gap finding, and no task-breakdown / architecture /
+requirements escalation surfaced this pass.
+
+**Pipeline state for the Orchestrator:** ESC-026 is **closed** (independently verified). **No open
+escalations remain** (ESC-001…ESC-026 all `addressed`); the suite is green (566/0). The pre-existing
+`tests/__init__.py` collection gap is recorded as accepted environment noise (no route). Pipeline complete.
+
 Status: REVIEW_COMPLETE

@@ -1,613 +1,665 @@
 {
   "status": "READY_FOR_BUILD",
-  "generated": "2026-10-02",
+  "generated": "2026-10-03",
+  "batch": "Batch 11 — D17 (watchlist live resize) + D18 (single right dock region)",
+  "baseline": "D1–D16 built and frozen (commit fd0bb0a); this graph is the Batch-11 delta only.",
   "tasks": [
     {
-      "id": "T37",
-      "title": "Implement the ET trading-day/holiday calendar service incl. the ESC-023 New Year's year-end exception (D16)",
-      "description": "Create the pure, Qt-free services/market_calendar.py exposing is_trading_day(date), trading_days(start_ts, end_ts) and session_windows(start_ts, end_ts, ext_hours), with US equity holidays computed by rule (fixed-date, nth-weekday, Good Friday) in America/New_York. Ship its offscreen unit tests. Corrected for ESC-023: the New Year's observed shift carries the NYSE Rule 7.2 year-end accounting-period exception (AC-D16.7) so Dec 31 stays a trading day when the next Jan 1 is a Saturday, and no substitute closure is created.",
+      "id": "T45",
+      "title": "Create the shared chart-area dock-width model ui/dock_layout.py (D17/D18 Phase 1)",
+      "description": "Create the pure, Qt-free ui/dock_layout.py holding the single source of truth for dock widths measured against the chart area (the MainWindow central-widget width): constants CHART_MIN_WIDTH=400, WATCHLIST_MIN_WIDTH=150, DEFAULT_WATCHLIST_WIDTH=220, RIGHT_DOCK_MIN_WIDTH=200, cap fractions 0.50/0.40, and the pure functions watchlist_max_width(chart_area_w), right_dock_max_width(chart_area_w) and plan_dock_widths(chart_area_w, requested_left, requested_right) -> (left, right) that applies the independent caps and the B3 cross-clamp guaranteeing chart_area >= 400px. Ship its offscreen unit tests.",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given the ET trading calendar, When is_trading_day is called for a US equity holiday computed by rule (fixed-date New Year's Day, Juneteenth, Independence Day, Christmas; nth-weekday MLK, Presidents, Memorial, Labor, Thanksgiving; Good Friday), Then it returns False for each such date in a given year including a future year, proving no fixed year list.",
-        "Given the ET trading calendar, When is_trading_day is called, Then an ordinary weekday with no holiday (e.g. 2026-09-21) returns True and a Saturday or Sunday returns False.",
-        "Given the US-equity ET trading-day calendar, When is_trading_day is called for a weekend-falling fixed-date US holiday, Then the observed market-closure day is non-trading per US-equity convention, EXCEPT that New Year's Day carries the NYSE Rule 7.2 year-end accounting-period exception (ESC-023, AC-D16.7): when Jan 1 is a Saturday no New Year's closure is observed and Dec 31 of that year returns True as a trading day (e.g. 2021-12-31, 2027-12-31, 2032-12-31, 2038-12-31), while Independence Day 2026-07-04 Sat gives 2026-07-03 Fri closed, Christmas 2022-12-25 Sun gives 2022-12-26 Mon closed, Juneteenth 2027-06-19 Sat gives 2027-06-18 Fri closed, and New Year's Day 2023-01-01 Sun is still observed Mon 2023-01-02 closed.",
-        "Given a start_ts and end_ts spanning at least one week, When trading_days(start_ts, end_ts) is called, Then it returns exactly the ET trading days in the inclusive range, ascending, excluding every weekend and every holiday.",
-        "Given a range spanning trading and non-trading days, When session_windows(start_ts, end_ts, ext_hours) is called, Then it returns one window per trading day, 04:00-20:00 ET when ext_hours is True and 09:30-16:00 ET when ext_hours is False, clipped to [start_ts, end_ts], with no window for a non-trading day.",
-        "Given services/market_calendar.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication."
+        "Given ui/dock_layout.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication.",
+        "Given ui/dock_layout.py, When its constants are read, Then CHART_MIN_WIDTH == 400, WATCHLIST_MIN_WIDTH == 150, DEFAULT_WATCHLIST_WIDTH == 220, RIGHT_DOCK_MIN_WIDTH == 200, the watchlist cap fraction is 0.50 and the right-dock cap fraction is 0.40, and CHART_MIN_WIDTH is in agreement with ui/watchlist_panel.CHART_MIN_WIDTH.",
+        "Given a chart_area_w, When watchlist_max_width(chart_area_w) is called, Then it returns max(WATCHLIST_MIN_WIDTH, min(floor(0.50 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
+        "Given a chart_area_w, When right_dock_max_width(chart_area_w) is called, Then it returns max(RIGHT_DOCK_MIN_WIDTH, min(floor(0.40 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
+        "Given a chart_area_w and requested left/right widths, When plan_dock_widths(chart_area_w, requested_left, requested_right) is called, Then each returned width is within its own [min, max] cap, and where feasible chart_area_w - left - right >= CHART_MIN_WIDTH; enlarging one requested width forces the other to shrink when the flat caps would starve the chart.",
+        "Given the edge cases (a tiny window where the flat cap is below the dock minimum, both docks requested near their individual maxima, and one side requested over budget), When plan_dock_widths is called, Then it never returns a width below the dock minimum, never raises, and returns stable integer widths even when chart_area_w - left - right cannot reach CHART_MIN_WIDTH (the chart minimum yields on an infeasible window; dock minimums win)."
       ],
       "tests": [
         {
-          "test_id": "T37-T01",
-          "linked_acceptance_criterion": "Given the ET trading calendar, When is_trading_day is called for a US equity holiday computed by rule (fixed-date New Year's Day, Juneteenth, Independence Day, Christmas; nth-weekday MLK, Presidents, Memorial, Labor, Thanksgiving; Good Friday), Then it returns False for each such date in a given year including a future year, proving no fixed year list.",
+          "test_id": "T45-T01",
+          "linked_acceptance_criterion": "Given ui/dock_layout.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication.",
           "type": "unit",
-          "description": "Parameterized holiday dates for each by-rule holiday across at least two years including a future year; assert is_trading_day returns False.",
-          "expected_result": "Every listed holiday date returns False, including a future-year date and the Good Friday date derived for that year."
+          "description": "Import the module in an isolated offscreen interpreter and assert no Qt module is loaded (or assert the source imports no PyQt6/pyqtgraph/Qt).",
+          "expected_result": "Import succeeds without QApplication and without importing PyQt6, pyqtgraph or any Qt module."
         },
         {
-          "test_id": "T37-T02",
-          "linked_acceptance_criterion": "Given the ET trading calendar, When is_trading_day is called, Then an ordinary weekday with no holiday (e.g. 2026-09-21) returns True and a Saturday or Sunday returns False.",
+          "test_id": "T45-T02",
+          "linked_acceptance_criterion": "Given ui/dock_layout.py, When its constants are read, Then CHART_MIN_WIDTH == 400, WATCHLIST_MIN_WIDTH == 150, DEFAULT_WATCHLIST_WIDTH == 220, RIGHT_DOCK_MIN_WIDTH == 200, the watchlist cap fraction is 0.50 and the right-dock cap fraction is 0.40, and CHART_MIN_WIDTH is in agreement with ui/watchlist_panel.CHART_MIN_WIDTH.",
           "type": "unit",
-          "description": "Check one ordinary weekday and the adjacent weekend days in ET.",
-          "expected_result": "2026-09-21 (Monday) returns True; 2026-09-19 (Saturday) and 2026-09-20 (Sunday) return False."
+          "description": "Assert each constant value and cross-check CHART_MIN_WIDTH against the watchlist_panel constant.",
+          "expected_result": "All constants match their specified values and the two CHART_MIN_WIDTH constants agree."
         },
         {
-          "test_id": "T37-T03",
-          "linked_acceptance_criterion": "Given the US-equity ET trading-day calendar, When is_trading_day is called for a weekend-falling fixed-date US holiday, Then the observed market-closure day is non-trading per US-equity convention, EXCEPT that New Year's Day carries the NYSE Rule 7.2 year-end accounting-period exception (ESC-023, AC-D16.7): when Jan 1 is a Saturday no New Year's closure is observed and Dec 31 of that year returns True as a trading day (e.g. 2021-12-31, 2027-12-31, 2032-12-31, 2038-12-31), while Independence Day 2026-07-04 Sat gives 2026-07-03 Fri closed, Christmas 2022-12-25 Sun gives 2022-12-26 Mon closed, Juneteenth 2027-06-19 Sat gives 2027-06-18 Fri closed, and New Year's Day 2023-01-01 Sun is still observed Mon 2023-01-02 closed.",
+          "test_id": "T45-T03",
+          "linked_acceptance_criterion": "Given a chart_area_w, When watchlist_max_width(chart_area_w) is called, Then it returns max(WATCHLIST_MIN_WIDTH, min(floor(0.50 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
           "type": "unit",
-          "description": "Assert the observed-shift behaviour in tests/test_market_calendar.py: keep the unchanged weekend-falling closure shifts (Independence Day 2026-07-03, Christmas 2022-12-26, Juneteenth 2027-06-18, New Year's 2023-01-02) as non-trading regression guards, and assert the New Year's year-end exception - is_trading_day is True for 2021-12-31, 2027-12-31, 2032-12-31 and 2038-12-31 (Jan 1 Saturday -> no New Year's closure; Dec 31 stays open), with the Saturday legal date 2022-01-01 non-trading as a weekend and 2022-01-03 a trading day. Drop the wrong date(2021, 12, 31) entry from the weekend-legal-dates loop.",
-          "expected_result": "is_trading_day(2026-07-03) is False, (2022-12-26) is False, (2027-06-18) is False, (2023-01-02) is False; is_trading_day(2021-12-31) is True and likewise for 2027-12-31, 2032-12-31, 2038-12-31; is_trading_day(2022-01-01) is False and (2022-01-03) is True; no assertion expects a Dec 31 year-end closure."
+          "description": "Parameterized chart_area_w values (e.g. 1400, 900, 800, 600, 100) asserting the exact formula result, including the narrow case where the chart-minimum term binds.",
+          "expected_result": "Every value equals max(150, min(int(chart_area_w*0.50), chart_area_w-400)); never below 150."
         },
         {
-          "test_id": "T37-T04",
-          "linked_acceptance_criterion": "Given a start_ts and end_ts spanning at least one week, When trading_days(start_ts, end_ts) is called, Then it returns exactly the ET trading days in the inclusive range, ascending, excluding every weekend and every holiday.",
+          "test_id": "T45-T04",
+          "linked_acceptance_criterion": "Given a chart_area_w, When right_dock_max_width(chart_area_w) is called, Then it returns max(RIGHT_DOCK_MIN_WIDTH, min(floor(0.40 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
           "type": "unit",
-          "description": "Call trading_days over a week that contains a US holiday and assert the exact ascending set.",
-          "expected_result": "Returns exactly the non-holiday weekdays for that range in ascending order, with the weekend and holiday absent."
+          "description": "Parameterized chart_area_w values (e.g. 1400, 900, 800, 600, 100) asserting the exact formula result, including the narrow case where the chart-minimum term binds.",
+          "expected_result": "Every value equals max(200, min(int(chart_area_w*0.40), chart_area_w-400)); never below 200."
         },
         {
-          "test_id": "T37-T05",
-          "linked_acceptance_criterion": "Given a range spanning trading and non-trading days, When session_windows(start_ts, end_ts, ext_hours) is called, Then it returns one window per trading day, 04:00-20:00 ET when ext_hours is True and 09:30-16:00 ET when ext_hours is False, clipped to [start_ts, end_ts], with no window for a non-trading day.",
+          "test_id": "T45-T05",
+          "linked_acceptance_criterion": "Given a chart_area_w and requested left/right widths, When plan_dock_widths(chart_area_w, requested_left, requested_right) is called, Then each returned width is within its own [min, max] cap, and where feasible chart_area_w - left - right >= CHART_MIN_WIDTH; enlarging one requested width forces the other to shrink when the flat caps would starve the chart.",
           "type": "unit",
-          "description": "Call session_windows with ext_hours True and False over a multi-day range including a weekend/holiday; check window count, ET boundaries and clipping.",
-          "expected_result": "One window per trading day: 04:00-20:00 ET (ext_hours True) or 09:30-16:00 ET (ext_hours False), each clipped to the range; no window for a non-trading day."
+          "description": "Normal case: chart_area_w=1400 with both docks near their maxima; assert caps hold, chart remainder >=400, and increasing requested_left decreases the returned right (and vice-versa).",
+          "expected_result": "left <= watchlist_max_width(chart_area_w), right <= right_dock_max_width(chart_area_w), chart_area_w-left-right >= 400, and the non-resized dock shrinks when cross-clamping binds."
         },
         {
-          "test_id": "T37-T06",
-          "linked_acceptance_criterion": "Given services/market_calendar.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication.",
+          "test_id": "T45-T06",
+          "linked_acceptance_criterion": "Given the edge cases (a tiny window where the flat cap is below the dock minimum, both docks requested near their individual maxima, and one side requested over budget), When plan_dock_widths is called, Then it never returns a width below the dock minimum, never raises, and returns stable integer widths even when chart_area_w - left - right cannot reach CHART_MIN_WIDTH (the chart minimum yields on an infeasible window; dock minimums win).",
           "type": "unit",
-          "description": "Import the module in an isolated offscreen interpreter and assert no Qt module is loaded (or assert the source imports no PyQt6/pyqtgraph).",
-          "expected_result": "Import succeeds without QApplication and without importing PyQt6/pyqtgraph."
+          "description": "Call plan_dock_widths on a tiny chart_area_w, with both requests at max, and with one request over budget; assert min bounds, no exception, integer outputs, and the documented precedence when infeasible.",
+          "expected_result": "No returned width is below its dock minimum; no exception; the infeasible tiny-window case returns the dock minimums without raising."
         }
       ],
       "expected_artifacts": [
-        "services/market_calendar.py",
-        "tests/test_market_calendar.py"
+        "ui/dock_layout.py",
+        "tests/test_dock_layout.py"
       ],
       "touches_files": [
-        "services/market_calendar.py",
-        "tests/test_market_calendar.py"
+        "ui/dock_layout.py",
+        "tests/test_dock_layout.py"
       ],
       "inputs": [
-        "docs/requirements/requirements.md#D16",
-        "docs/requirements/requirements.md#AC-D16.1",
-        "docs/requirements/requirements.md#AC-D16.3",
-        "docs/architecture.md#D16 additions/changes",
-        "services/session_service.py (ET ZoneInfo pattern)",
-        "docs/requirements/requirements.md#AC-D16.7",
-        "docs/code_review/escalations.md#ESC-023"
+        "docs/plan.md#Phase 1",
+        "docs/architecture.md#D17 + D18 increment (ui/dock_layout.py)",
+        "docs/requirements/requirements.md#AC-D17.1",
+        "docs/requirements/requirements.md#AC-D18.2",
+        "docs/requirements/requirements.md#AC-D18.5",
+        "docs/requirements/requirements.md#A34",
+        "docs/requirements/requirements.md#A35",
+        "ui/watchlist_panel.py (existing CHART_MIN_WIDTH/WATCHLIST_MIN_WIDTH constants)",
+        "services/backfill_service.py (pure-service pattern)"
       ],
       "outputs": [
-        "services/market_calendar.py",
-        "tests/test_market_calendar.py"
+        "ui/dock_layout.py",
+        "tests/test_dock_layout.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T38",
-      "title": "Implement the pure missing-span and chunk-request planner (D16)",
-      "description": "Create the pure, Qt-free services/backfill_service.py with bar_period_seconds(timeframe), find_missing_spans(cached_ts, now_ts, timeframe) and plan_requests(missing_spans, timeframe), plus the MissingSpan/RequestPlan dataclasses. Detection is trading-day presence so internal holes and tail gaps are both healed; empty cache returns [] and chunking uses the TIMEFRAME_CONFIG duration, newest chunk first, with a Qt-free UTC hyphenated anchor. Ship its offscreen unit tests.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "T37"
-      ],
-      "acceptance_criteria": [
-        "Given each of the six timeframes, When bar_period_seconds(timeframe) is called, Then it returns the per-bar period from data.bar_aggregator.TIMEFRAME_SECONDS (1 min 60, 5 mins 300, 15 mins 900, 1 hour 3600, 4 hours 14400, 1 day 86400).",
-        "Given a seeded cached ts series with bars before and after a missing trading-session span (the reported internal hole), When find_missing_spans(cached_ts, now_ts, timeframe) is called, Then it returns the missing span(s), merging adjacent missing trading days and excluding weekends/holidays; the assertion is parameterized over all six timeframes and at least two distinct seeded series scenarios.",
-        "Given a seeded cached series whose newest bar is before now (tail gap), When find_missing_spans is called, Then the missing trading days between the last cached trading day and now are returned as a span.",
-        "Given a cached series whose latest trading day already reaches now, or whose only gap is a weekend, When find_missing_spans is called, Then it returns [] so no redundant backfill is requested.",
-        "Given an empty cache (cached_ts == []), When find_missing_spans is called, Then it returns [] so the caller falls back to the configured window.",
-        "Given a missing span whose duration exceeds TIMEFRAME_CONFIG[timeframe]['duration'], When plan_requests(missing_spans, timeframe) is called, Then it returns multiple RequestPlans ordered newest chunk first whose combined coverage spans the whole missing span, each carrying the timeframe bar_size and duration and an endDateTime in the UTC hyphenated yyyyMMdd-HH:mm:ss format, with successive anchors stepping back by one configured duration.",
-        "Given a missing span shorter than the configured duration, When plan_requests is called, Then it returns exactly one RequestPlan covering the span with the anchor at the span end.",
-        "Given services/backfill_service.py, When imported offscreen, Then it imports no PyQt6/pyqtgraph/Qt and does not require a live IBKR connection."
-      ],
-      "tests": [
-        {
-          "test_id": "T38-T01",
-          "linked_acceptance_criterion": "Given each of the six timeframes, When bar_period_seconds(timeframe) is called, Then it returns the per-bar period from data.bar_aggregator.TIMEFRAME_SECONDS (1 min 60, 5 mins 300, 15 mins 900, 1 hour 3600, 4 hours 14400, 1 day 86400).",
-          "type": "unit",
-          "description": "Parameterized call over the six timeframes comparing against TIMEFRAME_SECONDS.",
-          "expected_result": "Each timeframe returns the matching period in seconds."
-        },
-        {
-          "test_id": "T38-T02",
-          "linked_acceptance_criterion": "Given a seeded cached ts series with bars before and after a missing trading-session span (the reported internal hole), When find_missing_spans(cached_ts, now_ts, timeframe) is called, Then it returns the missing span(s), merging adjacent missing trading days and excluding weekends/holidays; the assertion is parameterized over all six timeframes and at least two distinct seeded series scenarios.",
-          "type": "unit",
-          "description": "For each of the six timeframes and two seeded series (internal hole spanning a weekend), assert find_missing_spans covers exactly the missing weekdays and merges adjacent missing days.",
-          "expected_result": "Exactly the missing trading-weekday span(s) are returned; weekend days are excluded and adjacent missing days are merged into one span."
-        },
-        {
-          "test_id": "T38-T03",
-          "linked_acceptance_criterion": "Given a seeded cached series whose newest bar is before now (tail gap), When find_missing_spans is called, Then the missing trading days between the last cached trading day and now are returned as a span.",
-          "type": "unit",
-          "description": "Seed a series ending mid-week with now several trading days later.",
-          "expected_result": "The span covers every trading day after the last cached day up to now (weekends excluded)."
-        },
-        {
-          "test_id": "T38-T04",
-          "linked_acceptance_criterion": "Given a cached series whose latest trading day already reaches now, or whose only gap is a weekend, When find_missing_spans is called, Then it returns [] so no redundant backfill is requested.",
-          "type": "unit",
-          "description": "Two cases: cache current at now, and cache ending Friday with now on Sunday.",
-          "expected_result": "Both cases return an empty list."
-        },
-        {
-          "test_id": "T38-T05",
-          "linked_acceptance_criterion": "Given an empty cache (cached_ts == []), When find_missing_spans is called, Then it returns [] so the caller falls back to the configured window.",
-          "type": "unit",
-          "description": "Call find_missing_spans with an empty cached ts list.",
-          "expected_result": "Returns []."
-        },
-        {
-          "test_id": "T38-T06",
-          "linked_acceptance_criterion": "Given a missing span whose duration exceeds TIMEFRAME_CONFIG[timeframe]['duration'], When plan_requests(missing_spans, timeframe) is called, Then it returns multiple RequestPlans ordered newest chunk first whose combined coverage spans the whole missing span, each carrying the timeframe bar_size and duration and an endDateTime in the UTC hyphenated yyyyMMdd-HH:mm:ss format, with successive anchors stepping back by one configured duration.",
-          "type": "unit",
-          "description": "Give a span longer than one configured duration and assert chunk count, newest-first order, full coverage, duration/bar_size and anchor format.",
-          "expected_result": "Chunk count equals the configured-duration ceiling of the span; plans are newest-first; together they cover the span; anchors parse as UTC yyyyMMdd-HH:mm:ss and step back by one duration."
-        },
-        {
-          "test_id": "T38-T07",
-          "linked_acceptance_criterion": "Given a missing span shorter than the configured duration, When plan_requests is called, Then it returns exactly one RequestPlan covering the span with the anchor at the span end.",
-          "type": "unit",
-          "description": "Give a short missing span and assert a single plan whose anchor is at the span end.",
-          "expected_result": "Exactly one RequestPlan covering the span, anchor at the span end."
-        },
-        {
-          "test_id": "T38-T08",
-          "linked_acceptance_criterion": "Given services/backfill_service.py, When imported offscreen, Then it imports no PyQt6/pyqtgraph/Qt and does not require a live IBKR connection.",
-          "type": "unit",
-          "description": "Import the module in an isolated offscreen interpreter and assert no Qt module is loaded and no connection is attempted.",
-          "expected_result": "Import succeeds without QApplication and without importing PyQt6/pyqtgraph or contacting TWS."
-        }
-      ],
-      "expected_artifacts": [
-        "services/backfill_service.py",
-        "tests/test_backfill_service.py"
-      ],
-      "touches_files": [
-        "services/backfill_service.py",
-        "tests/test_backfill_service.py"
-      ],
-      "inputs": [
-        "docs/requirements/requirements.md#AC-D16.1",
-        "docs/requirements/requirements.md#AC-D16.4",
-        "docs/architecture.md#D16 additions/changes",
-        "services/market_calendar.py",
-        "data/bar_aggregator.py:TIMEFRAME_SECONDS",
-        "ibkr/market_data.py:TIMEFRAME_CONFIG"
-      ],
-      "outputs": [
-        "services/backfill_service.py",
-        "tests/test_backfill_service.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T39",
-      "title": "Make the MainWindow load path backfill the whole gap with correlated multi-request orchestration (D16)",
-      "description": "Change ui/main_window.py::load_chart to call the pure planner and issue one req_historical_data per RequestPlan through the existing endDateTime parameter (market_data.py signature unchanged), skip redundant requests when the cache is current, fall back to the configured window on an empty cache, add _history_req_ids/_history_generation/_backfill_missing_spans/_backfill_failed_req_ids state, accept any member reqId, finalise once when the set empties, cancel every id on switch/close, and correlate _on_error shortfall without fabricating bars. Ship focused offscreen load-path tests.",
+      "id": "T46",
+      "title": "Re-parameterise the D13 watchlist width helpers to the chart-area denominator (D17 Phase 1)",
+      "description": "Re-parameterise ui/watchlist_panel.py so watchlist_max_width / clamp_watchlist_width / load_watchlist_width / save_watchlist_width are measured against the chart area (not the whole window) and delegate to ui/dock_layout as the single source of the cap, preserving the existing one-argument signature shape. Update tests/test_watchlist.py clamp-math assertions to the chart-area cap in lockstep (R28/B1) without changing the D14 double-click semantics.",
       "agent": "Build",
       "task_type": "bugfix",
       "dependencies": [
-        "T38"
+        "T45"
       ],
       "acceptance_criteria": [
-        "Given a seeded cached series with a missing trading-session span whose closure exceeds the timeframe configured fetch window, When load_chart runs, Then it issues one historical request per planned chunk through the existing req_historical_data(endDateTime=...) (the market_data.py signature is unchanged) and records each returned reqId in _history_req_ids.",
-        "Given an empty plan and a cache whose latest bar reaches now, When load_chart runs, Then no historical request is issued for that load (no redundant request).",
-        "Given an empty cache, When load_chart runs, Then the configured-window fallback request (endDateTime empty) is issued so the single-request path is preserved as a set of one.",
-        "Given a backfill wave with multiple in-flight reqIds, When _on_historical_bar/_on_historical_data_end fire for any member, Then bars accumulate across all members and BarCache.save_bars plus re-read plus ChartPanel.update_chart happen exactly once, only after the last member's end empties the set; a non-member or stale-generation event is ignored.",
-        "Given backfill requests in flight, When the symbol/timeframe switches or closeEvent runs, Then every reqId in _history_req_ids is cancelled and _history_generation is advanced so late responses cannot mix symbols/timeframes.",
-        "Given a backfill reqId raises error_msg, When _on_error handles it, Then the reqId is removed from _history_req_ids so the wave can still finalise, and the shortfall is surfaced (status bar plus log) with no fabricated bar.",
-        "Given a wave completes and a trading day in the target span is still empty, When finalisation runs, Then the shortfall is surfaced explicitly (status-bar message and/or log); no bar is fabricated or interpolated."
+        "Given ui/watchlist_panel.py, When watchlist_max_width(chart_area_w) is called, Then it returns the chart-area cap produced by ui.dock_layout.watchlist_max_width (the formula is not duplicated) while keeping a one-argument signature shape.",
+        "Given clamp_watchlist_width(width, chart_area_w), load_watchlist_width(settings, chart_area_w) and save_watchlist_width(settings, width, chart_area_w), When called, Then each clamps into [WATCHLIST_MIN_WIDTH, ui.dock_layout.watchlist_max_width(chart_area_w)] using dock_layout as the cap source.",
+        "Given tests/test_watchlist.py, When the clamp-math assertions run, Then watchlist_max_width/clamp_watchlist_width/load_/save_ are asserted against the chart-area denominator (e.g. watchlist_max_width(1400) == 700, narrow-area behaviour, never below 150) and the D14 should_load_on_double_click and panel-emits-symbol tests still pass."
       ],
       "tests": [
         {
-          "test_id": "T39-T01",
-          "linked_acceptance_criterion": "Given a seeded cached series with a missing trading-session span whose closure exceeds the timeframe configured fetch window, When load_chart runs, Then it issues one historical request per planned chunk through the existing req_historical_data(endDateTime=...) (the market_data.py signature is unchanged) and records each returned reqId in _history_req_ids.",
-          "type": "integration",
-          "description": "Offscreen MainWindow with IBApiClient.connect monkeypatched and md_manager.req_historical_data stubbed to capture calls and return distinct reqIds; seed a BarCache with an internal hole; call load_chart.",
-          "expected_result": "The number of req_historical_data calls equals the planner chunk count; every call passes a non-empty endDateTime; every returned reqId is present in _history_req_ids."
+          "test_id": "T46-T01",
+          "linked_acceptance_criterion": "Given ui/watchlist_panel.py, When watchlist_max_width(chart_area_w) is called, Then it returns the chart-area cap produced by ui.dock_layout.watchlist_max_width (the formula is not duplicated) while keeping a one-argument signature shape.",
+          "type": "unit",
+          "description": "For several chart_area_w values assert ui.watchlist_panel.watchlist_max_width == ui.dock_layout.watchlist_max_width, and inspect the source to confirm delegation rather than a duplicated formula.",
+          "expected_result": "The two functions agree for every sampled input; the panel helper delegates to dock_layout."
         },
         {
-          "test_id": "T39-T02",
-          "linked_acceptance_criterion": "Given an empty plan and a cache whose latest bar reaches now, When load_chart runs, Then no historical request is issued for that load (no redundant request).",
-          "type": "integration",
-          "description": "Seed a cache current at now, stub req_historical_data as a spy, call load_chart.",
-          "expected_result": "req_historical_data is never called and no reqId is added to _history_req_ids."
+          "test_id": "T46-T02",
+          "linked_acceptance_criterion": "Given clamp_watchlist_width(width, chart_area_w), load_watchlist_width(settings, chart_area_w) and save_watchlist_width(settings, width, chart_area_w), When called, Then each clamps into [WATCHLIST_MIN_WIDTH, ui.dock_layout.watchlist_max_width(chart_area_w)] using dock_layout as the cap source.",
+          "type": "unit",
+          "description": "Exercise clamp/load/save round-trips over a QSettings INI file with the chart-area denominator; assert clamping at the chart-area cap and the 150px floor, and default ~220px with no saved value.",
+          "expected_result": "clamp(1e6, area) == dock_layout.watchlist_max_width(area); clamp(0, area) == 150; no saved value loads 220; a saved value is restored clamped to the current cap."
         },
         {
-          "test_id": "T39-T03",
-          "linked_acceptance_criterion": "Given an empty cache, When load_chart runs, Then the configured-window fallback request (endDateTime empty) is issued so the single-request path is preserved as a set of one.",
+          "test_id": "T46-T03",
+          "linked_acceptance_criterion": "Given tests/test_watchlist.py, When the clamp-math assertions run, Then watchlist_max_width/clamp_watchlist_width/load_/save_ are asserted against the chart-area denominator (e.g. watchlist_max_width(1400) == 700, narrow-area behaviour, never below 150) and the D14 should_load_on_double_click and panel-emits-symbol tests still pass.",
+          "type": "unit",
+          "description": "Run the updated tests/test_watchlist.py, confirming the clamp-math assertions now use the chart-area denominator and the D14 tests are unchanged and green.",
+          "expected_result": "tests/test_watchlist.py passes entirely; no assertion still encodes the old window-width denominator."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist.py"
+      ],
+      "touches_files": [
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 1",
+        "docs/architecture.md#D17 + D18 increment (ui/watchlist_panel.py)",
+        "docs/requirements/requirements.md#AC-D13.1",
+        "docs/requirements/requirements.md#AC-D17.1",
+        "docs/requirements/requirements.md#R28",
+        "ui/dock_layout.py",
+        "ui/watchlist_panel.py (existing helpers and constants)"
+      ],
+      "outputs": [
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T47",
+      "title": "Enforce the watchlist cap live during the drag and on resize/full-screen (D17 Phase 2)",
+      "description": "In ui/main_window.py add the shared _apply_dock_widths() that reads centralWidget().width() as chart_area and issues resizeDocks for the watchlist, wire it to the dock-area internal QSplitter.splitterMoved hook and a two-directional resizeEvent, re-clamp the persisted width on restore and in closeEvent, guard against recursion/jitter, and keep the deferred splitter acquisition + event-filter fallback per the architecture risk. No right-region changes yet. Update tests/test_d10_d13_integration.py to the chart-area denominator and ship focused offscreen tests.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T46"
+      ],
+      "acceptance_criteria": [
+        "AC-D17.1: Given a docked Watchlist and a loaded chart, When the user drags the splitter handle to the right, Then the watchlist width grows continuously up to floor(0.50 * chart_area) and the chart area narrows correspondingly; the watchlist width is <= floor(0.50 * chart_area) at all times during and after the drag.",
+        "AC-D17.2: Given the watchlist is wider than its minimum, When the user drags the handle to the left, Then the watchlist width reduces continuously down to WATCHLIST_MIN_WIDTH (150px) and stops there, with the chart area growing correspondingly and the width never going below 150px.",
+        "AC-D17.3: Given the app is shown full screen (no window resizeEvent fires during the drag), When the user drags past the cap, Then the width stops at the cap during the drag itself (the splitterMoved hook enforces it) with no overshoot into the chart and no later resizeEvent required.",
+        "AC-D17.4: Given a Watchlist width persisted by a previous session, When the app restarts, Then the width is restored as the persisted integer pixel value clamped to the current floor(0.50 * chart_area) and the chart minimum (default ~220px if none saved, never <150px).",
+        "AC-D17.5: Given the watchlist is at/near its cap, When the available chart-area width shrinks (main window narrowed), Then the watchlist is re-clamped to the new cap without error and remains resizable; the same re-clamp is invoked from the shared _apply_dock_widths so the right region can drive it later.",
+        "Given _apply_dock_widths, When it issues resizeDocks, Then it is re-entrancy-guarded (a guard flag / blockSignals) and only calls resizeDocks when the computed size differs from the current size by more than 1px, so an applied resize does not recurse and produces no jitter.",
+        "Given the updated tests/test_d10_d13_integration.py, When it runs, Then its clamp assertions use the chart-area denominator (never the old window-width formula) and the D10 volume-toggle behaviour assertions remain green."
+      ],
+      "tests": [
+        {
+          "test_id": "T47-T01",
+          "linked_acceptance_criterion": "AC-D17.1: Given a docked Watchlist and a loaded chart, When the user drags the splitter handle to the right, Then the watchlist width grows continuously up to floor(0.50 * chart_area) and the chart area narrows correspondingly; the watchlist width is <= floor(0.50 * chart_area) at all times during and after the drag.",
           "type": "integration",
-          "description": "Seed no cached bars; call load_chart with a stubbed manager.",
-          "expected_result": "Exactly one fallback request is issued with an empty endDateTime and behaves as a set of one."
+          "description": "Offscreen MainWindow with IBApiClient.connect monkeypatched; drive the splitterMoved/_apply_dock_widths path to a large requested watchlist width and assert the effective dock width == floor(0.50 * chart_area) and the central chart area narrowed.",
+          "expected_result": "Watchlist width equals the chart-area cap (<= floor(0.50*chart_area)) and centralWidget().width() decreased versus the pre-drag value."
         },
         {
-          "test_id": "T39-T04",
-          "linked_acceptance_criterion": "Given a backfill wave with multiple in-flight reqIds, When _on_historical_bar/_on_historical_data_end fire for any member, Then bars accumulate across all members and BarCache.save_bars plus re-read plus ChartPanel.update_chart happen exactly once, only after the last member's end empties the set; a non-member or stale-generation event is ignored.",
+          "test_id": "T47-T02",
+          "linked_acceptance_criterion": "AC-D17.2: Given the watchlist is wider than its minimum, When the user drags the handle to the left, Then the watchlist width reduces continuously down to WATCHLIST_MIN_WIDTH (150px) and stops there, with the chart area growing correspondingly and the width never going below 150px.",
           "type": "integration",
-          "description": "Drive _on_historical_bar for each member reqId, then _on_historical_data_end for all but the last, then for the last; spy on save_bars/update_chart; also emit a non-member and a stale-generation bar.",
-          "expected_result": "No save/render before the set empties; exactly one save plus one re-read plus one update_chart at set-empty; non-member and stale-generation bars are ignored."
+          "description": "Drive the width request down through intermediate values and a below-minimum request; assert monotone decrease and a floor at 150px.",
+          "expected_result": "Watchlist width decreases with each leftward step and never falls below WATCHLIST_MIN_WIDTH."
         },
         {
-          "test_id": "T39-T05",
-          "linked_acceptance_criterion": "Given backfill requests in flight, When the symbol/timeframe switches or closeEvent runs, Then every reqId in _history_req_ids is cancelled and _history_generation is advanced so late responses cannot mix symbols/timeframes.",
+          "test_id": "T47-T03",
+          "linked_acceptance_criterion": "AC-D17.3: Given the app is shown full screen (no window resizeEvent fires during the drag), When the user drags past the cap, Then the width stops at the cap during the drag itself (the splitterMoved hook enforces it) with no overshoot into the chart and no later resizeEvent required.",
           "type": "integration",
-          "description": "Start a multi-request wave, then switch symbol/timeframe (and separately invoke closeEvent); spy on cancel_historical_data and read the generation token.",
-          "expected_result": "cancel_historical_data is called once per tracked id; the generation token advances; late responses from the previous generation do not reach the render path."
+          "description": "Show the window, simulate a drag past the cap by invoking the splitterMoved handler directly without any window resize, and assert the effective width is the cap rather than the pre-clamp request.",
+          "expected_result": "After the drag hook runs with no resizeEvent, watchlist width == floor(0.50*chart_area), not the oversized request."
         },
         {
-          "test_id": "T39-T06",
-          "linked_acceptance_criterion": "Given a backfill reqId raises error_msg, When _on_error handles it, Then the reqId is removed from _history_req_ids so the wave can still finalise, and the shortfall is surfaced (status bar plus log) with no fabricated bar.",
+          "test_id": "T47-T04",
+          "linked_acceptance_criterion": "AC-D17.4: Given a Watchlist width persisted by a previous session, When the app restarts, Then the width is restored as the persisted integer pixel value clamped to the current floor(0.50 * chart_area) and the chart minimum (default ~220px if none saved, never <150px).",
           "type": "integration",
-          "description": "Raise _on_error for one member reqId mid-wave, then end the remaining members and assert finalisation still occurs and a shortfall message is shown.",
-          "expected_result": "The failed reqId leaves _history_req_ids; the wave finalises when the rest end; a status-bar/log shortfall is emitted and no bar is fabricated for the failed chunk."
+          "description": "Seed QSettings watchlist/width with a large value, construct MainWindow, and assert the applied width is the chart-area cap; separately assert the default (~220) with no saved value and the 150px floor.",
+          "expected_result": "A persisted large width is restored clamped to the current chart-area cap; no saved value yields ~220px; the result is never below 150px."
         },
         {
-          "test_id": "T39-T07",
-          "linked_acceptance_criterion": "Given a wave completes and a trading day in the target span is still empty, When finalisation runs, Then the shortfall is surfaced explicitly (status-bar message and/or log); no bar is fabricated or interpolated.",
+          "test_id": "T47-T05",
+          "linked_acceptance_criterion": "AC-D17.5: Given the watchlist is at/near its cap, When the available chart-area width shrinks (main window narrowed), Then the watchlist is re-clamped to the new cap without error and remains resizable; the same re-clamp is invoked from the shared _apply_dock_widths so the right region can drive it later.",
           "type": "integration",
-          "description": "Complete a wave whose responses omit one target trading day; assert the shortfall is surfaced and the rendered bars contain no fabricated entries.",
-          "expected_result": "A shortfall status-bar/log message is produced and the bar list contains only genuinely returned bars."
+          "description": "Set the watchlist to the cap for a wide window, shrink the window, and assert the watchlist is re-clamped to the new (smaller) cap without error and can still be resized.",
+          "expected_result": "After the shrink the watchlist width <= the new chart-area cap and no exception is raised."
+        },
+        {
+          "test_id": "T47-T06",
+          "linked_acceptance_criterion": "Given _apply_dock_widths, When it issues resizeDocks, Then it is re-entrancy-guarded (a guard flag / blockSignals) and only calls resizeDocks when the computed size differs from the current size by more than 1px, so an applied resize does not recurse and produces no jitter.",
+          "type": "integration",
+          "description": "Spy on resizeDocks across repeated _apply_dock_widths invocations at a fixed geometry and assert it is a no-op when unchanged; assert re-entrant calls are suppressed.",
+          "expected_result": "Repeated applies at the same geometry do not re-issue resizeDocks; no recursion/stack growth or jitter."
+        },
+        {
+          "test_id": "T47-T07",
+          "linked_acceptance_criterion": "Given the updated tests/test_d10_d13_integration.py, When it runs, Then its clamp assertions use the chart-area denominator (never the old window-width formula) and the D10 volume-toggle behaviour assertions remain green.",
+          "type": "integration",
+          "description": "Run tests/test_d10_d13_integration.py after updating the denominator assertions and confirm volume hide/show plus the chart-minimum coupling still pass.",
+          "expected_result": "tests/test_d10_d13_integration.py passes with chart-area-denominator assertions and unchanged D10 assertions."
         }
       ],
       "expected_artifacts": [
         "ui/main_window.py",
-        "tests/test_history_backfill_loadpath.py"
+        "tests/test_d10_d13_integration.py",
+        "tests/test_dock_widths_d17.py"
       ],
       "touches_files": [
         "ui/main_window.py",
-        "tests/test_history_backfill_loadpath.py"
+        "tests/test_d10_d13_integration.py",
+        "tests/test_dock_widths_d17.py"
       ],
       "inputs": [
-        "docs/requirements/requirements.md#AC-D16.1",
-        "docs/requirements/requirements.md#AC-D16.2",
-        "docs/requirements/requirements.md#AC-D16.4",
-        "docs/requirements/requirements.md#AC-D16.5",
-        "docs/architecture.md#D16 additions/changes",
-        "services/backfill_service.py",
-        "ui/main_window.py:load_chart/_on_historical_bar/_on_historical_data_end/_on_error/closeEvent",
+        "docs/plan.md#Phase 2",
+        "docs/architecture.md#D17 + D18 increment (ui/main_window.py _apply_dock_widths)",
+        "docs/requirements/requirements.md#AC-D17.1",
+        "docs/requirements/requirements.md#AC-D17.2",
+        "docs/requirements/requirements.md#AC-D17.3",
+        "docs/requirements/requirements.md#AC-D17.4",
+        "docs/requirements/requirements.md#AC-D17.5",
+        "docs/requirements/requirements.md#AC-D13.1",
+        "ui/dock_layout.py",
+        "ui/watchlist_panel.py",
+        "ui/main_window.py:resizeEvent/closeEvent (current D13 clamp)",
         "tests/test_watchlist_d14_midrag.py (offscreen MainWindow stub pattern)"
       ],
       "outputs": [
         "ui/main_window.py",
-        "tests/test_history_backfill_loadpath.py"
+        "tests/test_d10_d13_integration.py",
+        "tests/test_dock_widths_d17.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T40",
-      "title": "Offscreen end-to-end verification of D16 whole-gap backfill (panels, closures, chunking, switch safety)",
-      "description": "Add tests/test_history_backfill.py booting a real offscreen MainWindow with IBApiClient.connect monkeypatched and the managers stubbed, seed BarCache with the AC-D16.5 repro and drive the stubbed historical feed, proving the whole-gap backfill, both panels, empty closures, chunking, all six timeframes and at least two symbols, switch-mid-flight isolation and the empty-cache fallback.",
+      "id": "T48",
+      "title": "Reshape Active Trader + Portfolio into one right-dock region (D18 Phase 3)",
+      "description": "In ui/main_window.py replace the two separate RightDockWidgetArea QDockWidgets with one QDockWidget (title 'Active Trader', stable objectName) whose widget is a container stacking ActiveTraderPanel over ActivePortfolioPanel vertically, so the two sections are inherently equal width and _on_dom_toggled's findChild(QDockWidget, 'Active Trader') still resolves it. Keep ladder/portfolio behaviour and signals untouched; add no width cap yet. Update the right-dock lookup tests in lockstep where they seek the now-absent 'Portfolio' dock.",
       "agent": "Build",
-      "task_type": "verification",
+      "task_type": "implementation",
       "dependencies": [
-        "T39"
+        "T47"
       ],
       "acceptance_criteria": [
-        "Given a seeded SPY 5 mins cache holding bars for 2026-09-14 to 2026-09-18 and 2026-09-28 to 2026-10-02 with 2026-09-19 to 2026-09-27 missing and now = 2026-10-02, When SPY 5 mins is loaded and the stubbed requests complete, Then ChartPanel._bars contains the expected per-trading-day bars for 2026-09-21 to 2026-09-25 and BarCache.get_bars returns no rows for 2026-09-19/20 and 2026-09-26/27.",
-        "Given the same run, When the chart renders, Then the candle item data and the volume_bars x/height arrays both span the backfilled timestamps with non-zero volume heights wherever a candle exists.",
-        "Given a span containing a genuine market closure (weekend, holiday or overnight), When the chart renders, Then that interval has no bars and is neither fabricated nor interpolated, and the time axis is not compressed.",
-        "Given a requested missing span longer than one IBKR request configured duration, When the load path runs against the stubbed feed, Then multiple requests are issued and the resulting bar list is continuous across the span (or the residual shortfall is surfaced), parameterized over all six timeframes and at least two symbols.",
-        "Given a symbol/timeframe switch while a backfill wave is in flight, When the switch occurs and the prior wave responses arrive late, Then the new symbol/timeframe chart is not contaminated by the previous wave bars and receives its own continuity treatment.",
-        "Given an empty cache for a symbol/timeframe, When it is loaded, Then the configured-window fallback is fetched and rendered without error."
+        "AC-D18.3: Given the single right region is visible, Then the Active Trader ladder section and the Portfolio section render at equal width within a 1px tolerance, each equal to the region's content width, because they are stacked sections of one region.",
+        "Given ui/main_window.py after the reshape, When findChild(QDockWidget, 'Active Trader') is called, Then it returns the single right region (stable title and objectName) so _on_dom_toggled still toggles it, and there is exactly one QDockWidget in RightDockWidgetArea on the right side.",
+        "Given the reshape, When the ladder/portfolio order-entry, summary and signal wiring are inspected, Then no ladder/portfolio behaviour or signal connection changed (only the container around them).",
+        "Given the updated right-dock lookup tests, When they run, Then tests/test_crosshair_axis_lane.py resolves the single right region and asserts the D2 chip does not intersect it, and the tolerant hide-by-title loops in tests/test_d10_d13_integration.py, tests/test_watchlist_d14_midrag.py and tests/test_history_backfill*.py are green (updated to the single-region shape where they referenced the removed 'Portfolio' dock)."
       ],
       "tests": [
         {
-          "test_id": "T40-T01",
-          "linked_acceptance_criterion": "Given a seeded SPY 5 mins cache holding bars for 2026-09-14 to 2026-09-18 and 2026-09-28 to 2026-10-02 with 2026-09-19 to 2026-09-27 missing and now = 2026-10-02, When SPY 5 mins is loaded and the stubbed requests complete, Then ChartPanel._bars contains the expected per-trading-day bars for 2026-09-21 to 2026-09-25 and BarCache.get_bars returns no rows for 2026-09-19/20 and 2026-09-26/27.",
-          "type": "e2e",
-          "description": "Seed the AC-D16.5 repro, boot the offscreen MainWindow with a stubbed historical feed, load SPY 5 mins and assert the per-weekday counts and weekend absence.",
-          "expected_result": "Bars exist for 2026-09-21, 09-22, 09-23, 09-24 and 09-25 with the expected intraday cadence; no cached rows for the weekend days."
+          "test_id": "T48-T01",
+          "linked_acceptance_criterion": "AC-D18.3: Given the single right region is visible, Then the Active Trader ladder section and the Portfolio section render at equal width within a 1px tolerance, each equal to the region's content width, because they are stacked sections of one region.",
+          "type": "integration",
+          "description": "Offscreen MainWindow with the right region shown; assert win.active_trader.width() and win.portfolio_panel.width() equal the container/region content width within 1px.",
+          "expected_result": "The two stacked section widths are equal within 1px and neither exceeds the region content width."
         },
         {
-          "test_id": "T40-T02",
-          "linked_acceptance_criterion": "Given the same run, When the chart renders, Then the candle item data and the volume_bars x/height arrays both span the backfilled timestamps with non-zero volume heights wherever a candle exists.",
-          "type": "e2e",
-          "description": "After the backfill render, inspect the candle item data and the volume_bars x/height arrays over the backfilled span.",
-          "expected_result": "The volume height array is non-zero wherever a candle exists in the span, so the price and volume panels have no hole together."
+          "test_id": "T48-T02",
+          "linked_acceptance_criterion": "Given ui/main_window.py after the reshape, When findChild(QDockWidget, 'Active Trader') is called, Then it returns the single right region (stable title and objectName) so _on_dom_toggled still toggles it, and there is exactly one QDockWidget in RightDockWidgetArea on the right side.",
+          "type": "integration",
+          "description": "Construct an offscreen MainWindow, assert findChild(QDockWidget, 'Active Trader') is not None, invoke _on_dom_toggled(False/True) and assert visibility flips, and assert exactly one right-side dock exists.",
+          "expected_result": "The title lookup resolves the single region; _on_dom_toggled flips its visibility; only one right-side QDockWidget exists."
         },
         {
-          "test_id": "T40-T03",
-          "linked_acceptance_criterion": "Given a span containing a genuine market closure (weekend, holiday or overnight), When the chart renders, Then that interval has no bars and is neither fabricated nor interpolated, and the time axis is not compressed.",
-          "type": "e2e",
-          "description": "Seed a span crossing a weekend and a US holiday and assert no bars are fabricated across the closure and no x-axis compression occurs.",
-          "expected_result": "No bars exist within the closure intervals; only trading-session bars are present and the axis spans the real timestamps."
+          "test_id": "T48-T03",
+          "linked_acceptance_criterion": "Given the reshape, When the ladder/portfolio order-entry, summary and signal wiring are inspected, Then no ladder/portfolio behaviour or signal connection changed (only the container around them).",
+          "type": "integration",
+          "description": "Construct an offscreen MainWindow and assert the ActiveTraderPanel and ActivePortfolioPanel instances are present and their key signals (order_place_requested / account_summary_changed / positions_changed) are still connected to the same MainWindow handlers as before.",
+          "expected_result": "Both panels are present inside the single region and their existing signal connections are intact."
         },
         {
-          "test_id": "T40-T04",
-          "linked_acceptance_criterion": "Given a requested missing span longer than one IBKR request configured duration, When the load path runs against the stubbed feed, Then multiple requests are issued and the resulting bar list is continuous across the span (or the residual shortfall is surfaced), parameterized over all six timeframes and at least two symbols.",
-          "type": "e2e",
-          "description": "Parameterize a long-gap scenario over the six timeframes and at least two symbols (for example SPY and AAPL), drive the stubbed feed per issued chunk and assert continuity or a surfaced shortfall.",
-          "expected_result": "For each timeframe/symbol combination the resulting bar list is continuous across the span (or the shortfall is explicitly surfaced) with no silent hole."
-        },
-        {
-          "test_id": "T40-T05",
-          "linked_acceptance_criterion": "Given a symbol/timeframe switch while a backfill wave is in flight, When the switch occurs and the prior wave responses arrive late, Then the new symbol/timeframe chart is not contaminated by the previous wave bars and receives its own continuity treatment.",
-          "type": "e2e",
-          "description": "Start a backfill wave, switch symbol/timeframe, deliver the previous wave responses late, and assert isolation of the new chart.",
-          "expected_result": "No previous-wave bar appears in the new symbol/timeframe chart; the new load backfills its own gap."
-        },
-        {
-          "test_id": "T40-T06",
-          "linked_acceptance_criterion": "Given an empty cache for a symbol/timeframe, When it is loaded, Then the configured-window fallback is fetched and rendered without error.",
-          "type": "e2e",
-          "description": "Load a symbol/timeframe with no cached bars against the stubbed feed.",
-          "expected_result": "The configured-window fallback is fetched and the chart renders the returned bars with no error."
+          "test_id": "T48-T04",
+          "linked_acceptance_criterion": "Given the updated right-dock lookup tests, When they run, Then tests/test_crosshair_axis_lane.py resolves the single right region and asserts the D2 chip does not intersect it, and the tolerant hide-by-title loops in tests/test_d10_d13_integration.py, tests/test_watchlist_d14_midrag.py and tests/test_history_backfill*.py are green (updated to the single-region shape where they referenced the removed 'Portfolio' dock).",
+          "type": "integration",
+          "description": "Run the updated tests/test_crosshair_axis_lane.py plus the hide-by-title loops in the four dependent test modules and confirm they pass against the single region.",
+          "expected_result": "All listed tests pass; the crosshair chip/dock non-overlap assertion holds against the single right region."
         }
       ],
       "expected_artifacts": [
-        "tests/test_history_backfill.py"
+        "ui/main_window.py",
+        "tests/test_dock_d18_region.py",
+        "tests/test_crosshair_axis_lane.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_watchlist_d14_midrag.py",
+        "tests/test_history_backfill.py",
+        "tests/test_history_backfill_loadpath.py",
+        "tests/test_history_backfill_disconnect.py"
       ],
       "touches_files": [
-        "tests/test_history_backfill.py"
+        "ui/main_window.py",
+        "tests/test_dock_d18_region.py",
+        "tests/test_crosshair_axis_lane.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_watchlist_d14_midrag.py",
+        "tests/test_history_backfill.py",
+        "tests/test_history_backfill_loadpath.py",
+        "tests/test_history_backfill_disconnect.py"
       ],
       "inputs": [
-        "docs/requirements/requirements.md#AC-D16.1",
-        "docs/requirements/requirements.md#AC-D16.2",
-        "docs/requirements/requirements.md#AC-D16.3",
-        "docs/requirements/requirements.md#AC-D16.4",
-        "docs/requirements/requirements.md#AC-D16.5",
         "docs/plan.md#Phase 3",
-        "ui/main_window.py",
-        "services/backfill_service.py",
-        "services/market_calendar.py",
-        "tests/test_watchlist_d14_midrag.py (offscreen MainWindow stub pattern)"
+        "docs/architecture.md#D17 + D18 increment (single right dock region)",
+        "docs/requirements/requirements.md#AC-D18.3",
+        "docs/requirements/requirements.md#AC-D18.8",
+        "docs/requirements/requirements.md#A35",
+        "ui/main_window.py:234-252 (current two-dock setup) and _on_dom_toggled",
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_crosshair_axis_lane.py",
+        "tests/test_d10_d13_integration.py"
       ],
       "outputs": [
-        "tests/test_history_backfill.py"
+        "ui/main_window.py",
+        "tests/test_dock_d18_region.py",
+        "tests/test_crosshair_axis_lane.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_watchlist_d14_midrag.py",
+        "tests/test_history_backfill.py",
+        "tests/test_history_backfill_loadpath.py",
+        "tests/test_history_backfill_disconnect.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T41",
-      "title": "D16 verification and regression gate (full offscreen suite, unchanged render path)",
-      "description": "Run the full offscreen suite after the D16 changes and confirm it stays green with no D1-D15 regression, and confirm the render path and request signature were reused unchanged (ui/chart_panel.py and ibkr/market_data.py untouched).",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "T40"
-      ],
-      "acceptance_criteria": [
-        "Given the D16 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 acceptance-criteria test still passes.",
-        "Given the D16 changes, When the working-tree diff is inspected, Then ui/chart_panel.py and ibkr/market_data.py are unchanged, so both panels are fixed solely by the continuous _bars list and chunking reuses the existing req_historical_data(endDateTime) signature."
-      ],
-      "tests": [
-        {
-          "test_id": "T41-T01",
-          "linked_acceptance_criterion": "Given the D16 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 acceptance-criteria test still passes.",
-          "type": "integration",
-          "description": "Run the full offscreen suite and compare the pass/fail count against the pre-D16 383-green baseline.",
-          "expected_result": "Zero failures; the suite is green (the pre-D16 383 passes plus the new D16 tests); no D1-D15 test regressed."
-        },
-        {
-          "test_id": "T41-T02",
-          "linked_acceptance_criterion": "Given the D16 changes, When the working-tree diff is inspected, Then ui/chart_panel.py and ibkr/market_data.py are unchanged, so both panels are fixed solely by the continuous _bars list and chunking reuses the existing req_historical_data(endDateTime) signature.",
-          "type": "manual",
-          "description": "Inspect the working-tree diff/status for ui/chart_panel.py and ibkr/market_data.py.",
-          "expected_result": "Neither file is modified by the D16 changes."
-        }
-      ],
-      "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned verification entry; no new source files)"
-      ],
-      "touches_files": [],
-      "inputs": [
-        "docs/requirements/requirements.md#AC-D16.6",
-        "docs/architecture.md#D16 additions/changes",
-        "docs/plan.md#Phase 3"
-      ],
-      "outputs": [],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T42",
-      "title": "ESC-023 correction regression gate (full offscreen suite, corrected calendar consumed unchanged)",
-      "description": "Re-run the full offscreen suite after the ESC-023 New Year's year-end calendar correction (T37) and confirm it stays green with no D1-D15 or D16 regression, and that only services/market_calendar.py and tests/test_market_calendar.py changed - the backfill planner and load path consume the corrected is_trading_day contract unchanged.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "T37"
-      ],
-      "acceptance_criteria": [
-        "Given the ESC-023 calendar correction, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 and D16 (T37-T41) test still passes.",
-        "Given the ESC-023 calendar correction, When the working-tree diff is inspected, Then only services/market_calendar.py and tests/test_market_calendar.py changed (services/backfill_service.py, ui/main_window.py, ui/chart_panel.py and ibkr/market_data.py are unchanged), so the corrected is_trading_day contract is consumed with no consumer-side change."
-      ],
-      "tests": [
-        {
-          "test_id": "T42-T01",
-          "linked_acceptance_criterion": "Given the ESC-023 calendar correction, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D15 and D16 (T37-T41) test still passes.",
-          "type": "integration",
-          "description": "Run the full offscreen suite and compare against the pre-D16 383-green baseline plus the D16 tests; assert zero failures.",
-          "expected_result": "Zero failures; the suite is green with no D1-D15 or D16 test regressed."
-        },
-        {
-          "test_id": "T42-T02",
-          "linked_acceptance_criterion": "Given the ESC-023 calendar correction, When the working-tree diff is inspected, Then only services/market_calendar.py and tests/test_market_calendar.py changed (services/backfill_service.py, ui/main_window.py, ui/chart_panel.py and ibkr/market_data.py are unchanged), so the corrected is_trading_day contract is consumed with no consumer-side change.",
-          "type": "manual",
-          "description": "Inspect the working-tree diff/status for the T37 correction.",
-          "expected_result": "Only services/market_calendar.py and tests/test_market_calendar.py are modified; the planner, load path and render path are untouched."
-        }
-      ],
-      "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned ESC-023 verification entry; no new source files)"
-      ],
-      "touches_files": [],
-      "inputs": [
-        "docs/requirements/requirements.md#AC-D16.6",
-        "docs/requirements/requirements.md#AC-D16.7",
-        "docs/plan.md#Phase 4",
-        "docs/architecture.md#ESC-023 correction",
-        "docs/code_review/escalations.md#ESC-023"
-      ],
-      "outputs": [],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T43",
-      "title": "Cancel and finalise the backfill wave on disconnect or a stalled request so the shortfall is surfaced (D16 / ESC-024)",
-      "description": "Extend the existing D16 backfill-wave lifecycle in ui/main_window.py so a silent transport drop or a request that never yields historical_data_end can no longer strand the wave. On _on_disconnected (and on a bounded wave timeout), drop every tracked backfill reqId, cancel it, advance _history_generation so late responses are ignored, and finalise exactly once through the existing _finalize_history_wave so the AC-D16.4 shortfall (status bar + log) IS surfaced, with no bar fabricated. Ship focused offscreen tests.",
+      "id": "T49",
+      "title": "Add the right-region 40% cap, cross-clamp, content bound and full-screen normalize (D18 Phase 4)",
+      "description": "Wire the single right region into the shared MainWindow._apply_dock_widths so it grows to floor(0.40 * chart_area), shrinks to its minimum, and cross-clamps with the watchlist via plan_dock_widths so chart_area >= 400px; add the changeEvent(WindowStateChange) + resizeEvent full-screen normalize (no showFullScreen), keep the region unpersisted, and bound the minimum/ideal width of ui/active_trader_panel.py and ui/active_portfolio_panel.py so their tables scroll/clip internally and content cannot push the region off-screen. Ship focused offscreen tests.",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [
-        "T39"
+        "T48"
       ],
-      "escalation": "ESC-024",
       "acceptance_criteria": [
-        "Given a multi-request backfill wave is in flight (load_chart has registered more than one reqId in _history_req_ids), When the connection drops (_on_disconnected fires) before any historical_data_end arrives, Then every tracked reqId is dropped from _history_req_ids, cancel_historical_data is called for each, and _history_req_ids is empty afterwards.",
-        "Given the same disconnect, When _on_disconnected fires mid-wave, Then _history_generation is advanced so that a late historical_data_end / historical_bar for a pre-drop reqId is rejected by _history_event_accepted and neither finalises the wave nor accumulates bars (no double finalise, no late contamination).",
-        "Given the wave is stranded by a disconnect (or a bounded timeout) with trading sessions in _backfill_missing_spans still empty in the cache, When the wave finalises, Then _finalize_history_wave runs exactly once and surfaces the outstanding shortfall explicitly (status bar message and log) — the 'incomplete'/'missing' shortfall path of AC-D16.4 — rather than leaving a silent hole.",
-        "Given a backfill wave is stranded, When it finalises, Then no bar is fabricated or interpolated: the chart and BarCache contain only the bars actually received, and _pending_bars holds no bar that was not delivered by the stub.",
-        "Given a backfill wave has been in flight with no historical_data_end and no error_msg, When a bounded timeout elapses (a wave watchdog), Then the stalled wave is finalised through the same path as the disconnect case (cancel remaining reqIds, advance the generation, surface the shortfall once), so a request that never ends cannot strand the wave indefinitely.",
-        "Given a disconnect occurs after the wave has already finalised (or with no wave in flight), When _on_disconnected fires, Then it does not run _finalize_history_wave again and does not raise — the existing badge/status update still happens."
+        "AC-D18.2: Given the right region is visible, When the user enlarges it, Then its width grows up to floor(0.40 * chart_area) and the chart area narrows correspondingly; the region width is <= floor(0.40 * chart_area) during and after the resize.",
+        "AC-D18.4: Given the right region is at/near its cap, When the user drags further to enlarge, Then the width stops at the cap with no overshoot; When the user drags to shrink, Then the region reduces down to RIGHT_DOCK_MIN_WIDTH and stops, never below the minimum.",
+        "AC-D18.5: Given both the watchlist and the right region are enlarged, When their combined width would push the chart area below its ~400px minimum, Then both docks are clamped so chart_area stays >= 400px and enlarging one forces the other to shrink rather than letting the chart collapse.",
+        "AC-D18.1: Given the app is shown full screen, When the chart and the right region render, Then the right region is fully within the visible window area (its geometry lies within the window rect and its width is > 0) without manual repositioning, via the changeEvent(WindowStateChange)/resizeEvent normalize step.",
+        "AC-D18.6: Given the ladder/portfolio content is wider than the region, When the region renders, Then the region's geometry still satisfies the visibility and cap assertions (content minimums do not force it past the window edge or past the cap) because each panel's width is bounded and its tables scroll/clip internally.",
+        "AC-D18.7: Given the app restarts, Then the right region's width/visibility is not persisted (no new QSettings key is added; the default applies), matching D10's volume-toggle precedent.",
+        "Given the right region is wired into _apply_dock_widths alongside the watchlist, When the widths are applied, Then there is no recursion/jitter between the two regions' rescale (re-entrancy guard and only-resize-when-changed both hold)."
       ],
       "tests": [
         {
-          "test_id": "T43-T01",
-          "linked_acceptance_criterion": "Given a multi-request backfill wave is in flight (load_chart has registered more than one reqId in _history_req_ids), When the connection drops (_on_disconnected fires) before any historical_data_end arrives, Then every tracked reqId is dropped from _history_req_ids, cancel_historical_data is called for each, and _history_req_ids is empty afterwards.",
+          "test_id": "T49-T01",
+          "linked_acceptance_criterion": "AC-D18.2: Given the right region is visible, When the user enlarges it, Then its width grows up to floor(0.40 * chart_area) and the chart area narrows correspondingly; the region width is <= floor(0.40 * chart_area) during and after the resize.",
           "type": "integration",
-          "description": "Offscreen MainWindow with the stubbed md_manager (the tests/test_history_backfill.py pattern): start a multi-request wave for a seeded internal hole, capture the registered reqIds, then call _on_disconnected without driving any _on_historical_data_end; assert the previously registered reqIds are exactly the cancelled set and _history_req_ids is empty.",
-          "expected_result": "After _on_disconnected, set(stub.cancelled) == the set of in-flight reqIds, and win._history_req_ids == set()."
+          "description": "Offscreen MainWindow; enlarge the right region via the resize/apply path and assert the effective region width == floor(0.40 * chart_area) and centralWidget().width() decreased.",
+          "expected_result": "Right-region width equals the 40% chart-area cap and the chart area narrowed."
         },
         {
-          "test_id": "T43-T02",
-          "linked_acceptance_criterion": "Given the same disconnect, When _on_disconnected fires mid-wave, Then _history_generation is advanced so that a late historical_data_end / historical_bar for a pre-drop reqId is rejected by _history_event_accepted and neither finalises the wave nor accumulates bars (no double finalise, no late contamination).",
+          "test_id": "T49-T02",
+          "linked_acceptance_criterion": "AC-D18.4: Given the right region is at/near its cap, When the user drags further to enlarge, Then the width stops at the cap with no overshoot; When the user drags to shrink, Then the region reduces down to RIGHT_DOCK_MIN_WIDTH and stops, never below the minimum.",
           "type": "integration",
-          "description": "Capture _history_generation before the drop, call _on_disconnected, then deliver _on_historical_bar and _on_historical_data_end for a pre-drop reqId; assert the generation advanced, _history_event_accepted(rid) is False, no bar was appended to _pending_bars, and _finalize_history_wave was not invoked a second time (spy on the method).",
-          "expected_result": "_history_generation increased; _history_event_accepted(rid) is False for the pre-drop reqId; _pending_bars is empty after the late events; the finalise spy records exactly one call."
+          "description": "Drive the right region over-cap and below-min requests and assert clamping at floor(0.40*chart_area) and RIGHT_DOCK_MIN_WIDTH respectively.",
+          "expected_result": "No applied width exceeds the cap or falls below the region minimum."
         },
         {
-          "test_id": "T43-T03",
-          "linked_acceptance_criterion": "Given the wave is stranded by a disconnect (or a bounded timeout) with trading sessions in _backfill_missing_spans still empty in the cache, When the wave finalises, Then _finalize_history_wave runs exactly once and surfaces the outstanding shortfall explicitly (status bar message and log) — the 'incomplete'/'missing' shortfall path of AC-D16.4 — rather than leaving a silent hole.",
+          "test_id": "T49-T03",
+          "linked_acceptance_criterion": "AC-D18.5: Given both the watchlist and the right region are enlarged, When their combined width would push the chart area below its ~400px minimum, Then both docks are clamped so chart_area stays >= 400px and enlarging one forces the other to shrink rather than letting the chart collapse.",
           "type": "integration",
-          "description": "Seed the AC-D16.5-style internal hole, start the wave, then drop the connection before any response and assert the status bar now carries the AC-D16.4 shortfall wording ('incomplete' and the still-missing trading days) and that a WARNING shortfall line was logged, proving the hole is surfaced rather than silent.",
-          "expected_result": "status bar message contains 'incomplete' and names at least one still-missing trading day; the log carries the 'Historical backfill shortfall' record; finalise ran exactly once."
+          "description": "Set both docks near their individual maxima, then enlarge one via the shared apply path; assert centralWidget().width() >= 400 and the other dock's width decreased.",
+          "expected_result": "chart_area >= 400px after the enlargement and the non-resized dock shrank."
         },
         {
-          "test_id": "T43-T04",
-          "linked_acceptance_criterion": "Given a backfill wave is stranded, When it finalises, Then no bar is fabricated or interpolated: the chart and BarCache contain only the bars actually received, and _pending_bars holds no bar that was not delivered by the stub.",
+          "test_id": "T49-T04",
+          "linked_acceptance_criterion": "AC-D18.1: Given the app is shown full screen, When the chart and the right region render, Then the right region is fully within the visible window area (its geometry lies within the window rect and its width is > 0) without manual repositioning, via the changeEvent(WindowStateChange)/resizeEvent normalize step.",
           "type": "integration",
-          "description": "Seed an internal hole, start the wave, call _on_disconnected without delivering any historical bar, then assert ChartPanel._bars and BarCache.get_bars hold exactly the pre-existing seeded bars and none of the missing-span timestamps, and the volume heights contain no injected value for a missing date.",
-          "expected_result": "The set of rendered/persisted timestamps equals the seeded pre-drop set; no timestamp inside the missing span is present in _bars, BarCache, or the volume x/height arrays; no missing trading day is filled."
+          "description": "Show a full-screen-sized offscreen window, deliver a WindowStateChange/changeEvent and resize, process the deferred singleShot normalize, and assert the right region geometry is inside the window rect with width > 0.",
+          "expected_result": "The right region's geometry is contained by the window rect and its width is positive."
         },
         {
-          "test_id": "T43-T05",
-          "linked_acceptance_criterion": "Given a backfill wave has been in flight with no historical_data_end and no error_msg, When a bounded timeout elapses (a wave watchdog), Then the stalled wave is finalised through the same path as the disconnect case (cancel remaining reqIds, advance the generation, surface the shortfall once), so a request that never ends cannot strand the wave indefinitely.",
+          "test_id": "T49-T05",
+          "linked_acceptance_criterion": "AC-D18.6: Given the ladder/portfolio content is wider than the region, When the region renders, Then the region's geometry still satisfies the visibility and cap assertions (content minimums do not force it past the window edge or past the cap) because each panel's width is bounded and its tables scroll/clip internally.",
           "type": "integration",
-          "description": "Start a wave, deliver no response, and trigger the bounded timeout without a connection drop (fire the watchdog timer or call its handler directly); assert the remaining reqIds were cancelled, the generation advanced, _history_req_ids is empty, and the shortfall was surfaced exactly once.",
-          "expected_result": "The timeout handler cancels all remaining reqIds, empties _history_req_ids, advances _history_generation, surfaces the AC-D16.4 shortfall once, and fabricates no bar."
+          "description": "Populate the ladder/portfolio tables with wide content, render, and assert the region width/right edge still satisfy the cap and visibility assertions.",
+          "expected_result": "With wide content the region remains within the window and within the cap; no off-screen overflow."
         },
         {
-          "test_id": "T43-T06",
-          "linked_acceptance_criterion": "Given a disconnect occurs after the wave has already finalised (or with no wave in flight), When _on_disconnected fires, Then it does not run _finalize_history_wave again and does not raise — the existing badge/status update still happens.",
+          "test_id": "T49-T06",
+          "linked_acceptance_criterion": "AC-D18.7: Given the app restarts, Then the right region's width/visibility is not persisted (no new QSettings key is added; the default applies), matching D10's volume-toggle precedent.",
           "type": "integration",
-          "description": "Drive a normal single-request wave to completion (set empty, already finalised), then call _on_disconnected with a spy on _finalize_history_wave; assert no extra finalise, no exception, and the badge/status show 'Disconnected'.",
-          "expected_result": "_finalize_history_wave is not called again; no exception is raised; conn_badge text is '● Disconnected' and the status bar reads the disconnected message."
+          "description": "Resize the right region, close, and reconstruct a MainWindow against the same QSettings; assert the right region returns to its default and no right-region QSettings key was written.",
+          "expected_result": "The right region is not restored from settings; no new persistence key exists."
+        },
+        {
+          "test_id": "T49-T07",
+          "linked_acceptance_criterion": "Given the right region is wired into _apply_dock_widths alongside the watchlist, When the widths are applied, Then there is no recursion/jitter between the two regions' rescale (re-entrancy guard and only-resize-when-changed both hold).",
+          "type": "integration",
+          "description": "Invoke _apply_dock_widths repeatedly with both regions present at a fixed geometry; assert no recursion and no repeated resizeDocks once stable.",
+          "expected_result": "Repeated application is a no-op once stable; no recursion/jitter."
         }
       ],
       "expected_artifacts": [
         "ui/main_window.py",
-        "tests/test_history_backfill_disconnect.py"
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_dock_widths_d18_impl.py"
       ],
       "touches_files": [
         "ui/main_window.py",
-        "tests/test_history_backfill_disconnect.py"
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_dock_widths_d18_impl.py"
       ],
       "inputs": [
-        "docs/code_review/escalations.md#ESC-024",
-        "docs/requirements/requirements.md#AC-D16.4",
-        "docs/requirements/requirements.md#AC-D16.1",
-        "docs/architecture.md#D16 additions/changes",
-        "ui/main_window.py::_on_disconnected",
-        "ui/main_window.py::_cancel_history_requests",
-        "ui/main_window.py::_finalize_history_wave",
-        "ui/main_window.py::_missing_backfill_trading_days",
-        "tests/test_history_backfill.py (offscreen stubbed-manager pattern)"
+        "docs/plan.md#Phase 4",
+        "docs/architecture.md#D17 + D18 increment (cap/cross-clamp/full-screen/panel width bound)",
+        "docs/requirements/requirements.md#AC-D18.1",
+        "docs/requirements/requirements.md#AC-D18.2",
+        "docs/requirements/requirements.md#AC-D18.4",
+        "docs/requirements/requirements.md#AC-D18.5",
+        "docs/requirements/requirements.md#AC-D18.6",
+        "docs/requirements/requirements.md#AC-D18.7",
+        "docs/requirements/requirements.md#A36",
+        "ui/dock_layout.py",
+        "ui/main_window.py:_apply_dock_widths (from T47)",
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py"
       ],
       "outputs": [
         "ui/main_window.py",
-        "tests/test_history_backfill_disconnect.py"
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_dock_widths_d18_impl.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T44",
-      "title": "Disarm the backfill wave watchdog in closeEvent and make the stranded-wave reason diagnostic live (D16 / ESC-025)",
-      "description": "Close the two ESC-025 nice-to-have items in ui/main_window.py: add the missing _disarm_history_wave_watchdog() call to closeEvent so arm/disarm is symmetric across every wave-terminating path, and make the stranded-wave _finalize_stranded_history_wave(reason=...) parameter live so a watchdog timeout and a transport disconnect are distinguishable in diagnostics (or remove it cleanly if not wanted). Behaviour-neutral: no bar is fabricated and the AC-D16.4 shortfall wording T43-T03/T43-T05 assert on is preserved. Ship focused offscreen tests.",
+      "id": "T50",
+      "title": "Offscreen end-to-end verification of D17/D18 dock geometry (full screen, caps, cross-clamp, equal width, content bound)",
+      "description": "Add tests/test_dock_widths_d18.py booting a real offscreen MainWindow (IBApiClient.connect monkeypatched, managers stubbed) and verifying the rendered D18 geometry end-to-end: the single right region is fully on-screen in a full-screen-sized window, grows to the 40% chart-area cap, has equal-width stacked sections, stops at cap/minimum, cross-clamps with the watchlist to keep chart_area >= 400px, resists being pushed off-screen by wide content, and is not persisted. Parameterize over at least two window sizes / a small display case.",
       "agent": "Build",
-      "task_type": "bugfix",
+      "task_type": "verification",
       "dependencies": [
-        "T43"
+        "T49"
       ],
-      "escalation": "ESC-025",
       "acceptance_criteria": [
-        "Given an in-flight backfill wave has armed the 30 s watchdog (_history_wave_timer.isActive() is True, e.g. after load_chart registered reqIds), When closeEvent runs (win.close()), Then the watchdog is disarmed by closeEvent so that _history_wave_timer.isActive() is False afterwards.",
-        "Given closeEvent, When it terminates an in-flight backfill wave, Then it disarms the watchdog and cancels/invalidates the wave symmetrically with the other wave-terminating paths (finalise, disconnect, watchdog timeout, load_chart/switch) — i.e. closeEvent calls the same _disarm_history_wave_watchdog() helper those paths use, and _history_req_ids is empty and _history_generation has advanced after close.",
-        "Given a wave was stranded by a watchdog timeout (reason \"Historical backfill timed out\") versus by a transport disconnect (reason \"Disconnected from IBKR\"), When the stranded wave finalises, Then the reason is used in diagnostics so the two causes are distinguishable — the status-bar shortfall line and/or the logged record identifies the cause — while the AC-D16.4/D16 shortfall wording that T43-T03/T43-T05 assert on is preserved (status message still contains \"incomplete\" and names a still-missing trading day; the WARNING still reads \"Historical backfill shortfall\").",
-        "Given the stranded-wave finalise path, When it is invoked, Then using reason is behaviour-neutral: it fabricates no bar, cancels every tracked reqId, advances _history_generation, and finalises exactly once, with the same set of in-flight reqIds cancelled and _history_req_ids empty as before the change."
+        "AC-D18.1 (e2e): Given a full-screen-sized offscreen MainWindow, When the chart and single right region render, Then the region's geometry lies within the window rect with width > 0 and it is on-screen without manual repositioning.",
+        "AC-D18.2/AC-D18.4 (e2e): Given the right region is rendered, When it is enlarged past the cap and shrunk below the minimum, Then the rendered width stops at floor(0.40 * chart_area) and at RIGHT_DOCK_MIN_WIDTH respectively, and the chart area narrows/grows correspondingly.",
+        "AC-D18.3 (e2e): Given the single right region renders, Then the Active Trader ladder section and the Portfolio section are equal width within 1px and each equals the region content width.",
+        "AC-D18.5 (e2e): Given both docks are rendered near their maxima and one is enlarged, Then the rendered chart area stays >= 400px and the other dock's width decreased.",
+        "AC-D18.6 (e2e): Given wide ladder/portfolio content, When the region renders, Then its width and right edge still satisfy the visibility and cap assertions (content scrolls/clips internally).",
+        "AC-D18.7 (e2e): Given a restart against the same QSettings, Then the right region's width/visibility returns to its default and no right-region persistence key exists."
       ],
       "tests": [
         {
-          "test_id": "T44-T01",
-          "linked_acceptance_criterion": "Given an in-flight backfill wave has armed the 30 s watchdog (_history_wave_timer.isActive() is True, e.g. after load_chart registered reqIds), When closeEvent runs (win.close()), Then the watchdog is disarmed by closeEvent so that _history_wave_timer.isActive() is False afterwards.",
-          "type": "integration",
-          "description": "Offscreen MainWindow with the stubbed md_manager (tests/test_history_backfill_disconnect.py pattern): seed PRESENT_DAYS, load to start a multi-request wave, assert win._history_wave_timer.isActive() is True; then call win.close() and assert win._history_wave_timer.isActive() is False.",
-          "expected_result": "The watchdog is active before close; after win.close() it is disarmed (isActive() is False)."
+          "test_id": "T50-T01",
+          "linked_acceptance_criterion": "AC-D18.1 (e2e): Given a full-screen-sized offscreen MainWindow, When the chart and single right region render, Then the region's geometry lies within the window rect with width > 0 and it is on-screen without manual repositioning.",
+          "type": "e2e",
+          "description": "Boot the offscreen MainWindow at full-screen-like dimensions, show it, process the normalize, and assert the right region geometry is inside the window rect with positive width.",
+          "expected_result": "Region geometry contained by the window rect; width > 0."
         },
         {
-          "test_id": "T44-T02",
-          "linked_acceptance_criterion": "Given closeEvent, When it terminates an in-flight backfill wave, Then it disarms the watchdog and cancels/invalidates the wave symmetrically with the other wave-terminating paths (finalise, disconnect, watchdog timeout, load_chart/switch) — i.e. closeEvent calls the same _disarm_history_wave_watchdog() helper those paths use, and _history_req_ids is empty and _history_generation has advanced after close.",
-          "type": "integration",
-          "description": "Start a multi-request wave, capture the registered reqIds and _history_generation, then invoke closeEvent; assert every tracked reqId was cancelled, _history_req_ids == set(), _history_generation increased, and (spy on _disarm_history_wave_watchdog) the same helper was called by closeEvent.",
-          "expected_result": "closeEvent cancels exactly the in-flight reqIds, empties the set, advances the generation, and disarms via _disarm_history_wave_watchdog — the same helper used by finalise/disconnect/timeout/load_chart."
+          "test_id": "T50-T02",
+          "linked_acceptance_criterion": "AC-D18.2/AC-D18.4 (e2e): Given the right region is rendered, When it is enlarged past the cap and shrunk below the minimum, Then the rendered width stops at floor(0.40 * chart_area) and at RIGHT_DOCK_MIN_WIDTH respectively, and the chart area narrows/grows correspondingly.",
+          "type": "e2e",
+          "description": "Drive rendered resize past the cap and below the min and assert the rendered dock width and chart-area width follow the cap/minimum contract.",
+          "expected_result": "Rendered width == 40% cap when overshooting; == RIGHT_DOCK_MIN_WIDTH when undershooting; chart area moves inversely."
         },
         {
-          "test_id": "T44-T03",
-          "linked_acceptance_criterion": "Given a wave was stranded by a watchdog timeout (reason \"Historical backfill timed out\") versus by a transport disconnect (reason \"Disconnected from IBKR\"), When the stranded wave finalises, Then the reason is used in diagnostics so the two causes are distinguishable — the status-bar shortfall line and/or the logged record identifies the cause — while the AC-D16.4/D16 shortfall wording that T43-T03/T43-T05 assert on is preserved (status message still contains \"incomplete\" and names a still-missing trading day; the WARNING still reads \"Historical backfill shortfall\").",
-          "type": "integration",
-          "description": "Start a multi-request wave and strand it two ways: (a) via _on_history_wave_timeout (timeout reason) and (b) via _on_disconnected (disconnect reason); for each, capture the status-bar shortfall line and the WARNING log record. Assert each still contains 'incomplete' and names a still-missing trading day, and the log still matches 'Historical backfill shortfall'; assert the two surfaced diagnostics differ in the cause they name (timeout vs disconnect) so the reason is no longer dead.",
-          "expected_result": "Both runs surface the AC-D16.4 shortfall ('incomplete' + a named missing day + 'Historical backfill shortfall' WARNING) and the two differ in the cause reported, proving reason is read and distinguishes timeout from disconnect."
+          "test_id": "T50-T03",
+          "linked_acceptance_criterion": "AC-D18.3 (e2e): Given the single right region renders, Then the Active Trader ladder section and the Portfolio section are equal width within 1px and each equals the region content width.",
+          "type": "e2e",
+          "description": "After rendering, compare the rendered width of the Active Trader section and the Portfolio section.",
+          "expected_result": "The two rendered section widths differ by at most 1px and match the region content width."
         },
         {
-          "test_id": "T44-T04",
-          "linked_acceptance_criterion": "Given the stranded-wave finalise path, When it is invoked, Then using reason is behaviour-neutral: it fabricates no bar, cancels every tracked reqId, advances _history_generation, and finalises exactly once, with the same set of in-flight reqIds cancelled and _history_req_ids empty as before the change.",
-          "type": "integration",
-          "description": "Start a multi-request wave, spy on _finalize_history_wave, strand the wave via _on_disconnected, and assert the set of cancelled reqIds equals the in-flight set, _history_req_ids == set(), finalise ran exactly once, BarCache/ChartPanel contain only the seeded bars, and _pending_bars == [] (no fabrication).",
-          "expected_result": "Exactly the in-flight reqIds are cancelled, the set empties, finalise runs once, no bar is fabricated, and behaviour matches the pre-change stranded-wave path."
+          "test_id": "T50-T04",
+          "linked_acceptance_criterion": "AC-D18.5 (e2e): Given both docks are rendered near their maxima and one is enlarged, Then the rendered chart area stays >= 400px and the other dock's width decreased.",
+          "type": "e2e",
+          "description": "Render both docks near their maxima, enlarge one through the live apply path, and assert chart area >= 400px and the other dock shrank.",
+          "expected_result": "Rendered chart area >= 400px; the non-resized dock's rendered width decreased."
+        },
+        {
+          "test_id": "T50-T05",
+          "linked_acceptance_criterion": "AC-D18.6 (e2e): Given wide ladder/portfolio content, When the region renders, Then its width and right edge still satisfy the visibility and cap assertions (content scrolls/clips internally).",
+          "type": "e2e",
+          "description": "Populate wide content into the rendered tables and assert the region stays within the window and under the cap.",
+          "expected_result": "With wide content the region remains on-screen and within the 40% cap."
+        },
+        {
+          "test_id": "T50-T06",
+          "linked_acceptance_criterion": "AC-D18.7 (e2e): Given a restart against the same QSettings, Then the right region's width/visibility returns to its default and no right-region persistence key exists.",
+          "type": "e2e",
+          "description": "Resize the rendered right region, close, reconstruct against the same QSettings, and assert the default geometry and absence of any right-region key.",
+          "expected_result": "Right region returns to default on restart; no right-region QSettings key written."
         }
       ],
       "expected_artifacts": [
-        "ui/main_window.py",
-        "tests/test_history_backfill_disconnect.py"
+        "tests/test_dock_widths_d18.py"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "tests/test_history_backfill_disconnect.py"
+        "tests/test_dock_widths_d18.py"
       ],
       "inputs": [
-        "docs/code_review/escalations.md#ESC-025",
-        "docs/code_review/escalations.md#ESC-024",
-        "docs/requirements/requirements.md#AC-D16.4",
-        "ui/main_window.py::closeEvent",
-        "ui/main_window.py::_disarm_history_wave_watchdog",
-        "ui/main_window.py::_finalize_stranded_history_wave",
-        "ui/main_window.py::_on_history_wave_timeout",
-        "ui/main_window.py::_on_disconnected",
-        "tests/test_history_backfill_disconnect.py (T43-T01..T43-T06 pattern)"
+        "docs/plan.md#Phase 4",
+        "docs/plan.md#Phase 5",
+        "docs/architecture.md#D17 + D18 increment",
+        "docs/requirements/requirements.md#AC-D18.1",
+        "docs/requirements/requirements.md#AC-D18.2",
+        "docs/requirements/requirements.md#AC-D18.3",
+        "docs/requirements/requirements.md#AC-D18.4",
+        "docs/requirements/requirements.md#AC-D18.5",
+        "docs/requirements/requirements.md#AC-D18.6",
+        "docs/requirements/requirements.md#AC-D18.7",
+        "ui/main_window.py",
+        "ui/dock_layout.py",
+        "tests/test_watchlist_d14_midrag.py (offscreen MainWindow stub pattern)"
       ],
       "outputs": [
-        "ui/main_window.py",
-        "tests/test_history_backfill_disconnect.py"
+        "tests/test_dock_widths_d18.py"
       ],
       "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T51",
+      "title": "Batch-11 regression gate (full offscreen suite green, D2 chip/dock non-overlap, no live TWS)",
+      "description": "Run the full offscreen suite after the D17/D18 changes and confirm it stays green with no D1-D16 regression and that the D13 clamp-math tests were updated in lockstep (never left contradicting D17). Confirm the D2 chip/dock non-overlap assertion still holds against the single right region and that no test connects to live TWS or transmits an order.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "T49",
+        "T50"
+      ],
+      "acceptance_criteria": [
+        "AC-D17.6/AC-D18.8: Given the D17/D18 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D16 acceptance-criteria test still passes, with the D13 clamp-math assertions updated to the chart-area denominator (never left contradicting D17).",
+        "Given the D17/D18 changes, When the D2 chip/dock non-overlap test runs against the single right region, Then AC-D2.1 still holds (the crosshair chip is not covered by the right region).",
+        "Given the D17/D18 changes, When the suite runs, Then no test connects to live TWS or transmits an order (Q9), and the intermittent shared-test-DB failures noted in project memory are confirmed against a clean full-suite run before being treated as a regression."
+      ],
+      "tests": [
+        {
+          "test_id": "T51-T01",
+          "linked_acceptance_criterion": "AC-D17.6/AC-D18.8: Given the D17/D18 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D16 acceptance-criteria test still passes, with the D13 clamp-math assertions updated to the chart-area denominator (never left contradicting D17).",
+          "type": "integration",
+          "description": "Run the full offscreen suite and compare pass/fail against the pre-batch baseline (383 green + D16 tests); assert zero failures.",
+          "expected_result": "Zero failures; no D1-D16 test regressed; D13 clamp-math tests assert the chart-area denominator."
+        },
+        {
+          "test_id": "T51-T02",
+          "linked_acceptance_criterion": "Given the D17/D18 changes, When the D2 chip/dock non-overlap test runs against the single right region, Then AC-D2.1 still holds (the crosshair chip is not covered by the right region).",
+          "type": "integration",
+          "description": "Run tests/test_crosshair_axis_lane.py and assert the chip does not intersect the single right region's frameGeometry.",
+          "expected_result": "The chip/dock non-overlap assertion passes against the single right region."
+        },
+        {
+          "test_id": "T51-T03",
+          "linked_acceptance_criterion": "Given the D17/D18 changes, When the suite runs, Then no test connects to live TWS or transmits an order (Q9), and the intermittent shared-test-DB failures noted in project memory are confirmed against a clean full-suite run before being treated as a regression.",
+          "type": "manual",
+          "description": "Confirm no test opens a live TWS socket or transmits an order, and re-run the suite once on a clean shared test DB to distinguish spurious failures from regressions.",
+          "expected_result": "No live-TWS/order test; any intermittent failure is reproduced/cleared by a clean full-suite run rather than treated as a regression."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/build/build_log.md (Build-owned Batch-11 verification entry; no new source files)"
+      ],
+      "touches_files": [],
+      "inputs": [
+        "docs/requirements/requirements.md#AC-D17.6",
+        "docs/requirements/requirements.md#AC-D18.8",
+        "docs/requirements/requirements.md#AC-D2.1",
+        "docs/plan.md#Phase 5",
+        "docs/architecture.md#D17 + D18 increment",
+        "docs/memory.md (shared test-DB contention gotcha)"
+      ],
+      "outputs": [],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T52",
+      "title": "Fix plan_dock_widths to never return below a dock minimum, add the one-sided-over-budget regression test, and remove the T49 MainWindow workaround (ESC-026)",
+      "description": "Correct ui/dock_layout.py::plan_dock_widths so its shrink loop re-floors left/right at WATCHLIST_MIN_WIDTH/RIGHT_DOCK_MIN_WIDTH (its docstring guarantee and AC-D18.4) instead of decrementing below a dock minimum on a one-sided over-budget request; add the missing regression test for the reproduced cases plan_dock_widths(750, 100000, 200) and (750, 200, 0); then remove the now-redundant T49 in-place repair in MainWindow._plan_dock_widths so ui/dock_layout.py is again the single source of truth. No acceptance criterion or architecture change — the AC and architecture are correct; only the pure helper's shrink loop and the workaround are wrong.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T45",
+        "T49"
+      ],
+      "acceptance_criteria": [
+        "Given plan_dock_widths is called with any integer chart_area_w and requested left/right widths, When either returned width is compared to its dock minimum, Then left >= WATCHLIST_MIN_WIDTH (150) and right >= RIGHT_DOCK_MIN_WIDTH (200) in every case, including the one-sided over-budget and both-requested-over-budget cases.",
+        "Given the reproduced one-sided over-budget inputs plan_dock_widths(750, 100000, 200) and plan_dock_widths(750, 200, 0), When the function is called, Then (left, right) >= (150, 200) componentwise and neither width drops below its dock minimum (returning e.g. (350, 0) or (175, 175) is a failure).",
+        "Given an infeasible window where the two dock minimums alone exceed chart_area_w - CHART_MIN_WIDTH, When plan_dock_widths is called, Then the chart minimum yields and the function returns exactly (WATCHLIST_MIN_WIDTH, RIGHT_DOCK_MIN_WIDTH); where the window is feasible but the combined request exceeds budget, the chart minimum is preserved (chart_area_w - left - right >= CHART_MIN_WIDTH) and the reserved chart minimum yields before any dock minimum is crossed.",
+        "Given MainWindow._plan_dock_widths after the T49 in-place repair is removed, When the shared dock-width apply path runs (including cross-clamp and over-cap/under-min drags), Then plan_dock_widths is the single source of truth and the resulting widths still satisfy the D18 cap (right <= floor(0.40 * chart_area)) and cross-clamp (chart area >= CHART_MIN_WIDTH) guarantees, so the earlier T49/T50 acceptance tests still pass."
+      ],
+      "tests": [
+        {
+          "test_id": "T52-T01",
+          "linked_acceptance_criterion": "Given plan_dock_widths is called with any integer chart_area_w and requested left/right widths, When either returned width is compared to its dock minimum, Then left >= WATCHLIST_MIN_WIDTH (150) and right >= RIGHT_DOCK_MIN_WIDTH (200) in every case, including the one-sided over-budget and both-requested-over-budget cases.",
+          "type": "unit",
+          "description": "Property/enumeration test over a grid of chart_area_w values and requested left/right extremes (including 0 and huge values) asserting every returned left >= WATCHLIST_MIN_WIDTH and right >= RIGHT_DOCK_MIN_WIDTH.",
+          "expected_result": "No grid combination yields a left below 150 or a right below 200; the pre-fix coarse grid's 108/1475 violations are all gone."
+        },
+        {
+          "test_id": "T52-T02",
+          "linked_acceptance_criterion": "Given the reproduced one-sided over-budget inputs plan_dock_widths(750, 100000, 200) and plan_dock_widths(750, 200, 0), When the function is called, Then (left, right) >= (150, 200) componentwise and neither width drops below its dock minimum (returning e.g. (350, 0) or (175, 175) is a failure).",
+          "type": "unit",
+          "description": "Regression test for the exact reproduced cases: plan_dock_widths(750, 100000, 200) and plan_dock_widths(750, 200, 0); assert each returned width >= its dock minimum.",
+          "expected_result": "plan_dock_widths(750, 100000, 200) returns left >= 150 and right >= 200; plan_dock_widths(750, 200, 0) returns left >= 150 and right >= 200 (not (350, 0) / (175, 175))."
+        },
+        {
+          "test_id": "T52-T03",
+          "linked_acceptance_criterion": "Given an infeasible window where the two dock minimums alone exceed chart_area_w - CHART_MIN_WIDTH, When plan_dock_widths is called, Then the chart minimum yields and the function returns exactly (WATCHLIST_MIN_WIDTH, RIGHT_DOCK_MIN_WIDTH); where the window is feasible but the combined request exceeds budget, the chart minimum is preserved (chart_area_w - left - right >= CHART_MIN_WIDTH) and the reserved chart minimum yields before any dock minimum is crossed.",
+          "type": "unit",
+          "description": "Assert documented precedence: an infeasible chart_area_w (e.g. 400 with both requests high) returns exactly the dock minimums; a feasible over-budget case (e.g. chart_area_w=1000, requests at their flat caps) preserves chart_area_w - left - right >= CHART_MIN_WIDTH while both widths stay >= their minimums.",
+          "expected_result": "Infeasible window returns (150, 200); feasible over-budget case keeps chart remainder >= 400 with both widths at/above their minimums, matching the unchanged docstring guarantee."
+        },
+        {
+          "test_id": "T52-T04",
+          "linked_acceptance_criterion": "Given MainWindow._plan_dock_widths after the T49 in-place repair is removed, When the shared dock-width apply path runs (including cross-clamp and over-cap/under-min drags), Then plan_dock_widths is the single source of truth and the resulting widths still satisfy the D18 cap (right <= floor(0.40 * chart_area)) and cross-clamp (chart area >= CHART_MIN_WIDTH) guarantees, so the earlier T49/T50 acceptance tests still pass.",
+          "type": "integration",
+          "description": "Offscreen MainWindow test (no live TWS) driving the shared apply path after the T49 repair is removed: grow the right dock to its cap and shrink below its minimum, and cross-clamp both docks; assert right <= floor(0.40*chart_area), each dock >= its minimum, and chart area >= CHART_MIN_WIDTH, i.e. the D18 guarantees now rest solely on plan_dock_widths.",
+          "expected_result": "The MainWindow path (with the repair removed) still enforces the 40% cap, the dock minimums and the chart-area cross-clamp; the retained T49/T50 tests remain green."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/dock_layout.py",
+        "tests/test_dock_layout.py",
+        "ui/main_window.py"
+      ],
+      "touches_files": [
+        "ui/dock_layout.py",
+        "tests/test_dock_layout.py",
+        "ui/main_window.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.md#ESC-026",
+        "docs/requirements/requirements.md#AC-D18.4",
+        "docs/requirements/requirements.md#AC-D18.5",
+        "docs/architecture.md#D17 + D18 increment (ui/dock_layout.py cross-clamp)",
+        "ui/dock_layout.py:plan_dock_widths (T45 shrink loop, lines 100-114)",
+        "ui/main_window.py:_plan_dock_widths (T49 in-place repair, lines 1055-1118)",
+        "docs/build/failures.json.pending_routing kind: dock_layout_plan_below_minimum"
+      ],
+      "outputs": [
+        "ui/dock_layout.py (corrected plan_dock_widths; docstring guarantee now holds)",
+        "tests/test_dock_layout.py (one-sided over-budget regression tests)",
+        "ui/main_window.py (_plan_dock_widths repair removed; delegates to the pure helper)"
+      ],
+      "architecture_dependency": false,
+      "escalation": "ESC-026",
       "status": "done"
     }
   ]

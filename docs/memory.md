@@ -33,3 +33,23 @@
 **Category:** Technical Note
 **Finding:** The backfill wave lifecycle in `MainWindow` must be finalised on **every** wave-terminating path, including a transport drop (`_on_disconnected`) and a stalled request (a bounded watchdog `QTimer`), not just normal completion / switch / close. Each path must cancel tracked reqIds, advance `_history_generation` (so late responses are ignored), and run `_finalize_history_wave` exactly once so the AC-D16.4 shortfall is surfaced — never a silent hole. Arm the watchdog when a wave is issued and disarm it on every terminating path (including `closeEvent`); pass `reason` through so timeout vs. disconnect is distinguishable in diagnostics.
 **Source:** Escalations ESC-024/ESC-025 (tasks T43/T44).
+
+### 2026-10-03 — discovered during Build (D17/D18 UI layout)
+**Category:** Technical Note
+**Finding:** Panel-width caps are measured against the **chart area** (`MainWindow.centralWidget().width()`), NOT the whole window. The shared single source of truth is the pure Qt-free `ui/dock_layout.py` (`watchlist_max_width`, `right_dock_max_width`, `plan_dock_widths`, constants incl. `CHART_MIN_WIDTH=400`, `WATCHLIST_MIN_WIDTH=150`, `RIGHT_DOCK_MIN_WIDTH=200`). `plan_dock_widths` cross-clamps the watchlist (<=50% of chart area) and the single right dock (Active Trader + Portfolio, <=40%) so the chart keeps >=400px, with the chart minimum yielding before any dock minimum is crossed. `MainWindow._apply_dock_widths` is the single apply entry point and must be wired to BOTH a window `resizeEvent` AND a dock-drag hook — a window-resize-only clamp does not fire during a splitter drag in full screen, which was the D17 defect.
+**Source:** Tasks T45–T49 (D17/D18).
+
+### 2026-10-03 — discovered during Build/Code Review (PyQt6 dock layout)
+**Category:** Known Gotcha
+**Finding:** PyQt6 does **not** expose the `QMainWindow` dock-area internal `QSplitter` via the public object tree — `findChildren(QSplitter)` returns only `ChartPanel`'s vertical splitter, and wiring to that would be wrong. To enforce a live clamp during a dock drag, use an event-filter fallback plus the `resizeEvent`/`changeEvent(WindowStateChange)` normalize path. Also, dock lookup in tests/MainWindow is by `windowTitle()`/`objectName` — consolidating two right docks ("Active Trader" + "Portfolio") into one region must keep the stable title/objectName or title-keyed lookups break.
+**Source:** Tasks T47/T48 (D17/D18); ESC-026 round.
+
+### 2026-10-03 — discovered during Code Review (ESC-026)
+**Category:** Known Gotcha
+**Finding:** A cross-clamp shrink loop that decrements dock widths without re-flooring can drive a width **below its own dock minimum** (e.g. `plan_dock_widths(750, 100000, 200) -> (350, 0)`). Any "shrink until it fits" loop must re-check the floor each iteration and fall through to the other dock when the preferred one is already at its minimum. A temporary workaround in a consumer (`MainWindow`) can mask such a helper defect and creates two divergent implementations — fix the pure helper and keep it the single source of truth.
+**Source:** Escalation ESC-026 (task T52).
+
+### 2026-10-03 — environment note (full offscreen suite)
+**Category:** Known Gotcha
+**Finding:** The offscreen suite occasionally reports a full-suite **SIGSEGV** (exit 139) at `tests/test_session_overlay.py::panel` (`qapp.processEvents()`) and/or order-dependent `ModuleNotFoundError: tests.test_watchlist` (`test_watchlist_d14_midrag.py`, no `tests/__init__.py`), triggered by collection-order changes from new test files. Both are non-deterministic and pre-existing: they pass in isolation and in clean full-suite runs (566 passed observed). Treat such non-reproducible failures as test-DB/teardown/collection-order noise, not regressions — but always confirm with a clean full-suite run before declaring green.
+**Source:** Batch-11 rounds (Build verification, T47/T50/T51/T52).

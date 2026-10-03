@@ -254,3 +254,44 @@
   re-verifies ESC-023.
 - **Status:** resolved (requirement corrected 2026-10-02 — `AC-D16.7`; implementation change tracked
   under ESC-023).
+
+---
+
+## DG23 — D17: the D13 watchlist cap is enforced only on window resize, not during a dock drag
+- **Where it shows up:** D17 / D13 / `ui/main_window.py::resizeEvent` (lines ~962-968),
+  `ui/watchlist_panel.py::watchlist_max_width` / `clamp_watchlist_width`; `tests/test_d10_d13_integration.py`.
+- **Why it matters:** D13's "freely draggable up to 50%" is **not actually enforced** — the clamp
+  helpers run only at construction and inside `resizeEvent`, which fires on *window* resize, not on a
+  dock-splitter drag, and only when the dock is already wider than the max. In full screen the window
+  is already maximized, so a drag may not trigger any clamp at all. This is the diagnosed root cause
+  of the reported "does not extend or reduce" symptom. It is a build defect against the existing D13
+  requirement, **not** (yet) a wrong requirement — but see B1 (denominator may change to "chart area").
+- **Suggested resolution:** keep `watchlist_max_width`/`clamp_watchlist_width` as the single source of
+  the cap and apply it on a **dock-resize/drag-completion hook** (or enforce a `maximumWidth` derived
+  from the cap so the handle cannot be dragged past it), not only in `resizeEvent`. Reuse the existing
+  helpers so the D13 tests stay valid. Decide B1 (window width vs chart area) before wiring.
+- **Status:** open (blocking on B1; diagnosed)
+
+## DG24 — D18: the right docks have no width governance at all and are an unaccounted horizontal consumer
+- **Where it shows up:** D18 / `ui/main_window.py:234-252` (`RightDockWidgetArea` setup);
+  `ui/active_trader_panel.py`, `ui/active_portfolio_panel.py`.
+- **Why it matters:** neither right panel sets a min/max width, and no `resizeDocks` call is made for
+  them, so their width is entirely at Qt's discretion — which is why they can be squeezed off-screen in
+  full screen (the reported clipping). The D13 watchlist clamp also reserves the chart minimum against
+  the **whole window width**, ignoring the right docks entirely (the existing integration tests hide
+  the right docks precisely to sidestep this). A single combined width model is needed.
+- **Suggested resolution:** give the right dock a defined min/max and an initial visible width, make it
+  fit within the full-screen window, and fold left+right dock widths into one combined budget that
+  preserves the chart minimum (B3). If Active Trader/Portfolio are one dock (B2), a single width rule
+  covers both.
+- **Status:** open (blocking on B2/B3; diagnosed)
+
+## DG25 — D18: "fits in the visible area of the full screen" is not yet a testable condition
+- **Where it shows up:** D18 / provisional `AC-D18.1`.
+- **Why it matters:** "reposition so that it fits in the visible area" can be satisfied many ways
+  (reduce width, reduce content minimum, auto-hide, re-dock). Without a concrete condition the
+  criterion is not independently testable (violates the Quality Bar's "no vague terms" rule).
+- **Suggested resolution:** express as a measurable condition — e.g. the Active Trader/Portfolio dock's
+  right edge `<= window right edge` and left edge `>= chart right edge` in full screen, with a
+  non-zero visible width, and the chart still ≥ its minimum. Confirm once B2/B3 are answered.
+- **Status:** open (blocking on B2/B3; will be made measurable when answered)
