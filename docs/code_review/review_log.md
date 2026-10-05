@@ -1523,3 +1523,232 @@ escalations remain** (ESC-001…ESC-026 all `addressed`); the suite is green (56
 `tests/__init__.py` collection gap is recorded as accepted environment noise (no route). Pipeline complete.
 
 Status: REVIEW_COMPLETE
+
+# Revision 12 review — Batch 13 (D19 toolbar scroll/elide wrapper; T53–T60) — 2026-10-05
+
+**Reviewer:** Code Reviewer agent. **Scope:** `docs/build/build_log.md` (Batch 13 / D19, ends
+`Status: NEEDS_CODE_REVIEW`; T53–T59 `done`, T60 `blocked`), `docs/build/failures.json` (`blocked` = T60 +
+the 3 failing ids; 3 `pending_routing`), `docs/tasks/task-graph.json` (T53–T60),
+`docs/requirements/requirements.md` (D19 / `AC-D19.1`–`AC-D19.7` / R33 / R34 / A37 / A38),
+`docs/architecture.md` (D19 increment), the D19 worker logs (`docs/build/logs/T53.md`, `T60.md`), and the
+uncommitted D19 output (`ui/main_window.py`, `tests/test_toolbar_scroll_d19.py`, and the five de-masked
+harnesses). HEAD `5bd7c93` + uncommitted D19 changes. **No live TWS** — every run was
+`QT_QPA_PLATFORM=offscreen`. Verified against the live tree and my own runs, not Build's report.
+
+**Graphify:** `graphify-out/graph.json` exists (2366 nodes, refreshed 2026-10-05) but does **not** contain
+the uncommitted D19 symbols (`MainToolbar`/`ToolbarScroll`). Per protocol this is stated explicitly, and
+every finding below was validated against the actual repository files (authoritative).
+
+## Verdict summary
+
+| Finding | Linked task | Classification | Severity | Route |
+|---|---|---|---|---|
+| The 3 T60-T01 failing ids are **not reproducible** on a clean host and are **not D19 regressions** (D19 delta = 0; suite green 579/0 on my two runs) | T60 | environment / test-hygiene noise | accepted (documented) | none (see `escalations.md` ESC-027 for the T60 gate disposition) |
+| `plan_dock_widths_single_call_underconvergence` retained observation | T56 / T45 | pre-existing fixed-point property; **no AC violated** | observation | none — confirmed acceptable |
+| D19 wrapper + de-masking quality | T53–T59 | clean — consistent with `architecture.md`/`plan.md`; **no test weakened** | none | none |
+
+## A. Failure diagnosis — the 3 blocked ids (T60-T01) — **environment noise, not D19 regressions**
+
+Reproduced/refuted myself (not from Build's report). All runs `QT_QPA_PLATFORM=offscreen`,
+`.venv/bin/python -m pytest -o addopts="" -q`:
+
+- **Full offscreen suite, twice:** `579 passed in 12.68s` and `579 passed in 12.75s` — **0 failures**.
+- The three cited ids in one invocation:
+  `test_history_backfill.py::test_t40_t05_switch_mid_flight_isolated`,
+  `test_history_backfill_loadpath.py::test_t39_t05_switch_and_close_cancel_all`,
+  `test_watchlist_d14_midrag.py::test_T30_T03_existing_d14_noop_paths_unchanged` → **3 passed in 0.53s**.
+- The two history files alone, **five** consecutive runs → `24 passed` each time (no `disk I/O error`,
+  no `ibapi` `TypeError`).
+- The watchlist test alone → `1 passed` under both the default import mode and `--import-mode=importlib`.
+
+**Conclusion.** None of the three reproduces on the review host, so they cannot be D19 regressions and the
+D19 delta is **0 new failures** (Build's `failures.json` proof of the same 3 ids at baseline `5bd7c93` is
+consistent with this). They belong to the **project-memory intermittent shared-SQLite/teardown/collection
+class** (and, for the watchlist id, a fragile bare namespace import), **not** a deterministic environment
+failure. I did not reproduce Build's claim that they are "deterministic"; the evidence supports
+*intermittent* noise. Either way they are **not in-scope code bugs** → documented as accepted, not routed.
+
+**Build's stated diagnoses contain inaccuracies (recorded, not escalated):**
+
+1. **`ibapi` version.** Build cites "ibapi 10.45.1"; the installed distribution is **`ibapi 9.81.1.post1`**
+   (`.venv/lib/python3.11/site-packages/ibapi-9.81.1.post1.dist-info`). The underlying mechanism is real
+   though: `EClient(None).serverVersion()` returns `None`, so any path comparing it (`client.py:379`
+   `self.serverVersion() < MIN_SERVER_VER_...`) raises `TypeError`. The version number is simply wrong.
+2. **`site-packages/tests/__init__.py` shadowing.** No such file exists: `find .venv/lib -path
+   "*site-packages/tests/__init__.py"` → none; the local `tests/` has **no** `__init__.py`, and
+   `import tests` from the repo root resolves to the local **namespace package**
+   (`_NamespacePath(['…/NDThinkChart/tests'])`). The `ModuleNotFoundError` is a cwd/`sys.path` artefact of
+   the bare `from tests.test_watchlist import` (`tests/test_watchlist_d14_midrag.py:263`), which only
+   resolves because `python -m pytest` puts the cwd on `sys.path` — not an installed-package shadow.
+3. **Broken venv console script (environment fact).** `.venv/bin/pytest` has a stale shebang pointing at
+   the pre-rename path `/Users/aniket-desai/Documents/python_development/TOS_Charting/.venv/bin/python3`
+   (directory no longer exists) → invoking it directly fails with `bad interpreter`. Only
+   `.venv/bin/python -m pytest` works. This is a host/venv hygiene issue (the venv predates the repo
+   rename), not a repo code defect — recorded for awareness; no route.
+
+**T60 gate disposition.** T60 is `blocked` on `AC-D19.7`'s literal "zero failures" bar. On a clean run the
+suite **is** green (579/0 twice), and the 3 ids are unrelated to D19 (different modules; D19 delta = 0), so
+the regression the gate protects against does not exist. This is routed to **BUILD** as **ESC-027** so the
+task-status owner can re-evaluate the gate — **without** weakening, skipping, deselecting, or rewriting any
+test.
+
+## B. Quality review of the D19 changes (T53–T59) — **clean; no test weakened**
+
+**T53 wrapper (`ui/main_window.py:218–234`) — verified by code read and by running the D19 test:**
+`QScrollArea` with `objectName("ToolbarScroll")`, `setFrameShape(QFrame.Shape.NoFrame)`,
+`setWidgetResizable(False)`, `setHorizontalScrollBarPolicy(ScrollBarAsNeeded)`,
+`setVerticalScrollBarPolicy(ScrollBarAlwaysOff)`, `setFixedHeight(36)`, `setWidget(toolbar)`; the toolbar
+carries `objectName("MainToolbar")` and the trailing stretch + `conn_badge` stay inside the toolbar
+(hence inside the scroll content). It is placed at central-layout item 0; `addToolBar` is never called.
+`centralWidget().minimumSizeHint().width()` is 88 (`<= 750`). All four `T53-T01…T04` pass (4 passed). The
+diff is minimal and exactly matches the task/architecture D19 mechanism.
+
+**Guardrail respected:** `git diff` shows **no** change to `ui/dock_layout.py` (untouched), and the
+`ui/main_window.py` diff does **not** touch `_apply_dock_widths`, `_chart_area_width`, or any cap constant
+(`WATCHLIST_MIN_WIDTH`/`RIGHT_DOCK_MIN_WIDTH`/`WATCHLIST_CAP_FRACTION`/`CHART_MIN_WIDTH`) — grep over the
+diff returns nothing. B6 (cap unchanged) holds.
+
+**T54–T58 de-masking — no assertion weakened.** Read every diff:
+- `test_dock_widths_d17.py` / `_d18.py` / `_d18_impl.py` / `test_dock_d18_region.py` / `test_dock_layout.py`:
+  the `toolbar.hide()` masking and the legacy `centralWidget().layout().itemAt(0).widget()` toolbar lookup
+  are removed; the toolbar is now resolved by its stable `MainToolbar` objectName. The **only** remaining
+  `hide()` calls are the legitimate right-dock hides (`_RIGHT_DOCKS`), unrelated to the toolbar.
+- Added guards are real and non-tautological: T54-T01/T55-T01/T56-T01/T57-T01/T58-T01 assert the toolbar
+  `isVisible()` and source-check for masking via runtime-built needles or an **AST** walk (so the guard's
+  own docstrings cannot self-match); T54-T02 (AC-D19.1 cap), T55-T02 (AC-D19.2), T55-T03 (AC-D19.3,
+  parametrized) assert live geometry.
+- **T56 / T49-T02** (the T53-induced harness debt): the fix replaces a single
+  `_apply_dock_widths(None, 10**6)` with `_drive_right_to_cap(...)` (14 iterations) before the monotonic
+  shrink sequence. The substantive assertions are retained verbatim — `width <= cap + 1`, monotonic
+  `width <= prev`, and `width >= RIGHT_DOCK_MIN_WIDTH` / `== RIGHT_DOCK_MIN_WIDTH` on the below-min floor.
+  This is a legitimate harness adaptation, **not** a weakening.
+- No `pytest.mark.skip`/`xfail`/`pytest.skip`/`deselect`/`--ignore` anywhere in the six touched test files
+  or `ui/main_window.py` (grep → 0 hits).
+
+**Re-ran the de-masked modules myself:** `test_toolbar_scroll_d19` + the five harnesses +
+`test_crosshair_axis_lane` → **91 passed in 4.24s**; each module in isolation →
+4 / 10 / 20 / 8 / 4 / 40 passed. AC-D19.1/19.2/19.3/19.4/19.5/19.6 hold in a toolbar-visible window, and
+T60-T02 (`test_crosshair_axis_lane`, 5/5) confirms AC-D2.1 against the single right region.
+
+**T59 discrimination evidence (AC-D19.6) — plausible and consistent.** The build log records the pre-fix
+worktree (`5bd7c93`) red / post-fix green (10 failed → 10 passed), with failures caused by the missing
+`MainToolbar` objectName and the still-pinning toolbar. My independent post-fix runs are green; the
+pre-fix red is the expected intermediate state R33 documents. No test was weakened to obtain it.
+
+**Security / live-TWS:** no new socket/order surface; every `MainWindow`-booting test stubs
+`IBApiClient.connect`; `placeOrder` remains product-code-only. Q9 holds.
+
+## C. Retained observation `plan_dock_widths_single_call_underconvergence` — **confirmed acceptable, no escalation**
+
+Build asked me to confirm whether the `_plan_dock_widths` single-call fixed-point under-convergence is
+acceptable. I probed it directly (offscreen, toolbar visible):
+
+- At window 1400 the iteration **oscillates** (integer/floor interaction: left flips 150↔154), so a
+  driven-to-cap right dock settles at ~315–368 while `floor(0.40 × chart_area)` at the resulting chart
+  area is ~369 — i.e. it lands **below** its cap. At 1600 and 1920 it converges to the cap (410/411, 502).
+- **No acceptance criterion is violated.** Every right-dock criterion is an **upper bound**: `AC-D18.2`
+  measurable is `width <= floor(0.40 × chart_area)`; `AC-D18.4` is "no resize leaves the width **above**
+  the cap or below the minimum"; `AC-D19.2` is a visibility criterion. The watchlist — the one cap that
+  must be *reached* (`AC-D19.1`, `abs(width - cap) <= 1`) — does reach it (T54-T02 passes). The
+  under-convergence is a **pre-existing** property of the post-resize fixed-point iteration (the T52/ESC-026
+  helper is correct; the iteration is bounded at 24 passes), **not** introduced by D19 and **not** a D19
+  defect. The retained witness (T49-T02) is fixed by T56. **Confirmed acceptable; documented, not routed.**
+  (A latent UX shortfall — a user may not be able to widen the right region fully to its cap on some window
+  sizes — is recorded for awareness only; it violates no AC and no user report covers it.)
+
+## D. Escalation close-out
+
+- Re-read every entry in `docs/code_review/escalations.md`: **ESC-001…ESC-026 are all `Status: addressed`**
+  (grep: 28 `## ESC-` headings incl. the two informational section headings, 26 `addressed`, and **zero**
+  `Status: open` / `Status: ESCALATED_*`). Nothing relevant changed for them this cycle; no re-diagnosis
+  needed.
+- **One new escalation appended: ESC-027** (`ESCALATED_TO_BUILD`) — the T60 gate disposition (see A).
+
+## E. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-027 | T60 | ESCALATED_TO_BUILD | gap / should-fix | T60's `AC-D19.7` "zero failures" gate is blocked only by 3 non-reproducible environment-noise ids (unrelated to D19; delta = 0; suite green 579/0 on a clean run) — owner should re-evaluate the gate, without weakening any test. |
+
+**Pipeline state for the Orchestrator:** Batch 13 (D19) T53–T59 are `done` and their output is **clean**
+(wrapper correct, guardrails respected, no test weakened, de-masked criteria green). The 3 T60-T01 ids are
+**environment noise, not D19 regressions** (independently: 579/0 twice, isolation green). **One escalation
+is open — ESC-027 (`ESCALATED_TO_BUILD`, should-fix)** for the T60 gate disposition; the
+`plan_dock_widths_single_call_underconvergence` observation is closed as acceptable. ESC-001…ESC-026 remain
+`addressed`.
+
+Status: REVIEW_COMPLETE
+
+# Revision 13 review — Batch 13 (D19) ESC-027 re-evaluation verification (T60 gate), 2026-10-05
+
+**Reviewer:** Code Reviewer agent. **Scope:** the Batch-13 (D19) ESC-027 re-evaluation round —
+`docs/build/build_log.md` (Batch 13, now ends `Status: READY_FOR_REVIEW`), `docs/build/failures.json`
+(`blocked` cleared; accepted `environment_noise_classification` + historical `pending_routing` retained),
+`docs/tasks/task-graph.json` (T53–T60, all `done`), and the live tree (uncommitted D19 changes:
+`ui/main_window.py` + five de-masked harnesses + new `tests/test_toolbar_scroll_d19.py`). **Method:** I
+re-ran the full offscreen suite and the cited ids myself on a clean shared test DB; read the D19 test diffs
+and file mtimes to confirm nothing was weakened; confirmed `ui/dock_layout.py` and the dock cap code are
+untouched. Nothing was fixed. Only `docs/code_review/` was written. **No live TWS** — every run was
+`QT_QPA_PLATFORM=offscreen`.
+
+**Graphify:** `graphify-out/graph.json` exists (2366 nodes) and was queried for the dock-width symbols
+(`plan_dock_widths`, `_apply_dock_widths`, `watchlist_max_width`, `right_dock_max_width`). It predates D19
+(no `ToolbarScroll`/`MainToolbar` symbols) so it was used only for orientation; every finding below was
+validated against the actual repository files (authoritative).
+
+## A. T60 `AC-D19.7` gate — independently re-verified (clean run)
+
+- **Full offscreen suite, clean shared DB, twice.** With
+  `tempfile.gettempdir()/tos_charting_test.sqlite3` (+ `-wal`/`-shm`) removed:
+  `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q -p no:cacheprovider` →
+  **579 passed / 0 failed / exit 0** (12.72s) and **579 passed / 0 failed / exit 0** (12.68s). The suite is
+  literally green, so the "zero failures" gate holds.
+- **The three previously-cited ids pass in one invocation** → **3 passed / exit 0** (0.55s):
+  `tests/test_history_backfill.py::test_t40_t05_switch_mid_flight_isolated`,
+  `tests/test_history_backfill_loadpath.py::test_t39_t05_switch_and_close_cancel_all`,
+  `tests/test_watchlist_d14_midrag.py::test_T30_T03_existing_d14_noop_paths_unchanged`.
+- **D19 delta = 0 new failures.** The green full suite includes every pre-existing D1–D18 test, so no
+  pre-existing acceptance-criteria test regressed; the D19 tests are the only additions and all pass.
+- **D19 focused suites green:** `test_toolbar_scroll_d19.py` + `test_crosshair_axis_lane.py` (T60-T02
+  AC-D2.1) + the five de-masked harnesses → **91 passed / exit 0** (4.30s).
+- **No live TWS/order transmission:** grep over `tests/` for
+  `eConnect|placeOrder|reqHistoricalData|reqMktData|connectAsync|createClient|7496|7497|4001|4002` → only
+  intentional no-op stubs/signals; no live socket/port.
+- **Graph state:** `task-graph.json` T60 `status: done`; Batch-13 graph `{done: 8}` (T53–T60, 8/8);
+  `build_log.md` terminal `Status: READY_FOR_REVIEW`; `failures.json.blocked` empty.
+
+## B. No test weakened; dock-layout code and caps unchanged
+
+- **No test weakened.** `grep -nE "pytest.mark.skip|pytest.mark.xfail|pytest.skip|deselect|--ignore|addopts"`
+  over the D19-touched tests → **0 hits**. The D19 test edits **remove** `toolbar.hide()` masking and **add**
+  the T53–T57 toolbar-visible guards; assertions are adapted/strengthened, none dropped or loosened
+  (`test_T49_T02`'s single apply → `_drive_right_to_cap` iteration retains `width <= cap + 1`).
+- **The re-evaluation did not edit any test.** File mtimes: D19 test files last written 12:27–12:35;
+  `failures.json`/`build_log.md` written 12:57 — the ESC-027 round only re-ran the suite and updated the
+  Build-owned artifacts.
+- **`ui/dock_layout.py` unchanged:** `git diff HEAD -- ui/dock_layout.py` empty (sha256 `d1df116f…6d5af`,
+  mtime 2026-10-03, predating D19).
+- **`_apply_dock_widths` and cap constants unchanged:** the only D19 diff in `ui/main_window.py` is the
+  toolbar `QScrollArea` wrapper (imports + `setObjectName("MainToolbar")` + the wrapper). `_apply_dock_widths`
+  (`:1120`) and the caps are untouched — the `0.40`/`0.50` values remain the unchanged
+  `watchlist_max_width`/`right_dock_max_width` helper calls.
+
+## C. Escalation close-out
+
+- **ESC-027 → `addressed`** (edited in place; `Verified:` line added) — see A/B. Independently re-verified:
+  the clean-run gate holds (579/0 ×2), the three ids pass, the D19 focused suites are green, no test was
+  weakened, and the dock-layout code/caps are unchanged.
+- **ESC-001…ESC-026 remain `addressed`.** Grep over `escalations.md`: 27 `## ESC-` entry headings, **27
+  `Status: addressed`, 0 `Status: ESCALATED_*`, 0 `Status: open`**. **Zero open escalations remain.**
+
+## D. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| — | — | — | — | None. The T60 AC-D19.7 gate holds on clean runs (579/0 ×2), the D19 delta is zero, no test was weakened, and `ui/dock_layout.py`/`_apply_dock_widths`/caps are unchanged. No new quality, consistency, or security issue found. |
+
+**Pipeline state for the Orchestrator:** Batch 13 (D19) is **8/8 done** (T53–T60), `failures.json.blocked`
+empty, full offscreen suite green (**579 passed / 0 failed / exit 0**, twice). **ESC-027 is closed; no open
+escalations remain** — ESC-001…ESC-027 are all `addressed`. The pipeline can advance (build complete).
+
+Status: REVIEW_COMPLETE

@@ -295,3 +295,25 @@
   right edge `<= window right edge` and left edge `>= chart right edge` in full screen, with a
   non-zero visible width, and the chart still ≥ its minimum. Confirm once B2/B3 are answered.
 - **Status:** open (blocking on B2/B3; will be made measurable when answered)
+
+
+## DG27 — D19: toolbar minimumSizeHint pins the central widget (root cause of the D17/D18 real-app failure)
+- **Where it shows up:** D19 / D17 / D18; `ui/main_window.py:100–223` (toolbar inside the central widget's
+  `QVBoxLayout`); the dock splitter has no slack.
+- **Why it matters:** the D17 50%-of-chart-area cap computes correctly but can never be reached in a toolbar-visible
+  window; the right region is squeezed off-screen. Both the D17 and D18 acceptance criteria are unobservable in the
+  real app.
+- **Suggested resolution (decided B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide**
+  container **in place** (one ~36px row, still inside the central widget) so its minimum width no longer pins the
+  central widget and the docks can reach their caps; add the toolbar-visible acceptance criteria
+  (`AC-D19.1`–`AC-D19.5`).
+- **Status:** resolved (B5 answered 2026-10-05 — scroll/elide in place; `AC-D19.4`/`AC-D19.5` capture the outcome)
+
+## DG28 — D19: the D17/D18 test harnesses hide the toolbar, masking the real constraint
+- **Where it shows up:** `tests/test_dock_widths_d17.py::_make_window`, `tests/test_dock_widths_d18.py`,
+  `tests/test_dock_widths_d18_impl.py`, `tests/test_dock_d18_region.py`, `tests/test_dock_layout.py`.
+- **Why it matters:** the suite exercises a window **unlike the real app**, so this regression cannot be caught; the
+  harnesses' own docstrings admit the toolbar masks the very behaviour under test.
+- **Suggested resolution:** remove the `toolbar.hide()` masking (or add a toolbar-visible variant) and require a
+  pre-fix failure (`AC-D19.6`).
+- **Status:** resolved (B5/B6 answered 2026-10-05 — the masking removal is settled and carried by `AC-D19.6`)

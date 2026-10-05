@@ -18,10 +18,13 @@ Acceptance criteria exercised here
 
 Geometry note
 -------------
-Like the D17 tests, the offscreen toolbar's ``minimumSizeHint`` (~1716px) pins
-the layout, so the toolbar is hidden to let the dock geometry settle to the
-window size.
+D19 Phase 2: the offscreen toolbar's ``minimumSizeHint`` (~1716px) no longer
+pins the layout — it is wrapped in a horizontal ``QScrollArea``
+(``ToolbarScroll``) — so the harness runs with the toolbar **visible** and no
+masking, and the dock geometry settles to the window size.
 """
+
+from pathlib import Path
 
 import pytest
 from PyQt6.QtCore import Qt
@@ -32,7 +35,13 @@ from ui.active_trader_panel import ActiveTraderPanel
 
 
 def _make_window(monkeypatch, qapp, width=1600, height=900):
-    """Build a shown ``MainWindow`` that never touches TWS."""
+    """Build a shown ``MainWindow`` that never touches TWS.
+
+    D19 Phase 2: the toolbar is wrapped in a horizontal ``QScrollArea``
+    (``ToolbarScroll``) so its ~1716px natural width no longer pins the central
+    widget. The harness therefore exercises a **toolbar-visible** window with no
+    masking, and the dock geometry settles to the requested window size.
+    """
     from ibkr.client import IBApiClient
 
     monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
@@ -42,15 +51,27 @@ def _make_window(monkeypatch, qapp, width=1600, height=900):
     win.resize(width, height)
     win.show()
     qapp.processEvents()
-
-    # Relax the offscreen toolbar constraint so the dock geometry can settle.
-    central_layout = win.centralWidget().layout()
-    if central_layout is not None and central_layout.count() > 0:
-        toolbar = central_layout.itemAt(0).widget()
-        if toolbar is not None:
-            toolbar.hide()
-    qapp.processEvents()
     return win
+
+
+# ── T57-T01 / AC-D19.6 — toolbar visible, no masking ─────────────────────────
+
+def test_T57_T01_toolbar_visible_and_no_masking(monkeypatch, qapp):
+    """T57-T01 / AC-D19.6: harness shows the toolbar; no hide() masking remains."""
+    win = _make_window(monkeypatch, qapp)
+    try:
+        toolbar = win.findChild(QWidget, "MainToolbar")
+        assert toolbar is not None, "MainToolbar widget not found"
+        assert toolbar.isVisible(), "toolbar is not visible in the harness window"
+    finally:
+        win.close()
+
+    # The module source must contain no toolbar-hiding masking and no stale
+    # central-layout itemAt(0) toolbar lookup (which now resolves to the scroll
+    # wrapper). Needles are built at runtime so this assertion cannot match itself.
+    source = Path(__file__).read_text(encoding="utf-8")
+    assert ("toolbar" + ".hide()") not in source
+    assert ("itemAt(0).widget" + "()") not in source
 
 
 # ── T48-T01 / AC-D18.3 — equal-width stacked sections ────────────────────────

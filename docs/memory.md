@@ -53,3 +53,18 @@
 **Category:** Known Gotcha
 **Finding:** The offscreen suite occasionally reports a full-suite **SIGSEGV** (exit 139) at `tests/test_session_overlay.py::panel` (`qapp.processEvents()`) and/or order-dependent `ModuleNotFoundError: tests.test_watchlist` (`test_watchlist_d14_midrag.py`, no `tests/__init__.py`), triggered by collection-order changes from new test files. Both are non-deterministic and pre-existing: they pass in isolation and in clean full-suite runs (566 passed observed). Treat such non-reproducible failures as test-DB/teardown/collection-order noise, not regressions — but always confirm with a clean full-suite run before declaring green.
 **Source:** Batch-11 rounds (Build verification, T47/T50/T51/T52).
+
+### 2026-10-05 — discovered during Build/Review (D19 UI layout)
+**Category:** Known Gotcha
+**Finding:** A `QWidget` toolbar containing many fixed-width controls, placed inside `MainWindow`'s **central widget** layout, gives the central widget a huge `minimumSizeHint` (here ~1716px). `QMainWindow` refuses to shrink the central area below it, so the dock-area splitter has **no slack** — the left watchlist is pinned at its minimum and the right dock is pushed off-screen. The fix is to wrap the toolbar in a `QScrollArea` (`setFrameShape(NoFrame)`, `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`, fixed 36px) inserted in the toolbar's place inside the central layout — the central `minimumSizeHint` then drops to the chart's own (~88px) and the docks can grow. Do not "fix" this by setting a smaller `minimumWidth` on the toolbar: the layout's minimum still propagates and controls would clip unreachably. Do not move the toolbar to a `QMainWindow` toolbar area (rejected in D19/B5).
+**Source:** Defect D19 (tasks T53–T60).
+
+### 2026-10-05 — discovered during Build/Review (D19 test masking)
+**Category:** Known Gotcha
+**Finding:** UI test harnesses that call `toolbar.hide()` to make dock geometry settle **mask** the real-app constraint — the offscreen suite then exercises a window unlike the app and cannot catch the toolbar-pinning regression. When a harness hides a widget to work around a layout minimum, treat it as a red flag: add a **toolbar-visible** variant and a guard asserting the widget is visible and no masking remains. A regression guard is only credible if it fails on the pre-fix tree and passes post-fix (D19's guard: 10 red at pre-fix commit, 10 green after).
+**Source:** Defect D19 / AC-D19.6 (tasks T54–T59).
+
+### 2026-10-05 — host/environment note
+**Category:** Known Gotcha
+**Finding:** In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`. Also, the installed `ibapi` is **9.81.1.post1** and its `serverVersion()` returns `None` under the test mocks (causing intermittent `TypeError` in `ibapi/client.py`); and there is **no** `site-packages/tests/__init__.py` shadow — the local `tests/` is a namespace package. These three explain the recurring non-reproducible "environment" failures; confirm with a clean full-suite run before treating them as regressions.
+**Source:** Batch-13 rounds (ESC-027; Build/Code Reviewer verification).

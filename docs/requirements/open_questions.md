@@ -1,5 +1,13 @@
 # Open Questions
 
+> **2026-10-05 — Batch 13 (D19): blocking questions B5–B6 are ANSWERED — D19 clarified and finalised.** The user
+> reported that **D17 still did not work in the real app** (watchlist would not grow at maximum drag). Repo-validated
+> root cause: the toolbar's ~1716px `minimumSizeHint` pinned the central widget so the dock splitter had no slack
+> (D19); the D17/D18 harnesses hid the toolbar, masking it. The user answered **B5** (toolbar behaviour when narrow
+> — **"Horizontal scroll / elide in place"**) and **B6** (watchlist cap — **"Keep 50%"**) on 2026-10-05, so D19 is
+> **clarified and finalised** and `requirements.md` carries `Status: READY_FOR_PLAN`. See the **Batch 13 (D19)**
+> section at the end of this file.
+
 > Owned by Requirements Analyst. Other agents may read; only Requirements Analyst edits.
 >
 > **2026-10-02 — D16 batch RESOLVED.** The new D16 report (historical bars missing
@@ -561,3 +569,56 @@
 > **No open (blocking) question remains for the D17/D18 batch.** All four (B1–B4) were answered
 > 2026-10-03 and are recorded above. `requirements.md` is finalised and carries `Status: READY_FOR_PLAN`.
 > Any **new** defect reported later starts a fresh intake pass (it does not silently extend this batch).
+
+
+---
+
+# Open Questions — Batch 13 (D19) — ANSWERED / finalised 2026-10-05
+
+> The user reported **D19** on 2026-10-05: D17 (and D18) were not effective in the real, toolbar-visible app because
+> the toolbar pinned the central widget. Both blocking questions (**B5–B6**) were **answered by the user on
+> 2026-10-05** and are recorded verbatim below. **No blocking question remains**, so `requirements.md` carries
+> `Status: READY_FOR_PLAN`.
+
+## B5 — D19: when the window is too narrow to show every toolbar control, how must the toolbar behave?
+- **Status:** **answered 2026-10-05** — resolved; no longer blocking.
+- **Why it was blocking:** the toolbar's ~1716px `minimumSizeHint` is the root cause of D19 — it pins the central
+  widget so the docks cannot grow. The fix requires choosing a toolbar behaviour that lets the central widget shrink
+  while keeping the controls usable; the options have different user-visible trade-offs (extra toolbar row vs a
+  horizontal scrollbar vs hidden controls vs moving the toolbar), so the Analyst must not decide it.
+- **Options (candidate directions — user to choose; a combination is acceptable if it satisfies `AC-D19.4`):**
+  1. **(a) Horizontal scroll / elide in place** — keep the toolbar inside the central widget but let it scroll
+     horizontally (or elide labels) when narrow, so the central widget can shrink; the toolbar stays one row (~36px).
+  2. **(b) Wrap to multiple rows** — the toolbar reflows onto 2+ rows when narrow; all controls stay visible but the
+     toolbar takes vertical space (the chart gets shorter).
+  3. **(c) Compress / overflow menu** — shrink control widths and/or move overflow controls into a `»`/overflow menu
+     when narrow; keeps one row but some controls are one click deeper.
+  4. **(d) Move the toolbar out of the central widget** — use the `QMainWindow` toolbar area (`addToolBar`) with Qt's
+     built-in overflow affordance; removes the toolbar from the central widget's minimum, but the toolbar's own
+     minimum may still apply and its overflow behaviour must be verified.
+- **Affected requirement section:** D19 / `AC-D19.4`, `AC-D19.5`, `AC-D19.6`; Journey 20.
+- **Answer (user-confirmed 2026-10-05, verbatim: "Horizontal scroll / elide in place"):** the toolbar **stays
+  inside the central widget** — it is **NOT** moved to a `QMainWindow` toolbar area (`addToolBar`) — and remains a
+  **single ~36px row**, but its effective minimum width must **no longer pin the central widget**. The chosen fix is
+  a **horizontal scroll / elide wrapper around the existing toolbar widget**: when the window is narrower than the
+  toolbar's natural width, the controls are reached by **horizontal scrolling** (and/or labels elide) instead of
+  holding the central widget at ~1716px. **All controls must remain reachable** via that scroll/elide affordance —
+  no control becomes permanently unreachable. Options (b) wrap-to-multiple-rows, (c) compress/overflow menu and
+  (d) move the toolbar out of the central widget are **not adopted**.
+
+## B6 — D19: does the watchlist cap stay at 50% of the chart area, or does the user want it raised?
+- **Status:** **answered 2026-10-05** — resolved; no longer blocking.
+- **Why it was blocking:** the user asked whether the max width is too small. The diagnosis says the **formula is
+  correct** (50% of chart area → 858px at chart_area 1716) and the real cause is the toolbar pinning. But if the user
+  still wants a **different cap**, the D17/D19 acceptance target changes and `AC-D13.1`/`AC-D17.1`/`AC-D19.1` must be
+  updated. Confirming avoids silently keeping or changing a user-visible number.
+- **Options:**
+  1. **Keep 50% of the chart area** (B1 stands) — the fix is D19 only; the watchlist reaches 858px at the reported
+     window size once the toolbar no longer pins the layout.
+  2. **Raise the cap** (user names the new fraction, e.g. 60%) — update `AC-D13.1`, `AC-D17.1`, `AC-D19.1` and
+     `watchlist_max_width` / `WATCHLIST_CAP_FRACTION` in lockstep.
+- **Affected requirement section:** D17 / D19 / `AC-D13.1`, `AC-D17.1`, `AC-D19.1`; B1 (superseded if changed).
+- **Answer (user-confirmed 2026-10-05, verbatim: "Keep 50%"):** the watchlist cap **stays at
+  `floor(0.50 × chart_area)`** (B1 stands). The cap constant (`watchlist_max_width` / `WATCHLIST_CAP_FRACTION`) and
+  `AC-D13.1`/`AC-D17.1` are **unchanged** — the formula is not the problem; D19 fixes only the toolbar pinning.
+  Option 2 (raise the cap) is **not adopted**.

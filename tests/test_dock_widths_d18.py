@@ -24,12 +24,14 @@ case (see ``_WINDOW_SIZES``).
 
 Geometry / tolerance notes
 --------------------------
-This module deliberately mirrors the deterministic ``_make_window`` harness used
-by ``tests/test_dock_widths_d18_impl.py``: the offscreen toolbar's
-``minimumSizeHint`` is very wide and pins the central widget (masking the
-behaviour under test), so the toolbar is hidden to give the chart area a real,
-adjustable width. The single right region is **kept visible** — D18 is about the
-region, so hiding it would test the wrong path.
+D19 Phase 1 wrapped the toolbar in a horizontal ``QScrollArea`` (objectName
+``ToolbarScroll``) so its ~1716px ``minimumSizeHint`` no longer pins the central
+widget. This harness therefore keeps the toolbar **visible** (AC-D19.6): no
+``toolbar.hide()`` masking remains, and the window under test is the real,
+toolbar-visible layout. The toolbar widget is resolved by its stable
+``MainToolbar`` objectName (the old ``centralWidget().layout().itemAt(0)`` now
+returns the scroll wrapper, not the toolbar). The single right region is **kept
+visible** — D18 is about the region, so hiding it would test the wrong path.
 
 ``MainWindow._apply_dock_widths`` only re-issues ``resizeDocks`` when a computed
 width differs from the current width by more than 1px (an explicit acceptance
@@ -48,9 +50,11 @@ equality that the window cannot reach. This is the honest reading of AC-D18.2:
 "stops at floor(0.40 × chart_area)" where that cap is reachable.
 """
 
+from pathlib import Path
+
 import pytest
 from PyQt6.QtCore import QEvent, QSettings, Qt
-from PyQt6.QtWidgets import QDockWidget, QTableWidgetItem
+from PyQt6.QtWidgets import QDockWidget, QTableWidgetItem, QWidget
 
 from ui.dock_layout import (
     CHART_MIN_WIDTH,
@@ -90,13 +94,24 @@ def _clean_settings() -> QSettings:
     return settings
 
 
+def _toolbar(win):
+    """The toolbar widget, resolved by its stable ``MainToolbar`` objectName.
+
+    D19 Phase 1 wrapped the toolbar in a ``ToolbarScroll`` QScrollArea, so the
+    old ``centralWidget().layout().itemAt(0).widget()`` lookup now returns the
+    wrapper rather than the toolbar. The objectName is the stable handle.
+    """
+    return win.findChild(QWidget, "MainToolbar")
+
+
 def _make_window(monkeypatch, qapp, width: int = 1600, height: int = 900):
-    """Build a shown ``MainWindow`` that never touches TWS, right region visible.
+    """Build a shown ``MainWindow`` that never touches TWS, toolbar visible.
 
     ``IBApiClient.connect`` is monkeypatched to a no-op, which is what keeps the
     market-data / realtime / depth managers (all built around the client) from
-    opening a socket in the offscreen harness. The offscreen toolbar is hidden so
-    the dock geometry can settle to the requested window size.
+    opening a socket in the offscreen harness. The toolbar is left **visible**
+    (D19 Phase 1's scroll wrapper removed its minimum-width pin), so the dock
+    geometry is exercised against the real, toolbar-visible layout (AC-D19.6).
     """
     from ibkr.client import IBApiClient
 
@@ -108,13 +123,8 @@ def _make_window(monkeypatch, qapp, width: int = 1600, height: int = 900):
     win.show()
     qapp.processEvents()
 
-    # Relax the offscreen toolbar constraint so the dock geometry can settle.
-    central_layout = win.centralWidget().layout()
-    if central_layout is not None and central_layout.count() > 0:
-        toolbar = central_layout.itemAt(0).widget()
-        if toolbar is not None:
-            toolbar.hide()
-    qapp.processEvents()
+    # The toolbar stays visible; D19 Phase 1's scroll wrapper means it no longer
+    # pins the central widget, so the dock geometry settles without masking.
     win.resize(width, height)
     qapp.processEvents()
     return win
@@ -131,6 +141,13 @@ def _drive_right_below_min(win, qapp, iterations: int = 6) -> None:
     """Repeatedly request a below-minimum right region until it floors."""
     for _ in range(iterations):
         win._apply_dock_widths(None, 0)
+        qapp.processEvents()
+
+
+def _drive_both_to_cap(win, qapp, iterations: int = 14) -> None:
+    """Repeatedly drive *both* docks toward their caps until the clamp settles."""
+    for _ in range(iterations):
+        win._apply_dock_widths(10 ** 6, 10 ** 6)
         qapp.processEvents()
 
 
@@ -406,4 +423,126 @@ def test_T50_T06_restart_returns_default_not_persisted(monkeypatch, qapp):
         _assert_on_screen(win2)
     finally:
         win2.close()
+        _clean_settings()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# T55 / D19 Phase 2 — toolbar-visible guards (AC-D19.2 / AC-D19.3 / AC-D19.6)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── T55-T01 / AC-D19.6 — harness is toolbar-visible; no masking remains ──────
+
+def _find_forbidden_calls(source: str):
+    """Return forbidden dock-masking call sites found in *source* (via AST).
+
+    Detects, using the AST so comments/docstrings/strings are ignored:
+
+    * a ``.hide()`` call on a ``toolbar`` name — the D19 masking; and
+    * an ``itemAt(0)``-then-``widget()`` lookup — the legacy toolbar handle.
+    """
+    import ast
+
+    hits = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "hide"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "toolbar"
+        ):
+            hits.append(f"toolbar hide() call at line {node.lineno}")
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "widget"
+            and isinstance(func.value, ast.Call)
+            and isinstance(func.value.func, ast.Attribute)
+            and func.value.func.attr == "itemAt"
+            and func.value.args
+            and isinstance(func.value.args[0], ast.Constant)
+            and func.value.args[0].value == 0
+        ):
+            hits.append(f"itemAt(0) widget lookup at line {node.lineno}")
+    return hits
+
+
+def test_T55_T01_toolbar_visible_and_no_masking(monkeypatch, qapp):
+    """T55-T01 / AC-D19.6: the harness shows the toolbar and hides nothing."""
+    _clean_settings()
+    win = _make_window(monkeypatch, qapp)
+    try:
+        toolbar = _toolbar(win)
+        assert toolbar is not None, "MainToolbar not found"
+        assert toolbar.isVisible(), "toolbar must be visible in the harness"
+        assert win.centralWidget().isAncestorOf(toolbar)
+    finally:
+        win.close()
+        _clean_settings()
+
+    # The masking and the legacy lookup must be gone from this module's source.
+    # AST-based so this guard's own docstrings/messages cannot defeat it.
+    source = Path(__file__).read_text(encoding="utf-8")
+    forbidden = _find_forbidden_calls(source)
+    assert forbidden == [], forbidden
+
+
+# ── T55-T02 / AC-D19.2 — toolbar-visible region fully within the window ──────
+
+def test_T55_T02_fullscreen_region_within_window(monkeypatch, qapp):
+    """T55-T02 / AC-D19.2: toolbar-visible full-screen region stays fully inside."""
+    _clean_settings()
+    width, height = _WINDOW_SIZES[0]  # full-screen-sized case (1920x1080)
+    win = _make_window(monkeypatch, qapp, width=width, height=height)
+    try:
+        toolbar = _toolbar(win)
+        assert toolbar is not None and toolbar.isVisible()
+
+        # Exercise the full-screen normalize path (WindowStateChange), as D18
+        # does, so the assertion is made on the post-normalize rendered geometry.
+        win.changeEvent(QEvent(QEvent.Type.WindowStateChange))
+        qapp.processEvents()
+        qapp.processEvents()
+
+        assert win.right_dock.isVisible()
+        geo = win.right_dock.geometry()
+        central_rect = win.centralWidget().geometry()
+        rect = win.rect()
+
+        # Non-zero visible width and fully on-screen.
+        assert geo.width() > 0, geo.getRect()
+        assert geo.left() >= 0, geo.getRect()
+        assert geo.right() <= rect.right() + 1, (geo.getRect(), rect.getRect())
+
+        # The region sits to the right of the chart area: its left edge is at or
+        # after the chart-area (central widget) right edge, not squeezed under it.
+        assert geo.left() >= central_rect.right() - 1, (
+            geo.getRect(), central_rect.getRect(),
+        )
+    finally:
+        win.close()
+        _clean_settings()
+
+
+# ── T55-T03 / AC-D19.3 — toolbar-visible, both docks at cap -> chart >= 400 ──
+
+@pytest.mark.parametrize("size", _WINDOW_SIZES, ids=lambda s: f"{s[0]}x{s[1]}")
+def test_T55_T03_chart_minimum_both_docks_at_cap(monkeypatch, qapp, size):
+    """T55-T03 / AC-D19.3: toolbar-visible, both docks at cap -> chart >= 400px."""
+    _clean_settings()
+    width, height = size
+    win = _make_window(monkeypatch, qapp, width=width, height=height)
+    try:
+        toolbar = _toolbar(win)
+        assert toolbar is not None and toolbar.isVisible()
+
+        _drive_both_to_cap(win, qapp)
+        ca = win._chart_area_width()
+        assert ca >= CHART_MIN_WIDTH, (ca, size)
+
+        # The region itself stays on-screen while both docks are driven to cap.
+        _assert_on_screen(win)
+    finally:
+        win.close()
         _clean_settings()

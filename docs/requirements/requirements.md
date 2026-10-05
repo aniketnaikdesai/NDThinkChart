@@ -1,6 +1,6 @@
 # NDThinkChart — Requirements
 
-> Status: **D17/D18 (panel layout / resizing in full screen, reported 2026-10-03) — CLARIFIED 2026-10-03 (B1–B4 answered; see `open_questions.md` Q/B1–B4).** D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped.
+> Status: **D17/D18 (panel layout / resizing in full screen, reported 2026-10-03) — CLARIFIED 2026-10-03 (B1–B4 answered; see `open_questions.md` Q/B1–B4).** D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped. **2026-10-05:** new defect **D19** — the toolbar pinned the central widget, so the D17/D18 fix was not effective in the real app — is **clarified and finalised** (B5–B6 answered 2026-10-05: the toolbar gets a **horizontal scroll / elide wrapper in place**, staying one ~36px row inside the central widget so its minimum width no longer pins the layout; the watchlist cap **stays at 50% of the chart area**). See `open_questions.md` B5–B6 (answered) and D19 / `AC-D19.1`–`AC-D19.7`.
 
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
@@ -49,6 +49,8 @@ keeps a minimum (~400px); enlarging one can force the other to shrink. **(B4)** 
 drags **both wider and narrower** between min (150px) and cap; min stays 150px, default ~220px, and
 persistence (Q26) is **still required**. See `open_questions.md` (B1–B4 answered) and DG23–DG26.
 
+**New work item — 2026-10-05 (defect D19) — CLARIFIED 2026-10-05 (B5–B6 answered).** The user reported that **D17 still did not work in the real app** — the watchlist would not grow much even at maximum drag — and asked whether the maximum width was too small. Repo-validated diagnosis: **the 50%-of-chart-area formula is correct** (`ui/dock_layout.watchlist_max_width(1716)` = **858px**); the real root cause was that the toolbar (`ui/main_window.py:100–211`) has a **~1716px `minimumSizeHint`** and sits **inside the central widget** (`:217–223`), so `QMainWindow` could not shrink the central area and the dock splitter had **no slack** — the watchlist was pinned at its 150px minimum and the right Active-Trader region was pushed off-screen. **Both the D17 and D18 symptoms share this one root cause.** The D17/D18 test harnesses hid the toolbar (`toolbar.hide()`), so the offscreen suite exercised a window unlike the real app and could not catch this. D19 is a **new defect** (Defect Register + Journey 20) that makes the D17/D18 criteria hold **in a toolbar-visible window** and removes the test masking. **D17/D18 are not silently reopened** — their criteria stand; D19 adds the real-app condition and the regression guard. **Decisions (2026-10-05, B5–B6 answered):** **(B5)** the toolbar gets a **horizontal scroll / elide wrapper in place** — it stays **inside the central widget** (NOT moved to a `QMainWindow` toolbar area) as a **single ~36px row**, and its effective minimum width no longer pins the central widget; all controls stay reachable via horizontal scroll/elide. **(B6)** the watchlist cap **stays `floor(0.50 × chart_area)`** (B1 stands); the cap constant and `AC-D13.1`/`AC-D17.1` are unchanged. See `open_questions.md` (B5–B6 answered) and DG27/DG28.
+
 ## Goals
 - Collect and triage the user's reported functional issues and UI bugs.
 - Fix each reported defect such that its per-task **test condition** passes.
@@ -91,6 +93,7 @@ answered)**:
   and/or the panel classes (`ui/active_trader_panel.py`, `ui/active_portfolio_panel.py`).
 No new product features beyond these layout fixes, and **no stack change**. Both are finalised by
 B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
+- **D19 — toolbar pinned the central widget (NEW, 2026-10-05, CLARIFIED 2026-10-05):** the D17/D18 fix was not observable in a toolbar-visible window because the toolbar's ~1716px `minimumSizeHint` pinned the central widget and starved the dock splitter; the D17/D18 harnesses hid the toolbar, masking the constraint. **Fix (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container so it stays **inside the central widget** as a **single ~36px row** while its minimum width no longer pins the layout; all controls remain reachable. The watchlist cap is unchanged at **50% of the chart area** (B6). See D19, Journey 20, `AC-D19.1`–`AC-D19.7`, A37–A38, R32–R34, and `open_questions.md` B5–B6 (answered).
 
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
@@ -365,6 +368,20 @@ repository files, which remain authoritative if the two disagree.
   one can force the other to shrink (B3); cross-clamping is exercised in the criteria; small full-screen
   display; docks hidden/floating; ladder content wider than the dock must not force the dock off-screen.
 
+### Journey 20 — D19: resize the watchlist in the real (toolbar-visible) app
+- **Preconditions:** App running (dev build, `python main.py`) with the **toolbar visible**; Watchlist docked on the
+  left; a chart is loaded; the window is large enough that `floor(0.50 × chart_area) > 150px`.
+- **Steps:** 1) Drag the watchlist splitter handle to the **right** to maximum. 2) Observe the watchlist widen and the
+  chart narrow. 3) Observe the right Active-Trader/Portfolio region. 4) Resize the window narrower and repeat.
+- **Postconditions:** The watchlist **actually reaches `floor(0.50 × chart_area)`** (not pinned at its 150px
+  minimum); the right region stays **fully visible**; the chart keeps `>= 400px`; the toolbar remains **usable**
+  (horizontal scroll / elide in place, one ~36px row — B5).
+- **Edge Cases:** Window narrower than the toolbar's natural width → the toolbar scrolls horizontally / elides **in
+  place** (B5: one ~36px row, still inside the central widget) and **no control becomes permanently unreachable**;
+  full screen (no window `resizeEvent` during the drag) → the cap is still enforced during the drag (D17
+  `AC-D17.3`); both docks enlarged → the chart minimum is preserved (`AC-D19.3`); right region hidden/floating → the
+  watchlist-only rule applies.
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)
@@ -415,7 +432,7 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 > 2026-09-19): D8 volume linear, no negatives, dynamic nice ticks, price-coloured.
 > Batch 5 (clarified 2026-09-19): D9 volume spacing follow + D10 volume show/hide at
 > top left of volume panel. Batch 6 (clarified 2026-09-19): D11 drawing price labels
-> on inner right side. Batch 7 (clarified 2026-09-19): D12 zone double-click settings popup (Extend omitted). Batch 8 (clarified 2026-09-20): D13 watchlist resizable to 50% with persistence + D14 double-click row to load chart (identical to Load Chart, no-op on same symbol/disconnected). Batch 9 (clarified 2026-09-20): D15 horizontal line double-click settings popup. Batch 10 (clarified 2026-10-02): D16 historical-bar cache-gap backfill (Q37–Q39; ESC-023 calendar correction). **Batch 11 (D17 + D18, panel layout / resizing in full screen) — CLARIFIED AND FINALISED 2026-10-03 (B1–B4 answered 2026-10-03):** D17 watchlist drag both directions up to **50% of the chart area** (min 150px, default ~220px, persisted, cap enforced during the drag); D18 one right-dock region (Active Trader + Portfolio stacked) up to **40% of the chart area**, equal width by construction, full-screen visible; combined under the **independent-caps + ~400px chart-minimum** rule (B3). See D13/D17/D18, `AC-D13.1`, `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`, A34–A36, R28–R31, and `open_questions.md` B1–B4 (answered). D17 supersedes/corrects D13's Q25 denominator (B1). **No blocking question remains.**
+> on inner right side. Batch 7 (clarified 2026-09-19): D12 zone double-click settings popup (Extend omitted). Batch 8 (clarified 2026-09-20): D13 watchlist resizable to 50% with persistence + D14 double-click row to load chart (identical to Load Chart, no-op on same symbol/disconnected). Batch 9 (clarified 2026-09-20): D15 horizontal line double-click settings popup. Batch 10 (clarified 2026-10-02): D16 historical-bar cache-gap backfill (Q37–Q39; ESC-023 calendar correction). **Batch 11 (D17 + D18, panel layout / resizing in full screen) — CLARIFIED AND FINALISED 2026-10-03 (B1–B4 answered 2026-10-03):** D17 watchlist drag both directions up to **50% of the chart area** (min 150px, default ~220px, persisted, cap enforced during the drag); D18 one right-dock region (Active Trader + Portfolio stacked) up to **40% of the chart area**, equal width by construction, full-screen visible; combined under the **independent-caps + ~400px chart-minimum** rule (B3). See D13/D17/D18, `AC-D13.1`, `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`, A34–A36, R28–R31, and `open_questions.md` B1–B4 (answered). D17 supersedes/corrects D13's Q25 denominator (B1). **Batch 11 had no blocking question remaining.** **New (2026-10-05): Batch 13 (D19)** — CLARIFIED AND FINALISED 2026-10-05 (B5–B6 answered): the D17/D18 fix was not effective in the real (toolbar-visible) app because the toolbar pinned the central widget; the fix wraps the toolbar in a **horizontal scroll / elide** container in place (B5, one ~36px row) and keeps the watchlist cap at **50% of the chart area** (B6). See `open_questions.md` B5–B6 (answered); this batch is **ready for Plan**.
 
 ### D1 — No RTH / ETH session shading on chart
 - **Area:** Chart panel (price plot)
@@ -1550,6 +1567,104 @@ Chart; Q29 no-op semantics):**
 - A window small enough that `floor(0.40 × chart_area) < region minimum` → the region minimum wins, and
   the chart-minimum rule still applies.
 
+### D19 — Toolbar minimum width pins the central widget, starving the dock splitter (D17/D18 still not effective in the real app)
+- **Area:** `ui/main_window.py` toolbar construction + central-widget composition (lines ~100–223); the D17/D18 test
+  harnesses (`tests/test_dock_widths_d17.py`, `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py`,
+  `tests/test_dock_d18_region.py`, `tests/test_dock_layout.py`).
+- **Status:** **clarified and finalised 2026-10-05 (B5–B6 answered).** Reported 2026-10-05; diagnosed; the fix is a horizontal scroll/elide wrapper around the existing toolbar (B5) with the watchlist cap unchanged at 50% of the chart area (B6). `AC-D19.1`–`AC-D19.7` are final.
+- **Relation to D17/D18 (recorded — not a silent reopen):** D17 (watchlist resize) and D18 (right-dock full-screen
+  visibility) were built and verified green (566 tests) at commit `5bd7c93`, but the user reports **D17 still does not
+  work in the real app**. D19 is a **distinct defect** that (a) prevents D17 and D18 from being observable in a
+  **toolbar-visible** window and (b) was **masked by the D17/D18 test harnesses**. D17/D18 remain built and their
+  criteria stand unchanged; D19 adds the real-app condition and the test-masking regression guard.
+- **Reported (verbatim intent):** "D17 still does not work in the real app — the watchlist will not grow much even at
+  max drag"; the user asks "is the max width too small?"
+- **Answer to the user's question (repo-validated 2026-10-05):** **No — the max-width formula is not too small.**
+  `ui/dock_layout.watchlist_max_width(chart_area=1716)` returns **858px** (= `floor(0.50 × 1716)`), which is correct.
+  The cap is not the problem.
+- **Observed in repository (validated against source 2026-10-05; the Orchestrator's offscreen probe agrees):**
+  - `ui/main_window.py:100–211` builds `toolbar = QWidget()` with a `QHBoxLayout` of fixed-width controls
+    (`symbol_input` 120, `tf_combo` 90, `mode_combo` 110, `sound_btn` 56, `ext_hours_btn` 80, `tz_combo` 110,
+    `draw_combo` 110, `draw_set_combo` 140, `draw_delete_btn` 38, plus buttons/labels), giving it a
+    **`minimumSizeHint` of ~1716px**.
+  - `ui/main_window.py:217–223` puts the toolbar **inside the central widget**:
+    `central = QWidget(); vbox.addWidget(toolbar); vbox.addWidget(self.chart_panel); self.setCentralWidget(central)`.
+    So the central widget's `minimumSizeHint` becomes ~1716px and `QMainWindow` refuses to shrink the central area
+    below it.
+  - Therefore the dock-area splitter has **no slack**: the watchlist is pinned at its minimum (150px; ~200 in the
+    user's screenshot) and the right region is squeezed off-screen. **Both the D17 and D18 symptoms share this one
+    root cause.**
+  - Probe evidence (offscreen, toolbar visible): window 2078px → `centralWidget().width()` 1716,
+    `centralWidget().minimumSizeHint().width()` 1716; central item 0 (toolbar) min hint 1716, item 1 (ChartPanel)
+    min hint 88; after driving the watchlist to its cap the watchlist width stayed **150**; the right dock stayed 200
+    but was pushed to the window edge.
+- **Why review missed it (test-masking — part of the defect):** `tests/test_dock_widths_d17.py::_make_window`
+  explicitly hides the toolbar (`toolbar.hide()`), and its own docstring admits the toolbar "pins the central widget
+  and caps the left dock far below the 50% rule — masking the very behaviour under test."
+  `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py`, `tests/test_dock_d18_region.py` and
+  `tests/test_dock_layout.py` do the same. The offscreen suite therefore exercised a window **unlike the real app**,
+  so a real-app regression could not be caught. Removing this masking is part of D19.
+
+**Decisions (B5–B6 answered 2026-10-05):**
+- **B5 — toolbar behaviour when narrow (user-confirmed, verbatim: "Horizontal scroll / elide in place"):** the
+  toolbar **stays inside the central widget** — it is **NOT** moved to a `QMainWindow` toolbar area (`addToolBar`)
+  — and remains a **single ~36px row**, but its effective minimum width must **no longer pin the central widget**.
+  The chosen fix is a **horizontal scroll / elide wrapper around the existing toolbar widget**: when the window is
+  narrower than the toolbar's natural width, the controls are reached by **horizontal scrolling** (and/or labels
+  elide) instead of holding the central widget at ~1716px. **All controls must remain reachable** via that
+  scroll/elide affordance — no control becomes permanently unreachable. Options (b) wrap-to-multiple-rows,
+  (c) compress/overflow menu, and (d) move the toolbar out of the central widget are **not adopted**.
+- **B6 — watchlist cap (user-confirmed, verbatim: "Keep 50%"):** the cap **stays `floor(0.50 × chart_area)`** (B1
+  stands). The cap constant (`watchlist_max_width` / `WATCHLIST_CAP_FRACTION`) and `AC-D13.1`/`AC-D17.1` are
+  **unchanged** — the formula was never the problem; D19 fixes only the toolbar pinning. Raising the cap is **not
+  adopted**.
+- The acceptance criteria below are the **final** required outcome.
+
+**Acceptance Criteria (Given/When/Then) — final (B5–B6 answered 2026-10-05):**
+- **AC-D19.1 (real-app watchlist can reach its cap — cap unchanged at 50%, B6)** Given a shown window with the
+  **toolbar visible** and large enough that `floor(0.50 × chart_area) > WATCHLIST_MIN_WIDTH`, When the user drags
+  the watchlist handle to its maximum, Then the watchlist width reaches `floor(0.50 × chart_area)` (within the 1px
+  re-issue tolerance) and is **not** pinned at `WATCHLIST_MIN_WIDTH`. (Measurable: in a toolbar-visible offscreen
+  window, `watchlist_dock.width() > WATCHLIST_MIN_WIDTH` and
+  `abs(watchlist_dock.width() - floor(0.50 × chart_area)) <= 1` after driving to cap.)
+- **AC-D19.2 (real-app right dock fully visible)** Given a shown full-screen-sized window with the **toolbar
+  visible**, Then the single right region is fully within the window — its left edge `>= chart-area right edge`, right
+  edge `<= window right edge`, with a non-zero visible width (`AC-D18.1`), not squeezed off-screen.
+- **AC-D19.3 (chart minimum preserved)** Given both docks driven toward their caps with the **toolbar visible**,
+  Then `chart_area >= CHART_MIN_WIDTH` (400px).
+- **AC-D19.4 (toolbar no longer pins the central widget; controls stay usable — B5 scroll/elide in place)** Given
+  the toolbar is visible, Then (i) the toolbar stays **inside the central widget** as a **single ~36px row** (NOT
+  moved to a `QMainWindow` toolbar area) wrapped so its **minimum width no longer pins the central widget**, and
+  (ii) all its controls remain **reachable/usable** — directly at a wide window and via the **horizontal
+  scroll/elide** affordance at the narrowest window in which the dock minima + chart minimum are feasible.
+  (Measurable: `centralWidget().minimumSizeHint().width() <= CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH +
+  RIGHT_DOCK_MIN_WIDTH` (i.e. the toolbar no longer dominates that minimum), the toolbar's laid-out height stays
+  `<= ~40px` (one row), and every toolbar control is reachable at a narrow width — via scrolling/eliding if not
+  directly visible.)
+- **AC-D19.5 (central widget can shrink)** Given the toolbar is visible, When the window is resized down toward the
+  feasible minimum, Then `centralWidget().width()` decreases accordingly and does not remain at the toolbar's
+  ~1716px minimum.
+- **AC-D19.6 (test-masking regression guard — REQUIRED)** Given the D17 and D18 acceptance tests, When they run,
+  Then they exercise a **toolbar-visible** window (or otherwise reproduce the toolbar's real minimum-width
+  constraint), so this exact regression cannot recur. (Measurable: the harness no longer hides the toolbar to
+  sidestep the constraint; at least one D17 test and one D18 test **fail against the pre-fix code** with the toolbar
+  visible and **pass after** the fix. The masking `toolbar.hide()` in `tests/test_dock_widths_d17.py`,
+  `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py`, `tests/test_dock_d18_region.py` and
+  `tests/test_dock_layout.py` must be removed or paired with a toolbar-visible variant.)
+- **AC-D19.7 (regression)** Given the fix, Then the pre-existing suite remains green and the D13/D17/D18 criteria
+  (`AC-D13.1`–`AC-D13.3`, `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`) hold **in a toolbar-visible window**.
+
+**Edge Cases:**
+- Window narrower than the toolbar's natural width → the toolbar scrolls horizontally / elides **in place** (B5,
+  one ~36px row inside the central widget), never leaving a control permanently unreachable; the chart/dock minima
+  rule still applies.
+- Window so small that dock minima + chart minimum are infeasible → the chart minimum yields before the dock
+  minimums (existing `plan_dock_widths` rule).
+- Full screen (no window `resizeEvent` during a drag) → the live clamp must still bind (D17 `AC-D17.3`).
+- Right region hidden/floating → the watchlist-only rule applies (existing `_right_dock_available` path).
+- High-DPI / font scaling → the toolbar min hint may grow; the chosen mechanism must still allow the central widget
+  to shrink (B5-dependent).
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -1589,6 +1704,8 @@ Chart; Q29 no-op semantics):**
 | A34 | **D17 target geometry — RESOLVED (B1, B4).** The watchlist cap is `floor(0.50 × chart_area)` (B1; **supersedes D13's Q25 window-width denominator**), the handle drags **both directions** (B4), min **150px**, default **~220px**, persistence still required (Q26), and the cap is enforced **during the drag** (not only on `resizeEvent`). Chart minimum ~400px per B3. | B1/B4 answered by the user 2026-10-03; B1 explicitly corrected the Q25 denominator | y | 2026-10-03 |
 | A35 | **D18 grouping — RESOLVED (B2).** Active Trader and Portfolio are **one right-dock region** containing both sections stacked vertically, so they are inherently equal width; the **40%-of-chart-area** cap applies to that single region. The current two-`QDockWidget` structure is re-shaped into one region. | B2 answered by the user 2026-10-03 ("one right-dock region, stacked — Recommended") | y | 2026-10-03 |
 | A36 | **D18 persistence default (non-blocking, UNCHANGED):** the right region's width/visibility is **not persisted** unless the user asks, matching D10's volume-toggle precedent (Q22: not persisted). B3/B4 did not add a persistence requirement for the right dock (only the watchlist keeps Q26 persistence, per B4). | D13 explicitly required persistence for the watchlist (Q26) and B4 re-confirmed it, but the user did not request it for the right region; recorded as a non-blocking default (not a blocking question) | n | 2026-10-03 |
+| A37 | **D19 diagnosis:** the root cause of "D17 does not work in the real app" is the toolbar's ~1716px `minimumSizeHint` pinning the central widget (not the 50% cap, which computes correctly to 858px at chart_area 1716). **Resolution (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container **in place** (one ~36px row, still inside the central widget) so its minimum width no longer pins the layout | Repo-validated against `ui/main_window.py:100–223`; the Orchestrator's offscreen probe agrees (watchlist stayed 150 after driving to cap with the toolbar visible); B5 chose scroll/elide 2026-10-05 | y (repo-validated 2026-10-05; fix chosen by B5) | 2026-10-05 |
+| A38 | **D19 covers both D17 and D18 symptoms** (they share the one toolbar-pinning root cause), and the fix must make the D17/D18 criteria hold in a **toolbar-visible** window; the D17/D18 criteria themselves are unchanged. **B6:** the watchlist cap **stays `floor(0.50 × chart_area)`** — no cap change | Both symptoms are produced by the same no-slack splitter; the probe shows the watchlist pinned and the right dock pushed to the window edge; B6 answered "Keep 50%" 2026-10-05 | y (derived from the validated diagnosis; B6 answered 2026-10-05) | 2026-10-05 |
 
 ## Documentation Maintenance Requirements
 
@@ -1666,27 +1783,23 @@ Chart; Q29 no-op semantics):**
 | R29 | D18: raising the right-dock width could push the chart below its 400px minimum when the watchlist is also enlarged | M | H | **Resolved by B3 rule (`AC-D18.5`):** independent caps (watchlist 50%, right region 40% of chart area) each clamped against the remaining space with a hard ~400px chart minimum; clamp on resize **and on every dock change**; enlarging one dock can force the other to shrink, and the criteria assert `chart_area >= 400px` |
 | R30 | D18: full-screen "reposition so it fits" could hide the right dock entirely on small displays | M | M | Made measurable by `AC-D18.1`: the region's geometry must lie within the window rect with a non-zero visible width; cap it at 40% of the chart area, keep the chart minimum (B3), and do not let content `sizeHint` force it off-screen (`AC-D18.6`) |
 | R31 | D17: enforcing a cap during the drag could make the handle feel "stuck"; the user's report says it currently does not move at all, so both over- and under-enforcement are failure modes | L | M | Verify the handle moves **freely in both directions** between min (150px) and cap (`AC-D17.1`/`AC-D17.2`); only clamp past the cap (`AC-D17.3`). B4 confirmed both drag directions are required |
+| R32 | D19: the **scroll/elide** toolbar fix could change the toolbar's height or make controls hard to reach, affecting chart space or usability | M | M | B5 selects **horizontal scroll / elide in place** (one ~36px row); `AC-D19.4` requires all controls reachable via the scroll/elide affordance and the central widget able to shrink; verify at wide and narrow widths |
+| R33 | D19: removing the `toolbar.hide()` masking will make the existing D17/D18 tests fail until the fix lands; the suite is not green in between | M | H | Expected: the harness change is part of the fix; demonstrate the pre-fix failure (`AC-D19.6`) then green after; treat the intermediate red as intentional, not a regression |
+| R34 | D19: the toolbar's minimum width differs between the offscreen platform and the real macOS window; a **scroll/elide** fix that only works offscreen could still fail in the real app | M | M | `AC-D19.6` requires a toolbar-visible window; also verify in the real dev build (`python main.py`) manually, not only offscreen |
 
 
 ---
 
 ## Status
 
-**Status: READY_FOR_PLAN.** The 2026-10-03 batch — **D17** (Watchlist dock resize not effective in
-full screen) and **D18** (Active Trader + Portfolio right dock not visible in full screen; new 40% /
-equal-width sizing) — is **clarified and finalised**. All four blocking questions **B1–B4 were
-answered by the user on 2026-10-03** (recorded in `open_questions.md`):
-**(B1)** the watchlist cap is **50% of the chart area** (supersedes/corrects D13's Q25 window-width
-denominator — D13, `AC-D13.1`–`AC-D13.3`, Journey 14, A17 and R15 updated in lockstep);
-**(B2)** Active Trader + Portfolio are **one right-dock region** (stacked, inherently equal width)
-with the 40%-of-chart-area cap on that single region;
-**(B3)** **independent caps + ~400px chart-minimum rule** (each dock clamps against its own % **and**
-the remaining space; enlarging one can force the other to shrink);
-**(B4)** the watchlist handle drags **both directions** between min **150px** and cap, default
-**~220px**, persistence (Q26) still required.
-D17/D18 now carry **final** criteria (`AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`), Journeys 18–19,
-assumptions A34–A36 and risks R28–R31. D16 remains clarified and finalised (Q37–Q39, ESC-023);
-D1–D15 remain built and green. **No blocking open question remains.** The Existing Repository section
-(marker sentence + Current Tech Stack) is preserved.
+**Status: READY_FOR_PLAN.** The 2026-10-05 batch (D19) is **clarified and finalised**: the user answered **B5**
+(toolbar behaviour when narrow — **"Horizontal scroll / elide in place"**) and **B6** (watchlist cap —
+**"Keep 50%"**) on 2026-10-05. D19's fix wraps the existing toolbar in a **horizontal scroll / elide** container
+**in place** — it stays inside the central widget as a single ~36px row and its minimum width no longer pins the
+central widget — so the D17/D18 criteria hold in a **toolbar-visible** window; the watchlist cap stays at **50% of
+the chart area**. `AC-D19.1`–`AC-D19.7` are final, including the **test-masking regression guard** (`AC-D19.6`):
+the D17/D18 tests must exercise a toolbar-visible window (or reproduce the constraint), and at least one D17 and one
+D18 test must fail pre-fix and pass post-fix. No blocking question remains. D16 remains clarified/finalised; D1–D15
+remain built and green; the Existing Repository section (marker sentence + Current Tech Stack) is preserved.
 
 Status: READY_FOR_PLAN

@@ -470,3 +470,70 @@ behind T49 by the dependency edge.
 All other ESC-001…ESC-025 entries remain `addressed` and are not touched. T45's acceptance criteria
 are **not** reworded: ESC-026's own root-cause classification confirms the AC is correct and only
 the code and its test coverage were deficient.
+
+## Batch 13 — D19 (toolbar scroll/elide wrapper) (T53–T60)
+
+Revision date: 2026-10-05. Source of truth: `docs/plan.md` (`Status:
+READY_FOR_TASK_MANAGER`, Batch 13, 3 phases) and `docs/architecture.md` (D19 increment,
+validated 2026-10-05). Input: `docs/requirements/requirements.md` (`AC-D19.1`–`AC-D19.7`,
+Journey 20, A37–A38, R32–R34, B5–B6 answered, DG27–DG28). No open
+`ESCALATED_TO_TASK_MANAGER` entry exists. D1–D18 (T1–T52) are `done` and are deliberately
+**not** re-listed in the rebuilt graph; this graph is the **D19 delta only**.
+
+**No architecture assumptions were invented and no requirements ambiguity was found.**
+The architecture fixes the `QScrollArea` mechanism and its exact properties (no frame,
+`setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`,
+fixed 36px, objectNames `"MainToolbar"`/`"ToolbarScroll"`), the `conn_badge` placement
+(FI-D19-2), the untouched width model (B6 keeps `floor(0.50 × chart_area)`), and the five
+affected harnesses, so every task is `architecture_dependency: false`.
+
+### Tasks and `touches_files`
+- **T53** (Phase 1) — `ui/main_window.py` + new `tests/test_toolbar_scroll_d19.py`. deps [].
+- **T54** (Phase 2, D17) — `tests/test_dock_widths_d17.py`. deps [T53].
+- **T55** (Phase 2, D18 e2e) — `tests/test_dock_widths_d18.py`. deps [T53].
+- **T56** (Phase 2, D18 impl) — `tests/test_dock_widths_d18_impl.py`. deps [T53].
+- **T57** (Phase 2, D18 region) — `tests/test_dock_d18_region.py`. deps [T53].
+- **T58** (Phase 2, dock layout) — `tests/test_dock_layout.py`. deps [T53].
+- **T59** (Phase 2, `AC-D19.6` guard) — `touches_files: []` (writes only Build's own log).
+  deps [T53, T54, T55, T56, T57, T58].
+- **T60** (Phase 3, regression + real dev) — `touches_files: []`. deps [T53…T59].
+
+### Sequencing / why the edges are logical, not file-overlap
+- T54–T58 each remove `toolbar.hide()` masking and (T54/T55) add the toolbar-visible
+  `AC-D19.1`/`AC-D19.2`/`AC-D19.3` guards. They depend on **T53** because they locate the
+  toolbar/wrapper by the stable `objectName`s T53 introduces and their toolbar-visible
+  assertions only pass once T53's wrapper exists. This is an **assumed-interface** dependency
+  even though the harness files are disjoint from `ui/main_window.py` — a missing edge would
+  let a harness task run in the same wave as T53 and read a tree without the wrapper.
+- T54–T58 are mutually disjoint test files and may parallelise across waves.
+- **T59** depends on all five harnesses plus T53: `AC-D19.6` is a whole-guard property
+  (≥1 D17 and ≥1 D18 toolbar-visible test **fails pre-fix at `5bd7c93`** and **passes
+  post-fix**), so it cannot be verified until the guard tests exist and the fix lands. The
+  intermediate red is intentional (R33), not a regression.
+- **T60** depends on everything; it is the terminal regression + real-dev gate
+  (`AC-D19.7`, `AC-D2.1`, R34/Q9).
+
+### Test-placement deviation from the plan (documented, not a scope change)
+The plan lists the optional `tests/test_toolbar_scroll_d19.py` in Phase 2. It is placed in
+**T53** (Phase 1) instead because the task schema requires every task's acceptance criteria
+to carry matching tests *within that task*: T53 owns `AC-D19.4`/`AC-D19.5`, so it ships its
+own wrapper-specific offscreen tests. This changes no architecture, drops no plan
+deliverable, and keeps the file disjoint from the five Phase-2 harnesses (no two writers on
+one file).
+
+### AC coverage
+- `AC-D19.1`: T54-T02 (toolbar-visible watchlist reaches the cap). `AC-D19.2`: T55-T02.
+  `AC-D19.3`: T55-T03.
+- `AC-D19.4`: T53-T01 (i: central min-hint bound, still a central descendant), T53-T02
+  (ii: controls reachable / scroll range > 0), T53-T04 (mechanism + `conn_badge`). 
+- `AC-D19.5`: T53-T03.
+- `AC-D19.6`: T54-T01/T55-T01/T56-T01/T57-T01/T58-T01 (masking removed, toolbar-visible)
+  + T59-T01 (pre-fix red / post-fix green discrimination) + T59-T02 (no masking remains).
+- `AC-D19.7`: T60-T01 (full suite) and T60-T03 (real dev build, R34). `AC-D2.1`: T60-T02.
+
+### Graph state
+`task-graph.json` metadata is `"status": "READY_FOR_BUILD"`; T53–T60 are `not_started`.
+Unique task ids (8) and test ids (22); every acceptance criterion has ≥1 linked test and
+every test links an existing criterion (1:1). `execution_graph.json` nodes match the task
+set; 18 edges resolve to existing ids with no cycles (every edge points to a strictly lower
+task number).

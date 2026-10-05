@@ -1,142 +1,116 @@
-# Architecture Proposal — NDThinkChart D17 + D18 (incremental panel-layout change)
+# Architecture Proposal — NDThinkChart Batch 13 (D19: toolbar scroll/elide wrapper)
 
-> Draft proposal owned by **Plan**. Not canonical. Plan Artifact Editor & Validator
-> reads this, checks it against `docs/requirements/requirements.md` (Status:
-> `READY_FOR_PLAN`, Batch 11 D17+D18), and writes the canonical
-> `docs/architecture.md` / `docs/plan.md`.
+> **Scope.** An *incremental* change on top of the **already-built, green D1–D18** system
+> (commit `5bd7c93`; full offscreen suite **566 passed**). D1–D18 are **frozen** and are
+> **not** re-planned. This is an **existing-repo** run: `requirements.md` contains the marker
+> sentence `This is an existing repository.` and a Current Tech Stack; **PyQt6 + pyqtgraph is
+> a hard constraint**. No stack change, no schema change, no new dependency, no new external
+> integration, and no live-order-path change. Items are labelled `[existing]`, `[new]`, or
+> `[new/changed]`.
 >
-> **Scope:** an *incremental* change on top of the already-built, green D1–D16
-> system (commit `fd0bb0a`; full offscreen suite green). D1–D16 are **frozen** and
-> are **not** re-planned. `docs/architecture.md` is the as-built baseline. This is an
-> **existing-repo run** — the marker sentence and Current Tech Stack are preserved in
-> `requirements.md`; PyQt6 + pyqtgraph is a **hard constraint**.
+> **Defect.** D19 — the toolbar's ~1716px `minimumSizeHint` sits inside the central widget and
+> pins it, so the D17/D18 dock-width behaviour is not effective in the real (toolbar-visible)
+> app. The D17/D18 test harnesses hid the toolbar, masking it (`DG27`/`DG28`). **Decision
+> (B5, 2026-10-05):** wrap the toolbar in a **horizontal scroll / elide** container **in
+> place** — it stays inside the central widget as a single ~36px row. **B6:** the watchlist cap
+> stays `floor(0.50 × chart_area)`.
 >
-> Evidence note: the D17/D18 "diagnosed facts" in the brief were re-validated against
-> the current source (`ui/main_window.py`, `ui/watchlist_panel.py`,
-> `ui/active_trader_panel.py`, `ui/active_portfolio_panel.py`, `tests/*`). Where the
-> source is authoritative over the requirements narrative, that is noted.
+> Companion proposal: `docs/plan_proposal.md`. As-built baseline: `docs/architecture.md`.
+> Requirements: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`; D19 / Journey
+> 20 / `AC-D19.1`–`AC-D19.7`; A37–A38; R32–R34; B5–B6 answered 2026-10-05; DG27–DG28).
 
 ---
 
-## Codebase Summary (existing repository — D17/D18 surface)
+## Codebase Summary (existing repository — D19 surface)
 
-> Inventory gathered with the **graphify** skill (`graphify-out/graph.json`, 2175
-> nodes, refreshed 2026-10-03) and then **validated against the current source files**
-> (the repository is authoritative). The graph surfaced the relevant communities and
-> symbols (`watchlist_max_width`, `clamp_watchlist_width`, `ActiveTraderPanel`,
-> `ActivePortfolioPanel`, `MainWindow.__init__`, `test_d10_d13_integration`); every
-> claim below was then confirmed by direct inspection of the current tree on
-> 2026-10-03.
+> Inventory gathered with the **graphify** skill (`graphify-out/graph.json`, 2366 nodes,
+> refreshed 2026-10-05) and then **validated against the current source files** (the repository
+> is authoritative). The graph surfaced the relevant symbols (`MainWindow`,
+> `_apply_dock_widths`, `_chart_area_width`, `WatchlistPanel`, `test_dock_widths_d18`,
+> `test_dock_layout`); every claim below was confirmed by direct inspection of the current tree
+> on 2026-10-05.
 
-### Existing components (factual inventory — the D17/D18 surface only)
+**Toolbar construction — `[existing] ui/main_window.py:100–211`**
+- `toolbar = QWidget()`; `toolbar.setFixedHeight(36)`; inline stylesheet
+  (`background: #101218; border-bottom: 1px solid #232938;`).
+- `tb_layout = QHBoxLayout(toolbar)`, margins `(8, 0, 8, 0)`, spacing `6`.
+- Fixed-width controls: `symbol_input` 120, `tf_combo` 90, `mode_combo` 110, `sound_btn` 56,
+  `ext_hours_btn` 80, `tz_combo` 110, `draw_combo` 110, `draw_set_combo` 140,
+  `draw_delete_btn` 38; plus variable-width buttons/labels (`Load Chart`, `Studies…`,
+  `Alarms (0)`, `Alarm Mode`, `DOM`, `Sets…`, `Symbol:`, `TF:`, `Mode:`, `Draw:`, `|`).
+- Layout order ends with `tb_layout.addStretch()` then `conn_badge` (`QLabel("● Connecting")`,
+  `:186–187`, `:210–211`). The stretch means the badge is pushed to the right edge.
+- **Consequence:** the toolbar's `minimumSizeHint().width()` is ≈ **1716px** (sum of the
+  fixed widths + labels + spacings + button size hints).
 
-- **`[existing] ui/main_window.py` — `MainWindow.__init__` central + dock setup**
-  (`:205–252`):
-  - Central widget is a `QWidget` (`central`) with a `QVBoxLayout` holding the toolbar
-    and `ChartPanel`. The **chart area** for D17/D18 purposes is this central region.
-  - **Watchlist dock** (`:217–232`): `QDockWidget("Watchlist")` in `LeftDockWidgetArea`;
-    `watchlist_panel.setMinimumWidth(150)` (`:225`); the width is restored via
-    `load_watchlist_width(...)` and applied with **one** `resizeDocks([watchlist_dock],
-    [width], Horizontal)` (`:229–230`). No `setMaximumWidth` anywhere.
-  - **Right docks** (`:234–252`): **two separate `QDockWidget`s** —
-    `QDockWidget("Active Trader")` and `QDockWidget("Portfolio")`, **both** in
-    `RightDockWidgetArea`, with no min/max width and **no `resizeDocks` call**. This is
-    the exact shape B2 says must become **one region**.
-- **`[existing] ui/main_window.py` — `resizeEvent`** (`:959–970`): calls
-  `watchlist_max_width(self.width())` and re-clamps **only when the dock is already
-  wider than max**. `resizeEvent` fires on **window** resize, not on a dock-splitter
-  drag; there is **no `splitterMoved` / `dockLocationChanged` handler**.
-- **`[existing] ui/main_window.py` — `closeEvent`** (`:1379–1387`): persists the
-  watchlist width via `save_watchlist_width(self._settings, watchlist_dock.width(),
-  self.width())`. Persistence is `QSettings("NDThinkChart", "NDThinkChart")`,
-  key `watchlist/width` — **no SQLite change**.
-- **`[existing] ui/main_window.py` — DOM toggle** (`:1011–1020`): `_on_dom_toggled`
-  finds the dock by `findChild(QDockWidget, "Active Trader")` and flips its visibility.
-  This is a **title-based lookup** that the D18 reshaping must keep working.
-- **`[existing] ui/main_window.py` — full-screen handling: NONE.** No
-  `showFullScreen`, `setWindowState`, `WindowFullScreen`, or full-screen branch exists
-  anywhere in `ui/` (confirmed by grep). Full screen is an OS window state.
-- **`[existing] ui/watchlist_panel.py`** (`:29–62`): the D13 helpers —
-  `WATCHLIST_MIN_WIDTH = 150`, `CHART_MIN_WIDTH = 400`, `DEFAULT_WATCHLIST_WIDTH = 220`,
-  `WATCHLIST_WIDTH_KEY = "watchlist/width"`;
-  `watchlist_max_width(window_width) = max(150, min(int(W*0.50), W-400))`;
-  `clamp_watchlist_width(width, window_width) = max(150, min(width, max_width))`;
-  `load_/save_watchlist_width`. **Note:** these are parameterised on **window width**,
-  not the chart area, and do **not** account for the right docks — exactly the B1
-  denominator defect and the DG24 unaccounted-consumer gap.
-- **`[existing] ui/watchlist_panel.py` — `WatchlistPanel`**: emits
-  `row_double_clicked` (D14). No width governance of its own.
-- **`[existing] ui/active_trader_panel.py` — `ActiveTraderPanel(QWidget)`** (`:410`):
-  `QVBoxLayout` (margins 6) with a header row (`QSpinBox` qty 1..100000), a `QTabWidget`
-  (`LadderTable`, `BookTable`, `OrderEntryWidget`), and the ladder click wiring. **No
-  `setMinimumWidth` / `setMaximumWidth` / `setMinimumSize` / `sizeHint` override** — so
-  the ladder/book tables' natural size can demand unbounded width.
-- **`[existing] ui/active_portfolio_panel.py` — `ActivePortfolioPanel(QWidget)`**
-  (`:27`): `QVBoxLayout` with a summary label, a **10-column** `QTableWidget`
-  (`horizontalHeader().setSectionResizeMode(Stretch)`) and a `Refresh` button. **No
-  width governance** either.
-- **`[existing] ui/chart_panel.py` — `ChartPanel`**: owns a vertical `QSplitter`
-  (`price_plot`, `volume_plot`, `osc_plot`) — **inside** the chart area, unrelated to
-  the dock widths. `resizeEvent` (`:438`) only repositions the zoom controls and the
-  volume toggle. Unchanged by D17/D18.
-- **`[existing] tests/`** — four integration/regression tests depend on the right docks:
-  - `tests/test_d10_d13_integration.py` (`:33,50–52`): hides docks whose
-    `windowTitle()` is `"Active Trader"` / `"Portfolio"`; asserts the **old window-width
-    clamp math** (`:120–124`).
-  - `tests/test_watchlist_d14_midrag.py`, `tests/test_history_backfill*.py`: hide the
-    same two titles to isolate their own concern.
-  - `tests/test_crosshair_axis_lane.py` (`:101–105`): resolves `docks["Active Trader"]`
-    and `docks["Portfolio"]` by **`windowTitle()`** and asserts the D2 chip does not
-    intersect either `frameGeometry()`.
-  - `tests/test_watchlist.py`: asserts the helper maths `watchlist_max_width(1400)==700`,
-    `watchlist_max_width(600)==200`-ish (`max(150,200)`), `watchlist_max_width(100)==150`.
+**Central-widget composition — `[existing] ui/main_window.py:213–223`**
+- `self.chart_panel = ChartPanel(tz_offset=…)`; `central = QWidget()`;
+  `vbox = QVBoxLayout(central)` (margins `0`, spacing `0`); `vbox.addWidget(toolbar)`;
+  `vbox.addWidget(self.chart_panel)`; `self.setCentralWidget(central)`.
+- **Consequence:** `centralWidget().minimumSizeHint().width()` is therefore ≈ 1716px, so
+  `QMainWindow` cannot shrink the central area below it and the dock splitter has no slack.
 
-### Existing data models / tables (unchanged by D17/D18)
+**Chart-area denominator + D17/D18 width model — `[existing]`**
+- `MainWindow._chart_area_width()` (`:1027–1038`) returns `centralWidget().width()`, falling
+  back to `self.width()` when the central widget is absent/not yet laid out.
+- `MainWindow._apply_dock_widths()` (`:1101–1168`) is the **single apply entry point**; it
+  reads `_chart_area_width()`, plans via `_plan_dock_widths()` (`:1055–1099`), and issues
+  `resizeDocks`. It is driven by the dock event filter (`:1350–1363`), `resizeEvent`
+  (`:1381–1390`), `changeEvent(WindowStateChange)` (`:1365–1379`), the deferred normalize
+  (`_deferred_dock_setup`, `:1238–1257`) and `right_dock.visibilityChanged`
+  (`_on_right_dock_visibility_changed`, `:1259–1271`).
+- `ui/dock_layout.py` (`[existing]`, pure, Qt-free) is the single source of truth:
+  `CHART_MIN_WIDTH = 400`, `WATCHLIST_MIN_WIDTH = 150`, `DEFAULT_WATCHLIST_WIDTH = 220`,
+  `RIGHT_DOCK_MIN_WIDTH = 200`, `WATCHLIST_CAP_FRACTION = 0.50`,
+  `RIGHT_DOCK_CAP_FRACTION = 0.40`; `watchlist_max_width`, `right_dock_max_width`,
+  `plan_dock_widths` (B3 cross-clamp).
+- Single right dock region — `[existing] ui/main_window.py:264–306`: one `QDockWidget("Active
+  Trader")` (objectName `"Active Trader"`) whose container stacks `ActiveTraderPanel` over
+  `ActivePortfolioPanel`; the region keeps the title/objectName so `_on_dom_toggled`'s
+  `findChild(QDockWidget, "Active Trader")` resolves it.
+- Watchlist dock — `[existing] ui/main_window.py:225–262`: `QDockWidget("Watchlist")` in
+  `LeftDockWidgetArea`, `setMinimumWidth(WATCHLIST_MIN_WIDTH)`.
 
-`Bar`, `Alarm`, `Drawing`, `DrawingGroup`, `Position`, `TradeGroup`,
-`OrderBookLevel`, `UserOrder`; tables `bars`, `watchlist`, `alarms`, `zones`,
-`drawing_groups`, `drawings`, `studies`, `positions`, `trade_groups`,
-`position_group_map`. **No schema change for D17/D18** — width is ephemeral view state
-plus the existing `QSettings` key.
+**Affected D17/D18 test harnesses (the masking) — `[existing] tests/`**
+Five test modules locate the toolbar through the central layout and hide it, exactly as DG28
+records. After the D19 fix, `centralWidget().layout().itemAt(0).widget()` returns the **scroll
+wrapper**, not the toolbar:
+- `tests/test_dock_widths_d17.py:67–72` — `_make_window` hides the toolbar (its docstring at
+  `:10–12` admits it "pins the central widget … masking the very behaviour under test").
+- `tests/test_dock_widths_d18.py:111–116` — same masking.
+- `tests/test_dock_widths_d18_impl.py:67–72` — same masking.
+- `tests/test_dock_d18_region.py:46–51` — same masking.
+- `tests/test_dock_layout.py:315–319` — same masking.
 
-### Existing integrations in play (unchanged)
+**Existing data models / tables — unchanged by D19**
+`Bar`, `Alarm`, `Drawing`, `DrawingGroup`, `Position`, `TradeGroup`, `OrderBookLevel`,
+`UserOrder`; tables `bars`, `watchlist`, `alarms`, `zones`, `drawing_groups`, `drawings`,
+`studies`, `positions`, `trade_groups`, `position_group_map`. **No schema change.**
 
-IBKR (historical/RT/depth), SQLite, Qt signal bus, **`QSettings`** (watchlist width),
-`PyQt6.QtWidgets` dock geometry APIs. **No new external integration** is introduced.
+**Existing integrations in play — unchanged by D19**
+IBKR historical/RT data, SQLite, the Qt signal bus, `QSettings("NDThinkChart","NDThinkChart")`
+key `watchlist/width`, and `PyQt6.QtWidgets` dock/geometry APIs. **No new external
+integration.**
 
-### Key structural facts the D17/D18 design must respect
-
-1. There is **no live width enforcement during a dock drag** anywhere — the cap runs
-   only at construction and on window `resizeEvent` (DG23 confirmed).
-2. The watchlist cap uses **window width** and **ignores the right docks** (DG24 /
-   B1 denominator).
-3. The two right docks are **un-owned horizontally** (no min/max, no `resizeDocks`,
-   no cap) and are a **separate region each**, not one region (DG24).
-4. **Title-based dock lookups** exist in production (`_on_dom_toggled`) and in four
-   tests — the reshaping must not silently break `findChild(QDockWidget, "Active Trader")`
-   or the `windowTitle()`-keyed test helpers, or, if it must, the tests are updated in
-   lockstep (R28/`AC-D18.8`).
+**Key structural fact the D19 design must respect.**
+The toolbar's width enters the central widget's `minimumSizeHint` purely because the toolbar is
+a direct `QVBoxLayout` child with no horizontal-shrink affordance. Wrapping it in a horizontal
+`QScrollArea` removes that width from the central minimum without moving the toolbar out of the
+central widget and without touching any control's construction or signal wiring.
 
 ---
 
 ## Summary
 
-D17/D18 are **pure UI-layout changes within the existing PyQt6 dock architecture** —
-no new stack, no new dependency, no schema change, no new integration, and no
-touch to the live-order path. The change introduces **one shared, chart-area-relative
-width model** and applies it **live, during dock drags and dock/resize events**, to two
-regions: the **left watchlist dock** (cap
-
-`floor(0.50 × chart_area)`, min 150px, default ~220px, persisted) and a **single right
-dock region** holding the Active Trader ladder and the Portfolio section **stacked
-vertically** (cap `floor(0.40 × chart_area)`, inherently equal width by construction).
-Both caps are further clamped by a **shared chart-minimum rule** (~400px) so that
-enlarging one region can force the other to shrink (`AC-D18.5` / B3), and the right
-region is made **fully visible in full screen** (`AC-D18.1`) by bounding its content
-minimum width and by an explicit full-screen/`resizeEvent` normalize step. D1–D16
-modules are untouched; the D13 helpers are **re-parameterised from window width to
-chart area** as the single source of the cap (B1), and the affected D13 tests are
-updated in lockstep.
+D19 is a **minimal, in-place UI change**. The existing toolbar `QWidget` is wrapped in a
+horizontal `QScrollArea` (no frame, `setWidgetResizable(False)`, horizontal
+`ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`) whose height is fixed at **36px**, and the
+wrapper is inserted into the central widget's `QVBoxLayout` **where the bare toolbar was**. The
+toolbar therefore contributes only a small minimum width to the central widget, which can now
+shrink; the **already-built** D17/D18 width model then becomes effective in a toolbar-visible
+window. Nothing else changes: the watchlist cap (`floor(0.50 × chart_area)`, B6), the pure
+`ui/dock_layout.py` model, `_apply_dock_widths`, the single right dock region, and all D1–D18
+behaviour are untouched.
 
 ---
 
@@ -144,16 +118,15 @@ updated in lockstep.
 
 | Decision | Choice | Rationale | Alternatives considered |
 |---|---|---|---|
-| Language / UI stack | **Unchanged** `[existing]`: Python 3.11+, PyQt6 (≥6.6), pyqtgraph (≥0.13). "Changing the tech stack" is a stated Non-Goal | Existing-repo hard constraint; D17/D18 are layout fixes only | A nested `QSplitter` layout replacing docks entirely — rejected (out of scope, would re-open D2/D14/QSettings behaviour) |
-| Where the live clamp is enforced | **`[new/changed]`** a single `MainWindow._apply_dock_widths()` that reads the **current chart-area width** from `centralWidget().width()` and calls `resizeDocks(...)` for both regions; invoked from a **`QSplitter.splitterMoved`** handler on the dock areas' internal splitter **and** from `MainWindow.resizeEvent`, plus a one-shot `QTimer.singleShot(0, …)` normalize on show. Reuses the D13 helpers as the cap source | The D17 root cause is that nothing hooks the *dock-splitter drag* — only `resizeEvent`. Connecting the actual handle signal enforces the cap **during** the drag (`AC-D17.3`), and one shared function makes left/right cross-clamping coherent (`AC-D18.5`) | A per-dock `eventFilter` on the splitter handle (more fragile, duplicate wiring); a custom `QDockWidget` subclass that overrides `resizeEvent` (Qt’s internal splitter still drives the dock, so the cap would still be missed mid-drag); `setMaximumWidth` only (**rejected as sole mechanism** — it does not implement the *chart-minimum* cross-clamp, and it constrains the widget but not the drag behaviour that D18 needs) |
-| Cap denominator | **`[new/changed]`** both caps measured against **`chart_area` = the central widget width** (the region holding the chart, excluding both dock regions), per B1/B2 — **not** `MainWindow.width()` as in D13’s Q25 | B1 corrects D13’s denominator in lockstep; once the right region exists, the point the cap is measured from must exclude both dock regions or the chart starves | Keep window-width denominator (R28: contradicts D17, starves chart with a visible right dock) |
-| Watchlist cap formula | **`[new/changed]`** `watchlist_max_width(chart_area_w)` = `max(150, min(floor(0.50 × chart_area_w), chart_area_w − 400))`; the **400px chart minimum is the shared constant** `CHART_MIN_WIDTH` | Preserves the D13 helper name/signature shape (one-arg → int) so tests update minimally; keeps the chart-minimum clamp | A two-argument `(width, chart_area, right_dock_w)` — more call sites to thread; preferred alternative is the *shared* function below |
-| Right region cap | **`[new]`** `right_dock_max_width(chart_area_w)` = `max(RIGHT_MIN, min(floor(0.40 × chart_area_w), chart_area_w − 400))` with a small min (e.g. `RIGHT_DOCK_MIN_WIDTH = 200`) | New requirement (D18); symmetric with the watchlist helper; same chart-minimum rule | A hard-coded 40% of window (ignores cross-clamp) |
-| Combined cross-clamp (B3) | **`[new]`** one pure function `plan_dock_widths(chart_area_w, requested_left, requested_right)` → `(left, right)` that applies each cap, subtracts both from the chart area, and **shrinks whichever dock is over budget** (preferring to shrink the dock being resized less) until `chart_area ≥ 400` | Makes `AC-D18.5` (“enlarging one forces the other to shrink”) a **pure, unit-testable** rule rather than emergent Qt behaviour; the D13/D17 cap helpers remain the per-dock cap source | Rely on Qt’s own `resizeDocks` negotiation (non-deterministic across platforms; cannot guarantee `chart_area ≥ 400`); clamp only the resized dock (fails `AC-D18.5`) |
-| Single right region shape (B2) | **`[new/changed]`** replace the two right `QDockWidget`s with **one** `QDockWidget` containing a `QWidget` whose `QVBoxLayout` stacks **ActiveTraderPanel** over **ActivePortfolioPanel** (optionally via a `QSplitter(Vertical)` so the user can adjust the vertical split, with equal **width** guaranteed by the single region) | B2: one region ⇒ the two sections are **inherently equal width** (`AC-D18.3`) and the 40% cap applies to the region; keeps D2/D10 title lookups working by keeping an identifiable title and a stable object name | Keep two docks and force equal widths via `resizeDocks` on both (fragile; a drag on one still leaves the other ungoverned; violates the “one region” intent) |
-| Full-screen visibility (D18) | **`[new]`** (a) bound the **content minimum** of both right panels so the ladder/portfolio tables cannot demand unbounded width (`AC-D18.6`); (b) an explicit **full-screen / `changeEvent(WindowStateChange)` + `resizeEvent` normalize** that re-applies the cap against the *visible* window rect and calls `resizeDocks` so the region is on-screen with non-zero width (`AC-D18.1`) | The reported defect is the region being clipped off-screen; `AC-D18.6` requires content not to force it off-screen; a measurable geometry assertion (dock `geometry()` within window `rect()`, `width() > 0`) is the test condition | Pure content-size-hint change (does not guarantee on-screen geometry); auto-hide (violates “visible in full screen”) |
-| Persistence | **`[existing]` for the watchlist** (`QSettings watchlist/width`, re-clamped to the new chart-area cap); **`[new]` explicit “not persisted” for the right region** (A36/`AC-D18.7`) | Q26 still required for the watchlist (B4); the user did not request right-region persistence | Persist the right region too (not requested; broader than the requirement) |
-| Tests | **`[existing]`** pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS; add pure-function unit tests for the new helpers + offscreen `MainWindow` geometry tests; **update the D13 clamp-math assertions in lockstep** | Repo standard (Q8/Q9); `AC-D17.6`/`AC-D18.8` require the existing suite green (or updated where B1 changes the denominator) | Manual-only (rejected) |
+| Language / UI stack | **Unchanged `[existing]`:** Python 3.11+, PyQt6 (`≥6.6`), pyqtgraph (`≥0.13`). "Changing the tech stack" is a stated Non-Goal | Existing-repo hard constraint; D19 is a layout fix only | A new toolbar framework / embedded web view (out of scope, no dependency allowed) |
+| Dock width model | **Unchanged `[existing]`** `ui/dock_layout.py` — cap constants and `plan_dock_widths` are **not** touched | **B6** keeps the watchlist cap at `floor(0.50 × chart_area)`; D19 fixes only the toolbar pinning | Change the cap (explicitly **not** adopted, B6) |
+| Test stack | **Unchanged `[existing]`** pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS | Repo standard (Q8/Q9); the regression guard is offscreen | Manual-only (rejected) |
+| **Toolbar overflow mechanism** | **`[new/changed]`** wrap the existing toolbar `QWidget` in a **`QScrollArea`** (no frame, `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`), inserted into the central `QVBoxLayout` **in place of the bare toolbar** | Standard Qt class, no new dependency; removes the toolbar's ~1716px width from the central widget's minimum while keeping it **inside the central widget** as one row (B5); the pure `QScrollArea` does the shrink/scroll with no per-control changes | (b) wrap to multiple rows, (c) compress/overflow `»` menu, (d) move to `QMainWindow.addToolBar` — **all explicitly not adopted (B5)**. Also: `QScrollArea` with `setWidgetResizable(True)` or a default always-on scrollbar — **passed over** (would let the toolbar reflow/grow or reserve a scrollbar lane and break the single-row height) |
+| **Toolbar row height** | **`[new/changed]`** wrapper height fixed at **36px**; the horizontal scrollbar is **overlay/transient** (FI-D19-1) so it does not add height | `AC-D19.4` requires the laid-out toolbar height to stay `<= ~40px` (one row); a reserved scrollbar lane would add ~15px and break it | A normal (non-overlay) horizontal scrollbar lane (~51px total) — rejected |
+| **`conn_badge` placement** | **`[existing]` behaviour retained:** `conn_badge` stays **inside the scroll region** and scrolls with the toolbar (FI-D19-2) | Keeps the toolbar a single uniform scrollable row; no split widget | Pin the badge outside the scroll region (splits the row / adds a second layout) — not adopted |
+| **Toolbar identification for tests** | **`[new]`** give the toolbar and its scroll wrapper stable `objectName`s (e.g. `"MainToolbar"` / `"ToolbarScroll"`) | After wrapping, `centralWidget().layout().itemAt(0).widget()` is the **wrapper**, not the toolbar; the affected harnesses must locate by name (and stop hiding) | Continue keying on `itemAt(0)` — fragile and semantically wrong once wrapped |
+| **Watchlist cap** | **Unchanged `[existing]`** `floor(0.50 × chart_area)` (B1/B6) | B6: the formula was never the problem; D19 fixes only the toolbar pinning | Raise the cap — **not adopted (B6)** |
+| Persistence | **No change:** `[existing]` `QSettings watchlist/width` for the watchlist; no new key; right region still not persisted (A36) | D19 adds no user-visible state | Persist the toolbar scroll position — not requested |
 
 ---
 
@@ -161,133 +134,91 @@ updated in lockstep.
 
 Each item is labelled `[existing]`, `[new]`, or `[new/changed]`.
 
-### Central + dock layout
-- **`[existing]` central chart area** — `QWidget` + `QVBoxLayout(toolbar, ChartPanel)`;
-  its `width()` **is** `chart_area` for all D17/D18 maths. Unchanged structurally.
-- **`[existing]` left watchlist dock** — `QDockWidget("Watchlist")` in
-  `LeftDockWidgetArea`, min 150px. Kept; gains no new widget of its own.
-- **`[new/changed]` single right dock region** — one `QDockWidget` (e.g.
-  `QDockWidget("Active Trader")`, with the Portfolio section inside it) whose widget is
-  a container `QWidget` with a vertical layout stacking `ActiveTraderPanel` over
-  `ActivePortfolioPanel`. This **replaces** the two separate right `QDockWidget`s
-  (`ui/main_window.py:234–252`). The container sets a bounded `minimumWidth` and,
-  inside it, each panel’s scrollable content is width-bounded so neither can force the
-  region off-screen.
-
-### Width governance (the D17/D18 core)
-- **`[new]` `ui/dock_layout.py`** (pure, Qt-free where possible) — the shared width
-  model:
-  - constants `CHART_MIN_WIDTH = 400` (re-exported/kept in agreement with
-    `watchlist_panel`), `WATCHLIST_MIN_WIDTH = 150`, `DEFAULT_WATCHLIST_WIDTH = 220`,
-    `RIGHT_DOCK_MIN_WIDTH`, right cap fraction `0.40`, watchlist cap fraction `0.50`;
-  - `watchlist_max_width(chart_area_w) -> int`;
-  - `right_dock_max_width(chart_area_w) -> int`;
-  - `plan_dock_widths(chart_area_w, requested_left, requested_right) -> (left, right)`
-    — the **B3 cross-clamp** (`AC-D18.5`), pure and exhaustively unit-testable.
-  Rationale: keeps the chart-minimum rule in one place and off the widget layer,
-  matching the repo’s established **pure-service** pattern (`session_service`,
-  `backfill_service`).
-- **`[new/changed]` `ui/watchlist_panel.py`** — the D13 helpers
-  (`watchlist_max_width` / `clamp_watchlist_width` / `load_/save_watchlist_width`) are
-  **re-parameterised to the chart-area denominator** (B1), delegating to
-  `ui/dock_layout`. Their one-argument signature shape is preserved so callers and
-  tests update minimally.
-- **`[new/changed]` `ui/main_window.py`**:
-  - `_apply_dock_widths()` — reads `centralWidget().width()`, computes the plan via
-    `plan_dock_widths`, and issues `resizeDocks([watchlist_dock], [left], Horizontal)` +
-    `resizeDocks([right_dock], [right], Horizontal)`. Idempotent; guarded with
-    `blockSignals`/re-entrancy flags so an applied resize does not recurse.
-  - A **`splitterMoved` connection** to the dock areas’ internal `QSplitter` (obtained
-    after `show()` via the dock’s child splitter, or via a `QDockWidget`-hosted
-    `QMainWindow` splitter hook) → `_apply_dock_widths`. This is the piece that makes
-    the cap bind **during** the drag (`AC-D17.3`).
-  - `resizeEvent` — re-clamps **both** regions (not only when already over max) and in
-    **both directions** (`AC-D17.2`/B4), via `_apply_dock_widths`.
-  - `changeEvent(WindowStateChange)` — a full-screen normalize step (`AC-D18.1`).
-  - `closeEvent` — persists the watchlist width (`[existing]` behaviour retained,
-    re-clamped to the new cap).
-  - `_on_dom_toggled` — keeps the title-based `findChild(QDockWidget, "Active Trader")`
-    lookup valid against the new single region (D18 reshaping must not break it).
-- **`[new/changed]` `ui/active_trader_panel.py` / `ui/active_portfolio_panel.py`** —
-  add a **bounded minimum/ideal width** to each panel (and make the tables’
-  horizontal sizing respect the available width rather than demanding the sum of
-  column widths) so content cannot push the region off-screen (`AC-D18.6`). No
-  behavioural change to ladder/portfolio logic or signals.
-
-### Unchanged
-- **`[existing]` `ui/chart_panel.py`** — the in-chart vertical `QSplitter` is a
-  separate concern; no change. The D2 chip’s Y-axis-lane geometry is unaffected by
-  dock *width* beyond the already-verified “not covered by the dock” property.
-- **`[existing]` D1–D16 modules and the live-order path** — untouched.
+- **`[existing]` central chart area** — `QWidget` + `QVBoxLayout` in `ui/main_window.py`
+  (`:217–223`). Structurally unchanged; it now holds the scroll wrapper instead of the bare
+  toolbar. Its `width()` remains `chart_area` for the D17/D18 maths.
+- **`[new/changed]` toolbar scroll wrapper** — a `QScrollArea` created in
+  `ui/main_window.py`, inserted into the central `QVBoxLayout` in the toolbar's slot. No frame,
+  `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`,
+  fixed height **36px**, stable `objectName` (`"ToolbarScroll"`). This is the whole D19
+  mechanism.
+- **`[existing]` toolbar `QWidget` and controls** (`ui/main_window.py:100–211`) — construction,
+  fixed widths, signal wiring, and `conn_badge` are **unchanged**; the widget is reparented
+  into the scroll wrapper (and gains `objectName` `"MainToolbar"`).
+- **`[existing]` D17/D18 width model** — `ui/dock_layout.py`, `MainWindow._chart_area_width`,
+  `MainWindow._apply_dock_widths`, the dock event filter, `resizeEvent`, and
+  `changeEvent(WindowStateChange)`. **Unchanged.** D19 only lowers the central widget's
+  minimum so this model can take effect in a toolbar-visible window.
+- **`[existing]` watchlist dock** and **`[existing]` single right dock region** — unchanged.
+- **`[new/changed]` affected D17/D18 test harnesses** — `tests/test_dock_widths_d17.py`,
+  `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py`,
+  `tests/test_dock_d18_region.py`, `tests/test_dock_layout.py`: remove the `toolbar.hide()`
+  masking and exercise a **toolbar-visible** window, plus at least one D17 and one D18
+  toolbar-visible regression guard (`AC-D19.6`).
 
 ---
 
 ## Data Model
 
-**No schema change.** D17/D18 are ephemeral view state.
+**No schema change. No new persisted state.**
 
-- `[existing]` `QSettings("NDThinkChart", "NDThinkChart")` key `watchlist/width`
-  (int, px) — retained; restore is re-clamped to the **new chart-area cap**
-  (`AC-D17.4`). No new key is required for the watchlist.
-- `[new]` Right region width/visibility is **explicitly not persisted** (A36 /
-  `AC-D18.7`).
-- `[new]` In-memory-only runtime fields on `MainWindow`: `_watchlist_width`,
-  `_right_dock_width`, and re-entrancy guards for `_apply_dock_widths` (no model/table
-  changes).
+- `[existing]` `QSettings("NDThinkChart", "NDThinkChart")` key `watchlist/width` (int, px) —
+  retained unchanged (B6 keeps the cap; the restore clamp is unchanged).
+- `[new]` none. D19 adds only two in-memory `objectName` strings (toolbar, scroll wrapper) —
+  ephemeral widget state, not a model.
+- `[existing]` Right-region width/visibility is still not persisted (A36); no new key.
 - Existing models/tables (`Bar`, `Position`, …; `bars`, `positions`, …) are unchanged.
 
 ---
 
 ## Integration Points
 
-- **`[existing]` `QSettings`** — watchlist width persistence; re-clamped on restore.
-- **`[existing]` Qt signal bus / dock geometry APIs** — `QSplitter.splitterMoved`,
-  `QMainWindow.resizeEvent`, `changeEvent(WindowStateChange)`, `QMainWindow.resizeDocks`
-  drive the live clamp. No new external service.
-- **`[new]` `MainWindow._apply_dock_widths` ↔ dock widgets** — the single wiring point
-  connecting drag/resize/full-screen events to the shared width model.
-- **`[existing]` test dock lookups** — `findChild(QDockWidget, "Active Trader")` and the
-  `windowTitle()`-keyed helpers in four tests must keep resolving the right region (or
-  the tests are updated in lockstep).
-- **`[existing]` IBKR / SQLite / pyqtgraph** — unchanged; no new call type, no schema,
-  no dependency.
+- **`[new]` `MainWindow` ↔ `QScrollArea`** — the one new wiring point: the toolbar is set as
+  the scroll area's widget and the scroll area is added to the central `QVBoxLayout` in the
+  toolbar's place. Uses only existing PyQt6 widgets; **no new external service, dependency, or
+  IBKR call shape**.
+- **`[existing]` Qt layout / dock geometry APIs** — `QMainWindow.setCentralWidget`,
+  `QVBoxLayout`, `QMainWindow.resizeDocks`, `resizeEvent`, `changeEvent(WindowStateChange)`,
+  `QSplitter`/event-filter fallback — unchanged.
+- **`[existing]` D17/D18 clamp path** — `_chart_area_width()` → `_apply_dock_widths()` now
+  reads a smaller central minimum; the code itself is unchanged. The B3 cross-clamp
+  (`plan_dock_widths`) is unaffected.
+- **`[existing]` `QSettings`** — unchanged.
+- **`[existing]` test dock/toolbar lookups** — the five affected harnesses must resolve the
+  toolbar/wrapper by `objectName` (or simply stop hiding it) rather than by
+  `itemAt(0).widget()`.
+- **`[existing]` IBKR / SQLite / pyqtgraph** — unchanged; no new call type, no schema, no
+  dependency.
 
 ---
 
 ## Non-Functional Approach
 
-- **Correctness (live cap, D17):** the cap binds **during the drag** because the width
-  plan is recomputed from `centralWidget().width()` on every `splitterMoved`, using the
-  D13 helpers as the cap source (`AC-D13.1`, `AC-D17.1`–`AC-D17.3`). Both directions
-  work because the clamp is two-sided (min 150px, cap) (`AC-D17.2`/B4).
-- **Correctness (single right region + equal width, D18):** one region ⇒ the stacked
-  Active Trader and Portfolio sections share the region width by construction
-  (`AC-D18.3`); the 40% cap applies to the region (`AC-D18.2`).
-- **Correctness (chart minimum / cross-clamp, B3):** `plan_dock_widths` guarantees
-  `chart_area ≥ 400px`; enlarging one region shrinks the other when needed
-  (`AC-D18.5`). The rule is a pure function, so it is unit-testable independent of Qt.
-- **Correctness (full-screen visibility, D18):** `AC-D18.1` is made measurable — the
-  right region’s `geometry()` lies within the window `rect()` with `width() > 0`, and
-  content minimums cannot force it off-screen (`AC-D18.6`). **No `showFullScreen` call
-  is added**; the normalize hook reacts to the OS full-screen/WM state change and to
-  resize.
-- **Persistence (`AC-D17.4`):** the watchlist width survives restart, restored as an
-  int px value clamped to the current chart-area cap (default ~220px, never <150px);
-  the right region is not persisted (`AC-D18.7`).
-- **Performance:** `_apply_dock_widths` is O(1) (no bar/table iteration); it runs on
-  drag/resize events only, and is guarded against recursive resize loops. No per-frame
-  cost added to chart rendering.
-- **High-DPI / small displays:** the ~400px chart minimum plus the per-dock minimum
-  yields gracefully on a small full-screen display (edge case in D18); when
-  `floor(0.40 × chart_area) < region minimum`, the region minimum wins and the
-  chart-minimum rule still applies.
-- **Security / live-order path:** untouched; Q9 holds — no automated test connects to
-  live TWS or transmits an order. D18’s reshaping changes only the container around the
-  ladder, not any order signal or handler.
-- **Regression (`AC-D17.6`/`AC-D18.8`):** D1–D16 stay frozen; the D13 clamp-math
-  assertions in `tests/test_watchlist.py` and `tests/test_d10_d13_integration.py` are
-  updated **in lockstep** to the chart-area denominator (never left contradicting D17),
-  and the title-based dock helpers keep working.
+- **Correctness (central widget can shrink — `AC-D19.4`/`AC-D19.5`):** wrapping the toolbar in
+  a horizontal `QScrollArea` removes its ~1716px width from
+  `centralWidget().minimumSizeHint()`. Target: `centralWidget().minimumSizeHint().width() <=
+  CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH` (= **750px**); the adopted
+  in-memory probe measured **1716 → 88**.
+- **Correctness (single ~36px row — B5 / `AC-D19.4`):** the wrapper's height is fixed at 36px,
+  the vertical scrollbar is always off, and the horizontal scrollbar is overlay/transient
+  (FI-D19-1) so the laid-out toolbar height stays `<= ~40px`.
+- **Correctness (controls stay reachable — B5 / `AC-D19.4`):** the toolbar keeps its full
+  natural width inside the scroll content, so at a narrow window every control is reachable by
+  horizontal scrolling; no control is removed, elided away permanently, or made unreachable.
+- **Correctness (D17/D18 effective in a toolbar-visible window — `AC-D19.1`–`AC-D19.3`,
+  `AC-D19.7`):** once the central widget can shrink, `_apply_dock_widths` (unchanged) can drive
+  the watchlist to `floor(0.50 × chart_area)` and keep the right region on-screen with the
+  chart `>= 400px`. The adopted probe measured the watchlist growing to **508px at chart_area
+  1200** with the toolbar visible (pre-fix it stayed pinned at 150).
+- **Performance:** O(1) layout change; the scroll area adds no per-frame cost and no
+  bar/table iteration. No change to the dock clamp's cost profile.
+- **High-DPI / font scaling:** the toolbar's minimum hint may grow with font scaling, but the
+  wrapper still lets the central widget shrink (R34). The single-row height is enforced by the
+  fixed container height.
+- **Security / live-order path:** untouched; Q9 holds — no automated test connects to live TWS
+  or transmits an order. The ladder/order signals are unaffected.
+- **Regression (`AC-D19.7`):** D1–D18 stay frozen; the affected D17/D18 harnesses are updated
+  in lockstep (masking removed) rather than left contradicting D19.
 
 ---
 
@@ -295,10 +226,28 @@ Each item is labelled `[existing]`, `[new]`, or `[new/changed]`.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Hooking the dock-area internal `QSplitter.splitterMoved` is Qt-version-layout dependent and may not fire as expected | M | Obtain the splitter defensively after `show()`; **fall back to a `QDockWidget.eventFilter` on the dock/its handle** and to `resizeEvent`; unit-test the pure `plan_dock_widths` independently of the event source so the *rule* is verified even if a wiring path is Qt-dependent |
-| `_apply_dock_widths` calling `resizeDocks` re-triggers `splitterMoved`/`resizeEvent` → recursion / jitter | M | Re-entrancy guard flag around the apply; only call `resizeDocks` when the computed sizes differ from current by >1px; `blockSignals` on the splitter during application |
-| Re-shaping two docks into one region breaks title-based lookups (`_on_dom_toggled`, `test_crosshair_axis_lane.py`, `test_d10_d13_integration.py`, `test_watchlist_d14_midrag.py`, `test_history_backfill*.py`) (R28/`AC-D18.8`) | M | Keep a stable, identifiable dock title (and an `objectName`); update the four tests in lockstep where the shape genuinely changes; assert the D2 chip/dock non-overlap (`test_crosshair_axis_lane`) still holds against the single region |
-| Content minimum width (wide ladder / 10-column portfolio table) forces the region off-screen despite the cap (`AC-D18.6`) | M | Bound each panel’s `minimumWidth`/`sizeHint` and let the tables scroll/clip internally; the geometry test asserts the region stays within the window and within the cap with wide content |
-| `chart_area ≥ 400px` cannot be honoured on a tiny window when both dock minimums plus chart minimum exceed the width | L | Document the precedence (chart minimum wins; docks yield to their minimums) as the D13/D18 edge case already allows; assert no crash and stable geometry |
-| Existing D13 tests encode the **old window-width** clamp math and could be left contradicting D17 (R28) | M | Update the assertions in `tests/test_watchlist.py` and `tests/test_d10_d13_integration.py` to the chart-area denominator as part of the same change set; treat “green but contradicting” as a failure |
-| Full-screen normalize fires before the window is laid out and computes against a stale rect | L | Use a one-shot `QTimer.singleShot(0, …)` after the state change plus the `resizeEvent` path; the geometry assertion catches a missed normalize |
+| The overlay/transient horizontal scrollbar is not honoured on some platform/style, so the scrollbar lane grows the toolbar row past ~40px (`AC-D19.4`) | M | Fix the wrapper height at 36px and set vertical `ScrollBarAlwaysOff`; assert the laid-out height `<= ~40px` in the toolbar-visible test (FI-D19-1) |
+| A control becomes unreachable at the narrowest feasible width (B5's "no control permanently unreachable") | M | Keep the toolbar's full natural width inside the scroll content; assert the horizontal scroll range `> 0` and that all controls remain descendants of the scroll content at a narrow window (`AC-D19.4`) |
+| Removing the `toolbar.hide()` masking makes the existing D17/D18 suite fail until the fix lands; the suite is not green in between | M (expected) | R33: the harness change is part of the fix; demonstrate the pre-fix red then green after (Phase 2 / `AC-D19.6`) |
+| The offscreen toolbar minimum width differs from the real macOS window, so a scroll fix that only works offscreen could still fail in the real app (R34) | M | `AC-D19.6` requires a toolbar-visible window; also verify in the real dev build (`python main.py`) manually (R34) |
+| The five affected harnesses locate the toolbar via `centralWidget().layout().itemAt(0).widget()`, which after the fix is the **wrapper**; a stale lookup could hide the wrong widget or silently no-op | M | Give the toolbar and wrapper stable `objectName`s; update the five harnesses in lockstep to locate by name (or simply stop hiding) |
+| The wrapper accidentally changes the chart-area denominator or dock caps, breaking D17/D18 | M | Do not touch `ui/dock_layout.py`, `_chart_area_width`, or `_apply_dock_widths`; B6 keeps the cap constant; D17/D18 tests stay green in a toolbar-visible window |
+| `conn_badge`/trailing stretch placement changes when wrapped (e.g. badge pinned outside) | L | Keep `conn_badge` inside the scroll region (FI-D19-2); assert the toolbar's control set is unchanged |
+| Full-suite flakiness (shared on-disk test DB / collection-order SIGSEGV) is mistaken for a D19 regression | L | Per project memory, confirm any non-reproducible failure with a clean full-suite run before treating it as a regression |
+| A D1–D18 behaviour regresses because the central widget is now smaller in existing tests | M | Full offscreen suite re-run (Phase 3, `AC-D19.7`); no D1–D18 production file is modified |
+
+---
+
+## Implementation Phases (summary)
+
+Full ordered phases, coverage map, `touches_files` sequencing, and plan-level assumptions are
+in **`docs/plan_proposal.md`**.
+
+1. **Phase 1 — Toolbar scroll/elide wrapper in place** `[new/changed]`: wrap the toolbar in the
+   `QScrollArea` in `ui/main_window.py`; objectNames; fixed 36px row. Covers `AC-D19.4`,
+   `AC-D19.5`.
+2. **Phase 2 — Remove test masking + toolbar-visible regression guard** `[new/changed]`: update
+   the five affected test harnesses to a toolbar-visible window and add the guard. Covers
+   `AC-D19.1`–`AC-D19.3`, `AC-D19.6`.
+3. **Phase 3 — Regression + real-app verification** `[new/changed]`: full offscreen suite green
+   and manual dev-build confirmation. Covers `AC-D19.7`, R34.

@@ -7,11 +7,12 @@ and the re-entrancy guard that prevents recursion/jitter.
 
 Geometry note (deterministic offscreen harness)
 -----------------------------------------------
-On the offscreen platform the toolbar's ``minimumSizeHint`` is ~1716px wide,
-which pins the central widget and caps the left dock far below the 50% rule —
-masking the very behaviour under test. The toolbar is not part of the D17
-surface, so ``_make_window`` hides it (and the right docks) to give the chart
-area a real, adjustable width and let the watchlist dock reach its cap.
+D19 Phase 1 wrapped the toolbar in a horizontal ``QScrollArea``
+(``objectName`` ``ToolbarScroll`` / ``MainToolbar``), so the toolbar's
+``minimumSizeHint`` no longer pins the central widget and the chart area keeps a
+real, adjustable width **with the toolbar visible**. ``_make_window`` therefore
+leaves the toolbar visible and only hides the unrelated right docks, so the
+watchlist clamp is the sole horizontal constraint under test.
 
 Tolerance note
 --------------
@@ -22,7 +23,7 @@ criterion), so a residual of at most 1px is expected and asserted with ``+1``.
 
 import pytest
 from PyQt6.QtCore import QSettings, Qt
-from PyQt6.QtWidgets import QDockWidget
+from PyQt6.QtWidgets import QDockWidget, QWidget
 
 from ui.watchlist_panel import (
     CHART_MIN_WIDTH,
@@ -51,8 +52,9 @@ def _seed_saved_width(value) -> None:
 def _make_window(monkeypatch, qapp, width=1600, height=900):
     """Build a shown ``MainWindow`` that never touches TWS.
 
-    Hides the toolbar (its offscreen minimum pins the geometry) and the right
-    docks so the watchlist clamp is the only horizontal constraint under test.
+    The toolbar stays **visible** (D19 Phase 1's ``ToolbarScroll`` wrapper keeps
+    its minimum from pinning the chart area); only the unrelated right docks are
+    hidden so the watchlist clamp is the sole horizontal constraint under test.
     """
     from ibkr.client import IBApiClient
 
@@ -64,12 +66,9 @@ def _make_window(monkeypatch, qapp, width=1600, height=900):
     win.show()
     qapp.processEvents()
 
-    # Relax the offscreen toolbar constraint and drop the unrelated right docks.
-    central_layout = win.centralWidget().layout()
-    if central_layout is not None and central_layout.count() > 0:
-        toolbar = central_layout.itemAt(0).widget()
-        if toolbar is not None:
-            toolbar.hide()
+    # Drop the unrelated right docks so the watchlist clamp is the only
+    # horizontal constraint under test. The toolbar is intentionally left
+    # visible: the D19 scroll wrapper means it no longer pins the central widget.
     for dock in win.findChildren(QDockWidget):
         if dock.windowTitle() in _RIGHT_DOCKS:
             dock.hide()
@@ -333,3 +332,60 @@ def test_T47_T07_d10_d13_integration_chart_area_denominator():
             WATCHLIST_MIN_WIDTH,
             min(int(chart_area_w * 0.50), chart_area_w - CHART_MIN_WIDTH),
         )
+
+
+# ── T54-T01 / AC-D19.6 — the harness no longer masks the toolbar ─────────────
+
+def test_T54_T01_toolbar_visible_and_no_masking(monkeypatch, qapp):
+    """T54-T01 / AC-D19.6: the harness exercises a toolbar-visible window.
+
+    D19 Phase 1's ``ToolbarScroll`` wrapper means the toolbar no longer pins the
+    central widget, so the D17 harness must not hide it. The toolbar widget
+    (objectName ``MainToolbar``) is visible in the harness window, and the module
+    source contains no toolbar-hiding masking.
+    """
+    _seed_saved_width(None)
+    win = _make_window(monkeypatch, qapp)
+    try:
+        toolbar = win.findChild(QWidget, "MainToolbar")
+        assert toolbar is not None, "MainToolbar widget not found"
+        assert toolbar.isVisible(), (
+            "the harness must exercise a toolbar-visible window"
+        )
+
+        # The module must not re-introduce the toolbar-hiding masking. Build the
+        # needle from parts so this assertion's own source cannot match it.
+        from pathlib import Path
+
+        source = Path(__file__).read_text(encoding="utf-8")
+        masking = "toolbar" + ".hide()"
+        assert masking not in source, "toolbar-hiding masking remains in the module"
+    finally:
+        win.close()
+
+
+# ── T54-T02 / AC-D19.1 — watchlist reaches the 50% cap with toolbar visible ──
+
+def test_T54_T02_watchlist_reaches_cap_with_toolbar_visible(monkeypatch, qapp):
+    """T54-T02 / AC-D19.1: the watchlist cap binds with the toolbar visible.
+
+    In a toolbar-visible window large enough that ``floor(0.50 * chart_area)``
+    exceeds ``WATCHLIST_MIN_WIDTH``, driving the watchlist to its maximum must
+    land within 1px of the 50%-of-chart-area cap — not be pinned at 150px.
+    """
+    _seed_saved_width(None)
+    win = _make_window(monkeypatch, qapp, width=1600, height=900)
+    try:
+        _drive_to_cap(win, qapp)
+
+        ca = win._chart_area_width()
+        cap = int(ca * 0.50)
+        dock_w = win.watchlist_dock.width()
+
+        # The scenario is only meaningful when the cap is above the minimum.
+        assert cap > WATCHLIST_MIN_WIDTH, (cap, WATCHLIST_MIN_WIDTH)
+
+        assert abs(dock_w - cap) <= 1, (dock_w, cap, ca)
+        assert dock_w > WATCHLIST_MIN_WIDTH, (dock_w, WATCHLIST_MIN_WIDTH)
+    finally:
+        win.close()

@@ -21,7 +21,7 @@ def _eastern_offset(now: datetime | None = None) -> int:
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
-    QStatusBar, QDockWidget, QSplitter
+    QStatusBar, QDockWidget, QSplitter, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QEvent
 
@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
 
         # ── Toolbar ───────────────────────────────────────────────────────────
         toolbar = QWidget()
+        toolbar.setObjectName("MainToolbar")
         toolbar.setFixedHeight(36)
         toolbar.setStyleSheet("background: #101218; border-bottom: 1px solid #232938;")
         tb_layout = QHBoxLayout(toolbar)
@@ -214,11 +215,29 @@ class MainWindow(QMainWindow):
         # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000
         self._tz_offset = _eastern_offset()
         self.chart_panel = ChartPanel(tz_offset=self._tz_offset)
+        # D19 Phase 1: keep the toolbar inside the central widget but stop its
+        # ~1716px minimumSizeHint from pinning the central widget. A frameless,
+        # fixed-height (36px) horizontal QScrollArea holds the full-natural-width
+        # toolbar so it stays a single row and scrolls horizontally when the
+        # window is too narrow to show every control at once.
+        toolbar_scroll = QScrollArea()
+        toolbar_scroll.setObjectName("ToolbarScroll")
+        toolbar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        toolbar_scroll.setWidgetResizable(False)
+        toolbar_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        toolbar_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        toolbar_scroll.setFixedHeight(36)
+        toolbar_scroll.setWidget(toolbar)
+
         central = QWidget()
         vbox = QVBoxLayout(central)
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.setSpacing(0)
-        vbox.addWidget(toolbar)
+        vbox.addWidget(toolbar_scroll)
         vbox.addWidget(self.chart_panel)
         self.setCentralWidget(central)
 

@@ -10,9 +10,10 @@ on-screen when the ladder/portfolio content is wider than the region.
 
 Geometry note (deterministic offscreen harness)
 ----------------------------------------------
-As in the D17/D18-region suites, the offscreen toolbar's ``minimumSizeHint`` is
-very wide and pins the central widget, masking the behaviour under test. The
-toolbar is hidden to give the chart area a real, adjustable width. Unlike the
+D19 Phase 2: the offscreen toolbar's ``minimumSizeHint`` (~1716px) no longer
+pins the central widget — it is wrapped in a horizontal ``QScrollArea``
+(``ToolbarScroll``) — so the harness runs with the toolbar **visible** and no
+masking, and the dock geometry settles to the requested window size. Unlike the
 D17 tests, the single right region is **kept visible** here — the D18 cap is
 about the region, so hiding it would diverge.
 
@@ -25,9 +26,11 @@ Qt also distributes slack among the docks listed to ``resizeDocks``; the
 implementation passes both docks together so each stays at its plan value.
 """
 
+from pathlib import Path
+
 import pytest
 from PyQt6.QtCore import QEvent, QSettings, Qt
-from PyQt6.QtWidgets import QDockWidget, QTableWidgetItem
+from PyQt6.QtWidgets import QDockWidget, QTableWidgetItem, QWidget
 
 from ui.dock_layout import (
     CHART_MIN_WIDTH,
@@ -64,12 +67,11 @@ def _make_window(monkeypatch, qapp, width=1600, height=900):
     win.show()
     qapp.processEvents()
 
-    # Relax the offscreen toolbar constraint so the dock geometry can settle.
-    central_layout = win.centralWidget().layout()
-    if central_layout is not None and central_layout.count() > 0:
-        toolbar = central_layout.itemAt(0).widget()
-        if toolbar is not None:
-            toolbar.hide()
+    # D19 Phase 2: the toolbar is wrapped in a horizontal ``QScrollArea``
+    # (``ToolbarScroll``), so its ~1716px natural width no longer pins the
+    # central widget. The harness therefore exercises a **toolbar-visible**
+    # window with no masking, and the dock geometry settles to the requested
+    # window size.
     qapp.processEvents()
     win.resize(width, height)
     qapp.processEvents()
@@ -81,6 +83,26 @@ def _drive_right_to_cap(win, qapp, iterations=14):
     for _ in range(iterations):
         win._apply_dock_widths(None, 10 ** 6)
         qapp.processEvents()
+
+
+# ── T56-T01 / AC-D19.6 — toolbar visible, no masking ─────────────────────────
+
+def test_T56_T01_toolbar_visible_and_no_masking(monkeypatch, qapp):
+    """T56-T01 / AC-D19.6: harness shows the toolbar; no hide() masking remains."""
+    win = _make_window(monkeypatch, qapp)
+    try:
+        toolbar = win.findChild(QWidget, "MainToolbar")
+        assert toolbar is not None, "MainToolbar widget not found"
+        assert toolbar.isVisible(), "toolbar is not visible in the harness window"
+    finally:
+        win.close()
+
+    # The module source must contain no toolbar-hiding masking and no stale
+    # central-layout itemAt(0) toolbar lookup (which now resolves to the scroll
+    # wrapper). Needles are built at runtime so this assertion cannot match itself.
+    source = Path(__file__).read_text(encoding="utf-8")
+    assert ("toolbar" + ".hide()") not in source
+    assert ("itemAt(0).widget" + "()") not in source
 
 
 # ── T49-T01 / AC-D18.2 — grow right to the 40%-of-chart-area cap ─────────────
@@ -118,9 +140,12 @@ def test_T49_T02_right_stops_at_cap_and_minimum(monkeypatch, qapp):
     _clean_settings()
     win = _make_window(monkeypatch, qapp)
     try:
-        # Over-cap request: clamped to the cap, never above it.
-        win._apply_dock_widths(None, 10 ** 6)
-        qapp.processEvents()
+        # Over-cap request, driven to a settled cap before the monotonic
+        # sequence. With the toolbar visible a single apply under-converges (the
+        # cap denominator is the post-resize chart area), so the request is
+        # iterated to its fixed point first; the cap still binds and is never
+        # exceeded.
+        _drive_right_to_cap(win, qapp)
         ca = win._chart_area_width()
         cap = right_dock_max_width(ca)
         assert win.right_dock.width() <= cap + 1, (win.right_dock.width(), cap)

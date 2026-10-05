@@ -1,665 +1,455 @@
 {
   "status": "READY_FOR_BUILD",
-  "generated": "2026-10-03",
-  "batch": "Batch 11 — D17 (watchlist live resize) + D18 (single right dock region)",
-  "baseline": "D1–D16 built and frozen (commit fd0bb0a); this graph is the Batch-11 delta only.",
+  "generated": "2026-10-05",
+  "batch": "Batch 13 — D19 (toolbar scroll/elide wrapper)",
+  "baseline": "D1–D18 built and frozen (commit 5bd7c93, 566 passed); this graph is the D19 delta only.",
   "tasks": [
     {
-      "id": "T45",
-      "title": "Create the shared chart-area dock-width model ui/dock_layout.py (D17/D18 Phase 1)",
-      "description": "Create the pure, Qt-free ui/dock_layout.py holding the single source of truth for dock widths measured against the chart area (the MainWindow central-widget width): constants CHART_MIN_WIDTH=400, WATCHLIST_MIN_WIDTH=150, DEFAULT_WATCHLIST_WIDTH=220, RIGHT_DOCK_MIN_WIDTH=200, cap fractions 0.50/0.40, and the pure functions watchlist_max_width(chart_area_w), right_dock_max_width(chart_area_w) and plan_dock_widths(chart_area_w, requested_left, requested_right) -> (left, right) that applies the independent caps and the B3 cross-clamp guaranteeing chart_area >= 400px. Ship its offscreen unit tests.",
+      "id": "T53",
+      "title": "Wrap the central-widget toolbar in a horizontal QScrollArea in place (D19 Phase 1)",
+      "description": "In ui/main_window.py, wrap the existing toolbar QWidget in a QScrollArea (no frame, setWidgetResizable(False), horizontal ScrollBarAsNeeded, vertical ScrollBarAlwaysOff, fixed height 36px) and add it to the central QVBoxLayout in the toolbar's place, so the toolbar's ~1716px minimumSizeHint no longer pins the central widget while the toolbar stays inside the central widget as a single ~36px row. Give the toolbar and wrapper stable objectNames ('MainToolbar' / 'ToolbarScroll') and keep conn_badge and the trailing stretch inside the scroll region; do not touch ui/dock_layout.py, _chart_area_width, _apply_dock_widths or the cap constants. Ship tests/test_toolbar_scroll_d19.py with the wrapper-specific AC-D19.4/AC-D19.5 assertions.",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given ui/dock_layout.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication.",
-        "Given ui/dock_layout.py, When its constants are read, Then CHART_MIN_WIDTH == 400, WATCHLIST_MIN_WIDTH == 150, DEFAULT_WATCHLIST_WIDTH == 220, RIGHT_DOCK_MIN_WIDTH == 200, the watchlist cap fraction is 0.50 and the right-dock cap fraction is 0.40, and CHART_MIN_WIDTH is in agreement with ui/watchlist_panel.CHART_MIN_WIDTH.",
-        "Given a chart_area_w, When watchlist_max_width(chart_area_w) is called, Then it returns max(WATCHLIST_MIN_WIDTH, min(floor(0.50 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
-        "Given a chart_area_w, When right_dock_max_width(chart_area_w) is called, Then it returns max(RIGHT_DOCK_MIN_WIDTH, min(floor(0.40 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
-        "Given a chart_area_w and requested left/right widths, When plan_dock_widths(chart_area_w, requested_left, requested_right) is called, Then each returned width is within its own [min, max] cap, and where feasible chart_area_w - left - right >= CHART_MIN_WIDTH; enlarging one requested width forces the other to shrink when the flat caps would starve the chart.",
-        "Given the edge cases (a tiny window where the flat cap is below the dock minimum, both docks requested near their individual maxima, and one side requested over budget), When plan_dock_widths is called, Then it never returns a width below the dock minimum, never raises, and returns stable integer widths even when chart_area_w - left - right cannot reach CHART_MIN_WIDTH (the chart minimum yields on an infeasible window; dock minimums win)."
+        "AC-D19.4(i): Given the toolbar is visible, Then the toolbar remains a descendant of centralWidget() as a single ~36px row (not moved to a QMainWindow toolbar area and no addToolBar call), and centralWidget().minimumSizeHint().width() <= CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH (750px), i.e. the toolbar no longer dominates that minimum.",
+        "AC-D19.4(ii): Given the toolbar is visible, Then every toolbar control remains reachable/usable — directly at a wide window and via the horizontal scroll/elide affordance at the narrowest window in which the dock minima plus chart minimum are feasible; the toolbar keeps its full natural width inside the scroll content so the horizontal scroll range is > 0 at a narrow width.",
+        "AC-D19.5: Given the toolbar is visible, When the window is resized down toward the feasible minimum, Then centralWidget().width() decreases accordingly and does not remain at the toolbar's ~1716px minimum.",
+        "Structural/mechanism: Given the wrapped toolbar, Then the wrapper is a QScrollArea with frameShape NoFrame, setWidgetResizable(False), horizontal ScrollBarPolicy ScrollBarAsNeeded, vertical ScrollBarPolicy ScrollBarAlwaysOff and a fixed height of 36px; the toolbar carries objectName 'MainToolbar', the wrapper 'ToolbarScroll', and conn_badge and the trailing stretch stay inside the scroll region (FI-D19-2); the toolbar's control set and signal wiring are unchanged."
       ],
       "tests": [
         {
-          "test_id": "T45-T01",
-          "linked_acceptance_criterion": "Given ui/dock_layout.py, When it is imported in an offscreen process, Then it imports no PyQt6, pyqtgraph or other Qt module and needs no QApplication.",
+          "test_id": "T53-T01",
+          "linked_acceptance_criterion": "AC-D19.4(i): Given the toolbar is visible, Then the toolbar remains a descendant of centralWidget() as a single ~36px row (not moved to a QMainWindow toolbar area and no addToolBar call), and centralWidget().minimumSizeHint().width() <= CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH (750px), i.e. the toolbar no longer dominates that minimum.",
           "type": "unit",
-          "description": "Import the module in an isolated offscreen interpreter and assert no Qt module is loaded (or assert the source imports no PyQt6/pyqtgraph/Qt).",
-          "expected_result": "Import succeeds without QApplication and without importing PyQt6, pyqtgraph or any Qt module."
+          "description": "Construct an offscreen MainWindow with IBApiClient.connect monkeypatched, show it, and assert centralWidget().minimumSizeHint().width() <= 750; assert the QWidget with objectName 'MainToolbar' is a descendant of centralWidget(); assert centralWidget().layout().itemAt(0).widget() is the QScrollArea wrapper (objectName 'ToolbarScroll') and that no QToolBar was added via addToolBar.",
+          "expected_result": "central min-hint width <= 750px, the toolbar is a descendant of the central widget, item 0 of the central layout is the scroll wrapper, and no QMainWindow toolbar area was used."
         },
         {
-          "test_id": "T45-T02",
-          "linked_acceptance_criterion": "Given ui/dock_layout.py, When its constants are read, Then CHART_MIN_WIDTH == 400, WATCHLIST_MIN_WIDTH == 150, DEFAULT_WATCHLIST_WIDTH == 220, RIGHT_DOCK_MIN_WIDTH == 200, the watchlist cap fraction is 0.50 and the right-dock cap fraction is 0.40, and CHART_MIN_WIDTH is in agreement with ui/watchlist_panel.CHART_MIN_WIDTH.",
-          "type": "unit",
-          "description": "Assert each constant value and cross-check CHART_MIN_WIDTH against the watchlist_panel constant.",
-          "expected_result": "All constants match their specified values and the two CHART_MIN_WIDTH constants agree."
-        },
-        {
-          "test_id": "T45-T03",
-          "linked_acceptance_criterion": "Given a chart_area_w, When watchlist_max_width(chart_area_w) is called, Then it returns max(WATCHLIST_MIN_WIDTH, min(floor(0.50 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
-          "type": "unit",
-          "description": "Parameterized chart_area_w values (e.g. 1400, 900, 800, 600, 100) asserting the exact formula result, including the narrow case where the chart-minimum term binds.",
-          "expected_result": "Every value equals max(150, min(int(chart_area_w*0.50), chart_area_w-400)); never below 150."
-        },
-        {
-          "test_id": "T45-T04",
-          "linked_acceptance_criterion": "Given a chart_area_w, When right_dock_max_width(chart_area_w) is called, Then it returns max(RIGHT_DOCK_MIN_WIDTH, min(floor(0.40 * chart_area_w), chart_area_w - CHART_MIN_WIDTH)).",
-          "type": "unit",
-          "description": "Parameterized chart_area_w values (e.g. 1400, 900, 800, 600, 100) asserting the exact formula result, including the narrow case where the chart-minimum term binds.",
-          "expected_result": "Every value equals max(200, min(int(chart_area_w*0.40), chart_area_w-400)); never below 200."
-        },
-        {
-          "test_id": "T45-T05",
-          "linked_acceptance_criterion": "Given a chart_area_w and requested left/right widths, When plan_dock_widths(chart_area_w, requested_left, requested_right) is called, Then each returned width is within its own [min, max] cap, and where feasible chart_area_w - left - right >= CHART_MIN_WIDTH; enlarging one requested width forces the other to shrink when the flat caps would starve the chart.",
-          "type": "unit",
-          "description": "Normal case: chart_area_w=1400 with both docks near their maxima; assert caps hold, chart remainder >=400, and increasing requested_left decreases the returned right (and vice-versa).",
-          "expected_result": "left <= watchlist_max_width(chart_area_w), right <= right_dock_max_width(chart_area_w), chart_area_w-left-right >= 400, and the non-resized dock shrinks when cross-clamping binds."
-        },
-        {
-          "test_id": "T45-T06",
-          "linked_acceptance_criterion": "Given the edge cases (a tiny window where the flat cap is below the dock minimum, both docks requested near their individual maxima, and one side requested over budget), When plan_dock_widths is called, Then it never returns a width below the dock minimum, never raises, and returns stable integer widths even when chart_area_w - left - right cannot reach CHART_MIN_WIDTH (the chart minimum yields on an infeasible window; dock minimums win).",
-          "type": "unit",
-          "description": "Call plan_dock_widths on a tiny chart_area_w, with both requests at max, and with one request over budget; assert min bounds, no exception, integer outputs, and the documented precedence when infeasible.",
-          "expected_result": "No returned width is below its dock minimum; no exception; the infeasible tiny-window case returns the dock minimums without raising."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/dock_layout.py",
-        "tests/test_dock_layout.py"
-      ],
-      "touches_files": [
-        "ui/dock_layout.py",
-        "tests/test_dock_layout.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 1",
-        "docs/architecture.md#D17 + D18 increment (ui/dock_layout.py)",
-        "docs/requirements/requirements.md#AC-D17.1",
-        "docs/requirements/requirements.md#AC-D18.2",
-        "docs/requirements/requirements.md#AC-D18.5",
-        "docs/requirements/requirements.md#A34",
-        "docs/requirements/requirements.md#A35",
-        "ui/watchlist_panel.py (existing CHART_MIN_WIDTH/WATCHLIST_MIN_WIDTH constants)",
-        "services/backfill_service.py (pure-service pattern)"
-      ],
-      "outputs": [
-        "ui/dock_layout.py",
-        "tests/test_dock_layout.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T46",
-      "title": "Re-parameterise the D13 watchlist width helpers to the chart-area denominator (D17 Phase 1)",
-      "description": "Re-parameterise ui/watchlist_panel.py so watchlist_max_width / clamp_watchlist_width / load_watchlist_width / save_watchlist_width are measured against the chart area (not the whole window) and delegate to ui/dock_layout as the single source of the cap, preserving the existing one-argument signature shape. Update tests/test_watchlist.py clamp-math assertions to the chart-area cap in lockstep (R28/B1) without changing the D14 double-click semantics.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T45"
-      ],
-      "acceptance_criteria": [
-        "Given ui/watchlist_panel.py, When watchlist_max_width(chart_area_w) is called, Then it returns the chart-area cap produced by ui.dock_layout.watchlist_max_width (the formula is not duplicated) while keeping a one-argument signature shape.",
-        "Given clamp_watchlist_width(width, chart_area_w), load_watchlist_width(settings, chart_area_w) and save_watchlist_width(settings, width, chart_area_w), When called, Then each clamps into [WATCHLIST_MIN_WIDTH, ui.dock_layout.watchlist_max_width(chart_area_w)] using dock_layout as the cap source.",
-        "Given tests/test_watchlist.py, When the clamp-math assertions run, Then watchlist_max_width/clamp_watchlist_width/load_/save_ are asserted against the chart-area denominator (e.g. watchlist_max_width(1400) == 700, narrow-area behaviour, never below 150) and the D14 should_load_on_double_click and panel-emits-symbol tests still pass."
-      ],
-      "tests": [
-        {
-          "test_id": "T46-T01",
-          "linked_acceptance_criterion": "Given ui/watchlist_panel.py, When watchlist_max_width(chart_area_w) is called, Then it returns the chart-area cap produced by ui.dock_layout.watchlist_max_width (the formula is not duplicated) while keeping a one-argument signature shape.",
-          "type": "unit",
-          "description": "For several chart_area_w values assert ui.watchlist_panel.watchlist_max_width == ui.dock_layout.watchlist_max_width, and inspect the source to confirm delegation rather than a duplicated formula.",
-          "expected_result": "The two functions agree for every sampled input; the panel helper delegates to dock_layout."
-        },
-        {
-          "test_id": "T46-T02",
-          "linked_acceptance_criterion": "Given clamp_watchlist_width(width, chart_area_w), load_watchlist_width(settings, chart_area_w) and save_watchlist_width(settings, width, chart_area_w), When called, Then each clamps into [WATCHLIST_MIN_WIDTH, ui.dock_layout.watchlist_max_width(chart_area_w)] using dock_layout as the cap source.",
-          "type": "unit",
-          "description": "Exercise clamp/load/save round-trips over a QSettings INI file with the chart-area denominator; assert clamping at the chart-area cap and the 150px floor, and default ~220px with no saved value.",
-          "expected_result": "clamp(1e6, area) == dock_layout.watchlist_max_width(area); clamp(0, area) == 150; no saved value loads 220; a saved value is restored clamped to the current cap."
-        },
-        {
-          "test_id": "T46-T03",
-          "linked_acceptance_criterion": "Given tests/test_watchlist.py, When the clamp-math assertions run, Then watchlist_max_width/clamp_watchlist_width/load_/save_ are asserted against the chart-area denominator (e.g. watchlist_max_width(1400) == 700, narrow-area behaviour, never below 150) and the D14 should_load_on_double_click and panel-emits-symbol tests still pass.",
-          "type": "unit",
-          "description": "Run the updated tests/test_watchlist.py, confirming the clamp-math assertions now use the chart-area denominator and the D14 tests are unchanged and green.",
-          "expected_result": "tests/test_watchlist.py passes entirely; no assertion still encodes the old window-width denominator."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/watchlist_panel.py",
-        "tests/test_watchlist.py"
-      ],
-      "touches_files": [
-        "ui/watchlist_panel.py",
-        "tests/test_watchlist.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 1",
-        "docs/architecture.md#D17 + D18 increment (ui/watchlist_panel.py)",
-        "docs/requirements/requirements.md#AC-D13.1",
-        "docs/requirements/requirements.md#AC-D17.1",
-        "docs/requirements/requirements.md#R28",
-        "ui/dock_layout.py",
-        "ui/watchlist_panel.py (existing helpers and constants)"
-      ],
-      "outputs": [
-        "ui/watchlist_panel.py",
-        "tests/test_watchlist.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T47",
-      "title": "Enforce the watchlist cap live during the drag and on resize/full-screen (D17 Phase 2)",
-      "description": "In ui/main_window.py add the shared _apply_dock_widths() that reads centralWidget().width() as chart_area and issues resizeDocks for the watchlist, wire it to the dock-area internal QSplitter.splitterMoved hook and a two-directional resizeEvent, re-clamp the persisted width on restore and in closeEvent, guard against recursion/jitter, and keep the deferred splitter acquisition + event-filter fallback per the architecture risk. No right-region changes yet. Update tests/test_d10_d13_integration.py to the chart-area denominator and ship focused offscreen tests.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T46"
-      ],
-      "acceptance_criteria": [
-        "AC-D17.1: Given a docked Watchlist and a loaded chart, When the user drags the splitter handle to the right, Then the watchlist width grows continuously up to floor(0.50 * chart_area) and the chart area narrows correspondingly; the watchlist width is <= floor(0.50 * chart_area) at all times during and after the drag.",
-        "AC-D17.2: Given the watchlist is wider than its minimum, When the user drags the handle to the left, Then the watchlist width reduces continuously down to WATCHLIST_MIN_WIDTH (150px) and stops there, with the chart area growing correspondingly and the width never going below 150px.",
-        "AC-D17.3: Given the app is shown full screen (no window resizeEvent fires during the drag), When the user drags past the cap, Then the width stops at the cap during the drag itself (the splitterMoved hook enforces it) with no overshoot into the chart and no later resizeEvent required.",
-        "AC-D17.4: Given a Watchlist width persisted by a previous session, When the app restarts, Then the width is restored as the persisted integer pixel value clamped to the current floor(0.50 * chart_area) and the chart minimum (default ~220px if none saved, never <150px).",
-        "AC-D17.5: Given the watchlist is at/near its cap, When the available chart-area width shrinks (main window narrowed), Then the watchlist is re-clamped to the new cap without error and remains resizable; the same re-clamp is invoked from the shared _apply_dock_widths so the right region can drive it later.",
-        "Given _apply_dock_widths, When it issues resizeDocks, Then it is re-entrancy-guarded (a guard flag / blockSignals) and only calls resizeDocks when the computed size differs from the current size by more than 1px, so an applied resize does not recurse and produces no jitter.",
-        "Given the updated tests/test_d10_d13_integration.py, When it runs, Then its clamp assertions use the chart-area denominator (never the old window-width formula) and the D10 volume-toggle behaviour assertions remain green."
-      ],
-      "tests": [
-        {
-          "test_id": "T47-T01",
-          "linked_acceptance_criterion": "AC-D17.1: Given a docked Watchlist and a loaded chart, When the user drags the splitter handle to the right, Then the watchlist width grows continuously up to floor(0.50 * chart_area) and the chart area narrows correspondingly; the watchlist width is <= floor(0.50 * chart_area) at all times during and after the drag.",
+          "test_id": "T53-T02",
+          "linked_acceptance_criterion": "AC-D19.4(ii): Given the toolbar is visible, Then every toolbar control remains reachable/usable — directly at a wide window and via the horizontal scroll/elide affordance at the narrowest window in which the dock minima plus chart minimum are feasible; the toolbar keeps its full natural width inside the scroll content so the horizontal scroll range is > 0 at a narrow width.",
           "type": "integration",
-          "description": "Offscreen MainWindow with IBApiClient.connect monkeypatched; drive the splitterMoved/_apply_dock_widths path to a large requested watchlist width and assert the effective dock width == floor(0.50 * chart_area) and the central chart area narrowed.",
-          "expected_result": "Watchlist width equals the chart-area cap (<= floor(0.50*chart_area)) and centralWidget().width() decreased versus the pre-drag value."
+          "description": "At a narrow window width, assert the wrapper's horizontal QScrollBar maximum() > 0 (content wider than viewport) and every toolbar control (symbol_input, tf_combo, load_btn, mode_combo, studies_btn, alarms_btn, alarm_mode_btn, sound_btn, dom_btn, ext_hours_btn, tz_combo, draw_combo, draw_set_combo, draw_sets_btn, draw_delete_btn, conn_badge) is a descendant of the scroll content; at a wide window assert the controls lie within the viewport; assert the toolbar's laid-out height <= 40px.",
+          "expected_result": "Horizontal scroll range > 0 at the narrow width, all controls remain descendants of the scroll content, at the wide width the controls are directly visible, and the toolbar height is <= ~40px (one row)."
         },
         {
-          "test_id": "T47-T02",
-          "linked_acceptance_criterion": "AC-D17.2: Given the watchlist is wider than its minimum, When the user drags the handle to the left, Then the watchlist width reduces continuously down to WATCHLIST_MIN_WIDTH (150px) and stops there, with the chart area growing correspondingly and the width never going below 150px.",
+          "test_id": "T53-T03",
+          "linked_acceptance_criterion": "AC-D19.5: Given the toolbar is visible, When the window is resized down toward the feasible minimum, Then centralWidget().width() decreases accordingly and does not remain at the toolbar's ~1716px minimum.",
           "type": "integration",
-          "description": "Drive the width request down through intermediate values and a below-minimum request; assert monotone decrease and a floor at 150px.",
-          "expected_result": "Watchlist width decreases with each leftward step and never falls below WATCHLIST_MIN_WIDTH."
+          "description": "Show the window at width 2400, then resize to 1200, processing events; assert centralWidget().width() is smaller at 1200 than at 2400 and is not pinned at ~1716 at the narrower width.",
+          "expected_result": "centralWidget().width() decreases with the window and does not remain at the toolbar's ~1716px minimum."
         },
         {
-          "test_id": "T47-T03",
-          "linked_acceptance_criterion": "AC-D17.3: Given the app is shown full screen (no window resizeEvent fires during the drag), When the user drags past the cap, Then the width stops at the cap during the drag itself (the splitterMoved hook enforces it) with no overshoot into the chart and no later resizeEvent required.",
-          "type": "integration",
-          "description": "Show the window, simulate a drag past the cap by invoking the splitterMoved handler directly without any window resize, and assert the effective width is the cap rather than the pre-clamp request.",
-          "expected_result": "After the drag hook runs with no resizeEvent, watchlist width == floor(0.50*chart_area), not the oversized request."
-        },
-        {
-          "test_id": "T47-T04",
-          "linked_acceptance_criterion": "AC-D17.4: Given a Watchlist width persisted by a previous session, When the app restarts, Then the width is restored as the persisted integer pixel value clamped to the current floor(0.50 * chart_area) and the chart minimum (default ~220px if none saved, never <150px).",
-          "type": "integration",
-          "description": "Seed QSettings watchlist/width with a large value, construct MainWindow, and assert the applied width is the chart-area cap; separately assert the default (~220) with no saved value and the 150px floor.",
-          "expected_result": "A persisted large width is restored clamped to the current chart-area cap; no saved value yields ~220px; the result is never below 150px."
-        },
-        {
-          "test_id": "T47-T05",
-          "linked_acceptance_criterion": "AC-D17.5: Given the watchlist is at/near its cap, When the available chart-area width shrinks (main window narrowed), Then the watchlist is re-clamped to the new cap without error and remains resizable; the same re-clamp is invoked from the shared _apply_dock_widths so the right region can drive it later.",
-          "type": "integration",
-          "description": "Set the watchlist to the cap for a wide window, shrink the window, and assert the watchlist is re-clamped to the new (smaller) cap without error and can still be resized.",
-          "expected_result": "After the shrink the watchlist width <= the new chart-area cap and no exception is raised."
-        },
-        {
-          "test_id": "T47-T06",
-          "linked_acceptance_criterion": "Given _apply_dock_widths, When it issues resizeDocks, Then it is re-entrancy-guarded (a guard flag / blockSignals) and only calls resizeDocks when the computed size differs from the current size by more than 1px, so an applied resize does not recurse and produces no jitter.",
-          "type": "integration",
-          "description": "Spy on resizeDocks across repeated _apply_dock_widths invocations at a fixed geometry and assert it is a no-op when unchanged; assert re-entrant calls are suppressed.",
-          "expected_result": "Repeated applies at the same geometry do not re-issue resizeDocks; no recursion/stack growth or jitter."
-        },
-        {
-          "test_id": "T47-T07",
-          "linked_acceptance_criterion": "Given the updated tests/test_d10_d13_integration.py, When it runs, Then its clamp assertions use the chart-area denominator (never the old window-width formula) and the D10 volume-toggle behaviour assertions remain green.",
-          "type": "integration",
-          "description": "Run tests/test_d10_d13_integration.py after updating the denominator assertions and confirm volume hide/show plus the chart-minimum coupling still pass.",
-          "expected_result": "tests/test_d10_d13_integration.py passes with chart-area-denominator assertions and unchanged D10 assertions."
+          "test_id": "T53-T04",
+          "linked_acceptance_criterion": "Structural/mechanism: Given the wrapped toolbar, Then the wrapper is a QScrollArea with frameShape NoFrame, setWidgetResizable(False), horizontal ScrollBarPolicy ScrollBarAsNeeded, vertical ScrollBarPolicy ScrollBarAlwaysOff and a fixed height of 36px; the toolbar carries objectName 'MainToolbar', the wrapper 'ToolbarScroll', and conn_badge and the trailing stretch stay inside the scroll region (FI-D19-2); the toolbar's control set and signal wiring are unchanged.",
+          "type": "unit",
+          "description": "Inspect the wrapper returned by findChild(QScrollArea, 'ToolbarScroll'): assert frameShape() == NoFrame, widgetResizable() is False, horizontalScrollBarPolicy() == ScrollBarAsNeeded, verticalScrollBarPolicy() == ScrollBarAlwaysOff, and its fixed height is 36; assert findChild(QWidget, 'MainToolbar') exists and conn_badge is a descendant of it (inside the scroll content).",
+          "expected_result": "All wrapper properties and objectNames match the D19 mechanism; conn_badge is inside the scroll region; no control construction or signal wiring changed."
         }
       ],
       "expected_artifacts": [
         "ui/main_window.py",
-        "tests/test_d10_d13_integration.py",
+        "tests/test_toolbar_scroll_d19.py"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_toolbar_scroll_d19.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 1",
+        "docs/architecture.md#D19 increment — toolbar scroll/elide wrapper",
+        "docs/requirements/requirements.md#AC-D19.4",
+        "docs/requirements/requirements.md#AC-D19.5",
+        "docs/requirements/requirements.md#B5",
+        "docs/architecture.md#FI-D19-1 (overlay/transient scrollbar)",
+        "docs/architecture.md#FI-D19-2 (conn_badge stays in the scroll region)",
+        "ui/main_window.py:100-223 (toolbar construction + central composition)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_toolbar_scroll_d19.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T54",
+      "title": "Remove toolbar masking from tests/test_dock_widths_d17.py and add the toolbar-visible AC-D19.1 guard",
+      "description": "In tests/test_dock_widths_d17.py, remove the toolbar.hide() masking (and the centralWidget().layout().itemAt(0).widget() toolbar lookup that now resolves to the scroll wrapper), so the D17 harness exercises a toolbar-visible window; add/convert at least one D17 test that drives the watchlist to its cap with the toolbar visible and asserts AC-D19.1.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T53"
+      ],
+      "acceptance_criteria": [
+        "AC-D19.6 (D17 masking): Given tests/test_dock_widths_d17.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains and the toolbar is visible in the harness window) and its tests exercise a toolbar-visible window.",
+        "AC-D19.1: Given a shown offscreen window with the toolbar visible and large enough that floor(0.50 × chart_area) > WATCHLIST_MIN_WIDTH, When the watchlist is driven to its maximum, Then watchlist_dock.width() > WATCHLIST_MIN_WIDTH and abs(watchlist_dock.width() - floor(0.50 × chart_area)) <= 1 (not pinned at WATCHLIST_MIN_WIDTH).",
+        "Regression (D17): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d17.py runs post-fix, Then every D17 test (AC-D17.1–AC-D17.5 and the re-entrancy guard) still passes."
+      ],
+      "tests": [
+        {
+          "test_id": "T54-T01",
+          "linked_acceptance_criterion": "AC-D19.6 (D17 masking): Given tests/test_dock_widths_d17.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains and the toolbar is visible in the harness window) and its tests exercise a toolbar-visible window.",
+          "type": "integration",
+          "description": "After the harness _make_window helper, assert the toolbar widget (objectName 'MainToolbar') is visible, and assert the module source contains no toolbar.hide() call.",
+          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains in the module."
+        },
+        {
+          "test_id": "T54-T02",
+          "linked_acceptance_criterion": "AC-D19.1: Given a shown offscreen window with the toolbar visible and large enough that floor(0.50 × chart_area) > WATCHLIST_MIN_WIDTH, When the watchlist is driven to its maximum, Then watchlist_dock.width() > WATCHLIST_MIN_WIDTH and abs(watchlist_dock.width() - floor(0.50 × chart_area)) <= 1 (not pinned at WATCHLIST_MIN_WIDTH).",
+          "type": "integration",
+          "description": "In a toolbar-visible window large enough that floor(0.50 × chart_area) > 150, drive the watchlist to its cap via _apply_dock_widths(10**6) and assert abs(watchlist_dock.width() - floor(0.50 × chart_area)) <= 1 and watchlist_dock.width() > WATCHLIST_MIN_WIDTH.",
+          "expected_result": "The watchlist reaches the 50%-of-chart-area cap within 1px and is not pinned at the 150px minimum."
+        },
+        {
+          "test_id": "T54-T03",
+          "linked_acceptance_criterion": "Regression (D17): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d17.py runs post-fix, Then every D17 test (AC-D17.1–AC-D17.5 and the re-entrancy guard) still passes.",
+          "type": "integration",
+          "description": "Run the full tests/test_dock_widths_d17.py module with the toolbar visible and assert zero failures.",
+          "expected_result": "All D17 tests (AC-D17.1–AC-D17.5 plus the re-entrancy guard) pass with the toolbar visible."
+        }
+      ],
+      "expected_artifacts": [
         "tests/test_dock_widths_d17.py"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "tests/test_d10_d13_integration.py",
         "tests/test_dock_widths_d17.py"
       ],
       "inputs": [
         "docs/plan.md#Phase 2",
-        "docs/architecture.md#D17 + D18 increment (ui/main_window.py _apply_dock_widths)",
-        "docs/requirements/requirements.md#AC-D17.1",
-        "docs/requirements/requirements.md#AC-D17.2",
-        "docs/requirements/requirements.md#AC-D17.3",
-        "docs/requirements/requirements.md#AC-D17.4",
-        "docs/requirements/requirements.md#AC-D17.5",
-        "docs/requirements/requirements.md#AC-D13.1",
-        "ui/dock_layout.py",
-        "ui/watchlist_panel.py",
-        "ui/main_window.py:resizeEvent/closeEvent (current D13 clamp)",
-        "tests/test_watchlist_d14_midrag.py (offscreen MainWindow stub pattern)"
+        "docs/requirements/requirements.md#AC-D19.1",
+        "docs/requirements/requirements.md#AC-D19.6",
+        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
+        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
+        "tests/test_dock_widths_d17.py (current toolbar.hide() masking)"
       ],
       "outputs": [
-        "ui/main_window.py",
-        "tests/test_d10_d13_integration.py",
         "tests/test_dock_widths_d17.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T48",
-      "title": "Reshape Active Trader + Portfolio into one right-dock region (D18 Phase 3)",
-      "description": "In ui/main_window.py replace the two separate RightDockWidgetArea QDockWidgets with one QDockWidget (title 'Active Trader', stable objectName) whose widget is a container stacking ActiveTraderPanel over ActivePortfolioPanel vertically, so the two sections are inherently equal width and _on_dom_toggled's findChild(QDockWidget, 'Active Trader') still resolves it. Keep ladder/portfolio behaviour and signals untouched; add no width cap yet. Update the right-dock lookup tests in lockstep where they seek the now-absent 'Portfolio' dock.",
+      "id": "T55",
+      "title": "Remove toolbar masking from tests/test_dock_widths_d18.py and add toolbar-visible AC-D19.2/AC-D19.3 guards",
+      "description": "In tests/test_dock_widths_d18.py, remove the toolbar.hide() masking (and the itemAt(0).widget() toolbar lookup) so the D18 end-to-end harness runs with the toolbar visible; add/convert at least one D18 test asserting AC-D19.2 (single right region fully within a full-screen-sized window with the toolbar visible) and AC-D19.3 (chart_area >= CHART_MIN_WIDTH when both docks are driven toward their caps with the toolbar visible).",
       "agent": "Build",
-      "task_type": "implementation",
+      "task_type": "bugfix",
       "dependencies": [
-        "T47"
+        "T53"
       ],
       "acceptance_criteria": [
-        "AC-D18.3: Given the single right region is visible, Then the Active Trader ladder section and the Portfolio section render at equal width within a 1px tolerance, each equal to the region's content width, because they are stacked sections of one region.",
-        "Given ui/main_window.py after the reshape, When findChild(QDockWidget, 'Active Trader') is called, Then it returns the single right region (stable title and objectName) so _on_dom_toggled still toggles it, and there is exactly one QDockWidget in RightDockWidgetArea on the right side.",
-        "Given the reshape, When the ladder/portfolio order-entry, summary and signal wiring are inspected, Then no ladder/portfolio behaviour or signal connection changed (only the container around them).",
-        "Given the updated right-dock lookup tests, When they run, Then tests/test_crosshair_axis_lane.py resolves the single right region and asserts the D2 chip does not intersect it, and the tolerant hide-by-title loops in tests/test_d10_d13_integration.py, tests/test_watchlist_d14_midrag.py and tests/test_history_backfill*.py are green (updated to the single-region shape where they referenced the removed 'Portfolio' dock)."
+        "AC-D19.6 (D18 masking): Given tests/test_dock_widths_d18.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
+        "AC-D19.2: Given a shown full-screen-sized offscreen window with the toolbar visible, Then the single right region is fully within the window — its left edge >= the chart-area right edge, its right edge <= the window right edge, and its visible width is > 0.",
+        "AC-D19.3: Given both docks driven toward their caps with the toolbar visible, Then chart_area >= CHART_MIN_WIDTH (400px).",
+        "Regression (D18): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18.py runs post-fix, Then its AC-D18.1–AC-D18.7 tests still pass."
       ],
       "tests": [
         {
-          "test_id": "T48-T01",
-          "linked_acceptance_criterion": "AC-D18.3: Given the single right region is visible, Then the Active Trader ladder section and the Portfolio section render at equal width within a 1px tolerance, each equal to the region's content width, because they are stacked sections of one region.",
+          "test_id": "T55-T01",
+          "linked_acceptance_criterion": "AC-D19.6 (D18 masking): Given tests/test_dock_widths_d18.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
           "type": "integration",
-          "description": "Offscreen MainWindow with the right region shown; assert win.active_trader.width() and win.portfolio_panel.width() equal the container/region content width within 1px.",
-          "expected_result": "The two stacked section widths are equal within 1px and neither exceeds the region content width."
+          "description": "After the harness _make_window helper, assert the toolbar widget is visible and the module source contains no toolbar.hide() call.",
+          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains."
         },
         {
-          "test_id": "T48-T02",
-          "linked_acceptance_criterion": "Given ui/main_window.py after the reshape, When findChild(QDockWidget, 'Active Trader') is called, Then it returns the single right region (stable title and objectName) so _on_dom_toggled still toggles it, and there is exactly one QDockWidget in RightDockWidgetArea on the right side.",
-          "type": "integration",
-          "description": "Construct an offscreen MainWindow, assert findChild(QDockWidget, 'Active Trader') is not None, invoke _on_dom_toggled(False/True) and assert visibility flips, and assert exactly one right-side dock exists.",
-          "expected_result": "The title lookup resolves the single region; _on_dom_toggled flips its visibility; only one right-side QDockWidget exists."
+          "test_id": "T55-T02",
+          "linked_acceptance_criterion": "AC-D19.2: Given a shown full-screen-sized offscreen window with the toolbar visible, Then the single right region is fully within the window — its left edge >= the chart-area right edge, its right edge <= the window right edge, and its visible width is > 0.",
+          "type": "e2e",
+          "description": "Boot a full-screen-sized offscreen MainWindow with the toolbar visible, show it, process the normalize, and assert the single right region's left edge >= the chart area's right edge, its right edge <= the window's right edge, and its width > 0.",
+          "expected_result": "The single right region is fully within the window with a non-zero visible width."
         },
         {
-          "test_id": "T48-T03",
-          "linked_acceptance_criterion": "Given the reshape, When the ladder/portfolio order-entry, summary and signal wiring are inspected, Then no ladder/portfolio behaviour or signal connection changed (only the container around them).",
-          "type": "integration",
-          "description": "Construct an offscreen MainWindow and assert the ActiveTraderPanel and ActivePortfolioPanel instances are present and their key signals (order_place_requested / account_summary_changed / positions_changed) are still connected to the same MainWindow handlers as before.",
-          "expected_result": "Both panels are present inside the single region and their existing signal connections are intact."
+          "test_id": "T55-T03",
+          "linked_acceptance_criterion": "AC-D19.3: Given both docks driven toward their caps with the toolbar visible, Then chart_area >= CHART_MIN_WIDTH (400px).",
+          "type": "e2e",
+          "description": "With the toolbar visible, drive both docks toward their caps and assert _chart_area_width() >= CHART_MIN_WIDTH (400px).",
+          "expected_result": "chart_area remains >= 400px with both docks driven toward their caps."
         },
         {
-          "test_id": "T48-T04",
-          "linked_acceptance_criterion": "Given the updated right-dock lookup tests, When they run, Then tests/test_crosshair_axis_lane.py resolves the single right region and asserts the D2 chip does not intersect it, and the tolerant hide-by-title loops in tests/test_d10_d13_integration.py, tests/test_watchlist_d14_midrag.py and tests/test_history_backfill*.py are green (updated to the single-region shape where they referenced the removed 'Portfolio' dock).",
-          "type": "integration",
-          "description": "Run the updated tests/test_crosshair_axis_lane.py plus the hide-by-title loops in the four dependent test modules and confirm they pass against the single region.",
-          "expected_result": "All listed tests pass; the crosshair chip/dock non-overlap assertion holds against the single right region."
+          "test_id": "T55-T04",
+          "linked_acceptance_criterion": "Regression (D18): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18.py runs post-fix, Then its AC-D18.1–AC-D18.7 tests still pass.",
+          "type": "e2e",
+          "description": "Run the full tests/test_dock_widths_d18.py module with the toolbar visible and assert zero failures.",
+          "expected_result": "All D18 end-to-end tests (AC-D18.1–AC-D18.7) pass with the toolbar visible."
         }
       ],
       "expected_artifacts": [
-        "ui/main_window.py",
-        "tests/test_dock_d18_region.py",
-        "tests/test_crosshair_axis_lane.py",
-        "tests/test_d10_d13_integration.py",
-        "tests/test_watchlist_d14_midrag.py",
-        "tests/test_history_backfill.py",
-        "tests/test_history_backfill_loadpath.py",
-        "tests/test_history_backfill_disconnect.py"
+        "tests/test_dock_widths_d18.py"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "tests/test_dock_d18_region.py",
-        "tests/test_crosshair_axis_lane.py",
-        "tests/test_d10_d13_integration.py",
-        "tests/test_watchlist_d14_midrag.py",
-        "tests/test_history_backfill.py",
-        "tests/test_history_backfill_loadpath.py",
-        "tests/test_history_backfill_disconnect.py"
+        "tests/test_dock_widths_d18.py"
       ],
       "inputs": [
-        "docs/plan.md#Phase 3",
-        "docs/architecture.md#D17 + D18 increment (single right dock region)",
-        "docs/requirements/requirements.md#AC-D18.3",
-        "docs/requirements/requirements.md#AC-D18.8",
-        "docs/requirements/requirements.md#A35",
-        "ui/main_window.py:234-252 (current two-dock setup) and _on_dom_toggled",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
-        "tests/test_crosshair_axis_lane.py",
-        "tests/test_d10_d13_integration.py"
+        "docs/plan.md#Phase 2",
+        "docs/requirements/requirements.md#AC-D19.2",
+        "docs/requirements/requirements.md#AC-D19.3",
+        "docs/requirements/requirements.md#AC-D19.6",
+        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
+        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
+        "tests/test_dock_widths_d18.py (current toolbar.hide() masking)"
       ],
       "outputs": [
-        "ui/main_window.py",
-        "tests/test_dock_d18_region.py",
-        "tests/test_crosshair_axis_lane.py",
-        "tests/test_d10_d13_integration.py",
-        "tests/test_watchlist_d14_midrag.py",
-        "tests/test_history_backfill.py",
-        "tests/test_history_backfill_loadpath.py",
-        "tests/test_history_backfill_disconnect.py"
+        "tests/test_dock_widths_d18.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T49",
-      "title": "Add the right-region 40% cap, cross-clamp, content bound and full-screen normalize (D18 Phase 4)",
-      "description": "Wire the single right region into the shared MainWindow._apply_dock_widths so it grows to floor(0.40 * chart_area), shrinks to its minimum, and cross-clamps with the watchlist via plan_dock_widths so chart_area >= 400px; add the changeEvent(WindowStateChange) + resizeEvent full-screen normalize (no showFullScreen), keep the region unpersisted, and bound the minimum/ideal width of ui/active_trader_panel.py and ui/active_portfolio_panel.py so their tables scroll/clip internally and content cannot push the region off-screen. Ship focused offscreen tests.",
+      "id": "T56",
+      "title": "Remove toolbar masking from tests/test_dock_widths_d18_impl.py",
+      "description": "In tests/test_dock_widths_d18_impl.py, remove the toolbar.hide() masking and the centralWidget().layout().itemAt(0).widget() toolbar lookup so the D18 implementation harness exercises a toolbar-visible window; confirm its AC-D18.2/AC-D18.4/AC-D18.5/AC-D18.6/AC-D18.7 tests pass post-fix with the toolbar visible.",
       "agent": "Build",
-      "task_type": "implementation",
+      "task_type": "bugfix",
       "dependencies": [
-        "T48"
+        "T53"
       ],
       "acceptance_criteria": [
-        "AC-D18.2: Given the right region is visible, When the user enlarges it, Then its width grows up to floor(0.40 * chart_area) and the chart area narrows correspondingly; the region width is <= floor(0.40 * chart_area) during and after the resize.",
-        "AC-D18.4: Given the right region is at/near its cap, When the user drags further to enlarge, Then the width stops at the cap with no overshoot; When the user drags to shrink, Then the region reduces down to RIGHT_DOCK_MIN_WIDTH and stops, never below the minimum.",
-        "AC-D18.5: Given both the watchlist and the right region are enlarged, When their combined width would push the chart area below its ~400px minimum, Then both docks are clamped so chart_area stays >= 400px and enlarging one forces the other to shrink rather than letting the chart collapse.",
-        "AC-D18.1: Given the app is shown full screen, When the chart and the right region render, Then the right region is fully within the visible window area (its geometry lies within the window rect and its width is > 0) without manual repositioning, via the changeEvent(WindowStateChange)/resizeEvent normalize step.",
-        "AC-D18.6: Given the ladder/portfolio content is wider than the region, When the region renders, Then the region's geometry still satisfies the visibility and cap assertions (content minimums do not force it past the window edge or past the cap) because each panel's width is bounded and its tables scroll/clip internally.",
-        "AC-D18.7: Given the app restarts, Then the right region's width/visibility is not persisted (no new QSettings key is added; the default applies), matching D10's volume-toggle precedent.",
-        "Given the right region is wired into _apply_dock_widths alongside the watchlist, When the widths are applied, Then there is no recursion/jitter between the two regions' rescale (re-entrancy guard and only-resize-when-changed both hold)."
+        "AC-D19.6 (masking): Given tests/test_dock_widths_d18_impl.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
+        "Regression (D18 impl): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18_impl.py runs post-fix, Then its AC-D18.2/AC-D18.4/AC-D18.5/AC-D18.6/AC-D18.7 tests still pass."
       ],
       "tests": [
         {
-          "test_id": "T49-T01",
-          "linked_acceptance_criterion": "AC-D18.2: Given the right region is visible, When the user enlarges it, Then its width grows up to floor(0.40 * chart_area) and the chart area narrows correspondingly; the region width is <= floor(0.40 * chart_area) during and after the resize.",
+          "test_id": "T56-T01",
+          "linked_acceptance_criterion": "AC-D19.6 (masking): Given tests/test_dock_widths_d18_impl.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
           "type": "integration",
-          "description": "Offscreen MainWindow; enlarge the right region via the resize/apply path and assert the effective region width == floor(0.40 * chart_area) and centralWidget().width() decreased.",
-          "expected_result": "Right-region width equals the 40% chart-area cap and the chart area narrowed."
+          "description": "After the harness _make_window helper, assert the toolbar widget is visible and the module source contains no toolbar.hide() call.",
+          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains."
         },
         {
-          "test_id": "T49-T02",
-          "linked_acceptance_criterion": "AC-D18.4: Given the right region is at/near its cap, When the user drags further to enlarge, Then the width stops at the cap with no overshoot; When the user drags to shrink, Then the region reduces down to RIGHT_DOCK_MIN_WIDTH and stops, never below the minimum.",
+          "test_id": "T56-T02",
+          "linked_acceptance_criterion": "Regression (D18 impl): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18_impl.py runs post-fix, Then its AC-D18.2/AC-D18.4/AC-D18.5/AC-D18.6/AC-D18.7 tests still pass.",
           "type": "integration",
-          "description": "Drive the right region over-cap and below-min requests and assert clamping at floor(0.40*chart_area) and RIGHT_DOCK_MIN_WIDTH respectively.",
-          "expected_result": "No applied width exceeds the cap or falls below the region minimum."
-        },
-        {
-          "test_id": "T49-T03",
-          "linked_acceptance_criterion": "AC-D18.5: Given both the watchlist and the right region are enlarged, When their combined width would push the chart area below its ~400px minimum, Then both docks are clamped so chart_area stays >= 400px and enlarging one forces the other to shrink rather than letting the chart collapse.",
-          "type": "integration",
-          "description": "Set both docks near their individual maxima, then enlarge one via the shared apply path; assert centralWidget().width() >= 400 and the other dock's width decreased.",
-          "expected_result": "chart_area >= 400px after the enlargement and the non-resized dock shrank."
-        },
-        {
-          "test_id": "T49-T04",
-          "linked_acceptance_criterion": "AC-D18.1: Given the app is shown full screen, When the chart and the right region render, Then the right region is fully within the visible window area (its geometry lies within the window rect and its width is > 0) without manual repositioning, via the changeEvent(WindowStateChange)/resizeEvent normalize step.",
-          "type": "integration",
-          "description": "Show a full-screen-sized offscreen window, deliver a WindowStateChange/changeEvent and resize, process the deferred singleShot normalize, and assert the right region geometry is inside the window rect with width > 0.",
-          "expected_result": "The right region's geometry is contained by the window rect and its width is positive."
-        },
-        {
-          "test_id": "T49-T05",
-          "linked_acceptance_criterion": "AC-D18.6: Given the ladder/portfolio content is wider than the region, When the region renders, Then the region's geometry still satisfies the visibility and cap assertions (content minimums do not force it past the window edge or past the cap) because each panel's width is bounded and its tables scroll/clip internally.",
-          "type": "integration",
-          "description": "Populate the ladder/portfolio tables with wide content, render, and assert the region width/right edge still satisfy the cap and visibility assertions.",
-          "expected_result": "With wide content the region remains within the window and within the cap; no off-screen overflow."
-        },
-        {
-          "test_id": "T49-T06",
-          "linked_acceptance_criterion": "AC-D18.7: Given the app restarts, Then the right region's width/visibility is not persisted (no new QSettings key is added; the default applies), matching D10's volume-toggle precedent.",
-          "type": "integration",
-          "description": "Resize the right region, close, and reconstruct a MainWindow against the same QSettings; assert the right region returns to its default and no right-region QSettings key was written.",
-          "expected_result": "The right region is not restored from settings; no new persistence key exists."
-        },
-        {
-          "test_id": "T49-T07",
-          "linked_acceptance_criterion": "Given the right region is wired into _apply_dock_widths alongside the watchlist, When the widths are applied, Then there is no recursion/jitter between the two regions' rescale (re-entrancy guard and only-resize-when-changed both hold).",
-          "type": "integration",
-          "description": "Invoke _apply_dock_widths repeatedly with both regions present at a fixed geometry; assert no recursion and no repeated resizeDocks once stable.",
-          "expected_result": "Repeated application is a no-op once stable; no recursion/jitter."
+          "description": "Run the full tests/test_dock_widths_d18_impl.py module with the toolbar visible and assert zero failures.",
+          "expected_result": "All D18 implementation tests pass with the toolbar visible."
         }
       ],
       "expected_artifacts": [
-        "ui/main_window.py",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
         "tests/test_dock_widths_d18_impl.py"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
         "tests/test_dock_widths_d18_impl.py"
       ],
       "inputs": [
-        "docs/plan.md#Phase 4",
-        "docs/architecture.md#D17 + D18 increment (cap/cross-clamp/full-screen/panel width bound)",
-        "docs/requirements/requirements.md#AC-D18.1",
-        "docs/requirements/requirements.md#AC-D18.2",
-        "docs/requirements/requirements.md#AC-D18.4",
-        "docs/requirements/requirements.md#AC-D18.5",
-        "docs/requirements/requirements.md#AC-D18.6",
-        "docs/requirements/requirements.md#AC-D18.7",
-        "docs/requirements/requirements.md#A36",
-        "ui/dock_layout.py",
-        "ui/main_window.py:_apply_dock_widths (from T47)",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py"
+        "docs/plan.md#Phase 2",
+        "docs/requirements/requirements.md#AC-D19.6",
+        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
+        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
+        "tests/test_dock_widths_d18_impl.py (current toolbar.hide() masking)"
       ],
       "outputs": [
-        "ui/main_window.py",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
         "tests/test_dock_widths_d18_impl.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T50",
-      "title": "Offscreen end-to-end verification of D17/D18 dock geometry (full screen, caps, cross-clamp, equal width, content bound)",
-      "description": "Add tests/test_dock_widths_d18.py booting a real offscreen MainWindow (IBApiClient.connect monkeypatched, managers stubbed) and verifying the rendered D18 geometry end-to-end: the single right region is fully on-screen in a full-screen-sized window, grows to the 40% chart-area cap, has equal-width stacked sections, stops at cap/minimum, cross-clamps with the watchlist to keep chart_area >= 400px, resists being pushed off-screen by wide content, and is not persisted. Parameterize over at least two window sizes / a small display case.",
+      "id": "T57",
+      "title": "Remove toolbar masking from tests/test_dock_d18_region.py",
+      "description": "In tests/test_dock_d18_region.py, remove the toolbar.hide() masking and the itemAt(0).widget() toolbar lookup so the D18 region harness exercises a toolbar-visible window; confirm its AC-D18.3 equal-width tests pass post-fix with the toolbar visible.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T53"
+      ],
+      "acceptance_criteria": [
+        "AC-D19.6 (masking): Given tests/test_dock_d18_region.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
+        "Regression (D18 region): Given the updated harness with the toolbar visible, When tests/test_dock_d18_region.py runs post-fix, Then its AC-D18.3 equal-width tests still pass."
+      ],
+      "tests": [
+        {
+          "test_id": "T57-T01",
+          "linked_acceptance_criterion": "AC-D19.6 (masking): Given tests/test_dock_d18_region.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
+          "type": "integration",
+          "description": "After the harness _make_window helper, assert the toolbar widget is visible and the module source contains no toolbar.hide() call.",
+          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains."
+        },
+        {
+          "test_id": "T57-T02",
+          "linked_acceptance_criterion": "Regression (D18 region): Given the updated harness with the toolbar visible, When tests/test_dock_d18_region.py runs post-fix, Then its AC-D18.3 equal-width tests still pass.",
+          "type": "integration",
+          "description": "Run the full tests/test_dock_d18_region.py module with the toolbar visible and assert zero failures.",
+          "expected_result": "All D18 region tests (AC-D18.3 equal width) pass with the toolbar visible."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_dock_d18_region.py"
+      ],
+      "touches_files": [
+        "tests/test_dock_d18_region.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 2",
+        "docs/requirements/requirements.md#AC-D19.6",
+        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
+        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
+        "tests/test_dock_d18_region.py (current toolbar.hide() masking)"
+      ],
+      "outputs": [
+        "tests/test_dock_d18_region.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T58",
+      "title": "Remove toolbar masking from tests/test_dock_layout.py (T52 integration test)",
+      "description": "In tests/test_dock_layout.py, remove the toolbar.hide() masking and the itemAt(0).widget() toolbar lookup in the T52 integration test so it exercises a toolbar-visible window; confirm the T52 dock-layout integration test and the pure plan_dock_widths unit tests still pass.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "T53"
+      ],
+      "acceptance_criteria": [
+        "AC-D19.6 (masking): Given tests/test_dock_layout.py, When it runs, Then the T52 integration test no longer hides the toolbar (no toolbar.hide() masking remains) and exercises a toolbar-visible window.",
+        "Regression (dock layout): Given the updated harness with the toolbar visible, When tests/test_dock_layout.py runs post-fix, Then the pure plan_dock_widths unit tests and the T52 integration test still pass."
+      ],
+      "tests": [
+        {
+          "test_id": "T58-T01",
+          "linked_acceptance_criterion": "AC-D19.6 (masking): Given tests/test_dock_layout.py, When it runs, Then the T52 integration test no longer hides the toolbar (no toolbar.hide() masking remains) and exercises a toolbar-visible window.",
+          "type": "integration",
+          "description": "Assert the T52 integration test's window shows the toolbar (objectName 'MainToolbar' visible) and the module source contains no toolbar.hide() call.",
+          "expected_result": "The T52 integration test runs against a toolbar-visible window and no toolbar.hide() masking remains."
+        },
+        {
+          "test_id": "T58-T02",
+          "linked_acceptance_criterion": "Regression (dock layout): Given the updated harness with the toolbar visible, When tests/test_dock_layout.py runs post-fix, Then the pure plan_dock_widths unit tests and the T52 integration test still pass.",
+          "type": "integration",
+          "description": "Run the full tests/test_dock_layout.py module with the toolbar visible and assert zero failures.",
+          "expected_result": "The pure plan_dock_widths unit tests and the T52 integration test all pass with the toolbar visible."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_dock_layout.py"
+      ],
+      "touches_files": [
+        "tests/test_dock_layout.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 2",
+        "docs/requirements/requirements.md#AC-D19.6",
+        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
+        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
+        "tests/test_dock_layout.py:300-344 (T52 integration test masking)"
+      ],
+      "outputs": [
+        "tests/test_dock_layout.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "T59",
+      "title": "Capture the AC-D19.6 pre-fix-red / post-fix-green regression-guard evidence",
+      "description": "Verify the D19 regression guard genuinely discriminates: run the toolbar-visible D17 and D18 tests added/updated in Phase 2 against the pre-fix tree (commit 5bd7c93, e.g. a temporary git worktree/stash without the Phase 1 wrapper change) and record that at least one D17 test and at least one D18 test fail there; then re-run them against the post-fix tree and record that they pass. The intermediate red is intentional (R33), not a regression. Record the evidence in the Build-owned build log.",
       "agent": "Build",
       "task_type": "verification",
       "dependencies": [
-        "T49"
+        "T53",
+        "T54",
+        "T55",
+        "T56",
+        "T57",
+        "T58"
       ],
       "acceptance_criteria": [
-        "AC-D18.1 (e2e): Given a full-screen-sized offscreen MainWindow, When the chart and single right region render, Then the region's geometry lies within the window rect with width > 0 and it is on-screen without manual repositioning.",
-        "AC-D18.2/AC-D18.4 (e2e): Given the right region is rendered, When it is enlarged past the cap and shrunk below the minimum, Then the rendered width stops at floor(0.40 * chart_area) and at RIGHT_DOCK_MIN_WIDTH respectively, and the chart area narrows/grows correspondingly.",
-        "AC-D18.3 (e2e): Given the single right region renders, Then the Active Trader ladder section and the Portfolio section are equal width within 1px and each equals the region content width.",
-        "AC-D18.5 (e2e): Given both docks are rendered near their maxima and one is enlarged, Then the rendered chart area stays >= 400px and the other dock's width decreased.",
-        "AC-D18.6 (e2e): Given wide ladder/portfolio content, When the region renders, Then its width and right edge still satisfy the visibility and cap assertions (content scrolls/clips internally).",
-        "AC-D18.7 (e2e): Given a restart against the same QSettings, Then the right region's width/visibility returns to its default and no right-region persistence key exists."
+        "AC-D19.6 (discrimination): Given the updated toolbar-visible D17 and D18 tests, When they run against the pre-fix tree (commit 5bd7c93, before Phase 1's wrapper change), Then at least one D17 test and at least one D18 test fail; When they run against the post-fix tree, Then the same tests pass.",
+        "AC-D19.6 (no masking): Given the five affected harnesses, Then none hides the toolbar to sidestep the constraint (no toolbar.hide() masking remains in tests/test_dock_widths_d17.py, tests/test_dock_widths_d18.py, tests/test_dock_widths_d18_impl.py, tests/test_dock_d18_region.py, tests/test_dock_layout.py), and the pre-fix-red/post-fix-green evidence is recorded in the build log."
       ],
       "tests": [
         {
-          "test_id": "T50-T01",
-          "linked_acceptance_criterion": "AC-D18.1 (e2e): Given a full-screen-sized offscreen MainWindow, When the chart and single right region render, Then the region's geometry lies within the window rect with width > 0 and it is on-screen without manual repositioning.",
-          "type": "e2e",
-          "description": "Boot the offscreen MainWindow at full-screen-like dimensions, show it, process the normalize, and assert the right region geometry is inside the window rect with positive width.",
-          "expected_result": "Region geometry contained by the window rect; width > 0."
-        },
-        {
-          "test_id": "T50-T02",
-          "linked_acceptance_criterion": "AC-D18.2/AC-D18.4 (e2e): Given the right region is rendered, When it is enlarged past the cap and shrunk below the minimum, Then the rendered width stops at floor(0.40 * chart_area) and at RIGHT_DOCK_MIN_WIDTH respectively, and the chart area narrows/grows correspondingly.",
-          "type": "e2e",
-          "description": "Drive rendered resize past the cap and below the min and assert the rendered dock width and chart-area width follow the cap/minimum contract.",
-          "expected_result": "Rendered width == 40% cap when overshooting; == RIGHT_DOCK_MIN_WIDTH when undershooting; chart area moves inversely."
-        },
-        {
-          "test_id": "T50-T03",
-          "linked_acceptance_criterion": "AC-D18.3 (e2e): Given the single right region renders, Then the Active Trader ladder section and the Portfolio section are equal width within 1px and each equals the region content width.",
-          "type": "e2e",
-          "description": "After rendering, compare the rendered width of the Active Trader section and the Portfolio section.",
-          "expected_result": "The two rendered section widths differ by at most 1px and match the region content width."
-        },
-        {
-          "test_id": "T50-T04",
-          "linked_acceptance_criterion": "AC-D18.5 (e2e): Given both docks are rendered near their maxima and one is enlarged, Then the rendered chart area stays >= 400px and the other dock's width decreased.",
-          "type": "e2e",
-          "description": "Render both docks near their maxima, enlarge one through the live apply path, and assert chart area >= 400px and the other dock shrank.",
-          "expected_result": "Rendered chart area >= 400px; the non-resized dock's rendered width decreased."
-        },
-        {
-          "test_id": "T50-T05",
-          "linked_acceptance_criterion": "AC-D18.6 (e2e): Given wide ladder/portfolio content, When the region renders, Then its width and right edge still satisfy the visibility and cap assertions (content scrolls/clips internally).",
-          "type": "e2e",
-          "description": "Populate wide content into the rendered tables and assert the region stays within the window and under the cap.",
-          "expected_result": "With wide content the region remains on-screen and within the 40% cap."
-        },
-        {
-          "test_id": "T50-T06",
-          "linked_acceptance_criterion": "AC-D18.7 (e2e): Given a restart against the same QSettings, Then the right region's width/visibility returns to its default and no right-region persistence key exists.",
-          "type": "e2e",
-          "description": "Resize the rendered right region, close, reconstruct against the same QSettings, and assert the default geometry and absence of any right-region key.",
-          "expected_result": "Right region returns to default on restart; no right-region QSettings key written."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_dock_widths_d18.py"
-      ],
-      "touches_files": [
-        "tests/test_dock_widths_d18.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 4",
-        "docs/plan.md#Phase 5",
-        "docs/architecture.md#D17 + D18 increment",
-        "docs/requirements/requirements.md#AC-D18.1",
-        "docs/requirements/requirements.md#AC-D18.2",
-        "docs/requirements/requirements.md#AC-D18.3",
-        "docs/requirements/requirements.md#AC-D18.4",
-        "docs/requirements/requirements.md#AC-D18.5",
-        "docs/requirements/requirements.md#AC-D18.6",
-        "docs/requirements/requirements.md#AC-D18.7",
-        "ui/main_window.py",
-        "ui/dock_layout.py",
-        "tests/test_watchlist_d14_midrag.py (offscreen MainWindow stub pattern)"
-      ],
-      "outputs": [
-        "tests/test_dock_widths_d18.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T51",
-      "title": "Batch-11 regression gate (full offscreen suite green, D2 chip/dock non-overlap, no live TWS)",
-      "description": "Run the full offscreen suite after the D17/D18 changes and confirm it stays green with no D1-D16 regression and that the D13 clamp-math tests were updated in lockstep (never left contradicting D17). Confirm the D2 chip/dock non-overlap assertion still holds against the single right region and that no test connects to live TWS or transmits an order.",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "T49",
-        "T50"
-      ],
-      "acceptance_criteria": [
-        "AC-D17.6/AC-D18.8: Given the D17/D18 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D16 acceptance-criteria test still passes, with the D13 clamp-math assertions updated to the chart-area denominator (never left contradicting D17).",
-        "Given the D17/D18 changes, When the D2 chip/dock non-overlap test runs against the single right region, Then AC-D2.1 still holds (the crosshair chip is not covered by the right region).",
-        "Given the D17/D18 changes, When the suite runs, Then no test connects to live TWS or transmits an order (Q9), and the intermittent shared-test-DB failures noted in project memory are confirmed against a clean full-suite run before being treated as a regression."
-      ],
-      "tests": [
-        {
-          "test_id": "T51-T01",
-          "linked_acceptance_criterion": "AC-D17.6/AC-D18.8: Given the D17/D18 changes, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D16 acceptance-criteria test still passes, with the D13 clamp-math assertions updated to the chart-area denominator (never left contradicting D17).",
-          "type": "integration",
-          "description": "Run the full offscreen suite and compare pass/fail against the pre-batch baseline (383 green + D16 tests); assert zero failures.",
-          "expected_result": "Zero failures; no D1-D16 test regressed; D13 clamp-math tests assert the chart-area denominator."
-        },
-        {
-          "test_id": "T51-T02",
-          "linked_acceptance_criterion": "Given the D17/D18 changes, When the D2 chip/dock non-overlap test runs against the single right region, Then AC-D2.1 still holds (the crosshair chip is not covered by the right region).",
-          "type": "integration",
-          "description": "Run tests/test_crosshair_axis_lane.py and assert the chip does not intersect the single right region's frameGeometry.",
-          "expected_result": "The chip/dock non-overlap assertion passes against the single right region."
-        },
-        {
-          "test_id": "T51-T03",
-          "linked_acceptance_criterion": "Given the D17/D18 changes, When the suite runs, Then no test connects to live TWS or transmits an order (Q9), and the intermittent shared-test-DB failures noted in project memory are confirmed against a clean full-suite run before being treated as a regression.",
+          "test_id": "T59-T01",
+          "linked_acceptance_criterion": "AC-D19.6 (discrimination): Given the updated toolbar-visible D17 and D18 tests, When they run against the pre-fix tree (commit 5bd7c93, before Phase 1's wrapper change), Then at least one D17 test and at least one D18 test fail; When they run against the post-fix tree, Then the same tests pass.",
           "type": "manual",
-          "description": "Confirm no test opens a live TWS socket or transmits an order, and re-run the suite once on a clean shared test DB to distinguish spurious failures from regressions.",
-          "expected_result": "No live-TWS/order test; any intermittent failure is reproduced/cleared by a clean full-suite run rather than treated as a regression."
+          "description": "Check out the pre-fix tree (commit 5bd7c93) in a temporary git worktree without the Phase 1 wrapper, copy in the updated toolbar-visible D17/D18 tests, run them, and capture the failing test ids; then run the same tests against the post-fix tree and capture the passing result.",
+          "expected_result": "At least one D17 and at least one D18 toolbar-visible test fail pre-fix and pass post-fix; both results are recorded."
+        },
+        {
+          "test_id": "T59-T02",
+          "linked_acceptance_criterion": "AC-D19.6 (no masking): Given the five affected harnesses, Then none hides the toolbar to sidestep the constraint (no toolbar.hide() masking remains in tests/test_dock_widths_d17.py, tests/test_dock_widths_d18.py, tests/test_dock_widths_d18_impl.py, tests/test_dock_d18_region.py, tests/test_dock_layout.py), and the pre-fix-red/post-fix-green evidence is recorded in the build log.",
+          "type": "integration",
+          "description": "Assert none of the five affected harnesses contains toolbar.hide() masking (source check) and record the evidence reference in the build log.",
+          "expected_result": "No toolbar.hide() masking remains in the five files and the evidence is recorded."
         }
       ],
       "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned Batch-11 verification entry; no new source files)"
+        "docs/build/build_log.md (Build-owned AC-D19.6 evidence entry; no new source files)"
       ],
       "touches_files": [],
       "inputs": [
-        "docs/requirements/requirements.md#AC-D17.6",
-        "docs/requirements/requirements.md#AC-D18.8",
-        "docs/requirements/requirements.md#AC-D2.1",
-        "docs/plan.md#Phase 5",
-        "docs/architecture.md#D17 + D18 increment",
-        "docs/memory.md (shared test-DB contention gotcha)"
+        "docs/plan.md#Phase 2 (pre-fix evidence, PA-D19-6)",
+        "docs/requirements/requirements.md#AC-D19.6",
+        "docs/requirements/requirements.md#R33",
+        "tests/test_dock_widths_d17.py (toolbar-visible guard from T54)",
+        "tests/test_dock_widths_d18.py (toolbar-visible guard from T55)",
+        "tests/test_dock_widths_d18_impl.py",
+        "tests/test_dock_d18_region.py",
+        "tests/test_dock_layout.py",
+        "commit 5bd7c93 (pre-fix tree)"
       ],
       "outputs": [],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T52",
-      "title": "Fix plan_dock_widths to never return below a dock minimum, add the one-sided-over-budget regression test, and remove the T49 MainWindow workaround (ESC-026)",
-      "description": "Correct ui/dock_layout.py::plan_dock_widths so its shrink loop re-floors left/right at WATCHLIST_MIN_WIDTH/RIGHT_DOCK_MIN_WIDTH (its docstring guarantee and AC-D18.4) instead of decrementing below a dock minimum on a one-sided over-budget request; add the missing regression test for the reproduced cases plan_dock_widths(750, 100000, 200) and (750, 200, 0); then remove the now-redundant T49 in-place repair in MainWindow._plan_dock_widths so ui/dock_layout.py is again the single source of truth. No acceptance criterion or architecture change — the AC and architecture are correct; only the pure helper's shrink loop and the workaround are wrong.",
+      "id": "T60",
+      "title": "Batch-13 D19 regression gate: full offscreen suite green in a toolbar-visible window + real dev-build check",
+      "description": "Run the full offscreen suite (QT_QPA_PLATFORM=offscreen) after the D19 changes and confirm zero failures with no D1–D18 regression; confirm the D2 chip/dock non-overlap (AC-D2.1) and the D13/D17/D18 criteria hold in a toolbar-visible window; confirm no test connects to live TWS or transmits an order (Q9); and record a manual `python main.py` check that the toolbar scrolls/elides in place as one row and the watchlist grows to its cap (R34). Per project memory, confirm any intermittent failure with a clean full-suite run before treating it as a regression.",
       "agent": "Build",
-      "task_type": "bugfix",
+      "task_type": "verification",
       "dependencies": [
-        "T45",
-        "T49"
+        "T53",
+        "T54",
+        "T55",
+        "T56",
+        "T57",
+        "T58",
+        "T59"
       ],
       "acceptance_criteria": [
-        "Given plan_dock_widths is called with any integer chart_area_w and requested left/right widths, When either returned width is compared to its dock minimum, Then left >= WATCHLIST_MIN_WIDTH (150) and right >= RIGHT_DOCK_MIN_WIDTH (200) in every case, including the one-sided over-budget and both-requested-over-budget cases.",
-        "Given the reproduced one-sided over-budget inputs plan_dock_widths(750, 100000, 200) and plan_dock_widths(750, 200, 0), When the function is called, Then (left, right) >= (150, 200) componentwise and neither width drops below its dock minimum (returning e.g. (350, 0) or (175, 175) is a failure).",
-        "Given an infeasible window where the two dock minimums alone exceed chart_area_w - CHART_MIN_WIDTH, When plan_dock_widths is called, Then the chart minimum yields and the function returns exactly (WATCHLIST_MIN_WIDTH, RIGHT_DOCK_MIN_WIDTH); where the window is feasible but the combined request exceeds budget, the chart minimum is preserved (chart_area_w - left - right >= CHART_MIN_WIDTH) and the reserved chart minimum yields before any dock minimum is crossed.",
-        "Given MainWindow._plan_dock_widths after the T49 in-place repair is removed, When the shared dock-width apply path runs (including cross-clamp and over-cap/under-min drags), Then plan_dock_widths is the single source of truth and the resulting widths still satisfy the D18 cap (right <= floor(0.40 * chart_area)) and cross-clamp (chart area >= CHART_MIN_WIDTH) guarantees, so the earlier T49/T50 acceptance tests still pass."
+        "AC-D19.7: Given the D19 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1–D18 acceptance-criteria test still passes, with the D13/D17/D18 criteria holding in a toolbar-visible window.",
+        "AC-D2.1: Given the D19 fix, When the D2 chip/dock non-overlap test runs against the single right region, Then the crosshair chip is not covered by the right region.",
+        "R34 / Q9: Given the D19 fix, Then a manual `python main.py` check is recorded confirming the toolbar scrolls/elides in place as one ~36px row and the watchlist grows to its cap, and no automated test connects to live TWS or transmits an order."
       ],
       "tests": [
         {
-          "test_id": "T52-T01",
-          "linked_acceptance_criterion": "Given plan_dock_widths is called with any integer chart_area_w and requested left/right widths, When either returned width is compared to its dock minimum, Then left >= WATCHLIST_MIN_WIDTH (150) and right >= RIGHT_DOCK_MIN_WIDTH (200) in every case, including the one-sided over-budget and both-requested-over-budget cases.",
-          "type": "unit",
-          "description": "Property/enumeration test over a grid of chart_area_w values and requested left/right extremes (including 0 and huge values) asserting every returned left >= WATCHLIST_MIN_WIDTH and right >= RIGHT_DOCK_MIN_WIDTH.",
-          "expected_result": "No grid combination yields a left below 150 or a right below 200; the pre-fix coarse grid's 108/1475 violations are all gone."
-        },
-        {
-          "test_id": "T52-T02",
-          "linked_acceptance_criterion": "Given the reproduced one-sided over-budget inputs plan_dock_widths(750, 100000, 200) and plan_dock_widths(750, 200, 0), When the function is called, Then (left, right) >= (150, 200) componentwise and neither width drops below its dock minimum (returning e.g. (350, 0) or (175, 175) is a failure).",
-          "type": "unit",
-          "description": "Regression test for the exact reproduced cases: plan_dock_widths(750, 100000, 200) and plan_dock_widths(750, 200, 0); assert each returned width >= its dock minimum.",
-          "expected_result": "plan_dock_widths(750, 100000, 200) returns left >= 150 and right >= 200; plan_dock_widths(750, 200, 0) returns left >= 150 and right >= 200 (not (350, 0) / (175, 175))."
-        },
-        {
-          "test_id": "T52-T03",
-          "linked_acceptance_criterion": "Given an infeasible window where the two dock minimums alone exceed chart_area_w - CHART_MIN_WIDTH, When plan_dock_widths is called, Then the chart minimum yields and the function returns exactly (WATCHLIST_MIN_WIDTH, RIGHT_DOCK_MIN_WIDTH); where the window is feasible but the combined request exceeds budget, the chart minimum is preserved (chart_area_w - left - right >= CHART_MIN_WIDTH) and the reserved chart minimum yields before any dock minimum is crossed.",
-          "type": "unit",
-          "description": "Assert documented precedence: an infeasible chart_area_w (e.g. 400 with both requests high) returns exactly the dock minimums; a feasible over-budget case (e.g. chart_area_w=1000, requests at their flat caps) preserves chart_area_w - left - right >= CHART_MIN_WIDTH while both widths stay >= their minimums.",
-          "expected_result": "Infeasible window returns (150, 200); feasible over-budget case keeps chart remainder >= 400 with both widths at/above their minimums, matching the unchanged docstring guarantee."
-        },
-        {
-          "test_id": "T52-T04",
-          "linked_acceptance_criterion": "Given MainWindow._plan_dock_widths after the T49 in-place repair is removed, When the shared dock-width apply path runs (including cross-clamp and over-cap/under-min drags), Then plan_dock_widths is the single source of truth and the resulting widths still satisfy the D18 cap (right <= floor(0.40 * chart_area)) and cross-clamp (chart area >= CHART_MIN_WIDTH) guarantees, so the earlier T49/T50 acceptance tests still pass.",
+          "test_id": "T60-T01",
+          "linked_acceptance_criterion": "AC-D19.7: Given the D19 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1–D18 acceptance-criteria test still passes, with the D13/D17/D18 criteria holding in a toolbar-visible window.",
           "type": "integration",
-          "description": "Offscreen MainWindow test (no live TWS) driving the shared apply path after the T49 repair is removed: grow the right dock to its cap and shrink below its minimum, and cross-clamp both docks; assert right <= floor(0.40*chart_area), each dock >= its minimum, and chart area >= CHART_MIN_WIDTH, i.e. the D18 guarantees now rest solely on plan_dock_widths.",
-          "expected_result": "The MainWindow path (with the repair removed) still enforces the 40% cap, the dock minimums and the chart-area cross-clamp; the retained T49/T50 tests remain green."
+          "description": "Run the full offscreen suite and compare pass/fail against the pre-batch baseline (566 passed at commit 5bd7c93); assert zero failures and that the D13/D17/D18 criteria hold in a toolbar-visible window.",
+          "expected_result": "Zero failures; no D1–D18 test regressed; D13/D17/D18 criteria hold with the toolbar visible."
+        },
+        {
+          "test_id": "T60-T02",
+          "linked_acceptance_criterion": "AC-D2.1: Given the D19 fix, When the D2 chip/dock non-overlap test runs against the single right region, Then the crosshair chip is not covered by the right region.",
+          "type": "integration",
+          "description": "Run tests/test_crosshair_axis_lane.py and assert the chip does not intersect the single right region's frameGeometry.",
+          "expected_result": "The chip/dock non-overlap assertion passes against the single right region."
+        },
+        {
+          "test_id": "T60-T03",
+          "linked_acceptance_criterion": "R34 / Q9: Given the D19 fix, Then a manual `python main.py` check is recorded confirming the toolbar scrolls/elides in place as one ~36px row and the watchlist grows to its cap, and no automated test connects to live TWS or transmits an order.",
+          "type": "manual",
+          "description": "Record a manual `python main.py` dev-build check that the toolbar scrolls/elides in place as one ~36px row and the watchlist grows to its cap; confirm no test opens a live TWS socket or transmits an order, and re-run the suite once on a clean shared test DB to distinguish spurious failures from regressions (project memory).",
+          "expected_result": "The manual dev-build check is recorded (R34); no live-TWS/order test; any intermittent failure is reproduced/cleared by a clean full-suite run rather than treated as a regression."
         }
       ],
       "expected_artifacts": [
-        "ui/dock_layout.py",
-        "tests/test_dock_layout.py",
-        "ui/main_window.py"
+        "docs/build/build_log.md (Build-owned Batch-13 D19 verification entry; no new source files)"
       ],
-      "touches_files": [
-        "ui/dock_layout.py",
-        "tests/test_dock_layout.py",
-        "ui/main_window.py"
-      ],
+      "touches_files": [],
       "inputs": [
-        "docs/code_review/escalations.md#ESC-026",
-        "docs/requirements/requirements.md#AC-D18.4",
-        "docs/requirements/requirements.md#AC-D18.5",
-        "docs/architecture.md#D17 + D18 increment (ui/dock_layout.py cross-clamp)",
-        "ui/dock_layout.py:plan_dock_widths (T45 shrink loop, lines 100-114)",
-        "ui/main_window.py:_plan_dock_widths (T49 in-place repair, lines 1055-1118)",
-        "docs/build/failures.json.pending_routing kind: dock_layout_plan_below_minimum"
+        "docs/plan.md#Phase 3",
+        "docs/requirements/requirements.md#AC-D19.7",
+        "docs/requirements/requirements.md#AC-D2.1",
+        "docs/requirements/requirements.md#R34",
+        "docs/architecture.md#D19 increment",
+        "docs/memory.md (shared test-DB contention gotcha)",
+        "commit 5bd7c93 (pre-batch baseline, 566 passed)"
       ],
-      "outputs": [
-        "ui/dock_layout.py (corrected plan_dock_widths; docstring guarantee now holds)",
-        "tests/test_dock_layout.py (one-sided over-budget regression tests)",
-        "ui/main_window.py (_plan_dock_widths repair removed; delegates to the pure helper)"
-      ],
+      "outputs": [],
       "architecture_dependency": false,
-      "escalation": "ESC-026",
       "status": "done"
     }
   ]

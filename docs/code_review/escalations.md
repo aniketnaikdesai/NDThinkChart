@@ -911,3 +911,96 @@ suites re-run). `failures.json.blocked` is empty; T45–T51 are all `done`. ESC-
       `PyQt6` reference outside the guard's string assertions is the function-local `from PyQt6.QtCore import
       Qt` inside T52-T04. Isolated `import ui.dock_layout` loads no PyQt6/pyqtgraph/PySide6, and the two
       T45-T01 tests pass in isolation. No test was weakened, skipped, or rewritten.
+
+---
+
+## Batch 13 (D19) — new finding, 2026-10-05
+
+Reviewed against the live tree (full offscreen suite re-run by the reviewer → **579 passed / 0 failed**,
+twice; the 3 cited ids re-run in isolation and repeated → green; the five de-masked D17/D18 harnesses +
+`test_toolbar_scroll_d19.py` + `test_crosshair_axis_lane.py` re-run → **91 passed**; every test diff read to
+confirm none was weakened). `failures.json.blocked` holds T60 only; T53–T59 are `done`. ESC-001…ESC-026
+remain `addressed` (verified — nothing relevant changed for them). One new escalation below.
+
+## ESC-027 — T60's `AC-D19.7` "zero failures" gate is blocked by non-reproducible environment noise, not a D19 defect
+
+- **Linked task/defect:** T60 (Batch-13 / D19 regression gate) — reported in
+  `docs/build/failures.json.blocked` with the 3 failing ids and the baseline proof.
+- **Routed to:** BUILD (owner of the task status and the regression gate).
+- **Category / severity:** `gap` / **should-fix** (not a code bug — no product/test change is proposed, and
+  no test may be weakened; the gate simply cannot be satisfied literally on a host where intermittent
+  environment failures fire).
+- **Root-cause classification:** environment / test-hygiene noise (**not** `code_bug`, `bad_task_breakdown`,
+  `bad_architecture_decision`, or `requirements_gap`). The D19 delta is **0 new failures**; the suite is
+  green on a clean run.
+- **Observed vs. expected:**
+  - **Observed (Build, `failures.json.blocked`):** T60-T01 `blocked` on "full offscreen suite completes with
+    zero failures" because 3 ids fail: `test_history_backfill.py::test_t40_t05_switch_mid_flight_isolated`,
+    `test_history_backfill_loadpath.py::test_t39_t05_switch_and_close_cancel_all`,
+    `test_watchlist_d14_midrag.py::test_T30_T03_existing_d14_noop_paths_unchanged`. Build classifies them as
+    deterministic pre-existing environment failures, reproduced at baseline `5bd7c93`.
+  - **Reproduced by the reviewer (my own runs, `.venv/bin/python -m pytest -o addopts="" -q`,
+    `QT_QPA_PLATFORM=offscreen`):** the full suite is **`579 passed in 12.68s`** and **`579 passed in
+    12.75s`** — **0 failures**; the three ids in one invocation → **`3 passed in 0.53s`**; the two history
+    files repeated **five** times → `24 passed` each; the watchlist id → `1 passed` (default and
+    `--import-mode=importlib`). **None reproduces**, so they cannot be D19 regressions and are **not
+    deterministic** on this host — they are the project-memory intermittent shared-SQLite/teardown/
+    collection class (and, for the watchlist id, a fragile bare `from tests.test_watchlist import` at
+    `tests/test_watchlist_d14_midrag.py:263`).
+  - **Expected:** `AC-D19.7` ("zero failures … every pre-existing D1–D18 acceptance-criteria test still
+    passes"). On a clean run this holds; the gate protects against a D19 regression that does not exist
+    (the 3 files are unrelated to D19; D19 delta = 0).
+- **Build's diagnoses that do not hold up (evidence):** (1) the installed `ibapi` is **9.81.1.post1**, not
+  "10.45.1" (though `EClient(None).serverVersion()` does return `None`, so the `client.py:379` `TypeError`
+  mechanism is real); (2) there is **no** `site-packages/tests/__init__.py` and the local `tests/` has no
+  `__init__.py` — `import tests` resolves to the local **namespace package**, so the stated "installed
+  package shadows the local namespace" cause is not present. Separately, `.venv/bin/pytest` has a stale
+  shebang pointing at the pre-rename `TOS_Charting` path (only `python -m pytest` works) — a host/venv
+  hygiene fact, recorded for awareness.
+- **Suggested direction (optional, for Build — no test may be weakened):** re-run T60-T01 on a clean
+  invocation; if the suite is green (as it is on the review host: 579/0), `AC-D19.7` holds and T60 can be
+  marked `done` on that clean-run evidence. If the 3 ids do persist on Build's host, record T60's blocker
+  as **environment-limited, not a D19 defect** (delta = 0) and surface it to the user — do **not** weaken,
+  skip, deselect, xfail, or rewrite any test to reach literal green. No product code, AC, or task-breakdown
+  change is proposed.
+- **Evidence retained:** reviewer run logs above (579/0 ×2; isolation 3 passed; history ×5 24 passed);
+  `ibapi 9.81.1.post1` dist-info; `find .venv/lib -path "*site-packages/tests/__init__.py"` → none;
+  `import tests` → `_NamespacePath(['…/NDThinkChart/tests'])`; broken `.venv/bin/pytest` shebang; Build's
+  `failures.json.blocked` baseline proof (same 3 ids at `5bd7c93`).
+- **Status: addressed**
+  - Verified (2026-10-05, ESC-027 re-evaluation verification pass; T60 `blocked → done`, Batch-13 graph
+    8/8 done). Independently re-verified on the live tree by the reviewer — my own clean runs, not Build's
+    report:
+    - **AC-D19.7 gate holds (clean run).** With the shared test DB removed
+      (`tempfile.gettempdir()/tos_charting_test.sqlite3` + `-wal`/`-shm`), the full offscreen suite
+      `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q -p no:cacheprovider` →
+      **579 passed / 0 failed / exit 0**, twice (12.72s, 12.68s). The suite is literally green, so the
+      gate is satisfied.
+    - **The three previously-cited ids pass together.** One invocation of
+      `tests/test_history_backfill.py::test_t40_t05_switch_mid_flight_isolated`,
+      `tests/test_history_backfill_loadpath.py::test_t39_t05_switch_and_close_cancel_all`,
+      `tests/test_watchlist_d14_midrag.py::test_T30_T03_existing_d14_noop_paths_unchanged` →
+      **3 passed / exit 0** (0.55s). None reproduces, consistent with the accepted environment-noise
+      classification.
+    - **D19 delta = 0 new failures.** The green full suite includes every pre-existing D1–D18 test, so no
+      pre-existing acceptance-criteria test regressed; the only new tests are the D19 ones (all pass).
+    - **D19 focused suites green:** `test_toolbar_scroll_d19.py` + `test_crosshair_axis_lane.py` (T60-T02
+      AC-D2.1) + the five de-masked harnesses (`test_dock_widths_d17/d18/d18_impl`, `test_dock_d18_region`,
+      `test_dock_layout`) → **91 passed / exit 0** (4.30s).
+    - **No test weakened by the re-evaluation.** `grep -nE "pytest.mark.skip|pytest.mark.xfail|pytest.skip|
+      deselect|--ignore|addopts"` over the D19-touched tests → **0 hits**. The D19 test edits are
+      de-masking/strengthening (they *remove* `toolbar.hide()` masking and *add* the T53–T57 guards), not
+      weakening; no assertion was dropped or loosened. File mtimes confirm the re-evaluation itself did not
+      touch any test: the D19 test files were last written 12:27–12:35, while `failures.json`/`build_log.md`
+      were written 12:57 — the re-evaluation only re-ran the suite and updated the Build-owned artifacts.
+    - **`ui/dock_layout.py` and the cap code unchanged.** `git diff HEAD -- ui/dock_layout.py` is empty
+      (sha256 `d1df116f…6d5af`, mtime 2026-10-03, predating D19). `ui/main_window.py`'s only D19 change is
+      the toolbar `QScrollArea` wrapper (imports + `setObjectName("MainToolbar")` + the wrapper); the diff
+      does **not** touch `_apply_dock_widths` (`:1120`) or the cap constants — the `0.40`/`0.50` values are
+      the unchanged `watchlist_max_width`/`right_dock_max_width` helper calls in docstrings/`cap =`.
+    - **No live TWS/order transmission:** grep over `tests/` for
+      `eConnect|placeOrder|reqHistoricalData|reqMktData|connectAsync|createClient|7496|7497|4001|4002`
+      → only intentional no-op stubs/signals; no live socket/port.
+    - **T60 done / graph 8/8:** `docs/tasks/task-graph.json` T60 `status: done`; Batch-13 graph
+      `{done: 8}`; `build_log.md` terminal `Status: READY_FOR_REVIEW`. `failures.json.blocked` is empty and
+      the accepted environment-noise classification is retained.

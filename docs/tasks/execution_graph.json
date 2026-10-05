@@ -1,147 +1,175 @@
 {
   "status": "READY_FOR_BUILD",
-  "generated": "2026-10-03",
-  "batch": "Batch 11 \u2014 D17 + D18",
+  "generated": "2026-10-05",
+  "batch": "Batch 13 — D19 (toolbar scroll/elide wrapper)",
   "nodes": [
     {
-      "id": "T45",
+      "id": "T53",
       "type": "Task",
-      "title": "Create the shared chart-area dock-width model ui/dock_layout.py (D17/D18 Phase 1)",
+      "title": "Wrap the central-widget toolbar in a horizontal QScrollArea in place (D19 Phase 1)",
       "task_type": "implementation",
       "agent": "Build",
       "touches_files": [
-        "ui/dock_layout.py",
-        "tests/test_dock_layout.py"
-      ]
-    },
-    {
-      "id": "T46",
-      "type": "Task",
-      "title": "Re-parameterise the D13 watchlist width helpers to the chart-area denominator (D17 Phase 1)",
-      "task_type": "bugfix",
-      "agent": "Build",
-      "touches_files": [
-        "ui/watchlist_panel.py",
-        "tests/test_watchlist.py"
-      ]
-    },
-    {
-      "id": "T47",
-      "type": "Task",
-      "title": "Enforce the watchlist cap live during the drag and on resize/full-screen (D17 Phase 2)",
-      "task_type": "bugfix",
-      "agent": "Build",
-      "touches_files": [
         "ui/main_window.py",
-        "tests/test_d10_d13_integration.py",
+        "tests/test_toolbar_scroll_d19.py"
+      ]
+    },
+    {
+      "id": "T54",
+      "type": "Task",
+      "title": "Remove toolbar masking from tests/test_dock_widths_d17.py and add the toolbar-visible AC-D19.1 guard",
+      "task_type": "bugfix",
+      "agent": "Build",
+      "touches_files": [
         "tests/test_dock_widths_d17.py"
       ]
     },
     {
-      "id": "T48",
+      "id": "T55",
       "type": "Task",
-      "title": "Reshape Active Trader + Portfolio into one right-dock region (D18 Phase 3)",
-      "task_type": "implementation",
-      "agent": "Build",
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_dock_d18_region.py",
-        "tests/test_crosshair_axis_lane.py",
-        "tests/test_d10_d13_integration.py",
-        "tests/test_watchlist_d14_midrag.py",
-        "tests/test_history_backfill.py",
-        "tests/test_history_backfill_loadpath.py",
-        "tests/test_history_backfill_disconnect.py"
-      ]
-    },
-    {
-      "id": "T49",
-      "type": "Task",
-      "title": "Add the right-region 40% cap, cross-clamp, content bound and full-screen normalize (D18 Phase 4)",
-      "task_type": "implementation",
-      "agent": "Build",
-      "touches_files": [
-        "ui/main_window.py",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
-        "tests/test_dock_widths_d18_impl.py"
-      ]
-    },
-    {
-      "id": "T50",
-      "type": "Task",
-      "title": "Offscreen end-to-end verification of D17/D18 dock geometry (full screen, caps, cross-clamp, equal width, content bound)",
-      "task_type": "verification",
+      "title": "Remove toolbar masking from tests/test_dock_widths_d18.py and add toolbar-visible AC-D19.2/AC-D19.3 guards",
+      "task_type": "bugfix",
       "agent": "Build",
       "touches_files": [
         "tests/test_dock_widths_d18.py"
       ]
     },
     {
-      "id": "T51",
+      "id": "T56",
       "type": "Task",
-      "title": "Batch-11 regression gate (full offscreen suite green, D2 chip/dock non-overlap, no live TWS)",
+      "title": "Remove toolbar masking from tests/test_dock_widths_d18_impl.py",
+      "task_type": "bugfix",
+      "agent": "Build",
+      "touches_files": [
+        "tests/test_dock_widths_d18_impl.py"
+      ]
+    },
+    {
+      "id": "T57",
+      "type": "Task",
+      "title": "Remove toolbar masking from tests/test_dock_d18_region.py",
+      "task_type": "bugfix",
+      "agent": "Build",
+      "touches_files": [
+        "tests/test_dock_d18_region.py"
+      ]
+    },
+    {
+      "id": "T58",
+      "type": "Task",
+      "title": "Remove toolbar masking from tests/test_dock_layout.py (T52 integration test)",
+      "task_type": "bugfix",
+      "agent": "Build",
+      "touches_files": [
+        "tests/test_dock_layout.py"
+      ]
+    },
+    {
+      "id": "T59",
+      "type": "Task",
+      "title": "Capture the AC-D19.6 pre-fix-red / post-fix-green regression-guard evidence",
       "task_type": "verification",
       "agent": "Build",
       "touches_files": []
     },
     {
-      "id": "T52",
+      "id": "T60",
       "type": "Task",
-      "title": "Fix plan_dock_widths to never return below a dock minimum, add the one-sided-over-budget regression test, and remove the T49 MainWindow workaround (ESC-026)",
-      "task_type": "bugfix",
+      "title": "Batch-13 D19 regression gate: full offscreen suite green in a toolbar-visible window + real dev-build check",
+      "task_type": "verification",
       "agent": "Build",
-      "touches_files": [
-        "ui/dock_layout.py",
-        "tests/test_dock_layout.py",
-        "ui/main_window.py"
-      ]
+      "touches_files": []
     }
   ],
   "edges": [
     {
-      "from": "T45",
-      "to": "T46",
+      "from": "T54",
+      "to": "T53",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T46",
-      "to": "T47",
+      "from": "T55",
+      "to": "T53",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T47",
-      "to": "T48",
+      "from": "T56",
+      "to": "T53",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T48",
-      "to": "T49",
+      "from": "T57",
+      "to": "T53",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T49",
-      "to": "T50",
+      "from": "T58",
+      "to": "T53",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T49",
-      "to": "T51",
+      "from": "T59",
+      "to": "T53",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T50",
-      "to": "T51",
+      "from": "T59",
+      "to": "T54",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T52",
-      "to": "T45",
+      "from": "T59",
+      "to": "T55",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T52",
-      "to": "T49",
+      "from": "T59",
+      "to": "T56",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T59",
+      "to": "T57",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T59",
+      "to": "T58",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T60",
+      "to": "T53",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T60",
+      "to": "T54",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T60",
+      "to": "T55",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T60",
+      "to": "T56",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T60",
+      "to": "T57",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T60",
+      "to": "T58",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "T60",
+      "to": "T59",
       "type": "DEPENDS_ON"
     }
   ]

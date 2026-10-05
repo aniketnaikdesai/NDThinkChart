@@ -301,6 +301,7 @@ def test_T52_T04_mainwindow_apply_path_without_t49_repair(monkeypatch, qapp):
     and the chart-area minimum all still hold.
     """
     from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QWidget
     from ui.dock_layout import watchlist_max_width, right_dock_max_width
 
     from ibkr.client import IBApiClient
@@ -312,11 +313,12 @@ def test_T52_T04_mainwindow_apply_path_without_t49_repair(monkeypatch, qapp):
     win.resize(1600, 900)
     win.show()
     qapp.processEvents()
-    central_layout = win.centralWidget().layout()
-    if central_layout is not None and central_layout.count() > 0:
-        toolbar = central_layout.itemAt(0).widget()
-        if toolbar is not None:
-            toolbar.hide()
+    # D19 Phase 2 (T58): no toolbar masking. The toolbar now lives inside the
+    # ``ToolbarScroll`` wrapper, so look it up by its stable objectName and
+    # exercise a toolbar-visible window instead of the old itemAt(0) slot.
+    toolbar = win.findChild(QWidget, "MainToolbar")
+    assert toolbar is not None, "MainToolbar not found in the window"
+    assert toolbar.isVisible(), "T52 harness must run with the toolbar visible"
     qapp.processEvents()
     win.resize(1600, 900)
     qapp.processEvents()
