@@ -317,3 +317,30 @@
 - **Suggested resolution:** remove the `toolbar.hide()` masking (or add a toolbar-visible variant) and require a
   pre-fix failure (`AC-D19.6`).
 - **Status:** resolved (B5/B6 answered 2026-10-05 — the masking removal is settled and carried by `AC-D19.6`)
+
+## DG29 — D20: the D19 wrapper's fixed 36px height leaves no lane for the horizontal scrollbar, so it overlaps the toolbar labels
+- **Where it shows up:** D20 / D19 / `AC-D19.4`; `ui/main_window.py:102` (`toolbar.setFixedHeight(36)`), `:233`
+  (`toolbar_scroll.setFixedHeight(36)`); `tests/test_toolbar_scroll_d19.py`.
+- **Why it matters:** the scroll area's horizontal scrollbar is laid out inside the same 36px as the toolbar
+  content, so it covers the bottom of the labels (descenders), making them hard to read — the reported defect.
+  The 36px value was chosen by D19/B5 to keep the toolbar a single compact row; it does not account for the
+  scrollbar's own height.
+- **Suggested resolution:** raise the `ToolbarScroll` height (or both) so the content row and the scrollbar each
+  have their own space (content ~36px + scrollbar lane), per B7; keep the content a single row and preserve the
+  scroll/elide reachability. Update the D19 height assertions in lockstep.
+- **Status:** resolved (B7/B8 answered 2026-10-06 — content row ~36px + reserved scrollbar lane below, total strip
+  ~50–52px; scrollbar as-needed in the lane; `AC-D20.1`–`AC-D20.3` capture the outcome)
+
+## DG30 — D20: `AC-D19.4`'s `<= ~40px` height bound conflicts with the requested height increase and must be explicitly superseded
+- **Where it shows up:** D20 / D19 / `AC-D19.4` (measurable clause: "the toolbar's laid-out height stays
+  `<= ~40px` (one row)"); B5 ("one ~36px row"); `tests/test_toolbar_scroll_d19.py::T53-T04` (`height() == 36`,
+  `min/max == 36`).
+- **Why it matters:** raising the height directly contradicts the D19 criterion as written; if it is not
+  explicitly superseded, D19 and D20 would contradict each other and the D19 test would fail. The D19
+  scroll/elide **reachability** intent is unaffected and must be preserved.
+- **Suggested resolution:** add an explicit supersession note on `AC-D19.4` (recorded) relaxing the `<= ~40px`
+  bound to the B7-confirmed target, and update the D19 height assertions in lockstep (`AC-D20.6`). Do not
+  silently change the D19 test to pass.
+- **Status:** resolved (B7 answered 2026-10-06 — the `<= ~40px` bound is explicitly superseded to a ~52px container
+  bound on `AC-D19.4`; the D19 height assertions are updated in lockstep per `AC-D20.6`)
+

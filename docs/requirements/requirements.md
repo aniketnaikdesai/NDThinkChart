@@ -1,6 +1,6 @@
 # NDThinkChart — Requirements
 
-> Status: **D17/D18 (panel layout / resizing in full screen, reported 2026-10-03) — CLARIFIED 2026-10-03 (B1–B4 answered; see `open_questions.md` Q/B1–B4).** D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped. **2026-10-05:** new defect **D19** — the toolbar pinned the central widget, so the D17/D18 fix was not effective in the real app — is **clarified and finalised** (B5–B6 answered 2026-10-05: the toolbar gets a **horizontal scroll / elide wrapper in place**, staying one ~36px row inside the central widget so its minimum width no longer pins the layout; the watchlist cap **stays at 50% of the chart area**). See `open_questions.md` B5–B6 (answered) and D19 / `AC-D19.1`–`AC-D19.7`.
+> Status: **D17/D18 (panel layout / resizing in full screen, reported 2026-10-03) — CLARIFIED 2026-10-03 (B1–B4 answered; see `open_questions.md` Q/B1–B4).** D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped. **2026-10-05:** new defect **D19** — the toolbar pinned the central widget, so the D17/D18 fix was not effective in the real app — is **clarified and finalised** (B5–B6 answered 2026-10-05: the toolbar gets a **horizontal scroll / elide wrapper in place**, staying one ~36px row inside the central widget so its minimum width no longer pins the layout; the watchlist cap **stays at 50% of the chart area**). See `open_questions.md` B5–B6 (answered) and D19 / `AC-D19.1`–`AC-D19.7`. **2026-10-06:** new defect **D20** — the D19 wrapper's horizontal scrollbar clipped the toolbar label descenders — is **clarified and finalised** (B7–B8 answered 2026-10-06: the content row stays **~36px** with the horizontal scrollbar in its **own reserved lane below**, total strip **~50–52px**, superseding `AC-D19.4`'s `<= ~40px`; the scrollbar is **as-needed** in its reserved lane). See `open_questions.md` B7–B8 (answered) and D20 / `AC-D20.1`–`AC-D20.6`.
 
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
@@ -51,6 +51,8 @@ persistence (Q26) is **still required**. See `open_questions.md` (B1–B4 answer
 
 **New work item — 2026-10-05 (defect D19) — CLARIFIED 2026-10-05 (B5–B6 answered).** The user reported that **D17 still did not work in the real app** — the watchlist would not grow much even at maximum drag — and asked whether the maximum width was too small. Repo-validated diagnosis: **the 50%-of-chart-area formula is correct** (`ui/dock_layout.watchlist_max_width(1716)` = **858px**); the real root cause was that the toolbar (`ui/main_window.py:100–211`) has a **~1716px `minimumSizeHint`** and sits **inside the central widget** (`:217–223`), so `QMainWindow` could not shrink the central area and the dock splitter had **no slack** — the watchlist was pinned at its 150px minimum and the right Active-Trader region was pushed off-screen. **Both the D17 and D18 symptoms share this one root cause.** The D17/D18 test harnesses hid the toolbar (`toolbar.hide()`), so the offscreen suite exercised a window unlike the real app and could not catch this. D19 is a **new defect** (Defect Register + Journey 20) that makes the D17/D18 criteria hold **in a toolbar-visible window** and removes the test masking. **D17/D18 are not silently reopened** — their criteria stand; D19 adds the real-app condition and the regression guard. **Decisions (2026-10-05, B5–B6 answered):** **(B5)** the toolbar gets a **horizontal scroll / elide wrapper in place** — it stays **inside the central widget** (NOT moved to a `QMainWindow` toolbar area) as a **single ~36px row**, and its effective minimum width no longer pins the central widget; all controls stay reachable via horizontal scroll/elide. **(B6)** the watchlist cap **stays `floor(0.50 × chart_area)`** (B1 stands); the cap constant and `AC-D13.1`/`AC-D17.1` are unchanged. See `open_questions.md` (B5–B6 answered) and DG27/DG28.
 
+**New work item — 2026-10-06 (defect D20) — CLARIFIED 2026-10-06 (B7–B8 answered).** The user reviewed the running app and reported that in the D19 toolbar wrapper the **bottom of the letters in the toolbar labels is slightly covered by the horizontal scrollbar**, so the labels are not clearly readable; the requested fix is to **increase the toolbar height** so the labels read clearly. Repo-validated: the D19 wrapper fixes **both** the toolbar and the `ToolbarScroll` QScrollArea at **36px** (`ui/main_window.py:102`, `:233`), so the horizontal scrollbar is laid out within that same 36px and overlaps the content's descenders. D20 is a **new defect** (Defect Register + Journey 21) that **explicitly supersedes/relaxes `AC-D19.4`'s `<= ~40px` height bound** (recorded on `AC-D19.4`); D19's scroll/elide reachability and the D17/D18 criteria stand unchanged. **Decisions (2026-10-06, B7–B8 answered):** **(B7)** keep the toolbar **content row at ~36px** and give the horizontal scrollbar its **own reserved lane below** the content, so the **total strip grows to ~50–52px** — the content row does **not** grow and the strip does **not** grow to ~60px. **(B8)** **reserve the scrollbar lane** and show the horizontal scrollbar **as-needed** (only when the toolbar content overflows), so it never overlaps the labels; the reserved lane keeps the total height stable at ~50–52px in both states. See `open_questions.md` (Batch 14, D20, B7–B8 answered) and `AC-D20.1`–`AC-D20.6`.
+
 ## Goals
 - Collect and triage the user's reported functional issues and UI bugs.
 - Fix each reported defect such that its per-task **test condition** passes.
@@ -94,6 +96,7 @@ answered)**:
 No new product features beyond these layout fixes, and **no stack change**. Both are finalised by
 B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
 - **D19 — toolbar pinned the central widget (NEW, 2026-10-05, CLARIFIED 2026-10-05):** the D17/D18 fix was not observable in a toolbar-visible window because the toolbar's ~1716px `minimumSizeHint` pinned the central widget and starved the dock splitter; the D17/D18 harnesses hid the toolbar, masking the constraint. **Fix (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container so it stays **inside the central widget** as a **single ~36px row** while its minimum width no longer pins the layout; all controls remain reachable. The watchlist cap is unchanged at **50% of the chart area** (B6). See D19, Journey 20, `AC-D19.1`–`AC-D19.7`, A37–A38, R32–R34, and `open_questions.md` B5–B6 (answered).
+- **D20 — toolbar label descenders clipped by the horizontal scrollbar (NEW, 2026-10-06, CLARIFIED 2026-10-06):** the D19 scroll wrapper fixed the toolbar and its `QScrollArea` at **36px**, so the horizontal scrollbar overlapped the label descenders; the user wants the toolbar **height increased** so labels read clearly. **Fix (B7, 2026-10-06):** keep the toolbar **content row at ~36px** and give the horizontal scrollbar its **own reserved lane below**, so the **total strip is ~50–52px** (the content row does not grow and the strip does not reach ~60px); the scrollbar is **as-needed** in that reserved lane (B8). D20 **explicitly supersedes/relaxes `AC-D19.4`'s `<= ~40px`** bound to the new **~52px container bound** (recorded on `AC-D19.4`) while preserving D19's scroll/elide reachability and the D17/D18 criteria. See D20, Journey 21, `AC-D20.1`–`AC-D20.6`, A39–A40, R35–R36, and `open_questions.md` B7–B8 (answered).
 
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
@@ -382,6 +385,21 @@ repository files, which remain authoritative if the two disagree.
   `AC-D17.3`); both docks enlarged → the chart minimum is preserved (`AC-D19.3`); right region hidden/floating → the
   watchlist-only rule applies.
 
+### Journey 21 — D20: read the toolbar labels without the scrollbar covering them
+- **Preconditions:** App running (dev build, `python main.py`) with the toolbar visible; the window is narrow
+  enough that the toolbar's horizontal scrollbar is shown, or wide enough that it is hidden.
+- **Steps:** 1) Observe the toolbar strip. 2) Read the labels (`Symbol:`, `TF:`, `Load Chart`, `Mode:`,
+  `Studies…`, `Alarms (0)`, `Alarm Mode`, `Sound`, `DOM`, …). 3) Narrow the window so the toolbar scrolls
+  horizontally and scroll it. 4) Widen the window again.
+- **Postconditions:** Every toolbar label is **fully readable** — the horizontal scrollbar does **not** overlap
+  or clip any label's descenders; the toolbar content stays a **single ~36px row** and the horizontal scrollbar
+  occupies a **reserved lane below** it, so the **total strip is ~50–52px**; all controls remain reachable
+  (directly when wide, via horizontal scroll when narrow).
+- **Edge Cases:** Narrow window with the scrollbar shown → labels still unclipped (the scrollbar sits in its
+  reserved lane below the content, never over it); wide window with the scrollbar hidden → labels unclipped and
+  the reserved lane keeps the strip height stable at ~50–52px; high-DPI/font scaling → labels still unclipped;
+  extremely small window → the chart-minimum/dock rule still applies; the toolbar never wraps to multiple rows.
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)
@@ -432,7 +450,7 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 > 2026-09-19): D8 volume linear, no negatives, dynamic nice ticks, price-coloured.
 > Batch 5 (clarified 2026-09-19): D9 volume spacing follow + D10 volume show/hide at
 > top left of volume panel. Batch 6 (clarified 2026-09-19): D11 drawing price labels
-> on inner right side. Batch 7 (clarified 2026-09-19): D12 zone double-click settings popup (Extend omitted). Batch 8 (clarified 2026-09-20): D13 watchlist resizable to 50% with persistence + D14 double-click row to load chart (identical to Load Chart, no-op on same symbol/disconnected). Batch 9 (clarified 2026-09-20): D15 horizontal line double-click settings popup. Batch 10 (clarified 2026-10-02): D16 historical-bar cache-gap backfill (Q37–Q39; ESC-023 calendar correction). **Batch 11 (D17 + D18, panel layout / resizing in full screen) — CLARIFIED AND FINALISED 2026-10-03 (B1–B4 answered 2026-10-03):** D17 watchlist drag both directions up to **50% of the chart area** (min 150px, default ~220px, persisted, cap enforced during the drag); D18 one right-dock region (Active Trader + Portfolio stacked) up to **40% of the chart area**, equal width by construction, full-screen visible; combined under the **independent-caps + ~400px chart-minimum** rule (B3). See D13/D17/D18, `AC-D13.1`, `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`, A34–A36, R28–R31, and `open_questions.md` B1–B4 (answered). D17 supersedes/corrects D13's Q25 denominator (B1). **Batch 11 had no blocking question remaining.** **New (2026-10-05): Batch 13 (D19)** — CLARIFIED AND FINALISED 2026-10-05 (B5–B6 answered): the D17/D18 fix was not effective in the real (toolbar-visible) app because the toolbar pinned the central widget; the fix wraps the toolbar in a **horizontal scroll / elide** container in place (B5, one ~36px row) and keeps the watchlist cap at **50% of the chart area** (B6). See `open_questions.md` B5–B6 (answered); this batch is **ready for Plan**.
+> on inner right side. Batch 7 (clarified 2026-09-19): D12 zone double-click settings popup (Extend omitted). Batch 8 (clarified 2026-09-20): D13 watchlist resizable to 50% with persistence + D14 double-click row to load chart (identical to Load Chart, no-op on same symbol/disconnected). Batch 9 (clarified 2026-09-20): D15 horizontal line double-click settings popup. Batch 10 (clarified 2026-10-02): D16 historical-bar cache-gap backfill (Q37–Q39; ESC-023 calendar correction). **Batch 11 (D17 + D18, panel layout / resizing in full screen) — CLARIFIED AND FINALISED 2026-10-03 (B1–B4 answered 2026-10-03):** D17 watchlist drag both directions up to **50% of the chart area** (min 150px, default ~220px, persisted, cap enforced during the drag); D18 one right-dock region (Active Trader + Portfolio stacked) up to **40% of the chart area**, equal width by construction, full-screen visible; combined under the **independent-caps + ~400px chart-minimum** rule (B3). See D13/D17/D18, `AC-D13.1`, `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`, A34–A36, R28–R31, and `open_questions.md` B1–B4 (answered). D17 supersedes/corrects D13's Q25 denominator (B1). **Batch 11 had no blocking question remaining.** **New (2026-10-05): Batch 13 (D19)** — CLARIFIED AND FINALISED 2026-10-05 (B5–B6 answered): the D17/D18 fix was not effective in the real (toolbar-visible) app because the toolbar pinned the central widget; the fix wraps the toolbar in a **horizontal scroll / elide** container in place (B5, one ~36px row) and keeps the watchlist cap at **50% of the chart area** (B6). See `open_questions.md` B5–B6 (answered); this batch is **ready for Plan**. **New (2026-10-06): Batch 14 (D20)** — CLARIFIED AND FINALISED 2026-10-06 (B7–B8 answered): the D19 wrapper's horizontal scrollbar clipped the toolbar label descenders; the fix keeps the content row **~36px** with the scrollbar in its **own reserved lane below** (total strip **~50–52px**), superseding `AC-D19.4`'s `<= ~40px` bound, with the scrollbar **as-needed** in that lane. See `open_questions.md` B7–B8 (answered); this batch is **ready for Plan**.
 
 ### D1 — No RTH / ETH session shading on chart
 - **Area:** Chart panel (price plot)
@@ -1641,6 +1659,7 @@ Chart; Q29 no-op semantics):**
   RIGHT_DOCK_MIN_WIDTH` (i.e. the toolbar no longer dominates that minimum), the toolbar's laid-out height stays
   `<= ~40px` (one row), and every toolbar control is reachable at a narrow width — via scrolling/eliding if not
   directly visible.)
+  - **Superseded by D20 (2026-10-06, B7–B8 answered):** the `<= ~40px` laid-out-height bound is **relaxed to a new ~52px container bound** so the toolbar can fit a dedicated horizontal-scrollbar lane below the ~36px content row and its labels are no longer clipped — see `AC-D20.1`/`AC-D20.2` and the supersession note below. The D19 **reachability** intent (toolbar stays inside the central widget, single content row, controls reachable via scroll/elide) is preserved and is **not** superseded.
 - **AC-D19.5 (central widget can shrink)** Given the toolbar is visible, When the window is resized down toward the
   feasible minimum, Then `centralWidget().width()` decreases accordingly and does not remain at the toolbar's
   ~1716px minimum.
@@ -1664,6 +1683,98 @@ Chart; Q29 no-op semantics):**
 - Right region hidden/floating → the watchlist-only rule applies (existing `_right_dock_available` path).
 - High-DPI / font scaling → the toolbar min hint may grow; the chosen mechanism must still allow the central widget
   to shrink (B5-dependent).
+
+### D20 — Toolbar label descenders clipped by the horizontal scrollbar (height increase)
+- **Area:** `ui/main_window.py` toolbar + D19 scroll wrapper (lines ~100–242); `tests/test_toolbar_scroll_d19.py`.
+- **Status:** **clarified and finalised 2026-10-06 (B7–B8 answered).** Reported 2026-10-06; the fix keeps the
+  toolbar **content row at ~36px** with the horizontal scrollbar in its **own reserved lane below** (total strip
+  **~50–52px**), and the scrollbar is **as-needed** in that reserved lane. `AC-D20.1`–`AC-D20.6` are final.
+- **Relation to D19 (recorded supersession — not a silent contradiction):** D19 (`AC-D19.4`) required the
+  toolbar to stay a **single ~36px row** with a laid-out height `<= ~40px`, and B5 chose "horizontal
+  scroll/elide in place". The D19 implementation sets **both** the toolbar widget and the `ToolbarScroll`
+  QScrollArea to a **fixed 36px** (`ui/main_window.py:102`, `:233`). Because the scroll area's horizontal
+  scrollbar is laid out **within** that same 36px, it overlaps the bottom of the toolbar content, clipping
+  label descenders. D20 **explicitly revises/relaxes** `AC-D19.4`'s `<= ~40px` height bound (see the
+  supersession note on `AC-D19.4`); the D19 scroll/elide reachability behaviour and the D17/D18 criteria are
+  otherwise unchanged. This is a **recorded supersession**, not a silent reopen.
+- **Visual reference (ESC-004 gate):** the user supplied a screenshot (2026-10-06) of the running app's toolbar
+  strip showing the horizontal scrollbar overlapping the label descenders (`Symbol`, `Load Chart`, etc.). It is
+  accepted as evidence of the **reported state**. The **target height is a UI-visual size decision**; it was a
+  blocking question (**B7**) and was **confirmed by the user on 2026-10-06** (verbatim: "Content row 36px +
+  scrollbar lane (~52px total)"), so the size decision is now **user-confirmed** and A39 is **confirmed**, not
+  provisional. The scrollbar-visibility choice (**B8**) was likewise **user-confirmed 2026-10-06** (verbatim:
+  "As-needed in a reserved lane"). Gate: **CONFIRMED** (B7/B8 answered).
+- **Reported (verbatim):** "UI Edit: see attachment. I want the height increased so that the label can be clearly
+  read. current state: the bottom of the alphabets in the labels gets covered slightly by the horizontal scroll."
+- **Observed in repository (validated against source 2026-10-06):**
+  - `ui/main_window.py:100–102` — `toolbar = QWidget(); toolbar.setObjectName("MainToolbar");
+    toolbar.setFixedHeight(36)`.
+  - `ui/main_window.py:223–234` — `toolbar_scroll = QScrollArea()` (`objectName "ToolbarScroll"`, `NoFrame`,
+    `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`,
+    `setFixedHeight(36)`), wrapping the toolbar and added to the central `QVBoxLayout` (D19/B5).
+  - The container is fixed at **36px** and the horizontal scrollbar is laid out within that 36px, so it
+    **covers the bottom of the 36px toolbar content** — the label descenders. This is the reported defect.
+  - Affected tests: `tests/test_toolbar_scroll_d19.py` asserts `wrapper.height() == 36` and
+    `minimumHeight() == 36 and maximumHeight() == 36` (`T53-T04`, lines 199–200) and `toolbar.height() <= 40`
+    (`T53-T02`, lines 130/156). Raising the height requires updating these assertions in lockstep.
+
+**Decisions (B7–B8 answered 2026-10-06):**
+- **B7 — target height / reconciliation with `AC-D19.4` (user-confirmed, verbatim: "Content row 36px + scrollbar
+  lane (~52px total)"):** keep the toolbar **content row at ~36px** and give the horizontal scrollbar its **own
+  reserved lane below** the content, so the **total strip grows to ~50–52px**. The content row itself does **not**
+  grow and the strip does **not** grow to ~60px. This **supersedes/relaxes `AC-D19.4`'s `<= ~40px` bound** to a
+  new **~52px container bound** (recorded on `AC-D19.4`). Options (b) (grow the content row) and (c) (a user-named
+  total height) are **not adopted**.
+- **B8 — scrollbar-lane visibility (user-confirmed, verbatim: "As-needed in a reserved lane"):** **reserve the
+  scrollbar lane** and show the horizontal scrollbar **only when the toolbar content overflows** (the same
+  as-needed behaviour as today), so it **never overlaps the labels**. Because the lane is reserved, the strip's
+  total height stays ~50–52px in both states; only the scrollbar widget's visibility changes with overflow.
+  Options (b) (always-visible scrollbar) and (c) (overlay / auto-hiding macOS-style scrollbar) are **not adopted**.
+- The acceptance criteria below are the **final** required outcome.
+
+**Acceptance Criteria (Given/When/Then) — final (B7–B8 answered 2026-10-06):**
+- **AC-D20.1 (labels fully readable; no descender clipped by the scrollbar)** Given a shown window with the
+  toolbar visible, When the toolbar renders (whether the horizontal scrollbar is shown or hidden), Then every
+  toolbar label's glyphs (including descenders) are **fully visible** — no pixel of a label's text bounding box
+  is overlapped by the horizontal scrollbar or clipped by the container — and the toolbar content remains a
+  **single row** (not wrapped).
+  - Measurable: in a toolbar-visible offscreen window, for every toolbar `QLabel`/button text, the text's
+    bounding rect lies fully within the toolbar's visible content area and does **not** intersect the
+    horizontal scrollbar's geometry (assert in both the overflow/shown and non-overflow/hidden states).
+- **AC-D20.2 (height supersession — ~52px total, content row ~36px)** Given the fix, Then the toolbar strip's
+  laid-out height is **~50–52px** total, composed of the **content row at ~36px** plus a **reserved horizontal-
+  scrollbar lane below** it; the **content row does not grow** and the strip does **not** reach ~60px.
+  `AC-D19.4`'s `<= ~40px` bound is **explicitly superseded** by this criterion (to a ~52px container bound)
+  rather than silently contradicted.
+  - Measurable: the `ToolbarScroll` container height is `<= ~52px` and `>= ~50px`; the toolbar content widget
+    height remains `~36px` (unchanged from D19); the reserved scrollbar lane is present below the content.
+- **AC-D20.3 (scrollbar as-needed in its reserved lane; B8)** Given the fix, When the toolbar content fits
+  (wide window), Then the horizontal scrollbar is **hidden** but its **lane remains reserved** (the strip height
+  is unchanged); When the toolbar content overflows (narrow window), Then the horizontal scrollbar is **shown in
+  its reserved lane below** the content and **never overlaps** the labels.
+  - Measurable: at a wide width `horizontalScrollBar().isVisible()` is `False` and the strip height is still
+    ~50–52px; at a narrow width it is `True`, sits in the lane below the content row, and `AC-D20.1` still holds.
+- **AC-D20.4 (D19 behaviour preserved)** Given the fix, Then the D19 scroll/elide reachability holds: at a
+  narrow window the toolbar scrolls horizontally and **all controls remain reachable**; at a wide window every
+  control is directly visible. (Measurable: `wrapper.horizontalScrollBar().maximum() > 0` at a narrow width;
+  every control is a descendant of the scroll content.)
+- **AC-D20.5 (single row, no wrap; stays inside the central widget)** Given any window width, Then the toolbar
+  **content** stays a single row (not wrapped onto multiple lines) and remains inside the central widget (not
+  moved to a `QMainWindow` toolbar area); only the horizontal scrollbar occupies the lane below it.
+- **AC-D20.6 (D17/D18 unaffected; regression)** Given the fix, Then the D17/D18 criteria hold in a
+  toolbar-visible window and the chart minimum is preserved (only vertical space changes — the chart is slightly
+  shorter — not the horizontal dock model), and the pre-existing suite remains green, with the D19 height
+  assertions (`tests/test_toolbar_scroll_d19.py::T53-T04` `height() == 36`, `T53-T02` `<= 40`) updated in lockstep
+  to the B7-confirmed ~50–52px container / ~36px content target (never left contradicting D20).
+
+**Edge Cases:**
+- High-DPI / font scaling → the scrollbar and text heights may grow; the lane must be derived so labels are
+  still not clipped (reserved lane, not an overlay).
+- Window narrow enough to show the scrollbar vs wide enough to hide it → labels must be unclipped in **both**
+  states; the lane is **reserved** so the strip height stays ~50–52px whether the scrollbar is shown or hidden.
+- Extremely small window where dock minima + chart minimum are infeasible → the existing chart-minimum rule
+  still applies; the toolbar height change does not alter the horizontal model.
+- Right region hidden/floating → the watchlist-only rule applies (unchanged).
 
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
@@ -1705,7 +1816,9 @@ Chart; Q29 no-op semantics):**
 | A35 | **D18 grouping — RESOLVED (B2).** Active Trader and Portfolio are **one right-dock region** containing both sections stacked vertically, so they are inherently equal width; the **40%-of-chart-area** cap applies to that single region. The current two-`QDockWidget` structure is re-shaped into one region. | B2 answered by the user 2026-10-03 ("one right-dock region, stacked — Recommended") | y | 2026-10-03 |
 | A36 | **D18 persistence default (non-blocking, UNCHANGED):** the right region's width/visibility is **not persisted** unless the user asks, matching D10's volume-toggle precedent (Q22: not persisted). B3/B4 did not add a persistence requirement for the right dock (only the watchlist keeps Q26 persistence, per B4). | D13 explicitly required persistence for the watchlist (Q26) and B4 re-confirmed it, but the user did not request it for the right region; recorded as a non-blocking default (not a blocking question) | n | 2026-10-03 |
 | A37 | **D19 diagnosis:** the root cause of "D17 does not work in the real app" is the toolbar's ~1716px `minimumSizeHint` pinning the central widget (not the 50% cap, which computes correctly to 858px at chart_area 1716). **Resolution (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container **in place** (one ~36px row, still inside the central widget) so its minimum width no longer pins the layout | Repo-validated against `ui/main_window.py:100–223`; the Orchestrator's offscreen probe agrees (watchlist stayed 150 after driving to cap with the toolbar visible); B5 chose scroll/elide 2026-10-05 | y (repo-validated 2026-10-05; fix chosen by B5) | 2026-10-05 |
-| A38 | **D19 covers both D17 and D18 symptoms** (they share the one toolbar-pinning root cause), and the fix must make the D17/D18 criteria hold in a **toolbar-visible** window; the D17/D18 criteria themselves are unchanged. **B6:** the watchlist cap **stays `floor(0.50 × chart_area)`** — no cap change | Both symptoms are produced by the same no-slack splitter; the probe shows the watchlist pinned and the right dock pushed to the window edge; B6 answered "Keep 50%" 2026-10-05 | y (derived from the validated diagnosis; B6 answered 2026-10-05) | 2026-10-05 |
+| A38 | **D19 covers both D17 and D18 symptoms** (they share the one toolbar-pinning root cause), and the fix must make the D17/D18 criteria hold in a **toolbar-visible** window; the D17/D18 criteria themselves are unchanged. **B6:** the watchlist cap **stays `floor(0.50 × chart_area)`** — no cap change | Both symptoms are produced by the same no-slack splitter; the probe shows the watchlist pinned and the right dock pushed to the window edge; B6 answered "Keep 50%" 2026-10-05 | y (derived from the validated diagnosis; B6 answered 2026-10-05 |
+| A39 | **D20 target — RESOLVED (B7/B8, 2026-10-06):** the toolbar strip keeps the **content row at ~36px** and adds a **reserved horizontal-scrollbar lane below** it, so the **total strip is ~50–52px** and label descenders are no longer overlapped; the content row does **not** grow and the strip does **not** reach ~60px. The scrollbar is **as-needed** in that reserved lane (shown only on overflow), and the reserved lane keeps the strip height stable in both states. | B7 answered by the user 2026-10-06 (verbatim: "Content row 36px + scrollbar lane (~52px total)"); B8 answered 2026-10-06 (verbatim: "As-needed in a reserved lane"). Supersedes `AC-D19.4`'s `<= ~40px` bound to a ~52px container bound | y (B7/B8 answered 2026-10-06) | 2026-10-06 |
+| A40 | **D20 — D17/D18 unaffected:** raising the toolbar strip's height changes only vertical space (slightly shorter chart) and does not alter the horizontal dock-width model, so the `AC-D13`/`AC-D17`/`AC-D18`/`AC-D19` horizontal criteria stand. | The reported defect is vertical (scrollbar overlapping text); the D19 wrapper's horizontal minimum-width behaviour is unchanged. B7/B8 answer only the vertical/scrollbar-lane question | y (B7/B8 answered 2026-10-06) | 2026-10-06 |
 
 ## Documentation Maintenance Requirements
 
@@ -1786,20 +1899,19 @@ Chart; Q29 no-op semantics):**
 | R32 | D19: the **scroll/elide** toolbar fix could change the toolbar's height or make controls hard to reach, affecting chart space or usability | M | M | B5 selects **horizontal scroll / elide in place** (one ~36px row); `AC-D19.4` requires all controls reachable via the scroll/elide affordance and the central widget able to shrink; verify at wide and narrow widths |
 | R33 | D19: removing the `toolbar.hide()` masking will make the existing D17/D18 tests fail until the fix lands; the suite is not green in between | M | H | Expected: the harness change is part of the fix; demonstrate the pre-fix failure (`AC-D19.6`) then green after; treat the intermediate red as intentional, not a regression |
 | R34 | D19: the toolbar's minimum width differs between the offscreen platform and the real macOS window; a **scroll/elide** fix that only works offscreen could still fail in the real app | M | M | `AC-D19.6` requires a toolbar-visible window; also verify in the real dev build (`python main.py`) manually, not only offscreen |
+| R35 | D20: raising the toolbar height takes vertical space from the chart and, if overdone, reduces chart height noticeably | L | M | **Resolved by B7:** the minimal change is the content row kept at ~36px plus a reserved scrollbar lane, total ~50–52px (not ~60px); the content stays a single row and the chart loses only a few pixels of height |
+| R36 | D20: updating `AC-D19.4`'s height bound without updating the D19 test assertions leaves the suite red / contradictory | M | H | Update `tests/test_toolbar_scroll_d19.py` height assertions in lockstep (`AC-D20.6`) to the B7-confirmed ~50–52px container / ~36px content target; the supersession is recorded explicitly on `AC-D19.4` |
 
 
 ---
 
 ## Status
 
-**Status: READY_FOR_PLAN.** The 2026-10-05 batch (D19) is **clarified and finalised**: the user answered **B5**
-(toolbar behaviour when narrow — **"Horizontal scroll / elide in place"**) and **B6** (watchlist cap —
-**"Keep 50%"**) on 2026-10-05. D19's fix wraps the existing toolbar in a **horizontal scroll / elide** container
-**in place** — it stays inside the central widget as a single ~36px row and its minimum width no longer pins the
-central widget — so the D17/D18 criteria hold in a **toolbar-visible** window; the watchlist cap stays at **50% of
-the chart area**. `AC-D19.1`–`AC-D19.7` are final, including the **test-masking regression guard** (`AC-D19.6`):
-the D17/D18 tests must exercise a toolbar-visible window (or reproduce the constraint), and at least one D17 and one
-D18 test must fail pre-fix and pass post-fix. No blocking question remains. D16 remains clarified/finalised; D1–D15
-remain built and green; the Existing Repository section (marker sentence + Current Tech Stack) is preserved.
-
-Status: READY_FOR_PLAN
+**Status: READY_FOR_PLAN** — D20 (toolbar label descenders clipped by the horizontal scrollbar) is
+**clarified and finalised 2026-10-06** (B7–B8 answered): the toolbar keeps its **content row at ~36px** and the
+horizontal scrollbar gets its **own reserved lane below**, so the **total strip is ~50–52px**; the scrollbar is
+**as-needed** in that reserved lane. D20 **explicitly supersedes/relaxes `AC-D19.4`'s `<= ~40px`** bound to the new
+~52px container bound (recorded on `AC-D19.4`); D19's scroll/elide reachability and the D17/D18 criteria stand.
+No blocking question remains — see `open_questions.md` (Batch 14, D20, B7–B8 answered). D19 remains
+clarified/finalised; D16 remains clarified/finalised; D1–D15 remain built and green; the Existing Repository
+section (marker sentence + Current Tech Stack) is preserved.

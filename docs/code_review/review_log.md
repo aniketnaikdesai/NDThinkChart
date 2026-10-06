@@ -1752,3 +1752,124 @@ empty, full offscreen suite green (**579 passed / 0 failed / exit 0**, twice). *
 escalations remain** — ESC-001…ESC-027 are all `addressed`. The pipeline can advance (build complete).
 
 Status: REVIEW_COMPLETE
+
+# Revision 9 review — Batch 14 (D20 toolbar scrollbar lane, T61–T64), 2026-10-06
+
+**Scope reviewed:** `docs/build/build_log.md` (ends `Status: READY_FOR_REVIEW`, Batch-14 graph 4/4 done),
+`docs/build/failures.json` (`blocked` empty; no new `pending_routing`), `docs/tasks/task-graph.json`
+(T61–T64), `docs/requirements/requirements.md` (D20 / `AC-D20.1`–`AC-D20.6` / A39–A40 / R35–R36 / the
+recorded `AC-D19.4` supersession), `docs/architecture.md` (D20 increment), `docs/plan.md` (Phases 1–3),
+`ui/main_window.py`, `ui/dock_layout.py`, `tests/test_toolbar_scroll_d19.py`, `tests/test_toolbar_d20.py`.
+Working tree = commit `4d8952a` (D1–D19) + the uncommitted D20 changes (`ui/main_window.py`,
+`tests/test_toolbar_scroll_d19.py` modified; `tests/test_toolbar_d20.py` new). **No live TWS** — every run
+was `QT_QPA_PLATFORM=offscreen`. Nothing was fixed; only `docs/code_review/` was written.
+
+**Graphify:** `graphify-out/graph.json` exists (2366 nodes). The D20 change is a two-line toolbar-height
+edit in one file, fully readable directly; graphify was used for orientation and every claim below was
+validated against the actual repository files (authoritative).
+
+## A. Independent full-suite re-verification — GREEN
+
+- `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` → **`585 passed in 12.07s`,
+  0 failed, exit 0** (585 collected = 585 passed; no skips/xfails/deselects). **Build's 585/0 claim
+  independently confirmed.**
+- `pytest.ini` `addopts = -q` only; `grep -rnE "pytest\.(skip|xfail)|@pytest\.mark\.(skip|xfail)|pytestmark|deselect"`
+  over `tests/` → **0 hits**. Nothing skipped or deselected.
+
+## B. D20 correctness — independently probed (my own offscreen probe, not Build's)
+
+Real shown `MainWindow` (`IBApiClient.connect` monkeypatched to a no-op), probed at 2400×900 / 1200×700 /
+900×650:
+
+| check | wide 2400×900 | narrow 1200×700 | narrower 900×650 |
+|---|---|---|---|
+| `TOOLBAR_CONTENT_HEIGHT` | 36 | 36 | 36 |
+| `toolbar.height()` (content row) | 36 | 36 | 36 |
+| `wrapper.height()` (min==max) | 54 | 54 | 54 |
+| `horizontalScrollBar().sizeHint().height()` | 18 | 18 | 18 |
+| derived `wrapper == toolbar + sizeHint` | True | True | True |
+| `hbar.isVisible()` | **False** | **True** | **True** |
+| lane `mapTo(wrapper, QPoint(0,0)).y()` | 36 | 36 | 36 |
+| lane `>= toolbar.height()` | True | True | True |
+| `viewport.height() >= toolbar.height()` | True (54) | True (36) | True (36) |
+| `centralWidget().minimumSizeHint().width() <= 750` | 88 ✓ | 88 ✓ | 88 ✓ |
+| `chart_area >= CHART_MIN_WIDTH (400)` | 1968 ✓ | 768 ✓ | 538 ✓ |
+| strip `< 60` | True | True | True |
+| toolbar text-legibility issues | **0** | **0** | **0** |
+
+The derived wrapper height (`TOOLBAR_CONTENT_HEIGHT + horizontalScrollBar().sizeHint().height()`), the
+unchanged 36px content row, the reserved lane entirely below the content, the scrollbar as-needed, and
+unclipped labels in **both** scrollbar states all hold. **No D20 correctness defect found.**
+
+## C. No regression — D17/D18 unaffected (A40)
+
+- Full suite green (A) includes every pre-existing D1–D19 test; no D1–D19 regression.
+- `central min-hint 88 <= 750` and `chart_area >= 400` at every probed size (B) — only vertical space
+  changed; the horizontal dock model is untouched.
+- `git status --short ui/dock_layout.py` → **empty** (unchanged). The only `ui/main_window.py` diff is the
+  toolbar block; `_apply_dock_widths` (`:1132`) and the cap constants (`CHART_MIN_WIDTH=400`,
+  `WATCHLIST_MIN_WIDTH=150`, `RIGHT_DOCK_MIN_WIDTH=200`) are untouched. **No live TWS / order transmit:**
+  `grep -rnE "eConnect|placeOrder|reqHistoricalData|reqMktData|IBApiClient\(|connectAsync|7496|7497|4001|4002"`
+  over `tests/` → only intentional no-op stubs; no socket/port. **Q9 holds.**
+
+## D. No test weakened — D19 lockstep is a strengthening, D20 assertions are non-vacuous
+
+- **D19 lockstep (`tests/test_toolbar_scroll_d19.py::T53-T04`)** replaced the two stale 36px-container
+  assertions (`wrapper.height() == 36`; `minimumHeight() == 36 and maximumHeight() == 36`) with the
+  **derived relation** `wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height()`
+  plus `minimumHeight() == maximumHeight() == height()` and the content widget pinned at
+  `TOOLBAR_CONTENT_HEIGHT (36)`. This is the sanctioned R36 lockstep: the assertion is **stronger**, not
+  looser (it fails at the pre-fix 36px wrapper: `36 != 36 + 18`). `T53-T02`'s `toolbar.height() <= 40`
+  bounds the **content row** (36px), not the container. `grep` confirms **no** stale
+  `wrapper.height()==36`/`minimumHeight()/maximumHeight()==36` remains in any test.
+- **D20 assertions non-vacuous — independently reproduced pre-fix RED.** I created my own temporary
+  detached worktree at the pre-fix commit `4d8952a`, copied in the current `tests/test_toolbar_d20.py`
+  and `tests/test_toolbar_scroll_d19.py`, and ran them:
+  **`5 failed, 5 passed`** — exactly Build's T63 record:
+  `test_T62_T01_labels_legible_scrollbar_shown` (lane/viewport assertion),
+  `test_T62_T02_labels_legible_scrollbar_hidden` (`assert not rect.intersects(lane)`),
+  `test_T62_T03_derived_height_and_reserved_lane` (ImportError: `TOOLBAR_CONTENT_HEIGHT` absent pre-fix),
+  `test_T62_T04_scrollbar_as_needed_in_lane` (same ImportError), and
+  `test_T53_T04_wrapper_mechanism` (same ImportError). The 5 that pass pre-fix are the unchanged-behaviour
+  tests (`T62-T05`, `T62-T06`, `T53-T01`…`T53-T03`). The two lane-geometry tests (`T62-T01`/`T62-T02`)
+  fail on the geometry itself (not merely the missing symbol), so the D20 assertions genuinely discriminate.
+  The worktree was removed (`git worktree prune`); `git status --short` for the three files is unchanged
+  (still the expected M/M/??).
+- **Assertion form:** `grep -n "geometry(" tests/test_toolbar_d20.py` → hits only in docstrings; the lane
+  checks use the mapped form `horizontalScrollBar().mapTo(wrapper, QPoint(0, 0)).y() >= toolbar.height()`
+  together with `viewport().height() >= toolbar.height()`. **`geometry()` is not used.** Confirmed.
+
+## E. AC-D20.2 supersession — coherent
+
+- `AC-D19.4`'s `<= ~40px` bound is **explicitly** marked superseded in `requirements.md:1662` (with the
+  D19 reachability intent preserved, not superseded), and the header index (`:1`, `:54`, `:99`) records it.
+  `AC-D20.2` (`:1744`) states the ~50–52px container / ~36px content target; `architecture.md:1048–1194`
+  and `plan.md` Phases 1–2 (`RC-D20-1`, `RC-D20-2`, `RC-D20-3`) document that the `~50–52px` figure is the
+  **macOS** value (extent ~16px → 52px) while the **offscreen** derived value is 54px.
+- The tests assert the **derived relation** and `< 60px` (R35) and **explicitly do not** assert a literal
+  `[50, 52]` bound (`tests/test_toolbar_d20.py:231`, `:250–251`). No literal bound anywhere.
+- **Transparency note (non-escalating):** `AC-D20.2`'s measurable clause literally reads "the
+  `ToolbarScroll` container height is `<= ~52px` and `>= ~50px`", and the offscreen container is 54px. I
+  judged this coherent rather than a defect because the requirement uses `~` (approximate) and the
+  macOS-vs-offscreen split is explicitly reconciled in `architecture.md`/`plan.md` and the task ACs, and
+  because a literal 52px wrapper is documented as *wrong* (`RC-D20-1`: it would leave a 34px viewport and
+  the lane would still overlap). The tests correctly avoid the literal bound. Recorded for the user; no
+  escalation (routing a `~2px`-over-tilde wording tweak would not change any behaviour and the canonical
+  artifacts already carry the reconciliation).
+
+## F. Escalation close-out
+
+- `grep -nE "Status: *(open|ESCALATED_TO_)" docs/code_review/escalations.md` → **NONE**. All ESC-001…ESC-027
+  are `addressed`. **No open escalations remain; nothing to close out this pass.**
+
+## G. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| — | — | — | — | **None.** D20 correctness verified by probe (derived height, 36px content row, reserved lane, as-needed, labels unclipped both states); full suite 585/0; no D1–D19 regression; D19 lockstep is a strengthening; D20 assertions non-vacuous (my own pre-fix worktree: 5 failed/5 passed); `dock_layout.py`/`_apply_dock_widths`/caps unchanged; no TWS/order transmit; supersession coherent. No quality, consistency, or security issue found. |
+
+**Pipeline state for the Orchestrator:** Batch 14 (D20) is **4/4 done** (T61–T64), `failures.json.blocked`
+empty, full offscreen suite green (**585 passed / 0 failed / exit 0**, independently re-run). **No open
+escalations remain** — ESC-001…ESC-027 are all `addressed`. The pipeline can advance (build complete).
+
+Status: REVIEW_COMPLETE

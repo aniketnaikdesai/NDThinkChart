@@ -1,12 +1,12 @@
 {
   "status": "READY_FOR_BUILD",
-  "generated": "2026-10-05",
-  "batch": "Batch 13 — D19 (toolbar scroll/elide wrapper)",
+  "generated": "2026-10-06",
+  "batch": "Batch 14 — D20 (toolbar scrollbar lane)",
   "nodes": [
     {
-      "id": "T53",
+      "id": "T61",
       "type": "Task",
-      "title": "Wrap the central-widget toolbar in a horizontal QScrollArea in place (D19 Phase 1)",
+      "title": "D20 Phase 1 + lockstep: derive the ToolbarScroll wrapper height and update the D19 height assertions",
       "task_type": "implementation",
       "agent": "Build",
       "touches_files": [
@@ -15,67 +15,27 @@
       ]
     },
     {
-      "id": "T54",
+      "id": "T62",
       "type": "Task",
-      "title": "Remove toolbar masking from tests/test_dock_widths_d17.py and add the toolbar-visible AC-D19.1 guard",
-      "task_type": "bugfix",
+      "title": "D20 Phase 2: add the label-legibility / reserved-lane / as-needed assertions (tests/test_toolbar_d20.py)",
+      "task_type": "implementation",
       "agent": "Build",
       "touches_files": [
-        "tests/test_dock_widths_d17.py"
+        "tests/test_toolbar_d20.py"
       ]
     },
     {
-      "id": "T55",
+      "id": "T63",
       "type": "Task",
-      "title": "Remove toolbar masking from tests/test_dock_widths_d18.py and add toolbar-visible AC-D19.2/AC-D19.3 guards",
-      "task_type": "bugfix",
-      "agent": "Build",
-      "touches_files": [
-        "tests/test_dock_widths_d18.py"
-      ]
-    },
-    {
-      "id": "T56",
-      "type": "Task",
-      "title": "Remove toolbar masking from tests/test_dock_widths_d18_impl.py",
-      "task_type": "bugfix",
-      "agent": "Build",
-      "touches_files": [
-        "tests/test_dock_widths_d18_impl.py"
-      ]
-    },
-    {
-      "id": "T57",
-      "type": "Task",
-      "title": "Remove toolbar masking from tests/test_dock_d18_region.py",
-      "task_type": "bugfix",
-      "agent": "Build",
-      "touches_files": [
-        "tests/test_dock_d18_region.py"
-      ]
-    },
-    {
-      "id": "T58",
-      "type": "Task",
-      "title": "Remove toolbar masking from tests/test_dock_layout.py (T52 integration test)",
-      "task_type": "bugfix",
-      "agent": "Build",
-      "touches_files": [
-        "tests/test_dock_layout.py"
-      ]
-    },
-    {
-      "id": "T59",
-      "type": "Task",
-      "title": "Capture the AC-D19.6 pre-fix-red / post-fix-green regression-guard evidence",
+      "title": "D20 Phase 2: capture the pre-fix-red / post-fix-green discriminator evidence (R36)",
       "task_type": "verification",
       "agent": "Build",
       "touches_files": []
     },
     {
-      "id": "T60",
+      "id": "T64",
       "type": "Task",
-      "title": "Batch-13 D19 regression gate: full offscreen suite green in a toolbar-visible window + real dev-build check",
+      "title": "D20 Phase 3: full-suite regression gate + real-app manual check",
       "task_type": "verification",
       "agent": "Build",
       "touches_files": []
@@ -83,93 +43,33 @@
   ],
   "edges": [
     {
-      "from": "T54",
-      "to": "T53",
+      "from": "T62",
+      "to": "T61",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T55",
-      "to": "T53",
+      "from": "T63",
+      "to": "T61",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T56",
-      "to": "T53",
+      "from": "T63",
+      "to": "T62",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T57",
-      "to": "T53",
+      "from": "T64",
+      "to": "T61",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T58",
-      "to": "T53",
+      "from": "T64",
+      "to": "T62",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "T59",
-      "to": "T53",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T59",
-      "to": "T54",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T59",
-      "to": "T55",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T59",
-      "to": "T56",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T59",
-      "to": "T57",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T59",
-      "to": "T58",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T60",
-      "to": "T53",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T60",
-      "to": "T54",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T60",
-      "to": "T55",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T60",
-      "to": "T56",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T60",
-      "to": "T57",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T60",
-      "to": "T58",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "T60",
-      "to": "T59",
+      "from": "T64",
+      "to": "T63",
       "type": "DEPENDS_ON"
     }
   ]

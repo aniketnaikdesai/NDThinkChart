@@ -537,3 +537,97 @@ Unique task ids (8) and test ids (22); every acceptance criterion has ≥1 linke
 every test links an existing criterion (1:1). `execution_graph.json` nodes match the task
 set; 18 edges resolve to existing ids with no cycles (every edge points to a strictly lower
 task number).
+
+## Batch 14 — D20 (toolbar scrollbar lane) (T61–T64)
+
+Revision date: 2026-10-06. Source of truth: `docs/plan.md` (`Status:
+READY_FOR_TASK_MANAGER`, Batch 14, 3 phases) and `docs/architecture.md` (D20 increment,
+validated 2026-10-06, incl. the Validator probe table). Input:
+`docs/requirements/requirements.md` (`AC-D20.1`–`AC-D20.6`, Journey 21, A39–A40, R35–R36,
+B7–B8 answered, DG29–DG30). No open `ESCALATED_TO_TASK_MANAGER` entry exists. D1–D19
+(T1–T60) are `done` and are deliberately **not** re-listed in the rebuilt graph; this
+graph is the **D20 delta only** (baseline commit `4d8952a`, D19 wrapper green).
+
+**No architecture assumptions were invented.** The architecture fixes the whole D20
+mechanism (the derived `TOOLBAR_CONTENT_HEIGHT + horizontalScrollBar().sizeHint().height()`
+wrapper height, the unchanged D19 wrapper properties, the measured offscreen 54px / macOS
+~52px figures, the mapped-lane contract, and the untouched D17/D18 width model), so every
+task is `architecture_dependency: false`. No requirement is narrowed or reinterpreted by
+this decomposition; the one recorded supersession (`AC-D19.4`'s `<= ~40px` bound) is
+carried on `AC-D19.4` by the Requirements Analyst and handled in lockstep in T61/T62.
+
+### Tasks and `touches_files`
+- **T61** (Phase 1 + the lockstep half of Phase 2) — `ui/main_window.py` +
+  `tests/test_toolbar_scroll_d19.py`. deps `[]`.
+- **T62** (Phase 2, new D20 assertions) — new `tests/test_toolbar_d20.py`. deps `[T61]`.
+- **T63** (Phase 2, `AC-D20.6`/R36 discriminator) — `touches_files: []` (writes only
+  Build's own log). deps `[T61, T62]`.
+- **T64** (Phase 3, regression + real dev) — `touches_files: []`. deps `[T61, T62, T63]`.
+
+### Why the production change and the D19 assertion update are one task (T61)
+The D20 production change (wrapper height `36` → derived `36 + scrollbar extent`) makes the
+pre-existing `tests/test_toolbar_scroll_d19.py::T53-T04` assertion `wrapper.height() == 36`
+(and `minimumHeight() == maximumHeight() == 36`) **false**. `AC-D20.6`/R36 requires those
+assertions be updated *in lockstep* — never left contradicting D20. Therefore the two edits
+cannot be split into separate waves: a production-only task would leave the suite red with
+no test of its own to run. T61 is exactly the D19 `T53` precedent (production file + the
+phase's own assertion file in one task), scoped to the derived height plus the two existing
+height assertions. Its acceptance criteria are the structural/mechanism outcome and the
+`AC-D20.6` lockstep outcome; the new D20 behaviour assertions live in T62.
+
+### Why the new D20 assertions are a separate, disjoint file (T62)
+The plan sanctions the D20 assertions "in `tests/test_toolbar_scroll_d19.py` or a new
+disjoint `tests/test_toolbar_d20.py`" (Phase 2 deliverable; parallel-sequencing table lists
+the new file as disjoint and parallelisable). The new disjoint file keeps T61's footprint
+narrow (`ui/main_window.py` + the existing D19 test only), separates the "keep the existing
+assertions truthful" concern from the "prove the new D20 outcome" concern, and gives
+`AC-D20.1`–`AC-D20.5` a dedicated, independently verifiable task. T62 depends on T61 because
+its derived-height/lane assertions assume the contract T61 establishes (a logical
+assumed-contract edge across disjoint files, per the dependency-mapping rules) and would
+fail against the pre-fix tree.
+
+### Sequencing / no file races
+- `ui/main_window.py` is the only production file and is touched by **T61 only** — at most
+  one writer per wave.
+- `tests/test_toolbar_scroll_d19.py` is touched by **T61 only**; the new
+  `tests/test_toolbar_d20.py` is touched by **T62 only**. No two live tasks share a file.
+- T63 and T64 write no source/test file (`touches_files: []`); they record evidence in the
+  Build-owned `docs/build/build_log.md` (Build's own artifact, not a Task-Manager file).
+- Every edge points to a strictly lower task number: `T62→T61`, `T63→T61/T62`,
+  `T64→T61/T62/T63`. No cycles; every edge references an existing task id.
+
+### AC coverage
+- `AC-D20.1`: T62-T01 (shown state) + T62-T02 (hidden state).
+- `AC-D20.2`: T61-T01 (mechanism, derived height + 36px content row) and T62-T03 (derived
+  relation + `< 60px` + lane below the content).
+- `AC-D20.3`: T62-T04.
+- `AC-D20.4`: T62-T05.
+- `AC-D20.5`: T62-T06.
+- `AC-D20.6`: T61-T02/T61-T03 (D19 height assertions updated in lockstep, module green),
+  T63-T01 (pre-fix red / post-fix green discrimination), T64-T01 (full-suite regression +
+  D17/D18 in a toolbar-visible window).
+- `R35`: T64-T02 (and T62-T03's `< 60px`). `Q9`: T64-T03.
+
+### Flagged interpretation (plan-resolved, encoded to keep Build from writing a failing bound)
+**`AC-D20.2`'s measurable clause reads `container height <= ~52px and >= ~50px`, but the
+adopted offscreen derived height is 54px.** The approved plan resolves this (RC-D20-1
+direction a): the requirement's `~50–52px` is the **macOS** figure (scrollbar extent ~16px →
+~52px); offscreen the extent is **18px**, so the derived strip is **54px**. The plan states
+there is **no hard `[50, 52]` bound** and the assertions must use the **derived relation**
+(`wrapper.height() == toolbar.height() + horizontalScrollBar().sizeHint().height()`) plus
+`< 60px` (R35). T62-T03 encodes exactly that — it must **not** assert the literal
+`[50, 52]` interval, which would fail at every offscreen run. This is the plan's explicit
+resolution, not a Task-Manager reinterpretation.
+
+**Mapped-lane form only.** The lane/overlap assertions use
+`horizontalScrollBar().mapTo(wrapper, QPoint(0, 0)).y() >= toolbar.height()` together with
+`viewport().height() >= toolbar.height()` when the scrollbar is shown (plan RC-D20-2).
+`geometry()` is disallowed — offscreen it reports `QRect(0, 0, …, 18)` (`top == 0`), which
+would fail at every height. T62's tests and the T63 discriminator both carry this.
+
+### Graph state
+`task-graph.json` metadata is `"status": "READY_FOR_BUILD"`; T61–T64 are `not_started`.
+Unique task ids (4) and test ids (13); every acceptance criterion has ≥1 linked test and
+every test links an existing criterion (1:1). `execution_graph.json` nodes match the task
+set; 6 edges resolve to existing ids with no cycles. No wave can contain two writers on the
+same file.

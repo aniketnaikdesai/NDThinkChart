@@ -68,3 +68,8 @@
 **Category:** Known Gotcha
 **Finding:** In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`. Also, the installed `ibapi` is **9.81.1.post1** and its `serverVersion()` returns `None` under the test mocks (causing intermittent `TypeError` in `ibapi/client.py`); and there is **no** `site-packages/tests/__init__.py` shadow — the local `tests/` is a namespace package. These three explain the recurring non-reproducible "environment" failures; confirm with a clean full-suite run before treating them as regressions.
 **Source:** Batch-13 rounds (ESC-027; Build/Code Reviewer verification).
+
+### 2026-10-06 — discovered during Build/Review (D20 toolbar height)
+**Category:** Known Gotcha
+**Finding:** When a `QScrollArea` wraps content whose fixed height equals the scroll area's fixed height (D19 set both the toolbar and its `ToolbarScroll` wrapper to `setFixedHeight(36)`), the horizontal scrollbar is laid out **inside** that height and overlaps the bottom of the content — clipping the label descenders. Size the scroll area to the **derived** height `content_height + horizontalScrollBar().sizeHint().height()` (e.g. 36 + 18 = 54 offscreen, ~52 macOS) so the scrollbar gets its own reserved lane below the content, and keep the content widget at its own fixed height. Do not use a literal total height, and do not assert the lane with `scrollBar.geometry()` (offscreen `geometry().top()` is 0) — use the mapped form `scrollBar.mapTo(wrapper, QPoint(0,0)).y() >= content.height()` or `viewport().height() >= content.height()`.
+**Source:** Defect D20 (tasks T61–T64).

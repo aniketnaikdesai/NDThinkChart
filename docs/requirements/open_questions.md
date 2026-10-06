@@ -1,5 +1,11 @@
 # Open Questions
 
+> **2026-10-06 — Batch 14 (D20): blocking questions B7–B8 are ANSWERED — D20 clarified and finalised.** The user
+> reported the D19 toolbar wrapper's horizontal scrollbar clipping the toolbar label descenders, and answered **B7**
+> (verbatim: "Content row 36px + scrollbar lane (~52px total)") and **B8** (verbatim: "As-needed in a reserved
+> lane") on 2026-10-06. D20 is now **clarified and finalised**; `requirements.md` carries
+> `Status: READY_FOR_PLAN`. See the **Batch 14 (D20)** section at the end of this file.
+
 > **2026-10-05 — Batch 13 (D19): blocking questions B5–B6 are ANSWERED — D19 clarified and finalised.** The user
 > reported that **D17 still did not work in the real app** (watchlist would not grow at maximum drag). Repo-validated
 > root cause: the toolbar's ~1716px `minimumSizeHint` pinned the central widget so the dock splitter had no slack
@@ -622,3 +628,62 @@
   `floor(0.50 × chart_area)`** (B1 stands). The cap constant (`watchlist_max_width` / `WATCHLIST_CAP_FRACTION`) and
   `AC-D13.1`/`AC-D17.1` are **unchanged** — the formula is not the problem; D19 fixes only the toolbar pinning.
   Option 2 (raise the cap) is **not adopted**.
+
+---
+
+# Open Questions — Batch 14 (D20) — ANSWERED / finalised 2026-10-06
+
+> The user reported **D20** on 2026-10-06: in the D19 toolbar wrapper the horizontal scrollbar covers the bottom
+> of the toolbar labels; they want the toolbar **height increased** so labels read clearly. Repo-validated: the
+> D19 wrapper fixes both the toolbar and the `ToolbarScroll` `QScrollArea` at **36px**
+> (`ui/main_window.py:102`, `:233`), so the scrollbar is laid out within the same 36px and overlaps the content.
+> Both blocking questions (**B7–B8**) were **answered by the user on 2026-10-06** and are recorded verbatim below.
+> **No blocking question remains**, so `requirements.md` carries `Status: READY_FOR_PLAN`. **B7** decided: keep the
+> content row at **~36px** and give the horizontal scrollbar its **own reserved lane below** it, so the total strip
+> grows to **~50–52px** (this **supersedes/relaxes `AC-D19.4`'s `<= ~40px`** bound to a new ~52px container bound,
+> keeping the content a single ~36px row and preserving D19's scroll/elide reachability). **B8** decided: reserve the
+> scrollbar lane and show the horizontal scrollbar **as-needed** (only when the toolbar content overflows), never
+> overlapping the labels.
+
+## B7 — D20: how tall should the toolbar strip become, and how should that reconcile with D19's `AC-D19.4` (`<= ~40px`, one ~36px row)?
+- **Status:** **answered 2026-10-06** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-06, verbatim: "Content row 36px + scrollbar lane (~52px total)"):** keep the
+  toolbar **content row at ~36px** and give the horizontal scrollbar its **own reserved lane below** the content,
+  so the scrollbar no longer overlaps the labels and the **total strip grows to ~50–52px**. This **supersedes/
+  relaxes `AC-D19.4`'s `<= ~40px` bound** to a new **~52px container-height bound**, while the **content row stays
+  a single ~36px row**. Options (b) (grow the content row itself, total ~60px) and (c) (a user-named total height)
+  are **not adopted**; the content row must **not** grow and the strip must **not** grow to ~60px.
+- **Why it's blocking:** the user asked to "increase the height" but gave no target; the exact height is a
+  UI-visual **size** decision (AC-G.1), and D19's `AC-D19.4` currently bounds the laid-out height at
+  `<= ~40px` with the D19 test asserting exactly 36px. The requirements cannot be written — or the D19
+  constraint responsibly superseded — without the user's target, and over/under-shooting is a user-visible
+  layout change (chart vertical space vs label legibility).
+- **Options:**
+  1. **(a) Recommended — keep the content row ~36px and give the horizontal scrollbar its own reserved lane
+     below it** (the scrollbar no longer overlaps the labels; total strip grows to ~50–52px). Supersedes
+     `AC-D19.4`'s `<= ~40px` to a new container-height bound (~52px) while the content stays a single ~36px row.
+  2. **(b) Grow the toolbar content row itself** (e.g. ~44–48px, more vertical padding) **with the scrollbar in
+     its own lane below** (total ~60px). Supersedes both the "one ~36px row" and the `<= ~40px` wording.
+  3. **(c) A specific total height in pixels that the user names.**
+- **Affected requirement section:** D20 / `AC-D20.1`, `AC-D20.2`; supersession note on `AC-D19.4`; Journey 21; A39.
+
+## B8 — D20: should the horizontal scrollbar be always visible in its lane, or only when the content overflows (or an auto-hiding overlay)?
+- **Status:** **answered 2026-10-06** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-06, verbatim: "As-needed in a reserved lane"):** **reserve the scrollbar lane**
+  (its space is allocated as part of the ~50–52px strip) and show the horizontal scrollbar **only when the toolbar
+  content overflows** — the same as-needed behaviour as today — so it **never overlaps the labels**. Options (b)
+  (always-visible scrollbar) and (c) (overlay / auto-hiding macOS-style scrollbar) are **not adopted**.
+  **Interpretation recorded:** because the lane is *reserved*, the strip's total height stays ~50–52px whether the
+  scrollbar is shown or hidden; only the scrollbar widget's visibility changes with overflow (the lane does not
+  collapse).
+- **Why it's blocking:** the reported defect is the scrollbar **covering** the labels. Whether the lane is always
+  reserved, shown only as-needed, or left as an overlay changes the criteria and the user-visible result (a
+  permanently visible scrollbar vs one that appears only when narrow). This is a genuine user choice.
+- **Options:**
+  1. **(a) Recommended — reserve the lane; show the scrollbar only when the toolbar content overflows** (same
+     as-needed behaviour as today, but never overlapping the labels).
+  2. **(b) Always-visible scrollbar** in its reserved lane.
+  3. **(c) Overlay / auto-hiding scrollbar (macOS style)** — **not recommended**: it can still cover the labels
+     while scrolling.
+- **Affected requirement section:** D20 / `AC-D20.1`, `AC-D20.2`, `AC-D20.3`; Journey 21.
+

@@ -1,132 +1,162 @@
-# Architecture Proposal — NDThinkChart Batch 13 (D19: toolbar scroll/elide wrapper)
+# Architecture Proposal — NDThinkChart Batch 14 (D20: toolbar scrollbar lane)
 
-> **Scope.** An *incremental* change on top of the **already-built, green D1–D18** system
-> (commit `5bd7c93`; full offscreen suite **566 passed**). D1–D18 are **frozen** and are
-> **not** re-planned. This is an **existing-repo** run: `requirements.md` contains the marker
-> sentence `This is an existing repository.` and a Current Tech Stack; **PyQt6 + pyqtgraph is
-> a hard constraint**. No stack change, no schema change, no new dependency, no new external
-> integration, and no live-order-path change. Items are labelled `[existing]`, `[new]`, or
-> `[new/changed]`.
+> **Scope.** An *incremental* change on top of the **already-built, green D1–D19** system
+> (D1–D19 built at commit `4d8952a`; the D19 toolbar wrapper is in place and green). D1–D19 are
+> **frozen** and are **not** re-planned. This is an **existing-repo** run: `requirements.md`
+> contains the marker sentence `This is an existing repository.` and a Current Tech Stack;
+> **PyQt6 + pyqtgraph is a hard constraint**. No stack change, no schema change, no new
+> dependency, no new external integration, and no live-order-path change. Items are labelled
+> `[existing]`, `[new]`, or `[new/changed]`.
 >
-> **Defect.** D19 — the toolbar's ~1716px `minimumSizeHint` sits inside the central widget and
-> pins it, so the D17/D18 dock-width behaviour is not effective in the real (toolbar-visible)
-> app. The D17/D18 test harnesses hid the toolbar, masking it (`DG27`/`DG28`). **Decision
-> (B5, 2026-10-05):** wrap the toolbar in a **horizontal scroll / elide** container **in
-> place** — it stays inside the central widget as a single ~36px row. **B6:** the watchlist cap
-> stays `floor(0.50 × chart_area)`.
+> **Defect.** D20 — the D19 wrapper pins **both** the toolbar widget **and** its `ToolbarScroll`
+> `QScrollArea` to `setFixedHeight(36)` (`ui/main_window.py:102`, `:233`). The `QScrollArea` lays
+> its horizontal scrollbar out **inside** that same 36px and shrinks the viewport above it, so the
+> bottom of the toolbar content (label descenders) is clipped / covered by the scrollbar.
+> **Decision (B7, 2026-10-06, user-confirmed):** keep the **content row at ~36px** and give the
+> horizontal scrollbar its **own reserved lane below** the content — the **total strip is
+> ~50–52px** (not ~60px). **B8 (user-confirmed):** **reserve the lane** and show the horizontal
+> scrollbar **as-needed** (only on overflow), never overlapping the labels; the strip height stays
+> stable in both states. D20 **explicitly supersedes/relaxes `AC-D19.4`'s `<= ~40px`** bound to the
+> new **~52px container bound** (recorded on `AC-D19.4`); D19's scroll/elide reachability and the
+> D17/D18 criteria stand unchanged.
 >
-> Companion proposal: `docs/plan_proposal.md`. As-built baseline: `docs/architecture.md`.
-> Requirements: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`; D19 / Journey
-> 20 / `AC-D19.1`–`AC-D19.7`; A37–A38; R32–R34; B5–B6 answered 2026-10-05; DG27–DG28).
+> **Chosen mechanism (RC-D20-1).** The strip height is **derived**, not hard-coded:
+> `TOOLBAR_CONTENT_HEIGHT (36) + horizontalScrollBar().sizeHint().height()`. On the reference macOS
+> platform the extent is ~16px (total ~52px, the B7 figure); on the offscreen test platform it is
+> **18px** (total **54px**, viewport **36px**), so the viewport always equals the content row when
+> the scrollbar is shown and the lane sits **entirely below** the content on every platform. The
+> literal-52 variant is **not** used.
+>
+> Companion proposal: `docs/plan_proposal.md`. As-built baseline: `docs/architecture.md`
+> (increment D19 toolbar scroll/elide wrapper, validated 2026-10-05). Requirements:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`; D20 / Journey 21 /
+> `AC-D20.1`–`AC-D20.6`; A39–A40; R35–R36; B7–B8 answered 2026-10-06; DG29–DG30).
 
 ---
 
-## Codebase Summary (existing repository — D19 surface)
+## Codebase Summary (existing repository — D20 surface)
 
-> Inventory gathered with the **graphify** skill (`graphify-out/graph.json`, 2366 nodes,
-> refreshed 2026-10-05) and then **validated against the current source files** (the repository
-> is authoritative). The graph surfaced the relevant symbols (`MainWindow`,
-> `_apply_dock_widths`, `_chart_area_width`, `WatchlistPanel`, `test_dock_widths_d18`,
-> `test_dock_layout`); every claim below was confirmed by direct inspection of the current tree
-> on 2026-10-05.
+> Inventory gathered with the **graphify** skill (`graphify-out/graph.json`, 2370 nodes,
+> refreshed 2026-10-06) and then **validated against the current source files** (the repository is
+> authoritative). The graph surfaced the D19 concept node **“Toolbar scroll/elide wrapper
+> (ToolbarScroll QScrollArea)”** and its edges to `AC-D19.4` / `AC-D19.5` / `PA-D19-1` / the
+> “Known Gotcha — toolbar QWidget minimumSizeHint pinning (D19)”, and the `ui/main_window.py` /
+> `tests/test_toolbar_scroll_d19.py` symbols. Every claim below was confirmed by direct inspection
+> of the current tree on 2026-10-06 (the graph node `QScrollArea (no frame, setWidgetResizable
+> False, fixed 36px)` matches the source exactly).
 
 **Toolbar construction — `[existing] ui/main_window.py:100–211`**
-- `toolbar = QWidget()`; `toolbar.setFixedHeight(36)`; inline stylesheet
-  (`background: #101218; border-bottom: 1px solid #232938;`).
-- `tb_layout = QHBoxLayout(toolbar)`, margins `(8, 0, 8, 0)`, spacing `6`.
+- `toolbar = QWidget()`; `toolbar.setObjectName("MainToolbar")`; `toolbar.setFixedHeight(36)`
+  (`:100–102`); inline stylesheet `background: #101218; border-bottom: 1px solid #232938;`
+  (`:103`).
+- `tb_layout = QHBoxLayout(toolbar)`, margins `(8, 0, 8, 0)`, spacing `6` (`:104–106`).
 - Fixed-width controls: `symbol_input` 120, `tf_combo` 90, `mode_combo` 110, `sound_btn` 56,
   `ext_hours_btn` 80, `tz_combo` 110, `draw_combo` 110, `draw_set_combo` 140,
   `draw_delete_btn` 38; plus variable-width buttons/labels (`Load Chart`, `Studies…`,
   `Alarms (0)`, `Alarm Mode`, `DOM`, `Sets…`, `Symbol:`, `TF:`, `Mode:`, `Draw:`, `|`).
-- Layout order ends with `tb_layout.addStretch()` then `conn_badge` (`QLabel("● Connecting")`,
-  `:186–187`, `:210–211`). The stretch means the badge is pushed to the right edge.
-- **Consequence:** the toolbar's `minimumSizeHint().width()` is ≈ **1716px** (sum of the
-  fixed widths + labels + spacings + button size hints).
+- Layout ends with `tb_layout.addStretch()` then `conn_badge` (`QLabel("● Connecting")`,
+  `:187–188`, `:210–212`). The toolbar's natural `minimumSizeHint().width()` is ≈ **1716px**.
 
-**Central-widget composition — `[existing] ui/main_window.py:213–223`**
-- `self.chart_panel = ChartPanel(tz_offset=…)`; `central = QWidget()`;
-  `vbox = QVBoxLayout(central)` (margins `0`, spacing `0`); `vbox.addWidget(toolbar)`;
-  `vbox.addWidget(self.chart_panel)`; `self.setCentralWidget(central)`.
-- **Consequence:** `centralWidget().minimumSizeHint().width()` is therefore ≈ 1716px, so
-  `QMainWindow` cannot shrink the central area below it and the dock splitter has no slack.
+**D19 toolbar scroll wrapper — `[existing] ui/main_window.py:223–234`**
+- `toolbar_scroll = QScrollArea()`; `setObjectName("ToolbarScroll")`;
+  `setFrameShape(QFrame.Shape.NoFrame)`; `setWidgetResizable(False)`;
+  horizontal `ScrollBarAsNeeded`; vertical `ScrollBarAlwaysOff`;
+  **`setFixedHeight(36)`** (`:233`); `toolbar_scroll.setWidget(toolbar)` (`:234`).
+- **Consequence (the reported defect):** the `QScrollArea` is fixed at the **same 36px** as the
+  content widget, and its horizontal scrollbar is laid out within that 36px, shrinking the
+  viewport and clipping the bottom of the toolbar content (label descenders).
 
-**Chart-area denominator + D17/D18 width model — `[existing]`**
-- `MainWindow._chart_area_width()` (`:1027–1038`) returns `centralWidget().width()`, falling
-  back to `self.width()` when the central widget is absent/not yet laid out.
-- `MainWindow._apply_dock_widths()` (`:1101–1168`) is the **single apply entry point**; it
-  reads `_chart_area_width()`, plans via `_plan_dock_widths()` (`:1055–1099`), and issues
-  `resizeDocks`. It is driven by the dock event filter (`:1350–1363`), `resizeEvent`
-  (`:1381–1390`), `changeEvent(WindowStateChange)` (`:1365–1379`), the deferred normalize
-  (`_deferred_dock_setup`, `:1238–1257`) and `right_dock.visibilityChanged`
-  (`_on_right_dock_visibility_changed`, `:1259–1271`).
-- `ui/dock_layout.py` (`[existing]`, pure, Qt-free) is the single source of truth:
-  `CHART_MIN_WIDTH = 400`, `WATCHLIST_MIN_WIDTH = 150`, `DEFAULT_WATCHLIST_WIDTH = 220`,
-  `RIGHT_DOCK_MIN_WIDTH = 200`, `WATCHLIST_CAP_FRACTION = 0.50`,
+**Central-widget composition — `[existing] ui/main_window.py:236–242`**
+- `central = QWidget()`; `vbox = QVBoxLayout(central)` (margins `0`, spacing `0`);
+  `vbox.addWidget(toolbar_scroll)` (`:240`); `vbox.addWidget(self.chart_panel)` (`:241`);
+  `self.setCentralWidget(central)` (`:242`).
+- **Consequence:** the wrapper — not the bare toolbar — is `layout.itemAt(0).widget()`; the
+  toolbar's ~1716px width lives inside the scroll content, so `centralWidget().minimumSizeHint()
+  .width()` is small (D19 probe: **1716 → 88**) and the central widget can shrink. The wrapper's
+  **height** has no effect on that horizontal minimum.
+
+**D17/D18 width model — `[existing]` (unchanged by D20)**
+- `MainWindow._chart_area_width()` returns `centralWidget().width()` (fallback `self.width()`);
+  `MainWindow._apply_dock_widths()` is the single apply entry point (dock event filter,
+  `resizeEvent`, `changeEvent(WindowStateChange)`, deferred normalize, right-dock visibility).
+- `ui/dock_layout.py` (`[existing]`, pure, Qt-free): `CHART_MIN_WIDTH = 400`,
+  `WATCHLIST_MIN_WIDTH = 150`, `RIGHT_DOCK_MIN_WIDTH = 200`, `WATCHLIST_CAP_FRACTION = 0.50`,
   `RIGHT_DOCK_CAP_FRACTION = 0.40`; `watchlist_max_width`, `right_dock_max_width`,
-  `plan_dock_widths` (B3 cross-clamp).
-- Single right dock region — `[existing] ui/main_window.py:264–306`: one `QDockWidget("Active
-  Trader")` (objectName `"Active Trader"`) whose container stacks `ActiveTraderPanel` over
-  `ActivePortfolioPanel`; the region keeps the title/objectName so `_on_dom_toggled`'s
-  `findChild(QDockWidget, "Active Trader")` resolves it.
-- Watchlist dock — `[existing] ui/main_window.py:225–262`: `QDockWidget("Watchlist")` in
-  `LeftDockWidgetArea`, `setMinimumWidth(WATCHLIST_MIN_WIDTH)`.
+  `plan_dock_widths` (B3 cross-clamp). **Not touched by D20.**
 
-**Affected D17/D18 test harnesses (the masking) — `[existing] tests/`**
-Five test modules locate the toolbar through the central layout and hide it, exactly as DG28
-records. After the D19 fix, `centralWidget().layout().itemAt(0).widget()` returns the **scroll
-wrapper**, not the toolbar:
-- `tests/test_dock_widths_d17.py:67–72` — `_make_window` hides the toolbar (its docstring at
-  `:10–12` admits it "pins the central widget … masking the very behaviour under test").
-- `tests/test_dock_widths_d18.py:111–116` — same masking.
-- `tests/test_dock_widths_d18_impl.py:67–72` — same masking.
-- `tests/test_dock_d18_region.py:46–51` — same masking.
-- `tests/test_dock_layout.py:315–319` — same masking.
+**Affected test — `[existing] tests/test_toolbar_scroll_d19.py`**
+- `T53-T02` (`:106–158`) asserts `toolbar.height() <= 40` at both the narrow (`:130`) and wide
+  (`:156`) sizes — this bounds the **content widget**, which D20 keeps at 36px.
+- `T53-T04` (`:183–211`) asserts `wrapper.height() == 36` (`:199`) and
+  `wrapper.minimumHeight() == 36 and wrapper.maximumHeight() == 36` (`:200`) — this bounds the
+  **container**, which D20 raises to the derived `TOOLBAR_CONTENT_HEIGHT + scrollbar extent`
+  (offscreen 54px) and therefore **must** be updated in lockstep
+  (`AC-D20.6` / R36).
+- `T53-T01` (`:72–101`) asserts `centralWidget().minimumSizeHint().width() <= 750` and that
+  `layout.itemAt(0).widget()` is the `"ToolbarScroll"` `QScrollArea` — **unchanged** by D20.
+- `T53-T03` (`:163–178`) asserts the central width tracks the window — **unchanged** by D20.
 
-**Existing data models / tables — unchanged by D19**
+**D17/D18 harnesses — `[existing] tests/` (unchanged by D20)**
+- `tests/test_dock_widths_d17.py`, `tests/test_dock_widths_d18.py`,
+  `tests/test_dock_widths_d18_impl.py`, `tests/test_dock_d18_region.py`, `tests/test_dock_layout.py`
+  locate the toolbar by the stable `"MainToolbar"` objectName and assert it is **visible** and
+  that no `toolbar.hide()` / `itemAt(0)` masking remains. They assert **widths / visibility**, not
+  heights, so D20's vertical change does not touch them (A40); only the chart's *height* shrinks by
+  the reserved lane (~16px macOS / ~18px offscreen).
+
+**Existing data models / tables — unchanged by D20**
 `Bar`, `Alarm`, `Drawing`, `DrawingGroup`, `Position`, `TradeGroup`, `OrderBookLevel`,
 `UserOrder`; tables `bars`, `watchlist`, `alarms`, `zones`, `drawing_groups`, `drawings`,
 `studies`, `positions`, `trade_groups`, `position_group_map`. **No schema change.**
 
-**Existing integrations in play — unchanged by D19**
-IBKR historical/RT data, SQLite, the Qt signal bus, `QSettings("NDThinkChart","NDThinkChart")`
-key `watchlist/width`, and `PyQt6.QtWidgets` dock/geometry APIs. **No new external
-integration.**
+**Existing integrations in play — unchanged by D20**
+IBKR historical/RT data, SQLite, the Qt signal bus, `QSettings("NDThinkChart","NDThinkChart")` key
+`watchlist/width`, and `PyQt6.QtWidgets` layout/scroll-area APIs. **No new external integration.**
 
-**Key structural fact the D19 design must respect.**
-The toolbar's width enters the central widget's `minimumSizeHint` purely because the toolbar is
-a direct `QVBoxLayout` child with no horizontal-shrink affordance. Wrapping it in a horizontal
-`QScrollArea` removes that width from the central minimum without moving the toolbar out of the
-central widget and without touching any control's construction or signal wiring.
+**Key structural fact the D20 design must respect.**
+A `QScrollArea` lays its horizontal scrollbar out **inside its own geometry** and shrinks the
+viewport above it. The D19 overlap exists purely because the wrapper's height equals the content
+widget's height (36px). Giving the wrapper a height of **content row + the scrollbar's own
+extent** makes the scrollbar occupy a lane *below* the content in both states — the scrollbar is
+never drawn over the content, and `setWidgetResizable(False)` keeps the toolbar at its full natural
+width so the central widget's minimum width (the D19 benefit) is untouched.
 
 ---
 
 ## Summary
 
-D19 is a **minimal, in-place UI change**. The existing toolbar `QWidget` is wrapped in a
-horizontal `QScrollArea` (no frame, `setWidgetResizable(False)`, horizontal
-`ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`) whose height is fixed at **36px**, and the
-wrapper is inserted into the central widget's `QVBoxLayout` **where the bare toolbar was**. The
-toolbar therefore contributes only a small minimum width to the central widget, which can now
-shrink; the **already-built** D17/D18 width model then becomes effective in a toolbar-visible
-window. Nothing else changes: the watchlist cap (`floor(0.50 × chart_area)`, B6), the pure
-`ui/dock_layout.py` model, `_apply_dock_widths`, the single right dock region, and all D1–D18
-behaviour are untouched.
+D20 is a **minimal, in-place height change** to the D19 wrapper. The toolbar **content widget stays
+fixed at 36px**; the `ToolbarScroll` `QScrollArea`'s fixed height is changed from the literal
+**36px** to the **derived strip height `TOOLBAR_CONTENT_HEIGHT +
+horizontalScrollBar().sizeHint().height()`** (36px content row + the scrollbar's own reserved lane),
+so its horizontal scrollbar has a **reserved lane entirely below** the content. When the content
+overflows the scrollbar is shown in that lane (viewport = strip − scrollbar extent = exactly the
+36px content height); when it fits, the scrollbar is hidden and the lane stays reserved but empty,
+so the strip height is stable in both states (B8). Measured offscreen: extent **18px → strip 54px**;
+the requirement's `~50–52px` is the macOS figure (extent ~16px → 52px). The wrapper keeps `NoFrame`,
+`setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`, so the
+toolbar's ~1716px width is still held inside the scroll content and the **central widget's
+horizontal minimum is unchanged from D19** (the D19 benefit is preserved). Nothing else changes:
+`ui/dock_layout.py`, `_chart_area_width`, `_apply_dock_widths`, the watchlist cap, the single
+right dock region, and all D1–D19 behaviour are untouched.
 
 ---
 
 ## Tech Stack Decisions
 
+Existing constrained choices first, then the D20 additions/changes.
+
 | Decision | Choice | Rationale | Alternatives considered |
 |---|---|---|---|
-| Language / UI stack | **Unchanged `[existing]`:** Python 3.11+, PyQt6 (`≥6.6`), pyqtgraph (`≥0.13`). "Changing the tech stack" is a stated Non-Goal | Existing-repo hard constraint; D19 is a layout fix only | A new toolbar framework / embedded web view (out of scope, no dependency allowed) |
-| Dock width model | **Unchanged `[existing]`** `ui/dock_layout.py` — cap constants and `plan_dock_widths` are **not** touched | **B6** keeps the watchlist cap at `floor(0.50 × chart_area)`; D19 fixes only the toolbar pinning | Change the cap (explicitly **not** adopted, B6) |
-| Test stack | **Unchanged `[existing]`** pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS | Repo standard (Q8/Q9); the regression guard is offscreen | Manual-only (rejected) |
-| **Toolbar overflow mechanism** | **`[new/changed]`** wrap the existing toolbar `QWidget` in a **`QScrollArea`** (no frame, `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`), inserted into the central `QVBoxLayout` **in place of the bare toolbar** | Standard Qt class, no new dependency; removes the toolbar's ~1716px width from the central widget's minimum while keeping it **inside the central widget** as one row (B5); the pure `QScrollArea` does the shrink/scroll with no per-control changes | (b) wrap to multiple rows, (c) compress/overflow `»` menu, (d) move to `QMainWindow.addToolBar` — **all explicitly not adopted (B5)**. Also: `QScrollArea` with `setWidgetResizable(True)` or a default always-on scrollbar — **passed over** (would let the toolbar reflow/grow or reserve a scrollbar lane and break the single-row height) |
-| **Toolbar row height** | **`[new/changed]`** wrapper height fixed at **36px**; the horizontal scrollbar is **overlay/transient** (FI-D19-1) so it does not add height | `AC-D19.4` requires the laid-out toolbar height to stay `<= ~40px` (one row); a reserved scrollbar lane would add ~15px and break it | A normal (non-overlay) horizontal scrollbar lane (~51px total) — rejected |
-| **`conn_badge` placement** | **`[existing]` behaviour retained:** `conn_badge` stays **inside the scroll region** and scrolls with the toolbar (FI-D19-2) | Keeps the toolbar a single uniform scrollable row; no split widget | Pin the badge outside the scroll region (splits the row / adds a second layout) — not adopted |
-| **Toolbar identification for tests** | **`[new]`** give the toolbar and its scroll wrapper stable `objectName`s (e.g. `"MainToolbar"` / `"ToolbarScroll"`) | After wrapping, `centralWidget().layout().itemAt(0).widget()` is the **wrapper**, not the toolbar; the affected harnesses must locate by name (and stop hiding) | Continue keying on `itemAt(0)` — fragile and semantically wrong once wrapped |
-| **Watchlist cap** | **Unchanged `[existing]`** `floor(0.50 × chart_area)` (B1/B6) | B6: the formula was never the problem; D19 fixes only the toolbar pinning | Raise the cap — **not adopted (B6)** |
-| Persistence | **No change:** `[existing]` `QSettings watchlist/width` for the watchlist; no new key; right region still not persisted (A36) | D19 adds no user-visible state | Persist the toolbar scroll position — not requested |
+| Language / UI stack | **Unchanged `[existing]`:** Python 3.11+, PyQt6 (`≥6.6`), pyqtgraph (`≥0.13`). "Changing the tech stack" is a stated Non-Goal | Existing-repo hard constraint; D20 is a layout-height fix only | A new toolbar/scroll framework or web view (out of scope; no new dependency allowed) |
+| Dock width model | **Unchanged `[existing]`** `ui/dock_layout.py` — cap constants and `plan_dock_widths` are **not** touched | A40/B6: D20 is vertical-only and does not alter the horizontal dock model | Change a cap (explicitly not adopted) |
+| Test stack | **Unchanged `[existing]`** pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS | Repo standard (Q8/Q9); the D20 legibility/lane checks are offscreen | Manual-only (rejected) |
+| Toolbar overflow mechanism | **Unchanged `[existing]`** the D19 `QScrollArea` wrapper (`NoFrame`, `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`) | D20 does not change the mechanism; it only changes the wrapper's height | Replacing the wrapper — not adopted; D19/B5 settled it |
+| **Toolbar content-row height** | **Unchanged `[existing]`** `toolbar.setFixedHeight(36)` (`ui/main_window.py:102`) | B7: the **content row does not grow**; `AC-D20.2` requires the content widget to stay ~36px | (b) grow the content row to ~44–48px — **explicitly rejected by B7** |
+| **Scrollbar-lane height / wrapper height** | **`[new/changed]`** raise `toolbar_scroll.setFixedHeight(36)` → **`TOOLBAR_CONTENT_HEIGHT + horizontalScrollBar().sizeHint().height()`** (`ui/main_window.py:233`) — the **36px content row + the horizontal scrollbar's own reserved lane**, derived at construction time; keep `setWidgetResizable(False)`. Named constant `TOOLBAR_CONTENT_HEIGHT = 36`; the strip height is a derived value (`36 + extent`), so the code and the test share one source of truth | The `QScrollArea` lays its horizontal scrollbar inside its own geometry; sizing the wrapper to `content + scrollbar extent` gives the scrollbar its own lane **entirely below** the content, so the viewport always equals the content row when the scrollbar is shown and no glyph can be clipped (`AC-D20.1`–`AC-D20.3`). **Measured offscreen (2026-10-06): `sizeHint().height()` = 18px → strip 54px, viewport 36px; the requirement's `~50–52px` is the macOS figure (extent ~16px → 52px).** One-line change; no new widget | **Literal 52px fixed height** — **not adopted (RC-D20-1):** offscreen the scrollbar is 18px, so a 52px wrapper leaves a 34px viewport — the lane still overlaps the content row's bottom 2px and `viewport().height() >= toolbar.height()` is false. **Explicit separate lane widget** below the scroll area — **passed over:** the scrollbar belongs to the `QScrollArea` and is laid out inside it, so a separate widget cannot move the scrollbar out of the scroll area; the scroll area would still have to be `36 + extent` (redundant widget + second layout). **`setWidgetResizable(True)`** — rejected (lets the toolbar reflow/resize, breaks the single row). **Always-visible scrollbar** — rejected (B8 option b). **Overlay / auto-hiding macOS-style scrollbar** — rejected (B8 option c; can still cover the labels). **User-named total height** — rejected (B7 option c) |
+| **Scrollbar visibility** | **`[new/changed]`** keep horizontal `ScrollBarAsNeeded`; the **lane is reserved** regardless of visibility so the strip height stays the derived value (offscreen 54px; macOS ~52px) in both states | B8: show the scrollbar only on overflow, never overlapping the labels; reserving the lane keeps the strip height stable (`AC-D20.3`) | Always-visible (B8 b) / overlay (B8 c) — **not adopted** |
+| **Wrapper background (cosmetic, optional)** | **`[new]`** optionally style the `ToolbarScroll` background to match the toolbar strip (`#101218`) so the empty reserved lane is not a differently-coloured band | Keeps the reserved lane visually seamless; not required by any AC (D20's requirement is legibility + no overlap) | Leave the default palette background (a visible band below the toolbar) — acceptable but less coherent |
+| Persistence | **No change:** `[existing]` `QSettings watchlist/width`; no new key | D20 adds no user-visible persisted state | Persist the toolbar scroll position — not requested |
 
 ---
 
@@ -135,26 +165,30 @@ behaviour are untouched.
 Each item is labelled `[existing]`, `[new]`, or `[new/changed]`.
 
 - **`[existing]` central chart area** — `QWidget` + `QVBoxLayout` in `ui/main_window.py`
-  (`:217–223`). Structurally unchanged; it now holds the scroll wrapper instead of the bare
-  toolbar. Its `width()` remains `chart_area` for the D17/D18 maths.
-- **`[new/changed]` toolbar scroll wrapper** — a `QScrollArea` created in
-  `ui/main_window.py`, inserted into the central `QVBoxLayout` in the toolbar's slot. No frame,
-  `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`,
-  fixed height **36px**, stable `objectName` (`"ToolbarScroll"`). This is the whole D19
-  mechanism.
+  (`:236–242`). Structurally unchanged; it holds the (now taller) scroll wrapper above the chart.
+  Its `width()` remains `chart_area` for the D17/D18 maths; only its height loses the reserved lane
+  (~16px macOS / ~18px offscreen).
+- **`[new/changed]` toolbar scroll wrapper** — the D19 `ToolbarScroll` `QScrollArea` created in
+  `ui/main_window.py` (`:223–234`). **Changed:** fixed height `36 → TOOLBAR_CONTENT_HEIGHT +
+  horizontalScrollBar().sizeHint().height()` (the 36px content row + the scrollbar's own reserved
+  lane; measured **54px offscreen**, **~52px on macOS**). **Unchanged:** `NoFrame`,
+  `setWidgetResizable(False)`, horizontal
+  `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`, `objectName "ToolbarScroll"`, the toolbar as
+  its widget. This is the whole D20 mechanism.
 - **`[existing]` toolbar `QWidget` and controls** (`ui/main_window.py:100–211`) — construction,
-  fixed widths, signal wiring, and `conn_badge` are **unchanged**; the widget is reparented
-  into the scroll wrapper (and gains `objectName` `"MainToolbar"`).
+  fixed widths, `setFixedHeight(36)`, stylesheet, signal wiring, and `conn_badge` are **unchanged**;
+  the widget stays the scroll area's content at its full natural width.
 - **`[existing]` D17/D18 width model** — `ui/dock_layout.py`, `MainWindow._chart_area_width`,
-  `MainWindow._apply_dock_widths`, the dock event filter, `resizeEvent`, and
-  `changeEvent(WindowStateChange)`. **Unchanged.** D19 only lowers the central widget's
-  minimum so this model can take effect in a toolbar-visible window.
+  `MainWindow._apply_dock_widths`, the dock event filter, `resizeEvent`,
+  `changeEvent(WindowStateChange)`. **Unchanged.** D20's height change does not affect the
+  horizontal minimum or the clamp.
 - **`[existing]` watchlist dock** and **`[existing]` single right dock region** — unchanged.
-- **`[new/changed]` affected D17/D18 test harnesses** — `tests/test_dock_widths_d17.py`,
-  `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py`,
-  `tests/test_dock_d18_region.py`, `tests/test_dock_layout.py`: remove the `toolbar.hide()`
-  masking and exercise a **toolbar-visible** window, plus at least one D17 and one D18
-  toolbar-visible regression guard (`AC-D19.6`).
+- **`[new/changed]` D19 test module + D20 assertions** — `tests/test_toolbar_scroll_d19.py`:
+  `T53-T04`'s container-height assertions (`height() == 36`, `min/max == 36`) are updated in
+  lockstep to the **derived relation** (`height() == toolbar.height() +
+  horizontalScrollBar().sizeHint().height()`; `min/max == height()`), with the content row asserted
+  at `TOOLBAR_CONTENT_HEIGHT` (36px); D20 adds the label-legibility / reserved-lane / as-needed
+  assertions (`AC-D20.1`–`AC-D20.5`).
 
 ---
 
@@ -163,9 +197,9 @@ Each item is labelled `[existing]`, `[new]`, or `[new/changed]`.
 **No schema change. No new persisted state.**
 
 - `[existing]` `QSettings("NDThinkChart", "NDThinkChart")` key `watchlist/width` (int, px) —
-  retained unchanged (B6 keeps the cap; the restore clamp is unchanged).
-- `[new]` none. D19 adds only two in-memory `objectName` strings (toolbar, scroll wrapper) —
-  ephemeral widget state, not a model.
+  retained unchanged.
+- `[new]` none. D20 adds only in-memory widget geometry (the wrapper's fixed height) and named
+  height constants — ephemeral view state, not a model.
 - `[existing]` Right-region width/visibility is still not persisted (A36); no new key.
 - Existing models/tables (`Bar`, `Position`, …; `bars`, `positions`, …) are unchanged.
 
@@ -173,20 +207,17 @@ Each item is labelled `[existing]`, `[new]`, or `[new/changed]`.
 
 ## Integration Points
 
-- **`[new]` `MainWindow` ↔ `QScrollArea`** — the one new wiring point: the toolbar is set as
-  the scroll area's widget and the scroll area is added to the central `QVBoxLayout` in the
-  toolbar's place. Uses only existing PyQt6 widgets; **no new external service, dependency, or
-  IBKR call shape**.
-- **`[existing]` Qt layout / dock geometry APIs** — `QMainWindow.setCentralWidget`,
-  `QVBoxLayout`, `QMainWindow.resizeDocks`, `resizeEvent`, `changeEvent(WindowStateChange)`,
-  `QSplitter`/event-filter fallback — unchanged.
-- **`[existing]` D17/D18 clamp path** — `_chart_area_width()` → `_apply_dock_widths()` now
-  reads a smaller central minimum; the code itself is unchanged. The B3 cross-clamp
-  (`plan_dock_widths`) is unaffected.
+- **`[new]` none.** D20 adds no external service, dependency, IBKR call shape, or signal.
+- **`[existing]` Qt layout / scroll-area APIs** — `QScrollArea.setFixedHeight`, the scroll area's
+  own horizontal scrollbar extent (`horizontalScrollBar().sizeHint().height()`) and **mapped**
+  position (`horizontalScrollBar().mapTo(wrapper, QPoint(0, 0)).y()` — offscreen `geometry()`
+  reports `top == 0`, so `geometry()` must **not** be used for the lane assertion), `QVBoxLayout`,
+  `QMainWindow.setCentralWidget` — the only APIs involved.
+- **`[existing]` D17/D18 clamp path** — `_chart_area_width()` → `_apply_dock_widths()` unchanged;
+  the central widget's **width** is unchanged by D20.
 - **`[existing]` `QSettings`** — unchanged.
-- **`[existing]` test dock/toolbar lookups** — the five affected harnesses must resolve the
-  toolbar/wrapper by `objectName` (or simply stop hiding it) rather than by
-  `itemAt(0).widget()`.
+- **`[existing]` test toolbar/wrapper lookups** — the D19 `"MainToolbar"` / `"ToolbarScroll"`
+  objectNames are retained; the D17/D18 harnesses need no change.
 - **`[existing]` IBKR / SQLite / pyqtgraph** — unchanged; no new call type, no schema, no
   dependency.
 
@@ -194,31 +225,41 @@ Each item is labelled `[existing]`, `[new]`, or `[new/changed]`.
 
 ## Non-Functional Approach
 
-- **Correctness (central widget can shrink — `AC-D19.4`/`AC-D19.5`):** wrapping the toolbar in
-  a horizontal `QScrollArea` removes its ~1716px width from
-  `centralWidget().minimumSizeHint()`. Target: `centralWidget().minimumSizeHint().width() <=
-  CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH` (= **750px**); the adopted
-  in-memory probe measured **1716 → 88**.
-- **Correctness (single ~36px row — B5 / `AC-D19.4`):** the wrapper's height is fixed at 36px,
-  the vertical scrollbar is always off, and the horizontal scrollbar is overlay/transient
-  (FI-D19-1) so the laid-out toolbar height stays `<= ~40px`.
-- **Correctness (controls stay reachable — B5 / `AC-D19.4`):** the toolbar keeps its full
-  natural width inside the scroll content, so at a narrow window every control is reachable by
-  horizontal scrolling; no control is removed, elided away permanently, or made unreachable.
-- **Correctness (D17/D18 effective in a toolbar-visible window — `AC-D19.1`–`AC-D19.3`,
-  `AC-D19.7`):** once the central widget can shrink, `_apply_dock_widths` (unchanged) can drive
-  the watchlist to `floor(0.50 × chart_area)` and keep the right region on-screen with the
-  chart `>= 400px`. The adopted probe measured the watchlist growing to **508px at chart_area
-  1200** with the toolbar visible (pre-fix it stayed pinned at 150).
-- **Performance:** O(1) layout change; the scroll area adds no per-frame cost and no
-  bar/table iteration. No change to the dock clamp's cost profile.
-- **High-DPI / font scaling:** the toolbar's minimum hint may grow with font scaling, but the
-  wrapper still lets the central widget shrink (R34). The single-row height is enforced by the
-  fixed container height.
-- **Security / live-order path:** untouched; Q9 holds — no automated test connects to live TWS
-  or transmits an order. The ladder/order signals are unaffected.
-- **Regression (`AC-D19.7`):** D1–D18 stay frozen; the affected D17/D18 harnesses are updated
-  in lockstep (masking removed) rather than left contradicting D19.
+- **Correctness (labels not clipped — `AC-D20.1`):** the wrapper is sized to the content row plus
+  the horizontal scrollbar's own extent, so the scrollbar is laid out **entirely below** the content
+  and the viewport equals the content row (`>= 36px`) when the scrollbar is shown; no label glyph
+  (including descenders) intersects the scrollbar's lane. Measured offscreen: strip 54px, viewport
+  36px, scrollbar mapped to y = 36 (`>= toolbar.height()`). Verify in **both** states (scrollbar
+  shown and hidden).
+- **Correctness (height supersession — `AC-D20.2`):** container height is the **derived**
+  `content row + scrollbar extent` (offscreen **54px**, macOS **~52px** — the requirement's
+  `~50–52px` figure); content widget height `TOOLBAR_CONTENT_HEIGHT` = **36px** (unchanged from
+  D19); the reserved lane (equal to the scrollbar's extent) is present **entirely below** the
+  content; the strip stays `< 60px` (R35). `AC-D19.4`'s `<= ~40px` bound is explicitly superseded,
+  not silently contradicted.
+- **Correctness (as-needed in a reserved lane — `AC-D20.3`):** horizontal `ScrollBarAsNeeded`
+  retained; at a wide width `horizontalScrollBar().isVisible()` is `False` while the strip height
+  is **unchanged** (still the derived height — offscreen 54px); at a narrow width it is `True` and
+  its **mapped** lane sits below the content row.
+- **Correctness (D19 behaviour preserved — `AC-D20.4`, `AC-D20.5`):** the toolbar keeps its full
+  natural width inside the scroll content, so at a narrow window every control stays reachable via
+  horizontal scrolling (scroll range `> 0`); the content stays a **single row** and inside the
+  central widget. The central-widget minimum-width benefit (D19 probe 1716 → 88) is unchanged —
+  D20 changes only the wrapper's **height**.
+- **Correctness (D17/D18 unaffected — `AC-D20.6`, A40):** only vertical space changes (~16px macOS
+  / ~18px offscreen shorter chart); the horizontal dock model, caps, and clamp are untouched; the
+  D17/D18 criteria hold in a toolbar-visible window.
+- **Performance:** O(1) layout change; no per-frame cost, no bar/table iteration, no change to the
+  dock clamp's cost profile.
+- **High-DPI / font scaling:** the reserved lane is a real reserved space (not an overlay), so
+  labels stay unclipped as fonts grow. The lane is **not** a fixed ~16px constant: the strip height
+  is derived from `horizontalScrollBar().sizeHint().height()` (`content + extent`), so a taller
+  scrollbar on a high-DPI/font-scaled platform automatically widens the lane and the viewport still
+  equals the content row when the scrollbar is shown.
+- **Security / live-order path:** untouched; Q9 holds — no automated test connects to live TWS or
+  transmits an order.
+- **Regression (`AC-D20.6`):** D1–D19 stay frozen; the D19 height assertions are updated in
+  lockstep rather than left contradicting D20 (R36).
 
 ---
 
@@ -226,28 +267,32 @@ Each item is labelled `[existing]`, `[new]`, or `[new/changed]`.
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| The overlay/transient horizontal scrollbar is not honoured on some platform/style, so the scrollbar lane grows the toolbar row past ~40px (`AC-D19.4`) | M | Fix the wrapper height at 36px and set vertical `ScrollBarAlwaysOff`; assert the laid-out height `<= ~40px` in the toolbar-visible test (FI-D19-1) |
-| A control becomes unreachable at the narrowest feasible width (B5's "no control permanently unreachable") | M | Keep the toolbar's full natural width inside the scroll content; assert the horizontal scroll range `> 0` and that all controls remain descendants of the scroll content at a narrow window (`AC-D19.4`) |
-| Removing the `toolbar.hide()` masking makes the existing D17/D18 suite fail until the fix lands; the suite is not green in between | M (expected) | R33: the harness change is part of the fix; demonstrate the pre-fix red then green after (Phase 2 / `AC-D19.6`) |
-| The offscreen toolbar minimum width differs from the real macOS window, so a scroll fix that only works offscreen could still fail in the real app (R34) | M | `AC-D19.6` requires a toolbar-visible window; also verify in the real dev build (`python main.py`) manually (R34) |
-| The five affected harnesses locate the toolbar via `centralWidget().layout().itemAt(0).widget()`, which after the fix is the **wrapper**; a stale lookup could hide the wrong widget or silently no-op | M | Give the toolbar and wrapper stable `objectName`s; update the five harnesses in lockstep to locate by name (or simply stop hiding) |
-| The wrapper accidentally changes the chart-area denominator or dock caps, breaking D17/D18 | M | Do not touch `ui/dock_layout.py`, `_chart_area_width`, or `_apply_dock_widths`; B6 keeps the cap constant; D17/D18 tests stay green in a toolbar-visible window |
-| `conn_badge`/trailing stretch placement changes when wrapped (e.g. badge pinned outside) | L | Keep `conn_badge` inside the scroll region (FI-D19-2); assert the toolbar's control set is unchanged |
-| Full-suite flakiness (shared on-disk test DB / collection-order SIGSEGV) is mistaken for a D19 regression | L | Per project memory, confirm any non-reproducible failure with a clean full-suite run before treating it as a regression |
-| A D1–D18 behaviour regresses because the central widget is now smaller in existing tests | M | Full offscreen suite re-run (Phase 3, `AC-D19.7`); no D1–D18 production file is modified |
+| A platform's horizontal scrollbar extent exceeds a fixed reserved lane, so the viewport is < 36px when shown and clips the content | L | **Mitigated by the chosen mechanism:** the strip height is derived from `horizontalScrollBar().sizeHint().height()` (`content + extent`), so the lane always equals the scrollbar's own extent and the viewport equals the content row when shown; the test asserts `viewport().height() >= toolbar.height()` and the **mapped** lane position (`AC-D20.1` edge case) |
+| The D19 height assertions (`T53-T04` `height() == 36`, `min/max == 36`) are left stale, leaving the suite red / contradictory (R36) | M (H impact) | Update them in lockstep to the **derived relation** (`height() == toolbar.height() + horizontalScrollBar().sizeHint().height()`; `min/max == height()`) with the content row asserted at 36px (`AC-D20.6`); the supersession is recorded explicitly on `AC-D19.4` |
+| The reserved lane is visible as a differently-coloured band below the toolbar when the scrollbar is hidden | L | Optional: style the `ToolbarScroll` background to match the strip (`#101218`); not required by any AC, and the B7/B8 reserved lane is the accepted outcome |
+| The offscreen scrollbar extent (18px) differs from the real macOS window (~16px), so an offscreen-only check misses a real clip (R34-style) | L | The chosen derivation uses the **actual** `sizeHint().height()`, so the strip adapts per platform (54px offscreen, ~52px macOS); the assertions test the viewport/content relation (not a literal height); record a manual `python main.py` check with the scrollbar both hidden and shown |
+| The +extent wrapper height shrinks the chart and a D17/D18 assertion is height-sensitive | L | The D17/D18 harnesses assert widths/visibility only; re-run the full offscreen suite (Phase 3) and confirm no horizontal-model change |
+| A D1–D19 behaviour regresses because the central widget is a scrollbar-lane shorter | L | No D1–D19 production file other than the D19 wrapper height is modified; full offscreen suite re-run (`AC-D20.6`) |
+| Full-suite flakiness (shared on-disk test DB / collection-order SIGSEGV) is mistaken for a D20 regression | L | Per project memory, confirm any non-reproducible failure with a clean full-suite run before treating it as a regression |
 
 ---
 
 ## Implementation Phases (summary)
 
-Full ordered phases, coverage map, `touches_files` sequencing, and plan-level assumptions are
-in **`docs/plan_proposal.md`**.
+Full ordered phases, coverage map, `touches_files` sequencing, and plan-level assumptions are in
+**`docs/plan_proposal.md`**.
 
-1. **Phase 1 — Toolbar scroll/elide wrapper in place** `[new/changed]`: wrap the toolbar in the
-   `QScrollArea` in `ui/main_window.py`; objectNames; fixed 36px row. Covers `AC-D19.4`,
-   `AC-D19.5`.
-2. **Phase 2 — Remove test masking + toolbar-visible regression guard** `[new/changed]`: update
-   the five affected test harnesses to a toolbar-visible window and add the guard. Covers
-   `AC-D19.1`–`AC-D19.3`, `AC-D19.6`.
+1. **Phase 1 — Reserve the scrollbar lane in the D19 wrapper** `[new/changed]`: keep
+   `toolbar.setFixedHeight(TOOLBAR_CONTENT_HEIGHT)` (36px); change `toolbar_scroll.setFixedHeight(36)`
+   → `TOOLBAR_CONTENT_HEIGHT + toolbar_scroll.horizontalScrollBar().sizeHint().height()` (derived;
+   offscreen 54px, macOS ~52px); keep `setWidgetResizable(False)` and the scrollbar policies. Covers
+   `AC-D20.1`, `AC-D20.2`, `AC-D20.3`, `AC-D20.4`, `AC-D20.5` (implementation).
+2. **Phase 2 — Update D19 height assertions + add D20 legibility/lane tests** `[new/changed]`:
+   update `tests/test_toolbar_scroll_d19.py::T53-T04` in lockstep to the derived relation and add
+   the D20 assertions (label bounding boxes vs the **mapped** scrollbar lane in both states;
+   `height() == toolbar.height() + sizeHint().height()` / content 36px; as-needed in the reserved
+   lane; D19 reachability preserved). Covers `AC-D20.1`–`AC-D20.5` (assertions), `AC-D20.6`
+   (lockstep).
 3. **Phase 3 — Regression + real-app verification** `[new/changed]`: full offscreen suite green
-   and manual dev-build confirmation. Covers `AC-D19.7`, R34.
+   (D17/D18 in a toolbar-visible window) and a manual `python main.py` check with the scrollbar
+   hidden and shown. Covers `AC-D20.6`, R35.

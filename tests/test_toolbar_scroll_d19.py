@@ -195,13 +195,25 @@ def test_T53_T04_wrapper_mechanism(monkeypatch, qapp):
         assert wrapper.verticalScrollBarPolicy() == (
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        # Fixed height of exactly 36px.
-        assert wrapper.height() == 36, wrapper.height()
-        assert wrapper.minimumHeight() == 36 and wrapper.maximumHeight() == 36
 
-        # Stable objectNames.
         toolbar = win.findChild(QWidget, "MainToolbar")
         assert toolbar is not None
+
+        # D20: the content row stays 36px, but the wrapper's fixed height is
+        # DERIVED — the content row PLUS the horizontal scrollbar's reserved
+        # lane below it (offscreen 54px, macOS ~52px). Never a literal 36px
+        # container (R36).
+        from ui.main_window import TOOLBAR_CONTENT_HEIGHT
+
+        assert TOOLBAR_CONTENT_HEIGHT == 36
+        assert toolbar.height() == TOOLBAR_CONTENT_HEIGHT, toolbar.height()
+        assert wrapper.height() == (
+            toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height()
+        ), (wrapper.height(), toolbar.height())
+        assert wrapper.minimumHeight() == wrapper.height()
+        assert wrapper.maximumHeight() == wrapper.height()
+
+        # Stable objectNames.
         assert wrapper.objectName() == "ToolbarScroll"
 
         # conn_badge and the toolbar's controls live inside the scroll content.

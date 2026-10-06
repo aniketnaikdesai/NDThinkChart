@@ -1,50 +1,41 @@
 {
   "status": "READY_FOR_BUILD",
-  "generated": "2026-10-05",
-  "batch": "Batch 13 — D19 (toolbar scroll/elide wrapper)",
-  "baseline": "D1–D18 built and frozen (commit 5bd7c93, 566 passed); this graph is the D19 delta only.",
+  "generated": "2026-10-06",
+  "batch": "Batch 14 — D20 (toolbar scrollbar lane)",
+  "baseline": "D1–D19 built and frozen (commit 4d8952a; the D19 toolbar scroll/elide wrapper is in place and green). This graph is the D20 delta only; D1–D19 tasks are deliberately not re-listed.",
   "tasks": [
     {
-      "id": "T53",
-      "title": "Wrap the central-widget toolbar in a horizontal QScrollArea in place (D19 Phase 1)",
-      "description": "In ui/main_window.py, wrap the existing toolbar QWidget in a QScrollArea (no frame, setWidgetResizable(False), horizontal ScrollBarAsNeeded, vertical ScrollBarAlwaysOff, fixed height 36px) and add it to the central QVBoxLayout in the toolbar's place, so the toolbar's ~1716px minimumSizeHint no longer pins the central widget while the toolbar stays inside the central widget as a single ~36px row. Give the toolbar and wrapper stable objectNames ('MainToolbar' / 'ToolbarScroll') and keep conn_badge and the trailing stretch inside the scroll region; do not touch ui/dock_layout.py, _chart_area_width, _apply_dock_widths or the cap constants. Ship tests/test_toolbar_scroll_d19.py with the wrapper-specific AC-D19.4/AC-D19.5 assertions.",
+      "id": "T61",
+      "title": "D20 Phase 1 + lockstep: derive the ToolbarScroll wrapper height and update the D19 height assertions",
+      "description": "In ui/main_window.py, add the named constant TOOLBAR_CONTENT_HEIGHT = 36 (single source of truth) and change the D19 ToolbarScroll QScrollArea's fixed height from the literal 36 to the derived TOOLBAR_CONTENT_HEIGHT + toolbar_scroll.horizontalScrollBar().sizeHint().height() (offscreen 54px; macOS ~52px), keeping toolbar.setFixedHeight(36) and the wrapper's NoFrame / setWidgetResizable(False) / horizontal ScrollBarAsNeeded / vertical ScrollBarAlwaysOff / objectNames / control-and-signal wiring unchanged. Update the D19 height assertions in tests/test_toolbar_scroll_d19.py in lockstep — T53-T04 to the derived relation and min/max == height(), T53-T02's <= 40 bound to the content row — so the suite is never left contradicting D20 (R36).",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [],
       "acceptance_criteria": [
-        "AC-D19.4(i): Given the toolbar is visible, Then the toolbar remains a descendant of centralWidget() as a single ~36px row (not moved to a QMainWindow toolbar area and no addToolBar call), and centralWidget().minimumSizeHint().width() <= CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH (750px), i.e. the toolbar no longer dominates that minimum.",
-        "AC-D19.4(ii): Given the toolbar is visible, Then every toolbar control remains reachable/usable — directly at a wide window and via the horizontal scroll/elide affordance at the narrowest window in which the dock minima plus chart minimum are feasible; the toolbar keeps its full natural width inside the scroll content so the horizontal scroll range is > 0 at a narrow width.",
-        "AC-D19.5: Given the toolbar is visible, When the window is resized down toward the feasible minimum, Then centralWidget().width() decreases accordingly and does not remain at the toolbar's ~1716px minimum.",
-        "Structural/mechanism: Given the wrapped toolbar, Then the wrapper is a QScrollArea with frameShape NoFrame, setWidgetResizable(False), horizontal ScrollBarPolicy ScrollBarAsNeeded, vertical ScrollBarPolicy ScrollBarAlwaysOff and a fixed height of 36px; the toolbar carries objectName 'MainToolbar', the wrapper 'ToolbarScroll', and conn_badge and the trailing stretch stay inside the scroll region (FI-D19-2); the toolbar's control set and signal wiring are unchanged."
+        "Structural/mechanism (derived container height — AC-D20.2 mechanism): Given the D20 fix, Then ui/main_window.py defines TOOLBAR_CONTENT_HEIGHT = 36 once, toolbar.setFixedHeight(36) is unchanged (the content row does not grow), and the ToolbarScroll QScrollArea's fixed height equals TOOLBAR_CONTENT_HEIGHT + toolbar_scroll.horizontalScrollBar().sizeHint().height() (a derived value, not the literal 52; offscreen 54px, macOS ~52px); the wrapper keeps NoFrame, setWidgetResizable(False), horizontal ScrollBarAsNeeded, vertical ScrollBarAlwaysOff, objectName 'ToolbarScroll', and the 'MainToolbar' toolbar as its widget; and centralWidget().minimumSizeHint().width() <= 750px (the D19 horizontal benefit is unchanged).",
+        "AC-D20.6 (lockstep): Given the D20 fix, When the pre-existing D19 height assertions run, Then tests/test_toolbar_scroll_d19.py::T53-T04 asserts the derived relation (wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height(); wrapper.minimumHeight() == wrapper.height() and wrapper.maximumHeight() == wrapper.height()) with the content widget asserted at TOOLBAR_CONTENT_HEIGHT (36), and T53-T02's bound is explicitly the content row (toolbar.height() <= 40, i.e. the 36px row, not the container); no assertion is left asserting a 36px container (R36)."
       ],
       "tests": [
         {
-          "test_id": "T53-T01",
-          "linked_acceptance_criterion": "AC-D19.4(i): Given the toolbar is visible, Then the toolbar remains a descendant of centralWidget() as a single ~36px row (not moved to a QMainWindow toolbar area and no addToolBar call), and centralWidget().minimumSizeHint().width() <= CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH (750px), i.e. the toolbar no longer dominates that minimum.",
+          "test_id": "T61-T01",
+          "linked_acceptance_criterion": "Structural/mechanism (derived container height — AC-D20.2 mechanism): Given the D20 fix, Then ui/main_window.py defines TOOLBAR_CONTENT_HEIGHT = 36 once, toolbar.setFixedHeight(36) is unchanged (the content row does not grow), and the ToolbarScroll QScrollArea's fixed height equals TOOLBAR_CONTENT_HEIGHT + toolbar_scroll.horizontalScrollBar().sizeHint().height() (a derived value, not the literal 52; offscreen 54px, macOS ~52px); the wrapper keeps NoFrame, setWidgetResizable(False), horizontal ScrollBarAsNeeded, vertical ScrollBarAlwaysOff, objectName 'ToolbarScroll', and the 'MainToolbar' toolbar as its widget; and centralWidget().minimumSizeHint().width() <= 750px (the D19 horizontal benefit is unchanged).",
           "type": "unit",
-          "description": "Construct an offscreen MainWindow with IBApiClient.connect monkeypatched, show it, and assert centralWidget().minimumSizeHint().width() <= 750; assert the QWidget with objectName 'MainToolbar' is a descendant of centralWidget(); assert centralWidget().layout().itemAt(0).widget() is the QScrollArea wrapper (objectName 'ToolbarScroll') and that no QToolBar was added via addToolBar.",
-          "expected_result": "central min-hint width <= 750px, the toolbar is a descendant of the central widget, item 0 of the central layout is the scroll wrapper, and no QMainWindow toolbar area was used."
+          "description": "Boot a shown offscreen MainWindow (IBApiClient.connect monkeypatched, matching the D19 harness); assert ui.main_window.TOOLBAR_CONTENT_HEIGHT == 36; toolbar.height() == 36; wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() and wrapper.minimumHeight() == wrapper.maximumHeight() == wrapper.height(); the wrapper is still NoFrame / widgetResizable False / horizontal ScrollBarAsNeeded / vertical ScrollBarAlwaysOff / objectName 'ToolbarScroll' / widget() is the 'MainToolbar' toolbar; centralWidget().minimumSizeHint().width() <= 750.",
+          "expected_result": "Derived container height (offscreen 54px), content row fixed at 36px, D19 wrapper properties and the <= 750px central min-width benefit all preserved."
         },
         {
-          "test_id": "T53-T02",
-          "linked_acceptance_criterion": "AC-D19.4(ii): Given the toolbar is visible, Then every toolbar control remains reachable/usable — directly at a wide window and via the horizontal scroll/elide affordance at the narrowest window in which the dock minima plus chart minimum are feasible; the toolbar keeps its full natural width inside the scroll content so the horizontal scroll range is > 0 at a narrow width.",
+          "test_id": "T61-T02",
+          "linked_acceptance_criterion": "AC-D20.6 (lockstep): Given the D20 fix, When the pre-existing D19 height assertions run, Then tests/test_toolbar_scroll_d19.py::T53-T04 asserts the derived relation (wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height(); wrapper.minimumHeight() == wrapper.height() and wrapper.maximumHeight() == wrapper.height()) with the content widget asserted at TOOLBAR_CONTENT_HEIGHT (36), and T53-T02's bound is explicitly the content row (toolbar.height() <= 40, i.e. the 36px row, not the container); no assertion is left asserting a 36px container (R36).",
           "type": "integration",
-          "description": "At a narrow window width, assert the wrapper's horizontal QScrollBar maximum() > 0 (content wider than viewport) and every toolbar control (symbol_input, tf_combo, load_btn, mode_combo, studies_btn, alarms_btn, alarm_mode_btn, sound_btn, dom_btn, ext_hours_btn, tz_combo, draw_combo, draw_set_combo, draw_sets_btn, draw_delete_btn, conn_badge) is a descendant of the scroll content; at a wide window assert the controls lie within the viewport; assert the toolbar's laid-out height <= 40px.",
-          "expected_result": "Horizontal scroll range > 0 at the narrow width, all controls remain descendants of the scroll content, at the wide width the controls are directly visible, and the toolbar height is <= ~40px (one row)."
+          "description": "Inspect tests/test_toolbar_scroll_d19.py: assert T53-T04 asserts the derived relation and wrapper.minimumHeight() == wrapper.maximumHeight() == wrapper.height(), T53-T02 bounds the content row via toolbar.height() <= 40, and the module contains no remaining assertion of wrapper.height() == 36 or wrapper.minimumHeight()/maximumHeight() == 36.",
+          "expected_result": "No stale 36px container assertion remains; the D19 height assertions encode the derived relation and the content-row bound."
         },
         {
-          "test_id": "T53-T03",
-          "linked_acceptance_criterion": "AC-D19.5: Given the toolbar is visible, When the window is resized down toward the feasible minimum, Then centralWidget().width() decreases accordingly and does not remain at the toolbar's ~1716px minimum.",
+          "test_id": "T61-T03",
+          "linked_acceptance_criterion": "AC-D20.6 (lockstep): Given the D20 fix, When the pre-existing D19 height assertions run, Then tests/test_toolbar_scroll_d19.py::T53-T04 asserts the derived relation (wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height(); wrapper.minimumHeight() == wrapper.height() and wrapper.maximumHeight() == wrapper.height()) with the content widget asserted at TOOLBAR_CONTENT_HEIGHT (36), and T53-T02's bound is explicitly the content row (toolbar.height() <= 40, i.e. the 36px row, not the container); no assertion is left asserting a 36px container (R36).",
           "type": "integration",
-          "description": "Show the window at width 2400, then resize to 1200, processing events; assert centralWidget().width() is smaller at 1200 than at 2400 and is not pinned at ~1716 at the narrower width.",
-          "expected_result": "centralWidget().width() decreases with the window and does not remain at the toolbar's ~1716px minimum."
-        },
-        {
-          "test_id": "T53-T04",
-          "linked_acceptance_criterion": "Structural/mechanism: Given the wrapped toolbar, Then the wrapper is a QScrollArea with frameShape NoFrame, setWidgetResizable(False), horizontal ScrollBarPolicy ScrollBarAsNeeded, vertical ScrollBarPolicy ScrollBarAlwaysOff and a fixed height of 36px; the toolbar carries objectName 'MainToolbar', the wrapper 'ToolbarScroll', and conn_badge and the trailing stretch stay inside the scroll region (FI-D19-2); the toolbar's control set and signal wiring are unchanged.",
-          "type": "unit",
-          "description": "Inspect the wrapper returned by findChild(QScrollArea, 'ToolbarScroll'): assert frameShape() == NoFrame, widgetResizable() is False, horizontalScrollBarPolicy() == ScrollBarAsNeeded, verticalScrollBarPolicy() == ScrollBarAlwaysOff, and its fixed height is 36; assert findChild(QWidget, 'MainToolbar') exists and conn_badge is a descendant of it (inside the scroll content).",
-          "expected_result": "All wrapper properties and objectNames match the D19 mechanism; conn_badge is inside the scroll region; no control construction or signal wiring changed."
+          "description": "Run the full tests/test_toolbar_scroll_d19.py module and assert zero failures, including the unchanged T53-T01 (central min-hint <= 750, toolbar a central descendant, layout item 0 is the ToolbarScroll wrapper, no QToolBar) and T53-T03 (central width tracks the window).",
+          "expected_result": "The D19 module is fully green after the lockstep update, with its non-height assertions unchanged."
         }
       ],
       "expected_artifacts": [
@@ -57,13 +48,13 @@
       ],
       "inputs": [
         "docs/plan.md#Phase 1",
-        "docs/architecture.md#D19 increment — toolbar scroll/elide wrapper",
-        "docs/requirements/requirements.md#AC-D19.4",
-        "docs/requirements/requirements.md#AC-D19.5",
-        "docs/requirements/requirements.md#B5",
-        "docs/architecture.md#FI-D19-1 (overlay/transient scrollbar)",
-        "docs/architecture.md#FI-D19-2 (conn_badge stays in the scroll region)",
-        "ui/main_window.py:100-223 (toolbar construction + central composition)"
+        "docs/plan.md#Phase 2 (RC-D20-3 lockstep)",
+        "docs/architecture.md#D20 increment (Validator probe table + 'Scrollbar-lane height / wrapper height' tech-stack row)",
+        "docs/requirements/requirements.md#AC-D20.2",
+        "docs/requirements/requirements.md#AC-D20.6",
+        "docs/requirements/requirements.md#R36",
+        "ui/main_window.py:100-242 (toolbar construction + ToolbarScroll wrapper + central composition)",
+        "tests/test_toolbar_scroll_d19.py:106-211 (T53-T02 / T53-T04 height assertions)"
       ],
       "outputs": [
         "ui/main_window.py",
@@ -73,380 +64,180 @@
       "status": "done"
     },
     {
-      "id": "T54",
-      "title": "Remove toolbar masking from tests/test_dock_widths_d17.py and add the toolbar-visible AC-D19.1 guard",
-      "description": "In tests/test_dock_widths_d17.py, remove the toolbar.hide() masking (and the centralWidget().layout().itemAt(0).widget() toolbar lookup that now resolves to the scroll wrapper), so the D17 harness exercises a toolbar-visible window; add/convert at least one D17 test that drives the watchlist to its cap with the toolbar visible and asserts AC-D19.1.",
+      "id": "T62",
+      "title": "D20 Phase 2: add the label-legibility / reserved-lane / as-needed assertions (tests/test_toolbar_d20.py)",
+      "description": "Add a new disjoint tests/test_toolbar_d20.py that boots the real offscreen MainWindow (IBApiClient.connect monkeypatched, matching the D19/D20 harness) and asserts the D20 outcome: labels unclipped in both scrollbar states, the derived container height with a 36px content row and a reserved lane below the content, the horizontal scrollbar as-needed in that lane, D19 reachability preserved, and the single-row/inside-central structure. The lane/overlap checks must use the mapped form horizontalScrollBar().mapTo(wrapper, QPoint(0, 0)).y() >= toolbar.height() together with viewport().height() >= toolbar.height() when the scrollbar is shown; geometry() must NOT be used (offscreen it reports top == 0).",
       "agent": "Build",
-      "task_type": "bugfix",
+      "task_type": "implementation",
       "dependencies": [
-        "T53"
+        "T61"
       ],
       "acceptance_criteria": [
-        "AC-D19.6 (D17 masking): Given tests/test_dock_widths_d17.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains and the toolbar is visible in the harness window) and its tests exercise a toolbar-visible window.",
-        "AC-D19.1: Given a shown offscreen window with the toolbar visible and large enough that floor(0.50 × chart_area) > WATCHLIST_MIN_WIDTH, When the watchlist is driven to its maximum, Then watchlist_dock.width() > WATCHLIST_MIN_WIDTH and abs(watchlist_dock.width() - floor(0.50 × chart_area)) <= 1 (not pinned at WATCHLIST_MIN_WIDTH).",
-        "Regression (D17): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d17.py runs post-fix, Then every D17 test (AC-D17.1–AC-D17.5 and the re-entrancy guard) still passes."
+        "AC-D20.1 (labels fully readable; no descender clipped by the scrollbar): Given a shown offscreen window with the toolbar visible, When the toolbar renders (horizontal scrollbar shown at a narrow width and hidden at a wide width), Then for every toolbar QLabel/button text the text's bounding rect lies fully within the toolbar's visible content area and does not intersect the horizontal scrollbar's lane — asserted in both the overflow (shown) and non-overflow (hidden) states — and the content remains a single row.",
+        "AC-D20.2 (height supersession — derived container, content row 36px): Given the D20 fix, Then the ToolbarScroll container height equals the derived relation toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() (offscreen 54px; macOS ~52px) and is < 60px (R35); the toolbar content widget height is TOOLBAR_CONTENT_HEIGHT (36) and has not grown; the reserved lane equals the scrollbar's extent and sits entirely below the content. No hard [50, 52] bound is asserted (the requirement's ~50–52px is the macOS figure; the offscreen derived value is 54px — plan RC-D20-1).",
+        "AC-D20.3 (scrollbar as-needed in its reserved lane; B8): Given the D20 fix, When the toolbar content fits (wide window), Then wrapper.horizontalScrollBar().isVisible() is False and the strip height is unchanged (still the derived height); When the content overflows (narrow window), Then it is True and its mapped lane sits below the content row (mapTo(wrapper, QPoint(0,0)).y() >= toolbar.height()).",
+        "AC-D20.4 (D19 behaviour preserved): Given the D20 fix, Then the D19 scroll/elide reachability holds: at a narrow window wrapper.horizontalScrollBar().maximum() > 0 and every toolbar control remains a descendant of the scroll content; at a wide window every control lies within the viewport.",
+        "AC-D20.5 (single row, no wrap; stays inside the central widget): Given any window width, Then the toolbar content stays a single row (not wrapped) and remains inside the central widget (no QMainWindow.addToolBar / QToolBar); only the horizontal scrollbar occupies the lane below the content."
       ],
       "tests": [
         {
-          "test_id": "T54-T01",
-          "linked_acceptance_criterion": "AC-D19.6 (D17 masking): Given tests/test_dock_widths_d17.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains and the toolbar is visible in the harness window) and its tests exercise a toolbar-visible window.",
+          "test_id": "T62-T01",
+          "linked_acceptance_criterion": "AC-D20.1 (labels fully readable; no descender clipped by the scrollbar): Given a shown offscreen window with the toolbar visible, When the toolbar renders (horizontal scrollbar shown at a narrow width and hidden at a wide width), Then for every toolbar QLabel/button text the text's bounding rect lies fully within the toolbar's visible content area and does not intersect the horizontal scrollbar's lane — asserted in both the overflow (shown) and non-overflow (hidden) states — and the content remains a single row.",
           "type": "integration",
-          "description": "After the harness _make_window helper, assert the toolbar widget (objectName 'MainToolbar') is visible, and assert the module source contains no toolbar.hide() call.",
-          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains in the module."
+          "description": "At a narrow window (scrollbar shown), for every toolbar label/button text assert the text's mapped bounding rect lies fully within the visible content area and does not intersect the horizontal scrollbar's lane; assert wrapper.viewport().height() >= toolbar.height() and wrapper.horizontalScrollBar().mapTo(wrapper, QPoint(0, 0)).y() >= toolbar.height(). Do not use geometry().",
+          "expected_result": "No label glyph intersects the scrollbar; the viewport is at least the content-row height and the scrollbar's mapped lane sits below the content."
         },
         {
-          "test_id": "T54-T02",
-          "linked_acceptance_criterion": "AC-D19.1: Given a shown offscreen window with the toolbar visible and large enough that floor(0.50 × chart_area) > WATCHLIST_MIN_WIDTH, When the watchlist is driven to its maximum, Then watchlist_dock.width() > WATCHLIST_MIN_WIDTH and abs(watchlist_dock.width() - floor(0.50 × chart_area)) <= 1 (not pinned at WATCHLIST_MIN_WIDTH).",
+          "test_id": "T62-T02",
+          "linked_acceptance_criterion": "AC-D20.1 (labels fully readable; no descender clipped by the scrollbar): Given a shown offscreen window with the toolbar visible, When the toolbar renders (horizontal scrollbar shown at a narrow width and hidden at a wide width), Then for every toolbar QLabel/button text the text's bounding rect lies fully within the toolbar's visible content area and does not intersect the horizontal scrollbar's lane — asserted in both the overflow (shown) and non-overflow (hidden) states — and the content remains a single row.",
           "type": "integration",
-          "description": "In a toolbar-visible window large enough that floor(0.50 × chart_area) > 150, drive the watchlist to its cap via _apply_dock_widths(10**6) and assert abs(watchlist_dock.width() - floor(0.50 × chart_area)) <= 1 and watchlist_dock.width() > WATCHLIST_MIN_WIDTH.",
-          "expected_result": "The watchlist reaches the 50%-of-chart-area cap within 1px and is not pinned at the 150px minimum."
+          "description": "At a wide window (scrollbar hidden), repeat the label-legibility assertions; assert wrapper.viewport().height() >= toolbar.height() and the toolbar content is a single row.",
+          "expected_result": "Labels are unclipped in the non-overflow (scrollbar-hidden) state too, with the viewport at least the content-row height."
         },
         {
-          "test_id": "T54-T03",
-          "linked_acceptance_criterion": "Regression (D17): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d17.py runs post-fix, Then every D17 test (AC-D17.1–AC-D17.5 and the re-entrancy guard) still passes.",
+          "test_id": "T62-T03",
+          "linked_acceptance_criterion": "AC-D20.2 (height supersession — derived container, content row 36px): Given the D20 fix, Then the ToolbarScroll container height equals the derived relation toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() (offscreen 54px; macOS ~52px) and is < 60px (R35); the toolbar content widget height is TOOLBAR_CONTENT_HEIGHT (36) and has not grown; the reserved lane equals the scrollbar's extent and sits entirely below the content. No hard [50, 52] bound is asserted (the requirement's ~50–52px is the macOS figure; the offscreen derived value is 54px — plan RC-D20-1).",
           "type": "integration",
-          "description": "Run the full tests/test_dock_widths_d17.py module with the toolbar visible and assert zero failures.",
-          "expected_result": "All D17 tests (AC-D17.1–AC-D17.5 plus the re-entrancy guard) pass with the toolbar visible."
+          "description": "Assert wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() and wrapper.height() < 60; toolbar.height() == TOOLBAR_CONTENT_HEIGHT (36); the lane equals the scrollbar's extent and is below the content (mapped y >= toolbar.height() when shown; viewport >= toolbar.height()). Explicitly do NOT assert a literal [50, 52] bound.",
+          "expected_result": "Container height is the derived value (offscreen 54px, macOS ~52px) and < 60px; content widget stays 36px; the reserved lane is below the content."
+        },
+        {
+          "test_id": "T62-T04",
+          "linked_acceptance_criterion": "AC-D20.3 (scrollbar as-needed in its reserved lane; B8): Given the D20 fix, When the toolbar content fits (wide window), Then wrapper.horizontalScrollBar().isVisible() is False and the strip height is unchanged (still the derived height); When the content overflows (narrow window), Then it is True and its mapped lane sits below the content row (mapTo(wrapper, QPoint(0,0)).y() >= toolbar.height()).",
+          "type": "integration",
+          "description": "Wide window: assert horizontalScrollBar().isVisible() is False and wrapper.height() equals the derived height. Narrow window: assert isVisible() is True and mapTo(wrapper, QPoint(0,0)).y() >= toolbar.height().",
+          "expected_result": "Scrollbar as-needed in a reserved lane; the strip height is stable across both states."
+        },
+        {
+          "test_id": "T62-T05",
+          "linked_acceptance_criterion": "AC-D20.4 (D19 behaviour preserved): Given the D20 fix, Then the D19 scroll/elide reachability holds: at a narrow window wrapper.horizontalScrollBar().maximum() > 0 and every toolbar control remains a descendant of the scroll content; at a wide window every control lies within the viewport.",
+          "type": "integration",
+          "description": "Narrow window: assert wrapper.horizontalScrollBar().maximum() > 0 and every control in the toolbar control list is a descendant of the scroll content. Wide window: assert every control maps within the viewport.",
+          "expected_result": "Horizontal scroll range > 0 at the narrow width; all controls reachable; every control directly visible at the wide width."
+        },
+        {
+          "test_id": "T62-T06",
+          "linked_acceptance_criterion": "AC-D20.5 (single row, no wrap; stays inside the central widget): Given any window width, Then the toolbar content stays a single row (not wrapped) and remains inside the central widget (no QMainWindow.addToolBar / QToolBar); only the horizontal scrollbar occupies the lane below the content.",
+          "type": "unit",
+          "description": "Assert the toolbar content is a single row (toolbar.height() <= 40, not wrapped); the toolbar is a descendant of centralWidget(); centralWidget().layout().itemAt(0).widget() is the 'ToolbarScroll' QScrollArea; and win.findChildren(QToolBar) == [] (no QMainWindow toolbar area).",
+          "expected_result": "Content stays one row inside the central widget; only the scrollbar occupies the lane; no addToolBar was used."
         }
       ],
       "expected_artifacts": [
-        "tests/test_dock_widths_d17.py"
+        "tests/test_toolbar_d20.py"
       ],
       "touches_files": [
-        "tests/test_dock_widths_d17.py"
+        "tests/test_toolbar_d20.py"
       ],
       "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/requirements/requirements.md#AC-D19.1",
-        "docs/requirements/requirements.md#AC-D19.6",
-        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
-        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
-        "tests/test_dock_widths_d17.py (current toolbar.hide() masking)"
+        "docs/plan.md#Phase 2 (D20 assertions; RC-D20-1 / RC-D20-2)",
+        "docs/architecture.md#D20 increment (Validator probe table; mapped-lane contract; geometry() unusable)",
+        "docs/requirements/requirements.md#AC-D20.1",
+        "docs/requirements/requirements.md#AC-D20.2",
+        "docs/requirements/requirements.md#AC-D20.3",
+        "docs/requirements/requirements.md#AC-D20.4",
+        "docs/requirements/requirements.md#AC-D20.5",
+        "docs/requirements/requirements.md#B7",
+        "docs/requirements/requirements.md#B8",
+        "ui/main_window.py (the derived ToolbarScroll height and objectNames from T61)",
+        "tests/test_toolbar_scroll_d19.py (the D19 harness pattern: monkeypatched IBApiClient.connect, offscreen MainWindow)"
       ],
       "outputs": [
-        "tests/test_dock_widths_d17.py"
+        "tests/test_toolbar_d20.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T55",
-      "title": "Remove toolbar masking from tests/test_dock_widths_d18.py and add toolbar-visible AC-D19.2/AC-D19.3 guards",
-      "description": "In tests/test_dock_widths_d18.py, remove the toolbar.hide() masking (and the itemAt(0).widget() toolbar lookup) so the D18 end-to-end harness runs with the toolbar visible; add/convert at least one D18 test asserting AC-D19.2 (single right region fully within a full-screen-sized window with the toolbar visible) and AC-D19.3 (chart_area >= CHART_MIN_WIDTH when both docks are driven toward their caps with the toolbar visible).",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T53"
-      ],
-      "acceptance_criteria": [
-        "AC-D19.6 (D18 masking): Given tests/test_dock_widths_d18.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
-        "AC-D19.2: Given a shown full-screen-sized offscreen window with the toolbar visible, Then the single right region is fully within the window — its left edge >= the chart-area right edge, its right edge <= the window right edge, and its visible width is > 0.",
-        "AC-D19.3: Given both docks driven toward their caps with the toolbar visible, Then chart_area >= CHART_MIN_WIDTH (400px).",
-        "Regression (D18): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18.py runs post-fix, Then its AC-D18.1–AC-D18.7 tests still pass."
-      ],
-      "tests": [
-        {
-          "test_id": "T55-T01",
-          "linked_acceptance_criterion": "AC-D19.6 (D18 masking): Given tests/test_dock_widths_d18.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
-          "type": "integration",
-          "description": "After the harness _make_window helper, assert the toolbar widget is visible and the module source contains no toolbar.hide() call.",
-          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains."
-        },
-        {
-          "test_id": "T55-T02",
-          "linked_acceptance_criterion": "AC-D19.2: Given a shown full-screen-sized offscreen window with the toolbar visible, Then the single right region is fully within the window — its left edge >= the chart-area right edge, its right edge <= the window right edge, and its visible width is > 0.",
-          "type": "e2e",
-          "description": "Boot a full-screen-sized offscreen MainWindow with the toolbar visible, show it, process the normalize, and assert the single right region's left edge >= the chart area's right edge, its right edge <= the window's right edge, and its width > 0.",
-          "expected_result": "The single right region is fully within the window with a non-zero visible width."
-        },
-        {
-          "test_id": "T55-T03",
-          "linked_acceptance_criterion": "AC-D19.3: Given both docks driven toward their caps with the toolbar visible, Then chart_area >= CHART_MIN_WIDTH (400px).",
-          "type": "e2e",
-          "description": "With the toolbar visible, drive both docks toward their caps and assert _chart_area_width() >= CHART_MIN_WIDTH (400px).",
-          "expected_result": "chart_area remains >= 400px with both docks driven toward their caps."
-        },
-        {
-          "test_id": "T55-T04",
-          "linked_acceptance_criterion": "Regression (D18): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18.py runs post-fix, Then its AC-D18.1–AC-D18.7 tests still pass.",
-          "type": "e2e",
-          "description": "Run the full tests/test_dock_widths_d18.py module with the toolbar visible and assert zero failures.",
-          "expected_result": "All D18 end-to-end tests (AC-D18.1–AC-D18.7) pass with the toolbar visible."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_dock_widths_d18.py"
-      ],
-      "touches_files": [
-        "tests/test_dock_widths_d18.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/requirements/requirements.md#AC-D19.2",
-        "docs/requirements/requirements.md#AC-D19.3",
-        "docs/requirements/requirements.md#AC-D19.6",
-        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
-        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
-        "tests/test_dock_widths_d18.py (current toolbar.hide() masking)"
-      ],
-      "outputs": [
-        "tests/test_dock_widths_d18.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T56",
-      "title": "Remove toolbar masking from tests/test_dock_widths_d18_impl.py",
-      "description": "In tests/test_dock_widths_d18_impl.py, remove the toolbar.hide() masking and the centralWidget().layout().itemAt(0).widget() toolbar lookup so the D18 implementation harness exercises a toolbar-visible window; confirm its AC-D18.2/AC-D18.4/AC-D18.5/AC-D18.6/AC-D18.7 tests pass post-fix with the toolbar visible.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T53"
-      ],
-      "acceptance_criteria": [
-        "AC-D19.6 (masking): Given tests/test_dock_widths_d18_impl.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
-        "Regression (D18 impl): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18_impl.py runs post-fix, Then its AC-D18.2/AC-D18.4/AC-D18.5/AC-D18.6/AC-D18.7 tests still pass."
-      ],
-      "tests": [
-        {
-          "test_id": "T56-T01",
-          "linked_acceptance_criterion": "AC-D19.6 (masking): Given tests/test_dock_widths_d18_impl.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
-          "type": "integration",
-          "description": "After the harness _make_window helper, assert the toolbar widget is visible and the module source contains no toolbar.hide() call.",
-          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains."
-        },
-        {
-          "test_id": "T56-T02",
-          "linked_acceptance_criterion": "Regression (D18 impl): Given the updated harness with the toolbar visible, When tests/test_dock_widths_d18_impl.py runs post-fix, Then its AC-D18.2/AC-D18.4/AC-D18.5/AC-D18.6/AC-D18.7 tests still pass.",
-          "type": "integration",
-          "description": "Run the full tests/test_dock_widths_d18_impl.py module with the toolbar visible and assert zero failures.",
-          "expected_result": "All D18 implementation tests pass with the toolbar visible."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_dock_widths_d18_impl.py"
-      ],
-      "touches_files": [
-        "tests/test_dock_widths_d18_impl.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/requirements/requirements.md#AC-D19.6",
-        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
-        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
-        "tests/test_dock_widths_d18_impl.py (current toolbar.hide() masking)"
-      ],
-      "outputs": [
-        "tests/test_dock_widths_d18_impl.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T57",
-      "title": "Remove toolbar masking from tests/test_dock_d18_region.py",
-      "description": "In tests/test_dock_d18_region.py, remove the toolbar.hide() masking and the itemAt(0).widget() toolbar lookup so the D18 region harness exercises a toolbar-visible window; confirm its AC-D18.3 equal-width tests pass post-fix with the toolbar visible.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T53"
-      ],
-      "acceptance_criteria": [
-        "AC-D19.6 (masking): Given tests/test_dock_d18_region.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
-        "Regression (D18 region): Given the updated harness with the toolbar visible, When tests/test_dock_d18_region.py runs post-fix, Then its AC-D18.3 equal-width tests still pass."
-      ],
-      "tests": [
-        {
-          "test_id": "T57-T01",
-          "linked_acceptance_criterion": "AC-D19.6 (masking): Given tests/test_dock_d18_region.py, When it runs, Then it no longer hides the toolbar (no toolbar.hide() masking remains) and its tests exercise a toolbar-visible window.",
-          "type": "integration",
-          "description": "After the harness _make_window helper, assert the toolbar widget is visible and the module source contains no toolbar.hide() call.",
-          "expected_result": "The toolbar is visible in the harness window and no toolbar.hide() masking remains."
-        },
-        {
-          "test_id": "T57-T02",
-          "linked_acceptance_criterion": "Regression (D18 region): Given the updated harness with the toolbar visible, When tests/test_dock_d18_region.py runs post-fix, Then its AC-D18.3 equal-width tests still pass.",
-          "type": "integration",
-          "description": "Run the full tests/test_dock_d18_region.py module with the toolbar visible and assert zero failures.",
-          "expected_result": "All D18 region tests (AC-D18.3 equal width) pass with the toolbar visible."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_dock_d18_region.py"
-      ],
-      "touches_files": [
-        "tests/test_dock_d18_region.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/requirements/requirements.md#AC-D19.6",
-        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
-        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
-        "tests/test_dock_d18_region.py (current toolbar.hide() masking)"
-      ],
-      "outputs": [
-        "tests/test_dock_d18_region.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T58",
-      "title": "Remove toolbar masking from tests/test_dock_layout.py (T52 integration test)",
-      "description": "In tests/test_dock_layout.py, remove the toolbar.hide() masking and the itemAt(0).widget() toolbar lookup in the T52 integration test so it exercises a toolbar-visible window; confirm the T52 dock-layout integration test and the pure plan_dock_widths unit tests still pass.",
-      "agent": "Build",
-      "task_type": "bugfix",
-      "dependencies": [
-        "T53"
-      ],
-      "acceptance_criteria": [
-        "AC-D19.6 (masking): Given tests/test_dock_layout.py, When it runs, Then the T52 integration test no longer hides the toolbar (no toolbar.hide() masking remains) and exercises a toolbar-visible window.",
-        "Regression (dock layout): Given the updated harness with the toolbar visible, When tests/test_dock_layout.py runs post-fix, Then the pure plan_dock_widths unit tests and the T52 integration test still pass."
-      ],
-      "tests": [
-        {
-          "test_id": "T58-T01",
-          "linked_acceptance_criterion": "AC-D19.6 (masking): Given tests/test_dock_layout.py, When it runs, Then the T52 integration test no longer hides the toolbar (no toolbar.hide() masking remains) and exercises a toolbar-visible window.",
-          "type": "integration",
-          "description": "Assert the T52 integration test's window shows the toolbar (objectName 'MainToolbar' visible) and the module source contains no toolbar.hide() call.",
-          "expected_result": "The T52 integration test runs against a toolbar-visible window and no toolbar.hide() masking remains."
-        },
-        {
-          "test_id": "T58-T02",
-          "linked_acceptance_criterion": "Regression (dock layout): Given the updated harness with the toolbar visible, When tests/test_dock_layout.py runs post-fix, Then the pure plan_dock_widths unit tests and the T52 integration test still pass.",
-          "type": "integration",
-          "description": "Run the full tests/test_dock_layout.py module with the toolbar visible and assert zero failures.",
-          "expected_result": "The pure plan_dock_widths unit tests and the T52 integration test all pass with the toolbar visible."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_dock_layout.py"
-      ],
-      "touches_files": [
-        "tests/test_dock_layout.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/requirements/requirements.md#AC-D19.6",
-        "docs/architecture.md#D19 increment — affected D17/D18 test harnesses",
-        "ui/main_window.py (the D19 scroll wrapper and objectName from T53)",
-        "tests/test_dock_layout.py:300-344 (T52 integration test masking)"
-      ],
-      "outputs": [
-        "tests/test_dock_layout.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "T59",
-      "title": "Capture the AC-D19.6 pre-fix-red / post-fix-green regression-guard evidence",
-      "description": "Verify the D19 regression guard genuinely discriminates: run the toolbar-visible D17 and D18 tests added/updated in Phase 2 against the pre-fix tree (commit 5bd7c93, e.g. a temporary git worktree/stash without the Phase 1 wrapper change) and record that at least one D17 test and at least one D18 test fail there; then re-run them against the post-fix tree and record that they pass. The intermediate red is intentional (R33), not a regression. Record the evidence in the Build-owned build log.",
+      "id": "T63",
+      "title": "D20 Phase 2: capture the pre-fix-red / post-fix-green discriminator evidence (R36)",
+      "description": "Verify the corrected D20 assertions genuinely discriminate: run the updated tests/test_toolbar_scroll_d19.py and the new tests/test_toolbar_d20.py against the pre-Phase-1 tree (commit 4d8952a, D19 wrapper fixed at 36px, via a temporary git worktree/stash) and record that they fail there (36 == 36 + 18 is False; viewport 18 >= toolbar 36 is False; mapTo(...).y() == 18 >= 36 is False), then re-run against the post-fix tree and record that they pass. Record both results in the Build-owned build log; the intermediate red is intentional (R36), not a regression.",
       "agent": "Build",
       "task_type": "verification",
       "dependencies": [
-        "T53",
-        "T54",
-        "T55",
-        "T56",
-        "T57",
-        "T58"
+        "T61",
+        "T62"
       ],
       "acceptance_criteria": [
-        "AC-D19.6 (discrimination): Given the updated toolbar-visible D17 and D18 tests, When they run against the pre-fix tree (commit 5bd7c93, before Phase 1's wrapper change), Then at least one D17 test and at least one D18 test fail; When they run against the post-fix tree, Then the same tests pass.",
-        "AC-D19.6 (no masking): Given the five affected harnesses, Then none hides the toolbar to sidestep the constraint (no toolbar.hide() masking remains in tests/test_dock_widths_d17.py, tests/test_dock_widths_d18.py, tests/test_dock_widths_d18_impl.py, tests/test_dock_d18_region.py, tests/test_dock_layout.py), and the pre-fix-red/post-fix-green evidence is recorded in the build log."
+        "AC-D20.6 (discrimination, R36): Given the corrected D20 assertions (updated tests/test_toolbar_scroll_d19.py + new tests/test_toolbar_d20.py), When they run against the pre-Phase-1 tree (commit 4d8952a, ToolbarScroll fixed at 36px), Then the derived-height/lane assertions fail; When they run against the post-fix tree, Then they pass; and both results are recorded."
       ],
       "tests": [
         {
-          "test_id": "T59-T01",
-          "linked_acceptance_criterion": "AC-D19.6 (discrimination): Given the updated toolbar-visible D17 and D18 tests, When they run against the pre-fix tree (commit 5bd7c93, before Phase 1's wrapper change), Then at least one D17 test and at least one D18 test fail; When they run against the post-fix tree, Then the same tests pass.",
+          "test_id": "T63-T01",
+          "linked_acceptance_criterion": "AC-D20.6 (discrimination, R36): Given the corrected D20 assertions (updated tests/test_toolbar_scroll_d19.py + new tests/test_toolbar_d20.py), When they run against the pre-Phase-1 tree (commit 4d8952a, ToolbarScroll fixed at 36px), Then the derived-height/lane assertions fail; When they run against the post-fix tree, Then they pass; and both results are recorded.",
           "type": "manual",
-          "description": "Check out the pre-fix tree (commit 5bd7c93) in a temporary git worktree without the Phase 1 wrapper, copy in the updated toolbar-visible D17/D18 tests, run them, and capture the failing test ids; then run the same tests against the post-fix tree and capture the passing result.",
-          "expected_result": "At least one D17 and at least one D18 toolbar-visible test fail pre-fix and pass post-fix; both results are recorded."
-        },
-        {
-          "test_id": "T59-T02",
-          "linked_acceptance_criterion": "AC-D19.6 (no masking): Given the five affected harnesses, Then none hides the toolbar to sidestep the constraint (no toolbar.hide() masking remains in tests/test_dock_widths_d17.py, tests/test_dock_widths_d18.py, tests/test_dock_widths_d18_impl.py, tests/test_dock_d18_region.py, tests/test_dock_layout.py), and the pre-fix-red/post-fix-green evidence is recorded in the build log.",
-          "type": "integration",
-          "description": "Assert none of the five affected harnesses contains toolbar.hide() masking (source check) and record the evidence reference in the build log.",
-          "expected_result": "No toolbar.hide() masking remains in the five files and the evidence is recorded."
+          "description": "Check out the pre-fix tree (commit 4d8952a) in a temporary git worktree without the D20 height change, copy in the updated/new D20 tests, run them, and capture the failing test ids/assertions; then run the same tests against the post-fix tree and capture the passing result.",
+          "expected_result": "The corrected assertions fail against the pre-fix tree (36px wrapper) and pass against the post-fix tree (derived height); both results recorded in the build log."
         }
       ],
       "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned AC-D19.6 evidence entry; no new source files)"
+        "docs/build/build_log.md (Build-owned AC-D20.6/R36 evidence entry; no new source files)"
       ],
       "touches_files": [],
       "inputs": [
-        "docs/plan.md#Phase 2 (pre-fix evidence, PA-D19-6)",
-        "docs/requirements/requirements.md#AC-D19.6",
-        "docs/requirements/requirements.md#R33",
-        "tests/test_dock_widths_d17.py (toolbar-visible guard from T54)",
-        "tests/test_dock_widths_d18.py (toolbar-visible guard from T55)",
-        "tests/test_dock_widths_d18_impl.py",
-        "tests/test_dock_d18_region.py",
-        "tests/test_dock_layout.py",
-        "commit 5bd7c93 (pre-fix tree)"
+        "docs/plan.md#Phase 2 (pre-fix evidence, PA-D20-6)",
+        "docs/requirements/requirements.md#AC-D20.6",
+        "docs/requirements/requirements.md#R36",
+        "docs/architecture.md#D20 increment (Validator probe: wrapper 36 -> viewport 18, mapped y 18)",
+        "tests/test_toolbar_scroll_d19.py (lockstep assertions from T61)",
+        "tests/test_toolbar_d20.py (D20 assertions from T62)",
+        "commit 4d8952a (pre-fix tree, D19 wrapper at 36px)"
       ],
       "outputs": [],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T60",
-      "title": "Batch-13 D19 regression gate: full offscreen suite green in a toolbar-visible window + real dev-build check",
-      "description": "Run the full offscreen suite (QT_QPA_PLATFORM=offscreen) after the D19 changes and confirm zero failures with no D1–D18 regression; confirm the D2 chip/dock non-overlap (AC-D2.1) and the D13/D17/D18 criteria hold in a toolbar-visible window; confirm no test connects to live TWS or transmits an order (Q9); and record a manual `python main.py` check that the toolbar scrolls/elides in place as one row and the watchlist grows to its cap (R34). Per project memory, confirm any intermittent failure with a clean full-suite run before treating it as a regression.",
+      "id": "T64",
+      "title": "D20 Phase 3: full-suite regression gate + real-app manual check",
+      "description": "Re-run the full offscreen suite (QT_QPA_PLATFORM=offscreen) after the D20 change and confirm zero failures with no D1–D19 regression; re-confirm the D17/D18 criteria in a toolbar-visible window (only vertical space changed — A40) and that centralWidget().minimumSizeHint().width() <= 750px and the chart minimum (400px) are preserved; confirm no test connects to live TWS or transmits an order (Q9); and record a manual `python main.py` check that the toolbar labels read clearly with the scrollbar hidden (wide) and shown (narrow) and the strip height is stable in both states (offscreen 54px; macOS ~52px). Per project memory, confirm any intermittent failure with a clean full-suite run before treating it as a regression.",
       "agent": "Build",
       "task_type": "verification",
       "dependencies": [
-        "T53",
-        "T54",
-        "T55",
-        "T56",
-        "T57",
-        "T58",
-        "T59"
+        "T61",
+        "T62",
+        "T63"
       ],
       "acceptance_criteria": [
-        "AC-D19.7: Given the D19 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1–D18 acceptance-criteria test still passes, with the D13/D17/D18 criteria holding in a toolbar-visible window.",
-        "AC-D2.1: Given the D19 fix, When the D2 chip/dock non-overlap test runs against the single right region, Then the crosshair chip is not covered by the right region.",
-        "R34 / Q9: Given the D19 fix, Then a manual `python main.py` check is recorded confirming the toolbar scrolls/elides in place as one ~36px row and the watchlist grows to its cap, and no automated test connects to live TWS or transmits an order."
+        "AC-D20.6 (regression, A40): Given the D20 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures, every pre-existing D1–D19 acceptance-criteria test still passes, the D17/D18 criteria hold in a toolbar-visible window, and centralWidget().minimumSizeHint().width() <= 750px and chart_area >= CHART_MIN_WIDTH (400px) are preserved (only vertical space changed).",
+        "R35 (chart vertical space): Given the D20 fix, Then the strip height is < 60px and the chart loses only the reserved lane (~16px macOS / ~18px offscreen) of vertical space — the content row does not grow and the strip does not reach ~60px.",
+        "Q9 / no live TWS: Given the D20 batch, Then no automated test connects to live TWS or transmits an order."
       ],
       "tests": [
         {
-          "test_id": "T60-T01",
-          "linked_acceptance_criterion": "AC-D19.7: Given the D19 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1–D18 acceptance-criteria test still passes, with the D13/D17/D18 criteria holding in a toolbar-visible window.",
+          "test_id": "T64-T01",
+          "linked_acceptance_criterion": "AC-D20.6 (regression, A40): Given the D20 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures, every pre-existing D1–D19 acceptance-criteria test still passes, the D17/D18 criteria hold in a toolbar-visible window, and centralWidget().minimumSizeHint().width() <= 750px and chart_area >= CHART_MIN_WIDTH (400px) are preserved (only vertical space changed).",
           "type": "integration",
-          "description": "Run the full offscreen suite and compare pass/fail against the pre-batch baseline (566 passed at commit 5bd7c93); assert zero failures and that the D13/D17/D18 criteria hold in a toolbar-visible window.",
-          "expected_result": "Zero failures; no D1–D18 test regressed; D13/D17/D18 criteria hold with the toolbar visible."
+          "description": "Run the full offscreen suite and compare against the pre-batch baseline (D1–D19 at commit 4d8952a); assert zero failures and that the D17/D18 criteria hold in a toolbar-visible window with central min-hint <= 750 and chart_area >= 400.",
+          "expected_result": "Zero failures; no D1–D19 regression; D17/D18 criteria hold with the toolbar visible; chart minimum and central min-width preserved."
         },
         {
-          "test_id": "T60-T02",
-          "linked_acceptance_criterion": "AC-D2.1: Given the D19 fix, When the D2 chip/dock non-overlap test runs against the single right region, Then the crosshair chip is not covered by the right region.",
-          "type": "integration",
-          "description": "Run tests/test_crosshair_axis_lane.py and assert the chip does not intersect the single right region's frameGeometry.",
-          "expected_result": "The chip/dock non-overlap assertion passes against the single right region."
-        },
-        {
-          "test_id": "T60-T03",
-          "linked_acceptance_criterion": "R34 / Q9: Given the D19 fix, Then a manual `python main.py` check is recorded confirming the toolbar scrolls/elides in place as one ~36px row and the watchlist grows to its cap, and no automated test connects to live TWS or transmits an order.",
+          "test_id": "T64-T02",
+          "linked_acceptance_criterion": "R35 (chart vertical space): Given the D20 fix, Then the strip height is < 60px and the chart loses only the reserved lane (~16px macOS / ~18px offscreen) of vertical space — the content row does not grow and the strip does not reach ~60px.",
           "type": "manual",
-          "description": "Record a manual `python main.py` dev-build check that the toolbar scrolls/elides in place as one ~36px row and the watchlist grows to its cap; confirm no test opens a live TWS socket or transmits an order, and re-run the suite once on a clean shared test DB to distinguish spurious failures from regressions (project memory).",
-          "expected_result": "The manual dev-build check is recorded (R34); no live-TWS/order test; any intermittent failure is reproduced/cleared by a clean full-suite run rather than treated as a regression."
+          "description": "Record a manual `python main.py` dev-build check that the toolbar labels read clearly with the horizontal scrollbar hidden (wide) and shown (narrow), with the strip height stable in both states (offscreen 54px; macOS ~52px) and the content a single 36px row.",
+          "expected_result": "Labels legible in both scrollbar states; strip height stable; chart loses only the reserved lane of vertical space."
+        },
+        {
+          "test_id": "T64-T03",
+          "linked_acceptance_criterion": "Q9 / no live TWS: Given the D20 batch, Then no automated test connects to live TWS or transmits an order.",
+          "type": "manual",
+          "description": "Confirm no test opens a live TWS socket or transmits an order, and re-run the suite once on a clean shared test DB to distinguish spurious failures from regressions (project memory).",
+          "expected_result": "No live-TWS/order test; any intermittent failure is cleared by a clean full-suite run rather than treated as a regression."
         }
       ],
       "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned Batch-13 D19 verification entry; no new source files)"
+        "docs/build/build_log.md (Build-owned Batch-14 D20 verification entry; no new source files)"
       ],
       "touches_files": [],
       "inputs": [
         "docs/plan.md#Phase 3",
-        "docs/requirements/requirements.md#AC-D19.7",
-        "docs/requirements/requirements.md#AC-D2.1",
-        "docs/requirements/requirements.md#R34",
-        "docs/architecture.md#D19 increment",
+        "docs/requirements/requirements.md#AC-D20.6",
+        "docs/requirements/requirements.md#R35",
+        "docs/requirements/requirements.md#Q9",
+        "docs/architecture.md#D20 increment (A40 — vertical-only change)",
         "docs/memory.md (shared test-DB contention gotcha)",
-        "commit 5bd7c93 (pre-batch baseline, 566 passed)"
+        "commit 4d8952a (pre-batch baseline, D1–D19)"
       ],
       "outputs": [],
       "architecture_dependency": false,

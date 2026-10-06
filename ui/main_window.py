@@ -79,6 +79,12 @@ _LOG = logging.getLogger(__name__)
 # Default watchlist symbols — used only on first run before DB persistence
 DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
 
+# Single source of truth for the toolbar content row height (px). The
+# ToolbarScroll wrapper is sized as this content height PLUS the horizontal
+# scrollbar's own height, so the scrollbar gets a reserved lane entirely below
+# the content instead of overlapping the label descenders (D20).
+TOOLBAR_CONTENT_HEIGHT = 36
+
 
 def _ibkr_end_date(ts: int) -> str:
     """Format as IBKR endDateTime yyyyMMdd-HH:mm:ss in UTC.
@@ -99,7 +105,7 @@ class MainWindow(QMainWindow):
         # ── Toolbar ───────────────────────────────────────────────────────────
         toolbar = QWidget()
         toolbar.setObjectName("MainToolbar")
-        toolbar.setFixedHeight(36)
+        toolbar.setFixedHeight(TOOLBAR_CONTENT_HEIGHT)
         toolbar.setStyleSheet("background: #101218; border-bottom: 1px solid #232938;")
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(8, 0, 8, 0)
@@ -216,10 +222,13 @@ class MainWindow(QMainWindow):
         self._tz_offset = _eastern_offset()
         self.chart_panel = ChartPanel(tz_offset=self._tz_offset)
         # D19 Phase 1: keep the toolbar inside the central widget but stop its
-        # ~1716px minimumSizeHint from pinning the central widget. A frameless,
-        # fixed-height (36px) horizontal QScrollArea holds the full-natural-width
-        # toolbar so it stays a single row and scrolls horizontally when the
-        # window is too narrow to show every control at once.
+        # ~1716px minimumSizeHint from pinning the central widget. A frameless
+        # horizontal QScrollArea holds the full-natural-width toolbar so it stays
+        # a single row and scrolls horizontally when the window is too narrow to
+        # show every control at once. Its height is DERIVED (D20): the 36px
+        # content row plus the horizontal scrollbar's own height, so the
+        # scrollbar gets a reserved lane below the content and never covers the
+        # label descenders.
         toolbar_scroll = QScrollArea()
         toolbar_scroll.setObjectName("ToolbarScroll")
         toolbar_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -230,7 +239,10 @@ class MainWindow(QMainWindow):
         toolbar_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        toolbar_scroll.setFixedHeight(36)
+        toolbar_scroll.setFixedHeight(
+            TOOLBAR_CONTENT_HEIGHT
+            + toolbar_scroll.horizontalScrollBar().sizeHint().height()
+        )
         toolbar_scroll.setWidget(toolbar)
 
         central = QWidget()
