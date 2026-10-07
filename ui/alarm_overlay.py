@@ -45,6 +45,11 @@ class AlarmOverlay(QObject):
         self._alarms: list[Alarm] = []
         self._items: dict = {}
         self._bar_count: int = 0
+        # D21.4: the alarm label sits at the display-x of the last bar. The
+        # ViewBox x-model is display-x after collapse, so the last bar's
+        # timestamp is mapped through the collapse map before positioning.
+        self._last_bar_ts: Optional[int] = None
+        self._collapse_map = None
         self._alarm_mode: bool = False
         self._drag: Optional[dict] = None
 
@@ -52,6 +57,12 @@ class AlarmOverlay(QObject):
 
     def set_bars(self, bars) -> None:
         self._bar_count = len(bars) if bars else 0
+        self._last_bar_ts = int(bars[-1].ts) if bars else None
+        self._reposition_labels()
+
+    def set_collapse_map(self, collapse_map) -> None:
+        """Set the D21.4 display-x map used to place the alarm label (x)."""
+        self._collapse_map = collapse_map
         self._reposition_labels()
 
     def _reposition_labels(self) -> None:
@@ -128,7 +139,17 @@ class AlarmOverlay(QObject):
         return text
 
     def _label_x(self) -> float:
-        return float(max(self._bar_count - 1, 0))
+        """The display-x at which alarm labels are anchored (D21.4).
+
+        After collapse the ViewBox x-model is display-x, so the label uses the
+        display-x of the last bar rather than its raw timestamp.
+        """
+        if self._last_bar_ts is None:
+            return 0.0
+        cmap = self._collapse_map
+        if cmap is None:
+            return float(self._last_bar_ts)
+        return float(cmap.to_display(self._last_bar_ts))
 
     def _restyle_alarm(self, alarm: Alarm) -> None:
         items = self._items.get(alarm.id)

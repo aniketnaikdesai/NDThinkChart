@@ -58,6 +58,7 @@ from ui.dock_layout import (
 from ui.studies_dialog import StudiesDialog, DEFAULT_STUDIES
 from ui.alarm_dialog import AlarmDialog
 from ui.drawing_groups_dialog import DrawingGroupsDialog
+from ui.visual_conventions import apply_toolbar_stylesheet, set_button_active
 from ui.active_trader_panel import ActiveTraderPanel, on_depth_callback
 from ui.active_portfolio_panel import ActivePortfolioPanel
 from ui.toast import Toast
@@ -85,6 +86,24 @@ DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
 # the content instead of overlapping the label descenders (D20).
 TOOLBAR_CONTENT_HEIGHT = 36
 
+#: D21.13 — baseline minimum width of the right region once BOTH of its panels
+#: are collapsed to just their toggle buttons. The live value additionally
+#: accounts for the two buttons' own ``sizeHint`` plus margins (see
+#: ``MainWindow._compute_right_dock_collapsed_min_width``) but is always kept
+#: below ``RIGHT_DOCK_MIN_WIDTH`` so the chart reclaims the vacated space.
+RIGHT_DOCK_COLLAPSED_MIN_WIDTH = 150
+
+#: Horizontal margins (px, per side) added to the collapsed region's buttons when
+#: computing the collapsed minimum width (D21.13).
+RIGHT_DOCK_COLLAPSED_MARGIN = 12
+
+# D21.8 / AC-D21.8.2 — the status-bar hint shown while Alarm Mode is armed. It
+# is shown with no timeout (persistent) so it stays visible until the mode ends,
+# and is cleared/replaced on every exit path (button off, alarm placed, drawing
+# tool selected, mode otherwise exited) so it never permanently masks a later
+# status message. Single source of truth for the text (also imported by tests).
+ALARM_MODE_STATUS_MESSAGE = "Alarm mode: click the chart to place a price alarm."
+
 
 def _ibkr_end_date(ts: int) -> str:
     """Format as IBKR endDateTime yyyyMMdd-HH:mm:ss in UTC.
@@ -106,7 +125,18 @@ class MainWindow(QMainWindow):
         toolbar = QWidget()
         toolbar.setObjectName("MainToolbar")
         toolbar.setFixedHeight(TOOLBAR_CONTENT_HEIGHT)
-        toolbar.setStyleSheet("background: #101218; border-bottom: 1px solid #232938;")
+        # The base look is scoped with the #MainToolbar selector so it composes
+        # with the VIS-D21.2 shared stylesheet below into one parseable sheet
+        # (a bare declaration list fails to parse once further rules are added).
+        toolbar.setStyleSheet(
+            "#MainToolbar { background: #101218; border-bottom: 1px solid #232938; }"
+        )
+        # D21.7 / VIS-D21.2: give active/selected toolbar buttons a persistent,
+        # clearly visible highlight. The shared stylesheet is objectName-keyed
+        # (#MainToolbar) and covers both the checkable toggles (:checked) and the
+        # popup buttons driven by set_button_active ([active="true"]), so it keeps
+        # working at any scroll position inside the D19 ToolbarScroll wrapper.
+        apply_toolbar_stylesheet(toolbar)
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(8, 0, 8, 0)
         tb_layout.setSpacing(6)
@@ -156,12 +186,17 @@ class MainWindow(QMainWindow):
         self.dom_btn.setToolTip("Market Depth / Active Trader Panel")
         self.dom_btn.toggled.connect(self._on_dom_toggled)
 
-        # Extended Hours toggle
+        # Extended Hours toggle. D21.3: the label reflects the state — "Ext Hours"
+        # when ON (extended/pre/post-market) and "RTH" when OFF (regular trading
+        # hours). The 80px fixed width fits both labels.
         self.ext_hours_btn = QPushButton("Ext Hours")
         self.ext_hours_btn.setCheckable(True)
         self.ext_hours_btn.setChecked(True)  # Default to extended hours
         self.ext_hours_btn.setToolTip("Include pre/post-market data")
         self.ext_hours_btn.setFixedWidth(80)
+        self.ext_hours_btn.setText(
+            self._ext_hours_label(self.ext_hours_btn.isChecked())
+        )
         self.ext_hours_btn.toggled.connect(self._on_ext_hours_toggled)
 
         # Timezone selector
@@ -254,9 +289,18 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         # ── Watchlist dock ────────────────────────────────────────────────────
+        # D21.11: exactly one "Watchlist" label. The duplicate ``QDockWidget``
+        # title is deleted (empty window title) and the in-panel header strip —
+        # whose label is a ``DiagonalStrikeButton`` — becomes the dock's
+        # title-bar widget via ``setTitleBarWidget``. Because the header strip is
+        # the title bar, it survives the body collapsing; Qt forwards title-bar
+        # events so dock drag/float is preserved.
         self.watchlist_panel = WatchlistPanel()
-        self.watchlist_dock = QDockWidget("Watchlist", self)
+        self.watchlist_dock = QDockWidget(self)
+        self.watchlist_dock.setObjectName("Watchlist")
+        self.watchlist_dock.setWindowTitle("")
         self.watchlist_dock.setWidget(self.watchlist_panel)
+        self.watchlist_dock.setTitleBarWidget(self.watchlist_panel.header_bar)
         self.watchlist_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -307,12 +351,22 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout(self.right_dock_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
-        right_layout.addWidget(self.active_trader)
-        right_layout.addWidget(self.portfolio_panel)
+        # Stretch 1 each while both are shown; ``_sync_right_dock_collapse``
+        # re-balances them so a shown panel absorbs the space a hidden one vacates
+        # (AC-D21.13.2).
+        right_layout.addWidget(self.active_trader, 1)
+        right_layout.addWidget(self.portfolio_panel, 1)
+        self._right_dock_layout = right_layout
 
         self.right_dock = QDockWidget("Active Trader", self)
         self.right_dock.setObjectName("Active Trader")
         self.right_dock.setWidget(self.right_dock_container)
+        # D21.13: the dock's title bar IS the Active Trader panel's header strip,
+        # whose label is a ``DiagonalStrikeButton``. Setting a title-bar widget
+        # hides the native dock title (the ``windowTitle`` is kept for
+        # windowTitle-keyed lookups elsewhere) so exactly one "Active Trader"
+        # label is visible and it is the hide/show toggle (AC-D21.13.1).
+        self.right_dock.setTitleBarWidget(self.active_trader.header_bar)
         self.right_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -325,6 +379,19 @@ class MainWindow(QMainWindow):
         # D18 Phase 4: in-memory-only right-region width. Never persisted — no new
         # QSettings key (AC-D18.7 / A36), matching D10's volume-toggle precedent.
         self._right_dock_width = RIGHT_DOCK_MIN_WIDTH
+        # D21.13: per-panel hide/show state. Both panels start shown; when BOTH
+        # are collapsed the whole region collapses to a two-button strip and is
+        # treated as hidden by the cross-clamp (AC-D21.13.3).
+        self._right_region_collapsed = False
+        self._right_dock_collapsed_min_width = (
+            self._compute_right_dock_collapsed_min_width()
+        )
+        self.active_trader.header_button.toggled.connect(
+            self._on_right_panel_toggled
+        )
+        self.portfolio_panel.summary_label.toggled.connect(
+            self._on_right_panel_toggled
+        )
         # The right region participates in the shared clamp via resizeEvent and a
         # second event filter (the watchlist filter above is D17-only).
         self.right_dock.installEventFilter(self)
@@ -975,7 +1042,13 @@ class MainWindow(QMainWindow):
     def _open_studies_dialog(self):
         dialog = StudiesDialog(self._current_studies, self)
         dialog.studies_changed.connect(self._on_studies_changed)
-        dialog.exec()
+        # D21.7 / VIS-D21.2: keep the invoking button visibly active while its
+        # modal popup is open, and clear the highlight when it closes.
+        set_button_active(self.studies_btn, True)
+        try:
+            dialog.exec()
+        finally:
+            set_button_active(self.studies_btn, False)
 
     def _open_alarm_dialog(self):
         if not self._current_symbol:
@@ -983,7 +1056,13 @@ class MainWindow(QMainWindow):
             return
         dialog = AlarmDialog(self._current_symbol, self._last_chart_price, self)
         dialog.alarms_changed.connect(self._reload_current_alarms)
-        dialog.exec()
+        # D21.7 / VIS-D21.2: highlight the invoking button while the modal popup
+        # is open; clear it (even on an exception) once the dialog closes.
+        set_button_active(self.alarms_btn, True)
+        try:
+            dialog.exec()
+        finally:
+            set_button_active(self.alarms_btn, False)
         self._reload_current_alarms()
 
     def _on_studies_changed(self, studies: list[dict]):
@@ -1032,9 +1111,25 @@ class MainWindow(QMainWindow):
         if enabled:
             # ESC-017: same signal-blocked reset the router-driven path uses.
             self._reset_draw_combo_to_cursor()
-            self.status_bar.showMessage(
-                "Alarm mode: click the chart to place a price alarm.", 4000
-            )
+            # D21.8 / AC-D21.8.2: no timeout — the hint stays visible for as long
+            # as Alarm Mode is armed (not the previous 4000 ms).
+            self.status_bar.showMessage(ALARM_MODE_STATUS_MESSAGE)
+        else:
+            # D21.8 / AC-D21.8.2: clear the persistent hint when the mode ends.
+            # Every exit path (button toggled off, an alarm placed, a drawing
+            # tool selected, the mode otherwise exited) funnels through this
+            # signal, so the hint cannot outlive the mode and mask later messages.
+            self._clear_alarm_mode_status()
+
+    def _clear_alarm_mode_status(self):
+        """Remove the persistent Alarm-Mode hint if it is still on screen.
+
+        Guarded on the current message so an unrelated, later status message is
+        never wiped when Alarm Mode ends (AC-D21.8.2: the hint must not
+        permanently mask later messages).
+        """
+        if self.status_bar.currentMessage() == ALARM_MODE_STATUS_MESSAGE:
+            self.status_bar.clearMessage()
 
     def _on_sound_toggled(self, enabled: bool):
         self.sound_service.set_enabled(enabled)
@@ -1082,6 +1177,102 @@ class MainWindow(QMainWindow):
             return bool(dock.isVisible())
         except Exception:
             return False
+
+    def _compute_right_dock_collapsed_min_width(self) -> int:
+        """D21.13: minimum width of the region once BOTH panels are collapsed.
+
+        The collapsed region is a vertical strip of the two toggle buttons (the
+        Active Trader title-bar button and the Account Summary header button), so
+        its width is the widest button's ``sizeHint`` plus the standard margins,
+        floored at :data:`RIGHT_DOCK_COLLAPSED_MIN_WIDTH`. Never raises.
+        """
+        try:
+            buttons = [
+                getattr(self.active_trader, "header_button", None),
+                getattr(self.portfolio_panel, "summary_label", None),
+            ]
+            widths = [b.sizeHint().width() for b in buttons if b is not None]
+            content = max(widths) if widths else 0
+            return max(
+                RIGHT_DOCK_COLLAPSED_MIN_WIDTH,
+                int(content) + 2 * RIGHT_DOCK_COLLAPSED_MARGIN,
+            )
+        except Exception:
+            return RIGHT_DOCK_COLLAPSED_MIN_WIDTH
+
+    def _right_region_is_collapsed(self) -> bool:
+        """True when BOTH right-region panels are collapsed to their buttons."""
+        try:
+            return bool(
+                self.active_trader.is_collapsed()
+                and self.portfolio_panel.is_collapsed()
+            )
+        except Exception:
+            return False
+
+    def _on_right_panel_toggled(self, _checked: bool = False) -> None:
+        """Re-layout the right region after a per-panel hide/show toggle (D21.13)."""
+        try:
+            self._sync_right_dock_collapse()
+        except Exception:
+            pass
+
+    def _sync_right_dock_collapse(self) -> None:
+        """Apply the D21.13 right-region collapse state.
+
+        * vertical stretch: only a shown panel absorbs slack, so the panel that
+          stays visible expands into the space the hidden one vacates
+          (AC-D21.13.2);
+        * both hidden: relax the region's (and the two panels') minimum width to
+          the button strip and pin the dock to it explicitly via
+          ``_resize_docks_guarded`` so the chart reclaims the width
+          (AC-D21.13.3);
+        * otherwise: restore ``RIGHT_DOCK_MIN_WIDTH`` and re-run the B3
+          cross-clamp.
+        """
+        collapsed = self._right_region_is_collapsed()
+        self._right_region_collapsed = collapsed
+
+        layout = getattr(self, "_right_dock_layout", None)
+        if layout is not None:
+            try:
+                layout.setStretchFactor(
+                    self.active_trader,
+                    0 if self.active_trader.is_collapsed() else 1,
+                )
+                layout.setStretchFactor(
+                    self.portfolio_panel,
+                    0 if self.portfolio_panel.is_collapsed() else 1,
+                )
+            except Exception:
+                pass
+
+        right_dock = getattr(self, "right_dock", None)
+        widgets = (
+            right_dock,
+            getattr(self, "active_trader", None),
+            getattr(self, "portfolio_panel", None),
+        )
+        if collapsed:
+            collapsed_w = self._right_dock_collapsed_min_width
+            for widget in widgets:
+                if widget is not None:
+                    widget.setMinimumWidth(collapsed_w)
+            if right_dock is not None:
+                self._resize_docks_guarded([right_dock], [collapsed_w])
+        else:
+            for widget in widgets:
+                if widget is not None:
+                    widget.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
+            self._apply_dock_widths()
+        # The dock's layout minimum is recomputed on the next layout pass, so the
+        # immediate resize above can be clamped back to the pre-collapse minimum.
+        # Re-apply on the next event-loop turn (when the new minimum has settled)
+        # so the collapsed width actually sticks.
+        try:
+            QTimer.singleShot(0, self._apply_dock_widths)
+        except Exception:
+            pass
 
     def _plan_dock_widths(self, chart_area: int, requested_left, requested_right):
         """Resolve ``(left, right)`` for the chart area, never below a dock minimum.
@@ -1160,7 +1351,16 @@ class MainWindow(QMainWindow):
             base_left = current_left if requested_left is None else int(requested_left)
 
             right_dock = getattr(self, "right_dock", None)
-            use_right = self._right_dock_available() and right_dock is not None
+            collapsed = bool(getattr(self, "_right_region_collapsed", False))
+            # D21.13: a fully-collapsed region (both panels hidden) is treated as
+            # hidden for the cross-clamp — it reserves no chart-area budget, so
+            # the watchlist regains its own cap. The dock itself is pinned to the
+            # button strip below.
+            use_right = (
+                self._right_dock_available()
+                and right_dock is not None
+                and not collapsed
+            )
 
             if use_right:
                 current_right = right_dock.width()
@@ -1190,7 +1390,21 @@ class MainWindow(QMainWindow):
                 cap = watchlist_max_width(chart_area)
                 desired = max(WATCHLIST_MIN_WIDTH, min(base_left, cap))
                 self._watchlist_width = desired
-                if abs(current_left - desired) > 1:
+                if collapsed and right_dock is not None:
+                    # D21.13: pin the collapsed region to its button strip in the
+                    # same resize so the chart keeps the reclaimed width.
+                    collapsed_w = getattr(
+                        self, "_right_dock_collapsed_min_width",
+                        RIGHT_DOCK_COLLAPSED_MIN_WIDTH,
+                    )
+                    if (
+                        abs(current_left - desired) > 1
+                        or abs(right_dock.width() - collapsed_w) > 1
+                    ):
+                        self._resize_docks_guarded(
+                            [dock, right_dock], [desired, collapsed_w]
+                        )
+                elif abs(current_left - desired) > 1:
                     self._resize_docks_guarded([dock], [desired])
         except Exception:
             pass
@@ -1333,7 +1547,9 @@ class MainWindow(QMainWindow):
         """
         try:
             ca = self._chart_area_width()
-            if self._right_dock_available():
+            if self._right_dock_available() and not getattr(
+                self, "_right_region_collapsed", False
+            ):
                 plan_left, plan_right = self._plan_dock_widths(
                     ca, self.watchlist_dock.width(), self.right_dock.width()
                 )
@@ -1440,8 +1656,17 @@ class MainWindow(QMainWindow):
 
     # ── Extended Hours / Timezone slots ────────────────────────────────────────
 
+    @staticmethod
+    def _ext_hours_label(enabled: bool) -> str:
+        """D21.3: toolbar label for the extended-hours state.
+
+        ON (extended hours) -> "Ext Hours"; OFF (regular trading hours) -> "RTH".
+        """
+        return "Ext Hours" if enabled else "RTH"
+
     def _on_ext_hours_toggled(self, enabled: bool):
-        """Reload chart with/without extended hours when toggled."""
+        """Relabel and reload chart with/without extended hours when toggled."""
+        self.ext_hours_btn.setText(self._ext_hours_label(enabled))
         if self._current_symbol:
             self.status_bar.showMessage(
                 f"Extended hours: {'ON' if enabled else 'OFF'} — reloading chart…", 3000
@@ -1503,9 +1728,27 @@ class MainWindow(QMainWindow):
         if not self._current_symbol:
             return
         self.alarm_mode_btn.setChecked(False)
-        dialog = AlarmDialog(self._current_symbol, price, self)
+        # D21.10 / AC-D21.10.1-5: chart-click path only. Pre-fill the clicked
+        # level (``initial_price``); keep the current market price separate so
+        # the dialog can default the condition against the alarm price. A yellow
+        # dashed preview line is drawn at the clicked level, follows the price
+        # spinbox live, and is removed on every close path — after Add,
+        # ``_reload_current_alarms`` draws the real alarm line in its place.
+        dialog = AlarmDialog(
+            self._current_symbol,
+            self._last_chart_price,
+            self,
+            initial_price=price,
+        )
         dialog.alarms_changed.connect(self._reload_current_alarms)
-        dialog.exec()
+        self.chart_panel.show_alarm_preview(price)
+        dialog.price_input.valueChanged.connect(
+            self.chart_panel.update_alarm_preview
+        )
+        try:
+            dialog.exec()
+        finally:
+            self.chart_panel.hide_alarm_preview()
         self._reload_current_alarms()
 
     def _on_alarm_moved(self, alarm_id: int, price: float):

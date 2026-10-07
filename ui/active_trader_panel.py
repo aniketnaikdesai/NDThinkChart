@@ -13,7 +13,7 @@ Phase 5 additions:
 """
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush
+from PyQt6.QtGui import QColor, QBrush, QPalette
 from PyQt6.QtWidgets import (
     QCheckBox, QLabel, QPushButton, QSpinBox, QTabWidget, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QVBoxLayout, QHBoxLayout,
@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 import ui.dock_layout as dock_layout
+from ui.visual_conventions import DiagonalStrikeButton
 
 #: Bounded minimum width of this panel (D18 Phase 4). Shared with the right
 #: region's own minimum so the ladder/book tables can never demand more width
@@ -448,6 +449,7 @@ class ActiveTraderPanel(QWidget):
         self._num_levels = num_levels
         self._symbol: str = ""
         self._last_price: float | None = None
+        self._collapsed = False
 
         # D18 Phase 4: the panel's own width is bounded to the shared right-region
         # minimum and its horizontal size policy ignores the content size hint, so
@@ -458,10 +460,51 @@ class ActiveTraderPanel(QWidget):
             QSizePolicy.Policy.Ignored, self.sizePolicy().verticalPolicy()
         )
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # ── Header strip (D21.13) ─────────────────────────────────────────────
+        # ``MainWindow`` promotes this strip to the right dock's title-bar widget
+        # via ``setTitleBarWidget``; its label is a ``DiagonalStrikeButton`` that
+        # hides/shows the body below while the button itself stays visible
+        # (AC-D21.13.1/AC-D21.13.4). It is exposed as ``header_bar`` /
+        # ``header_button`` so the dock and tests can address it.
+        self.header_bar = QWidget()
+        self.header_bar.setObjectName("ActiveTraderHeader")
+        self.header_bar.setFixedHeight(28)
+        self.header_bar.setStyleSheet(
+            "background: #141822; border-bottom: 1px solid #232938;"
+        )
+        header_layout = QHBoxLayout(self.header_bar)
+        header_layout.setContentsMargins(8, 0, 8, 0)
+
+        self.header_button = DiagonalStrikeButton("Active Trader", self.header_bar)
+        self.header_button.setObjectName("ActiveTraderHeaderButton")
+        # Checked == shown/unstruck; unchecked == hidden/struck.
+        self.header_button.setCheckable(True)
+        self.header_button.setChecked(True)
+        self.header_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.header_button.setStyleSheet(
+            "QPushButton#ActiveTraderHeaderButton {"
+            " background: transparent; border: none;"
+            " color: #e5e7eb; font-weight: 600; text-align: left; padding: 0; }"
+        )
+        # Keep the palette in sync so the VIS-D21.1 strike uses the label colour.
+        _pal = self.header_button.palette()
+        _pal.setColor(QPalette.ColorRole.ButtonText, QColor("#e5e7eb"))
+        self.header_button.setPalette(_pal)
+        self.header_button.toggled.connect(self._on_header_toggled)
+        header_layout.addWidget(self.header_button)
+        header_layout.addStretch()
+        outer.addWidget(self.header_bar)
+
+        # ── Body — the collapsible content (D21.13) ───────────────────────────
+        self.body = QWidget()
+        layout = QVBoxLayout(self.body)
         layout.setContentsMargins(6, 6, 6, 6)
 
-        # ── Header ──
+        # ── Header row ──
         header_row = QHBoxLayout()
         self.symbol_label = QLabel("—")
         self.symbol_label.setStyleSheet("font-weight: 700; font-size: 14px;")
@@ -489,9 +532,38 @@ class ActiveTraderPanel(QWidget):
         self.tabs.addTab(self.order_entry, "Order Entry")
         layout.addWidget(self.tabs, 1)
 
+        outer.addWidget(self.body, 1)
+
         # Wire ladder click
         self.ladder.price_clicked.connect(self._on_ladder_price_click)
         self.tabs.currentChanged.connect(self._on_tab_changed)
+
+    # ── Header collapse toggle (D21.13) ──────────────────────────────────────
+
+    def _on_header_toggled(self, checked: bool) -> None:
+        """Hide/show the panel body from the header button (D21.13).
+
+        ``checked`` is the visible state: unchecked -> body hidden + VIS-D21.1
+        strike (auto-applied by :class:`DiagonalStrikeButton`); checked -> body
+        shown + no strike.
+        """
+        visible = bool(checked)
+        self._collapsed = not visible
+        self.body.setVisible(visible)
+
+    def is_collapsed(self) -> bool:
+        """True while the panel body is hidden behind its header button."""
+        return self._collapsed
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Programmatically collapse/restore the body, syncing the button."""
+        collapsed = bool(collapsed)
+        self.header_button.setChecked(not collapsed)
+        self._on_header_toggled(not collapsed)
+
+    def toggle_collapsed(self) -> None:
+        """Flip the collapsed state (convenience for callers/tests)."""
+        self.set_collapsed(not self._collapsed)
 
     def _on_tab_changed(self, index: int):
         """Sync qty between header spinbox and order entry."""

@@ -1,243 +1,1176 @@
 {
   "status": "READY_FOR_BUILD",
   "generated": "2026-10-06",
-  "batch": "Batch 14 — D20 (toolbar scrollbar lane)",
-  "baseline": "D1–D19 built and frozen (commit 4d8952a; the D19 toolbar scroll/elide wrapper is in place and green). This graph is the D20 delta only; D1–D19 tasks are deliberately not re-listed.",
+  "batch": "Batch 15 — D21 (13 UI defects/issues) + VIS-D21",
+  "baseline": "D1-D20 built and frozen (commit 04397d9; 585 tests). This graph is the D21 delta only; D1-D20 tasks are deliberately not re-listed.",
+  "notes": [
+    "Two shared hot production files dominate serialisation: ui/chart_panel.py (D21-01,02,03,08,13,15) and ui/main_window.py (D21-05,06,07,10,11,13). touches_files plus the explicit DEPENDS_ON edges keep them in a single serial chain.",
+    "ui/visual_conventions.py (D21-04) and services/time_collapse_service.py (D21-14) are [new] prerequisite modules; their consumers depend on them by interface.",
+    "D21-13 (D21.10 preview line) is owned by ChartPanel (architecture S14 allows ChartPanel or the alarm overlay), so ui/alarm_overlay.py is touched only by the Phase-6 consumer task D21-16.",
+    "D21-17/D21-18 are Build verification tasks; touches_files is empty because they produce only Build-owned docs/build/build_log.md evidence, not source files.",
+    "The plan's Phase 5/6 ordering is preserved through the shared-file chains (main_window/chart_panel) plus the D21.2<->D21.4 reconciliation edge D21-02 -> D21-15."
+  ],
   "tasks": [
     {
-      "id": "T61",
-      "title": "D20 Phase 1 + lockstep: derive the ToolbarScroll wrapper height and update the D19 height assertions",
-      "description": "In ui/main_window.py, add the named constant TOOLBAR_CONTENT_HEIGHT = 36 (single source of truth) and change the D19 ToolbarScroll QScrollArea's fixed height from the literal 36 to the derived TOOLBAR_CONTENT_HEIGHT + toolbar_scroll.horizontalScrollBar().sizeHint().height() (offscreen 54px; macOS ~52px), keeping toolbar.setFixedHeight(36) and the wrapper's NoFrame / setWidgetResizable(False) / horizontal ScrollBarAsNeeded / vertical ScrollBarAlwaysOff / objectNames / control-and-signal wiring unchanged. Update the D19 height assertions in tests/test_toolbar_scroll_d19.py in lockstep — T53-T04 to the derived relation and min/max == height(), T53-T02's <= 40 bound to the content row — so the suite is never left contradicting D20 (R36).",
+      "id": "D21-01",
+      "title": "D21.1 — clamp the volume Y minimum at 0",
+      "description": "In ui/chart_panel.py enforce a hard volume Y lower bound of 0 via volume_plot.getViewBox().setLimits(yMin=0) so no interactive drag/zoom can move viewRange()[1][0] below 0, while keeping the existing programmatic setRange(yRange=(0, ...)) writes inside the limit and the D8 all-zero [0, 100] floor. Add tests/test_volume_d21.py carrying the D21.1 pre-fix-red/post-fix-green checks.",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [],
       "acceptance_criteria": [
-        "Structural/mechanism (derived container height — AC-D20.2 mechanism): Given the D20 fix, Then ui/main_window.py defines TOOLBAR_CONTENT_HEIGHT = 36 once, toolbar.setFixedHeight(36) is unchanged (the content row does not grow), and the ToolbarScroll QScrollArea's fixed height equals TOOLBAR_CONTENT_HEIGHT + toolbar_scroll.horizontalScrollBar().sizeHint().height() (a derived value, not the literal 52; offscreen 54px, macOS ~52px); the wrapper keeps NoFrame, setWidgetResizable(False), horizontal ScrollBarAsNeeded, vertical ScrollBarAlwaysOff, objectName 'ToolbarScroll', and the 'MainToolbar' toolbar as its widget; and centralWidget().minimumSizeHint().width() <= 750px (the D19 horizontal benefit is unchanged).",
-        "AC-D20.6 (lockstep): Given the D20 fix, When the pre-existing D19 height assertions run, Then tests/test_toolbar_scroll_d19.py::T53-T04 asserts the derived relation (wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height(); wrapper.minimumHeight() == wrapper.height() and wrapper.maximumHeight() == wrapper.height()) with the content widget asserted at TOOLBAR_CONTENT_HEIGHT (36), and T53-T02's bound is explicitly the content row (toolbar.height() <= 40, i.e. the 36px row, not the container); no assertion is left asserting a 36px container (R36)."
+        "AC-D21.1.1 — Given the volume pane is visible, When the user drags the volume Y-axis (or otherwise changes the volume Y range by mouse), Then the volume Y minimum never goes below 0 at any time (viewRange()[1][0] >= 0 within float tolerance) and no volume-axis tick below 0 is rendered."
       ],
       "tests": [
         {
-          "test_id": "T61-T01",
-          "linked_acceptance_criterion": "Structural/mechanism (derived container height — AC-D20.2 mechanism): Given the D20 fix, Then ui/main_window.py defines TOOLBAR_CONTENT_HEIGHT = 36 once, toolbar.setFixedHeight(36) is unchanged (the content row does not grow), and the ToolbarScroll QScrollArea's fixed height equals TOOLBAR_CONTENT_HEIGHT + toolbar_scroll.horizontalScrollBar().sizeHint().height() (a derived value, not the literal 52; offscreen 54px, macOS ~52px); the wrapper keeps NoFrame, setWidgetResizable(False), horizontal ScrollBarAsNeeded, vertical ScrollBarAlwaysOff, objectName 'ToolbarScroll', and the 'MainToolbar' toolbar as its widget; and centralWidget().minimumSizeHint().width() <= 750px (the D19 horizontal benefit is unchanged).",
+          "test_id": "D21-01-T01",
+          "linked_acceptance_criterion": "AC-D21.1.1",
           "type": "unit",
-          "description": "Boot a shown offscreen MainWindow (IBApiClient.connect monkeypatched, matching the D19 harness); assert ui.main_window.TOOLBAR_CONTENT_HEIGHT == 36; toolbar.height() == 36; wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() and wrapper.minimumHeight() == wrapper.maximumHeight() == wrapper.height(); the wrapper is still NoFrame / widgetResizable False / horizontal ScrollBarAsNeeded / vertical ScrollBarAlwaysOff / objectName 'ToolbarScroll' / widget() is the 'MainToolbar' toolbar; centralWidget().minimumSizeHint().width() <= 750.",
-          "expected_result": "Derived container height (offscreen 54px), content row fixed at 36px, D19 wrapper properties and the <= 750px central min-width benefit all preserved."
+          "description": "Boot an offscreen ChartPanel with bars, assert the volume ViewBox carries setLimits(yMin=0), then drive an interactive downward y change (drag / wheel / setRange with yMin<0 through the bounded path) and assert volume_plot.getViewBox().viewRange()[1][0] >= 0 and the volume axis ticks contain no negative value.",
+          "expected_result": "The volume Y minimum is clamped at 0 after any user y-interaction; no negative volume tick."
         },
         {
-          "test_id": "T61-T02",
-          "linked_acceptance_criterion": "AC-D20.6 (lockstep): Given the D20 fix, When the pre-existing D19 height assertions run, Then tests/test_toolbar_scroll_d19.py::T53-T04 asserts the derived relation (wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height(); wrapper.minimumHeight() == wrapper.height() and wrapper.maximumHeight() == wrapper.height()) with the content widget asserted at TOOLBAR_CONTENT_HEIGHT (36), and T53-T02's bound is explicitly the content row (toolbar.height() <= 40, i.e. the 36px row, not the container); no assertion is left asserting a 36px container (R36).",
-          "type": "integration",
-          "description": "Inspect tests/test_toolbar_scroll_d19.py: assert T53-T04 asserts the derived relation and wrapper.minimumHeight() == wrapper.maximumHeight() == wrapper.height(), T53-T02 bounds the content row via toolbar.height() <= 40, and the module contains no remaining assertion of wrapper.height() == 36 or wrapper.minimumHeight()/maximumHeight() == 36.",
-          "expected_result": "No stale 36px container assertion remains; the D19 height assertions encode the derived relation and the content-row bound."
-        },
-        {
-          "test_id": "T61-T03",
-          "linked_acceptance_criterion": "AC-D20.6 (lockstep): Given the D20 fix, When the pre-existing D19 height assertions run, Then tests/test_toolbar_scroll_d19.py::T53-T04 asserts the derived relation (wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height(); wrapper.minimumHeight() == wrapper.height() and wrapper.maximumHeight() == wrapper.height()) with the content widget asserted at TOOLBAR_CONTENT_HEIGHT (36), and T53-T02's bound is explicitly the content row (toolbar.height() <= 40, i.e. the 36px row, not the container); no assertion is left asserting a 36px container (R36).",
-          "type": "integration",
-          "description": "Run the full tests/test_toolbar_scroll_d19.py module and assert zero failures, including the unchanged T53-T01 (central min-hint <= 750, toolbar a central descendant, layout item 0 is the ToolbarScroll wrapper, no QToolBar) and T53-T03 (central width tracks the window).",
-          "expected_result": "The D19 module is fully green after the lockstep update, with its non-height assertions unchanged."
+          "test_id": "D21-01-T02",
+          "linked_acceptance_criterion": "AC-D21.1.1",
+          "type": "unit",
+          "description": "With all-zero visible volumes assert the range stays [0, 100] (D8 floor) and that a symbol/timeframe switch re-applies min 0; repeated downward drags stay at 0 and the y-drag still works for the max.",
+          "expected_result": "All-zero -> [0, 100]; min re-applied on reload; downward drags saturate at 0 while the max remains draggable."
         }
       ],
       "expected_artifacts": [
-        "ui/main_window.py",
-        "tests/test_toolbar_scroll_d19.py"
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "tests/test_toolbar_scroll_d19.py"
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py"
       ],
       "inputs": [
         "docs/plan.md#Phase 1",
-        "docs/plan.md#Phase 2 (RC-D20-3 lockstep)",
-        "docs/architecture.md#D20 increment (Validator probe table + 'Scrollbar-lane height / wrapper height' tech-stack row)",
-        "docs/requirements/requirements.md#AC-D20.2",
-        "docs/requirements/requirements.md#AC-D20.6",
-        "docs/requirements/requirements.md#R36",
-        "ui/main_window.py:100-242 (toolbar construction + ToolbarScroll wrapper + central composition)",
-        "tests/test_toolbar_scroll_d19.py:106-211 (T53-T02 / T53-T04 height assertions)"
+        "docs/architecture.md#D21 increment (S3; Non-Functional volume axis)",
+        "docs/requirements/requirements.md#AC-D21.1.1",
+        "ui/chart_panel.py:288-344, 876-906 (volume ViewBox + _ensure_volume_range)"
       ],
       "outputs": [
-        "ui/main_window.py",
-        "tests/test_toolbar_scroll_d19.py"
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T62",
-      "title": "D20 Phase 2: add the label-legibility / reserved-lane / as-needed assertions (tests/test_toolbar_d20.py)",
-      "description": "Add a new disjoint tests/test_toolbar_d20.py that boots the real offscreen MainWindow (IBApiClient.connect monkeypatched, matching the D19/D20 harness) and asserts the D20 outcome: labels unclipped in both scrollbar states, the derived container height with a 36px content row and a reserved lane below the content, the horizontal scrollbar as-needed in that lane, D19 reachability preserved, and the single-row/inside-central structure. The lane/overlap checks must use the mapped form horizontalScrollBar().mapTo(wrapper, QPoint(0, 0)).y() >= toolbar.height() together with viewport().height() >= toolbar.height() when the scrollbar is shown; geometry() must NOT be used (offscreen it reports top == 0).",
+      "id": "D21-02",
+      "title": "D21.2 — volume Y ceiling = 1.10 x max visible, recomputed on every visible-x change (supersedes D8 nice-max + ESC-007 only-widen)",
+      "description": "In ui/chart_panel.py replace the whole-list only-widen nice-max ceiling with _recompute_visible_volume_range() computing 1.10 x max(volume of bars whose x lies in the visible x-range), 0 visible -> VOLUME_NICE_FLOOR (100), wired to price_plot.getViewBox().sigXRangeChanged and re-run on bar updates; retain _nice_volume_max for the all-zero floor / fixtures. Update the D8/ESC-007 lockstep tests (tests/test_volume_linear.py, test_volume_log.py, test_volume_ceiling.py) so the suite is never left contradicting the recorded supersession (R36).",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [
-        "T61"
+        "D21-01"
       ],
       "acceptance_criteria": [
-        "AC-D20.1 (labels fully readable; no descender clipped by the scrollbar): Given a shown offscreen window with the toolbar visible, When the toolbar renders (horizontal scrollbar shown at a narrow width and hidden at a wide width), Then for every toolbar QLabel/button text the text's bounding rect lies fully within the toolbar's visible content area and does not intersect the horizontal scrollbar's lane — asserted in both the overflow (shown) and non-overflow (hidden) states — and the content remains a single row.",
-        "AC-D20.2 (height supersession — derived container, content row 36px): Given the D20 fix, Then the ToolbarScroll container height equals the derived relation toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() (offscreen 54px; macOS ~52px) and is < 60px (R35); the toolbar content widget height is TOOLBAR_CONTENT_HEIGHT (36) and has not grown; the reserved lane equals the scrollbar's extent and sits entirely below the content. No hard [50, 52] bound is asserted (the requirement's ~50–52px is the macOS figure; the offscreen derived value is 54px — plan RC-D20-1).",
-        "AC-D20.3 (scrollbar as-needed in its reserved lane; B8): Given the D20 fix, When the toolbar content fits (wide window), Then wrapper.horizontalScrollBar().isVisible() is False and the strip height is unchanged (still the derived height); When the content overflows (narrow window), Then it is True and its mapped lane sits below the content row (mapTo(wrapper, QPoint(0,0)).y() >= toolbar.height()).",
-        "AC-D20.4 (D19 behaviour preserved): Given the D20 fix, Then the D19 scroll/elide reachability holds: at a narrow window wrapper.horizontalScrollBar().maximum() > 0 and every toolbar control remains a descendant of the scroll content; at a wide window every control lies within the viewport.",
-        "AC-D20.5 (single row, no wrap; stays inside the central widget): Given any window width, Then the toolbar content stays a single row (not wrapped) and remains inside the central widget (no QMainWindow.addToolBar / QToolBar); only the horizontal scrollbar occupies the lane below the content."
+        "AC-D21.2.1 — Given the volume pane is visible and bars are loaded, When the visible x-range changes (zoom in/out, pan, magnifier area-zoom), Then the volume Y range is [0, 1.10 x max_volume_visible] where max_volume_visible is the largest volume of the bars whose x lies within the currently visible x-range and the min is always 0; all-zero visible -> [0, 100]; this supersedes D8's nice-max ceiling and ESC-007's only-widen rule for zoom while preserving ESC-007's forming-bar no-clip intent via recompute on bar updates."
       ],
       "tests": [
         {
-          "test_id": "T62-T01",
-          "linked_acceptance_criterion": "AC-D20.1 (labels fully readable; no descender clipped by the scrollbar): Given a shown offscreen window with the toolbar visible, When the toolbar renders (horizontal scrollbar shown at a narrow width and hidden at a wide width), Then for every toolbar QLabel/button text the text's bounding rect lies fully within the toolbar's visible content area and does not intersect the horizontal scrollbar's lane — asserted in both the overflow (shown) and non-overflow (hidden) states — and the content remains a single row.",
-          "type": "integration",
-          "description": "At a narrow window (scrollbar shown), for every toolbar label/button text assert the text's mapped bounding rect lies fully within the visible content area and does not intersect the horizontal scrollbar's lane; assert wrapper.viewport().height() >= toolbar.height() and wrapper.horizontalScrollBar().mapTo(wrapper, QPoint(0, 0)).y() >= toolbar.height(). Do not use geometry().",
-          "expected_result": "No label glyph intersects the scrollbar; the viewport is at least the content-row height and the scrollbar's mapped lane sits below the content."
-        },
-        {
-          "test_id": "T62-T02",
-          "linked_acceptance_criterion": "AC-D20.1 (labels fully readable; no descender clipped by the scrollbar): Given a shown offscreen window with the toolbar visible, When the toolbar renders (horizontal scrollbar shown at a narrow width and hidden at a wide width), Then for every toolbar QLabel/button text the text's bounding rect lies fully within the toolbar's visible content area and does not intersect the horizontal scrollbar's lane — asserted in both the overflow (shown) and non-overflow (hidden) states — and the content remains a single row.",
-          "type": "integration",
-          "description": "At a wide window (scrollbar hidden), repeat the label-legibility assertions; assert wrapper.viewport().height() >= toolbar.height() and the toolbar content is a single row.",
-          "expected_result": "Labels are unclipped in the non-overflow (scrollbar-hidden) state too, with the viewport at least the content-row height."
-        },
-        {
-          "test_id": "T62-T03",
-          "linked_acceptance_criterion": "AC-D20.2 (height supersession — derived container, content row 36px): Given the D20 fix, Then the ToolbarScroll container height equals the derived relation toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() (offscreen 54px; macOS ~52px) and is < 60px (R35); the toolbar content widget height is TOOLBAR_CONTENT_HEIGHT (36) and has not grown; the reserved lane equals the scrollbar's extent and sits entirely below the content. No hard [50, 52] bound is asserted (the requirement's ~50–52px is the macOS figure; the offscreen derived value is 54px — plan RC-D20-1).",
-          "type": "integration",
-          "description": "Assert wrapper.height() == toolbar.height() + wrapper.horizontalScrollBar().sizeHint().height() and wrapper.height() < 60; toolbar.height() == TOOLBAR_CONTENT_HEIGHT (36); the lane equals the scrollbar's extent and is below the content (mapped y >= toolbar.height() when shown; viewport >= toolbar.height()). Explicitly do NOT assert a literal [50, 52] bound.",
-          "expected_result": "Container height is the derived value (offscreen 54px, macOS ~52px) and < 60px; content widget stays 36px; the reserved lane is below the content."
-        },
-        {
-          "test_id": "T62-T04",
-          "linked_acceptance_criterion": "AC-D20.3 (scrollbar as-needed in its reserved lane; B8): Given the D20 fix, When the toolbar content fits (wide window), Then wrapper.horizontalScrollBar().isVisible() is False and the strip height is unchanged (still the derived height); When the content overflows (narrow window), Then it is True and its mapped lane sits below the content row (mapTo(wrapper, QPoint(0,0)).y() >= toolbar.height()).",
-          "type": "integration",
-          "description": "Wide window: assert horizontalScrollBar().isVisible() is False and wrapper.height() equals the derived height. Narrow window: assert isVisible() is True and mapTo(wrapper, QPoint(0,0)).y() >= toolbar.height().",
-          "expected_result": "Scrollbar as-needed in a reserved lane; the strip height is stable across both states."
-        },
-        {
-          "test_id": "T62-T05",
-          "linked_acceptance_criterion": "AC-D20.4 (D19 behaviour preserved): Given the D20 fix, Then the D19 scroll/elide reachability holds: at a narrow window wrapper.horizontalScrollBar().maximum() > 0 and every toolbar control remains a descendant of the scroll content; at a wide window every control lies within the viewport.",
-          "type": "integration",
-          "description": "Narrow window: assert wrapper.horizontalScrollBar().maximum() > 0 and every control in the toolbar control list is a descendant of the scroll content. Wide window: assert every control maps within the viewport.",
-          "expected_result": "Horizontal scroll range > 0 at the narrow width; all controls reachable; every control directly visible at the wide width."
-        },
-        {
-          "test_id": "T62-T06",
-          "linked_acceptance_criterion": "AC-D20.5 (single row, no wrap; stays inside the central widget): Given any window width, Then the toolbar content stays a single row (not wrapped) and remains inside the central widget (no QMainWindow.addToolBar / QToolBar); only the horizontal scrollbar occupies the lane below the content.",
+          "test_id": "D21-02-T01",
+          "linked_acceptance_criterion": "AC-D21.2.1",
           "type": "unit",
-          "description": "Assert the toolbar content is a single row (toolbar.height() <= 40, not wrapped); the toolbar is a descendant of centralWidget(); centralWidget().layout().itemAt(0).widget() is the 'ToolbarScroll' QScrollArea; and win.findChildren(QToolBar) == [] (no QMainWindow toolbar area).",
-          "expected_result": "Content stays one row inside the central widget; only the scrollbar occupies the lane; no addToolBar was used."
+          "description": "Set a visible x-range covering a known bar subset and assert viewRange()[1] == (0, approx(1.10 * max(visible volumes))) within tolerance; zoom into a lower-volume region and assert the ceiling LOWERS (not only-widen).",
+          "expected_result": "The volume Y ceiling equals 1.10 x the visible max and follows both directions of a zoom/pan."
+        },
+        {
+          "test_id": "D21-02-T02",
+          "linked_acceptance_criterion": "AC-D21.2.1",
+          "type": "unit",
+          "description": "Assert all-zero visible volumes give [0, 100] (D8 floor), a volume spike just outside the view does not inflate the max, and panning recomputes the ceiling.",
+          "expected_result": "All-zero -> [0, 100]; out-of-view spike excluded; pan recomputes."
+        },
+        {
+          "test_id": "D21-02-T03",
+          "linked_acceptance_criterion": "AC-D21.2.1",
+          "type": "unit",
+          "description": "Grow the forming last bar intra-bar past the current ceiling and assert the ceiling widens so the bar is not clipped (ESC-007 core intent preserved).",
+          "expected_result": "Intra-bar growth widens the ceiling; no clipping of the forming bar."
+        },
+        {
+          "test_id": "D21-02-T04",
+          "linked_acceptance_criterion": "AC-D21.2.1",
+          "type": "integration",
+          "description": "Run tests/test_volume_linear.py, tests/test_volume_log.py and tests/test_volume_ceiling.py after their lockstep update and assert zero failures, with no remaining assertion of the D8 nice-max ceiling or the ESC-007 only-widen rule (R36).",
+          "expected_result": "The three lockstep modules are green and encode the D21.2 rule; no stale nice-max/only-widen assertion remains."
         }
       ],
       "expected_artifacts": [
-        "tests/test_toolbar_d20.py"
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py",
+        "tests/test_volume_linear.py",
+        "tests/test_volume_log.py",
+        "tests/test_volume_ceiling.py"
       ],
       "touches_files": [
-        "tests/test_toolbar_d20.py"
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py",
+        "tests/test_volume_linear.py",
+        "tests/test_volume_log.py",
+        "tests/test_volume_ceiling.py"
       ],
       "inputs": [
-        "docs/plan.md#Phase 2 (D20 assertions; RC-D20-1 / RC-D20-2)",
-        "docs/architecture.md#D20 increment (Validator probe table; mapped-lane contract; geometry() unusable)",
-        "docs/requirements/requirements.md#AC-D20.1",
-        "docs/requirements/requirements.md#AC-D20.2",
-        "docs/requirements/requirements.md#AC-D20.3",
-        "docs/requirements/requirements.md#AC-D20.4",
-        "docs/requirements/requirements.md#AC-D20.5",
-        "docs/requirements/requirements.md#B7",
-        "docs/requirements/requirements.md#B8",
-        "ui/main_window.py (the derived ToolbarScroll height and objectNames from T61)",
-        "tests/test_toolbar_scroll_d19.py (the D19 harness pattern: monkeypatched IBApiClient.connect, offscreen MainWindow)"
+        "docs/plan.md#Phase 1",
+        "docs/architecture.md#D21 increment (S4/S5; Validator probe header)",
+        "docs/requirements/requirements.md#AC-D21.2.1",
+        "ui/chart_panel.py:199-200, 876-906 (ceiling machinery)",
+        "tests/test_volume_linear.py, tests/test_volume_log.py, tests/test_volume_ceiling.py (D8/ESC-007 lockstep)"
       ],
       "outputs": [
-        "tests/test_toolbar_d20.py"
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py",
+        "tests/test_volume_linear.py",
+        "tests/test_volume_log.py",
+        "tests/test_volume_ceiling.py"
       ],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T63",
-      "title": "D20 Phase 2: capture the pre-fix-red / post-fix-green discriminator evidence (R36)",
-      "description": "Verify the corrected D20 assertions genuinely discriminate: run the updated tests/test_toolbar_scroll_d19.py and the new tests/test_toolbar_d20.py against the pre-Phase-1 tree (commit 4d8952a, D19 wrapper fixed at 36px, via a temporary git worktree/stash) and record that they fail there (36 == 36 + 18 is False; viewport 18 >= toolbar 36 is False; mapTo(...).y() == 18 >= 36 is False), then re-run against the post-fix tree and record that they pass. Record both results in the Build-owned build log; the intermediate red is intentional (R36), not a regression.",
+      "id": "D21-03",
+      "title": "D21.6 — volume pane can grow to >= 360px with a ~200px price-pane minimum",
+      "description": "In ui/chart_panel.py add VOLUME_PANE_MAX_HEIGHT = 480 and PRICE_PANE_MIN_HEIGHT = 200, apply volume_plot.setMaximumHeight(VOLUME_PANE_MAX_HEIGHT) and price_plot.setMinimumHeight(PRICE_PANE_MIN_HEIGHT), and tune the vertical splitter sizes/stretch so the volume pane reaches >= 360px while the price pane keeps >= ~200px; the oscillator pane cap is unchanged.",
       "agent": "Build",
-      "task_type": "verification",
+      "task_type": "implementation",
       "dependencies": [
-        "T61",
-        "T62"
+        "D21-02"
       ],
       "acceptance_criteria": [
-        "AC-D20.6 (discrimination, R36): Given the corrected D20 assertions (updated tests/test_toolbar_scroll_d19.py + new tests/test_toolbar_d20.py), When they run against the pre-Phase-1 tree (commit 4d8952a, ToolbarScroll fixed at 36px), Then the derived-height/lane assertions fail; When they run against the post-fix tree, Then they pass; and both results are recorded."
+        "AC-D21.6.1 — Given the volume pane is visible, When the user drags the price/volume splitter, Then the volume pane can grow to at least 360px (3x the former 120px cap) and the price pane keeps a minimum of ~200px (the oscillator pane is unaffected)."
       ],
       "tests": [
         {
-          "test_id": "T63-T01",
-          "linked_acceptance_criterion": "AC-D20.6 (discrimination, R36): Given the corrected D20 assertions (updated tests/test_toolbar_scroll_d19.py + new tests/test_toolbar_d20.py), When they run against the pre-Phase-1 tree (commit 4d8952a, ToolbarScroll fixed at 36px), Then the derived-height/lane assertions fail; When they run against the post-fix tree, Then they pass; and both results are recorded.",
-          "type": "manual",
-          "description": "Check out the pre-fix tree (commit 4d8952a) in a temporary git worktree without the D20 height change, copy in the updated/new D20 tests, run them, and capture the failing test ids/assertions; then run the same tests against the post-fix tree and capture the passing result.",
-          "expected_result": "The corrected assertions fail against the pre-fix tree (36px wrapper) and pass against the post-fix tree (derived height); both results recorded in the build log."
+          "test_id": "D21-03-T01",
+          "linked_acceptance_criterion": "AC-D21.6.1",
+          "type": "integration",
+          "description": "Boot a shown offscreen ChartPanel in a window tall enough, drive the vertical splitter to give the volume pane its maximum, and assert volume_plot.height() >= 360.",
+          "expected_result": "The volume pane reaches >= 360px."
+        },
+        {
+          "test_id": "D21-03-T02",
+          "linked_acceptance_criterion": "AC-D21.6.1",
+          "type": "integration",
+          "description": "Assert price_plot.height() >= ~200 after the volume pane is grown, and that in a very short window the price minimum wins and the volume target yields without an error.",
+          "expected_result": "Price pane keeps >= ~200px; short-window precedence is stable."
+        },
+        {
+          "test_id": "D21-03-T03",
+          "linked_acceptance_criterion": "AC-D21.6.1",
+          "type": "integration",
+          "description": "Assert the oscillator pane is unaffected, and that hiding then showing the volume pane (D10) restores the splitter without regressing the price minimum.",
+          "expected_result": "Oscillator unaffected; hide/show round-trips cleanly; no price-minimum regression."
         }
       ],
       "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned AC-D20.6/R36 evidence entry; no new source files)"
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py"
+      ],
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 1 (PA-D21-1)",
+        "docs/architecture.md#D21 increment (S6)",
+        "docs/requirements/requirements.md#AC-D21.6.1",
+        "ui/chart_panel.py:288, 309, 317-321 (setMaximumHeight + splitter sizes)"
+      ],
+      "outputs": [
+        "ui/chart_panel.py",
+        "tests/test_volume_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-04",
+      "title": "VIS-D21 — shared primitives: DiagonalStrikeButton (VIS-D21.1) + active highlight (VIS-D21.2)",
+      "description": "Create the new leaf module ui/visual_conventions.py holding the shared VIS-D21 primitives: DiagonalStrikeButton (a QPushButton that paints a single cosmetic top-left -> bottom-right line over the text area when struck, auto-striking when a checkable button is unchecked), the VIS-D21.2 toolbar stylesheet constant, and set_button_active(button, active) (Qt dynamic property + repolish). This module is a prerequisite for the watchlist, volume and right-dock consumers.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "VIS-D21.1 — Given a hidden/off toggle label/button, Then its text area is rendered with a single straight diagonal line from the top-left to the bottom-right corner, clearly visible against the button background; a checkable DiagonalStrikeButton is struck automatically when unchecked and unstruck when checked.",
+        "VIS-D21.2 — Given an active/selected button, Then a persistent highlight (a distinct filled background and/or border) is applied while active and removed when inactive, via a dynamic property that can be asserted independently of painting."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-04-T01",
+          "linked_acceptance_criterion": "VIS-D21.1",
+          "type": "unit",
+          "description": "Instantiate DiagonalStrikeButton; assert struck is False by default and the painted line appears (paintEvent draws a TL->BR cosmetic line) when struck is set, and that a checkable button auto-strikes when unchecked and unstrikes when checked; assert the button stays clickable while struck.",
+          "expected_result": "The diagonal strike is present iff the button is struck/hidden and the control remains interactive."
+        },
+        {
+          "test_id": "D21-04-T02",
+          "linked_acceptance_criterion": "VIS-D21.2",
+          "type": "unit",
+          "description": "Call set_button_active(btn, True) and assert the dynamic 'active' property is True and the resolved style differs from inactive; call set_button_active(btn, False) and assert the property is cleared and the style returns to the inactive form.",
+          "expected_result": "Active style differs from inactive and is applied while active / removed when inactive."
+        },
+        {
+          "test_id": "D21-04-T03",
+          "linked_acceptance_criterion": "VIS-D21.2",
+          "type": "unit",
+          "description": "Assert the VIS-D21.2 stylesheet constant targets the toolbar objectName and the :checked / [active=\"true\"] selectors, so it is scroll-position independent in the D19 wrapper.",
+          "expected_result": "The shared stylesheet applies to the toolbar controls independent of scroll position."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/visual_conventions.py",
+        "tests/test_visual_conventions.py"
+      ],
+      "touches_files": [
+        "ui/visual_conventions.py",
+        "tests/test_visual_conventions.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 2",
+        "docs/architecture.md#D21 increment (S7/S8; System Components new components)",
+        "docs/requirements/requirements.md#VIS-D21.1",
+        "docs/requirements/requirements.md#VIS-D21.2",
+        "docs/requirements/requirements.md#A41, #A42"
+      ],
+      "outputs": [
+        "ui/visual_conventions.py",
+        "tests/test_visual_conventions.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-05",
+      "title": "D21.3 — Ext Hours button relabels to RTH when regular hours are selected",
+      "description": "In ui/main_window.py switch ext_hours_btn's label between 'Ext Hours' (checked) and 'RTH' (unchecked) in _on_ext_hours_toggled and on construction, keeping the fixed 80px width, the tooltip and the existing chart-reload behaviour. Create tests/test_toolbar_d21.py for the toolbar-state checks.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D21.3.1 — Given the toolbar is visible, When Ext Hours is ON (checked), Then the button label reads 'Ext Hours'; When the user toggles it OFF (regular trading hours), Then the button label reads 'RTH'; the label updates immediately on toggle and reflects the state after a chart reload, and the fixed 80px width fits both labels."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-05-T01",
+          "linked_acceptance_criterion": "AC-D21.3.1",
+          "type": "integration",
+          "description": "Boot an offscreen MainWindow, assert ext_hours_btn.text() == 'Ext Hours' when checked; toggle it off and assert text() == 'RTH' immediately.",
+          "expected_result": "The label switches immediately with the checked state."
+        },
+        {
+          "test_id": "D21-05-T02",
+          "linked_acceptance_criterion": "AC-D21.3.1",
+          "type": "integration",
+          "description": "Toggle ext hours, drive a chart reload (stubbed feed), and assert the label still matches the button state; assert the 80px width fits both labels (sizeHint <= 80 for both).",
+          "expected_result": "The label reflects the state after reload and both labels fit the 80px button."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 2",
+        "docs/architecture.md#D21 increment (Codebase Summary toolbar; Changed components)",
+        "docs/requirements/requirements.md#AC-D21.3.1",
+        "ui/main_window.py:160-165, 1443-1449 (ext_hours_btn + _on_ext_hours_toggled)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-06",
+      "title": "D21.7 — persistent active highlight for toolbar buttons",
+      "description": "In ui/main_window.py apply the shared VIS-D21.2 highlight: :checked styling for the checkable toggles (sound_btn, dom_btn, ext_hours_btn, alarm_mode_btn) and set_button_active(button, True/False) around the modal Studies and Alarms dialogs so the invoking button is visibly active while its popup is open and clears when it closes.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-04",
+        "D21-05"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.7.1 — Given a toolbar button that represents an active/selected state (a checkable toggle that is ON, or a button whose popup is currently open), When that state is active, Then the button shows a persistent, clearly visible highlight distinct from its inactive state (per VIS-D21.2), removed when the state ends."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-06-T01",
+          "linked_acceptance_criterion": "AC-D21.7.1",
+          "type": "integration",
+          "description": "Boot an offscreen MainWindow; for each checkable toggle (sound_btn, dom_btn, ext_hours_btn, alarm_mode_btn) assert the checked (active) style/property differs from the unchecked style and reverts when unchecked.",
+          "expected_result": "Each checkable toggle is visibly highlighted while ON and reverts when OFF."
+        },
+        {
+          "test_id": "D21-06-T02",
+          "linked_acceptance_criterion": "AC-D21.7.1",
+          "type": "integration",
+          "description": "Monkeypatch the Studies/Alarms dialog exec() to return immediately; assert studies_btn/alarms_btn carry the active property while the dialog is open and that it is cleared on close; assert the highlight is not scroll-position dependent in the D19 wrapper.",
+          "expected_result": "Popup buttons are highlighted while their dialog is open and cleared on close."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 2",
+        "docs/architecture.md#D21 increment (S7)",
+        "docs/requirements/requirements.md#AC-D21.7.1",
+        "ui/visual_conventions.py (set_button_active + stylesheet from D21-04)",
+        "ui/main_window.py:135-165, 976-987 (toolbar buttons + dialog slots)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-07",
+      "title": "D21.8 — Alarm Mode highlight + status message that persists until the mode ends",
+      "description": "In ui/main_window.py give alarm_mode_btn the VIS-D21.2 active highlight while Alarm Mode is on and change _on_alarm_mode_toggled to show the status-bar message with no timeout (instead of the current 4000ms), clearing/replacing it when Alarm Mode ends (button off, alarm placed, drawing tool selected, or mode otherwise exited) so it does not permanently mask later messages.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-06"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.8.1 — Given the toolbar is visible, When Alarm Mode is activated, Then the Alarm Mode button shows the persistent active highlight (VIS-D21.2).",
+        "AC-D21.8.2 — Given Alarm Mode is active, Then the status-bar message ('Alarm mode: click the chart to place a price alarm.') remains visible with no timeout until Alarm Mode is switched off; When Alarm Mode ends (button toggled off, an alarm is placed, or the mode is otherwise exited), Then the message is cleared/replaced."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-07-T01",
+          "linked_acceptance_criterion": "AC-D21.8.1",
+          "type": "integration",
+          "description": "Activate Alarm Mode and assert alarm_mode_btn is highlighted (active style/property) and that it reverts when the mode is switched off.",
+          "expected_result": "The Alarm Mode button is highlighted while active and reverted when off."
+        },
+        {
+          "test_id": "D21-07-T02",
+          "linked_acceptance_criterion": "AC-D21.8.2",
+          "type": "integration",
+          "description": "Activate Alarm Mode, wait/advance past 4s and assert the alarm-mode status text is still shown; deactivate and assert it is no longer shown.",
+          "expected_result": "The message persists beyond 4s while active and clears on deactivation."
+        },
+        {
+          "test_id": "D21-07-T03",
+          "linked_acceptance_criterion": "AC-D21.8.2",
+          "type": "integration",
+          "description": "Exit Alarm Mode by placing an alarm and by selecting a drawing tool; assert the message is cleared/replaced on each exit path and does not mask subsequent status messages.",
+          "expected_result": "Every Alarm-Mode exit clears/replaces the persistent message."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 2",
+        "docs/architecture.md#D21 increment (S7)",
+        "docs/requirements/requirements.md#AC-D21.8.1",
+        "docs/requirements/requirements.md#AC-D21.8.2",
+        "ui/main_window.py:141-143, 1030-1037 (alarm_mode_btn + _on_alarm_mode_toggled)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-08",
+      "title": "D21.12 — Volume button struck when the volume pane is hidden",
+      "description": "In ui/chart_panel.py replace the checkable Volume toggle with a DiagonalStrikeButton so it is struck (VIS-D21.1) when unchecked/hidden and unstruck when checked/shown, keeping the D10 placement, the checked default and the existing toggle behaviour.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-04",
+        "D21-05",
+        "D21-03"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.12.1 — Given the volume pane is hidden (toggle unchecked), Then the Volume button is rendered with the VIS-D21.1 diagonal strike-through; When the volume pane is shown (checked), Then the strike-through is removed."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-08-T01",
+          "linked_acceptance_criterion": "AC-D21.12.1",
+          "type": "integration",
+          "description": "Boot an offscreen ChartPanel; assert the Volume toggle is a DiagonalStrikeButton, default-checked and not struck; uncheck it and assert struck is True and the pane is hidden; re-check and assert struck is False and the pane is visible.",
+          "expected_result": "The Volume button is struck iff the pane is hidden and remains clickable."
+        },
+        {
+          "test_id": "D21-08-T02",
+          "linked_acceptance_criterion": "AC-D21.12.1",
+          "type": "integration",
+          "description": "Assert the D10 placement/visibility behaviour is unchanged (button positioned top-left of the volume pane, toggling hides/shows volume_plot and its axis, splitter refresh) while struck.",
+          "expected_result": "D10 placement and toggle behaviour are preserved; the strike is cosmetic only."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 2",
+        "docs/architecture.md#D21 increment (S8; Changed components chart_panel)",
+        "docs/requirements/requirements.md#AC-D21.12.1",
+        "ui/visual_conventions.py (DiagonalStrikeButton from D21-04)",
+        "ui/chart_panel.py:326-335, 401-436 (_volume_toggle + _on_volume_toggled)"
+      ],
+      "outputs": [
+        "ui/chart_panel.py",
+        "tests/test_toolbar_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-09",
+      "title": "D21.5 — configurable watchlist columns (add/remove/rearrange, Symbol kept, persisted)",
+      "description": "In ui/watchlist_panel.py replace the fixed 7-column index schema with a COLUMN_DEFS field-key model: an ordered active-field list, cells built per active field, and _set_cell/on_tick_price/on_tick_size/_on_cell_double_clicked addressing by field key; force Symbol present; add a right-click header popup (checkable add/remove + move left/right) that rebuilds the table; and persist the layout in QSettings key 'watchlist/columns' with a sanitised restore on launch.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D21.5.1 — Given the watchlist is visible, When the user right-clicks a column header, Then a popup opens offering to add, remove and rearrange columns.",
+        "AC-D21.5.2 — Given the popup, Then the addable set is the existing 7 columns (Symbol, Last, Bid, Ask, Chg, Chg %, Vol); 'add' means re-showing a previously removed column (no new data fields are introduced).",
+        "AC-D21.5.3 — Given a column is to be removed, Then the Symbol column cannot be removed (it always remains in the layout).",
+        "AC-D21.5.4 — Given a changed column set/order, Then the table updates immediately to the chosen columns in the chosen order, each cell value remains bound to the correct field, and the layout is persisted across restarts (restored on launch)."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-09-T01",
+          "linked_acceptance_criterion": "AC-D21.5.1",
+          "type": "integration",
+          "description": "Boot an offscreen WatchlistPanel, invoke the header context-menu handler, and assert a popup is offered with add, remove and rearrange affordances.",
+          "expected_result": "A right-click on the header opens the add/remove/rearrange popup."
+        },
+        {
+          "test_id": "D21-09-T02",
+          "linked_acceptance_criterion": "AC-D21.5.2",
+          "type": "unit",
+          "description": "Assert the addable field set equals exactly the existing 7 fields and that removing then re-adding a column restores it; no new field key is introduced.",
+          "expected_result": "Addable set == existing 7; add == re-show a removed column."
+        },
+        {
+          "test_id": "D21-09-T03",
+          "linked_acceptance_criterion": "AC-D21.5.3",
+          "type": "unit",
+          "description": "Attempt to remove Symbol and assert it is blocked and still present; assert all other columns can be removed leaving only Symbol.",
+          "expected_result": "Symbol removal is blocked; Symbol always remains."
+        },
+        {
+          "test_id": "D21-09-T04",
+          "linked_acceptance_criterion": "AC-D21.5.4",
+          "type": "integration",
+          "description": "Remove and reorder columns, then deliver a live tick and assert each value lands in the correct field cell (field-identity binding, not index); assert D14 double-click still resolves the Symbol row after a reorder.",
+          "expected_result": "Immediate correct update after reorder/remove; field binding preserved; D14 still works."
+        },
+        {
+          "test_id": "D21-09-T05",
+          "linked_acceptance_criterion": "AC-D21.5.4",
+          "type": "integration",
+          "description": "Persist a changed layout to QSettings('watchlist/columns'), reconstruct the panel, and assert the same ordered column set is restored; assert unknown keys are dropped and symbol is forced present.",
+          "expected_result": "Layout survives a simulated restart with sanitised restore."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist_columns_d21.py"
+      ],
+      "touches_files": [
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist_columns_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 3 (PA-D21-3)",
+        "docs/architecture.md#D21 increment (S9/S10)",
+        "docs/requirements/requirements.md#AC-D21.5.1",
+        "docs/requirements/requirements.md#AC-D21.5.2",
+        "docs/requirements/requirements.md#AC-D21.5.3",
+        "docs/requirements/requirements.md#AC-D21.5.4",
+        "ui/watchlist_panel.py:10-19, 117-141, 206-247 (HEADERS/COL_*, header strip, tick handlers)"
+      ],
+      "outputs": [
+        "ui/watchlist_panel.py",
+        "tests/test_watchlist_columns_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-10",
+      "title": "D21.11 — one 'Watchlist' label: in-panel header becomes the hide/show toggle",
+      "description": "In ui/main_window.py and ui/watchlist_panel.py delete the duplicate QDockWidget('Watchlist') title and use the in-panel header strip as the dock's title-bar widget (setTitleBarWidget), with its label turned into a DiagonalStrikeButton('Watchlist'). Clicking it hides the panel body while the header/title bar and button stay visible, struck with VIS-D21.1; clicking again shows the watchlist and removes the strike; Qt's title-bar event forwarding preserves dock drag/float.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-04",
+        "D21-09",
+        "D21-07"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.11.1 — Given the app is running, Then exactly one 'Watchlist' label is shown — the in-panel header label is kept and turned into a clickable toggle button, and the duplicate dock title bar is deleted.",
+        "AC-D21.11.2 — Given the watchlist is hidden via that button, Then the retained button stays visible (it must not disappear with the dock) and is rendered with the VIS-D21.1 diagonal strike-through; clicking it again shows the watchlist (strike removed).",
+        "AC-D21.11.3 — Given the watchlist is hidden/collapsed, Then the collapsed state still shows the button."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-10-T01",
+          "linked_acceptance_criterion": "AC-D21.11.1",
+          "type": "integration",
+          "description": "Boot an offscreen MainWindow and assert exactly one visible 'Watchlist' label exists across the dock title and the panel; assert the dock's title-bar widget is the in-panel header strip and the header control is a clickable toggle button.",
+          "expected_result": "Exactly one Watchlist label; header strip is the title-bar widget and a toggle button."
+        },
+        {
+          "test_id": "D21-10-T02",
+          "linked_acceptance_criterion": "AC-D21.11.2",
+          "type": "integration",
+          "description": "Click the toggle to hide; assert the panel body is hidden but the header/button stays visible and struck; click again and assert the body is shown and the strike removed.",
+          "expected_result": "Toggle collapses the body while the struck button stays visible; re-click restores."
+        },
+        {
+          "test_id": "D21-10-T03",
+          "linked_acceptance_criterion": "AC-D21.11.3",
+          "type": "integration",
+          "description": "Assert that in the collapsed state the button is still visible and reachable, and that the dock remains movable/floatable via the title-bar widget; assert the D17/D18 width model still holds when hidden.",
+          "expected_result": "Collapsed state still shows the button; dock drag preserved; width model unaffected."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/watchlist_panel.py",
+        "ui/main_window.py",
+        "tests/test_watchlist_columns_d21.py"
+      ],
+      "touches_files": [
+        "ui/watchlist_panel.py",
+        "ui/main_window.py",
+        "tests/test_watchlist_columns_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 3 (PA-D21-4; DG37)",
+        "docs/architecture.md#D21 increment (S11)",
+        "docs/requirements/requirements.md#AC-D21.11.1",
+        "docs/requirements/requirements.md#AC-D21.11.2",
+        "docs/requirements/requirements.md#AC-D21.11.3",
+        "ui/main_window.py:258-263 (QDockWidget Watchlist title)",
+        "ui/watchlist_panel.py:117-124 (header strip)",
+        "ui/visual_conventions.py (DiagonalStrikeButton from D21-04)"
+      ],
+      "outputs": [
+        "ui/watchlist_panel.py",
+        "ui/main_window.py",
+        "tests/test_watchlist_columns_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-11",
+      "title": "D21.13 — Active Trader / Account Summary hide/show toggles with in-height and horizontal collapse",
+      "description": "In ui/main_window.py, ui/active_trader_panel.py and ui/active_portfolio_panel.py make the right dock's title bar a DiagonalStrikeButton('Active Trader') and the portfolio summary_label a DiagonalStrikeButton('Account Summary'); hiding a panel hides its body keeping its button, and the other expands. When both are hidden the dock collapses horizontally to the button strip by (a) relaxing right_dock.setMinimumWidth(RIGHT_DOCK_COLLAPSED_MIN_WIDTH) and (b) explicitly calling _resize_docks_guarded([right_dock], [collapsed_width]), while _apply_dock_widths treats the region as collapsed/hidden for the cross-clamp; showing either panel restores RIGHT_DOCK_MIN_WIDTH and the normal B3 cross-clamp, and _on_dom_toggled stays the whole-region toggle without resetting per-panel state.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-04",
+        "D21-10"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.13.1 — Given the right dock is visible, Then 'Active Trader' = the right dock's title bar and 'Account Summary' = the portfolio's summary label, and both become toggle buttons: the Active Trader button hides/shows the Active Trader panel, and the Account Summary button hides/shows the Account Summary (portfolio) panel.",
+        "AC-D21.13.2 — Given one of the two panels is hidden, Then that panel collapses in height to just its button, and the other panel expands to fill the vacated vertical space.",
+        "AC-D21.13.3 — Given both panels are hidden, Then the right dock collapses horizontally to the minimum width required to show the two buttons (the chart reclaims the width).",
+        "AC-D21.13.4 — Given a panel is hidden, Then its button shows the VIS-D21.1 diagonal strike-through; when shown, the strike is removed."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-11-T01",
+          "linked_acceptance_criterion": "AC-D21.13.1",
+          "type": "integration",
+          "description": "Boot an offscreen MainWindow; assert the right dock title-bar widget contains a DiagonalStrikeButton('Active Trader') and the portfolio summary is a DiagonalStrikeButton('Account Summary'); clicking each toggles the matching panel body.",
+          "expected_result": "Both labels are toggle buttons mapped to the correct panels."
+        },
+        {
+          "test_id": "D21-11-T02",
+          "linked_acceptance_criterion": "AC-D21.13.2",
+          "type": "integration",
+          "description": "Hide one panel and assert it collapses to just its button while the other panel's height grows to fill the vacated space; re-show and assert the original split is restored.",
+          "expected_result": "One-hidden collapses in height and the other expands; re-show restores."
+        },
+        {
+          "test_id": "D21-11-T03",
+          "linked_acceptance_criterion": "AC-D21.13.3",
+          "type": "integration",
+          "description": "Hide both panels; assert right_dock.minimumWidth() is relaxed to RIGHT_DOCK_COLLAPSED_MIN_WIDTH (below RIGHT_DOCK_MIN_WIDTH), the dock width is explicitly reduced to the button strip via _resize_docks_guarded, and the chart keeps >= CHART_MIN_WIDTH; show a panel and assert the 200px minimum and the normal cross-clamp are restored.",
+          "expected_result": "Both-hidden collapses horizontally to the button strip with the chart minimum held; showing restores the 200px minimum and cross-clamp."
+        },
+        {
+          "test_id": "D21-11-T04",
+          "linked_acceptance_criterion": "AC-D21.13.4",
+          "type": "integration",
+          "description": "Assert each panel's button reports struck iff its panel is hidden, and the strike is removed when shown.",
+          "expected_result": "Strike reflects each panel's hidden state."
+        },
+        {
+          "test_id": "D21-11-T05",
+          "linked_acceptance_criterion": "AC-D21.13.1",
+          "type": "integration",
+          "description": "Exercise _on_dom_toggled: assert it hides/shows the whole region and does not reset per-panel hidden states; assert the collapsed region is treated as hidden by _apply_dock_widths so the watchlist regains its own cap.",
+          "expected_result": "DOM toggle remains whole-region; per-panel state persists; cross-clamp consistent."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py",
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_right_dock_d21.py"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_right_dock_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 4 (PA-D21-5, PA-D21-6; RC-D21-2)",
+        "docs/architecture.md#D21 increment (S12)",
+        "docs/requirements/requirements.md#AC-D21.13.1",
+        "docs/requirements/requirements.md#AC-D21.13.2",
+        "docs/requirements/requirements.md#AC-D21.13.3",
+        "docs/requirements/requirements.md#AC-D21.13.4",
+        "ui/main_window.py:305-337, 1132-1224 (right dock region + _apply_dock_widths)",
+        "ui/active_portfolio_panel.py:60-70 (summary_label)",
+        "ui/visual_conventions.py (DiagonalStrikeButton from D21-04)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "ui/active_trader_panel.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_right_dock_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-12",
+      "title": "D21.9 — per-row alarm Edit button + AlarmEditDialog with immediate persistence",
+      "description": "In ui/alarm_dialog.py add a small per-row Edit QPushButton at the right-hand end and stretch the Note column up to it; clicking Edit opens a small modal AlarmEditDialog (new ui/alarm_edit_dialog.py or inline) allowing price/condition/sound/note changes with Save/Cancel, calling the existing AlarmStore.update(id, price=..., direction=..., sound=..., note=...) on Save and reloading. A triggered/set alarm may be edited and keeps its state (update leaves active/triggered/triggered_at untouched).",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D21.9.1 — Given the alarm popup is open with at least one alarm, Then each alarm row has a small Edit button at the right-hand end of the row.",
+        "AC-D21.9.2 — Given the Note column and the Edit button, Then the Note column is widened to fill the popup width up to the Edit button (to the end of the popup; no large empty gap between the note text and the Edit button).",
+        "AC-D21.9.3 — Given the user clicks a row's Edit button, Then a small edit dialog opens for that alarm allowing price, condition, sound, and note to be changed, with Save/Cancel; Save persists immediately and the change is reflected on the chart/alarm badge; Cancel discards.",
+        "AC-D21.9.4 — Given the alarm is a triggered/set alarm, Then it may still be edited and the edit keeps its state — editing does not re-arm, reset, or silently disable it."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-12-T01",
+          "linked_acceptance_criterion": "AC-D21.9.1",
+          "type": "integration",
+          "description": "Open an offscreen AlarmDialog with at least one alarm and assert every row exposes an Edit QPushButton at the row's right end (reachable when the table scrolls).",
+          "expected_result": "Each alarm row has a right-end Edit button."
+        },
+        {
+          "test_id": "D21-12-T02",
+          "linked_acceptance_criterion": "AC-D21.9.2",
+          "type": "integration",
+          "description": "Assert the Note column is stretched to fill the popup width up to the Edit button (no large empty gap between the note text and the Edit button).",
+          "expected_result": "Note column fills the width up to the Edit button."
+        },
+        {
+          "test_id": "D21-12-T03",
+          "linked_acceptance_criterion": "AC-D21.9.3",
+          "type": "integration",
+          "description": "Click a row's Edit, change price/condition/sound/note, Save, and assert AlarmStore.load(symbol) returns the edited values; repeat with Cancel and assert the values are unchanged.",
+          "expected_result": "Save persists immediately; Cancel discards."
+        },
+        {
+          "test_id": "D21-12-T04",
+          "linked_acceptance_criterion": "AC-D21.9.4",
+          "type": "integration",
+          "description": "Edit a triggered/set alarm and assert its active/triggered/triggered_at state is preserved after Save (AlarmStore.update leaves those untouched) and the overlay/badge reflects the edited price.",
+          "expected_result": "Triggered alarm stays triggered after an edit; edited price rendered."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/alarm_dialog.py",
+        "ui/alarm_edit_dialog.py",
+        "tests/test_alarm_d21.py"
+      ],
+      "touches_files": [
+        "ui/alarm_dialog.py",
+        "ui/alarm_edit_dialog.py",
+        "tests/test_alarm_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 5 (PA-D21-7)",
+        "docs/architecture.md#D21 increment (S13)",
+        "docs/requirements/requirements.md#AC-D21.9.1",
+        "docs/requirements/requirements.md#AC-D21.9.2",
+        "docs/requirements/requirements.md#AC-D21.9.3",
+        "docs/requirements/requirements.md#AC-D21.9.4",
+        "ui/alarm_dialog.py:28-118 (table + _append_row)",
+        "data/alarm_store.py:63-79 (AlarmStore.update)"
+      ],
+      "outputs": [
+        "ui/alarm_dialog.py",
+        "ui/alarm_edit_dialog.py",
+        "tests/test_alarm_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-13",
+      "title": "D21.10 — smart alarm setup: clicked price, yellow dashed preview line, condition default",
+      "description": "In ui/main_window.py (_on_alarm_create_requested chart-click path only), ui/chart_panel.py and ui/alarm_dialog.py pre-fill the clicked price, create a yellow dashed preview InfiniteLine owned by ChartPanel while that popup is open (connected to the dialog's price_input.valueChanged to follow live, removed on close, replaced by the real alarm line after Add), and default the condition on open only: Cross Below when current price > alarm price, Cross Above when current < alarm price or current is unknown, user-overridable. The Alarms-button path (_open_alarm_dialog) creates no preview line.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-12",
+        "D21-11",
+        "D21-08"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.10.1 — Given the user activates Alarm Mode and clicks a price level on the chart, Then the alarm popup opens with the price pre-filled from that clicked level.",
+        "AC-D21.10.2 — Given the alarm popup is open from a chart click, Then a yellow dashed horizontal preview line is drawn on the chart at the selected price level and is visible while the popup is open.",
+        "AC-D21.10.3 — Given the yellow dashed line and the popup, When the user changes the price in the popup, Then the dashed line moves up/down to follow the price live.",
+        "AC-D21.10.4 — Given the popup closes, Then the preview line is removed; after Add, the real alarm line replaces the preview at the alarm's price.",
+        "AC-D21.10.5 — Given the popup opens, Then the condition defaults only at open to Cross Below when the current price is higher than the alarm price and Cross Above when the current price is lower than the alarm price; the default is user-overridable; when the current price is unknown, the default is Cross Above."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-13-T01",
+          "linked_acceptance_criterion": "AC-D21.10.1",
+          "type": "integration",
+          "description": "Drive _on_alarm_create_requested(price) with a chart-click price (dialog exec monkeypatched) and assert the AlarmDialog price input is pre-filled with that exact price.",
+          "expected_result": "The clicked price pre-fills the popup."
+        },
+        {
+          "test_id": "D21-13-T02",
+          "linked_acceptance_criterion": "AC-D21.10.2",
+          "type": "integration",
+          "description": "Open the popup via the chart-click path and assert a yellow dashed preview line exists on the chart at the selected price and is visible while the popup is open.",
+          "expected_result": "A yellow dashed preview line is present at the clicked level while the chart-click popup is open."
+        },
+        {
+          "test_id": "D21-13-T03",
+          "linked_acceptance_criterion": "AC-D21.10.3",
+          "type": "integration",
+          "description": "Change the dialog's price spinbox and assert the preview line's y value follows live.",
+          "expected_result": "The preview line tracks the price spinbox live."
+        },
+        {
+          "test_id": "D21-13-T04",
+          "linked_acceptance_criterion": "AC-D21.10.4",
+          "type": "integration",
+          "description": "Close the popup without Add and assert the preview line is removed; repeat with Add and assert the real AlarmOverlay line replaces the preview at the alarm price.",
+          "expected_result": "Preview removed on close; real line replaces it after Add."
+        },
+        {
+          "test_id": "D21-13-T05",
+          "linked_acceptance_criterion": "AC-D21.10.5",
+          "type": "unit",
+          "description": "Assert the on-open condition default for last_price=100: alarm price 110 -> Cross Above, 90 -> Cross Below, None/unknown -> Cross Above; assert the user can override and the default is not recomputed on spinbox change.",
+          "expected_result": "The three default cases hold; override allowed; applied only on open."
+        },
+        {
+          "test_id": "D21-13-T06",
+          "linked_acceptance_criterion": "AC-D21.10.2",
+          "type": "integration",
+          "description": "Open the popup via the Alarms button (_open_alarm_dialog) and assert no preview line is created (it uses the last chart price).",
+          "expected_result": "The Alarms-button path creates no preview line."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/alarm_dialog.py",
+        "ui/chart_panel.py",
+        "ui/main_window.py",
+        "tests/test_alarm_d21.py"
+      ],
+      "touches_files": [
+        "ui/alarm_dialog.py",
+        "ui/chart_panel.py",
+        "ui/main_window.py",
+        "tests/test_alarm_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 5 (PA-D21-8; RC-D21-3)",
+        "docs/architecture.md#D21 increment (S14/S15)",
+        "docs/requirements/requirements.md#AC-D21.10.1",
+        "docs/requirements/requirements.md#AC-D21.10.2",
+        "docs/requirements/requirements.md#AC-D21.10.3",
+        "docs/requirements/requirements.md#AC-D21.10.4",
+        "docs/requirements/requirements.md#AC-D21.10.5",
+        "ui/main_window.py:980-987, 1502-1509 (_open_alarm_dialog / _on_alarm_create_requested)",
+        "ui/alarm_overlay.py:34-226 (InfiniteLine + create_requested)"
+      ],
+      "outputs": [
+        "ui/alarm_dialog.py",
+        "ui/chart_panel.py",
+        "ui/main_window.py",
+        "tests/test_alarm_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-14",
+      "title": "D21.4 — pure time-collapse service (coverage-adjusted predicate, 1 day identity)",
+      "description": "Create the new pure, Qt-free services/time_collapse_service.py: build_collapse_map(bars, timeframe, ext_hours) -> TimeCollapseMap with to_display(ts), to_ts(x), x_values, is_identity; and gap_is_non_trading(a, b, ext_hours, bar_period) returning True (collapse) iff market_calendar.session_windows(a + bar_period, b, ext_hours) is empty, with bar_period = TIMEFRAME_SECONDS[timeframe]. 1 day is the identity map. Bar.ts is never mutated.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC-D21.4.1 (predicate) — Given consecutive bars a < b on an intraday timeframe, Then gap_is_non_trading(a, b, ext_hours, bar_period) is True (collapse) iff market_calendar.session_windows(a + bar_period, b, ext_hours) is empty; the ordinary RTH overnight, extended-hours overnight, weekend and holiday gaps collapse while a within-session hole and a missing full trading session stay visible.",
+        "AC-D21.4.2 — Given the timeframe is 1 day, Then build_collapse_map is the identity map (is_identity True).",
+        "AC-D21.4.4 — Given a genuine trading-session data hole (D16), Then it is not collapsed and collapse remains a display-only transform that neither fabricates nor drops trading-session bars."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-14-T01",
+          "linked_acceptance_criterion": "AC-D21.4.1",
+          "type": "unit",
+          "description": "Against the real services.market_calendar.session_windows with bar_period=300 assert the eight boundary cases: RTH overnight Fri 15:55->Mon 09:30 collapses, ext overnight Fri 19:55->Mon 04:00 collapses, weekend collapses, holiday collapses, within-session hole 11:00->13:00 is kept, missing full session (Mon close->Wed open) is kept, partial half-day afternoon hole is kept, adjacent bars collapse (no-op).",
+          "expected_result": "All between-session gaps collapse; within-session holes and missing sessions stay visible."
+        },
+        {
+          "test_id": "D21-14-T02",
+          "linked_acceptance_criterion": "AC-D21.4.2",
+          "type": "unit",
+          "description": "Build the map for the 1 day timeframe and assert is_identity is True and to_display(ts) == ts for the bar timestamps.",
+          "expected_result": "1 day is a no-op identity map."
+        },
+        {
+          "test_id": "D21-14-T03",
+          "linked_acceptance_criterion": "AC-D21.4.1",
+          "type": "unit",
+          "description": "Assert x_values are strictly increasing, to_display/to_ts round-trip for bar timestamps, and within-session adjacent bars keep their normal spacing (only between-session gaps are removed).",
+          "expected_result": "Monotonic display-x, correct round-trip, within-session spacing preserved."
+        },
+        {
+          "test_id": "D21-14-T04",
+          "linked_acceptance_criterion": "AC-D21.4.4",
+          "type": "unit",
+          "description": "Assert a synthetic missing trading session produces a kept gap (not collapsed) and that the service never mutates or drops input bar timestamps.",
+          "expected_result": "Trading-session holes preserved; Bar.ts untouched."
+        }
+      ],
+      "expected_artifacts": [
+        "services/time_collapse_service.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "touches_files": [
+        "services/time_collapse_service.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 6 (PA-D21-9; Validator probe)",
+        "docs/architecture.md#D21 increment (S16; Validator probe table)",
+        "docs/requirements/requirements.md#AC-D21.4.1",
+        "docs/requirements/requirements.md#AC-D21.4.2",
+        "docs/requirements/requirements.md#AC-D21.4.4",
+        "services/market_calendar.py:195-216 (session_windows)",
+        "data/bar_aggregator.py:6-14, 30-32, 93 (TIMEFRAME_SECONDS, period starts)"
+      ],
+      "outputs": [
+        "services/time_collapse_service.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-15",
+      "title": "D21.4 — ChartPanel display-x x-model + reconcile the D21.2 visible-max scan",
+      "description": "In ui/chart_panel.py store the TimeCollapseMap and plot candles/volume at display-x, set the ViewBox x-range in display-x, add a CollapsedDateAxis mapping display-x -> ts for labels (and inverse-map the crosshair time tag), re-render on ext-hours/timeframe change, and reconcile the D21.2 visible-max scan so it uses display-x after collapse (assert the ceiling after collapse).",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-14",
+        "D21-13",
+        "D21-02"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.4.1 (chart) — Given an intraday timeframe with bars loaded, When the chart renders, Then the gaps between trading sessions (overnight/weekend/holiday) are not plotted as empty space — the plotted bars are contiguous across consecutive sessions — while normal inter-bar spacing within a session is preserved.",
+        "AC-D21.4.3 — Given RTH selected (Ext Hours OFF), Then only RTH bars are shown and all non-RTH time collapses; Given Ext Hours ON, Then the D1 pre/post-market bands still render for the sessions shown.",
+        "D21.2 reconciliation — Given the D21.4 collapse map is active, Then the D21.2 visible-max volume scan uses the collapse display-x so the volume Y ceiling is 1.10 x the max volume of the visible display-x range."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-15-T01",
+          "linked_acceptance_criterion": "AC-D21.4.1",
+          "type": "integration",
+          "description": "Boot an offscreen ChartPanel with intraday bars spanning a weekend; assert consecutive sessions are contiguous in display-x (no empty interval between the last bar of one session and the first of the next) and that within-session spacing between adjacent bars is preserved.",
+          "expected_result": "Between-session gaps collapsed; within-session spacing preserved."
+        },
+        {
+          "test_id": "D21-15-T02",
+          "linked_acceptance_criterion": "AC-D21.4.2",
+          "type": "integration",
+          "description": "Load a 1 day chart and assert the rendered x-positions are unchanged (identity no-op) with one bar per trading day.",
+          "expected_result": "1 day renders unchanged."
+        },
+        {
+          "test_id": "D21-15-T03",
+          "linked_acceptance_criterion": "AC-D21.4.4",
+          "type": "integration",
+          "description": "Render a synthetic genuine trading-session hole and assert it remains visible (not collapsed away) while an overnight/weekend gap collapses.",
+          "expected_result": "Trading-session holes stay visible; non-trading gaps collapse."
+        },
+        {
+          "test_id": "D21-15-T04",
+          "linked_acceptance_criterion": "AC-D21.4.3",
+          "type": "integration",
+          "description": "With Ext Hours OFF (RTH) assert only RTH bars are plotted and all non-RTH time collapses; with Ext Hours ON assert the D1 pre/post bands render at the collapsed positions for the sessions shown.",
+          "expected_result": "RTH collapse holds; D1 bands render at collapsed positions with Ext Hours ON."
+        },
+        {
+          "test_id": "D21-15-T05",
+          "linked_acceptance_criterion": "D21.2 reconciliation",
+          "type": "integration",
+          "description": "After collapse, set a visible display-x range and assert viewRange()[1] == (0, approx(1.10 * max volume of bars in the visible display-x range)).",
+          "expected_result": "The volume ceiling uses display-x after collapse."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/chart_panel.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "touches_files": [
+        "ui/chart_panel.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 6 (PA-D21-10)",
+        "docs/architecture.md#D21 increment (S16/S17; risk D21.4+D21.2)",
+        "docs/requirements/requirements.md#AC-D21.4.1",
+        "docs/requirements/requirements.md#AC-D21.4.2",
+        "docs/requirements/requirements.md#AC-D21.4.3",
+        "docs/requirements/requirements.md#AC-D21.4.4",
+        "services/time_collapse_service.py (map from D21-14)",
+        "ui/chart_panel.py:24, 722-734, 802-874 (_custom_date_axis, _render_sessions, _refresh_candles)"
+      ],
+      "outputs": [
+        "ui/chart_panel.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-16",
+      "title": "D21.4 — collapse consumers: session bands, time-anchored drawings, alarm label x, date axis",
+      "description": "Map the remaining collapse consumers through the same TimeCollapseMap: SessionOverlay bands accept display-x values; DrawingOverlay._bar_ts and scene<->view drag use display-x (render) / inverse-map (drag); the alarm label x uses the display-x of the last bar; and services/session_service.py gains a helper only if needed. Update the D16/D1 lockstep tests that assert empty closures (tests/test_session_service.py, tests/test_session_overlay.py, tests/test_history_backfill.py).",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "D21-15",
+        "D21-14"
+      ],
+      "acceptance_criteria": [
+        "AC-D21.4.1 (consumers) — Given the collapse map, Then SessionOverlay bands, time-anchored DrawingOverlay anchors and the alarm label x are mapped through the same map (render) / inverse-mapped (drag), so drawings, bands and alarm labels land on the correct bars after collapse, and the date axis/crosshair inverse-map display-x -> ts.",
+        "AC-D21.4.3 (bands) — Given Ext Hours ON, Then the D1 pre/post bands render at the collapsed positions for the sessions shown."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-16-T01",
+          "linked_acceptance_criterion": "AC-D21.4.3 (bands)",
+          "type": "integration",
+          "description": "After collapse, render SessionOverlay bands and assert each pre/post band appears at the display-x positions of its session (no band in the collapsed gap).",
+          "expected_result": "Bands land at the collapsed session positions."
+        },
+        {
+          "test_id": "D21-16-T02",
+          "linked_acceptance_criterion": "AC-D21.4.1 (consumers)",
+          "type": "integration",
+          "description": "Place a time-anchored drawing, collapse the chart, and assert the drawing renders on its original bar (round-trip through to_display/to_ts) and drag maps scene->view correctly.",
+          "expected_result": "Drawings stay anchored to their bars after collapse; drag round-trips."
+        },
+        {
+          "test_id": "D21-16-T03",
+          "linked_acceptance_criterion": "AC-D21.4.1 (consumers)",
+          "type": "integration",
+          "description": "Assert the alarm label x uses the display-x of the last bar after collapse and the date-axis/crosshair time tag inverse-maps display-x back to the correct ts.",
+          "expected_result": "Alarm label and axis labels reflect the collapsed display-x and correct timestamps."
+        },
+        {
+          "test_id": "D21-16-T04",
+          "linked_acceptance_criterion": "AC-D21.4.1 (consumers)",
+          "type": "integration",
+          "description": "Run the D16/D1 lockstep modules tests/test_session_service.py, tests/test_session_overlay.py and tests/test_history_backfill.py after their lockstep update and assert zero failures with no stale empty-closure assertion contradicting D21.4.",
+          "expected_result": "Lockstep modules green and consistent with D21.4; D16 no-silent-hole rules unchanged."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/overlays/session_overlay.py",
+        "ui/drawing_overlay.py",
+        "ui/alarm_overlay.py",
+        "services/session_service.py",
+        "tests/test_session_service.py",
+        "tests/test_session_overlay.py",
+        "tests/test_history_backfill.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "touches_files": [
+        "ui/overlays/session_overlay.py",
+        "ui/drawing_overlay.py",
+        "ui/alarm_overlay.py",
+        "services/session_service.py",
+        "tests/test_session_service.py",
+        "tests/test_session_overlay.py",
+        "tests/test_history_backfill.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "inputs": [
+        "docs/plan.md#Phase 6 (PA-D21-10; lockstep test notes)",
+        "docs/architecture.md#D21 increment (S17)",
+        "docs/requirements/requirements.md#AC-D21.4.1",
+        "docs/requirements/requirements.md#AC-D21.4.3",
+        "ui/overlays/session_overlay.py:13-34 (render bands)",
+        "ui/drawing_overlay.py:80, 110, 205, 345, 491, 643, 816 (_bar_ts + drag mapping)",
+        "ui/alarm_overlay.py (label x)",
+        "tests/test_session_service.py, tests/test_session_overlay.py, tests/test_history_backfill.py (D16/D1 lockstep)"
+      ],
+      "outputs": [
+        "ui/overlays/session_overlay.py",
+        "ui/drawing_overlay.py",
+        "ui/alarm_overlay.py",
+        "services/session_service.py",
+        "tests/test_session_service.py",
+        "tests/test_session_overlay.py",
+        "tests/test_history_backfill.py",
+        "tests/test_time_collapse_d21.py"
+      ],
+      "architecture_dependency": false,
+      "status": "done"
+    },
+    {
+      "id": "D21-17",
+      "title": "D21 — pre-fix-red / post-fix-green discrimination evidence (Q8)",
+      "description": "Verify each new/changed D21 test genuinely discriminates: run the D21 test modules against the pre-fix tree (commit 04397d9, D1-D20) and record that the new assertions fail there, then run them against the post-fix tree and record that they pass. Record both results in the Build-owned build log; the intermediate red is intentional (Q8), not a regression.",
+      "agent": "Build",
+      "task_type": "verification",
+      "dependencies": [
+        "D21-01",
+        "D21-02",
+        "D21-03",
+        "D21-04",
+        "D21-05",
+        "D21-06",
+        "D21-07",
+        "D21-08",
+        "D21-09",
+        "D21-10",
+        "D21-11",
+        "D21-12",
+        "D21-13",
+        "D21-14",
+        "D21-15",
+        "D21-16"
+      ],
+      "acceptance_criteria": [
+        "Q8 (discrimination) — Given each D21 new/changed test, When it runs against the pre-fix tree (commit 04397d9), Then it fails; When it runs against the post-fix tree, Then it passes; and both results are recorded."
+      ],
+      "tests": [
+        {
+          "test_id": "D21-17-T01",
+          "linked_acceptance_criterion": "Q8 (discrimination)",
+          "type": "manual",
+          "description": "In a temporary worktree at commit 04397d9, copy in the new/changed D21 tests (test_volume_d21.py, test_visual_conventions.py, test_toolbar_d21.py, test_watchlist_columns_d21.py, test_right_dock_d21.py, test_alarm_d21.py, test_time_collapse_d21.py and the lockstep updates), run them and capture the failing test ids/assertions; then run the same tests against the post-fix tree and capture the passing result. Record both in docs/build/build_log.md.",
+          "expected_result": "Every D21 new/changed test is red on the pre-fix tree and green on the post-fix tree; both runs recorded."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/build/build_log.md (Build-owned D21 Q8 evidence entry; no source files)"
       ],
       "touches_files": [],
       "inputs": [
-        "docs/plan.md#Phase 2 (pre-fix evidence, PA-D20-6)",
-        "docs/requirements/requirements.md#AC-D20.6",
-        "docs/requirements/requirements.md#R36",
-        "docs/architecture.md#D20 increment (Validator probe: wrapper 36 -> viewport 18, mapped y 18)",
-        "tests/test_toolbar_scroll_d19.py (lockstep assertions from T61)",
-        "tests/test_toolbar_d20.py (D20 assertions from T62)",
-        "commit 4d8952a (pre-fix tree, D19 wrapper at 36px)"
+        "docs/plan.md#Coverage Map; #Phases 1-6 exit conditions",
+        "docs/requirements/requirements.md#Constraints (Q8 regression-test policy)",
+        "commit 04397d9 (pre-fix D1-D20 tree)",
+        "All D21 test modules from D21-01..D21-16"
       ],
       "outputs": [],
       "architecture_dependency": false,
       "status": "done"
     },
     {
-      "id": "T64",
-      "title": "D20 Phase 3: full-suite regression gate + real-app manual check",
-      "description": "Re-run the full offscreen suite (QT_QPA_PLATFORM=offscreen) after the D20 change and confirm zero failures with no D1–D19 regression; re-confirm the D17/D18 criteria in a toolbar-visible window (only vertical space changed — A40) and that centralWidget().minimumSizeHint().width() <= 750px and the chart minimum (400px) are preserved; confirm no test connects to live TWS or transmits an order (Q9); and record a manual `python main.py` check that the toolbar labels read clearly with the scrollbar hidden (wide) and shown (narrow) and the strip height is stable in both states (offscreen 54px; macOS ~52px). Per project memory, confirm any intermittent failure with a clean full-suite run before treating it as a regression.",
+      "id": "D21-18",
+      "title": "D21 — full offscreen suite regression gate + real-app manual checks (R44, Q9)",
+      "description": "Re-run the full offscreen suite (QT_QPA_PLATFORM=offscreen) after all D21 changes and confirm zero failures with no D1-D20 regression, that the D17/D18 chart-minimum/width criteria still hold, and that no test connects to live TWS or transmits an order (Q9); record manual python main.py checks of the 13 defects and confirm any intermittent failure with a clean full-suite run before treating it as a regression (project memory).",
       "agent": "Build",
       "task_type": "verification",
       "dependencies": [
-        "T61",
-        "T62",
-        "T63"
+        "D21-17"
       ],
       "acceptance_criteria": [
-        "AC-D20.6 (regression, A40): Given the D20 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures, every pre-existing D1–D19 acceptance-criteria test still passes, the D17/D18 criteria hold in a toolbar-visible window, and centralWidget().minimumSizeHint().width() <= 750px and chart_area >= CHART_MIN_WIDTH (400px) are preserved (only vertical space changed).",
-        "R35 (chart vertical space): Given the D20 fix, Then the strip height is < 60px and the chart loses only the reserved lane (~16px macOS / ~18px offscreen) of vertical space — the content row does not grow and the strip does not reach ~60px.",
-        "Q9 / no live TWS: Given the D20 batch, Then no automated test connects to live TWS or transmits an order."
+        "Global (regression, R44) — Given the D21 batch, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D20 acceptance-criteria test still passes, with the D17/D18 chart-minimum (>= CHART_MIN_WIDTH 400px) and dock-width criteria preserved.",
+        "Q9 (live-order safety) — Given the D21 batch, Then no automated test connects to live TWS or transmits an order.",
+        "Real-app (manual) — Given the dev build (python main.py), Then the 13 D21 defects are observably fixed (volume min 0 / visible-max ceiling / volume height; Ext Hours-RTH label; active highlight; persistent alarm-mode message; watchlist columns + single header toggle; right-dock toggles/collapse; alarm edit + smart setup; collapse non-trading time)."
       ],
       "tests": [
         {
-          "test_id": "T64-T01",
-          "linked_acceptance_criterion": "AC-D20.6 (regression, A40): Given the D20 fix, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures, every pre-existing D1–D19 acceptance-criteria test still passes, the D17/D18 criteria hold in a toolbar-visible window, and centralWidget().minimumSizeHint().width() <= 750px and chart_area >= CHART_MIN_WIDTH (400px) are preserved (only vertical space changed).",
+          "test_id": "D21-18-T01",
+          "linked_acceptance_criterion": "Global (regression, R44)",
           "type": "integration",
-          "description": "Run the full offscreen suite and compare against the pre-batch baseline (D1–D19 at commit 4d8952a); assert zero failures and that the D17/D18 criteria hold in a toolbar-visible window with central min-hint <= 750 and chart_area >= 400.",
-          "expected_result": "Zero failures; no D1–D19 regression; D17/D18 criteria hold with the toolbar visible; chart minimum and central min-width preserved."
+          "description": "Run the full offscreen suite (.venv/bin/python -m pytest) and compare against the pre-batch baseline (D1-D20 at commit 04397d9, 585 tests); assert zero failures and that the D17/D18 chart-minimum/dock-width criteria hold.",
+          "expected_result": "Zero failures; no D1-D20 regression; D17/D18 criteria hold."
         },
         {
-          "test_id": "T64-T02",
-          "linked_acceptance_criterion": "R35 (chart vertical space): Given the D20 fix, Then the strip height is < 60px and the chart loses only the reserved lane (~16px macOS / ~18px offscreen) of vertical space — the content row does not grow and the strip does not reach ~60px.",
-          "type": "manual",
-          "description": "Record a manual `python main.py` dev-build check that the toolbar labels read clearly with the horizontal scrollbar hidden (wide) and shown (narrow), with the strip height stable in both states (offscreen 54px; macOS ~52px) and the content a single 36px row.",
-          "expected_result": "Labels legible in both scrollbar states; strip height stable; chart loses only the reserved lane of vertical space."
-        },
-        {
-          "test_id": "T64-T03",
-          "linked_acceptance_criterion": "Q9 / no live TWS: Given the D20 batch, Then no automated test connects to live TWS or transmits an order.",
+          "test_id": "D21-18-T02",
+          "linked_acceptance_criterion": "Q9 (live-order safety)",
           "type": "manual",
           "description": "Confirm no test opens a live TWS socket or transmits an order, and re-run the suite once on a clean shared test DB to distinguish spurious failures from regressions (project memory).",
-          "expected_result": "No live-TWS/order test; any intermittent failure is cleared by a clean full-suite run rather than treated as a regression."
+          "expected_result": "No live-TWS/order test; intermittent failures cleared by a clean full-suite run rather than treated as regressions."
+        },
+        {
+          "test_id": "D21-18-T03",
+          "linked_acceptance_criterion": "Real-app (manual)",
+          "type": "manual",
+          "description": "Record a manual python main.py dev-build walkthrough of all 13 D21 defects (D21.1-D21.13) plus the VIS-D21 strike/highlight conventions, confirming each reported behaviour is fixed.",
+          "expected_result": "All 13 defects observably fixed in the dev build; VIS-D21 conventions visible."
         }
       ],
       "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned Batch-14 D20 verification entry; no new source files)"
+        "docs/build/build_log.md (Build-owned D21 regression/verification entry; no source files)"
       ],
       "touches_files": [],
       "inputs": [
-        "docs/plan.md#Phase 3",
-        "docs/requirements/requirements.md#AC-D20.6",
-        "docs/requirements/requirements.md#R35",
+        "docs/plan.md#Phases 1-6 exit conditions; #Coverage Map",
+        "docs/requirements/requirements.md#Global acceptance criteria",
+        "docs/requirements/requirements.md#R44",
         "docs/requirements/requirements.md#Q9",
-        "docs/architecture.md#D20 increment (A40 — vertical-only change)",
         "docs/memory.md (shared test-DB contention gotcha)",
-        "commit 4d8952a (pre-batch baseline, D1–D19)"
+        "commit 04397d9 (pre-batch baseline, D1-D20)"
       ],
       "outputs": [],
       "architecture_dependency": false,

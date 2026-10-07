@@ -1,5 +1,11 @@
 # Open Questions
 
+> **2026-10-06 (later) — Batch 15 (D21): blocking questions B9–B13 are ANSWERED — D21 clarified and finalised.**
+> The user reported **13 UI defects/issues** in one message after D20 was built and green (`04397d9`, 585 tests),
+> captured as batch **D21** (sub-defects D21.1–D21.13) in `requirements.md`. All five questions (**B9–B13**) were
+> **answered by the user on 2026-10-06** and are recorded verbatim in the **Batch 15 (D21)** section at the end of
+> this file. **No blocking question remains**, so `requirements.md` carries `Status: READY_FOR_PLAN`.
+
 > **2026-10-06 — Batch 14 (D20): blocking questions B7–B8 are ANSWERED — D20 clarified and finalised.** The user
 > reported the D19 toolbar wrapper's horizontal scrollbar clipping the toolbar label descenders, and answered **B7**
 > (verbatim: "Content row 36px + scrollbar lane (~52px total)") and **B8** (verbatim: "As-needed in a reserved
@@ -687,3 +693,68 @@
      while scrolling.
 - **Affected requirement section:** D20 / `AC-D20.1`, `AC-D20.2`, `AC-D20.3`; Journey 21.
 
+---
+
+# Open Questions — Batch 15 (D21) — ANSWERED / finalised 2026-10-06
+
+> The user reported **13 UI defects/issues** in one message on 2026-10-06 (batch **D21**, sub-defects
+> D21.1–D21.13). All five blocking questions (**B9–B13**) were **answered by the user on 2026-10-06** and are
+> recorded verbatim below. **No blocking question remains**, so `requirements.md` carries
+> `Status: READY_FOR_PLAN` and D21 is **clarified and finalised**. The D21 sub-defects that were already clear
+> (D21.1, D21.2, D21.3, D21.7, D21.8, D21.12) were captured with criteria and needed no question.
+
+## B9 — D21.4: how exactly should non-trading time be collapsed, and does it supersede `AC-D16.3`?
+- **Status:** **answered 2026-10-06** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-06, verbatim: "Collapse between-session gaps"):** collapse only the **gaps
+  between trading sessions** (overnight/weekend/holiday), on **intraday timeframes only**; `1 day` is a
+  **no-op**; within-session spacing is preserved; D16's backfill/no-silent-hole rules are **unchanged**; with
+  **Ext Hours ON** the D1 pre/post bands still render; with **RTH selected** only RTH bars show and **all
+  non-RTH time collapses**. This **supersedes the display part of `AC-D16.3`** (recorded; D16's no-silent-hole
+  rules `AC-D16.1`/`AC-D16.4` are unchanged). Options (b) (also collapse empty/partial sessions) and (c) (a
+  user-named rule) are **not adopted**.
+- **Affected requirement section:** D21.4 / `AC-D21.4.1`–`AC-D21.4.4`; supersession of `AC-D16.3`; Journey 23; A45; R37.
+
+## B10 — D21.5: which columns can be added/removed, and is the column layout persisted?
+- **Status:** **answered 2026-10-06** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-06, verbatim: "Existing 7 columns, persisted"):** the addable set is the
+  **existing 7 columns** (`Symbol, Last, Bid, Ask, Chg, Chg %, Vol`); "add" = **re-showing a removed column**;
+  the **Symbol column cannot be removed**; the column layout (set + order) is **persisted across restarts**; a
+  **right-click on a column header** opens the add/remove/rearrange popup. Options (b) (add new data fields)
+  and (c) (a different set/behaviour) are **not adopted**.
+- **Affected requirement section:** D21.5 / `AC-D21.5.1`–`AC-D21.5.4`; Journey 24; A46; R38.
+
+## B11 — D21.6: what is the volume-pane height target (baseline + "at least 200% more")?
+- **Status:** **answered 2026-10-06** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-06, verbatim: "≥360px (3× the 120px cap)"):** the baseline is the current
+  **120px** maximum cap, so the volume pane can grow to **at least 360px** (3×), with the **price pane keeping a
+  ~200px minimum** and the oscillator unaffected. Options (b) (a fraction of the chart height) and (c) (a
+  user-named pixel maximum) are **not adopted**.
+- **Affected requirement section:** D21.6 / `AC-D21.6.1`; Journey 22; A47; R39.
+
+## B12 — D21.11/D21.13: which labels become the hide/show buttons, and what is the collapsed geometry?
+- **Status:** **answered 2026-10-06** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-06, verbatim: "As recommended"):**
+  - **Watchlist (D21.11):** keep the **in-panel header label** and turn it into the toggle (it **stays visible
+    when collapsed**); **delete the duplicate dock title**.
+  - **Right dock (D21.13):** **"Active Trader" = the dock title bar** and **"Account Summary" = the portfolio
+    summary label**; both become **toggle buttons**.
+  - **Collapsed geometry:** one hidden → collapses **in height** to just its button and the other **expands**;
+    **both** hidden → the right dock collapses **horizontally** to the minimum width needed for the two buttons
+    (the chart reclaims the width).
+  - **Hidden panels' buttons** show the `VIS-D21.1` diagonal strike.
+- **Affected requirement section:** D21.11 / `AC-D21.11.1`–`AC-D21.11.3`; D21.13 / `AC-D21.13.1`–`AC-D21.13.4`;
+  Journeys 24–25; A41/A42 (`VIS-D21` confirmed); R41.
+
+## B13 — D21.9/D21.10: alarm edit UX and the smart-setup preview lifecycle
+- **Status:** **answered 2026-10-06** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-06, verbatim: "As recommended"):**
+  - **D21.9 edit surface:** a row **Edit** button opens a small **edit dialog** (price, condition, sound, note)
+    with **Save/Cancel**, persisted **immediately**; editing a **triggered/set** alarm is **allowed and keeps its
+    state**; the **note column is widened to fill to the end of the popup**.
+  - **D21.10 preview line:** the **yellow dashed preview line** is drawn **while the popup is open**, follows the
+    price spinbox **live**, and is **removed when the popup closes** (replaced by the real alarm line after Add).
+  - **D21.10 condition default:** the auto default (Cross Below when current > alarm price; Cross Above when
+    current < alarm price) applies **only on popup open** and is **user-overridable**; when the current price is
+    **unknown**, default to **Cross Above**.
+- **Affected requirement section:** D21.9 / `AC-D21.9.1`–`AC-D21.9.4`; D21.10 / `AC-D21.10.1`–`AC-D21.10.5`;
+  Journey 26; A43/A44; R42/R43.

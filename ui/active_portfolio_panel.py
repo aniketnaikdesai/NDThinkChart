@@ -5,6 +5,7 @@ automatic option-strategy grouping.
 """
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QDockWidget,
@@ -23,6 +24,7 @@ from data.models import Position
 from services.strategy_detection import detect_and_group
 from ui.stop_loss_target_dialog import StopLossTargetDialog
 from ui.trade_context_menu import TradeContextMenu
+from ui.visual_conventions import DiagonalStrikeButton
 
 import ui.dock_layout as dock_layout
 
@@ -53,6 +55,7 @@ class ActivePortfolioPanel(QWidget):
         self._summary: dict[str, str] = {}
         self._positions: list[Position] = []
         self._groups: dict[int, str] = {}
+        self._collapsed = False
 
         # D18 Phase 4: bound the panel so its 10-column positions table scrolls or
         # clips internally rather than forcing the right region past the 40% cap
@@ -62,12 +65,44 @@ class ActivePortfolioPanel(QWidget):
             QSizePolicy.Policy.Ignored, self.sizePolicy().verticalPolicy()
         )
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # ── Header (D21.13) — the "Account Summary" toggle button ─────────────
+        # ``summary_label`` is the panel's hide/show control: a
+        # ``DiagonalStrikeButton`` that hides the body below (the account detail
+        # + positions table) while the button itself stays visible, struck while
+        # hidden (AC-D21.13.1/AC-D21.13.4).
+        self.summary_label = DiagonalStrikeButton("Account Summary")
+        self.summary_label.setObjectName("AccountSummaryHeaderButton")
+        # Checked == shown/unstruck; unchecked == hidden/struck.
+        self.summary_label.setCheckable(True)
+        self.summary_label.setChecked(True)
+        self.summary_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.summary_label.setStyleSheet(
+            "QPushButton#AccountSummaryHeaderButton {"
+            " background: transparent; border: none;"
+            " color: #cbd5e1; font-weight: 600; text-align: left;"
+            " padding: 4px 8px; }"
+        )
+        # Keep the palette in sync so the VIS-D21.1 strike uses the label colour.
+        _pal = self.summary_label.palette()
+        _pal.setColor(QPalette.ColorRole.ButtonText, QColor("#cbd5e1"))
+        self.summary_label.setPalette(_pal)
+        self.summary_label.toggled.connect(self._on_header_toggled)
+        outer.addWidget(self.summary_label)
+
+        # ── Body — the collapsible content (D21.13) ───────────────────────────
+        self.body = QWidget()
+        layout = QVBoxLayout(self.body)
         layout.setContentsMargins(6, 6, 6, 6)
 
-        self.summary_label = QLabel("Account summary — disconnected")
-        self.summary_label.setStyleSheet("color: #cbd5e1; font-weight: 600;")
-        layout.addWidget(self.summary_label)
+        # The dynamic account values live in the body (the button keeps the
+        # static "Account Summary" label).
+        self.account_detail = QLabel("Account summary — disconnected")
+        self.account_detail.setStyleSheet("color: #cbd5e1; font-weight: 600;")
+        layout.addWidget(self.account_detail)
 
         # 10 columns: Symbol, Qty, Avg Price, Type, Multiplier, P/L, SL, TP, Strategy, Group
         self.positions_table = QTableWidget(0, 10)
@@ -107,6 +142,8 @@ class ActivePortfolioPanel(QWidget):
         self.refresh_btn.clicked.connect(self.refresh)
         layout.addWidget(self.refresh_btn)
 
+        outer.addWidget(self.body, 1)
+
         # Context menu
         self._context_menu = TradeContextMenu(self)
         self._context_menu.set_sltp_action.triggered.connect(self._on_set_sltp)
@@ -122,6 +159,33 @@ class ActivePortfolioPanel(QWidget):
 
         # SL/TP dialog
         self._sltp_dialog = None
+
+    # ── Header collapse toggle (D21.13) ──────────────────────────────────────
+
+    def _on_header_toggled(self, checked: bool) -> None:
+        """Hide/show the panel body from the "Account Summary" button (D21.13).
+
+        ``checked`` is the visible state: unchecked -> body hidden + VIS-D21.1
+        strike (auto-applied by :class:`DiagonalStrikeButton`); checked -> body
+        shown + no strike.
+        """
+        visible = bool(checked)
+        self._collapsed = not visible
+        self.body.setVisible(visible)
+
+    def is_collapsed(self) -> bool:
+        """True while the panel body is hidden behind its header button."""
+        return self._collapsed
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Programmatically collapse/restore the body, syncing the button."""
+        collapsed = bool(collapsed)
+        self.summary_label.setChecked(not collapsed)
+        self._on_header_toggled(not collapsed)
+
+    def toggle_collapsed(self) -> None:
+        """Flip the collapsed state (convenience for callers/tests)."""
+        self.set_collapsed(not self._collapsed)
 
     def set_account_summary(self, summary: dict[str, str]) -> None:
         """Apply account summary key/value pairs."""
@@ -179,12 +243,12 @@ class ActivePortfolioPanel(QWidget):
 
     def _render_summary(self) -> None:
         if not self._summary:
-            self.summary_label.setText("Account summary — disconnected")
+            self.account_detail.setText("Account summary — disconnected")
             return
         account = self._summary.get("Account", "—")
         net_liq = self._summary.get("NetLiquidation", "—")
         cash = self._summary.get("TotalCashValue", "—")
-        self.summary_label.setText(
+        self.account_detail.setText(
             f"Account: {account}  |  Net Liq: {net_liq}  |  Cash: {cash}"
         )
 

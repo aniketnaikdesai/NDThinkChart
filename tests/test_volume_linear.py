@@ -4,6 +4,12 @@ The live volume nice-max comes from the single pinned family
 ``1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k`` (RG-002 / AC-D8.1), floored at ``100``
 with no fixed ceiling. The old fixed ``[10k .. 10M]`` list is retained here
 **only as a regression fixture** — it is never a live code path.
+
+D21.2 / AC-D21.2.1 supersedes the D8 whole-list nice-max as the *live panel*
+ceiling: the volume pane ceiling is now ``1.10 x max(volume of the bars in the
+visible x-range)``. ``_nice_volume_max`` is retained as the pinned-family /
+all-zero-floor helper and is exercised directly below; the panel view-range
+assertions now encode the D21.2 rule.
 """
 
 import pytest
@@ -131,7 +137,8 @@ def test_T22_T07_panel_linear_viewbox_nice_max(qapp):
     y_range = vb.viewRange()[1]
     assert y_range[0] == pytest.approx(0, abs=1)
     assert y_range[0] >= 0                       # no negative tick
-    assert y_range[1] == pytest.approx(_nice_volume_max(max_vol), rel=0.02)
+    # D21.2: the live ceiling is 1.10 x the visible max, not the nice-max family.
+    assert y_range[1] == pytest.approx(max_vol * 1.1, rel=0.02)
     panel.hide()
     panel.close()
 
@@ -177,9 +184,9 @@ def test_volume_y_linear_no_negatives_nice_max(qapp):
     qapp.processEvents()
     y_range = vb.viewRange()[1]
     assert y_range[0] == pytest.approx(0, abs=1)
-    # Upper should be nice_max
-    expected_nice = _nice_volume_max(max_vol)
-    assert y_range[1] == pytest.approx(expected_nice, rel=0.02)
+    # Upper should be the D21.2 visible ceiling (1.10 x visible max).
+    expected_ceiling = max_vol * 1.1
+    assert y_range[1] == pytest.approx(expected_ceiling, rel=0.02)
     # No negative tick
     assert y_range[0] >= 0
     panel.hide()

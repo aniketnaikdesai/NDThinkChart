@@ -1,0 +1,81 @@
+"""Small modal dialog for editing one existing price alarm.
+
+Persists immediately on Save via :meth:`AlarmStore.update`, and deliberately
+never touches ``active``/``triggered``/``triggered_at`` — so a triggered or set
+alarm keeps its state across an edit.
+"""
+
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QLineEdit,
+)
+
+from data.alarm_store import AlarmStore
+from data.models import Alarm
+
+
+CONDITIONS = {
+    "Cross Above": "cross_above",
+    "Cross Below": "cross_below",
+    "Cross Either": "cross_either",
+}
+
+
+class AlarmEditDialog(QDialog):
+    """Edit price/condition/sound/note for a single alarm."""
+
+    def __init__(self, alarm: Alarm, parent=None):
+        super().__init__(parent)
+        self.alarm = alarm
+        self.setWindowTitle("Edit Alarm")
+        self.setModal(True)
+
+        layout = QFormLayout(self)
+
+        self.price_input = QDoubleSpinBox()
+        self.price_input.setDecimals(4)
+        self.price_input.setRange(0.0001, 1_000_000)
+        self.price_input.setValue(float(alarm.price))
+        layout.addRow("Price:", self.price_input)
+
+        self.condition_input = QComboBox()
+        self.condition_input.addItems(CONDITIONS.keys())
+        label_by_condition = {value: label for label, value in CONDITIONS.items()}
+        self.condition_input.setCurrentText(
+            label_by_condition.get(alarm.direction, alarm.direction)
+        )
+        layout.addRow("Condition:", self.condition_input)
+
+        self.sound_input = QCheckBox("Play sound")
+        self.sound_input.setChecked(bool(alarm.sound))
+        layout.addRow("Sound:", self.sound_input)
+
+        self.note_input = QLineEdit(alarm.note or "")
+        self.note_input.setPlaceholderText("Note")
+        layout.addRow("Note:", self.note_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self.cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def _save(self):
+        if self.alarm is not None and self.alarm.id is not None:
+            AlarmStore.update(
+                self.alarm.id,
+                price=float(self.price_input.value()),
+                direction=CONDITIONS[self.condition_input.currentText()],
+                sound=bool(self.sound_input.isChecked()),
+                note=self.note_input.text().strip(),
+            )
+        self.accept()

@@ -2,6 +2,15 @@
 
 > Status: **D17/D18 (panel layout / resizing in full screen, reported 2026-10-03) — CLARIFIED 2026-10-03 (B1–B4 answered; see `open_questions.md` Q/B1–B4).** D16 (historical-bar hole, reported 2026-10-02) is **clarified and finalised** (Q37–Q39 answered 2026-10-02: backfill the whole gap so the chart is continuous; genuine closures stay empty; all timeframes and any symbol). **ESC-023 correction (2026-10-02):** the D16 trading-day calendar carries an explicit **New Year's year-end accounting exception** — Dec 31 is a **trading day** when Jan 1 of the next year falls on a Saturday (see D16 / `AC-D16.7`). D1–D15 remain built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved and must not be dropped. **2026-10-05:** new defect **D19** — the toolbar pinned the central widget, so the D17/D18 fix was not effective in the real app — is **clarified and finalised** (B5–B6 answered 2026-10-05: the toolbar gets a **horizontal scroll / elide wrapper in place**, staying one ~36px row inside the central widget so its minimum width no longer pins the layout; the watchlist cap **stays at 50% of the chart area**). See `open_questions.md` B5–B6 (answered) and D19 / `AC-D19.1`–`AC-D19.7`. **2026-10-06:** new defect **D20** — the D19 wrapper's horizontal scrollbar clipped the toolbar label descenders — is **clarified and finalised** (B7–B8 answered 2026-10-06: the content row stays **~36px** with the horizontal scrollbar in its **own reserved lane below**, total strip **~50–52px**, superseding `AC-D19.4`'s `<= ~40px`; the scrollbar is **as-needed** in its reserved lane). See `open_questions.md` B7–B8 (answered) and D20 / `AC-D20.1`–`AC-D20.6`.
 
+> **2026-10-06 (later) — Batch 15 (D21) CLARIFIED AND FINALISED 2026-10-06 (B9–B13 answered).** After D20 was
+> built and green (commit `04397d9`, 585 tests), the user reported **13 UI defects/issues** in one message. They
+> are captured as batch **D21** with sub-defects **D21.1–D21.13** (D1–D20 are **not** reopened; D20's `AC-D19.4`
+> supersession stands). All five blocking questions (**B9–B13**) were **answered by the user on 2026-10-06**
+> (`open_questions.md`), so the D21 criteria are **final** (no *provisional* wording remains). A shared visual
+> convention (`VIS-D21`) is defined once for the "hidden/off" diagonal strike-through and the active-button
+> highlight (A41/A42 now user-confirmed). D21.4 supersedes only the **display** part of `AC-D16.3`. The batch
+> status footer below reflects this and `requirements.md` carries `Status: READY_FOR_PLAN`.
+
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
 official `ibapi`, live TWS port 7496) built through Phases 1–10 of
@@ -53,6 +62,29 @@ persistence (Q26) is **still required**. See `open_questions.md` (B1–B4 answer
 
 **New work item — 2026-10-06 (defect D20) — CLARIFIED 2026-10-06 (B7–B8 answered).** The user reviewed the running app and reported that in the D19 toolbar wrapper the **bottom of the letters in the toolbar labels is slightly covered by the horizontal scrollbar**, so the labels are not clearly readable; the requested fix is to **increase the toolbar height** so the labels read clearly. Repo-validated: the D19 wrapper fixes **both** the toolbar and the `ToolbarScroll` QScrollArea at **36px** (`ui/main_window.py:102`, `:233`), so the horizontal scrollbar is laid out within that same 36px and overlaps the content's descenders. D20 is a **new defect** (Defect Register + Journey 21) that **explicitly supersedes/relaxes `AC-D19.4`'s `<= ~40px` height bound** (recorded on `AC-D19.4`); D19's scroll/elide reachability and the D17/D18 criteria stand unchanged. **Decisions (2026-10-06, B7–B8 answered):** **(B7)** keep the toolbar **content row at ~36px** and give the horizontal scrollbar its **own reserved lane below** the content, so the **total strip grows to ~50–52px** — the content row does **not** grow and the strip does **not** grow to ~60px. **(B8)** **reserve the scrollbar lane** and show the horizontal scrollbar **as-needed** (only when the toolbar content overflows), so it never overlaps the labels; the reserved lane keeps the total height stable at ~50–52px in both states. See `open_questions.md` (Batch 14, D20, B7–B8 answered) and `AC-D20.1`–`AC-D20.6`.
 
+**New work item — 2026-10-06 (Batch 15, defects D21.1–D21.13) — CLARIFIED AND FINALISED 2026-10-06 (B9–B13
+answered).** The user reported **13 UI defects/issues** in a single message after the D20 batch was built and
+green (`04397d9`, 585 tests). They are captured as batch **D21** (sub-defects **D21.1–D21.13**); **D1–D20 are NOT
+reopened** and D20's `AC-D19.4` supersession stands. The batch groups into: **volume axis/pane (D21.1, D21.2,
+D21.6)**, **Ext-Hours/RTH label (D21.3)**, **empty-space collapse (D21.4)**, **watchlist columns + header (D21.5,
+D21.11)**, **button active-highlight + hide affordances (D21.7, D21.8, D21.12, D21.13)**, and **alarm edit +
+smart setup (D21.9, D21.10)**. A **shared visual convention** — the "hidden/off" diagonal strike-through
+(`VIS-D21.1`) and the active-button highlight (`VIS-D21.2`) — is defined once as **`VIS-D21`** and referenced by
+each affected defect. **Decisions (2026-10-06, B9–B13 answered):** **(B9)** collapse only the **gaps between
+trading sessions** (overnight/weekend/holiday) on **intraday** timeframes, `1 day` a no-op, within-session spacing
+preserved; with RTH selected only RTH bars show and all non-RTH time collapses — D21.4 **supersedes the display
+part of `AC-D16.3`** (D16's no-silent-hole rules unchanged). **(B10)** the addable column set is the **existing 7
+columns**, Symbol cannot be removed, and the layout **persists**; a header right-click opens the add/remove/
+rearrange popup. **(B11)** the volume pane can grow to **≥360px** (3× the 120px cap) with a **~200px price-pane
+minimum**. **(B12)** the watchlist keeps its **in-panel header label** as the toggle (duplicate dock title
+deleted); the right dock's **"Active Trader" title bar** and the portfolio's **"Account Summary" summary label**
+become toggles; one hidden collapses **in height**, both hidden collapse the right dock **horizontally** to the
+button strip. **(B13)** the alarm row **Edit** button opens a small edit dialog (price/condition/sound/note,
+Save/Cancel, immediate persist; triggered alarms editable and keep state); the smart-alarm **yellow dashed
+preview line** is drawn while the popup is open, follows the price live, is removed on close, and the condition
+defaults **only on open** (Cross Below/Above by current vs alarm price; **Cross Above** when unknown). See
+`open_questions.md` B9–B13 (answered), D21, Journeys 22–26, `AC-D21.*`, A41–A47, and R37–R44.
+
 ## Goals
 - Collect and triage the user's reported functional issues and UI bugs.
 - Fix each reported defect such that its per-task **test condition** passes.
@@ -97,6 +129,20 @@ No new product features beyond these layout fixes, and **no stack change**. Both
 B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
 - **D19 — toolbar pinned the central widget (NEW, 2026-10-05, CLARIFIED 2026-10-05):** the D17/D18 fix was not observable in a toolbar-visible window because the toolbar's ~1716px `minimumSizeHint` pinned the central widget and starved the dock splitter; the D17/D18 harnesses hid the toolbar, masking the constraint. **Fix (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container so it stays **inside the central widget** as a **single ~36px row** while its minimum width no longer pins the layout; all controls remain reachable. The watchlist cap is unchanged at **50% of the chart area** (B6). See D19, Journey 20, `AC-D19.1`–`AC-D19.7`, A37–A38, R32–R34, and `open_questions.md` B5–B6 (answered).
 - **D20 — toolbar label descenders clipped by the horizontal scrollbar (NEW, 2026-10-06, CLARIFIED 2026-10-06):** the D19 scroll wrapper fixed the toolbar and its `QScrollArea` at **36px**, so the horizontal scrollbar overlapped the label descenders; the user wants the toolbar **height increased** so labels read clearly. **Fix (B7, 2026-10-06):** keep the toolbar **content row at ~36px** and give the horizontal scrollbar its **own reserved lane below**, so the **total strip is ~50–52px** (the content row does not grow and the strip does not reach ~60px); the scrollbar is **as-needed** in that reserved lane (B8). D20 **explicitly supersedes/relaxes `AC-D19.4`'s `<= ~40px`** bound to the new **~52px container bound** (recorded on `AC-D19.4`) while preserving D19's scroll/elide reachability and the D17/D18 criteria. See D20, Journey 21, `AC-D20.1`–`AC-D20.6`, A39–A40, R35–R36, and `open_questions.md` B7–B8 (answered).
+
+- **D21 — Batch 15, 13 UI defects/issues (NEW, 2026-10-06, CLARIFIED AND FINALISED 2026-10-06):** the user's 13
+  reported UI defects/issues (D21.1–D21.13). **Fixes:** volume Y min never below `0` (D21.1); volume Y max
+  `[0, 1.10 × max visible]` on any visible-x-range change (D21.2); `Ext Hours` button relabels to `RTH` when off
+  (D21.3); collapse non-trading **between-session** gaps on intraday timeframes (D21.4, superseding the display
+  part of `AC-D16.3`); watchlist column add/remove/rearrange via a header right-click popup over the **existing 7
+  columns** with **persistence** and **Symbol non-removable** (D21.5); volume pane can grow to **≥360px** with a
+  **~200px price-pane minimum** (D21.6); persistent active-button highlight (`VIS-D21.2`) (D21.7/D21.8); alarm row
+  **Edit** dialog (price/condition/sound/note, immediate persist; triggered alarms keep state) (D21.9); smart
+  alarm **yellow dashed preview line** + auto condition default (D21.10); watchlist **in-panel header label**
+  becomes the hide/show toggle with the duplicate dock title deleted (D21.11); volume button diagonal strike when
+  hidden (D21.12); **Active Trader** (dock title bar) + **Account Summary** (portfolio summary label) become
+  hide/show toggles with in-height / horizontal collapse geometry (D21.13). See D21, Journeys 22–26, `AC-D21.*`,
+  A41–A47, R37–R44, and `open_questions.md` B9–B13 (answered).
 
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
@@ -399,6 +445,35 @@ repository files, which remain authoritative if the two disagree.
   reserved lane below the content, never over it); wide window with the scrollbar hidden → labels unclipped and
   the reserved lane keeps the strip height stable at ~50–52px; high-DPI/font scaling → labels still unclipped;
   extremely small window → the chart-minimum/dock rule still applies; the toolbar never wraps to multiple rows.
+### Journey 22 — D21.1 / D21.2 / D21.6: read and adjust the volume pane
+- **Preconditions:** A symbol is loaded with bars; the volume pane is visible; the price and volume panes share the vertical splitter.
+- **Steps:** 1) Drag the volume Y-axis downward. 2) Zoom into a low-volume region (and out again). 3) Drag the price/volume splitter upward to grow the volume pane.
+- **Postconditions:** The volume Y minimum never goes below `0` (D21.1); on any visible-x-range change the volume Y range is `[0, 1.10 × max volume visible]` — 10% above the tallest visible volume candle (D21.2); the volume pane can grow to **at least 360px** (3× the former 120px cap) while the price pane keeps a **~200px minimum** (D21.6, B11).
+- **Edge Cases:** All-zero visible volumes keep the D8 `[0, 100]` floor; a huge spike just outside the view does not inflate the max; the forming bar growing intra-bar still widens the max (ESC-007 preserved); very short window; oscillator pane present; volume hidden then shown; splitter restored; the price pane never drops below its minimum.
+
+### Journey 23 — D21.4: collapse non-trading time
+- **Preconditions:** An **intraday** timeframe (`1 min`…`4 hours`) is loaded with bars spanning at least one overnight/weekend closure; Ext Hours is ON or OFF (RTH).
+- **Steps:** 1) Load the symbol. 2) Observe the x-axis between trading sessions. 3) Toggle Ext Hours OFF (RTH). 4) Load a `1 day` chart.
+- **Postconditions:** The **gaps between trading sessions** (overnight, weekend, holiday) are **not** rendered as empty space — plotted bars are contiguous across consecutive sessions, while within-session spacing is preserved (B9); with **RTH selected**, only RTH bars are shown and **all non-RTH time collapses**; with Ext Hours ON, the D1 pre/post bands still render for the sessions shown; the `1 day` timeframe is a **no-op**. D16's backfill/no-silent-hole behaviour is unchanged (collapse is a display change only).
+- **Edge Cases:** weekend/holiday/half-day; DST; the `1 day` timeframe (no-op); drawings, session bands and alarm lines stay correctly positioned after collapse; a single session with no closure; a trading-session data hole is still a defect (not collapsed away); only between-session gaps collapse — a partial/half-day missing afternoon is **not** collapsed.
+
+### Journey 24 — D21.5 / D21.11: configure the watchlist and toggle it
+- **Preconditions:** The watchlist is docked on the left and visible; symbols are listed.
+- **Steps:** 1) Right-click a watchlist column header. 2) Add/remove/rearrange columns (the existing 7). 3) Restart the app. 4) Click the "Watchlist" toggle button to hide, then show the watchlist.
+- **Postconditions:** The right-click popup adds/removes/rearranges columns over the **existing 7 columns** (`Symbol, Last, Bid, Ask, Chg, Chg %, Vol`), the **Symbol column cannot be removed**, the layout is **persisted** across restarts, and the table updates with values bound to the correct fields (D21.5, B10); exactly **one** "Watchlist" label remains — the **in-panel header label** turned into a toggle button (the duplicate dock title deleted) — and it toggles the watchlist, showing the `VIS-D21.1` diagonal strike-through when hidden while **staying visible** (D21.11, B12).
+- **Edge Cases:** all other columns removed (only Symbol remains); Symbol-column removal is blocked; live ticks after a reorder; D14 double-click still loads the chart; collapsed-width geometry; width persistence (D13) when re-shown; floating watchlist.
+
+### Journey 25 — D21.7 / D21.8 / D21.12 / D21.13: see active buttons and hide panels
+- **Preconditions:** The toolbar and the right dock (Active Trader + Account Summary) are visible; the volume pane is visible.
+- **Steps:** 1) Click Studies (open/close). 2) Toggle Alarm Mode on/off. 3) Hide the volume pane. 4) Hide the Active Trader panel, then the Account Summary panel, then both.
+- **Postconditions:** Buttons in an active/selected state show a persistent, clearly visible highlight (`VIS-D21.2`, A41 confirmed); Alarm Mode's status-bar message persists until Alarm Mode is switched off; the Volume button shows the `VIS-D21.1` strike when the pane is hidden; hiding one right panel collapses it **in height** (its button remains) and the other **expands**; hiding **both** collapses the right dock **horizontally** to the button strip (chart reclaims the width); each hidden panel's button shows the strike (D21.13, B12). The **Active Trader** toggle is the right dock's **title bar** and the **Account Summary** toggle is the portfolio **summary label** (B12).
+- **Edge Cases:** multiple toggles on at once; Studies dialog open then closed; placing an alarm or selecting a drawing tool exits Alarm Mode; both right panels hidden then re-shown; the DOM button hides the whole region — reconcile with per-panel hide; the collapsed right dock must not break the D17/D18 chart-minimum rule.
+
+### Journey 26 — D21.9 / D21.10: edit an alarm and place a "smart" alarm
+- **Preconditions:** A symbol is loaded; at least one alarm exists; Alarm Mode is available.
+- **Steps:** 1) Open the alarm popup. 2) Click a row's Edit button and change price/condition/sound/note. 3) Activate Alarm Mode and click a price level on the chart. 4) Change the price in the popup.
+- **Postconditions:** Each alarm row has an Edit button at the right end, the Note column fills the width up to it, clicking Edit opens a small edit dialog (price, condition, sound, note) with Save/Cancel that persists immediately, and editing a triggered/set alarm is allowed and keeps its state (D21.9, B13); the smart alarm popup pre-fills the clicked price, draws a **yellow dashed preview line** at that level **while the popup is open**, moves the line live as the price changes, **removes it when the popup closes** (replaced by the real alarm line after Add), and defaults the condition to **Cross Below when the current price is above the alarm price / Cross Above when below**, applied **only on popup open** and user-overridable — with **Cross Above** when the current price is unknown (D21.10, B13).
+- **Edge Cases:** editing a triggered alarm (keeps its state); user overrides the auto condition; price equal to current price; current price unknown → Cross Above; popup opened from the Alarms button (no chart click); popup closed removes the preview line; editing while the chart is live.
 
 ## Acceptance Criteria (feature-level)
 
@@ -451,6 +526,14 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 > Batch 5 (clarified 2026-09-19): D9 volume spacing follow + D10 volume show/hide at
 > top left of volume panel. Batch 6 (clarified 2026-09-19): D11 drawing price labels
 > on inner right side. Batch 7 (clarified 2026-09-19): D12 zone double-click settings popup (Extend omitted). Batch 8 (clarified 2026-09-20): D13 watchlist resizable to 50% with persistence + D14 double-click row to load chart (identical to Load Chart, no-op on same symbol/disconnected). Batch 9 (clarified 2026-09-20): D15 horizontal line double-click settings popup. Batch 10 (clarified 2026-10-02): D16 historical-bar cache-gap backfill (Q37–Q39; ESC-023 calendar correction). **Batch 11 (D17 + D18, panel layout / resizing in full screen) — CLARIFIED AND FINALISED 2026-10-03 (B1–B4 answered 2026-10-03):** D17 watchlist drag both directions up to **50% of the chart area** (min 150px, default ~220px, persisted, cap enforced during the drag); D18 one right-dock region (Active Trader + Portfolio stacked) up to **40% of the chart area**, equal width by construction, full-screen visible; combined under the **independent-caps + ~400px chart-minimum** rule (B3). See D13/D17/D18, `AC-D13.1`, `AC-D17.1`–`AC-D17.6`, `AC-D18.1`–`AC-D18.8`, A34–A36, R28–R31, and `open_questions.md` B1–B4 (answered). D17 supersedes/corrects D13's Q25 denominator (B1). **Batch 11 had no blocking question remaining.** **New (2026-10-05): Batch 13 (D19)** — CLARIFIED AND FINALISED 2026-10-05 (B5–B6 answered): the D17/D18 fix was not effective in the real (toolbar-visible) app because the toolbar pinned the central widget; the fix wraps the toolbar in a **horizontal scroll / elide** container in place (B5, one ~36px row) and keeps the watchlist cap at **50% of the chart area** (B6). See `open_questions.md` B5–B6 (answered); this batch is **ready for Plan**. **New (2026-10-06): Batch 14 (D20)** — CLARIFIED AND FINALISED 2026-10-06 (B7–B8 answered): the D19 wrapper's horizontal scrollbar clipped the toolbar label descenders; the fix keeps the content row **~36px** with the scrollbar in its **own reserved lane below** (total strip **~50–52px**), superseding `AC-D19.4`'s `<= ~40px` bound, with the scrollbar **as-needed** in that lane. See `open_questions.md` B7–B8 (answered); this batch is **ready for Plan**.
+
+> **New (2026-10-06): Batch 15 (D21)** — CLARIFIED AND FINALISED 2026-10-06 (B9–B13 answered): the user's 13 UI
+> defects/issues (D21.1–D21.13) are finalised with the `VIS-D21` shared visual conventions (A41/A42 confirmed),
+> the `AC-D16.3` display supersession (D21.4), the volume-axis rules (D21.1 min 0; D21.2 `1.10 × max visible` on
+> zoom; D21.6 ≥360px with a ~200px price-pane minimum), the watchlist column popup/persistence (D21.5), the
+> label→button + collapsed geometry (D21.11/D21.13), and the alarm edit/preview lifecycle (D21.9/D21.10). See
+> `open_questions.md` B9–B13 (answered); **this batch is ready for Plan** and `requirements.md` carries
+> `Status: READY_FOR_PLAN`.
 
 ### D1 — No RTH / ETH session shading on chart
 - **Area:** Chart panel (price plot)
@@ -1295,7 +1378,7 @@ Chart; Q29 no-op semantics):**
   merely the span after the newest cached bar) — see DG21.
 - **Q38 — closures stay empty.** Genuine market closures (weekend/holiday/overnight) render
   **empty** and are **not** filled, compressed, or interpolated. D16 is scoped to missing
-  **trading-session** bars only; no x-axis compressing/collapsing change is in scope (FS7).
+  **trading-session** bars only. (**Display part superseded 2026-10-06 by D21.4/B9:** the app may now **collapse between-session non-trading time** for display; the no-fill/no-interpolate and no-silent-hole rules remain.)
 - **Q39 — all timeframes + any symbol.** The fix and verification cover **all** timeframes
   (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`, `1 day`) and **any symbol**; `SPY 5 mins`
   is the reported repro only.
@@ -1324,6 +1407,7 @@ Chart; Q29 no-op semantics):**
   or overnight), When the chart renders, Then that interval is **empty** and is **not** counted as
   a missing-bar defect; no bar is fabricated or interpolated across it and the time axis is **not**
   compressed/collapsed. Only trading-session bars are required. **Dec 31 of a year whose next Jan 1 is a Saturday is NOT a genuine closure** and must not be treated as one — it is a trading day (`AC-D16.7`, ESC-023).
+  - **Superseded (display part) by D21.4 (2026-10-06, B9 answered):** genuine closures may now be **collapsed for display** (non-trading between-session gaps are no longer plotted as empty space on intraday timeframes); the **no-fill/no-interpolate** rule above and D16's no-silent-hole requirements (`AC-D16.1`/`AC-D16.4`) are **unchanged**. See D21.4 / `AC-D21.4.*`.
 - **AC-D16.4 (bounded by IBKR availability; chunking; Q37/Q39)** Given the requested span exceeds
   what a single IBKR historical request returns (or exceeds IBKR retention), Then the app bridges
   it with additional request(s) where possible (respecting `pacing_manager`), and where data
@@ -1776,6 +1860,164 @@ Chart; Q29 no-op semantics):**
   still applies; the toolbar height change does not alter the horizontal model.
 - Right region hidden/floating → the watchlist-only rule applies (unchanged).
 
+### D21 — Batch 15 (2026-10-06): 13 reported UI defects/issues (D21.1–D21.13) — CLARIFIED AND FINALISED 2026-10-06
+
+> Reported by the user in one message on 2026-10-06 after D20 was built and green (commit `04397d9`, 585
+> tests). Each sub-defect carries its own Given/When/Then criteria and edge cases. **D1–D20 are not reopened.**
+> All five blocking questions **B9–B13 were answered by the user on 2026-10-06** (`open_questions.md`); every
+> criterion below is **final** (no *provisional* wording remains). **D21.4 supersedes the display part of
+> `AC-D16.3`** (recorded explicitly below and on `AC-D16.3`). D21 is **ready for Plan**.
+
+#### VIS-D21 — Shared visual conventions (defined once, referenced by D21.7/D21.8/D21.11/D21.12/D21.13)
+- **VIS-D21.1 "Hidden/off" diagonal strike-through (CONFIRMED 2026-10-06):** when a toggle/panel is in its
+  hidden/off state, its label/button is rendered with a single straight **diagonal line from the top-left
+  corner to the bottom-right corner** of the label/button's text area (a "crossed-out" look), clearly visible
+  against the button background. Applied by D21.11 (watchlist hidden), D21.12 (volume pane hidden) and D21.13
+  (a right panel hidden).
+- **VIS-D21.2 "Active/selected" button highlight (CONFIRMED 2026-10-06):** a button currently active/selected
+  (e.g. Alarm Mode on, a toggled-on toolbar toggle, or a button whose popup is open) MUST be visually
+  distinguishable from its inactive state by a **persistent highlight** (a distinct filled background and/or
+  border), applied while active and removed when inactive. Applied by D21.7 and D21.8.
+- **Visual reference (ESC-004 gate) — CONFIRMED 2026-10-06:** the user described the diagonal convention and
+  the "highlight" in the D21 report and **confirmed both conventions on 2026-10-06** (B12 "As recommended",
+  plus the D21.7/D21.8/D21.12 answers). A41 (active highlight) and A42 (diagonal line) are therefore
+  **user-confirmed conventions**; the exact colours/line width are implementation detail, while the outcome
+  (a visible diagonal line / a persistent, distinguishable active highlight) is the testable requirement.
+
+#### D21.1 — Volume Y-axis can be dragged below 0
+- **Area:** `ui/chart_panel.py` volume ViewBox / `_ensure_volume_range` (`:885–896`).
+- **Status:** clarified — criteria final 2026-10-06.
+- **Reported (verbatim):** "current state: user is able to drag volume y-axis to below 0. fix: user should not be allowed to drag the volume y-axis below 0".
+- **Observed in repo:** the volume ViewBox is linear and `_ensure_volume_range` writes `setRange(yRange=(0, nice), padding=0)`, but no code clamps the **mouse y-drag**; pyqtgraph's default ViewBox interaction lets the user drag the y-range below 0.
+- **AC-D21.1.1** Given the volume pane is visible, When the user drags the volume Y-axis (or otherwise changes the volume Y range by mouse), Then the volume Y minimum **never goes below 0** at any time.
+  - Measurable: after any user y-interaction, `volume_plot.getViewBox().viewRange()[1][0] >= 0` (float tolerance), and no volume-axis tick below 0 is rendered.
+- **Edge Cases:** repeated downward drag stays at 0; zoom-out keeps min 0; all-zero volumes keep `[0, 100]` (D8); symbol/timeframe switch re-applies min 0; Y-drag must remain usable for the max.
+
+#### D21.2 — Volume Y max does not update on zoom
+- **Area:** `ui/chart_panel.py` `_recompute_vol_max` / `_ensure_volume_range` / `_widen_volume_for` (`:876–905`).
+- **Status:** clarified — criteria final 2026-10-06.
+- **Reported (verbatim):** "when user zooms in the volume y-axis does not update the max range. fix: volume y-axis does not update the max range to show the volume candles appropriately. min should always be zero, max should be 10 % above the max volume candle visible in the volume pane".
+- **Observed in repo:** the ceiling is derived from the **whole** cached bar list (`_vol_max = max over _bars`) and is **only-widen** (`if force or nice > self._volume_nice_max`), so zooming into a lower-volume region never lowers the max and the bars appear squashed; the axis max is a D8 "nice" value, not `1.10 × visible max`.
+- **AC-D21.2.1** Given the volume pane is visible and bars are loaded, When the visible x-range changes (zoom in/out, pan, magnifier area-zoom), Then the volume Y range is `[0, 1.10 × max_volume_visible]`, where `max_volume_visible` is the largest volume of the bars whose x lies within the currently visible x-range; the min is always `0`.
+  - Measurable: after setting a view x-range, `viewRange()[1] == (0, approx(1.10 * max(visible volumes)))`.
+- **Supersession note (recorded):** D21.2 **supersedes** D8's "dynamic nice **max**" for the volume **range ceiling** (the ceiling is now `1.10 × visible max`) and **supersedes ESC-007's only-widen rule** for zoom; ESC-007's core intent (a growing forming bar must not be clipped) is preserved by recomputing on bar updates as well. D8's linear scale, no-negatives, min-0 and price-coloured bars all remain.
+- **Edge Cases:** zoom-out to all bars → `1.10 ×` global max; all-zero visible → D8 `[0, 100]` floor; a spike just outside the view does not inflate the max; intra-bar growth still widens (ESC-007 preserved); panning recomputes; empty load.
+
+#### D21.3 — Ext Hours button label does not change with RTH selection
+- **Area:** `ui/main_window.py` `ext_hours_btn` (`:160–165`) + `_on_ext_hours_toggled` (`:1443–1449`).
+- **Status:** clarified — criteria final 2026-10-06.
+- **Reported (verbatim):** "'Ext hours' button in the top does not change based on the user selection. Fix: 'Ext hours' button in the top should change to RTH if regular trading hours is selected".
+- **Observed in repo:** the button is a fixed-text checkable `QPushButton("Ext Hours")`; its text never changes.
+- **AC-D21.3.1** Given the toolbar is visible, When Ext Hours is ON (checked), Then the button label reads `Ext Hours`; When the user toggles it OFF (regular trading hours), Then the button label reads `RTH`.
+  - Measurable: `ext_hours_btn.text() == "Ext Hours"` when checked and `== "RTH"` when unchecked; the label updates immediately on toggle and reflects the state after a chart reload.
+- **Edge Cases:** the button's fixed 80px width must fit both labels; the tooltip still explains the toggle; toggling triggers a chart reload (existing behaviour retained).
+
+#### D21.4 — Empty space when market is not open (collapse non-trading time) — FINAL (B9)
+- **Area:** x-axis / bar layout (`ui/chart_panel.py` `_refresh_candles`, `_custom_date_axis`), session handling (`services/session_service.py`, `ui/overlays/session_overlay.py`), Ext Hours toggle.
+- **Status:** **clarified and finalised 2026-10-06 (B9 answered).** Former feature suggestion **FS7**, now explicitly requested and in scope. **Supersedes the display part of `AC-D16.3`** (see supersession note).
+- **Reported (verbatim):** "Current state: empty space when market is not open. Fix: do not plot empty space (i.e. collapse it) when market is not open for the plotted security; also do not plot empty space (i.e. collapse it) if user has selected RTH".
+- **Observed in repo:** the x-axis is linear in wall-clock time (`_custom_date_axis`), so overnight/weekend/holiday spans between trading sessions render as empty horizontal space; with Ext Hours OFF only RTH bars are fetched, but the overnight/weekend gaps remain.
+- **AC-D21.4.1 (final — B9)** Given an **intraday** timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`) with bars loaded, When the chart renders, Then the **gaps between trading sessions** (overnight, weekend, holiday) are **not plotted as empty space**: the plotted bars are **contiguous** across consecutive sessions (no empty x-interval between them), while normal inter-bar spacing **within** a session is preserved.
+- **AC-D21.4.2 (final — B9)** Given the timeframe is `1 day`, Then collapse is a **no-op** — the chart already renders one bar per trading day and no between-session gap is plotted.
+- **AC-D21.4.3 (final — B9)** Given **RTH selected** (Ext Hours OFF), Then only RTH bars are shown and **all non-RTH time collapses**; Given Ext Hours ON, Then the D1 pre/post-market bands still render for the sessions shown.
+- **AC-D21.4.4 (final)** Given a genuine **trading-session data hole** (D16), Then it is still a defect — collapse is a **display** change only; it does not fabricate or drop trading-session bars and does not weaken D16's backfill/no-silent-hole requirements (`AC-D16.1`/`AC-D16.4`).
+- **Supersession note (recorded, not silent):** `AC-D16.3` currently requires genuine closures to "stay empty and are not filled, compressed, or interpolated". D21.4 **supersedes the display part** of `AC-D16.3` (between-session closures may now be collapsed for display); `AC-D16.1`/`AC-D16.4` (no silent trading-session holes) are unchanged.
+- **Edge Cases:** weekend/holiday/half-day; DST; the `1 day` timeframe is a no-op (B9); drawings, session bands and alarm lines must remain correctly positioned after collapse; the x-axis date labels must stay readable; a single session with no closure; a trading-session hole must not be collapsed away; only **between-session** gaps collapse — a partial/half-day missing afternoon is **not** collapsed (B9 option (a), not (b)).
+
+#### D21.5 — Watchlist columns fixed (reorder / add / remove via right-click) — FINAL (B10)
+- **Area:** `ui/watchlist_panel.py` (table, `HEADERS`, `COL_*`), persistence (`data/db.py` / QSettings).
+- **Status:** **clarified and finalised 2026-10-06 (B10 answered).**
+- **Reported (verbatim):** "current state: columns in the watchlist are fixed. fix: allow the user the re-arrange their location and allow the user to add and remove columns. A right click on the columns should open a popup to add or remove or rearrange columns."
+- **Observed in repo:** the table has a fixed 7-column schema (`HEADERS = ["Symbol","Last","Bid","Ask","Chg","Chg %","Vol"]`) with fixed resize modes; there is no column configuration.
+- **AC-D21.5.1** Given the watchlist is visible, When the user right-clicks a column header, Then a popup opens offering to **add**, **remove**, and **rearrange** columns.
+- **AC-D21.5.2 (B10)** Given the popup, Then the **addable set is the existing 7 columns** (`Symbol, Last, Bid, Ask, Chg, Chg %, Vol`) — "add" means **re-showing a previously removed column** (no new data fields are introduced).
+- **AC-D21.5.3 (B10)** Given a column is to be removed, Then the **`Symbol` column cannot be removed** (it always remains in the layout).
+- **AC-D21.5.4 (B10)** Given a changed column set/order, Then the table updates immediately to the chosen columns in the chosen order, each cell value remains bound to the correct field, and the layout is **persisted across restarts** (restored on launch).
+- **Edge Cases:** all other columns removed → only `Symbol` remains; Symbol-column removal is blocked; duplicate columns not allowed; right-click on an empty header area; live ticks continue after reorder; D14 double-click-anywhere still loads the chart after reorder; a symbol added after reorder binds to the new layout.
+
+#### D21.6 — Volume panel cannot grow enough in height — FINAL (B11)
+- **Area:** `ui/chart_panel.py` `volume_plot.setMaximumHeight(120)` (`:288`) and `_splitter.setSizes([600, 120, 120])` (`:320`).
+- **Status:** **clarified and finalised 2026-10-06 (B11 answered).**
+- **Reported (verbatim):** "current state: the volume panel does not increase much in height. fix: allow the user to increase the volume panel height by at least 200% more".
+- **Observed in repo:** `volume_plot.setMaximumHeight(120)` caps the volume pane at 120px, so the vertical splitter cannot grow it beyond 120px.
+- **AC-D21.6.1 (final — B11)** Given the volume pane is visible, When the user drags the price/volume splitter, Then the volume pane can grow to **at least 360px** (3× the current 120px maximum cap), and the **price pane keeps a minimum of ~200px** (the oscillator pane is unaffected).
+  - Measurable: the volume pane height can reach `>= 360px` in an offscreen window tall enough, and the price pane height stays `>= ~200px`.
+- **Edge Cases:** very short window (price minimum wins and the volume target yields); oscillator pane also present; volume hidden then shown; splitter restore; no regression to the price pane minimum; interaction with D10.
+
+#### D21.7 — No visible "active" state for clicked buttons
+- **Area:** `ui/main_window.py` toolbar buttons (`studies_btn`, `alarms_btn`, `alarm_mode_btn`, `sound_btn`, `dom_btn`, `ext_hours_btn`).
+- **Status:** clarified — criteria final 2026-10-06 (visual style = `VIS-D21.2`, A41 confirmed 2026-10-06).
+- **Reported (verbatim):** "it is difficult to identify which buttons are active selected example: If studies is clicked on by the user, the studies pop up comes up, but user is not able to tell that the studies button was clicked. fix: when the user clicks a button, highlight the button in some way such that it is visible that the button is has been clicked".
+- **Observed in repo:** `studies_btn`/`alarms_btn` are plain buttons with no active style; toggle buttons rely on Qt's default checked look, which the user reports as indistinguishable.
+- **AC-D21.7.1** Given a toolbar button that represents an active/selected state (a checkable toggle that is ON, or a button whose popup is currently open), When that state is active, Then the button shows a **persistent, clearly visible highlight** distinct from its inactive state (per `VIS-D21.2`), removed when the state ends.
+  - Measurable: for each such button the active style differs from the inactive style and is applied while active / removed while inactive.
+- **Edge Cases:** multiple toggles active at once; theme/contrast; the Studies/Alarms highlight persists while the dialog is open and clears when it closes; highlight visible at any scroll position in the D19 wrapper.
+
+#### D21.8 — Alarm Mode not highlighted; status message disappears too soon
+- **Area:** `ui/main_window.py` `alarm_mode_btn` + `_on_alarm_mode_toggled` (`:1030–1037`); status bar.
+- **Status:** clarified — criteria final 2026-10-06 (visual style = `VIS-D21.2`, A41 confirmed 2026-10-06).
+- **Reported (verbatim):** "current state: The alarm mode when clicked does not get highlighted, and the message at the bottom left, alarm mode, click… it disappears within a few seconds. Fix: the alarm mode button should be highlighted when it is active, and the message at the bottom left, should remain till the alarm mode has been switched off."
+- **Observed in repo:** `_on_alarm_mode_toggled` shows `status_bar.showMessage(..., 4000)` (4s timeout) and relies on default checked styling.
+- **AC-D21.8.1** Given the toolbar is visible, When Alarm Mode is activated, Then the Alarm Mode button shows the persistent active highlight (`VIS-D21.2`).
+- **AC-D21.8.2** Given Alarm Mode is active, Then the status-bar message ("Alarm mode: click the chart to place a price alarm.") **remains visible with no timeout** until Alarm Mode is switched off; When Alarm Mode ends (button toggled off, an alarm is placed, or the mode is otherwise exited), Then the message is cleared/replaced.
+  - Measurable: while active the alarm-mode text is still shown after > 4s; after deactivation it is no longer shown.
+- **Edge Cases:** placing an alarm exits Alarm Mode → message clears; selecting a drawing tool exits Alarm Mode → clears; chart reload while Alarm Mode active; the persistent message must not permanently mask other status messages after deactivation.
+
+#### D21.9 — Alarm popup cannot edit an active/set alarm — FINAL (B13)
+- **Area:** `ui/alarm_dialog.py` (table, `_append_row`, `AlarmStore`).
+- **Status:** **clarified and finalised 2026-10-06 (B13 answered).**
+- **Reported (verbatim):** "Current state: the alarms pop up does not allow to edit the alarm once active/Set. Fix: … At the row level for each alarm, there should be a small edit button clickable on the right side end of the pop up, make the width of the note column big enough to fill till end of the pop up. If edit is clicked, the price, condition, sound and note should be allowed to be changed."
+- **Observed in repo:** the alarm table has 6 fixed columns (`Price, Condition, Active, Triggered, Sound, Note`) and no Edit affordance; alarms can only be added/rearmed/muted/deleted.
+- **AC-D21.9.1** Given the alarm popup is open with at least one alarm, Then each alarm **row** has a small **Edit** button at the right-hand end of the row.
+- **AC-D21.9.2** Given the Note column and the Edit button, Then the Note column is widened to fill the popup width up to the Edit button (to the end of the popup; no large empty gap between the note text and the Edit button).
+- **AC-D21.9.3 (B13)** Given the user clicks a row's Edit button, Then a small **edit dialog** opens for that alarm allowing **price, condition, sound, and note** to be changed, with **Save / Cancel**; **Save persists immediately** and the change is reflected on the chart / alarm badge; **Cancel discards**.
+  - Measurable: after Save, `AlarmStore.load(symbol)` returns the updated values.
+- **AC-D21.9.4 (B13)** Given the alarm is a **triggered/set** alarm, Then it **may still be edited** and the edit **keeps its state** — editing does not re-arm, reset, or silently disable it.
+- **Edge Cases:** editing a triggered alarm keeps its state (B13); invalid price; Cancel discards; editing while the chart is live; empty note; the Edit button stays reachable when the table scrolls.
+
+#### D21.10 — Alarm setup is not "smart" (price from clicked level, yellow dashed line, intuitive condition) — FINAL (B13)
+- **Area:** `ui/main_window.py` `_on_alarm_create_requested` (`:1502–1509`) / `_open_alarm_dialog`; `ui/alarm_dialog.py`; `ui/alarm_overlay.py`; `ui/chart_panel.py`.
+- **Status:** **clarified and finalised 2026-10-06 (B13 answered).**
+- **Reported (verbatim):** "Current state: when user clicks on alarm mode and th alarm pop-up comes up the setup to add the alarm is not smart. Fix: the price should be taken directly from the level. click on by the user that level should be highlighted by a – yellow line so that user is able to see it if the user changes the price, the dash line should move up and down along with the price. The condition should be intuitive, as in if current price is higher than the alarm price, then the condition should be cross below, if the current price is below the alarm price then the condition should be cross above."
+- **Observed in repo:** clicking the chart in alarm mode emits `create_requested(price)` → `_on_alarm_create_requested` opens the modal `AlarmDialog` with `last_price=price`, which prefills `price_input`; there is no chart line preview and the condition is not auto-selected.
+- **AC-D21.10.1** Given the user activates Alarm Mode and clicks a price level on the chart, Then the alarm popup opens with the **price pre-filled from that clicked level**.
+- **AC-D21.10.2 (B13)** Given the alarm popup is open from a chart click, Then a **yellow dashed horizontal preview line** is drawn on the chart at the selected price level and is visible **while the popup is open**.
+- **AC-D21.10.3 (B13)** Given the yellow dashed line and the popup, When the user changes the price in the popup, Then the dashed line **moves up/down to follow the price** live.
+- **AC-D21.10.4 (B13)** Given the popup closes, Then the preview line is **removed**; after **Add**, the real alarm line **replaces** the preview at the alarm's price.
+- **AC-D21.10.5 (B13)** Given the popup opens, Then the condition defaults **only at open** to **Cross Below** when the current price is **higher** than the alarm price and **Cross Above** when the current price is **lower** than the alarm price; the default is **user-overridable**; when the **current price is unknown**, the default is **Cross Above**.
+  - Measurable: `last_price=100`, alarm price `110` → `Cross Below`; alarm price `90` → `Cross Above`; unknown current price → `Cross Above`.
+- **Edge Cases:** current price unknown/None → `Cross Above` (B13); the user overrides the auto-selected condition (allowed); price equal to current price (boundary); popup opened from the Alarms button rather than a chart click (no preview line; uses the last chart price); popup closed removes the preview line; repeated opens; line colour/width per A44.
+- **Note:** the dialog is currently **modal** (`exec()`), and the preview line is drawn on the chart behind it — B13 confirms this visibility/lifecycle.
+
+#### D21.11 — No button to hide the watchlist; "Watchlist" header appears twice — FINAL (B12)
+- **Area:** `ui/main_window.py` watchlist dock title (`:258`) + `ui/watchlist_panel.py` header strip (`:117–124`).
+- **Status:** **clarified and finalised 2026-10-06 (B12 answered).**
+- **Reported (verbatim):** "current state: there is no button to hide the watchlist, also, the watchlist header is mentioned twice in the UI. Screenshot attached. Fix: the label watch list, besides the yellow – – should be deleted. and the watch list besides the red – – should be kept, the kept label should be turned into a button which user can click to show or hide the watch list. If watch list is hidden, that label should be updated to watch list over which there is a diagonal line crossing from top left to right bottom."
+- **Observed in repo:** two "Watchlist" texts exist — the `QDockWidget("Watchlist")` **title bar** (`main_window.py:258`) and the `WatchlistPanel` internal **header_bar `QLabel("Watchlist")`** (`watchlist_panel.py:122`).
+- **AC-D21.11.1 (B12)** Given the app is running, Then exactly **one** "Watchlist" label is shown — the **in-panel header label** is **kept** and turned into a **clickable toggle button**, and the duplicate **dock title bar** is **deleted**.
+- **AC-D21.11.2 (B12)** Given the watchlist is hidden via that button, Then the retained button **stays visible** (it must not disappear with the dock) and is rendered with the `VIS-D21.1` diagonal strike-through; clicking it again shows the watchlist (strike removed).
+- **AC-D21.11.3 (B12)** Given the watchlist is hidden/collapsed, Then the collapsed state still shows the button.
+- **Edge Cases:** collapsed-width geometry; D14 double-click still works when shown; width persistence (D13) when re-shown; floating watchlist; the D17/D18 width model unaffected when hidden; the deleted dock title means the in-panel button is the retained affordance (see DG37).
+
+#### D21.12 — Volume button does not change when the volume pane is hidden
+- **Area:** `ui/chart_panel.py` `_volume_toggle` (`:327–335`) + `_on_volume_toggled` (`:422–434`).
+- **Status:** clarified — criteria final 2026-10-06.
+- **Reported (verbatim):** "current state: there is no change to the volume hide button if volume panel is hidden. fix: if volume is hidden, then the volume hide show button. should be updated to volume over which there is a diagonal line crossing from top left to right bottom."
+- **Observed in repo:** the checkable text button `Volume` toggles visibility but its label/appearance does not change when unchecked (it only loses the subtle checked background).
+- **AC-D21.12.1** Given the volume pane is hidden (toggle unchecked), Then the `Volume` button is rendered with the `VIS-D21.1` diagonal strike-through; When the volume pane is shown (checked), Then the strike-through is removed.
+- **Edge Cases:** default state visible (no strike); strike visible in the real app and offscreen; D10 placement unchanged; the button remains clickable while struck.
+
+#### D21.13 — Cannot hide Active Trader / Account Summary panels; collapse behaviour — FINAL (B12)
+- **Area:** `ui/main_window.py` right dock region (`:295–337`) + `ui/active_trader_panel.py` + `ui/active_portfolio_panel.py` (`summary_label`, `:68`).
+- **Status:** **clarified and finalised 2026-10-06 (B12 answered).**
+- **Reported (verbatim):** "Current state: user is unable to hide the active trader and account summary panels. fix: change the active trader label to active trader button, if a user clicks on the active trader button then the panel should be hidden. Change the account summary label to account summary button, if you set clicks on account summary button, then the account summary panel should be hidden. Is both the active trader panel and account summary panel are hidden, then the should call apps completely to the right and only occupy the width required to show the buttons. If only one panel is hidden and the other panel is open among active trader and account summary, then the hidden panel should collapse in height, and only occupy the space required to display the button. The other panel should expand to cover the space vacated by the hidden panel. If any panel is hidden, active trader or account summary that particular button should have a diagonal line crossing from top left to right bottom."
+- **Observed in repo:** the right dock is one region containing `ActiveTraderPanel` (tabs) and `ActivePortfolioPanel` (whose first widget is `summary_label = QLabel("Account summary — disconnected")`); neither has a hide button; the region's title bar reads "Active Trader".
+- **AC-D21.13.1 (B12)** Given the right dock is visible, Then **"Active Trader" = the right dock's title bar** and **"Account Summary" = the portfolio's summary label**, and **both become toggle buttons**: the Active Trader button hides/shows the Active Trader panel, and the Account Summary button hides/shows the Account Summary (portfolio) panel.
+- **AC-D21.13.2 (B12)** Given **one** of the two panels is hidden, Then that panel collapses **in height** to just its button, and the other panel **expands** to fill the vacated vertical space.
+- **AC-D21.13.3 (B12)** Given **both** panels are hidden, Then the right dock collapses **horizontally** to the minimum width required to show the two buttons (the chart reclaims the width).
+- **AC-D21.13.4 (B12)** Given a panel is hidden, Then its button shows the `VIS-D21.1` diagonal strike-through; when shown, the strike is removed.
+- **Edge Cases:** both shown (default); one hidden then the other; re-show restores; the collapsed right dock must not break the D17/D18 chart-minimum rule (`_apply_dock_widths`); the DOM button (`_on_dom_toggled`) hides the whole region — reconcile with per-panel hide; floating region; ladder/portfolio content sizing after expansion; the dock title bar is the Active Trader button, so its drag/hide affordance must still work (see DG38).
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -1818,6 +2060,13 @@ Chart; Q29 no-op semantics):**
 | A37 | **D19 diagnosis:** the root cause of "D17 does not work in the real app" is the toolbar's ~1716px `minimumSizeHint` pinning the central widget (not the 50% cap, which computes correctly to 858px at chart_area 1716). **Resolution (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container **in place** (one ~36px row, still inside the central widget) so its minimum width no longer pins the layout | Repo-validated against `ui/main_window.py:100–223`; the Orchestrator's offscreen probe agrees (watchlist stayed 150 after driving to cap with the toolbar visible); B5 chose scroll/elide 2026-10-05 | y (repo-validated 2026-10-05; fix chosen by B5) | 2026-10-05 |
 | A38 | **D19 covers both D17 and D18 symptoms** (they share the one toolbar-pinning root cause), and the fix must make the D17/D18 criteria hold in a **toolbar-visible** window; the D17/D18 criteria themselves are unchanged. **B6:** the watchlist cap **stays `floor(0.50 × chart_area)`** — no cap change | Both symptoms are produced by the same no-slack splitter; the probe shows the watchlist pinned and the right dock pushed to the window edge; B6 answered "Keep 50%" 2026-10-05 | y (derived from the validated diagnosis; B6 answered 2026-10-05 |
 | A39 | **D20 target — RESOLVED (B7/B8, 2026-10-06):** the toolbar strip keeps the **content row at ~36px** and adds a **reserved horizontal-scrollbar lane below** it, so the **total strip is ~50–52px** and label descenders are no longer overlapped; the content row does **not** grow and the strip does **not** reach ~60px. The scrollbar is **as-needed** in that reserved lane (shown only on overflow), and the reserved lane keeps the strip height stable in both states. | B7 answered by the user 2026-10-06 (verbatim: "Content row 36px + scrollbar lane (~52px total)"); B8 answered 2026-10-06 (verbatim: "As-needed in a reserved lane"). Supersedes `AC-D19.4`'s `<= ~40px` bound to a ~52px container bound | y (B7/B8 answered 2026-10-06) | 2026-10-06 |
+| A41 | **D21.7/D21.8 active-button highlight (`VIS-D21.2`) — RESOLVED (user-confirmed 2026-10-06).** An active/selected button uses a distinct filled background (accent tint) plus a border, clearly distinguishable from the inactive state, applied while active and removed when inactive. The user confirmed the highlight convention on 2026-10-06 (D21.7/D21.8, B12 "As recommended"); exact colours remain an implementation detail while the outcome is the testable requirement. | The user asked to "highlight the button in some way"; the convention is confirmed and the outcome (a persistent, distinguishable highlight) is testable. See `VIS-D21.2`, `AC-D21.7.1`/`AC-D21.8.1` | y | 2026-10-06 |
+| A42 | **`VIS-D21.1` diagonal strike-through — RESOLVED (user-confirmed 2026-10-06).** A single straight line from the top-left to the bottom-right of the label/button text area, ~1–2px, in the label's foreground colour, clearly visible against the button background. The user confirmed the diagonal convention on 2026-10-06 (B12; D21.11/D21.12/D21.13); exact line width is implementation detail. | The user described the diagonal direction and confirmed it; the outcome (a visible diagonal line when hidden/off) is testable. See `VIS-D21.1`, `AC-D21.11.2`/`AC-D21.12.1`/`AC-D21.13.4` | y | 2026-10-06 |
+| A43 | **D21.9 alarm edit UX — RESOLVED (B13, 2026-10-06).** Clicking a row's **Edit** button opens a small **edit dialog** (price, condition, sound, note) with **Save/Cancel**; **Save persists immediately** via `AlarmStore`; a **triggered/set alarm may also be edited and keeps its state** (not re-armed/reset); Cancel discards. | B13 answered by the user 2026-10-06 ("As recommended") | y | 2026-10-06 |
+| A44 | **D21.10 smart-alarm preview line + condition default — RESOLVED (B13, 2026-10-06).** The yellow dashed line is drawn **while the popup is open**, follows the price spinbox **live**, and is **removed when the popup closes** (replaced by the real alarm line after Add); the auto condition default (Cross Below when current > alarm price; Cross Above when current < alarm price) is applied **only when the popup opens** and is **user-overridable**; when the current price is **unknown**, default to **Cross Above**. | B13 answered by the user 2026-10-06 ("As recommended") | y | 2026-10-06 |
+| A45 | **D21.4 collapse semantics — RESOLVED (B9, 2026-10-06).** Collapse only the **gaps between trading sessions** (overnight/weekend/holiday) on **intraday timeframes**; `1 day` is a **no-op**; within-session spacing is preserved; D16 backfill/no-silent-hole rules unchanged; with Ext Hours ON the D1 pre/post bands still render; with **RTH selected** only RTH bars show and all non-RTH time collapses. Supersedes the **display** part of `AC-D16.3`. | B9 answered by the user 2026-10-06 ("Collapse between-session gaps") | y | 2026-10-06 |
+| A46 | **D21.5 addable columns — RESOLVED (B10, 2026-10-06).** The addable set is the **existing 7 columns** (`Symbol, Last, Bid, Ask, Chg, Chg %, Vol`); "add" = re-showing a removed column; the **Symbol column cannot be removed**; the column layout is **persisted** across restarts; a right-click on a column header opens the add/remove/rearrange popup. | B10 answered by the user 2026-10-06 ("Existing 7 columns, persisted") | y | 2026-10-06 |
+| A47 | **D21.6 volume-height baseline — RESOLVED (B11, 2026-10-06).** Baseline is the current **120px** maximum cap; the volume pane can grow to **at least 360px** (3×), with the price pane keeping a **~200px minimum**. | B11 answered by the user 2026-10-06 ("≥360px (3× the 120px cap)") | y | 2026-10-06 |
 | A40 | **D20 — D17/D18 unaffected:** raising the toolbar strip's height changes only vertical space (slightly shorter chart) and does not alter the horizontal dock-width model, so the `AC-D13`/`AC-D17`/`AC-D18`/`AC-D19` horizontal criteria stand. | The reported defect is vertical (scrollbar overlapping text); the D19 wrapper's horizontal minimum-width behaviour is unchanged. B7/B8 answer only the vertical/scrollbar-lane question | y (B7/B8 answered 2026-10-06) | 2026-10-06 |
 
 ## Documentation Maintenance Requirements
@@ -1901,17 +2150,26 @@ Chart; Q29 no-op semantics):**
 | R34 | D19: the toolbar's minimum width differs between the offscreen platform and the real macOS window; a **scroll/elide** fix that only works offscreen could still fail in the real app | M | M | `AC-D19.6` requires a toolbar-visible window; also verify in the real dev build (`python main.py`) manually, not only offscreen |
 | R35 | D20: raising the toolbar height takes vertical space from the chart and, if overdone, reduces chart height noticeably | L | M | **Resolved by B7:** the minimal change is the content row kept at ~36px plus a reserved scrollbar lane, total ~50–52px (not ~60px); the content stays a single row and the chart loses only a few pixels of height |
 | R36 | D20: updating `AC-D19.4`'s height bound without updating the D19 test assertions leaves the suite red / contradictory | M | H | Update `tests/test_toolbar_scroll_d19.py` height assertions in lockstep (`AC-D20.6`) to the B7-confirmed ~50–52px container / ~36px content target; the supersession is recorded explicitly on `AC-D19.4` |
+| R37 | D21.4 collapsing non-trading time is an x-axis model change: it supersedes `AC-D16.3`'s display rule and can affect session shading (D1), drawings (time-anchored), alarm positioning and the D7/D9 spacing | H | M | **Scope fixed by B9:** collapse only **between-session** gaps on **intraday** timeframes (`1 day` no-op); keep D16 backfill/no-silent-hole unchanged; update the D16/D1 tests that assert empty closures in lockstep; verify drawings/bands/alarms after collapse |
+| R38 | D21.5 column configuration can break D14 double-click binding or lose values after reorder, and needs a persistence store | M | M | **Resolved by B10:** bind columns by field identity (not index); keep the Symbol column; persist the layout (QSettings or DB); test a reorder then a live tick and a double-click |
+| R39 | D21.6 raising the volume pane's max height can squeeze the price pane below a usable height, especially on short windows with the oscillator present | M | M | **Resolved by B11:** target **≥360px** with a **~200px price-pane minimum** and a bounded splitter; verify at the target height and at a short window; no regression to D10 |
+| R40 | D21.7/D21.8 highlight may be low-contrast in the dark theme or clipped in the D19 scroll wrapper | L | M | A41 confirmed 2026-10-06; use a high-contrast accent style; verify in the real dev build and offscreen; assert active vs inactive style differs |
+| R41 | D21.13 collapsing the right dock to a button strip can conflict with the D17/D18 width model and `_apply_dock_widths` (chart-minimum rule, cross-clamp) | M | M | **Geometry fixed by B12:** one hidden → in-height collapse + other expands; both hidden → horizontal collapse to the button strip. Treat the collapsed region as hidden for the cross-clamp (as the existing `visibilityChanged` path does); assert the chart keeps its minimum in collapsed and expanded states |
+| R42 | D21.9 editing a set/triggered alarm changes its semantics; a wrong edit could silently re-arm or disable a live alarm | M | M | **Semantics fixed by B13:** edit via a Save/Cancel dialog, persist immediately via `AlarmStore`, and a triggered/set alarm keeps its state; re-render the overlay/badge after the edit; test editing a triggered alarm |
+| R43 | D21.10 the yellow dashed preview line must coexist with the modal dialog and must not leak onto the chart after the popup closes | L | M | **Lifecycle fixed by B13:** draw the preview while the popup is open, follow the spinbox live, remove it on close, and replace it with the real alarm line after Add; test open/close and live price changes |
+| R44 | Batch 15 is large (13 sub-defects) and touches shared chart/toolbar/dock/alarm code; a single fix can regress another | M | H | Keep every fix independently tested (pre-fix red / post-fix green); re-run the full offscreen suite per wave; treat D1–D20 criteria as frozen |
 
 
 ---
 
 ## Status
 
-**Status: READY_FOR_PLAN** — D20 (toolbar label descenders clipped by the horizontal scrollbar) is
-**clarified and finalised 2026-10-06** (B7–B8 answered): the toolbar keeps its **content row at ~36px** and the
-horizontal scrollbar gets its **own reserved lane below**, so the **total strip is ~50–52px**; the scrollbar is
-**as-needed** in that reserved lane. D20 **explicitly supersedes/relaxes `AC-D19.4`'s `<= ~40px`** bound to the new
-~52px container bound (recorded on `AC-D19.4`); D19's scroll/elide reachability and the D17/D18 criteria stand.
-No blocking question remains — see `open_questions.md` (Batch 14, D20, B7–B8 answered). D19 remains
-clarified/finalised; D16 remains clarified/finalised; D1–D15 remain built and green; the Existing Repository
-section (marker sentence + Current Tech Stack) is preserved.
+**Status: READY_FOR_PLAN** — Batch 15 (**D21**, 13 UI defects/issues D21.1–D21.13) was captured 2026-10-06 after
+D20 was built and green (`04397d9`, 585 tests) and is **clarified and finalised 2026-10-06 (B9–B13 answered)**.
+All D21 criteria are final (no *provisional* wording remains); `VIS-D21` (A41/A42) is user-confirmed; D21.4
+supersedes only the **display** part of `AC-D16.3` while D16's no-silent-hole rules (`AC-D16.1`/`AC-D16.4`) are
+unchanged. D1–D20 are not reopened: D20's `AC-D19.4` supersession and all earlier criteria stand; D1–D15 remain
+built and green. The Existing Repository section (marker sentence + Current Tech Stack) is preserved. No blocking
+question remains in `open_questions.md` (B9–B13 answered).
+
+Status: READY_FOR_PLAN

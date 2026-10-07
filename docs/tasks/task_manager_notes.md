@@ -631,3 +631,40 @@ Unique task ids (4) and test ids (13); every acceptance criterion has ≥1 linke
 every test links an existing criterion (1:1). `execution_graph.json` nodes match the task
 set; 6 edges resolve to existing ids with no cycles. No wave can contain two writers on the
 same file.
+
+## ESC-029 — D21-13-T05 condition-default wording correction (Batch 15)
+
+Revision date: 2026-10-06. Source of truth: `docs/requirements/requirements.md` `AC-D21.10.5`
+(`:1987`) and the live implementation/test. Input: `docs/code_review/escalations.md`
+**ESC-029** (`Status: ESCALATED_TO_TASK_MANAGER`, open; user-approved nice-to-have, wording-only).
+
+### What was wrong
+The **task-graph prose only** for `D21-13-T05` was inverted versus the authoritative
+`AC-D21.10.5`. The task description read
+`alarm price 110 -> Cross Below, 90 -> Cross Above` for `last_price=100`, i.e. it stated the
+condition backwards. The acceptance criterion (`task-graph.json` `:767`), the implementation
+(`AlarmDialog` on-open `default_condition`), and the actual test
+(`tests/test_alarm_d21.py::test_d21_13_t05_condition_default_on_open`, `:314-338`) were all
+**correct** — the test asserts: current (100) below the alarm (110) -> **Cross Above**;
+current (100) above the alarm (90) -> **Cross Below**; unknown -> **Cross Above** (matching the
+user's original Issue 10). Only the D21-13-T05 description contradicted them.
+
+### What changed (definition only)
+- `docs/tasks/task-graph.json`, `D21-13-T05.description` corrected to:
+  `Assert the on-open condition default for last_price=100: alarm price 110 -> Cross Above,
+  90 -> Cross Below, None/unknown -> Cross Above; assert the user can override and the default
+  is not recomputed on spinbox change.`
+- Nothing else changed. `test_id`, `linked_acceptance_criterion` (`AC-D21.10.5`), `type`
+  (`unit`), and `expected_result` are untouched; every other task and every `status` field is
+  unchanged; the graph metadata remains `"status": "READY_FOR_BUILD"`.
+- Swept the task graph for other repetitions of the inverted wording: the only other
+  Cross-Below/Cross-Above prose is the `D21-13` task description (`:754`) and the copied
+  `AC-D21.10.5` text (`:767`), both of which already read correctly. `execution_graph.json`
+  carries no condition wording. No other location needed a change.
+
+### Why no AC/test/code change
+Per ESC-029 (and the Code Reviewer's own diagnosis), the AC, the implementation and the test
+were already correct; the defect was confined to the Task-Manager-owned task-graph wording.
+No task was reopened, no dependency edge changed, and no acceptance criterion was reworded.
+The Code Reviewer (not Task Manager) flips ESC-029 to `addressed` after independently
+re-verifying.

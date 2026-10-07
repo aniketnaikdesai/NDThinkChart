@@ -1,5 +1,5 @@
 import pytest
-from ui.chart_panel import ChartPanel, _nice_volume_max
+from ui.chart_panel import ChartPanel
 from data.models import Bar
 
 def _bar(ts, vol):
@@ -30,12 +30,12 @@ def test_volume_zero_mapped_to_one(qapp, sample_bars):
     assert vb.state["logMode"] == [False, False]
     y_range = vb.viewRange()[1]
     assert y_range[0] == pytest.approx(0, abs=1)
-    # Upper bound must match the pinned nice-family value for the max volume:
-    # _nice_volume_max(1000) == 1500 (10k floor removed under D8/ESC-015).
+    # D21.2 ceiling: 1.10 x the max volume of the bars in the visible x-range
+    # (the D8 whole-list nice-max ceiling is superseded).
     max_vol = max(b.volume for b in bars)
-    assert y_range[1] == pytest.approx(_nice_volume_max(max_vol), rel=0.02)
-    # Pin the concrete family value too so a drift in max_vol/bars is visible.
-    assert _nice_volume_max(max_vol) == pytest.approx(1_500, rel=0.02)
+    assert y_range[1] == pytest.approx(max_vol * 1.1, rel=0.02)
+    # Pin the concrete value too so a drift in max_vol/bars is visible.
+    assert max_vol * 1.1 == pytest.approx(1_100, rel=0.02)
     panel.hide()
     panel.close()
 
@@ -52,8 +52,8 @@ def test_volume_autorange_upper(qapp):
     vb = panel.volume_plot.getViewBox()
     assert vb.state["logMode"] == [False, False]
     y_range = vb.viewRange()[1]
-    expected_nice = _nice_volume_max(max_vol)
+    expected_ceiling = max_vol * 1.1
     assert y_range[0] == pytest.approx(0, abs=1)
-    assert y_range[1] == pytest.approx(expected_nice, rel=0.02)
+    assert y_range[1] == pytest.approx(expected_ceiling, rel=0.02)
     panel.hide()
     panel.close()

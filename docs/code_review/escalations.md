@@ -37,6 +37,10 @@ is diagnostic-live so a timeout and a disconnect are distinguishable — while t
 (`"incomplete"` + a named missing day + `"Historical backfill shortfall"`) and the no-fabrication guarantee
 are preserved. Full offscreen suite re-run **493 passed, 0 failed, exit 0**. **No open escalations remain**
 (ESC-001…ESC-025 all `addressed`).
+**Current state (Batch-15 / D21 verification pass, 2026-10-06):** ESC-026, ESC-027 (batches 11/13) and
+ESC-028, ESC-029 (Batch 15 / D21) have all been independently re-verified and closed since the note above.
+**ESC-001…ESC-029 are all `addressed`; no open escalations remain.** Full clean offscreen suite
+**673 passed / 0 failed / exit 0**.
 
 Routing legend: `ESCALATED_TO_BUILD`, `ESCALATED_TO_TASK_MANAGER`, `ESCALATED_TO_PLAN`,
 `ESCALATED_TO_REQUIREMENTS`.
@@ -1004,3 +1008,134 @@ remain `addressed` (verified — nothing relevant changed for them). One new esc
     - **T60 done / graph 8/8:** `docs/tasks/task-graph.json` T60 `status: done`; Batch-13 graph
       `{done: 8}`; `build_log.md` terminal `Status: READY_FOR_REVIEW`. `failures.json.blocked` is empty and
       the accepted environment-noise classification is retained.
+
+---
+
+## Batch 15 (D21) — new findings, 2026-10-06
+
+Source: `docs/code_review/review_log.md` §"Revision 12 review — Batch 15 (D21)". Reviewed against the live
+tree (every D21 source/test file read from disk; the full offscreen suite and every D21 + lockstep + D17/D18
+module re-run by the reviewer; a reviewer offscreen probe for the D21.2 floor edge). No live TWS was used (all
+runs `QT_QPA_PLATFORM=offscreen`). ESC-001…ESC-027 remain `addressed` (verified — 27 `## ESC-` entries, all
+`Status: addressed`, 0 `open`/`ESCALATED_*` before this pass). Two new `nice-to-have` findings below; both are
+non-blocking and the build is complete (18/18 done, 672 passed / 0 failed).
+
+## ESC-028 — D21.2 volume ceiling floors to `[0, 100]` for a small **non-zero** visible max
+
+- **Linked task/defect:** D21-02 (D21.2) — `ui/chart_panel.py::_recompute_visible_volume_range`.
+- **Routed to:** BUILD.
+- **Category / severity:** `consistency` / **nice-to-have** (narrow regime; no acceptance test fails; real
+  per-bar volumes are effectively never in the affected band).
+- **Root-cause classification:** `code_bug` — the implementation deviates from the acceptance criterion's
+  literal measurable in a narrow regime. `AC-D21.2.1` (`docs/requirements/requirements.md:1901`) states the
+  range is `[0, 1.10 × max_volume_visible]`; `plan.md:103` and `architecture.md` S4 both scope the floor to
+  the **`0`-visible** case only ("`0` visible → `VOLUME_NICE_FLOOR` (100)").
+- **Observed vs. expected:**
+  - **Observed** (`ui/chart_panel.py:1158–1163`): after `ceiling = visible_max * 1.1` the code runs an
+    **unconditional** `if ceiling < VOLUME_NICE_FLOOR: ceiling = VOLUME_NICE_FLOOR`, so any small non-zero
+    visible max is floored to 100. Reviewer offscreen probe (900×600, 5 bars of constant volume,
+    `ChartPanel.update_chart`):
+    `visible_max=0 → 100.000`; `10 → 100.000`; `50 → 100.000`; `80 → 100.000`; `90 → 100.000`;
+    `91 → 100.100`; `100 → 110.000`; `1000 → 1100.000`.
+  - **Expected** (`AC-D21.2.1`): for `0 < visible_max ≤ 90.9` the range is `[0, 1.1×visible_max]`
+    (e.g. `10 → [0, 11]`, `50 → [0, 55]`), with `[0, 100]` reserved for the `0`-visible case.
+  - **Why the tests miss it:** `tests/test_volume_d21.py` T01 uses `low_max = 400` (ceiling 440 > 100) and T02
+    uses all-zero (`visible_max = 0`), so the `0 < visible_max ≤ 90.9` band is never exercised.
+- **Impact:** narrow/latent — the user-reported defect ("volume candles squashed on zoom") is fixed for all
+  realistic volumes; only sub-~91 volumes render at <100% of the pane instead of filling it.
+- **Suggested direction (optional, for Build — do NOT weaken any test):** floor only when `visible_max == 0`
+  (drop the unconditional second clamp so the literal `1.10 × visible_max` holds for small non-zero maxima), and
+  add a test for a small non-zero visible max. Alternatively, if a universal minimum ceiling is intended, record
+  it explicitly in `AC-D21.2.1` / architecture S4 (a Requirements/Plan wording change) rather than leaving the
+  code silently stricter than the AC. No architecture or task-breakdown change is required by the fix as
+  suggested.
+- **Evidence retained:** reviewer probe table above; the `visible_max > 0` / `else` / `if ceiling < FLOOR`
+  branch at `ui/chart_panel.py:1158–1163`; the `AC-D21.2.1` / `plan.md:103` / architecture S4 wording.
+- **Status: addressed**
+  - Verified (2026-10-06, Batch-15 ESC-028 verification pass; reviewer-run probes, not Build's report).
+    Independently re-checked on the live tree:
+    - **Fix present (`ui/chart_panel.py:1158–1171`):** `_recompute_visible_volume_range()` now floors to
+      `VOLUME_NICE_FLOOR` (100) only in the `else` branch (no visible bar / every visible bar zero); for
+      `visible_max > 0` it uses the literal `1.10 × visible_max`. The unconditional second
+      `if ceiling < VOLUME_NICE_FLOOR` clamp is gone (the ESC-028 comment is present at `:1158–1164`).
+    - **Reviewer offscreen probe (900×600, 3 bars, `ChartPanel.update_chart`):** `visible_max=0 → [0, 100]`;
+      `10 → [0, 11]`; `50 → [0, 55]`; `90 → [0, 99]`; `91 → [0, 100.1]`; `100 → [0, 110]`; `1000 → [0, 1100]`.
+      Every case matches `[0, 1.10 × max]` (or `[0, 100]` at 0); the pre-fix `10 → 100` band is gone.
+    - **T05 is non-vacuous** (proved by re-introducing the pre-fix clamp **in memory only** — no repo edit):
+      with the old unconditional clamp restored,
+      `tests/test_volume_d21.py::test_D21_02_T05_small_nonzero_visible_max_not_floored` **FAILS**
+      (`visible_max=10 should give [0, 11.0], got 100.0 (ESC-028 floor regression)`); with the fixed method
+      it **PASSES**. The test asserts the literal `1.10 × max` and, for `≤ 90`, an explicit `!= 100.0`.
+    - **No regression:** full clean offscreen suite (shared test DB removed) →
+      **673 passed, 0 failed, exit 0** (wave-10 was 672; the +1 is the new T05); `tests/test_volume_d21.py`
+      → 10 passed. No test weakened, skipped, or deselected.
+
+## ESC-029 — `task-graph.json` D21-13-T05 description is inverted vs `AC-D21.10.5`
+
+- **Linked task/defect:** D21-13 (D21.10) — `docs/tasks/task-graph.json`, test `D21-13-T05` `description`.
+- **Routed to:** TASK_MANAGER.
+- **Category / severity:** `gap` (task-definition wording) / **nice-to-have** (wording-only; no code or test
+  change; the AC, implementation and test are all already correct).
+- **Root-cause classification:** `bad_task_breakdown` — a wording defect in the Task-Manager-owned task
+  definition, the same class as ESC-018.
+- **Observed vs. expected:**
+  - **Observed:** the `task-graph.json` D21-13-T05 `description` reads *"Assert the on-open condition default
+    for last_price=100: alarm price 110 -> Cross Below, 90 -> Cross Above"*. With `last_price` (the **current**
+    price) = 100, `alarm = 110` means the current price is **below** the alarm, which is **Cross Above** per the
+    AC — so the description is inverted (it also inverts the `90` case).
+  - **Expected** (`AC-D21.10.5`, `docs/requirements/requirements.md:1987`; architecture S15
+    (`docs/architecture.md:1515`); `plan.md:58–59`): "Cross Below when the current price is **higher** than the
+    alarm price and Cross Above when the current price is **lower** … or unknown."
+  - **Worker action (correct):** the D21-13 worker implemented the **AC** — `ui/alarm_dialog.py::default_condition`
+    returns `"Cross Below"` iff `current_price > alarm_price`, else `"Cross Above"` — and wrote
+    `tests/test_alarm_d21.py::test_d21_13_t05_condition_default_on_open` to assert the AC (current=100/alarm=110
+    → **Cross Above**; current=100/alarm=90 → **Cross Below**; `None` → **Cross Above**). T05 is green and
+    non-vacuous. **No code change is needed.**
+  - **Note on Build's framing:** the wave-6 flag and `failures.json.pending_routing` describe this as "manifest
+    prose". The inverted text is in fact in the authoritative `task-graph.json` test description itself (a
+    Task-Manager artifact Build may not edit); Build's log statement that "the task description … state[s]
+    unambiguously" the correct rule is inaccurate.
+- **Suggested direction (optional, for Task Manager):** reword the D21-13-T05 `description` to the AC wording
+  (Cross Above when the current price is below the alarm or unknown; Cross Below when above). Wording-only — do
+  not alter `AC-D21.10.5`, the implementation, or `test_d21_13_t05_condition_default_on_open` (which already
+  asserts the AC, not the inverted prose).
+- **Evidence retained:** `docs/tasks/task-graph.json` D21-13-T05 `description` (verbatim above);
+  `docs/requirements/requirements.md:1987` (`AC-D21.10.5`); `docs/architecture.md:1515` (S15);
+  `docs/plan.md:58–59`; `ui/alarm_dialog.py::default_condition` (`:122–134`);
+  `tests/test_alarm_d21.py::test_d21_13_t05_condition_default_on_open` (`:314–338`).
+- **Status: addressed**
+  - Verified (2026-10-06, Batch-15 ESC-029 verification pass). Independently re-checked on the live tree:
+    - **Description corrected:** `docs/tasks/task-graph.json` D21-13-T05 `description` (`:802`) now reads
+      "…last_price=100: alarm price 110 -> Cross Above, 90 -> Cross Below, None/unknown -> Cross Above;
+      assert the user can override and the default is not recomputed on spinbox change." — matching
+      `AC-D21.10.5` (`docs/requirements/requirements.md:767`: Cross Below when the current price is higher
+      than the alarm price; Cross Above when lower or unknown). The previously inverted "110 -> Cross Below,
+      90 -> Cross Above" wording is gone; exactly one D21-13-T05 entry remains in the graph.
+    - **AC / implementation / test were correct all along:** `ui/alarm_dialog.py::default_condition`
+      (`:132–134`) returns `"Cross Below"` iff `current_price > alarm_price`, else `"Cross Above"`; the
+      test `tests/test_alarm_d21.py::test_d21_13_t05_condition_default_on_open` (`:314–338`) asserts
+      current=100/alarm=110 → Cross Above, alarm=90 → Cross Below, None/unknown → Cross Above, plus the
+      user override sticking. Re-ran it → **passed** (11 passed alongside `tests/test_volume_d21.py`).
+      No code or test change was needed — the fix is wording-only, as routed.
+
+## Verified with no escalation (Batch 15 / D21)
+
+- **D21-16 out-of-footprint `ui/chart_panel.py` edit — acceptable, no follow-up.** The ~20-line
+  `_sync_collapsed_consumers()` plumbing (called from `_rebuild_collapse_map()`, the empty-load clear, and
+  `update_last_bar`) pushes the ChartPanel-owned `TimeCollapseMap` + plotted bars to the drawing/alarm overlays.
+  `docs/architecture.md` S16/S17 make ChartPanel the map owner and the pusher to the consumers, so this is the
+  correct ownership boundary; D21-16 was the sole wave-8 task, so no same-wave `touches_files` race could occur.
+  The only inaccuracy is that D21-16's declared `touches_files` omitted `ui/chart_panel.py` despite the task
+  requiring it — a footprint-declaration gap with no actionable fix now (task complete, outcome correct and
+  architecturally consistent). Recorded for future task-graph authoring: a consumer task needing ChartPanel-side
+  wiring should declare `ui/chart_panel.py`.
+- **`_nice_volume_max` / `_volume_nice_family` are now test-only** (`ui/chart_panel.py:94,110`; no production
+  call site remains — the live ceiling is `_recompute_visible_volume_range`). They are retained deliberately as
+  the pinned-family fixture (`plan.md:105`, `AC-D21.2.1` supersession note) and exercised directly by
+  `tests/test_volume_linear.py`. Dead-but-intentional; no action.
+- **D21-11 collapsed-min-width value.** Offscreen, `right_dock.minimumWidth()` collapses to the computed value
+  (worker reported 152, derived from the buttons' `sizeHint` floored at `RIGHT_DOCK_COLLAPSED_MIN_WIDTH = 150`),
+  not the literal 150. `tests/test_right_dock_d21.py` T03 asserts the criterion via
+  `win._right_dock_collapsed_min_width` + `< RIGHT_DOCK_MIN_WIDTH` + `>= RIGHT_DOCK_COLLAPSED_MIN_WIDTH`, so the
+  requirement (collapsed below the normal 200px minimum, at/above the collapsed floor) is met. Informational;
+  not a defect.

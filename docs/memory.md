@@ -73,3 +73,18 @@
 **Category:** Known Gotcha
 **Finding:** When a `QScrollArea` wraps content whose fixed height equals the scroll area's fixed height (D19 set both the toolbar and its `ToolbarScroll` wrapper to `setFixedHeight(36)`), the horizontal scrollbar is laid out **inside** that height and overlaps the bottom of the content — clipping the label descenders. Size the scroll area to the **derived** height `content_height + horizontalScrollBar().sizeHint().height()` (e.g. 36 + 18 = 54 offscreen, ~52 macOS) so the scrollbar gets its own reserved lane below the content, and keep the content widget at its own fixed height. Do not use a literal total height, and do not assert the lane with `scrollBar.geometry()` (offscreen `geometry().top()` is 0) — use the mapped form `scrollBar.mapTo(wrapper, QPoint(0,0)).y() >= content.height()` or `viewport().height() >= content.height()`.
 **Source:** Defect D20 (tasks T61–T64).
+
+### 2026-10-06 — discovered during Build/Review (D21 UI batch)
+**Category:** Technical Note
+**Finding:** pyqtgraph: to stop a user dragging a `ViewBox` axis below a floor, use `viewbox.setLimits(yMin=0)` (the volume pane, D21.1) — the limit is enforced inside `ViewBox.setRange`, which every interactive y-change routes through. The volume Y **ceiling** is `1.10 × max(volume of bars whose x lies in the visible x-range)` recomputed on `sigXRangeChanged` + bar updates (D21.2); the `[0, 100]` nice floor applies **only when the visible max is 0**, never for a small non-zero max (ESC-028). This supersedes the D8 nice-max / ESC-007 only-widen rule for zoom.
+**Source:** Defect D21 (D21-01/D21-02, ESC-028).
+
+### 2026-10-06 — discovered during Build/Review (D21 time collapse)
+**Category:** Technical Note
+**Finding:** Collapsing non-trading time is a **display-only** transform (never mutates `Bar.ts`, never drops/fabricates bars). The predicate must account for bar coverage: bar timestamps are period **starts** (`data/bar_aggregator.py`), so collapse a gap `a < b` iff `market_calendar.session_windows(a + bar_period, b, ext_hours)` is empty — the un-adjusted `session_windows(a, b)` wrongly keeps the ordinary overnight/weekend/holiday gap because the last bar (15:55 RTH / 19:55 ext) sits inside the window that closes at 16:00/20:00. Within-session holes and missing full sessions stay visible. Consumers (candles, volume, session bands, time-anchored drawings, alarm labels, date axis/crosshair) all map through the same `TimeCollapseMap` (`services/time_collapse_service.py`).
+**Source:** Defect D21 (D21-14/D21-15/D21-16; RC-D21-1).
+
+### 2026-10-06 — discovered during Build (D21 shared visual convention)
+**Category:** Technical Note
+**Finding:** UI "hidden/off" and "active" affordances are centralised in `ui/visual_conventions.py`: `DiagonalStrikeButton` (a single cosmetic top-left→bottom-right strike, auto-applied when a checkable button is unchecked) and `set_button_active(button, active)` / a `#MainToolbar`-keyed stylesheet for the active highlight. The stylesheet must target the toolbar **objectName**, not position, so it works inside the D19/D20 scroll wrapper. Reuse these rather than re-implementing per panel.
+**Source:** Defect D21 (D21-04, VIS-D21; consumed by D21-07/08/11/12/13).

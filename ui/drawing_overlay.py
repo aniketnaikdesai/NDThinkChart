@@ -78,6 +78,10 @@ class DrawingOverlay(QObject):
         self._view = plot.getViewBox()
 
         self._bar_ts: list[int] = []
+        # D21.4: the ViewBox x-model is display-x (non-trading time collapsed
+        # away) whenever a collapse map is active. Render maps ``ts -> display-x``
+        # and drag maps ``display-x -> ts`` through this map.
+        self._collapse_map = None
         self._symbol: str = ""
         self._drawings: list[Drawing] = []
         self._groups: dict = {}
@@ -108,6 +112,32 @@ class DrawingOverlay(QObject):
 
     def set_bars(self, bars) -> None:
         self._bar_ts = [b.ts for b in bars] if bars else []
+        self._rerender()
+
+    def set_collapse_map(self, collapse_map) -> None:
+        """Set the D21.4 display-x map used for rendering and drag.
+
+        ``None`` (or an identity map) keeps the historical raw-timestamp
+        x-model; a non-identity map makes ``_ts_to_x`` render at display-x and
+        ``_x_to_ts`` inverse-map a dragged display-x back to its timestamp.
+        """
+        self._collapse_map = collapse_map
+        self._rerender()
+
+    def _rerender(self) -> None:
+        """Rebuild existing drawing items at the current display-x positions.
+
+        Called when the bar set or the collapse map changes so time-anchored
+        drawings stay on their bars after a timeframe / Ext-Hours collapse
+        (AC-D21.4.1). No-op when there are no drawings yet.
+        """
+        if not self._drawings:
+            return
+        self._clear_all_items()
+        for drawing in self._drawings:
+            self._build_items(drawing)
+        self._restyle_selected()
+        self._refresh_handles()
 
     def set_data(self, symbol: str, drawings: list[Drawing],
                  groups: list[DrawingGroup]) -> None:
@@ -194,12 +224,27 @@ class DrawingOverlay(QObject):
     # ── Coordinate helpers ─────────────────────────────────────────────────────
 
     def _ts_to_x(self, ts: int) -> float:
-        """Convert timestamp to x-coordinate (now uses timestamp directly)."""
-        return float(ts)
+        """Map a timestamp to the ViewBox x-coordinate.
+
+        With a D21.4 collapse map active the x-model is display-x, so the
+        timestamp is mapped through ``to_display``; otherwise it is the raw
+        timestamp (identity).
+        """
+        cmap = self._collapse_map
+        if cmap is None:
+            return float(ts)
+        return float(cmap.to_display(ts))
 
     def _x_to_ts(self, x: float) -> int:
-        """Convert x-coordinate back to timestamp."""
-        return int(round(x))
+        """Inverse-map a ViewBox x-coordinate back to a timestamp.
+
+        With a collapse map active, a dragged display-x is inverse-mapped via
+        ``to_ts``; otherwise x is already the timestamp.
+        """
+        cmap = self._collapse_map
+        if cmap is None:
+            return int(round(x))
+        return int(round(cmap.to_ts(x)))
 
     def _view_pos(self, ev) -> QPointF:
         return self._view.mapSceneToView(ev.scenePos())
@@ -342,7 +387,9 @@ class DrawingOverlay(QObject):
             label.setPos(view_rect_scene.right() - 4, scene_y)
         except Exception:
             try:
-                label.setPos(self._bar_ts[-1] if self._bar_ts else 0, price)
+                label.setPos(
+                    self._ts_to_x(self._bar_ts[-1]) if self._bar_ts else 0, price
+                )
             except Exception:
                 label.setPos(0, price)
         return label
@@ -813,7 +860,10 @@ class DrawingOverlay(QObject):
                         items[line_idx].setPos(price)
                     if label_idx < len(items):
                         items[label_idx].setText(f"{ratio * 100:.1f}%  {price:.2f}")
-                        items[label_idx].setPos(self._bar_ts[-1] if self._bar_ts else 0, price)
+                        items[label_idx].setPos(
+                            self._ts_to_x(self._bar_ts[-1]) if self._bar_ts else 0,
+                            price,
+                        )
             else:
                 # Number of levels changed, need to rebuild
                 self._restore_drawing_style(drawing)

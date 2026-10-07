@@ -1873,3 +1873,293 @@ empty, full offscreen suite green (**585 passed / 0 failed / exit 0**, independe
 escalations remain** — ESC-001…ESC-027 are all `addressed`. The pipeline can advance (build complete).
 
 Status: REVIEW_COMPLETE
+
+# Revision 12 review — Batch 15 (D21: 13 UI defects + VIS-D21), 2026-10-06
+
+**Reviewer:** Code Reviewer agent. **Scope:** `docs/build/build_log.md` Batch 15 (D21-01…D21-18, all `done`;
+`failures.json.blocked` empty; two `pending_routing` observations routed to me), `docs/tasks/task-graph.json`
+(D21 graph), `docs/requirements/requirements.md` (D21 / `AC-D21.*` / `VIS-D21`), `docs/architecture.md`
+(D21 increment, S3–S17), `docs/plan.md` (D21 phases), and the uncommitted D21 output (7 new test modules +
+`ui/visual_conventions.py` + `services/time_collapse_service.py` + `ui/alarm_edit_dialog.py`). **Method:** the
+full offscreen suite re-run by the reviewer; every D21 module and the D16/D1 + D8/ESC-007 lockstep modules
+re-run in isolation; the D17/D18 focused modules re-run; every D21 source file read from disk; a reviewer
+offscreen probe for the D21.2 floor edge; the test diffs read to confirm none was weakened. **No live TWS** —
+every run was `QT_QPA_PLATFORM=offscreen`. Graphify's committed graph (`graphify-out/graph.json`, 2416 nodes) is
+**stale for the D21 modules** — it contains no `ui/visual_conventions.py`, `services/time_collapse_service.py`,
+`CollapsedDateAxis`, or any D21 symbol — so it is stated explicitly per the graphify protocol and every finding
+was validated against the actual repository files (authoritative).
+
+## Verdict summary
+
+| # | Finding | Linked task | Classification | Severity | Route |
+|---|---|---|---|---|---|
+| F1 | D21.2 volume ceiling floor over-applies to a small **non-zero** visible max (`[0,100]` instead of `[0, 1.1×max]` for `0 < max ≤ ~90.9`) | D21-02 | consistency gap (`code_bug`) | nice-to-have | BUILD (ESC-028) |
+| F2 | `task-graph.json` **D21-13-T05 description is inverted** vs `AC-D21.10.5` (the AC/implementation/test are all correct) | D21-13 | task-definition wording (`bad_task_breakdown`) | nice-to-have | TASK_MANAGER (ESC-029) |
+| — | D21-16 out-of-footprint `ui/chart_panel.py` edit | D21-16 | verified acceptable (correct ownership boundary; no collision) | none | none |
+| — | `_nice_volume_max` / `_volume_nice_family` are now test-only (dead production code, retained deliberately) | D21-02 | observation | none | none |
+
+**Counts: BUILD 1 · TASK_MANAGER 1 · no-action 2.** Both routed items are `nice-to-have`; nothing blocks the
+build, which is complete (18/18 done) and green (672/0).
+
+## A. Independent full-suite + focused re-verification (reviewer-run, not Build's word)
+
+- **Full offscreen suite** (clean shared test DB removed first, `-p no:cacheprovider`):
+  `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` → **`672 passed in 12.13s`,
+  0 failed, exit code 0**. Build's 672/0 claim independently confirmed; matches baseline `04397d9` = 585 +
+  delta 87 = the D21 modules.
+- **D21 modules in isolation** (`test_volume_d21`, `test_visual_conventions`, `test_toolbar_d21`,
+  `test_watchlist_columns_d21`, `test_right_dock_d21`, `test_alarm_d21`, `test_time_collapse_d21`) →
+  **87 passed**.
+- **Lockstep modules in isolation** (`test_history_backfill`, `test_session_service`, `test_session_overlay`,
+  `test_volume_linear`, `test_volume_log`, `test_volume_ceiling`) → **44 passed**.
+- **D17/D18 focused modules** (`test_dock_layout`, `test_dock_widths_d17`, `test_dock_widths_d18`,
+  `test_dock_widths_d18_impl`, `test_dock_d18_region`) → **82 passed**; `CHART_MIN_WIDTH = 400` unchanged.
+- **No test weakened / skipped / deselected:** `grep -nE "pytest.mark.skip|pytest.mark.xfail|pytest.skip|deselect|--ignore"`
+  over the 7 D21 modules → **0 hits**. The D16/D1 and D8/ESC-007 lockstep diffs are substantive re-expressions
+  (display-x; `1.10 × visible max`), not weakenings — see C.
+- **No live TWS / order transmission (Q9):**
+  `grep -rnE "eConnect|placeOrder|reqMktData|reqHistoricalData|cancelOrder|reqPositions|reqAccountSummary|reqOpenOrders|connectAsync|7496|7497|4001|4002" tests/ --include='*.py'` → **0 hits**;
+  every `MainWindow`-constructing test monkeypatches `IBApiClient.connect` to a no-op.
+- **`ui/dock_layout.py` unchanged by D21** (`git status` clean; last commit `5bd7c93`). Cap constants unchanged:
+  `CHART_MIN_WIDTH 400`, `WATCHLIST_MIN_WIDTH 150`, `RIGHT_DOCK_MIN_WIDTH 200`, `WATCHLIST_CAP_FRACTION 0.50`,
+  `RIGHT_DOCK_CAP_FRACTION 0.40`. `_apply_dock_widths` gained only the D21.13 collapsed-region branch; the cap
+  formula and `_plan_dock_widths` delegation are untouched.
+
+## B. The 13 defects + VIS-D21 — each verified against the live code
+
+- **D21.1 (volume Y min 0)** — `ui/chart_panel.py:378` `volume_plot.getViewBox().setLimits(yMin=0)`, applied
+  immediately after the linear-`setLogMode` block. `tests/test_volume_d21.py` T01 drives `translateBy`/`scaleBy`/
+  bounded `setRange` and asserts `viewRange()[1][0] >= 0` and no negative tick; T02 asserts the D8 all-zero
+  `[0,100]` floor and reload re-application. Non-vacuous (pre-fix red reproduced by Build). **Holds.**
+- **D21.2 (ceiling = 1.10 × visible max)** — `_recompute_visible_volume_range()` (chart_panel ~1129–1167) scans
+  each plotted bar's **display-x** against the visible x-range, `ceiling = visible_max*1.1`, wired to
+  `price_plot.getViewBox().sigXRangeChanged` (line 385) and re-run on bar updates. T01 asserts the ceiling follows
+  zoom **both directions** (lowers on zoom-in — the superseded only-widen rule is gone); T03 asserts intra-bar
+  growth widens. The only-widen path (`_vol_max`/`_ensure_volume_range`/`_widen_volume_for`) is removed.
+  **Holds for realistic volumes** — one narrow deviation found for tiny non-zero max: **F1 / ESC-028**.
+- **D21.3 (Ext Hours ↔ RTH label)** — `_ext_hours_label()` + relabel on construction and in `_on_ext_hours_toggled`
+  **before** the `_current_symbol` guard. `test_toolbar_d21.py` T01/T02 assert immediate relabel, survival across a
+  driven reload, and 80px fit. **Holds.**
+- **D21.4 (collapse non-trading time, intraday only, `1 day` identity, RTH collapses non-RTH)** — pure
+  `services/time_collapse_service.py` (`gap_is_non_trading` = `not session_windows(a + bar_period, b, ext_hours)`,
+  the coverage-adjusted predicate; `1 day` identity; `Bar.ts` never mutated) + ChartPanel display-x x-model
+  (`_collapse_map`, `_to_display`/`_to_ts`, `CollapsedDateAxis`, `_compute_plotted_indices` RTH filter). T14
+  boundary tests run against the real `market_calendar.session_windows`; T15-T01/T02/T03/T04/T05 assert
+  contiguity, `1 day` identity, a kept trading-session hole, RTH-only + D1 bands at collapsed positions, and the
+  display-x volume ceiling; T16-T01…T04 assert the consumers (bands/drawings/alarm label/axis) map through the same
+  map. **Holds.** D16 no-silent-hole: `self._bars` and every `Bar.ts` are untouched (display-only); the D16
+  lockstep tests were re-expressed through `_to_display` preserving the span/non-zero-height intent. **Unchanged.**
+- **D21.5 (watchlist configurable columns + persistence)** — `COLUMN_DEFS`/`ALL_FIELDS`/`DEFAULT_FIELDS` field-key
+  model, `_row_data` field-identity binding, Symbol forced present, header context popup, `QSettings
+  watchlist/columns` with sanitised restore. `test_watchlist_columns_d21.py` T01–T05 assert the popup, the exact
+  7-field addable set, Symbol non-removable, field binding after reorder + D14 still resolving, and persistence.
+  **Holds.**
+- **D21.6 (volume pane ≥ 360px, ~200px price floor)** — `VOLUME_PANE_MAX_HEIGHT = 480`,
+  `PRICE_PANE_MIN_HEIGHT = 200`, `volume_plot.setMaximumHeight(480)`, `price_plot.setMinimumHeight(200)`,
+  oscillator cap unchanged at 120. T01/T02/T03 assert volume ≥ 360 (and ≤ 480), price ≥ 200 in a tall window,
+  price-minimum precedence in a short window, and oscillator/hide-show unaffected. **Holds.**
+- **D21.7 (toolbar active highlight)** — `apply_toolbar_stylesheet` (`#MainToolbar QPushButton:checked`) +
+  `set_button_active` around the Studies/Alarms dialogs. T01 renders each checkable toggle and counts the
+  `#1f6feb` fill; T02 renders the popup buttons inside/after `exec` and after scrolling the D19 wrapper.
+  **Holds.**
+- **D21.8 (Alarm-Mode highlight + persistent message)** — `alarm_mode_btn` gets the `:checked` highlight;
+  `_on_alarm_mode_toggled` shows `ALARM_MODE_STATUS_MESSAGE` with **no timeout**, and
+  `_clear_alarm_mode_status()` (guarded on `currentMessage()`) clears it on every exit path (button off, alarm
+  placed, drawing tool selected). T01/T02/T03 assert the highlight, `showMessage(msg, 0)` (spy), persistence past
+  4 s, and all three exit paths + a later message getting through. **Holds.**
+- **D21.9 (per-row alarm Edit)** — `ui/alarm_edit_dialog.py` (`AlarmStore.update(id, price=…, direction=…,
+  sound=…, note=…)`, never touching `active`/`triggered`/`triggered_at`), `alarm_dialog.py` 7-column table with a
+  right-end `Edit` button and a stretched Note column. T01–T04 assert the right-end button, the stretched Note,
+  Save/Cancel, and a triggered alarm keeping `active`/`triggered`/`triggered_at` + the overlay reflecting the new
+  price. **Holds.**
+- **D21.10 (smart alarm setup)** — `show_alarm_preview`/`update_alarm_preview`/`hide_alarm_preview` (yellow dashed
+  non-movable `InfiniteLine`, panel-owned so `set_alarms` never removes it), wired **only** on the chart-click
+  path `_on_alarm_create_requested` (with a `finally` removal and `price_input.valueChanged` live-follow), and
+  `AlarmDialog.default_condition` applied **only at construction**. T01–T06 assert prefill, the yellow dashed
+  visible line, live follow, remove-on-close + replace-on-Add, the on-open default (AC), and no preview on the
+  Alarms-button path. **Holds** — see F2 for the task-graph wording.
+- **D21.11 (single Watchlist label as toggle)** — duplicate `QDockWidget` title deleted (`setWindowTitle("")`),
+  `setTitleBarWidget(header_bar)` with a checkable `DiagonalStrikeButton("Watchlist")`. T01 asserts exactly one
+  visible label across the window, T02 the collapsed body + struck visible button, T03 the collapsed button +
+  preserved title-bar drag/float + the D17/D18 width model. **Holds.**
+- **D21.12 (Volume button strike when hidden)** — `_volume_toggle` is a `DiagonalStrikeButton` (checked ↔ shown ↔
+  unstruck). T01/T02 assert the strike iff hidden, D10 placement, axis hide/show, splitter/price round-trip, and
+  clickability while struck. **Holds.**
+- **D21.13 (right-dock toggles + collapse)** — `Active Trader` = right-dock title-bar button, `Account Summary` =
+  portfolio `summary_label` button; `_sync_right_dock_collapse` relaxes the minimum to
+  `_right_dock_collapsed_min_width` and pins the dock via `_resize_docks_guarded` when both hidden, restoring
+  `RIGHT_DOCK_MIN_WIDTH` + the cross-clamp otherwise; `_apply_dock_widths` treats a collapsed region as hidden;
+  `_on_dom_toggled` stays whole-region. T01–T05 assert the mappings, in-height collapse + other-expands,
+  horizontal collapse with the chart minimum held, the strike, and the DOM/cross-clamp behaviour. **Holds.**
+- **VIS-D21 (defined once, referenced)** — `ui/visual_conventions.py` is the single source: `DiagonalStrikeButton`
+  (`VIS-D21.1`) and `VIS_D21_2_STYLESHEET`/`set_button_active`/`apply_toolbar_stylesheet` (`VIS-D21.2`). Grep
+  confirms the accent colours (`#1f6feb`/`#58a6ff`) and the `#MainToolbar QPushButton` selectors exist **only** in
+  that module; D21.7/8 (main_window), D21.11 (watchlist), D21.12 (volume), D21.13 (right dock) all import/reference
+  it. **No duplication. Holds.**
+
+## C. Lockstep updates preserve substantive intent (no test weakened)
+
+- **D16/D1 lockstep (`tests/test_history_backfill.py`)** — the two raw-`Bar.ts` assertions
+  (`test_t40_t02...` and `test_t40_t06...`) now compare the rendered `candlestick._raw_data` x / `volume_bars`
+  x to `panel._to_display(b.ts)`, and the span + non-zero-height checks were re-expressed in display-x
+  (`span_x`, `index = {x: i …}`). This preserves the AC-D16.2 intent (both panels span the backfilled span with
+  non-zero heights) under the D21.4 display-x contract; nothing was dropped or loosened.
+- **D8/ESC-007 volume lockstep (`test_volume_linear.py`, `test_volume_log.py`, `test_volume_ceiling.py`)** — the
+  panel view-range assertions were re-expressed as `max_vol * 1.1` (the D21.2 rule) with the concrete values
+  re-pinned (`1_100`), and `test_volume_ceiling.py` T23-T03 still proves the O(1)-ish no-write-on-non-crossing
+  behaviour with a `setRange` spy. `_nice_volume_max` is retained only as the pinned-family fixture and exercised
+  directly. These are substantive re-expressions, not weakenings.
+- **Q8 non-vacuity** — Build's D21-17 evidence (all 7 new modules ERROR/fail on the pre-fix tree `04397d9` because
+  the D21 symbols do not exist, and 10 changed lockstep assertions fail; all green post-fix) is consistent with the
+  modules importing D21-only symbols (`PRICE_PANE_MIN_HEIGHT`, `ui.visual_conventions`, `ui.alarm_edit_dialog`,
+  `services.time_collapse_service`, `RIGHT_DOCK_COLLAPSED_MIN_WIDTH`). The D21 tests cannot pass pre-fix by
+  construction.
+
+## D. The two `pending_routing` observations — evaluated
+
+1. **D21-16 out-of-footprint `ui/chart_panel.py` edit (~20 lines) — ACCEPTABLE, no follow-up.**
+   `_sync_collapsed_consumers()` (called from `_rebuild_collapse_map()`, the empty-load clear, and
+   `update_last_bar`) pushes the ChartPanel-owned `TimeCollapseMap` + plotted bars to `drawing_overlay` and
+   `alarm_overlay`. `docs/architecture.md` S16/S17 makes **ChartPanel the owner of the map** and the pusher to the
+   consumers, so this is the correct ownership boundary, not a misplaced edit. D21-16 was the sole task in wave 8,
+   so the only real risk of an out-of-footprint edit (a same-wave `touches_files` race) could not occur. The one
+   inaccuracy is that D21-16's **declared `touches_files` omitted `ui/chart_panel.py`** even though the task
+   required touching it — a task-definition footprint gap. Because the task is complete, the outcome is correct and
+   architecturally consistent, and re-scoping a done task has no value, this is recorded as an accepted observation
+   (no escalation). *Recommendation for future graphs:* a consumer task that needs ChartPanel-side wiring should
+   declare `ui/chart_panel.py` (or the plumbing should live in the ChartPanel-owning task).
+2. **D21-13-T05 / `AC-D21.10.5` manifest-prose discrepancy — AC correctly implemented; the inverted prose is in
+   `task-graph.json` itself → routed to Task Manager (F2 / ESC-029).** The AC is unambiguous (`requirements.md:1987`,
+   architecture S15, `plan.md:58-59`): Cross Below when the **current** price is higher than the alarm price; Cross
+   Above when lower or unknown. `ui/alarm_dialog.py::default_condition` implements exactly that, and
+   `test_d21_13_t05_condition_default_on_open` asserts the AC (current=100/alarm=110 → **Cross Above**;
+   current=100/alarm=90 → **Cross Below**; None → **Cross Above**) — the test asserts the AC, **not** the inverted
+   prose. No code change is needed. However, the inverted wording is not only in the transient wave manifest: it is
+   in the **authoritative `docs/tasks/task-graph.json` D21-13-T05 `description`** ("alarm price 110 -> Cross Below,
+   90 -> Cross Above"), which Build may not edit. Build's log claim that the task description states the rule
+   unambiguously is inaccurate. Routed to Task Manager as a wording-only fix (same class as ESC-018).
+
+## E. Supersessions — coherent and documented, not silent
+
+- **`AC-D16.3` display supersession (D21.4):** recorded on `AC-D16.3` itself (`requirements.md:1410`, "Superseded
+  (display part) by D21.4 … the no-fill/no-interpolate rule above and D16's no-silent-hole requirements
+  (`AC-D16.1`/`AC-D16.4`) are unchanged"), in the header (`:11`), the work-item note (`:75`), Q38 (`:1381`), A45
+  (`:2067`), R37 (`:2153`), and the D21.4 section (`:1924`). Coherent.
+- **D8 nice-max / ESC-007 only-widen volume supersession (D21.2):** recorded on `AC-D21.2.1` (`requirements.md:1903`),
+  in the D21.2 edge cases (`:1904`), and in `plan.md:105`. `AC-D8.6`/`AC-D8.7` are re-scoped by the lockstep tests.
+  Coherent.
+
+## F. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-028 | D21-02 | BUILD | consistency / nice-to-have | D21.2 floors the ceiling to `[0,100]` for a small **non-zero** visible max (`0 < max ≤ ~90.9`) instead of `[0, 1.1×max]`; the AC's `[0, 1.10 × max_volume_visible]` is not met in that narrow regime (no test covers it; real volumes rarely hit it) |
+| ESC-029 | D21-13 | TASK_MANAGER | gap / nice-to-have | `task-graph.json` D21-13-T05 description is inverted vs `AC-D21.10.5`; the AC, implementation and test are all correct — wording-only fix |
+
+**Pipeline state for the Orchestrator:** Batch 15 (D21) is complete — **18/18 done**, `failures.json.blocked`
+empty, full offscreen suite green (**672 passed / 0 failed / exit 0**, independently re-run). Two new
+`nice-to-have` escalations are open: **ESC-028 (BUILD)** and **ESC-029 (TASK_MANAGER)**. Neither blocks the
+pipeline; both are non-blocking quality/wording items. ESC-001…ESC-027 remain `addressed`.
+
+Status: REVIEW_COMPLETE
+
+# Revision 13 review — Batch 15 (D21) ESC-028 / ESC-029 verification pass, 2026-10-06
+
+**Reviewer:** Code Reviewer agent. **Scope:** the Batch-15 (D21) rework round — `docs/build/build_log.md`
+(Batch 15, wave 11 terminal consolidation; `Status: READY_FOR_REVIEW`), `docs/build/failures.json`
+(`blocked` empty), the two open escalations **ESC-028** and **ESC-029**, `ui/chart_panel.py`
+(`_recompute_visible_volume_range`), `tests/test_volume_d21.py` (new T05), `docs/tasks/task-graph.json`
+(D21-13-T05 description + `AC-D21.10.5`), `ui/alarm_dialog.py::default_condition`,
+`tests/test_alarm_d21.py::test_d21_13_t05_condition_default_on_open`. **Method:** every claim independently
+re-verified on the live tree with the reviewer's own offscreen probes and runs (not Build's report); the
+full clean offscreen suite and the D17/D18 focused modules re-run; the test list grepped for weakenings.
+**No live TWS** — every run was `QT_QPA_PLATFORM=offscreen`. Nothing was fixed; only `docs/code_review/` was
+written.
+
+**Graphify:** `graphify-out/graph.json` (2416 nodes) was queried for orientation, but it is **stale for the
+D21 modules** (no `ui/visual_conventions.py`, `services/time_collapse_service.py`, or D21 symbols) and it
+still indexes the removed `_ensure_volume_range`/`_widen_volume_for` — so, per the graphify protocol, every
+finding below was validated against the actual repository files (authoritative).
+
+## A. ESC-028 — D21.2 volume ceiling floored a small non-zero visible max — **VERIFIED, CLOSED**
+
+- **Fix present (code read).** `ui/chart_panel.py::_recompute_visible_volume_range()` (`:1146–1172`) now
+  branches: `if visible_max > 0.0: ceiling = visible_max * 1.1` / `else: ceiling = VOLUME_NICE_FLOOR`
+  (`:1165–1168`). The unconditional second `if ceiling < VOLUME_NICE_FLOOR` clamp is **gone**; the ESC-028
+  comment (`:1158–1164`) records the rule so it is not reintroduced. The Y minimum stays 0 (D21.1 limit) and
+  the range is still written only when the ceiling changes or `force`.
+- **Reviewer offscreen probe (my own, 900×600, 3 bars, `ChartPanel.update_chart`, x-range pinned to the
+  visible span):**
+
+  | visible_max | measured yRange | expected |
+  |---|---|---|
+  | 0 | `[0.0000, 100.0000]` | `[0, 100]` ✓ |
+  | 10 | `[0.0000, 11.0000]` | `[0, 11]` ✓ |
+  | 50 | `[0.0000, 55.0000]` | `[0, 55]` ✓ |
+  | 90 | `[0.0000, 99.0000]` | `[0, 99]` ✓ |
+  | 91 | `[0.0000, 100.1000]` | `[0, 100.1]` ✓ |
+  | 100 | `[0.0000, 110.0000]` | `[0, 110]` ✓ |
+  | 1000 | `[0.0000, 1100.0000]` | `[0, 1100]` ✓ |
+
+  Every case matches the literal `[0, 1.10 × visible_max]`, with `[0, 100]` reserved for the 0-visible case.
+- **T05 is non-vacuous (proved, not assumed).** I re-introduced the pre-fix unconditional clamp **in memory
+  only** (monkeypatched `ChartPanel._recompute_visible_volume_range`; no repo file edited) and ran the new
+  test: `test_D21_02_T05_small_nonzero_visible_max_not_floored` **FAILED**
+  (`visible_max=10 should give [0, 11.0], got 100.0 (ESC-028 floor regression)`); with the shipped method it
+  **PASSES**. The test asserts the literal `1.10 × max` and, for `≤ 90`, an explicit `!= 100.0`. It is a
+  genuine witness, not a tautology.
+- **No regression.** `tests/test_volume_d21.py` → **10 passed**; the volume lockstep modules are green
+  within the full suite.
+
+## B. ESC-029 — `task-graph.json` D21-13-T05 description inverted vs `AC-D21.10.5` — **VERIFIED, CLOSED**
+
+- **Description corrected (live file).** `docs/tasks/task-graph.json` D21-13-T05 `description` (`:802`) now
+  reads: *"…last_price=100: alarm price 110 -> Cross Above, 90 -> Cross Below, None/unknown -> Cross Above;
+  assert the user can override and the default is not recomputed on spinbox change."* This matches
+  `AC-D21.10.5` (`docs/requirements/requirements.md:767`: Cross Below when the current price is higher than
+  the alarm price; Cross Above when lower or unknown). The previously inverted "110 -> Cross Below,
+  90 -> Cross Above" wording (quoted in the Revision-12 review) is gone; exactly one D21-13-T05 entry
+  remains in the graph.
+- **AC / implementation / test were correct all along (confirmed).** `ui/alarm_dialog.py::default_condition`
+  (`:122–134`) returns `"Cross Below"` iff `current_price > alarm_price`, else `"Cross Above"` (including
+  `None`); `tests/test_alarm_d21.py::test_d21_13_t05_condition_default_on_open` (`:314–338`) asserts
+  current=100/alarm=110 → Cross Above, alarm=90 → Cross Below, None/unknown → Cross Above, and that a user
+  override sticks. Re-ran it → **passed** (11 passed together with `tests/test_volume_d21.py`). No code or
+  test change was needed; the fix is wording-only, exactly as routed.
+
+## C. Independent full-suite + focused re-verification (reviewer-run)
+
+- **Full clean offscreen suite** (shared test DB removed, `-p no:cacheprovider`):
+  `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q -p no:cacheprovider` →
+  **`673 passed in 11.92s`, 0 failed, exit code 0**. Build's 673/0 claim independently confirmed; matches
+  baseline `04397d9` (D1–D20 = 585) + 87 D21 tests + the 1 new T05 = 673, so **no D1–D20 regression**.
+- **D17/D18 chart-minimum / dock-width criteria intact:** `test_dock_layout` + `test_dock_widths_d17` +
+  `test_dock_widths_d18` + `test_dock_widths_d18_impl` + `test_dock_d18_region` → **82 passed**;
+  `ui/dock_layout.py` `CHART_MIN_WIDTH = 400` unchanged (`:21`).
+- **No test weakened / skipped / deselected:** `grep -rnE "pytest\.mark\.(skip|xfail)|pytest\.skip|deselect|--ignore"`
+  over `tests/` → **0 hits**.
+- **No live TWS / order transmission (Q9):**
+  `grep -rnE "eConnect|placeOrder|reqMktData|reqHistoricalData|cancelOrder|reqPositions|reqAccountSummary|reqOpenOrders|connectAsync|7496|7497|4001|4002"`
+  over `tests/` → **0 hits**.
+
+## D. Escalation close-out
+
+- **ESC-028 → `addressed`** (edited in place, `Verified:` line added) — see A. Independently re-verified; the
+  fix holds across the full band and the new T05 discriminates.
+- **ESC-029 → `addressed`** (edited in place, `Verified:` line added) — see B. The task-graph wording now
+  matches the AC; the AC/implementation/test were already correct.
+- **ESC-001…ESC-027 remain `addressed`** (re-confirmed: nothing relevant changed for them this pass).
+  After this pass **no open escalations remain** (`grep -nE "Status: *(open|ESCALATED_TO_)"` over
+  `escalations.md` → **none**).
+
+## E. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| — | — | — | — | **None.** Both reworks verified independently; the full clean suite is green (673/0); D17/D18 minimum-width intact; no test weakened; no live TWS. No quality, consistency, or security issue found. |
+
+**Pipeline state for the Orchestrator:** Batch 15 (D21) is complete — **18/18 done**, `failures.json.blocked`
+empty, full clean offscreen suite green (**673 passed / 0 failed / exit 0**, independently re-run). **No open
+escalations remain** — ESC-001…ESC-029 are all `addressed`. The pipeline can advance (build complete).
+
+Status: REVIEW_COMPLETE

@@ -41,9 +41,12 @@
 - **Why not in the original ask:** D16 asks only that existing history stop showing holes.
 - **Suggested priority:** medium
 
-## FS7 — Compress/collapse non-trading time (weekends, holidays, overnight)
-- **Gap/opportunity:** D16 leaves genuine closures as empty spans (`AC-D16.3`). Some
+## FS7 — Compress/collapse non-trading time (weekends, holidays, overnight) — **PROMOTED to D21.4 (2026-10-06)**
+- **Gap/opportunity:** D16 left genuine closures as empty spans (`AC-D16.3`). Some
   terminals collapse them to reduce dead space.
-- **Why not in the original ask:** The user's complaint is missing *trading* data, not the
+- **Why not in the original ask:** The user's complaint was missing *trading* data, not the
   weekend gap; compressing time is a separate x-axis design change.
-- **Suggested priority:** low
+- **Status:** **PROMOTED — now in scope** as defect **D21.4** (the user explicitly requested
+  collapsing empty space when the market is not open / when RTH is selected, 2026-10-06). It
+  **supersedes the display part of `AC-D16.3`**. See `requirements.md` D21.4 / Journey 23 and
+  `open_questions.md` B9 (answered 2026-10-06: collapse between-session gaps on intraday timeframes only; `1 day` no-op).

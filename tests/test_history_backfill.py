@@ -316,20 +316,23 @@ def test_t40_t02_both_panels_span_backfilled_timestamps(monkeypatch, qapp):
         vol_x = [int(v) for v in panel.volume_bars.opts["x"]]
         vol_h = [float(v) for v in panel.volume_bars.opts["height"]]
 
-        # Both panels are driven by the same continuous bar list.
-        assert candle_ts == [b.ts for b in bars]
-        assert vol_x == candle_ts
+        # Both panels are driven by the same continuous bar list. The rendered
+        # x-model is display-x after the D21.4 collapse, so compare through the
+        # panel's map rather than the raw Bar.ts.
+        expected_x = [panel._to_display(b.ts) for b in bars]
+        assert candle_ts == expected_x
+        assert vol_x == [int(x) for x in expected_x]
         assert len(vol_h) == len(candle_ts)
 
-        # Both span the backfilled timestamps.
-        span_ts = [b.ts for b in expected]
-        assert set(span_ts) <= set(candle_ts)
-        assert set(span_ts) <= set(vol_x)
+        # Both span the backfilled timestamps (at their display-x positions).
+        span_x = [panel._to_display(b.ts) for b in expected]
+        assert set(span_x) <= set(candle_ts)
+        assert set(span_x) <= set(vol_x)
 
         # Non-zero height wherever a candle exists in the backfilled span.
-        index = {ts: i for i, ts in enumerate(candle_ts)}
-        for ts in span_ts:
-            assert vol_h[index[ts]] > 0, ts
+        index = {x: i for i, x in enumerate(candle_ts)}
+        for x in span_x:
+            assert vol_h[index[x]] > 0, x
         assert all(h > 0 for h in vol_h)
     finally:
         win.close()
@@ -583,10 +586,14 @@ def test_t40_t06_empty_cache_fallback_renders(monkeypatch, qapp):
         assert [b.ts for b in bars] == sorted(b.ts for b in expected)
         assert all(b.symbol == symbol for b in bars)
 
-        # Rendered without error: both panels carry the returned bars.
+        # Rendered without error: both panels carry the returned bars, at their
+        # D21.4 display-x positions (the x-model is display-x after collapse).
         candle_ts = [c[0] for c in win.chart_panel.candlestick._raw_data]
         vol_x = [int(v) for v in win.chart_panel.volume_bars.opts["x"]]
-        assert candle_ts == sorted(b.ts for b in expected)
+        expected_x = [
+            win.chart_panel._to_display(ts) for ts in sorted(b.ts for b in expected)
+        ]
+        assert candle_ts == expected_x
         assert vol_x == candle_ts
         assert "error" not in win.status_bar.currentMessage().lower()
     finally:

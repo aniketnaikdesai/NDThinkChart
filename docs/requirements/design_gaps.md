@@ -344,3 +344,95 @@
 - **Status:** resolved (B7 answered 2026-10-06 — the `<= ~40px` bound is explicitly superseded to a ~52px container
   bound on `AC-D19.4`; the D19 height assertions are updated in lockstep per `AC-D20.6`)
 
+---
+
+## DG31 — D21.4: collapsing non-trading time supersedes `AC-D16.3` and touches D1 shading / drawings / alarms
+- **Where it shows up:** D21.4 / Journey 23; `ui/chart_panel.py` `_refresh_candles` / `_custom_date_axis`;
+  `services/session_service.py`; `ui/overlays/session_overlay.py`; D16 `AC-D16.3`; D1 session bands.
+- **Why it matters:** the x-axis is currently linear wall-clock time, so collapsing overnight/weekend/holiday
+  gaps changes the bar x-mapping. `AC-D16.3` currently requires genuine closures to stay empty — the D21.4
+  request supersedes that **display** rule, so the D16/D1 tests that assert empty closures must be updated in
+  lockstep or they will contradict D21.4. Time-anchored drawings, session bands and alarm lines must still land
+  on the correct bars after collapse.
+- **Suggested resolution:** state the supersession explicitly (done in D21.4's supersession note); after B9 is
+  answered, update the affected D16/D1 tests and verify drawings/bands/alarms. Non-blocking beyond B9.
+- **Status:** resolved (B9 answered 2026-10-06 — collapse only **between-session** gaps on **intraday**
+  timeframes; `1 day` no-op; the `AC-D16.3` display-part supersession is recorded and the affected D16/D1
+  tests are updated in lockstep)
+
+## DG32 — D21.5: watchlist column configuration needs field-identity binding and a persistence store
+- **Where it shows up:** D21.5 / `ui/watchlist_panel.py` (`HEADERS`, `COL_*`, `_set_cell`, `on_tick_*`).
+- **Why it matters:** cell updates use hard-coded column indices (`COL_LAST`, `COL_BID`, …). If columns are
+  reordered or removed, index-based writes would corrupt values. A persistence store (QSettings or DB) must be
+  chosen and the D14 double-click (any column) must still resolve the Symbol.
+- **Suggested resolution:** bind columns by a stable field key rather than index; keep the Symbol column (per
+  B10); persist the layout; add a reorder-then-tick test. Non-blocking beyond B10.
+- **Status:** resolved (B10 answered 2026-10-06 — existing 7 columns, `Symbol` kept, layout persisted;
+  bind columns by field identity and add a reorder-then-tick test)
+
+## DG33 — D21.9: alarm edit semantics for a triggered/set alarm
+- **Where it shows up:** D21.9 / `ui/alarm_dialog.py`; `data/alarm_store.py`; `data/models.py` (`Alarm`).
+- **Why it matters:** editing a set or triggered alarm changes its meaning. Whether an edit re-arms the alarm,
+  keeps it triggered, or is disallowed affects the overlay colour and the alarm badge. `AlarmStore` currently
+  exposes add/rearm/set_sound/set_price/delete — an update path may be needed.
+- **Suggested resolution:** define the semantics (B13), add an atomic `AlarmStore` update, and re-render the
+  overlay/badge after the edit. Non-blocking beyond B13.
+- **Status:** resolved (B13 answered 2026-10-06 — edit dialog with price/condition/sound/note + Save/Cancel,
+  immediate persist via `AlarmStore`; a triggered/set alarm may be edited and keeps its state)
+
+## DG34 — D21.10: yellow dashed preview line lifecycle vs the modal alarm popup
+- **Where it shows up:** D21.10 / `ui/main_window.py::_on_alarm_create_requested`; `ui/alarm_dialog.py`;
+  `ui/chart_panel.py` alarm overlay.
+- **Why it matters:** the alarm popup is modal (`dialog.exec()`), so the preview line must be drawn on the chart
+  while the dialog is up, follow the price spinbox live, and be removed when the dialog closes — without leaking
+  onto the chart or colliding with the real alarm line after Add.
+- **Suggested resolution:** use a dedicated preview item removed on dialog close/finish; confirm the lifecycle
+  with B13; test open/close and live price changes. Non-blocking beyond B13.
+- **Status:** resolved (B13 answered 2026-10-06 — preview drawn while the popup is open, follows the price
+  live, removed on close, replaced by the real alarm line after Add)
+
+## DG35 — D21.13: right-dock collapse vs the D17/D18 width model and the DOM button
+- **Where it shows up:** D21.13 / `ui/main_window.py` right dock region, `_apply_dock_widths`,
+  `_on_right_dock_visibility_changed`, `_on_dom_toggled`.
+- **Why it matters:** collapsing the right region to a button strip changes its width demand and can interact
+  with the B3 cross-clamp / chart-minimum rule; the DOM button already hides the whole region, which must be
+  reconciled with per-panel hide/show. The panels' content sizing after expansion must not force the region wider.
+- **Suggested resolution:** treat the fully-collapsed region like a hidden region for the cross-clamp (as the
+  existing `visibilityChanged` path does); assert the chart minimum in collapsed and expanded states; reconcile
+  with the DOM toggle. Non-blocking beyond B12.
+- **Status:** resolved (B12 answered 2026-10-06 — Active Trader = dock title bar, Account Summary =
+  portfolio summary label; one hidden → in-height collapse + other expands; both hidden → horizontal
+  button-strip collapse)
+
+## DG36 — D21.7/D21.8: consistent active-highlight across every toolbar toggle
+- **Where it shows up:** D21.7/D21.8 / `ui/main_window.py` toolbar (`studies_btn`, `alarms_btn`,
+  `alarm_mode_btn`, `sound_btn`, `dom_btn`, `ext_hours_btn`) inside the D19 scroll wrapper.
+- **Why it matters:** a per-button ad-hoc style would be inconsistent; the highlight must be visible at any
+  scroll position in the D19 wrapper and must clear reliably when the state ends (including when a dialog is
+  closed or the mode is exited by another action).
+- **Suggested resolution:** define one shared highlight style (`VIS-D21.2`) applied to every active/selected
+  toolbar button; test active vs inactive and clear-on-exit. A41/A42 confirmed 2026-10-06 (`VIS-D21`).
+- **Status:** resolved (A41/A42 confirmed 2026-10-06 — one shared `VIS-D21.2` highlight across every active/selected toolbar button)
+
+---
+
+## DG37 — D21.11: deleting the watchlist dock title bar removes the dock's drag/float affordance
+- **Where it shows up:** D21.11 / `ui/main_window.py` watchlist dock title (`:258`), `ui/watchlist_panel.py`
+  in-panel header strip (`:117–124`).
+- **Why it matters:** B12 keeps the **in-panel header label** as the hide/show toggle and deletes the duplicate
+  **dock title bar**. A `QDockWidget`'s title bar is normally what the user drags to move/float the dock, so
+  removing it may leave the watchlist un-draggable unless an equivalent handle is provided. The toggle button must
+  stay visible when the watchlist is hidden, which a title bar could not do.
+- **Suggested resolution:** keep the in-panel header button as the toggle; if the dock must remain movable, give
+  the header strip a drag handle (or retain a frameless/title-bar drag region) so docking still works. Plan/Build
+  to choose the exact mechanism; the requirement outcome (single toggle that stays visible when hidden) is fixed.
+- **Status:** open (non-blocking; affordance detail for Plan/Build)
+
+## DG38 — D21.13: the right dock's title bar becomes the "Active Trader" toggle button
+- **Where it shows up:** D21.13 / `ui/main_window.py` right dock region (`:295–337`).
+- **Why it matters:** B12 makes the right dock's **title bar** the "Active Trader" hide/show button. The title bar
+  is also the region's drag/hide affordance, so making it a toggle must not break moving the dock or reconcile
+  badly with the existing DOM button (which hides the whole region).
+- **Suggested resolution:** make the title-bar label a clickable toggle while keeping a drag region; treat a
+  fully-collapsed region as hidden for the D17/D18 cross-clamp (`DG35`); reconcile with `_on_dom_toggled`.
+- **Status:** open (non-blocking; affordance/reconciliation detail for Plan/Build)
