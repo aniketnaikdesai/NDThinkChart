@@ -128,6 +128,47 @@ class DB:
         cursor.execute("SELECT symbol, category FROM watchlist ORDER BY sort_order ASC")
         return [(row[0], row[1]) for row in cursor.fetchall()]
 
+    def add_watchlist_symbol(self, symbol: str, category: str = "EQUITIES") -> None:
+        """Append a symbol to the watchlist (case-insensitive, idempotent).
+
+        If ``symbol`` is already present under any letter case the existing row
+        is left untouched (its category and sort_order are preserved). Otherwise
+        a new row is appended with ``sort_order = max(existing) + 1`` (0 when the
+        table is empty).
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO watchlist (symbol, category, sort_order) "
+            "SELECT ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM watchlist) "
+            "WHERE NOT EXISTS ("
+            "SELECT 1 FROM watchlist WHERE symbol = ? COLLATE NOCASE"
+            ")",
+            (symbol, category, symbol),
+        )
+        self.conn.commit()
+
+    def remove_watchlist_symbol(self, symbol: str) -> None:
+        """Remove a symbol (case-insensitive) and renumber survivors 0..n-1.
+
+        The remaining rows are renumbered contiguously preserving their relative
+        order. Removing a symbol that is not present is a no-op.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM watchlist WHERE symbol = ? COLLATE NOCASE", (symbol,)
+        )
+        if cursor.rowcount == 0:
+            self.conn.commit()
+            return
+        cursor.execute("SELECT rowid FROM watchlist ORDER BY sort_order ASC")
+        rowids = [row[0] for row in cursor.fetchall()]
+        for new_order, rowid in enumerate(rowids):
+            cursor.execute(
+                "UPDATE watchlist SET sort_order = ? WHERE rowid = ?",
+                (new_order, rowid),
+            )
+        self.conn.commit()
+
     def set_watchlist(self, symbols: list[str], category: str = "EQUITIES", sort_order: list[str] | None = None) -> None:
         """Replace the whole watchlist.
 

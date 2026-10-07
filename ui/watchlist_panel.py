@@ -1,12 +1,13 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QLabel, QPushButton, QHeaderView, QMenu
+    QLabel, QPushButton, QHeaderView, QMenu, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings
 from PyQt6.QtGui import QColor, QBrush, QPalette
 
 import ui.dock_layout as dock_layout
 from ui.visual_conventions import DiagonalStrikeButton
+from ui.add_symbol_dialog import AddSymbolDialog
 
 # ── D21.5: field-key column model ─────────────────────────────────────────────
 # The table is no longer addressed by fixed column indices. ``COLUMN_DEFS`` maps
@@ -210,6 +211,29 @@ def should_load_on_double_click(current_symbol: str, requested_symbol: str,
     return "load"
 
 
+# ── D22.3: symbol normalisation helpers (pure) ────────────────────────────────
+
+def normalise_symbol(text) -> str:
+    """Return the canonical (trimmed, upper-cased) form of a symbol string.
+
+    Empty / whitespace-only / ``None`` input normalises to ``""`` so callers can
+    treat that as "no symbol" without a separate emptiness check.
+    """
+    return str(text if text is not None else "").strip().upper()
+
+
+def symbol_in_list(symbol, symbols) -> bool:
+    """Case-insensitively test whether ``symbol`` already appears in ``symbols``.
+
+    A blank ``symbol`` is never considered present — a missing entry must not be
+    reported as a duplicate of another blank entry.
+    """
+    target = normalise_symbol(symbol)
+    if not target:
+        return False
+    return any(normalise_symbol(s) == target for s in (symbols or []))
+
+
 class WatchlistPanel(QWidget):
     """
     Dense watchlist table. Each row subscribes to IBKR reqMktData.
@@ -220,6 +244,10 @@ class WatchlistPanel(QWidget):
     """
 
     row_double_clicked = pyqtSignal(str)  # symbol (D14)
+    # D22: add/remove intent signals. ``symbol_remove_requested`` is consumed by
+    # the remove affordance (D22-05); both carry the raw symbol string.
+    symbol_add_requested = pyqtSignal(str)
+    symbol_remove_requested = pyqtSignal(str)
 
     def __init__(self, parent=None, settings: QSettings | None = None):
         super().__init__(parent)
@@ -276,7 +304,40 @@ class WatchlistPanel(QWidget):
         self.header_button.setPalette(_pal)
         self.header_button.toggled.connect(self._on_header_toggled)
         h_layout.addWidget(self.header_button)
+
+        # D22.1: a small '+' affordance adjacent to the title toggle. It shares
+        # the header strip's layout and is enabled/disabled together with the
+        # "Add symbol…" menu action by ``set_add_enabled``.
+        self.add_button = QPushButton("+", self.header_bar)
+        self.add_button.setObjectName("WatchlistAddButton")
+        self.add_button.setFixedSize(18, 18)
+        self.add_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_button.setToolTip("Add symbol")
+        self.add_button.setStyleSheet(
+            "QPushButton#WatchlistAddButton {"
+            " background: transparent; border: none;"
+            " color: #e5e7eb; font-weight: 700; font-size: 14px;"
+            " padding: 0; }"
+            "QPushButton#WatchlistAddButton:disabled { color: #4b5563; }"
+        )
+        self.add_button.clicked.connect(self._on_add_clicked)
+        h_layout.addWidget(self.add_button)
+
         h_layout.addStretch()
+
+        # D22.2/D22.5: the header strip offers "Add symbol…" via its own custom
+        # context menu. The D21.5 column popup stays on the table's horizontal
+        # header — this strip menu is a separate affordance and must not shadow
+        # it. Starts disabled (``set_add_enabled(False)`` below).
+        self.header_bar.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.header_bar.customContextMenuRequested.connect(
+            self._on_strip_context_menu)
+        self._add_enabled = False
+        self._strip_menu = None
+        self._build_strip_menu()
+        self.set_add_enabled(False)
+
         layout.addWidget(self.header_bar)
 
         # Table — built from the active-field layout, not a fixed index schema.
@@ -301,6 +362,12 @@ class WatchlistPanel(QWidget):
         header = self.table.horizontalHeader()
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._on_header_context_menu)
+
+        # D22.5: right-clicking the table *body* (the viewport) offers
+        # "Remove symbol" for the row under the cursor. This is a separate
+        # affordance from the D21.5 header popup, which stays on the header.
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_body_context_menu)
 
         # D14: double-click anywhere on a row requests the chart load
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
@@ -334,6 +401,122 @@ class WatchlistPanel(QWidget):
     def toggle_collapsed(self) -> None:
         """Flip the collapsed state (convenience for callers/tests)."""
         self.set_collapsed(not self._collapsed)
+
+    # ── Add affordance (D22) ────────────────────────────────────────────────────
+
+    def _build_strip_menu(self) -> QMenu:
+        """Build (but do not show) the header-strip "Add symbol…" popup.
+
+        The menu/action are kept on the panel so :meth:`set_add_enabled` can
+        toggle the action without rebuilding it.
+        """
+        menu = QMenu(self.header_bar)
+        self.add_action = menu.addAction("Add symbol…")
+        self.add_action.setEnabled(self._add_enabled)
+        self.add_action.triggered.connect(self._on_add_requested)
+        self._strip_menu = menu
+        return menu
+
+    def _ensure_strip_menu(self) -> QMenu:
+        if self._strip_menu is None:
+            self._build_strip_menu()
+        return self._strip_menu
+
+    def _on_strip_context_menu(self, pos, show: bool = True):
+        """Header-strip context-menu handler; returns the popup (exec unless show)."""
+        menu = self._ensure_strip_menu()
+        if show:
+            menu.exec(self.header_bar.mapToGlobal(pos))
+        return menu
+
+    def set_add_enabled(self, enabled: bool) -> None:
+        """Enable/disable the '+' button and the "Add symbol…" menu action.
+
+        Defaults to disabled; ``MainWindow`` (D22-07/08) enables it once the
+        symbol source is available. The D21.11 collapse toggle is untouched.
+        """
+        enabled = bool(enabled)
+        self._add_enabled = enabled
+        self.add_button.setEnabled(enabled)
+        action = getattr(self, "add_action", None)
+        if action is not None:
+            action.setEnabled(enabled)
+
+    def _on_add_clicked(self, *_args) -> None:
+        self._invoke_add_symbol()
+
+    def _on_add_requested(self, *_args) -> None:
+        self._invoke_add_symbol()
+
+    def _invoke_add_symbol(self) -> None:
+        """Show the modal AddSymbolDialog and emit on an accepted symbol.
+
+        Cancel/Esc (rejected) emits nothing; an accepted but blank text emits
+        nothing. The accepted text is reported verbatim (raw) — the window owns
+        any normalisation policy.
+        """
+        if not self._add_enabled:
+            return
+        dialog = AddSymbolDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            raw = dialog.text()
+            if raw is not None and raw.strip():
+                self.symbol_add_requested.emit(raw)
+
+    # ── Remove affordance (D22.5) ───────────────────────────────────────────────
+
+    def _row_symbol(self, row: int) -> str:
+        """Return the row's Symbol text, resolved **by field key** (reorder-safe).
+
+        The Symbol column is looked up through the live ``_active_fields`` layout
+        (``_item`` -> ``_column_index``), so a column reorder can never make this
+        read a different field's cell. Returns ``""`` for a missing / placeholder
+        cell (an "empty" row).
+        """
+        item = self._item(row, SYMBOL_FIELD)
+        if item is None:
+            return ""
+        text = (item.text() or "").strip()
+        return "" if text in ("", "—") else text
+
+    def _row_index_for_symbol(self, symbol) -> int | None:
+        """Return the first row whose Symbol matches ``symbol`` (case-insensitive).
+
+        ``None`` when the table has no such row.
+        """
+        target = normalise_symbol(symbol)
+        if not target:
+            return None
+        for row in range(self.table.rowCount()):
+            if normalise_symbol(self._row_symbol(row)) == target:
+                return row
+        return None
+
+    def _on_body_context_menu(self, pos, show: bool = True):
+        """Build the table-body "Remove symbol" popup for the row under ``pos``.
+
+        Returns the popup (or ``None`` when there is no real row there). Header
+        and empty areas resolve to no row, so nothing is offered and nothing can
+        be emitted. The row's Symbol is read by field key (reorder-safe) and
+        carried verbatim into ``symbol_remove_requested`` when the action fires.
+        """
+        index = self.table.indexAt(pos)
+        if not index.isValid():
+            return None
+        row = index.row()
+        symbol = self._row_symbol(row)
+        if not symbol:
+            return None
+        menu = QMenu(self.table)
+        action = menu.addAction("Remove symbol")
+        action.triggered.connect(lambda _=False, s=symbol: self._on_remove_requested(s))
+        if show:
+            menu.exec(self.table.viewport().mapToGlobal(pos))
+        return menu
+
+    def _on_remove_requested(self, symbol: str) -> None:
+        """Emit the remove intent for a symbol resolved from the body menu."""
+        self.symbol_remove_requested.emit(symbol)
 
     # ── Column model (D21.5) ────────────────────────────────────────────────────
 
@@ -495,6 +678,62 @@ class WatchlistPanel(QWidget):
 
         req_id = self._md_manager.req_mkt_data(contract)
         self._req_to_row[req_id] = row
+
+    def remove_symbol(self, symbol: str) -> bool:
+        """Remove the row for ``symbol`` and stop its live subscription.
+
+        Finds the row by Symbol (case-insensitive), cancels that row's
+        ``req_mkt_data`` subscription, stops the removed row's flash timers,
+        deletes the row and re-indexes the row-keyed state — ``_req_to_row``
+        values, ``_row_data`` keys and flash-timer keys — so a later tick for a
+        remaining reqId still lands on the correct Symbol row. After a
+        successful removal the row-keyed state is exactly over the surviving
+        rows: ``set(self._row_data.keys()) == set(range(self.table.rowCount()))``
+        (and likewise the ``_req_to_row`` values and flash-timer keys cover
+        exactly those rows). ``_prev_close`` / ``_last_price`` are keyed by
+        reqId, so the removed reqId's entries are dropped and the remaining
+        ones are left untouched.
+
+        Returns ``True`` when a row was removed, ``False`` (a no-op that cancels
+        and changes nothing) when the symbol is absent or blank.
+        """
+        row = self._row_index_for_symbol(symbol)
+        if row is None:
+            return False
+
+        # Cancel this row's subscription(s) and drop their per-reqId state.
+        req_ids = [rid for rid, r in self._req_to_row.items() if r == row]
+        for req_id in req_ids:
+            if self._md_manager:
+                self._md_manager.cancel_mkt_data(req_id)
+            self._req_to_row.pop(req_id, None)
+            self._prev_close.pop(req_id, None)
+            self._last_price.pop(req_id, None)
+
+        # Stop the removed row's flash timers (they must not fire post-removal).
+        for timer_key in [k for k in self._flash_timers if k[0] == row]:
+            self._flash_timers.pop(timer_key).stop()
+
+        self.table.removeRow(row)
+
+        # Drop the removed row's own cached entry, then re-index the row-keyed
+        # state for every row above the removed one. Popping first is what keeps
+        # the invariant exact: without it the re-map would leave the removed
+        # row's key behind as a stale entry.
+        self._row_data.pop(row, None)
+        self._row_data = {
+            (r - 1 if r > row else r): values
+            for r, values in self._row_data.items()
+        }
+        self._req_to_row = {
+            req_id: (r - 1 if r > row else r)
+            for req_id, r in self._req_to_row.items()
+        }
+        self._flash_timers = {
+            ((k[0] - 1 if k[0] > row else k[0]), k[1]): timer
+            for k, timer in self._flash_timers.items()
+        }
+        return True
 
     def clear(self):
         """Cancel all active market-data subscriptions and empty the table."""

@@ -68,6 +68,45 @@ class MarketDataManager:
         except Exception:
             pass
 
+    def req_contract_details(self, contract: Contract) -> int:
+        """Request contract details for a contract. Returns the reqId."""
+        req_id = id_manager.get_id()
+        pacing_manager.throttle()
+        self.client.reqContractDetails(req_id, contract)
+        return req_id
+
+    def cancel_contract_details(self, req_id: int | None):
+        """Best-effort, capability-guarded cancel of a contract-details request.
+
+        Three facts motivate the shape of this method:
+
+        (a) The pinned ``ibapi 9.81.1.post1`` exposes **no**
+            ``EClient.cancelContractDetails`` on the wire client, so a bare
+            attribute access would raise ``AttributeError``. We therefore
+            resolve the method via
+            ``getattr(self.client, 'cancelContractDetails', None)`` and invoke
+            it only when the capability is actually present.
+        (b) The wire-side ``reqContractDetails`` request is normally ended by
+            TWS's own ``contractDetailsEnd`` callback (or an error message), so
+            there is nothing reliable to cancel from this side anyway.
+        (c) The real safety net for stale requests is
+            ``ContractLookupService``'s local invalidation — a bounded QTimer
+            plus ``cancel_all`` on disconnect — which guarantees a late (or
+            absent) response cannot leak into the UI.
+
+        The call stays inside the containment (``try/except Exception: pass``)
+        so that a present-but-raising implementation is swallowed as well.
+        """
+        if req_id is None:
+            return
+        cancel = getattr(self.client, "cancelContractDetails", None)
+        if cancel is None:
+            return
+        try:
+            cancel(req_id)
+        except Exception:
+            pass
+
     def cancel_historical_data(self, req_id: int | None):
         if req_id is None:
             return

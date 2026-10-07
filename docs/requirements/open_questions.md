@@ -758,3 +758,85 @@
     **unknown**, default to **Cross Above**.
 - **Affected requirement section:** D21.9 / `AC-D21.9.1`–`AC-D21.9.4`; D21.10 / `AC-D21.10.1`–`AC-D21.10.5`;
   Journey 26; A43/A44; R42/R43.
+
+
+---
+
+# Open Questions — Batch 16 (D22) — ANSWERED / finalised 2026-10-07
+
+> The user asked how to add tickers to the watchlist; **D22** is a **NEW FEATURE** (in-app "Add symbol" / "Remove
+> symbol" affordances) captured 2026-10-07. It is **not** a defect and does **not** reopen D1–D21. All blocking
+> questions (**B14–B16**, including the placement/input split **B15a/B15b** and the disconnected sub-question
+> **B16b**) were **answered by the user on 2026-10-07** and are recorded verbatim below. **No blocking question
+> remains**, so D22's criteria are **final** and `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## B14 — D22: is the scope add-only, or should the watchlist also support **removing** (and/or **reordering**) symbols?
+- **Status:** **answered 2026-10-07** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-07, verbatim: "Add + remove"):** the watchlist editor supports **adding** and
+  **removing** symbols — a per-row delete / right-click **"Remove symbol"** that cancels the subscription, removes
+  the row, and persists. **Reordering is NOT in scope** (remains a future suggestion, FS10). Options 1 (add-only)
+  and 3 (add + remove + reorder) are **not adopted**.
+- **Affected requirement section:** D22 / `AC-D22.6`, `AC-D22.7`; Journey 27; A51; FS10.
+
+## B15 — D22: what is the add affordance and where does it live, and what is the input surface?
+- **Status:** **answered 2026-10-07** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-07):**
+  - **B15a — placement (verbatim: "+ button on header (+ right-click)"):** a small **`+` button on the watchlist
+    header strip** (next to the "Watchlist" toggle), **plus** a right-click **"Add symbol…"** entry on the header
+    strip (and a **"Remove symbol"** entry, per B14). It must **not** shadow the D21.5 column-header popup and must
+    **not** remove the D21.11 collapse toggle. Options that omit the header `+`/right-click (table-body-only or
+    toolbar-level) are **not adopted**.
+  - **B15b — input surface (verbatim: "Small modal prompt"):** a **small modal dialog** (QInputDialog-style) with a
+    text field and **OK/Cancel**; OK confirms, Cancel/Esc aborts. The inline-editable-row option is **not adopted**.
+- **Affected requirement section:** D22 / `AC-D22.1`, `AC-D22.2`; Journey 27; A48; DG42.
+
+## B16 — D22: what should happen for an **unknown / invalid** symbol (there is no offline validation)?
+- **Status:** **answered 2026-10-07** — resolved; no longer blocking.
+- **Answer (user-confirmed 2026-10-07, verbatim: "Require live IBKR validation"):** the add must perform a **live
+  IBKR contract lookup** (e.g. `reqContractDetails`) **before** adding; the add is **blocked/held** when the contract
+  cannot be resolved, and an **error is surfaced**. On success the symbol is added + subscribed + persisted; on
+  failure/unresolvable (no contract, IBKR error, or bounded timeout) **nothing is persisted** and no row is added.
+  Options 1 (accept any non-empty symbol) and 3 (accept + flag unknown) are **not adopted**. **Note:** the repo has
+  **no** `reqContractDetails`/`contractDetails` path today (see DG43), so this is new plumbing.
+- **B16b — adding while IBKR is disconnected (verbatim: "Require connection to add"):** adding is **disallowed while
+  IBKR is disconnected** — the add affordance must reflect/deny this (disabled, and/or the confirm refused with a
+  message); nothing is added, subscribed, or persisted while disconnected. (This supersedes the earlier provisional
+  "add-while-disconnected persists" default, A49.)
+- **Affected requirement section:** D22 / `AC-D22.4`, `AC-D22.5`; Journey 27; A49; R46; DG39; DG43.
+
+
+---
+
+# Open Questions — Batch 17 (D23) — NO BLOCKING QUESTION (2026-10-07)
+
+> After the **D22** build (712 tests green), Code Review raised two **nice-to-have quality** findings
+> (**ESC-030**, **ESC-031**) which the user **approved fixing** and asked to run through the full pipeline.
+> They are captured as batch **D23** (sub-defects **D23.1 = ESC-030**, **D23.2 = ESC-031**) in
+> `requirements.md`. **Neither required a blocking question**, because the correct outcome is unambiguous
+> from the source evidence and the user's explicit approval — recorded here for traceability **without**
+> opening a `Status: open (blocking)` item. Consequently `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## D23-Q1 (ESC-030) — can a `reqContractDetails` request be cancelled on the pinned ibapi, and does `AC-D22.2.3` need correcting?
+- **Status:** **resolved without a user question** (evidence-derived; the user approved the fix 2026-10-07). Not blocking.
+- **Resolution:** No — the pinned `ibapi` (**9.81.1.post1**) exposes **no** `EClient.cancelContractDetails`
+  (`hasattr(EClient,'cancelContractDetails') is False`; only `reqContractDetails` exists), so on the real TWS path
+  the current call raises an `AttributeError` that is silently swallowed and the cancel is a wire no-op. The
+  method is also **not called by any production path** (`ContractLookupService.cancel`/`cancel_all` only drop the
+  pending entry + stop the bounded QTimer; `_on_disconnected` calls `cancel_all`), so the wire cancel is dead
+  code. The correct requirement is therefore a **capability-guarded, documented** cancel: call the client method
+  only if present; document that TWS ends the request via its own `contractDetailsEnd`/error and that
+  `ContractLookupService`'s local invalidation (bounded QTimer + `cancel_all` on disconnect) is the real safety
+  net. **`AC-D22.2.3` (task-level) is superseded/corrected** and architecture `S3` is reconciled — recorded as
+  the D23.1 correction record in `requirements.md`. No user decision was needed (the Orchestrator directed
+  capturing the capability-guard as the requirement; the user had approved fixing ESC-030).
+- **Affected requirement section:** D23.1 / `AC-D23.1.1`–`AC-D23.1.4`; Journey 28; A53/A54; R49; D22 `AC-D22.2.3`
+  correction record.
+
+## D23-Q2 (ESC-031) — should `remove_symbol` drop the removed row's own `_row_data` key (`AC-D23.2.*`)?
+- **Status:** **resolved without a user question** (evidence-derived + reproduced 2026-10-07). Not blocking.
+- **Resolution:** Yes. `remove_symbol` re-indexes `_row_data` with `{(r-1 if r > row else r): values …}` but never
+  drops the removed row's own key; removing the **last** row leaves a stale `_row_data[row]` (reproduced: 3-row
+  panel, `remove_symbol(last)` → `sorted(_row_data.keys()) == [0,1,2]` while `rowCount() == 2`). The requirement
+  is that `_row_data` keys are exactly `range(rowCount())` after any removal, with the missing last/first/only-row
+  coverage added. This is a mechanical correctness fix with no user-visible choice. Recorded as D23.2.
+- **Affected requirement section:** D23.2 / `AC-D23.2.1`–`AC-D23.2.4`; Journey 28; A55; R50.

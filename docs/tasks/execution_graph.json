@@ -1,293 +1,36 @@
 {
-  "generated": "2026-10-06",
-  "batch": "Batch 15 — D21 (13 UI defects/issues) + VIS-D21",
-  "node_types": [
-    "Task"
-  ],
-  "edge_types": [
-    "DEPENDS_ON"
-  ],
   "nodes": [
     {
-      "id": "D21-01",
-      "type": "Task",
-      "title": "D21.1 — clamp the volume Y minimum at 0"
+      "id": "D22-02",
+      "type": "Task"
     },
     {
-      "id": "D21-02",
-      "type": "Task",
-      "title": "D21.2 — volume Y ceiling = 1.10 x max visible, recomputed on every visible-x change (supersedes D8 nice-max + ESC-007 only-widen)"
+      "id": "D23-01",
+      "type": "Task"
     },
     {
-      "id": "D21-03",
-      "type": "Task",
-      "title": "D21.6 — volume pane can grow to >= 360px with a ~200px price-pane minimum"
+      "id": "D23-02",
+      "type": "Task"
     },
     {
-      "id": "D21-04",
-      "type": "Task",
-      "title": "VIS-D21 — shared primitives: DiagonalStrikeButton (VIS-D21.1) + active highlight (VIS-D21.2)"
-    },
-    {
-      "id": "D21-05",
-      "type": "Task",
-      "title": "D21.3 — Ext Hours button relabels to RTH when regular hours are selected"
-    },
-    {
-      "id": "D21-06",
-      "type": "Task",
-      "title": "D21.7 — persistent active highlight for toolbar buttons"
-    },
-    {
-      "id": "D21-07",
-      "type": "Task",
-      "title": "D21.8 — Alarm Mode highlight + status message that persists until the mode ends"
-    },
-    {
-      "id": "D21-08",
-      "type": "Task",
-      "title": "D21.12 — Volume button struck when the volume pane is hidden"
-    },
-    {
-      "id": "D21-09",
-      "type": "Task",
-      "title": "D21.5 — configurable watchlist columns (add/remove/rearrange, Symbol kept, persisted)"
-    },
-    {
-      "id": "D21-10",
-      "type": "Task",
-      "title": "D21.11 — one 'Watchlist' label: in-panel header becomes the hide/show toggle"
-    },
-    {
-      "id": "D21-11",
-      "type": "Task",
-      "title": "D21.13 — Active Trader / Account Summary hide/show toggles with in-height and horizontal collapse"
-    },
-    {
-      "id": "D21-12",
-      "type": "Task",
-      "title": "D21.9 — per-row alarm Edit button + AlarmEditDialog with immediate persistence"
-    },
-    {
-      "id": "D21-13",
-      "type": "Task",
-      "title": "D21.10 — smart alarm setup: clicked price, yellow dashed preview line, condition default"
-    },
-    {
-      "id": "D21-14",
-      "type": "Task",
-      "title": "D21.4 — pure time-collapse service (coverage-adjusted predicate, 1 day identity)"
-    },
-    {
-      "id": "D21-15",
-      "type": "Task",
-      "title": "D21.4 — ChartPanel display-x x-model + reconcile the D21.2 visible-max scan"
-    },
-    {
-      "id": "D21-16",
-      "type": "Task",
-      "title": "D21.4 — collapse consumers: session bands, time-anchored drawings, alarm label x, date axis"
-    },
-    {
-      "id": "D21-17",
-      "type": "Task",
-      "title": "D21 — pre-fix-red / post-fix-green discrimination evidence (Q8)"
-    },
-    {
-      "id": "D21-18",
-      "type": "Task",
-      "title": "D21 — full offscreen suite regression gate + real-app manual checks (R44, Q9)"
+      "id": "D23-03",
+      "type": "Task"
     }
   ],
   "edges": [
     {
-      "source": "D21-01",
-      "target": "D21-02",
+      "from": "D22-02",
+      "to": "D23-01",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "D21-02",
-      "target": "D21-03",
+      "from": "D23-01",
+      "to": "D23-03",
       "type": "DEPENDS_ON"
     },
     {
-      "source": "D21-04",
-      "target": "D21-06",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-05",
-      "target": "D21-06",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-06",
-      "target": "D21-07",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-04",
-      "target": "D21-08",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-05",
-      "target": "D21-08",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-03",
-      "target": "D21-08",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-04",
-      "target": "D21-10",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-09",
-      "target": "D21-10",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-07",
-      "target": "D21-10",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-04",
-      "target": "D21-11",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-10",
-      "target": "D21-11",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-12",
-      "target": "D21-13",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-11",
-      "target": "D21-13",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-08",
-      "target": "D21-13",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-14",
-      "target": "D21-15",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-13",
-      "target": "D21-15",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-02",
-      "target": "D21-15",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-15",
-      "target": "D21-16",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-14",
-      "target": "D21-16",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-01",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-02",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-03",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-04",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-05",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-06",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-07",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-08",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-09",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-10",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-11",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-12",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-13",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-14",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-15",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-16",
-      "target": "D21-17",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "source": "D21-17",
-      "target": "D21-18",
+      "from": "D23-02",
+      "to": "D23-03",
       "type": "DEPENDS_ON"
     }
   ]

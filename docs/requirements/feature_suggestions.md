@@ -50,3 +50,25 @@
   collapsing empty space when the market is not open / when RTH is selected, 2026-10-06). It
   **supersedes the display part of `AC-D16.3`**. See `requirements.md` D21.4 / Journey 23 and
   `open_questions.md` B9 (answered 2026-10-06: collapse between-session gaps on intraday timeframes only; `1 day` no-op).
+
+
+## FS8 — "Add current chart symbol to watchlist" (toolbar/shortcut)
+- **Gap/opportunity:** D22 adds an in-app add-symbol affordance on the watchlist. A common flow is "I am looking at
+  MSFT on the chart; add it to my watchlist" — a one-click "Add to watchlist" from the toolbar (or a keyboard
+  shortcut) reusing the D22 add path would avoid retyping the symbol.
+- **Why not in the original ask:** The user asked only for a way to add tickers to the watchlist; the chart-symbol
+  shortcut is a convenience not requested.
+- **Suggested priority:** low
+
+## FS9 — Watchlist import / export (CSV or text list)
+- **Gap/opportunity:** D22 makes the watchlist editable in-app one symbol at a time. Importing/exporting a whole
+  list would let users move watchlists between machines or seed a large list quickly.
+- **Why not in the original ask:** The request is about adding a ticker in-app, not bulk list management.
+- **Suggested priority:** low
+
+## FS10 — Watchlist symbol reorder by drag-and-drop (only if B14 keeps reorder out of D22)
+- **Gap/opportunity:** `watchlist.sort_order` already exists in the DB, but there is no in-app reorder. If B14
+  scopes D22 to add-only (or add+remove), drag-and-drop reordering would be the natural follow-up.
+- **Why not in the original ask:** The user asked about adding; reordering is a separate interaction.
+- **Status (2026-10-07):** B14 answered **add + remove** — reorder is **out of scope**, so this remains a valid future suggestion (not part of D22).
+- **Suggested priority:** medium

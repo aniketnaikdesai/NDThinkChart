@@ -192,3 +192,67 @@ separate requirements change for the Requirements Analyst — it is not needed t
 
 **Escalation:** none (satisfiable under the accepted equity-session default; futures caveat
 recorded, DG1 retained).
+
+---
+
+## FI-D22-1 — D22: requirements prose says `watchlist_panel.clear()` runs "on disconnect"; the repo runs it on close
+
+**Requirement/Journey:** D22 / Journey 27; `AC-D22.4`–`AC-D22.7`, `DG40`; the descriptive prose at
+`docs/requirements/requirements.md:2121` ("`clear()` … called on disconnect,
+`ui/main_window.py:2107`") and `design_gaps.md` DG40 ("`_on_disconnected` → `watchlist_panel.clear()`
+`:2107`").
+
+**Problem:** The repository (authoritative) shows `watchlist_panel.clear()` is called from
+**`closeEvent`** (`ui/main_window.py:2107`), while `_on_disconnected` (`:550–562`) does **not** clear
+the panel. The requirements prose's "on disconnect" is an imprecise restatement of the *call site's
+line number*, which is in fact the close path. This is a wording imprecision in a **descriptive**
+paragraph, not in any `AC-D22.*` acceptance criterion.
+
+**Why it cannot be satisfied as written:** It can — the imprecision does not make any criterion
+unsatisfiable. No `AC-D22.*` outcome depends on whether the panel is cleared on disconnect or on
+close: B16b **denies adding while disconnected**, the SQLite `watchlist` table is the single source
+of truth, and the canonical plan makes `_restore_watchlist` **clear-then-repopulate** (S13 /
+PA-D22-6) so a reconnect faithfully reproduces the persisted set (`AC-D22.7`). The stale wording is
+recorded here and in `docs/architecture.md` (D22 increment, Codebase Summary fact #3 / Non-Functional)
+so it is not mistaken for a discrepancy by Build or Code Reviewer.
+
+**Suggested Direction:** (optional, non-blocking) The Requirements Analyst may correct the
+parenthetical in `requirements.md:2121` / `DG40` to "called on app close (and cleared before
+repopulating on connect)". No Requirements Analyst action is required for Task Manager to proceed.
+
+**Status:** addressed — documented as an implementation note in `docs/architecture.md`; no
+acceptance criterion is affected, so no requirements change is required.
+
+**Escalation:** none.
+
+---
+
+## RG-D23-1 — D23.1: architecture `S3` / task-level `AC-D22.2.3` reconciliation record (AC-D23.1.4)
+
+**Requirement/Journey:** D23.1 / `AC-D23.1.4` (supersession + reconciliation recorded); Journey 28;
+`DG45`; A53/A54; R49. This is the binding correction record, **not** a requirements gap.
+
+**Record.** `requirements.md` D23.1 supersedes the **task-level** `AC-D22.2.3` wire-cancel mandate
+and reconciles architecture row `S3` (the D23.1 correction record names the owners: Task Manager →
+`docs/tasks/task-graph.json` task `D22-02`; Build → the guard + test; Plan/Validator →
+`docs/architecture.md`).
+
+- **Validator (this cycle).** Architecture `S3` is reconciled: `docs/architecture.md`
+  `## D23 increment` → Tech Stack Decisions **S3 (reconciled)** rewrites
+  `MarketDataManager.cancel_contract_details` to the capability-guarded, documented best-effort
+  cancel (the pinned `ibapi 9.81.1.post1` exposes no `EClient.cancelContractDetails`; the
+  `reqContractDetails` request path is unchanged; `ContractLookupService`'s bounded-QTimer +
+  `cancel_all` local invalidation is the safety net). The D22 `S3` row carries a cross-reference note
+  pointing to this reconciliation so a reader does not take the D22 wording as the current mandate.
+- **Task Manager (Phase 3).** Rewrites task-level `AC-D22.2.3` (and its test description) in
+  `docs/tasks/task-graph.json` (task `D22-02`) to the capability-guarded, documented cancel — in
+  lockstep with the Phase-1 test change (R49).
+- **Code Reviewer (after Build).** Re-verifies ESC-030 and ESC-031, flipping them `addressed`.
+
+**Why it is not a gap:** the requirement's required behaviour is unambiguous from the source
+evidence and fully implementable on the existing stack; no product/scope decision is needed.
+
+**Status:** addressed — architecture `S3` reconciled in `docs/architecture.md` this cycle; the
+Task-Manager-owned `AC-D22.2.3` rewrite is a Phase-3 task-graph edit by its owner.
+
+**Escalation:** none.

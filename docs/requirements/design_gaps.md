@@ -436,3 +436,104 @@
 - **Suggested resolution:** make the title-bar label a clickable toggle while keeping a drag region; treat a
   fully-collapsed region as hidden for the D17/D18 cross-clamp (`DG35`); reconcile with `_on_dom_toggled`.
 - **Status:** open (non-blocking; affordance/reconciliation detail for Plan/Build)
+
+
+---
+
+## DG39 — D22: no offline symbol validation exists, so an unknown/invalid ticker cannot be rejected locally
+- **Where it shows up:** D22 / `AC-D22.4`; `ibkr/contracts.py::get_contract_for_symbol` (`:169`); `data/db.py`
+  `watchlist` table; the add path.
+- **Why it matters:** `get_contract_for_symbol` builds a **stock contract for any string** and only special-cases a
+  small `FUTURES_SCHEDULE` set; it performs **no IBKR lookup and raises no error** for an unknown symbol. Without a
+  live contract-details request there is no way to tell a valid ticker from a typo, so an add path that "just works"
+  could silently persist `APPL` (typo) as if it were valid. This is why unknown-symbol handling is a genuine user
+  decision (B16), not an implementation detail.
+- **Suggested resolution:** decide B16 — (a) accept any non-empty symbol (basic format only), subscribe, and surface
+  a later subscription/`contractDetails` failure; or (b) require a live IBKR `reqContractDetails` lookup before
+  adding (only when connected; block/hold when disconnected). Whichever is chosen, `AC-D22.4` forbids silent
+  success.
+- **Status:** resolved (B16 answered 2026-10-07 — the add performs a live IBKR `reqContractDetails` lookup before adding; unresolved symbols are rejected with nothing persisted). **New plumbing required:** the repo has no `reqContractDetails`/`contractDetails` path today — see DG43.
+
+## DG40 — D22: adding a symbol while IBKR is disconnected may not survive because the panel is cleared on disconnect
+- **Where it shows up:** D22 / Journey 27 edge cases; `ui/main_window.py` (`_on_disconnected` → `watchlist_panel.clear()`
+  `:2107`; `_restore_watchlist` runs on `_on_connected` only); `ui/watchlist_panel.py::clear()` / `add_symbol()`.
+- **Why it matters:** `clear()` cancels subscriptions and **empties the table** on disconnect, and the panel is only
+  repopulated by `_restore_watchlist` on connect. A symbol added while disconnected would be appended to the
+  (possibly empty) table and persisted, but the visible state is governed by the DB on the next connect. If the add
+  path writes the DB **before** `clear()` or relies on the table's current rows to rebuild the list, the persisted
+  set could be wrong (e.g. seeding `DEFAULT_WATCHLIST` again because the in-memory list looks empty).
+- **Suggested resolution:** make the DB the source of truth for the symbol list and have the add path persist the
+  **union of the persisted list and the new symbol** (not the table's transient rows); confirm the disconnected-add
+  behaviour per B16/A49. Non-blocking beyond B14/B16.
+- **Status:** resolved (B16b answered 2026-10-07 — adding is **disallowed while IBKR is disconnected**, so the add-while-disconnected persistence question no longer arises; on reconnect `_restore_watchlist` repopulates from the DB. The `clear()`/`_restore_watchlist` interaction is still recorded here for Plan).
+
+## DG41 — D22: persistence via the replace-all `set_watchlist` vs new add/remove DB helpers
+- **Where it shows up:** D22 / `AC-D22.2`; `data/db.py::get_watchlist` (`:125`) / `set_watchlist` (`:131`).
+- **Why it matters:** `set_watchlist` **replaces the whole list** (DELETE + INSERT), and `_restore_watchlist` uses it
+  to seed `DEFAULT_WATCHLIST` only when the DB list is empty. An add (or remove) path must not accidentally trigger
+  the seed-again branch or drop `category`/`sort_order`. There is no `add_watchlist_symbol`/`remove_watchlist_symbol`
+  helper today.
+- **Suggested resolution:** Plan chooses the mechanism — reuse `set_watchlist` with the full desired list (preserving
+  `category` and contiguous `sort_order`), or add explicit `add`/`remove` helpers — but the requirement is the
+  persisted outcome (`AC-D22.2`), and the seed-if-empty guard must not re-seed after an add. Non-blocking beyond B14.
+- **Status:** open (non-blocking; implementation detail for Plan — B14 answered add + remove, so Plan must pick a mechanism that preserves `category`/contiguous `sort_order` and does not re-seed `DEFAULT_WATCHLIST` after an add/remove).
+
+## DG42 — D22: the new add affordance must not shadow the D21.5 column header menu or the D21.11 collapse toggle
+- **Where it shows up:** D22 / `AC-D22.5`; `ui/watchlist_panel.py` header strip (`header_bar`/`header_button`,
+  `:254`–`:280`) vs the **table** column header context menu (`_on_header_context_menu`, `:422`).
+- **Why it matters:** the D21.5 add/remove/rearrange **column** popup is wired to the *table's* horizontal header
+  (`customContextMenuRequested`), while the D21.11 "Watchlist" toggle lives in the *panel* header strip. Adding a
+  `+` button or a right-click → "Add symbol…" to the panel header strip must not intercept the column header's
+  right-click, must not remove the collapse toggle, and must remain reachable when the watchlist body is collapsed
+  (the header strip is the dock title bar). The word "add" is overloaded (add **column** vs add **symbol**) — the
+  menu labels must be unambiguous.
+- **Suggested resolution:** keep the column menu on the table header untouched; place the add-symbol affordance on
+  the panel header strip (or a table-body context menu) with a distinct label ("Add symbol…"); verify the collapse
+  toggle and the column popup still work. Non-blocking beyond B15.
+- **Status:** resolved (B15a answered 2026-10-07 — the `+` button and the right-click "Add symbol…"/"Remove symbol" live on the **panel header strip** and must not shadow the D21.5 column popup or remove the D21.11 collapse toggle; verified by `AC-D22.1`/`AC-D22.8`).
+
+---
+
+## DG43 — D22: no IBKR contract-details request/callback path exists for the B16 live validation
+- **Where it shows up:** D22 / `AC-D22.4`; `ibkr/client.py` (callback surface), `ibkr/contracts.py::get_contract_for_symbol`; the add flow.
+- **Why it matters:** B16 requires a **live IBKR contract lookup** before adding, but the codebase has **no**
+  `reqContractDetails` call and **no** `contractDetails` / `contractDetailsEnd` callback on `IBApiClient` (a repo
+  grep returns none). The live-validation requirement therefore needs a **new** request + callback + result routing
+  (with error/timeout handling) before it can be implemented — it is not a change to an existing path.
+- **Suggested resolution:** Plan adds a contract-details request path (request, `contractDetails`/`contractDetailsEnd`
+  callbacks, an error/timeout path, and a result the add flow can await) that resolves a symbol to at least one
+  contract; the add proceeds on resolution and is rejected (nothing persisted) on failure/timeout. Non-blocking
+  beyond B16 (answered 2026-10-07); the requirement outcome is fixed by `AC-D22.4`.
+- **Status:** open (non-blocking; implementation path for Plan — the requirement is settled)
+
+## DG44 — D22: the `_restore_watchlist` seed-if-empty branch can re-seed `DEFAULT_WATCHLIST` after the user removes every symbol
+- **Where it shows up:** D22 / `AC-D22.6`, `AC-D22.7`; `ui/main_window.py::_restore_watchlist` (`if not symbols: symbols = list(DEFAULT_WATCHLIST); db.set_watchlist(symbols)`); `data/db.py::get_watchlist`/`set_watchlist`.
+- **Why it matters:** D22's **remove** makes an explicitly-emptied watchlist meaningful, but the existing
+  seed-if-empty branch re-seeds the five defaults whenever the DB list is empty — so removing the last symbol would
+  appear to "come back" after a restart, contradicting `AC-D22.7`'s persisted outcome.
+- **Suggested resolution (non-blocking default A52):** distinguish "never configured" from "explicitly emptied" (e.g.
+  a persisted sentinel/flag, or seed only on a genuine first run) so an emptied watchlist stays empty; otherwise the
+  seed-if-empty branch must not fire after an explicit removal. Plan's call; recorded so the persistence outcome is
+  not silently violated.
+- **Status:** open (non-blocking; default A52, interaction to settle in Plan)
+
+
+## DG45 — D23.1 (ESC-030): the contract-details cancel requirement conflicts with the pinned ibapi surface
+- **Where it shows up:** D22 task-level `AC-D22.2.3` (`docs/tasks/task-graph.json`, task `D22-02`) and architecture
+  `S3` (`docs/architecture.md:1863`) vs the pinned dependency `ibapi` **9.81.1.post1**; the implementation
+  `ibkr/market_data.py::MarketDataManager.cancel_contract_details` (`:78–84`).
+- **Why it matters:** `AC-D22.2.3` mandates that `cancel_contract_details` call `client.cancelContractDetails(req_id)`,
+  but the pinned `EClient` exposes **no** `cancelContractDetails` (`hasattr(EClient,'cancelContractDetails') is
+  False`; only `reqContractDetails` exists). As written, the implemented call raises `AttributeError`, which the
+  enclosing `try/except Exception: pass` silently swallows → the cancel is a **no-op on the wire** and the D22 test
+  passes only because `tests/test_ibkr_contract_details_d22.py::_FakeClient` defines the missing method. This is an
+  inconsistency between a stated requirement/architecture and the actual dependency surface, so Task Manager could
+  not write an honest task against it without inventing the behaviour.
+- **Suggested resolution:** make the cancel a **capability-guarded, documented** best-effort call (call the client
+  method only if present; document that TWS's own `contractDetailsEnd`/error ends the request and that
+  `ContractLookupService`'s local invalidation — bounded QTimer + `cancel_all` on disconnect — is the safety net),
+  and correct `AC-D22.2.3` + reconcile architecture `S3` accordingly. Captured as requirement **D23.1**
+  (`AC-D23.1.1`–`AC-D23.1.4`, correction record).
+- **Status:** addressed — captured as the D23.1 requirement (2026-10-07); the correction record directs the Task
+  Manager (`AC-D22.2.3`), Build (guard + comment + test), and Plan/Validator (`S3` reconciliation) to apply it.
+  No blocking user question was required (evidence-derived; user approved the fix).

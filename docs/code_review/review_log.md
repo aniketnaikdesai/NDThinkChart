@@ -2163,3 +2163,275 @@ empty, full clean offscreen suite green (**673 passed / 0 failed / exit 0**, ind
 escalations remain** — ESC-001…ESC-029 are all `addressed`. The pipeline can advance (build complete).
 
 Status: REVIEW_COMPLETE
+
+# Revision 14 review — Batch 16 (D22: in-app watchlist "Add symbol" / "Remove symbol"), 2026-10-07
+
+**Reviewer:** Code Reviewer agent. **Compared revision:** `286341e` (D21) + uncommitted D22 working-tree changes
+(`git status`: modified `data/db.py`, `ibkr/bridge.py`, `ibkr/client.py`, `ibkr/market_data.py`,
+`ui/main_window.py`, `ui/watchlist_panel.py`; new `services/contract_lookup_service.py`,
+`ui/add_symbol_dialog.py`, and 7 D22 test files).
+**Scope:** `docs/build/build_log.md` (Batch 16 waves 1–5; terminal `Status: READY_FOR_REVIEW`),
+`docs/build/failures.json` (`blocked` empty; 6 `pending_routing` entries),
+`docs/build/results/_archive/wave5_D22-09.json`, `docs/tasks/task-graph.json` (D22-01…D22-09),
+`docs/requirements/requirements.md` (D22 / AC-D22.1–9 / A48–A52 / R45–R48 / Journey 27),
+`docs/architecture.md` + `docs/plan.md` (D22 increment), and every changed D22 product/test file.
+**Method:** every claim independently re-verified on the live tree with the reviewer's own offscreen runs and
+probes (not Build's report); the full clean offscreen suite and the D21/D14/D17/D18 regression modules re-run;
+each changed product file read against its acceptance criterion. New findings were routed via
+`docs/code_review/escalations.json`; the legacy `escalations.md` was **not** rewritten.
+**No live TWS** — every run was `QT_QPA_PLATFORM=offscreen`. Nothing was fixed; only `docs/code_review/` was written.
+
+**Graphify:** the on-disk `graphify-out/graph.json` predates D22 (no `contract_lookup_service` /
+`add_symbol_dialog` / D22 symbols), so it was used only for orientation and every finding was validated against
+the actual files (authoritative).
+
+## A. Independent test evidence (reviewer-run, not Build's)
+
+- **Seven D22 modules in one invocation** (shared test DB `$TMPDIR/tos_charting_test.sqlite3*` removed first):
+  `test_watchlist_addflow_d22` + `test_watchlist_persistence_d22` + `test_ibkr_contract_details_d22` +
+  `test_contract_lookup_d22` + `test_watchlist_add_remove_d22` + `test_add_symbol_dialog_d22` +
+  `test_watchlist_nonregression_d22` → **39 passed** in 1.29s (Build's "37" was the six original modules; +2 = the
+  D22-09 non-regression tests).
+- **Full clean offscreen suite:** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q
+  -p no:cacheprovider` → **712 passed / 0 failed / exit 0** (`712 passed in 16.27s`). Build's "712 passed" is
+  confirmed. 712 collected = 712 passed; **no skips/xfails/deselects** (`grep -rnE "@pytest\.mark\.(skip|xfail)|
+  pytest\.skip\(|pytest\.xfail\(" tests/` → 0 hits; no `deselect`/`--ignore` in config; `addopts = -q` only).
+- **D1–D21 non-regression modules** (`test_watchlist_columns_d21` D21.5, `test_watchlist` D14,
+  `test_right_dock_d21` D21.13, `test_toolbar_d21`, `test_volume_d21`, `test_time_collapse_d21`,
+  `test_watchlist_d14_midrag`, `test_dock_layout` D17/D18) → **123 passed**. No D1–D21 criterion regressed.
+- **No live TWS / no order transmission (Q9):** grep over the D22 test files for
+  `eConnect|placeOrder|reqHistoricalData|reqMktData|connectAsync|7496|7497|4001|4002` → **0 hits**. The D22
+  `MainWindow` tests monkeypatch `IBApiClient.connect` to a no-op; the D22 ibkr tests build `IBApiClient()` bare
+  and never call `.connect()`. Confirmed.
+- **D22 did not touch the dock/chart core:** `git diff --stat -- ui/dock_layout.py ui/chart_panel.py` → empty;
+  the `ui/main_window.py` diff adds no `CHART_MIN_WIDTH` / `WATCHLIST_MIN_WIDTH` / `RIGHT_DOCK_MIN_WIDTH` /
+  `_apply_dock_widths` / `_plan_dock_widths` / `dock_layout` lines; **no dependency file changed** (`requirements`
+  /`pyproject`/`setup`/`poetry` untouched — the only "requirements" hits are `docs/requirements/*.md`). No
+  live-order-path change (`load_chart`/`_on_watchlist_row_double_clicked`/`placeOrder`/`reqHistoricalData`/`eConnect`
+  → 0 diff lines).
+
+## B. AC-D22.1–D22.9 verification (against the live code)
+
+- **AC-D22.1 (affordance + placement).** `ui/watchlist_panel.py:311-324` adds a `+` `QPushButton` on `header_bar`
+  in the same `h_layout` as the D21.11 `header_button`; the strip's own `CustomContextMenu` offers
+  "Add symbol…" (`:332-335`, `:407-418`); the D21.5 column popup stays bound to `table.horizontalHeader()`
+  (`:362-364`); the D21.11 toggle is untouched. **Holds** (D22-04-T01, D22-09-T01).
+- **AC-D22.2 (modal input).** `ui/add_symbol_dialog.py` — one `QLineEdit` + OK/Cancel, Esc → reject, OK with
+  non-empty accepts (raw/un-normalised), empty/whitespace refused in place with an inline message. **Holds**
+  (D22-06-T01/T02).
+- **AC-D22.3 (normalisation + guards).** `normalise_symbol` = strip+upper, `symbol_in_list` case-insensitive
+  (blank never "present"); blank rejected in the dialog *and* in `_on_watchlist_symbol_add_requested:624-627`;
+  a case-insensitive duplicate of `db.get_watchlist()` is a no-op with a message (`:633-638`). **Holds**
+  (D22-04-T03, D22-08-T01/T02/T03).
+- **AC-D22.4 (live validation before add).** add → `_contract_lookup.request(sym, get_contract_for_symbol(sym))`
+  (`:639`) → bounded 5 s `ContractLookupService`; on `ok=True` while connected the row is added/subscribed
+  (`add_symbol`→`req_mkt_data`) and persisted (`:668-671`); on `ok=False` or a mid-flight disconnect nothing is
+  added/subscribed/persisted (`:658-667`). **Holds** (D22-03-T01..T06, D22-08-T03/T04).
+- **AC-D22.5 (require connection).** `_ibkr_connected=False` + `set_add_enabled(False)` initially (`:321-322`);
+  `_on_connected`→True/enable (`:565-566`); `_on_disconnected`→False/disable (`:720-721`); the slot also refuses
+  with a message while disconnected (`:628-632`). **Holds** (D22-07-T01, D22-08-T01).
+- **AC-D22.6 (remove).** table-body context menu offers exactly "Remove symbol" and resolves the row's Symbol by
+  field key (reorder-safe) (`:495-515`); `remove_symbol` cancels that row's reqId(s), stops its flash timers, drops
+  the row and re-indexes (`:682-728`); `_on_watchlist_symbol_remove_requested` persists + sets the sentinel with no
+  connection gate (`:673-687`). **Holds** (D22-05-T01/T02/T03, D22-08-T05). — *One stale-key nit: ESC-031.*
+- **AC-D22.7 (persisted across restarts).** `data/db.py::add_watchlist_symbol` (case-insensitive idempotent,
+  appends at `max(sort_order)+1`) and `remove_watchlist_symbol` (case-insensitive delete + renumber 0..n-1);
+  `get_watchlist`/`set_watchlist` unchanged; `watchlist/configured` sentinel; `_restore_watchlist` clears then
+  repopulates, seeds `DEFAULT_WATCHLIST` only when the DB list is empty **and** the sentinel is unset, sets the
+  sentinel on a non-empty list / add / remove. **Holds** (D22-01-T01..T04, D22-07-T02/T03, D22-08-T06).
+- **AC-D22.8 (non-regression D21.5/D21.11/D14/D21.13).** D22-09-T01 asserts the D21.5 column popup (7 checkable
+  fields, Symbol non-removable), the D21.11 collapse toggle (body hidden/shown, struck state), the D14
+  field-key double-click emit, and the D21.13 right-dock title/summary toggles; independently corroborated by the
+  123-test D21/D14/D17/D18 regression run. **Holds.**
+- **AC-D22.9 (regression suite).** **Holds** — 712 passed / 0 failed (independently re-run), Q9 confirmed, no test
+  weakened/skipped/deselected.
+
+## C. Test quality and isolation (AR-D22-9 and non-vacuity)
+
+- **Non-vacuous.** The D22 tests assert real behaviour, not tautologies: `test_watchlist_addflow_d22` drives a real
+  offscreen `MainWindow` through gate/duplicate/success/failure/disconnect paths and asserts no row/subscription/DB
+  change where required; `test_contract_lookup_d22` proves exactly-once resolution, late-event rejection, error
+  correlation and bounded timeout with a fake bridge; `test_watchlist_add_remove_d22::test_D22_05_T02` proves the
+  reqId/flash-timer re-index lands a later tick on the correct row; `test_add_symbol_dialog_d22` proves the dialog
+  refuses empty input in place. None is over-mocked (the `MainWindow` tests use the real panel/DB/lookup service
+  with only `IBApiClient.connect` and the md-manager faked).
+- **Isolation / AR-D22-9.** Every D22 `MainWindow` test patches a throwaway per-test SQLite file
+  (`config.paths._DB_FILENAME` + `ui.main_window.db`) and swaps `win._settings` for a per-test `QSettings(IniFormat)`
+  before the `watchlist/configured` sentinel can be read/written; the persistence and lookup tests use their own
+  temp DB / fake bridge. The real user DB and the real sentinel are never touched. Confirmed by code read.
+- **No weakening.** The D22 files contain no `skip`/`xfail`/`deselect`; the added lockstep assertions (e.g. D22-09,
+  D22-05 re-index) are substantive.
+
+## D. Escalation close-out
+
+- `docs/code_review/escalations.json` did not exist before this pass. The legacy `docs/code_review/escalations.md`
+  carries **no open entry** — **ESC-001…ESC-029 are all `addressed`** (re-confirmed: nothing relevant to them
+  changed this batch; the D22 batch adds new files and does not touch any file an addressed entry cited except
+  `ui/main_window.py`, whose D22 additions do not alter the ESC-017 draw-combo/TR-4 path, `_finalize_stranded_history_wave`,
+  or the dock-width paths). **Nothing to close**; the two new findings are recorded in `escalations.json`.
+
+## E. `failures.json.pending_routing` observations — evaluated
+
+1. **D22-02 `cancelContractDetails` api surface gap (routed to Code Reviewer) → decided: needs a small routed fix,
+   non-blocking.** Verified against the installed dependency: `hasattr(EClient,'cancelContractDetails') is False`
+   (ibapi 9.81.1.post1) while `reqContractDetails` exists — so on the real TWS path the cancel is a swallowed
+   `AttributeError`, a silent no-op. The code satisfies AC-D22.2.3 literally, and the local-invalidation contract
+   (bounded `QTimer` + `cancel_all` on disconnect; TWS always ends the request via `contractDetailsEnd`/error) means
+   **no D22 behaviour depends on the wire cancel**. Routed to **BUILD** as a `nice-to-have` (capability-guard +
+   document, or reconcile the AC/architecture) — **ESC-030**.
+2. **Tooling defect — `~/.config/opencode/scripts/build_wave.py advance` crash (non-blocking).** Build reports the
+   script aborted with `AttributeError: 'list' object has no attribute 'get'` at its circuit-breaker loop because it
+   assumes every `failures.json` value is a task dict, whereas this repo's `failures.json` carries list-valued
+   aggregate keys (`blocked`, `pending_routing`, `notes`). This is a **global tool, outside this repository** — no
+   pipeline agent owns it, so **no escalation is raised** (an escalation's `routed_to` must be one of the four repo
+   owners and none applies). Recorded here for the **Orchestrator / user**: the crash happened *after*
+   `task-graph.json`/`failures.json` were written and the result archived, before `wave.json` was finalised and the
+   terminal line written; Build (the sole writer of those files) completed the two deterministic writes by hand, so
+   the artifacts are consistent. Suggested (out-of-repo) direction: skip non-dict top-level values when iterating
+   `failures.items()`.
+3. **Carried historical `pending_routing` items — no re-diagnosis.** `pre_existing_segfault_full_suite` (reconciled),
+   `dock_layout_plan_below_minimum` (resolved, ESC-026), `plan_dock_widths_single_call_underconvergence` (witness
+   resolved in T56; Build's "plan-vs-post-resize-chart-area interaction, resolved by the resizeEvent/changeEvent
+   normalize path" judgment stands — accepted), `out_of_footprint_edit` D21-16 (evaluated in the Revision-12 review:
+   correct ownership boundary per architecture S16/S17, accepted, no escalation), and `manifest_prose_discrepancy`
+   D21-13 (fixed as ESC-029, `addressed`). None is a D22 item.
+
+## F. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-030 | D22-02 | BUILD | quality / nice-to-have | installed ibapi 9.81.1.post1 has no `EClient.cancelContractDetails`, so `cancel_contract_details` is a swallowed-`AttributeError` silent no-op on the real TWS path; AC-D22.2.3/S3 mandate a call the pinned dependency does not expose. No D22 behaviour depends on it (local invalidation + TWS-side `contractDetailsEnd`/error). |
+| ESC-031 | D22-05 | BUILD | quality / nice-to-have | `remove_symbol` re-indexes `_row_data` without dropping the removed row's key, leaving a stale key when the **last** row is removed (`rowCount()==2` but keys `[0,1,2]`); the middle-row test does not catch it. Benign today (never read out of range, overwritten on next add, cleared by `clear()`). |
+
+**Pipeline state for the Orchestrator:** Batch 16 (D22) is complete — **9/9 tasks done**, `failures.json.blocked`
+empty, full clean offscreen suite green (**712 passed / 0 failed / exit 0**, independently re-run; no D1–D21
+criterion regressed). Two new `nice-to-have` escalations are open: **ESC-030 (BUILD)** and **ESC-031 (BUILD)**;
+neither blocks the pipeline. No prior escalation is open (ESC-001…ESC-029 `addressed`).
+
+Status: REVIEW_COMPLETE
+
+---
+
+# Revision 15 review — Batch 17 (D23: the two approved D22 quality fixes + reconciliation record), 2026-10-07
+
+**Reviewer:** Code Reviewer agent. **Compared revision:** `286341e` (D21) + uncommitted D22/D23 working-tree
+changes. **Scope:** `docs/build/build_log.md` Batch 17 (waves 7–8; terminal `Status: READY_FOR_REVIEW`),
+`docs/build/failures.json` (`blocked` empty), the archived structured results
+`docs/build/results/_archive/wave7_D23-01.json` / `wave7_D23-02.json` / `wave8_D23-03.json`, the D23 worker logs,
+`docs/tasks/task-graph.json` (D22-02 `AC-D22.2.3` correction + D23-01/02/03), `docs/requirements/requirements.md`
+(D23 / `AC-D23.1.*` / `AC-D23.2.*`), `docs/architecture.md` (D22 `S3` reconciliation note + D23 increment `S3`),
+and the changed product/test files (`ibkr/market_data.py`, `ui/watchlist_panel.py`,
+`tests/test_ibkr_contract_details_d22.py`, `tests/test_watchlist_add_remove_d22.py`,
+`tests/test_d23_nonregression.py`). **Method:** every claim independently re-verified on the live tree with my own
+offscreen runs and probes (not Build's report). **No live TWS** — every run was `QT_QPA_PLATFORM=offscreen`.
+Nothing was fixed; only `docs/code_review/` was written.
+
+**Graphify:** the on-disk `graphify-out/graph.json` predates the D23 modules and does not contain D22/D23 symbols,
+so it was used only for orientation; every finding was validated against the actual repository files
+(authoritative).
+
+## A. ESC-030 (D23-01) — `cancel_contract_details` capability guard — independently VERIFIED, CLOSED
+
+- **Code read (live).** `ibkr/market_data.py:78-108`: `cancel_contract_details` keeps `if req_id is None: return`;
+  resolves `cancel = getattr(self.client, "cancelContractDetails", None)` (`:102`); returns early when absent
+  (`:103-104`); calls `cancel(req_id)` only when present, inside the retained `try/except Exception: pass`
+  (`:105-108`). The bare `self.client.cancelContractDetails(...)` access is gone. The docstring names all three
+  facts (pinned-`ibapi` absence, TWS `contractDetailsEnd`/error termination, `ContractLookupService` `cancel_all`
+  safety net). `req_contract_details` is unchanged.
+- **Code-shape RED→GREEN (my own AST probe, not Build's).** Over the reconstructed pre-fix form
+  (`self.client.cancelContractDetails(req_id)` inside try/except): `bare_attr=1`, `bare_substr=True`,
+  `guard=False` → the D23-01-T01 / D23-03-T03 assertions **fail** (genuinely red). Over the shipped source:
+  `bare_attr=0`, `bare_substr=False`, `guard=True` → **pass**. The guard string is a `str` constant inside a
+  `getattr(...)` call, so it is not itself an `ast.Attribute` node — the shape check discriminates correctly.
+- **Behavioural guards reproduced.** Pinned shape (`types.SimpleNamespace(reqContractDetails=...)`, no cancel
+  attribute) → silent no-op, no exception; present `_FakeClient` → `cancel_calls == [7]` exactly once;
+  `req_id=None` → `cancel_calls == []`; present-but-raising → contained, no propagation.
+- **Dependency fact re-confirmed:** installed dist `ibapi 9.81.1.post1`, `hasattr(EClient,'cancelContractDetails')
+  is False`. There is **no production caller** of `cancel_contract_details` (only the definition; grep excl.
+  `tests/`), matching A54 — the fix is forward-correctness with no observable D22 behaviour change.
+- **Test evidence:** `tests/test_ibkr_contract_details_d22.py` → **13 passed** (7 pre-existing D22 + 6 D23-01),
+  including the retained present-method/None/raising D22 cases. Archive `wave7_D23-01.json` status `done`.
+
+## B. ESC-031 (D23-02) — `remove_symbol` drops the removed row's `_row_data` key — independently VERIFIED, CLOSED
+
+- **Code read (live).** `ui/watchlist_panel.py:723`: `self._row_data.pop(row, None)` runs immediately after
+  `table.removeRow(row)` and **before** the `{(r-1 if r>row else r): values ...}` re-map (`:724-727`); the
+  docstring (`:682-699`) states the invariant `set(_row_data.keys()) == set(range(table.rowCount()))` (and the
+  `_req_to_row` / flash-timer analogues).
+- **Reproduction (my own offscreen probe with the real `WatchlistPanel` + a fake md manager).** Post-fix, a 3-row
+  panel (AAPL/MSFT/TSLA): remove **last** → rowCount 2, keys `{0,1}` ✓; remove **first** → `{0,1}` ✓; remove
+  **middle** → `{0,1}` ✓; remove **all** → rowCount 0, keys `{}` ✓ (invariant holds in every case). Running the
+  **same** sequence against the pre-fix code path (re-map without the `pop`) leaves rowCount 2 but keys
+  `{0,1,2}` — the exact stale last-row key ESC-031 named — proving the assertions are **red-before / green-after**.
+- **Test evidence:** `tests/test_watchlist_add_remove_d22.py` → **11 passed** (D22-04/05 retained + D23-02
+  T01/T02/T05); `test_D23_02_T01` (last-row), `T02` (first/middle/only), `T05` (FieldKey-bound, no value shift) are
+  real and discriminating. Archive `wave7_D23-02.json` status `done`.
+
+## C. Record coherence — `AC-D22.2.3` correction + architecture `S3` reconciliation — COHERENT
+
+- **Task graph.** `docs/tasks/task-graph.json` `D22-02` `AC-D22.2.3` is marked
+  `[CORRECTED by D23.1 / AC-D23.1.4]` and now mandates the capability-guarded best-effort cancel
+  (`getattr(...)`, "only when present"), states the pinned `9.81.1.post1` / no `EClient.cancelContractDetails`
+  absence, explicitly `supersedes the former 'calls client.cancelContractDetails(req_id)' mandate` and notes D22's
+  feature criteria are `not reopened`; the D22-02 description carries the same guarded cancel.
+- **Architecture.** `docs/architecture.md` carries the D22 `S3` reconciliation note (`S3 reconciled by D23
+  (2026-10-07)`, binding `AC-D23.1.4`) and the D23 increment `S3 *(reconciled)*` row recording the same guard,
+  "call it only if present", pinned-ibapi absence, TWS end and `ContractLookupService` safety net — the two agree.
+- **No D22 feature criterion reopened.** `requirements.md` `AC-D22.1`–`AC-D22.9` headings are intact and the D23
+  section states `its feature criteria (AC-D22.1–AC-D22.9) stand`. `tests/test_d23_nonregression.py` (5 passed)
+  re-verifies both records and that exactly one task-level criterion carries the correction marker.
+- **`D23-03-T05` note (informational):** `wave7_D23-01.json` lists `D23-01-T05` as `pass` although the worker log
+  labels T05 a *manual* docstring review (the automated docstring assertions live in T04). This is a worker
+  self-verdict on a manual criterion, not a weakened/skipped test — no action.
+
+## D. Independent full-suite + non-regression (reviewer-run)
+
+- **Full clean offscreen suite** (shared test DB `$TMPDIR/tos_charting_test.sqlite3*` removed first,
+  `-p no:cacheprovider`): `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q -p no:cacheprovider`
+  → **`726 passed in 16.04s`, 0 failed, exit code 0**. Build's 726/0 claim independently confirmed. Decomposition:
+  712 D22 baseline + 14 new D23 tests (D23-01 +6, D23-02 +3, D23-03 +5) = 726 → **no D1–D22 regression**.
+- **No test weakened / skipped / xfailed / deselected:** `grep -rnE "pytest\.mark\.(skip|xfail)|pytest\.skip|
+  deselect|--ignore|@unittest\.skip"` over the D22/D23 test files → **0 hits**.
+- **No live TWS / no order transmission (Q9):** the only `.connect(` hits are PyQt signal connections; the D22/D23
+  `MainWindow` tests `monkeypatch.setattr(IBApiClient, "connect", ...)` to a no-op, and the raw `IBApiClient()`
+  instantiations in `test_ibkr_contract_details_d22.py` never call `.connect()` (`EClient.__init__` opens no
+  socket). No transmission reference (`placeOrder`/`reqMktData`/`reqHistoricalData`/`eConnect`/ports) found.
+- **No new dependency / schema / live-order-path change:** the D23 diff on `ibkr/market_data.py` is `+39` lines and
+  adds only the two methods (no new import, no `CREATE TABLE`, no order/connect call); `ui/watchlist_panel.py`'s
+  D23 delta is the single `pop` + docstring; no dependency manifest changed.
+
+## E. Escalation close-out
+
+- **ESC-030 → `addressed`** (edited in place, `verified` added) — see A. Independently re-verified: the bare access
+  is gone, the guard + docs are present, the shape check is red-before/green-after, and the behavioural guards pass.
+- **ESC-031 → `addressed`** (edited in place, `verified` added) — see B. Independently re-verified: keys ==
+  `range(rowCount())` after last/first/middle/only removals; the pre-fix path reproduces the stale key.
+- **No other escalation is open.** `docs/code_review/escalations.json` holds only ESC-030 and ESC-031; both are now
+  `addressed` (verified programmatically: 0 non-`addressed` entries). ESC-001…ESC-029 remain `addressed` from prior
+  passes (legacy `escalations.md`), unchanged and not affected by D23.
+
+## F. New findings and observations
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| — | — | — | — | **None.** Both D23 fixes are correct, minimal, and independently verified; the full clean suite is green (726/0); D22's feature criteria are not reopened; no test weakened; no live TWS; no new dependency/schema/order-path change. No new quality, consistency, or security issue found. |
+
+- **External tooling defect (recorded, NOT routed — no pipeline agent owns it):**
+  `~/.config/opencode/scripts/build_wave.py advance` aborts with
+  `AttributeError: 'list' object has no attribute 'get'` at its circuit-breaker loop, because it iterates
+  `failures.items()` assuming every value is a task dict while this repo's `failures.json` carries list-valued
+  aggregate keys (`blocked`, `pending_routing`, `notes`). The crash occurred **after** the consolidation writes
+  (`task-graph.json`, `failures.json`, archived results, per-task done lines) and **before** `wave.json` was
+  finalised; Build (the sole writer of those files) recovered deterministically by setting `wave.json` to
+  `CONSOLIDATED` and re-running `advance` (Step 2 only). Build's log (waves 7 and 8) matches the artifacts on disk
+  — `task-graph.json` shows D23-01/D23-02/D23-03 `done` and `wave.json` is `CONSOLIDATED`. No determinism or data
+  lost. This is a **global tool outside this repository**; `routed_to` must be one of the four repo owners and none
+  applies, so **no escalation is raised**. Suggested (out-of-repo) direction: skip non-dict top-level values when
+  iterating `failures.items()`.
+
+**Pipeline state for the Orchestrator:** Batch 17 (D23) is complete — **3/3 tasks done**, `failures.json.blocked`
+empty, full clean offscreen suite green (**726 passed / 0 failed / exit 0**, independently re-run; no D1–D22
+criterion regressed). **No open escalations remain** — ESC-001…ESC-031 are all `addressed`. The pipeline can
+advance (build complete).
+
+Status: REVIEW_COMPLETE

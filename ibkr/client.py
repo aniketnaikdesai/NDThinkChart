@@ -165,6 +165,14 @@ class IBApiClient(EWrapper, EClient):
         super().historicalDataEnd(reqId, start, end)
         self.bridge.historical_data_end.emit(reqId)
 
+    def contractDetails(self, reqId: int, contractDetails):
+        super().contractDetails(reqId, contractDetails)
+        self.bridge.contract_details.emit(reqId, contractDetails)
+
+    def contractDetailsEnd(self, reqId: int):
+        super().contractDetailsEnd(reqId)
+        self.bridge.contract_details_end.emit(reqId)
+
     def tickPrice(self, reqId: int, tickType: int, price: float, attrib):
         super().tickPrice(reqId, tickType, price, attrib)
         self.bridge.tick_price.emit(reqId, tickType, price)

@@ -88,3 +88,18 @@
 **Category:** Technical Note
 **Finding:** UI "hidden/off" and "active" affordances are centralised in `ui/visual_conventions.py`: `DiagonalStrikeButton` (a single cosmetic top-left→bottom-right strike, auto-applied when a checkable button is unchecked) and `set_button_active(button, active)` / a `#MainToolbar`-keyed stylesheet for the active highlight. The stylesheet must target the toolbar **objectName**, not position, so it works inside the D19/D20 scroll wrapper. Reuse these rather than re-implementing per panel.
 **Source:** Defect D21 (D21-04, VIS-D21; consumed by D21-07/08/11/12/13).
+
+### 2026-10-07 — discovered during Code Review (D23; ibapi surface)
+**Category:** Known Gotcha
+**Finding:** The pinned `ibapi` (9.81.1.post1) `EClient` has **no** `cancelContractDetails` method (only `reqContractDetails`). Calling `client.cancelContractDetails(...)` raises `AttributeError`, which a surrounding `try/except Exception: pass` silently swallows — making the cancel a no-op on the real TWS path (tests passed only because the fake client defined it). Guard capability access: `cancel = getattr(self.client, "cancelContractDetails", None); if cancel: cancel(req_id)`. On the pinned dep the wire request is ended by TWS's own `contractDetailsEnd`/error; the real safety net is `ContractLookupService`'s bounded QTimer + `cancel_all` on disconnect. Verify `hasattr(EClient, "<method>")` before relying on any ibapi EClient method.
+**Source:** Escalations ESC-030 (task D23-01).
+
+### 2026-10-07 — discovered during Code Review (D23; row-keyed UI state)
+**Category:** Known Gotcha
+**Finding:** When a `QTableWidget`-backed panel keeps parallel row-indexed maps (`_row_data`, `_req_to_row`, `_prev_close`, `_last_price`, flash timers), a remove that re-indexes by shifting (`{(r-1 if r > row else r): v ...}`) leaves a **stale key for the removed row when it is the last/max-index row** (no later key overwrites it). Always `map.pop(row, None)` before the shift, and assert the invariant `set(keys) == set(range(rowCount()))` after first/middle/last/only-row removals — a middle-row-only test does not catch this.
+**Source:** Escalations ESC-031 (task D23-02).
+
+### 2026-10-07 — tooling note (`build_wave.py`)
+**Category:** Known Gotcha
+**Finding:** `~/.config/opencode/scripts/build_wave.py advance` crashes in its circuit-breaker loop (`AttributeError: 'list' object has no attribute 'get'`) when `docs/build/failures.json` contains **list-valued** keys (`blocked`, `pending_routing`, `notes`) instead of task dicts. It crashes after the consolidation writes but before finalizing `wave.json`; mark the wave `CONSOLIDATED` and re-run to complete deterministically. Global tool — do not edit from within a repo. Recorded for the tool author.
+**Source:** D22/D23 Build consolidations (ESC-030/031 rounds).

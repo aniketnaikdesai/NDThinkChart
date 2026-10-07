@@ -1,1180 +1,474 @@
 {
   "status": "READY_FOR_BUILD",
-  "generated": "2026-10-06",
-  "batch": "Batch 15 — D21 (13 UI defects/issues) + VIS-D21",
-  "baseline": "D1-D20 built and frozen (commit 04397d9; 585 tests). This graph is the D21 delta only; D1-D20 tasks are deliberately not re-listed.",
+  "generated": "2026-10-07",
+  "batch": "Batch 17 \u2014 D23 (two D22 post-build quality corrections: D23.1 = ESC-030, D23.2 = ESC-031)",
+  "baseline": "D1\u2013D22 built (D22 green at 712 tests, uncommitted; D1\u2013D21 at commit 286341e, 673 tests). This graph is the D23 delta only; the D1\u2013D22 tasks are baseline and deliberately not re-listed, EXCEPT D22-02, which is carried (status done) because AC-D23.1.4 requires its task-level AC-D22.2.3 (and its D22-02-T03 test description) to be corrected in place.",
   "notes": [
-    "Two shared hot production files dominate serialisation: ui/chart_panel.py (D21-01,02,03,08,13,15) and ui/main_window.py (D21-05,06,07,10,11,13). touches_files plus the explicit DEPENDS_ON edges keep them in a single serial chain.",
-    "ui/visual_conventions.py (D21-04) and services/time_collapse_service.py (D21-14) are [new] prerequisite modules; their consumers depend on them by interface.",
-    "D21-13 (D21.10 preview line) is owned by ChartPanel (architecture S14 allows ChartPanel or the alarm overlay), so ui/alarm_overlay.py is touched only by the Phase-6 consumer task D21-16.",
-    "D21-17/D21-18 are Build verification tasks; touches_files is empty because they produce only Build-owned docs/build/build_log.md evidence, not source files.",
-    "The plan's Phase 5/6 ordering is preserved through the shared-file chains (main_window/chart_panel) plus the D21.2<->D21.4 reconciliation edge D21-02 -> D21-15."
+    "D23-01 (ibkr/market_data.py + tests/test_ibkr_contract_details_d22.py) and D23-02 (ui/watchlist_panel.py + tests/test_watchlist_add_remove_d22.py) touch fully disjoint file sets and have no logical dependency on each other, so they may run in a single first wave. D23-03 (the Phase-3 verification) depends on both and runs in the next wave.",
+    "D22-02 is carried as a DONE baseline record only so the corrected task-level AC-D22.2.3 and its D22-02-T03 test description can live in this graph (AC-D23.1.4). Its status stays done; only the AC-D22.2.3 text, the D22-02-T03 description and the description's cancel clause are corrected. D23-01 declares a DEPENDS_ON edge to D22-02 because it modifies the very method and test file D22-02 established (a done, immediately-satisfied logical prerequisite \u2014 the interface lineage, not a scheduling wait).",
+    "Q8 evidence split: D23.1's genuine pre-fix-red check is the code-shape/source assertion (D23-01-T01) \u2014 the retained try/except Exception: pass makes its behavioural cases externally identical pre- and post-fix, so those are honestly labelled post-fix guards (D23-01-T02/T03). D23.2's genuine pre-fix-red check is the last-row removal assertion (D23-02-T01).",
+    "D23-01/D23-02 change no D22 observable behaviour: cancel_contract_details has no production caller (ContractLookupService.cancel/cancel_all only drop the pending entry and stop the bounded QTimer; MainWindow._on_disconnected calls cancel_all), and the stale _row_data key (> rowCount()) is never read. AC-D22.1\u2013AC-D22.9 stand unmodified.",
+    "No open ESCALATED_TO_TASK_MANAGER entries exist as of 2026-10-07; this graph is built without a code-review-driven task revision. ESC-030 and ESC-031 remain open and routed_to BUILD for Code Reviewer re-verification after Build.",
+    "D23-03 is a Build verification task. Its touches_files carries only the new cross-cutting non-regression test file it writes; the full-suite run and the Q9 check are recorded in the Build-owned docs/build/build_log.md, which this graph does not own."
   ],
   "tasks": [
     {
-      "id": "D21-01",
-      "title": "D21.1 — clamp the volume Y minimum at 0",
-      "description": "In ui/chart_panel.py enforce a hard volume Y lower bound of 0 via volume_plot.getViewBox().setLimits(yMin=0) so no interactive drag/zoom can move viewRange()[1][0] below 0, while keeping the existing programmatic setRange(yRange=(0, ...)) writes inside the limit and the D8 all-zero [0, 100] floor. Add tests/test_volume_d21.py carrying the D21.1 pre-fix-red/post-fix-green checks.",
+      "id": "D22-02",
+      "title": "D22 Phase 2 \u2014 IBKR contract-details request/callback plumbing (bridge signals + client overrides + MarketDataManager) [baseline record; AC-D22.2.3 corrected by D23.1]",
+      "description": "Add the new reqContractDetails path: IBBridge.contract_details(int, object) and contract_details_end(int) signals; IBApiClient.contractDetails/contractDetailsEnd overrides that call super() and forward to those signals (mirroring historicalData/historicalDataEnd); MarketDataManager.req_contract_details(contract) -> int (id_manager.get_id() + pacing_manager.throttle() + client.reqContractDetails) and cancel_contract_details(req_id) \u2014 a capability-guarded best-effort cancel (getattr(self.client, 'cancelContractDetails', None), called only if present; None-safe; containment preserved), as corrected by D23.1 / AC-D23.1.4. Add tests/test_ibkr_contract_details_d22.py; existing callbacks and their tests stay unchanged. [status done \u2014 carried as the corrected AC-D22.2.3 record.]",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [],
       "acceptance_criteria": [
-        "AC-D21.1.1 — Given the volume pane is visible, When the user drags the volume Y-axis (or otherwise changes the volume Y range by mouse), Then the volume Y minimum never goes below 0 at any time (viewRange()[1][0] >= 0 within float tolerance) and no volume-axis tick below 0 is rendered."
+        "AC-D22.2.1 (bridge signals) \u2014 Given IBBridge, Then it exposes a contract_details signal with signature (int, object) and a contract_details_end signal with signature (int).",
+        "AC-D22.2.2 (client overrides forward) \u2014 Given an IBApiClient with a bridge, When contractDetails(reqId, contractDetails) fires, Then super().contractDetails is invoked and bridge.contract_details is emitted with (reqId, contractDetails); When contractDetailsEnd(reqId) fires, Then super().contractDetailsEnd is invoked and bridge.contract_details_end is emitted with (reqId).",
+        "AC-D22.2.3 (manager request/cancel) [CORRECTED by D23.1 / AC-D23.1.4] \u2014 Given MarketDataManager, When req_contract_details(contract) is called, Then it returns a reqId allocated by id_manager.get_id(), calls pacing_manager.throttle() once, and calls client.reqContractDetails(reqId, contract); When cancel_contract_details(req_id) is called, Then it is a capability-guarded best-effort cancel \u2014 it resolves client.cancelContractDetails via getattr(self.client, 'cancelContractDetails', None) and calls it only when present (the pinned ibapi 9.81.1.post1 has no EClient.cancelContractDetails, so on the pinned surface it is a clean no-op that neither raises nor silently swallows an AttributeError), passing None or a client whose present cancel raises does not propagate an exception, and the method documents the pinned-ibapi absence, TWS's own contractDetailsEnd/error termination, and ContractLookupService's local invalidation (bounded QTimer + cancel_all) as the safety net. [This supersedes the former 'calls client.cancelContractDetails(req_id)' mandate; D22's feature criteria are not reopened.]",
+        "AC-D22.2.4 (existing callbacks unchanged) \u2014 Given the existing historical/RT tick callbacks, When the new overrides are added, Then their forwarding behaviour and existing tests are unchanged."
       ],
       "tests": [
         {
-          "test_id": "D21-01-T01",
-          "linked_acceptance_criterion": "AC-D21.1.1",
+          "test_id": "D22-02-T01",
+          "linked_acceptance_criterion": "AC-D22.2.1",
           "type": "unit",
-          "description": "Boot an offscreen ChartPanel with bars, assert the volume ViewBox carries setLimits(yMin=0), then drive an interactive downward y change (drag / wheel / setRange with yMin<0 through the bounded path) and assert volume_plot.getViewBox().viewRange()[1][0] >= 0 and the volume axis ticks contain no negative value.",
-          "expected_result": "The volume Y minimum is clamped at 0 after any user y-interaction; no negative volume tick."
+          "description": "Import IBBridge and assert it has contract_details and contract_details_end attributes that are bound signals, and that a sentinel object round-trips through contract_details.",
+          "expected_result": "IBBridge exposes the two new contract-details signals with the expected payloads."
         },
         {
-          "test_id": "D21-01-T02",
-          "linked_acceptance_criterion": "AC-D21.1.1",
+          "test_id": "D22-02-T02",
+          "linked_acceptance_criterion": "AC-D22.2.2",
           "type": "unit",
-          "description": "With all-zero visible volumes assert the range stays [0, 100] (D8 floor) and that a symbol/timeframe switch re-applies min 0; repeated downward drags stay at 0 and the y-drag still works for the max.",
-          "expected_result": "All-zero -> [0, 100]; min re-applied on reload; downward drags saturate at 0 while the max remains draggable."
+          "description": "Construct an IBApiClient (or a harness with the EWrapper methods) with a spy bridge and a spy super() path; call client.contractDetails(11, cd) and client.contractDetailsEnd(11); assert bridge.contract_details received (11, cd) and contract_details_end received 11, with each super() call made.",
+          "expected_result": "Both EWrapper overrides invoke super() and forward the identical args to the bridge signals."
+        },
+        {
+          "test_id": "D22-02-T03",
+          "linked_acceptance_criterion": "AC-D22.2.3",
+          "type": "unit",
+          "description": "With a fake client and monkeypatched id_manager/pacing_manager, call MarketDataManager.req_contract_details(contract); assert the returned id is the allocated id, throttle was called, and client.reqContractDetails received (id, contract). Then [corrected by D23.1 / AC-D23.1.4] call cancel_contract_details(id): for a client that does NOT define cancelContractDetails (a types.SimpleNamespace(reqContractDetails=...), the pinned-ibapi shape) it completes with no exception; for a spy client that DOES define it, it is invoked once with id (cancel_calls == [id]); call cancel_contract_details(None) and assert no call; and with a present-but-raising client assert no exception escapes.",
+          "expected_result": "req_contract_details allocates, throttles and delegates; cancel_contract_details is capability-guarded (missing capability -> clean no-op, present -> called once with req_id), None-safe and containment-preserving (a raising present cancel does not propagate)."
+        },
+        {
+          "test_id": "D22-02-T04",
+          "linked_acceptance_criterion": "AC-D22.2.4",
+          "type": "unit",
+          "description": "Re-run the existing historical/RT-tick client-callback tests after the override is added and assert they still pass.",
+          "expected_result": "No existing client/bridge callback regression."
         }
       ],
       "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py"
+        "ibkr/bridge.py",
+        "ibkr/client.py",
+        "ibkr/market_data.py",
+        "tests/test_ibkr_contract_details_d22.py"
       ],
       "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py"
+        "ibkr/bridge.py",
+        "ibkr/client.py",
+        "ibkr/market_data.py",
+        "tests/test_ibkr_contract_details_d22.py"
       ],
       "inputs": [
-        "docs/plan.md#Phase 1",
-        "docs/architecture.md#D21 increment (S3; Non-Functional volume axis)",
-        "docs/requirements/requirements.md#AC-D21.1.1",
-        "ui/chart_panel.py:288-344, 876-906 (volume ViewBox + _ensure_volume_range)"
+        "docs/plan.md#Phase 2 \u2014 IBKR contract-details plumbing + lookup service",
+        "docs/architecture.md#D22 increment (S3; the S3-reconciled-by-D23 note)",
+        "docs/requirements/requirements.md#AC-D22.4, #R46, #DG43, #AC-D23.1.4",
+        "ibkr/client.py:160-171 (historicalData/End pattern); ibkr/bridge.py:10-12",
+        "ibkr/market_data.py:56-69 (req_mkt_data/cancel_mkt_data pattern)"
       ],
       "outputs": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py"
+        "ibkr/bridge.py",
+        "ibkr/client.py",
+        "ibkr/market_data.py",
+        "tests/test_ibkr_contract_details_d22.py"
       ],
       "architecture_dependency": false,
-      "status": "done"
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ibkr/market_data.py",
+            "lines": "71-84",
+            "why": "req_contract_details + cancel_contract_details (D22-built; cancel corrected by D23.1)"
+          },
+          {
+            "path": "tests/test_ibkr_contract_details_d22.py",
+            "lines": "100-226",
+            "why": "D22-02 test module; TestD22_02_T03 is corrected by D23.1"
+          },
+          {
+            "path": "ibkr/client.py",
+            "lines": "1-60",
+            "why": "IBApiClient(EWrapper, EClient) \u2014 the pinned EClient surface (no cancelContractDetails)"
+          }
+        ],
+        "contracts": [
+          "MarketDataManager.req_contract_details(contract: Contract) -> int  [existing]",
+          "MarketDataManager.cancel_contract_details(req_id: int | None) -> None  [existing signature; corrected by D23.1 to a capability-guarded best-effort cancel]",
+          "IBBridge.contract_details = pyqtSignal(int, object)  [existing]",
+          "IBBridge.contract_details_end = pyqtSignal(int)  [existing]"
+        ],
+        "architecture_excerpt": "> **S3 reconciled by D23 (2026-10-07).** D22's S3 description of `cancel_contract_details(req_id)` as a\n> direct `client.cancelContractDetails(...)` call is corrected by the **D23.1** increment: the pinned\n> `ibapi 9.81.1.post1` `EClient` exposes **no** `cancelContractDetails`, so the cancel is a\n> **capability-guarded, documented best-effort** call (`getattr(self.client, 'cancelContractDetails',\n> None)`, called only if present) \u2014 see `## D23 increment` \u2192 Tech Stack Decisions S3. The\n> `reqContractDetails` request path itself is unchanged. This is the binding `AC-D23.1.4`\n> reconciliation.",
+        "plan_excerpt": "  - **Task Manager** rewrites task-level `AC-D22.2.3` (and its test description) in\n    `docs/tasks/task-graph.json` (task `D22-02`) to the capability-guarded, documented cancel \u2014 in\n    lockstep with the Phase-1 test change.",
+        "requirement_ids": [
+          "AC-D22.4",
+          "AC-D23.1.4"
+        ],
+        "test_command": ".venv/bin/python -m pytest tests/test_ibkr_contract_details_d22.py -q",
+        "memory_notes": [
+          "In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`. Also, the installed `ibapi` is **9.81.1.post1** and its `serverVersion()` returns `None` under the test mocks (causing intermittent `TypeError` in `ibapi/client.py`)",
+          "The offscreen pytest suite intermittently reports spurious failures because `tests/conftest.py` seeds a **single shared on-disk SQLite DB** at `tempfile.gettempdir()/tos_charting_test.sqlite3`, so concurrent/interleaved runs contend on it. All such failures pass in isolation and in a clean full-suite run. Treat non-reproducible ibapi-mock / module-not-found failures in this suite as test-DB contention, not regressions \u2014 but always re-run the full suite to confirm before declaring green."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
     },
     {
-      "id": "D21-02",
-      "title": "D21.2 — volume Y ceiling = 1.10 x max visible, recomputed on every visible-x change (supersedes D8 nice-max + ESC-007 only-widen)",
-      "description": "In ui/chart_panel.py replace the whole-list only-widen nice-max ceiling with _recompute_visible_volume_range() computing 1.10 x max(volume of bars whose x lies in the visible x-range), 0 visible -> VOLUME_NICE_FLOOR (100), wired to price_plot.getViewBox().sigXRangeChanged and re-run on bar updates; retain _nice_volume_max for the all-zero floor / fixtures. Update the D8/ESC-007 lockstep tests (tests/test_volume_linear.py, test_volume_log.py, test_volume_ceiling.py) so the suite is never left contradicting the recorded supersession (R36).",
+      "id": "D23-01",
+      "title": "D23 Phase 1 \u2014 capability-guarded, documented contract-details cancel (D23.1 / ESC-030)",
+      "description": "Rewrite MarketDataManager.cancel_contract_details in ibkr/market_data.py: keep the `if req_id is None: return` no-op; resolve `cancel = getattr(self.client, 'cancelContractDetails', None)` and call it only if present, inside the retained containment (try/except Exception: pass); add a docstring/comment documenting that (a) the pinned ibapi 9.81.1.post1 exposes no EClient.cancelContractDetails, (b) TWS's own contractDetailsEnd/error ends the wire reqContractDetails request, and (c) ContractLookupService's local invalidation (bounded QTimer + cancel_all on disconnect) is the real safety net. req_contract_details is unchanged. Extend tests/test_ibkr_contract_details_d22.py: add the pre-fix-red code-shape/source assertion, a missing-capability behavioural post-fix guard, and keep the present-method/None/raising cases.",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [
-        "D21-01"
+        "D22-02"
       ],
       "acceptance_criteria": [
-        "AC-D21.2.1 — Given the volume pane is visible and bars are loaded, When the visible x-range changes (zoom in/out, pan, magnifier area-zoom), Then the volume Y range is [0, 1.10 x max_volume_visible] where max_volume_visible is the largest volume of the bars whose x lies within the currently visible x-range and the min is always 0; all-zero visible -> [0, 100]; this supersedes D8's nice-max ceiling and ESC-007's only-widen rule for zoom while preserving ESC-007's forming-bar no-clip intent via recompute on bar updates."
+        "AC-D23.1.1 (capability-guarded cancel \u2014 no raised/swallowed AttributeError) \u2014 Given a MarketDataManager whose client lacks cancelContractDetails (the pinned ibapi 9.81.1.post1 shape), When cancel_contract_details(req_id) is called, Then it returns without raising and without touching a missing attribute (no AttributeError occurs at all \u2014 the bare self.client.cancelContractDetails(...) access is gone and the method is resolved via getattr(self.client, 'cancelContractDetails', None), called only if present); Given a client that does expose cancelContractDetails, When called, Then that method is invoked exactly once with req_id.",
+        "AC-D23.1.2 (documented absence + safety net) \u2014 Given the source of cancel_contract_details, Then its comment/docstring names the three facts: the pinned ibapi 9.81.1.post1 exposes no EClient.cancelContractDetails; the wire-side reqContractDetails is ended by TWS's own contractDetailsEnd/error; and ContractLookupService's local invalidation (bounded QTimer + cancel_all on disconnect) is the real safety net.",
+        "AC-D23.1.3 (None-safe + containment preserved) \u2014 Given req_id is None, Then the method is a no-op that calls nothing; Given a client whose (present) capability-guarded cancel raises, Then no exception escapes."
       ],
       "tests": [
         {
-          "test_id": "D21-02-T01",
-          "linked_acceptance_criterion": "AC-D21.2.1",
+          "test_id": "D23-01-T01",
+          "linked_acceptance_criterion": "AC-D23.1.1",
           "type": "unit",
-          "description": "Set a visible x-range covering a known bar subset and assert viewRange()[1] == (0, approx(1.10 * max(visible volumes))) within tolerance; zoom into a lower-volume region and assert the ceiling LOWERS (not only-widen).",
-          "expected_result": "The volume Y ceiling equals 1.10 x the visible max and follows both directions of a zoom/pan."
+          "description": "Pre-fix-red code-shape/source assertion (the Q8 evidence for D23.1): ast.parse(textwrap.dedent(inspect.getsource(MarketDataManager.cancel_contract_details))) and assert (a) no ast.Attribute node with attr == 'cancelContractDetails' (equivalently the substring 'self.client.cancelContractDetails(' is absent \u2014 the bare unguarded access is gone) AND (b) the capability guard getattr(self.client, \"cancelContractDetails\", None) is present in the source. Red against the current file (bare access at ibkr/market_data.py:82, no getattr), green after the guard.",
+          "expected_result": "Pre-fix red (bare self.client.cancelContractDetails(...) present; getattr guard absent); post-fix green (no bare attribute access; the getattr(..., None) capability guard present). This is the ONLY genuine pre-fix-red check for D23.1."
         },
         {
-          "test_id": "D21-02-T02",
-          "linked_acceptance_criterion": "AC-D21.2.1",
+          "test_id": "D23-01-T02",
+          "linked_acceptance_criterion": "AC-D23.1.1",
           "type": "unit",
-          "description": "Assert all-zero visible volumes give [0, 100] (D8 floor), a volume spike just outside the view does not inflate the max, and panning recomputes the ceiling.",
-          "expected_result": "All-zero -> [0, 100]; out-of-view spike excluded; pan recomputes."
+          "description": "Post-fix guard (explicitly NOT pre-fix-red): build a client that does not define cancelContractDetails (types.SimpleNamespace(reqContractDetails=lambda *a: None), the pinned-ibapi shape) and call MarketDataManager(client).cancel_contract_details(7); assert it returns with no exception. It passes on both the pre- and post-fix trees (the retained try/except already swallows the pre-fix AttributeError), so it documents the intended no-op and guards a regression that removes both the guard and the containment.",
+          "expected_result": "On the pinned-ibapi shape the call completes with no exception raised or surfaced."
         },
         {
-          "test_id": "D21-02-T03",
-          "linked_acceptance_criterion": "AC-D21.2.1",
+          "test_id": "D23-01-T03",
+          "linked_acceptance_criterion": "AC-D23.1.1",
           "type": "unit",
-          "description": "Grow the forming last bar intra-bar past the current ceiling and assert the ceiling widens so the bar is not clipped (ESC-007 core intent preserved).",
-          "expected_result": "Intra-bar growth widens the ceiling; no clipping of the forming bar."
+          "description": "Post-fix guard: with the method-defining _FakeClient spy, call MarketDataManager(client).cancel_contract_details(7) and assert the method was invoked exactly once with req_id (client.cancel_calls == [7]).",
+          "expected_result": "When the client exposes cancelContractDetails it is called exactly once with req_id."
         },
         {
-          "test_id": "D21-02-T04",
-          "linked_acceptance_criterion": "AC-D21.2.1",
-          "type": "integration",
-          "description": "Run tests/test_volume_linear.py, tests/test_volume_log.py and tests/test_volume_ceiling.py after their lockstep update and assert zero failures, with no remaining assertion of the D8 nice-max ceiling or the ESC-007 only-widen rule (R36).",
-          "expected_result": "The three lockstep modules are green and encode the D21.2 rule; no stale nice-max/only-widen assertion remains."
+          "test_id": "D23-01-T04",
+          "linked_acceptance_criterion": "AC-D23.1.2",
+          "type": "unit",
+          "description": "Assert the source of cancel_contract_details (docstring/comment) names the three documented facts: the pinned '9.81.1.post1' ibapi absence, TWS's 'contractDetailsEnd' (and error) termination of the wire request, and 'ContractLookupService' local invalidation with 'cancel_all'.",
+          "expected_result": "The method's comment/docstring contains the pinned-version absence, the TWS contractDetailsEnd/error termination, and the ContractLookupService (bounded QTimer + cancel_all) safety net."
+        },
+        {
+          "test_id": "D23-01-T05",
+          "linked_acceptance_criterion": "AC-D23.1.2",
+          "type": "manual",
+          "description": "Review confirmation (the requirement's 'review-verified' measurable) that cancel_contract_details documents, accurately and completely, that the pinned ibapi 9.81.1.post1 exposes no EClient.cancelContractDetails, that TWS ends the reqContractDetails request via contractDetailsEnd/error, and that ContractLookupService's local invalidation is the safety net.",
+          "expected_result": "A reviewer confirms the three named facts appear in the method's comment/docstring."
+        },
+        {
+          "test_id": "D23-01-T06",
+          "linked_acceptance_criterion": "AC-D23.1.3",
+          "type": "unit",
+          "description": "Call MarketDataManager(spy_client).cancel_contract_details(None) and assert it is a no-op: the client's cancel method is never called.",
+          "expected_result": "req_id is None returns immediately without invoking the client."
+        },
+        {
+          "test_id": "D23-01-T07",
+          "linked_acceptance_criterion": "AC-D23.1.3",
+          "type": "unit",
+          "description": "With a client whose present cancelContractDetails raises RuntimeError, call cancel_contract_details(7) and assert no exception escapes (the containment try/except Exception: pass is preserved).",
+          "expected_result": "A raising present-method cancel is contained and does not propagate."
         }
       ],
       "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py",
-        "tests/test_volume_linear.py",
-        "tests/test_volume_log.py",
-        "tests/test_volume_ceiling.py"
+        "ibkr/market_data.py",
+        "tests/test_ibkr_contract_details_d22.py"
       ],
       "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py",
-        "tests/test_volume_linear.py",
-        "tests/test_volume_log.py",
-        "tests/test_volume_ceiling.py"
+        "ibkr/market_data.py",
+        "tests/test_ibkr_contract_details_d22.py"
       ],
       "inputs": [
-        "docs/plan.md#Phase 1",
-        "docs/architecture.md#D21 increment (S4/S5; Validator probe header)",
-        "docs/requirements/requirements.md#AC-D21.2.1",
-        "ui/chart_panel.py:199-200, 876-906 (ceiling machinery)",
-        "tests/test_volume_linear.py, tests/test_volume_log.py, tests/test_volume_ceiling.py (D8/ESC-007 lockstep)"
+        "docs/plan.md#Phase 1 \u2014 [new/changed] Capability-guarded, documented contract-details cancel (D23.1)",
+        "docs/architecture.md#D23 increment (S3, S16, S14; AR-D23-1/AR-D23-2)",
+        "docs/requirements/requirements.md#AC-D23.1.1, #AC-D23.1.2, #AC-D23.1.3, #A53, #A54, #R49, #DG45",
+        "ibkr/market_data.py:78-84 (current cancel_contract_details); ibkr/market_data.py:63-69 (cancel_mkt_data containment pattern)",
+        "tests/test_ibkr_contract_details_d22.py:100-171 (_FakeClient + TestD22_02_T03)"
       ],
       "outputs": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py",
-        "tests/test_volume_linear.py",
-        "tests/test_volume_log.py",
-        "tests/test_volume_ceiling.py"
+        "ibkr/market_data.py",
+        "tests/test_ibkr_contract_details_d22.py"
       ],
       "architecture_dependency": false,
-      "status": "done"
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ibkr/market_data.py",
+            "lines": "63-92",
+            "why": "the file to modify \u2014 cancel_contract_details (:78-84) plus the sibling cancel_mkt_data/cancel_historical_data containment pattern"
+          },
+          {
+            "path": "tests/test_ibkr_contract_details_d22.py",
+            "lines": "100-226",
+            "why": "the test module to extend \u2014 _FakeClient and TestD22_02_T03"
+          },
+          {
+            "path": "ibkr/client.py",
+            "lines": "1-60",
+            "why": "IBApiClient(EWrapper, EClient) \u2014 the pinned EClient exposes no cancelContractDetails"
+          }
+        ],
+        "contracts": [
+          "MarketDataManager.cancel_contract_details(req_id: int | None) -> None  [existing signature unchanged]",
+          "client.cancelContractDetails(reqId) -> None  [ABSENT on pinned ibapi 9.81.1.post1 \u2014 resolve via getattr(self.client, 'cancelContractDetails', None) and call only if present]",
+          "client.reqContractDetails(reqId, contract)  [existing]"
+        ],
+        "architecture_excerpt": "| S3 *(reconciled)* | **D23.1 \u2014 capability-guarded best-effort contract-details cancel** `[new/changed]` | Rewrite `[existing] ibkr/market_data.py::MarketDataManager.cancel_contract_details` to: keep `if req_id is None: return`; resolve `cancel = getattr(self.client, 'cancelContractDetails', None)`; **call it only if present**, inside the existing containment (`try/except Exception: pass`); carry a docstring/comment documenting that (a) pinned `ibapi 9.81.1.post1` exposes no `EClient.cancelContractDetails`, (b) TWS's own `contractDetailsEnd`/error ends the wire request, and (c) `ContractLookupService`'s local invalidation (bounded 5s QTimer + `cancel_all` on disconnect) is the real safety net.",
+        "plan_excerpt": "  - `[new/changed] ibkr/market_data.py` \u2014 rewrite `MarketDataManager.cancel_contract_details`\n    (`:78\u201384`): keep `if req_id is None: return`; resolve\n    `cancel = getattr(self.client, 'cancelContractDetails', None)`; call it only if present, inside\n    the existing containment (`try/except Exception: pass`); add the docstring/comment documenting\n    (a) the pinned `ibapi 9.81.1.post1` has no `EClient.cancelContractDetails`, (b) TWS's own\n    `contractDetailsEnd`/error ends the wire request, (c) `ContractLookupService`'s local invalidation (bounded `QTimer` + `cancel_all` on disconnect) is the real safety net.",
+        "requirement_ids": [
+          "AC-D23.1.1",
+          "AC-D23.1.2",
+          "AC-D23.1.3"
+        ],
+        "test_command": ".venv/bin/python -m pytest tests/test_ibkr_contract_details_d22.py -q",
+        "memory_notes": [
+          "In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`. Also, the installed `ibapi` is **9.81.1.post1** and its `serverVersion()` returns `None` under the test mocks (causing intermittent `TypeError` in `ibapi/client.py`)",
+          "The offscreen pytest suite intermittently reports spurious failures because `tests/conftest.py` seeds a **single shared on-disk SQLite DB** at `tempfile.gettempdir()/tos_charting_test.sqlite3`, so concurrent/interleaved runs contend on it. All such failures pass in isolation and in a clean full-suite run. Treat non-reproducible ibapi-mock / module-not-found failures in this suite as test-DB contention, not regressions \u2014 but always re-run the full suite to confirm before declaring green."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
     },
     {
-      "id": "D21-03",
-      "title": "D21.6 — volume pane can grow to >= 360px with a ~200px price-pane minimum",
-      "description": "In ui/chart_panel.py add VOLUME_PANE_MAX_HEIGHT = 480 and PRICE_PANE_MIN_HEIGHT = 200, apply volume_plot.setMaximumHeight(VOLUME_PANE_MAX_HEIGHT) and price_plot.setMinimumHeight(PRICE_PANE_MIN_HEIGHT), and tune the vertical splitter sizes/stretch so the volume pane reaches >= 360px while the price pane keeps >= ~200px; the oscillator pane cap is unchanged.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-02"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.6.1 — Given the volume pane is visible, When the user drags the price/volume splitter, Then the volume pane can grow to at least 360px (3x the former 120px cap) and the price pane keeps a minimum of ~200px (the oscillator pane is unaffected)."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-03-T01",
-          "linked_acceptance_criterion": "AC-D21.6.1",
-          "type": "integration",
-          "description": "Boot a shown offscreen ChartPanel in a window tall enough, drive the vertical splitter to give the volume pane its maximum, and assert volume_plot.height() >= 360.",
-          "expected_result": "The volume pane reaches >= 360px."
-        },
-        {
-          "test_id": "D21-03-T02",
-          "linked_acceptance_criterion": "AC-D21.6.1",
-          "type": "integration",
-          "description": "Assert price_plot.height() >= ~200 after the volume pane is grown, and that in a very short window the price minimum wins and the volume target yields without an error.",
-          "expected_result": "Price pane keeps >= ~200px; short-window precedence is stable."
-        },
-        {
-          "test_id": "D21-03-T03",
-          "linked_acceptance_criterion": "AC-D21.6.1",
-          "type": "integration",
-          "description": "Assert the oscillator pane is unaffected, and that hiding then showing the volume pane (D10) restores the splitter without regressing the price minimum.",
-          "expected_result": "Oscillator unaffected; hide/show round-trips cleanly; no price-minimum regression."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py"
-      ],
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 1 (PA-D21-1)",
-        "docs/architecture.md#D21 increment (S6)",
-        "docs/requirements/requirements.md#AC-D21.6.1",
-        "ui/chart_panel.py:288, 309, 317-321 (setMaximumHeight + splitter sizes)"
-      ],
-      "outputs": [
-        "ui/chart_panel.py",
-        "tests/test_volume_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-04",
-      "title": "VIS-D21 — shared primitives: DiagonalStrikeButton (VIS-D21.1) + active highlight (VIS-D21.2)",
-      "description": "Create the new leaf module ui/visual_conventions.py holding the shared VIS-D21 primitives: DiagonalStrikeButton (a QPushButton that paints a single cosmetic top-left -> bottom-right line over the text area when struck, auto-striking when a checkable button is unchecked), the VIS-D21.2 toolbar stylesheet constant, and set_button_active(button, active) (Qt dynamic property + repolish). This module is a prerequisite for the watchlist, volume and right-dock consumers.",
+      "id": "D23-02",
+      "title": "D23 Phase 2 \u2014 remove_symbol drops the removed row's _row_data key (D23.2 / ESC-031)",
+      "description": "In ui/watchlist_panel.py::WatchlistPanel.remove_symbol, drop the removed row's own _row_data entry while re-indexing \u2014 e.g. self._row_data.pop(row, None) before the existing `{(r-1 if r > row else r): values ...}` re-map \u2014 so that after remove_symbol returns True, set(self._row_data.keys()) == set(range(self.table.rowCount())) (no stale key), while _req_to_row values and _flash_timers keys cover exactly the surviving rows. Update the remove_symbol docstring to state the invariant. _prev_close/_last_price (reqId-keyed) and the add_symbol/clear paths are unchanged. Extend tests/test_watchlist_add_remove_d22.py with the missing last-row (and/or first/only-row) coverage that is red pre-fix.",
       "agent": "Build",
       "task_type": "implementation",
       "dependencies": [],
       "acceptance_criteria": [
-        "VIS-D21.1 — Given a hidden/off toggle label/button, Then its text area is rendered with a single straight diagonal line from the top-left to the bottom-right corner, clearly visible against the button background; a checkable DiagonalStrikeButton is struck automatically when unchecked and unstruck when checked.",
-        "VIS-D21.2 — Given an active/selected button, Then a persistent highlight (a distinct filled background and/or border) is applied while active and removed when inactive, via a dynamic property that can be asserted independently of painting."
+        "AC-D23.2.1 (no stale row key \u2014 last-row removal) \u2014 Given a panel with n >= 2 rows, When the last row's symbol is removed, Then table.rowCount() == n-1 AND set(_row_data.keys()) == set(range(n-1)) (the removed row's key is dropped, not merely overwritten by a later key). Measurable: a 3-row panel, remove_symbol(last) -> sorted(_row_data.keys()) == [0, 1].",
+        "AC-D23.2.2 (first / middle / only-row removal) \u2014 Given a panel with rows, When the first, a middle, or the only row's symbol is removed, Then set(_row_data.keys()) == set(range(table.rowCount())) in every case (only-row case -> rowCount() == 0 and _row_data == {}). The same invariant holds for _req_to_row values and _flash_timers keys (no key for a removed row survives).",
+        "AC-D23.2.3 (coverage added) \u2014 Given the D22-05 remove tests, Then a last-row (and/or first-row / only-row) removal assertion is added so the stale-key branch is actually covered \u2014 the existing middle-row check (test_D22_05_T02) passes even with the defect and cannot be the only guard. Measurable: the new assertion fails against the pre-fix remove_symbol and passes after the fix.",
+        "AC-D23.2.4 (regression) \u2014 Given the fix, Then test_D22_05_T02 (middle-row re-index, reqId cancellation, flash-timer re-index, later-tick routing) and test_D22_05_T03 (absent/blank no-op) remain green, and _row_data remains a valid dict for _rebuild_table/_set_cell after any removal (cached FieldKey-bound values are not shifted onto the wrong row)."
       ],
       "tests": [
         {
-          "test_id": "D21-04-T01",
-          "linked_acceptance_criterion": "VIS-D21.1",
-          "type": "unit",
-          "description": "Instantiate DiagonalStrikeButton; assert struck is False by default and the painted line appears (paintEvent draws a TL->BR cosmetic line) when struck is set, and that a checkable button auto-strikes when unchecked and unstrikes when checked; assert the button stays clickable while struck.",
-          "expected_result": "The diagonal strike is present iff the button is struck/hidden and the control remains interactive."
+          "test_id": "D23-02-T01",
+          "linked_acceptance_criterion": "AC-D23.2.1",
+          "type": "integration",
+          "description": "Pre-fix-red last-row removal: a 3-row panel (AAPL/MSFT/TSLA) with reqIds 1/2/3; remove_symbol('TSLA') -> assert table.rowCount() == 2 and set(_row_data.keys()) == set(range(2)) (sorted == [0, 1]); the removed row's key 2 is dropped, not merely overwritten. Red against the current remove_symbol (stale key 2).",
+          "expected_result": "Last-row removal leaves _row_data keyed exactly over the 2 surviving rows (pre-fix: stale key 2 present -> red; post-fix green)."
         },
         {
-          "test_id": "D21-04-T02",
-          "linked_acceptance_criterion": "VIS-D21.2",
-          "type": "unit",
-          "description": "Call set_button_active(btn, True) and assert the dynamic 'active' property is True and the resolved style differs from inactive; call set_button_active(btn, False) and assert the property is cleared and the style returns to the inactive form.",
-          "expected_result": "Active style differs from inactive and is applied while active / removed when inactive."
+          "test_id": "D23-02-T02",
+          "linked_acceptance_criterion": "AC-D23.2.2",
+          "type": "integration",
+          "description": "First/middle/only-row removal invariant: for a panel with rows, remove the first row (set(_row_data.keys()) == set(range(rowCount()))), a middle row (same), and the only row (rowCount() == 0 and _row_data == {}); in each case also assert the _req_to_row values and _flash_timers keys cover exactly the surviving rows and no removed row's reqId/timer key survives.",
+          "expected_result": "Every removal leaves _row_data keys, _req_to_row values and _flash_timers keys exactly over the surviving rows."
         },
         {
-          "test_id": "D21-04-T03",
-          "linked_acceptance_criterion": "VIS-D21.2",
-          "type": "unit",
-          "description": "Assert the VIS-D21.2 stylesheet constant targets the toolbar objectName and the :checked / [active=\"true\"] selectors, so it is scroll-position independent in the D19 wrapper.",
-          "expected_result": "The shared stylesheet applies to the toolbar controls independent of scroll position."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/visual_conventions.py",
-        "tests/test_visual_conventions.py"
-      ],
-      "touches_files": [
-        "ui/visual_conventions.py",
-        "tests/test_visual_conventions.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/architecture.md#D21 increment (S7/S8; System Components new components)",
-        "docs/requirements/requirements.md#VIS-D21.1",
-        "docs/requirements/requirements.md#VIS-D21.2",
-        "docs/requirements/requirements.md#A41, #A42"
-      ],
-      "outputs": [
-        "ui/visual_conventions.py",
-        "tests/test_visual_conventions.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-05",
-      "title": "D21.3 — Ext Hours button relabels to RTH when regular hours are selected",
-      "description": "In ui/main_window.py switch ext_hours_btn's label between 'Ext Hours' (checked) and 'RTH' (unchecked) in _on_ext_hours_toggled and on construction, keeping the fixed 80px width, the tooltip and the existing chart-reload behaviour. Create tests/test_toolbar_d21.py for the toolbar-state checks.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D21.3.1 — Given the toolbar is visible, When Ext Hours is ON (checked), Then the button label reads 'Ext Hours'; When the user toggles it OFF (regular trading hours), Then the button label reads 'RTH'; the label updates immediately on toggle and reflects the state after a chart reload, and the fixed 80px width fits both labels."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-05-T01",
-          "linked_acceptance_criterion": "AC-D21.3.1",
-          "type": "integration",
-          "description": "Boot an offscreen MainWindow, assert ext_hours_btn.text() == 'Ext Hours' when checked; toggle it off and assert text() == 'RTH' immediately.",
-          "expected_result": "The label switches immediately with the checked state."
+          "test_id": "D23-02-T03",
+          "linked_acceptance_criterion": "AC-D23.2.3",
+          "type": "manual",
+          "description": "Confirm the newly added last-row (and/or first/only-row) assertion is red against the pre-fix remove_symbol and green after the fix \u2014 e.g. by running the new assertion against the pre-fix revision (git stash / checked-out pre-fix tree) and recording both results; the existing middle-row check alone does not catch it.",
+          "expected_result": "The new assertion fails on the pre-fix remove_symbol (stale last-row key) and passes after the fix."
         },
         {
-          "test_id": "D21-05-T02",
-          "linked_acceptance_criterion": "AC-D21.3.1",
+          "test_id": "D23-02-T04",
+          "linked_acceptance_criterion": "AC-D23.2.4",
           "type": "integration",
-          "description": "Toggle ext hours, drive a chart reload (stubbed feed), and assert the label still matches the button state; assert the 80px width fits both labels (sizeHint <= 80 for both).",
-          "expected_result": "The label reflects the state after reload and both labels fit the 80px button."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/architecture.md#D21 increment (Codebase Summary toolbar; Changed components)",
-        "docs/requirements/requirements.md#AC-D21.3.1",
-        "ui/main_window.py:160-165, 1443-1449 (ext_hours_btn + _on_ext_hours_toggled)"
-      ],
-      "outputs": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-06",
-      "title": "D21.7 — persistent active highlight for toolbar buttons",
-      "description": "In ui/main_window.py apply the shared VIS-D21.2 highlight: :checked styling for the checkable toggles (sound_btn, dom_btn, ext_hours_btn, alarm_mode_btn) and set_button_active(button, True/False) around the modal Studies and Alarms dialogs so the invoking button is visibly active while its popup is open and clears when it closes.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-04",
-        "D21-05"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.7.1 — Given a toolbar button that represents an active/selected state (a checkable toggle that is ON, or a button whose popup is currently open), When that state is active, Then the button shows a persistent, clearly visible highlight distinct from its inactive state (per VIS-D21.2), removed when the state ends."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-06-T01",
-          "linked_acceptance_criterion": "AC-D21.7.1",
-          "type": "integration",
-          "description": "Boot an offscreen MainWindow; for each checkable toggle (sound_btn, dom_btn, ext_hours_btn, alarm_mode_btn) assert the checked (active) style/property differs from the unchecked style and reverts when unchecked.",
-          "expected_result": "Each checkable toggle is visibly highlighted while ON and reverts when OFF."
+          "description": "Run test_D22_05_T02 (middle-row: reqId cancellation, _req_to_row/_prev_close/_last_price/flash-timer re-index, later-tick routing to the correct symbol row) and test_D22_05_T03 (absent/blank no-op) and assert they remain green after the fix.",
+          "expected_result": "The existing middle-row re-index and absent/blank no-op tests stay green."
         },
         {
-          "test_id": "D21-06-T02",
-          "linked_acceptance_criterion": "AC-D21.7.1",
+          "test_id": "D23-02-T05",
+          "linked_acceptance_criterion": "AC-D23.2.4",
           "type": "integration",
-          "description": "Monkeypatch the Studies/Alarms dialog exec() to return immediately; assert studies_btn/alarms_btn carry the active property while the dialog is open and that it is cleared on close; assert the highlight is not scroll-position dependent in the D19 wrapper.",
-          "expected_result": "Popup buttons are highlighted while their dialog is open and cleared on close."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/architecture.md#D21 increment (S7)",
-        "docs/requirements/requirements.md#AC-D21.7.1",
-        "ui/visual_conventions.py (set_button_active + stylesheet from D21-04)",
-        "ui/main_window.py:135-165, 976-987 (toolbar buttons + dialog slots)"
-      ],
-      "outputs": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-07",
-      "title": "D21.8 — Alarm Mode highlight + status message that persists until the mode ends",
-      "description": "In ui/main_window.py give alarm_mode_btn the VIS-D21.2 active highlight while Alarm Mode is on and change _on_alarm_mode_toggled to show the status-bar message with no timeout (instead of the current 4000ms), clearing/replacing it when Alarm Mode ends (button off, alarm placed, drawing tool selected, or mode otherwise exited) so it does not permanently mask later messages.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-06"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.8.1 — Given the toolbar is visible, When Alarm Mode is activated, Then the Alarm Mode button shows the persistent active highlight (VIS-D21.2).",
-        "AC-D21.8.2 — Given Alarm Mode is active, Then the status-bar message ('Alarm mode: click the chart to place a price alarm.') remains visible with no timeout until Alarm Mode is switched off; When Alarm Mode ends (button toggled off, an alarm is placed, or the mode is otherwise exited), Then the message is cleared/replaced."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-07-T01",
-          "linked_acceptance_criterion": "AC-D21.8.1",
-          "type": "integration",
-          "description": "Activate Alarm Mode and assert alarm_mode_btn is highlighted (active style/property) and that it reverts when the mode is switched off.",
-          "expected_result": "The Alarm Mode button is highlighted while active and reverted when off."
-        },
-        {
-          "test_id": "D21-07-T02",
-          "linked_acceptance_criterion": "AC-D21.8.2",
-          "type": "integration",
-          "description": "Activate Alarm Mode, wait/advance past 4s and assert the alarm-mode status text is still shown; deactivate and assert it is no longer shown.",
-          "expected_result": "The message persists beyond 4s while active and clears on deactivation."
-        },
-        {
-          "test_id": "D21-07-T03",
-          "linked_acceptance_criterion": "AC-D21.8.2",
-          "type": "integration",
-          "description": "Exit Alarm Mode by placing an alarm and by selecting a drawing tool; assert the message is cleared/replaced on each exit path and does not mask subsequent status messages.",
-          "expected_result": "Every Alarm-Mode exit clears/replaces the persistent message."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/architecture.md#D21 increment (S7)",
-        "docs/requirements/requirements.md#AC-D21.8.1",
-        "docs/requirements/requirements.md#AC-D21.8.2",
-        "ui/main_window.py:141-143, 1030-1037 (alarm_mode_btn + _on_alarm_mode_toggled)"
-      ],
-      "outputs": [
-        "ui/main_window.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-08",
-      "title": "D21.12 — Volume button struck when the volume pane is hidden",
-      "description": "In ui/chart_panel.py replace the checkable Volume toggle with a DiagonalStrikeButton so it is struck (VIS-D21.1) when unchecked/hidden and unstruck when checked/shown, keeping the D10 placement, the checked default and the existing toggle behaviour.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-04",
-        "D21-05",
-        "D21-03"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.12.1 — Given the volume pane is hidden (toggle unchecked), Then the Volume button is rendered with the VIS-D21.1 diagonal strike-through; When the volume pane is shown (checked), Then the strike-through is removed."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-08-T01",
-          "linked_acceptance_criterion": "AC-D21.12.1",
-          "type": "integration",
-          "description": "Boot an offscreen ChartPanel; assert the Volume toggle is a DiagonalStrikeButton, default-checked and not struck; uncheck it and assert struck is True and the pane is hidden; re-check and assert struck is False and the pane is visible.",
-          "expected_result": "The Volume button is struck iff the pane is hidden and remains clickable."
-        },
-        {
-          "test_id": "D21-08-T02",
-          "linked_acceptance_criterion": "AC-D21.12.1",
-          "type": "integration",
-          "description": "Assert the D10 placement/visibility behaviour is unchanged (button positioned top-left of the volume pane, toggling hides/shows volume_plot and its axis, splitter refresh) while struck.",
-          "expected_result": "D10 placement and toggle behaviour are preserved; the strike is cosmetic only."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 2",
-        "docs/architecture.md#D21 increment (S8; Changed components chart_panel)",
-        "docs/requirements/requirements.md#AC-D21.12.1",
-        "ui/visual_conventions.py (DiagonalStrikeButton from D21-04)",
-        "ui/chart_panel.py:326-335, 401-436 (_volume_toggle + _on_volume_toggled)"
-      ],
-      "outputs": [
-        "ui/chart_panel.py",
-        "tests/test_toolbar_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-09",
-      "title": "D21.5 — configurable watchlist columns (add/remove/rearrange, Symbol kept, persisted)",
-      "description": "In ui/watchlist_panel.py replace the fixed 7-column index schema with a COLUMN_DEFS field-key model: an ordered active-field list, cells built per active field, and _set_cell/on_tick_price/on_tick_size/_on_cell_double_clicked addressing by field key; force Symbol present; add a right-click header popup (checkable add/remove + move left/right) that rebuilds the table; and persist the layout in QSettings key 'watchlist/columns' with a sanitised restore on launch.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D21.5.1 — Given the watchlist is visible, When the user right-clicks a column header, Then a popup opens offering to add, remove and rearrange columns.",
-        "AC-D21.5.2 — Given the popup, Then the addable set is the existing 7 columns (Symbol, Last, Bid, Ask, Chg, Chg %, Vol); 'add' means re-showing a previously removed column (no new data fields are introduced).",
-        "AC-D21.5.3 — Given a column is to be removed, Then the Symbol column cannot be removed (it always remains in the layout).",
-        "AC-D21.5.4 — Given a changed column set/order, Then the table updates immediately to the chosen columns in the chosen order, each cell value remains bound to the correct field, and the layout is persisted across restarts (restored on launch)."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-09-T01",
-          "linked_acceptance_criterion": "AC-D21.5.1",
-          "type": "integration",
-          "description": "Boot an offscreen WatchlistPanel, invoke the header context-menu handler, and assert a popup is offered with add, remove and rearrange affordances.",
-          "expected_result": "A right-click on the header opens the add/remove/rearrange popup."
-        },
-        {
-          "test_id": "D21-09-T02",
-          "linked_acceptance_criterion": "AC-D21.5.2",
-          "type": "unit",
-          "description": "Assert the addable field set equals exactly the existing 7 fields and that removing then re-adding a column restores it; no new field key is introduced.",
-          "expected_result": "Addable set == existing 7; add == re-show a removed column."
-        },
-        {
-          "test_id": "D21-09-T03",
-          "linked_acceptance_criterion": "AC-D21.5.3",
-          "type": "unit",
-          "description": "Attempt to remove Symbol and assert it is blocked and still present; assert all other columns can be removed leaving only Symbol.",
-          "expected_result": "Symbol removal is blocked; Symbol always remains."
-        },
-        {
-          "test_id": "D21-09-T04",
-          "linked_acceptance_criterion": "AC-D21.5.4",
-          "type": "integration",
-          "description": "Remove and reorder columns, then deliver a live tick and assert each value lands in the correct field cell (field-identity binding, not index); assert D14 double-click still resolves the Symbol row after a reorder.",
-          "expected_result": "Immediate correct update after reorder/remove; field binding preserved; D14 still works."
-        },
-        {
-          "test_id": "D21-09-T05",
-          "linked_acceptance_criterion": "AC-D21.5.4",
-          "type": "integration",
-          "description": "Persist a changed layout to QSettings('watchlist/columns'), reconstruct the panel, and assert the same ordered column set is restored; assert unknown keys are dropped and symbol is forced present.",
-          "expected_result": "Layout survives a simulated restart with sanitised restore."
+          "description": "After a first-row and a last-row removal, assert _row_data is still a valid dict whose values stay FieldKey-bound and that _rebuild_table() and _set_cell(row, field, value) still resolve the correct symbol row (no shift of cached values onto the wrong row; DG32 binding preserved).",
+          "expected_result": "_row_data remains valid for _rebuild_table/_set_cell after any removal; cached field values stay bound to their symbol."
         }
       ],
       "expected_artifacts": [
         "ui/watchlist_panel.py",
-        "tests/test_watchlist_columns_d21.py"
+        "tests/test_watchlist_add_remove_d22.py"
       ],
       "touches_files": [
         "ui/watchlist_panel.py",
-        "tests/test_watchlist_columns_d21.py"
+        "tests/test_watchlist_add_remove_d22.py"
       ],
       "inputs": [
-        "docs/plan.md#Phase 3 (PA-D21-3)",
-        "docs/architecture.md#D21 increment (S9/S10)",
-        "docs/requirements/requirements.md#AC-D21.5.1",
-        "docs/requirements/requirements.md#AC-D21.5.2",
-        "docs/requirements/requirements.md#AC-D21.5.3",
-        "docs/requirements/requirements.md#AC-D21.5.4",
-        "ui/watchlist_panel.py:10-19, 117-141, 206-247 (HEADERS/COL_*, header strip, tick handlers)"
+        "docs/plan.md#Phase 2 \u2014 [new/changed] remove_symbol drops the removed row's _row_data key (D23.2)",
+        "docs/architecture.md#D23 increment (S15, S16; AR-D23-4)",
+        "docs/requirements/requirements.md#AC-D23.2.1, #AC-D23.2.2, #AC-D23.2.3, #AC-D23.2.4, #A55, #R50, #DG32",
+        "ui/watchlist_panel.py:664-742 (add_symbol / remove_symbol / clear); :456-463 (field-key symbol resolution)",
+        "tests/test_watchlist_add_remove_d22.py:209-339 (FakeMdManager + D22-05 remove tests)"
       ],
       "outputs": [
         "ui/watchlist_panel.py",
-        "tests/test_watchlist_columns_d21.py"
+        "tests/test_watchlist_add_remove_d22.py"
       ],
       "architecture_dependency": false,
-      "status": "done"
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "664-742",
+            "why": "the file to modify \u2014 add_symbol / remove_symbol (:682-728, the _row_data re-index at :716-719) / clear"
+          },
+          {
+            "path": "tests/test_watchlist_add_remove_d22.py",
+            "lines": "209-339",
+            "why": "the test module to extend \u2014 FakeMdManager + the D22-05 remove tests (T02 middle-row, T03 absent no-op)"
+          }
+        ],
+        "contracts": [
+          "WatchlistPanel.remove_symbol(symbol: str) -> bool  [existing signature unchanged]",
+          "WatchlistPanel._row_data: dict[int, dict]  (row -> cached FieldKey-bound values)  [required invariant: set(keys) == set(range(table.rowCount())) after a removal]",
+          "WatchlistPanel._req_to_row: dict[int, int] (reqId -> row); WatchlistPanel._flash_timers: dict[tuple[int, str], QTimer] ((row, field) -> timer)",
+          "WatchlistPanel.add_symbol(symbol: str, contract) -> None  [existing, unchanged]"
+        ],
+        "architecture_excerpt": "| S15 | **D23.2 \u2014 `_row_data` row-key invariant in `remove_symbol`** `[new/changed]` | In `[existing] ui/watchlist_panel.py::remove_symbol`, drop the removed row's own entry while re-indexing \u2014 e.g. `self._row_data.pop(row, None)` alongside the existing `{(r-1 if r > row else r): values \u2026}` re-map \u2014 so that after `remove_symbol` returns `True`, `set(self._row_data.keys()) == set(range(self.table.rowCount()))` (and, unchanged, the `_req_to_row` values and `_flash_timers` keys cover exactly the surviving rows). Update the `remove_symbol` docstring's re-index contract to state the invariant.",
+        "plan_excerpt": "  - `[new/changed] ui/watchlist_panel.py` \u2014 in `WatchlistPanel.remove_symbol` (`:682\u2013728`), drop the\n    removed row's own `_row_data` entry while re-indexing (e.g. `self._row_data.pop(row, None)`\n    before the existing `{(r-1 if r > row else r): values \u2026}` re-map), and update the\n    `remove_symbol` docstring to state the invariant\n    `set(_row_data.keys()) == set(range(table.rowCount()))` alongside the existing\n    `_req_to_row`/flash-timer handling.",
+        "requirement_ids": [
+          "AC-D23.2.1",
+          "AC-D23.2.2",
+          "AC-D23.2.3",
+          "AC-D23.2.4"
+        ],
+        "test_command": ".venv/bin/python -m pytest tests/test_watchlist_add_remove_d22.py -q",
+        "memory_notes": [
+          "In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "The offscreen pytest suite intermittently reports spurious failures because `tests/conftest.py` seeds a **single shared on-disk SQLite DB** at `tempfile.gettempdir()/tos_charting_test.sqlite3`, so concurrent/interleaved runs contend on it. All such failures pass in isolation and in a clean full-suite run. Treat non-reproducible ibapi-mock / module-not-found failures in this suite as test-DB contention, not regressions \u2014 but always re-run the full suite to confirm before declaring green."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
     },
     {
-      "id": "D21-10",
-      "title": "D21.11 — one 'Watchlist' label: in-panel header becomes the hide/show toggle",
-      "description": "In ui/main_window.py and ui/watchlist_panel.py delete the duplicate QDockWidget('Watchlist') title and use the in-panel header strip as the dock's title-bar widget (setTitleBarWidget), with its label turned into a DiagonalStrikeButton('Watchlist'). Clicking it hides the panel body while the header/title bar and button stay visible, struck with VIS-D21.1; clicking again shows the watchlist and removes the strike; Qt's title-bar event forwarding preserves dock drag/float.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-04",
-        "D21-09",
-        "D21-07"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.11.1 — Given the app is running, Then exactly one 'Watchlist' label is shown — the in-panel header label is kept and turned into a clickable toggle button, and the duplicate dock title bar is deleted.",
-        "AC-D21.11.2 — Given the watchlist is hidden via that button, Then the retained button stays visible (it must not disappear with the dock) and is rendered with the VIS-D21.1 diagonal strike-through; clicking it again shows the watchlist (strike removed).",
-        "AC-D21.11.3 — Given the watchlist is hidden/collapsed, Then the collapsed state still shows the button."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-10-T01",
-          "linked_acceptance_criterion": "AC-D21.11.1",
-          "type": "integration",
-          "description": "Boot an offscreen MainWindow and assert exactly one visible 'Watchlist' label exists across the dock title and the panel; assert the dock's title-bar widget is the in-panel header strip and the header control is a clickable toggle button.",
-          "expected_result": "Exactly one Watchlist label; header strip is the title-bar widget and a toggle button."
-        },
-        {
-          "test_id": "D21-10-T02",
-          "linked_acceptance_criterion": "AC-D21.11.2",
-          "type": "integration",
-          "description": "Click the toggle to hide; assert the panel body is hidden but the header/button stays visible and struck; click again and assert the body is shown and the strike removed.",
-          "expected_result": "Toggle collapses the body while the struck button stays visible; re-click restores."
-        },
-        {
-          "test_id": "D21-10-T03",
-          "linked_acceptance_criterion": "AC-D21.11.3",
-          "type": "integration",
-          "description": "Assert that in the collapsed state the button is still visible and reachable, and that the dock remains movable/floatable via the title-bar widget; assert the D17/D18 width model still holds when hidden.",
-          "expected_result": "Collapsed state still shows the button; dock drag preserved; width model unaffected."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/watchlist_panel.py",
-        "ui/main_window.py",
-        "tests/test_watchlist_columns_d21.py"
-      ],
-      "touches_files": [
-        "ui/watchlist_panel.py",
-        "ui/main_window.py",
-        "tests/test_watchlist_columns_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 3 (PA-D21-4; DG37)",
-        "docs/architecture.md#D21 increment (S11)",
-        "docs/requirements/requirements.md#AC-D21.11.1",
-        "docs/requirements/requirements.md#AC-D21.11.2",
-        "docs/requirements/requirements.md#AC-D21.11.3",
-        "ui/main_window.py:258-263 (QDockWidget Watchlist title)",
-        "ui/watchlist_panel.py:117-124 (header strip)",
-        "ui/visual_conventions.py (DiagonalStrikeButton from D21-04)"
-      ],
-      "outputs": [
-        "ui/watchlist_panel.py",
-        "ui/main_window.py",
-        "tests/test_watchlist_columns_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-11",
-      "title": "D21.13 — Active Trader / Account Summary hide/show toggles with in-height and horizontal collapse",
-      "description": "In ui/main_window.py, ui/active_trader_panel.py and ui/active_portfolio_panel.py make the right dock's title bar a DiagonalStrikeButton('Active Trader') and the portfolio summary_label a DiagonalStrikeButton('Account Summary'); hiding a panel hides its body keeping its button, and the other expands. When both are hidden the dock collapses horizontally to the button strip by (a) relaxing right_dock.setMinimumWidth(RIGHT_DOCK_COLLAPSED_MIN_WIDTH) and (b) explicitly calling _resize_docks_guarded([right_dock], [collapsed_width]), while _apply_dock_widths treats the region as collapsed/hidden for the cross-clamp; showing either panel restores RIGHT_DOCK_MIN_WIDTH and the normal B3 cross-clamp, and _on_dom_toggled stays the whole-region toggle without resetting per-panel state.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-04",
-        "D21-10"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.13.1 — Given the right dock is visible, Then 'Active Trader' = the right dock's title bar and 'Account Summary' = the portfolio's summary label, and both become toggle buttons: the Active Trader button hides/shows the Active Trader panel, and the Account Summary button hides/shows the Account Summary (portfolio) panel.",
-        "AC-D21.13.2 — Given one of the two panels is hidden, Then that panel collapses in height to just its button, and the other panel expands to fill the vacated vertical space.",
-        "AC-D21.13.3 — Given both panels are hidden, Then the right dock collapses horizontally to the minimum width required to show the two buttons (the chart reclaims the width).",
-        "AC-D21.13.4 — Given a panel is hidden, Then its button shows the VIS-D21.1 diagonal strike-through; when shown, the strike is removed."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-11-T01",
-          "linked_acceptance_criterion": "AC-D21.13.1",
-          "type": "integration",
-          "description": "Boot an offscreen MainWindow; assert the right dock title-bar widget contains a DiagonalStrikeButton('Active Trader') and the portfolio summary is a DiagonalStrikeButton('Account Summary'); clicking each toggles the matching panel body.",
-          "expected_result": "Both labels are toggle buttons mapped to the correct panels."
-        },
-        {
-          "test_id": "D21-11-T02",
-          "linked_acceptance_criterion": "AC-D21.13.2",
-          "type": "integration",
-          "description": "Hide one panel and assert it collapses to just its button while the other panel's height grows to fill the vacated space; re-show and assert the original split is restored.",
-          "expected_result": "One-hidden collapses in height and the other expands; re-show restores."
-        },
-        {
-          "test_id": "D21-11-T03",
-          "linked_acceptance_criterion": "AC-D21.13.3",
-          "type": "integration",
-          "description": "Hide both panels; assert right_dock.minimumWidth() is relaxed to RIGHT_DOCK_COLLAPSED_MIN_WIDTH (below RIGHT_DOCK_MIN_WIDTH), the dock width is explicitly reduced to the button strip via _resize_docks_guarded, and the chart keeps >= CHART_MIN_WIDTH; show a panel and assert the 200px minimum and the normal cross-clamp are restored.",
-          "expected_result": "Both-hidden collapses horizontally to the button strip with the chart minimum held; showing restores the 200px minimum and cross-clamp."
-        },
-        {
-          "test_id": "D21-11-T04",
-          "linked_acceptance_criterion": "AC-D21.13.4",
-          "type": "integration",
-          "description": "Assert each panel's button reports struck iff its panel is hidden, and the strike is removed when shown.",
-          "expected_result": "Strike reflects each panel's hidden state."
-        },
-        {
-          "test_id": "D21-11-T05",
-          "linked_acceptance_criterion": "AC-D21.13.1",
-          "type": "integration",
-          "description": "Exercise _on_dom_toggled: assert it hides/shows the whole region and does not reset per-panel hidden states; assert the collapsed region is treated as hidden by _apply_dock_widths so the watchlist regains its own cap.",
-          "expected_result": "DOM toggle remains whole-region; per-panel state persists; cross-clamp consistent."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/main_window.py",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
-        "tests/test_right_dock_d21.py"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
-        "tests/test_right_dock_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 4 (PA-D21-5, PA-D21-6; RC-D21-2)",
-        "docs/architecture.md#D21 increment (S12)",
-        "docs/requirements/requirements.md#AC-D21.13.1",
-        "docs/requirements/requirements.md#AC-D21.13.2",
-        "docs/requirements/requirements.md#AC-D21.13.3",
-        "docs/requirements/requirements.md#AC-D21.13.4",
-        "ui/main_window.py:305-337, 1132-1224 (right dock region + _apply_dock_widths)",
-        "ui/active_portfolio_panel.py:60-70 (summary_label)",
-        "ui/visual_conventions.py (DiagonalStrikeButton from D21-04)"
-      ],
-      "outputs": [
-        "ui/main_window.py",
-        "ui/active_trader_panel.py",
-        "ui/active_portfolio_panel.py",
-        "tests/test_right_dock_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-12",
-      "title": "D21.9 — per-row alarm Edit button + AlarmEditDialog with immediate persistence",
-      "description": "In ui/alarm_dialog.py add a small per-row Edit QPushButton at the right-hand end and stretch the Note column up to it; clicking Edit opens a small modal AlarmEditDialog (new ui/alarm_edit_dialog.py or inline) allowing price/condition/sound/note changes with Save/Cancel, calling the existing AlarmStore.update(id, price=..., direction=..., sound=..., note=...) on Save and reloading. A triggered/set alarm may be edited and keeps its state (update leaves active/triggered/triggered_at untouched).",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D21.9.1 — Given the alarm popup is open with at least one alarm, Then each alarm row has a small Edit button at the right-hand end of the row.",
-        "AC-D21.9.2 — Given the Note column and the Edit button, Then the Note column is widened to fill the popup width up to the Edit button (to the end of the popup; no large empty gap between the note text and the Edit button).",
-        "AC-D21.9.3 — Given the user clicks a row's Edit button, Then a small edit dialog opens for that alarm allowing price, condition, sound, and note to be changed, with Save/Cancel; Save persists immediately and the change is reflected on the chart/alarm badge; Cancel discards.",
-        "AC-D21.9.4 — Given the alarm is a triggered/set alarm, Then it may still be edited and the edit keeps its state — editing does not re-arm, reset, or silently disable it."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-12-T01",
-          "linked_acceptance_criterion": "AC-D21.9.1",
-          "type": "integration",
-          "description": "Open an offscreen AlarmDialog with at least one alarm and assert every row exposes an Edit QPushButton at the row's right end (reachable when the table scrolls).",
-          "expected_result": "Each alarm row has a right-end Edit button."
-        },
-        {
-          "test_id": "D21-12-T02",
-          "linked_acceptance_criterion": "AC-D21.9.2",
-          "type": "integration",
-          "description": "Assert the Note column is stretched to fill the popup width up to the Edit button (no large empty gap between the note text and the Edit button).",
-          "expected_result": "Note column fills the width up to the Edit button."
-        },
-        {
-          "test_id": "D21-12-T03",
-          "linked_acceptance_criterion": "AC-D21.9.3",
-          "type": "integration",
-          "description": "Click a row's Edit, change price/condition/sound/note, Save, and assert AlarmStore.load(symbol) returns the edited values; repeat with Cancel and assert the values are unchanged.",
-          "expected_result": "Save persists immediately; Cancel discards."
-        },
-        {
-          "test_id": "D21-12-T04",
-          "linked_acceptance_criterion": "AC-D21.9.4",
-          "type": "integration",
-          "description": "Edit a triggered/set alarm and assert its active/triggered/triggered_at state is preserved after Save (AlarmStore.update leaves those untouched) and the overlay/badge reflects the edited price.",
-          "expected_result": "Triggered alarm stays triggered after an edit; edited price rendered."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/alarm_dialog.py",
-        "ui/alarm_edit_dialog.py",
-        "tests/test_alarm_d21.py"
-      ],
-      "touches_files": [
-        "ui/alarm_dialog.py",
-        "ui/alarm_edit_dialog.py",
-        "tests/test_alarm_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 5 (PA-D21-7)",
-        "docs/architecture.md#D21 increment (S13)",
-        "docs/requirements/requirements.md#AC-D21.9.1",
-        "docs/requirements/requirements.md#AC-D21.9.2",
-        "docs/requirements/requirements.md#AC-D21.9.3",
-        "docs/requirements/requirements.md#AC-D21.9.4",
-        "ui/alarm_dialog.py:28-118 (table + _append_row)",
-        "data/alarm_store.py:63-79 (AlarmStore.update)"
-      ],
-      "outputs": [
-        "ui/alarm_dialog.py",
-        "ui/alarm_edit_dialog.py",
-        "tests/test_alarm_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-13",
-      "title": "D21.10 — smart alarm setup: clicked price, yellow dashed preview line, condition default",
-      "description": "In ui/main_window.py (_on_alarm_create_requested chart-click path only), ui/chart_panel.py and ui/alarm_dialog.py pre-fill the clicked price, create a yellow dashed preview InfiniteLine owned by ChartPanel while that popup is open (connected to the dialog's price_input.valueChanged to follow live, removed on close, replaced by the real alarm line after Add), and default the condition on open only: Cross Below when current price > alarm price, Cross Above when current < alarm price or current is unknown, user-overridable. The Alarms-button path (_open_alarm_dialog) creates no preview line.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-12",
-        "D21-11",
-        "D21-08"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.10.1 — Given the user activates Alarm Mode and clicks a price level on the chart, Then the alarm popup opens with the price pre-filled from that clicked level.",
-        "AC-D21.10.2 — Given the alarm popup is open from a chart click, Then a yellow dashed horizontal preview line is drawn on the chart at the selected price level and is visible while the popup is open.",
-        "AC-D21.10.3 — Given the yellow dashed line and the popup, When the user changes the price in the popup, Then the dashed line moves up/down to follow the price live.",
-        "AC-D21.10.4 — Given the popup closes, Then the preview line is removed; after Add, the real alarm line replaces the preview at the alarm's price.",
-        "AC-D21.10.5 — Given the popup opens, Then the condition defaults only at open to Cross Below when the current price is higher than the alarm price and Cross Above when the current price is lower than the alarm price; the default is user-overridable; when the current price is unknown, the default is Cross Above."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-13-T01",
-          "linked_acceptance_criterion": "AC-D21.10.1",
-          "type": "integration",
-          "description": "Drive _on_alarm_create_requested(price) with a chart-click price (dialog exec monkeypatched) and assert the AlarmDialog price input is pre-filled with that exact price.",
-          "expected_result": "The clicked price pre-fills the popup."
-        },
-        {
-          "test_id": "D21-13-T02",
-          "linked_acceptance_criterion": "AC-D21.10.2",
-          "type": "integration",
-          "description": "Open the popup via the chart-click path and assert a yellow dashed preview line exists on the chart at the selected price and is visible while the popup is open.",
-          "expected_result": "A yellow dashed preview line is present at the clicked level while the chart-click popup is open."
-        },
-        {
-          "test_id": "D21-13-T03",
-          "linked_acceptance_criterion": "AC-D21.10.3",
-          "type": "integration",
-          "description": "Change the dialog's price spinbox and assert the preview line's y value follows live.",
-          "expected_result": "The preview line tracks the price spinbox live."
-        },
-        {
-          "test_id": "D21-13-T04",
-          "linked_acceptance_criterion": "AC-D21.10.4",
-          "type": "integration",
-          "description": "Close the popup without Add and assert the preview line is removed; repeat with Add and assert the real AlarmOverlay line replaces the preview at the alarm price.",
-          "expected_result": "Preview removed on close; real line replaces it after Add."
-        },
-        {
-          "test_id": "D21-13-T05",
-          "linked_acceptance_criterion": "AC-D21.10.5",
-          "type": "unit",
-          "description": "Assert the on-open condition default for last_price=100: alarm price 110 -> Cross Above, 90 -> Cross Below, None/unknown -> Cross Above; assert the user can override and the default is not recomputed on spinbox change.",
-          "expected_result": "The three default cases hold; override allowed; applied only on open."
-        },
-        {
-          "test_id": "D21-13-T06",
-          "linked_acceptance_criterion": "AC-D21.10.2",
-          "type": "integration",
-          "description": "Open the popup via the Alarms button (_open_alarm_dialog) and assert no preview line is created (it uses the last chart price).",
-          "expected_result": "The Alarms-button path creates no preview line."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/alarm_dialog.py",
-        "ui/chart_panel.py",
-        "ui/main_window.py",
-        "tests/test_alarm_d21.py"
-      ],
-      "touches_files": [
-        "ui/alarm_dialog.py",
-        "ui/chart_panel.py",
-        "ui/main_window.py",
-        "tests/test_alarm_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 5 (PA-D21-8; RC-D21-3)",
-        "docs/architecture.md#D21 increment (S14/S15)",
-        "docs/requirements/requirements.md#AC-D21.10.1",
-        "docs/requirements/requirements.md#AC-D21.10.2",
-        "docs/requirements/requirements.md#AC-D21.10.3",
-        "docs/requirements/requirements.md#AC-D21.10.4",
-        "docs/requirements/requirements.md#AC-D21.10.5",
-        "ui/main_window.py:980-987, 1502-1509 (_open_alarm_dialog / _on_alarm_create_requested)",
-        "ui/alarm_overlay.py:34-226 (InfiniteLine + create_requested)"
-      ],
-      "outputs": [
-        "ui/alarm_dialog.py",
-        "ui/chart_panel.py",
-        "ui/main_window.py",
-        "tests/test_alarm_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-14",
-      "title": "D21.4 — pure time-collapse service (coverage-adjusted predicate, 1 day identity)",
-      "description": "Create the new pure, Qt-free services/time_collapse_service.py: build_collapse_map(bars, timeframe, ext_hours) -> TimeCollapseMap with to_display(ts), to_ts(x), x_values, is_identity; and gap_is_non_trading(a, b, ext_hours, bar_period) returning True (collapse) iff market_calendar.session_windows(a + bar_period, b, ext_hours) is empty, with bar_period = TIMEFRAME_SECONDS[timeframe]. 1 day is the identity map. Bar.ts is never mutated.",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC-D21.4.1 (predicate) — Given consecutive bars a < b on an intraday timeframe, Then gap_is_non_trading(a, b, ext_hours, bar_period) is True (collapse) iff market_calendar.session_windows(a + bar_period, b, ext_hours) is empty; the ordinary RTH overnight, extended-hours overnight, weekend and holiday gaps collapse while a within-session hole and a missing full trading session stay visible.",
-        "AC-D21.4.2 — Given the timeframe is 1 day, Then build_collapse_map is the identity map (is_identity True).",
-        "AC-D21.4.4 — Given a genuine trading-session data hole (D16), Then it is not collapsed and collapse remains a display-only transform that neither fabricates nor drops trading-session bars."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-14-T01",
-          "linked_acceptance_criterion": "AC-D21.4.1",
-          "type": "unit",
-          "description": "Against the real services.market_calendar.session_windows with bar_period=300 assert the eight boundary cases: RTH overnight Fri 15:55->Mon 09:30 collapses, ext overnight Fri 19:55->Mon 04:00 collapses, weekend collapses, holiday collapses, within-session hole 11:00->13:00 is kept, missing full session (Mon close->Wed open) is kept, partial half-day afternoon hole is kept, adjacent bars collapse (no-op).",
-          "expected_result": "All between-session gaps collapse; within-session holes and missing sessions stay visible."
-        },
-        {
-          "test_id": "D21-14-T02",
-          "linked_acceptance_criterion": "AC-D21.4.2",
-          "type": "unit",
-          "description": "Build the map for the 1 day timeframe and assert is_identity is True and to_display(ts) == ts for the bar timestamps.",
-          "expected_result": "1 day is a no-op identity map."
-        },
-        {
-          "test_id": "D21-14-T03",
-          "linked_acceptance_criterion": "AC-D21.4.1",
-          "type": "unit",
-          "description": "Assert x_values are strictly increasing, to_display/to_ts round-trip for bar timestamps, and within-session adjacent bars keep their normal spacing (only between-session gaps are removed).",
-          "expected_result": "Monotonic display-x, correct round-trip, within-session spacing preserved."
-        },
-        {
-          "test_id": "D21-14-T04",
-          "linked_acceptance_criterion": "AC-D21.4.4",
-          "type": "unit",
-          "description": "Assert a synthetic missing trading session produces a kept gap (not collapsed) and that the service never mutates or drops input bar timestamps.",
-          "expected_result": "Trading-session holes preserved; Bar.ts untouched."
-        }
-      ],
-      "expected_artifacts": [
-        "services/time_collapse_service.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "touches_files": [
-        "services/time_collapse_service.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 6 (PA-D21-9; Validator probe)",
-        "docs/architecture.md#D21 increment (S16; Validator probe table)",
-        "docs/requirements/requirements.md#AC-D21.4.1",
-        "docs/requirements/requirements.md#AC-D21.4.2",
-        "docs/requirements/requirements.md#AC-D21.4.4",
-        "services/market_calendar.py:195-216 (session_windows)",
-        "data/bar_aggregator.py:6-14, 30-32, 93 (TIMEFRAME_SECONDS, period starts)"
-      ],
-      "outputs": [
-        "services/time_collapse_service.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-15",
-      "title": "D21.4 — ChartPanel display-x x-model + reconcile the D21.2 visible-max scan",
-      "description": "In ui/chart_panel.py store the TimeCollapseMap and plot candles/volume at display-x, set the ViewBox x-range in display-x, add a CollapsedDateAxis mapping display-x -> ts for labels (and inverse-map the crosshair time tag), re-render on ext-hours/timeframe change, and reconcile the D21.2 visible-max scan so it uses display-x after collapse (assert the ceiling after collapse).",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-14",
-        "D21-13",
-        "D21-02"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.4.1 (chart) — Given an intraday timeframe with bars loaded, When the chart renders, Then the gaps between trading sessions (overnight/weekend/holiday) are not plotted as empty space — the plotted bars are contiguous across consecutive sessions — while normal inter-bar spacing within a session is preserved.",
-        "AC-D21.4.3 — Given RTH selected (Ext Hours OFF), Then only RTH bars are shown and all non-RTH time collapses; Given Ext Hours ON, Then the D1 pre/post-market bands still render for the sessions shown.",
-        "D21.2 reconciliation — Given the D21.4 collapse map is active, Then the D21.2 visible-max volume scan uses the collapse display-x so the volume Y ceiling is 1.10 x the max volume of the visible display-x range."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-15-T01",
-          "linked_acceptance_criterion": "AC-D21.4.1",
-          "type": "integration",
-          "description": "Boot an offscreen ChartPanel with intraday bars spanning a weekend; assert consecutive sessions are contiguous in display-x (no empty interval between the last bar of one session and the first of the next) and that within-session spacing between adjacent bars is preserved.",
-          "expected_result": "Between-session gaps collapsed; within-session spacing preserved."
-        },
-        {
-          "test_id": "D21-15-T02",
-          "linked_acceptance_criterion": "AC-D21.4.2",
-          "type": "integration",
-          "description": "Load a 1 day chart and assert the rendered x-positions are unchanged (identity no-op) with one bar per trading day.",
-          "expected_result": "1 day renders unchanged."
-        },
-        {
-          "test_id": "D21-15-T03",
-          "linked_acceptance_criterion": "AC-D21.4.4",
-          "type": "integration",
-          "description": "Render a synthetic genuine trading-session hole and assert it remains visible (not collapsed away) while an overnight/weekend gap collapses.",
-          "expected_result": "Trading-session holes stay visible; non-trading gaps collapse."
-        },
-        {
-          "test_id": "D21-15-T04",
-          "linked_acceptance_criterion": "AC-D21.4.3",
-          "type": "integration",
-          "description": "With Ext Hours OFF (RTH) assert only RTH bars are plotted and all non-RTH time collapses; with Ext Hours ON assert the D1 pre/post bands render at the collapsed positions for the sessions shown.",
-          "expected_result": "RTH collapse holds; D1 bands render at collapsed positions with Ext Hours ON."
-        },
-        {
-          "test_id": "D21-15-T05",
-          "linked_acceptance_criterion": "D21.2 reconciliation",
-          "type": "integration",
-          "description": "After collapse, set a visible display-x range and assert viewRange()[1] == (0, approx(1.10 * max volume of bars in the visible display-x range)).",
-          "expected_result": "The volume ceiling uses display-x after collapse."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/chart_panel.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "touches_files": [
-        "ui/chart_panel.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 6 (PA-D21-10)",
-        "docs/architecture.md#D21 increment (S16/S17; risk D21.4+D21.2)",
-        "docs/requirements/requirements.md#AC-D21.4.1",
-        "docs/requirements/requirements.md#AC-D21.4.2",
-        "docs/requirements/requirements.md#AC-D21.4.3",
-        "docs/requirements/requirements.md#AC-D21.4.4",
-        "services/time_collapse_service.py (map from D21-14)",
-        "ui/chart_panel.py:24, 722-734, 802-874 (_custom_date_axis, _render_sessions, _refresh_candles)"
-      ],
-      "outputs": [
-        "ui/chart_panel.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-16",
-      "title": "D21.4 — collapse consumers: session bands, time-anchored drawings, alarm label x, date axis",
-      "description": "Map the remaining collapse consumers through the same TimeCollapseMap: SessionOverlay bands accept display-x values; DrawingOverlay._bar_ts and scene<->view drag use display-x (render) / inverse-map (drag); the alarm label x uses the display-x of the last bar; and services/session_service.py gains a helper only if needed. Update the D16/D1 lockstep tests that assert empty closures (tests/test_session_service.py, tests/test_session_overlay.py, tests/test_history_backfill.py).",
-      "agent": "Build",
-      "task_type": "implementation",
-      "dependencies": [
-        "D21-15",
-        "D21-14"
-      ],
-      "acceptance_criteria": [
-        "AC-D21.4.1 (consumers) — Given the collapse map, Then SessionOverlay bands, time-anchored DrawingOverlay anchors and the alarm label x are mapped through the same map (render) / inverse-mapped (drag), so drawings, bands and alarm labels land on the correct bars after collapse, and the date axis/crosshair inverse-map display-x -> ts.",
-        "AC-D21.4.3 (bands) — Given Ext Hours ON, Then the D1 pre/post bands render at the collapsed positions for the sessions shown."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-16-T01",
-          "linked_acceptance_criterion": "AC-D21.4.3 (bands)",
-          "type": "integration",
-          "description": "After collapse, render SessionOverlay bands and assert each pre/post band appears at the display-x positions of its session (no band in the collapsed gap).",
-          "expected_result": "Bands land at the collapsed session positions."
-        },
-        {
-          "test_id": "D21-16-T02",
-          "linked_acceptance_criterion": "AC-D21.4.1 (consumers)",
-          "type": "integration",
-          "description": "Place a time-anchored drawing, collapse the chart, and assert the drawing renders on its original bar (round-trip through to_display/to_ts) and drag maps scene->view correctly.",
-          "expected_result": "Drawings stay anchored to their bars after collapse; drag round-trips."
-        },
-        {
-          "test_id": "D21-16-T03",
-          "linked_acceptance_criterion": "AC-D21.4.1 (consumers)",
-          "type": "integration",
-          "description": "Assert the alarm label x uses the display-x of the last bar after collapse and the date-axis/crosshair time tag inverse-maps display-x back to the correct ts.",
-          "expected_result": "Alarm label and axis labels reflect the collapsed display-x and correct timestamps."
-        },
-        {
-          "test_id": "D21-16-T04",
-          "linked_acceptance_criterion": "AC-D21.4.1 (consumers)",
-          "type": "integration",
-          "description": "Run the D16/D1 lockstep modules tests/test_session_service.py, tests/test_session_overlay.py and tests/test_history_backfill.py after their lockstep update and assert zero failures with no stale empty-closure assertion contradicting D21.4.",
-          "expected_result": "Lockstep modules green and consistent with D21.4; D16 no-silent-hole rules unchanged."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/overlays/session_overlay.py",
-        "ui/drawing_overlay.py",
-        "ui/alarm_overlay.py",
-        "services/session_service.py",
-        "tests/test_session_service.py",
-        "tests/test_session_overlay.py",
-        "tests/test_history_backfill.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "touches_files": [
-        "ui/overlays/session_overlay.py",
-        "ui/drawing_overlay.py",
-        "ui/alarm_overlay.py",
-        "services/session_service.py",
-        "tests/test_session_service.py",
-        "tests/test_session_overlay.py",
-        "tests/test_history_backfill.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "inputs": [
-        "docs/plan.md#Phase 6 (PA-D21-10; lockstep test notes)",
-        "docs/architecture.md#D21 increment (S17)",
-        "docs/requirements/requirements.md#AC-D21.4.1",
-        "docs/requirements/requirements.md#AC-D21.4.3",
-        "ui/overlays/session_overlay.py:13-34 (render bands)",
-        "ui/drawing_overlay.py:80, 110, 205, 345, 491, 643, 816 (_bar_ts + drag mapping)",
-        "ui/alarm_overlay.py (label x)",
-        "tests/test_session_service.py, tests/test_session_overlay.py, tests/test_history_backfill.py (D16/D1 lockstep)"
-      ],
-      "outputs": [
-        "ui/overlays/session_overlay.py",
-        "ui/drawing_overlay.py",
-        "ui/alarm_overlay.py",
-        "services/session_service.py",
-        "tests/test_session_service.py",
-        "tests/test_session_overlay.py",
-        "tests/test_history_backfill.py",
-        "tests/test_time_collapse_d21.py"
-      ],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-17",
-      "title": "D21 — pre-fix-red / post-fix-green discrimination evidence (Q8)",
-      "description": "Verify each new/changed D21 test genuinely discriminates: run the D21 test modules against the pre-fix tree (commit 04397d9, D1-D20) and record that the new assertions fail there, then run them against the post-fix tree and record that they pass. Record both results in the Build-owned build log; the intermediate red is intentional (Q8), not a regression.",
+      "id": "D23-03",
+      "title": "D23 Phase 3 \u2014 reconciliation record + full offscreen suite non-regression verification",
+      "description": "Verify the D23.1/D23.2 corrections are consistent with the corrected task-level AC-D22.2.3 and the reconciled architecture S3, that no D22 feature criterion regressed, and run the full clean offscreen suite (.venv/bin/python -m pytest, QT_QPA_PLATFORM=offscreen) \u2014 the 712-test D22 baseline plus the new D23 cases \u2014 recording the evidence in docs/build/build_log.md. Add tests/test_d23_nonregression.py holding the cross-cutting record-consistency and guard/invariant checks. This task writes only its own non-regression test file.",
       "agent": "Build",
       "task_type": "verification",
       "dependencies": [
-        "D21-01",
-        "D21-02",
-        "D21-03",
-        "D21-04",
-        "D21-05",
-        "D21-06",
-        "D21-07",
-        "D21-08",
-        "D21-09",
-        "D21-10",
-        "D21-11",
-        "D21-12",
-        "D21-13",
-        "D21-14",
-        "D21-15",
-        "D21-16"
+        "D23-01",
+        "D23-02"
       ],
       "acceptance_criteria": [
-        "Q8 (discrimination) — Given each D21 new/changed test, When it runs against the pre-fix tree (commit 04397d9), Then it fails; When it runs against the post-fix tree, Then it passes; and both results are recorded."
+        "AC-D23.1.4 (supersession + reconciliation recorded \u2014 correction record) \u2014 Given task-level AC-D22.2.3's former client.cancelContractDetails wire-cancel mandate and architecture S3, When the D23 correction record is applied, Then docs/tasks/task-graph.json task D22-02 states the capability-guarded, documented cancel (no bare client.cancelContractDetails(req_id) call mandated; getattr(self.client, 'cancelContractDetails', None) / call-only-if-present) and architecture S3 is reconciled to the same, without reopening any D22 feature criterion (AC-D22.1\u2013AC-D22.9 stand).",
+        "AC-D23-P3.1 (full offscreen suite + no D1\u2013D22 regression) \u2014 Given the D23 fixes and their new cases, When the full clean offscreen suite runs (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest), Then it completes with zero failures including the 712-test D22 baseline, no D1\u2013D22 acceptance criterion regresses, and any intermittent failure is re-confirmed with a clean full-suite run before being treated as a regression (docs/memory.md).",
+        "AC-D23-P3.2 (independently re-verifiable pre-fix-red evidence + Q9) \u2014 Given the D23 corrections, Then the D23.1 code-shape/source assertion and the D23.2 last-row assertion are recorded as red-before / green-after for their respective fixes, and no D23 test connects to live TWS or transmits an order (Q9)."
       ],
       "tests": [
         {
-          "test_id": "D21-17-T01",
-          "linked_acceptance_criterion": "Q8 (discrimination)",
-          "type": "manual",
-          "description": "In a temporary worktree at commit 04397d9, copy in the new/changed D21 tests (test_volume_d21.py, test_visual_conventions.py, test_toolbar_d21.py, test_watchlist_columns_d21.py, test_right_dock_d21.py, test_alarm_d21.py, test_time_collapse_d21.py and the lockstep updates), run them and capture the failing test ids/assertions; then run the same tests against the post-fix tree and capture the passing result. Record both in docs/build/build_log.md.",
-          "expected_result": "Every D21 new/changed test is red on the pre-fix tree and green on the post-fix tree; both runs recorded."
-        }
-      ],
-      "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned D21 Q8 evidence entry; no source files)"
-      ],
-      "touches_files": [],
-      "inputs": [
-        "docs/plan.md#Coverage Map; #Phases 1-6 exit conditions",
-        "docs/requirements/requirements.md#Constraints (Q8 regression-test policy)",
-        "commit 04397d9 (pre-fix D1-D20 tree)",
-        "All D21 test modules from D21-01..D21-16"
-      ],
-      "outputs": [],
-      "architecture_dependency": false,
-      "status": "done"
-    },
-    {
-      "id": "D21-18",
-      "title": "D21 — full offscreen suite regression gate + real-app manual checks (R44, Q9)",
-      "description": "Re-run the full offscreen suite (QT_QPA_PLATFORM=offscreen) after all D21 changes and confirm zero failures with no D1-D20 regression, that the D17/D18 chart-minimum/width criteria still hold, and that no test connects to live TWS or transmits an order (Q9); record manual python main.py checks of the 13 defects and confirm any intermittent failure with a clean full-suite run before treating it as a regression (project memory).",
-      "agent": "Build",
-      "task_type": "verification",
-      "dependencies": [
-        "D21-17"
-      ],
-      "acceptance_criteria": [
-        "Global (regression, R44) — Given the D21 batch, When the full offscreen suite runs (QT_QPA_PLATFORM=offscreen), Then it completes with zero failures and every pre-existing D1-D20 acceptance-criteria test still passes, with the D17/D18 chart-minimum (>= CHART_MIN_WIDTH 400px) and dock-width criteria preserved.",
-        "Q9 (live-order safety) — Given the D21 batch, Then no automated test connects to live TWS or transmits an order.",
-        "Real-app (manual) — Given the dev build (python main.py), Then the 13 D21 defects are observably fixed (volume min 0 / visible-max ceiling / volume height; Ext Hours-RTH label; active highlight; persistent alarm-mode message; watchlist columns + single header toggle; right-dock toggles/collapse; alarm edit + smart setup; collapse non-trading time)."
-      ],
-      "tests": [
-        {
-          "test_id": "D21-18-T01",
-          "linked_acceptance_criterion": "Global (regression, R44)",
+          "test_id": "D23-03-T01",
+          "linked_acceptance_criterion": "AC-D23.1.4",
           "type": "integration",
-          "description": "Run the full offscreen suite (.venv/bin/python -m pytest) and compare against the pre-batch baseline (D1-D20 at commit 04397d9, 585 tests); assert zero failures and that the D17/D18 chart-minimum/dock-width criteria hold.",
-          "expected_result": "Zero failures; no D1-D20 regression; D17/D18 criteria hold."
+          "description": "Record-consistency check: load docs/tasks/task-graph.json, locate task D22-02's AC-D22.2.3, and assert it now mandates the capability-guarded, documented cancel (references getattr(self.client, 'cancelContractDetails', None) / called-only-if-present / the pinned-ibapi absence) and no longer mandates a bare client.cancelContractDetails(req_id) wire call; load docs/architecture.md and assert the D23 S3 row records the capability-guarded/best-effort cancel; assert no D22 feature criterion (AC-D22.1\u2013AC-D22.9) text is altered beyond the AC-D22.2.3 correction.",
+          "expected_result": "The task graph and architecture agree that the cancel is a capability-guarded best-effort cancel on the pinned ibapi, with D22's feature criteria not reopened."
         },
         {
-          "test_id": "D21-18-T02",
-          "linked_acceptance_criterion": "Q9 (live-order safety)",
-          "type": "manual",
-          "description": "Confirm no test opens a live TWS socket or transmits an order, and re-run the suite once on a clean shared test DB to distinguish spurious failures from regressions (project memory).",
-          "expected_result": "No live-TWS/order test; intermittent failures cleared by a clean full-suite run rather than treated as regressions."
+          "test_id": "D23-03-T02",
+          "linked_acceptance_criterion": "AC-D23-P3.1",
+          "type": "integration",
+          "description": "Run the full clean offscreen suite (remove the shared test DB first; QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts=\"\" -q -p no:cacheprovider) including the new D23 cases; assert zero failures (the 712 D22 baseline tests plus the new cases) and no D1\u2013D22 regression; re-confirm any intermittent failure with a clean full-suite run before treating it as a regression (docs/memory.md).",
+          "expected_result": "Full offscreen suite green with the D23 cases included; no D1\u2013D22 criterion regressed."
         },
         {
-          "test_id": "D21-18-T03",
-          "linked_acceptance_criterion": "Real-app (manual)",
+          "test_id": "D23-03-T03",
+          "linked_acceptance_criterion": "AC-D23-P3.2",
           "type": "manual",
-          "description": "Record a manual python main.py dev-build walkthrough of all 13 D21 defects (D21.1-D21.13) plus the VIS-D21 strike/highlight conventions, confirming each reported behaviour is fixed.",
-          "expected_result": "All 13 defects observably fixed in the dev build; VIS-D21 conventions visible."
+          "description": "Confirm the D23.1 code-shape/source assertion and the D23.2 last-row assertion are recorded red-before/green-after, and that no D23 test opens a live TWS socket or transmits an order (tests inject fakes and monkeypatch IBApiClient.connect); record the check in docs/build/build_log.md.",
+          "expected_result": "Pre-fix-red/post-fix-green evidence is recorded for both fixes and no automated test connects to live TWS or transmits an order."
         }
       ],
       "expected_artifacts": [
-        "docs/build/build_log.md (Build-owned D21 regression/verification entry; no source files)"
+        "tests/test_d23_nonregression.py",
+        "docs/build/build_log.md (Build-owned D23 full-suite/verification evidence)"
       ],
-      "touches_files": [],
+      "touches_files": [
+        "tests/test_d23_nonregression.py"
+      ],
       "inputs": [
-        "docs/plan.md#Phases 1-6 exit conditions; #Coverage Map",
-        "docs/requirements/requirements.md#Global acceptance criteria",
-        "docs/requirements/requirements.md#R44",
-        "docs/requirements/requirements.md#Q9",
-        "docs/memory.md (shared test-DB contention gotcha)",
-        "commit 04397d9 (pre-batch baseline, D1-D20)"
+        "docs/plan.md#Phase 3 \u2014 Reconciliation + non-regression verification",
+        "docs/architecture.md#D23 increment (S16; Implementation sequencing; Non-Functional Approach)",
+        "docs/requirements/requirements.md#AC-D23.1.4, #AC-D23.2.4, #R49, #R50, #Q8, #Q9",
+        "docs/tasks/task-graph.json (D22-02 corrected AC-D22.2.3); docs/memory.md (shared test-DB / stale-shebang gotchas)",
+        "ibkr/market_data.py (D23-01 result); ui/watchlist_panel.py (D23-02 result)"
       ],
-      "outputs": [],
+      "outputs": [
+        "tests/test_d23_nonregression.py",
+        "docs/build/build_log.md"
+      ],
       "architecture_dependency": false,
-      "status": "done"
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/tasks/task-graph.json",
+            "why": "D22-02's corrected AC-D22.2.3 (the AC-D23.1.4 correction record this task verifies)"
+          },
+          {
+            "path": "docs/architecture.md",
+            "lines": "2053-2338",
+            "why": "the D23 increment \u2014 S3 (reconciled), S15/S16, sequencing (the reconciled record)"
+          },
+          {
+            "path": "ibkr/market_data.py",
+            "lines": "78-92",
+            "why": "the D23-01 guarded cancel to re-verify"
+          },
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "682-728",
+            "why": "the D23-02 remove_symbol re-index to re-verify"
+          },
+          {
+            "path": "tests/test_ibkr_contract_details_d22.py",
+            "lines": "100-226",
+            "why": "the D23-01 pre-fix-red code-shape assertion + post-fix guards"
+          },
+          {
+            "path": "tests/test_watchlist_add_remove_d22.py",
+            "lines": "209-339",
+            "why": "the D23-02 last-row pre-fix-red assertion + existing middle/absent tests"
+          }
+        ],
+        "contracts": [
+          "tests/test_d23_nonregression.py  [new \u2014 the only file this task writes]",
+          "Full-suite command: QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts=\"\" -q -p no:cacheprovider",
+          "docs/build/build_log.md is Build (Lead)-owned \u2014 record the full-suite/Q9 evidence, do NOT edit it from the worker"
+        ],
+        "architecture_excerpt": "At the architecture level the sequence is: **(1)** the D23.1 capability-guarded, documented cancel\nplus its missing-capability test; **(2)** the D23.2 `remove_symbol` `_row_data` stale-key fix plus the\nlast/first/only-row coverage; **(3)** the record reconciliation (`S3` in `docs/architecture.md`,\n`AC-D22.2.3` in `docs/tasks/task-graph.json`) and full-suite non-regression verification. Phases 1 and\n2 touch **fully disjoint** file sets and may run in the same wave; Phase 3 follows both. D1\u2013D22 are\nfrozen throughout.",
+        "plan_excerpt": "  - **Task Manager** rewrites task-level `AC-D22.2.3` (and its test description) in\n    `docs/tasks/task-graph.json` (task `D22-02`) to the capability-guarded, documented cancel \u2014 in\n    lockstep with the Phase-1 test change.\n  - **Build/verification** runs the full offscreen suite\n    (`.venv/bin/python -m pytest`, `QT_QPA_PLATFORM=offscreen`) \u2192 **712 baseline tests plus the new\n    cases all green**; a clean full-suite run (not an incremental one) is required per the recorded\n    shared-test-DB / stale-`pytest`-shebang gotchas.\n  - **Code Reviewer** re-verifies ESC-030 and ESC-031 after Build (flips them `addressed`).",
+        "requirement_ids": [
+          "AC-D23.1.4",
+          "AC-D23.2.4",
+          "R49",
+          "R50"
+        ],
+        "test_command": ".venv/bin/python -m pytest tests/test_d23_nonregression.py -q",
+        "memory_notes": [
+          "In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "The offscreen pytest suite intermittently reports spurious failures because `tests/conftest.py` seeds a **single shared on-disk SQLite DB** at `tempfile.gettempdir()/tos_charting_test.sqlite3`, so concurrent/interleaved runs contend on it. All such failures pass in isolation and in a clean full-suite run \u2014 but always re-run the full suite to confirm before declaring green.",
+          "The offscreen suite occasionally reports a full-suite **SIGSEGV** (exit 139) at `tests/test_session_overlay.py::panel` and/or order-dependent `ModuleNotFoundError: tests.test_watchlist`, triggered by collection-order changes from new test files. Both are non-deterministic and pre-existing \u2014 confirm with a clean full-suite run before treating them as regressions."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
     }
   ]
 }

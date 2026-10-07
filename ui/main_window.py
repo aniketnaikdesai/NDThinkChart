@@ -48,6 +48,8 @@ from ui.watchlist_panel import (
     clamp_watchlist_width,
     watchlist_max_width,
     should_load_on_double_click,
+    normalise_symbol,
+    symbol_in_list,
 )
 from ui.dock_layout import (
     CHART_MIN_WIDTH,
@@ -74,11 +76,18 @@ from services.drawing_service import DEFAULT_DRAWING_COLOR
 from services.sound_service import SoundService
 from services.backfill_service import find_missing_spans, plan_requests
 from services.market_calendar import trading_days
+from services.contract_lookup_service import ContractLookupService
 
 _LOG = logging.getLogger(__name__)
 
 # Default watchlist symbols — used only on first run before DB persistence
 DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
+
+#: QSettings sentinel (A52/DG44) marking the watchlist as configured. It is set
+#: once the list has been persisted (seeded or explicitly saved) so that an
+#: intentionally emptied watchlist is not re-seeded with ``DEFAULT_WATCHLIST``
+#: on the next launch.
+WATCHLIST_CONFIGURED_KEY = "watchlist/configured"
 
 # Single source of truth for the toolbar content row height (px). The
 # ToolbarScroll wrapper is sized as this content height PLUS the horizontal
@@ -306,6 +315,17 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
         self.watchlist_panel.setMinimumWidth(WATCHLIST_MIN_WIDTH)
+        # D22 Phase 4: the add affordance is gated on a live IBKR connection.
+        # Starts disconnected, so the '+' button / "Add symbol…" action are
+        # disabled until ``_on_connected`` flips them on.
+        self._ibkr_connected = False
+        self.watchlist_panel.set_add_enabled(False)
+        # D22-08: in-flight add requests, keyed by the ContractLookupService
+        # reqId. ``ContractLookupService`` drops its own pending entry before it
+        # emits, and cancels silently on a disconnect, so the window keeps this
+        # map to correlate a resolution *and* to reject a mid-flight add on a
+        # transport drop (AC-D22.8.4).
+        self._pending_watchlist_add: dict[int, str] = {}
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.watchlist_dock)
         # D17 Phase 2: live clamp plumbing. ``_apply_dock_widths`` is the single
         # shared entry point that reads the *chart area* (central widget width)
@@ -335,6 +355,15 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._deferred_dock_setup)
         # D14: double-click a row loads the chart
         self.watchlist_panel.row_double_clicked.connect(self._on_watchlist_row_double_clicked)
+        # D22 Phase 4: the panel's add/remove intents are decided by the window
+        # (gate -> duplicate guard -> bounded live lookup on add; subscription
+        # cancel + persist on remove).
+        self.watchlist_panel.symbol_add_requested.connect(
+            self._on_watchlist_symbol_add_requested
+        )
+        self.watchlist_panel.symbol_remove_requested.connect(
+            self._on_watchlist_symbol_remove_requested
+        )
 
         # ── Single right dock region (D18 Phase 3) ────────────────────────
         # Active Trader and Portfolio used to be two separate RightDockWidgetArea
@@ -414,6 +443,18 @@ class MainWindow(QMainWindow):
         self.rt_manager = RealtimeBarsManager(self.ib_client)
         self.depth_manager = MarketDepthManager(self.ib_client)
         self.sub_manager = SubscriptionManager()
+
+        # D22 Phase 4: bounded, exactly-once contract-details lookup correlation.
+        # The service owns the pending-request map and emits ``lookup_finished``
+        # once per add request; the window's validation-result slot (completed in
+        # D22-08) consumes it. It is cancelled on disconnect so no stale result
+        # can resolve an add after a transport drop.
+        self._contract_lookup = ContractLookupService(
+            self.md_manager, self.ib_client.bridge
+        )
+        self._contract_lookup.lookup_finished.connect(
+            self._on_contract_lookup_finished
+        )
 
         # Inject md_manager into watchlist
         self.watchlist_panel.set_market_data_manager(self.md_manager)
@@ -521,6 +562,8 @@ class MainWindow(QMainWindow):
     # ── Connection slots ──────────────────────────────────────────────────────
 
     def _on_connected(self):
+        self._ibkr_connected = True
+        self.watchlist_panel.set_add_enabled(True)
         self.conn_badge.setText("● Live")
         self.conn_badge.setStyleSheet("color: #34d399;")
         self.load_btn.setEnabled(True)
@@ -529,13 +572,139 @@ class MainWindow(QMainWindow):
         self._replay_subscriptions()
 
     def _restore_watchlist(self):
+        """Repopulate the panel from the DB, idempotently (AC-D22.7.2).
+
+        Runs on every connect — the initial one and each reconnect. It clears the
+        panel first so a repeat run reproduces exactly the persisted set with no
+        duplicate rows.
+
+        ``DEFAULT_WATCHLIST`` is seeded only on a genuine first run: the DB list
+        is empty *and* the ``watchlist/configured`` sentinel is unset (A52/DG44).
+        An explicitly emptied list (sentinel set) stays empty. A non-empty list
+        is authoritative and sets the sentinel so it is never re-seeded later.
+        """
+        self.watchlist_panel.clear()
         saved = db.get_watchlist()
         symbols = [sym for sym, _cat in saved] if saved else []
-        if not symbols:
+        if symbols:
+            self._settings.setValue(WATCHLIST_CONFIGURED_KEY, True)
+        elif not self._settings.value(
+            WATCHLIST_CONFIGURED_KEY, False, type=bool
+        ):
             symbols = list(DEFAULT_WATCHLIST)
             db.set_watchlist(symbols)
+            self._settings.setValue(WATCHLIST_CONFIGURED_KEY, True)
         for sym in symbols:
             self.watchlist_panel.add_symbol(sym, get_contract_for_symbol(sym))
+
+    def _on_contract_lookup_finished(
+        self, request_id: int, symbol: str, ok: bool, reason: str
+    ) -> None:
+        """Validation-result slot for a bounded contract-details lookup.
+
+        D22 Phase 4 constructs and wires the ``ContractLookupService`` and routes
+        its ``lookup_finished`` signal here. The signal is routed to the add-flow
+        decision (:meth:`_on_watchlist_symbol_validated`), which applies the
+        exactly-once result: add on ``ok`` while still connected, error otherwise.
+        """
+        self._on_watchlist_symbol_validated(request_id, symbol, ok, reason)
+
+    # ── Add / remove flow (D22 Phase 4) ───────────────────────────────────────
+
+    def _on_watchlist_symbol_add_requested(self, symbol: str) -> None:
+        """Handle an "add symbol" intent (AC-D22.8.1 .. AC-D22.8.3).
+
+        Order of refusal: blank input, then a disconnected window
+        (AC-D22.5 gate), then a case-insensitive duplicate of the persisted
+        watchlist (AC-D22.3). Only a non-empty, non-duplicate symbol while
+        connected proceeds to a bounded ``ContractLookupService`` request; the
+        row/subscription/persistence happens only once that lookup resolves
+        ``ok=True`` (see :meth:`_on_watchlist_symbol_validated`).
+        """
+        sym = normalise_symbol(symbol)
+        if not sym:
+            self.status_bar.showMessage("Enter a symbol to add.", 3000)
+            return
+        if not self._ibkr_connected:
+            self.status_bar.showMessage(
+                "Not connected to IBKR — cannot add symbols.", 3000
+            )
+            return
+        saved = db.get_watchlist()
+        if symbol_in_list(sym, [s for s, _cat in saved]):
+            self.status_bar.showMessage(
+                f"{sym} is already in the watchlist.", 3000
+            )
+            return
+        req_id = self._contract_lookup.request(sym, get_contract_for_symbol(sym))
+        self._pending_watchlist_add[req_id] = sym
+        self.status_bar.showMessage(f"Validating {sym}…", 3000)
+
+    def _on_watchlist_symbol_validated(
+        self, request_id: int, symbol: str, ok: bool, reason: str
+    ) -> None:
+        """Apply a resolved contract lookup (AC-D22.8.3 / AC-D22.8.4).
+
+        The pending entry is dropped first, so a duplicate/late result for the
+        same reqId is a no-op. ``ok=False`` (no contract / IBKR error / timeout)
+        or a disconnected window (a drop mid-flight) surfaces an error and adds,
+        subscribes and persists **nothing**. ``ok=True`` while connected adds the
+        row (which issues ``req_mkt_data``), persists it and sets the configured
+        sentinel so the emptied/added list is never re-seeded.
+        """
+        sym = self._pending_watchlist_add.pop(request_id, None)
+        if sym is None:
+            return  # late / unknown / already-rejected lookup — never mutate state
+        if not ok:
+            self.status_bar.showMessage(
+                f"Could not add {sym}: {reason or 'contract not found'}", 5000
+            )
+            return
+        if not self._ibkr_connected:
+            self.status_bar.showMessage(
+                f"Could not add {sym}: disconnected.", 5000
+            )
+            return
+        self.watchlist_panel.add_symbol(sym, get_contract_for_symbol(sym))
+        db.add_watchlist_symbol(sym)
+        self._settings.setValue(WATCHLIST_CONFIGURED_KEY, True)
+        self.status_bar.showMessage(f"Added {sym}.", 3000)
+
+    def _on_watchlist_symbol_remove_requested(self, symbol: str) -> None:
+        """Handle a "remove symbol" intent (AC-D22.8.5).
+
+        Removal is allowed regardless of connection state: the panel drops the
+        row and cancels that row's market-data subscription, the DB removal is
+        persisted (renumbering survivors), and the configured sentinel is set so
+        an emptied list stays empty on the next restore.
+        """
+        sym = normalise_symbol(symbol)
+        if not sym:
+            return
+        self.watchlist_panel.remove_symbol(sym)
+        db.remove_watchlist_symbol(sym)
+        self._settings.setValue(WATCHLIST_CONFIGURED_KEY, True)
+        self.status_bar.showMessage(f"Removed {sym}.", 3000)
+
+    def _reject_pending_watchlist_adds(self) -> bool:
+        """Reject every in-flight add after a transport drop (AC-D22.8.4).
+
+        ``ContractLookupService.cancel_all`` drops its pending requests without
+        emitting, so the window's own pending map is what lets the drop be
+        surfaced. Clearing it means a late ``lookup_finished`` for a pre-drop
+        reqId can neither add nor persist anything. Returns True when at least
+        one add was rejected.
+        """
+        if not self._pending_watchlist_add:
+            return False
+        symbols = sorted(set(self._pending_watchlist_add.values()))
+        self._pending_watchlist_add.clear()
+        self.status_bar.showMessage(
+            "Connection lost — add cancelled for "
+            f"{', '.join(symbols)}. Nothing was added.",
+            5000,
+        )
+        return True
 
     def _replay_subscriptions(self):
         """Replay all recorded subscriptions after reconnection."""
@@ -548,6 +717,11 @@ class MainWindow(QMainWindow):
             # self.depth_manager needs integration, skip for now
 
     def _on_disconnected(self):
+        self._ibkr_connected = False
+        self.watchlist_panel.set_add_enabled(False)
+        # D22 Phase 4: a transport drop invalidates every in-flight contract
+        # lookup so none can resolve an add once (re)connected.
+        self._contract_lookup.cancel_all()
         self.conn_badge.setText("● Disconnected")
         self.conn_badge.setStyleSheet("color: #f87171;")
         self.load_btn.setEnabled(False)
@@ -560,6 +734,10 @@ class MainWindow(QMainWindow):
         # back to the generic disconnected message when there was no wave.
         if not self._finalize_stranded_history_wave(reason="Disconnected from IBKR"):
             self.status_bar.showMessage("Disconnected from IBKR")
+        # D22-08: an add that was mid-flight can never complete now — surface the
+        # rejection last so it is the visible cue (AC-D22.8.4). Nothing is added,
+        # subscribed or persisted.
+        self._reject_pending_watchlist_adds()
 
     def _finalize_stranded_history_wave(self, reason: str = "") -> bool:
         """Drop and finalise an in-flight backfill wave that can no longer complete.

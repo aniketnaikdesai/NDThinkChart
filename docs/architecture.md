@@ -1,4 +1,4 @@
-# Architecture — NDThinkChart Stabilization (as-built D1–D15 + ESC revision + post-document rework ESC-013…ESC-021, verified 2026-09-28, 383 passed; **increment D16 historical-bar gap backfill, validated 2026-10-02; ESC-023 trading-day calendar correction, validated 2026-10-02; increment D17 + D18 panel-layout / full-screen dock sizing, validated 2026-10-03; as-built D1–D18 at commit `5bd7c93` — 566 passed; increment D19 toolbar scroll/elide wrapper, validated 2026-10-05; increment D20 toolbar scrollbar lane, validated 2026-10-06 — as-built D1–D19 at commit `4d8952a`; **increment D21 (Batch 15) UI repairs, validated 2026-10-06 — as-built D1–D20 at commit `04397d9`**) — commit baseline `04397d9`
+# Architecture — NDThinkChart Stabilization (as-built D1–D15 + ESC revision + post-document rework ESC-013…ESC-021, verified 2026-09-28, 383 passed; **increment D16 historical-bar gap backfill, validated 2026-10-02; ESC-023 trading-day calendar correction, validated 2026-10-02; increment D17 + D18 panel-layout / full-screen dock sizing, validated 2026-10-03; as-built D1–D18 at commit `5bd7c93` — 566 passed; increment D19 toolbar scroll/elide wrapper, validated 2026-10-05; increment D20 toolbar scrollbar lane, validated 2026-10-06 — as-built D1–D19 at commit `4d8952a`; increment D21 (Batch 15) UI repairs, validated 2026-10-06 — as-built D1–D20 at commit `04397d9`; **increment D22 in-app watchlist "Add symbol" / "Remove symbol" affordance, validated 2026-10-07 — as-built D1–D21 at commit `286341e`, 673 passed**) — commit baseline `286341e`
 
 ## Summary
 An **as-built** description of a stabilization change-set against an existing
@@ -1680,3 +1680,659 @@ level the sequence is: (1) volume axis/pane, (2) shared `VIS-D21` primitives + t
 (3) watchlist columns/header, (4) right-dock panel toggles/collapse, (5) alarm edit/smart setup,
 (6) time collapse (the x-model change, sequenced last to minimise churn on the chart while keeping
 the earlier volume work correct under the final x model). D1–D20 are frozen throughout.
+
+---
+
+## D22 increment — in-app watchlist "Add symbol" / "Remove symbol" affordance (validated 2026-10-07)
+
+> **Increment scope.** An *incremental* change on top of the **built, green D1–D21** system
+> (commit `286341e`, **673 tests**). D1–D21 are **frozen** and are **not** re-planned. This is an
+> existing-repo run: `requirements.md` contains the marker sentence
+> `This is an existing repository.` and a Current Tech Stack; **PyQt6 + pyqtgraph + official `ibapi`
+> + SQLite is a hard constraint**. No stack change, no schema change, no new dependency, and **no
+> live-order-path change**. Items are labelled `[existing]`, `[new]`, or `[new/changed]`.
+
+**Summary.** D22 adds two watchlist affordances — an add (a `+` button and a right-click **"Add
+symbol…"** on the watchlist header strip) and a remove (a right-click **"Remove symbol"** on a
+watchlist row) — that write through the **existing** SQLite `watchlist` table and
+subscribe/cancel live ticks through the **existing** `MarketDataManager`. The only genuinely new
+infrastructure is the **IBKR `reqContractDetails` request/callback path** (`DG43`) required by
+B16: it is added as typed `IBBridge` signals + `IBApiClient` overrides + a `MarketDataManager`
+request/cancel pair, with a small `ContractLookupService` that correlates `reqId → pending add`
+and resolves **exactly once** (success / error / bounded timeout). Everything is additive: the
+existing stack, schema, dock geometry, column layout and D1–D21 behaviour are untouched, and an
+explicitly-emptied watchlist stays empty across restarts.
+
+**Validator verification (2026-10-07 — independently checked against the current source and the
+repo's own suite, not taken from the proposal).** The baseline is green: `QT_QPA_PLATFORM=offscreen
+.venv/bin/python -m pytest -o addopts="" -q` → **673 passed** at commit `286341e`. Every
+Codebase-Summary claim below was confirmed by direct source inspection; a tree-wide grep for
+`reqContractDetails` / `contractDetails` / `ContractDetails` across all `*.py` returns **0 hits**
+(the `DG43` gap is real). `watchlist/configured`, `services/contract_lookup_service.py`,
+`ui/add_symbol_dialog.py`, `add_symbol_dialog`, `contract_lookup` do **not** exist today.
+
+### Codebase Summary (existing repository — D22 surface)
+
+> Inventory gathered with the **graphify** skill (`graphify-out/graph.json`, 2851 nodes, refreshed
+> 2026-10-07) and then **validated against the current source files** (the repository is
+> authoritative). The D22 surface is small and well-contained: the watchlist panel, its dock setup
+> in `MainWindow`, two `DB` methods, the IBKR request/callback plumbing, and the connection
+> lifecycle.
+
+**Data models / schema**
+- `[existing]` **SQLite `watchlist` table** — `data/db.py:23–27`:
+  `watchlist(symbol TEXT PRIMARY KEY, category TEXT NOT NULL, sort_order INTEGER NOT NULL)`.
+  There is **no** add/remove helper and **no** "configured"/seed flag column.
+- `[existing]` `DB.get_watchlist() -> [(symbol, category)]` (`data/db.py:125–129`), ordered by
+  `sort_order ASC`.
+- `[existing]` `DB.set_watchlist(symbols, category="EQUITIES", sort_order=None)`
+  (`data/db.py:131–150`) — **replaces the whole list** (`DELETE` then `INSERT OR REPLACE`); pass a
+  numeric-index `sort_order` (stored as strings, coerced by the column's INTEGER affinity) when
+  none is passed. It is the only writer today.
+- `[existing]` Module-level singleton `db = DB()` (`data/db.py:154`) created at import;
+  `config/paths.get_db_path()` resolves to
+  `~/Library/Application Support/NDThinkChart/charting_app.sqlite3` (overridable via `DB_PATH`).
+- `[existing]` **No** `reqContractDetails` / `contractDetails` / `contractDetailsEnd` anywhere in
+  the repo (grep across the whole tree → 0 hits). This is the `DG43` gap.
+
+**Major components and responsibilities**
+- `[existing]` **`ui/watchlist_panel.py::WatchlistPanel`** (585 lines)
+  - Header strip: `self.header_bar` (28px `QWidget`, `:254–257`), holding the single
+    `self.header_button = DiagonalStrikeButton("Watchlist")` (`:261` — the D21.11 collapse
+    toggle) and an `addStretch()` (`:279`). `MainWindow` promotes this strip to the dock's
+    **title-bar widget** (`ui/main_window.py:303`), so it stays visible when the body collapses.
+  - `self.table` (`QTableWidget`, `:283–295`); `self.body = self.table` (`:298`) is what the
+    toggle hides.
+  - Column model + D21.5 column menu: `COLUMN_DEFS`/`ALL_FIELDS`/`SYMBOL_FIELD` (`:54–71`),
+    `_active_fields` (`:229`), `_build_header_menu` (`:396`), `_on_header_context_menu`
+    (`:422`) wired to the **table's horizontal header** only
+    (`header.customContextMenuRequested.connect(...)`, `:301–303`). The table body itself has
+    **no** context menu today.
+  - Live subscriptions: `add_symbol(symbol, contract)` (`:481–497`) — early-returns when
+    `_md_manager` is `None`, else inserts a row, renders cells, calls
+    `self._md_manager.req_mkt_data(contract)`, and records `_req_to_row[req_id] = row`.
+    It does **not** persist and returns nothing. **There is no `remove_symbol`.**
+  - `clear()` (`:499–511`) cancels every tracked `reqId` (`cancel_mkt_data`), clears
+    `_req_to_row`/`_prev_close`/`_last_price`/`_row_data`/flash timers, and empties the table.
+  - Row state: `_req_to_row: dict[int,int]` (`:230`), `_row_data: dict[int, dict]` (`:236`),
+    `_prev_close`/`_last_price` (`:231–232`), `set_market_data_manager` (`:469`).
+  - D14 double-click: `row_double_clicked` signal (`:222`), `_on_cell_double_clicked`
+    (`:456–463`) resolves the Symbol cell **by field key**.
+  - Width persistence (D13/D17): `watchlist/width` QSettings key (`:93`); column-layout
+    persistence (D21.5): `watchlist/columns` (`:74`).
+- `[existing]` **`ui/main_window.py`** (2113 lines)
+  - `DEFAULT_WATCHLIST = ["AAPL","TSLA","SPY","QQQ","NVDA"]` (`:81`).
+  - Watchlist dock construction (`:291–337`): `WatchlistPanel()`, dock `objectName
+    "Watchlist"`, empty window title, `setWidget`, `setTitleBarWidget(header_bar)`
+    (`:298–303`), `setMinimumWidth(WATCHLIST_MIN_WIDTH)` (`:308`); D17 live-width clamp
+    plumbing (`:310–335`); `row_double_clicked → _on_watchlist_row_double_clicked` (`:337`).
+  - `self._settings = QSettings("NDThinkChart","NDThinkChart")` (`:315`) — already the
+    persistence store for `watchlist/width` and `watchlist/columns`.
+  - IBKR wiring (`:411–467`): `self.ib_client = IBApiClient()` (`:412`),
+    `self.md_manager = MarketDataManager(self.ib_client)` (`:413`), `depth_manager`
+    (`:415`), `sub_manager` (`:416`); injected into the panel (`:419–420`); bridge signals
+    connected (`:456–473`).
+  - Connection lifecycle: `_on_connected` (`:523–529`) sets the badge/`load_btn` and calls
+    `_restore_watchlist()`; `_restore_watchlist` (`:531–538`) reads `db.get_watchlist()`,
+    seeds `DEFAULT_WATCHLIST` via `db.set_watchlist(...)` **only when the DB list is empty**,
+    then calls `watchlist_panel.add_symbol(sym, get_contract_for_symbol(sym))` per symbol.
+    `_on_disconnected` (`:550–562`) disables `load_btn` and finalises a stranded history wave;
+    it does **not** clear the watchlist panel. `watchlist_panel.clear()` is called from
+    **`closeEvent`** (`:2107`), not from the disconnect slot.
+  - The toolbar `symbol_input` + `Load Chart` (`load_chart`) load a chart but never touch the
+    watchlist.
+- `[existing]` **`ibkr/client.py::IBApiClient(EWrapper, EClient)`** (223 lines) — `error()`
+  (`:114–141`) forwards to `bridge.error_msg` for non-`info` severities (`:139–141`);
+  callbacks `historicalData`/`historicalDataEnd`/`tickPrice`/`tickSize`/`realtimeBar`/
+  `updateMktDepth(L2)`/`accountSummary(End)`/`position(End)`/`orderStatus`/`openOrder`/
+  `execDetails` (`:160–223`), each forwarding to an `IBBridge` signal. **No contract-details
+  callbacks.** Connection state via `ConnectionState` (`:10–14`) and `_set_state` (`:40–48`).
+- `[existing]` **`ibkr/bridge.py::IBBridge(QObject)`** (39 lines) — the typed signal surface
+  (`connected`, `disconnected`, `error_msg`, `historical_bar`, `historical_data_end`,
+  `tick_price`, `tick_size`, `realtime_bar`, `update_mkt_depth`, account/order signals).
+  Emitted from the EClient reader thread; consumed on the Qt main thread via queued
+  connections (the existing pattern for `historical_bar` etc.).
+- `[existing]` **`ibkr/market_data.py::MarketDataManager`** (77 lines) — `req_historical_data`
+  (`:20`), `req_mkt_data` (`:56–61`, `id_manager.get_id()` + `pacing_manager.throttle()` +
+  `client.reqMktData`), `cancel_mkt_data` (`:63`), `cancel_historical_data` (`:71`).
+- `[existing]` **`ibkr/contracts.py`** (191 lines) — `get_stock_contract` (`:130`),
+  `get_futures_contract` (`:139`), `get_contract_for_symbol` (`:169–191`): auto-detects
+  stock vs the small `FUTURES_SCHEDULE` set and builds a fully-qualified front-month
+  FUT contract for futures, else a `STK/SMART/USD` contract. **No IBKR lookup; never raises for
+  an unknown symbol** (`DG39`).
+- `[existing]` **`ibkr/id_manager.py`** — `id_manager.get_id()` (`:13`) (thread-safe reqId
+  allocator). **`ibkr/pacing.py`** — `pacing_manager.throttle()` (`:14`).
+  **`ibkr/error_codes.py`** — `classify_error` (`:1–15`); **error 200 is `fatal`** (`:12`),
+  so a "no security definition" reply reaches `bridge.error_msg` with its `reqId`.
+- `[existing]` **`ui/visual_conventions.py`** — `VIS_D21_2_STYLESHEET` / `set_button_active`
+  (`:80–92`) and `DiagonalStrikeButton` (`:109`). Reusable for consistent affordance styling.
+- `[existing]` **`services/`** — pure/services layer (`market_calendar.py`,
+  `backfill_service.py`, `session_service.py`, `time_collapse_service.py`,
+  `drawing_service.py`, `sound_service.py`, …). A new sibling service fits the established
+  layout.
+
+**Existing integrations already in use**
+- `[existing]` **IBKR via `ibapi`** — `reqMktData`/`cancelMktData` (watchlist ticks),
+  `reqHistoricalData`/`cancelHistoricalData` (chart + D16 backfill), `reqMktDepth` (DOM),
+  realtime bars, account/position/order callbacks. Live port `7496` only.
+- `[existing]` **SQLite** via `data/db.py` (singleton `db`).
+- `[existing]` **QSettings** `("NDThinkChart","NDThinkChart")` — `watchlist/width`,
+  `watchlist/columns`.
+- `[existing]` **Qt signal bus** (`IBBridge`) + `pyqtgraph` chart scene.
+
+**Verified facts that shape the design (and one requirements-doc imprecision)**
+1. `WatchlistPanel.add_symbol` neither persists nor returns the new row/reqId; `_req_to_row`
+   is the **only** reqId↔row index and is row-index-keyed, so a removal must re-index it.
+2. The D21.5 column popup is bound to the **table's horizontal header**, while the D21.11
+   toggle lives on the **panel header strip**. A new header-strip `+`/context menu and a
+   **table-body** row context menu therefore cannot shadow the column popup (`DG42`).
+3. `watchlist_panel.clear()` runs in **`closeEvent`**, not in `_on_disconnected`; and
+   `_restore_watchlist()` runs on **every** `_on_connected` (initial + every poll reconnect).
+   Today a transport drop leaves stale rows and a reconnect would append duplicates. This is a
+   pre-existing quirk; D22 must make the persisted set authoritative (`AC-D22.7`), so the plan
+   makes `_restore_watchlist` clear-then-repopulate (see S13 / PA-D22-6). *(The requirements
+   prose at `requirements.md:2121`/`DG40` says `clear()` is "called on disconnect"; the repo
+   shows it is called on close at `:2107`. Informational — no `AC-D22.*` outcome depends on it;
+   recorded in `docs/plan_notes.md` and `docs/plan_review.md`.)*
+4. Error `200` is classified `fatal` (`error_codes.py:12`) and `error()` forwards it to
+   `bridge.error_msg` with the originating `reqId` (`client.py:139–141`), so a
+   contract-details rejection is already observable through the existing signal.
+5. Test surface (verified): `tests/test_watchlist_columns_d21.py` provides `FakeMdManager`
+   (`:47`) and `_isolated_settings` (`:63`); `tests/test_right_dock_d21.py::_boot` (`:40`)
+   monkeypatches `IBApiClient.connect` so no TWS is touched. **No existing test calls
+   `_restore_watchlist` or `_on_connected`** (grep), so the clear-then-repopulate change has no
+   existing watchlist test to regress; `tests/test_history_backfill_disconnect.py` calls
+   `_on_disconnected` (`:172`, `:203`, `:241`, `:271`, `:375`, `:457`, `:510`) — the added
+   `cancel_all()` / `set_add_enabled(False)` calls there must not raise or change the D16
+   assertions.
+6. QSettings isolation: `MainWindow._settings` is the real
+   `QSettings("NDThinkChart","NDThinkChart")` and is **not injectable**; the existing D17/D18
+   tests clean the relevant keys via a local `_clean_settings()` helper. The new
+   `watchlist/configured` sentinel must be isolated/cleared by the D22 tests the same way, or
+   the suite becomes order-dependent (see risk row AR-D22-9). This is the same class as the
+   recorded "shared test DB" gotcha in `docs/memory.md`.
+
+### Tech Stack Decisions (D22 increment)
+
+Constrained (existing) choices first, then the D22 additions. **No new dependency.**
+
+| # | Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|---|
+| S1 | Language / UI stack `[existing]` | Unchanged: Python 3.11+, PyQt6 (`>=6.6`), pyqtgraph (`>=0.13`) | Existing-repo hard constraint; the Current Tech Stack is a Non-Goal to change | New charting/UI framework — rejected |
+| S2 | Broker / numerics / persistence / packaging / tests `[existing]` | Unchanged: official `ibapi` live port `7496` only; numpy; SQLite via `config/paths.get_db_path()`; PyInstaller `.app`; pytest + pytest-qt offscreen (no live TWS) | Existing-repo hard constraint; Q9 forbids automated TWS/order traffic | Paper mode / new broker / new DB — rejected |
+| S3 | **Live symbol validation (B16 / `DG43`)** `[new]` | Add a **contract-details request path**: `[new]` `IBBridge.contract_details(reqId, object)` + `contract_details_end(reqId)` signals; `[new]` `IBApiClient.contractDetails` / `contractDetailsEnd` overrides forwarding to them (mirroring the existing callback pattern); `[new]` `MarketDataManager.req_contract_details(contract) -> int` and `cancel_contract_details(req_id)` using `id_manager.get_id()` + `pacing_manager.throttle()` + `client.reqContractDetails` | `reqContractDetails` is the only reliable live check that a symbol resolves to a real instrument (`DG39`); routing it through the existing client→bridge→Qt-signal pattern keeps threading consistent (emitted on the reader thread, delivered queued on the main thread) and reuses `id_manager`/`pacing_manager` | Validate by subscribing with `reqMktData` and waiting for a tick (no deterministic "invalid" outcome; silent hangs); `reqSecDefOptParams` / `reqMatchingSymbols` (wrong tool / extra surface); a blocking `reqContractDetails` on a worker thread (adds a thread + cross-thread DB/UI calls) |
+| S4 | **Async correlation + bounded wait (B16)** `[new]` | A `[new]` `services/contract_lookup_service.py::ContractLookupService(QObject)` owns the pending map: `request(symbol, contract) -> request_id` records `{reqId: PendingLookup(symbol, got_any=False)}`, arms a single-shot `QTimer(CONTRACT_LOOKUP_TIMEOUT_MS = 5000)` per request, and resolves **exactly once** via a `lookup_finished(request_id, symbol, ok, reason)` signal — success on `contract_details` (≥1) followed by `contract_details_end`; failure on `contract_details_end` with zero details, on `error_msg` for a pending reqId, or on timeout. Late/unknown events are ignored; the timer is disarmed on every resolution | `AC-D22.4` fixes the observable outcome and requires a **bounded** wait ("no indefinite hang", R46); a reqId-keyed pending map is the repo's established correlation idiom (the D16 history wave correlates the same way). A `QObject` on the main thread receives bridge signals queued, so all state mutation and the DB/UI side effects stay on the main thread | Await in `MainWindow` directly (grows the already-2113-line window and its test harness); `QEventLoop`/blocking wait inside the modal dialog (freezes the UI, violates "no hang"); a global "last error" without reqId correlation (races with unrelated errors such as market-data failures) |
+| S5 | **Persistence mechanism for add/remove (`DG41`/R47)** `[new]` | Two explicit, atomic helpers on `[existing] data/db.py` — `add_watchlist_symbol(symbol, category="EQUITIES") -> None` (`INSERT OR IGNORE` with `sort_order = COALESCE(MAX(sort_order), -1) + 1`) and `remove_watchlist_symbol(symbol) -> None` (`DELETE ... WHERE symbol = ? COLLATE NOCASE`, then renumber the remaining rows `0..n-1`). Keep `get_watchlist`/`set_watchlist` unchanged | The requirement fixes the **outcome** (`AC-D22.6`/`AC-D22.7`) and makes the mechanism Plan's call; per-operation helpers are additive, remove the risk that a caller reconstructs the list from the panel's **transient rows** (`DG40`), preserve each row's `category`, and keep `sort_order` contiguous so a later `set_watchlist` stays consistent. Case-insensitive delete matches the A50 case-insensitive duplicate rule | Reuse the replace-all `set_watchlist` with the full desired list (forces the caller to re-derive the persisted list, defaults every `category` to `EQUITIES`, and is exactly the `DG40`/R47 footgun); a new SQLite table (migration — against the repo norm); raw SQL inline in `MainWindow` (untestable, no single owner) |
+| S6 | **Seed-if-empty guard (A52/`DG44`)** `[new]` | A persisted boolean sentinel in the **existing** QSettings store: key `watchlist/configured`. `_restore_watchlist` seeds `DEFAULT_WATCHLIST` **only when the DB list is empty AND the sentinel is unset**, then sets the sentinel; a non-empty DB list also sets it; add/remove set it. The sentinel holds **one bit of state, not the symbol list** (the SQLite `watchlist` table remains the sole symbol store) | D22's remove makes an explicitly-emptied list meaningful, but the current seed-if-empty branch would re-seed on the next connect (`DG44`/A52). A mutable persisted sentinel handles the **same-session reconnect** case too, stays within the existing QSettings usage, and needs no schema change | Seed whenever the list is empty (violates `AC-D22.7` + A52); a DB `meta`/flag table (schema migration); a sentinel symbol row filtered out of `get_watchlist` (pollutes every consumer); "DB file was created this run" alone (re-seeds on a same-session reconnect, because `_restore_watchlist` runs on every connect) |
+| S7 | **Input surface (B15b)** `[new]` | A small modal `AddSymbolDialog(QDialog)` (new `ui/add_symbol_dialog.py`): one `QLineEdit`, OK/Cancel, `Esc` → `reject()`; the OK handler refuses to accept empty/whitespace input (inline message, dialog stays open). The add path uses a pure `normalise_symbol(text)` helper | B15b says "a small modal dialog (QInputDialog-style) with a text field + OK/Cancel"; a concrete `QDialog` subclass is straightforward to exercise offscreen (construct, `setText`, invoke the accept slot) whereas the `QInputDialog.getText` **static** blocks its own event loop and can only be tested by monkeypatching the static. OK/Cancel/Esc semantics are explicit | `QInputDialog.getText` (blocking static — brittle in pytest-qt; styling constrained); an inline editable row (explicitly not adopted, B15b) |
+| S8 | **Remove affordance placement (B14)** `[new]` | A **row context menu** on the **table body** (`self.table.setContextMenuPolicy(CustomContextMenu)` → a menu with **"Remove symbol"**, acting on the row under the cursor). No per-row delete button | B14 fixes the outcome and leaves placement/styling to Plan/Build ("a per-row delete affordance and/or a right-click 'Remove symbol'"). A body context menu needs no extra column width (the D21.5 table already supports a variable column set) and cannot be confused with the header-strip add affordance | A per-row delete button column (competes for width with the D21.5 column layout, and "delete" cells would be index-fragile on reorder/removal); both (extra surface with no requirement gain) |
+| S9 | **Panel ↔ window contract** `[new]` | `WatchlistPanel` emits `symbol_add_requested(str)` and `symbol_remove_requested(str)` and exposes `set_add_enabled(bool)` + `remove_symbol(symbol)`. `MainWindow` owns the dialog-free orchestration (DB, connection gate, validation, status messages) | Keeps the panel free of DB/connection knowledge (it has none today), keeps a single persistence owner (`MainWindow`), and makes both halves independently testable | The panel owns the DB/validation (duplicates knowledge across two windows and re-introduces the `DG40` transient-row pitfall) |
+| S10 | **Connection gate (B16b)** `[new/changed]` | `MainWindow` tracks `self._ibkr_connected: bool` (False initially, True in `_on_connected`, False in `_on_disconnected`) and calls `watchlist_panel.set_add_enabled(...)`; the add slot also refuses with a status message if invoked while disconnected | `AC-D22.5` requires the add to be **denied** while disconnected, with the affordance reflecting it (disabled **and/or** the confirm refused); disabling both the `+` and the menu entry *and* refusing in the slot covers both readings and is directly assertable | Only disabling the button (a programmatic invocation would still add); only refusing with a message (the affordance would look enabled) |
+| S11 | **Contract used for the lookup and the subscription** `[new/changed]` | Both the lookup request and (on success) the `req_mkt_data` subscription use the **existing** `get_contract_for_symbol(symbol)`; the resolved `ContractDetails.contract` is used only as the success evidence | Keeps the add path consistent with `_restore_watchlist`/`_replay_subscriptions` (which already use `get_contract_for_symbol`), avoids inventing a "which of N returned contracts" pick policy for tick subscription, and reuses the existing futures front-month logic; `AC-D22.4` needs only "at least one matching contract" as the success test | Subscribe with the first/primary `ContractDetails.contract` (extra decision + divergence from the restore path); require an exact single match (over-strict for multi-listing stocks) |
+| S12 | **Normalisation + guards (A50)** `[new/changed]` | Pure helpers in `[new/changed] ui/watchlist_panel.py`: `normalise_symbol(text) -> str` (strip + upper) and `symbol_in_list(symbol, symbols) -> bool` (case-insensitive). The panel rejects empty input at the dialog; `MainWindow` performs the authoritative case-insensitive duplicate check against `db.get_watchlist()` and treats it as a no-op with a status message | `AC-D22.3` fixes the three guards; one pure implementation shared by both halves keeps the rule identical and unit-testable | Duplicate checks against the panel's visible rows only (misses a persisted-but-not-shown symbol); no normalisation (duplicate `msft`/`MSFT` rows) |
+| S13 | **Restore idempotency** `[new/changed]` | `_restore_watchlist()` calls `watchlist_panel.clear()` **before** repopulating from the DB, so a reconnect reproduces exactly the persisted set | `AC-D22.7` requires the watchlist to match the persisted set after a connect; today `clear()` is only called on close, so a reconnect appends duplicates onto stale rows. Clear-then-populate is the minimal change that makes the DB authoritative without touching panels/geometry | Populate only when the table is empty (still leaves stale rows after a drop when the table is non-empty); leave as-is (duplicates; the persisted set is not faithfully reproduced) |
+| S14 | Testing `[existing]` | pytest + pytest-qt, offscreen, no live TWS; each new behaviour ships a pre-fix-red / post-fix-green check | Repo standard (Q8/Q9); the market-data and bridge are injectable (the `tests/test_watchlist_columns_d21.py` `FakeMdManager` and `tests/test_right_dock_d21.py::_boot` `IBApiClient.connect` monkeypatch patterns already exist) | Manual-only / live-TWS tests — rejected |
+
+**No new dependency is introduced by D22. No existing tech-stack item is replaced or deprecated.**
+
+> **S3 reconciled by D23 (2026-10-07).** D22's S3 description of `cancel_contract_details(req_id)` as a
+> direct `client.cancelContractDetails(...)` call is corrected by the **D23.1** increment: the pinned
+> `ibapi 9.81.1.post1` `EClient` exposes **no** `cancelContractDetails`, so the cancel is a
+> **capability-guarded, documented best-effort** call (`getattr(self.client, 'cancelContractDetails',
+> None)`, called only if present) — see `## D23 increment` → Tech Stack Decisions S3. The
+> `reqContractDetails` request path itself is unchanged. This is the binding `AC-D23.1.4`
+> reconciliation.
+
+### System Components (D22 increment)
+
+**Existing components touched (responsibilities unchanged):**
+- `[existing] ui/watchlist_panel.py` — table, header strip + D21.11 toggle, D21.5 column
+  model/menu, tick handlers, D14 double-click, width/column persistence.
+- `[existing] ui/main_window.py` — `DEFAULT_WATCHLIST`, watchlist dock/title-bar wiring,
+  `_on_connected`/`_restore_watchlist`/`_on_disconnected`, `md_manager`/`depth_manager`
+  injection, QSettings.
+- `[existing] data/db.py` — `get_watchlist`/`set_watchlist`, the `watchlist` table.
+- `[existing] ibkr/client.py`, `[existing] ibkr/bridge.py` — the client→bridge signal surface.
+- `[existing] ibkr/market_data.py`, `[existing] ibkr/contracts.py`, `[existing]
+  ibkr/id_manager.py`, `[existing] ibkr/pacing.py`, `[existing] ibkr/error_codes.py`.
+- `[existing] ui/visual_conventions.py` — available for consistent affordance styling.
+
+**New components:**
+- `[new] services/contract_lookup_service.py` — `ContractLookupService(QObject)`:
+  `request(symbol, contract) -> int`, the `lookup_finished(int, str, bool, str)` signal,
+  `on_contract_details(req_id, details)` / `on_contract_details_end(req_id)` /
+  `on_error(req_id, code, msg)` / `on_timeout(req_id)` handlers, `cancel(req_id)` /
+  `cancel_all()`, and `CONTRACT_LOOKUP_TIMEOUT_MS`. Injected with `md_manager` + `bridge`;
+  resolution is exactly-once; a disconnect invalidates in-flight lookups (`cancel_all` on
+  `_on_disconnected`). Pure of Qt widgets → unit-testable with a fake bridge.
+- `[new] ui/add_symbol_dialog.py` — the small modal `AddSymbolDialog` (S7).
+- `[new]` `IBBridge` `contract_details` / `contract_details_end` signals and
+  `MarketDataManager.req_contract_details` / `cancel_contract_details` (S3) — new members on
+  existing modules rather than new modules.
+
+**Changed components:**
+- `[new/changed] ui/watchlist_panel.py` — a small `+` `QPushButton` added to the header strip's
+  `h_layout` **adjacent to** `header_button` (kept as the D21.11 toggle); a header-strip context
+  menu with **"Add symbol…"**; a table-body context menu with **"Remove symbol"**; `remove_symbol`
+  (cancel the row's subscription + remove the row + re-index `_req_to_row`/`_row_data`/
+  `_prev_close`/`_last_price`/flash timers); `set_add_enabled(bool)`; the
+  `symbol_add_requested` / `symbol_remove_requested` signals; the pure `normalise_symbol` /
+  `symbol_in_list` helpers. **`add_symbol` and `clear` semantics are unchanged** (the
+  `clear()`-before-repopulate is called by `MainWindow`).
+- `[new/changed] ui/main_window.py` — `self._ibkr_connected`; seed/`configured` sentinel +
+  seed guard in `_restore_watchlist` (which now clears first — S13); construct
+  `ContractLookupService`, wire its `lookup_finished`, and `cancel_all` on disconnect; the
+  add/remove slots (`_on_watchlist_symbol_add_requested` /
+  `_on_watchlist_symbol_remove_requested` / the validation-result callback
+  `_on_watchlist_symbol_validated`) doing the gate, guards, validation, subscribe + persist, and
+  status messages; `set_add_enabled` calls in `_on_connected`/`_on_disconnected`.
+- `[new/changed] ibkr/client.py`, `[new/changed] ibkr/bridge.py`,
+  `[new/changed] ibkr/market_data.py` — the S3 request/callback plumbing.
+- `[new/changed] data/db.py` — `add_watchlist_symbol` / `remove_watchlist_symbol` (S5).
+
+**Component relationships (D22).** `MainWindow` remains the orchestrator and the **sole
+persistence/authority owner**: it holds the connection flag, the DB handle (`db`), `md_manager`,
+and the `ContractLookupService`. `WatchlistPanel` stays presentation-only: it owns the
+affordances, the modal dialog, the visible rows, and the reqId↔row index, and it emits
+`symbol_add_requested` / `symbol_remove_requested`. The add flow is
+`panel → MainWindow [gate + duplicate guard] → ContractLookupService.request(...) →
+bridge.contract_details/end (queued) → lookup_finished → MainWindow [add_symbol + db.add +
+configured sentinel + status]`; the remove flow is
+`panel (row menu) → MainWindow → panel.remove_symbol (cancel + re-index) + db.remove`. The
+new IBKR path is `ContractLookupService → MarketDataManager.req_contract_details →
+IBApiClient.reqContractDetails → (EWrapper) contractDetails/contractDetailsEnd →
+IBBridge signals → ContractLookupService`.
+
+### Data Model (D22 increment)
+
+- `[existing]` `Bar`, `Alarm`, `Drawing`, `DrawingGroup`, `Position`, `TradeGroup`,
+  `OrderBookLevel`, `UserOrder`; tables `bars`, `watchlist`, `alarms`, `zones`,
+  `drawing_groups`, `drawings`, `studies`, `positions`, `trade_groups`,
+  `position_group_map` — **unchanged**.
+- `[existing]` `watchlist(symbol PK, category NOT NULL, sort_order NOT NULL)` — **no schema
+  change**. New access paths only (S5).
+- `[new]` **Watchlist add/remove access methods** on `DB`:
+  `add_watchlist_symbol(symbol, category="EQUITIES")` (append with the next `sort_order`),
+  `remove_watchlist_symbol(symbol)` (case-insensitive delete + renumber). `get_watchlist` /
+  `set_watchlist` keep their signatures.
+- `[new]` **QSettings `watchlist/configured`** — a single boolean sentinel distinguishing
+  "never configured" from "explicitly emptied" (S6). **Not** the symbol list, and distinct
+  from the D21.5 `watchlist/columns` layout key; the two concerns stay un-conflated.
+- `[new]` **`ContractLookupService` pending state** — an in-memory
+  `{reqId: PendingLookup(symbol, got_any)}` map plus per-request `QTimer`s; ephemeral, never
+  persisted.
+- `[new]` **D22 view state** — nothing new beyond the above: the `+` button's enabled flag,
+  the dialog, and the table-body menu are ephemeral view state (consistent with D10's
+  volume-visibility and D21's view-state precedents).
+
+### Integration Points (D22 increment)
+
+- `[new]` **IBKR `reqContractDetails` / `contractDetails` / `contractDetailsEnd`** — the one
+  new external call type, required by B16/`DG43` for live symbol validation. Correlated by
+  `reqId` from the existing `id_manager`; paced by the existing `pacing_manager`; failures
+  surface on the existing `error_msg` signal (error `200` is `fatal`).
+- `[existing]` **IBKR `reqMktData` / `cancelMktData`** — the add subscribes via
+  `add_symbol → req_mkt_data`; the remove cancels via `cancel_mkt_data`. No signature change.
+- `[existing]` **SQLite (`data/db.py`)** — add/remove through the two new helpers; no
+  migration, no schema change.
+- `[existing]` **QSettings** — adds `watchlist/configured` alongside `watchlist/width` and
+  `watchlist/columns`; the symbol list itself is never stored here.
+- `[existing]` **Qt signal bus (`IBBridge`)** — adds the two contract-details signals;
+  inbox/outbox for the lookup service; `symbol_add_requested`/`symbol_remove_requested` on
+  the panel. No new bus.
+- **No new external service, dependency, or persisted table is introduced.**
+
+### Non-Functional Approach (D22 increment)
+
+- **Correctness — async validation (B16/R46).** The lookup is **exactly-once** (a
+  `resolved` flag per pending entry) and **bounded** (a single-shot 5s `QTimer`); a late
+  `contractDetailsEnd` after a timeout resolution is ignored, and `error_msg`/`contractDetails`
+  events for reqIds not in the pending map are ignored so unrelated market-data errors cannot
+  resolve a lookup. `contractDetailsEnd` with zero details is a rejection. On any non-`ok`
+  resolution, **nothing** is added, subscribed, or persisted (`AC-D22.4`).
+- **Correctness — threading.** Bridge signals are emitted on the EClient reader thread and
+  delivered to the main-thread `ContractLookupService` via Qt's queued connections (the same
+  pattern the existing `historical_bar`/`tick_price` wiring relies on), so the pending map,
+  the DB writes and the UI updates all happen on the main thread. No new thread is created.
+- **Correctness — persistence (`AC-D22.7`/A52).** The DB is the single source of truth: an add
+  appends one row and cancels nothing; a remove deletes one row and cancels its subscription;
+  a reconnect reproduces exactly the persisted set (`clear()` then repopulate); an
+  explicitly-emptied list stays empty because the `watchlist/configured` sentinel suppresses
+  re-seeding. Duplicate detection is case-insensitive on both write and read-back.
+- **Correctness — `clear()` placement (informational).** The requirements prose
+  (`requirements.md:2121`, `DG40`) describes `clear()` as "called on disconnect"; the repo shows
+  it is called from `closeEvent` (`ui/main_window.py:2107`). No `AC-D22.*` outcome depends on the
+  distinction: B16b denies adding while disconnected, the DB is authoritative, and S13 makes
+  `_restore_watchlist` clear-then-repopulate so a reconnect reproduces the persisted set. This is
+  an implementation note, not an architectural change (see `docs/plan_notes.md` / `plan_review.md`).
+- **Performance.** Contract lookups are on demand (one per add), paced by the existing
+  `pacing_manager`; the watchlist is tiny (O(n) re-index on removal); no polling is added.
+  `_restore_watchlist` stays O(n) with one `clear()`.
+- **Security / safety.** No new dependency; the live-order path
+  (`ibkr/orders.py`) is untouched; **no automated test connects to TWS or transmits an order**
+  (Q9) — tests inject a fake `md_manager` and drive the bridge handlers directly; the lookup
+  is a read-only contract query.
+- **UX consistency.** The add affordance reflects the connection state (disabled while
+  disconnected, per `AC-D22.5`); the header strip remains the dock's title-bar widget
+  (`D21.11`/`DG37`) so both the toggle and the new `+` stay reachable when the body is collapsed;
+  add/remove never load a chart (distinct from D14 / Load Chart); status messages use the
+  existing `status_bar`.
+- **Non-regression (`AC-D22.8`).** The D21.5 column popup stays bound to the table's
+  horizontal header; the D21.11 toggle stays on the header strip; D14 double-click and the
+  D21.13 right-dock toggles are untouched. The new body context menu and the header-strip
+  menu are separate widgets with unambiguous labels ("Add symbol…" / "Remove symbol" vs the
+  column menu's field checkboxes).
+
+### Architecture Risks (D22 increment)
+
+| # | Risk | Severity | Mitigation |
+|---|---|---|---|
+| AR-D22-1 | New contract-details callbacks could resolve a lookup from the wrong `reqId` (a shared `error_msg` bus) or twice (late `contractDetailsEnd`) | H | reqId-keyed pending map; `error_msg` handled **only** for pending reqIds; a `resolved` flag makes resolution exactly-once; unknown/late reqIds ignored; unit-tested with out-of-order and duplicate events |
+| AR-D22-2 | An unbounded/too-long wait hangs the add; too short a timeout false-rejects a slow TWS | M | Single-shot `QTimer` (`CONTRACT_LOOKUP_TIMEOUT_MS = 5000`) as a named constant; the modal dialog closes on OK and the add completes asynchronously with a status message, so the UI never blocks; the timeout is a plan constant (PA-D22-3), adjustable without architectural change |
+| AR-D22-3 | The `watchlist/configured` sentinel could be missed, so an emptied list re-seeds (violates `AC-D22.7`/A52) | M | Set on seed, on every non-empty restore, and on every add/remove; a dedicated round-trip test removes the last symbol, re-runs `_restore_watchlist`, and asserts the list stays empty |
+| AR-D22-4 | `_restore_watchlist` clear-then-repopulate could regress a D13/D14/D21 watchlist test | M | No existing test calls `_restore_watchlist` or `_on_connected` (verified by grep); the clear only removes rows/dead reqIds that a fresh connect repopulates from the DB; the full offscreen suite is re-run |
+| AR-D22-5 | The new header-strip `+`/menu or the body row menu could shadow the D21.5 column popup or the D21.11 toggle (`DG42`/R48) | M | The column popup is wired to the **table's horizontal header**, the toggle to the **panel header strip**; the new add menu is on the header strip and the remove menu on the **table body** — disjoint surfaces; `+` is appended to the existing `h_layout` (the toggle is untouched); explicit non-regression tests assert the column menu and toggle still work, and that the row menu resolves the Symbol by field key (reorder-safe) |
+| AR-D22-6 | A futures symbol's computed front month may not resolve (rollover edge), so a legitimate name is rejected | L | `AC-D22.4` explicitly makes an unresolvable contract a rejection with an error and nothing persisted — acceptable per B16; the lookup uses the same `get_contract_for_symbol` builder as the restore/replay paths, so the behaviour is consistent |
+| AR-D22-7 | `remove_symbol` row re-indexing could desynchronise `_req_to_row` (ticks landing on the wrong row) | M | The helper re-maps every row index after the removed row across `_req_to_row`/`_row_data`/`_prev_close`/`_last_price` and stops the removed row's flash timers; tested by removing a middle row of three and asserting a later tick lands on the correct symbol row |
+| AR-D22-8 | Adding a lookup path touches the shared IBKR client/bridge and could disturb existing callbacks | L | The change is additive (two overrides + two signals + two manager methods); existing callbacks and their tests are untouched; the override-forwarding behaviour is unit-tested by calling the handlers directly |
+| AR-D22-9 | The `watchlist/configured` sentinel is read/written through the **real** `QSettings("NDThinkChart","NDThinkChart")` (not injectable), so D22 tests that drive `_restore_watchlist` could couple to one another or leave the sentinel set on the developer machine (the same class as the recorded shared-test-DB gotcha) | L | Use the existing D17/D18 `_clean_settings()`/isolated-settings pattern to clear `watchlist/configured` around each D22 `MainWindow` test; a full clean offscreen suite re-run confirms no order-dependence. This is a test-isolation detail, not an architectural change |
+| AR-D22-10 | Two adds for the same symbol could be in flight before the first resolves (the duplicate guard checks the DB, which is written only on success) | L | The requirement's duplicate rule applies to an **existing** watchlist symbol (`AC-D22.3`); the add is initiated from a modal dialog and completes asynchronously on the single main thread, so overlap is not reachable in normal use. No `AC-D22.*` criterion depends on simultaneous same-symbol adds; Task Manager may cover it as an edge in the duplicate guard if desired |
+
+### Implementation sequencing (D22 increment)
+
+Detailed phases, dependencies and `touches_files` notes are in `docs/plan.md`. At the
+architecture level the sequence is: (1) watchlist persistence helpers (`data/db.py`), (2) IBKR
+contract-details plumbing + the `ContractLookupService`, (3) watchlist panel affordances + the
+`AddSymbolDialog` + the connection-reflecting enable state, (4) `MainWindow` add/remove flow +
+the restore/seed guard, (5) non-regression and full-suite verification. Phases 1–3 touch fully
+disjoint file sets and may run in one wave; Phase 4 depends on all three; Phase 5 follows.
+D1–D21 are frozen throughout.
+
+---
+
+## D23 increment — Batch 17: two D22 post-build quality corrections (validated 2026-10-07)
+
+> **Increment scope.** A **small, purely corrective** increment on top of the **built, frozen D1–D22**
+> system (D1–D21 at commit `286341e`, 673 tests; **D22 built and green at 712 tests**, uncommitted).
+> D1–D22 are **frozen** and are **not** re-planned. This is an existing-repo run:
+> `requirements.md` contains the marker sentence `This is an existing repository.` and a Current Tech
+> Stack; **PyQt6 + pyqtgraph + official `ibapi` + SQLite is a hard constraint**. **No stack change,
+> no schema change, no new dependency, and no live-order-path change.** Items are labelled
+> `[existing]`, `[new]`, or `[new/changed]`.
+>
+> D23 corrects the two **nice-to-have** Code Reviewer findings on the D22 work, both approved by the
+> user for a full-pipeline fix: **D23.1 = ESC-030** (a capability-guarded, documented
+> contract-details cancel) and **D23.2 = ESC-031** (the `_row_data` row-key invariant in
+> `remove_symbol`). D23 **does not reopen D22's feature criteria** (`AC-D22.1`–`AC-D22.9` stand); it
+> supersedes only the **task-level** `AC-D22.2.3` wire-cancel mandate (**corrected**) and
+> **reconciles the D22 architecture row `S3`**.
+
+**Summary.** D23 is a targeted two-item correctness increment on the built D22 watchlist work.
+**(D23.1)** `MarketDataManager.cancel_contract_details` becomes a **capability-guarded best-effort
+cancel** (`getattr(self.client, 'cancelContractDetails', None)`, called only if present) with an
+in-code note that the pinned `ibapi` (`9.81.1.post1`) lacks the method, that TWS's own
+`contractDetailsEnd`/error ends the wire request, and that `ContractLookupService`'s local
+invalidation (bounded QTimer + `cancel_all` on disconnect) is the real safety net — no raised and no
+silently-swallowed `AttributeError`. **(D23.2)** `WatchlistPanel.remove_symbol` drops the removed
+row's own `_row_data` key, so `set(_row_data.keys()) == set(range(table.rowCount()))` after **any**
+removal (first / middle / last / only), and the missing last-row (and/or first/only-row) coverage is
+added. Both are additive, behaviour-preserving corrections: no stack change, no schema change, no
+new dependency, no live-order-path change, and no reopening of `AC-D22.1`–`AC-D22.9`.
+
+**Validator verification (2026-10-07 — independently checked against the current source, not taken
+from the proposal).**
+- `.venv` `ibapi` is **9.81.1.post1**; `hasattr(EClient, 'cancelContractDetails') is False` while
+  `hasattr(EClient, 'reqContractDetails') is True`. `ibkr/market_data.py:78–84` is exactly
+  `if req_id is None: return` + `try: self.client.cancelContractDetails(req_id) except Exception:
+  pass`.
+- **The RC-1 pre-fix-red evidence is genuine.** An AST inspection of
+  `inspect.getsource(MarketDataManager.cancel_contract_details)` on the current tree finds an
+  `ast.Attribute` node with `attr == 'cancelContractDetails'`; the substring
+  `self.client.cancelContractDetails(` is present; and `getattr(self.client, …)` is **absent**. So
+  the proposed code-shape/source assertion is **red pre-fix** and green after the guard.
+- **The behavioural no-exception case cannot be pre-fix-red** (so the honest classification is a
+  post-fix guard): `MarketDataManager(types.SimpleNamespace(reqContractDetails=lambda *a: None))
+  .cancel_contract_details(7)` **returns normally on the current (pre-fix) tree** — the bare
+  `AttributeError` is raised inside the retained `try` and swallowed — externally identical to the
+  guarded form.
+- `ui/watchlist_panel.py::remove_symbol` is `:682–728`; `_row_data` re-index at `:716–719` never
+  drops the removed row's own key; `_req_to_row` (`:705`) and the flash timers (`:710–711`) are
+  handled explicitly. A tree-wide grep confirms `cancel_contract_details` has **no production
+  caller** (only its definition and its own tests).
+
+### Codebase Summary (existing repository — D23 surface)
+
+> Inventory gathered with the **graphify** skill (`graphify-out/graph.json`, 2851 nodes, refreshed
+> 2026-10-06 21:47) and then **validated against the current source files** (the repository is
+> authoritative). The D23 surface is two functions and their tests: the contract-details cancel in
+> `ibkr/market_data.py`, the row re-index in `ui/watchlist_panel.py::remove_symbol`, and the two D22
+> test modules that cover them.
+
+**Data models / schema**
+- `[existing]` **SQLite `watchlist` table** — `data/db.py:23–27`:
+  `watchlist(symbol TEXT PRIMARY KEY, category TEXT NOT NULL, sort_order INTEGER NOT NULL)`. D22 added
+  access helpers (`add_watchlist_symbol` / `remove_watchlist_symbol`); D23 needs **no** schema or
+  access-path change.
+- `[existing]` All other persisted tables (`bars`, `alarms`, `zones`, `drawings`, …) — **unchanged**.
+- `[existing]` **`WatchlistPanel` in-memory row-keyed state** (not persisted):
+  `_req_to_row: dict[int, int]` (reqId → row), `_row_data: dict[int, dict]` (row → cached field
+  values, FieldKey-bound), `_prev_close: dict[int, float]` and `_last_price: dict[int, float]`
+  (keyed by **reqId**, not row), and `_flash_timers: dict[tuple[int, str], QTimer]` (keyed by
+  `(row, field)`). This is the state D23.2's invariant applies to.
+- `[existing]` **`ContractLookupService._pending: dict[int, PendingLookup]`** — the in-flight
+  contract-details correlation map (`services/contract_lookup_service.py:85`), ephemeral, never
+  persisted. D23.1 does not change it.
+- `[existing]` **QSettings `("NDThinkChart","NDThinkChart")`** — keys `watchlist/width`,
+  `watchlist/columns` (D21.5), `watchlist/configured` (D22 seed sentinel). D23 adds none.
+
+**Major components and responsibilities**
+- `[existing]` **`ibkr/market_data.py::MarketDataManager`** (~92 lines) — `req_historical_data`
+  (`:20`), `req_mkt_data`/`cancel_mkt_data` (`:56`/`:63`), **`req_contract_details(contract) -> int`**
+  (`:71–76`, D22), **`cancel_contract_details(req_id)`** (`:78–84`, D22 — *the D23.1 target*),
+  `cancel_historical_data` (`:86`). `cancel_contract_details` currently does:
+  `if req_id is None: return` then `try: self.client.cancelContractDetails(req_id) except
+  Exception: pass`.
+- `[existing]` **`ibkr/client.py::IBApiClient(EWrapper, EClient)`** (~223 lines) — forwards EWrapper
+  callbacks to `IBBridge`; D22 added `contractDetails` / `contractDetailsEnd` overrides mirroring the
+  existing callback pattern. `error()` (`:114–141`) forwards non-`info` severities to
+  `bridge.error_msg` (error `200` is `fatal`, `ibkr/error_codes.py:12`).
+- `[existing]` **`ibkr/bridge.py::IBBridge(QObject)`** — typed signal bus; D22 added
+  `contract_details(int, object)` and `contract_details_end(int)`.
+- `[existing]` **`services/contract_lookup_service.py::ContractLookupService(QObject)`** (~176
+  lines) — owns the reqId-keyed pending map, arms a single-shot `QTimer(CONTRACT_LOOKUP_TIMEOUT_MS
+  = 5000)` per request, resolves **exactly once** via `lookup_finished(req_id, symbol, ok, reason)`.
+  `cancel(req_id)` (`:114–120`) / `cancel_all()` (`:122–125`) **drop the pending entry and stop the
+  timer** — they do **not** call `md_manager.cancel_contract_details`. `_on_disconnected` in
+  `MainWindow` calls `cancel_all()`. This is the **real safety net** D23.1 must document.
+- `[existing]` **`ui/watchlist_panel.py::WatchlistPanel`** (816 lines) — `QTableWidget`, header strip
+  (`self.header_bar`, `:282–289`) + D21.11 collapse toggle, D21.5 column model/menu (`:605`), tick
+  handlers, D14 double-click, width/column persistence. `add_symbol(symbol, contract)` (`:664`)
+  inserts a row, renders cells, subscribes via `req_mkt_data`, records `_req_to_row`.
+  **`remove_symbol(symbol) -> bool`** (`:682–728`) — *the D23.2 target*: finds the row
+  case-insensitively, cancels that row's `req_mkt_data` and pops its
+  `_req_to_row`/`_prev_close`/`_last_price`, stops the removed row's flash timers,
+  `table.removeRow(row)`, then re-indexes `_row_data` (`:716–719`), `_req_to_row` (`:720–723`) and
+  `_flash_timers` (`:724–727`). `clear()` (`:730+`) empties all row-keyed state.
+- `[existing]` **`ui/main_window.py::MainWindow`** (~2113+ lines, D22-modified) — `DEFAULT_WATCHLIST`,
+  watchlist dock + title-bar wiring, `_on_connected` / `_restore_watchlist` / `_on_disconnected` (→
+  `self._contract_lookup.cancel_all()`), `ContractLookupService` construction and `lookup_finished`
+  wiring, the add/remove slots, the connection gate. Not touched by D23.
+- `[existing]` **`data/db.py`** — `get_watchlist` / `set_watchlist` + the D22 `add_watchlist_symbol` /
+  `remove_watchlist_symbol` helpers. Not touched by D23.
+
+**Key entry points**
+- **Watchlist add** — `+` button / header-strip "Add symbol…" → `MainWindow` gate + duplicate check →
+  `ContractLookupService.request` → `reqContractDetails` → bridge callbacks (queued) →
+  `lookup_finished` → `WatchlistPanel.add_symbol` + `db.add_watchlist_symbol`.
+- **Watchlist remove** — table-body "Remove symbol" → `MainWindow` →
+  `WatchlistPanel.remove_symbol` + `db.remove_watchlist_symbol`.
+- **Contract-lookup cancellation** — `ContractLookupService.cancel` / `cancel_all` (local
+  invalidation). `MarketDataManager.cancel_contract_details` has **no production caller** (grep across
+  the tree: only its definition at `ibkr/market_data.py:78` and its own tests).
+
+**External integrations already in use**
+- `[existing]` **IBKR via the official `ibapi` (pinned `9.81.1.post1`), live TWS port 7496 only**:
+  `reqMktData`/`cancelMktData` (watchlist ticks), `reqHistoricalData`/`cancelHistoricalData` (chart +
+  D16 backfill), `reqMktDepth` (DOM), realtime bars, account/position/order callbacks, and (new in
+  D22) `reqContractDetails` / `contractDetails` / `contractDetailsEnd`.
+- `[existing]` **SQLite** via `data/db.py` (module singleton `db`), path from
+  `config/paths.get_db_path()`.
+- `[existing]` **QSettings**, the **Qt signal bus** (`IBBridge`), and the **pyqtgraph** chart scene.
+
+**Verified facts that shape D23 (source-validated 2026-10-07)**
+1. **The pinned `ibapi` has no cancel.** `.venv` `ibapi 9.81.1.post1`;
+   `hasattr(EClient, 'cancelContractDetails') is False` while `hasattr(EClient,
+   'reqContractDetails') is True`. Therefore `ibkr/market_data.py:82`'s
+   `self.client.cancelContractDetails(req_id)` raises `AttributeError`, which the enclosing
+   `except Exception: pass` (`:83–84`) silently swallows → the cancel is a **no-op on the wire**.
+   Requirement **D23.1** fixes this as a **capability-guarded, documented** call.
+2. **The wire cancel is dead code today.** No production path calls
+   `MarketDataManager.cancel_contract_details`; `ContractLookupService.cancel`/`cancel_all` only drop
+   the pending entry and stop the bounded timer; `_on_disconnected` calls `cancel_all()`. TWS ends a
+   `reqContractDetails` request itself (`contractDetailsEnd` / an `error`). Hence the behaviour change
+   is **forward-correctness**, verifiable in isolation, with **no D22 observable behaviour change**
+   (`AC-D23.1.4` / A53 / A54).
+3. **The D22 test's fake hides the gap.** `tests/test_ibkr_contract_details_d22.py::_FakeClient`
+   (`:118–130`) **defines** `cancelContractDetails` (`:127`); `TestD22_02_T03` (`:133`) covers
+   "delegates + None-safe" (`:151`) and "swallows client exception" (`:163`) but has **no** case for a
+   client that *lacks* the method. D23.1 adds that case and pairs the method-defining fake with a
+   fake that does not define it (`AC-D23.1.1`).
+4. **`remove_symbol` leaves a stale `_row_data` key only on the last row.**
+   `ui/watchlist_panel.py:716–719` re-indexes `_row_data` with `{(r-1 if r > row else r): values…}`
+   but **never drops the removed row's own key**. Reproduced: a 3-row panel (AAPL/MSFT/TSLA),
+   `remove_symbol('TSLA')` → `rowCount() == 2` but `sorted(_row_data.keys()) == [0, 1, 2]` (stale key
+   2). A middle-row removal leaves `[0, 1]` because the shifted-up row overwrites the removed key.
+   `_req_to_row`, `_prev_close`/`_last_price` and `_flash_timers` are already handled explicitly, so
+   **only `_row_data`** carries the stale key (`AC-D23.2.1`–`AC-D23.2.2` / A55).
+5. **The existing remove coverage cannot catch it.**
+   `tests/test_watchlist_add_remove_d22.py::test_D22_05_T02` (`:281`) removes the **middle** row and
+   asserts `_row_data.keys() == {0, 1}` — it passes pre-fix. There is **no** last/first/only-row
+   assertion; `test_D22_05_T03` (`:324`) covers the absent/blank no-op (`AC-D23.2.3`/`AC-D23.2.4`).
+
+### Tech Stack Decisions (D23 increment)
+
+Constrained (existing) choices first, then the D23 additions. **No new dependency.**
+
+| # | Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|---|
+| S1 | Language / UI stack `[existing]` | Unchanged: Python 3.11+ (`.venv`), PyQt6 (`>=6.6`), pyqtgraph (`>=0.13`) | Existing-repo hard constraint; "Changing the tech stack" is an explicit Non-Goal | Any new UI/charting framework — rejected |
+| S2 | Broker / numerics / persistence / packaging / tests `[existing]` | Unchanged: official `ibapi` (pinned `9.81.1.post1`), live TWS port `7496` only; numpy (`>=1.26`); SQLite via `config/paths.get_db_path()`; PyInstaller `.app`; pytest + pytest-qt offscreen (no live TWS) | Existing-repo hard constraint; Q9 forbids automated TWS/order traffic | Paper mode / new broker / new DB / new test framework — rejected |
+| S3 *(reconciled)* | **D23.1 — capability-guarded best-effort contract-details cancel** `[new/changed]` | Rewrite `[existing] ibkr/market_data.py::MarketDataManager.cancel_contract_details` to: keep `if req_id is None: return`; resolve `cancel = getattr(self.client, 'cancelContractDetails', None)`; **call it only if present**, inside the existing containment (`try/except Exception: pass`); carry a docstring/comment documenting that (a) pinned `ibapi 9.81.1.post1` exposes no `EClient.cancelContractDetails`, (b) TWS's own `contractDetailsEnd`/error ends the wire request, and (c) `ContractLookupService`'s local invalidation (bounded 5s QTimer + `cancel_all` on disconnect) is the real safety net. This **reconciles D22 architecture row `S3`** (the request path is unchanged; only the cancel is corrected) and **supersedes the task-level `AC-D22.2.3`** wire-cancel mandate (`AC-D23.1.1`–`AC-D23.1.4`) | `getattr`-guard makes the call **capability-detected**: correct on the pinned dep today (no-op, no exception) and forward-correct if a future `ibapi` adds the method (called once). Keeping the containment preserves the method's existing "never raises" contract (`AC-D23.1.3`), and the documentation makes the no-op **intentional and discoverable** rather than a swallowed `AttributeError`. It also matches the ESC-030 suggested direction exactly | (i) **Leave as-is** — silently swallowed `AttributeError`; dishonest and non-forward-correct (rejected). (ii) **Delete the call + the method** — removes a public-shaped method the D22 architecture names, loses forward-compat, and cannot be asserted (rejected). (iii) **Drop the `try/except` and let it raise** — breaks the established containment contract and could surface on a reader/UI path (rejected). (iv) **Attempt a real wire cancel some other way** — no such API exists on the pinned dep (rejected) |
+| S15 | **D23.2 — `_row_data` row-key invariant in `remove_symbol`** `[new/changed]` | In `[existing] ui/watchlist_panel.py::remove_symbol`, drop the removed row's own entry while re-indexing — e.g. `self._row_data.pop(row, None)` alongside the existing `{(r-1 if r > row else r): values …}` re-map — so that after `remove_symbol` returns `True`, `set(self._row_data.keys()) == set(range(self.table.rowCount()))` (and, unchanged, the `_req_to_row` values and `_flash_timers` keys cover exactly the surviving rows). Update the `remove_symbol` docstring's re-index contract to state the invariant | The stale key is caused by the removed row's own index never being overwritten when it is the max index. Popping it first makes the invariant explicit and mirrors the **already-explicit** handling of `_req_to_row` (popped) and `_flash_timers` (removed-row timers stopped). The narrow fix keeps the shift expression and the FieldKey-bound `_row_data` values untouched (DG32), preserving `_rebuild_table`/`_set_cell` behaviour (`AC-D23.2.4`) | (i) **Rely on the shift alone** — leaves the stale last-row key (the defect; rejected). (ii) **Rebuild `_row_data` from the table contents** — discards cached field values and the FieldKey binding, and re-queries widgets (rejected: risks DG32/`_set_cell` regressions and is a larger change). (iii) **Filter with `{k: v for k, v in … if k < rowCount()}`** — works but is less direct than popping the removed key and obscures *why* the key is stale (rejected in favour of the explicit pop) |
+| S16 | **D23 test surface** `[new/changed]` | Update two D22 test modules: `tests/test_ibkr_contract_details_d22.py` — (i) a **code-shape/source assertion** (the pre-fix-red evidence for `AC-D23.1.1`): `cancel_contract_details`'s own source contains **no** bare `self.client.cancelContractDetails(...)` attribute access and **does** contain the `getattr(self.client, "cancelContractDetails", None)` capability guard; (ii) a **missing-capability behavioural test** with a fake that does **not** define `cancelContractDetails` (e.g. `types.SimpleNamespace(reqContractDetails=…)`) asserting no exception (a **post-fix guard**, explicitly *not* pre-fix-red); (iii) the **present-method** case with the method-defining `_FakeClient` (invoked once with `req_id`); keep the existing "delegates"/"None-safe"/"raises" cases. `tests/test_watchlist_add_remove_d22.py` — add **last-row** (and/or **first-row** / **only-row**) removal assertions that fail pre-fix | Q8: every fix ships a check that fails before and passes after, runnable offscreen. For D23.2 the last-row assertion is genuinely red pre-fix. For D23.1 the fix retains `try/except Exception: pass` and changes **no externally observable behaviour** (the pre-fix code already returns normally for a client lacking the method — `AttributeError` raised inside the `try`, swallowed — and a `getattr(…, None)` guard still performs the attribute lookup), so **no behavioural or attribute-access-spy test can be red pre-fix**; the genuine pre-fix-red evidence is therefore the **code-shape/source assertion**, and the behavioural cases are honest **post-fix guards** (`AC-D23.1.1`). A method-defining fake no longer matches the pinned surface, so the no-op must also be exercised against a fake that omits the method. The existing middle-row test (`test_D22_05_T02`) passes pre-fix and cannot be the only guard (`AC-D23.2.3`) | Behavioural-only testing of the guard (cannot be red pre-fix — the retained containment makes pre/post behaviour indistinguishable); a live-TWS test (forbidden by Q9); asserting the private attribute's absence at import time (brittle) |
+| S14 | Testing `[existing]` | pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS; run as `.venv/bin/python -m pytest` (stale `pytest` shebang is a known gotcha) | Repo standard (Q8/Q9) | Manual-only / live-TWS tests — rejected |
+
+**D23 introduces no new dependency and replaces or deprecates no existing tech-stack item.** The
+pinned `ibapi` version is **not** changed — D23 makes the code honest about its actual surface
+instead.
+
+### System Components (D23 increment)
+
+**Existing components (responsibilities unchanged):**
+- `[existing] services/contract_lookup_service.py` — `ContractLookupService` pending map, bounded
+  QTimer, exactly-once resolution, `cancel`/`cancel_all` local invalidation. **Unchanged** — D23.1
+  documents it as the safety net.
+- `[existing] ibkr/client.py`, `[existing] ibkr/bridge.py` — the contract-details request/callback
+  plumbing. **Unchanged** (the request path is untouched; only the cancel is corrected).
+- `[existing] ibkr/contracts.py`, `[existing] ibkr/id_manager.py`, `[existing] ibkr/pacing.py`,
+  `[existing] ibkr/error_codes.py`. **Unchanged.**
+- `[existing] data/db.py`, `[existing] ui/main_window.py`, `[existing] ui/add_symbol_dialog.py`.
+  **Unchanged by D23.**
+- `[existing] ui/watchlist_panel.py::WatchlistPanel` — all behaviour except the `remove_symbol`
+  re-index body. **Unchanged** otherwise (table, header strip, D21.5 column model/menu, D21.11
+  toggle, `add_symbol`, `clear`, tick handlers, D14 double-click, persistence).
+
+**Changed components:**
+- `[new/changed] ibkr/market_data.py::MarketDataManager.cancel_contract_details` — capability-guard +
+  documentation (S3/D23.1). Public signature `cancel_contract_details(req_id: int | None) -> None`
+  unchanged; `req_contract_details` unchanged.
+- `[new/changed] ui/watchlist_panel.py::WatchlistPanel.remove_symbol` — drop the removed row's
+  `_row_data` key while re-indexing; docstring states the row-key invariant (S15/D23.2). Signature
+  `remove_symbol(symbol: str) -> bool` unchanged.
+- `[new/changed] tests/test_ibkr_contract_details_d22.py`,
+  `[new/changed] tests/test_watchlist_add_remove_d22.py` — added/updated cases (S16).
+
+**No new component, module, thread, or dependency is introduced.** The request/response path
+(`ContractLookupService → MarketDataManager.req_contract_details → IBApiClient.reqContractDetails →
+bridge signals → ContractLookupService`) and all component relationships are unchanged; only the
+(uncalled) cancel is corrected and one panel method's internal state bookkeeping is tightened.
+
+### Data Model (D23 increment)
+
+- `[existing]` All persisted entities and tables (`Bar`, `Alarm`, `Drawing`, `Watchlist`, …; tables
+  `bars`, `watchlist`, `alarms`, `zones`, `drawings`, …) — **unchanged; no migration, no schema
+  change**.
+- `[existing]` `ContractLookupService._pending` (reqId → `PendingLookup`) — **unchanged**.
+- `[existing]` QSettings keys `watchlist/width`, `watchlist/columns`, `watchlist/configured` —
+  **unchanged**.
+- `[new/changed]` **Documented row-key invariant on `WatchlistPanel`'s in-memory state** (not
+  persisted): after `remove_symbol` returns `True`,
+  `set(_row_data.keys()) == set(range(table.rowCount()))`; the `_req_to_row` **values** and the
+  `_flash_timers` **keys** likewise cover exactly the surviving rows (no key for a removed row
+  survives). `_prev_close` / `_last_price` stay keyed by **reqId** with the removed row's reqIds
+  dropped. This is a corrected invariant over existing structures, not a new store.
+
+### Integration Points (D23 increment)
+
+- `[existing]` **IBKR `reqContractDetails` / `contractDetails` / `contractDetailsEnd`** — the D22
+  request path is **unchanged**. D23.1 records the externally-verified fact that the pinned `EClient`
+  exposes **no** `cancelContractDetails`, so the wire request has no client-side cancel and is ended
+  by TWS itself. No new IBKR call type is added.
+- `[existing]` **ContractLookupService local invalidation** — the bounded QTimer + `cancel_all()` on
+  disconnect remain the safety net for an unresolved lookup (`AC-D23.1.2`).
+- `[existing]` **SQLite / QSettings / Qt signal bus / pyqtgraph** — unchanged.
+- **No new external service, API, dependency, or persisted table is introduced by D23.**
+
+### Non-Functional Approach (D23 increment)
+
+- **Correctness — capability guard (D23.1).** The cancel performs `getattr(..., None)` and calls the
+  method only when present, so on the pinned `ibapi` it is a **clean no-op** rather than a swallowed
+  `AttributeError` (`AC-D23.1.1`). Containment is preserved: `req_id is None` is a no-op, and a client
+  whose (present) cancel **raises** does not propagate (`AC-D23.1.3`). The documentation requirement
+  (`AC-D23.1.2`) makes the pinned-dep absence, TWS's `contractDetailsEnd` termination, and the
+  `ContractLookupService` safety net discoverable in-code.
+- **Forward correctness (D23.1).** If a future `ibapi` adds `cancelContractDetails`, the guard calls
+  it exactly once with `req_id` — the method becomes live with no further change; the D23.1.4
+  correction record keeps the task/architecture records consistent with the pinned surface.
+- **Correctness — row-key invariant (D23.2).** The re-index stays O(n) over the watchlist (a very
+  small n) and now drops the removed row's own `_row_data` key, so reads (all of which go through
+  `table.item(row, col)` for `row in range(rowCount())`) and the FieldKey-bound
+  `_rebuild_table`/`_set_cell` path are unaffected; the invariant is asserted for first / middle /
+  last / only-row removals (`AC-D23.2.1`–`AC-D23.2.4`).
+- **Performance.** No change: no polling, no new request, no new thread; the cancel rarely/never runs
+  (dead code today) and the re-index is unchanged in cost.
+- **Security / safety (Q9).** No new dependency; the live-order path (`ibkr/orders.py`) is untouched;
+  no automated test connects to live TWS or transmits an order. The contract lookup is a read-only
+  query.
+- **Test discipline (Q8).** Both fixes ship a **genuine** pre-fix-red / post-fix-green check, runnable
+  offscreen; the pre-existing suite (712 tests) must stay green. D23.2's pre-fix-red evidence is the
+  last-row assertion. D23.1's fix retains `try/except Exception: pass` and changes no externally
+  observable behaviour, so its pre-fix-red evidence is a **code-shape/source assertion** (the bare
+  `self.client.cancelContractDetails(...)` access is gone; the `getattr(self.client,
+  "cancelContractDetails", None)` guard is present) rather than a behavioural test — the behavioural
+  missing-capability (no exception) and present-method (called once with `req_id`) cases are
+  **post-fix guards**, explicitly *not* pre-fix-red. The shared-test-DB and stale-`pytest`-shebang
+  gotchas recorded in `docs/memory.md` apply — verify with a clean full-suite run as
+  `.venv/bin/python -m pytest`.
+- **Non-regression.** `AC-D22.1`–`AC-D22.9` stand; the add/remove flow, persistence, connection gate,
+  D21.5 column menu, D21.11 toggle, D14 double-click and D21.13 dock behaviour are untouched.
+
+### Architecture Risks (D23 increment)
+
+| # | Risk | Severity | Mitigation |
+|---|---|---|---|
+| AR-D23-1 | The guarded cancel could still swallow a genuine error, or could stop containing one (raising to a caller) | M | Keep the `try/except Exception: pass` around the guarded call and add/keep explicit cases for `req_id is None`, missing attribute, and a raising client (`AC-D23.1.3`); assert `cancel_calls == [7]` only for the present-method case |
+| AR-D23-2 | A test that only uses the method-defining `_FakeClient` cannot exercise the pinned (missing) surface, so the guard could regress unnoticed; and because the retained containment makes pre/post behaviour identical, a behavioural test cannot be pre-fix-red | M | Add the **code-shape/source assertion** (pre-fix-red: no bare `self.client.cancelContractDetails(...)` access; `getattr(self.client, "cancelContractDetails", None)` present) **and** pair the method-defining fake with a fake that does **not** define `cancelContractDetails` (`types.SimpleNamespace(reqContractDetails=…)`) as a post-fix no-exception guard (`AC-D23.1.1`) |
+| AR-D23-3 | Correcting the task-level `AC-D22.2.3` and its test could conflict with the already-built D22 tests, leaving the suite red if not updated in lockstep (R49) | L | Update `AC-D22.2.3` (Task Manager, `docs/tasks/task-graph.json` task `D22-02`) and `tests/test_ibkr_contract_details_d22.py` **in lockstep** with the guard; keep the None/raises cases; confirm the full 712-test suite stays green |
+| AR-D23-4 | Re-indexing `_row_data` incorrectly could shift a symbol's cached values onto the wrong row (R50) | L | Use the narrow fix (pop the removed key around the existing shift) and assert `set(_row_data.keys()) == set(range(rowCount()))` for first/middle/last/only-row removals; leave `_rebuild_table`/`_set_cell` FieldKey binding (DG32) unchanged |
+| AR-D23-5 | The `S3` reconciliation could remain doc-only/ambiguous, leaving architecture and the pinned surface inconsistent | L | Rewrite architecture `S3` to the capability-guarded best-effort cancel (recorded in this increment and cross-referenced from the D22 `S3` row); record the reconciliation in `docs/plan_notes.md`; Code Reviewer re-verifies ESC-030 after Build |
+| AR-D23-6 | Broadening the fix beyond the two findings (e.g. touching the request path or persistence) could regress D22 | L | Scope guard: D23 touches only `cancel_contract_details` + the test, and `remove_symbol`'s re-index + the test; the request path, DB, `MainWindow`, and the recipe flows are untouched; D1–D22 criteria are re-affirmed |
+
+### Implementation sequencing (D23 increment)
+
+At the architecture level the sequence is: **(1)** the D23.1 capability-guarded, documented cancel
+plus its missing-capability test; **(2)** the D23.2 `remove_symbol` `_row_data` stale-key fix plus the
+last/first/only-row coverage; **(3)** the record reconciliation (`S3` in `docs/architecture.md`,
+`AC-D22.2.3` in `docs/tasks/task-graph.json`) and full-suite non-regression verification. Phases 1 and
+2 touch **fully disjoint** file sets and may run in the same wave; Phase 3 follows both. D1–D22 are
+frozen throughout. Detailed phases, coverage and `touches_files` notes are in `docs/plan.md`.

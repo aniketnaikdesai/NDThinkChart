@@ -11,6 +11,10 @@ class IBBridge(QObject):
     historical_bar = pyqtSignal(int, object)        # reqId, BarData
     historical_data_end = pyqtSignal(int)           # reqId
 
+    # Contract details
+    contract_details = pyqtSignal(int, object)      # reqId, ContractDetails
+    contract_details_end = pyqtSignal(int)          # reqId
+
     # Live ticks
     tick_price = pyqtSignal(int, int, float)        # reqId, tickType, price
     tick_size = pyqtSignal(int, int, int)           # reqId, tickType, size
