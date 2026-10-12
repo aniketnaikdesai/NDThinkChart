@@ -497,6 +497,8 @@ class MainWindow(QMainWindow):
         self.watchlist_panel.set_market_data_manager(self.md_manager)
         # D27.3: the panel type-tags its live subs for the reconnect replay.
         self.watchlist_panel.set_subscription_manager(self.sub_manager)
+        # D27.5: watchlist ticks feed the central symbol -> last_price map.
+        self.watchlist_panel.set_price_sink(self._record_symbol_price)
         self.watchlist_panel.set_depth_manager(self.depth_manager)
 
         # Drawing overlay wiring
@@ -595,6 +597,10 @@ class MainWindow(QMainWindow):
         # load_chart. Guards _finalize_history_wave against rewinding
         # _last_chart_price to the older historical close (phantom alarms).
         self._rt_seen: bool = False
+        # D27.5: central symbol -> last_price map (chart + watchlist feeds).
+        # Position market prices look up the position's own symbol here —
+        # never the chart's _last_chart_price.
+        self._symbol_last_prices: dict[str, float] = {}
         # D27.4: health of the chart's live RT subscription. Owned here in
         # Phase 2; migrates into TickerSession in Phase 3b (no window refs).
         self._stream_health = StreamHealth()
@@ -1397,6 +1403,13 @@ class MainWindow(QMainWindow):
             self._refresh_alarm_badge()
             self._notify_alarm_triggered(triggered)
         self._last_chart_price = bar.close
+        # D27.5: feed the central symbol -> last_price map.
+        self._record_symbol_price(self._current_symbol, bar.close)
+
+    def _record_symbol_price(self, symbol: str | None, price: float) -> None:
+        """D27.5: record a last price in the central symbol -> price map."""
+        if symbol and price and price > 0:
+            self._symbol_last_prices[symbol.upper()] = float(price)
 
     def _notify_alarm_triggered(self, triggered: list):
         lines = [
@@ -2355,8 +2368,17 @@ class MainWindow(QMainWindow):
             right=right,
             avg_cost=avg_cost,
             qty=pos,
+            # D27.5 drive-by: the call was missing these required args, so
+            # every position update raised TypeError (masked until D27.6
+            # subscribes reqPositions and updates actually flow).
+            stop_loss=None,
+            take_profit=None,
         )
-        position.market_price = self._last_chart_price or 0.0
+        # D27.5: the position's OWN symbol price — never the chart's price.
+        # Unknown symbol -> 0.0 (honest unknown), not a wrong symbol's price.
+        position.market_price = self._symbol_last_prices.get(
+            (position.symbol or "").upper(), 0.0
+        )
         self._upsert_position(position)
         self.portfolio_panel.add_position(position)
 

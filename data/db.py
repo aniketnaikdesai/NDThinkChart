@@ -114,6 +114,13 @@ class DB:
         alarm_columns = self._table_columns("alarms")
         if "created_at" not in alarm_columns:
             self.conn.execute("ALTER TABLE alarms ADD COLUMN created_at INTEGER")
+        # D27.5: _upsert_position's ON CONFLICT(symbol, con_id) requires a
+        # matching unique constraint — without it every position persist
+        # raised OperationalError.
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "idx_positions_symbol_con_id ON positions(symbol, con_id)"
+        )
 
     def _table_columns(self, table_name: str) -> set[str]:
         cursor = self.conn.cursor()

@@ -268,6 +268,9 @@ class WatchlistPanel(QWidget):
         # D27.3: subscription registry (injected by MainWindow) so live
         # market-data subs are type-tagged for the reconnect replay.
         self._sub_manager = None
+        # D27.5: sink for (symbol, last_price) fed to MainWindow's central
+        # symbol -> last_price map.
+        self._price_sink = None
         # D21.11: body (table) collapse state driven by the header button.
         self._collapsed = False
 
@@ -661,6 +664,10 @@ class WatchlistPanel(QWidget):
         """Inject the SubscriptionManager for reconnect replay (D27.3)."""
         self._sub_manager = sub_manager
 
+    def set_price_sink(self, sink):
+        """Inject the (symbol, price) sink for the central price map (D27.5)."""
+        self._price_sink = sink
+
     # ── MarketDepth management ───────────────────────────────────────────────────
 
     def on_depth_update(self, req_id: int, position: int, operation: int,
@@ -807,6 +814,11 @@ class WatchlistPanel(QWidget):
             field = "last"
             old = self._last_price.get(req_id)
             self._last_price[req_id] = price
+            # D27.5: feed the central symbol -> last_price map.
+            if self._price_sink is not None:
+                symbol = self._row_data.get(row, {}).get(SYMBOL_FIELD)
+                if symbol:
+                    self._price_sink(symbol, price)
             # Compute change
             prev = self._prev_close.get(req_id)
             if prev and prev > 0:
