@@ -119,3 +119,10 @@ def test_place_order_transmits_valid(monkeypatch, qapp):
         assert len(calls) == 1, "valid order must transmit exactly once"
     finally:
         win.close()
+
+
+def test_max_order_notional_is_owner_approved_25000():
+    """Pin the money number: the notional cap must be exactly the owner-approved
+    USD 25,000 (plan §7.2). Changing it requires an explicit owner decision."""
+    from config import settings
+    assert settings.MAX_ORDER_NOTIONAL == 25000
