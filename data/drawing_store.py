@@ -131,11 +131,34 @@ class DrawingStore:
         return int(cursor.lastrowid)
 
     @staticmethod
-    def update_drawing(drawing_id: int, payload: dict) -> None:
+    def update_drawing(
+        drawing_id: int,
+        payload: dict,
+        color: Optional[str] = None,
+        label: Optional[str] = None,
+        group_id: Optional[int] = None,
+    ) -> None:
+        """Update a drawing's payload and, optionally, its style fields.
+
+        D27.10: colour/label/group edits from the settings path must persist.
+        ``None`` means "unchanged" — omitted fields are never clobbered.
+        """
+        sets = ["payload=?"]
+        values: list = [json.dumps(payload)]
+        if color is not None:
+            sets.append("color=?")
+            values.append(color)
+        if label is not None:
+            sets.append("label=?")
+            values.append(label)
+        if group_id is not None:
+            sets.append("group_id=?")
+            values.append(group_id)
+        values.append(drawing_id)
         cursor = db.conn.cursor()
         cursor.execute(
-            "UPDATE drawings SET payload=? WHERE id=?",
-            (json.dumps(payload), drawing_id),
+            f"UPDATE drawings SET {', '.join(sets)} WHERE id=?",
+            values,
         )
         db.conn.commit()
 

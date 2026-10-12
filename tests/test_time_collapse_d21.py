@@ -784,7 +784,7 @@ def test_d21_16_t02_time_anchored_drawing_round_trips_after_collapse(qapp) -> No
         # Drag the body by exactly one bar period of display-x inside Thursday:
         # the payload timestamps shift by one bar period (scene -> view mapping).
         updated = []
-        ov.updated.connect(lambda did, payload: updated.append((did, payload)))
+        ov.updated.connect(lambda did, payload, color: updated.append((did, payload, color)))
         press_x = ov._ts_to_x(p1_ts)
         ov.view_mouse_press(_draw_event(ov, press_x, 100.0))
         assert ov._drag is not None and ov._drag["body"] is True

@@ -66,7 +66,9 @@ class DrawingViewBox(pg.ViewBox):
 
 class DrawingOverlay(QObject):
     created = pyqtSignal(object)          # Drawing (no id yet)
-    updated = pyqtSignal(int, dict)       # drawing_id, new payload
+    # D27.10: (drawing_id, new payload, color) — the settings path edits
+    # colour in-memory, so it must travel with the update to persist.
+    updated = pyqtSignal(int, dict, str)
     deleted = pyqtSignal(int)             # drawing_id
     selection_changed = pyqtSignal(int)   # drawing id or -1
     mode_changed = pyqtSignal(str)        # active tool name
@@ -869,7 +871,7 @@ class DrawingOverlay(QObject):
                 self._restore_drawing_style(drawing)
                 self._style_selected(drawing)
                 self._refresh_handles()
-                self.updated.emit(int(drawing.id), payload)
+                self.updated.emit(int(drawing.id), payload, drawing.color)
                 return
 
         elif kind == "measure":
@@ -887,7 +889,7 @@ class DrawingOverlay(QObject):
         # For non-fibonacci, apply selection styling and refresh handles
         self._style_selected(drawing)
         self._refresh_handles()
-        self.updated.emit(int(drawing.id), payload)
+        self.updated.emit(int(drawing.id), payload, drawing.color)
 
     def _select(self, drawing_id: int) -> None:
         prev_id = self._selected_id

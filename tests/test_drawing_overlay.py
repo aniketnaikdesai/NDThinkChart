@@ -193,7 +193,7 @@ class TestSelectionAndEdit:
         drawing = self._trendline(overlay)
         overlay.set_data("TEST", [drawing], [])
         updated = []
-        overlay.updated.connect(lambda did, payload: updated.append((did, payload)))
+        overlay.updated.connect(lambda did, payload, color: updated.append((did, payload, color)))
         overlay._select(1)
 
         p1_scene = scene_at(overlay, overlay._bar_ts[2], 100.0)
@@ -212,7 +212,7 @@ class TestSelectionAndEdit:
         drawing.group_id = 7
         overlay.set_data("TEST", [drawing], [group])
         updated = []
-        overlay.updated.connect(lambda did, payload: updated.append((did, payload)))
+        overlay.updated.connect(lambda did, payload, color: updated.append((did, payload, color)))
 
         overlay.view_mouse_press(event_at(overlay, overlay._bar_ts[7], 110.0))
         assert overlay._selected_id == 1

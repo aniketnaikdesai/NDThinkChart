@@ -463,7 +463,8 @@ class ChartPanel(QWidget):
             drawing.color = color
             self.drawing_overlay._restore_drawing_style(drawing)
             if drawing.id is not None:
-                self.drawing_overlay.updated.emit(drawing.id, payload)
+                # D27.10: the edited colour must persist, not just re-render.
+                self.drawing_overlay.updated.emit(drawing.id, payload, color)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 

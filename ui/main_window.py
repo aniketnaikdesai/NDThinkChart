@@ -1340,8 +1340,10 @@ class MainWindow(QMainWindow):
             f"Drawing added ({drawing.kind}) on {drawing.symbol}.", 3000
         )
 
-    def _on_drawing_updated(self, drawing_id: int, payload: dict):
-        DrawingStore.update_drawing(drawing_id, payload)
+    def _on_drawing_updated(self, drawing_id: int, payload: dict, color: str):
+        # D27.10: persist the edited colour alongside the payload so a reload
+        # shows the edited colour (AC-D27.10).
+        DrawingStore.update_drawing(drawing_id, payload, color=color)
 
     def _on_drawing_deleted(self, drawing_id: int):
         DrawingStore.delete_drawing(drawing_id)
