@@ -274,6 +274,18 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(self.draw_set_combo)
         tb_layout.addWidget(self.draw_sets_btn)
         tb_layout.addWidget(self.draw_delete_btn)
+        # D26.8: kill switch — panic control, red, immediate (no confirm).
+        self.kill_btn = QPushButton("Kill Switch")
+        self.kill_btn.setObjectName("KillSwitchButton")
+        self.kill_btn.setToolTip(
+            "Cancel ALL open orders immediately "
+            "(reqGlobalCancel + per-order cancel)."
+        )
+        self.kill_btn.setStyleSheet(
+            "background-color: #b91c1c; color: white; font-weight: bold;")
+        self.kill_btn.clicked.connect(self._on_kill_switch_clicked)
+        tb_layout.addWidget(QLabel("|"))
+        tb_layout.addWidget(self.kill_btn)
         tb_layout.addStretch()
         tb_layout.addWidget(self.conn_badge)
 
@@ -2075,19 +2087,67 @@ class MainWindow(QMainWindow):
             self.ib_client.placeOrder(parent_id, contract, parent)
             self.ib_client.placeOrder(parent_id + 1, contract, stop)
             self.ib_client.placeOrder(parent_id + 2, contract, target)
-            user_order = UserOrder(
-                order_id=parent_id, symbol=symbol, action=action,
-                total_qty=qty, order_type="LMT", lmt_price=lmt_price,
-                parent_id=parent_id, oca_group=f"bracket-{parent_id}",
-                transmit=False,
-            )
-            order_registry.register(user_order)
+            # D26.8 / VALIDATOR: register EVERY transmitted leg at transmit
+            # time, or the kill switch and _update_order_status cannot see
+            # the protective children. (The old code registered only the
+            # parent, with a self-referential parent_id and transmit=False.)
+            child_action = "SELL" if action == "BUY" else "BUY"
+            for leg_id, leg_type, leg_action, leg_price in (
+                (parent_id, "BRACKET", action, lmt_price),
+                (parent_id + 1, "STP", child_action, stop_price),
+                (parent_id + 2, "LMT", child_action, target_price),
+            ):
+                order_registry.register(UserOrder(
+                    order_id=leg_id, symbol=symbol, action=leg_action,
+                    total_qty=qty, order_type=leg_type,
+                    lmt_price=leg_price if leg_type != "STP" else None,
+                    aux_price=leg_price if leg_type == "STP" else None,
+                    status="Submitted",
+                    parent_id=0 if leg_id == parent_id else parent_id,
+                    oca_group=f"bracket-{parent_id}", transmit=True,
+                ))
             self.active_trader.set_order_status(
                 parent_id, action, qty, "Bracket Submitted"
             )
 
     def _on_open_order(self, orderId: int, contract, order, orderState):
         self._update_order_status(orderId, getattr(orderState, "status", ""))
+
+    def _kill_switch(self) -> tuple[int, int]:
+        """D26.8: cancel EVERY open order immediately.
+
+        Issues reqGlobalCancel() plus a per-ID cancelOrder for each tracked
+        open order (belt-and-braces: the global cancel is a request, not a
+        guarantee). Returns (open_before, cancel_requests_sent). Registry
+        entries are marked Cancelled locally; TWS orderStatus updates will
+        confirm or correct.
+        """
+        terminal = {"Filled", "Cancelled", "Rejected", "Inactive"}
+        open_ids = [oid for oid, o in order_registry.all().items()
+                    if o.status not in terminal]
+        pre = len(open_ids)
+        try:
+            self.ib_client.reqGlobalCancel()
+        except Exception:  # noqa: BLE001 — a kill switch must not raise
+            _LOG.exception("reqGlobalCancel failed")
+        sent = 0
+        for oid in open_ids:
+            try:
+                self.ib_client.cancelOrder(oid)
+                sent += 1
+            except Exception:  # noqa: BLE001
+                _LOG.exception("cancelOrder(%s) failed", oid)
+        for oid in open_ids:
+            order_registry.update_status(oid, "Cancelled")
+        msg = (f"Kill switch: {sent}/{pre} cancel requests sent "
+               f"(reqGlobalCancel + per-order cancel).")
+        self.status_bar.showMessage(msg, 12000)
+        self.active_trader.order_entry.status_label.setText(msg)
+        return pre, sent
+
+    def _on_kill_switch_clicked(self):
+        """Toolbar kill-switch button: cancel all open orders, show counts."""
+        self._kill_switch()
 
     def _on_exec_details(self, reqId: int, contract, execution):
         oid = getattr(execution, "orderId", None)
@@ -2263,6 +2323,9 @@ class MainWindow(QMainWindow):
 
     def _on_portfolio_flatten_all(self) -> None:
         """Close all open positions (flatten portfolio)."""
+        # D26.8: kill working orders FIRST so no protective/stale order can
+        # fire against the closes that follow (_kill_switch surfaces counts).
+        self._kill_switch()
         from data.db import db
 
         cursor = db.conn.cursor()
