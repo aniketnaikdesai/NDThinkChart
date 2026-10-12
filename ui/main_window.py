@@ -1997,7 +1997,9 @@ class MainWindow(QMainWindow):
             self.active_trader.set_order_status(parent_id, action, qty, "Submitted")
 
         elif order_type == "BRACKET":
-            parent_id = id_manager.get_id()
+            # D26.2: reserve all three leg IDs up front so no later get_id()
+            # (order or reqId) can reissue a live bracket-leg order ID.
+            parent_id = id_manager.reserve(3)
             parent, stop, target = order_registry.bracket_order(
                 parent_id, action, qty, lmt_price, stop_price, target_price,
             )
