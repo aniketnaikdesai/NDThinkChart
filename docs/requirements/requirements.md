@@ -40,6 +40,22 @@
 > coverage added. See D23, Journey 28, `AC-D23.1.*`/`AC-D23.2.*`, A53–A55, R49–R50, and `open_questions.md`
 > (Batch 17). No blocking question remains; `requirements.md` carries `Status: READY_FOR_PLAN`.
 
+> **[NEW v1.2] 2026-10-12 — Batches D24–D28 (pop-out charts + deep-dive bug review) — USER-SPECIFIED, draft for
+> owner review.** The user specified two new features and commissioned a five-track adversarial code review
+> (~30k lines, critical claims hand-verified) whose bugs are captured here as corrective requirements:
+> **D24** — pop-out chart windows (max 10, chrome-free, per-ticker pinned, per-ticker sync of
+> bars/studies/zones/lines/alarms, drawing main-chart-only, all real-time);
+> **D25** — headless alarm price monitoring (every ticker with a live alarm is price-tracked at 1-minute
+> granularity via headless `TickerSession`s, so alarms fire regardless of the main-chart symbol);
+> **D26** — corrective batch, P0 real-money safety (9 order-path bugs incl. inverted bracket children,
+> unreserved order IDs, phantom stop-loss dialog, crashing MKT buttons);
+> **D27** — corrective batch, P1 correctness (10 bugs incl. phantom alarm triggers, four invisible study
+> overlays, dead reconnect/replay);
+> **D28** — corrective batch, P2 robustness/scale (5 bugs incl. GUI-thread pacing sleep, single-symbol data
+> plane → `TickerSession` extraction, unbounded growth). D1–D23 are **not** reopened; D24–D28 are additive.
+> See D24–D28, Journeys 29–30, `AC-D24.*`–`AC-D28.*`, A56–A66, R51–R60, DG46–DG52. **Status: DRAFT — owner
+> review required before Plan.**
+
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
 official `ibapi`, live TWS port 7496) built through Phases 1–10 of
@@ -588,6 +604,37 @@ repository files, which remain authoritative if the two disagree.
   (vacated index reused cleanly); a live tick for a surviving reqId after a last-row removal; a client with no
   `cancelContractDetails`; a client whose capability-guarded cancel raises; `req_id is None`; lookup
   timeout / disconnect mid-flight.
+
+**[NEW v1.2]**
+### Journey 29 — D24: pop out chart windows and keep them per ticker
+- **Preconditions:** IBKR connected; the main chart shows ticker X (e.g. `AAPL`, 5m, Candles); no pop-outs open.
+- **Steps:** 1) Click **Pop out** (toolbar button / hotkey). 2) A chrome-free window opens showing X's chart —
+  no toolbar, no docks, just a slim header (`X · 5m · Candles`) and the chart. 3) In the main chart, load
+  ticker Y. 4) Pop Y out too. 5) In the main chart (still on Y), draw a zone and add a price alarm for Y.
+  6) Switch the main chart back to X and draw a horizontal line.
+- **Postconditions:** Two pop-out windows exist (X and Y), each resizable and draggable to another monitor.
+  The Y pop-out shows the new zone and alarm line within the same event-loop pass; the X pop-out shows the new
+  horizontal line. All windows tick in real time. Pop-outs offer no drawing tools, no alarm placement, no
+  timeframe/mode/study controls — the main chart is the sole editor.
+- **Edge Cases:** 11th pop-out refused with a message; pop-out with no symbol loaded (ignored + message); same
+  ticker popped out 3× (one session, one subscription); pop-out while disconnected (cached bars + "connecting"
+  indicator, subscription starts on connect); main chart showing the same ticker as a pop-out (all stay in
+  sync); closing a pop-out (slot freed, session torn down only if no views and no live alarms remain); app quit
+  with pop-outs open (all close with the main window).
+
+**[NEW v1.2]**
+### Journey 30 — D25: an alarm fires for a ticker with no chart open
+- **Preconditions:** IBKR connected; no chart open on X; one live (active, untriggered) price alarm set on X
+  (e.g. `cross_above 150.00`); the main chart shows ticker Y.
+- **Steps:** 1) Note the app holds exactly one realtime-bar subscription for X (headless monitoring at 1-minute
+  granularity). 2) Drive X's price through 150.00 (or wait for the market to do it). 3) Observe the alarm
+  toast + sound from the main window — exactly once. 4) Delete the alarm.
+- **Postconditions:** The alarm fired even though no X chart was visible; `AlarmStore` shows it triggered;
+  after deletion the headless X session tears down (subscription cancelled); Y's chart was never disturbed.
+- **Edge Cases:** alarm added while disconnected (monitored on next connect); price already beyond the alarm
+  level when monitoring starts (no phantom trigger — only genuine subsequent crosses fire); alarm re-armed
+  (re-enters monitoring); more alarmed tickers than the pacing budget allows (most-recently-active win, warning
+  names the unmonitored ones).
 
 ## Acceptance Criteria (feature-level)
 
@@ -2364,6 +2411,342 @@ Chart; Q29 no-op semantics):**
   live tick for a surviving reqId after a last-row removal lands on the correct row; `clear()` still empties
   `_row_data`.
 
+**[NEW v1.2]**
+### D24 — Pop-out chart windows (NEW FEATURE) — DRAFT 2026-10-12, owner review required
+- **Area:** new `ui/ticker_session.py` (`TickerSession` per-symbol model), new `ui/popout_window.py`
+  (chrome-free window), `ui/chart_panel.py` (read-only flag), `ui/main_window.py` (session registry, pop-out
+  action, extraction of chart-state ownership), `ibkr/subscription_manager.py` (refcounted realtime subs).
+- **Status:** **DRAFT 2026-10-12 — user-specified, owner review required before Plan.** This is a **new feature**,
+  not a defect; D1–D23 are **not** reopened.
+- **Visual reference (ESC-004 gate):** **SATISFIED BY EXPLICIT USER DECISION (2026-10-12).** The user described
+  the pop-out chrome precisely: resizable window, **no toolbars**, minimal screen waste (a slim header with
+  symbol/timeframe/mode + close button is acceptable), native OS frame retained for resize/drag across monitors.
+  As with D22 (A48), placement/behaviour is the testable requirement; exact header styling is an implementation
+  detail.
+- **Reported (verbatim context):** "i want to pop out and keep it for ticker 'x' then i want to open ticker y in
+  main chart then I want to pop out and keep the new pop out chart for ticker 'y'. like this pop out charts are
+  available for ticker 'x' and 'y'. each chart would be re-sizable and have minimal wastage of screen space i.e.
+  no tool bars. each ticker symbol alerts/zones/lines would sync across all the pop out charts. i.e. if x is open
+  in 3 pop out charts then all of them would be in sync for alerts/zones/lines. Pop out charts won't have the
+  drawing facility. that is limited to main chart." / "max 10 pop out charts" / "all updated real time".
+- **Observed in repository (validated against source 2026-10-12):**
+  - `ui/main_window.py::MainWindow` (~2291 lines) owns **all** chart state: `load_chart` (`:813`) reads toolbar
+    widgets directly; `_on_realtime_bar` (`:1173`) filters on the single `self._rt_req_id`; singletons
+    `self._aggregator` (`:537`), `_current_symbol/_current_tf` (`:534-535`), `_current_alarms` (`:553`),
+    `_last_chart_price` (`:554`); the history-wave apparatus (`_history_req_ids`, `_history_generation`,
+    watchdog timer, `:538-552`) assumes exactly one chart. **There is no per-symbol model** — a second
+    `ChartPanel` has nowhere to attach.
+  - `ui/chart_panel.py::ChartPanel` instances are already view-isolated (own `_bars`, router, overlays,
+    `_StudyCache`); overlays communicate via signals (`drawing_overlay.created/updated/deleted`,
+    `alarm_overlay.create_requested/...`). `IBBridge` marshals ibapi callbacks to the main thread (queued).
+    `RealtimeBarsManager`, `MarketDataManager`, `PacingManager` are window-agnostic.
+  - `SubscriptionManager.subscribe()` has **zero callers**; `RealtimeBarsManager.replay_all()` has zero
+    callers — reconnect replay is dead code (see D27/B-1.3).
+  - Studies persist per symbol (`StudyStore.load/save(symbol)`); drawings/alarms persist per symbol
+    (`DrawingStore.drawings_for_symbol`, `AlarmStore.load(symbol)`). `PacingManager` enforces
+    `MAX_REALTIME_BARS_PER_10_MIN = 60` (`config/settings.py:12`); IBKR realtime bars are 5-second only.
+- **Requirements (final):**
+  - **Session model:** a `TickerSession` keyed by symbol owns that symbol's bar series, studies config,
+    drawings/groups, alarms, IBKR realtime subscription, and history-wave lifecycle (req-id registry, watchdog,
+    generation fencing — moved out of `MainWindow` unchanged in semantics). It emits Qt signals
+    `bars_updated` / `studies_changed` / `drawings_changed` / `alarms_changed` / `alarm_triggered`.
+    `MainWindow` holds a `dict[symbol, TickerSession]` registry; views attach/detach; attaching performs an
+    initial full sync (bars → studies → drawings → alarms) with **no** extra IBKR request when the session
+    already holds the data. A session is destroyed when its last view detaches **and** it is not
+    alarm-monitored (D25) — i.e. it stays alive while `views > 0 OR monitored`.
+  - **Pop-out lifecycle:** toolbar **"Pop out"** action (button + hotkey, e.g. `Ctrl/Cmd+P`) snapshots the main
+    chart's current symbol/timeframe/chart-mode/extended-hours into a new pop-out. **Cap: 10 pop-out windows**
+    (`MAX_POPOUTS = 10`, `config/settings.py`); at the cap the action is disabled with a status-bar message;
+    closing frees the slot immediately. Popping out never disturbs the main chart. The same ticker may be
+    popped out multiple times (one session, one subscription); the main chart may show the same ticker as
+    pop-outs. Pop-outs are parented `QWidget`s with `Qt.Window` — independent top-level windows that close with
+    the main window. If disconnected at pop-out time, cached bars render immediately with a "connecting"
+    indicator; the subscription starts on connect via the existing reconnect path.
+  - **Chrome-free window:** each pop-out contains exactly a slim header strip (symbol · timeframe · mode + close
+    button, ~28px) and a `ChartPanel`; no toolbar row, no docks, no watchlist, no status bar. Native OS frame
+    retained. `ChartPanel` gains a read-only mode (`editable=False`): drawing tools, alarm placement, and
+    studies/timeframe/mode controls are disabled — **interaction only**; `drawing_overlay`/`alarm_overlay`
+    still render everything, and crosshair/zoom/pan work normally. Timeframe/mode/extended-hours are **frozen
+    at pop-out creation** (A56).
+  - **Main chart:** keeps its full UI and becomes view #0 on the current symbol's session. Loading a new ticker
+    detaches the primary view from the old session and attaches to (or creates) the new one; the old session
+    persists while pop-outs remain. Watchlist double-click still targets the main chart only. The toolbar alarm
+    badge reflects the main-chart symbol only. `load_chart` is parameterised
+    (`load_chart(symbol, timeframe, extended_hours)`) instead of reading toolbar widgets, so pop-outs, the
+    alarm monitor, and tests can reuse it.
+  - **Sync:** one `reqRealTimeBars` per symbol regardless of view count (refcounted — first holder subscribes,
+    last holder releases; never two subs for one symbol). Each aggregated bar fans out via the existing
+    incremental `update_last_bar(bar, is_new_candle)` path — no full rebuilds on ticks. Drawings: the main
+    chart is the **sole writer**; create/update/delete/group changes persist via `DrawingStore` then emit
+    `drawings_changed`; every attached view re-renders its overlay in the same event-loop pass. Alarms:
+    definitions shared per symbol; **evaluation moves into the session** (every aggregated bar runs the
+    existing `evaluate_alarms(last_price, close, alarms)`), so X's alarms fire even when the main chart shows
+    Y — a behaviour change vs today. On trigger: `AlarmStore.mark_triggered`, `alarm_triggered` signal,
+    `MainWindow` toast + sound **exactly once per trigger event**. Studies: per-symbol shared (matching
+    `StudyStore` keying); the `_StudyCache` (keyed `(symbol, timeframe, studies-hash)`) moves into the session
+    so views share computed arrays.
+  - **Constraints:** reuse `ChartPanel`, overlays, router, `BarCache`, `BarAggregator`, `RealtimeBarsManager`,
+    `PacingManager`, stores, `evaluate_alarms`, backfill planners unchanged; same process, Qt signals, no IPC;
+    **no new IBKR API call types**; **no DB schema changes**; concurrent history waves across sessions must
+    respect IBKR historical-data pacing (D28/B-2.3).
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D24.1 (one subscription per symbol)** Given X popped out 3×, Then exactly one `reqRealTimeBars` exists
+    for X; closing all three cancels it (assert via `SubscriptionManager`/`RealtimeBarsManager`).
+  - **AC-D24.2 (drawing sync)** Given X in the main chart + 2 pop-outs, When a zone is drawn in the main chart,
+    Then all X pop-out overlays contain the zone within the same event-loop pass (no timers); deleting it
+    removes it everywhere.
+  - **AC-D24.3 (alarm sync + cross-symbol firing)** Given an X alarm set in the main chart and the main chart
+    then switched to Y, When X's price crosses the alarm level (bars fed to X's session), Then toast + sound
+    fire exactly once and every X pop-out shows triggered styling.
+  - **AC-D24.4 (study sync)** Given studies edited for X in the main chart, Then all X pop-outs re-apply them;
+    study arrays are computed once per `(symbol, timeframe, studies-hash)`.
+  - **AC-D24.5 (cap)** Given 10 pop-outs open, When an 11th is attempted, Then it is refused with a status-bar
+    message and the pop-out action is disabled until a slot frees.
+  - **AC-D24.6 (read-only pop-outs)** Given a pop-out, When chart clicks/draw gestures are simulated, Then no
+    drawing, alarm-placement, study, timeframe, or mode affordance activates (router modes never arm).
+  - **AC-D24.7 (reconnect)** Given live sessions + pop-outs, When TWS drops and reconnects, Then all
+    subscriptions replay (reqIds rebound to sessions) and every view resumes ticking with no manual reload
+    (depends on D27/B-1.3 fix; assert with mocked client).
+  - **AC-D24.8 (regression)** Given the feature, Then the pre-existing offscreen suite stays green and no
+    D1–D23 criterion regresses.
+  - **D24.9 (pop-out restore across restarts) [NEW v1.2, owner-confirmed 2026-10-12]** The open pop-out set
+    SHALL be persisted (per pop-out: symbol, timeframe, chart mode, extended-hours flag, window geometry) in
+    SQLite (new `popouts` table or equivalent) on every open/close/geometry change, and re-created on app
+    launch after TWS connects (sessions attach lazily; views render from cache first, then live). Closing the
+    app with 3 pop-outs (X, Y, Z) and relaunching restores 3 pop-outs on X/Y/Z with their snapshots.
+  - **AC-D24.9 (restore)** Given 3 pop-outs open with known snapshots, When the app restarts, Then 3 pop-outs
+    are re-created with identical symbol/timeframe/mode/ext-hours and approximate geometry; no duplicate
+    subscriptions are issued for symbols already covered.
+- **Edge Cases:** pop-out with no symbol loaded (disabled/ignored + message); pop-out of the same symbol twice;
+  main chart loads X while X pop-outs exist (primary joins the existing session — no duplicate backfill wave
+  for data already held); last view of X closed via main-chart switch (session teardown cancels X's RT sub;
+  reopening X starts cold from cache); rapid open/close (refcount never negative, no double-subscribe); TWS
+  disconnect with N sessions (all replay on reconnect); alarm triggers while only a pop-out shows X
+  (toast+sound still fire from the main window); `load_chart` re-entrancy guards work per-session (two views
+  attaching never start two waves); quitting with pop-outs open (all close, all subs cancelled, client
+  disconnects).
+
+**[NEW v1.2]**
+### D25 — Headless alarm price monitoring (NEW FEATURE) — DRAFT 2026-10-12, owner review required
+- **Area:** new `services/alarm_monitor.py::AlarmMonitor` (owned by `MainWindow`, wired to the session
+  registry); new `AlarmStore.symbols_with_active_alarms()` query; `TickerSession` monitored flag.
+- **Status:** **DRAFT 2026-10-12 — user-specified, owner review required before Plan.** New feature; D1–D24 not
+  reopened.
+- **Visual reference (ESC-004 gate):** **NOT APPLICABLE** — no UI-visual decision (headless by design; the only
+  user-visible surface is the existing alarm toast/sound).
+- **Reported (verbatim context):** "Also ensure that, the app tracks prices of all tickers which have an alarm.
+  It should be tracked on a 1 min interval to ensure alarm fires even if some other ticker is open in main chart"
+  (typo "tickets" corrected to "tickers" by the user).
+- **Observed in repository (validated against source 2026-10-12):** alarm evaluation lives in
+  `MainWindow._on_aggregated_bar` (`:1179-1197`) and runs only for the main-chart symbol
+  (`self._current_alarms`); a ticker with alarms but no open chart is never evaluated. `evaluate_alarms`
+  (`services/alarm_service.py`) is pure and direction-aware (`cross_above`/`cross_below`/`cross_either`),
+  skipping inactive/triggered alarms; `AlarmStore.mark_triggered` + in-memory `triggered=True` prevent
+  refire; `AlarmStore.rearm` clears both. `BarCache.get_bars(symbol, "1m")` can seed a previous price.
+- **Requirements (final):**
+  - A new `AlarmMonitor` maintains the **monitored set**: all symbols with ≥1 alarm where
+    `active and not triggered` (new `AlarmStore.symbols_with_active_alarms()`:
+    `SELECT DISTINCT symbol FROM alarms WHERE active=1 AND triggered=0`).
+  - For each monitored symbol with **no open view**, the monitor ensures a **headless `TickerSession`**
+    (`views == 0`, `monitored == True`): one `reqRealTimeBars` (5-sec bars) aggregated by the existing
+    `BarAggregator` at a fixed **1-minute** timeframe. Headless sessions are ordinary sessions — no parallel
+    data path.
+  - Evaluation runs on every 5-second push via the existing `evaluate_alarms(prev_price, curr_price, alarms)`
+    (prev = last evaluated price): **1-minute tracking granularity, second-level firing latency**
+    (~12 evaluations/min/symbol — trivial cost).
+  - Seed: `prev_price` comes from `BarCache.get_bars(symbol, "1m")` last close when available; otherwise the
+    first realtime tick seeds it with **no** evaluation until the second tick (existing `prev_price is None`
+    guard). **Headless sessions issue zero historical requests** (cache-seed only) to avoid burning IBKR
+    historical pacing.
+  - Reconcile (diff desired vs actual monitored set) on: TWS connect, alarm add/update/delete/rearm/trigger,
+    view attach/detach. A symbol gaining a view keeps its session (view-backed; no duplicate monitor). A symbol
+    whose last live alarm is deleted/triggered/deactivated is unmonitored; with no views its session tears down
+    (D24/FR-1.5). Re-armed alarms re-enter on the next reconcile.
+  - Trigger path identical to D24: `AlarmStore.mark_triggered` → `alarm_triggered` signal → `MainWindow`
+    toast + sound exactly once.
+  - Pacing guard: each monitored symbol costs one realtime-bar sub against `MAX_REALTIME_BARS_PER_10_MIN =
+    60`. If the monitored set would exceed the budget, monitor most-recently-active symbols first and surface a
+    status-bar warning naming the unmonitored symbols.
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D25.1 (headless firing)** Given no chart open on X and one live X alarm, Then exactly one realtime-bar
+    subscription exists for X; driving X's price through the alarm level fires toast + sound exactly once;
+    `AlarmStore` shows triggered; deleting the alarm with no view open tears the session down (sub cancelled).
+  - **AC-D25.2 (no historical requests)** Given headless monitoring starts for X, Then zero historical-data
+    requests are issued (assert on the request registry); `prev_price` seeds from the 1m cache when present.
+  - **AC-D25.3 (no phantom trigger)** Given monitoring starts while X's price is already beyond the alarm level,
+    Then no trigger fires — only a genuine subsequent cross triggers (documented; no "catch-up" of stale
+    crosses).
+  - **AC-D25.4 (rearm + disconnect)** Given a triggered alarm is re-armed, Then X re-enters monitoring on the
+    next reconcile; given an alarm is added while disconnected, Then X is monitored on the next connect
+    reconcile with no error and no silent drop.
+  - **AC-D25.5 (regression)** Given the feature, Then the pre-existing offscreen suite stays green.
+- **Edge Cases:** alarm added while disconnected; price beyond level at monitor start (A62); re-armed alarm;
+  triggered-then-deleted alarm (never re-monitored); monitored set exceeding the pacing budget (A63); symbol
+  with a view open (view-backed evaluation, no duplicate); app quit with headless sessions (teardown like any
+  session).
+
+**[NEW v1.2]**
+### D26 — Corrective batch: P0 real-money safety (deep-dive 2026-10-12) — DRAFT, owner review required
+- **Area:** `ibkr/orders.py`, `ui/main_window.py` (order path), `ui/active_trader_panel.py`,
+  `ui/active_portfolio_panel.py`, `config/settings.py`, `ibkr/error_codes.py`, tests.
+- **Status:** **DRAFT 2026-10-12.** Five-track adversarial review (~30k lines, critical claims hand-verified).
+  **Do not trade live until D26 is fixed.** Not a feature; D1–D23 not reopened.
+- **Visual reference (ESC-004 gate):** NOT APPLICABLE — behaviour/correctness fixes, no UI-visual decisions
+  (any label changes, e.g. D26.3's dialog labelling, are text-only).
+- **Requirements (final — corrective, SHALL language):**
+  - **D26.1 (B-0.1):** bracket-order stop-loss and take-profit children **SHALL** be placed on the **opposite**
+    side of the entry (`BUY` entry → `SELL` STP + `SELL` LMT; `SELL` entry → `BUY` STP + `BUY` LMT).
+    `tests/test_order_builders.py:83-104` (which asserts the buggy same-side behaviour) **SHALL** be rewritten
+    to assert the protective direction.
+  - **D26.2 (B-0.2):** all three bracket order IDs **SHALL** be reserved from `id_manager` before transmit
+    (e.g. `reserve(3)` or three `get_id()` calls); no subsequent order or reqId may reuse a live order ID.
+  - **D26.3 (B-0.3):** "Set Stop-Loss / Take-Profit" **SHALL** transmit real STP/LMT legs and reflect live
+    `orderStatus`; until it does, the dialog **SHALL** be labelled as not placing orders.
+  - **D26.4 (B-0.4):** Buy/Sell MKT buttons **SHALL NOT** crash; quantity **SHALL** come from the quantity
+    input with a qty>0 guard.
+  - **D26.5 (B-0.5):** the app **SHALL** fail fast unless `IBKR_PORT == 7496`; the "Live" badge **SHALL** derive
+    from the verified port and the account's `AccountType`, never a hardcoded string.
+  - **D26.6 (B-0.6):** order entry **SHALL** offer an explicit Buy/Sell side; an ask-click SELL intent **SHALL
+    NOT** become a buy; the dead `_pending_ladder` path is consumed or deleted.
+  - **D26.7 (B-0.7):** a single `validate_order()` gate **SHALL** run before transmit: qty>0, notional cap,
+    price>0, stop/target on the correct side for the side, non-empty symbol — rejections surfaced in the UI,
+    never a traceback.
+  - **D26.8 (B-0.8):** a real kill switch **SHALL** exist (`reqGlobalCancel()` + cancel every registry ID);
+    Close-All/Flatten **SHALL** invoke it and show pre/post open-order counts.
+  - **D26.9 (B-0.9):** order rejections/cancels **SHALL** update the order registry and ticket state (not just
+    an 8-second status message); order/connection error codes **SHALL** be promoted from "warning" to
+    first-class alerts; order entry **SHALL** be blocked while disconnected.
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D26.1** Given a BUY bracket built by `bracket_order`, Then stop.action == "SELL" and limit.action ==
+    "SELL" (and mirrored for SELL entries); the rewritten builder tests assert this for both directions.
+  - **AC-D26.2** Given a bracket placed, Then the three order IDs are distinct, sequential, and never reissued
+    by a later `get_id()` (mocked client).
+  - **AC-D26.3** Given the SL/TP dialog, Then either real legs transmit (assert `placeOrder` calls) or the
+    dialog text states it places no orders.
+  - **AC-D26.4** Given the MKT buttons, Then clicking transmits with the spinbox quantity (mocked client, no
+    `TypeError`); qty ≤ 0 is refused.
+  - **AC-D26.5** Given `IBKR_PORT=7497`, Then the app refuses to start trading (fail-fast); the badge never
+    reads "Live" on a non-7496 port.
+  - **AC-D26.6** Given ask-click then Place with Sell selected, Then the transmitted action is SELL.
+  - **AC-D26.7** Given invalid order input (qty 0/negative, price 0 stop, empty symbol, 100k qty), Then
+    `validate_order()` rejects with a UI message and no `placeOrder` call, no traceback.
+  - **AC-D26.8** Given open orders + positions, When the kill switch fires, Then `reqGlobalCancel` (or per-ID
+    cancels) is issued and the UI shows pre/post counts.
+  - **AC-D26.9** Given a TWS rejection (e.g. 201/103) for a tracked orderId, Then the registry/ticket shows
+    Rejected with the TWS message; no order can be placed while disconnected.
+  - **AC-D26.10 (regression)** Given the fixes, Then the full offscreen suite is green and **no test transmits
+    an order or connects to live TWS** (existing AC-Global invariant).
+
+**[NEW v1.2]**
+### D27 — Corrective batch: P1 correctness (deep-dive 2026-10-12) — DRAFT, owner review required
+- **Area:** `ui/main_window.py`, `ui/chart_panel.py`, `ui/overlays/`, `ibkr/client.py`,
+  `ibkr/subscription_manager.py`, `ibkr/realtime_bars.py`, `data/bar_aggregator.py`,
+  `services/indicator_service.py`, `data/drawing_store.py`, `services/backfill_service.py`.
+- **Status:** **DRAFT 2026-10-12.** Not a feature; D1–D23 not reopened.
+- **Visual reference (ESC-004 gate):** NOT APPLICABLE — correctness fixes; the overlay coordinate fixes restore
+  already-specified visuals (no new visual decisions).
+- **Requirements (final — corrective):**
+  - **D27.1 (B-1.1):** `_last_chart_price` **SHALL NEVER** move backward: on history-wave finalize, the
+    assignment is skipped if any realtime bar was observed since load (also re-apply the aggregator's forming
+    bar after `update_chart` so the live candle is not wiped). **[blocks D24/D25]**.
+  - **D27.2 (B-1.2):** the MACD histogram **SHALL** plot at display-x (`bar_x.append(xs[i])`); the ICT overlay,
+    RTH-gap overlay, and VIX sigma labels **SHALL** plot in display-x (index→display-x via the collapse map,
+    as `DrawingOverlay._ts_to_x` does). Overlay tests **SHALL** assert rendered x-coordinates fall inside the
+    panel's view range.
+  - **D27.3 (B-1.3):** reconnect **SHALL** work: `_do_reconnect` uses `self.connect(host, port, clientId)`
+    (never the nonexistent `eConnect`); `_poll` SHALL NOT re-arm timers while a reconnect is pending; every
+    live subscription (chart RT bars, DOM, watchlist mkt-data) **SHALL** be registered with type tags and
+    replayed on connect with reqIds rebound to their sessions. **[blocks D24]**.
+  - **D27.4 (B-1.4):** each session **SHALL** carry stream-health state
+    (subscribed/awaiting-first-bar/live/failed+code) with a persistent, non-transient indicator; failed RT
+    subs **SHALL** retry with backoff — "Live stream active" SHALL NOT be declared unconditionally.
+    **[blocks D24]**.
+  - **D27.5 (B-1.5):** position market prices **SHALL** come from a `symbol → last_price` map lookup for the
+    position's own symbol, never the chart's `_last_chart_price`.
+  - **D27.6 (B-1.6):** the app **SHALL** subscribe `reqPositions` + `reqAccountSummary` on connect and populate
+    the portfolio panel; an "account data unavailable" state **SHALL** show when unsubscribed.
+  - **D27.7 (B-1.7):** backfill gap detection **SHALL** run at bar-period granularity for trailing N trading
+    days (expected vs cached bar count), or record per-chunk completion — a stranded wave's partial day
+    SHALL be repairable by a later load.
+  - **D27.8 (B-1.8):** `"1 day"` (and `"4 hours"`) aggregation **SHALL** anchor to `America/New_York` wall time,
+    not UTC midnight; session-anchored VWAP **SHALL** reset on ET date change (verify IBKR's 4h anchor first).
+  - **D27.9 (B-1.9):** on chart load the aggregator **SHALL** be primed with trailing 5-second history before
+    the live feed attaches, so the forming candle's OHLCV is not fabricated.
+  - **D27.10 (B-1.10):** drawing style edits (colour, label, group) **SHALL** persist via the store and survive
+    reload.
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D27.1** Given a backfill wave finalising after live ticks advanced the price, Then no alarm between
+    the historical close and the live price fires (no phantom trigger); the live forming bar survives finalize.
+  - **AC-D27.2** Given MACD/ICT/gaps/VIX studies enabled, Then every rendered element's x-coordinate lies
+    inside the panel's view x-range (offscreen assertion).
+  - **AC-D27.3** Given a simulated TWS drop/reconnect (mocked client), Then the app reconnects without restart
+    and all live subscriptions are re-issued with rebound reqIds; bars flow with no manual reload.
+  - **AC-D27.4** Given a failed `reqRealTimeBars`, Then a persistent stream-failed indicator shows (with the
+    error code) and a backoff retry is scheduled.
+  - **AC-D27.5** Given positions in symbols other than the charted one, Then each shows its own symbol's last
+    price and correct unrealized P&L.
+  - **AC-D27.6** Given connect, Then `reqPositions` + `reqAccountSummary` are issued and the portfolio panel
+    populates; given no subscription, Then the "unavailable" state shows.
+  - **AC-D27.7** Given a stranded partial-day backfill, Then a later load detects the bar-level gap and
+    completes it.
+  - **AC-D27.8** Given a daily chart, Then the live forming daily bar ts-matches the historical daily series
+    (ET session days); VWAP resets at the ET session boundary with ext-hours on.
+  - **AC-D27.9** Given a fresh chart load mid-period, Then the forming candle's open/volume reflect the
+    primed 5-sec history, not just the first live tick.
+  - **AC-D27.10** Given a drawing colour edit, Then reload shows the edited colour.
+  - **AC-D27.11 (regression)** Given the fixes, Then the full offscreen suite is green; no D1–D23 criterion
+    regresses.
+
+**[NEW v1.2]**
+### D28 — Corrective batch: P2 robustness & scale (deep-dive 2026-10-12) — DRAFT, owner review required
+- **Area:** `ibkr/pacing.py`, `ui/main_window.py` (extraction), `ibkr/market_data.py`, `ui/chart_panel.py`,
+  `ui/candlestick_item.py`, `data/bar_cache.py`, `services/indicator_service.py`, tests.
+- **Status:** **DRAFT 2026-10-12.** Not a feature; D1–D23 not reopened. This batch carries the structural
+  enablers for D24/D25.
+- **Visual reference (ESC-004 gate):** NOT APPLICABLE.
+- **Requirements (final — corrective):**
+  - **D28.1 (B-2.1):** `PacingManager` **SHALL NEVER** sleep on the GUI thread: throttlers return a wait
+    duration or raise `PacingExceeded`; subscribes/orders defer via `QTimer.singleShot` with a persistent
+    "pacing-limited, retrying in Ns" status. Throttling is **removed from the order path entirely**; orders get
+    their own rate limiter. **[blocks D24]** (10 pop-outs + reconnect replays make the freeze likely).
+  - **D28.2 (B-2.2):** the single-symbol data plane **SHALL** be extracted into `TickerSession` per D24's
+    session model: session owns `BarAggregator`, RT reqId, last price, alarms, history-wave state + watchdog;
+    `_on_realtime_bar` / `_on_historical_bar` / `_on_historical_data_end` / `_on_error` route by
+    reqId → session; `MainWindow` keeps the registry. `load_chart(symbol, timeframe, extended_hours)` is
+    parameterised. **[blocks D24/D25]**.
+  - **D28.3 (B-2.3):** `reqHistoricalData` **SHALL** have a rolling 600-second pacing window (non-blocking);
+    chunks per wave are capped (~60) with continuation across waves; on IBKR error 162 the failed chunks back
+    off and retry once before finalising short.
+  - **D28.4 (B-2.4):** in-memory `_bars` **SHALL** be bounded (~5k, lazy-load on scroll-back) with a cache
+    retention policy per (symbol, timeframe); rendering splits into static-history + live-bar layers (no full
+    QPicture regen per tick); the study cache **SHALL** actually be read (shift arrays, compute only the new
+    bar); crosshair/volume-ceiling use bisection over cached display-x arrays; collapse-map updates are
+    incremental at the tail. **[blocks D24]** (per-tick costs multiply by chart count).
+  - **D28.5 (B-2.5):** `closeEvent` **SHALL** tear down explicitly: `_closing` flag (slots early-return),
+    cancel lookups, disarm timers, cancel subs, then disconnect, then clear UI; the `ibkr-reader` thread is
+    joined with a timeout.
+  - **D28.6 (test hardening — highest value only):** alarm end-to-end
+    (`_on_aggregated_bar` → `mark_triggered` → badge/toast/sound); order path with mocked `ib_client`
+    (exact `placeOrder` args, ID uniqueness, contract reconstruction); reconnect replay; drawing
+    store→overlay round-trip; `id_manager` behavioural tests; pacing window math with monkeypatched time;
+    delete doc-asserting tests (`test_d23_nonregression.py` markdown-string asserts) and the phantom
+    `validate_sltp` test; fix shared-DB cross-test contamination.
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D28.1** Given pacing budget exhausted, When a chart loads or an order is placed, Then the GUI thread
+    never blocks (assert no `time.sleep` on the main thread; deferred retry shown in status).
+  - **AC-D28.2** Given two symbols with live sessions, Then each routes its own bars/alarms/waves with no
+    cross-talk (reqId→session routing test); `load_chart` works without toolbar widgets.
+  - **AC-D28.3** Given rapid symbol switching, Then no error-162 storm occurs; historical pacing stays within
+    budget and failed chunks retry once.
+  - **AC-D28.4** Given a long live session, Then memory stays bounded (bar cap + retention) and a 5-second tick
+    performs no full chart rebuild (assert via render-call counters).
+  - **AC-D28.5** Given app close mid-backfill, Then teardown completes without touching cleared widgets and
+    the reader thread joins within the timeout.
+  - **AC-D28.6** Given the new tests, Then T-1..T-6 behaviours above are covered and the doc-assert/phantom
+    tests are gone; the suite is green.
+  - **AC-D28.7 (regression)** Given the fixes, Then the full offscreen suite is green; no D1–D23 criterion
+    regresses.
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -2423,6 +2806,16 @@ Chart; Q29 no-op semantics):**
 | A53 | **D23.1 — capability-guarded, documented cancel (ESC-030):** the pinned `ibapi` (`9.81.1.post1`) exposes **no** `EClient.cancelContractDetails`, so the required behaviour is a capability-guarded best-effort cancel plus an in-code note; the task-level `AC-D22.2.3` wire-cancel mandate is **superseded/corrected** and architecture `S3` is reconciled. The local invalidation (`ContractLookupService` bounded QTimer + `cancel_all`) is the safety net. | Repo-validated: `hasattr(EClient,'cancelContractDetails') is False` on the pinned dep; `ContractLookupService.cancel`/`cancel_all` already drop the pending entry + stop the timer; no production path calls `cancel_contract_details`. The user approved fixing ESC-030; capturing the guard as the requirement needs no blocking question | y (evidence-derived; user approved the fix 2026-10-07) | 2026-10-07 |
 | A54 | **D23.1 — the wire cancel is dead code today:** `MarketDataManager.cancel_contract_details` is not called by any production path (only by its own D22 test). Making it capability-guarded + documented is a forward-correctness fix; it changes no D22 observable behaviour. | Source-validated 2026-10-07 (grep: only the definition + `tests/` references); `_on_disconnected` uses `ContractLookupService.cancel_all` | y (source-validated) | 2026-10-07 |
 | A55 | **D23.2 — only `_row_data` carries a stale row key after `remove_symbol`:** `_req_to_row` (removed row's reqIds popped first), `_prev_close`/`_last_price` (reqId-keyed) and `_flash_timers` (removed row stopped first) are already explicit; the stale-key branch is the **last-row** removal, where no later key overwrites the removed index. | Reproduced 2026-10-07: 3-row panel, `remove_symbol(last)` → `_row_data.keys() == [0,1,2]` while `rowCount()==2`; middle-row removal leaves `[0,1]` | y (reproduced) | 2026-10-07 |
+| A56 **[NEW v1.2]** | **D24 — pop-out timeframe/mode/extended-hours frozen at creation:** no per-pop-out switcher; the snapshot comes from the main chart at pop-out time. Studies stay per-symbol shared, so a study edit propagates to pop-outs even on different timeframes (the `(symbol, timeframe, studies-hash)` cache handles it). | User demanded "no tool bars" in pop-outs; a switcher would need chrome. Flagged as an open question in the v1.2 feature doc — frozen is the specified default | y (user-specified 2026-10-12) | 2026-10-12 |
+| A57 **[NEW v1.2]** | **D24/D25 — toast + sound fire exactly once per trigger event from `MainWindow`**, regardless of which session fired or how many views show the symbol; pop-outs show the visual alarm marker only, never sound. | User's flow has many windows per ticker; exactly-once notification is the only sane semantic | y (user-specified 2026-10-12) | 2026-10-12 |
+| A58 **[NEW v1.2]** | **D25 — headless monitoring is event-driven, not a literal 1-minute poll:** 1-minute tracking granularity via `BarAggregator("1m")`, evaluation on every 5-sec push → second-level firing latency. | "Tracked on a 1 min interval" read as resolution, not latency; prompt firing strictly dominates a 60s poll. Flagged as open question 5 in the v1.2 feature doc | y (analyst interpretation; user asked for the outcome) | 2026-10-12 |
+| A59 **[NEW v1.2]** | **D25 — no phantom trigger when monitoring starts beyond the alarm level:** only genuine subsequent crosses fire; stale crosses are never "caught up". | Matches the existing `evaluate_alarms` prev/curr cross semantics; avoids false triggers on monitor start | y (specified in feature doc §4.7/AC-D25.3) | 2026-10-12 |
+| A60 **[NEW v1.2]** | **D25 — headless sessions issue zero historical requests** (cache-seed only) to protect IBKR historical pacing. | Monitoring needs only a seed price; backfill waves are for charts | y (specified in feature doc FR-7.4) | 2026-10-12 |
+| A61 **[NEW v1.2]** | **D24/D25 — session teardown rule:** a session is destroyed only when `views == 0 AND NOT monitored`. | Follows from the pop-out keep-alive flow and headless monitoring; replaces the implicit "one chart = one lifecycle" model | y (user-specified flows 2026-10-12) | 2026-10-12 |
+| A62 **[NEW v1.2]** | **D24 — one realtime-bar subscription per symbol**, enforced by refcounting (first holder subscribes, last holder releases). | IBKR pacing budget (`MAX_REALTIME_BARS_PER_10_MIN = 60`) and the 10-pop-out design both require it | y (specified in feature doc FR-6.1) | 2026-10-12 |
+| A63 **[NEW v1.2]** | **D25 — monitored-set pacing guardrail:** if alarmed tickers would exceed the realtime-bar budget, most-recently-active symbols win and a status-bar warning names the unmonitored ones. | Typical use is far below the cap; this is a guardrail, not a feature | n (analyst default) | 2026-10-12 |
+| A64 **[NEW v1.2]** | **D24 — single-writer invariant:** the main chart is the sole writer of a symbol's drawings/alarms/studies; stores stay last-writer-wins with no versioning, and the invariant is documented where the session work lands. | User-specified "drawing limited to main chart"; avoids silent cross-view clobbering | y (user-specified 2026-10-12) | 2026-10-12 |
+| A65 **[NEW v1.2]** | **D26–D28 are corrective batches:** they fix documented defects and change no D1–D23 feature criterion; D1–D23 are not reopened. | Deep-dive review 2026-10-12; user directed documenting all identified bugs | y (user-directed 2026-10-12) | 2026-10-12 |
 ## Documentation Maintenance Requirements
 
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
@@ -2518,6 +2911,16 @@ Chart; Q29 no-op semantics):**
 | R48 | D22 adding a context menu / `+` button to the watchlist header strip could shadow or break the D21.5 **column** header menu or the D21.11 collapse toggle | M | M | B15a answered 2026-10-07; `AC-D22.1`/`AC-D22.8` require the D21.5 column popup and the D21.11 collapse toggle (and D14 double-click) to remain unchanged; DG42 records the interaction; add the affordances without removing the header toggle |
 | R49 | D23.1: correcting the task-level `AC-D22.2.3` mandate and its `_FakeClient`-based test could conflict with the (already-built) D22 tests, leaving the suite red if not updated in lockstep | L | M | Update `AC-D22.2.3` (task-graph) and `tests/test_ibkr_contract_details_d22.py` **in lockstep** with the guard; add a missing-capability case; keep the None/raises cases; the pre-existing suite stays green (712 tests) |
 | R50 | D23.2: re-indexing `_row_data` incorrectly could shift a symbol's cached values onto the wrong row | L | M | Use the narrow fix (`self._row_data.pop(row, None)` around the existing shift) and assert `set(_row_data.keys()) == set(range(rowCount()))` for first/middle/last/only-row removals; keep `_rebuild_table`/`_set_cell` field-key binding (DG32) unchanged |
+| R51 **[NEW v1.2]** | D24: extracting `TickerSession` from the 2291-line `MainWindow` touches the live bar/alarm/drawing paths; a wrong move breaks the one working chart | H | M | Extract in cluster order (data plane first), one cluster per change, full offscreen suite green between each; no big-bang rewrite (see architecture draft target sections) |
+| R52 **[NEW v1.2]** | D24/D28: per-tick costs multiply by chart count — 10 live charts × full QPicture regen per 5-sec tick can stall the main thread in lockstep with the feed | H | H | D28.4 bounds bars, splits render layers, and wires the study cache **before** pop-outs ship; assert via render-call counters (AC-D28.4). **[RECONCILIATION 2026-10-12 — plan deviation accepted:** Phase 3 ships D24/D25 functionally on a feature branch with a measurable smoke gate (baseline tick-burst cost recorded at end of 3b; 3c asserts ≤2× baseline across 3 pop-outs + zero full QPicture regens per tick); **merge to main requires the Phase 4 AC-D28.4 gate.** The "before pop-outs ship" contract is thus enforced at merge time, not at feature-branch time. Validator-approved.] |
+| R53 **[NEW v1.2]** | D24: fixing reconnect replay without fixing `eConnect` (or vice versa) changes nothing — the two halves of D27.3 are coupled | M | H | Plan them as one work item with a single drop/reconnect acceptance test (AC-D27.3) |
+| R54 **[NEW v1.2]** | D25: headless sessions add realtime-bar subscriptions per alarmed ticker; a large alarm book could exhaust the 60/10-min pacing budget | M | L | FR-7.7 guardrail (most-recently-active first + warning); typical use far below cap |
+| R55 **[NEW v1.2]** | D26: any order-path change touches real money; the existing suite **asserts the bracket bug** (`test_order_builders.py:83-104`) and must be rewritten, not just extended | H | H | Rewrite those tests to assert the protective direction first (pre-fix-red), mocked `ib_client` everywhere, no test transmits an order (AC-Global invariant) |
+| R56 **[NEW v1.2]** | D27: the overlay coordinate fixes (MACD/ICT/gaps/VIX) are one-liners, but the tests that missed them assert counts not positions — the same blind spot could hide other invisible-render bugs | M | M | AC-D27.2's x-in-view-range assertion pattern becomes the standard for every overlay test going forward |
+| R57 **[NEW v1.2]** | D26.3/D26.8: transmitting real SL/TP legs and a kill switch are new live-order surface; partial implementation is worse than none (user believes they are protected) | H | M | Each ships only with mocked-client `placeOrder` assertions and explicit UI labelling of what is/isn't transmitted |
+| R58 **[NEW v1.2]** | D24: `load_chart` parameterisation changes the signature every caller uses; missed call sites silently keep the old widget-reading path | M | M | Grep all callers (`_on_ext_hours_toggled`, watchlist double-click, tests); offscreen test loads without toolbar widgets (AC-D28.2) |
+| R59 **[NEW v1.2]** | D27.7/D28.3: backfill and pacing changes alter IBKR request patterns; error-162 storms are timing-dependent and hard to reproduce offscreen | M | M | Pacing math unit-tested with monkeypatched time (AC-D28.6); chunk-cap + retry-once keeps worst case bounded |
+| R60 **[NEW v1.2]** | D24–D28 are specified from a read-only review; behaviour on live TWS (real reconnects, real pacing errors) cannot be fully verified offscreen | M | H | Manual live-TWS verification checklist per batch before merge; no batch ships on offscreen-green alone |
 
 
 ---
@@ -2536,3 +2939,24 @@ criteria (`AC-D22.1`–`AC-D22.9`) stand; D1–D22 are otherwise unchanged. The 
 (marker sentence + Current Tech Stack) is preserved.
 
 Status: READY_FOR_PLAN
+
+Status: READY_FOR_PLAN
+
+**[NEW v1.2] Status: DRAFT — owner decisions recorded 2026-10-12.** Batches **D24–D28** are user-specified /
+analyst-drafted. Owner decisions (2026-10-12):
+- **DEC-1:** Per-session alarm evaluation approved as an intentional behavior change — X's alarms fire while
+  viewing Y, and with zero X views open (headless). D25 conflict resolved.
+- **DEC-2:** D25 evaluation is event-driven (A58): 1-minute tracking granularity, evaluation on every 5-sec
+  push → second-level firing latency. The literal once-per-minute poll is rejected.
+- **DEC-3:** D24.9 added — pop-out set persists across restarts (symbol/timeframe/mode/ext-hours/geometry in
+  SQLite; re-created on launch). Alarms/drawings/studies already persist via existing stores — no change needed
+  there. Pop-out timeframe/mode frozen at creation is accepted long-term (A56 confirmed).
+- **DEC-4 (pending owner nod):** D26 vs the old "gated in TWS" constraint — see G5. Proposed resolution: replace
+  the constraint with "D26 must land before any live order use" plus dev guardrails (mocked `ib_client` only —
+  the repo's existing "no test transmits an order" policy; no live transmission during development; the new
+  B-0.5 port guard prevents paper/live confusion). D26 intentionally operates on the live-order path; the old
+  per-run "gated in TWS, don't worry" assumption is retired as insufficient.
+- **Open:** always-on-top default for pop-outs (owner to confirm; draft default: off, standard windows).
+D1–D23 are not reopened.
+
+Status: READY_FOR_PLAN — owner-approved 2026-10-12 (batches D24–D28)

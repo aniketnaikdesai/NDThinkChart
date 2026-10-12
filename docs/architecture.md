@@ -2336,3 +2336,168 @@ last/first/only-row coverage; **(3)** the record reconciliation (`S3` in `docs/a
 `AC-D22.2.3` in `docs/tasks/task-graph.json`) and full-suite non-regression verification. Phases 1 and
 2 touch **fully disjoint** file sets and may run in the same wave; Phase 3 follows both. D1–D22 are
 frozen throughout. Detailed phases, coverage and `touches_files` notes are in `docs/plan.md`.
+
+## [NEW] Target architecture — `TickerSession` per-symbol model (D24 / D25 / D28)
+
+> **Status: DRAFT 2026-10-12 — target architecture, not as-built.** Nothing below is implemented.
+> The D1–D23 as-built record above is unchanged. This section specifies what the data plane
+> must become for pop-out chart windows (D24), headless alarm monitoring (D25), and the P2
+> robustness batch (D28). Requirement refs: D24, D25, D28.2.
+
+### Why: the as-built data plane has cardinality 1
+
+`ui/main_window.py` owns every piece of chart state as singletons: `load_chart` (`:813`)
+reads toolbar widgets; `_on_realtime_bar` (`:1173-1176`) filters on the single
+`self._rt_req_id`; `self._aggregator` (`:537`), `_current_symbol/_current_tf` (`:534-535`),
+`_current_alarms` (`:553`), `_last_chart_price` (`:554`); the history-wave apparatus
+(`_history_req_ids`, `_history_generation`, `_backfill_missing_spans`,
+`_backfill_failed_req_ids`, `_pending_bars`, `_history_wave_timer`, `:538-552`) assumes
+exactly one chart. A second `ChartPanel` for another symbol has nowhere to attach —
+this is the concrete blocker D28.2 names, and D24's `TickerSession` is its fix.
+
+### The session object
+
+New module `ui/ticker_session.py::TickerSession(QObject)`, keyed by uppercase symbol.
+One instance per symbol per process, held in a registry on `MainWindow`
+(`dict[str, TickerSession]`). It owns, per symbol:
+
+| Owned state | Moved from (as-built) | Notes |
+|---|---|---|
+| Bar series + `BarAggregator` per timeframe in use | `MainWindow._aggregator` (`:537`), `ChartPanel._bars` stays view-local for render | Aggregator is session-level so N views share one aggregation; views keep their own plotted copies via the existing `update_chart`/`update_last_bar` |
+| Realtime-bar reqId + subscription lifecycle | `MainWindow._rt_req_id` (`:922`), `RealtimeBarsManager.subscribe` | Refcounted: first holder (view or alarm monitor) subscribes, last holder releases; never two `reqRealTimeBars` for one symbol (A62) |
+| History-wave lifecycle: req-id registry, watchdog `QTimer`, generation fencing, missing-span/backfill plan | `MainWindow` `:709-810`, `:932-956`, `:768-787`, `:1070-1157` | Semantics unchanged (D16 wave), ownership moved; concurrent waves across sessions respect IBKR historical pacing (D28.3) |
+| Studies config + `_StudyCache` | `MainWindow._current_studies`, `_load_studies_for_symbol` (`:1255`), `ChartPanel._study_cache` | Cache keyed `(symbol, timeframe, studies-hash)` moves into the session so views share computed arrays; D28.4 additionally requires the cache to actually be **read** (today `_StudyCache.get()` has zero callers) |
+| Drawings + drawing groups | `MainWindow` `:964-1060` handlers | Main chart is the sole writer (A64); session emits `drawings_changed`; persistence still via `DrawingStore` |
+| Alarms + `_last_chart_price` | `MainWindow._current_alarms` (`:553`), `_reload_current_alarms` (`:1267`), `_on_aggregated_bar` (`:1179-1197`) | **Evaluation moves into the session**: every aggregated bar runs `evaluate_alarms`; fixes D27.1 (never move `_last_chart_price` backward on wave finalize) |
+| Stream-health state | (new — D27.4) | `subscribed / awaiting-first-bar / live / failed+code` per session; persistent indicator; backoff retry |
+
+Signals (same-process Qt, queued where crossing from IBKR threads as today):
+`bars_updated`, `studies_changed`, `drawings_changed`, `alarms_changed`,
+`alarm_triggered(alarms)`. Views attach/detach (`session.attach(view)` /
+`session.detach(view)`); attach performs an initial full sync
+(bars → studies → drawings → alarms) with no IBKR request when the session already
+holds the data. Teardown rule (A61): destroy only when `views == 0 AND NOT monitored`.
+
+### reqId → session routing
+
+`_on_realtime_bar`, `_on_historical_bar`, `_on_historical_data_end`, `_on_error` stop
+filtering on singletons (`self._rt_req_id`, `reqId in self._history_req_ids`) and route
+by a `reqId → TickerSession` table maintained at subscribe time. This also repairs D27.3:
+every live subscription (chart RT bars, DOM, watchlist mkt-data) is registered with a
+type tag in `SubscriptionManager` (whose `subscribe()` currently has zero callers), and
+reconnect replays each via its manager with reqIds rebound to sessions.
+
+### `MainWindow` after extraction
+
+Keeps: the session registry, the primary view, toolbar wiring (now calling
+`load_chart(symbol, timeframe, extended_hours)` — parameterised, D28.2 — instead of the
+widget-reading path at `:813-820`), watchlist/docks, toast + sound (toast parented to
+the window, not `self.chart_panel`; `alarm_triggered` carries the firing symbol —
+fixes the single-chart-bound toast), and app lifecycle (`closeEvent` teardown per
+D28.5). Extraction order: (1) D27.3 + D27.4 (reconnect routing, stream health —
+correctness, needed regardless), (2) D28.1 (pacing off the GUI thread), (3) the session
+data-plane cluster, (4) dock-layout controller, (5) remaining clusters — one cluster per
+change, offscreen suite green between each.
+
+## [NEW] Pop-out window architecture (D24)
+
+> **Status: DRAFT 2026-10-12 — target architecture.** Requirement ref: D24.
+
+New module `ui/popout_window.py::PopoutChartWindow(QWidget, Qt.Window)`, parented to the
+main window (independent top-level window on any monitor; closes with the app).
+Layout: `QVBoxLayout`, margins 0; slim header strip (~28px: `SYMBOL · timeframe · mode`
++ close button); body is `ChartPanel(editable=False)` expanding to fill. Native OS frame
+retained (resize/drag); no toolbar row, no docks, no status bar.
+
+`ChartPanel` gains a read-only mode via constructor/behaviour flag (not a subclass, not
+a fork of the overlay code): drawing tools, alarm-placement mode, and
+studies/timeframe/mode controls are disabled — **interaction only**. `drawing_overlay`
+and `alarm_overlay` still render everything; crosshair/zoom/pan work normally.
+Timeframe/mode/extended-hours are frozen at the pop-out snapshot (A56).
+
+Data flow per pop-out: `registry.get_or_create(symbol)` → build `ChartPanel(editable=False)`
+→ set symbol/timeframe/mode/ext-hours → `session.attach(view)` (initial full sync) →
+show. Cap: `MAX_POPOUTS = 10` (`config/settings.py`); the toolbar "Pop out" action
+(button + hotkey) is disabled at the cap with a status-bar message; closing a pop-out
+detaches its view and frees the slot. Same symbol in N pop-outs = one session, one
+subscription (A62); main chart may show the same ticker (primary view joins the session).
+
+Performance contract (D28.4, required before pop-outs ship): bars stored once per
+`(symbol, timeframe)` and shared; no full chart rebuild on any tick (static-history +
+live-bar render layers); one IBKR tick per symbol → one fan-out pass over that
+symbol's views; no per-view polling timers.
+
+**[NEW] D24.9 — pop-out restore across restarts (owner-confirmed 2026-10-12).**
+Narrow amendment to the D24 "no DB schema changes" constraint: one **additive**
+`popouts` table only — `(symbol TEXT, timeframe TEXT, mode TEXT, ext_hours INTEGER,
+geometry BLOB, updated_at INTEGER)` — no changes to existing tables (consistent with
+the repo's additive-migration precedent; `schema_version` tracking per m-5 if this
+is the first structural migration). Write path: `MainWindow` (or the session
+registry owner) upserts the pop-out row on open, close, and geometry change
+(debounced `moveEvent`/`resizeEvent`, not per-pixel). Read path: on app launch after
+TWS connects, rows are re-created as pop-out windows in z-order; each attaches to its
+session lazily (cache-first render, then live). If a row's symbol no longer resolves
+(contract lookup fails), the pop-out is skipped with a status-bar note — never a
+blocking error. Deleting all rows when the user closes every pop-out keeps the table
+empty-by-default. QSettings is the documented fallback if the owner rejects the table.
+
+## [NEW] Headless alarm monitor (D25)
+
+> **Status: DRAFT 2026-10-12 — target architecture.** Requirement ref: D25.
+
+New module `services/alarm_monitor.py::AlarmMonitor`, owned by `MainWindow` and wired to
+the session registry. It maintains the **monitored set** via a new
+`AlarmStore.symbols_with_active_alarms()` query
+(`SELECT DISTINCT symbol FROM alarms WHERE active=1 AND triggered=0`).
+
+For each monitored symbol with no open view, the monitor ensures a **headless
+`TickerSession`** (`views == 0`, `monitored == True`): one `reqRealTimeBars` (5-sec),
+aggregated by the existing `BarAggregator` at fixed `"1m"`, evaluated on every 5-sec
+push with `evaluate_alarms(prev_price, curr_price, alarms)` (A58: 1-minute tracking
+granularity, second-level firing). `prev_price` seeds from `BarCache.get_bars(symbol,
+"1m")` last close, else the first tick seeds with no evaluation until the second tick;
+**zero historical requests** from headless sessions (A60). Headless sessions are
+ordinary sessions — no parallel data path.
+
+Lifecycle: the monitor reconciles (diff desired vs actual) on TWS connect, alarm
+add/update/delete/rearm/trigger, and view attach/detach. Trigger path is identical to
+D24 (`mark_triggered` → `alarm_triggered` → exactly-once toast + sound from
+`MainWindow`, A57). A symbol gaining a view keeps its session (view-backed, no
+duplicate); last live alarm deleted/triggered/deactivated → unmonitored → teardown if
+viewless (A61). No phantom trigger when monitoring starts beyond the alarm level (A59).
+Pacing guardrail: monitored symbols count against `MAX_REALTIME_BARS_PER_10_MIN = 60`;
+overflow → most-recently-active first + status-bar warning naming the unmonitored (A63).
+
+## [NEW] As-built → target delta table (per subsystem)
+
+| Subsystem | As-built (D1–D23) | Target (D24/D25/D28) | Requirement |
+|---|---|---|---|
+| Chart data ownership | `MainWindow` singletons (`_aggregator`, `_rt_req_id`, `_current_*`, wave apparatus) | `TickerSession` per symbol; registry on `MainWindow` | D28.2 |
+| Bar routing | `reqId == self._rt_req_id` filter; `reqId in self._history_req_ids` | `reqId → TickerSession` routing table | D28.2, D27.3 |
+| Reconnect | `_do_reconnect` calls nonexistent `eConnect` (B-1.3); `SubscriptionManager.subscribe()` never called — replay dead | `self.connect(host, port, clientId)`; every live sub registered with type tags; replay rebinds reqIds to sessions | D27.3 |
+| Alarm evaluation | `MainWindow._on_aggregated_bar` for the main-chart symbol only | Session evaluates its own symbol every aggregated bar; headless sessions evaluate with zero views | D24, D25 |
+| Alarm previous-price | `_finalize_history_wave` rewinds `_last_chart_price` → phantom triggers (B-1.1) | Never moves backward; forming bar re-applied after finalize | D27.1 |
+| Studies | Per-symbol persist; `_StudyCache` write-only (`get()` never called) | Cache moves into session **and is read** (shift arrays, compute only new bar) | D24, D28.4 |
+| Subscriptions | One chart = one sub (implicit); no refcounting | Refcounted per symbol; first holder subscribes, last releases | D24 (A62) |
+| Pacing | `throttle_realtime()` sleeps ≤600s on the GUI thread, incl. order path (B-2.1) | Never sleeps on GUI thread; deferred retry + status; orders have their own limiter | D28.1 |
+| Historical pacing | Only 50 req/sec spacing; `plan_requests` uncapped (~365 req/wave) | Rolling 600s window (non-blocking); ~60 chunks/wave cap; retry-once on 162 | D28.3 |
+| Rendering | Full QPicture regen + O(n log n) sort per 5-sec tick; O(n) crosshair/mousemove, volume/tick+frame, collapse/candle | Static-history + live-bar layers; bisection over cached display-x; incremental collapse tails; bounded `_bars` (~5k) + cache retention | D28.4 |
+| Stream health | "Live stream active" declared unconditionally | Per-session state + persistent indicator + backoff retry | D27.4 |
+| Order path | Bracket children same-side (B-0.1); IDs unreserved (B-0.2); SL/TP dialog DB-only (B-0.3); MKT crash (B-0.4); no port guard (B-0.5); BUY-only (B-0.6); no validation (B-0.7); no kill switch (B-0.8); rejections silent (B-0.9) | Children opposite-side; `reserve(3)`; real legs or honest labelling; qty from input; fail-fast on port; Buy/Sell selector; `validate_order()` gate; `reqGlobalCancel` kill switch; registry updated on reject | D26 |
+| Study overlays | MACD histogram, ICT, RTH gaps, VIX labels plot in index-x — invisible (B-1.2) | All plot in display-x; overlay tests assert x-in-view-range | D27.2 |
+| Daily/4h aggregation | UTC-midnight anchored; VWAP resets at `ts // 86400` (B-1.8) | `America/New_York` wall-time anchoring; VWAP resets on ET date change | D27.8 |
+| Backfill gaps | Day-granularity detection; stranded partial days permanent (B-1.7) | Bar-period granularity for trailing N days / per-chunk completion | D27.7 |
+| Positions/account | `_last_chart_price` stamped on any position (B-1.5); `reqPositions`/`reqAccountSummary` never called (B-1.6) | `symbol → last_price` map; subscribe on connect; "unavailable" state | D27.5, D27.6 |
+| Teardown | Daemon reader thread never joined; disconnect-during-teardown races (B-2.5) | `_closing` flag; explicit order; thread joined with timeout | D28.5 |
+| Drawings | Colour edits dropped on reload (B-1.10); last-writer-wins implicit | Colour/label/group persisted; single-writer invariant documented (A64) | D27.10, D24 |
+| Pop-out persistence | Pop-outs are session-only (D24 as drafted) | Additive `popouts` table (symbol, timeframe, mode, ext_hours, geometry); upsert on open/close/geometry change; re-created on launch after connect; unresolvable symbols skipped with a note | D24.9 |
+
+### Implementation sequencing (target increments)
+
+At the architecture level the sequence is: **(1)** D26 P0 order-path safety (small,
+independent, blocks all live use); **(2)** D27.1 + D27.2 (phantom alarms, invisible
+overlays — small, high-ROI); **(3)** D27.3 + D27.4 + D28.1 (reconnect routing, stream
+health, pacing off the GUI thread); **(4)** D28.2 session extraction (the structural
+keystone — unblocks D24/D25); **(5)** D28.3–D28.5 (historical pacing, perf, teardown);
+**(6)** D24 pop-outs + D25 alarm monitor on the session substrate; **(7)** D28.6 test
+hardening throughout. D1–D23 stay frozen; each step keeps the offscreen suite green.
