@@ -138,3 +138,44 @@ def test_d27_4_stale_retry_after_reload_is_noop(monkeypatch, qapp):
     # The stale retry fires: must not touch the new subscription.
     win._retry_rt_subscribe()
     assert win._rt_req_id == other_rt_id
+
+
+def test_mark_subscribed_reset_backoff_flag():
+    """Fix-B (unit): mark_subscribed() accepts reset_backoff; False keeps the
+    attempt count so consecutive failures keep progressing the backoff."""
+    h = StreamHealth()
+    h.next_retry_delay_s()  # attempt 1 -> 5s
+    h.next_retry_delay_s()  # attempt 2 -> 10s
+    assert h.retry_attempt == 2
+    # A backoff retry re-subscribes WITHOUT resetting the counter.
+    h.mark_subscribed(reset_backoff=False)
+    assert h.state == StreamState.AWAITING_FIRST_BAR
+    assert h.retry_attempt == 2
+    # Default (fresh user-initiated subscription) still resets.
+    h.mark_subscribed()
+    assert h.retry_attempt == 0
+
+
+def test_d27_4_backoff_progresses_across_consecutive_failures(monkeypatch,
+                                                             qapp):
+    """Fix-B (wiring): two consecutive RT failures must schedule increasing
+    delays (5s then 10s) — the retry must not restart the backoff at 5s."""
+    win = _make_window(monkeypatch, qapp)
+    _load(win)
+    win._ibkr_connected = True  # failure struck a live connection
+
+    win._on_error(win._rt_req_id, 162, "pacing violation")
+    delay_1_ms = win._rt_retry_timer.interval()
+
+    # Fire the scheduled retry directly, then fail the new subscription too.
+    win._rt_retry_timer.stop()
+    win._retry_rt_subscribe()
+    assert win._stream_health.state == StreamState.AWAITING_FIRST_BAR
+    win._on_error(win._rt_req_id, 162, "pacing violation")
+    delay_2_ms = win._rt_retry_timer.interval()
+
+    assert delay_1_ms == 5000, f"first retry should be 5s, got {delay_1_ms}ms"
+    assert delay_2_ms > delay_1_ms, (
+        f"backoff must progress: first {delay_1_ms}ms, second {delay_2_ms}ms"
+    )
+    win.close()

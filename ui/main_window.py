@@ -875,7 +875,9 @@ class MainWindow(QMainWindow):
             reissue=lambda s=symbol, c=contract: self.rt_manager.subscribe(s, c),
             rebind=self._rebind_rt_req_id,
         )
-        self._stream_health.mark_subscribed()
+        # Fix-B: a backoff retry must NOT reset the attempt counter, or every
+        # fail->retry cycle restarts at 5s and the backoff never progresses.
+        self._stream_health.mark_subscribed(reset_backoff=False)
         self._update_stream_badge()
         self.status_bar.showMessage(
             f"{symbol} — realtime stream re-subscribed, awaiting first bar…",

@@ -33,12 +33,19 @@ class StreamHealth:
     fail_message: str = ""
     retry_attempt: int = 0
 
-    def mark_subscribed(self) -> None:
-        """A (re)subscription was issued; awaiting the first bar."""
+    def mark_subscribed(self, reset_backoff: bool = True) -> None:
+        """A (re)subscription was issued; awaiting the first bar.
+
+        ``reset_backoff`` is True for fresh user-initiated subscriptions
+        (load_chart). Backoff retries pass False so consecutive failures keep
+        progressing 5s -> 10s -> 20s -> 60s instead of restarting at 5s
+        (D27.4: each 5s retry burns a pacing slot).
+        """
         self.state = StreamState.AWAITING_FIRST_BAR
         self.fail_code = None
         self.fail_message = ""
-        self.retry_attempt = 0
+        if reset_backoff:
+            self.retry_attempt = 0
 
     def mark_first_bar(self) -> None:
         """The first bar arrived: the stream is live."""
