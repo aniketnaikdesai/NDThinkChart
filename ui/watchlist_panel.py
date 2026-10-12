@@ -8,6 +8,7 @@ from PyQt6.QtGui import QColor, QBrush, QPalette
 import ui.dock_layout as dock_layout
 from ui.visual_conventions import DiagonalStrikeButton
 from ui.add_symbol_dialog import AddSymbolDialog
+from ibkr.subscription_manager import MARKET_DATA
 
 # ── D21.5: field-key column model ─────────────────────────────────────────────
 # The table is no longer addressed by fixed column indices. ``COLUMN_DEFS`` maps
@@ -264,6 +265,9 @@ class WatchlistPanel(QWidget):
         self._row_data: dict[int, dict] = {}
         self._md_manager = None  # injected after connection
         self._depth_manager = None  # injected after connection
+        # D27.3: subscription registry (injected by MainWindow) so live
+        # market-data subs are type-tagged for the reconnect replay.
+        self._sub_manager = None
         # D21.11: body (table) collapse state driven by the header button.
         self._collapsed = False
 
@@ -653,6 +657,10 @@ class WatchlistPanel(QWidget):
         """Inject MarketDataManager for live tick subscriptions."""
         self._md_manager = md_manager
 
+    def set_subscription_manager(self, sub_manager):
+        """Inject the SubscriptionManager for reconnect replay (D27.3)."""
+        self._sub_manager = sub_manager
+
     # ── MarketDepth management ───────────────────────────────────────────────────
 
     def on_depth_update(self, req_id: int, position: int, operation: int,
@@ -678,6 +686,34 @@ class WatchlistPanel(QWidget):
 
         req_id = self._md_manager.req_mkt_data(contract)
         self._req_to_row[req_id] = row
+        # D27.3: type-tag the live subscription for the reconnect replay.
+        # (Re-issued by _restore_watchlist's clear+re-add on reconnect, so
+        # replay_all skips MARKET_DATA — see MainWindow._replay_subscriptions.)
+        if self._sub_manager is not None:
+            self._sub_manager.subscribe(
+                symbol,
+                req_id,
+                MARKET_DATA,
+                reissue=lambda c=contract: self._md_manager.req_mkt_data(c),
+                rebind=lambda new_id, _old=req_id, _sym=symbol: (
+                    self._rebind_mkt_data_req_id(_sym, _old, new_id)
+                ),
+            )
+
+    def _rebind_mkt_data_req_id(self, symbol: str, old_id: int,
+                                new_id: int) -> None:
+        """D27.3: point a watchlist row at a replayed subscription's reqId.
+
+        Row lookup is by symbol (not the captured row) because removes
+        re-index the row-keyed state.
+        """
+        self._req_to_row.pop(old_id, None)
+        for cache in (self._prev_close, self._last_price):
+            if old_id in cache:
+                cache[new_id] = cache.pop(old_id)
+        row = self._row_index_for_symbol(symbol)
+        if row is not None:
+            self._req_to_row[new_id] = row
 
     def remove_symbol(self, symbol: str) -> bool:
         """Remove the row for ``symbol`` and stop its live subscription.
@@ -706,6 +742,8 @@ class WatchlistPanel(QWidget):
         for req_id in req_ids:
             if self._md_manager:
                 self._md_manager.cancel_mkt_data(req_id)
+            if self._sub_manager is not None:
+                self._sub_manager.unsubscribe(req_id)
             self._req_to_row.pop(req_id, None)
             self._prev_close.pop(req_id, None)
             self._last_price.pop(req_id, None)
@@ -740,6 +778,10 @@ class WatchlistPanel(QWidget):
         if self._md_manager:
             for req_id in list(self._req_to_row.keys()):
                 self._md_manager.cancel_mkt_data(req_id)
+        # D27.3: drop the registry entries too, so a later reconnect replay
+        # never re-issues these dead subscriptions.
+        if self._sub_manager is not None:
+            self._sub_manager.unsubscribe_all_of_type(MARKET_DATA)
         self._req_to_row.clear()
         self._prev_close.clear()
         self._last_price.clear()

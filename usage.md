@@ -195,7 +195,13 @@ All tests run **offscreen** (no display required) and **without TWS**.
 - **IBKR layer** (`ibkr/*.py`) — `IBApiClient` (EWrapper/EClient), pacing, subscriptions
 - **Data layer** (`data/*.py`) — SQLite, cache, models, aggregation
 - **UI layer** (`ui/*.py`) — PyQt6 widgets, chart panel, docks
-- **Reconnect hardening** — state machine, exponential backoff, subscription replay
+- **Reconnect hardening** (D27.3) — connection state machine (DISCONNECTED /
+  CONNECTING / CONNECTED / RECONNECTING); `_do_reconnect` re-issues the real
+  `EClient.connect` with the stored host/port/clientId on exponential backoff
+  (the poll timer does not re-arm while a reconnect is pending); live
+  subscriptions are type-tagged in `SubscriptionManager` and replayed with
+  rebound reqIds — chart RT bars and DOM depth via the registry replay,
+  watchlist market-data via `_restore_watchlist`'s clear+re-add
 
 ---
 

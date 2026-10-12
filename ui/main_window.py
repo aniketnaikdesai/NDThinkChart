@@ -36,7 +36,11 @@ from ibkr.orders import orders as order_registry, UserOrder
 from ibkr.validation import validate_order
 from ibkr.id_manager import id_manager
 from ibkr.pacing import pacing_manager
-from ibkr.subscription_manager import SubscriptionManager
+from ibkr.subscription_manager import (
+    DEPTH,
+    RT_BARS,
+    SubscriptionManager,
+)
 from ui.chart_panel import ChartPanel
 from ui.candlestick_item import ChartMode
 from ui.watchlist_panel import (
@@ -486,6 +490,8 @@ class MainWindow(QMainWindow):
 
         # Inject md_manager into watchlist
         self.watchlist_panel.set_market_data_manager(self.md_manager)
+        # D27.3: the panel type-tags its live subs for the reconnect replay.
+        self.watchlist_panel.set_subscription_manager(self.sub_manager)
         self.watchlist_panel.set_depth_manager(self.depth_manager)
 
         # Drawing overlay wiring
@@ -747,15 +753,24 @@ class MainWindow(QMainWindow):
         )
         return True
 
+    def _rebind_rt_req_id(self, new_req_id: int) -> None:
+        """D27.3: point RT-bar routing at the replayed subscription's reqId."""
+        self._rt_req_id = new_req_id
+
+    def _rebind_depth_req_id(self, new_req_id: int) -> None:
+        """D27.3: point DOM routing at the replayed subscription's reqId."""
+        self._depth_req_id = new_req_id
+
     def _replay_subscriptions(self):
-        """Replay all recorded subscriptions after reconnection."""
-        for symbol in self.sub_manager._subscriptions:
-            req_ids = self.sub_manager.get_req_ids(symbol)
-            contract = get_contract_for_symbol(symbol)
-            for req_id in req_ids:
-                self.rt_manager.subscribe(symbol, contract)
-            # Also replay market depth
-            # self.depth_manager needs integration, skip for now
+        """Re-issue live subscriptions after reconnection (D27.3).
+
+        Chart RT bars and DOM depth replay through the subscription
+        registry, which rebinds the new reqIds into the routing state.
+        Watchlist market-data is re-issued by ``_restore_watchlist``'s
+        clear+re-add path (pinned by AC-D22.7.2), so it is excluded here —
+        replaying it too would double-subscribe every row.
+        """
+        self.sub_manager.replay_all(include_types={RT_BARS, DEPTH})
 
     def _on_disconnected(self):
         self._ibkr_connected = False
@@ -884,6 +899,7 @@ class MainWindow(QMainWindow):
         # Cancel any previous RT subscription
         if self._rt_req_id is not None:
             self.rt_manager.unsubscribe(self._rt_req_id)
+            self.sub_manager.unsubscribe(self._rt_req_id)
             self._rt_req_id = None
 
         self._current_symbol = symbol
@@ -984,7 +1000,16 @@ class MainWindow(QMainWindow):
             self._arm_history_wave_watchdog()
 
         # Step 3: Start real-time bar stream
+        # D27.3: register the live subscription (type-tagged) so the
+        # reconnect replay can re-issue it and rebind the reqId.
         self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+        self.sub_manager.subscribe(
+            symbol,
+            self._rt_req_id,
+            RT_BARS,
+            reissue=lambda s=symbol, c=contract: self.rt_manager.subscribe(s, c),
+            rebind=self._rebind_rt_req_id,
+        )
 
         # DOM subscription (only if DOM panel is visible)
         if self.dom_btn.isChecked():
@@ -1964,9 +1989,20 @@ class MainWindow(QMainWindow):
             return
         # Cancel any previous subscription
         self.depth_manager.cancel_all()
+        self.sub_manager.unsubscribe_all_of_type(DEPTH)
         contract = get_contract_for_symbol(self._current_symbol)
         self._depth_req_id = self.depth_manager.subscribe(
             self._current_symbol, contract, num_levels=10
+        )
+        # D27.3: register for the reconnect replay (rebinds _depth_req_id).
+        self.sub_manager.subscribe(
+            self._current_symbol,
+            self._depth_req_id,
+            DEPTH,
+            reissue=lambda s=self._current_symbol, c=contract: (
+                self.depth_manager.subscribe(s, c, num_levels=10)
+            ),
+            rebind=self._rebind_depth_req_id,
         )
         self.active_trader.set_symbol(self._current_symbol)
         self.status_bar.showMessage(

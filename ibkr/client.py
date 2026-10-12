@@ -25,6 +25,19 @@ class IBApiClient(EWrapper, EClient):
         self._max_backoff = 16
         self._backoff_base = 2
         self._poll_timer = None
+        # D27.3: last connect() params, so _do_reconnect can re-issue the
+        # real EClient.connect instead of the nonexistent eConnect.
+        self._conn_host: str | None = None
+        self._conn_port: int | None = None
+        self._conn_client_id: int | None = None
+
+    def connect(self, host: str, port: int, clientId: int):
+        """Connect and remember the params for reconnect (D27.3)."""
+        self._conn_host = host
+        self._conn_port = port
+        self._conn_client_id = clientId
+        super().connect(host, port, clientId)
+        self.start_polling()
 
     @property
     def connected(self) -> bool:
@@ -77,8 +90,12 @@ class IBApiClient(EWrapper, EClient):
             if self._connection_state != ConnectionState.RECONNECTING:
                 self._set_state(ConnectionState.RECONNECTING)
             self._schedule_reconnect()
+            # D27.3: a reconnect attempt is now pending on the backoff timer.
+            # Do NOT re-arm the poll timer here — re-arming every poll
+            # interval defeats the backoff and piles up doomed attempts.
+            return
 
-        if self._connection_state in (ConnectionState.CONNECTED, ConnectionState.RECONNECTING):
+        if self._connection_state == ConnectionState.CONNECTED:
             try:
                 self.start_polling()
             except Exception:
@@ -97,11 +114,26 @@ class IBApiClient(EWrapper, EClient):
         self._reconnect_timer.start()
 
     def _do_reconnect(self) -> None:
-        """Attempt to reconnect to TWS."""
+        """Attempt to reconnect to TWS (D27.3).
+
+        Re-issues the real ``EClient.connect`` with the params stored by
+        ``connect()`` — the old ``eConnect()`` call never existed on ibapi's
+        EClient, so every attempt died with AttributeError.
+        """
+        if self._conn_host is None:
+            # Never connected: nothing to reconnect to.
+            return
         try:
-            self.eConnect()
+            super().connect(
+                self._conn_host, self._conn_port, self._conn_client_id
+            )
         except Exception:
             self._schedule_reconnect()
+            return
+        # The attempt is issued; resume polling so the outcome is observed:
+        # nextValidId (or the connected check) drives CONNECTED, otherwise
+        # _poll schedules the next backoff attempt.
+        self.start_polling()
 
     def nextValidId(self, orderId: int):
         super().nextValidId(orderId)
