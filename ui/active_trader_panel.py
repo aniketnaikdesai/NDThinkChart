@@ -260,6 +260,15 @@ class OrderEntryWidget(QWidget):
         sym_row.addStretch()
         layout.addLayout(sym_row)
 
+        # ── Side (D26.6: explicit, never hardcoded) ──
+        side_row = QHBoxLayout()
+        side_row.addWidget(QLabel("Side:"))
+        self.side_combo = QComboBox()
+        self.side_combo.addItems(["BUY", "SELL"])
+        side_row.addWidget(self.side_combo)
+        side_row.addStretch()
+        layout.addLayout(side_row)
+
         # ── Quantity ──
         qty_row = QHBoxLayout()
         qty_row.addWidget(QLabel("Qty:"))
@@ -390,7 +399,7 @@ class OrderEntryWidget(QWidget):
     def _on_place(self):
         order_type = self.type_combo.currentText()
         qty = self.qty_input.value()
-        action = "BUY"
+        action = self.side_combo.currentText()  # D26.6: explicit side selector
 
         lmt_price = 0.0
         stop_price = 0.0
@@ -409,7 +418,7 @@ class OrderEntryWidget(QWidget):
                       lmt_price: float, stop_price: float, target_price: float):
         """Show confirmation label instead of sending immediately."""
         price_display = f"@ {lmt_price:.2f}" if lmt_price else "@ market"
-        self.confirm_label.setText(f"{qty:g} x {order_type} {price_display}")
+        self.confirm_label.setText(f"{action} {qty:g} x {order_type} {price_display}")
         self.confirm_label.setVisible(True)
         self.confirm_btn.setVisible(True)
         self.cancel_btn.setVisible(True)
@@ -617,15 +626,20 @@ class ActiveTraderPanel(QWidget):
         self._snapshot = {}
 
     def _on_ladder_price_click(self, row: int, col: int, price: float):
-        """Click-to-trade from the ladder: bid -> BUY LMT, ask -> SELL LMT."""
+        """Click-to-trade from the ladder: bid -> BUY LMT, ask -> SELL LMT.
+
+        D26.6: the click pre-selects the side in the order-entry form instead
+        of recording the dead _pending_ladder path (which nothing read, so an
+        ask-click intending to sell still bought).
+        """
         self.tabs.setCurrentWidget(self.order_entry)
         self.order_entry.lmt_price_input.setText(f"{price:.2f}")
         self.order_entry.type_combo.setCurrentText("LMT")
         if col in (2, 3):
             self.order_entry.qty_input.setValue(self.qty_input.value())
-            self._pending_ladder = ("BUY", price)
+            self.order_entry.side_combo.setCurrentText("BUY")
         elif col in (0, 1):
-            self._pending_ladder = ("SELL", price)
+            self.order_entry.side_combo.setCurrentText("SELL")
 
     def _on_order_place_requested(self, action: str, qty: float, order_type: str,
                                    lmt_price: float, stop_price: float, target_price: float):
