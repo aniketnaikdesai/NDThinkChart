@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -49,6 +50,19 @@ class StopLossTargetDialog(QDialog):
         )
         header.setStyleSheet("font-weight: 600; color: #cbd5e1;")
         layout.addWidget(header)
+
+        # D26.3 (labelling branch): this dialog records target prices locally
+        # only — it does NOT transmit orders. Say so plainly; a user who sets
+        # levels here and walks away must know the position is not protected.
+        notice = QLabel(
+            "Note: this saves target prices locally only — it does NOT place "
+            "stop-loss or take-profit orders with your broker. The position "
+            "has no protective orders until real legs are transmitted."
+        )
+        notice.setWordWrap(True)
+        notice.setStyleSheet("color: #fbbf24; font-weight: 600;")
+        notice.setObjectName("NoOrdersNotice")
+        layout.addWidget(notice)
 
         # Form layout
         form = QFormLayout()
