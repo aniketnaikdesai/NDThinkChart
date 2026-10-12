@@ -749,6 +749,12 @@ class ChartPanel(QWidget):
         if self.alarm_overlay is not None:
             self.alarm_overlay.set_collapse_map(self._collapse_map)
             self.alarm_overlay.set_bars(bars)
+        # D27.2: the study overlays render at display-x too; they map bar
+        # indices through the same collapse map as the candles.
+        for overlay in (self._gap_overlay, self._vix_overlay,
+                        self._ict_overlay):
+            if overlay is not None:
+                overlay.set_collapse_map(self._collapse_map)
 
     def _sync_collapsed_axes(self) -> None:
         for name in ("_price_date_axis", "_vol_date_axis"):
@@ -1260,7 +1266,9 @@ class ChartPanel(QWidget):
                 bar_x, bar_h, bar_c = [], [], []
                 for i, v in enumerate(histogram):
                     if v is not None:
-                        bar_x.append(i)
+                        # D27.2: histogram bars share the lines' display-x
+                        # axis; raw indices would render off-screen.
+                        bar_x.append(xs[i])
                         bar_h.append(v)
                         bar_c.append('#34d399' if v >= 0 else '#f87171')
                 hist_bars = pg.BarGraphItem(x=bar_x, height=bar_h, width=0.6, brushes=bar_c)
@@ -1272,17 +1280,17 @@ class ChartPanel(QWidget):
             elif stype == "rth_gaps":
                 ticker = infer_ticker_context(self._symbol, self._bars)
                 gaps = calculate_rth_gaps(self._bars, ticker, params)
-                self._gap_overlay.render(gaps, len(self._bars))
+                self._gap_overlay.render(gaps, self._bars)
 
             elif stype == "vix_sd":
                 ticker = infer_ticker_context(self._symbol, self._bars)
                 result = calculate_vix_standard_deviation(ticker, self._bars, params)
-                self._vix_overlay.render(result, len(self._bars))
+                self._vix_overlay.render(result, self._bars)
 
             elif stype == "ict":
                 ticker = infer_ticker_context(self._symbol, self._bars)
                 result = calculate_ict_concepts(self._bars, ticker, params)
-                self._ict_overlay.render(result, len(self._bars))
+                self._ict_overlay.render(result, self._bars)
 
         # Cache the computed values for incremental updates
         cacheable = {k: list(v) for k, v in all_vals.items()}

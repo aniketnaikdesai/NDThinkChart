@@ -35,6 +35,34 @@ class StudyOverlay:
     def __init__(self, plot: pg.PlotWidget):
         self._plot = plot
         self._items: list = []
+        # D27.2: D21.4 collapse map for bar-index -> display-x conversion.
+        # Set via set_collapse_map; None means the identity (no map yet).
+        self._collapse_map = None
+
+    def set_collapse_map(self, collapse_map) -> None:
+        """Set the D21.4 display-x map used by _index_to_x (D27.2)."""
+        self._collapse_map = collapse_map
+
+    def _index_to_x(self, index, bars) -> float:
+        """Map a bar index to the ViewBox x-coordinate (D27.2).
+
+        With a D21.4 collapse map active the x-model is display-x, so the
+        index's timestamp is mapped through ``to_display`` (exactly what
+        ``DrawingOverlay._ts_to_x`` does); otherwise the raw index is used.
+        Out-of-range indices are clamped to the bar list.
+        """
+        try:
+            i = int(index)
+        except (TypeError, ValueError):
+            return float(index)
+        cmap = self._collapse_map
+        if not bars:
+            return float(i)
+        i = min(max(i, 0), len(bars) - 1)
+        if cmap is None:
+            # Identity: the x-model is raw timestamps (as _ts_to_x does).
+            return float(bars[i].ts)
+        return float(cmap.to_display(bars[i].ts))
 
     @staticmethod
     def _pen(color: str, width: float = 1.0, style=Qt.PenStyle.SolidLine):

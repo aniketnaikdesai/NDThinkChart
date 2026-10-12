@@ -37,13 +37,13 @@ class TestRthGapOverlay:
         ticker = infer_ticker_context("TEST", gap_bars)
         gaps = calculate_rth_gaps(gap_bars, ticker)
         assert gaps
-        overlay.render(gaps, len(gap_bars))
+        overlay.render(gaps, gap_bars)
         assert overlay.item_count() > 0
 
     def test_clear_removes_items(self, chart_panel, gap_bars):
         overlay = RthGapOverlay(chart_panel.price_plot)
         ticker = infer_ticker_context("TEST", gap_bars)
-        overlay.render(calculate_rth_gaps(gap_bars, ticker), len(gap_bars))
+        overlay.render(calculate_rth_gaps(gap_bars, ticker), gap_bars)
         count = overlay.item_count()
         assert count > 0
         overlay.clear()
@@ -55,14 +55,14 @@ class TestVixOverlay:
         overlay = VixOverlay(chart_panel.price_plot)
         ticker = infer_ticker_context("TEST", sample_bars)
         result = calculate_vix_standard_deviation(ticker, sample_bars)
-        overlay.render(result, len(sample_bars))
+        overlay.render(result, sample_bars)
         assert overlay.item_count() == 2 * len(result["levels"])
 
     def test_anchor_label_uses_zero_sigma(self, chart_panel, sample_bars):
         overlay = VixOverlay(chart_panel.price_plot)
         ticker = infer_ticker_context("TEST", sample_bars)
         result = calculate_vix_standard_deviation(ticker, sample_bars)
-        overlay.render(result, len(sample_bars))
+        overlay.render(result, sample_bars)
         texts = [item.toPlainText() for item in overlay._items
                  if isinstance(item, pg.TextItem)]
         anchors = [t for t in texts if "0σ" in t]
@@ -83,14 +83,14 @@ class TestICTStudyOverlay:
         overlay = ICTStudyOverlay(chart_panel.price_plot)
         ticker = infer_ticker_context("TEST", impulse_bars)
         result = calculate_ict_concepts(impulse_bars, ticker, dict(ICT_PARAMS))
-        overlay.render(result, len(impulse_bars))
+        overlay.render(result, impulse_bars)
         assert overlay.item_count() > 0
 
     def test_render_matches_service_output(self, chart_panel, impulse_bars):
         overlay = ICTStudyOverlay(chart_panel.price_plot)
         ticker = infer_ticker_context("TEST", impulse_bars)
         result = calculate_ict_concepts(impulse_bars, ticker, dict(ICT_PARAMS))
-        overlay.render(result, len(impulse_bars))
+        overlay.render(result, impulse_bars)
         n_structures = len(result["marketStructures"])
         n_ob = len(result["orderBlocks"])
         n_fvgs = len(result["fairValueGaps"])
@@ -115,7 +115,7 @@ class TestICTStudyOverlay:
         overlay = ICTStudyOverlay(chart_panel.price_plot)
         ticker = infer_ticker_context("TEST", impulse_bars)
         result = calculate_ict_concepts(impulse_bars, ticker, dict(ICT_PARAMS))
-        overlay.render(result, len(impulse_bars))
+        overlay.render(result, impulse_bars)
         scatters = [item for item in overlay._items
                     if isinstance(item, pg.ScatterPlotItem)]
         if result["displacements"]:
@@ -125,7 +125,7 @@ class TestICTStudyOverlay:
         overlay = ICTStudyOverlay(chart_panel.price_plot)
         ticker = infer_ticker_context("TEST", sample_bars[:5])
         result = calculate_ict_concepts(sample_bars[:5], ticker, dict(ICT_PARAMS))
-        overlay.render(result, len(sample_bars[:5]))
+        overlay.render(result, sample_bars[:5])
         assert overlay.item_count() == 0
 
 
