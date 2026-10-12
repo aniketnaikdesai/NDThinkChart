@@ -149,3 +149,33 @@ def test_d27_9_no_prime_at_period_boundary(monkeypatch, qapp):
     assert not any(c.get("bar_size") == "5 secs" for c in calls)
     assert win._rt_req_id is not None
     win.close()
+
+
+def test_d27_9_prime_span_bounded(monkeypatch, qapp):
+    """The trailing priming fetch is bounded: a daily load must not pull a
+    full day of 5-sec bars (pacing)."""
+    win = _make_window(monkeypatch, qapp)
+    counter = iter(range(9100, 9300))
+    calls = []
+
+    def fake_req_hist(**k):
+        calls.append(k)
+        return next(counter)
+
+    monkeypatch.setattr(win.md_manager, "req_historical_data", fake_req_hist)
+    rt_ids = iter(range(9300, 9400))
+    monkeypatch.setattr(win.rt_manager, "subscribe", lambda s, c: next(rt_ids))
+
+    now = 1_760_000_000
+    win._now_ts = lambda: now
+    win.symbol_input.setText("TEST")
+    win.tf_combo.setCurrentText("1 day")
+    win.load_chart()
+    qapp.processEvents()
+
+    prime_calls = [c for c in calls if c.get("bar_size") == "5 secs"]
+    assert len(prime_calls) == 1
+    span = now - win._aggregator.period_start(now)
+    assert span > 7_200, "test setup: period must exceed the cap"
+    assert prime_calls[0]["duration"] == "7200 S"
+    win.close()
