@@ -557,6 +557,8 @@ class MainWindow(QMainWindow):
         # Initialize empty portfolio display
         self.portfolio_panel.set_account_summary({})
         self.portfolio_panel.set_positions([])
+        # D27.6: not subscribed until the first connect.
+        self.portfolio_panel.set_account_unavailable(True)
 
         # Portfolio panel signal wiring
         self.portfolio_panel.position_close_requested.connect(self._on_portfolio_close_position)
@@ -601,6 +603,9 @@ class MainWindow(QMainWindow):
         # Position market prices look up the position's own symbol here —
         # never the chart's _last_chart_price.
         self._symbol_last_prices: dict[str, float] = {}
+        # D27.6: account-data subscription state (positions + summary).
+        self._account_subscribed: bool = False
+        self._account_summary_req_id: int | None = None
         # D27.4: health of the chart's live RT subscription. Owned here in
         # Phase 2; migrates into TickerSession in Phase 3b (no window refs).
         self._stream_health = StreamHealth()
@@ -634,6 +639,32 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Connected — IBKR port {settings.IBKR_PORT}")
         self._restore_watchlist()
         self._replay_subscriptions()
+        self._subscribe_account_data()
+
+    def _subscribe_account_data(self):
+        """D27.6: subscribe positions + account summary on (re)connect.
+
+        The whole signal chain (EWrapper -> bridge -> panel) already exists;
+        only the subscription calls were missing, leaving the portfolio
+        panel permanently empty.
+        """
+        try:
+            self.ib_client.reqPositions()
+        except Exception as exc:  # pragma: no cover - transport-level
+            _LOG.warning("reqPositions failed: %s", exc)
+        try:
+            req_id = id_manager.get_id()
+            self.ib_client.reqAccountSummary(
+                req_id,
+                "All",
+                "AccountType,AvailableFunds,BuyingPower,"
+                "TotalCashValue,NetLiquidation",
+            )
+            self._account_summary_req_id = req_id
+        except Exception as exc:  # pragma: no cover - transport-level
+            _LOG.warning("reqAccountSummary failed: %s", exc)
+        self._account_subscribed = True
+        self.portfolio_panel.set_account_unavailable(False)
 
     def _restore_watchlist(self):
         """Repopulate the panel from the DB, idempotently (AC-D22.7.2).
@@ -853,6 +884,9 @@ class MainWindow(QMainWindow):
 
     def _on_disconnected(self):
         self._ibkr_connected = False
+        # D27.6: the transport drop kills the server-side account subs.
+        self._account_subscribed = False
+        self.portfolio_panel.set_account_unavailable(True)
         self.watchlist_panel.set_add_enabled(False)
         # D22 Phase 4: a transport drop invalidates every in-flight contract
         # lookup so none can resolve an add once (re)connected.

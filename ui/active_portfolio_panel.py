@@ -53,6 +53,9 @@ class ActivePortfolioPanel(QWidget):
     def __init__(self):
         super().__init__()
         self._summary: dict[str, str] = {}
+        # D27.6: True when no account subscription is live — the panel then
+        # shows the "unavailable" state instead of stale/empty values.
+        self._account_unavailable: bool = False
         self._positions: list[Position] = []
         self._groups: dict[int, str] = {}
         self._collapsed = False
@@ -193,6 +196,11 @@ class ActivePortfolioPanel(QWidget):
         self._render_summary()
         self.account_summary_changed.emit(self._summary)
 
+    def set_account_unavailable(self, unavailable: bool) -> None:
+        """D27.6: show/hide the 'account data unavailable' state."""
+        self._account_unavailable = bool(unavailable)
+        self._render_summary()
+
     def set_positions(self, positions: list[Position]) -> None:
         """Replace positions and re-render."""
         self._positions = list(positions)
@@ -242,6 +250,12 @@ class ActivePortfolioPanel(QWidget):
         self._group_and_render()
 
     def _render_summary(self) -> None:
+        # D27.6: unsubscribed beats everything — never show stale values
+        # as if they were live.
+        if self._account_unavailable:
+            self.account_detail.setText(
+                "Account data unavailable — not subscribed")
+            return
         if not self._summary:
             self.account_detail.setText("Account summary — disconnected")
             return
