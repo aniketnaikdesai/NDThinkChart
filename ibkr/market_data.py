@@ -25,14 +25,18 @@ class MarketDataManager:
         whatToShow: str = "TRADES",
         useRTH: int = 1,
         extended_hours: bool = False,
+        bar_size: str | None = None,
+        duration: str | None = None,
     ) -> int:
         """
         Request historical bars for a contract.
         Uses the TIMEFRAME_CONFIG to automatically set duration and bar size.
         Returns the reqId so the caller can correlate incoming bars.
-        
+
         Args:
             extended_hours: If True, fetch pre/post-market data (useRTH=0)
+            bar_size: override the config bar size (D27.9: "5 secs" priming)
+            duration: override the config duration (D27.9: current period span)
         """
         cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["5 mins"])
         req_id = id_manager.get_id()
@@ -43,8 +47,8 @@ class MarketDataManager:
             req_id,
             contract,
             endDateTime,          # "" = up to now
-            cfg["duration"],
-            cfg["bar_size"],
+            duration if duration is not None else cfg["duration"],
+            bar_size if bar_size is not None else cfg["bar_size"],
             whatToShow,
             effective_useRTH,
             2,                    # formatDate=2 → unix timestamp

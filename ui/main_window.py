@@ -73,7 +73,7 @@ from ui.toast import Toast
 from data.alarm_store import AlarmStore
 from data.models import Bar, Position
 from data.bar_cache import BarCache
-from data.bar_aggregator import BarAggregator
+from data.bar_aggregator import BarAggregator, TIMEFRAME_SECONDS
 from data.study_store import StudyStore
 from data.drawing_store import DrawingStore
 from data.db import db
@@ -578,6 +578,14 @@ class MainWindow(QMainWindow):
         self._current_tf: str = "5 mins"
         self._rt_req_id: int | None = None
         self._aggregator: BarAggregator | None = None
+        # D27.9: in-flight aggregator-priming request (trailing 5-sec bars
+        # for the current partial period). The live feed attaches only after
+        # priming completes or fails open.
+        self._prime_req_id: int | None = None
+        self._prime_symbol: str = ""
+        self._prime_timer = QTimer(self)
+        self._prime_timer.setSingleShot(True)
+        self._prime_timer.timeout.connect(self._on_prime_timeout)
         # D16 correlated backfill wave: the reqIds of the in-flight historical
         # request set, the generation token they belong to, the spans that wave
         # is expected to fill, and the reqIds that errored mid-wave.
@@ -961,6 +969,19 @@ class MainWindow(QMainWindow):
             timer.stop()
 
     def _on_error(self, reqId: int, errorCode: int, errorString: str):
+        # D27.9: a failed priming request fails open — attach the live feed
+        # rather than strand the chart without realtime data.
+        if self._prime_req_id is not None and reqId == self._prime_req_id:
+            _LOG.warning(
+                "Aggregator priming request %s failed [%s]: %s",
+                reqId,
+                errorCode,
+                errorString,
+            )
+            self._prime_req_id = None
+            self._prime_timer.stop()
+            self._attach_live_feed_if_current()
+            return
         # D16: a failure on a backfill member must not strand the wave. Drop the
         # reqId (so the set can still empty and finalise) and remember it so the
         # shortfall is correlated at finalisation. No bar is fabricated.
@@ -1021,6 +1042,11 @@ class MainWindow(QMainWindow):
             self.rt_manager.unsubscribe(self._rt_req_id)
             self.sub_manager.unsubscribe(self._rt_req_id)
             self._rt_req_id = None
+        # D27.9: a previous load's priming is stale now — its late responses
+        # are ignored (reqId no longer matches) and the timer is disarmed.
+        self._prime_req_id = None
+        self._prime_symbol = ""
+        self._prime_timer.stop()
 
         self._current_symbol = symbol
         self._current_tf = timeframe
@@ -1124,7 +1150,16 @@ class MainWindow(QMainWindow):
         if self._history_req_ids:
             self._arm_history_wave_watchdog()
 
-        # Step 3: Start real-time bar stream
+        # Step 3: prime the aggregator, then attach the live feed.
+        # D27.9: replay trailing 5-sec history through the fresh aggregator
+        # before the live feed attaches, so the forming candle's OHLCV isn't
+        # fabricated from the first live tick. Attaches immediately when
+        # there is nothing to prime (period boundary / 5-sec timeframe).
+        if not self._prime_aggregator(symbol, contract, timeframe):
+            self._attach_live_feed(symbol, contract)
+
+    def _attach_live_feed(self, symbol: str, contract) -> None:
+        """Start the real-time bar stream (+ DOM). Step 3 of load_chart."""
         # D27.3: register the live subscription (type-tagged) so the
         # reconnect replay can re-issue it and rebind the reqId.
         self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
@@ -1144,6 +1179,55 @@ class MainWindow(QMainWindow):
         # DOM subscription (only if DOM panel is visible)
         if self.dom_btn.isChecked():
             self._subscribe_dom()
+
+    def _prime_aggregator(self, symbol: str, contract, timeframe: str) -> bool:
+        """D27.9: fetch trailing 5-sec bars for the current partial period.
+
+        Returns True when a priming request was issued — the caller must NOT
+        attach the live feed yet; it attaches from _on_historical_data_end,
+        _on_error (fail-open), or _on_prime_timeout (backstop). Returns False
+        when there is nothing to prime (period boundary, 5-sec timeframe).
+        """
+        if self._aggregator is None:
+            return False
+        period_s = TIMEFRAME_SECONDS.get(timeframe, 300)
+        if period_s <= 5:
+            return False
+        now = self._now_ts()
+        span_s = now - self._aggregator.period_start(now)
+        if span_s < 5:
+            return False  # at a period boundary: nothing to prime
+        self._prime_req_id = self.md_manager.req_historical_data(
+            contract=contract,
+            timeframe=timeframe,
+            endDateTime="",
+            whatToShow="TRADES",
+            useRTH=1,
+            extended_hours=self.ext_hours_btn.isChecked(),
+            bar_size="5 secs",
+            duration=f"{span_s} S",
+        )
+        self._prime_symbol = symbol
+        # Backstop: a priming request that never answers must not strand the
+        # chart without a live feed.
+        self._prime_timer.start(15_000)
+        return True
+
+    def _attach_live_feed_if_current(self) -> None:
+        """Attach the live feed for the primed symbol if still current."""
+        if not self._prime_symbol or self._current_symbol != self._prime_symbol:
+            return
+        self._attach_live_feed(
+            self._prime_symbol, get_contract_for_symbol(self._prime_symbol)
+        )
+
+    def _on_prime_timeout(self) -> None:
+        """D27.9 backstop: priming never answered — fail open to live."""
+        if self._prime_req_id is None:
+            return
+        _LOG.warning("Aggregator priming timed out; attaching live feed")
+        self._prime_req_id = None
+        self._attach_live_feed_if_current()
 
     def _now_ts(self) -> int:
         """Wall-clock epoch seconds; a seam for deterministic load-path tests."""
@@ -1288,6 +1372,18 @@ class MainWindow(QMainWindow):
     # ── Historical data slots ─────────────────────────────────────────────────
 
     def _on_historical_bar(self, reqId: int, bar):
+        # D27.9: priming bars feed the fresh aggregator, not the backfill wave.
+        if self._prime_req_id is not None and reqId == self._prime_req_id:
+            if self._aggregator is not None:
+                self._aggregator.push(
+                    parse_ibkr_date(bar.date),
+                    bar.open,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                    float(bar.volume),
+                )
+            return
         # D16: accept bars from any member of the in-flight backfill wave; a
         # non-member or stale-generation response is ignored outright.
         if not self._history_event_accepted(reqId):
@@ -1305,6 +1401,12 @@ class MainWindow(QMainWindow):
         ))
 
     def _on_historical_data_end(self, reqId: int):
+        # D27.9: priming complete — attach the live feed now.
+        if self._prime_req_id is not None and reqId == self._prime_req_id:
+            self._prime_req_id = None
+            self._prime_timer.stop()
+            self._attach_live_feed_if_current()
+            return
         if not self._history_event_accepted(reqId):
             return
         self._history_req_ids.discard(reqId)

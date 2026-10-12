@@ -98,6 +98,10 @@ class BarAggregator:
         self._state: Optional[_AggState] = None
         self._last_pushed_ts: Optional[int] = None
 
+    def period_start(self, ts: int) -> int:
+        """Start of the candle period containing ``ts`` (D27.9 priming)."""
+        return _period_start(ts, self._period_seconds, self.timeframe)
+
     def push(self, ts: int, o: float, h: float, l: float, c: float, vol: float):
         """Feed one 5-second bar from IBKR into the aggregator.
 
