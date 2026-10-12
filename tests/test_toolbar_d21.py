@@ -49,7 +49,7 @@ class _ReqStub:
         self.calls: list[dict] = []
 
     def req(self, contract, timeframe="5 mins", endDateTime="", whatToShow="TRADES",
-            useRTH=1, extended_hours=False):
+            useRTH=1, extended_hours=False, bar_size=None, duration=None):
         self.calls.append({
             "timeframe": timeframe,
             "extended_hours": extended_hours,

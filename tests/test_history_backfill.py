@@ -162,7 +162,7 @@ class _ReqStub:
         self._next = first_id
 
     def req(self, contract, timeframe="5 mins", endDateTime="", whatToShow="TRADES",
-            useRTH=1, extended_hours=False):
+            useRTH=1, extended_hours=False, bar_size=None, duration=None):
         req_id = self._next
         self._next += 1
         self.calls.append({
@@ -173,6 +173,8 @@ class _ReqStub:
             "whatToShow": whatToShow,
             "useRTH": useRTH,
             "extended_hours": extended_hours,
+            "bar_size": bar_size,
+            "duration": duration,
         })
         return req_id
 
@@ -225,6 +227,9 @@ def _drive_calls(win, tf: str, stub: _ReqStub, expected_bars, now_ts: int,
     duration = _duration_seconds(TIMEFRAME_CONFIG[tf]["duration"])
     delivered: set[int] = set()
     for call in calls:
+        if call.get("bar_size") == "5 secs":
+            # D27.9 priming is not a backfill-wave member; never drive it here.
+            continue
         rid = call["reqId"]
         end = call["endDateTime"]
         if end:
@@ -440,7 +445,9 @@ def test_t40_t04_chunked_multi_request_continuity(monkeypatch, qapp, tf, symbol)
         plans = plan_requests(spans, tf)
         assert len(spans) == 1
         assert len(plans) >= 2, (tf, symbol, len(plans))
-        assert len(stub.calls) == len(plans)
+        # D27.9: the priming request is not a backfill-wave member.
+        wave_calls = [c for c in stub.calls if c.get("bar_size") != "5 secs"]
+        assert len(wave_calls) == len(plans)
 
         expected = [b for d in missing for b in _session_bars(symbol, tf, d)]
         expected_ts = [b.ts for b in expected]

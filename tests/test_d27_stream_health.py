@@ -61,7 +61,8 @@ def _make_window(monkeypatch, qapp):
 
     win = MainWindow()
     win.rt_manager.client = _FakeTws()
-    win.md_manager.req_historical_data = lambda **k: 9001
+    _req_ids = iter(range(9001, 9999))
+    win.md_manager.req_historical_data = lambda **k: next(_req_ids)
     win.show()
     qapp.processEvents()
     for dock in win.findChildren(QDockWidget):
@@ -78,10 +79,19 @@ def _load(win):
     win.load_chart()
 
 
+def _complete_priming(win):
+    """D27.9: the live feed attaches only after priming completes. Drive the
+    (bar-less) priming end so tests reach the subscribed state."""
+    assert win._prime_req_id is not None, "expected a priming request in flight"
+    win._on_historical_data_end(win._prime_req_id)
+    assert win._rt_req_id is not None
+
+
 def test_d27_4_failed_rt_sub_marks_failed_with_code_and_retry(monkeypatch,
                                                              qapp):
     win = _make_window(monkeypatch, qapp)
     _load(win)
+    _complete_priming(win)
     rt_id = win._rt_req_id
     assert rt_id is not None
     assert win._stream_health.state == StreamState.AWAITING_FIRST_BAR
@@ -101,6 +111,7 @@ def test_d27_4_failed_rt_sub_marks_failed_with_code_and_retry(monkeypatch,
 def test_d27_4_retry_resubscribes_and_live_on_first_bar(monkeypatch, qapp):
     win = _make_window(monkeypatch, qapp)
     _load(win)
+    _complete_priming(win)
     win._ibkr_connected = True  # failure struck a live connection
     rt_id_1 = win._rt_req_id
     win._on_error(rt_id_1, 162, "pacing violation")
@@ -127,12 +138,14 @@ def test_d27_4_stale_retry_after_reload_is_noop(monkeypatch, qapp):
     """A retry scheduled for a previous load must not resurrect it."""
     win = _make_window(monkeypatch, qapp)
     _load(win)
+    _complete_priming(win)
     win._on_error(win._rt_req_id, 162, "pacing violation")
     assert win._rt_retry_timer.isActive()
 
     # User loads a different symbol before the timer fires.
     win.symbol_input.setText("OTHER")
     win.load_chart()
+    _complete_priming(win)
     other_rt_id = win._rt_req_id
 
     # The stale retry fires: must not touch the new subscription.
@@ -162,6 +175,7 @@ def test_d27_4_backoff_progresses_across_consecutive_failures(monkeypatch,
     delays (5s then 10s) — the retry must not restart the backoff at 5s."""
     win = _make_window(monkeypatch, qapp)
     _load(win)
+    _complete_priming(win)
     win._ibkr_connected = True  # failure struck a live connection
 
     win._on_error(win._rt_req_id, 162, "pacing violation")
