@@ -32,7 +32,8 @@ from ibkr.market_depth import MarketDepthManager
 from ibkr.realtime_bars import RealtimeBarsManager
 from ibkr.contracts import get_contract_for_symbol
 from ibkr.utils import parse_ibkr_date
-from ibkr.orders import orders as order_registry
+from ibkr.orders import orders as order_registry, UserOrder
+from ibkr.validation import validate_order
 from ibkr.id_manager import id_manager
 from ibkr.pacing import pacing_manager
 from ibkr.subscription_manager import SubscriptionManager
@@ -1983,13 +1984,27 @@ class MainWindow(QMainWindow):
     def _place_order(self, contract, symbol, action, qty, order_type,
                       lmt_price, stop_price, target_price):
         """Build order(s) and place via the client."""
+        # D26.7: validate BEFORE anything else — rejected orders never reach
+        # placeOrder and never raise; the rejection is surfaced in the UI.
+        problems = validate_order(
+            action=action, order_type=order_type, qty=qty,
+            lmt_price=lmt_price, stop_price=stop_price,
+            target_price=target_price, symbol=symbol,
+            ref_price=self.active_trader.last_price,
+        )
+        if problems:
+            msg = "Order rejected: " + "; ".join(problems)
+            self.status_bar.showMessage(msg, 8000)
+            self.active_trader.order_entry.status_label.setText(msg)
+            return
+
         pacing_manager.throttle_realtime()
 
         if order_type == "MKT":
             order = order_registry.market_order(action, qty)
             parent_id = id_manager.get_id()
             self.ib_client.placeOrder(parent_id, contract, order)
-            user_order = order_registry.UserOrder(
+            user_order = UserOrder(
                 order_id=parent_id, symbol=symbol, action=action,
                 total_qty=qty, order_type="MKT", transmit=True,
             )
@@ -2000,7 +2015,7 @@ class MainWindow(QMainWindow):
             order = order_registry.limit_order(action, qty, lmt_price)
             parent_id = id_manager.get_id()
             self.ib_client.placeOrder(parent_id, contract, order)
-            user_order = order_registry.UserOrder(
+            user_order = UserOrder(
                 order_id=parent_id, symbol=symbol, action=action,
                 total_qty=qty, order_type="LMT", lmt_price=lmt_price,
                 transmit=True,
@@ -2012,7 +2027,7 @@ class MainWindow(QMainWindow):
             order = order_registry.stop_order(action, qty, stop_price)
             parent_id = id_manager.get_id()
             self.ib_client.placeOrder(parent_id, contract, order)
-            user_order = order_registry.UserOrder(
+            user_order = UserOrder(
                 order_id=parent_id, symbol=symbol, action=action,
                 total_qty=qty, order_type="STP", aux_price=stop_price,
                 transmit=True,
@@ -2030,7 +2045,7 @@ class MainWindow(QMainWindow):
             self.ib_client.placeOrder(parent_id, contract, parent)
             self.ib_client.placeOrder(parent_id + 1, contract, stop)
             self.ib_client.placeOrder(parent_id + 2, contract, target)
-            user_order = order_registry.UserOrder(
+            user_order = UserOrder(
                 order_id=parent_id, symbol=symbol, action=action,
                 total_qty=qty, order_type="LMT", lmt_price=lmt_price,
                 parent_id=parent_id, oca_group=f"bracket-{parent_id}",

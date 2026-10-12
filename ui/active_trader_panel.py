@@ -601,6 +601,11 @@ class ActiveTraderPanel(QWidget):
     def set_last_price(self, price: float | None):
         self._last_price = price
         self.ladder.set_last_price(price)
+
+    @property
+    def last_price(self) -> float | None:
+        """Best-effort reference price (depth feed); used for notional checks."""
+        return self._last_price
         if self._symbol:
             self.order_entry.set_symbol(self._symbol, price)
 

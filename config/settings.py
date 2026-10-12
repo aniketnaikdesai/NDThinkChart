@@ -28,3 +28,7 @@ DB_PATH = os.getenv("DB_PATH", "charting_app.sqlite3")
 # Pacing & Rate Limits (per IBKR API guidelines)
 MAX_REQ_PER_SEC = 50
 MAX_REALTIME_BARS_PER_10_MIN = 60
+
+# D26.7: per-order notional cap (USD). Owner-set 2026-10-12. validate_order()
+# rejects anything above it; the Phase 1 gate asserts this constant exists.
+MAX_ORDER_NOTIONAL = 25000
