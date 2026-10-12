@@ -580,6 +580,10 @@ class MainWindow(QMainWindow):
         self._current_studies: list[dict] = deepcopy(DEFAULT_STUDIES)
         self._current_alarms = []
         self._last_chart_price: float | None = None
+        # D27.1: True once any realtime bar has been observed since the last
+        # load_chart. Guards _finalize_history_wave against rewinding
+        # _last_chart_price to the older historical close (phantom alarms).
+        self._rt_seen: bool = False
         self._active_draw_group_id: int | None = None
         self._pending_brackets: dict[int, tuple[str, float]] = {}  # parent_id -> (action, qty)
 
@@ -911,6 +915,7 @@ class MainWindow(QMainWindow):
             timeframe=timeframe,
             on_bar_update=self._on_aggregated_bar,
         )
+        self._rt_seen = False  # D27.1: new load, no live bar observed yet
 
         # Step 1: Show cached bars immediately
         cached = BarCache.get_bars(symbol, timeframe)
@@ -1170,7 +1175,26 @@ class MainWindow(QMainWindow):
             BarCache.save_bars(self._pending_bars)
         all_bars = BarCache.get_bars(self._current_symbol, self._current_tf)
         self.chart_panel.update_chart(all_bars)
-        self._last_chart_price = all_bars[-1].close if all_bars else None
+        # D27.1: _last_chart_price must never move backward. If realtime bars
+        # were observed since load, the live price is newer than the historical
+        # close — rewinding would fabricate a discontinuous (prev, curr) pair
+        # and phantom-fire alarms. Skip the assignment in that case.
+        if not self._rt_seen:
+            self._last_chart_price = all_bars[-1].close if all_bars else None
+        # D27.1 (second clause): update_chart is a full refresh that wipes the
+        # live forming candle appended by update_last_bar. Re-apply the
+        # aggregator's forming bar so the live candle survives finalize.
+        forming = (
+            self._aggregator.current_bar()
+            if self._aggregator is not None
+            else None
+        )
+        if forming is not None:
+            if all_bars:
+                self.chart_panel.update_last_bar(forming, False)
+            else:
+                # No history at all: the forming bar is the only bar.
+                self.chart_panel.update_chart([forming])
         self._pending_bars = []
 
         # Read and clear the stranded-wave cause (diagnostic suffix only).
@@ -1234,6 +1258,7 @@ class MainWindow(QMainWindow):
                          l: float, c: float, vol: float, wap: float, count: int):
         if reqId != self._rt_req_id or self._aggregator is None:
             return
+        self._rt_seen = True  # D27.1: a live bar was observed since load
         self._aggregator.push(time, o, h, l, c, vol)
 
     def _on_aggregated_bar(self, bar: Bar, is_new_candle: bool):
