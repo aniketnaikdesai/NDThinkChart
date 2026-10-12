@@ -373,10 +373,19 @@ class OrderEntryWidget(QWidget):
         )
 
     def _on_buy_mkt(self):
-        self._request_send("BUY", "MKT", 0.0, 0.0, 0.0)
+        self._send_mkt("BUY")
 
     def _on_sell_mkt(self):
-        self._request_send("SELL", "MKT", 0.0, 0.0, 0.0)
+        self._send_mkt("SELL")
+
+    def _send_mkt(self, action: str):
+        # D26.4: quantity comes from the spinbox (never hardcoded); qty<=0
+        # is refused instead of crashing or transmitting a zero-size order.
+        qty = self.qty_input.value()
+        if qty <= 0:
+            self.status_label.setText("Quantity must be greater than 0.")
+            return
+        self._request_send(action, "MKT", qty, 0.0, 0.0, 0.0)
 
     def _on_place(self):
         order_type = self.type_combo.currentText()
