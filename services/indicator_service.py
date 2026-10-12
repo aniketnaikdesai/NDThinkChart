@@ -5,7 +5,15 @@ All functions accept List[float] and return List[float | None].
 None is used for periods where the indicator is not yet valid.
 """
 
+from datetime import datetime
 from typing import List, Optional, Tuple
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - Python < 3.9 fallback
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+
+_EASTERN = ZoneInfo("America/New_York")
 import math
 
 
@@ -59,7 +67,9 @@ def calculate_vwap(
 
     prev_day = None
     for h, l, c, v, ts in zip(highs, lows, closes, volumes, timestamps):
-        day = ts // 86400
+        # D27.8: session-anchored VWAP resets on the ET date change, not the
+        # UTC day boundary (which sits mid-session for US equities).
+        day = datetime.fromtimestamp(ts, tz=_EASTERN).date()
         if prev_day is None:
             cum_tpv = 0.0
             cum_vol = 0.0

@@ -1,6 +1,14 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Callable, Dict, List, Optional
 from data.models import Bar
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - Python < 3.9 fallback
+    from backports.zoneinfo import ZoneInfo  # type: ignore
+
+_EASTERN = ZoneInfo("America/New_York")
 
 # Seconds per timeframe
 TIMEFRAME_SECONDS: Dict[str, int] = {
@@ -27,8 +35,39 @@ class _AggState:
     volume: float
 
 
-def _period_start(ts: int, seconds: int) -> int:
-    """Floor ts down to the nearest period boundary."""
+# D27.8: timeframes whose aggregation anchors to America/New_York wall time
+# instead of the UTC-epoch grid. IBKR's historical daily series is ET
+# session days, so the live forming bar must ts-match ET midnight (a UTC
+# floor would split the ET session across two "daily" bars). The 4-hour
+# grid is 00/04/08/12/16/20 ET.
+#
+# Spike note: IBKR's own 4h anchor could not be verified (no live TWS;
+# docs inconclusive). Implemented per D27.8's ET prescription; revisit if
+# live comparison shows a phase mismatch against IBKR's 4h history.
+_ET_ANCHORED_TIMEFRAMES = frozenset({"1 day", "4 hours"})
+
+
+def _et_period_start(ts: int, seconds: int) -> int:
+    """Floor ts to the period grid anchored at America/New_York midnight."""
+    et_midnight = int(
+        datetime.fromtimestamp(ts, tz=_EASTERN)
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .timestamp()
+    )
+    return et_midnight + ((ts - et_midnight) // seconds) * seconds
+
+
+def _period_start(
+    ts: int, seconds: int, timeframe: Optional[str] = None
+) -> int:
+    """Floor ts down to the nearest period boundary.
+
+    ``timeframe`` selects the anchor: "1 day"/"4 hours" floor in
+    America/New_York wall time (D27.8); everything else uses the
+    UTC-epoch grid (unchanged).
+    """
+    if timeframe in _ET_ANCHORED_TIMEFRAMES:
+        return _et_period_start(ts, seconds)
     return (ts // seconds) * seconds
 
 
@@ -67,7 +106,7 @@ class BarAggregator:
         """
         if self._last_pushed_ts is not None and ts <= self._last_pushed_ts:
             return  # skip duplicate / stale bar from replay
-        ps = _period_start(ts, self._period_seconds)
+        ps = _period_start(ts, self._period_seconds, self.timeframe)
         is_new = False
 
         if self._state is None or ps != self._state.period_start:
