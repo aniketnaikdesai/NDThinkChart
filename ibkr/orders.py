@@ -87,9 +87,12 @@ class Orders:
         oca_group = f"bracket-{parent_id}"
         oca_type = 1  # Cancel all remaining on fill
 
+        # D26.1: protective children trade OPPOSITE the entry side.
+        child_action = "SELL" if action == "BUY" else "BUY"
+
         # Stop-loss child
         stop = Order()
-        stop.action = action
+        stop.action = child_action
         stop.orderType = "STP"
         stop.totalQuantity = qty
         stop.auxPrice = stop_price
@@ -100,7 +103,7 @@ class Orders:
 
         # Take-profit child
         limit = Order()
-        limit.action = action
+        limit.action = child_action
         limit.orderType = "LMT"
         limit.totalQuantity = qty
         limit.lmtPrice = limit_price

@@ -69,9 +69,10 @@ def test_bracket_order_structure():
     assert parent.lmtPrice == 150.0
     assert parent.transmit is False
 
-    # Stop child
+    # Stop child — D26.1: protective legs trade OPPOSITE the entry side.
+    # A same-side stop would add to the position instead of protecting it.
     assert stop.orderType == "STP"
-    assert stop.action == "BUY"
+    assert stop.action == "SELL"
     assert stop.totalQuantity == 100
     assert stop.auxPrice == 145.0
     assert stop.parentId == parent_id
@@ -79,9 +80,9 @@ def test_bracket_order_structure():
     assert stop.ocaType == 1
     assert stop.transmit is False
 
-    # Target child
+    # Target child — opposite side of the BUY entry.
     assert target.orderType == "LMT"
-    assert target.action == "BUY"
+    assert target.action == "SELL"
     assert target.totalQuantity == 100
     assert target.lmtPrice == 160.0
     assert target.parentId == parent_id
@@ -97,9 +98,10 @@ def test_bracket_order_sell():
     )
     assert parent.action == "SELL"
     assert parent.lmtPrice == 150.0
-    assert stop.action == "SELL"
+    # D26.1: SELL entry → protective children are BUY.
+    assert stop.action == "BUY"
     assert stop.auxPrice == 155.0
-    assert target.action == "SELL"
+    assert target.action == "BUY"
     assert target.lmtPrice == 145.0
     assert target.transmit is True
 
