@@ -92,6 +92,7 @@ def test_place_order_refuses_invalid_without_transmit(monkeypatch, qapp):
     # Wiring: _place_order validates FIRST — no placeOrder, message surfaced.
     win = _make_window(monkeypatch, qapp)
     try:
+        win._ibkr_connected = True  # isolate the validation path
         calls = []
         monkeypatch.setattr(win.ib_client, "placeOrder",
                             lambda *a, **k: calls.append(a))
@@ -108,6 +109,7 @@ def test_place_order_refuses_invalid_without_transmit(monkeypatch, qapp):
 def test_place_order_transmits_valid(monkeypatch, qapp):
     win = _make_window(monkeypatch, qapp)
     try:
+        win._ibkr_connected = True  # harness never fires _on_connected
         calls = []
         monkeypatch.setattr(win.ib_client, "placeOrder",
                             lambda *a, **k: calls.append(a))

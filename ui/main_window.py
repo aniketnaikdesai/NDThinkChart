@@ -831,7 +831,30 @@ class MainWindow(QMainWindow):
             if not self._history_req_ids:
                 self._finalize_history_wave()
             return
+        # D26.9: TWS reports order errors with the orderId in the reqId field.
+        # Route them to the order registry so the ticket reflects reality
+        # instead of reading "Submitted" forever.
+        if order_registry.get(reqId) is not None:
+            self._on_order_error(reqId, errorCode, errorString)
+            return
         self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)
+
+    def _on_order_error(self, order_id: int, error_code: int, error_string: str):
+        """D26.9: surface a TWS order error on the registry and the ticket."""
+        if error_code in (201, 103):
+            status = "Rejected"
+        elif error_code == 202:
+            status = "Cancelled"
+        else:
+            status = f"Error {error_code}"
+        order_registry.update_status(order_id, status)
+        order = order_registry.get(order_id)
+        action = getattr(order, "action", "?")
+        qty = getattr(order, "total_qty", 0)
+        ticket_text = f"{status}: {error_string}"
+        self.active_trader.set_order_status(order_id, action, qty, ticket_text)
+        self.status_bar.showMessage(
+            f"Order #{order_id} {status}: {error_string}", 12000)
 
     # ── Chart loading ─────────────────────────────────────────────────────────
 
@@ -1984,6 +2007,13 @@ class MainWindow(QMainWindow):
     def _place_order(self, contract, symbol, action, qty, order_type,
                       lmt_price, stop_price, target_price):
         """Build order(s) and place via the client."""
+        # D26.9: never transmit while disconnected — a dead socket used to
+        # show "Submitted" before TWS error 504 arrived.
+        if not self._ibkr_connected:
+            msg = "Order not placed: not connected to TWS."
+            self.status_bar.showMessage(msg, 8000)
+            self.active_trader.order_entry.status_label.setText(msg)
+            return
         # D26.7: validate BEFORE anything else — rejected orders never reach
         # placeOrder and never raise; the rejection is surfaced in the UI.
         problems = validate_order(
