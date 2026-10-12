@@ -41,6 +41,7 @@ from ibkr.subscription_manager import (
     RT_BARS,
     SubscriptionManager,
 )
+from ibkr.stream_health import StreamHealth, StreamState
 from ui.chart_panel import ChartPanel
 from ui.candlestick_item import ChartMode
 from ui.watchlist_panel import (
@@ -256,6 +257,9 @@ class MainWindow(QMainWindow):
 
         self.conn_badge = QLabel("● Connecting")
         self.conn_badge.setStyleSheet("color: #fbbf24;")
+        # D27.4: persistent (non-transient) RT stream-health indicator.
+        self.stream_badge = QLabel("○ Stream")
+        self.stream_badge.setStyleSheet("color: #9ca3af;")
 
         tb_layout.addWidget(QLabel("Symbol:"))
         tb_layout.addWidget(self.symbol_input)
@@ -291,6 +295,7 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(QLabel("|"))
         tb_layout.addWidget(self.kill_btn)
         tb_layout.addStretch()
+        tb_layout.addWidget(self.stream_badge)
         tb_layout.addWidget(self.conn_badge)
 
         # ── Central chart area ────────────────────────────────────────────────
@@ -590,6 +595,12 @@ class MainWindow(QMainWindow):
         # load_chart. Guards _finalize_history_wave against rewinding
         # _last_chart_price to the older historical close (phantom alarms).
         self._rt_seen: bool = False
+        # D27.4: health of the chart's live RT subscription. Owned here in
+        # Phase 2; migrates into TickerSession in Phase 3b (no window refs).
+        self._stream_health = StreamHealth()
+        self._rt_retry_timer = QTimer(self)
+        self._rt_retry_timer.setSingleShot(True)
+        self._rt_retry_timer.timeout.connect(self._retry_rt_subscribe)
         self._active_draw_group_id: int | None = None
         self._pending_brackets: dict[int, tuple[str, float]] = {}  # parent_id -> (action, qty)
 
@@ -772,6 +783,68 @@ class MainWindow(QMainWindow):
         """
         self.sub_manager.replay_all(include_types={RT_BARS, DEPTH})
 
+    # ── Stream health (D27.4) ───────────────────────────────────────────────
+
+    def _update_stream_badge(self) -> None:
+        """Refresh the persistent stream-health indicator (D27.4)."""
+        h = self._stream_health
+        if h.state == StreamState.LIVE:
+            text, color = "● Stream live", "#34d399"
+        elif h.state == StreamState.FAILED:
+            code = f" [{h.fail_code}]" if h.fail_code is not None else ""
+            text, color = f"● Stream failed{code}", "#f87171"
+        else:
+            text, color = "○ Stream awaiting first bar", "#fbbf24"
+        self.stream_badge.setText(text)
+        self.stream_badge.setStyleSheet(f"color: {color};")
+
+    def _on_rt_stream_error(self, code: int, message: str) -> None:
+        """D27.4: the live RT subscription failed — persist + backoff retry."""
+        self._stream_health.mark_failed(code, message)
+        self._update_stream_badge()
+        _LOG.warning("Realtime stream failed [%s]: %s", code, message)
+        self.status_bar.showMessage(
+            f"Realtime stream failed [{code}]: {message} — retrying…",
+            15000,
+        )
+        self._schedule_rt_retry()
+
+    def _schedule_rt_retry(self) -> None:
+        """D27.4: schedule a backoff retry of the failed RT subscription."""
+        delay_s = self._stream_health.next_retry_delay_s()
+        self._rt_retry_timer.start(int(delay_s * 1000))
+
+    def _retry_rt_subscribe(self) -> None:
+        """D27.4: re-issue the RT subscription after a backoff delay.
+
+        No-op unless the failure is still current: a new load or a live bar
+        since scheduling moves the state off FAILED, which disarms this.
+        """
+        if self._stream_health.state != StreamState.FAILED:
+            return
+        if not self._ibkr_connected or not self._current_symbol:
+            # Still disconnected (or no symbol): keep backing off.
+            self._schedule_rt_retry()
+            return
+        symbol = self._current_symbol
+        contract = get_contract_for_symbol(symbol)
+        if self._rt_req_id is not None:
+            self.sub_manager.unsubscribe(self._rt_req_id)
+        self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+        self.sub_manager.subscribe(
+            symbol,
+            self._rt_req_id,
+            RT_BARS,
+            reissue=lambda s=symbol, c=contract: self.rt_manager.subscribe(s, c),
+            rebind=self._rebind_rt_req_id,
+        )
+        self._stream_health.mark_subscribed()
+        self._update_stream_badge()
+        self.status_bar.showMessage(
+            f"{symbol} — realtime stream re-subscribed, awaiting first bar…",
+            8000,
+        )
+
     def _on_disconnected(self):
         self._ibkr_connected = False
         self.watchlist_panel.set_add_enabled(False)
@@ -861,6 +934,11 @@ class MainWindow(QMainWindow):
             )
             if not self._history_req_ids:
                 self._finalize_history_wave()
+            return
+        # D27.4: an error on the live RT subscription marks the stream failed
+        # (persistent indicator + backoff retry), not a transient toast.
+        if self._rt_req_id is not None and reqId == self._rt_req_id:
+            self._on_rt_stream_error(errorCode, errorString)
             return
         # D26.9: TWS reports order errors with the orderId in the reqId field.
         # Route them to the order registry so the ticket reflects reality
@@ -1010,6 +1088,11 @@ class MainWindow(QMainWindow):
             reissue=lambda s=symbol, c=contract: self.rt_manager.subscribe(s, c),
             rebind=self._rebind_rt_req_id,
         )
+        # D27.4: new subscription -> awaiting first bar; disarm any retry
+        # timer left over from a previous load/failure.
+        self._rt_retry_timer.stop()
+        self._stream_health.mark_subscribed()
+        self._update_stream_badge()
 
         # DOM subscription (only if DOM panel is visible)
         if self.dom_btn.isChecked():
@@ -1258,9 +1341,13 @@ class MainWindow(QMainWindow):
                 cause,
             )
         else:
+            # D27.4: never declare "live" unconditionally — report the
+            # actual stream-health state (usually "awaiting first bar" here;
+            # the badge flips to live when the first bar arrives).
+            stream_note = self._stream_health.describe()
             self.status_bar.showMessage(
                 f"{self._current_symbol} — {len(all_bars)} bars "
-                f"({new_count} new). Live stream active{cause}."
+                f"({new_count} new). Stream {stream_note}{cause}."
             )
 
     def _missing_backfill_trading_days(self, bars) -> list:
@@ -1284,6 +1371,11 @@ class MainWindow(QMainWindow):
         if reqId != self._rt_req_id or self._aggregator is None:
             return
         self._rt_seen = True  # D27.1: a live bar was observed since load
+        if not self._stream_health.is_live:
+            # D27.4: first bar on the subscription -> the stream is live.
+            self._stream_health.mark_first_bar()
+            self._rt_retry_timer.stop()
+            self._update_stream_badge()
         self._aggregator.push(time, o, h, l, c, vol)
 
     def _on_aggregated_bar(self, bar: Bar, is_new_candle: bool):
