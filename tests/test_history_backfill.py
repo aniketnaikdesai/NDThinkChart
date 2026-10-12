@@ -131,10 +131,14 @@ def _clear(symbol: str, timeframe: str) -> None:
 
 
 def _seed_day(symbol: str, tf: str, day: date, base: float = 100.0) -> None:
-    BarCache.save_bars([Bar(
-        symbol, tf, _et_ts(day.year, day.month, day.day, 12, 0),
-        base, base + 0.5, base - 0.5, base, 1000.0,
-    )])
+    """Seed one *complete* session day (D27.7).
+
+    ``find_missing_spans`` runs bar-period-granularity gap detection on
+    trailing trading days, so a "present" day must be a genuinely complete
+    intraday series — a single noon bar is (correctly) reported as a day
+    with intraday holes. Delegates to :func:`_session_bars`.
+    """
+    BarCache.save_bars(_session_bars(symbol, tf, day, base))
 
 
 class _FakeIbBar:

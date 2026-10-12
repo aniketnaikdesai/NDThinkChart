@@ -1067,8 +1067,13 @@ class MainWindow(QMainWindow):
         # rides the existing endDateTime parameter.
         now_ts = self._now_ts()
         cached_ts = [b.ts for b in cached]
+        # D27.7: bar-level gap detection uses the load's ext-hours toggle so
+        # the session window matches what the wave fetches.
         missing_spans = (
-            find_missing_spans(cached_ts, now_ts, timeframe) if cached else []
+            find_missing_spans(
+                cached_ts, now_ts, timeframe,
+                ext_hours=self.ext_hours_btn.isChecked(),
+            ) if cached else []
         )
         plans = plan_requests(missing_spans, timeframe)
         self._backfill_missing_spans = list(missing_spans)

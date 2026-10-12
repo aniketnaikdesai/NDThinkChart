@@ -74,8 +74,25 @@ def _day_start(year: int, month: int, day: int) -> int:
 
 
 def _seed(days) -> list[int]:
-    """One cached bar at noon ET for each ``(y, m, d)`` in ``days``."""
-    return [_et_ts(y, m, d, 12, 0) for (y, m, d) in days]
+    """One *complete* RTH day of 1-min bars for each ``(y, m, d)`` in ``days``.
+
+    D27.7: ``find_missing_spans`` now also runs bar-period-granularity gap
+    detection on trailing trading days, so a "present" day must be seeded as
+    a genuinely complete intraday series — a single noon bar is (correctly)
+    reported as a day with intraday holes. A full 1-min series is gap-free
+    for every timeframe in the suite, so these day-presence tests keep their
+    exact assertions.
+    """
+    out: list[int] = []
+    for (y, m, d) in days:
+        h, minute = 9, 30
+        while (h, minute) <= (15, 59):
+            out.append(_et_ts(y, m, d, h, minute))
+            minute += 1
+            if minute >= 60:
+                h += 1
+                minute = 0
+    return out
 
 
 def _covered_days(span: MissingSpan) -> list[date]:

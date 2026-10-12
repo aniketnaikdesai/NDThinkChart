@@ -55,6 +55,9 @@ MISSING_DAYS = [
 ]
 NOW = int(datetime(2026, 11, 6, 20, 0, tzinfo=EASTERN).timestamp())
 
+# D27.7: _seed writes complete 1-min extended-hours days (04:00-20:00 ET).
+_BARS_PER_DAY = 16 * 60
+
 
 def _et_ts(y: int, m: int, d: int, h: int = 12, minute: int = 0) -> int:
     return int(datetime(y, m, d, h, minute, tzinfo=EASTERN).timestamp())
@@ -74,11 +77,26 @@ def _clear(symbol: str, timeframe: str) -> None:
 
 
 def _seed(symbol: str, timeframe: str, days) -> None:
-    bars = [
-        Bar(symbol, timeframe, _et_ts(y, m, d), 100.0 + i, 100.5 + i,
-            99.5 + i, 100.0 + i, 1000.0)
-        for i, (y, m, d) in enumerate(days)
-    ]
+    """Seed one *complete* extended-hours day of 1-min bars per ``(y, m, d)``.
+
+    D27.7: ``find_missing_spans`` runs bar-period-granularity gap detection
+    on trailing trading days using the load's ext-hours toggle (default ON:
+    04:00-20:00 ET), so a "present"/"current" day must be a genuinely complete
+    intraday series for that session — a single noon bar is (correctly)
+    reported as a day with intraday holes. A full 1-min series is gap-free
+    for every timeframe, so the day-presence assertions keep working.
+    """
+    bars = []
+    for i, (y, m, d) in enumerate(days):
+        h, minute = 4, 0
+        while (h, minute) <= (19, 59):
+            ts = _et_ts(y, m, d, h, minute)
+            bars.append(Bar(symbol, timeframe, ts, 100.0 + i, 100.5 + i,
+                            99.5 + i, 100.0 + i, 1000.0))
+            minute += 1
+            if minute >= 60:
+                h += 1
+                minute = 0
     BarCache.save_bars(bars)
 
 
@@ -394,7 +412,8 @@ def test_t39_t06_failed_member_finalises_with_shortfall(monkeypatch, qapp, caplo
         )
 
         bars = BarCache.get_bars(symbol, tf)
-        assert len(bars) == len(PRESENT_DAYS) + 1  # seeded + the one genuine bar
+        # D27.7: seeds are complete 1-min days now (see _seed).
+        assert len(bars) == _BARS_PER_DAY * len(PRESENT_DAYS) + 1
         assert date(2026, 10, 28) not in {_et_date(b.ts) for b in bars}
     finally:
         win.close()
@@ -438,6 +457,10 @@ def test_t39_t07_completed_wave_surfaces_missing_day_no_fabrication(
         expected_days = {date(*d) for d in PRESENT_DAYS}
         expected_days |= {date(*d) for d in MISSING_DAYS if date(*d) != omitted}
         assert present_days == expected_days
-        assert len(bars) == len(PRESENT_DAYS) + len(MISSING_DAYS) - 1
+        # D27.7: seeds are complete 1-min days; each delivered missing day
+        # contributed exactly one genuine bar.
+        assert len(bars) == (
+            _BARS_PER_DAY * len(PRESENT_DAYS) + len(MISSING_DAYS) - 1
+        )
     finally:
         win.close()
