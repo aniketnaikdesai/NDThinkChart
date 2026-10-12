@@ -5,6 +5,24 @@ IBKR_HOST = os.getenv("IBKR_HOST", "127.0.0.1")
 IBKR_PORT = int(os.getenv("IBKR_PORT", 7496))
 IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID", 1))
 
+# D26.5: the only port this app may trade on. TWS uses 7496 for live and
+# 7497 for paper; a paper-port typo must never silently trade paper while
+# the UI claims to be live.
+LIVE_PORT = 7496
+
+
+def check_live_port() -> None:
+    """Fail fast unless configured for the live TWS port.
+
+    Raises SystemExit with a human-readable message; main.py surfaces it
+    as a fatal dialog before any connection is attempted.
+    """
+    if IBKR_PORT != LIVE_PORT:
+        raise SystemExit(
+            f"Refusing to start: IBKR_PORT={IBKR_PORT} is not the live TWS "
+            f"port ({LIVE_PORT}). NDThinkChart trades live only — fix IBKR_PORT."
+        )
+
 DB_PATH = os.getenv("DB_PATH", "charting_app.sqlite3")
 
 # Pacing & Rate Limits (per IBKR API guidelines)

@@ -114,6 +114,21 @@ RIGHT_DOCK_COLLAPSED_MARGIN = 12
 ALARM_MODE_STATUS_MESSAGE = "Alarm mode: click the chart to place a price alarm."
 
 
+def conn_badge_text(account_id: str | None, account_type: str | None) -> tuple[str, str]:
+    """D26.5: derive the connection badge from the verified port + account.
+
+    The port is fail-fast verified at startup (settings.check_live_port), so
+    reaching this point means the live port — but the account itself may still
+    be paper/demo (IBKR paper accounts carry DU-prefixed IDs). Returns
+    (text, stylesheet-color); never a hardcoded claim.
+    """
+    acct_id = (account_id or "").upper()
+    acct_type = (account_type or "").upper()
+    if acct_id.startswith("DU") or "DEMO" in acct_type or "PAPER" in acct_type:
+        return "● Paper", "#fbbf24"
+    return "● Live", "#34d399"
+
+
 def _ibkr_end_date(ts: int) -> str:
     """Format as IBKR endDateTime yyyyMMdd-HH:mm:ss in UTC.
 
@@ -561,11 +576,20 @@ class MainWindow(QMainWindow):
 
     # ── Connection slots ──────────────────────────────────────────────────────
 
+    def _update_conn_badge(self):
+        """D26.5: badge text/color derive from the verified port + account."""
+        summary = getattr(self, "_account_summary", {}) or {}
+        text, color = conn_badge_text(
+            getattr(self, "_account_id", None),
+            summary.get("AccountType"),
+        )
+        self.conn_badge.setText(text)
+        self.conn_badge.setStyleSheet(f"color: {color};")
+
     def _on_connected(self):
         self._ibkr_connected = True
         self.watchlist_panel.set_add_enabled(True)
-        self.conn_badge.setText("● Live")
-        self.conn_badge.setStyleSheet("color: #34d399;")
+        self._update_conn_badge()
         self.load_btn.setEnabled(True)
         self.status_bar.showMessage(f"Connected — IBKR port {settings.IBKR_PORT}")
         self._restore_watchlist()
@@ -2033,10 +2057,12 @@ class MainWindow(QMainWindow):
 
     def _on_account_summary(self, reqId: int, account: str, tag: str, value: str):
         """Collect account summary key/values."""
+        self._account_id = account  # D26.5: feeds the connection badge
         summary = dict(getattr(self, "_account_summary", {}))
         summary[tag] = value
         self._account_summary = summary
         self.portfolio_panel.set_account_summary(summary)
+        self._update_conn_badge()
 
     def _on_account_summary_end(self, reqId: int):
         """Finalize account summary once IBKR signals the end marker."""

@@ -1,11 +1,12 @@
 import sys
 import os
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from config import settings
 from ui.main_window import MainWindow
 
 
-def main():
+def main() -> int:
     # Configure pyqtgraph before any widgets are created
     pg.setConfigOption('background', '#0d0f14')
     pg.setConfigOption('foreground', '#a3a3a3')
@@ -13,6 +14,15 @@ def main():
 
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+
+    # D26.5: fail fast unless configured for the live TWS port — before any
+    # connection is attempted. A paper-port typo must never silently trade
+    # paper while the UI claims to be live.
+    try:
+        settings.check_live_port()
+    except SystemExit as exc:
+        QMessageBox.critical(None, "NDThinkChart — cannot start", str(exc))
+        return 1
 
     theme_path = os.path.join(os.path.dirname(__file__), "config", "theme.qss")
     if os.path.exists(theme_path):
@@ -22,8 +32,8 @@ def main():
     window = MainWindow()
     window.show()
 
-    sys.exit(app.exec())
+    return app.exec()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
