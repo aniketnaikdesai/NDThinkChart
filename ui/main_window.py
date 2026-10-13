@@ -35,7 +35,7 @@ from ibkr.utils import parse_ibkr_date
 from ibkr.orders import orders as order_registry, UserOrder
 from ibkr.validation import validate_order
 from ibkr.id_manager import id_manager
-from ibkr.pacing import pacing_manager
+from ibkr.pacing import pacing_manager, order_limiter, PacingExceeded
 from ibkr.subscription_manager import (
     DEPTH,
     RT_BARS,
@@ -829,8 +829,22 @@ class MainWindow(QMainWindow):
         Watchlist market-data is re-issued by ``_restore_watchlist``'s
         clear+re-add path (pinned by AC-D22.7.2), so it is excluded here —
         replaying it too would double-subscribe every row.
+
+        D28.1: the replay is all-or-nothing under pacing pressure
+        (SubscriptionManager.replay_all raises PacingExceeded before any
+        reissue); defer the whole replay via singleShot — never sleep.
         """
-        self.sub_manager.replay_all(include_types={RT_BARS, DEPTH})
+        try:
+            self.sub_manager.replay_all(include_types={RT_BARS, DEPTH})
+        except PacingExceeded as e:
+            self.status_bar.showMessage(
+                f"Subscription replay pacing-limited, "
+                f"retrying in {e.wait_seconds:.0f}s…",
+                15000,
+            )
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000), self._replay_subscriptions
+            )
 
     # ── Stream health (D27.4) ───────────────────────────────────────────────
 
@@ -879,7 +893,18 @@ class MainWindow(QMainWindow):
         contract = get_contract_for_symbol(symbol)
         if self._rt_req_id is not None:
             self.sub_manager.unsubscribe(self._rt_req_id)
-        self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+        # D28.1: pacing-limited retry defers via singleShot — never sleep.
+        try:
+            self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+        except PacingExceeded as e:
+            self.status_bar.showMessage(
+                f"Realtime pacing-limited, retrying in {e.wait_seconds:.0f}s…",
+                15000,
+            )
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000), self._retry_rt_subscribe
+            )
+            return
         self.sub_manager.subscribe(
             symbol,
             self._rt_req_id,
@@ -1166,7 +1191,19 @@ class MainWindow(QMainWindow):
         """Start the real-time bar stream (+ DOM). Step 3 of load_chart."""
         # D27.3: register the live subscription (type-tagged) so the
         # reconnect replay can re-issue it and rebind the reqId.
-        self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+        # D28.1: pacing-limited subscribes defer via singleShot — never sleep.
+        try:
+            self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+        except PacingExceeded as e:
+            self.status_bar.showMessage(
+                f"Realtime pacing-limited, retrying in {e.wait_seconds:.0f}s…",
+                15000,
+            )
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000),
+                lambda: self._retry_attach_live_feed(symbol, contract),
+            )
+            return
         self.sub_manager.subscribe(
             symbol,
             self._rt_req_id,
@@ -1183,6 +1220,13 @@ class MainWindow(QMainWindow):
         # DOM subscription (only if DOM panel is visible)
         if self.dom_btn.isChecked():
             self._subscribe_dom()
+
+    def _retry_attach_live_feed(self, symbol: str, contract) -> None:
+        """D28.1: pacing-deferred live-feed attach. Skips if the user moved on
+        to another symbol while the retry was pending."""
+        if self._current_symbol != symbol:
+            return
+        self._attach_live_feed(symbol, contract)
 
     def _prime_aggregator(self, symbol: str, contract, timeframe: str) -> bool:
         """D27.9: fetch trailing 5-sec bars for the current partial period.
@@ -2359,7 +2403,24 @@ class MainWindow(QMainWindow):
             self.active_trader.order_entry.status_label.setText(msg)
             return
 
-        pacing_manager.throttle_realtime()
+        # D28.1: orders no longer share the realtime-bar throttle (which could
+        # sleep the GUI thread for up to 10 minutes). They get their own
+        # token-bucket limiter; when empty the order defers via singleShot —
+        # never blocks, never silently dropped.
+        if not order_limiter.try_acquire():
+            delay_ms = max(200, int(order_limiter.retry_delay_s() * 1000))
+            msg = "Order pacing-limited, retrying…"
+            self.status_bar.showMessage(msg, 4000)
+            self.active_trader.order_entry.status_label.setText(msg)
+            QTimer.singleShot(
+                delay_ms,
+                lambda: self._place_order(
+                    contract=contract, symbol=symbol, action=action, qty=qty,
+                    order_type=order_type, lmt_price=lmt_price,
+                    stop_price=stop_price, target_price=target_price,
+                ),
+            )
+            return
 
         if order_type == "MKT":
             order = order_registry.market_order(action, qty)
@@ -2704,7 +2765,17 @@ class MainWindow(QMainWindow):
                 contract.right = right
             contract.multiplier = str(int(multiplier)) if multiplier != 1.0 else ""
 
-        pacing_manager.throttle_realtime()
+        # D28.1: close orders use the order-path token bucket, never the
+        # realtime-bar throttle. Defer via singleShot when the bucket is empty.
+        if not order_limiter.try_acquire():
+            delay_ms = max(200, int(order_limiter.retry_delay_s() * 1000))
+            self.status_bar.showMessage(
+                "Close-order pacing-limited, retrying…", 4000
+            )
+            QTimer.singleShot(
+                delay_ms, lambda: self._close_position_by_id(position_id)
+            )
+            return
         order_id = id_manager.get_id()
         order = order_registry.market_order(action, close_qty)
         self.ib_client.placeOrder(order_id, contract, order)

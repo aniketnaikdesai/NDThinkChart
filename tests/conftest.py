@@ -104,3 +104,16 @@ def chart_panel(qapp):
     panel = ChartPanel()
     yield panel
     panel.close()
+
+@pytest.fixture(autouse=True)
+def _reset_pacing_state():
+    """Hermetic pacing: every test starts with a full realtime budget and a
+    full order-token bucket (D28.1). Without this, the global singletons
+    would accumulate slots across the suite and later tests would trip
+    PacingExceeded."""
+    from ibkr import pacing as pacing_mod
+    pacing_mod.pacing_manager.reset_for_tests()
+    pacing_mod.order_limiter.reset_for_tests()
+    yield
+    pacing_mod.pacing_manager.reset_for_tests()
+    pacing_mod.order_limiter.reset_for_tests()

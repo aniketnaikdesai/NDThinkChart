@@ -29,6 +29,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from ibkr.pacing import pacing_manager, PacingExceeded
+
 # Type tags for registry entries.
 RT_BARS = "rt_bars"
 MARKET_DATA = "market_data"
@@ -98,13 +100,25 @@ class SubscriptionManager:
         ``include_types`` (default: all) and that carry a ``reissue`` hook are
         re-issued; each entry's ``rebind`` hook then points the live routing
         state at the new reqId, and the registry bookkeeping moves with it.
+
+        D28.1: all-or-nothing under pacing pressure. Realtime-bar reissues
+        consume pacing slots, so the budget for ALL of them is checked up
+        front; if it is short, PacingExceeded is raised before anything is
+        re-issued (a partial replay followed by a retry would double-subscribe
+        the already-replayed entries). The caller defers via QTimer.singleShot.
         """
+        pending = [
+            (old_id, entry)
+            for old_id, entry in list(self._entries.items())
+            if (include_types is None or entry.req_type in include_types)
+            and entry.reissue is not None
+        ]
+        rt_needed = sum(1 for _, e in pending if e.req_type == RT_BARS)
+        wait = pacing_manager.realtime_wait_for_slots(rt_needed)
+        if wait > 0:
+            raise PacingExceeded(wait)
         replayed: list[tuple[int, int]] = []
-        for old_id, entry in list(self._entries.items()):
-            if include_types is not None and entry.req_type not in include_types:
-                continue
-            if entry.reissue is None:
-                continue
+        for old_id, entry in pending:
             new_id = entry.reissue()
             if entry.rebind is not None:
                 entry.rebind(new_id)

@@ -146,8 +146,6 @@ def _make_window(monkeypatch, qapp):
     # No pacing sleeps in tests.
     from ibkr import pacing as pacing_mod
     monkeypatch.setattr(pacing_mod.pacing_manager, "throttle", lambda: None)
-    monkeypatch.setattr(
-        pacing_mod.pacing_manager, "throttle_realtime", lambda: None)
 
     from ui.main_window import MainWindow
 

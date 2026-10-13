@@ -1,4 +1,4 @@
-from ibkr.pacing import pacing_manager
+from ibkr.pacing import pacing_manager, PacingExceeded
 from ibkr.id_manager import id_manager
 from ibapi.contract import Contract
 
@@ -19,9 +19,16 @@ class RealtimeBarsManager:
         """
         Start a 5-second real-time bar subscription.
         Returns the reqId.
+
+        D28.1: never sleeps. Raises PacingExceeded (with wait_seconds) when
+        the realtime budget is exhausted; the caller defers via
+        QTimer.singleShot. The budget slot is recorded only after the
+        request is actually issued.
         """
+        wait = pacing_manager.realtime_wait_seconds()
+        if wait > 0:
+            raise PacingExceeded(wait)
         req_id = id_manager.get_id()
-        pacing_manager.throttle_realtime()
         self.client.reqRealTimeBars(
             req_id,
             contract,
@@ -30,6 +37,7 @@ class RealtimeBarsManager:
             False,      # useRTH=False → include extended hours
             []
         )
+        pacing_manager.record_realtime_slot()
         self._subscriptions[req_id] = (symbol, contract)
         return req_id
 
