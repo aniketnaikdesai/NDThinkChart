@@ -1079,6 +1079,12 @@ class ChartPanel(QWidget):
                 self._session_overlay.clear()
             return
         self._bars = list(bars)
+        # D28.4: a wholesale bar replacement invalidates the study cache — the
+        # incremental fingerprint is (n_bars, last_ts), which a
+        # value-correcting backfill can match by coincidence. The valuable
+        # per-new-candle incremental path goes through update_last_bar, not
+        # here, so nothing important is lost.
+        self._study_cache.invalidate(self._symbol, self._current_timeframe)
         # D21.4: build the display-x collapse map from the freshly loaded bars
         # before the candles/volume are (re)generated at display-x. This also
         # syncs the drawing/alarm overlays (their bars + collapse map).
