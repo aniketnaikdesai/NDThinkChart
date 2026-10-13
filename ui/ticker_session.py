@@ -213,6 +213,7 @@ class TickerSession(QObject):
         self._unsubscribe_rt()
         self._cancel_history_requests()
         self._disarm_history_wave_watchdog()
+        self._wave_continue_timer.stop()  # D28.5: no deferred wave chunks
         self._prime_timer.stop()
         self._prime_req_id = None
 

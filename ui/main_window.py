@@ -158,6 +158,10 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("IBKR Trading Terminal")
         self.resize(1400, 900)
+        # D28.5: once set, IBKR/timer slots early-return so teardown never
+        # touches cleared widgets.
+        self._closing: bool = False
+        self._reader_thread: threading.Thread | None = None
 
         # ── Toolbar ───────────────────────────────────────────────────────────
         toolbar = QWidget()
@@ -634,7 +638,10 @@ class MainWindow(QMainWindow):
 
         # Start connection
         self.ib_client.connect(settings.IBKR_HOST, settings.IBKR_PORT, settings.IBKR_CLIENT_ID)
-        threading.Thread(target=self.ib_client.run, daemon=True, name="ibkr-reader").start()
+        # D28.5: keep a handle so closeEvent can join the reader thread.
+        self._reader_thread = threading.Thread(
+            target=self.ib_client.run, daemon=True, name="ibkr-reader")
+        self._reader_thread.start()
 
     # ── Session registry (D28.2) ──────────────────────────────────────────────
 
@@ -1298,6 +1305,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_error(self, reqId: int, errorCode: int, errorString: str):
+        if self._closing:
+            return  # D28.5: teardown never touches cleared widgets.
         # D28.2: session-owned reqIds (RT, priming, wave members) route via
         # the table; the session owns the priming/wave/error semantics.
         session = self._session_for_req_id(reqId)
@@ -1653,6 +1662,8 @@ class MainWindow(QMainWindow):
     # ── Historical data slots ─────────────────────────────────────────────────
 
     def _on_historical_bar(self, reqId: int, bar):
+        if self._closing:
+            return  # D28.5: teardown never touches cleared widgets.
         # D28.2: route by reqId → session (priming vs wave handled inside).
         session = self._session_for_req_id(reqId)
         if session is None:
@@ -1660,6 +1671,8 @@ class MainWindow(QMainWindow):
         session.on_historical_bar(reqId, bar)
 
     def _on_historical_data_end(self, reqId: int):
+        if self._closing:
+            return  # D28.5
         # D28.2: route by reqId → session.
         session = self._session_for_req_id(reqId)
         if session is None:
@@ -1799,6 +1812,8 @@ class MainWindow(QMainWindow):
 
     def _on_realtime_bar(self, reqId: int, time: int, o: float, h: float,
                          l: float, c: float, vol: float, wap: float, count: int):
+        if self._closing:
+            return  # D28.5: teardown never touches cleared widgets.
         # D28.2: route by reqId → TickerSession. Unknown reqIds (stale,
         # pre-extraction, or foreign) are ignored.
         session = self._session_for_req_id(reqId)
@@ -3013,7 +3028,17 @@ class MainWindow(QMainWindow):
             f"Closing position {position_id}: {action} {close_qty} {symbol} @ MKT", 4000
         )
 
+    #: D28.5: bound for joining the ibkr-reader thread at close.
+    READER_JOIN_TIMEOUT_S = 5.0
+
     def closeEvent(self, event):
+        # D28.5: idempotent — a second closeEvent after teardown is a no-op.
+        if self._closing:
+            event.accept()
+            return
+        self._closing = True
+        # Explicit teardown order: persist prefs → cancel lookups → disarm
+        # timers → cancel subs → disconnect → join reader → clear UI.
         # Persist watchlist dock width (D13/D17): re-clamp to the current
         # chart-area cap before saving so an over-cap width cannot leak into
         # the next session (AC-D17.4).
@@ -3025,9 +3050,20 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
-        # D28.2: teardown every session (cancels RT + wave, disarms watchdog,
-        # advances generation). Sessions stay registered (torn down) so
-        # post-close test seams can still reach them.
+        # Cancel in-flight contract lookups so no stale result resolves
+        # an add after the widgets are gone.
+        try:
+            self._contract_lookup.cancel_all()
+        except Exception:
+            pass
+        # Disarm retry timers, then teardown every session (cancels RT +
+        # wave, disarms watchdog, advances generation). Sessions stay
+        # registered (torn down) so post-close test seams can still reach
+        # them.
+        try:
+            self._rt_retry_timer.stop()
+        except Exception:
+            pass
         for session in list(self._sessions.values()):
             session._history_generation += 1
             session.teardown()
@@ -3040,11 +3076,15 @@ class MainWindow(QMainWindow):
         self.depth_manager.cancel_all()
         # Cancel all realtime bar subscriptions across tracked symbols
         self.rt_manager.cancel_all()
-        # Clear watchlist panel
-        self.watchlist_panel.clear()
-        # Disconnect from IBKR
+        # Disconnect from IBKR, then join the reader thread with a timeout
+        # so close never hangs on a wedged socket read.
         try:
             self.ib_client.disconnect()
         except Exception:
             pass
+        reader = self._reader_thread
+        if reader is not None and reader.is_alive():
+            reader.join(timeout=self.READER_JOIN_TIMEOUT_S)
+        # Clear watchlist panel
+        self.watchlist_panel.clear()
         event.accept()
