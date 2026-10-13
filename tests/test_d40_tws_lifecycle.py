@@ -265,6 +265,71 @@ def test_d40_2_resume_without_phantoms(monkeypatch, qapp):
         win.close()
 
 
+def test_d40_2_resume_session_recreated_mid_pause_no_phantom(
+    monkeypatch, qapp
+):
+    """Reviewer B1, D40 (regression): a session torn down mid-pause is
+    re-created by reconcile() at resume. The recreated session must be
+    re-seeded (last_chart_price None) — with the old
+    resume_all()-before-reconcile() order it took the normal path with a
+    stale cache seed and phantom-fired when the price crossed an alarm
+    level during the gap."""
+    win = _make_window(monkeypatch, qapp)
+    try:
+        _clear(SYM_B)
+        _add_alarm(SYM_B, 100.5, "cross_above")
+        win.alarm_monitor.reconcile()
+        assert SYM_B in win._sessions
+
+        _go_live(win)
+        # Seed a STALE cached 1m bar (close 99.0, below the alarm): with the
+        # old resume order, the recreated session's _start_monitoring takes
+        # the normal path and seeds last_chart_price=99.0 from this cache
+        # row — the post-resume bar then phantom-fires. The fixed order
+        # stages the session (last_chart_price=None) instead.
+        from data.db import db
+        db.conn.execute(
+            "INSERT INTO bars (symbol, timeframe, ts, open, high, low,"
+            " close, volume) VALUES (?,?,?,?,?,?,?,?)",
+            (SYM_B, TF_1M, BASE_TS - 60, 98.0, 99.5, 97.5, 99.0, 50.0),
+        )
+        db.conn.commit()
+
+        win.ib_client.connectionClosed()
+        qapp.processEvents()
+        assert win._tws_paused is True
+
+        # Simulate torn-down-mid-pause: no session when TWS returns.
+        win.alarm_monitor._stop_monitoring(win._sessions[SYM_B])
+        assert SYM_B not in win._sessions
+
+        # Morning login: D27 replay, then reconcile (recreates the
+        # session via the staged path), then resume_all re-seeds.
+        replayed: list = []
+        win._replay_subscriptions = lambda: replayed.append(1)
+        win.toast.show_message = lambda msg: None
+        win.ib_client.nextValidId(1)
+        qapp.processEvents()
+
+        assert replayed
+        assert win._tws_paused is False
+        session = win._sessions.get(SYM_B)
+        assert session is not None, "reconcile must recreate the session"
+        assert session.last_chart_price is None, (
+            "recreated session must be re-seeded (first-tick-no-eval)"
+        )
+
+        # Resume alone must not fire: first bar lands BEYOND the
+        # cross_above level — a stale seed would phantom-fire here.
+        bar1 = Bar(SYM_B, TF_1M, BASE_TS, 101.0, 103.0, 100.0, 102.0, 100.0)
+        session._on_aggregated_bar(bar1, True)
+        above = [a for a in session.alarms if a.direction == "cross_above"]
+        assert above and all(a.triggered is False for a in above)
+    finally:
+        _clear(SYM_B)
+        win.close()
+
+
 # ---------------------------------------------------------------------------
 # AC-D40.3 — gap report
 # ---------------------------------------------------------------------------

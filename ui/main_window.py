@@ -1177,15 +1177,22 @@ class MainWindow(QMainWindow):
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
         # D40.3: resume from a TWS-gone pause — the D27 replay above
-        # already re-issued subscriptions; clear pause flags and re-seed
-        # prev_price with the first-tick-no-eval guard (no phantoms),
-        # then reconcile. Gap accounting surfaced last so it stays
-        # visible.
-        _gaps = (
-            self.alarm_monitor.resume_all() if _resuming_from_pause else []
-        )
-        # D25: reconcile headless alarm monitors on (re)connect.
-        self.alarm_monitor.reconcile()
+        # already re-issued subscriptions. When resuming from pause,
+        # reconcile FIRST so sessions created for active alarms take the
+        # staged path (last_chart_price=None while _paused is still True —
+        # no phantom triggers on resume), then resume_all() clears pause
+        # flags, re-seeds every session (including staged ones) with the
+        # first-tick-no-eval guard, and finishes pending subscribes.
+        # (Reviewer B1, D40: the old order let reconcile-created sessions
+        # take the normal path with a stale cache seed and phantom-fire.)
+        # Gap accounting is surfaced last so it stays visible.
+        if _resuming_from_pause:
+            self.alarm_monitor.reconcile()
+            _gaps = self.alarm_monitor.resume_all()
+        else:
+            # D25: reconcile headless alarm monitors on (re)connect.
+            self.alarm_monitor.reconcile()
+            _gaps = []
         if _gaps:
             self.status_bar.showMessage(
                 self.alarm_monitor.format_gap_report(_gaps), 30000

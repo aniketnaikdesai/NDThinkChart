@@ -134,8 +134,20 @@ class IBApiClient(EWrapper, EClient):
                 pass
 
     def _schedule_reconnect(self) -> None:
-        """Schedule a reconnection attempt with exponential backoff."""
+        """Schedule a reconnection attempt with exponential backoff.
+
+        D40/A2: cancel any timer already pending before arming a new one —
+        a transient backoff in flight plus connectionClosed would otherwise
+        leak a second timer and double EClient.connect.
+        """
         self.stop_polling()
+        old = self._reconnect_timer
+        if old is not None:
+            try:
+                old.cancel()
+            except Exception:
+                pass
+            self._reconnect_timer = None
         delay = min(
             self._backoff_base ** min(self._reconnect_attempt, 6),
             self._max_backoff,
@@ -173,6 +185,11 @@ class IBApiClient(EWrapper, EClient):
         if not self._connected:
             self._connected = True
             self._reconnect_attempt = 0
+            # D40/A1: clear the disconnect classification on a successful
+            # connect — a stale TWS_GONE would otherwise downgrade a
+            # legitimate mid-day transient 502 to a debug log and hide
+            # the status-bar message.
+            self._last_disconnect_class = None
             self._set_state(ConnectionState.CONNECTED)
 
     def error(self, *args, **kwargs):
