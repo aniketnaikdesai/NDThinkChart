@@ -34,6 +34,13 @@ class IBBridge(QObject):
     tick_news = pyqtSignal(int, int, str, str, str)
     # reqId, timeStamp, providerCode, articleId, headline
 
+    # News API — D38 digest (strictly additive).
+    news_providers = pyqtSignal(object)          # ListOfNewsProviders
+    historical_news = pyqtSignal(int, str, str, str, str)
+    # reqId, time, providerCode, articleId, headline
+    historical_news_end = pyqtSignal(int, bool)  # reqId, hasMore
+    news_article = pyqtSignal(int, int, str)    # reqId, articleType, articleText
+
     # Real-time 5-second bars
     realtime_bar = pyqtSignal(int, int, float, float, float, float, float, float, int)
     # reqId, time, open, high, low, close, volume, wap, count

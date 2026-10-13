@@ -31,7 +31,7 @@ from data.bar_aggregator import BarAggregator, TIMEFRAME_SECONDS
 from data.bar_cache import BarCache
 from data.alarm_store import AlarmStore
 from data.models import Bar
-from ibkr.contracts import get_contract_for_symbol
+from ibkr.contracts import FUTURES_SCHEDULE, get_contract_for_symbol
 from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.stream_health import StreamHealth
 from ibkr.subscription_manager import RT_BARS, DEPTH_HEATMAP, S0_TICKS
@@ -73,6 +73,10 @@ class TickerSession(QObject):
     depth_state_changed = Signal(str)       # (state)
     # D37: auction ticks (34/35/36/61) arrived — the header chip re-renders.
     auction_updated = Signal()
+    # D38: tick-59 dividend string arrived — event state re-rendered.
+    dividend_updated = Signal()
+    # D38: corporate events (markers) changed for the symbol.
+    events_updated = Signal()
 
     def __init__(self, symbol: str, host):
         super().__init__()
@@ -157,6 +161,19 @@ class TickerSession(QObject):
         self._s0_req_id: int | None = None
         self._s0_needs: dict[str, set[str]] = {}
         self._s0_union: str = ""
+        # D38: headless S0 — the news digest keeps an S0 subscription on
+        # sessions with no views (headless digest sessions). Never set for
+        # charted/monitored sessions.
+        self._s0_headless: bool = False
+        # D38: live news-push (tick 292) fan-out for the digest dock.
+        self._news_push_listeners: list = []
+
+        # ── D38 dividends (tick 59 via S0 generic "456") ───────────────
+        self._dividend_info: dict = {}
+
+        # ── D38 corporate events (markers) ────────────────────────────
+        self._events: list = []          # merged IBKR + yfinance Events
+        self._events_unavailable: bool = False
 
         # ── Auction state (D37: ticks 34/35/36/61 via S0) ─────────────
         self._auction: dict = {
@@ -218,7 +235,14 @@ class TickerSession(QObject):
                 self._sync_view(view, timeframe)
             # D37: the auction chip lives on chart views — register the S0
             # "225" need while views are attached.
-            self.s0_register("auction", {"225"})
+            # D38: IBKR dividends (tick 59 via generic "456") feed the event
+            # markers on charted symbols — same view-bound lifecycle.
+            # Futures have no dividend stream (plan A38.4): skip the need.
+            # One resync for both (no double re-subscribe).
+            _needs = {"auction": {"225"}}
+            if self.symbol.split()[0] not in FUTURES_SCHEDULE:
+                _needs["dividends"] = {"456"}
+            self.s0_register_many(_needs)
             # D25: a view opening promotes a headless monitor.
             monitor = getattr(self._host, "alarm_monitor", None)
             if monitor is not None:
@@ -228,8 +252,9 @@ class TickerSession(QObject):
         """Unregister a view; teardown when orphaned and not monitored."""
         self._views = [(v, tf) for v, tf in self._views if v is not view]
         # D37: last view gone → drop the auction S0 need (S0 cancels).
+        # D38: same for the dividend need. Single resync.
         if not self._views:
-            self.s0_deregister("auction")
+            self.s0_deregister_many(("auction", "dividends"))
         # D25: the last view closing may start headless monitoring.
         monitor = getattr(self._host, "alarm_monitor", None)
         if monitor is not None:
@@ -395,6 +420,19 @@ class TickerSession(QObject):
         self._s0_needs.pop(feature, None)
         self._s0_resync()
 
+    def s0_register_many(self, needs: dict[str, set[str]]) -> None:
+        """Register several features' needs with a single resync (avoids
+        one cancel+re-subscribe per feature)."""
+        for feature, ticks in needs.items():
+            self._s0_needs[feature] = set(ticks)
+        self._s0_resync()
+
+    def s0_deregister_many(self, features) -> None:
+        """Drop several features' needs with a single resync."""
+        for feature in features:
+            self._s0_needs.pop(feature, None)
+        self._s0_resync()
+
     @property
     def s0_req_id(self) -> int | None:
         return self._s0_req_id
@@ -412,7 +450,8 @@ class TickerSession(QObject):
         Re-subscribes only when the union changes; cancels when empty.
         Never silently drops: MD-budget refusal surfaces via the host.
         """
-        want = self._s0_union_str() if self.view_count > 0 else ""
+        want = self._s0_union_str() if (self.view_count > 0
+                                       or self._s0_headless) else ""
         if want == self._s0_union:
             return
         self._s0_cancel()
@@ -457,7 +496,8 @@ class TickerSession(QObject):
                 pass
             self._s0_req_id = None
         self._s0_union = ""
-        want = self._s0_union_str() if self.view_count > 0 else ""
+        want = self._s0_union_str() if (self.view_count > 0
+                                       or self._s0_headless) else ""
         if not want:
             return 0
         self._s0_union = want
@@ -499,16 +539,129 @@ class TickerSession(QObject):
 
     def on_s0_tick_string(self, req_id: int, tick_type: int,
                           value: str) -> None:
-        """Plumbing for D38 (tick 59 dividends arrive here)."""
+        """D38: tick 59 (IB Dividends) arrives here — generic "456" was the
+        request code (plan B1). Parsed defensively; never raises."""
         if req_id != self._s0_req_id:
             return
+        if tick_type != 59:
+            return
+        try:
+            from data.events.provider import parse_ib_dividend_string
+            parsed = parse_ib_dividend_string(value)
+        except Exception:
+            return
+        if parsed.get("next_date") is None and parsed.get("past12m") is None:
+            return
+        self._dividend_info = parsed
+        self.dividend_updated.emit()
+        self._merge_ibkr_dividend_event()
 
     def on_s0_tick_news(self, req_id: int, time_stamp: int,
                         provider_code: str, article_id: str,
                         headline: str) -> None:
-        """Plumbing for D38 (news push via tick 292)."""
+        """D38: live news push via generic "292". Forwarded to digest
+        listeners registered via ``add_news_push_listener``."""
         if req_id != self._s0_req_id:
             return
+        for cb in list(self._news_push_listeners):
+            try:
+                cb(self.symbol, time_stamp, provider_code, article_id, headline)
+            except Exception:
+                pass
+
+    # ── D38 dividends + corporate events ─────────────────────────────
+
+    def dividend_info(self) -> dict:
+        """Latest parsed tick-59 dividend info ({} when none yet)."""
+        return dict(self._dividend_info)
+
+    def set_s0_headless(self, enabled: bool) -> None:
+        """Digest sessions: keep the S0 subscription with no views attached.
+
+        Used by the news digest for holdings that are neither charted nor
+        monitored (plan 38a.2). Re-run the resync so the change takes effect.
+        """
+        self._s0_headless = bool(enabled)
+        self._s0_resync()
+
+    def add_news_push_listener(self, cb) -> None:
+        """Register a callable(symbol, ts, provider, article_id, headline)."""
+        if cb not in self._news_push_listeners:
+            self._news_push_listeners.append(cb)
+
+    def remove_news_push_listener(self, cb) -> None:
+        try:
+            self._news_push_listeners.remove(cb)
+        except ValueError:
+            pass
+
+    def _merge_ibkr_dividend_event(self) -> None:
+        """Fold the latest tick-59 dividend into the event list (IBKR-first
+        source priority). yfinance dividend events for the same date do not
+        duplicate it — see ``refresh_events``."""
+        from data.events.ibkr_source import IBKREventSource
+        from datetime import date as _date
+        src = IBKREventSource(lambda _s: self)
+        ibkr_events = src.get_events(
+            self.symbol, _date(1970, 1, 1), _date(2100, 1, 1))
+        self._merge_events(ibkr_events, source="ibkr")
+
+    def _merge_events(self, new_events: list, source: str) -> None:
+        """Merge one source's events: replace that source's entries, keep the
+        other's. Emits ``events_updated`` when the merged set changes."""
+        from data.events.provider import Event
+        kept = [e for e in self._events
+                if isinstance(e, Event) and e.source != source]
+        # IBKR-first priority: a yfinance dividend on the same date as an
+        # IBKR dividend is dropped (IBKR is live; yfinance is the fallback).
+        if source == "yfinance":
+            ibkr_dividend_dates = {
+                e.date for e in kept
+                if e.type == "dividend" and e.source == "ibkr"
+            }
+            new_events = [e for e in new_events
+                          if not (e.type == "dividend"
+                                  and e.date in ibkr_dividend_dates)]
+        merged = kept + [e for e in new_events if isinstance(e, Event)]
+        old_ids = {e.id for e in self._events if isinstance(e, Event)}
+        new_ids = {e.id for e in merged}
+        self._events = sorted(merged, key=lambda e: (e.date, e.type, e.id))
+        if old_ids != new_ids:
+            self.events_updated.emit()
+
+    def refresh_events(self, yf_source=None) -> None:
+        """Rebuild the event list: IBKR dividends (sync, from tick-59 state)
+        + yfinance earnings/splits/dividends (async, cache-first).
+
+        ``yf_source`` is a ``YFinanceEventSource`` (host-provided, shared).
+        Never raises; never blocks on the network.
+        """
+        self._merge_ibkr_dividend_event()
+        if yf_source is not None:
+            from datetime import date as _date
+            try:
+                yf_events = yf_source.get_events(
+                    self.symbol, _date(1970, 1, 1), _date(2100, 1, 1))
+            except Exception:
+                yf_events = []
+            self._merge_events(yf_events, source="yfinance")
+            self._events_unavailable = yf_source.unavailable(self.symbol)
+        self.events_updated.emit()
+
+    def on_yfinance_refresh(self, symbol: str, yf_source) -> None:
+        """Worker finished a background yfinance fetch — merge if ours."""
+        if symbol.upper() != self.symbol:
+            return
+        self.refresh_events(yf_source)
+
+    def events(self) -> list:
+        """Current merged corporate events (sorted by date)."""
+        return list(self._events)
+
+    def events_unavailable(self) -> bool:
+        """True when yfinance cannot serve this symbol and no cache exists —
+        the UI shows the explicit "event data unavailable" state."""
+        return self._events_unavailable
 
     def auction_state(self) -> dict:
         """Current auction values; None fields mean 'no data yet'."""

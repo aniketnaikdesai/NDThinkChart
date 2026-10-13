@@ -117,12 +117,14 @@ def test_T48_T02_findchild_resolves_and_toggles(monkeypatch, qapp):
         qapp.processEvents()
         assert region.isVisible()
 
-        # Exactly one dock lives in the right dock area.
+        # Exactly one *region* dock lives in the right dock area (the D38
+        # news digest dock also lives there but is not part of the region).
         right_area = win.dockWidgetArea(region)
         assert right_area == Qt.DockWidgetArea.RightDockWidgetArea
         right_docks = [
             d for d in win.findChildren(QDockWidget)
             if win.dockWidgetArea(d) == Qt.DockWidgetArea.RightDockWidgetArea
+            and d.objectName() != "NewsDigest"
         ]
         assert len(right_docks) == 1, right_docks
     finally:

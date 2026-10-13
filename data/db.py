@@ -125,6 +125,16 @@ class DB:
             blob BLOB NOT NULL,
             PRIMARY KEY (resolved_contract, date, timeframe)
         );
+        -- D38: yfinance event cache (38b.1). One row per symbol: JSON list of
+        -- corporate events (earnings/dividends/splits), 24h TTL (6h for
+        -- near-term events). failed_at marks the last failed fetch with no
+        -- usable cache -> the explicit "event data unavailable" state.
+        CREATE TABLE IF NOT EXISTS yfinance_events_cache (
+            symbol TEXT NOT NULL PRIMARY KEY,
+            fetched_at REAL NOT NULL DEFAULT 0,
+            failed_at REAL NOT NULL DEFAULT 0,
+            payload TEXT NOT NULL DEFAULT '[]'
+        );
         """
         self.conn.executescript(schema)
         self._migrate_schema()
