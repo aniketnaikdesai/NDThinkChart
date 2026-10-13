@@ -26,6 +26,10 @@ class PacingManager:
         self._min_interval = 1.0 / settings.MAX_REQ_PER_SEC
         self._rt_window = 600.0
         self._rt_times: deque = deque()
+        # D28.3: rolling 600s window for reqHistoricalData. Same shape as
+        # the realtime-bar budget (IBKR error 162 = pacing violation).
+        self._hist_window = 600.0
+        self._hist_times: deque = deque()
 
     def throttle(self):
         with self._lock:
@@ -81,10 +85,43 @@ class PacingManager:
             self._rt_times.append(now)
             self._last_req_time = now
 
+    def _expire_hist_slots(self, now: float) -> None:
+        """Drop historical slots older than the rolling window.
+
+        Caller must hold the lock."""
+        while self._hist_times and now - self._hist_times[0] >= self._hist_window:
+            self._hist_times.popleft()
+
+    def historical_wait_seconds(self) -> float:
+        """Seconds until one historical-data slot frees; 0.0 = request now.
+
+        Pure and non-blocking: never sleeps. Callers that must issue many
+        requests (the backfill wave) cap their chunk count and defer the
+        rest via QTimer.singleShot (D28.3).
+        """
+        with self._lock:
+            now = time.time()
+            self._expire_hist_slots(now)
+            budget = settings.MAX_HISTORICAL_PER_600S
+            free = budget - len(self._hist_times)
+            if free > 0:
+                return 0.0
+            expiry = self._hist_times[0] + self._hist_window
+            return max(0.0, expiry - now)
+
+    def record_historical_slot(self) -> None:
+        """Record a reqHistoricalData request against the budget. Call only
+        after the request was actually issued (D28.3)."""
+        with self._lock:
+            now = time.time()
+            self._expire_hist_slots(now)
+            self._hist_times.append(now)
+
     def reset_for_tests(self) -> None:
         """Clear pacing state. Test-only: keeps the suite hermetic."""
         with self._lock:
             self._rt_times.clear()
+            self._hist_times.clear()
             self._last_req_time = 0.0
 
 

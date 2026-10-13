@@ -1,4 +1,4 @@
-from ibkr.pacing import pacing_manager
+from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.id_manager import id_manager
 from ibapi.contract import Contract
 from datetime import datetime, timezone
@@ -40,7 +40,12 @@ class MarketDataManager:
         """
         cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["5 mins"])
         req_id = id_manager.get_id()
-        pacing_manager.throttle()
+        # D28.3: rolling 600s historical window, non-blocking. Never sleeps:
+        # when the budget is exhausted the caller defers (the backfill wave
+        # caps chunks and continues via singleShot; see TickerSession).
+        wait = pacing_manager.historical_wait_seconds()
+        if wait > 0:
+            raise PacingExceeded(wait)
         # Extended hours overrides useRTH
         effective_useRTH = 0 if extended_hours else useRTH
         self.client.reqHistoricalData(
@@ -55,6 +60,8 @@ class MarketDataManager:
             False,
             []
         )
+        # Record only after the request was actually issued (D28.3).
+        pacing_manager.record_historical_slot()
         return req_id
 
     def req_mkt_data(self, contract: Contract) -> int:

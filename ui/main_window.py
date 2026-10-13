@@ -82,7 +82,9 @@ from data.db import db
 from services.alarm_service import evaluate_alarms
 from services.drawing_service import DEFAULT_DRAWING_COLOR
 from services.sound_service import SoundService
-from services.backfill_service import find_missing_spans, plan_requests
+from services.backfill_service import (
+    RequestPlan, find_missing_spans, plan_requests,
+)
 from services.market_calendar import trading_days
 from services.contract_lookup_service import ContractLookupService
 
@@ -1438,34 +1440,31 @@ class MainWindow(QMainWindow):
         contract = get_contract_for_symbol(symbol)
 
         if plans:
-            # One request per planned chunk, newest-first (the planner's order).
-            for plan in plans:
-                req_id = self.md_manager.req_historical_data(
-                    contract=contract,
-                    timeframe=timeframe,
-                    endDateTime=plan.endDateTime,
-                    whatToShow="TRADES",
-                    useRTH=1,
-                    extended_hours=extended_hours,
-                )
-                new_session.register_history_request(req_id)
+            # D28.3: the session issues chunks ~60 per wave and continues
+            # across waves when the 600s historical budget is exhausted
+            # (non-blocking — never sleeps, never storms TWS with 162s).
+            new_session.queue_wave_plans(
+                plans, contract, timeframe, extended_hours,
+            )
             self.status_bar.showMessage(
                 f"{symbol} — backfilling {len(plans)} historical chunk(s)…"
             )
         elif not cached:
             # Empty cache: preserve the configured-window single-request path
-            # (endDateTime="" = up to now) as a backfill set of one.
-            req_id = self.md_manager.req_historical_data(
-                contract=contract,
-                timeframe=timeframe,
-                endDateTime="",
-                whatToShow="TRADES",
-                useRTH=1,
-                extended_hours=extended_hours,
+            # (endDateTime="" = up to now) as a one-plan wave.
+            cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["5 mins"])
+            new_session.queue_wave_plans(
+                [RequestPlan(
+                    endDateTime="",
+                    duration=cfg["duration"],
+                    bar_size=cfg["bar_size"],
+                    span_start_ts=0,
+                    span_end_ts=now_ts,
+                )],
+                contract, timeframe, extended_hours,
             )
-            new_session.register_history_request(req_id)
             self.status_bar.showMessage(
-                f"Requesting {symbol} [{timeframe}]… (hist reqId {req_id})"
+                f"Requesting {symbol} [{timeframe}]…"
             )
         else:
             # The cache already reaches now: no redundant request is issued.

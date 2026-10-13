@@ -32,6 +32,7 @@ from data.bar_cache import BarCache
 from data.alarm_store import AlarmStore
 from data.models import Bar
 from ibkr.contracts import get_contract_for_symbol
+from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.stream_health import StreamHealth
 from ibkr.subscription_manager import RT_BARS
 from ibkr.utils import parse_ibkr_date
@@ -89,6 +90,19 @@ class TickerSession(QObject):
         self._history_wave_timer.setSingleShot(True)
         self._history_wave_timer.timeout.connect(self._on_history_wave_timeout)
         self._history_wave_timeout_ms: int = 120_000
+        # D28.3: pacing-aware wave issuing. Plans are issued ~60 per wave;
+        # when the 600s historical budget is exhausted the remainder stays
+        # queued and continues via the timer below (never sleeps).
+        self._wave_plan_queue: list = []
+        self._req_to_plan: dict[int, object] = {}
+        self._wave_contract = None
+        self._wave_extended_hours: bool = False
+        self._retried_plans: set = set()  # error-162 retry-once tracking
+        self._wave_continue_timer = QTimer(self)
+        self._wave_continue_timer.setSingleShot(True)
+        self._wave_continue_timer.timeout.connect(
+            self._on_wave_continue_timeout
+        )
         # D27.9 aggregator priming state (per load).
         self._prime_req_id: int | None = None
         self._prime_symbol: str = ""
@@ -431,6 +445,76 @@ class TickerSession(QObject):
     def _on_prime_timeout(self) -> None:
         self._host._on_session_prime_timeout(self)
 
+    # ── D28.3 pacing-aware wave issuing ─────────────────────────────────
+
+    def _status(self, msg: str, ms: int = 8000) -> None:
+        """Best-effort status line (the host may be a stub in tests)."""
+        bar = getattr(self._host, "status_bar", None)
+        if bar is not None:
+            bar.showMessage(msg, ms)
+
+    def queue_wave_plans(self, plans, contract, timeframe: str,
+                         extended_hours: bool) -> None:
+        """D28.3: queue backfill plans and issue the first wave.
+
+        Chunks are issued ~60 per wave; when the rolling 600s historical
+        budget is exhausted the remainder stays queued and continues via
+        the deferred timer (never sleeps, never storms TWS with 162s).
+        """
+        self._wave_plan_queue = list(plans)
+        self._wave_contract = contract
+        self._wave_timeframe = timeframe
+        self._wave_extended_hours = extended_hours
+        self._retried_plans = set()
+        self._issue_wave_chunks()
+
+    def _issue_wave_chunks(self, max_per_wave: int = 60) -> None:
+        """Issue queued plans while the budget allows (D28.3)."""
+        issued = 0
+        while self._wave_plan_queue and issued < max_per_wave:
+            plan = self._wave_plan_queue[0]
+            try:
+                req_id = self._host.md_manager.req_historical_data(
+                    contract=self._wave_contract,
+                    timeframe=self._wave_timeframe,
+                    endDateTime=plan.endDateTime,
+                    whatToShow="TRADES",
+                    useRTH=1,
+                    extended_hours=self._wave_extended_hours,
+                    bar_size=plan.bar_size,
+                    duration=plan.duration,
+                )
+            except PacingExceeded as e:
+                self._schedule_wave_continuation(e.wait_seconds)
+                return
+            self._wave_plan_queue.pop(0)
+            self._register_history_request(req_id)
+            self._req_to_plan[req_id] = plan
+            issued += 1
+        if self._wave_plan_queue:
+            # Hit the per-wave cap: space waves out over the rolling window.
+            wait = pacing_manager.historical_wait_seconds()
+            self._schedule_wave_continuation(max(wait, 1.0))
+
+    def _schedule_wave_continuation(self, wait_s: float) -> None:
+        """Defer the rest of the wave (D28.3): never sleeps, re-arms the
+        watchdog so the deferred chunks don't trip the strand bound."""
+        ms = max(1000, int(wait_s * 1000))
+        self._status(
+            f"{self.symbol} — pacing-limited, continuing backfill in "
+            f"{int(wait_s)}s…"
+        )
+        self._arm_history_wave_watchdog()
+        self._wave_continue_timer.start(ms)
+
+    def _on_wave_continue_timeout(self) -> None:
+        self._issue_wave_chunks()
+
+    def _wave_may_complete(self) -> bool:
+        """The wave finalises only when nothing is in flight AND nothing
+        remains queued for continuation (D28.3)."""
+        return not self._history_req_ids and not self._wave_plan_queue
+
     def register_history_request(self, req_id: int) -> None:
         """Public wrapper: track a backfill-wave member reqId."""
         self._register_history_request(req_id)
@@ -475,7 +559,8 @@ class TickerSession(QObject):
         if not self._history_event_accepted(req_id):
             return
         self._history_req_ids.discard(req_id)
-        if self._history_req_ids:
+        self._req_to_plan.pop(req_id, None)
+        if not self._wave_may_complete():
             return
         # Last member ended: the host finalizes (persist + render + status).
         self._host._on_session_wave_complete(self)
@@ -494,12 +579,41 @@ class TickerSession(QObject):
             self._host._on_session_prime_complete(self)
             return
         if req_id in self._history_req_ids:
+            # D28.3: IBKR error 162 (pacing violation) retries once after a
+            # backoff before the wave finalises short. The failed request
+            # is dropped from the in-flight set; its plan is re-queued at
+            # the front so the retry preserves newest-first order.
+            if code == 162:
+                plan = self._req_to_plan.pop(req_id, None)
+                self._history_req_ids.discard(req_id)
+                if plan is not None and plan not in self._retried_plans:
+                    self._retried_plans.add(plan)
+                    self._wave_plan_queue.insert(0, plan)
+                    _LOG.warning(
+                        "Historical request %s hit pacing violation (162); "
+                        "retrying chunk once after backoff", req_id,
+                    )
+                    self._status(
+                        f"{self.symbol} — pacing violation (162); "
+                        "retrying chunk once…"
+                    )
+                    wait = pacing_manager.historical_wait_seconds()
+                    self._wave_continue_timer.start(
+                        max(1000, int(wait * 1000))
+                    )
+                    self._arm_history_wave_watchdog()
+                    return
+                _LOG.warning(
+                    "Historical request %s failed [162] after retry; "
+                    "finalising short", req_id,
+                )
             self._history_req_ids.discard(req_id)
+            self._req_to_plan.pop(req_id, None)
             self._backfill_failed_req_ids.add(req_id)
             _LOG.warning(
                 "Historical request %s failed [%s]: %s", req_id, code, msg
             )
-            if not self._history_req_ids:
+            if self._wave_may_complete():
                 self._host._on_session_wave_complete(self)
 
     def prime_aggregator(self, contract, timeframe: str, now_ts: int,
@@ -521,16 +635,24 @@ class TickerSession(QObject):
         if span_s < 5:
             return False  # at a period boundary: nothing to prime
         prime_s = min(span_s, _PRIME_MAX_SPAN_S)
-        req_id = self._host.md_manager.req_historical_data(
-            contract=contract,
-            timeframe=timeframe,
-            endDateTime="",
-            whatToShow="TRADES",
-            useRTH=1,
-            extended_hours=extended_hours,
-            bar_size="5 secs",
-            duration=f"{prime_s} S",
-        )
+        try:
+            req_id = self._host.md_manager.req_historical_data(
+                contract=contract,
+                timeframe=timeframe,
+                endDateTime="",
+                whatToShow="TRADES",
+                useRTH=1,
+                extended_hours=extended_hours,
+                bar_size="5 secs",
+                duration=f"{prime_s} S",
+            )
+        except PacingExceeded:
+            # D28.3: fail open — skip priming and attach the live feed
+            # rather than strand the chart on a pacing-limited request.
+            _LOG.warning(
+                "Aggregator priming skipped: historical pacing exhausted"
+            )
+            return False
         self._prime_req_id = req_id
         self._prime_timeframe = timeframe
         self._prime_symbol = self.symbol

@@ -121,7 +121,7 @@ class _ReqStub:
         self._next = first_id
 
     def req(self, contract, timeframe="5 mins", endDateTime="", whatToShow="TRADES",
-            useRTH=1, extended_hours=False):
+            useRTH=1, extended_hours=False, **kwargs):
         req_id = self._next
         self._next += 1
         self.calls.append({
@@ -132,6 +132,7 @@ class _ReqStub:
             "whatToShow": whatToShow,
             "useRTH": useRTH,
             "extended_hours": extended_hours,
+            **kwargs,
         })
         return req_id
 
