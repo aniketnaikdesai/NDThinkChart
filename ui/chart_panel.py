@@ -321,6 +321,13 @@ class ChartPanel(QWidget):
 
         self.candlestick = CandlestickItem([], mode=ChartMode.CANDLES)
         self.price_plot.addItem(self.candlestick)
+        # D28.4: live-bar layer — holds only the forming bar so per-tick
+        # updates never regenerate the static history QPicture.
+        self.live_candle = CandlestickItem([], mode=ChartMode.CANDLES)
+        self.price_plot.addItem(self.live_candle)
+        # D28.4: cached candle half-width, recomputed only at full rebuild
+        # (bar-count or spacing change), reused by forming-bar ticks.
+        self._candle_half_width: float = 0.0
         self.drawing_overlay = DrawingOverlay(self.price_plot,
                                             editable=editable)
         self.alarm_overlay = AlarmOverlay(self.price_plot,
@@ -368,6 +375,10 @@ class ChartPanel(QWidget):
         self.volume_plot.setAxisItems({'bottom': self._vol_date_axis})
         self.volume_bars = pg.BarGraphItem(x=[], height=[], width=0.6)
         self.volume_plot.addItem(self.volume_bars)
+        # D28.4: live-volume layer — the forming bar's volume, updated per
+        # tick without rebuilding the static volume picture.
+        self.live_volume = pg.BarGraphItem(x=[], height=[], width=0.6)
+        self.volume_plot.addItem(self.live_volume)
         # Linear Y for volume — dynamic nice ticks, no negatives (see D8)
         try:
             self.volume_plot.getViewBox().setLogMode('y', False)
@@ -785,6 +796,8 @@ class ChartPanel(QWidget):
 
     def set_chart_mode(self, mode: ChartMode):
         self.candlestick.set_mode(mode)
+        # D28.4: the live layer renders the same mode as the static layer.
+        self.live_candle.set_mode(mode)
 
     def set_alarm_mode(self, enabled: bool):
         """Thin adapter (signature unchanged): route alarm intent through the router.
@@ -1037,6 +1050,9 @@ class ChartPanel(QWidget):
             # visible-max scan unless it could raise the ceiling.
             if bar.volume * 1.1 > self._volume_nice_max:
                 self._recompute_visible_volume_range()
+            # D28.4: forming-bar tick — live layers only, no static regen.
+            self._refresh_live_bar()
+            return
         self._refresh_candles()
         # D24 perf: overlay x-positions depend on bar timestamps; a forming-bar
         # tick doesn't move them, so skip the set_bars (which repositions labels).
@@ -1074,18 +1090,61 @@ class ChartPanel(QWidget):
             self._apply_studies()
         self._render_sessions()
 
+    def _compute_candle_half_width(self, bars) -> float:
+        """D28.4: candle half-width from median bar spacing.
+
+        Computed once per full rebuild and cached (``_candle_half_width``);
+        forming-bar ticks reuse the cache instead of the O(n log n) sort.
+        """
+        if len(bars) > 1:
+            diffs = sorted(
+                self._to_display(bars[i].ts) - self._to_display(bars[i - 1].ts)
+                for i in range(1, len(bars))
+            )
+            return diffs[len(diffs) // 2] * 0.325
+        return 0.25  # fallback for a single bar (matches CandlestickItem)
+
+    def _clamp_half_width(self, w: float) -> float:
+        """D28.4: apply the dense-view 4px minimum to a cached half-width.
+
+        Mirrors the ViewBox clamp in CandlestickItem._draw_candles (which the
+        candle layers get at generation time); the volume BarGraphItems need
+        it applied explicitly since they take a plain width.
+        """
+        try:
+            vb = self.price_plot.getViewBox()
+            if vb is not None and vb.width() > 50:
+                x_range = vb.viewRange()[0]
+                x_span = x_range[1] - x_range[0]
+                if x_span > 0:
+                    min_w = 2.0 / (vb.width() / x_span)
+                    if w < min_w:
+                        return min_w
+        except Exception:
+            pass
+        return w
+
     def _refresh_candles(self, auto_range: bool = False):
         # D21.4: candles/volume are plotted at *display-x* (non-trading time
         # collapsed away), and with Ext Hours OFF only the RTH bars are plotted.
         # ``self._bars`` (and every Bar.ts) stays untouched — display-only.
+        # D28.4: the static layer holds closed bars; the live layer holds only
+        # the forming bar, so per-tick updates never regenerate the history
+        # QPicture.
         bars = self._plotted_bars
+        self._candle_half_width = self._compute_candle_half_width(bars)
+        history, live = bars[:-1], bars[-1:]
         candle_data, vol_x, vol_h, vol_colors = [], [], [], []
-        for bar in bars:
+        for bar in history:
             dx = self._to_display(bar.ts)
             candle_data.append((dx, bar.open, bar.high, bar.low, bar.close))
             vol_x.append(dx)
             vol_h.append(float(bar.volume))
             vol_colors.append('#34d399' if bar.close >= bar.open else '#f87171')
+        live_data = []
+        for bar in live:
+            dx = self._to_display(bar.ts)
+            live_data.append((dx, bar.open, bar.high, bar.low, bar.close))
 
         # Frame the view explicitly from the data: ViewBox.autoRange() mis-computes
         # childrenBounds for epoch-magnitude x-coordinates (anchors xMin at 0),
@@ -1116,47 +1175,61 @@ class ChartPanel(QWidget):
         # candle picture: if w_vol is computed before `vb.setRange(...)`, the
         # min_w_vol clamp sees the untouched default range on a first load, never
         # binds, and the volume bars come out far narrower than the price bodies.
-        # Sharing the price's `w` (65% of median_diff, 35% gap) keeps the two
-        # panels vertically aligned, including the dense 4px minimum.
-        if len(bars) > 1:
-            time_diffs_vol = [
-                self._to_display(bars[i].ts) - self._to_display(bars[i - 1].ts)
-                for i in range(1, len(bars))
-            ]
-            time_diffs_vol.sort()
-            median_diff_vol = time_diffs_vol[len(time_diffs_vol)//2]
-            w_vol = median_diff_vol * 0.325
-            try:
-                vb_vol = self.price_plot.getViewBox()
-                if vb_vol is not None and vb_vol.width() > 50:
-                    x_range_vol = vb_vol.viewRange()[0]
-                    x_span_vol = x_range_vol[1] - x_range_vol[0]
-                    if x_span_vol > 0:
-                        px_per_sec_vol = vb_vol.width() / x_span_vol
-                        min_w_vol = 2.0 / px_per_sec_vol
-                        if w_vol < min_w_vol:
-                            w_vol = min_w_vol
-            except Exception:
-                pass
-        else:
-            w_vol = 0.25
+        # D28.4: reuse the cached candle half-width for volume (same 65% of
+        # median_diff, 35% gap formula); the dense-view 4px minimum is applied
+        # explicitly (the candle layers get it at generation time instead).
+        w_vol = self._clamp_half_width(self._candle_half_width) if bars else 0.25
 
         self.volume_bars.setOpts(x=vol_x, height=vol_h, width=w_vol*2, brushes=vol_colors)
+        if live:
+            lbar = live[0]
+            ldx = self._to_display(lbar.ts)
+            self.live_volume.setOpts(
+                x=[ldx], height=[float(lbar.volume)], width=w_vol * 2,
+                brushes=['#34d399' if lbar.close >= lbar.open else '#f87171'],
+            )
+        else:
+            self.live_volume.setOpts(x=[], height=[], width=w_vol * 2)
 
         if auto_range and bars:
-            # Generate the candle picture now that the real range is known.
-            self.candlestick.set_data(candle_data)
+            # Generate the candle pictures now that the real range is known.
+            self.candlestick.set_data(candle_data, width=self._candle_half_width)
+            self.live_candle.set_data(live_data, width=self._candle_half_width)
             # Full load: derive the ceiling from the bars now visible.
             self._recompute_visible_volume_range(force=True)
         else:
             # Non-auto-range refresh (intra-bar redraw / set_timezone / empty
             # load): the ViewBox range is already the real one, so the ceiling
             # computes against it.  Still regenerate to clear/refresh the picture.
-            self.candlestick.set_data(candle_data)
+            self.candlestick.set_data(candle_data, width=self._candle_half_width)
+            self.live_candle.set_data(live_data, width=self._candle_half_width)
             if bars:
                 # auto_range=False refresh: re-apply the visible ceiling so the
                 # range tracks the bars currently in view.
                 self._recompute_visible_volume_range()
+
+    def _refresh_live_bar(self):
+        """D28.4: forming-bar tick — update ONLY the live layers.
+
+        The static history QPicture is untouched (no regen, no width
+        recompute, no collapse rebuild); only the 1-bar live candle and the
+        1-bar live volume are redrawn.
+        """
+        bars = self._plotted_bars
+        if not bars:
+            return
+        bar = bars[-1]
+        dx = self._to_display(bar.ts)
+        self.live_candle.set_data(
+            [(dx, bar.open, bar.high, bar.low, bar.close)],
+            width=self._candle_half_width,
+        )
+        color = '#34d399' if bar.close >= bar.open else '#f87171'
+        self.live_volume.setOpts(
+            x=[dx], height=[float(bar.volume)],
+            width=self._clamp_half_width(self._candle_half_width) * 2,
+            brushes=[color],
+        )
 
     def _recompute_visible_volume_range(self, force: bool = False) -> float:
         """Recompute the volume Y ceiling from the visible x-range (D21.2).

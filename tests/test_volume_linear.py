@@ -159,8 +159,10 @@ def test_T22_T08_tick_formatter_and_price_colours(qapp):
     panel.set_symbol("TEST")
     panel.update_chart(bars)
     qapp.processEvents()
-    brushes = panel.volume_bars.opts.get("brushes")
-    assert list(brushes) == ["#34d399", "#f87171"]
+    # D28.4: volume renders across the static + live layers — combine both.
+    brushes = (list(panel.volume_bars.opts.get("brushes"))
+               + list(panel.live_volume.opts.get("brushes")))
+    assert brushes == ["#34d399", "#f87171"]
     panel.hide()
     panel.close()
 
@@ -207,7 +209,9 @@ def test_volume_bars_coloured_by_price(qapp):
     panel.update_chart(bars)
     qapp.processEvents()
     assert len(panel._bars) == 2
-    assert list(panel.volume_bars.opts.get("brushes")) == ["#34d399", "#f87171"]
+    brushes = (list(panel.volume_bars.opts.get("brushes"))
+               + list(panel.live_volume.opts.get("brushes")))
+    assert brushes == ["#34d399", "#f87171"]
     panel.hide()
     panel.close()
 

@@ -34,7 +34,10 @@ def _measured_body_width(panel, bars):
     is integer-quantised, so the caller allows ``rel=0.02``.
     """
     pic = panel.candlestick.boundingRect()
-    data_span = bars[-1].ts - bars[0].ts
+    # D28.4: the static layer holds closed bars only (the forming bar lives
+    # in live_candle) — measure the span from the static layer's own data.
+    xs = [c[0] for c in panel.candlestick._raw_data]
+    data_span = (max(xs) - min(xs)) if xs else 0
     return pic.width() - data_span
 
 

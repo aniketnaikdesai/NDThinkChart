@@ -405,11 +405,15 @@ def _make_panel(qapp):
 
 
 def _candle_xs(panel) -> List[float]:
-    return [float(c[0]) for c in panel.candlestick._raw_data]
+    # D28.4: candles render across the static layer (closed bars) and the
+    # live layer (forming bar) — combine both for the full rendered set.
+    return ([float(c[0]) for c in panel.candlestick._raw_data]
+            + [float(c[0]) for c in panel.live_candle._raw_data])
 
 
 def _vol_xs(panel) -> List[float]:
-    return [float(v) for v in panel.volume_bars.opts["x"]]
+    return ([float(v) for v in panel.volume_bars.opts["x"]]
+            + [float(v) for v in panel.live_volume.opts["x"]])
 
 
 def _ext_bars(symbol: str, y: int, m: int, d: int) -> List[Bar]:
