@@ -585,7 +585,6 @@ class MainWindow(QMainWindow):
         self._sessions: dict[str, TickerSession] = {}
         self._req_to_session: dict[int, TickerSession] = {}
         self._primary_session: TickerSession | None = None
-        self._current_req_id: int | None = None
         self._depth_req_id: int | None = None
         self._current_symbol: str = ""
         self._current_tf: str = "5 mins"
@@ -594,7 +593,8 @@ class MainWindow(QMainWindow):
         # D28.2: priming + history-wave state lives on TickerSession now.
         # The properties below delegate to the current symbol's session for
         # test compatibility.
-        self._current_studies: list[dict] = deepcopy(DEFAULT_STUDIES)
+        # D28.2: studies config lives on TickerSession (_current_studies facade
+        # below delegates to the current symbol's session).
         # D27.5: central symbol -> last_price map (chart + watchlist feeds).
         # Position market prices look up the position's own symbol here —
         # never the chart's _last_chart_price.
@@ -609,7 +609,6 @@ class MainWindow(QMainWindow):
         self._rt_retry_timer.setSingleShot(True)
         self._rt_retry_timer.timeout.connect(self._retry_rt_subscribe)
         self._active_draw_group_id: int | None = None
-        self._pending_brackets: dict[int, tuple[str, float]] = {}  # parent_id -> (action, qty)
 
         # Start connection
         self.ib_client.connect(settings.IBKR_HOST, settings.IBKR_PORT, settings.IBKR_CLIENT_ID)
@@ -797,6 +796,17 @@ class MainWindow(QMainWindow):
         """Test seam: True only for a reqId in the current wave generation."""
         s = self._session_for_facade()
         return s._history_event_accepted(req_id) if s is not None else False
+
+    @property
+    def _current_studies(self) -> list[dict]:
+        s = self._session_for_facade()
+        return s.studies if s is not None else []
+
+    @_current_studies.setter
+    def _current_studies(self, value: list[dict]) -> None:
+        s = self._session_for_facade()
+        if s is not None:
+            s.set_studies(value)
 
     @property
     def _prime_req_id(self) -> int | None:
@@ -1242,7 +1252,6 @@ class MainWindow(QMainWindow):
 
         self._current_symbol = symbol
         self._current_tf = timeframe
-        self._current_req_id = None
 
         # D16: cancel any in-flight backfill wave from the previous load and
         # advance the generation so its late responses cannot mix series.
@@ -1260,10 +1269,17 @@ class MainWindow(QMainWindow):
         self.chart_panel.set_symbol(symbol)
         self.chart_panel.set_timeframe(timeframe)
         self.chart_panel.set_extended_hours(extended_hours)
-        self._reload_drawings(symbol)
+        # D28.2: drawings + studies live on the session; the session fans out
+        # to attached views (the primary chart here; 3c pop-outs read-only).
+        new_session.reload_drawings()
+        new_session.sync_drawings_to_views()
+        # Keep the active draw group valid for the new symbol's groups.
+        groups = DrawingStore.groups_for_symbol(symbol)
+        if self._active_draw_group_id not in {g.id for g in groups}:
+            self._active_draw_group_id = None
+        self._apply_active_draw_group()
         self._refresh_drawing_groups(symbol)
-        self._current_studies = self._load_studies_for_symbol(symbol)
-        self.chart_panel.set_studies(self._current_studies)
+        new_session.set_studies(self._load_studies_for_symbol(symbol))
 
         # D28.2: per-load data-plane reset lives on the session now (fresh
         # aggregator, rt_seen=False, alarms reloaded from the store).
@@ -1404,14 +1420,6 @@ class MainWindow(QMainWindow):
 
     # ── Drawing slots ─────────────────────────────────────────────────────────
 
-    def _reload_drawings(self, symbol: str):
-        groups = DrawingStore.groups_for_symbol(symbol)
-        drawings = DrawingStore.drawings_for_symbol(symbol)
-        if self._active_draw_group_id not in {g.id for g in groups}:
-            self._active_draw_group_id = None
-        self.chart_panel.drawing_overlay.set_data(symbol, drawings, groups)
-        self._apply_active_draw_group()
-
     def _refresh_drawing_groups(self, symbol: str):
         self.draw_set_combo.blockSignals(True)
         self.draw_set_combo.clear()
@@ -1472,9 +1480,14 @@ class MainWindow(QMainWindow):
             self._reset_draw_combo_to_cursor()
 
     def _on_drawing_created(self, drawing):
+        # D28.2: the main chart is the sole writer of drawings; the session
+        # fans the new state out to all attached views (3c pop-outs read-only).
         drawing_id = DrawingStore.create_drawing(drawing)
         drawing.id = drawing_id
-        self.chart_panel.drawing_overlay.add_drawing(drawing)
+        session = self._session_for_facade()
+        if session is not None:
+            session.reload_drawings()
+            session.sync_drawings_to_views()
         self.status_bar.showMessage(
             f"Drawing added ({drawing.kind}) on {drawing.symbol}.", 3000
         )
@@ -1483,9 +1496,17 @@ class MainWindow(QMainWindow):
         # D27.10: persist the edited colour alongside the payload so a reload
         # shows the edited colour (AC-D27.10).
         DrawingStore.update_drawing(drawing_id, payload, color=color)
+        session = self._session_for_facade()
+        if session is not None:
+            session.reload_drawings()
+            session.sync_drawings_to_views()
 
     def _on_drawing_deleted(self, drawing_id: int):
         DrawingStore.delete_drawing(drawing_id)
+        session = self._session_for_facade()
+        if session is not None:
+            session.reload_drawings()
+            session.sync_drawings_to_views()
         self.status_bar.showMessage("Drawing deleted.", 2000)
 
     def _on_drawing_selection_changed(self, drawing_id: int):
@@ -1505,9 +1526,10 @@ class MainWindow(QMainWindow):
     def _on_drawing_groups_changed(self):
         if not self._current_symbol:
             return
-        groups = DrawingStore.groups_for_symbol(self._current_symbol)
-        drawings = DrawingStore.drawings_for_symbol(self._current_symbol)
-        self.chart_panel.drawing_overlay.set_data(self._current_symbol, drawings, groups)
+        session = self._session_for_facade()
+        if session is not None:
+            session.reload_drawings()
+            session.sync_drawings_to_views()
         self._refresh_drawing_groups(self._current_symbol)
 
     # ── Historical data slots ─────────────────────────────────────────────────
@@ -1739,10 +1761,13 @@ class MainWindow(QMainWindow):
         self._reload_current_alarms()
 
     def _on_studies_changed(self, studies: list[dict]):
-        self._current_studies = deepcopy(studies)
-        self.chart_panel.set_studies(self._current_studies)
+        # D28.2: the main chart is the sole writer of studies; the session
+        # fans the new config out to all attached views (3c pop-outs).
+        session = self._session_for_facade()
+        if session is not None:
+            session.set_studies(studies)
         if self._current_symbol:
-            StudyStore.save(self._current_symbol, self._current_studies)
+            StudyStore.save(self._current_symbol, deepcopy(studies))
             self.status_bar.showMessage(
                 f"{self._current_symbol} studies saved.", 3000
             )
@@ -2885,7 +2910,6 @@ class MainWindow(QMainWindow):
             session._history_generation += 1
             session.teardown()
         self._primary_session = None
-        self._current_req_id = None
         # Cancel market depth subscription
         if self._depth_req_id is not None:
             self.depth_manager.cancel(self._depth_req_id)

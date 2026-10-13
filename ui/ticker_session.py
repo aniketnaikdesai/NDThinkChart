@@ -51,7 +51,7 @@ class TickerSession(QObject):
     bar_updated = Signal(object, bool)   # (Bar, is_new_candle) — incremental tick
     bars_refreshed = Signal(str, list)   # (timeframe, bars) — full series replace
     # Config / overlay data.
-    studies_changed = Signal(str)        # timeframe
+    studies_changed = Signal()           # study config replaced
     drawings_changed = Signal()
     alarms_changed = Signal()
     # Trigger events. Carries the firing symbol (D28.2); MainWindow adds
@@ -98,7 +98,7 @@ class TickerSession(QObject):
         self._prime_timer.timeout.connect(self._on_prime_timeout)
 
         # ── Studies + drawings (3b-3) ──────────────────────────────────
-        self._studies: dict[str, list[dict]] = {}  # timeframe -> config
+        self._studies: list[dict] = []  # per-symbol study config
         self._study_cache: dict = {}
         self._drawings: list = []
         self._drawing_groups: list = []
@@ -169,9 +169,8 @@ class TickerSession(QObject):
         bars = self.get_bars(timeframe)
         if bars:
             view.update_chart(bars)
-        studies = self._studies.get(timeframe)
-        if studies is not None:
-            view.set_studies(studies)
+        if self._studies:
+            view.set_studies(self._studies)
         if self._drawings or self._drawing_groups:
             view.drawing_overlay.set_data(
                 self.symbol, self._drawings, self._drawing_groups
@@ -317,6 +316,44 @@ class TickerSession(QObject):
 
     def reload_alarms(self) -> None:
         self.set_alarms(AlarmStore.load(self.symbol))
+
+    # ── Studies ──────────────────────────────────────────────────────
+
+    @property
+    def studies(self) -> list:
+        return self._studies
+
+    def set_studies(self, studies: list[dict]) -> None:
+        """Replace the per-symbol study config; fan out to attached views."""
+        from copy import deepcopy
+
+        self._studies = deepcopy(studies)
+        for view, _tf in self._views:
+            try:
+                view.set_studies(self._studies)
+            except Exception:
+                pass
+        self.studies_changed.emit()
+
+    # ── Drawings ─────────────────────────────────────────────────────
+
+    def reload_drawings(self) -> None:
+        """Reload drawings + groups from the store (chart (re)load)."""
+        from data.drawing_store import DrawingStore
+
+        self._drawings = DrawingStore.drawings_for_symbol(self.symbol)
+        self._drawing_groups = DrawingStore.groups_for_symbol(self.symbol)
+        self.drawings_changed.emit()
+
+    def sync_drawings_to_views(self) -> None:
+        """Push the current drawings/groups to all attached views."""
+        for view, _tf in self._views:
+            try:
+                view.drawing_overlay.set_data(
+                    self.symbol, self._drawings, self._drawing_groups
+                )
+            except Exception:
+                pass
 
     def prepare_load(self, timeframe: str) -> None:
         """Reset per-load data-plane state for a (re)load of the chart.
