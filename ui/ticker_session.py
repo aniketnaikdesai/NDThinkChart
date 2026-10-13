@@ -159,12 +159,6 @@ class TickerSession(QObject):
         if not self._views and not self.monitored:
             self._host._teardown_session(self.symbol)
 
-    def detach_view(self, view) -> None:
-        """Unregister a view; teardown when orphaned and not monitored."""
-        self._views = [(v, tf) for v, tf in self._views if v is not view]
-        if not self._views and not self.monitored:
-            self._host._teardown_session(self.symbol)
-
     def ensure_rt_subscribed(self) -> int:
         """Refcounted RT subscribe; returns the reqId. May raise
         PacingExceeded — the caller defers and retries (the view stays
