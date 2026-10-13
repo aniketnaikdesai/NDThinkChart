@@ -2,6 +2,12 @@ from data.db import db
 from data.models import Bar
 from typing import List, Optional
 
+#: D28.4: SQLite retention — the newest N bars per (symbol, timeframe) are
+#: kept; older rows are pruned after each backfill wave so the on-disk
+#: cache stays bounded alongside the in-memory SESSION_BAR_CAP.
+RETENTION_BARS = 5000
+
+
 class BarCache:
     @staticmethod
     def save_bars(bars: List[Bar]):
@@ -28,6 +34,22 @@ class BarCache:
         )
         return [Bar(symbol, timeframe, r[0], r[1], r[2], r[3], r[4], r[5])
                 for r in cursor.fetchall()]
+
+    @staticmethod
+    def prune(symbol: str, timeframe: str, keep: int = RETENTION_BARS) -> int:
+        """D28.4: delete cached bars beyond the newest ``keep`` rows for
+        one (symbol, timeframe). Returns the number of rows deleted."""
+        cursor = db.conn.cursor()
+        cursor.execute(
+            """DELETE FROM bars WHERE symbol=? AND timeframe=?
+               AND ts NOT IN (
+                   SELECT ts FROM bars WHERE symbol=? AND timeframe=?
+                   ORDER BY ts DESC LIMIT ?
+               )""",
+            (symbol, timeframe, symbol, timeframe, keep),
+        )
+        db.conn.commit()
+        return cursor.rowcount
 
     @staticmethod
     def get_last_timestamp(symbol: str, timeframe: str) -> Optional[int]:

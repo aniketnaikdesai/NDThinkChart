@@ -1705,6 +1705,8 @@ class MainWindow(QMainWindow):
         if session._pending_bars:
             BarCache.save_bars(session._pending_bars)
         timeframe = session._wave_timeframe or self._current_tf
+        # D28.4: keep the on-disk cache bounded per (symbol, timeframe).
+        BarCache.prune(session.symbol, timeframe)
         all_bars = BarCache.get_bars(session.symbol, timeframe)
         # D28.2: session-owned bars; the emit drives the view render.
         session.set_bars(timeframe, all_bars)
