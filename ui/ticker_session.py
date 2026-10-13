@@ -110,6 +110,11 @@ class TickerSession(QObject):
         return len(self._views)
 
     @property
+    def views(self) -> list:
+        """Attached views (for the alarm monitor's headless check)."""
+        return [v for v, _tf in self._views]
+
+    @property
     def rt_req_id(self) -> int | None:
         return self._rt_req_id
 
@@ -139,6 +144,20 @@ class TickerSession(QObject):
             self._views.append((view, timeframe))
             if sync:
                 self._sync_view(view, timeframe)
+            # D25: a view opening promotes a headless monitor.
+            monitor = getattr(self._host, "alarm_monitor", None)
+            if monitor is not None:
+                monitor.on_session_attached(self)
+
+    def detach_view(self, view) -> None:
+        """Unregister a view; teardown when orphaned and not monitored."""
+        self._views = [(v, tf) for v, tf in self._views if v is not view]
+        # D25: the last view closing may start headless monitoring.
+        monitor = getattr(self._host, "alarm_monitor", None)
+        if monitor is not None:
+            monitor.on_session_detached(self)
+        if not self._views and not self.monitored:
+            self._host._teardown_session(self.symbol)
 
     def detach_view(self, view) -> None:
         """Unregister a view; teardown when orphaned and not monitored."""
@@ -304,6 +323,11 @@ class TickerSession(QObject):
         if triggered:
             self.alarm_triggered.emit(self.symbol, triggered)
             self.alarms_changed.emit()
+            # D25: a trigger may leave the symbol with no active alarms →
+            # reconcile headless monitors.
+            monitor = getattr(self._host, "alarm_monitor", None)
+            if monitor is not None:
+                monitor.on_alarm_changed()
         self._last_chart_price = bar.close
         self._host._record_symbol_price(self.symbol, bar.close)
         self.bar_updated.emit(bar, is_new_candle)

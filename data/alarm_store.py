@@ -23,6 +23,19 @@ class AlarmStore:
         return [AlarmStore._from_row(row) for row in cursor.fetchall()]
 
     @staticmethod
+    def symbols_with_active_alarms() -> list[str]:
+        """D25: symbols having at least one active, untriggered alarm."""
+        cursor = db.conn.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT symbol FROM alarms
+            WHERE active=1 AND triggered=0
+            ORDER BY symbol
+            """,
+        )
+        return [row[0] for row in cursor.fetchall()]
+
+    @staticmethod
     def add(alarm: Alarm) -> int:
         created_at = alarm.created_at or int(time.time())
         cursor = db.conn.cursor()

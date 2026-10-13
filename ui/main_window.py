@@ -596,6 +596,10 @@ class MainWindow(QMainWindow):
         self._primary_session: TickerSession | None = None
         # D24: open pop-out windows (capped at MAX_POPOUTS).
         self._popouts: list = []
+        # D25: headless alarm monitor (wired to the session registry).
+        from services.alarm_monitor import AlarmMonitor
+
+        self.alarm_monitor = AlarmMonitor(self)
         self._depth_req_id: int | None = None
         self._current_symbol: str = ""
         self._current_tf: str = "5 mins"
@@ -933,6 +937,8 @@ class MainWindow(QMainWindow):
         self._subscribe_account_data()
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
+        # D25: reconcile headless alarm monitors on (re)connect.
+        self.alarm_monitor.reconcile()
 
     def _subscribe_account_data(self):
         """D27.6: subscribe positions + account summary on (re)connect.
@@ -1128,6 +1134,9 @@ class MainWindow(QMainWindow):
     def _update_stream_badge(self) -> None:
         """Refresh the persistent stream-health indicator (D27.4)."""
         h = self._stream_health
+        if h is None:
+            # No primary session (e.g. headless monitor only) — nothing to show.
+            return
         if h.state == StreamState.LIVE:
             text, color = "● Stream live", "#34d399"
         elif h.state == StreamState.FAILED:
@@ -1882,6 +1891,8 @@ class MainWindow(QMainWindow):
             return
         self._current_alarms = AlarmStore.load(self._current_symbol)
         self._refresh_alarm_badge()
+        # D25: alarm CRUD → reconcile headless monitors.
+        self.alarm_monitor.on_alarm_changed()
 
     def _refresh_alarm_badge(self):
         active_count = sum(
