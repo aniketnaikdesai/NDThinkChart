@@ -172,3 +172,24 @@ Depth heatmap & auction chip (Phase D37)
   budget is exceeded, a status-bar warning names the symbols that did not
   get depth. Approaching the 100 market-data-line cap also warns by symbol;
   nothing is ever silently dropped.
+
+Event markers & news digest (Phase D38)
+--------------------------------------
+- The chart shows event markers on the time axis for earnings (gold diamond
+  with E), dividends (green circle with D) and splits (blue triangle with
+  S). A countdown label ("Earnings in 3d") shows for the next upcoming event;
+  if there are no upcoming events the countdown is hidden.
+- Dividend data comes from IBKR first (free, live) and earnings/splits come
+  from yfinance (the app's only secondary data source). If neither source has
+  events for the symbol, the chart says so explicitly instead of showing
+  nothing.
+- The news digest is a dock you can move and close: open it from
+  View -> News Digest (Ctrl+Shift+N). It lists recent headlines for each
+  position you hold, grouped by holding; click a headline to read the
+  article. Opening it fetches the latest headlines, new ones arrive live
+  while it is open, and it re-checks every 15 minutes as a backstop.
+- If you have no API news subscription the digest says so plainly ("No API
+  news subscription" - most TWS news services are not available through the
+  API) instead of showing an empty list. If you hold no positions it says
+  "No holdings". Headlines for each holding are fetched one at a time so
+  opening the digest never floods the connection.

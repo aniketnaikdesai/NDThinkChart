@@ -2756,3 +2756,139 @@ The D37 code lives in three new modules plus additive changes to existing ones:
 37.0 (S0 substrate) built first against D37 as the real consumer, then 37.1 → 37.5 on
 `feat/d37-microstructure`; reviewer APPROVED with no blocking findings (no rework cycle);
 merged to `main` @ `9958891`. D38–D40 not started.
+
+---
+
+## D38 increment — events & news (as-built 2026-10-13, Code Reviewer APPROVED)
+
+> **Increment scope.** A **new-feature** increment on the built D1–D37 system: event markers
+> (IBKR tick-59 dividends + yfinance earnings/splits/dividends) + news-for-holdings digest.
+> Built on `feat/d38-events-news` @ `b893911`, merged to `main` @ `8599ce4`
+> (not pushed); 970 tests green (947 pre-existing + 23 new). D1–D37 not reopened.
+> **WSH is removed from D38 entirely** (owner decision 2026-10-13); yfinance is the sole
+> secondary source.
+
+### Codebase Summary (existing repository — D38 surface)
+
+The D38 code lives in two new modules, one new package, plus additive changes to existing ones:
+
+- **New `[new]`** `ibkr/news.py::NewsManager` — `reqNewsProviders()` → the user's actual
+  entitlement list; per-holding `reqHistoricalNews(conId, providerCodes, startDateTime,
+  endDateTime, totalResults)` issued **sequentially via a FIFO queue** (no headline-fetch storm
+  on digest open), pacing-aware; `reqNewsArticle(providerCode, articleId)` on headline click.
+  API news requires API-specific subscriptions — most TWS news services are NOT available via
+  the API, hence the honest "No API news subscription" state.
+- **New `[new]`** `ui/news_digest_dock.py` — repositionable, closable dock; reopenable from a
+  minimal View-only menubar (`View → News Digest`, `Ctrl+Shift+N` — the app had no menubar;
+  added, drive-by). Refresh = **backfill on open** + **live push primary** (tick `"292"` via
+  S0 → `tickNews` → headline prepended) + **15-min periodic re-query backstop** (QTimer, only
+  while the digest is open). Signal wiring is deferred to first open (init-order drive-by fix).
+- **New `[new]`** `data/events/` package — the event-provider layer: `provider.py` (`Event`
+  dataclass: id/type/symbol/date/source/details; corporate-events-only guard **rejecting
+  non-corporate types at the provider boundary** — AC-D38.4; `EventProvider` ABC;
+  defensive tick-59 dividend parser `parse_ib_dividend_string` that **never raises**),
+  `ibkr_source.py` (dividends from session tick-59 state, **skips futures contracts**),
+  `yfinance_source.py` (SQLite per-symbol cache: 24h TTL, **6h revalidation for events within
+  7 days** so corrections propagate; single `QThread` worker, **≥1s between calls**, own
+  connections — never on the IBKR pacing budget; lazy import; `failed_at` distinguishes
+  outage from loading).
+- **New `[new]`** `ui/event_marker_overlay.py` — time-axis markers: earnings gold ◆E, dividend
+  green ●D, split blue ▲S; countdown label ("Earnings in 3d") for the next upcoming event;
+  markers **id-keyed, not date-keyed** (date corrections move the marker).
+- **`[new/changed]`** `ibkr/client.py` (4 new news overrides — 10.51.1 arg-for-arg verified),
+  **`[new/changed]`** `ibkr/bridge.py` (`historical_news` / `news_article` signals),
+  **`[new/changed]`** `ui/ticker_session.py` (S0 register/deregister batching, tick-59 dividend
+  state, `_merge_events` — the reviewer A1 re-point target; headless-session lifecycle for
+  digest holdings), **`[new/changed]`** `ui/main_window.py` (menubar, dock wiring,
+  S0-union routing), **`[new/changed]`** `requirements.txt` (`yfinance==1.7.0` + re-pin
+  policy comment).
+
+### Tech Stack Decisions (D38 increment)
+
+- **S0 union extended to `"225,292,456"`** (auction, news push, IB Dividends). New
+  `s0_register_many`/`s0_deregister_many` batch helpers issue a single resync (fixes double
+  re-subscribe churn); one-subscription-per-symbol is preserved — no standalone `reqMktData`
+  outside sessions.
+- **yfinance is the sole secondary source** (owner-mandated 2026-10-13). It is the plan's
+  largest external dependency (unofficial Yahoo API, no SLA, breaks a few times a year), so
+  the hygiene is binding: pinned `yfinance==1.7.0` (re-pin quarterly or whenever Yahoo
+  breaks the library — every re-pin re-runs the full offscreen suite), SQLite per-symbol
+  cache (24h TTL, 6h revalidation for near-term events), polite throttle (sequential, ≥1s
+  between calls, single-digit concurrency), lazy import (no hard dependency at startup).
+  **No other external API anywhere in the tree** (reviewer-verified single-source rule).
+- **10.51.1 signatures verified arg-for-arg** for the 4 new news overrides (the D36 B1/B2
+  lesson applied proactively — no drift found).
+- **Source priority IBKR tick-59 dividends → yfinance** (earnings/splits + dividend fallback);
+  the IBKR-first merge **drops same-date yfinance dividends** to avoid double-marking.
+- **No-data rule (owner):** both sources empty → explicit "no event data" state + logged for
+  the owner — the owner decides on feature removal. Every failure mode (429, exception,
+  empty frame, no entitlement, no holdings) has an explicit UI state; nothing is ever
+  silently empty and no exception ever reaches the UI or blocks the chart.
+
+### System Components (D38 increment)
+
+- **News path:** `NewsManager` (FIFO, pacing-aware) → bridge signals →
+  `NewsDigestDock` (backfill → live prepend → 15-min backstop). Non-charted holdings get
+  lightweight headless `TickerSession`s while the digest is open (D24 headless semantics),
+  torn down on close; their S0 lines are counted in the MD-line budget.
+- **Event path:** `TickerSession` merges IBKR tick-59 dividends + yfinance events behind
+  the `EventProvider` interface (`_merge_events`) → `EventMarkerOverlay` diffs by event
+  id → time-axis markers + countdown. Corporate-events-only guard rejects non-corporate
+  types at the provider boundary.
+- **yfinance isolation:** `YFinanceSource` runs on a single `QThread` worker with its own
+  connections and throttle — entirely off the IBKR pacing budget; `failed_at` distinguishes
+  outage from loading so the UI shows the right explicit state.
+
+### Data Model (D38 increment)
+
+- `Event`: `id` (stable key for marker diffing, not the date), `type` (`"earnings" |
+  "dividend" | "split"` — `__post_init__` rejects anything else), `symbol`, `date`
+  (ex-div for dividends), `source` (`"ibkr" | "yfinance"`), `details` (amount, estimate,
+  surprise…).
+- yfinance cache: one SQLite row per (symbol, cache-key), 24h TTL; events within 7 days
+  re-validate every 6h so corrections propagate.
+- Tick-59 dividend parse: documented shape `past12m,next12m,nextDate,nextAmt`
+  (YYYYMMDD) — the parser splits on comma or semicolon, takes fields positionally, and
+  **never raises** (separators/fields vary by server).
+
+### Integration Points (D38 increment)
+
+- **D37 S0 substrate:** extended, not replaced (union string grew; register/deregister
+  batching added). D38 is the first real consumer of the D37-planned `"456"` tick.
+- **D24 headless sessions:** digest holdings reuse the headless `TickerSession` semantics
+  (create on digest open, teardown on close) — no new session model.
+- **D26 safety layer:** untouched. News/event paths are read-only data; no order-path
+  interaction.
+- **D27 reconnect:** news/event state re-derives on reconnect via the session subscription
+  path (S0 union re-issued); yfinance cache survives disconnects (SQLite on disk).
+
+### Non-Functional Approach (D38 increment)
+
+- **Pacing:** headline fetches sequential (FIFO, pacing-aware); yfinance HTTP is never on
+  the IBKR budget (own throttle + cache); S0 ticks add zero new MD lines per feature;
+  headless digest sessions' lines counted in the MD-line budget.
+- **Performance:** marker overlay diffs by event id (no full rebuild on unchanged data);
+  digest backstop only fires while the digest is open.
+- **Test safety:** no test touches live TWS or transmits orders; mocked `ib_client` only;
+  yfinance calls mocked at the boundary. Owner rule (binding): **no mock endpoint of any
+  kind in production code** — B.6 grep PASSED for D38.
+
+### Architecture Risks (D38 increment)
+
+- **yfinance fragility:** the largest external dependency — unofficial API, no SLA, breaks a
+  few times a year. Mitigations are binding (pinned version, cache, polite throttle,
+  graceful degradation, no-data rule); the owner was informed of the terms risk during
+  research.
+- **Tick-59 shape variance:** the documented `past12m,next12m,nextDate,nextAmt` shape
+  varies by server — the parser never raises, but a novel shape could silently drop a
+  dividend; yfinance dividend fallback covers the gap.
+- **Headless-session MD lines:** digest-open headless sessions consume MD lines — counted
+  in the budget, but a large portfolio + open digest approaches the 100-line guard faster.
+
+### Implementation sequencing (D38 increment)
+
+38a.1 (news client) → 38a.2 (digest dock, needs 38a.1) in parallel with 38b.1
+(event-provider layer) → 38b.2 (markers, needs 38b.1) on `feat/d38-events-news`;
+reviewer APPROVED with no blocking findings (A1 advisory applied post-review — two merge
+tests re-pointed at the real `_merge_events`); merged to `main` @ `8599ce4`. D39–D40 not
+started.

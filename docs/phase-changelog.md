@@ -187,6 +187,53 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ---
 
+## Phase D38 — Events & news (event markers + news-for-holdings digest)
+
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d38-events-news` merged to `main` @ `8599ce4` (feature commit `b893911`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Review:** **APPROVED**, no blocking findings. B.6 mock-endpoint grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`). Single-secondary-source rule PASSED (no other external API anywhere in the tree).
+- **Tests:** 970 passing, 0 failing (offscreen): 947 pre-existing + 23 new `tests/test_d38_events_news.py`; no test touches live TWS/network; mocked `ib_client` only. yfinance calls are mocked at the boundary; a B.6-style no-mock-endpoint test follows the D36/D37 pattern.
+
+### Commits
+| SHA | Item | Change |
+|---|---|---|
+| `b893911` | 38a.1 | `ibkr/news.py::NewsManager` — `reqNewsProviders()` → the user's actual entitlement list (API news requires API-specific subscriptions — most TWS news services are NOT available via the API); per-holding `reqHistoricalNews(conId, providerCodes, startDateTime, endDateTime, totalResults)` issued **sequentially via a FIFO queue** (no headline-fetch storm on digest open), pacing-aware; `reqNewsArticle(providerCode, articleId)` on headline click. Bridge: `historical_news` / `news_article` signals; `ibkr/client.py`: 4 new overrides (10.51.1 arg-for-arg verified) |
+| `b893911` | 38a.2 | `ui/news_digest_dock.py` — **repositionable, closable digest dock**, reopenable from a minimal View-only menubar (`View → News Digest`, `Ctrl+Shift+N`; the app had no menubar — added, drive-by). Refresh = **backfill on open** (38a.1) + **live push primary** (generic tick `"292"` on holdings' S0 subscriptions → `tickNews` → headline prepended) + **15-min periodic re-query backstop** (QTimer, only while the digest is open). Non-charted holdings get lightweight headless `TickerSession`s while the digest is open (D24 headless semantics), torn down on close; their S0 lines are counted in the MD-line budget. Honest states — "No API news subscription" (entitlement honesty), "No holdings", "Headlines unavailable" — never silently empty |
+| `b893911` | 38b.1 | **Event-provider layer** — new `data/events/` package: `provider.py` (`Event` dataclass with id/type/symbol/date/source/details, corporate-events-only guard **rejecting non-corporate types at the provider boundary** — AC-D38.4; `EventProvider` ABC; defensive tick-59 dividend parser `parse_ib_dividend_string` that **never raises**), `ibkr_source.py` (dividends from session tick-59 state, **skips futures contracts** — no dividend stream there), `yfinance_source.py` (SQLite per-symbol cache: 24h TTL, **6h revalidation for events within 7 days** so corrections propagate; single `QThread` worker, **≥1s between calls**, own connections — never on the IBKR pacing budget; lazy import; `failed_at` distinguishes outage from loading). `requirements.txt`: **`yfinance==1.7.0`** with a re-pin policy comment (re-pin quarterly or whenever Yahoo breaks the library; every re-pin re-runs the full offscreen suite). **yfinance is the sole secondary source — no other external API** (owner-mandated 2026-10-13; WSH removed entirely) |
+| `b893911` | 38b.2 | `ui/event_marker_overlay.py` — time-axis markers with **distinct icon/color per type**: earnings gold ◆E, dividend green ●D, split blue ▲S; countdown label ("Earnings in 3d") for the next upcoming event. Source priority **IBKR tick-59 dividends first → yfinance** (earnings/splits + dividend fallback); IBKR-first merge **drops same-date yfinance dividends**. **No-data rule (owner):** both sources empty → explicit "no event data" state, logged for the owner (owner decides on feature removal). Markers are **id-keyed, not date-keyed** — date corrections move the marker |
+| `b893911` | S0 | Generic-tick union extended to `"225,292,456"` (auction, news push, IB Dividends); new `s0_register_many`/`s0_deregister_many` batch helpers (single resync — fixes double re-subscribe churn); one-subscription-per-symbol preserved |
+
+### Drive-by fixes (found while implementing, verified real)
+1. **Self-fixed:** duplicated `_on_auction_tick` body tail — dead code removed.
+2. **Digest dock init-order fix:** signal wiring deferred to first dock open (the digest's sessions don't exist at construction).
+3. **Minimal View-only menubar added** (the app had none) — just `View → News Digest` (`Ctrl+Shift+N`), no other menu surface.
+
+### Decisions recorded
+- **yfinance is the sole secondary data source** (owner, 2026-10-13) — no other external API, ever. If neither IBKR nor yfinance yields a feature's data, the UI shows an explicit no-data state and the owner is informed — the owner then decides whether the feature is removed. Never a silently empty chart, never a third source added silently.
+- Source priority: **IBKR tick-59 dividends first** (live, free), yfinance for earnings/splits and as dividend fallback.
+- Marker styling — **distinct icon/color per event type** (owner, 2026-10-13): earnings gold ◆E, dividend green ●D, split blue ▲S.
+- Digest placement — **repositionable, closable dock**, reopenable from the menubar (owner, 2026-10-13).
+- Digest refresh — **backfill on open + live push primary + periodic re-query backstop** (owner-confirmed, 2026-10-13).
+- **No-data rule (owner):** both sources empty → explicit "no event data" state + logged for the owner.
+
+### Review findings of note
+- **APPROVED**, no blocking findings.
+- B.6 mock-endpoint invariant: PASSED on the full diff + new files.
+- **Single-source rule PASSED:** tree-wide check — no Alpha Vantage, Massive, FMP, Finnhub, Twelve Data, or any other external API; yfinance is the only non-IBKR network dependency.
+- **4 new news overrides verified arg-for-arg** against the 10.51.1 wheel (the D36 B1/B2 lesson applied proactively).
+- **Existing-test edits signed off as genuine:** D37 S0-union assertion updates (the union string grew) and digest-dock region changes — neither weakens the D1–D37 guarantees.
+- **Reviewer advisories:** A1 applied post-review (two merge tests re-pointed at the real `TickerSession._merge_events` — they had been asserting on a helper); A2 harmless double `events_updated` emit noted as benign; A3 `get_earnings_dates(limit=12)` validated as correct usage.
+- **AC-D38.1–AC-D38.6 genuinely verified** (synthetic provider events → three distinctly-styled markers + countdown; 2 holdings + synthetic headlines → grouped digest + article fetch; no entitlement → explicit state; economic-calendar payload → filtered out; mocked yfinance outage → unavailable state, chart unaffected; full suite green).
+
+### Follow-ups filed (not Phase D38 scope)
+- D39–D40 not started.
+- Re-pin `yfinance` quarterly or whenever Yahoo breaks the library — every re-pin re-runs the full offscreen suite (policy recorded in `requirements.txt`).
+- (Carried) depth heatmap default ON pending owner confirmation (D37, reviewer recommends OFF); delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests; 4h/daily forming-candle exactness; stale reqId accumulation.
+
+### USAGE.txt
+- New "Event markers & news digest (Phase D38)" section: marker icons, countdown, digest open/close, no-entitlement messages, yfinance note.
+
+---
+
 ## Phase D37 — Microstructure (depth heatmap + auction imbalance)
 
 - **Status:** Code complete and review-**APPROVED**; branch `feat/d37-microstructure` merged to `main` @ `9958891` (feature commit `69c2d66`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.

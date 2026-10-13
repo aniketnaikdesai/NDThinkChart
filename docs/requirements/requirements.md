@@ -688,6 +688,47 @@ repository files, which remain authoritative if the two disagree.
   recommends OFF, consistent with D36). Known limitation: delayed-depth-instead-of-354 would render
   unlabeled (recorded in code; follow-up if ever observed).
 
+### Journey 33 — D38: event markers + news-for-holdings digest
+- **Preconditions:** IBKR connected; the main chart shows ticker X (e.g. `AAPL`, 1m); the user holds
+  positions (for the digest); the user has an API news subscription for the full digest — otherwise
+  the 354-style honesty applies to news; `yfinance==1.7.0` installed (the sole secondary source).
+- **Steps:** 1) Earnings/dividend/split events for the charted symbol render as markers on the time
+  axis with distinct icon/color per type — earnings gold ◆E, dividend green ●D, split blue ▲S — and
+  a countdown label ("Earnings in 3d") shows for the next upcoming event. 2) Source priority is
+  **IBKR tick-59 dividends first** (live, free, from generic tick `"456"` on the symbol's existing
+  subscription), yfinance for earnings/splits and as dividend fallback (IBKR-first merge drops
+  same-date yfinance dividends); futures are skipped for dividends. 3) Open the digest via
+  `View → News Digest` (`Ctrl+Shift+N`) — a repositionable, closable dock listing recent headlines
+  grouped by currently held position; click a headline to fetch the article body
+  (`reqNewsArticle`). 4) The digest backfills on open, then prepends headlines live (tick `"292"`
+  push via S0 is primary), with a 15-min periodic re-query as backstop while the digest is open;
+  non-charted holdings get lightweight headless `TickerSession`s while the digest is open, torn
+  down on close (their S0 lines count in the MD-line budget).
+- **Postconditions:** Three synthetic events (one earnings, one dividend, one split) → three
+  distinctly-styled markers at the correct dates + countdown to the next; 2 holdings + synthetic
+  headlines → digest groups headlines under each holding; headline click → article body fetched;
+  headline fetches are sequential (one symbol at a time — no storm on digest open); the S0
+  generic-tick union is `"225,292,456"` on the single per-symbol subscription — one IBKR
+  subscription per symbol is preserved.
+- **Edge Cases:** no API news subscription → explicit "No API news subscription" state (never
+  silently empty); zero positions → empty state; yfinance outage/rate-limit → explicit "event
+  data unavailable" state, chart unaffected (cached data served if fresh); event date corrections
+  → marker moves (keyed by event id, not date); symbol with no upcoming events (countdown hidden);
+  per-symbol headline fetch failure (others still show); both sources empty → explicit "no event
+  data" state, logged for the owner — the owner decides on feature removal; no third source is
+  ever added silently (yfinance is the sole secondary source).
+- **As-built note:** `AC-D38.1`–`AC-D38.6` verified; 970 tests green (947 pre-existing + 23 new
+  `tests/test_d38_events_news.py`); Code Reviewer APPROVED 2026-10-13 (no blocking findings).
+  Drive-bys: self-fixed duplicated `_on_auction_tick` tail; digest signal wiring deferred to first
+  open (init-order fix); minimal View-only menubar added (`View → News Digest`, `Ctrl+Shift+N`).
+  Reviewer advisories: A1 applied post-review (two merge tests re-pointed at the real
+  `TickerSession._merge_events`); A2 harmless double `events_updated` emit noted; A3
+  `get_earnings_dates(limit=12)` validated. B.6 mock-endpoint invariant PASSED; single-source rule
+  PASSED (no other external API in the tree); 4 new news overrides verified arg-for-arg against
+  the 10.51.1 wheel. yfinance hygiene (binding): SQLite per-symbol cache (24h TTL, 6h revalidation
+  for events within 7 days), single-QThread sequential worker ≥1s between calls, own connections
+  (never on the IBKR pacing budget), pinned `yfinance==1.7.0` with quarterly re-pin policy.
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)
