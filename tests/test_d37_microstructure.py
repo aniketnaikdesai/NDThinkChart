@@ -198,10 +198,11 @@ def test_ac_d37_3_session_routes_auction_ticks(qapp):
     client, host, session = _make_session(qapp)
     session.attach_view(_FakeView(), "5 mins", sync=False)
     assert session.s0_req_id is not None
-    # Generic "225" was requested on the session's S0 reqMktData.
+    # Generic "225" (auction) + "456" (D38 dividends) on the session's S0
+    # reqMktData: one subscribe, union "225,456".
     s0_calls = [c for c in client.calls if c[0] == "reqMktData"]
     assert len(s0_calls) == 1
-    assert s0_calls[0][2] == "225"
+    assert s0_calls[0][2] == "225,456"
     # Tick 34 (size) → volume; tick 35 (price) → price; 36 → imbalance.
     session.on_tick_size(session.s0_req_id, 34, 125000)
     session.on_tick_price(session.s0_req_id, 35, 6012.50)
@@ -249,10 +250,10 @@ def test_ac_d37_4_panel_names_the_issue(qapp):
 
 def test_s0_union_merges_feature_needs(qapp):
     client, host, session = _make_session(qapp)
-    session.attach_view(_FakeView(), "5 mins", sync=False)  # registers auction {"225"}
+    session.attach_view(_FakeView(), "5 mins", sync=False)  # auction {"225"} + dividends {"456"}, one resync
     session.s0_register("news", {"292", "456"})
     calls = [c for c in client.calls if c[0] == "reqMktData"]
-    assert len(calls) == 2  # re-subscribed once: union changed
+    assert len(calls) == 2  # "225,456" → "225,292,456"
     assert calls[-1][2] == "225,292,456"
     # Unchanged union → no re-subscribe.
     session.s0_register("news", {"456", "292"})
@@ -260,9 +261,10 @@ def test_s0_union_merges_feature_needs(qapp):
     # Last feature deregisters → cancel, no standalone reqMktData.
     session.s0_deregister("news")
     session.s0_deregister("auction")
+    session.s0_deregister("dividends")
     assert session.s0_req_id is None
     cancels = [c for c in client.calls if c[0] == "cancelMktData"]
-    assert len(cancels) == 3  # one per union change + final cancel
+    assert len(cancels) == 4  # one per union change + final cancel
 
 
 def test_s0_detach_last_view_cancels(qapp):

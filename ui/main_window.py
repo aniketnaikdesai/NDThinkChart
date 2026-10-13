@@ -478,6 +478,24 @@ class MainWindow(QMainWindow):
         # and the panels' bounded content cannot raise it (AC-D18.4/AC-D18.6).
         self.right_dock.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
+        # ── D38 news digest dock (38a.2) ──────────────────────────────────
+        # Repositionable, closable, reopenable from the View menu (or the
+        # Ctrl+Shift+N shortcut). Hidden until first opened.
+        from ui.news_digest_dock import NewsDigestDock
+        self.news_digest_dock = NewsDigestDock(self, self)
+        self.news_digest_dock.setVisible(False)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
+                           self.news_digest_dock)
+        # Minimal menubar (the app previously had none): View → News Digest.
+        # The dock's toggleViewAction keeps menu/dock/shortcut in sync.
+        menubar = self.menuBar()
+        view_menu = menubar.addMenu("View")
+        self._news_digest_action = self.news_digest_dock.toggleViewAction()
+        self._news_digest_action.setText("News Digest")
+        self._news_digest_action.setShortcut("Ctrl+Shift+N")
+        view_menu.addAction(self._news_digest_action)
+        self.news_digest_dock.visibilityChanged.connect(
+            self._on_news_digest_visibility)
         # D18 Phase 4: in-memory-only right-region width. Never persisted — no new
         # QSettings key (AC-D18.7 / A36), matching D10's volume-toggle precedent.
         self._right_dock_width = RIGHT_DOCK_MIN_WIDTH
@@ -519,6 +537,16 @@ class MainWindow(QMainWindow):
         self.rt_manager = RealtimeBarsManager(self.ib_client)
         self.depth_manager = MarketDepthManager(self.ib_client)
         self.sub_manager = SubscriptionManager()
+        # D38: news API client (38a.1) — headline backfill + article fetch.
+        from ibkr.news import NewsManager
+        self.news_manager = NewsManager(self.ib_client)
+        # D38: yfinance event source (38b.1) — the sole approved secondary
+        # source. Shared cache + worker across sessions (one throttle point).
+        from data.events.yfinance_source import (
+            YFinanceCache, YFinanceEventSource)
+        self._yf_cache = YFinanceCache(_app_db.db_path)
+        self.yf_event_source = YFinanceEventSource(self._yf_cache)
+        self.yf_event_source.bind_refresh(self._on_yfinance_events)
 
         # D22 Phase 4: bounded, exactly-once contract-details lookup correlation.
         # The service owns the pending-request map and emits ``lookup_finished``
@@ -868,6 +896,7 @@ class MainWindow(QMainWindow):
         self._primary_session = session
         if old is not None:
             self.chart_panel.unbind_d37_session(old)
+            self.chart_panel.unbind_d38_session(old)
         if session is not None:
             session.bar_updated.connect(self._on_primary_bar_updated)
             session.bars_refreshed.connect(self._on_primary_bars_refreshed)
@@ -879,6 +908,9 @@ class MainWindow(QMainWindow):
                 self._on_primary_footprint_updated)
             # D37: heatmap/auction/imbalance UI binds to the primary session.
             self.chart_panel.bind_d37_session(session)
+            # D38: event markers bind to the primary session (38b.2). The
+            # shared yfinance source feeds the async refresh.
+            self.chart_panel.bind_d38_session(session, self.yf_event_source)
             # D37: the depth toggle defaults ON — sync the feed now (the
             # toggle only emits on user interaction).
             if self.chart_panel.depth_enabled:
@@ -2549,6 +2581,29 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
+
+    # ── D38 news digest (38a.2) ──────────────────────────────────────────
+
+    def _on_news_digest_visibility(self, visible: bool) -> None:
+        """Dock shown/hidden — open drives the backfill, close tears down.
+
+        The toggleViewAction (menu / shortcut) and the dock's own close
+        button both funnel through visibility.
+        """
+        dock = self.news_digest_dock
+        if visible and not dock.is_digest_open():
+            dock.open_digest()
+        elif not visible and dock.is_digest_open():
+            dock.close_digest()
+
+    def _on_yfinance_events(self, symbol: str) -> None:
+        """Background yfinance fetch finished — merge into the session."""
+        session = self._sessions.get(symbol.upper())
+        if session is not None:
+            try:
+                session.on_yfinance_refresh(symbol, self.yf_event_source)
+            except Exception:
+                pass
 
     def _on_right_dock_visibility_changed(self, _visible: bool) -> None:
         """Re-clamp after the right region is shown/hidden.

@@ -238,6 +238,29 @@ class IBApiClient(EWrapper, EClient):
         self.bridge.tick_news.emit(tickerId, timeStamp, providerCode,
                                    articleId, headline)
 
+    # ── D38 news API: providers / historical headlines / articles ────
+    # Strictly additive: super() first, then the bridge signal. Signatures
+    # verified against the 10.51.1 wheel.
+
+    def newsProviders(self, newsProviders):
+        super().newsProviders(newsProviders)
+        self.bridge.news_providers.emit(newsProviders)
+
+    def historicalNews(self, requestId: int, time: str, providerCode: str,
+                       articleId: str, headline: str):
+        super().historicalNews(requestId, time, providerCode, articleId,
+                               headline)
+        self.bridge.historical_news.emit(requestId, time, providerCode,
+                                         articleId, headline)
+
+    def historicalNewsEnd(self, requestId: int, hasMore: bool):
+        super().historicalNewsEnd(requestId, hasMore)
+        self.bridge.historical_news_end.emit(requestId, hasMore)
+
+    def newsArticle(self, requestId: int, articleType: int, articleText: str):
+        super().newsArticle(requestId, articleType, articleText)
+        self.bridge.news_article.emit(requestId, articleType, articleText)
+
     def contractDetails(self, reqId: int, contractDetails):
         super().contractDetails(reqId, contractDetails)
         self.bridge.contract_details.emit(reqId, contractDetails)

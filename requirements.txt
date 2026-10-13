@@ -2,3 +2,4 @@ PyQt6>=6.6
 pyqtgraph>=0.13
 ibapi-latest==10.51.1  # IBKR TWS API 10.51.01 (PyPI dist name is ibapi-latest; provides the `ibapi` module)
 numpy>=1.26
+yfinance==1.7.0  # D38 sole secondary source (owner 2026-10-13). RE-PIN POLICY: re-pin quarterly or whenever Yahoo breaks the library; every re-pin re-runs the full offscreen suite.

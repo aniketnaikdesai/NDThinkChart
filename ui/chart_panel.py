@@ -16,6 +16,7 @@ from ui.footprint_item import FootprintItem
 from ui.depth_heatmap_item import DepthHeatmapItem
 from ui.drawing_overlay import DrawingViewBox, DrawingOverlay, TOOL_CURSOR
 from ui.alarm_overlay import AlarmOverlay
+from ui.event_marker_overlay import EventMarkerOverlay
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
 from ui.overlays.gap_overlay import RthGapOverlay
 from ui.overlays.vix_overlay import VixOverlay
@@ -380,6 +381,8 @@ class ChartPanel(QWidget):
                                             editable=editable)
         self.alarm_overlay = AlarmOverlay(self.price_plot,
                                           editable=editable)
+        # D38: corporate-event markers on the time axis.
+        self.event_overlay = EventMarkerOverlay(self.price_plot)
         self.mouse_router.drawing = self.drawing_overlay
         self.mouse_router.alarm = self.alarm_overlay
 
@@ -846,6 +849,43 @@ class ChartPanel(QWidget):
             return
         self.update_auction_chip(session.auction_state())
 
+    def bind_d38_session(self, session, yf_source=None) -> None:
+        """Attach the session driving the event-marker overlay (38b.2)."""
+        self._d38_session = session
+        self._d38_yf_source = yf_source
+        session.events_updated.connect(self._on_events_updated)
+        session.dividend_updated.connect(self._on_events_updated)
+        self._on_events_updated()
+        # Kick the (cache-first, non-blocking) yfinance refresh.
+        try:
+            session.refresh_events(yf_source)
+        except Exception:
+            pass
+
+    def unbind_d38_session(self, session) -> None:
+        for sig, slot in ((session.events_updated, self._on_events_updated),
+                          (session.dividend_updated, self._on_events_updated)):
+            try:
+                sig.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
+        if getattr(self, "_d38_session", None) is session:
+            self._d38_session = None
+            self._d38_yf_source = None
+        if getattr(self, "event_overlay", None) is not None:
+            self.event_overlay.clear()
+
+    def _on_events_updated(self) -> None:
+        session = getattr(self, "_d38_session", None)
+        overlay = getattr(self, "event_overlay", None)
+        if session is None or overlay is None:
+            return
+        try:
+            overlay.set_events(session.events(),
+                               unavailable=session.events_unavailable())
+        except Exception:
+            pass
+
     def update_auction_chip(self, auction: dict) -> None:
         """Render the header chip from the latest auction ticks."""
         self._auction_state = dict(auction)
@@ -1207,6 +1247,10 @@ class ChartPanel(QWidget):
         if self.alarm_overlay is not None:
             self.alarm_overlay.set_collapse_map(self._collapse_map)
             self.alarm_overlay.set_bars(bars)
+        # D38: event markers position at display-x too.
+        if getattr(self, "event_overlay", None) is not None:
+            self.event_overlay.set_collapse_map(self._collapse_map)
+            self.event_overlay.set_bars(bars)
         # D27.2: the study overlays render at display-x too; they map bar
         # indices through the same collapse map as the candles.
         for overlay in (self._gap_overlay, self._vix_overlay,
