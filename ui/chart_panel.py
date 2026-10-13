@@ -6,6 +6,7 @@ Supports 5 render modes and dynamic study overlays.
 """
 
 import hashlib
+from bisect import bisect_left, bisect_right
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
@@ -254,6 +255,11 @@ class ChartPanel(QWidget):
         # never mutated or filtered — collapse is a display-only transform.
         self._collapse_map: TimeCollapseMap | None = None
         self._plotted_indices: list = []
+        # D28.4: cached display-x / volume arrays aligned with
+        # _plotted_bars — bisection targets for the crosshair and the
+        # volume ceiling (no O(n) scans on per-frame paths).
+        self._plot_xs: list[float] = []
+        self._plot_vols: list[float] = []
         self._studies: list = []
         self._overlay_items: list = []
         self._osc_items: list = []
@@ -679,9 +685,13 @@ class ChartPanel(QWidget):
             self._time_tag.hide()
 
     def _find_closest_bar(self, x):
-        """Find the plotted bar closest to the given scene x position."""
-        bars = self._plotted_bars
-        if not bars:
+        """Find the plotted bar closest to the given scene x position.
+
+        D28.4: bisection over the cached display-x array (the array is
+        monotonic in ts order) instead of the O(n) per-mousemove scan.
+        """
+        xs = self._plot_xs
+        if not xs:
             return -1
 
         # Convert scene x to a display-x coordinate (the ViewBox x-model).
@@ -689,18 +699,14 @@ class ChartPanel(QWidget):
         map_to_data = vb.mapSceneToView(pg.Point(x, 0))
         target_x = map_to_data.x()
 
-        # Find closest bar by display-x.
-        xs = [self._to_display(b.ts) for b in bars]
-        closest_idx = 0
-        min_diff = abs(xs[0] - target_x)
-
-        for i, dx in enumerate(xs):
-            diff = abs(dx - target_x)
-            if diff < min_diff:
-                min_diff = diff
-                closest_idx = i
-            elif diff > min_diff:
-                break
+        # The closest bar brackets the insertion point.
+        i = bisect_left(xs, target_x)
+        closest_idx, min_diff = -1, None
+        for j in (i - 1, i):
+            if 0 <= j < len(xs):
+                diff = abs(xs[j] - target_x)
+                if min_diff is None or diff < min_diff:
+                    closest_idx, min_diff = j, diff
 
         # Check if within tolerance (e.g., 1/2 bar width in display-x)
         if len(xs) > 1:
@@ -757,8 +763,15 @@ class ChartPanel(QWidget):
             self._collapse_map = build_collapse_map(
                 self._plotted_bars, tf, self._ext_hours
             )
+        self._sync_plot_arrays()
         self._sync_collapsed_axes()
         self._sync_collapsed_consumers()
+
+    def _sync_plot_arrays(self) -> None:
+        """D28.4: refresh the cached display-x / volume arrays (bisection)."""
+        to_display = self._to_display
+        self._plot_xs = [to_display(b.ts) for b in self._plotted_bars]
+        self._plot_vols = [float(b.volume) for b in self._plotted_bars]
 
     def _sync_collapsed_consumers(self) -> None:
         """Push the collapse map + plotted bars to the drawing/alarm overlays.
@@ -1020,6 +1033,8 @@ class ChartPanel(QWidget):
             self._bars = []
             self._plotted_indices = []
             self._collapse_map = None
+            self._plot_xs = []
+            self._plot_vols = []
             self._sync_collapsed_axes()
             self._sync_collapsed_consumers()
             self._volume_nice_max = VOLUME_NICE_FLOOR
@@ -1237,6 +1252,9 @@ class ChartPanel(QWidget):
             width=self._clamp_half_width(self._candle_half_width) * 2,
             brushes=[color],
         )
+        # D28.4: keep the cached volume array fresh for the ceiling bisect.
+        if self._plotted_indices and self._plotted_indices[-1] == len(self._bars) - 1:
+            self._plot_vols[-1] = float(bar.volume)
 
     def _recompute_visible_volume_range(self, force: bool = False) -> float:
         """Recompute the volume Y ceiling from the visible x-range (D21.2).
@@ -1257,16 +1275,14 @@ class ChartPanel(QWidget):
         """
         x_range = self.price_plot.getViewBox().viewRange()[0]
         x0, x1 = float(x_range[0]), float(x_range[1])
-        visible_max = 0.0
-        # D21.2 reconciliation (D21.4): the visible x-range is display-x after
-        # collapse, so each bar's *display-x* is compared against it — not the
-        # raw timestamp.
-        for bar in self._plotted_bars:
-            dx = float(self._to_display(bar.ts))
-            if x0 <= dx <= x1:
-                vol = float(bar.volume)
-                if vol > visible_max:
-                    visible_max = vol
+        # D28.4: bisect the cached display-x array to the visible slice —
+        # no O(n) scan on the per-frame pan/zoom path. (D21.2 reconciliation
+        # (D21.4): the visible x-range is display-x after collapse, so each
+        # bar's *display-x* is compared against it — not the raw timestamp.)
+        xs, vols = self._plot_xs, self._plot_vols
+        lo = bisect_left(xs, x0)
+        hi = bisect_right(xs, x1, lo=lo)
+        visible_max = max(vols[lo:hi], default=0.0)
         # ESC-028 / AC-D21.2.1: the ``VOLUME_NICE_FLOOR`` (100) fallback applies
         # ONLY when there is no visible non-zero volume (no visible bar, or every
         # visible bar is zero). For any positive visible max the literal
