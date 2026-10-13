@@ -1,53 +1,396 @@
-# IBKR TWS API — Exhaustive Data Inventory (IBKR-only desktop trading terminal)
+# IBKR TWS API — Data Inventory (10.51.01)
 
-> Research date: 2026-10-13. Sources: official TWS API docs — current docs site verified live at https://www.interactivebrokers.com/docs/tws-api/doc/introduction, plus the (now deprecated) official docs mirror at interactivebrokers.github.io/tws-api, plus community sources flagged where used. Confidence per item is marked `verified live`, `index` (docs mirror), or `index/community`. Anything the terminal would act on should be re-verified at build time against the campus docs.
+> **API version:** 10.51.01. Client surface verified against the 10.51.1 Python client
+> (`EClient`/`EWrapper` signatures grepped 2026-10-13).
+> **Research date:** 13 October 2026. "Current" refers only to the documentation and
+> client checked on that date.
+> **WSH corporate-events API: verified present** in 10.51.1
+> (`reqWshMetaData`, `reqWshEventData`, both cancels, `wshMetaData`/`wshEventData` callbacks).
+> The older GitHub Pages mirror (interactivebrokers.github.io/tws-api) is deprecated but
+> remains the preserved source for many field-level tables. Confidence per item is marked
+> `verified live`, `client-verified` (10.51.1), `mirror` (docs mirror), or flagged as a
+> conflict/caveat inline. Anything the terminal acts on should be re-verified at build time
+> against the current API.
 
-## Summary
+**Sources:** (1) Current Interactive Brokers TWS API documentation — live verification,
+including the removal of the Fundamentals section (10.47). (2) Official deprecated mirror:
+tick types; historical bars; historical limitations; historical Time & Sales; real-time bars;
+tick-by-tick data; market-data types; market data; receiving market data; options; market
+scanners; news; cryptocurrency. (3) IBKR 2026 API production release notes
+(ibkrguides.com, 10.43–10.51). (4) 10.51.1 client source (`ibapi` package) — method/callback/
+field existence verified directly.
 
-The TWS API exposes: full L1 streaming quotes + 60+ tick types, 5-second real-time bars, tick-by-tick data (bid/ask, trades, midpoint), OHLCV historical bars (1 sec–1 month granularity), historical tick-by-tick (max 1000/request), L2 market depth (incl. SMART aggregated depth), news headlines/articles/bulletins, a market scanner, option chain skeletons + real-time Greeks/IV, full contract details, account/position/PnL data, open/completed orders and executions with commissions. Live L1/history requires paid per-exchange market-data subscriptions; free 15–20 min delayed data is available. **Critically: `reqFundamentalData` (ReportSnapshot/ReportRatios/financials/estimates) has been REMOVED from the current API** (verified live on the current docs site — no Fundamentals section exists; community pins removal to API 10.47). There is also no analyst-ratings, social-sentiment, economic-calendar, sector-constituent, tax-lot, or historical-Greeks feed. Up to 32 API clients per TWS/Gateway; default 100 market-data lines; historical pacing is a hard 60 requests/10 min.
+## Executive summary
 
-## 1. Market data
+**The practical answer:** Interactive Brokers exposes enough data for a serious charting and
+trading terminal: Level 1, 5-second bars, tick-by-tick, historical OHLCV, SMART depth, option
+chains and Greeks, scanners, news, corporate events (WSH), portfolio/P&L, order state, and
+executions.
 
-### reqMktData
-`reqMktData(tickerId, contract, genericTickList, snapshot, regulatorySnapshot, mktDataOptions)` — streams one contract's quotes. Data arrives via: `tickPrice` (bid/ask/last/high/low/close/open...), `tickSize` (bid/ask/last size, volume...), `tickGeneric` (misc stats, IV, shortable...), `tickString` (RTVolume, last timestamp, news, dividends, exchanges), `tickOptionComputation` (Greeks, see §8), `tickEFP`, `tickNews`. `cancelMktData(tickerId)`. `snapshot=True` = one-time snapshot; `regulatorySnapshot=True` = one-time NBBO snapshot for holders of the "US Securities Snapshot Bundle" without full exchange subs — **$0.01 fee per snapshot**. Since TWS 985, US stock bid/ask/last sizes are reported in **shares** (not 100-share lots). Sources: tick_types.html, market_data.html, md_receive.html (index).
+**The major break:** `reqFundamentalData` and the fundamental-ratios tick were removed in
+API 10.47 (methods, callbacks, and delivered tick 47 all gone — confirmed absent in the
+10.51.1 client). Financial statements, estimates, and ratios must not be designed as IBKR API
+features.
 
-Full tick-type list (id — name — generic tick required in `genericTickList` — callback):
-- Auto-delivered (no generic tick): 0 Bid Size, 1 Bid Price, 2 Ask Price, 3 Ask Size, 4 Last Price, 5 Last Size, 6 High, 7 Low, 8 Volume (day; US stocks ×100 multiplier noted in docs), 9 Close (previous day; US equities adjusted for splits/dividends), 14 Open, 32/33 Bid/Ask Exchange, 45 Last Timestamp, 49 Halted, 50/51/52 Bid/Ask/Last Yield (bonds), 84 Last Exchange, 85 Last Regulatory Time (regulatory snapshots), 88 Delayed Last Timestamp.
-- Option Greeks (auto for options): 10/11/12/13/53 → `tickOptionComputation` (impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice).
-- Generic-tick-gated: 100 → 29/30 Option Call/Put Volume (day); 101 → 27/28 Option Call/Put Open Interest; 104 → 23 30-day Historical Volatility; 105 → 87 Average Option Volume; 106 → 24 IB 30-day Implied Volatility; 162 → 31 Index Future Premium; 165 → 15–20 13/26/52-week high/low + 21 90-day Avg Volume; 221/232 → 37 Mark Price (**conflict**: current tick-types page says generic 232; older references say 221 — verify at build); 225 → 34 Auction Volume, 35 Auction Price, 36 Auction Imbalance, 61 Regulatory Imbalance; 233 → 48 RT Volume (price;size;time;totalVol;VWAP;singleMM flag); 236 → 46 Shortable (difficulty rating) + 89 Shortable Shares (share count, TWS 974+); **258 → Fundamental Ratios — REMOVED/desupported (API 9.81.01)**; 375 → 77 RT Trade Volume (excludes unreportable trades); 411 → 58 RT Historical Volatility (30d); 456 → 59 IB Dividends ("past12m,next12m,nextDate,nextAmt"); 460 → 60 Bond Factor Multiplier; 292 → 62 News (provider-specific, e.g. `292:BZ`); 293/294/295 → 54 Trade Count / 55 Trade Rate / 56 Volume Rate; 318 → 57 Last RTH Trade; 576 → 94/95 ETF NAV Bid/Ask; 577 → 96 ETF NAV Last; 578 → 92/93 ETF NAV Close/Prior Close; 614 → 98/99 ETF NAV High/Low; 623 → 97 ETF NAV Frozen Last; 586 → 101 Estimated IPO Midpoint / 102 Final IPO Price; 588 → 86 Futures Open Interest; 595 → 63/64/65 Short-Term Volume (3/5/10 min, stocks); 619 → 79 Creditman Slow Mark Price. Delayed variants auto-appear: 66–88 (Delayed Bid/Ask/Last/High/Low/Volume/Close..., 80–83 delayed option greeks). Source: https://interactivebrokers.github.io/tws-api/tick_types.html (index).
-- Notable: Shortable tick 46 = rating (>2.5 → ≥1000 shares shortable; 1.5–2.5 → locatable; ≤1.5 → not shortable); tick 89 = actual share count.
+**The operating constraint:** entitlements, pacing, shared market-data lines, session resets,
+and periodic human re-authentication are architectural inputs, not edge cases.
 
-### reqRealTimeBars
-`reqRealTimeBars(tickerId, contract, barSize, whatToShow, useRTH, realTimeBarsOptions)` — **bar size is fixed at 5 seconds only**; one OHLC bar every 5 s via `realTimeBar`. `whatToShow=TRADES` required to get volume/VWAP/trade count. Counts as BOTH a market-data line and against historical pacing (≤60 new requests/10 min). `cancelRealTimeBars`. Must be re-subscribed after server resets/session changes. Source: realtime_bars.html (index).
+| 100 | 60 / 10 min | 32 | 15–20 min |
+|---|---|---|---|
+| default market-data lines | historical-request ceiling | API clients per TWS/Gateway | free delayed-data lag |
 
-### reqMarketDataType
-`reqMarketDataType(1|2|3|4)` — call **before** `reqMktData`; effective type reported per request via `marketDataType(reqId, type)` callback.
-- 1 Live — real-time; requires market-data subscriptions.
-- 2 Frozen — last recorded quote (for closed markets); requires the same subscriptions as live; **generic tick types not available on frozen**.
-- 3 Delayed — **free**, 15–20 min delayed; auto-applies when the user lacks live subs (ignored if live available); returned on delayed tick ids 66–88.
-- 4 Delayed-frozen — delayed "frozen" for users with no subscriptions.
-TWS v970+: `marketDataType(…,1)` fires automatically after reqMktData when live permissions exist. Source: market_data_type.html (index).
+## 1. Streaming market data
 
-### reqHeadTimestamp / cancelMktData
-- `reqHeadTimestamp(tickerId, contract, whatToShow, useRTH, formatDate)` → `headTimestamp(reqId, headTimestamp)`: the earliest date for which that `whatToShow` has data — use it to discover true history depth. `cancelHeadTimestamp`.
-- `cancelMktData(tickerId)` stops a streaming subscription (frees a market-data line).
+Top-of-book prices, sizes, and 60+ specialist ticks arrive through one subscription surface.
 
-## 2. Tick-by-tick — reqTickByTickData
-`reqTickByTickData(requestId, contract, tickType, numberOfTicks, ignoreSize)`; `tickType` is case-sensitive: `BidAsk`, `Last`, `AllLast`, `MidPoint`. `cancelTickByTickData`.
-- `Last` → `tickByTickAllLast(tickType=1, …)`; `AllLast` → same callback with tickType=2 and **additionally includes combos, derivatives, average-price trades** not in `Last`. Fields: time, price, size, tickAttribLast (pastLimit, unreported bits), exchange, specialConditions.
-- `BidAsk` → `tickByTickBidAsk`: time, bidPrice, askPrice, bidSize, askSize, tickAttribBidAsk (bidPastLow, askPastHigh bits). `ignoreSize=True` suppresses size-only updates.
-- `MidPoint` → `tickByTickMidPoint`: time, midPoint (mainly FX).
-- If `numberOfTicks != 0`, recent historical ticks are first replayed through `historicalTicksLast`/`historicalTicksBidAsk`/`historicalTicks`.
-- Limits: options = historical only (no real-time tick-by-tick); indices = CME indices only; combos not supported; **≤1 request per instrument per 15 s**; simultaneous subscriptions follow the market-depth formula (min 3, max 60, scaling with market-data lines). TWS 10.15+/API 10.15+: `pastLimit` attribute with zero price/size marks halted/unhalted ticks. Source: tick_data.html (index).
+**`reqMktData`** — streams a contract's bid, ask, last, sizes, open/high/low/close, day volume,
+exchange/timestamp fields, generic statistics, option computations, EFP data, and news ticks.
+Callbacks: `tickPrice`, `tickSize` (now `Decimal` — fractional sizes supported since 10.44),
+`tickGeneric`, `tickString`, `tickOptionComputation`, `tickEFP`, `tickNews`. `snapshot=True`
+gives a one-time snapshot; a regulatory NBBO snapshot costs $0.01 and requires the US
+Securities Snapshot Bundle. Since TWS 985, US stock sizes are reported in shares, not
+100-share lots. Cancel with `cancelMktData`.
 
-## 3. Historical data — reqHistoricalData / reqHistoricalTicks
-`reqHistoricalData(tickerId, contract, endDateTime, durationStr, barSizeSetting, whatToShow, useRTH, formatDate, keepUpToDate, chartOptions)` → `historicalData(reqId, bar)` per bar (time, open, high, low, close, volume, count/tradeCount, WAP) then `historicalDataEnd`. Bar timezone = TWS login timezone.
-- `endDateTime`: `"yyyyMMdd-HH:mm:ss"` (+ optional TMZ); empty = now.
-- `useRTH`: 1 = regular-hours only, 0 = all sessions.
-- `formatDate`: 1 = `"yyyyMMdd HH:mm:ss"`, 2 = epoch seconds (day bars: yyyyMMdd only).
-- `keepUpToDate=True` (API 973.03+/TWS 965+): streaming updates of the unfinished bar via `historicalDataUpdate`; bar size must be ≥5 s; `endDateTime` must be empty. `cancelHistoricalData`.
-- Valid bar sizes: `1 secs, 5 secs, 10 secs, 15 secs, 30 secs | 1 min, 2 mins, 3 mins, 5 mins, 10 mins, 15 mins, 20 mins, 30 mins | 1 hour, 2 hours, 3 hours, 4 hours, 8 hours | 1 day | 1 week | 1 month`. Smallest = 1 s.
-- Duration↔bar-size compatibility (must fit one of these): 60 S → 1 s…1 min; 120 S → 1 s…2 min; 1800 S → 1 s…30 min; 3600 S → 5 s…1 h; 14400 S (4 h) → 10 s…3 h; 28800 S (8 h) → 30 s…8 h; 1 D → 1 min…1 day; 2 D → 2 min…1 day; 1 W → 3 min…1 week; 1 M → 30 min…1 month; 1 Y → 1 day…1 month. Source: historical_bars.html, historical_limitations.html (index).
-- "whatToShow" values: TRADES (splits-adjusted, not dividends), MIDPOINT, BID, ASK, BID_ASK (time-avg bid/ask; open=avg bid, close=avg ask), ADJUSTED_LAST (splits+dividends, TWS 967+), HISTORICAL_VOLATILITY, OPTION_IMPLIED_VOLATILITY, FEE_RATE, YIELD_BID / YIELD_ASK / YIELD_BID_ASK / YIELD_LAST (corporate bonds only), SCHEDULE (TWS API 10.12+, 1-day bars only, delivered via `historicalSchedule` with session start/end/timezone — no OHLCV), AGGTRADES (**crypto only**). Per-product table: stocks/ETFs support TRADES/MIDPOINT/BID/ASK/BID_ASK/HV/OIV/SCHEDULE; FX & CFDs have no TRADES (use MIDPOINT); indices only TRADES/HV/OIV/SCHEDULE; options only TRADES/MIDPOINT/BID/ASK/BID_ASK; bonds add all four YIELD_*; crypto TRADES/MIDPOINT/BID/ASK/BID_ASK/SCHEDULE/AGGTRADES. Source: historical_bars.html (index).
-- Caveats: feed is **filtered** — excludes trades away from NBBO (combos, block, derivatives) so volume < unfiltered feeds; no native history for combos (sum of legs); futures daily close may be the **settlement price** (lands hours after close); ≤30 s bars older than 6 months unavailable; **no history at all for expired options/FOPs/warrants/structured products or their EOD**; expired futures >2 y
-...[truncated 17093 chars]
+**`reqMarketDataType(1|2|3|4)`** — call before `reqMktData`; effective type reported per
+request via `marketDataType(reqId, type)`. 1 Live (subscriptions required); 2 Frozen (last
+recorded quote after close; subscriptions still required; no generic ticks); 3 Delayed (free,
+15–20 min late; delayed tick IDs 66–88); 4 Delayed-frozen (last delayed quote without
+subscriptions).
+
+**`reqRealTimeBars`** — one OHLC bar every 5 seconds (bar size fixed). `whatToShow=TRADES`
+required for volume, WAP, and trade count. Consumes a market-data line AND counts against
+historical pacing. Re-subscribe after server resets or session changes. `cancelRealTimeBars`.
+
+**`reqHeadTimestamp`** — returns the earliest timestamp available for a contract and
+`whatToShow`. The reliable way to discover actual history depth rather than assuming a fixed
+lookback. `cancelHeadTimestamp`.
+
+### Specialist tick map
+
+Standard, option, and generic ticks exposed through the market-data subscription surface.
+Delivered-tick IDs are positional in the client's `TickTypeEnum`.
+
+- **0–9, 14** — bid/ask/last sizes and prices; high, low, volume, previous close, open.
+- **10–13, 53** — bid/ask/last/model/custom option computation: IV, delta, option price,
+  PV dividend, gamma, vega, theta, underlying price.
+- **Generic 100 / 101** — call/put option volume (delivered 29/30) and open interest
+  (delivered 27/28).
+- **Generic 104 / 106 / 411** — 30-day historical volatility, IB 30-day implied volatility,
+  real-time historical volatility.
+- **105 / 588** — average option volume (generic 105 → delivered tick 87); futures open
+  interest.
+- **105–110 (delivered)** — **new in 10.46:** odd-lot bid/ask/bid-size/ask-size/bid-exchange/
+  ask-exchange. Requested via **generic tick 787**. Namespace warning: generic tick 105
+  (average option volume) is NOT delivered tick 105 (`ODD_LOT_BID`) — request and delivery
+  IDs live in different namespaces.
+- **165** — 13/26/52-week highs and lows plus 90-day average volume.
+- **225** — auction volume, auction price, auction imbalance, regulatory imbalance.
+- **232 vs 221** — Mark Price. Current table says generic 232; older references say 221.
+  Treat as an unresolved documentation conflict — verify at build.
+- **233 / 375** — RT Volume (price, size, time, total volume, VWAP, single-MM flag);
+  RT Trade Volume excludes unreportable trades.
+- **236** — shortable rating and Shortable Shares. Rating >2.5 means ≥1,000 shares;
+  1.5–2.5 locatable; ≤1.5 not shortable.
+- **292** — provider-specific news headlines (e.g. `292:BZ`).
+- **293 / 294 / 295** — trade count, trade rate, volume rate.
+- **318 / 456 / 460** — last RTH trade; IB dividends; bond factor multiplier.
+- **576–578, 614, 623** — ETF NAV bid, ask, last, close, prior close, high, low, frozen last.
+- **586 / 595 / 619** — estimated/final IPO price; 3/5/10-minute volume; Creditman slow mark.
+- **258 / 47** — **removed in 10.47:** fundamental ratios (generic 258; delivered tick
+  `FUNDAMENTAL_RATIOS = 47`). Both gone from the 10.51.1 client.
+- Delayed variants 66–88 mirror the live ticks on delayed data.
+
+## 2. History and tick-by-tick
+
+Bar history is broad, but requests are paced and the feed is filtered. Tick history is precise
+but capped per call.
+
+**`reqHistoricalData`** — returns time, open, high, low, close, volume, trade count, and WAP
+per bar, then `historicalDataEnd`. `useRTH` chooses regular-hours-only or all sessions.
+Bar sizes: 1/5/10/15/30 sec; 1/2/3/5/10/15/20/30 min; 1/2/3/4/8 hour; 1 day/week/month.
+`whatToShow`: TRADES, MIDPOINT, BID, ASK, BID_ASK, ADJUSTED_LAST, HISTORICAL_VOLATILITY,
+OPTION_IMPLIED_VOLATILITY, FEE_RATE, bond YIELD variants, SCHEDULE, crypto AGGTRADES.
+`keepUpToDate=True` streams updates of the unfinished bar (bar size ≥5 s, `endDateTime`
+empty) via `historicalDataUpdate`. Cancel with `cancelHistoricalData`.
+
+**Duration compatibility** (request duration → permitted bar sizes): 60 sec → 1 sec–1 min;
+1 hour → 5 sec–1 hour; 1 day → 1 min–1 day; 1 week → 3 min–1 week; 1 month → 30 min–1 month;
+1 year → 1 day–1 month. (Abridged — verify the full table at build.)
+
+**`reqHistoricalTicks`** — highest-granularity historical Time & Sales, **max 1,000 ticks per
+request**. TRADES returns time, price, size, exchange, conditions, attributes; BID_ASK
+returns both prices and sizes; MIDPOINT returns time, price, size. Exactly one of start/end
+time is set; a request does not cross multiple trading sessions (it may exceed 1,000 only to
+complete a final second). No combos or AllLast-style block/combo trades. Cancel with
+**`cancelHistoricalTicks`** (client-verified, 10.51.1).
+
+**`reqTickByTickData`** — live ticks. `Last`: trade time, price, size, attributes, exchange,
+conditions. `AllLast`: adds combo, derivative, and average-price trades. `BidAsk`: bid/ask
+prices and sizes with bidPastLow/askPastHigh attributes. `MidPoint`: time and midpoint
+(mainly FX). Options are historical-only; combos unsupported; indices limited to CME indices;
+**one request per instrument per 15 seconds**. Cancel with `cancelTickByTickData`.
+
+**`reqHistogramData`** — **confirmed present in 10.51.1** (was a build-time unknown in earlier
+research). Returns histogram entries for a contract over a requested period, each entry
+carrying **price and size only** — a server-produced volume-at-price distribution, not a
+substitute for raw historical ticks (no bid/ask split). Regular-hours vs all-sessions
+selectable. Availability and accepted period strings are contract-dependent; verify against
+the current API build.
+
+**`historicalSchedule`** — callback **confirmed present in 10.51.1**
+(`reqId, startDateTime, endDateTime, timeZone, ...`). The earlier caveat about its absence is
+dropped. Delivers session start/end/timezone for `whatToShow=SCHEDULE` (1-day bars only).
+
+**`cancelContractData`** — cancels an in-flight `reqContractData` (client-verified, 10.51.1).
+
+### Historical-data caveats that matter to chart correctness
+
+- The historical feed is **filtered**: off-NBBO trades, combos, block trades, and derivative
+  trades can be excluded, so volume can read lower than unfiltered feeds.
+- Bars ≤30 seconds are unavailable beyond six months.
+- Expired futures older than two years are unavailable; expired options, FOPs, warrants, and
+  structured products have **no history or EOD data**.
+- Daily futures closes may be settlement prices and can arrive hours after the session.
+- No native combo history; legs must be requested separately.
+- BID_ASK historical requests count as two pacing requests.
+
+## 3. Options
+
+IBKR supplies the chain skeleton and live computations; the application must validate
+contracts and combine legs.
+
+**`reqSecDefOptParams`** — per exchange: underlying conId, trading class, multiplier, a set
+of expirations and a set of strikes. Expirations and strikes are independent lists — not every
+combination is a valid contract. Preferred over `reqContractDetails` enumeration for large
+chains (which are throttled). Futures options also require the futures-option exchange
+parameter.
+
+**`tickOptionComputation`** — from an option `reqMktData` subscription, bid/ask/last/model
+ticks return implied volatility, delta, option price, present-value dividend, gamma, vega,
+theta, and underlying price.
+
+**`calculateOptionPrice` / `calculateImpliedVolatility`** — request IBKR's option-model
+calculations for theoretical price or IV. Both have matching cancellation methods.
+
+**Generic ticks 100 / 101** — on the underlying stock, aggregate call/put option volume and
+open interest. Full per-contract quote/Greek coverage still needs option-contract market-data
+lines.
+
+## 4. Depth, scanners, and news
+
+Discovery and context are available, but market-data and news entitlements determine what is
+actually delivered.
+
+**`reqMktDepth`** — Level 2 market depth, including SMART aggregated depth and
+exchange-specific depth where subscribed. Depth subscriptions consume market-data lines and
+have their own simultaneous-subscription formula (min 3, max 60, scaling with market-data
+lines). The finished research confirmed the capability but did not preserve the complete
+row-field schema — verify the current official method page before implementing the book
+model. **`reqMktDepthExchanges`** lists venues offering deep-book data.
+
+**`reqScannerParameters`** — returns XML describing available scan codes, instruments,
+locations, and filters. Use it instead of hard-coding the server's scanner catalog.
+
+**`reqScannerSubscription`** — streams ranked `ContractDetails` results plus distance,
+benchmark, projection, and combo legs. Examples: top % gainers/losers, most active, hot by
+volume, high option-volume put/call ratio. **Max 50 results per scan; max 10 active API
+scans.** Scanner rows contain no bid/ask/last/volume — subscribe separately. Scanner use
+itself needs no market-data subscription, but filters generally do.
+
+**`reqNewsProviders`** — returns subscribed provider codes and names. Most TWS news products
+are not automatically available to the API; API-specific subscriptions and entitlements apply.
+
+**`reqHistoricalNews`** — historical headlines: time, provider code, article ID, headline,
+followed by a `hasMore` marker. **`reqNewsArticle`** retrieves the article body.
+
+**Real-time headlines** — arrive through generic tick 292 and the `tickNews` callback.
+
+**`reqNewsBulletins`** — exchange bulletins. `allMessages=True` includes existing bulletins
+from the current day plus new ones; `False` delivers only new bulletins. `cancelNewsBulletins`.
+
+## 5. Contract and market structure
+
+Contract discovery resolves conIds and routing; auxiliary requests expose price increments,
+venue mappings, volume-at-price distributions, and corporate events.
+
+**`reqContractDetails`** — returns matching contract definitions and metadata. Can enumerate
+option contracts from an incomplete option description, but large chains are throttled;
+`reqSecDefOptParams` is preferred for chain discovery. New fields in the 10.51.1 client
+(client-verified): size block (`minSize`, `sizeIncrement`, `suggestedSizeIncrement`,
+`minAlgoSize`), precision block (`lastPricePrecision`, `lastSizePrecision`),
+`settlementMethod`, a full **mutual-fund block** (`fundName`, `fundFamily`, `fundType`,
+`fundFrontLoad`, `fundBackLoad`, `fundBackLoadTimeInterval`, `fundManagementFee`,
+`fundClosed`, `fundClosedForNewInvestors`, `fundClosedForNewMoney`, `fundNotifyAmount`,
+`fundMinimumInitialPurchase`, `fundSubsequentMinimumPurchase`, `fundBlueSkyStates`,
+`fundBlueSkyTerritories`, `fundDistributionPolicyIndicator`, `fundAssetType`,
+`ineligibilityReasonList`), and **event-derivative fields** (`eventContract1`,
+`eventContractDescription1`, `eventContractDescription2`). **`mdSizeMultiplier` removed**
+(confirmed absent in 10.51.1). Cancel in-flight requests with `cancelContractData`.
+
+**`reqMarketRule`** — given a market-rule ID from contract details, returns the tick ladder:
+price-increment bands, each defining the minimum price at which a particular increment
+applies. Use to validate and round order/chart prices across tiered tick sizes.
+
+**`reqSmartComponents`** — maps SMART bid/ask exchange component codes to exchange
+identifiers (including the exchange letter used in market-data attribution). Reference
+metadata, not a depth subscription.
+
+### Wall Street Horizon corporate events (verified present, 10.51.1)
+
+**`reqWshMetaData(reqId)`** → **`wshMetaData(reqId, dataJson: str)`** — describes available
+corporate-event filters and fields. **`reqWshEventData(reqId, wshEventData)`** →
+**`wshEventData(reqId, dataJson: str)`** — returns subscription-dependent company events as
+JSON: event type, contract identifiers, and event-specific dates/status fields. Both have
+matching cancels: `cancelWshMetaData`, `cancelWshEventData`. Protobuf variants exist for all
+four.
+
+The `WshEventData` request carries: `conId`, `filter` (JSON string), `fillWatchlist`,
+`fillPortfolio`, `fillCompetitors`, `startDate`, `endDate`, `totalLimit`.
+
+This is a **paid/entitled** Wall Street Horizon product — corporate events (earnings,
+dividends, splits), not a broad macroeconomic calendar. Field sets vary by event type and API
+version. It is the IBKR-native replacement path for the removed fundamentals feed's
+*calendar* use case only (dates of events, not financials).
+
+## 6. Account, positions, and P&L
+
+Portfolio state is rich enough for a live terminal; tax-lot state is not.
+
+**`reqAccountUpdates`** — initial dump, then changes: account key/value/currency; portfolio
+(contract, position, market price/value, average cost, unrealized and realized P&L); update
+time and completion marker. One account at a time; a second subscription cancels the first.
+Account-value updates are no more frequent than about every three minutes.
+
+**`reqAccountSummary`** — account, tag, value, currency. Key tags: NetLiquidation,
+TotalCashValue, SettledCash, BuyingPower, EquityWithLoanValue, GrossPositionValue,
+initial/maintenance margin, AvailableFunds, ExcessLiquidity, Cushion, SMA, LookAhead values,
+DayTradesRemaining, Leverage. ~3-minute cadence. The docs' `ReqTEquity`/`ReqTMargin` names
+conflict with community-tested `regTEquity`/`regTMargin` — verify at build.
+
+**`reqPositions`** — account, contract, position quantity, average cost for all accessible
+accounts. (10.51 fix: the exchange field now returns accurate values for commodities/CFDs.)
+
+**`reqPnL` / `reqPnLSingle`** — account/model P&L: daily, unrealized, realized; the single
+variant adds position and market value for one conId.
+
+**`reqAccountUpdatesMulti` / `reqPositionsMulti`** — account/model-scoped values and
+positions for advisors and model portfolios.
+
+## 7. Orders and executions
+
+The API exposes live order state, completed orders, fills, and commissions — with client-ID
+scope rules.
+
+**`reqOpenOrders`** — current client's open orders: contract, order state, status fields
+including filled/remaining, average fill, permId, parentId, last fill, clientId, held reason,
+market-cap price. **Since 10.48 the response includes de-activated orders** — expect them and
+handle explicitly. Client ID 0 can bind pre-existing TWS/manual orders. **`reqAllOpenOrders`**
+gives a one-time view of all open orders across associated accounts. **`reqAutoOpenOrders`**
+(client-ID-0 only) auto-binds future TWS orders to API-originated orders.
+
+**`reqCompletedOrders`** — completed orders, with an `apiOnly` switch to restrict to
+API-originated orders.
+
+**`reqExecutions`** — filter by client ID, account, time, symbol, security type, exchange,
+side. Each execution: execution ID, time, account, exchange, side, shares, price, permId,
+client/order IDs, liquidation flag, cumulative quantity, average price, order reference,
+model, liquidity, price-revision state. Default scope is since midnight; up to seven days
+depends on the TWS Trade Log setting; IB Gateway is limited to the current day.
+
+**Commission reports** — **`commissionAndFeesReport`** (replaces the old `commissionReport`,
+removed): execution ID, **`commissionAndFees`** (commission **plus fees** — not commission
+alone), currency, realized P&L, plus bond fields (`yield_`, `yieldRedemptionDate`).
+
+**Order-object fields of note (10.51.1, client-verified):** `deactivate` (pairs with the
+10.48 de-activated order state), `conditionsIncludeOvernight` (10.50 — conditional orders may
+include overnight sessions when evaluating criteria), `hedgeMaxSize` (10.45),
+`includeOvernight`, `postOnly`, and bracket-linkage fields `slOrderId`/`slOrderType` and
+`ptOrderId`/`ptOrderType`. **Removed fields** (confirmed absent in 10.51.1): `eTradeOnly`,
+`faProfile`, `firmQuoteOnly`, `nbboPriceCap` — do not reference them.
+
+## 8. Crypto and fractional shares
+
+Both are possible, but order semantics are narrower than standard whole-share equities.
+
+**Crypto (PAXOS)** — `secType=CRYPTO`, exchange=PAXOS, currency=USD (from TWS/API 10.10+).
+BTC and ETH are documented examples. L1, L2, and historical TRADES/MIDPOINT/BID/ASK/
+BID_ASK/AGGTRADES supported. Crypto permission required, but no market-data subscription and
+no data fee. Only MKT and LMT orders; market buys require `cashQty` and IOC; limits use IOC
+or Minutes TIF and cancel after five unfilled minutes.
+
+**Fractional shares** — with Fractional Shares permission, stock market buys can be expressed
+via `order.cashQty`. Sells reject `cashQty`; reduce or close a dollar amount using the exact
+fractional share quantity. Community testing reports directly submitted fractional sizes can
+be rejected — re-verify this path against the account and current API before production use.
+`tickSize` now delivers `Decimal` sizes (fractional last sizes, 10.44).
+
+## 9. Practical limits and operations
+
+These are architectural constraints, not tuning suggestions.
+
+**Pacing:** 60 historical requests / 10 min (BID_ASK counts twice); max 50 simultaneous
+historical requests; no identical historical request within 15 s; one tick-by-tick request
+per instrument per 15 s.
+
+**Capacity:** 100 market-data lines default, shared across TWS, API, real-time bars, and
+depth; max 10 active scanner subscriptions × 50 rows each.
+
+**Entitlements:** live L1/history generally requires exchange subscriptions, trading
+permission, and a funded account (FX and bonds excepted). Subscriptions are per TWS username
+and billed for the full month. Paper trading can share live subscriptions when enabled;
+activation may take up to 24 hours.
+
+**2FA / headless:** TWS/Gateway login uses username, password, and 2FA. Daily auto-restart
+can preserve a session, but full re-authentication is forced roughly weekly and needs a
+person. Headless operation is not officially supported — design monitoring around the daily
+login lifecycle.
+
+**Release hygiene (10.45):** TWS/Gateway 10.45 one-time clears "Enable ActiveX and Socket
+Clients" and "Allow connections from localhost only." After upgrading, re-enable API access
+or nothing connects.
+
+**Cancellation methods** — use the matching cancels to free resources and prevent stale
+callbacks: `cancelMktData`, `cancelRealTimeBars`, `cancelHistoricalData`,
+`cancelHistoricalTicks`, `cancelContractData`, `cancelTickByTickData`,
+`cancelScannerSubscription`, `cancelNewsBulletins`, P&L/account-summary cancellations.
+
+**Utility requests (short notes):** get/update-config request/response exists as a
+**protobuf-based** API (`updateConfigProtoBuf` / `updateConfigResponseProtoBuf`).
+**`reqUserInfo(reqId)`** → `userInfo(reqId, whiteBrandingId)`. **`reqCurrentTimeInMillis()`**
+→ `currentTimeInMillis(timeInMillis)` — server clock in milliseconds.
+
+## 10. Explicitly not available
+
+These cannot be sourced through the current TWS API under an IBKR-only constraint.
+
+- **Fundamentals & ratios** — `reqFundamentalData`, historic report types, and generic tick
+  258 / delivered tick 47 are removed/desupported (10.47). No replacement API exists.
+- **Analyst ratings** — no general analyst-ratings feed.
+- **Social sentiment** — no social-sentiment feed.
+- **General macroeconomic calendar** — no broad native macro calendar. Subscription-dependent
+  Wall Street Horizon *corporate*-event data is available separately (§5).
+- **Sector constituents** — no general sector-index constituent feed.
+- **Tax lots** — positions expose average cost only; lots require statements/Flex, not the
+  TWS API.
+- **Historical Greeks** — no historical option-Greeks feed; Greeks are live computations only.
+- **Full tick archive** — historical Time & Sales is capped at 1,000 ticks per call and
+  constrained to one session.
+
+## Sources and confidence
+
+Research date: 13 October 2026. "Current" refers only to the live documentation and the
+10.51.1 client checked on that date. The older GitHub Pages mirror is deprecated but remains
+the preserved source for many field-level tables; implementation-critical conflicts are
+called out above (mark-price 232 vs 221; `ReqTEquity`/`ReqTMargin` vs `regTEquity`/
+`regTMargin`).
+
+1. Current Interactive Brokers TWS API documentation — live verification, including the
+   removal of the Fundamentals section (10.47).
+2. Official deprecated mirror: tick types.
+3. Historical bars, historical limitations, historical Time & Sales, real-time bars,
+   tick-by-tick data.
+4. Market-data types, market data, receiving market data.
+5. Options; market scanners; news; cryptocurrency.
+6. IBKR 2026 API production release notes (10.43–10.51).
+7. 10.51.1 client source — method/callback/field existence verified directly
+   (`EClient`/`EWrapper`/`Order`/`ContractDetails`/`TickTypeEnum`).
