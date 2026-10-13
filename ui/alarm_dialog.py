@@ -103,11 +103,12 @@ class AlarmDialog(QDialog):
         self.kind_input.currentTextChanged.connect(self._on_kind_changed)
         self.z_input = QDoubleSpinBox()
         self.z_input.setDecimals(1)
-        self.z_input.setRange(0.5, 50.0)
+        self.z_input.setRange(1.0, 50.0)
         self.z_input.setSingleStep(0.5)
         self.z_input.setValue(DEFAULT_Z_THRESHOLD)
         self.z_input.setToolTip("Burst fires when the robust z-score of the\n"
-                                "bar's volume is at or above this threshold.")
+                                "bar's volume is at or above this threshold.\n"
+                                "Below 1.0 fires on normal variance.")
         self.z_input.setFixedWidth(70)
         self.z_label = QLabel("z ≥")
 

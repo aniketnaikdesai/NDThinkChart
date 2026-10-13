@@ -45,8 +45,9 @@ class AlarmEditDialog(QDialog):
 
             self.z_input = QDoubleSpinBox()
             self.z_input.setDecimals(1)
-            self.z_input.setRange(0.5, 50.0)
+            self.z_input.setRange(1.0, 50.0)
             self.z_input.setSingleStep(0.5)
+            self.z_input.setToolTip("Below 1.0 fires on normal variance.")
             try:
                 z0 = float((alarm.params or {}).get(
                     "z_threshold", DEFAULT_Z_THRESHOLD))

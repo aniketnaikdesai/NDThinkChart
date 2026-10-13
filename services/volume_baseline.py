@@ -160,6 +160,8 @@ class VolumeBaselineService:
         and calls this when a bar completes, so partial bars never pollute
         the baseline.
         """
+        if resolved_key in self._tombstoned:
+            return  # invalidated (roll): a stale key can never be re-persisted
         per_min = volume / minutes_for_timeframe(timeframe)
         bucket = bucket_for_ts(ts)
         self._ensure_loaded(resolved_key)
