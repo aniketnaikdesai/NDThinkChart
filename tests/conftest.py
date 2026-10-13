@@ -121,6 +121,7 @@ def _isolate_test_db():
         "position_group_map",  # FK child first
         "bars", "watchlist", "alarms", "zones", "drawing_groups",
         "drawings", "studies", "popouts", "positions", "trade_groups",
+        "volume_baseline",  # D39
     ):
         cur.execute(f"DELETE FROM {table}")
     db.conn.commit()

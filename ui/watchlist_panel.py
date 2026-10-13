@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QLabel, QPushButton, QHeaderView, QMenu, QDialog
+    QLabel, QPushButton, QHeaderView, QMenu, QDialog, QLineEdit, QListWidget,
+    QListWidgetItem, QFrame, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings
 from PyQt6.QtGui import QColor, QBrush, QPalette
@@ -249,6 +250,11 @@ class WatchlistPanel(QWidget):
     # the remove affordance (D22-05); both carry the raw symbol string.
     symbol_add_requested = pyqtSignal(str)
     symbol_remove_requested = pyqtSignal(str)
+    # D39.1: symbol search intents. ``search_text_changed`` fires on every
+    # keystroke (the service debounces); ``search_sample_selected`` carries
+    # the chosen ContractDescription.
+    search_text_changed = pyqtSignal(str)
+    search_sample_selected = pyqtSignal(object)
 
     def __init__(self, parent=None, settings: QSettings | None = None):
         super().__init__(parent)
@@ -329,6 +335,52 @@ class WatchlistPanel(QWidget):
         )
         self.add_button.clicked.connect(self._on_add_clicked)
         h_layout.addWidget(self.add_button)
+
+        # D39.1: symbol search box in the watchlist header. Every keystroke
+        # is forwarded (debounced downstream); results appear in a popup.
+        self.search_box = QLineEdit(self.header_bar)
+        self.search_box.setObjectName("WatchlistSearchBox")
+        self.search_box.setPlaceholderText("Search symbols…")
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.setFixedHeight(20)
+        # D39.1: no minimum width — the box yields so the dock can still
+        # shrink to WATCHLIST_MIN_WIDTH (150, D17-tested); it expands to
+        # fill available header space otherwise (capped at 180).
+        self.search_box.setMinimumWidth(0)
+        self.search_box.setMaximumWidth(180)
+        self.search_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.search_box.setStyleSheet(
+            "QLineEdit#WatchlistSearchBox {"
+            " background: #0f1420; border: 1px solid #232938;"
+            " border-radius: 3px; color: #e5e7eb; font-size: 11px;"
+            " padding: 1px 4px; }"
+            "QLineEdit#WatchlistSearchBox:disabled { color: #4b5563; }"
+        )
+        self.search_box.textChanged.connect(self._on_search_text_changed)
+        self.search_box.setEnabled(False)  # enabled on connect (39.1)
+        h_layout.addWidget(self.search_box)
+
+        # Results popup (dismissed on outside click by the Popup flag;
+        # parented to the panel so it dies with it).
+        self._search_popup = QFrame(self, Qt.WindowType.Popup)
+        self._search_popup.setObjectName("WatchlistSearchPopup")
+        self._search_popup.setStyleSheet(
+            "QFrame#WatchlistSearchPopup {"
+            " background: #141822; border: 1px solid #2b3348; }"
+        )
+        popup_layout = QVBoxLayout(self._search_popup)
+        popup_layout.setContentsMargins(2, 2, 2, 2)
+        self._search_list = QListWidget(self._search_popup)
+        self._search_list.setStyleSheet(
+            "QListWidget { background: #141822; color: #e5e7eb;"
+            " font-size: 11px; border: none; }"
+            "QListWidget::item { padding: 3px 6px; }"
+            "QListWidget::item:selected { background: #1f3a5f; }"
+        )
+        self._search_list.itemClicked.connect(self._on_search_item_clicked)
+        popup_layout.addWidget(self._search_list)
+        self._search_popup.hide()
 
         h_layout.addStretch()
 
@@ -448,6 +500,66 @@ class WatchlistPanel(QWidget):
         action = getattr(self, "add_action", None)
         if action is not None:
             action.setEnabled(enabled)
+
+    # ── D39.1 symbol search ──────────────────────────────────────────────
+
+    def set_search_enabled(self, enabled: bool) -> None:
+        """Enable/disable the header search box (transport state).
+
+        Disabled while disconnected — typing then is refused with the box
+        greyed out (AC: "disconnected → disabled + message"; the message is
+        the tooltip/status text, owned by MainWindow).
+        """
+        self.search_box.setEnabled(bool(enabled))
+        if not enabled:
+            self.clear_search_results()
+
+    def _on_search_text_changed(self, text: str) -> None:
+        if not text.strip():
+            self.clear_search_results()
+        self.search_text_changed.emit(text)
+
+    def show_search_results(self, samples: list) -> None:
+        """Populate the results popup (≤16 ContractDescriptions)."""
+        self._search_list.clear()
+        for desc in samples or []:
+            contract = getattr(desc, "contract", None)
+            symbol = getattr(contract, "symbol", "?") or "?"
+            sec_type = getattr(contract, "secType", "") or ""
+            exchange = getattr(contract, "exchange", "") or ""
+            label = symbol
+            detail = " · ".join(p for p in (sec_type, exchange) if p)
+            if detail:
+                label += f"  ({detail})"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, desc)
+            self._search_list.addItem(item)
+        if not samples:
+            item = QListWidgetItem("No matches")
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            item.setData(Qt.ItemDataRole.UserRole, None)
+            self._search_list.addItem(item)
+        self._search_list.setCurrentRow(-1)
+        self._search_list.setFixedHeight(
+            min(220, max(30, self._search_list.count() * 24 + 8)))
+        self._search_list.setFixedWidth(
+            max(200, self.search_box.width() + 60))
+        pos = self.search_box.mapToGlobal(
+            self.search_box.rect().bottomLeft())
+        self._search_popup.move(pos)
+        self._search_popup.show()
+
+    def clear_search_results(self) -> None:
+        self._search_popup.hide()
+        self._search_list.clear()
+
+    def _on_search_item_clicked(self, item: QListWidgetItem) -> None:
+        desc = item.data(Qt.ItemDataRole.UserRole)
+        if desc is None:
+            return
+        self.clear_search_results()
+        self.search_box.clear()
+        self.search_sample_selected.emit(desc)
 
     def _on_add_clicked(self, *_args) -> None:
         self._invoke_add_symbol()

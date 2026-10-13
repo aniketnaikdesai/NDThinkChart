@@ -85,7 +85,9 @@ class AlarmOverlay(QObject):
     def set_data(self, alarms: list[Alarm]) -> None:
         self._clear_items()
         self._drag = None
-        self._alarms = list(alarms)
+        # D39: only price alarms draw chart lines — volume_burst alarms have
+        # no price level (price=0.0 would draw a bogus line at zero).
+        self._alarms = [a for a in alarms if getattr(a, "kind", "price") == "price"]
         for alarm in self._alarms:
             self._build_items(alarm)
 

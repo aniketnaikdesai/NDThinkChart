@@ -92,6 +92,19 @@ class MarketDataManager:
         self.client.reqContractDetails(req_id, contract)
         return req_id
 
+    def req_matching_symbols(self, pattern: str) -> int:
+        """D39.1: debounced symbol search. Returns the reqId.
+
+        ``reqMatchingSymbols`` answers with ``symbolSamples`` (≤16
+        ContractDescriptions). Paced like any other request — the
+        debounce in SymbolSearchService keeps the rate at ≤1 per ~300ms
+        of typing.
+        """
+        req_id = id_manager.get_id()
+        pacing_manager.throttle()
+        self.client.reqMatchingSymbols(req_id, pattern)
+        return req_id
+
     def cancel_contract_details(self, req_id: int | None):
         """Best-effort, capability-guarded cancel of a contract-details request.
 

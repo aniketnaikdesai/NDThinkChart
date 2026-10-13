@@ -24,6 +24,9 @@ class IBBridge(QObject):
     contract_details = pyqtSignal(int, object)      # reqId, ContractDetails
     contract_details_end = pyqtSignal(int)          # reqId
 
+    # D39.1: symbol search — reqMatchingSymbols → symbolSamples (≤16).
+    symbol_samples = pyqtSignal(int, object)        # reqId, [ContractDescription]
+
     # Live ticks
     tick_price = pyqtSignal(int, int, float)        # reqId, tickType, price
     tick_size = pyqtSignal(int, int, int)           # reqId, tickType, size

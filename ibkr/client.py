@@ -269,6 +269,11 @@ class IBApiClient(EWrapper, EClient):
         super().contractDetailsEnd(reqId)
         self.bridge.contract_details_end.emit(reqId)
 
+    def symbolSamples(self, reqId: int, contractDescriptions):
+        # D39.1: verified against the 10.51.1 wheel — (reqId, [ContractDescription]).
+        super().symbolSamples(reqId, contractDescriptions)
+        self.bridge.symbol_samples.emit(reqId, contractDescriptions)
+
     def tickPrice(self, reqId: int, tickType: int, price: float, attrib):
         super().tickPrice(reqId, tickType, price, attrib)
         self.bridge.tick_price.emit(reqId, tickType, price)
