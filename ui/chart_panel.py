@@ -773,6 +773,40 @@ class ChartPanel(QWidget):
         self._plot_xs = [to_display(b.ts) for b in self._plotted_bars]
         self._plot_vols = [float(b.volume) for b in self._plotted_bars]
 
+    def _new_bar_is_plotted(self, bar) -> bool:
+        """D28.4: the _compute_plotted_indices predicate for a single bar."""
+        if self._ext_hours:
+            return True
+        tf = self._current_timeframe
+        if tf is None or tf not in TIMEFRAME_SECONDS:
+            return True
+        period = TIMEFRAME_SECONDS[tf]
+        return bool(session_windows(int(bar.ts), int(bar.ts) + period, False))
+
+    def _extend_collapse_map(self) -> None:
+        """D28.4: tail-extend the collapse map for an appended bar.
+
+        Falls back to a full rebuild when the new bar is not a forward
+        plotted extension (RTH-filtered out, unknown timeframe, missing
+        map, or non-forward timestamp).
+        """
+        bars = self._bars
+        if not bars:
+            return
+        bar = bars[-1]
+        cmap = self._collapse_map
+        if cmap is None or not self._new_bar_is_plotted(bar):
+            self._rebuild_collapse_map()
+            return
+        if not cmap.extend(bar.ts):
+            self._rebuild_collapse_map()
+            return
+        self._plotted_indices.append(len(bars) - 1)
+        self._plot_xs.append(cmap.to_display(bar.ts))
+        self._plot_vols.append(float(bar.volume))
+        self._sync_collapsed_axes()
+        self._sync_collapsed_consumers()
+
     def _sync_collapsed_consumers(self) -> None:
         """Push the collapse map + plotted bars to the drawing/alarm overlays.
 
@@ -1062,8 +1096,9 @@ class ChartPanel(QWidget):
         new_period = is_new_candle or self._bars[-1].ts != bar.ts
         if new_period:
             self._bars.append(bar)
-            # D21.4: a new bar changes the collapse map's span.
-            self._rebuild_collapse_map()
+            # D21.4: a new bar changes the collapse map's span — D28.4
+            # tail-extends it instead of rebuilding.
+            self._extend_collapse_map()
             # D21.2 / AC-D21.2.1: recompute the visible ceiling for a new bar.
             self._recompute_visible_volume_range()
         else:

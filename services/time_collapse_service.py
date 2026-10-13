@@ -153,6 +153,43 @@ class TimeCollapseMap:
             return y0
         return y0 + (y1 - y0) * (value - x0) / (x1 - x0)
 
+    def extend(self, ts: int) -> bool:
+        """Append one bar timestamp at the tail (D28.4).
+
+        Replicates the tail step of :func:`build_collapse_map` without a
+        rebuild: the gap between the previous last bar and ``ts`` collapses
+        iff it is non-trading time. Returns False (leaving the map
+        untouched) when ``ts`` is not a forward extension — the caller
+        falls back to a full rebuild.
+        """
+        ts = int(ts)
+        if not self._ts_sorted or ts <= self._ts_sorted[-1]:
+            return False
+        if self.timeframe == IDENTITY_TIMEFRAME:
+            # "1 day" is an identity map by construction (build never
+            # collapses it) — the tail step is a plain append.
+            self.x_values.append(ts)
+            self._ts_sorted.append(ts)
+            self._display_sorted.append(ts)
+            self._ts_to_display[ts] = ts
+            self._display_to_ts[ts] = ts
+            return True
+        prev_ts = self._ts_sorted[-1]
+        prev_dx = self._display_sorted[-1]
+        offset = prev_ts - prev_dx  # current collapsed offset
+        uncovered = ts - (prev_ts + self.bar_period)
+        if uncovered > 0 and gap_is_non_trading(
+                prev_ts, ts, self.ext_hours, self.bar_period):
+            offset += uncovered
+            self.is_identity = False
+        dx = ts - offset
+        self.x_values.append(dx)
+        self._ts_sorted.append(ts)
+        self._display_sorted.append(dx)
+        self._ts_to_display[ts] = dx
+        self._display_to_ts[dx] = ts
+        return True
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return (
             f"TimeCollapseMap(timeframe={self.timeframe!r}, "
