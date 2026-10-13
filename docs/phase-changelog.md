@@ -137,5 +137,39 @@ and reviewer's reports for that phase, verified against the branch.
 
 ## Phase 4 — Historical pacing, performance, teardown, test hardening
 
-- **Status:** NOT STARTED.
-- Entry to be written when Phase 4 passes review, before merge to `main`.
+- **Status:** Code complete and review-**APPROVED**; branch `phase4-pacing-perf-teardown` (stacked on `phase3-sessions-popouts` @ `ba28c08`) NOT pushed and NOT merged. This is the last phase of the plan.
+- **Review:** first verdict **REQUEST-CHANGES** (2 items); fix pass done; re-review verdict **Phase 4 PASSES gate** — and per the R52 reconciliation, **Phase 3 is cleared to merge to `main`**.
+- **Tests:** 898 passing, 0 failing (offscreen). 43 new tests across the phase; no test touches live TWS/network.
+
+### Commits (Phase 4)
+| SHA | Item | Change |
+|---|---|---|
+| `2eb9206` | 4a | D28.3: rolling 600s non-blocking window for `reqHistoricalData` (expiry at oldest-slot + 600s, `PacingExceeded` instead of sleep, slot recorded only after issue); ~60 chunks/wave with singleShot continuation + watchdog re-arm; IBKR error 162 retried exactly once before finalising short; non-162 errors fail fast. `prime_aggregator` fails open. 11 new tests (monkeypatched-time pacing math; rapid symbol-switch → no 162 storm) |
+| `28c4e69` | 4b-1 | D28.4: static-history + live-bar render layers — forming ticks refresh only the 1-bar live layer; static QPicture regen skipped unless bar-count/spacing changes. `regen_count` counters on both layers |
+| `cfc6afc` | 4b-2 | Study cache wired for real: exact-match incremental `sma/ema/vwap/bollinger/rsi/macd_update` fns, tail-verified against batch (incl. RSI's seed quirk); `calculate_*` no longer runs per candle; ICT capped to trailing 500 bars |
+| `1e47b63` | 4b-3 | Bisection over cached `_plot_xs`/`_plot_vols` for crosshair, volume ceiling, and the pan/zoom frame path. Caught a real regression: ceiling recompute ran before `_plot_vols[-1]` refreshed — fixed by reordering in `770bba4` |
+| `4b55093` | 4b-4 | `TimeCollapseMap.extend(ts)` — tail step instead of full rebuild on new candles; verified extend ≡ fresh build incl. the identity→collapsed weekend flip |
+| `463d51b` | 4b-5 | `BarCache.prune(symbol, timeframe, keep=5000)` hooked into wave finalize. Caught spec drift: two backfill tests had enshrined the unbounded cache (9600 seeded 1-min bars) — updated to assert the retention invariant (`770bba4`) |
+| `860e8ec` | 4b-6 | **Binding 10-chart gate** (main + 9 pop-outs, 500 bars each): **4.45ms/tick (bound ≤50ms), 0 static full regens across 99 forming ticks, 990/990 live-layer refreshes, exactly 10 static regens on the trailing new-candle commit, all panels within `SESSION_BAR_CAP` with consistent cached arrays.** Supersedes the Phase 3 ≤5×/4-panel smoke gate for R52 |
+| `5167875` | 4c | D28.5: `_closing` flag (data slots early-return; `closeEvent` idempotent); explicit order — persist prefs → cancel contract lookups → disarm timers (incl. wave-continue timer, added to `session.teardown()`) → cancel depth/RT subs → disconnect → **join `ibkr-reader` with 5s timeout** → clear UI. 3 tests (close mid-backfill; slots no-op when closing; double-close safe) |
+| `3363422` / `c1a2ba2` | 4d | D28.6: T-1 alarm E2E verified-not-duplicated (the four assertions already live in `test_d24_alarm_full_chain.py`); T-2 close-path contract reconstruction for stock/option/future — **caught a real bug: `contract_type.upper()` produced invalid IBKR secTypes `OPTION`/`FUTURE`, now mapped to `OPT`/`FUT`**; T-4 drawing store→overlay round-trip per kind (all 5 kinds, payload byte-identical); T-5 `id_manager` behavioural + 8-thread concurrency tests. Deleted 3 doc-asserting tests + phantom `validate_sltp` (kept behavioural guards). Autouse `_isolate_test_db` fixture for DB hermeticity |
+
+### Commits (fix pass — review issues)
+| SHA | Issue | Change |
+|---|---|---|
+| `61aedd0` | MODERATE | Panel bar cap: `ChartPanel.update_last_bar` new-candle path now head-prunes at `SESSION_BAR_CAP` (same `config.settings` attribute as the session); prune path calls `_rebuild_collapse_map()` (not `extend`) and invalidates the study cache; non-prune path keeps incremental behaviour. Gate 3 tightened to `<= SESSION_BAR_CAP` |
+| `3d12821` | MODERATE-LOW | `update_chart` now invalidates the study cache — makes the `indicator_service.py:137` claim ("a wholesale bar replacement invalidates the cache") actually true. Per-new-candle incremental path (`update_last_bar`) untouched |
+
+### Review findings of note
+- **Gate methodology judged SOUND:** Gate 1 (deterministic counters — 0 static regens / exactly 10 on new-candle commits) directly guards the R52 pathology; Gate 2 (≤50ms, measured ~4.8ms) is a generously-documented secondary backstop. Methodology honest (warm-up, synchronous tick-dispatch path measured, `processEvents` after). Coverage gaps filed as follow-ups: 500 not 5000 bars in the gate (O(1) forming ticks fine; O(n) new-candle regen untested at cap); no studies enabled in the gate; single-symbol layout only.
+- **`contract.class_` gap: FOLLOW-UP, not blocking** (reviewer call): `_on_position_update` always stores `contract_type="stock"` (ibapi's `Contract` has no `class_`), so the corrected OPT/FUT close reconstruction is unreachable via the real position path. Pre-existing since the D22/D23 era; Phase 4's T-2 logic is correct and tested; with `conId` set the likely outcome is an IBKR rejection, not a silent wrong-instrument trade. Proper fix (derive from `contract.secType` + position-pipeline test) deserves its own commit.
+
+### Follow-ups filed (not Phase 4 scope)
+- `contract.class_` → derive contract type from `contract.secType` in the position path (safety-adjacent; shouldn't linger long).
+- Full scroll-back paging (defined follow-up per plan §10.3 — out of scope).
+- Pacing-deferred singleShot retries can fire post-teardown (degrade to harmless dead subscribe on disconnected client; `monitored` never cleared on teardown).
+- Gate coverage: 5000-bar runs, studies under 10-chart load, 10-symbol × 1-panel layout.
+- (Carried) `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests; 4h/daily forming-candle exactness; stale reqId accumulation; post-teardown `monitored` flag.
+
+### USAGE.txt
+- No user-facing changes in Phase 4 (pacing, rendering internals, teardown, tests are invisible). No USAGE.txt update needed.
