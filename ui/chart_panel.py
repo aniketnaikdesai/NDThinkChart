@@ -1103,12 +1103,14 @@ class ChartPanel(QWidget):
             self._recompute_visible_volume_range()
         else:
             self._bars[-1] = bar
-            # D24 perf: the forming bar's volume only grows; skip the O(n)
-            # visible-max scan unless it could raise the ceiling.
+            # D28.4: forming-bar tick — live layers only, no static regen.
+            # (Refreshes _plot_vols[-1] first so the ceiling check below
+            # sees the tick's volume.)
+            self._refresh_live_bar()
+            # D24 perf: the forming bar's volume only grows; skip the
+            # ceiling recompute unless it could raise the ceiling.
             if bar.volume * 1.1 > self._volume_nice_max:
                 self._recompute_visible_volume_range()
-            # D28.4: forming-bar tick — live layers only, no static regen.
-            self._refresh_live_bar()
             return
         self._refresh_candles()
         # D24 perf: overlay x-positions depend on bar timestamps; a forming-bar

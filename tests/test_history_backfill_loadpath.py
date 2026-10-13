@@ -417,7 +417,10 @@ def test_t39_t06_failed_member_finalises_with_shortfall(monkeypatch, qapp, caplo
 
         bars = BarCache.get_bars(symbol, tf)
         # D27.7: seeds are complete 1-min days now (see _seed).
-        assert len(bars) == _BARS_PER_DAY * len(PRESENT_DAYS) + 1
+        # D28.4: the cache keeps the newest RETENTION_BARS rows per
+        # (symbol, timeframe) — the 9601 seeded/fetched rows are pruned.
+        from data.bar_cache import RETENTION_BARS
+        assert len(bars) == RETENTION_BARS
         assert date(2026, 10, 28) not in {_et_date(b.ts) for b in bars}
     finally:
         win.close()
@@ -457,14 +460,19 @@ def test_t39_t07_completed_wave_surfaces_missing_day_no_fabrication(
         present_days = {_et_date(b.ts) for b in bars}
         assert omitted not in present_days
 
-        # No fabricated/interpolated bar: exactly the seeds plus genuine returns.
-        expected_days = {date(*d) for d in PRESENT_DAYS}
-        expected_days |= {date(*d) for d in MISSING_DAYS if date(*d) != omitted}
-        assert present_days == expected_days
+        # No fabricated/interpolated bar: every kept bar is a seed or a
+        # genuine wave return.
+        # D28.4: the cache keeps the newest RETENTION_BARS rows — the
+        # oldest seeded days are pruned, so assert the retention invariant
+        # rather than the exact pre-retention day set.
+        from data.bar_cache import RETENTION_BARS
+        assert len(bars) == RETENTION_BARS
+        allowed_days = {date(*d) for d in PRESENT_DAYS}
+        allowed_days |= {date(*d) for d in MISSING_DAYS}
+        assert present_days <= allowed_days
+        assert date(2026, 11, 6) in present_days  # newest seed day survives
         # D27.7: seeds are complete 1-min days; each delivered missing day
-        # contributed exactly one genuine bar.
-        assert len(bars) == (
-            _BARS_PER_DAY * len(PRESENT_DAYS) + len(MISSING_DAYS) - 1
-        )
+        # contributed exactly one genuine bar — before D28.4 retention
+        # pruned the oldest rows to RETENTION_BARS (asserted above).
     finally:
         win.close()

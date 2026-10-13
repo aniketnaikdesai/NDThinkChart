@@ -1,10 +1,11 @@
-"""Fix-A (review): overlays must track the rebuilt collapse map on live bars.
+"""Fix-A (review): overlays must track the collapse map on live bars.
 
-When ``update_last_bar`` appends a new bar it rebuilds the collapse map.
-Every overlay that renders at display-x (drawings, alarms, RTH-gap / VIX /
-ICT studies) must then hold the NEW map object — otherwise ``to_display``
-extrapolates unknown timestamps and elements render far off-screen across
-collapsed gaps until the next full refresh.
+When ``update_last_bar`` appends a new bar the collapse map is extended
+(D28.4: tail-extended in place rather than rebuilt). Every overlay that
+renders at display-x (drawings, alarms, RTH-gap / VIX / ICT studies) must
+then hold the current map — otherwise ``to_display`` extrapolates unknown
+timestamps and elements render far off-screen across collapsed gaps until
+the next full refresh.
 """
 
 from __future__ import annotations
@@ -37,9 +38,11 @@ def test_update_last_bar_resyncs_overlay_collapse_map(chart_panel, sample_bars, 
     qapp.processEvents()
 
     new_map = chart_panel._collapse_map
-    assert new_map is not old_map, "expected the collapse map to be rebuilt on a new bar"
+    # D28.4: the map is tail-extended in place (not rebuilt) — what matters
+    # is that it now covers the new bar and every overlay holds it.
+    assert len(new_map.x_values) == len(sample_bars) + 1
 
-    # Every display-x consumer must hold the NEW map, not the stale one.
+    # Every display-x consumer must hold the current map, not a stale one.
     assert chart_panel.drawing_overlay._collapse_map is new_map
     assert chart_panel.alarm_overlay._collapse_map is new_map
     for overlay in (
