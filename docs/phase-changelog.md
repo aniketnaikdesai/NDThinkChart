@@ -96,5 +96,46 @@ and reviewer's reports for that phase, verified against the branch.
 
 ## Phase 3 — Session keystone + pop-outs + alarm monitor (3a→3b→3c→3d)
 
-- **Status:** IN PROGRESS (coder on `phase3-sessions-popouts`, stacked on `d27-correctness`).
-- Entry to be written when Phase 3 passes review, before its branch is pushed.
+- **Status:** Code complete and review-**APPROVED**; branch `phase3-sessions-popouts` NOT pushed and NOT merged (stacked on `d27-correctness` @ `69a2313`; stays unmerged until the Phase 4 AC-D28.4 performance gate passes, per the R52 reconciliation).
+- **Review:** first verdict **REQUEST-CHANGES** (5 wiring items); fix pass done; re-review verdict **Phase 3 PASSES gate**.
+- **Tests:** 855 passing, 0 failing (offscreen). 36 new tests (27 Phase-3 + 9 fix-pass); no test touches live TWS/network.
+
+### Commits (Phase 3)
+| SHA | Item | Change |
+|---|---|---|
+| `4f2a804` | 3a | D28.1: `throttle_realtime()` (could sleep 10 min on the GUI thread) replaced by pure `realtime_wait_seconds()` / `realtime_wait_for_slots()` + `record_realtime_slot()`; `PacingExceeded(wait_seconds)` raised instead of sleeping; all callers defer via `QTimer.singleShot` with persistent "pacing-limited, retrying in Ns" status. Orders removed from the realtime throttle — new `OrderRateLimiter` token bucket (5/s, burst 5); both order paths defer via singleShot with validation re-run |
+| `692bb61` / `1a27afd` / `bc2a147` | 3b | D28.2: new `ui/ticker_session.py::TickerSession(QObject)` keyed by uppercase symbol; `MainWindow` holds `_sessions` registry + `_req_to_session` routing table. Four clusters, suite green between each: (1) data plane — per-timeframe `BarAggregator`s, per-timeframe bars with `SESSION_BAR_CAP=5000` (front-loaded D28.4), refcounted RT lifecycle, `_last_chart_price` (D27.1), per-session alarm evaluation (DEC-1), `StreamHealth` migrated in; (2) history wave — req-id registry, watchdog, generation fencing; (3) studies config + fan-out; (4) drawings/groups. `load_chart(symbol, timeframe, extended_hours)` parameterised (no toolbar reads); `alarm_triggered` carries firing symbol. Deleted dead `_pending_brackets`, `_current_req_id`. Tick-burst baseline: 0.35ms/tick |
+| `3e81f66` | 3c | D24 + D24.9: new `ui/popout_window.py::PopoutChartWindow` (28px header `SYMBOL · timeframe · mode` + close; `ChartPanel(editable=False)` — drawing/alarm/studies/timeframe/mode blocked, overlays render, crosshair/zoom/pan work). Toolbar "Pop out" + Ctrl/Cmd+P; `MAX_POPOUTS=10` with status message at cap. One IBKR subscription per symbol (refcounted: first holder subscribes, last releases). Always-on-top default OFF with per-window header context-menu toggle. D24.9: additive `popouts` table + `data/popout_store.py`; save on open/close and 500ms-debounced move/resize; lazy cache-first restore after connect. Smoke gate: 3 pop-outs → 1.27ms/tick, 0 full QPicture regenerations per tick |
+| `ce1ef41` | 3d | D25: new `services/alarm_monitor.py::AlarmMonitor` + `AlarmStore.symbols_with_active_alarms()`. Headless sessions are ordinary `TickerSession`s (`views==0`, `monitored=True`): one 5-sec RT sub, `BarAggregator("1m")`, evaluation on every push (DEC-2). `prev_price` seeded from 1m cache, else first-tick seed with NO evaluation (no phantom). Zero history requests. Reconcile on connect / alarm CRUD / rearm / trigger / attach / detach; pacing guardrail (most-recently-active first + warning naming unmonitored symbols) |
+
+### Commits (fix pass — review issues)
+| SHA | Issue | Change |
+|---|---|---|
+| `8383d49` | HIGH | Deleted shadowing second `detach_view` in `ui/ticker_session.py` (:162) — it had killed the `alarm_monitor.on_session_detached` notification, so navigating away from an alarmed symbol tore the session down instead of promoting it to headless monitoring |
+| `8ef0342` | MODERATE | Overlay-level `editable` flag on `AlarmOverlay`/`DrawingOverlay` (plumbed from `ChartPanel(editable=…)`); all IDLE mouse handlers inert when not editable; Delete gated. Also fixed an extra hole the reviewer missed: `DrawingOverlay.view_mouse_drag` mutating shared payload + double-click opening settings in read-only pop-outs |
+| `282aae5` | MODERATE | `_restore_popouts` skips records whose (symbol, timeframe, mode) is already open; 10-cap enforced against open+new count (no duplicate windows on reconnect) |
+| `448b3b0` | MOD-LOW | Pop-out attach catches `PacingExceeded` → status message + `singleShot` retry (skips if closed) |
+| `97acc51` | MODERATE | `AlarmMonitor._start_monitoring` schedules `singleShot` retry on pacing exhaustion (skips if no longer headless+monitored); warning still names the symbol |
+| `ba28c08` | — | Smoke-gate deviation recorded (see below); stale "≤2x" docstrings fixed |
+
+### Deviation recorded (reviewer-accepted)
+- **Smoke gate 2× → 5× baseline** (`[DEVIATION RECORD 2026-10-12]` in plan-draft.md §1): 4 independent pyqtgraph panels scale linearly by construction (measured 3.6×); Gate 2 (zero full QPicture regenerations per tick) is the real anti-R52 guard and holds; absolute budget 1.27ms vs 5000ms tick interval. Phase 4 (AC-D28.4) owns the 10-chart optimization.
+
+### Decisions recorded
+- Always-on-top: default OFF, per-pop-out header context-menu toggle (owner, 2026-10-12 — implemented in 3c).
+- D24.9: additive `popouts` SQLite table (owner-confirmed; implemented, not QSettings).
+- Per-session alarm evaluation (DEC-1) and event-driven headless evaluation on 5-sec pushes (DEC-2): implemented in 3b/3d.
+- Restore dedup strategy: per-record skip on (symbol, timeframe, mode) already open (chosen over "restore only when empty" — precise on reconnect, still retries failed records).
+
+### Follow-ups filed (not Phase 3 scope)
+- Per-tick cost at the 5k bar cap untested with long series (Phase 4's problem).
+- Historical/mkt-data path ≤20ms sleeps remain (pre-existing, bounded).
+- Fix-4 nit: non-`PacingExceeded` exceptions in pop-out attach swallowed without logging.
+- (Carried) `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests; 4h/daily forming-candle exactness; stale reqId accumulation.
+
+---
+
+## Phase 4 — Historical pacing, performance, teardown, test hardening
+
+- **Status:** NOT STARTED.
+- Entry to be written when Phase 4 passes review, before merge to `main`.

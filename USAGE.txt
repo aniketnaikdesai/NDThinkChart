@@ -106,3 +106,22 @@ Trading & safety notes (Phases 1-2)
   panel shows "unavailable" when it is not subscribed.
 - Drawings: colour, label and group can be edited from the drawing settings;
   edits persist across restarts.
+
+
+Pop-out charts (Phase 3)
+------------------------
+
+- Toolbar "Pop out" button (or Ctrl/Cmd+P) detaches the current ticker into a
+  slim standalone chart window. Up to 10 per ticker.
+- Pop-outs follow their ticker in real time: bars, studies, zones, lines and
+  alarms stay in sync with the main chart. There is only one IBKR market-data
+  subscription per symbol no matter how many windows show it.
+- The pop-out's timeframe, mode and extended-hours setting are frozen at the
+  moment you pop it out. Drawing, alarm placement and study changes are done
+  in the main chart only — pop-outs are read-only views (zoom, pan and
+  crosshair still work).
+- Header context menu: toggle always-on-top per window (off by default).
+- Pop-outs are restored after an app restart (positions and sizes kept).
+- Alarms are evaluated per ticker, so a ticker's alarm fires even while the
+  main chart shows a different symbol — including tickers with no visible
+  chart, which are monitored headlessly.
