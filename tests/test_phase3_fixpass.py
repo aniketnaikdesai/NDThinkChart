@@ -272,3 +272,73 @@ def test_fix3_restore_popouts_no_duplicates_on_reconnect(monkeypatch, qapp):
         _clear(SYM)
         _clear_popouts(SYM)
         win.close()
+
+
+# ── Fix 4: pacing-limited pop-out attach never retries ─────────────────────
+
+
+def test_fix4_popout_pacing_exceeded_schedules_retry(monkeypatch, qapp):
+    """Reviewer fix 4: PacingExceeded on pop-out attach must schedule a
+    retry with the exception's wait seconds (and show a status) — not
+    swallow silently leaving the pop-out on stale cache."""
+    from ibkr.pacing import PacingExceeded
+    from ui.ticker_session import TickerSession
+    import ui.popout_window as popmod
+
+    _clear(SYM)
+    _clear_popouts(SYM)
+    win = _make_window(monkeypatch, qapp)
+    try:
+        win._now_ts = lambda: NOW_TS
+        win.load_chart(SYM, TF)  # 1st ensure_rt_subscribed: succeeds
+        qapp.processEvents()
+
+        real_ensure = TickerSession.ensure_rt_subscribed
+        state = {"raise_once": False}
+
+        def fake_ensure(self):
+            if state["raise_once"]:
+                # The pop-out's attach hits the pacing budget wall.
+                state["raise_once"] = False
+                raise PacingExceeded(7.0)
+            return real_ensure(self)
+
+        monkeypatch.setattr(
+            TickerSession, "ensure_rt_subscribed", fake_ensure)
+
+        scheduled = []
+        monkeypatch.setattr(
+            popmod.QTimer, "singleShot",
+            lambda ms, fn: scheduled.append((ms, fn)))
+
+        messages = []
+        win.status_bar.showMessage = lambda msg, *a: messages.append(msg)
+
+        state["raise_once"] = True
+        win._open_popout()  # pop-out attach: PacingExceeded
+        qapp.processEvents()
+
+        assert scheduled, (
+            "PacingExceeded on pop-out attach scheduled no retry "
+            "(silently stale)"
+        )
+        ms, retry_fn = scheduled[0]
+        assert ms == 7000, f"retry not scheduled with wait_seconds: {ms}ms"
+        assert any("pacing" in m.lower() for m in messages), (
+            "no pacing status shown for the pop-out"
+        )
+
+        # The scheduled retry actually subscribes once budget recovers.
+        session = win._sessions[SYM]
+        holders_before = session._rt_holders
+        retry_fn()
+        assert session._rt_holders == holders_before + 1, (
+            "retry did not complete the pop-out's RT subscription"
+        )
+    finally:
+        for p in list(win._popouts):
+            p.close()
+        qapp.processEvents()
+        _clear(SYM)
+        _clear_popouts(SYM)
+        win.close()

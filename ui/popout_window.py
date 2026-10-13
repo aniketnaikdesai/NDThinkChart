@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from data.popout_store import PopoutStore
+from ibkr.pacing import PacingExceeded
 from ui.chart_panel import ChartPanel
 
 
@@ -135,9 +136,23 @@ class PopoutChartWindow(QWidget):
         session.drawings_changed.connect(self._on_drawings_changed)
         try:
             session.ensure_rt_subscribed()
+        except PacingExceeded as e:
+            # D28.1: pacing-limited subscribes defer via singleShot — never
+            # sleep, and never swallow silently. (The old comment claiming
+            # "the host's retry path re-attaches" was wrong:
+            # _retry_attach_live_feed is main-chart-only.) The view stays
+            # registered; sync already happened from cache.
+            self._host.status_bar.showMessage(
+                f"Pop-out {self.symbol} pacing-limited, "
+                f"retrying in {e.wait_seconds:.0f}s…",
+                15000,
+            )
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000), self._retry_rt_subscribe
+            )
         except Exception:
-            # Pacing-limited: the host's retry path re-attaches. The view
-            # stays registered; sync already happened from cache.
+            # Unexpected subscribe failure: the view stays registered and
+            # synced from cache; a later reconnect replays subscriptions.
             pass
         # Track for the MAX_POPOUTS cap and persistence.
         self._host._register_popout(self)
@@ -149,6 +164,22 @@ class PopoutChartWindow(QWidget):
             self.extended_hours,
             self._geometry_dict(),
         )
+
+    def _retry_rt_subscribe(self) -> None:
+        """D28.1: pacing-deferred RT subscribe retry for this pop-out.
+
+        Skips if the pop-out was closed while the retry was pending.
+        """
+        if self not in self._host._popouts:
+            return
+        try:
+            self._session.ensure_rt_subscribed()
+        except PacingExceeded as e:
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000), self._retry_rt_subscribe
+            )
+        except Exception:
+            pass
 
     def detach(self) -> None:
         """Release the session (RT refcount + view)."""
