@@ -86,6 +86,10 @@ from services.contract_lookup_service import ContractLookupService
 
 _LOG = logging.getLogger(__name__)
 
+#: D27.9: upper bound (seconds) on the trailing 5-sec priming fetch. Sub-2h
+#: periods are covered exactly; larger periods prime the trailing window.
+_PRIME_MAX_SPAN_S = 7_200
+
 # Default watchlist symbols — used only on first run before DB persistence
 DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
 
@@ -1197,6 +1201,10 @@ class MainWindow(QMainWindow):
         span_s = now - self._aggregator.period_start(now)
         if span_s < 5:
             return False  # at a period boundary: nothing to prime
+        # "Trailing" history is bounded: a full day of 5-sec bars on every
+        # daily-chart load would burn pacing for little gain. Sub-2h periods
+        # (1 min – 1 hour) are still covered exactly.
+        prime_s = min(span_s, _PRIME_MAX_SPAN_S)
         self._prime_req_id = self.md_manager.req_historical_data(
             contract=contract,
             timeframe=timeframe,
@@ -1205,7 +1213,7 @@ class MainWindow(QMainWindow):
             useRTH=1,
             extended_hours=self.ext_hours_btn.isChecked(),
             bar_size="5 secs",
-            duration=f"{span_s} S",
+            duration=f"{prime_s} S",
         )
         self._prime_symbol = symbol
         # Backstop: a priming request that never answers must not strand the
