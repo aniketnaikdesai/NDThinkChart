@@ -193,3 +193,29 @@ Event markers & news digest (Phase D38)
   API) instead of showing an empty list. If you hold no positions it says
   "No holdings". Headlines for each holding are fetched one at a time so
   opening the digest never floods the connection.
+
+Volume-burst alerts & symbol search (Phase D39)
+----------------------------------------------
+- The search box sits in the watchlist header. Type part of a ticker -
+  requests are sent at most about once every 300ms while you type, and up
+  to 16 matches come back as symbol, security type and exchange. Pick one
+  and its chart loads. While disconnected the box is disabled with a
+  message; no matches shows a clear empty state.
+- To create a volume-burst alarm, add an alarm of kind "volume_burst" on a
+  symbol. Each bar's volume is compared against the typical volume for
+  that time of day (a robust median/MAD baseline built from the last 30
+  bars of the same minute-of-day) and the alarm fires when the z-score
+  reaches your threshold (default 4.0; the lowest allowed setting is 1.0,
+  since anything lower fires on normal market noise).
+- The baseline needs 5 bars before it can evaluate; until then the alarm
+  shows "warming up (n/5)" and stays silent. Very quiet symbols (under
+  1.0 contracts/shares per minute) are never evaluated, so dust volume
+  cannot trigger an alert.
+- Forming bars are evaluated as they build and completed bars are
+  recorded; a fired burst behaves exactly like a price alarm (toast +
+  sound once, re-arm re-enables it, and it works for tickers with no
+  chart open).
+- Alarms on indices trade the proxy tape: a burst alarm on SPX watches ES
+  front-month volume, and the toast says so - "Volume burst on ES tape
+  (z=9.4)". The baseline resets automatically when a futures contract
+  rolls, so volume is never compared against the wrong contract month.

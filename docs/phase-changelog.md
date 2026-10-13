@@ -187,6 +187,50 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ---
 
+## Phase D39 — Volume-burst alerts + symbol search
+
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d39-burst-search` merged to `main` @ `83f792a` (feature commit `90b01e7`, post-review advisories `0b50fb7`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Review:** **APPROVED**, no blocking findings. B.6 mock-endpoint grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`).
+- **Tests:** 1009 passing, 0 failing (offscreen): 970 pre-existing + 39 new `tests/test_d39_burst_search.py`; no test touches live TWS/network; mocked `ib_client` only. Two load flakes observed in reviewer runs (`test_attach_live_feed_defers_with_status_and_retries`, `test_smoke_gate_three_popouts`) — pass in isolation, not regressions.
+
+### Commits
+| SHA | Item | Change |
+|---|---|---|
+| `90b01e7` | 39.1 | **Symbol search** — new `services/symbol_search.py`: debounced `reqMatchingSymbols(pattern)` (**≤1 per 300ms** of typing), `symbolSamples` override verified **arg-for-arg against the 10.51.1 wheel** (`reqId, contractDescriptions`); ≤16 samples, 5s timeout, exactly-once correlation, disconnected/empty guards. Search box in the **watchlist header** (expanding, capped 180px, **zero minimum width** — a 110px minimum broke D17 dock tests). Results popup: symbol·secType·exchange; select → bounded contract resolution → `load_chart` |
+| `90b01e7` | 39.2 | **Volume baseline service** — new `services/volume_baseline.py`: **robust median/MAD** (never mean/stddev) per (resolved-contract, time-of-day bucket), N=30, ET minute-of-day buckets, per-minute normalization. Three-tier source chain: (1) persisted `volume_baseline` table (**`samples` JSON column** for exact recomputation — the steady state after days of use); (2) one-time `BarCache` prime, **local only, zero IBKR requests**; (3) rolling-30 fallback. Guards (binding): **1.0/min volume floor** (no evaluation on dust), **5-bar warm-up** with explicit "warming up (n/5)" status, **5%-of-median MAD floor** (flat data scores z=0; real bursts on flat baselines fire finite — no infinity). Roll invalidation: baseline keyed on D36's `footprint_cache_key` (front month embedded); key change tombstones in-session — DB rows for the old contract **cannot resurrect** |
+| `90b01e7` | 39.3 | **`volume_burst` alarm kind** — `data/models.py::Alarm`: `kind: str = "price"` + `params: dict` (additive DB migration; price rows untouched). New `evaluate_volume_burst()` in `services/alarm_service.py`: z-score semantics only (never K-multiple language — C39.1), threshold from `params["z_threshold"]` (default 4.0). Wired into `TickerSession._on_aggregated_bar`'s per-push evaluation **alongside** `evaluate_alarms` — forming bars evaluated (**conservative: partial volume ÷ full minutes can only understate**), completed bars recorded; identical persist/trigger/rearm semantics (`AlarmStore.mark_triggered`, `alarm_triggered` toast+sound exactly once, grouped emission); chart overlay skips non-price alarms; `evaluate_alarms` is kind-filtered — **a price=0.0 burst alarm can never fire as a price alarm** (genuine pre-fix bug, caught and fixed) |
+| `90b01e7` | 39.4 | **Index proxy for burst** — burst alarms on indices carry `params.proxy`/`proxy_label` from D36's `INDEX_PROXY` (**reused, not duplicated**). `AlarmMonitor.reconcile` routes to the **proxy tape's session** (ensured headless); **no session is created for the index itself**. Toasts labelled proxy-derived, e.g. "Volume burst on ES tape (z=9.4)" |
+| `0b50fb7` | Review | Post-review advisories: **A1** — z-threshold spinbox floor raised **0.5→1.0** in both alarm dialogs + tooltip caution (below 1.0 fires on normal variance); **A2** — tombstone symmetry guard: `record()` consults the in-session tombstone set |
+
+### Drive-by fixes (found while implementing, verified real)
+1. **`primary_session` reuse confirmed:** the D37-added property is properly backed — no regression from D39's heavier `TickerSession` traffic.
+2. **`evaluate_alarms` kind-filtering:** pre-fix, a `volume_burst` alarm with `price=0.0` could have fired as a price alarm. Kind-filtered as part of 39.3.
+
+### Decisions recorded
+- **Burst threshold — robust z-score (median/MAD, never mean/stddev)**, **user-tunable threshold**, baseline **compared against same-time-of-day history**, **N = 30 bars** (owner, 2026-10-13).
+- **Search box in the watchlist header** (owner, 2026-10-13).
+- **Index-proxy rule:** SPX→ES front-month (NDX→NQ etc.) for burst alarms — indices have no tape (owner, 2026-10-13); D36's resolver reused.
+- **Search results show symbol·secType·exchange** — 10.51.1's `ContractDescription` carries only `contract` + `derivativeSecTypes`; there is no company-name field. The requirement's "company name" was an API-docs oversell (reviewer-verified); details resolve on selection instead.
+- **No generic rate ticks needed** — evaluation uses session bar volumes (the specified N=30-bars design); ticks 54/55/56/63/64/65 remain available but are not required.
+- Pacing: D39 adds no new IBKR budget load — search requests are debounced user-initiated traffic; the baseline prime is local-only (zero IBKR requests); burst evaluation rides the per-aggregator-push path.
+
+### Review findings of note
+- **APPROVED**, no blocking findings.
+- B.6 mock-endpoint invariant: PASSED on the full diff + new files.
+- **`symbolSamples` verified arg-for-arg** against the 10.51.1 wheel — the D36 B1/B2 lesson is now a standing habit.
+- **Pre-fix bug acknowledged by the Coder:** kind-unfiltered `evaluate_alarms` would have let a burst alarm fire as a price alarm; kind-filtered before merge.
+- **Reviewer advisories:** A1 (z-threshold floor 0.5→1.0 + tooltip) and A2 (tombstone guard in `record()`) applied post-review in `0b50fb7`.
+- **AC-D39.1–AC-D39.5 genuinely verified** (debounce cap; ≤16 samples → contract resolution → `load_chart`; synthetic skewed volume → median/MAD baseline → burst fires exactly once at z≥threshold; flat data never fires; fired → store shows triggered, re-arm works, headless monitored set includes it; full suite green).
+
+### Follow-ups filed (not Phase D39 scope)
+- D40 not started.
+- (Carried) depth heatmap default ON pending owner confirmation (D37, reviewer recommends OFF); delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests (plus the two D39 reviewer-run load flakes); 4h/daily forming-candle exactness; stale reqId accumulation.
+
+### USAGE.txt
+- New "Volume-burst alerts & symbol search (Phase D39)" section: creating a burst alarm, z-threshold, warm-up note, search box location, proxy labels.
+
+---
+
 ## Phase D38 — Events & news (event markers + news-for-holdings digest)
 
 - **Status:** Code complete and review-**APPROVED**; branch `feat/d38-events-news` merged to `main` @ `8599ce4` (feature commit `b893911`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.

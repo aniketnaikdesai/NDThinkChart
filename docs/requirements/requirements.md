@@ -729,6 +729,47 @@ repository files, which remain authoritative if the two disagree.
   for events within 7 days), single-QThread sequential worker ≥1s between calls, own connections
   (never on the IBKR pacing budget), pinned `yfinance==1.7.0` with quarterly re-pin policy.
 
+### Journey 34 — D39: volume-burst alerts + symbol search
+- **Preconditions:** IBKR connected; the main chart shows ticker X (e.g. `SPY`, 1m); a few
+  days of session-bar history exist (for the persisted baseline) or at least 5 warm-up bars
+  in the current session.
+- **Steps:** 1) Type "AA" in the search box in the **watchlist header** — at most ~1
+  `reqMatchingSymbols` per 300ms of typing returns ≤16 samples shown as symbol·secType·exchange;
+  selecting one resolves the contract and loads its chart. 2) Create a `volume_burst` alarm
+  (default z-threshold 4.0, tunable ≥1.0) — it is evaluated on every aggregator push
+  (forming bars evaluated conservatively, completed bars recorded) by `evaluate_volume_burst()`
+  against the robust median/MAD baseline for the current ET minute-of-day over the last
+  30 samples; a bar whose per-minute volume scores z ≥ threshold fires the alarm exactly once
+  (toast + sound + `AlarmStore` triggered; re-arm re-enables it). 3) Alarms on indices
+  (e.g. `SPX`) evaluate the **proxy tape's** bars — SPX→ES front-month via D36's `INDEX_PROXY`
+  (reused, not duplicated) — and the toast is labelled proxy-derived ("Volume burst on ES
+  tape (z=9.4)"); the proxy session is ensured headless, no session is created for the index
+  itself. 4) Three-tier baseline: persisted `volume_baseline` table (`samples` JSON column for
+  exact recomputation) → one-time local `BarCache` prime (zero IBKR requests) → rolling-30
+  fallback; contract rolls invalidate the baseline (keyed on the resolved front month,
+  tombstoned in-session so old rows cannot resurrect).
+- **Postconditions:** "AA" → ≤16 samples, select → contract resolution + `load_chart`;
+  10 keystrokes in 500ms → ≤2 `reqMatchingSymbols` calls; synthetic skewed volume then a
+  z≈6 bar → burst fires exactly once; flat data never fires; fired → store shows triggered,
+  re-arm works, headless monitored set includes it; 5-bar warm-up shows "warming up (n/5)";
+  volume <1.0/min → no evaluation; flat baseline → z=0, real bursts fire finite (no infinity).
+- **Edge Cases:** search with no matches → clear state; search while disconnected → disabled +
+  message; z-threshold below 1.0 rejected (fires on normal variance); illiquid symbol
+  (baseline near zero) → 1.0/min floor applies, no dust triggers; session open (<5 bars) →
+  no evaluation, documented warm-up; contract roll → baseline invalidated, new contract starts
+  fresh; **no company name in search results** (10.51.1's `ContractDescription` carries only
+  `contract` + `derivativeSecTypes` — reviewer-verified API limitation; details resolve on
+  selection).
+- **As-built note:** `AC-D39.1`–`AC-D39.5` verified; 1009 tests green (970 pre-existing + 39 new
+  `tests/test_d39_burst_search.py`); Code Reviewer APPROVED 2026-10-13 (no blocking findings).
+  Drive-by: `evaluate_alarms` kind-filtering (a price=0.0 burst alarm can never fire as a price
+  alarm — genuine pre-fix bug). Reviewer advisories applied post-review: A1 z-threshold floor
+  0.5→1.0 in both alarm dialogs + tooltip caution; A2 tombstone symmetry guard in `record()`.
+  B.6 mock-endpoint invariant PASSED; `symbolSamples` verified arg-for-arg against the 10.51.1
+  wheel. Search box: expanding, capped 180px, zero minimum width (a 110px minimum broke D17
+  dock tests). Two load flakes in reviewer runs (`test_attach_live_feed_defers_with_status_and_retries`,
+  `test_smoke_gate_three_popouts`) — pass in isolation, not regressions.
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)

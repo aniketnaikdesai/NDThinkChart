@@ -2892,3 +2892,151 @@ The D38 code lives in two new modules, one new package, plus additive changes to
 reviewer APPROVED with no blocking findings (A1 advisory applied post-review — two merge
 tests re-pointed at the real `_merge_events`); merged to `main` @ `8599ce4`. D39–D40 not
 started.
+
+## D39 increment — volume-burst alerts + symbol search (as-built 2026-10-13, Code Reviewer APPROVED)
+
+> **Increment scope.** A **new-feature** increment on the built D1–D38 system: symbol
+> search (debounced `reqMatchingSymbols` → `symbolSamples` → contract resolution → load
+> chart) + `volume_burst` alarm kind (robust median/MAD z-score vs same-time-of-day
+> baseline, N=30, user-tunable threshold) + index-proxy burst routing.
+> Built on `feat/d39-burst-search` @ `90b01e7` (+ post-review advisories `0b50fb7`),
+> merged to `main` @ `83f792a` (not pushed); 1009 tests green (970 pre-existing + 39 new).
+> D1–D38 not reopened.
+
+### Codebase Summary (existing repository — D39 surface)
+
+The D39 code lives in two new services plus additive changes to existing ones:
+
+- **New `[new]`** `services/symbol_search.py` — debounced search service:
+  `reqMatchingSymbols(pattern)` (**≤1 request per 300ms** of typing) → `symbolSamples`
+  (≤16 results) → bounded contract resolution → chart load. Exactly-once correlation
+  (reqId), 5s timeout, disconnected guard (search disabled + message) and empty/no-match
+  clear state. The wire path is user-initiated only — never backgrounded.
+- **New `[new]`** `services/volume_baseline.py` — the three-tier baseline service:
+  **(1)** persisted `volume_baseline` table (additive `data/db.py` migration; **`samples`
+  JSON column** carries the exact sample list so recomputation is exact, not approximate);
+  **(2)** one-time `BarCache` prime — **local only, zero IBKR requests**; **(3)** rolling-30
+  fallback until buckets fill. Keyed per (resolved-contract, ET minute-of-day bucket),
+  volumes normalized per-minute. Guards are part of the service contract: **1.0/min volume
+  floor** (no evaluation on dust), **5-bar warm-up** (explicit "warming up (n/5)" status —
+  the early-session coverage gap is documented, not silent), **5%-of-median MAD floor**
+  (flat data scores z=0; real bursts on flat baselines fire finite, never infinity).
+  **Roll invalidation:** the key embeds D36's `footprint_cache_key` (front month in the
+  key); a key change tombstones the old contract in-session, and `record()` consults the
+  tombstone set (post-review A2) — old-contract DB rows **cannot resurrect**.
+- **`[new/changed]`** `ibkr/client.py` (`symbolSamples` override — 10.51.1 arg-for-arg
+  verified: `(reqId, contractDescriptions)`), **`[new/changed]`** `ibkr/bridge.py`
+  (`symbol_samples` signal), **`[new/changed]`** `ui/watchlist_panel.py` (header search
+  box — expanding, capped 180px, **zero minimum width**; a 110px minimum broke D17 dock
+  tests), **`[new/changed]`** `data/models.py` (`Alarm.kind: str = "price"` +
+  `params: dict` — additive, price rows untouched), **`[new/changed]`**
+  `services/alarm_service.py` (`evaluate_volume_burst()` — z-score semantics only, never
+  K-multiple language, C39.1), **`[new/changed]`** `ui/ticker_session.py`
+  (per-push evaluation in `_on_aggregated_bar`: forming bars evaluated conservatively —
+  partial volume ÷ full minutes can only understate — completed bars recorded;
+  chart overlay skips non-price alarms), **`[new/changed]`** `services/alarm_monitor.py`
+  (reconcile routes index burst alarms to the proxy tape's session, ensured headless;
+  **no session is created for the index itself**), **`[new/changed]`** `ui/alarm_dialog.py`
+  + `ui/alarm_edit_dialog.py` (z-threshold spinbox floor 0.5→**1.0** + tooltip caution —
+  post-review A1), **`[new/changed]`** `ibkr/contracts.py` (D36's `INDEX_PROXY` reused,
+  not duplicated — SPX→ES front-month for burst alarms).
+
+### Tech Stack Decisions (D39 increment)
+
+- **Robust z-score everywhere: median/MAD, never mean/stddev** (owner, 2026-10-13).
+  Same-time-of-day baseline (ET minute-of-day buckets), N=30 samples, per-minute
+  normalization so mixed timeframes compare. The threshold is **user-tunable** per alarm
+  (`params["z_threshold"]`, default 4.0, floor 1.0 — below 1.0 fires on normal variance).
+- **Session bar volumes are the evaluation substrate** (owner-confirmed 2026-10-13:
+  existing session-bar volume, not generic ticks 54/55/56 or 63/64/65). This keeps burst
+  evaluation on the per-aggregator-push path with **zero new IBKR requests** and zero
+  pacing budget impact.
+- **Alarm kind is a first-class, additive extension.** `kind`/`params` on `Alarm`;
+  `evaluate_alarms` is kind-filtered so a `price=0.0` burst alarm can never fire as a
+  price alarm (genuine pre-fix bug — caught during implementation); persist/trigger/rearm
+  semantics are identical to price alarms (`AlarmStore.mark_triggered`, grouped
+  `alarm_triggered` emission, toast+sound exactly once, headless included).
+- **`symbolSamples` carries no company name** — 10.51.1's `ContractDescription` has only
+  `contract` + `derivativeSecTypes` (reviewer-verified). The requirement's "company name"
+  was an API-docs oversell; results show symbol·secType·exchange, full details resolve
+  on selection. The new override was verified arg-for-arg against the wheel (the D36
+  B1/B2 lesson is now a standing habit).
+- **Index proxy reuses D36's resolver.** Burst alarms on indices carry
+  `params.proxy`/`proxy_label`; the baseline keys on the resolved proxy contract and
+  invalidates on roll — never compare ESZ5 volume against an ESU5 baseline (C39.2,
+  mirror of 36.3's never-compare-across-contracts rule).
+
+### System Components (D39 increment)
+
+- **Search path:** header box (debounced) → `SymbolSearchService` → `reqMatchingSymbols` →
+  bridge `symbol_samples` → popup (symbol·secType·exchange) → bounded contract resolution
+  (`reqContractDetails`) → `load_chart`. Disconnected → box disabled + message; no match →
+  clear state.
+- **Burst path:** `_on_aggregated_bar` → `evaluate_alarms` (kind-filtered) →
+  `evaluate_volume_burst()` (z vs `VolumeBaselineService` for the bar's ET minute-bucket)
+  → z ≥ threshold → `AlarmStore.mark_triggered` → grouped `alarm_triggered` → toast
+  (proxy-labelled, e.g. "Volume burst on ES tape (z=9.4)") + sound, exactly once → re-arm
+  re-enables. Headless sessions evaluate identically (D25 semantics).
+- **Baseline path:** `record(resolved_key, bucket, per_min_volume)` consults the
+  in-session tombstone set (A2) → persisted table (`samples` JSON for exact recomputation)
+  → lookup by (resolved key, bucket); prime tiers 2/3 fill gaps without touching IBKR.
+  Warm-up: <5 bars → "warming up (n/5)", no evaluation. Floor: median <1.0/min → no
+  evaluation. MAD floor: 5% of median — flat data scores z=0.
+- **Proxy path:** burst alarm with `params.proxy` → `AlarmMonitor.reconcile` ensures the
+  proxy tape's session (headless if needed) → evaluation and baseline both run against
+  the proxy contract's bars; the index itself never gets a session.
+
+### Data Model (D39 increment)
+
+- `Alarm`: `kind` (`"price"` default — all pre-existing rows unchanged), `params` (JSON;
+  burst alarms carry `z_threshold`, window N, `proxy`, `proxy_label`). Additive migration;
+  price-alarm rows untouched.
+- `volume_baseline` table (additive): `(resolved_contract, bucket)` → `median`, `mad`,
+  `n`, **`samples` JSON** (exact sample list — recomputation is exact, not approximate).
+  Roll = key change → in-session tombstone; tombstoned keys' `record()` calls are dropped
+  and their DB rows never resurface.
+
+### Integration Points (D39 increment)
+
+- **D25 alarm engine:** `volume_burst` is the first new kind since D25 — kind-filtering
+  keeps price alarms' behavior bit-identical; the pre-fix kind-unfiltered path would have
+  let a burst alarm fire as a price alarm (fixed in 39.3).
+- **D26 safety layer:** untouched. Burst/search paths are read-only data; no order-path
+  interaction.
+- **D27 reconnect:** session bar volumes are the evaluation substrate, so bursts re-derive
+  naturally on reconnect; persisted baseline (SQLite) survives disconnects.
+- **D36 footprint cache key:** reused as the baseline key (`footprint_cache_key` embeds the
+  front month) — the roll-invalidation story is shared, not duplicated.
+- **D37 S0 substrate:** untouched. Burst evaluation needs no generic ticks; the baseline
+  prime is local-only. Search is a separate debounced request path (user-initiated).
+
+### Non-Functional Approach (D39 increment)
+
+- **Pacing:** D39 adds **zero** IBKR budget load — debounced user-initiated search traffic,
+  local-only baseline prime, per-push evaluation on existing session bars. `pacing_manager`
+  remains the single owner; nothing sleeps on the GUI thread.
+- **Performance:** median/MAD over ≤30 samples is O(1) per push; the persisted-table
+  lookup is one indexed query per (contract, bucket); tombstone set is in-memory.
+- **Test safety:** no test touches live TWS or transmits orders; mocked `ib_client` only.
+  Owner rule (binding): **no mock endpoint of any kind in production code** — B.6 grep
+  PASSED for D39.
+
+### Architecture Risks (D39 increment)
+
+- **Warm-up blind spot:** the first 5 bars of a session cannot evaluate bursts — an open
+  auction spike is invisible to the feature. Documented as a known gap (explicit
+  "warming up (n/5)" status), not a silent one.
+- **Proxy-session MD lines:** index burst alarms ensure a headless proxy session whose
+  S0/depth lines count in the MD-line budget — counted, but a burst-alarm-heavy watchlist
+  approaches the 100-line guard faster.
+- **Flat-baseline finiteness:** the 5%-of-median MAD floor guarantees finite z on flat
+  baselines, but its calibration (5%) is heuristic — if false bursts appear on flat
+  names, revisit the floor before the threshold.
+
+### Implementation sequencing (D39 increment)
+
+39.1 (search) and 39.2 (baseline service — the most intricate logic, tested tier-by-tier
+plus guard cases before wiring) → 39.3 (`volume_burst` kind + evaluation wiring) →
+39.4 (index proxy) on `feat/d39-burst-search`; reviewer APPROVED with no blocking
+findings (A1/A2 advisories applied post-review in `0b50fb7`); merged to `main` @
+`83f792a`. D40 not started.
