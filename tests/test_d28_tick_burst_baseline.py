@@ -65,6 +65,7 @@ def test_tick_burst_baseline(monkeypatch, qapp, capsys):
 
         per_tick_ms = (elapsed / 100) * 1000
         # Record for the 3c smoke-gate report.
+        # Measured 2026-10-12: ~0.35ms/tick (single panel, offscreen).
         with capsys.disabled():
             print(
                 f"\n[TICK-BURST BASELINE] 100 ticks: {elapsed*1000:.1f}ms "

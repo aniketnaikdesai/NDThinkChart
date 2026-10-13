@@ -235,8 +235,12 @@ class ChartPanel(QWidget):
     # AC-D3.9: emitted when the magnifier is refused because alarm placement is armed.
     zoom_refused = pyqtSignal()
 
-    def __init__(self, tz_offset: int = 0):
+    def __init__(self, tz_offset: int = 0, editable: bool = True):
         super().__init__()
+        # D24: pop-out charts pass editable=False — drawing, alarm placement,
+        # studies/timeframe/mode interaction are disabled; overlays render and
+        # crosshair/zoom/pan keep working.
+        self._editable = editable
         self._bars: list = []
         # D21.4: the display-x collapse map and the indices of the bars actually
         # plotted (with Ext Hours OFF only RTH bars are plotted). ``_bars`` is
@@ -784,7 +788,10 @@ class ChartPanel(QWidget):
         """Thin adapter (signature unchanged): route alarm intent through the router.
 
         Enabling exits any active zoom (TR-6); disabling returns to IDLE (TR-13).
+        D24: no-op when the panel is not editable (pop-out).
         """
+        if not self._editable:
+            return
         enabled = bool(enabled)
         if enabled:
             self.mouse_router.enter_alarm_placing()
@@ -859,7 +866,12 @@ class ChartPanel(QWidget):
             self.set_zoom_mode(False)
 
     def set_drawing_tool(self, tool: str):
-        """Thin adapter (signature unchanged): route drawing intent through the router."""
+        """Thin adapter (signature unchanged): route drawing intent through the router.
+
+        D24: no-op when the panel is not editable (pop-out).
+        """
+        if not self._editable:
+            return
         self.setFocus()
         self.mouse_router.enter_drawing(tool)
         self._sync_magnifier(self.mouse_router.active_mode == RouterMode.ZOOMING)
@@ -1003,25 +1015,34 @@ class ChartPanel(QWidget):
 
     def update_last_bar(self, bar, is_new_candle: bool):
         """Intra-bar live update. Repaints candle + volume; re-applies studies
-        only when a new candle period closes so live ticks stay responsive."""
+        only when a new candle period closes so live ticks stay responsive.
+        D24: a new candle on an empty chart starts the series (pop-out with
+        no history yet)."""
         if not self._bars:
+            if is_new_candle:
+                self.update_chart([bar])
             return
         new_period = is_new_candle or self._bars[-1].ts != bar.ts
         if new_period:
             self._bars.append(bar)
             # D21.4: a new bar changes the collapse map's span.
             self._rebuild_collapse_map()
+            # D21.2 / AC-D21.2.1: recompute the visible ceiling for a new bar.
+            self._recompute_visible_volume_range()
         else:
             self._bars[-1] = bar
-        # D21.2 / AC-D21.2.1: recompute the visible ceiling on every bar update
-        # so a forming last bar growing past the current ceiling widens it
-        # (ESC-007 no-clip intent) and a newly appended bar is accounted for.
-        self._recompute_visible_volume_range()
+            # D24 perf: the forming bar's volume only grows; skip the O(n)
+            # visible-max scan unless it could raise the ceiling.
+            if bar.volume * 1.1 > self._volume_nice_max:
+                self._recompute_visible_volume_range()
         self._refresh_candles()
-        if self.drawing_overlay is not None:
-            self.drawing_overlay.set_bars(self._plotted_bars)
-        if self.alarm_overlay is not None:
-            self.alarm_overlay.set_bars(self._plotted_bars)
+        # D24 perf: overlay x-positions depend on bar timestamps; a forming-bar
+        # tick doesn't move them, so skip the set_bars (which repositions labels).
+        if new_period:
+            if self.drawing_overlay is not None:
+                self.drawing_overlay.set_bars(self._plotted_bars)
+            if self.alarm_overlay is not None:
+                self.alarm_overlay.set_bars(self._plotted_bars)
         if is_new_candle:
             self._apply_studies()
             self._render_sessions()

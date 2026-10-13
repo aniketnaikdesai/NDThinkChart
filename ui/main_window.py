@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QDockWidget, QSplitter, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QEvent
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 from config import settings
 from ibkr.client import IBApiClient, ConnectionState
@@ -274,6 +275,14 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(QLabel("|"))
         tb_layout.addWidget(QLabel("Mode:"))
         tb_layout.addWidget(self.mode_combo)
+        # D24: pop-out button (Ctrl/Cmd+P). Snapshots the current symbol /
+        # timeframe / mode / ext-hours into a read-only pop-out window.
+        self.popout_btn = QPushButton("Pop out")
+        self.popout_btn.setToolTip(
+            f"Open a read-only pop-out chart (Ctrl/Cmd+P, max {settings.MAX_POPOUTS})"
+        )
+        self.popout_btn.clicked.connect(self._open_popout)
+        tb_layout.addWidget(self.popout_btn)
         tb_layout.addWidget(self.studies_btn)
         tb_layout.addWidget(self.alarms_btn)
         tb_layout.addWidget(self.alarm_mode_btn)
@@ -585,6 +594,8 @@ class MainWindow(QMainWindow):
         self._sessions: dict[str, TickerSession] = {}
         self._req_to_session: dict[int, TickerSession] = {}
         self._primary_session: TickerSession | None = None
+        # D24: open pop-out windows (capped at MAX_POPOUTS).
+        self._popouts: list = []
         self._depth_req_id: int | None = None
         self._current_symbol: str = ""
         self._current_tf: str = "5 mins"
@@ -609,6 +620,11 @@ class MainWindow(QMainWindow):
         self._rt_retry_timer.setSingleShot(True)
         self._rt_retry_timer.timeout.connect(self._retry_rt_subscribe)
         self._active_draw_group_id: int | None = None
+
+        # D24: Ctrl/Cmd+P opens a pop-out of the current chart.
+        popout_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
+        popout_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        popout_shortcut.activated.connect(self._open_popout)
 
         # Start connection
         self.ib_client.connect(settings.IBKR_HOST, settings.IBKR_PORT, settings.IBKR_CLIENT_ID)
@@ -650,6 +666,81 @@ class MainWindow(QMainWindow):
 
     def _session_for_req_id(self, req_id: int) -> TickerSession | None:
         return self._req_to_session.get(req_id)
+
+    # ── Pop-outs (D24) ──────────────────────────────────────────────────
+
+    def _register_popout(self, popout) -> None:
+        if popout not in self._popouts:
+            self._popouts.append(popout)
+
+    def _unregister_popout(self, popout) -> None:
+        if popout in self._popouts:
+            self._popouts.remove(popout)
+
+    def _open_popout(self) -> None:
+        """Snapshot the current chart into a read-only pop-out window."""
+        from ui.popout_window import PopoutChartWindow
+
+        if not self._current_symbol:
+            self.status_bar.showMessage(
+                "Load a symbol before popping out.", 3000
+            )
+            return
+        if len(self._popouts) >= settings.MAX_POPOUTS:
+            self.status_bar.showMessage(
+                f"Pop-out limit reached ({settings.MAX_POPOUTS}). "
+                "Close one to open another.",
+                5000,
+            )
+            return
+        popout = PopoutChartWindow(
+            symbol=self._current_symbol,
+            timeframe=self._current_tf,
+            mode=self.mode_combo.currentText(),
+            extended_hours=self.ext_hours_btn.isChecked(),
+            host=self,
+            parent=self,
+        )
+        popout.attach()
+        popout.show()
+        self.status_bar.showMessage(
+            f"Popped out {self._current_symbol} [{self._current_tf}].", 3000
+        )
+
+    def _restore_popouts(self) -> None:
+        """D24.9: re-open persisted pop-outs after connect.
+
+        Lazy attach, cache-first render: the session syncs from cache on
+        attach; the RT subscription follows the normal pacing path.
+        """
+        from ui.popout_window import PopoutChartWindow
+
+        try:
+            from data.popout_store import PopoutStore
+
+            saved = PopoutStore.load_all()
+        except Exception as exc:
+            _LOG.warning("Pop-out restore failed: %s", exc)
+            return
+        for record in saved[: settings.MAX_POPOUTS]:
+            try:
+                popout = PopoutChartWindow(
+                    symbol=record["symbol"],
+                    timeframe=record["timeframe"],
+                    mode=record["mode"],
+                    extended_hours=record["ext_hours"],
+                    host=self,
+                    parent=self,
+                )
+                popout.attach()
+                popout.apply_geometry(record["geometry"])
+                popout.show()
+            except Exception as exc:
+                _LOG.warning(
+                    "Pop-out restore failed for %s: %s",
+                    record.get("symbol"),
+                    exc,
+                )
 
     def _set_primary_session(self, session: TickerSession | None) -> None:
         """Point the main chart at a session, rewiring the view signals."""
@@ -840,6 +931,8 @@ class MainWindow(QMainWindow):
         self._restore_watchlist()
         self._replay_subscriptions()
         self._subscribe_account_data()
+        # D24.9: restore pop-outs after connect (lazy attach, cache-first).
+        self._restore_popouts()
 
     def _subscribe_account_data(self):
         """D27.6: subscribe positions + account summary on (re)connect.

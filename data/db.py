@@ -72,6 +72,16 @@ class DB:
             enabled INTEGER NOT NULL DEFAULT 1,
             params TEXT NOT NULL
         );
+        -- D24.9: pop-out window persistence (additive; restored on launch).
+        CREATE TABLE IF NOT EXISTS popouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            timeframe TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            ext_hours INTEGER NOT NULL DEFAULT 1,
+            geometry TEXT NOT NULL DEFAULT '{}',
+            updated_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             symbol TEXT NOT NULL,
