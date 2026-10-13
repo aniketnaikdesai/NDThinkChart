@@ -342,3 +342,69 @@ def test_fix4_popout_pacing_exceeded_schedules_retry(monkeypatch, qapp):
         _clear(SYM)
         _clear_popouts(SYM)
         win.close()
+
+
+SYM2 = "FIXB"
+
+
+# ── Fix 5: pacing-exhausted headless start never retries ───────────────────
+
+
+def test_fix5_headless_pacing_exhausted_schedules_retry(monkeypatch, qapp):
+    """Reviewer fix 5: a headless monitor start that hits pacing exhaustion
+    must schedule a retry with the exception's wait seconds — the session
+    must not sit silently unmonitored with nothing scheduled."""
+    from ibkr.pacing import PacingExceeded
+    from ui.ticker_session import TickerSession
+    import services.alarm_monitor as ammon
+
+    _clear(SYM2)
+    win = _make_window(monkeypatch, qapp)
+    try:
+        _add_alarm(SYM2, 100.0)
+
+        real_ensure = TickerSession.ensure_rt_subscribed
+        state = {"raise_once": False}
+
+        def fake_ensure(self):
+            if state["raise_once"]:
+                state["raise_once"] = False
+                raise PacingExceeded(6.0)
+            return real_ensure(self)
+
+        monkeypatch.setattr(
+            TickerSession, "ensure_rt_subscribed", fake_ensure)
+
+        scheduled = []
+        monkeypatch.setattr(
+            ammon.QTimer, "singleShot",
+            lambda ms, fn: scheduled.append((ms, fn)))
+
+        messages = []
+        win.status_bar.showMessage = lambda msg, *a: messages.append(msg)
+
+        state["raise_once"] = True
+        win.alarm_monitor.reconcile()  # headless start hits the budget wall
+        qapp.processEvents()
+
+        session = win._sessions[SYM2]
+        assert session.monitored is True
+        assert scheduled, (
+            "pacing-exhausted headless start scheduled no retry "
+            "(silently unmonitored)"
+        )
+        assert scheduled[0][0] == 6000, (
+            f"retry not scheduled with wait_seconds: {scheduled[0][0]}ms"
+        )
+        assert any(SYM2 in m for m in messages), (
+            "unmonitored warning does not name the symbol"
+        )
+
+        # The scheduled retry subscribes once budget recovers.
+        scheduled[0][1]()
+        assert session._rt_req_id is not None, (
+            "retry did not complete the headless RT subscription"
+        )
+    finally:
+        _clear(SYM2)
+        win.close()

@@ -26,6 +26,8 @@ from __future__ import annotations
 import logging
 import time
 
+from PyQt6.QtCore import QTimer
+
 from data.alarm_store import AlarmStore
 from data.bar_cache import BarCache
 from ibkr.pacing import PacingExceeded
@@ -120,8 +122,9 @@ class AlarmMonitor:
         try:
             session.ensure_rt_subscribed()
         except PacingExceeded as e:
-            # Pacing guardrail: warn naming the unmonitored symbol; the next
-            # reconcile (or the session's own retry) picks it up.
+            # Pacing guardrail: warn naming the unmonitored symbol, and
+            # schedule the retry — nothing else re-attempts this subscribe
+            # (no timer sits behind "the next reconcile").
             _LOG.warning(
                 "AlarmMonitor: pacing-limited, %s left unmonitored "
                 "(retry in %.0fs)",
@@ -136,8 +139,29 @@ class AlarmMonitor:
                 )
             except Exception:
                 pass
-            # Stay marked monitored so a later reconcile retries the subscribe.
+            # Stay marked monitored so the retry (and any later reconcile)
+            # picks the subscribe back up.
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000),
+                lambda: self._retry_monitor_subscribe(session),
+            )
             return
+
+    def _retry_monitor_subscribe(self, session) -> None:
+        """Pacing-deferred retry for a headless monitor subscribe.
+
+        Skips if the session stopped being headless+monitored while the
+        retry was pending (a view opened, or reconcile released it).
+        """
+        if not session.monitored or session.views:
+            return
+        try:
+            session.ensure_rt_subscribed()
+        except PacingExceeded as e:
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000),
+                lambda: self._retry_monitor_subscribe(session),
+            )
         _LOG.info("AlarmMonitor: monitoring %s (headless 1m)", session.symbol)
 
     def _stop_monitoring(self, session) -> None:
