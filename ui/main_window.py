@@ -2999,7 +2999,11 @@ class MainWindow(QMainWindow):
         if con_id is not None:
             contract.conId = con_id
         if contract_type != "stock":
-            contract.secType = contract_type.upper()
+            # D28.6: the stored 'option'/'future' must map to IBKR's
+            # OPT/FUT secTypes — a bare .upper() yields the invalid
+            # OPTION/FUTURE and the close order would be rejected.
+            contract.secType = {"option": "OPT", "future": "FUT"}.get(
+                contract_type, contract_type.upper())
             if local_symbol:
                 contract.localSymbol = local_symbol
             if expiry:

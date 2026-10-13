@@ -44,3 +44,54 @@ def test_set_next_valid_id_still_monotonic_with_reserve():
     # A stale (lower) nextValidId must not move the counter backwards.
     mgr.set_next_valid_id(first + 2)
     assert mgr.get_id() == first + 101
+
+
+def test_get_id_allocates_sequentially():
+    mgr = IdManager()
+    ids = [mgr.get_id() for _ in range(5)]
+    assert ids == [ids[0] + i for i in range(5)]
+    assert len(set(ids)) == 5
+
+
+def test_reserve_rejects_non_positive():
+    import pytest
+
+    mgr = IdManager()
+    for bad in (0, -1, -100):
+        with pytest.raises(ValueError):
+            mgr.reserve(bad)
+    # The failed reservations must not consume IDs.
+    assert mgr.get_id() == 1
+
+
+def test_set_next_valid_id_equal_is_noop():
+    mgr = IdManager()
+    first = mgr.get_id()
+    mgr.set_next_valid_id(first + 1)  # equal to the pending next id
+    assert mgr.get_id() == first + 1  # unchanged, not skipped
+
+
+def test_concurrent_allocations_never_duplicate():
+    import threading
+
+    mgr = IdManager()
+    seen = set()
+    lock = threading.Lock()
+
+    def worker():
+        local = set()
+        for _ in range(200):
+            local.add(mgr.get_id())
+        first = mgr.reserve(3)
+        local.update({first, first + 1, first + 2})
+        with lock:
+            assert not (local & seen), "duplicate id across threads"
+            seen.update(local)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert all(not t.is_alive() for t in threads)
+    assert len(seen) == 8 * 203
