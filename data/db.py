@@ -115,6 +115,16 @@ class DB:
             trade_group_id INTEGER NOT NULL REFERENCES trade_groups(id),
             PRIMARY KEY (ibkr_position_id, trade_group_id)
         );
+        -- D36: footprint cache (additive). One compressed JSON blob per
+        -- (resolved contract, date, timeframe). Keyed on the resolved
+        -- futures contract (e.g. ESZ6), never the continuous symbol (C36.3).
+        CREATE TABLE IF NOT EXISTS footprint_cache (
+            resolved_contract TEXT NOT NULL,
+            date TEXT NOT NULL,
+            timeframe TEXT NOT NULL,
+            blob BLOB NOT NULL,
+            PRIMARY KEY (resolved_contract, date, timeframe)
+        );
         """
         self.conn.executescript(schema)
         self._migrate_schema()

@@ -127,6 +127,57 @@ def _front_month(symbol: str, now: datetime | None = None) -> tuple[int, int]:
     return (next_year, months[0])
 
 
+# ── D36 footprint: index → futures-tape proxy ────────────────────────────────
+# Indices have no tape. Footprint/burst features resolve an index to its
+# front-month futures contract and label the output accordingly.
+INDEX_PROXY = {
+    "SPX": "ES",
+    "NDX": "NQ",
+    "DJI": "YM",
+    "RUT": "RTY",
+}
+
+# IBKR futures month codes: F G H J K M N Q U V X Z = Jan..Dec.
+_FUTURE_MONTH_CODES = "FGHJKMNQUVXZ"
+
+
+def footprint_cache_key(symbol: str, now: datetime | None = None) -> str:
+    """Resolved cache key for footprint data (C36.3, binding everywhere).
+
+    Futures resolve to ``<root><month-code><year-digit>`` (e.g. ``ESZ6`` for
+    ES Dec 2026); stocks resolve to the uppercase symbol. Never the bare
+    continuous symbol — after a quarterly roll "ES" is a different contract.
+    """
+    base = symbol.split()[0].upper()
+    proxied = INDEX_PROXY.get(base, base)
+    schedule = FUTURES_SCHEDULE.get(proxied)
+    if schedule is None:
+        return base
+    year, month = _front_month(proxied, now)
+    return f"{proxied}{_FUTURE_MONTH_CODES[month - 1]}{year % 10}"
+
+
+def resolve_footprint_contract(
+    symbol: str, now: datetime | None = None
+) -> tuple[str, Contract, str]:
+    """Resolve the contract whose tape feeds footprint for ``symbol``.
+
+    Returns ``(cache_key, contract, label)`` where ``label`` is the
+    human-readable tape attribution ("" when the symbol uses its own tape —
+    the UI shows a proxy label like "ES tape" only for proxied indices).
+    SPY/QQQ use their own tape; SPX/NDX resolve to ES/NQ front-month.
+    """
+    base = symbol.split()[0].upper()
+    key = footprint_cache_key(symbol, now)
+    proxied = INDEX_PROXY.get(base)
+    if proxied is not None:
+        contract = get_contract_for_symbol(proxied, now)
+        return key, contract, f"{proxied} tape"
+    if base in FUTURES_SCHEDULE:
+        return key, get_contract_for_symbol(base, now), ""
+    return key, get_stock_contract(base), ""
+
+
 def get_stock_contract(symbol: str, exchange: str = "SMART", currency: str = "USD") -> Contract:
     contract = Contract()
     contract.symbol = symbol

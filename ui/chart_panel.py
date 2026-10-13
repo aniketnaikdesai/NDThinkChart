@@ -8,10 +8,11 @@ Supports 5 render modes and dynamic study overlays.
 import hashlib
 from bisect import bisect_left, bisect_right
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter
+from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter, QPushButton, QComboBox
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 
 from ui.candlestick_item import CandlestickItem, ChartMode
+from ui.footprint_item import FootprintItem
 from ui.drawing_overlay import DrawingViewBox, DrawingOverlay, TOOL_CURSOR
 from ui.alarm_overlay import AlarmOverlay
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
@@ -243,6 +244,10 @@ ALARM_PREVIEW_COLOR = "#ffff00"
 class ChartPanel(QWidget):
     # AC-D3.9: emitted when the magnifier is refused because alarm placement is armed.
     zoom_refused = pyqtSignal()
+    # D36 footprint: control changes → MainWindow wires to the session;
+    # viewport changes → session lazy-fill.
+    footprint_toggled = pyqtSignal(bool, str, str)  # enabled, style, metric
+    footprint_viewport_changed = pyqtSignal(float, float)  # first_ts, last_ts
 
     def __init__(self, tz_offset: int = 0, editable: bool = True):
         super().__init__()
@@ -339,6 +344,20 @@ class ChartPanel(QWidget):
         # updates never regenerate the static history QPicture.
         self.live_candle = CandlestickItem([], mode=ChartMode.CANDLES)
         self.price_plot.addItem(self.live_candle)
+        # D36 footprint render layer — static (completed bars) + live
+        # (forming bar), mirroring the D28.4 split. Footprint never
+        # regenerates on per-tick chart updates (AC-D36.4); the 15s service
+        # refresh drives the live item via refresh_footprint().
+        self.footprint_static = FootprintItem()
+        self.price_plot.addItem(self.footprint_static)
+        self.footprint_live = FootprintItem()
+        self.price_plot.addItem(self.footprint_live)
+        self._fp_enabled_ui = False
+        self._fp_style_ui = FootprintItem.STYLE_CLASSIC
+        self._fp_metric_ui = FootprintItem.METRIC_VOLUME
+        self._fp_status_text = pg.TextItem(anchor=(0, 0))
+        self._fp_status_text.setParentItem(self.price_plot.getViewBox())
+        self._fp_status_text.hide()
         # D28.4: cached candle half-width, recomputed only at full rebuild
         # (bar-count or spacing change), reused by forming-bar ticks.
         self._candle_half_width: float = 0.0
@@ -460,6 +479,39 @@ class ChartPanel(QWidget):
         self._volume_toggle.raise_()
         self._position_volume_toggle()
 
+        # D36 footprint controls — floating cluster, top-left of the price
+        # plot: on/off toggle, classic/heatmap style toggle, and the heatmap
+        # metric selector (volume | tick count). The metric selector is only
+        # enabled in heatmap mode; classic is volume-only (owner decision).
+        self._fp_toggle = QPushButton("Footprint", self)
+        self._fp_toggle.setCheckable(True)
+        self._fp_toggle.setChecked(False)
+        self._fp_toggle.setToolTip("Show/hide footprint (bid×ask volume per price level)")
+        self._fp_toggle.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 2px 6px; background: rgba(30,30,30,0.9);"
+            " border: 1px solid #4b5563; border-radius: 4px; color: #e5e7eb; }"
+            "QPushButton:checked { background: rgba(96,165,250,0.20); }")
+        self._fp_toggle.toggled.connect(self._on_fp_toggled)
+        self._fp_style_btn = QPushButton("Classic", self)
+        self._fp_style_btn.setToolTip("Toggle footprint style: classic bid×ask bars / heatmap candles")
+        self._fp_style_btn.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 2px 6px; background: rgba(30,30,30,0.9);"
+            " border: 1px solid #4b5563; border-radius: 4px; color: #e5e7eb; }")
+        self._fp_style_btn.clicked.connect(self._on_fp_style_clicked)
+        self._fp_metric_combo = QComboBox(self)
+        self._fp_metric_combo.addItems(["Volume", "Tick count"])
+        self._fp_metric_combo.setToolTip("Heatmap metric: per-level volume or tick count")
+        self._fp_metric_combo.setStyleSheet(
+            "QComboBox { font-size: 11px; padding: 2px 4px; background: rgba(30,30,30,0.9);"
+            " border: 1px solid #4b5563; border-radius: 4px; color: #e5e7eb; }")
+        self._fp_metric_combo.currentIndexChanged.connect(self._on_fp_metric_changed)
+        for w in (self._fp_style_btn, self._fp_metric_combo):
+            w.hide()
+        self._fp_toggle.show()
+        self._fp_toggle.raise_()
+        self._fp_viewport_timer = None
+        self._position_fp_controls()
+
         # Zoom control cluster (top-right outlined) — floats over chart area
         from ui.chart_controls import ChartControls
         self._chart_controls = ChartControls(self)
@@ -543,6 +595,130 @@ class ChartPanel(QWidget):
                 y = vol_geo.top() + 4
             self._volume_toggle.move(int(x), int(y))
             self._volume_toggle.raise_()
+        except Exception:
+            pass
+
+    # ── D36 footprint ────────────────────────────────────────────────────
+
+    def _position_fp_controls(self):
+        """Top-left cluster: Footprint toggle, style toggle, metric combo."""
+        try:
+            price_geo = self.price_plot.geometry()
+            x = price_geo.left() + 8
+            y = price_geo.top() + 8
+            for w in (self._fp_toggle, self._fp_style_btn, self._fp_metric_combo):
+                w.move(int(x), int(y))
+                w.raise_()
+                x += w.width() + 6
+        except Exception:
+            pass
+
+    def _on_fp_toggled(self, checked: bool):
+        self._fp_enabled_ui = checked
+        for w in (self._fp_style_btn, self._fp_metric_combo):
+            w.setVisible(checked)
+        self._position_fp_controls()
+        if not checked:
+            self.footprint_static.clear()
+            self.footprint_live.clear()
+            self._fp_status_text.hide()
+        # MainWindow wires this to session.footprint_enable / disable.
+        self.footprint_toggled.emit(checked, self._fp_style_ui, self._fp_metric_ui)
+
+    def _on_fp_style_clicked(self):
+        self._fp_style_ui = (
+            FootprintItem.STYLE_HEATMAP
+            if self._fp_style_ui == FootprintItem.STYLE_CLASSIC
+            else FootprintItem.STYLE_CLASSIC)
+        self._fp_style_btn.setText(
+            "Heatmap" if self._fp_style_ui == FootprintItem.STYLE_HEATMAP
+            else "Classic")
+        # The metric selector only applies in heatmap mode (owner decision:
+        # classic is volume-only).
+        self._fp_metric_combo.setEnabled(
+            self._fp_style_ui == FootprintItem.STYLE_HEATMAP)
+        self.footprint_toggled.emit(True, self._fp_style_ui, self._fp_metric_ui)
+
+    def _on_fp_metric_changed(self, index: int):
+        self._fp_metric_ui = (
+            FootprintItem.METRIC_COUNT if index == 1
+            else FootprintItem.METRIC_VOLUME)
+        if self._fp_enabled_ui:
+            self.footprint_toggled.emit(True, self._fp_style_ui, self._fp_metric_ui)
+
+    def refresh_footprint(self, snapshot: dict, live_only: bool = False) -> None:
+        """Re-render the footprint layer from a session snapshot.
+
+        ``live_only`` (forming-bar 15s refresh) touches only the live item;
+        completed-bar backfill rebuilds the static item. Per-tick chart
+        updates never call this (AC-D36.4).
+        """
+        if not self._fp_enabled_ui:
+            return
+        style = snapshot.get("style", FootprintItem.STYLE_CLASSIC)
+        metric = snapshot.get("metric", FootprintItem.METRIC_VOLUME)
+        levels = snapshot.get("levels", {})
+        hw = getattr(self, "_candle_half_width", 0.0) or 0.25
+        to_display = self._to_display
+        # The last bar is the forming bar → live item; the rest → static.
+        static_entries: list[tuple[float, dict]] = []
+        live_entries: list[tuple[float, dict]] = []
+        bars = self._bars
+        for i, bar in enumerate(bars):
+            lv = levels.get(bar.ts)
+            if not lv:
+                continue
+            entry = (to_display(bar.ts), lv)
+            if i == len(bars) - 1:
+                live_entries.append(entry)
+            else:
+                static_entries.append(entry)
+        if not live_only:
+            self.footprint_static.set_data(static_entries, style, metric, hw)
+        self.footprint_live.set_data(live_entries, style, metric, hw)
+        # Status: explicit "no tick data" / "loading" states (never silent).
+        # Position the label at the visible top-left of the price view.
+        try:
+            vb = self.price_plot.getViewBox()
+            (vx0, _vx1), (_vy0, vy1) = vb.viewRange()
+            self._fp_status_text.setPos(vx0, vy1)
+        except Exception:
+            pass
+        if snapshot.get("no_tick_data"):
+            self._fp_status_text.setText(f"No tick data for {self._symbol}")
+            self._fp_status_text.show()
+        else:
+            states = snapshot.get("states", {})
+            loading = sum(1 for b in bars if states.get(b.ts) == "loading")
+            if loading:
+                self._fp_status_text.setText(f"Footprint loading… ({loading} bars)")
+                self._fp_status_text.show()
+            else:
+                self._fp_status_text.hide()
+        proxy = snapshot.get("proxy_label", "")
+        tip = "Show/hide footprint (bid×ask volume per price level)"
+        if proxy:
+            tip += f" — {proxy}"
+        self._fp_toggle.setToolTip(tip)
+
+    def _fp_queue_viewport_sync(self) -> None:
+        """Throttled viewport → session lazy-fill (scroll)."""
+        if not self._fp_enabled_ui:
+            return
+        if self._fp_viewport_timer is None:
+            from PyQt6.QtCore import QTimer
+            self._fp_viewport_timer = QTimer(self)
+            self._fp_viewport_timer.setSingleShot(True)
+            self._fp_viewport_timer.timeout.connect(self._fp_emit_viewport)
+        if not self._fp_viewport_timer.isActive():
+            self._fp_viewport_timer.start(400)
+
+    def _fp_emit_viewport(self) -> None:
+        try:
+            x0, x1 = self.price_plot.getViewBox().viewRange()[0]
+            ts0, ts1 = self._to_ts(x0), self._to_ts(x1)
+            self.footprint_viewport_changed.emit(float(min(ts0, ts1)),
+                                                 float(max(ts0, ts1)))
         except Exception:
             pass
 
@@ -1358,6 +1534,9 @@ class ChartPanel(QWidget):
     def _on_price_x_range_changed(self, *_args) -> None:
         """Recompute the visible volume ceiling on every visible-x change."""
         self._recompute_visible_volume_range()
+        # D36: scrolled-into-view bars without footprint data trigger a
+        # bounded lazy-fill (throttled).
+        self._fp_queue_viewport_sync()
 
     def _clear_overlays(self):
         for item in self._overlay_items:
