@@ -23,6 +23,7 @@ from pyqtgraph.graphicsItems.DateAxisItem import TickSpec, ZoomLevel, makeSStepp
 from datetime import timezone, timedelta
 
 from data.bar_aggregator import TIMEFRAME_SECONDS
+from config import settings
 from services.market_calendar import session_windows
 from services.time_collapse_service import TimeCollapseMap, build_collapse_map
 
@@ -1096,9 +1097,21 @@ class ChartPanel(QWidget):
         new_period = is_new_candle or self._bars[-1].ts != bar.ts
         if new_period:
             self._bars.append(bar)
-            # D21.4: a new bar changes the collapse map's span — D28.4
-            # tail-extends it instead of rebuilding.
-            self._extend_collapse_map()
+            if len(self._bars) > settings.SESSION_BAR_CAP:
+                # D28.4: mirror the session's series cap so panels don't grow
+                # unbounded in steady-state live (sessions prune their heads;
+                # panels never re-sync via update_chart). Head-pruning changes
+                # the span, so rebuild the collapse map (NOT extend) and
+                # invalidate the study cache — the incremental paths assume a
+                # pure tail extension of a batch-computed series.
+                del self._bars[: len(self._bars) - settings.SESSION_BAR_CAP]
+                self._rebuild_collapse_map()
+                self._study_cache.invalidate(
+                    self._symbol, self._current_timeframe)
+            else:
+                # D21.4: a new bar changes the collapse map's span — D28.4
+                # tail-extends it instead of rebuilding.
+                self._extend_collapse_map()
             # D21.2 / AC-D21.2.1: recompute the visible ceiling for a new bar.
             self._recompute_visible_volume_range()
         else:

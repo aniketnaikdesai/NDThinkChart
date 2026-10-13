@@ -143,7 +143,7 @@ def test_ten_chart_tick_burst_gate(monkeypatch, qapp, capsys):
 
         # Gate 3: memory bounded on every panel.
         for panel in panels:
-            assert len(panel._bars) <= SESSION_BAR_CAP + 1, (
+            assert len(panel._bars) <= SESSION_BAR_CAP, (
                 f"panel series unbounded: {len(panel._bars)}"
             )
             assert panel._plot_xs == [
