@@ -636,6 +636,30 @@ repository files, which remain authoritative if the two disagree.
   (re-enters monitoring); more alarmed tickers than the pacing budget allows (most-recently-active win, warning
   names the unmonitored ones).
 
+**[NEW 2026-10-13]**
+### Journey 31 — D36: footprint charts (bid×ask volume-at-price)
+- **Preconditions:** IBKR connected; the main chart shows ticker X (e.g. `ES` front-month, 5m); footprint is
+  OFF by default (owner decision 2026-10-13).
+- **Steps:** 1) Enable footprint from the chart's footprint toggle. 2) The chart shows per-level bid×ask
+  volume bars beside each candle (**classic** mode) once the bounded backfill completes (≤60 requests/wave,
+  viewport-newest-first; bars still loading show a "loading" state, never block the chart). 3) Switch the
+  display toggle to **heatmap** — the candles shade by per-level volume. 4) In heatmap mode, switch the
+  metric selector to **tick count** — shading now reflects per-level trade count from the same tick pages.
+  5) Switch the timeframe to Daily — footprint recomputes for daily bars. 6) Load `SPX` — footprint renders
+  from the ES front-month tape and is labelled as such; the cache key uses the resolved contract (`ESZ6`).
+- **Postconditions:** Classic mode renders bid/ask volume per level; heatmap-volume renders the same numbers
+  shaded; heatmap-count renders per-level trade count. Completed bars are static (no per-tick regen —
+  AC-D28.4 discipline holds); the forming bar updates incrementally. Cached symbols (SPX/SPY/QQQ/ES-front/
+  NQ-front) reload with zero IBKR requests; other symbols re-fetch per session.
+- **Edge Cases:** symbol with no tick history → clear "no tick data" state (never an empty chart); pacing
+  exhaustion mid-backfill (defer via `PacingExceeded` + singleShot, "loading" persists); timeframe change
+  (recompute, no stale levels); disconnect mid-wave (wave state resets, no zombie); bar completing with zero
+  levels → "unavailable" state (never stuck "loading"); daily rollover (cache keys are per resolved contract,
+  old entries untouched).
+- **As-built note:** the planned `reqHistogramData` path was removed — the method takes no date parameter
+  and cannot address individual bars. Tick count comes from the same TRADES tick pages as volume (one
+  dataset, two metrics). `AC-D36.1`–`AC-D36.5` verified; 927 tests green; Code Reviewer APPROVED 2026-10-13.
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)

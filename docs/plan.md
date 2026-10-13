@@ -228,3 +228,48 @@ Handoff: canonical set complete — `docs/architecture.md` (`## D23 increment`, 
 (RG-D23-1, no escalation).
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## D36 — Footprint charts (as-built 2026-10-13)
+
+Scope: D36 only — footprint charts (bid×ask volume-at-price), the P0 item of the D36–D40 program.
+Planned in `~/workspace/ndthinkchart-doc-drafts/plan-d36-d40-draft.md` (36.1–36.5), validated
+(APPROVE WITH CHANGES + delta re-validation), owner-approved, built on `feat/d36-footprint` @
+`89fe152`, Code Reviewer **APPROVED** after rework. D1–D35 not reopened.
+
+### Work items (as-built)
+
+| # | Item | As-built |
+|---|---|---|
+| 36.1 | Tick-history client | `ibkr/tick_history.py::TickHistoryManager` — backward paging in 1000-tick windows (`BID_ASK` + `TRADES`), sequential, pacing-counted via `pacing_manager` (never sleeps); zero `reqTickByTickData` (registry + source-scan asserted). Bridge: 3 signals; `ibkr/client.py`: 3 overrides |
+| 36.2 | Footprint aggregation | `services/footprint_service.py` — per-level `{bidVol, askVol, delta=askVol−bidVol}` from BID_ASK ticks; per-level trade volume + trade count from TRADES ticks. Bounded waves (≤60 requests/wave) under the binding priority order (D27 reconnect replay > D28 backfill > D36 completed-bar backfill > D36 forming-bar refresh > D39 baseline prime); viewport-newest-first; lazy-fill on scroll/timeframe change; structural per-bar loading/unavailable states; forming-bar incremental refresh follows the selected metric |
+| 36.3 | Index proxy | `ibkr/contracts.py`: `INDEX_PROXY` (SPX→ES, NDX→NQ, DJI→YM, RUT→RTY), `resolve_footprint_contract()` via the existing `_front_month()` schedule, `footprint_cache_key()` — all keys use the RESOLVED contract (e.g. `ESZ6`), never the continuous symbol; re-resolved on session start and daily |
+| 36.4 | Footprint cache | `data/footprint_cache.py` + additive `footprint_cache` table — one compressed JSON blob per (resolved contract, date, timeframe); read before backfill, write on completion; **only** SPX/SPY/QQQ/ES-front/NQ-front (owner decision); all other symbols re-fetch per session |
+| 36.5 | Rendering | `ui/footprint_item.py` + session/chart wiring — **display-style toggle** (classic bid×ask bars vs heatmap-shaded candles) **× metric selector in heatmap mode** (per-level volume vs per-level trade count); classic is volume-only; intraday + daily; completed bars static (0 static regens on 100-tick burst); default OFF (owner, 2026-10-13) |
+| 38a.0 | ibapi 10.51.01 alignment (gate precondition) | `requirements.txt`: `ibapi>=9.81` → `ibapi-latest==10.51.1` (plain `ibapi==10.51.01` not on PyPI — verified). Full suite green on the aligned version before any D36 code. Fixed real 10.51.1 breakage: `EWrapper.error` 5-arg; (reviewer-found) `orderStatus` 11th param `mktCapPrice`; `updateMktDepthL2` 8th param `isSmartDepth` |
+
+### As-built deviations from plan
+
+1. **`reqHistogramData` path removed (material).** The method signature is
+   `reqHistogramData(tickerId, contract, useRTH, timePeriod)` — **no date parameter**, so
+   per-bar histograms are impossible. The planned histogram path (36.1/36.2/§7) was deleted
+   from code and docs. Tick-count metric now comes from the same TRADES tick pages as volume:
+   **one dataset, two metrics, zero new requests** — strictly better than plan, and the
+   owner's "same per-level data" decision is now literally true.
+2. **Footprint default OFF** (owner did not specify; reviewer agreed — pacing-expensive opt-in).
+3. **10.51.1 lesson:** the 38a.0 "re-verify signatures" gate caught `error()` but missed
+   `orderStatus`/`updateMktDepthL2` (reviewer B1/B2 — both would have raised TypeError in
+   production). On future API upgrades, re-verify **ALL** `EWrapper` overrides against the
+   wheel, not just the plan-named ones.
+
+### Pacing (binding, as-built)
+
+Footprint requests share the D28 4a rolling 600s historical budget (≤60/10min) via
+`pacing_manager` — the single owner. No histogram budget (deleted). Priority order:
+D27 reconnect replay > D28 backfill waves > D36 completed-bar backfill > D36 forming-bar
+refresh > D39 baseline prime. `PacingExceeded` + `QTimer.singleShot` deferral everywhere;
+nothing sleeps on the GUI thread.
+
+Status: BUILT — Code Reviewer APPROVED 2026-10-13; 927 tests green; branch `feat/d36-footprint`
+@ `89fe152`, not pushed, not merged.

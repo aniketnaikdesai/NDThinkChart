@@ -125,3 +125,28 @@ Pop-out charts (Phase 3)
 - Alarms are evaluated per ticker, so a ticker's alarm fires even while the
   main chart shows a different symbol — including tickers with no visible
   chart, which are monitored headlessly.
+
+
+Footprint charts (Phase D36)
+----------------------------
+
+- The chart toolbar has a footprint toggle. Footprint is OFF by default —
+  turn it on per chart when you want it (it uses IBKR historical-tick
+  requests, which are pacing-limited).
+- Display toggle: classic bid×ask bars drawn beside each candle, or
+  heatmap-shaded candles. In heatmap mode a metric selector chooses what the
+  shading shows: per-level volume (bid/ask volume, the same data as classic
+  mode) or per-level trade count. Classic mode always shows volume.
+- Works on intraday and daily timeframes. Completed bars are static; only the
+  forming bar updates as new ticks arrive.
+- Data comes from IBKR historical ticks (never live tick-by-tick). Backfill
+  is bounded and viewport-first: bars still loading show a "loading" state
+  and never block the chart. A symbol with no tick history shows a clear
+  "no tick data" state.
+- Footprint data is cached across restarts for SPX, SPY, QQQ, ES front-month
+  and NQ front-month only — these reopen with no new IBKR requests. All other
+  symbols re-fetch each session.
+- Index note: SPX and NDX have no tape of their own — SPX footprint comes
+  from the ES front-month tape (labelled as such), NDX from NQ front-month.
+  Cache keys follow the resolved futures contract, so a quarterly roll starts
+  a fresh cache automatically.

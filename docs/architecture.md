@@ -1,4 +1,4 @@
-# Architecture — NDThinkChart Stabilization (as-built D1–D15 + ESC revision + post-document rework ESC-013…ESC-021, verified 2026-09-28, 383 passed; **increment D16 historical-bar gap backfill, validated 2026-10-02; ESC-023 trading-day calendar correction, validated 2026-10-02; increment D17 + D18 panel-layout / full-screen dock sizing, validated 2026-10-03; as-built D1–D18 at commit `5bd7c93` — 566 passed; increment D19 toolbar scroll/elide wrapper, validated 2026-10-05; increment D20 toolbar scrollbar lane, validated 2026-10-06 — as-built D1–D19 at commit `4d8952a`; increment D21 (Batch 15) UI repairs, validated 2026-10-06 — as-built D1–D20 at commit `04397d9`; **increment D22 in-app watchlist "Add symbol" / "Remove symbol" affordance, validated 2026-10-07 — as-built D1–D21 at commit `286341e`, 673 passed**) — commit baseline `286341e`; Phase 1 (D26) as-built update 2026-10-12 — merged to main at `5d4daf4` (review APPROVED), 779 passed; Phase 2 (D27) as-built update 2026-10-12 — branch `d27-correctness` at `69a2313` (re-review PASSED), 819 passed; Phase 3 (3a pacing off GUI thread + 3b TickerSession keystone + 3c pop-outs/D24.9 + 3d headless alarm monitor) as-built update 2026-10-12 — branch `phase3-sessions-popouts` at `ba28c08`, 855 passed, unmerged per R52 (Phase 4 perf gate owns the merge); Phase 4 (4a rolling 600s historical pacing + 4b D28.4 render split/study-cache/bisection/retention + 4c explicit teardown + 4d test hardening) as-built update 2026-10-13 — branch `phase4-pacing-perf-teardown` at `3d12821`, 898 passed, unmerged (the AC-D28.4 10-chart gate passes, clearing Phase 3's merge per R52)`
+# Architecture — NDThinkChart Stabilization (as-built D1–D15 + ESC revision + post-document rework ESC-013…ESC-021, verified 2026-09-28, 383 passed; **increment D16 historical-bar gap backfill, validated 2026-10-02; ESC-023 trading-day calendar correction, validated 2026-10-02; increment D17 + D18 panel-layout / full-screen dock sizing, validated 2026-10-03; as-built D1–D18 at commit `5bd7c93` — 566 passed; increment D19 toolbar scroll/elide wrapper, validated 2026-10-05; increment D20 toolbar scrollbar lane, validated 2026-10-06 — as-built D1–D19 at commit `4d8952a`; increment D21 (Batch 15) UI repairs, validated 2026-10-06 — as-built D1–D20 at commit `04397d9`; **increment D22 in-app watchlist "Add symbol" / "Remove symbol" affordance, validated 2026-10-07 — as-built D1–D21 at commit `286341e`, 673 passed**) — commit baseline `286341e`; Phase 1 (D26) as-built update 2026-10-12 — merged to main at `5d4daf4` (review APPROVED), 779 passed; Phase 2 (D27) as-built update 2026-10-12 — branch `d27-correctness` at `69a2313` (re-review PASSED), 819 passed; Phase 3 (3a pacing off GUI thread + 3b TickerSession keystone + 3c pop-outs/D24.9 + 3d headless alarm monitor) as-built update 2026-10-12 — branch `phase3-sessions-popouts` at `ba28c08`, 855 passed, unmerged per R52 (Phase 4 perf gate owns the merge); Phase 4 (4a rolling 600s historical pacing + 4b D28.4 render split/study-cache/bisection/retention + 4c explicit teardown + 4d test hardening) as-built update 2026-10-13 — branch `phase4-pacing-perf-teardown` at `3d12821`, 898 passed, unmerged (the AC-D28.4 10-chart gate passes, clearing Phase 3's merge per R52); **D36 footprint charts as-built update 2026-10-13 — branch `feat/d36-footprint` at `89fe152`, 927 passed, Code Reviewer APPROVED, unmerged**`
 
 ## Summary
 An **as-built** description of a stabilization change-set against an existing
@@ -2530,3 +2530,125 @@ health, pacing off the GUI thread); **(4)** D28.2 session extraction (the struct
 keystone — unblocks D24/D25); **(5)** D28.3–D28.5 (historical pacing, perf, teardown);
 **(6)** D24 pop-outs + D25 alarm monitor on the session substrate; **(7)** D28.6 test
 hardening throughout. D1–D23 stay frozen; each step keeps the offscreen suite green.
+
+## D36 increment — footprint charts (as-built 2026-10-13, Code Reviewer APPROVED)
+
+> **Increment scope.** A **new-feature** increment on the built D1–D35 system: footprint charts
+> (bid×ask volume-at-price), the P0 item of the D36–D40 program. Built on `feat/d36-footprint` @
+> `89fe152` (not pushed, not merged); 927 tests green (898 baseline + 29 new). D1–D35 not reopened.
+
+### Codebase Summary (existing repository — D36 surface)
+
+The D36 code lives in four new modules plus additive changes to existing ones:
+
+- **New `[new]`** `ibkr/tick_history.py::TickHistoryManager` — backward-paging `reqHistoricalTicks`
+  client (1000-tick windows, `BID_ASK` + `TRADES`); pacing-counted via `pacing_manager`; never sleeps;
+  issues zero `reqTickByTickData`.
+- **New `[new]`** `services/footprint_service.py::FootprintService` — per-symbol aggregation owned by
+  `TickerSession`; per-level `{bidVol, askVol, delta}` buckets + per-level trade volume/trade count;
+  bounded waves, viewport-newest-first, lazy-fill, structural loading states.
+- **New `[new]`** `data/footprint_cache.py` — SQLite cache (additive `footprint_cache` table in
+  `data/db.py`), one compressed JSON blob per (resolved contract, date, timeframe).
+- **New `[new]`** `ui/footprint_item.py` — pyqtgraph render item (classic bars + heatmap shading).
+- **`[new/changed]`** `ibkr/bridge.py` (+3 signals), **`[new/changed]`** `ibkr/client.py` (3 overrides +
+  10.51.1 signature fixes), **`[new/changed]`** `ibkr/contracts.py` (`INDEX_PROXY`,
+  `resolve_footprint_contract`, `footprint_cache_key`), **`[new/changed]`**
+  `ui/ticker_session.py` (service ownership, wave pump, forming timer, disconnect/reconnect hooks),
+  **`[new/changed]`** `ui/chart_panel.py` (toggle wiring, throttled viewport sync),
+  **`[new/changed]`** `ui/main_window.py` (toolbar toggle, `_on_order_status`/`_on_mkt_depth` arity).
+
+### Tech Stack Decisions (D36 increment)
+
+- **ibapi 10.51.01 alignment (38a.0):** `requirements.txt` pins `ibapi-latest==10.51.1` (plain
+  `ibapi==10.51.01` is not on PyPI — verified against the index). Full suite re-run green on the
+  aligned version before any D36 code.
+- **Signature-drift lesson (binding for future upgrades):** the 38a.0 "re-verify signatures" gate
+  caught `EWrapper.error` (now 5-arg) but **missed** `orderStatus` (11th param `mktCapPrice`) and
+  `updateMktDepthL2` (8th param `isSmartDepth`) — both would have raised `TypeError` in production
+  (reviewer B1/B2). On every future API upgrade, re-verify **ALL** `EWrapper` overrides against the
+  installed wheel, not just the plan-named ones.
+- **Histogram removal:** `reqHistogramData(tickerId, contract, useRTH, timePeriod)` takes **no date
+  parameter** — per-bar histograms are impossible. The planned histogram path was removed from code
+  and docs; tick-count metric derives from the same TRADES tick pages as volume.
+
+### System Components (D36 increment)
+
+- **TickHistoryManager** (`ibkr/tick_history.py`): pages **backward** from endDateTime in 1000-tick
+  windows until startDateTime is covered or a page returns `done` with no ticks; registers each
+  request with `pacing_manager` (historical budget); `PacingExceeded` propagates (no sleep).
+  Bridge signals: `historical_ticks_bid_ask`, `historical_ticks_last` (+ error routing).
+- **FootprintService** (`services/footprint_service.py`, one per `TickerSession`): buckets BID_ASK ticks
+  into the session's bar boundaries → per price level `{bidVol, askVol, delta}`; TRADES ticks →
+  per-level trade volume + trade count. Completed-bar backfill runs in **bounded waves (≤60
+  requests/wave)** scheduled by `pacing_manager` under the binding priority order
+  (D27 reconnect replay > D28 backfill > D36 completed-bar backfill > D36 forming-bar refresh >
+  D39 baseline prime); within a wave, the visible viewport's newest bars go first; bars entering
+  the viewport trigger bounded lazy-fill. The footprint layer renders per-bar-range states
+  (ready | loading | unavailable) and never blocks chart render. Forming-bar refresh is
+  incremental and follows the selected metric; disconnect resets wave state (no zombie —
+  reviewer A4); dataless completed bars → unavailable (never stuck loading — reviewer A3).
+- **Index proxy** (`ibkr/contracts.py`): `INDEX_PROXY = {"SPX": "ES", "NDX": "NQ", "DJI": "YM",
+  "RUT": "RTY"}`; `resolve_footprint_contract(symbol)` maps an index to the front-month futures
+  contract via the existing `_front_month()` schedule (re-resolved on session start and daily).
+  **Cache-key rule (binding):** every footprint cache key and per-contract state uses the RESOLVED
+  contract (e.g. `ESZ6`), never the continuous symbol — rolls create new keys, old entries stay
+  valid history.
+- **Renderer** (`ui/footprint_item.py`, live layer in `ui/chart_panel.py`): **display-style toggle**
+  — classic bid×ask bars beside each candle vs heatmap-shaded candles — **× metric selector in
+  heatmap mode** (per-level volume vs per-level trade count); classic is volume-only. Completed
+  bars are static (0 static-layer regenerations on a 100-tick burst — the D28.4 discipline holds);
+  forming-bar updates stay incremental. Works on intraday **and** daily timeframes. Default OFF
+  (owner, 2026-10-13) — pacing-expensive feature as opt-in.
+- **Session ownership:** `TickerSession` owns the `FootprintService`, the wave pump (`_fp_pump`),
+  the forming timer, cache preload/persist, and the new-candle hook; enable/disable/resync are
+  session operations. Pop-out adoption is a follow-up (service is shared; only the main chart is
+  wired this phase).
+
+### Data Model (D36 increment)
+
+- Additive `footprint_cache(resolved_contract TEXT, date TEXT, timeframe TEXT, blob BLOB,
+  PRIMARY KEY(resolved_contract, date, timeframe))` — one zlib-compressed JSON blob per key:
+  `{bar_ts: {level: [bid, ask]}}`. Read before any paginated backfill; write on backfill
+  completion. **Scope:** only SPX/SPY/QQQ/ES-front/NQ-front (owner decision); all other symbols
+  are in-memory only (re-fetch per session).
+- In-memory per-level aggregates keyed `(resolved_contract, timeframe)` in the service; per-bar
+  job states (ready | loading | unavailable) drive the structural loading UI.
+
+### Integration Points (D36 increment)
+
+- **IBKR:** `reqHistoricalTicks` (BID_ASK + TRADES) only — **zero** `reqTickByTickData` for footprint
+  (asserted on the request registry + source call-site scan, AC-D36.3). Tick requests count against
+  the rolling 600s historical budget (`pacing_manager` is the single owner).
+- **Bridge/client:** 3 new signals + 3 overrides, all additive; `super()` called first; routing by
+  reqId (D27 pattern). 10.51.1 fixes: `error()` 5-arg, `orderStatus` 11-arg (`mktCapPrice`),
+  `updateMktDepthL2` 8-arg (`isSmartDepth`, carried through for D37's SMART-row disambiguation).
+- **Render pipeline:** footprint renders in the chart's live layer beside the Phase 4
+  static-history/live-bar split; completed-bar footprint data is static (no per-tick regen).
+
+### Non-Functional Approach (D36 increment)
+
+- **Pacing:** ≤60 requests per backfill wave; `PacingExceeded` + `QTimer.singleShot` deferral;
+  forming-bar refresh attempted at most once per 15s per symbol (~1/100s effective at 10 charts
+  under the shared budget); skip silently when exhausted.
+- **Performance:** AC-D28.4 discipline preserved — 100-tick burst → 0 static-layer regenerations
+  attributable to footprint (counter-asserted); per-tick cost stays in the live-bar layer.
+- **Test safety:** no test touches live TWS or transmits orders; mocked `ib_client` only. Owner
+  rule (binding): **no mock endpoint of any kind in production code** — enforced by
+  `test_ac_d36_3_production_tree_has_no_mock_endpoint` and the standing Code Reviewer B.6 grep
+  (both PASSED for D36).
+
+### Architecture Risks (D36 increment)
+
+- **Tick-volume cost:** one ES day of BID_ASK ticks ≈ 5k requests ≈ 14h at 60/10min — uncapped
+  backfill is prohibited by design (wave cap + viewport prioritization + cache); a typical chart
+  open costs ~1–2 waves.
+- **API-upgrade drift:** B1/B2 showed signature checks must cover ALL `EWrapper` overrides —
+  recorded as a binding upgrade procedure above.
+- **No-data honesty:** symbols without tick history show an explicit "no tick data" state; the
+  footprint layer never renders an empty chart.
+
+### Implementation sequencing (D36 increment)
+
+38a.0 (ibapi alignment + full-suite green) ran **before** any D36 code as a gate precondition.
+D36 items built in plan order 36.1 → 36.5 on `feat/d36-footprint`; reviewer rework (B1–B3,
+A1–A5) applied on the same branch; single squashed commit `89fe152`. D37–D40 not started.

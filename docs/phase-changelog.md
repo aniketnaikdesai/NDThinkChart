@@ -184,3 +184,46 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ### USAGE.txt
 - No user-facing changes in Phase 4 (pacing, rendering internals, teardown, tests are invisible). No USAGE.txt update needed.
+
+---
+
+## Phase D36 — Footprint charts
+
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d36-footprint` @ `89fe152` (single squashed commit), NOT pushed and NOT merged to `main`. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Review:** first verdict **CHANGES REQUIRED** (3 blocking + 5 advisories + 1 cosmetic); rework done; re-review verdict **APPROVED** (every finding verified, not trusted).
+- **Tests:** 927 passing, 0 failing (offscreen). 29 new `tests/test_d36_footprint.py`; no test touches live TWS/network; mocked `ib_client` only. Includes `test_ac_d36_3_production_tree_has_no_mock_endpoint` — scans `ibkr/`, `services/`, `ui/`, `data/` for fake/mock/stub/simulated clients/servers/endpoints (owner rule: mocks exist only in tests).
+
+### Commits
+| SHA | Item | Change |
+|---|---|---|
+| `89fe152` | 36.1 | `ibkr/tick_history.py::TickHistoryManager` — backward-paging `reqHistoricalTicks` client (1000-tick windows, BID_ASK + TRADES), pacing-counted via `pacing_manager` (never sleeps), zero `reqTickByTickData` (AC-D36.3 asserted on the request registry + source call-site scan). Bridge: 3 new signals; `ibkr/client.py`: 3 overrides |
+| `89fe152` | 36.2 | `services/footprint_service.py` — per-level `{bidVol, askVol, delta}` buckets from BID_ASK ticks, per-level trade volume + trade count from TRADES ticks; bounded waves (≤60 requests/wave), viewport-newest-first, lazy-fill on scroll/timeframe change, structural per-bar loading/unavailable states, forming-bar incremental refresh following the selected metric |
+| `89fe152` | 36.3 | `ibkr/contracts.py`: `INDEX_PROXY` (SPX→ES, NDX→NQ, DJI→YM, RUT→RTY), `resolve_footprint_contract()` (front-month via existing `_front_month()` schedule), `footprint_cache_key()` — all cache/state keys use the RESOLVED contract (e.g. `ESZ6`), never the continuous symbol |
+| `89fe152` | 36.4 | `data/footprint_cache.py` + additive `footprint_cache` table (`data/db.py`) — one compressed JSON blob per (resolved contract, date, timeframe); read before backfill, write on completion; **only** for SPX/SPY/QQQ/ES-front/NQ-front (owner decision), all other symbols re-fetch per session (in-memory only) |
+| `89fe152` | 36.5 | `ui/footprint_item.py` renderer + `ui/chart_panel.py`/`ui/main_window.py`/`ui/ticker_session.py` wiring — **display-style toggle** (classic bid×ask bars vs heatmap-shaded candles) **× metric selector in heatmap mode** (per-level volume vs per-level trade count); classic is volume-only; intraday + daily; completed bars static (0 static-layer regens on 100-tick burst, AC-D36.4); forming bar incremental |
+| `89fe152` | 38a.0 | `requirements.txt`: `ibapi>=9.81` → `ibapi-latest==10.51.1` (plain `ibapi==10.51.01` is not on PyPI — verified). Full suite re-run green on the aligned version before any D36 code. **Drive-by 10.51.1 breakage fixed:** `EWrapper.error` is now 5-arg `(reqId, errorTime, errorCode, errorString, advancedOrderRejectJson)` |
+
+### Drive-by fixes (found while implementing/reviewing, verified real by reviewer)
+1. `orderStatus` override was missing 10.51.1's 11th param (`mktCapPrice`) — **TypeError on every order-status callback** in the reader thread, which would have broken the D26 safety layer. Fixed: 11th param added, `order_status` signal → 11 args (11th typed `object`, None-safe), `_on_order_status` updated. (Reviewer B1 — the 38a.0 gate caught `error()` but missed this.)
+2. `updateMktDepthL2` override was missing 10.51.1's 8th param (`isSmartDepth`) — **TypeError on every L2 depth update**, breaking existing DOM depth and making D37 DOA. Fixed: param added, `update_mkt_depth` signal → 7 args, `_on_mkt_depth` accepts `is_smart_depth` (carried for D37's SMART-row disambiguation). (Reviewer B2.)
+3. Infinite loop in `_fp_pump` on unexpected request failure — the generic `except` returned `True`, re-queuing the same spec forever → **main-thread hang**. Fixed: return `False` (bounded defer via the continue timer). (Reviewer B3.)
+
+### Decisions recorded
+- Footprint default **OFF** behind a chart toggle (owner, 2026-10-13) — pacing-expensive feature as opt-in; reviewer agreed.
+- Heatmap metric selector (owner, 2026-10-13): per-level **volume** vs per-level **trade count** in heatmap mode; classic mode is volume-only (trade count has no bid/ask split to render as bars).
+- **As-built deviation (reviewer-confirmed):** `reqHistogramData(tickerId, contract, useRTH, timePeriod)` takes **no date parameter** — per-bar histograms are impossible, so the planned histogram path was REMOVED from code and docs. Tick-count metric now comes from the same TRADES tick pages as volume: **one dataset, two metrics, zero new requests** (strictly better than plan; the owner's original "same per-level data" decision is now literally true). Dead histogram plumbing deleted (reviewer A1); §7 histogram budget entry deleted.
+- yfinance as sole secondary data source + WSH removal are D38 decisions (recorded in the D36–D40 drafts); no D36 code depends on them.
+- Owner rule (binding, 2026-10-13): mocked/fake IBKR client — generalized to **any mock endpoint** — exists **only in tests, never in production code**. Standing Code Reviewer duty (pipeline-v3 `code_reviewer.md` step B.6): every review greps for mock endpoints in production code as a blocking check. D36's B.6 grep PASSED.
+
+### Review findings of note
+- **Rework advisories (all fixed, reviewer-verified):** A1 dead histogram plumbing removed; A2 forming-spec reqId leak in `on_fp_error` (now unregisters + forgets); A3 dataless completed bars stuck on "loading" (now move to `_unavailable_bars`); A4 disconnect-mid-wave zombie (new `on_fp_disconnect()`/`on_fp_reconnect()` + `_ibkr_connected` guards, wired into connect/disconnect); A5 forming-bar initial state UNAVAILABLE→LOADING (required changing one existing test's expectation — reviewer signed off: the old assertion had been passing on the bug).
+- **AC-D36.1–AC-D36.5 genuinely verified** — reviewer read every test (bucket sums, 1000-tick page contiguity, registry assertion for AC-D36.3, zero footprint refs in the per-tick path for AC-D36.4).
+- **10.51.1 lesson (architecture-relevant):** the 38a.0 "re-verify signatures" gate caught `error()` but missed `orderStatus`/`updateMktDepthL2` — on future API upgrades, re-verify **ALL** `EWrapper` overrides against the wheel, not just the ones the plan names.
+
+### Follow-ups filed (not Phase D36 scope)
+- Pop-out panels to adopt footprint later (the `TickerSession` footprint service is shared; only the main chart is wired this phase).
+- D37–D40 not started.
+- (Carried) `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests; 4h/daily forming-candle exactness; stale reqId accumulation.
+
+### USAGE.txt
+- New "Footprint charts (Phase D36)" section: toggle location, style toggle, metric selector, OFF default, cache scope, loading states.
