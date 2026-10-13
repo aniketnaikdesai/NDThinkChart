@@ -1,4 +1,4 @@
 PyQt6>=6.6
 pyqtgraph>=0.13
-ibapi>=9.81
+ibapi-latest==10.51.1  # IBKR TWS API 10.51.01 (PyPI dist name is ibapi-latest; provides the `ibapi` module)
 numpy>=1.26

@@ -29,6 +29,9 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from config import settings
 from ibkr.client import IBApiClient, ConnectionState
 from ibkr.market_data import MarketDataManager, TIMEFRAME_CONFIG
+from ibkr.tick_history import TickHistoryManager
+from data.footprint_cache import FootprintCache
+from data.db import db as _app_db
 from ibkr.market_depth import MarketDepthManager
 from ibkr.realtime_bars import RealtimeBarsManager
 from ibkr.contracts import get_contract_for_symbol
@@ -322,6 +325,10 @@ class MainWindow(QMainWindow):
         # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000
         self._tz_offset = _eastern_offset()
         self.chart_panel = ChartPanel(tz_offset=self._tz_offset)
+        # D36: footprint UI signals → the active session.
+        self.chart_panel.footprint_toggled.connect(self._on_fp_toggled)
+        self.chart_panel.footprint_viewport_changed.connect(
+            self._on_fp_viewport)
         # D19 Phase 1: keep the toolbar inside the central widget but stop its
         # ~1716px minimumSizeHint from pinning the central widget. A frameless
         # horizontal QScrollArea holds the full-natural-width toolbar so it stays
@@ -497,6 +504,9 @@ class MainWindow(QMainWindow):
         # ── IBKR client ───────────────────────────────────────────────────────
         self.ib_client = IBApiClient()
         self.md_manager = MarketDataManager(self.ib_client)
+        # D36: historical-tick manager (footprint) + persistent cache.
+        self.tick_history_manager = TickHistoryManager(self.ib_client)
+        self.footprint_cache = FootprintCache(_app_db.conn)
         self.rt_manager = RealtimeBarsManager(self.ib_client)
         self.depth_manager = MarketDepthManager(self.ib_client)
         self.sub_manager = SubscriptionManager()
@@ -562,6 +572,9 @@ class MainWindow(QMainWindow):
         b.error_msg.connect(self._on_error)
         b.historical_bar.connect(self._on_historical_bar)
         b.historical_data_end.connect(self._on_historical_data_end)
+        # D36 footprint: historical ticks, routed by reqId.
+        b.historical_ticks_bid_ask.connect(self._on_fp_ticks_bid_ask)
+        b.historical_ticks_last.connect(self._on_fp_ticks_last)
         b.tick_price.connect(self.watchlist_panel.on_tick_price)
         b.tick_size.connect(self.watchlist_panel.on_tick_size)
         b.realtime_bar.connect(self._on_realtime_bar)
@@ -785,6 +798,8 @@ class MainWindow(QMainWindow):
                 (old.bars_refreshed, self._on_primary_bars_refreshed),
                 (old.stream_health_changed,
                  self._on_primary_stream_health_changed),
+                (old.footprint_updated,
+                 self._on_primary_footprint_updated),
             ):
                 try:
                     sig.disconnect(slot)
@@ -797,6 +812,9 @@ class MainWindow(QMainWindow):
             session.stream_health_changed.connect(
                 self._on_primary_stream_health_changed
             )
+            # D36: footprint data changed → re-render the footprint layer.
+            session.footprint_updated.connect(
+                self._on_primary_footprint_updated)
 
     def _on_primary_bar_updated(self, bar: Bar, is_new_candle: bool) -> None:
         if bar.timeframe != self._current_tf:
@@ -807,6 +825,34 @@ class MainWindow(QMainWindow):
         if timeframe != self._current_tf:
             return
         self.chart_panel.update_chart(bars)
+        # D36: keep footprint in step with the new bar set.
+        if self.primary_session is not None and self.primary_session.fp_enabled:
+            self.primary_session.footprint_resync(timeframe)
+
+    def _on_fp_toggled(self, enabled: bool, style: str, metric: str) -> None:
+        """Footprint control → session enable/disable + style/metric."""
+        if self.primary_session is None:
+            return
+        if enabled:
+            self.primary_session.footprint_enable(style=style, metric=metric)
+            self.primary_session.footprint_resync()
+        else:
+            self.primary_session.footprint_disable()
+
+    def _on_fp_viewport(self, first_ts: float, last_ts: float) -> None:
+        """Scroll → lazy-fill bars lacking footprint data (bounded)."""
+        if self.primary_session is None or not self.primary_session.fp_enabled:
+            return
+        self.primary_session.sync_footprint_viewport(first_ts, last_ts)
+
+    def _on_primary_footprint_updated(self, timeframe: str) -> None:
+        # D36: pull the snapshot from the session and re-render footprint.
+        if timeframe != self._current_tf:
+            return
+        session = self._primary_session
+        if session is None:
+            return
+        self.chart_panel.refresh_footprint(session.footprint_snapshot(timeframe))
 
     def _on_primary_stream_health_changed(self) -> None:
         self._update_stream_badge()
@@ -960,6 +1006,9 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Connected — IBKR port {settings.IBKR_PORT}")
         self._restore_watchlist()
         self._replay_subscriptions()
+        # D36/A4: restart footprint backfill waves stranded by the drop.
+        for session in list(self._sessions.values()):
+            session.on_fp_reconnect()
         self._subscribe_account_data()
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
@@ -1255,6 +1304,10 @@ class MainWindow(QMainWindow):
         # D28.2: strand every session's in-flight wave on disconnect.
         stranded_any = False
         for session in list(self._sessions.values()):
+            # D36/A4: a transport drop strands every in-flight footprint
+            # tick request (the NO_VALID_ID error cannot be routed back) —
+            # reset the wave state now; the reconnect restarts it.
+            session.on_fp_disconnect()
             if self._finalize_stranded_history_wave(
                 session, reason="Disconnected from IBKR"
             ):
@@ -1678,6 +1731,24 @@ class MainWindow(QMainWindow):
         if session is None:
             return
         session.on_historical_data_end(reqId)
+
+    # ── D36 footprint slots ─────────────────────────────────────────────
+
+    def _on_fp_ticks_bid_ask(self, reqId: int, ticks, done: bool):
+        if self._closing:
+            return  # D28.5
+        session = self._session_for_req_id(reqId)
+        if session is None:
+            return
+        session.on_fp_ticks_bid_ask(reqId, ticks, done)
+
+    def _on_fp_ticks_last(self, reqId: int, ticks, done: bool):
+        if self._closing:
+            return  # D28.5
+        session = self._session_for_req_id(reqId)
+        if session is None:
+            return
+        session.on_fp_ticks_last(reqId, ticks, done)
 
     def _on_session_wave_complete(self, session: TickerSession) -> None:
         """A session's backfill wave emptied — finalize (persist + render)."""
@@ -2557,8 +2628,11 @@ class MainWindow(QMainWindow):
         )
 
     def _on_mkt_depth(self, req_id: int, position: int, operation: int,
-                      side: int, price: float, size: int):
+                      side: int, price: float, size: int,
+                      is_smart_depth: bool):
         """Handle incoming market-depth updates."""
+        # is_smart_depth (10.51.1) is carried for D37's SMART-aggregated-row
+        # disambiguation; the DOM path below is unchanged.
         symbol = self.depth_manager.on_update(req_id, position, operation, side, price, size)
         if symbol is None:
             return
@@ -2782,7 +2856,9 @@ class MainWindow(QMainWindow):
     def _on_order_status(self, orderId: int, status: str, filled: float,
                            remaining: float, avgFillPrice: float,
                            permId: int, parentId: int, lastFillPrice: float,
-                           clientId: int, whyHeld: str):
+                           clientId: int, whyHeld: str, mktCapPrice):
+        # mktCapPrice (10.51.1, None on old servers) is not consumed yet —
+        # carried for the D26 safety layer's future use.
         self._update_order_status(orderId, status)
 
     def _on_account_summary(self, reqId: int, account: str, tag: str, value: str):

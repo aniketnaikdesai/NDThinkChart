@@ -145,10 +145,13 @@ class IBApiClient(EWrapper, EClient):
 
     def error(self, *args, **kwargs):
         """Handle error callbacks from both old and new TWS API signatures."""
+        errorTime = 0
         if len(args) >= 5:
-            reqId, _errorTime, errorCode, errorString, advancedOrderRejectJson = args[:5]
+            reqId, errorTime, errorCode, errorString, advancedOrderRejectJson = args[:5]
         elif len(args) >= 4:
-            reqId, errorCode, errorString, advancedOrderRejectJson = args[:4]
+            # 10.51.1: (reqId, errorTime, errorCode, errorString)
+            reqId, errorTime, errorCode, errorString = args[:4]
+            advancedOrderRejectJson = kwargs.get('advancedOrderRejectJson', '')
         elif len(args) >= 3:
             reqId, errorCode, errorString = args[:3]
             advancedOrderRejectJson = kwargs.get('advancedOrderRejectJson', '')
@@ -158,15 +161,20 @@ class IBApiClient(EWrapper, EClient):
             errorString = args[2] if len(args) > 2 else kwargs.get('errorString', '')
             advancedOrderRejectJson = kwargs.get('advancedOrderRejectJson', '')
 
-        # TWS API versions differ: some pass errorTime, some don't.
-        # Try the full signature, then fall back if the parent only accepts 3 args.
+        # TWS API versions differ: 10.51+ passes errorTime, older ones don't.
+        # Try the full signature, then fall back if the parent only accepts fewer args.
         try:
-            super().error(reqId, errorCode, errorString, advancedOrderRejectJson)
+            super().error(reqId, errorTime, errorCode, errorString,
+                          advancedOrderRejectJson)
         except TypeError:
             try:
-                super().error(reqId, errorCode, errorString)
+                super().error(reqId, errorCode, errorString,
+                              advancedOrderRejectJson)
             except TypeError:
-                super().error(reqId, errorCode)
+                try:
+                    super().error(reqId, errorCode, errorString)
+                except TypeError:
+                    super().error(reqId, errorCode)
 
         severity = classify_error(errorCode)
         if severity != 'info':
@@ -197,6 +205,19 @@ class IBApiClient(EWrapper, EClient):
         super().historicalDataEnd(reqId, start, end)
         self.bridge.historical_data_end.emit(reqId)
 
+    # ── D36 footprint: historical ticks ──────────────────────
+    # These overrides are strictly additive: they call super() first, then
+    # forward the payload on the matching bridge signal. Routing to the
+    # requesting session is by reqId (D27 pattern).
+
+    def historicalTicksBidAsk(self, reqId: int, ticks, done: bool):
+        super().historicalTicksBidAsk(reqId, ticks, done)
+        self.bridge.historical_ticks_bid_ask.emit(reqId, ticks, done)
+
+    def historicalTicksLast(self, reqId: int, ticks, done: bool):
+        super().historicalTicksLast(reqId, ticks, done)
+        self.bridge.historical_ticks_last.emit(reqId, ticks, done)
+
     def contractDetails(self, reqId: int, contractDetails):
         super().contractDetails(reqId, contractDetails)
         self.bridge.contract_details.emit(reqId, contractDetails)
@@ -221,12 +242,20 @@ class IBApiClient(EWrapper, EClient):
     def updateMktDepth(self, reqId: int, position: int, operation: int,
                        side: int, price: float, size: int):
         super().updateMktDepth(reqId, position, operation, side, price, size)
-        self.bridge.update_mkt_depth.emit(reqId, position, operation, side, price, size)
+        self.bridge.update_mkt_depth.emit(reqId, position, operation, side,
+                                          price, size, False)
 
     def updateMktDepthL2(self, reqId: int, position: int, marketMaker: str,
-                         operation: int, side: int, price: float, size: int):
-        super().updateMktDepthL2(reqId, position, marketMaker, operation, side, price, size)
-        self.bridge.update_mkt_depth.emit(reqId, position, operation, side, price, size)
+                         operation: int, side: int, price: float, size: int,
+                         isSmartDepth: bool):
+        # B2 (10.51.1): the decoder ALWAYS passes 8 positional args —
+        # isSmartDepth is False on old servers (see
+        # Decoder.processMarketDepthL2Msg). Kept in the signal payload:
+        # D37 uses it to disambiguate SMART-aggregated rows.
+        super().updateMktDepthL2(reqId, position, marketMaker, operation,
+                                 side, price, size, isSmartDepth)
+        self.bridge.update_mkt_depth.emit(reqId, position, operation, side,
+                                          price, size, isSmartDepth)
 
     def accountSummary(self, reqId: int, account: str, tag: str, value: str, currency: str):
         super().accountSummary(reqId, account, tag, value, currency)
@@ -247,12 +276,18 @@ class IBApiClient(EWrapper, EClient):
     def orderStatus(self, orderId: int, status: str, filled: float,
                      remaining: float, avgFillPrice: float, permId: int,
                      parentId: int, lastFillPrice: float, clientId: int,
-                     whyHeld: str):
+                     whyHeld: str, mktCapPrice):
+        # B1 (10.51.1): the decoder ALWAYS passes 11 positional args —
+        # mktCapPrice is None on old servers (see
+        # Decoder.processOrderStatusMsg). mktCapPrice is untyped (float |
+        # None); the bridge signal carries it as object for None-safety.
         super().orderStatus(orderId, status, filled, remaining, avgFillPrice,
-                            permId, parentId, lastFillPrice, clientId, whyHeld)
+                            permId, parentId, lastFillPrice, clientId, whyHeld,
+                            mktCapPrice)
         self.bridge.order_status.emit(orderId, status, filled, remaining,
                                        avgFillPrice, permId, parentId,
-                                       lastFillPrice, clientId, whyHeld)
+                                       lastFillPrice, clientId, whyHeld,
+                                       mktCapPrice)
 
     def openOrder(self, orderId: int, contract, order, orderState):
         super().openOrder(orderId, contract, order, orderState)
