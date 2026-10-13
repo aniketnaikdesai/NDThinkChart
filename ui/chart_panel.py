@@ -321,8 +321,10 @@ class ChartPanel(QWidget):
 
         self.candlestick = CandlestickItem([], mode=ChartMode.CANDLES)
         self.price_plot.addItem(self.candlestick)
-        self.drawing_overlay = DrawingOverlay(self.price_plot)
-        self.alarm_overlay = AlarmOverlay(self.price_plot)
+        self.drawing_overlay = DrawingOverlay(self.price_plot,
+                                            editable=editable)
+        self.alarm_overlay = AlarmOverlay(self.price_plot,
+                                          editable=editable)
         self.mouse_router.drawing = self.drawing_overlay
         self.mouse_router.alarm = self.alarm_overlay
 
@@ -1056,7 +1058,9 @@ class ChartPanel(QWidget):
                     event.accept()
                     return
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            if self.drawing_overlay is not None and self.drawing_overlay.has_selection():
+            # D24: read-only pop-outs never delete drawings.
+            if (self._editable and self.drawing_overlay is not None
+                    and self.drawing_overlay.has_selection()):
                 self.drawing_overlay.delete_selected()
                 event.accept()
                 return

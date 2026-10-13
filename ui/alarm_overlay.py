@@ -38,10 +38,13 @@ class AlarmOverlay(QObject):
     rearm_requested = pyqtSignal(int)        # alarm_id
     delete_requested = pyqtSignal(int)       # alarm_id
 
-    def __init__(self, plot: pg.PlotWidget):
+    def __init__(self, plot: pg.PlotWidget, editable: bool = True):
         super().__init__()
         self._plot = plot
         self._view = plot.getViewBox()
+        # D24: pop-out charts are read-only — all mouse interactions that
+        # could mutate shared alarms are inert when not editable.
+        self._editable = editable
         self._alarms: list[Alarm] = []
         self._items: dict = {}
         self._bar_count: int = 0
@@ -166,7 +169,14 @@ class AlarmOverlay(QObject):
 
     # ── Event routing ──────────────────────────────────────────────────────────
 
+    def set_editable(self, editable: bool) -> None:
+        """D24: toggle read-only mode (pop-outs stay non-editable)."""
+        self._editable = editable
+        self._drag = None
+
     def view_mouse_press(self, ev) -> bool:
+        if not self._editable:
+            return False
         if ev.button() != Qt.MouseButton.LeftButton:
             return False
 
@@ -183,6 +193,8 @@ class AlarmOverlay(QObject):
         return False
 
     def view_mouse_drag(self, ev) -> bool:
+        if not self._editable:
+            return False
         if ev.button() != Qt.MouseButton.LeftButton or self._drag is None:
             return False
         alarm = self._find(self._drag["id"])
@@ -200,6 +212,8 @@ class AlarmOverlay(QObject):
         return True
 
     def view_mouse_click(self, ev) -> bool:
+        if not self._editable:
+            return False
         if ev.button() == Qt.MouseButton.RightButton:
             alarm = self._hit(ev.scenePos())
             if alarm is not None:

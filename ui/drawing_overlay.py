@@ -74,10 +74,13 @@ class DrawingOverlay(QObject):
     mode_changed = pyqtSignal(str)        # active tool name
     settings_requested = pyqtSignal(object)  # Drawing opened for editing
 
-    def __init__(self, plot: pg.PlotWidget):
+    def __init__(self, plot: pg.PlotWidget, editable: bool = True):
         super().__init__()
         self._plot = plot
         self._view = plot.getViewBox()
+        # D24: pop-out charts are read-only — all mouse interactions that
+        # could mutate shared drawings are inert when not editable.
+        self._editable = editable
 
         self._bar_ts: list[int] = []
         # D21.4: the ViewBox x-model is display-x (non-trading time collapsed
@@ -595,7 +598,14 @@ class DrawingOverlay(QObject):
 
     # ── ViewBox event routing ──────────────────────────────────────────────────
 
+    def set_editable(self, editable: bool) -> None:
+        """D24: toggle read-only mode (pop-outs stay non-editable)."""
+        self._editable = editable
+        self._drag = None
+
     def view_mouse_press(self, ev) -> bool:
+        if not self._editable:
+            return False
         if ev.button() != Qt.MouseButton.LeftButton:
             return False
         pos = self._view_pos(ev)
@@ -634,6 +644,8 @@ class DrawingOverlay(QObject):
         return False
 
     def view_mouse_drag(self, ev) -> bool:
+        if not self._editable:
+            return False
         if ev.button() != Qt.MouseButton.LeftButton:
             return False
         pos = self._view_pos(ev)
@@ -654,6 +666,8 @@ class DrawingOverlay(QObject):
         return False
 
     def view_mouse_click(self, ev) -> bool:
+        if not self._editable:
+            return False
         # A click (no drag) ends any pending drag session.
         was_drag = self._drag is not None
         self._drag = None

@@ -86,3 +86,149 @@ def test_fix1_detach_view_promotes_to_headless_monitoring(monkeypatch, qapp):
     finally:
         _clear(SYM)
         win.close()
+
+
+# ── Fix 2: pop-out read-only holes in IDLE interactions ────────────────────
+
+from PyQt6.QtCore import QPointF, Qt, QEvent
+from PyQt6.QtGui import QKeyEvent
+
+
+class _MouseEv:
+    def __init__(self, button, scene_pos=None, finish=False):
+        self._button = button
+        self._scene_pos = scene_pos or QPointF(0, 0)
+        self._finish = finish
+
+    def button(self):
+        return self._button
+
+    def scenePos(self):
+        return self._scene_pos
+
+    def isFinish(self):
+        return self._finish
+
+
+def _popout_with_alarm(monkeypatch, qapp):
+    """Window + pop-out whose alarm overlay holds one alarm at 100.0."""
+    _clear(SYM)
+    win = _make_window(monkeypatch, qapp)
+    win._now_ts = lambda: NOW_TS
+    win.load_chart(SYM, TF)
+    win._open_popout()
+    qapp.processEvents()
+    popout = win._popouts[0]
+    overlay = popout.chart.alarm_overlay
+    alarm = Alarm(id=901, symbol=SYM, price=100.0, direction="cross_above",
+                  active=True, sound=False)
+    overlay.set_data([alarm])
+    return win, popout, overlay, alarm
+
+
+def test_fix2a_popout_alarm_drag_does_not_mutate_price(monkeypatch, qapp):
+    """Reviewer fix 2a: dragging an alarm line in a pop-out must not mutate
+    the shared Alarm.price (session evaluation would use the wrong level)."""
+    win, popout, overlay, alarm = _popout_with_alarm(monkeypatch, qapp)
+    try:
+        assert popout.chart._editable is False
+        # Simulate a drag in flight ending at a different y.
+        overlay._drag = {"id": alarm.id}
+        overlay.view_mouse_drag(_MouseEv(Qt.MouseButton.LeftButton,
+                                         QPointF(50, 50), finish=True))
+        assert alarm.price == 100.0, (
+            f"pop-out drag mutated shared Alarm.price to {alarm.price}"
+        )
+    finally:
+        _clear(SYM)
+        win.close()
+
+
+def test_fix2b_popout_press_does_not_start_alarm_drag(monkeypatch, qapp):
+    """Reviewer fix 2b: left-press on an alarm in a pop-out must not start
+    a drag (drag-start gate)."""
+    win, popout, overlay, alarm = _popout_with_alarm(monkeypatch, qapp)
+    try:
+        overlay._hit = lambda sp: alarm  # hit-test stub; gate is under test
+        handled = overlay.view_mouse_press(
+            _MouseEv(Qt.MouseButton.LeftButton, QPointF(10, 10)))
+        assert overlay._drag is None, "pop-out press started an alarm drag"
+        assert handled is False
+    finally:
+        _clear(SYM)
+        win.close()
+
+
+def test_fix2c_popout_rightclick_no_alarm_menu(monkeypatch, qapp):
+    """Reviewer fix 2c: right-click on an alarm in a pop-out must not show
+    the Rearm/Mute/Delete menu (signals connected nowhere)."""
+    win, popout, overlay, alarm = _popout_with_alarm(monkeypatch, qapp)
+    try:
+        shown = []
+        overlay._show_menu = lambda a: shown.append(a)
+        overlay._hit = lambda sp: alarm
+        overlay.view_mouse_click(
+            _MouseEv(Qt.MouseButton.RightButton, QPointF(10, 10)))
+        assert shown == [], "alarm context menu shown in read-only pop-out"
+    finally:
+        _clear(SYM)
+        win.close()
+
+
+def test_fix2d_popout_delete_does_not_remove_drawing(monkeypatch, qapp):
+    """Reviewer fix 2d: Delete/Backspace in a pop-out must not remove a
+    drawing from the overlay."""
+    _clear(SYM)
+    win = _make_window(monkeypatch, qapp)
+    try:
+        win._now_ts = lambda: NOW_TS
+        win.load_chart(SYM, TF)
+        win._open_popout()
+        qapp.processEvents()
+        popout = win._popouts[0]
+        assert popout.chart._editable is False
+
+        removed = []
+        popout.chart.drawing_overlay.has_selection = lambda: True
+        popout.chart.drawing_overlay.delete_selected = (
+            lambda: removed.append(True))
+
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+                       Qt.KeyboardModifier.NoModifier)
+        popout.chart.keyPressEvent(ev)
+        assert removed == [], "Delete removed a drawing in read-only pop-out"
+    finally:
+        _clear(SYM)
+        win.close()
+
+
+def test_fix2e_popout_drawing_drag_does_not_mutate_payload(monkeypatch, qapp):
+    """Fix 2 (extra hole found in fix pass): IDLE-mode drawing drag in a
+    pop-out must not mutate the shared drawing payload."""
+    _clear(SYM)
+    win = _make_window(monkeypatch, qapp)
+    try:
+        win._now_ts = lambda: NOW_TS
+        win.load_chart(SYM, TF)
+        win._open_popout()
+        qapp.processEvents()
+        popout = win._popouts[0]
+        dov = popout.chart.drawing_overlay
+        assert popout.chart._editable is False
+        assert dov._editable is False
+
+        # A horizontal-line drawing whose payload the drag would rewrite.
+        from data.models import Drawing
+        d = Drawing(id=902, symbol=SYM, kind="horizontal",
+                    payload={"y": 100.0})
+        dov._drawings = [d]
+        dov._drag = {"id": 902, "point_index": -1, "body": True,
+                     "locked": False, "grab": (0.0, 0.0)}
+        dov.view_mouse_drag(_MouseEv(Qt.MouseButton.LeftButton,
+                                     QPointF(10, 10), finish=True))
+        assert d.payload["y"] == 100.0, (
+            f"pop-out drag mutated shared drawing payload: {d.payload}"
+        )
+    finally:
+        _clear(SYM)
+        win.close()
