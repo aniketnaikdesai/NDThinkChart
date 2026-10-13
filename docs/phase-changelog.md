@@ -5,10 +5,21 @@ A working record of what changed in each implementation phase, for the team
 requirements live in `docs/requirements/requirements.md`; the target design in
 `docs/architecture.md`. This file is the *as-built* history.
 
-**Gate rule:** this document is updated with a phase's full details **before**
-that phase's code is committed/pushed to GitHub. The next phase starts only
-after the changelog entry is complete. Each entry is written from the coder's
-and reviewer's reports for that phase, verified against the branch.
+**Documentation gate (owner-instituted 2026-10-13):** before the next phase starts,
+ALL of the following must be updated for the completed phase — no exceptions:
+
+1. **Requirements documents** — the phase's requirements finalized and committed
+   (e.g. `docs/requirements/`); no dangling draft-only requirements.
+2. **Plan document** — the implementation plan updated to as-built for the phase.
+3. **Architecture document** — as-built changes synced (`docs/architecture.md`).
+4. **Phase changelog** — full entry: commits, tests, review verdicts, drive-by fixes,
+   decisions, follow-ups (`docs/phase-changelog.md`).
+5. **Usage / readme** — `USAGE.txt` updated for any user-facing change; `README`
+   likewise if one exists.
+
+No phase's code is pushed to GitHub until its docs are complete, and the next phase
+starts only after the gate is satisfied. Each changelog entry is written from the
+coder's and reviewer's reports for that phase, verified against the branch.
 
 ---
 
