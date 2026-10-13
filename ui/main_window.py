@@ -70,6 +70,7 @@ from ui.visual_conventions import apply_toolbar_stylesheet, set_button_active
 from ui.active_trader_panel import ActiveTraderPanel, on_depth_callback
 from ui.active_portfolio_panel import ActivePortfolioPanel
 from ui.toast import Toast
+from ui.ticker_session import TickerSession
 from data.alarm_store import AlarmStore
 from data.models import Bar, Position
 from data.bar_cache import BarCache
@@ -535,7 +536,9 @@ class MainWindow(QMainWindow):
         # Alert sounds + transient toast
         self.sound_service = SoundService(enabled=True)
         self.sound_service.warm()
-        self.toast = Toast(self.chart_panel)
+        # D28.2: toast is parented to the window, not the chart panel — alarm
+        # triggers for background symbols must toast from the main window.
+        self.toast = Toast(self)
 
         # Bridge signal wiring
         b = self.ib_client.bridge
@@ -575,13 +578,18 @@ class MainWindow(QMainWindow):
         self.active_trader.order_place_requested.connect(self._on_order_place_requested)
 
         # State
+        # D28.2: per-symbol sessions. Chart data-plane state (_rt_req_id,
+        # _aggregator, _current_alarms, _last_chart_price, _rt_seen,
+        # _stream_health) lives on TickerSession now; the properties below
+        # delegate to the primary session for the current symbol.
+        self._sessions: dict[str, TickerSession] = {}
+        self._req_to_session: dict[int, TickerSession] = {}
+        self._primary_session: TickerSession | None = None
         self._current_req_id: int | None = None
         self._depth_req_id: int | None = None
         self._pending_bars: list[Bar] = []
         self._current_symbol: str = ""
         self._current_tf: str = "5 mins"
-        self._rt_req_id: int | None = None
-        self._aggregator: BarAggregator | None = None
         # D27.9: in-flight aggregator-priming request (trailing 5-sec bars
         # for the current partial period). The live feed attaches only after
         # priming completes or fails open.
@@ -605,12 +613,6 @@ class MainWindow(QMainWindow):
         self._backfill_missing_spans: list = []
         self._backfill_failed_req_ids: set[int] = set()
         self._current_studies: list[dict] = deepcopy(DEFAULT_STUDIES)
-        self._current_alarms = []
-        self._last_chart_price: float | None = None
-        # D27.1: True once any realtime bar has been observed since the last
-        # load_chart. Guards _finalize_history_wave against rewinding
-        # _last_chart_price to the older historical close (phantom alarms).
-        self._rt_seen: bool = False
         # D27.5: central symbol -> last_price map (chart + watchlist feeds).
         # Position market prices look up the position's own symbol here —
         # never the chart's _last_chart_price.
@@ -618,9 +620,9 @@ class MainWindow(QMainWindow):
         # D27.6: account-data subscription state (positions + summary).
         self._account_subscribed: bool = False
         self._account_summary_req_id: int | None = None
-        # D27.4: health of the chart's live RT subscription. Owned here in
-        # Phase 2; migrates into TickerSession in Phase 3b (no window refs).
-        self._stream_health = StreamHealth()
+        # D27.4: RT retry timer. The StreamHealth object itself lives on the
+        # TickerSession now (self._stream_health delegates to the primary
+        # session); this timer stays window-level.
         self._rt_retry_timer = QTimer(self)
         self._rt_retry_timer.setSingleShot(True)
         self._rt_retry_timer.timeout.connect(self._retry_rt_subscribe)
@@ -630,6 +632,145 @@ class MainWindow(QMainWindow):
         # Start connection
         self.ib_client.connect(settings.IBKR_HOST, settings.IBKR_PORT, settings.IBKR_CLIENT_ID)
         threading.Thread(target=self.ib_client.run, daemon=True, name="ibkr-reader").start()
+
+    # ── Session registry (D28.2) ──────────────────────────────────────────────
+
+    def get_or_create_session(self, symbol: str) -> TickerSession:
+        """Return the TickerSession for an uppercase symbol, creating it."""
+        key = symbol.upper()
+        if not key:
+            raise ValueError("get_or_create_session requires a symbol")
+        session = self._sessions.get(key)
+        if session is None:
+            session = TickerSession(key, self)
+            # DEC-1: alarm triggers are window-global. The main window
+            # toasts + sounds for ANY session's alarms (even when the main
+            # chart shows another ticker); only the badge is primary-only.
+            session.alarm_triggered.connect(self._on_session_alarm_triggered)
+            self._sessions[key] = session
+        return session
+
+    def _register_req_id(self, req_id: int, session: TickerSession) -> None:
+        """Maintain the reqId → TickerSession routing table (subscribe time)."""
+        self._req_to_session[req_id] = session
+
+    def _unregister_req_id(self, req_id: int) -> None:
+        self._req_to_session.pop(req_id, None)
+
+    def _teardown_session(self, symbol: str) -> None:
+        """Drop a session whose last view detached and which is not monitored."""
+        session = self._sessions.pop(symbol.upper(), None)
+        if session is None:
+            return
+        if self._primary_session is session:
+            self._primary_session = None
+        session.teardown()
+        session.deleteLater()
+
+    def _session_for_req_id(self, req_id: int) -> TickerSession | None:
+        return self._req_to_session.get(req_id)
+
+    def _set_primary_session(self, session: TickerSession | None) -> None:
+        """Point the main chart at a session, rewiring the view signals."""
+        if self._primary_session is session:
+            return
+        # Note: alarm_triggered is connected once per session at creation
+        # (get_or_create_session) — it is window-global, not primary-only.
+        old = self._primary_session
+        if old is not None:
+            for sig, slot in (
+                (old.bar_updated, self._on_primary_bar_updated),
+                (old.bars_refreshed, self._on_primary_bars_refreshed),
+                (old.stream_health_changed,
+                 self._on_primary_stream_health_changed),
+            ):
+                try:
+                    sig.disconnect(slot)
+                except (RuntimeError, TypeError):
+                    pass
+        self._primary_session = session
+        if session is not None:
+            session.bar_updated.connect(self._on_primary_bar_updated)
+            session.bars_refreshed.connect(self._on_primary_bars_refreshed)
+            session.stream_health_changed.connect(
+                self._on_primary_stream_health_changed
+            )
+
+    def _on_primary_bar_updated(self, bar: Bar, is_new_candle: bool) -> None:
+        if bar.timeframe != self._current_tf:
+            return
+        self.chart_panel.update_last_bar(bar, is_new_candle)
+
+    def _on_primary_bars_refreshed(self, timeframe: str, bars: list) -> None:
+        if timeframe != self._current_tf:
+            return
+        self.chart_panel.update_chart(bars)
+
+    def _on_primary_stream_health_changed(self) -> None:
+        self._update_stream_badge()
+
+    # Facade properties: the chart data-plane attributes that tests and
+    # legacy call sites read. They delegate to the primary session (the
+    # session backing the main chart's current symbol), falling back to the
+    # _current_symbol session when the primary isn't wired yet (tests set
+    # _current_symbol directly).
+    def _session_for_facade(self) -> TickerSession | None:
+        s = self._primary_session
+        if s is None and self._current_symbol:
+            s = self._sessions.get(self._current_symbol.upper())
+        return s
+
+    @property
+    def _aggregator(self) -> BarAggregator | None:
+        s = self._session_for_facade()
+        return s.aggregator_for(self._current_tf) if s else None
+
+    @property
+    def _rt_req_id(self) -> int | None:
+        s = self._session_for_facade()
+        return s.rt_req_id if s else None
+
+    @_rt_req_id.setter
+    def _rt_req_id(self, value: int | None) -> None:
+        # Legacy direct assignment (tests, teardown paths). Routes into the
+        # primary session without touching the routing table — subscribe-time
+        # registration is the table's only writer.
+        if self._primary_session is not None:
+            self._primary_session._rt_req_id = value
+
+    @property
+    def _last_chart_price(self) -> float | None:
+        s = self._session_for_facade()
+        return s.last_chart_price if s else None
+
+    @_last_chart_price.setter
+    def _last_chart_price(self, value: float | None) -> None:
+        self.get_or_create_session(self._current_symbol).last_chart_price = value
+
+    @property
+    def _current_alarms(self) -> list:
+        s = self._session_for_facade()
+        return s.alarms if s is not None else []
+
+    @_current_alarms.setter
+    def _current_alarms(self, value: list) -> None:
+        self.get_or_create_session(self._current_symbol).set_alarms(value)
+
+    @property
+    def _stream_health(self) -> StreamHealth | None:
+        s = self._session_for_facade()
+        return s.stream_health if s is not None else None
+
+    @property
+    def _rt_seen(self) -> bool:
+        # D27.1 guard: True once a realtime bar was observed since load.
+        s = self._session_for_facade()
+        return s._rt_seen if s is not None else False
+
+    @_rt_seen.setter
+    def _rt_seen(self, value: bool) -> None:
+        if self._primary_session is not None:
+            self._primary_session._rt_seen = value
 
     # ── Connection slots ──────────────────────────────────────────────────────
 
@@ -813,10 +954,6 @@ class MainWindow(QMainWindow):
         )
         return True
 
-    def _rebind_rt_req_id(self, new_req_id: int) -> None:
-        """D27.3: point RT-bar routing at the replayed subscription's reqId."""
-        self._rt_req_id = new_req_id
-
     def _rebind_depth_req_id(self, new_req_id: int) -> None:
         """D27.3: point DOM routing at the replayed subscription's reqId."""
         self._depth_req_id = new_req_id
@@ -890,12 +1027,13 @@ class MainWindow(QMainWindow):
             self._schedule_rt_retry()
             return
         symbol = self._current_symbol
-        contract = get_contract_for_symbol(symbol)
-        if self._rt_req_id is not None:
-            self.sub_manager.unsubscribe(self._rt_req_id)
+        session = self.get_or_create_session(symbol)
+        # D28.2: the session drops the failed subscription and starts a fresh
+        # one (sub_manager re-registration + reqId routing inside). Fix-B is
+        # preserved: the retry path never resets the backoff counter.
         # D28.1: pacing-limited retry defers via singleShot — never sleep.
         try:
-            self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+            session.resubscribe_rt()
         except PacingExceeded as e:
             self.status_bar.showMessage(
                 f"Realtime pacing-limited, retrying in {e.wait_seconds:.0f}s…",
@@ -905,16 +1043,6 @@ class MainWindow(QMainWindow):
                 int(e.wait_seconds * 1000), self._retry_rt_subscribe
             )
             return
-        self.sub_manager.subscribe(
-            symbol,
-            self._rt_req_id,
-            RT_BARS,
-            reissue=lambda s=symbol, c=contract: self.rt_manager.subscribe(s, c),
-            rebind=self._rebind_rt_req_id,
-        )
-        # Fix-B: a backoff retry must NOT reset the attempt counter, or every
-        # fail->retry cycle restarts at 5s and the backoff never progresses.
-        self._stream_health.mark_subscribed(reset_backoff=False)
         self._update_stream_badge()
         self.status_bar.showMessage(
             f"{symbol} — realtime stream re-subscribed, awaiting first bar…",
@@ -1059,18 +1187,29 @@ class MainWindow(QMainWindow):
 
     # ── Chart loading ─────────────────────────────────────────────────────────
 
-    def load_chart(self):
-        symbol = self.symbol_input.text().strip().upper()
-        timeframe = self.tf_combo.currentText()
+    def load_chart(self, symbol=None, timeframe=None, extended_hours=None):
+        # D28.2: parameterised — pop-outs, the alarm monitor and tests call
+        # with explicit values; the toolbar path falls back to the widgets.
+        if symbol is None:
+            symbol = self.symbol_input.text().strip().upper()
+        else:
+            symbol = symbol.strip().upper()
+        if timeframe is None:
+            timeframe = self.tf_combo.currentText()
+        if extended_hours is None:
+            extended_hours = self.ext_hours_btn.isChecked()
         if not symbol:
             self.status_bar.showMessage("Enter a symbol first.", 3000)
             return
 
-        # Cancel any previous RT subscription
-        if self._rt_req_id is not None:
-            self.rt_manager.unsubscribe(self._rt_req_id)
-            self.sub_manager.unsubscribe(self._rt_req_id)
-            self._rt_req_id = None
+        # D28.2: move the primary view to the symbol's session. The old
+        # session loses the primary's RT hold and view; it tears down when
+        # orphaned (no views and not monitored).
+        new_session = self.get_or_create_session(symbol)
+        old_session = self._primary_session
+        if old_session is not None and old_session is not new_session:
+            old_session.release_rt()
+            old_session.detach_view(self.chart_panel)
         # D27.9: a previous load's priming is stale now — its late responses
         # are ignored (reqId no longer matches) and the timer is disarmed.
         self._prime_req_id = None
@@ -1090,29 +1229,30 @@ class MainWindow(QMainWindow):
         self._backfill_failed_req_ids = set()
         self._backfill_missing_spans = []
 
+        # Wire the primary view to the session (idempotent on same session).
+        self._set_primary_session(new_session)
+
         self.chart_panel.set_symbol(symbol)
         self.chart_panel.set_timeframe(timeframe)
-        self.chart_panel.set_extended_hours(self.ext_hours_btn.isChecked())
+        self.chart_panel.set_extended_hours(extended_hours)
         self._reload_drawings(symbol)
         self._refresh_drawing_groups(symbol)
         self._current_studies = self._load_studies_for_symbol(symbol)
         self.chart_panel.set_studies(self._current_studies)
-        self._current_alarms = AlarmStore.load(symbol)
+
+        # D28.2: per-load data-plane reset lives on the session now (fresh
+        # aggregator, rt_seen=False, alarms reloaded from the store).
+        new_session.prepare_load(timeframe)
         self._refresh_alarm_badge()
+        # Register the primary view (sync=False — the set_bars below drives
+        # the initial render through bars_refreshed).
+        new_session.attach_view(self.chart_panel, timeframe, sync=False)
 
-        # Create a fresh aggregator for the new symbol/timeframe
-        self._aggregator = BarAggregator(
-            symbol=symbol,
-            timeframe=timeframe,
-            on_bar_update=self._on_aggregated_bar,
-        )
-        self._rt_seen = False  # D27.1: new load, no live bar observed yet
-
-        # Step 1: Show cached bars immediately
+        # Step 1: Show cached bars immediately (session-owned, capped).
         cached = BarCache.get_bars(symbol, timeframe)
-        self._last_chart_price = cached[-1].close if cached else None
+        new_session.last_chart_price = cached[-1].close if cached else None
+        new_session.set_bars(timeframe, cached)  # emits bars_refreshed → renders
         if cached:
-            self.chart_panel.update_chart(cached)
             self.status_bar.showMessage(
                 f"{symbol} — {len(cached)} cached bars. Fetching delta…"
             )
@@ -1129,14 +1269,13 @@ class MainWindow(QMainWindow):
         missing_spans = (
             find_missing_spans(
                 cached_ts, now_ts, timeframe,
-                ext_hours=self.ext_hours_btn.isChecked(),
+                ext_hours=extended_hours,
             ) if cached else []
         )
         plans = plan_requests(missing_spans, timeframe)
         self._backfill_missing_spans = list(missing_spans)
 
         contract = get_contract_for_symbol(symbol)
-        ext_hours = self.ext_hours_btn.isChecked()
 
         if plans:
             # One request per planned chunk, newest-first (the planner's order).
@@ -1147,7 +1286,7 @@ class MainWindow(QMainWindow):
                     endDateTime=plan.endDateTime,
                     whatToShow="TRADES",
                     useRTH=1,
-                    extended_hours=ext_hours,
+                    extended_hours=extended_hours,
                 )
                 self._register_history_request(req_id)
             self.status_bar.showMessage(
@@ -1162,7 +1301,7 @@ class MainWindow(QMainWindow):
                 endDateTime="",
                 whatToShow="TRADES",
                 useRTH=1,
-                extended_hours=ext_hours,
+                extended_hours=extended_hours,
             )
             self._register_history_request(req_id)
             self.status_bar.showMessage(
@@ -1189,11 +1328,13 @@ class MainWindow(QMainWindow):
 
     def _attach_live_feed(self, symbol: str, contract) -> None:
         """Start the real-time bar stream (+ DOM). Step 3 of load_chart."""
-        # D27.3: register the live subscription (type-tagged) so the
-        # reconnect replay can re-issue it and rebind the reqId.
+        # D28.2: the session owns the RT subscription (refcounted). The
+        # sub_manager type-tagged registration, reqId routing table, and
+        # stream-health transition all happen inside the session.
         # D28.1: pacing-limited subscribes defer via singleShot — never sleep.
+        session = self.get_or_create_session(symbol)
         try:
-            self._rt_req_id = self.rt_manager.subscribe(symbol, contract)
+            session.ensure_rt_subscribed()
         except PacingExceeded as e:
             self.status_bar.showMessage(
                 f"Realtime pacing-limited, retrying in {e.wait_seconds:.0f}s…",
@@ -1204,17 +1345,9 @@ class MainWindow(QMainWindow):
                 lambda: self._retry_attach_live_feed(symbol, contract),
             )
             return
-        self.sub_manager.subscribe(
-            symbol,
-            self._rt_req_id,
-            RT_BARS,
-            reissue=lambda s=symbol, c=contract: self.rt_manager.subscribe(s, c),
-            rebind=self._rebind_rt_req_id,
-        )
         # D27.4: new subscription -> awaiting first bar; disarm any retry
         # timer left over from a previous load/failure.
         self._rt_retry_timer.stop()
-        self._stream_health.mark_subscribed()
         self._update_stream_badge()
 
         # DOM subscription (only if DOM panel is visible)
@@ -1485,7 +1618,10 @@ class MainWindow(QMainWindow):
         if self._pending_bars:
             BarCache.save_bars(self._pending_bars)
         all_bars = BarCache.get_bars(self._current_symbol, self._current_tf)
-        self.chart_panel.update_chart(all_bars)
+        # D28.2: session-owned bars; the emit drives the primary view render.
+        self.get_or_create_session(self._current_symbol).set_bars(
+            self._current_tf, all_bars
+        )
         # D27.1: _last_chart_price must never move backward. If realtime bars
         # were observed since load, the live price is newer than the historical
         # close — rewinding would fabricate a discontinuous (prev, curr) pair
@@ -1571,51 +1707,48 @@ class MainWindow(QMainWindow):
 
     def _on_realtime_bar(self, reqId: int, time: int, o: float, h: float,
                          l: float, c: float, vol: float, wap: float, count: int):
-        if reqId != self._rt_req_id or self._aggregator is None:
+        # D28.2: route by reqId → TickerSession. Unknown reqIds (stale,
+        # pre-extraction, or foreign) are ignored.
+        session = self._session_for_req_id(reqId)
+        if session is None:
             return
-        self._rt_seen = True  # D27.1: a live bar was observed since load
-        if not self._stream_health.is_live:
+        was_live = session.stream_health.is_live
+        session.on_realtime_bar(reqId, time, o, h, l, c, vol)
+        if not was_live and session.stream_health.is_live:
             # D27.4: first bar on the subscription -> the stream is live.
-            self._stream_health.mark_first_bar()
             self._rt_retry_timer.stop()
             self._update_stream_badge()
-        self._aggregator.push(time, o, h, l, c, vol)
 
     def _on_aggregated_bar(self, bar: Bar, is_new_candle: bool):
-        """Called by BarAggregator on main thread (signal is already queued)."""
-        self.chart_panel.update_last_bar(bar, is_new_candle)
-        triggered = evaluate_alarms(
-            self._last_chart_price,
-            bar.close,
-            self._current_alarms,
+        """Legacy entry point: route into the current symbol's session.
+
+        Production flow goes aggregator -> session._on_aggregated_bar
+        directly; this router exists for tests driving the window.
+        """
+        self.get_or_create_session(self._current_symbol)._on_aggregated_bar(
+            bar, is_new_candle
         )
-        for alarm in triggered:
-            if alarm.id is not None:
-                AlarmStore.mark_triggered(alarm.id)
-            alarm.triggered = True
-            self.status_bar.showMessage(
-                f"{bar.symbol} alarm triggered at {alarm.price:.4f}", 8000
-            )
-        if triggered:
-            self._refresh_alarm_badge()
-            self._notify_alarm_triggered(triggered)
-        self._last_chart_price = bar.close
-        # D27.5: feed the central symbol -> last_price map.
-        self._record_symbol_price(self._current_symbol, bar.close)
 
     def _record_symbol_price(self, symbol: str | None, price: float) -> None:
         """D27.5: record a last price in the central symbol -> price map."""
         if symbol and price and price > 0:
             self._symbol_last_prices[symbol.upper()] = float(price)
 
-    def _notify_alarm_triggered(self, triggered: list):
+    def _on_session_alarm_triggered(self, symbol: str, triggered: list) -> None:
+        """Toast + sound exactly once per trigger event (A57).
+
+        The badge reflects the main-chart symbol only (FR-4.3); a trigger
+        for a background symbol still toasts + sounds.
+        """
         lines = [
             f"{a.price:.4f} ({a.note})" if a.note else f"{a.price:.4f}"
             for a in triggered
         ]
-        self.toast.show_message(f"Alarm: {self._current_symbol} @ " + ", ".join(lines))
+        self.toast.show_message(f"Alarm: {symbol} @ " + ", ".join(lines))
         if any(a.sound for a in triggered):
             self.sound_service.play_alarm()
+        if symbol == self._current_symbol:
+            self._refresh_alarm_badge()
 
     # ── Chart controls ────────────────────────────────────────────────────────
 
@@ -2795,10 +2928,11 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
-        # Cancel realtime bar subscription
-        if self._rt_req_id is not None:
-            self.rt_manager.unsubscribe(self._rt_req_id)
-            self._rt_req_id = None
+        # D28.2: cancel every session's realtime subscription.
+        for session in list(self._sessions.values()):
+            session.teardown()
+        self._sessions.clear()
+        self._primary_session = None
         # Cancel every in-flight backfill request and invalidate the generation
         # so late responses cannot mix symbols/timeframes. Disarm the backfill
         # watchdog too, so arm/disarm stays symmetric with the other

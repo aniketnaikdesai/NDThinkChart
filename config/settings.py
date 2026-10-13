@@ -32,3 +32,9 @@ MAX_REALTIME_BARS_PER_10_MIN = 60
 # D26.7: per-order notional cap (USD). Owner-set 2026-10-12. validate_order()
 # rejects anything above it; the Phase 1 gate asserts this constant exists.
 MAX_ORDER_NOTIONAL = 25000
+
+# D24.5: maximum pop-out chart windows (owner-set 2026-10-12).
+MAX_POPOUTS = 10
+
+# D28.2/D28.4: per-session in-memory bar cap (front-loaded from D28.4).
+SESSION_BAR_CAP = 5000
