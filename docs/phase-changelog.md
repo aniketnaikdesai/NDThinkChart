@@ -231,6 +231,45 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ---
 
+## Phase D40 — TWS daily-lifecycle pause/resume
+
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d40-tws-lifecycle` merged to `main` @ `b366b19` (feature `4ac2453`, review fixes `d6f38e8` — hashes per git history), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Review:** **CHANGES REQUIRED → rework → APPROVED.** First pass found 1 blocking (B1, below); the Coder fixed it plus 2 advisories, added a B1 regression test (verified to **fail on the old call order** with the stale 99.0 seed and **pass on the fix**), and the re-check verified APPROVED. B.6 mock-endpoint re-grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`).
+- **Tests:** 1020 passing, 0 failing (offscreen): 1009 pre-existing + 11 new `tests/test_d40_tws_lifecycle.py`; no test touches live TWS/network; mocked `ib_client` only. One load flake in the reviewer's run (`test_place_order_defers_when_limiter_empty` — wall-clock timing; the order path is untouched — passes in isolation, not a regression).
+
+### Commits
+| SHA | Item | Change |
+|---|---|---|
+| `c24f4f3` | 40.1 | **Disconnect classification** — new `ibkr/client.py::DisconnectClass` (`TRANSIENT` / `TWS_GONE`); `connectionClosed()` classifies TWS-gone per ibapi's own docstring ("fires when TWS closes the sockets connection … or when TWS is shut down"), records the classification before emitting `disconnected`, and **restarts the backoff reconnect loop** — a genuine drive-by bug fix: the old code stopped polling after `connectionClosed` and scheduled nothing, so the app could **never notice a morning TWS login without a restart**. Backoff base 2s capped 16s (~1 gentle attempt per 16s overnight). Error 502 during paused backoff downgraded to a debug log (no all-night status-bar spam); a 502 at startup with no prior connection still surfaces. `_last_disconnect_class` reset on connect |
+| `c24f4f3` | 40.2 | **Pause** — new `AlarmMonitor.pause_all()`: records per-symbol pause-start, sets `monitoring_paused` on every alarmed session; both evaluation entry points (price-alarm and burst-alarm in `_on_aggregated_bar`) gate on the flag — headless uses the same path. `conn_badge_text(..., monitoring_paused=...)` shows the owner-approved **"Monitoring paused — TWS disconnected"** in amber `#fbbf24`, never green. Proxy burst alarms pause with their tape |
+| `c24f4f3` | 40.3 | **Resume** — on `connected`, the as-built D27 replay re-issues subscriptions, then `reconcile()` FIRST, then `resume_all()`: every session's `prev_price` re-seeded to None (**AC-D25.3 first-tick-no-eval guard** — no phantom triggers), staged subscribes finished, gap intervals returned. Per-symbol gap report surfaced in the status bar, e.g. "ES, NQ unmonitored 22:14–09:40". Alarms created while TWS is down are **staged** (`_monitor_subscribe_pending`) and covered on resume. Backfill waves in flight keep the existing generation fencing |
+| `c24f4f3` | 40.4 | **Transient path unchanged** — poll-driven drops and 1100/1101/1102 stay transient: fast D27 reconnect, no pause UI, no gap accounting, `prev_price` untouched |
+| `d6f38e8` | Review | **B1 fix (blocking):** call order swapped to reconcile-then-resume — reconcile-created sessions now take the staged path (`monitoring_paused=True`, `last_chart_price=None`, subscribe deferred) instead of the normal path with a stale cache seed (phantom-trigger hole). Regression test `test_d40_2_resume_session_recreated_mid_pause_no_phantom`. **A1:** `_last_disconnect_class` reset on connect (a stale TWS_GONE would otherwise downgrade a later transient drop to the paused path). **A2:** cancel-then-arm reconnect timer (no double-arm) |
+
+### Drive-by fixes (found while implementing, verified real)
+1. **Reconnect loop never restarted on `connectionClosed`:** the old code stopped polling and scheduled nothing — the app could never detect a morning TWS login without a restart. Fixed as part of 40.1 (reviewer-verified real).
+
+### Decisions recorded
+- **TWS only — never Gateway** (owner, 2026-10-13). Aniket closes TWS nightly and logs in manually each morning; there is no 24/7 headless scenario to protect — D40 is pause/resume around TWS's daily lifecycle.
+- **Badge wording/placement** — "Monitoring paused — TWS disconnected" in the connection-badge area, amber `#fbbf24`, never a green "connected" appearance while paused (owner-approved, 2026-10-13).
+- **No phantom alarm triggers after the gap** — resume re-seeds `prev_price` to None per session (AC-D25.3 first-tick-no-eval guard); gap accounting is per-symbol and surfaced, never silent ("ES, NQ unmonitored 22:14–09:40").
+- **Transient drops keep the fast D27 path** — classification boundary: `connectionClosed` → TWS_GONE only if a live session existed; TWS daily auto-restart classifies as TWS-gone per the plan's edge cases.
+
+### Review findings of note
+- **B1 (blocking, fixed):** `resume_all`-before-`reconcile` let reconcile-created sessions take the normal path with a stale cache seed — phantom-fire hole. Fixed by the call-order swap + staged path for reconcile-created sessions; regression test verified fails-on-old-order / passes-on-fix.
+- **A1** (`_last_disconnect_class` reset on connect) and **A2** (cancel-then-arm reconnect timer) applied post-review.
+- **AC-D40.1–AC-D40.5 genuinely verified:** pause on TWS close (badge text + all symbols paused); resume with no phantoms (price through an alarm level fires exactly once; resume alone fires nothing); gap report names symbols + durations; transient drop → fast reconnect, no paused state; full suite green.
+- B.6 mock-endpoint invariant: PASSED on the re-grep of the full D40 diff.
+
+### Follow-ups filed (not Phase D40 scope)
+- (Carried) depth heatmap default ON pending owner confirmation (D37, reviewer recommends OFF); delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; flaky UI-timing tests under load; 4h/daily forming-candle exactness; stale reqId accumulation.
+- **No further phases (D41+) without Aniket's explicit go-ahead** (owner, 2026-10-13).
+
+### USAGE.txt
+- New "TWS daily lifecycle (Phase D40)" section: what the paused badge means, what happens on morning login, gap report, transient vs TWS-gone.
+
+---
+
 ## Phase D38 — Events & news (event markers + news-for-holdings digest)
 
 - **Status:** Code complete and review-**APPROVED**; branch `feat/d38-events-news` merged to `main` @ `8599ce4` (feature commit `b893911`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.

@@ -3039,4 +3039,100 @@ The D39 code lives in two new services plus additive changes to existing ones:
 plus guard cases before wiring) → 39.3 (`volume_burst` kind + evaluation wiring) →
 39.4 (index proxy) on `feat/d39-burst-search`; reviewer APPROVED with no blocking
 findings (A1/A2 advisories applied post-review in `0b50fb7`); merged to `main` @
-`83f792a`. D40 not started.
+`83f792a`.
+
+## D40 increment — TWS daily-lifecycle pause/resume (as-built 2026-10-13, Code Reviewer APPROVED)
+
+Final phase of the D36–D40 program. Owner-approved 2026-10-13: TWS ONLY (never Gateway);
+Aniket closes TWS nightly and logs in manually each morning — no 24/7 headless scenario
+to protect; D40 is pause/resume around TWS's daily lifecycle. Built on
+`feat/d40-tws-lifecycle` @ `4ac2453` (+ review fixes `d6f38e8`); reviewer
+CHANGES REQUIRED → rework → APPROVED; merged to `main` @ `b366b19`, not pushed.
+
+### Codebase Summary (D40 increment)
+
+- `ibkr/client.py` — new `DisconnectClass` (`TRANSIENT` / `TWS_GONE`); `connectionClosed()`
+  classifies TWS-gone per ibapi's own docstring and **restarts the backoff reconnect loop**
+  (drive-by fix: the old code stopped polling and scheduled nothing — the app could never
+  notice a morning login without a restart); backoff base 2s capped 16s; 502 downgraded to
+  debug during paused backoff (still surfaces at startup with no prior connection).
+- `services/alarm_monitor.py` — `pause_all()` (per-symbol pause-start, `monitoring_paused`
+  on every alarmed session) and `resume_all()` (clears flags, re-seeds `prev_price` to None
+  per AC-D25.3, finishes staged subscribes, returns gap intervals); `_on_connected` runs
+  D27 replay → `reconcile()` → `resume_all()` (order swapped post-review — see B1).
+- `ui/main_window.py` — `conn_badge_text(..., monitoring_paused=...)`: "Monitoring paused —
+  TWS disconnected" in amber `#fbbf24`, never green; gap report surfaced in the status bar.
+- `ui/ticker_session.py` — both evaluation entry points gate on `monitoring_paused`
+  (headless shares the path); alarms created while TWS is down are staged
+  (`_monitor_subscribe_pending`) and covered on resume.
+- `tests/test_d40_tws_lifecycle.py` — 11 new tests, including the B1 regression test
+  `test_d40_2_resume_session_recreated_mid_pause_no_phantom`.
+
+### Tech Stack Decisions (D40 increment)
+
+- **Classification boundary:** `connectionClosed` → TWS_GONE only if a live session existed;
+  poll-driven drops and 1100/1101/1102 stay TRANSIENT. TWS daily auto-restart classifies
+  as TWS-gone per the plan's edge cases. Codes are build-time observation items documented
+  in code comments.
+- **Reconcile-then-resume ordering (B1):** reconcile-created sessions take a staged path
+  (`monitoring_paused=True`, `last_chart_price=None`, subscribe deferred) — the old
+  resume-then-reconcile order let them take the normal path with a stale cache seed, a
+  phantom-trigger hole. The regression test is order-sensitive by construction (fails on
+  the old order with the stale 99.0 seed).
+
+### System Components (D40 increment)
+
+- **Disconnect classifier** (`ibkr/client.py::DisconnectClass`): the single place that
+  decides TRANSIENT vs TWS_GONE; recorded before `disconnected` is emitted so routing
+  decisions see it.
+- **Pause engine** (`AlarmMonitor.pause_all`): per-symbol pause-start (gap accounting),
+  session flags; evaluation gating is in the session's `_on_aggregated_bar`, so charted,
+  headless, and proxy-tape sessions pause identically.
+- **Resume sequencer** (`_on_connected` → D27 replay → `reconcile()` → `resume_all()`):
+  prev_price re-seed implements the AC-D25.3 first-tick-no-eval guard; staged subscribes
+  finish with pacing-aware retry.
+
+### Data Model (D40 increment)
+
+- `AlarmMonitor._pause_start: dict[str, float]` — per-symbol pause-start timestamps;
+  `resume_all()` returns `[(symbol, pause_start, pause_end)]` for the gap report.
+- `TickerSession.monitoring_paused: bool` + `_monitor_subscribe_pending: bool` — the
+  staged path for alarms created while TWS is down. No DB schema change.
+
+### Integration Points (D40 increment)
+
+- **D26 badge:** `conn_badge_text()` gains the monitoring state — the owner-approved
+  wording/placement, amber, never green while paused.
+- **D27 reconnect:** the as-built replay is reused verbatim for resume; backfill waves in
+  flight keep generation fencing; `_last_disconnect_class` is reset on connect so a stale
+  TWS_GONE cannot downgrade a later transient drop.
+- **D25 alarm semantics:** the first-tick-no-eval guard (AC-D25.3) is the mechanism that
+  prevents phantom triggers across the gap — resume alone fires nothing.
+- **D39 burst alarms:** proxy burst alarms pause with their tape session; the kind-filtered
+  evaluators gate on the same flag.
+
+### Non-Functional Approach (D40 increment)
+
+- No IBKR budget load added: pause emits no requests; the overnight backoff is ~1
+  handshake attempt per 16s; resume replays the existing pacing-aware paths. No threads
+  added; all timer-driven on the main thread.
+
+### Architecture Risks (D40 increment)
+
+- **Classification heuristic:** the TWS-gone boundary rests on `connectionClosed` + error
+  codes observed at build time. If a future IBKR release changes the nightly-shutdown
+  signaling, the classifier needs revisiting — the codes are documented in code comments.
+- **Gap-blind trading:** alarms cannot fire during the unmonitored gap by design; the gap
+  report is the compensation — a symbol that moved 5% overnight shows no alarm, only the
+  gap interval. This is the owner's accepted trade-off (TWS is closed; there is no data).
+- **Staged-monitor pacing:** a large alarm list resumed at morning login could pace-limit
+  (`PacingExceeded` → singleShot retry); a symbol can be left unmonitored for the wait —
+  logged, not silent.
+
+### Implementation sequencing (D40 increment)
+
+40.1 (classification + reconnect-loop drive-by fix) → 40.2 (pause) → 40.3 (resume) →
+40.4 (transient verification) on `feat/d40-tws-lifecycle`; reviewer CHANGES REQUIRED
+(B1: resume/reconcile call order — phantom-trigger hole) → rework in `d6f38e8` (call-order
+swap + staged path + regression test + A1/A2) → re-check APPROVED; merged to `main` @
+`b366b19`. Program complete — no D41 without Aniket's explicit go-ahead.

@@ -219,3 +219,20 @@ Volume-burst alerts & symbol search (Phase D39)
   front-month volume, and the toast says so - "Volume burst on ES tape
   (z=9.4)". The baseline resets automatically when a futures contract
   rolls, so volume is never compared against the wrong contract month.
+
+TWS daily lifecycle (Phase D40)
+- You close TWS every night; the app handles the rest. When TWS goes away,
+  the connection badge shows "Monitoring paused — TWS disconnected" in
+  amber — never a green "connected". While paused, no alarm is evaluated
+  and nothing can fire: there is no data, so the app says so instead of
+  guessing.
+- In the morning, log into TWS as usual — no app restart needed. The app
+  detects TWS back, reconnects, resubscribes your symbols, and resumes
+  monitoring. The status bar reports the gap, e.g. "ES, NQ unmonitored
+  22:14–09:40", so you can see exactly what was not watched.
+- Resume never triggers alarms by itself: prices re-seed quietly, and an
+  alarm fires only if the live price then crosses its level. A move that
+  happened overnight while TWS was closed fires no alarm — that is by
+  design (check the gap report).
+- Brief drops during the day are different: they reconnect fast in the
+  background with no pause badge and no gap report.

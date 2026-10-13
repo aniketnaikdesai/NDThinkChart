@@ -770,6 +770,40 @@ repository files, which remain authoritative if the two disagree.
   dock tests). Two load flakes in reviewer runs (`test_attach_live_feed_defers_with_status_and_retries`,
   `test_smoke_gate_three_popouts`) — pass in isolation, not regressions.
 
+### Journey 35 — D40: TWS daily-lifecycle pause/resume
+- **Preconditions:** TWS connected; one or more symbols have live alarms (headless or charted).
+- **Steps:** 1) Close TWS (nightly shutdown): the client classifies the disconnect as
+  TWS-gone (via `connectionClosed`, per ibapi's own docstring) and `AlarmMonitor.pause_all()`
+  marks every alarmed symbol paused — per-symbol pause-start recorded, evaluation gated off
+  (no triggers, no phantoms). The connection badge shows **"Monitoring paused — TWS disconnected"**
+  in amber `#fbbf24`, never green. The backoff reconnect loop keeps a gentle ~1 attempt/16s
+  overnight; error 502 during the pause logs at debug (no status-bar spam). 2) Morning: log
+  into TWS — the app detects TWS back and reconnects **without an app restart**; the D27 replay
+  re-issues subscriptions, then `reconcile()`, then `resume_all()`: pause flags clear,
+  `prev_price` re-seeds to None per session (AC-D25.3 first-tick-no-eval guard — resume alone
+  fires nothing), staged subscribes finish, and the status bar reports the per-symbol gap
+  (e.g. "ES, NQ unmonitored 22:14–09:40"). 3) A transient drop (poll-driven / 1100/1101/1102)
+  takes the fast D27 path — no pause UI, no gap accounting.
+- **Postconditions:** TWS-gone → badge shows the paused state and all symbols marked paused
+  (asserted); reconnect after pause → subscriptions resume, a price driven through an alarm
+  level fires exactly once, resume alone fires nothing; gap report names symbols + durations;
+  transient drop → fast reconnect, no paused state.
+- **Edge Cases:** alarms created while TWS is down are staged (`_monitor_subscribe_pending`)
+  and covered on resume; a stale `TWS_GONE` classification cannot downgrade a later transient
+  drop (`_last_disconnect_class` reset on connect); reconnect timer is cancel-then-armed
+  (no double-arm); backfill waves in flight keep generation fencing; TWS daily auto-restart
+  classifies as TWS-gone; 502 at startup with no prior connection still surfaces.
+- **As-built note:** `AC-D40.1`–`AC-D40.5` verified; 1020 tests green (1009 pre-existing + 11 new
+  `tests/test_d40_tws_lifecycle.py`); Code Reviewer CHANGES REQUIRED (B1: resume_all-before-reconcile
+  let reconcile-created sessions take the normal path with a stale seed — phantom-trigger hole;
+  fixed by the call-order swap + regression test `test_d40_2_resume_session_recreated_mid_pause_no_phantom`,
+  verified fails-on-old-order / passes-on-fix) → re-check **APPROVED** 2026-10-13. Drive-by fix:
+  the old code stopped polling after `connectionClosed` and scheduled nothing — the app could
+  never notice a morning login without a restart (reviewer-verified real). B.6 mock-endpoint
+  re-grep PASSED. One load flake in the reviewer's run (`test_place_order_defers_when_limiter_empty`,
+  wall-clock timing — order path untouched) — passes in isolation, not a regression.
+
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)
