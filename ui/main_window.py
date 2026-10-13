@@ -42,7 +42,9 @@ from ibkr.id_manager import id_manager
 from ibkr.pacing import pacing_manager, order_limiter, PacingExceeded
 from ibkr.subscription_manager import (
     DEPTH,
+    DEPTH_HEATMAP,
     RT_BARS,
+    S0_TICKS,
     SubscriptionManager,
 )
 from ibkr.stream_health import StreamHealth, StreamState
@@ -90,6 +92,11 @@ from services.backfill_service import (
 )
 from services.market_calendar import trading_days
 from services.contract_lookup_service import ContractLookupService
+from services.md_line_guard import assess as md_assess
+
+# D37: depth feed budget — IBKR allows 3–60 simultaneous depth feeds
+# (scales with market-data lines); warn + refuse past the cap.
+DEPTH_FEED_CAP = 60
 
 _LOG = logging.getLogger(__name__)
 
@@ -329,6 +336,8 @@ class MainWindow(QMainWindow):
         self.chart_panel.footprint_toggled.connect(self._on_fp_toggled)
         self.chart_panel.footprint_viewport_changed.connect(
             self._on_fp_viewport)
+        # D37: depth heatmap toggle → the active session.
+        self.chart_panel.depth_toggled.connect(self._on_depth_toggled)
         # D19 Phase 1: keep the toolbar inside the central widget but stop its
         # ~1716px minimumSizeHint from pinning the central widget. A frameless
         # horizontal QScrollArea holds the full-natural-width toolbar so it stays
@@ -577,6 +586,15 @@ class MainWindow(QMainWindow):
         b.historical_ticks_last.connect(self._on_fp_ticks_last)
         b.tick_price.connect(self.watchlist_panel.on_tick_price)
         b.tick_size.connect(self.watchlist_panel.on_tick_size)
+        # D37 S0: route price/size ticks to sessions too (auction 34/35/36/61
+        # arrive on the session's S0 reqMktData). The watchlist keeps its own
+        # table; both consumers filter by reqId.
+        b.tick_price.connect(self._on_session_tick_price)
+        b.tick_size.connect(self._on_session_tick_size)
+        # D37 S0 substrate: generic/string/news ticks, routed by reqId.
+        b.tick_generic.connect(self._on_s0_tick_generic)
+        b.tick_string.connect(self._on_s0_tick_string)
+        b.tick_news.connect(self._on_s0_tick_news)
         b.realtime_bar.connect(self._on_realtime_bar)
         b.update_mkt_depth.connect(self._on_mkt_depth)
         b.open_order.connect(self._on_open_order)
@@ -693,6 +711,44 @@ class MainWindow(QMainWindow):
     def _session_for_req_id(self, req_id: int) -> TickerSession | None:
         return self._req_to_session.get(req_id)
 
+    # ── D37 budget guards (37.4 depth budget, 37.5 MD-line guard) ────────
+
+    def _md_line_count(self) -> int:
+        """Active market-data lines (owns the §7 accounting — C37.1).
+
+        Counts RT-bar lines, S0 lines (new in D37), depth feeds, and
+        watchlist rows explicitly. Called before new D37 subscriptions.
+        """
+        rt = sum(1 for s in self._sessions.values()
+                 if s.rt_req_id is not None)
+        s0 = sum(1 for s in self._sessions.values()
+                 if s.s0_req_id is not None)
+        depth = (self.depth_manager.active_feed_count()
+                 if self.depth_manager is not None else 0)
+        watchlist = self.watchlist_panel.active_row_count()
+        return rt + s0 + depth + watchlist
+
+    def _guard_md_lines(self, symbol: str, purpose: str) -> bool:
+        """Warn (never silently drop) near the 100-line cap; refuse past it.
+
+        Returns True when the subscription may proceed.
+        """
+        projected = self._md_line_count() + 1
+        level, message = md_assess(projected, symbol, purpose)
+        if level == "ok":
+            return True
+        self.status_bar.showMessage(message, 8000)
+        return level != "exceeded"
+
+    def _guard_depth_budget(self, symbol: str) -> bool:
+        """Refuse a new depth feed past DEPTH_FEED_CAP with a named warning."""
+        if self.depth_manager.active_feed_count() >= DEPTH_FEED_CAP:
+            self.status_bar.showMessage(
+                f"Depth feed budget exceeded ({DEPTH_FEED_CAP}) — "
+                f"no depth for {symbol}.", 8000)
+            return False
+        return True
+
     # ── Pop-outs (D24) ──────────────────────────────────────────────────
 
     def _register_popout(self, popout) -> None:
@@ -785,6 +841,10 @@ class MainWindow(QMainWindow):
                     exc,
                 )
 
+    @property
+    def primary_session(self) -> TickerSession | None:
+        return self._primary_session
+
     def _set_primary_session(self, session: TickerSession | None) -> None:
         """Point the main chart at a session, rewiring the view signals."""
         if self._primary_session is session:
@@ -806,6 +866,8 @@ class MainWindow(QMainWindow):
                 except (RuntimeError, TypeError):
                     pass
         self._primary_session = session
+        if old is not None:
+            self.chart_panel.unbind_d37_session(old)
         if session is not None:
             session.bar_updated.connect(self._on_primary_bar_updated)
             session.bars_refreshed.connect(self._on_primary_bars_refreshed)
@@ -815,6 +877,22 @@ class MainWindow(QMainWindow):
             # D36: footprint data changed → re-render the footprint layer.
             session.footprint_updated.connect(
                 self._on_primary_footprint_updated)
+            # D37: heatmap/auction/imbalance UI binds to the primary session.
+            self.chart_panel.bind_d37_session(session)
+            # D37: the depth toggle defaults ON — sync the feed now (the
+            # toggle only emits on user interaction).
+            if self.chart_panel.depth_enabled:
+                session.ensure_depth_subscribed()
+
+    def _on_depth_toggled(self, enabled: bool) -> None:
+        """Depth heatmap toggle → refcounted session feed."""
+        session = self.primary_session
+        if session is None:
+            return
+        if enabled:
+            session.ensure_depth_subscribed()
+        else:
+            session.release_depth()
 
     def _on_primary_bar_updated(self, bar: Bar, is_new_candle: bool) -> None:
         if bar.timeframe != self._current_tf:
@@ -1182,18 +1260,20 @@ class MainWindow(QMainWindow):
     def _replay_subscriptions(self):
         """Re-issue live subscriptions after reconnection (D27.3).
 
-        Chart RT bars and DOM depth replay through the subscription
-        registry, which rebinds the new reqIds into the routing state.
+        Chart RT bars, DOM depth, session depth feeds, and S0 generic-tick
+        subscriptions replay through the subscription registry, which
+        rebinds the new reqIds into the routing state.
         Watchlist market-data is re-issued by ``_restore_watchlist``'s
-        clear+re-add path (pinned by AC-D22.7.2), so it is excluded here —
-        replaying it too would double-subscribe every row.
+        clear+re-add path (pinned by AC-D22.7.2), so MARKET_DATA stays
+        excluded here — replaying it too would double-subscribe every row.
 
         D28.1: the replay is all-or-nothing under pacing pressure
         (SubscriptionManager.replay_all raises PacingExceeded before any
         reissue); defer the whole replay via singleShot — never sleep.
         """
         try:
-            self.sub_manager.replay_all(include_types={RT_BARS, DEPTH})
+            self.sub_manager.replay_all(
+                include_types={RT_BARS, DEPTH, DEPTH_HEATMAP, S0_TICKS})
         except PacingExceeded as e:
             self.status_bar.showMessage(
                 f"Subscription replay pacing-limited, "
@@ -1371,9 +1451,24 @@ class MainWindow(QMainWindow):
                     session, errorCode, errorString
                 )
                 return
+            if reqId == session.depth_req_id:
+                # D37: depth feed errors (354 = no entitlement) drive the
+                # heatmap's explicit degradation state.
+                session.on_depth_error(errorCode, errorString)
+                self.status_bar.showMessage(
+                    f"Depth [{errorCode}]: {errorString}", 8000
+                )
+                return
             session.on_historical_error(reqId, errorCode, errorString)
             self.status_bar.showMessage(
                 f"Error [{errorCode}]: {errorString}", 8000
+            )
+            return
+        if reqId == self._depth_req_id:
+            # D37: DOM depth feed entitlement failure — explicit, not silent.
+            self.status_bar.showMessage(
+                f"DOM depth [{errorCode}]: {errorString} — "
+                "depth subscription required.", 8000
             )
             return
         # D26.9: TWS reports order errors with the orderId in the reqId field.
@@ -1749,6 +1844,54 @@ class MainWindow(QMainWindow):
         if session is None:
             return
         session.on_fp_ticks_last(reqId, ticks, done)
+
+    # ── D37 S0 routing ───────────────────────────────────────────────
+
+    def _on_session_tick_price(self, reqId: int, tickType: int,
+                               price: float) -> None:
+        if self._closing:
+            return
+        session = self._session_for_req_id(reqId)
+        if session is None:
+            return
+        session.on_tick_price(reqId, tickType, price)
+
+    def _on_session_tick_size(self, reqId: int, tickType: int,
+                              size: int) -> None:
+        if self._closing:
+            return
+        session = self._session_for_req_id(reqId)
+        if session is None:
+            return
+        session.on_tick_size(reqId, tickType, size)
+
+    def _on_s0_tick_generic(self, reqId: int, tickType: int,
+                            value: float) -> None:
+        if self._closing:
+            return
+        session = self._session_for_req_id(reqId)
+        if session is None:
+            return
+        session.on_s0_tick_generic(reqId, tickType, value)
+
+    def _on_s0_tick_string(self, reqId: int, tickType: int,
+                           value: str) -> None:
+        if self._closing:
+            return
+        session = self._session_for_req_id(reqId)
+        if session is None:
+            return
+        session.on_s0_tick_string(reqId, tickType, value)
+
+    def _on_s0_tick_news(self, reqId: int, timeStamp: int, providerCode: str,
+                         articleId: str, headline: str) -> None:
+        if self._closing:
+            return
+        session = self._session_for_req_id(reqId)
+        if session is None:
+            return
+        session.on_s0_tick_news(reqId, timeStamp, providerCode, articleId,
+                                headline)
 
     def _on_session_wave_complete(self, session: TickerSession) -> None:
         """A session's backfill wave emptied — finalize (persist + render)."""
@@ -2633,14 +2776,22 @@ class MainWindow(QMainWindow):
         """Handle incoming market-depth updates."""
         # is_smart_depth (10.51.1) is carried for D37's SMART-aggregated-row
         # disambiguation; the DOM path below is unchanged.
-        symbol = self.depth_manager.on_update(req_id, position, operation, side, price, size)
-        if symbol is None:
+        if req_id == self._depth_req_id:
+            symbol = self.depth_manager.on_update(req_id, position, operation, side, price, size)
+            if symbol is None:
+                return
+            # Update last price for the ladder mid-row display
+            if price > 0:
+                self.active_trader.set_last_price(price)
+            snapshot = self.depth_manager.snapshot(req_id)
+            on_depth_callback(self.active_trader, snapshot)
             return
-        # Update last price for the ladder mid-row display
-        if price > 0:
-            self.active_trader.set_last_price(price)
-        snapshot = self.depth_manager.snapshot(req_id)
-        on_depth_callback(self.active_trader, snapshot)
+        # D37: session heatmap feeds (shared SMART subscriptions) route by
+        # reqId to the owning session; the service owns the book model.
+        session = self._session_for_req_id(req_id)
+        if session is not None:
+            session.on_depth_update(position, operation, side, price, size,
+                                    is_smart_depth)
 
     # ── Alarm overlay slots ───────────────────────────────────────────────────
 

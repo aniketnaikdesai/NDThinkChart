@@ -201,6 +201,11 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
         assert fake.mkt_depth, "DOM subscribe issued nothing"
         depth_id_1 = win._depth_req_id
         assert depth_id_1 == fake.mkt_depth[-1]
+        # D37: the primary session holds its own heatmap depth feed
+        # (depth toggle defaults ON) alongside the DOM feed.
+        session_depth_id_1 = win.primary_session.depth_req_id
+        assert session_depth_id_1 is not None
+        assert session_depth_id_1 == fake.mkt_depth[0]
 
         # Pre-drop sanity: bars flow on the live RT reqId.
         win._on_realtime_bar(rt_id_1, 1_760_000_000, 10, 11, 9, 10.5,
@@ -213,15 +218,22 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
 
         # Every live subscription re-issued with a NEW reqId...
         assert len(fake.rt_bars) == 2 and fake.rt_bars[1] != rt_id_1
-        assert len(fake.mkt_depth) == 2 and fake.mkt_depth[1] != depth_id_1
-        assert len(fake.mkt_data) == 2 and fake.mkt_data[1] != md_id_1
-        rt_id_2, depth_id_2, md_id_2 = (
-            fake.rt_bars[1], fake.mkt_depth[1], fake.mkt_data[1])
+        # D37: watchlist row + session S0 feed both re-issued (4 total).
+        assert len(fake.mkt_data) == 4
+        assert set(fake.mkt_data[2:]).isdisjoint(fake.mkt_data[:2])
+        rt_id_2 = fake.rt_bars[1]
 
         # ...and rebound to the live routing state.
         assert win._rt_req_id == rt_id_2, "stale RT reqId not rebound"
-        assert win._depth_req_id == depth_id_2, "stale depth reqId not rebound"
-        assert list(win.watchlist_panel._req_to_row) == [md_id_2]
+        assert win._depth_req_id in fake.mkt_depth[2:], \
+            "stale DOM depth reqId not rebound"
+        assert win.primary_session.depth_req_id in fake.mkt_depth[2:], \
+            "stale session depth reqId not rebound"
+        assert win._depth_req_id != win.primary_session.depth_req_id
+        assert win.primary_session.s0_req_id in fake.mkt_data[2:], \
+            "stale S0 reqId not rebound"
+        assert list(win.watchlist_panel._req_to_row)[0] in fake.mkt_data[2:]
+        assert len(win.watchlist_panel._req_to_row) == 1
 
         # Bars flow on the rebound id with no manual reload...
         win._on_realtime_bar(rt_id_2, 1_760_000_005, 10, 12, 9, 11.5,

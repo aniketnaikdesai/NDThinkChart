@@ -35,6 +35,8 @@ from ibkr.pacing import pacing_manager, PacingExceeded
 RT_BARS = "rt_bars"
 MARKET_DATA = "market_data"
 DEPTH = "depth"
+DEPTH_HEATMAP = "depth_heatmap"  # D37: session SMART depth (not the DOM's)
+S0_TICKS = "s0_ticks"  # D37 substrate: per-session generic-tick reqMktData
 
 
 @dataclass

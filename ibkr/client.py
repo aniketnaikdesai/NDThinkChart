@@ -218,6 +218,26 @@ class IBApiClient(EWrapper, EClient):
         super().historicalTicksLast(reqId, ticks, done)
         self.bridge.historical_ticks_last.emit(reqId, ticks, done)
 
+    # ── D37 substrate S0: generic ticks (shared by D37 auction + D38 news) ──
+    # Strictly additive: super() first, then the bridge signal. Signatures
+    # verified against the 10.51.1 wheel — tickNews takes 6 args (extraData
+    # last); the bridge carries the 5 D38 needs.
+
+    def tickGeneric(self, reqId: int, tickType: int, value: float):
+        super().tickGeneric(reqId, tickType, value)
+        self.bridge.tick_generic.emit(reqId, tickType, value)
+
+    def tickString(self, reqId: int, tickType: int, value: str):
+        super().tickString(reqId, tickType, value)
+        self.bridge.tick_string.emit(reqId, tickType, value)
+
+    def tickNews(self, tickerId: int, timeStamp: int, providerCode: str,
+                 articleId: str, headline: str, extraData: str):
+        super().tickNews(tickerId, timeStamp, providerCode, articleId,
+                         headline, extraData)
+        self.bridge.tick_news.emit(tickerId, timeStamp, providerCode,
+                                   articleId, headline)
+
     def contractDetails(self, reqId: int, contractDetails):
         super().contractDetails(reqId, contractDetails)
         self.bridge.contract_details.emit(reqId, contractDetails)

@@ -64,11 +64,17 @@ class MarketDataManager:
         pacing_manager.record_historical_slot()
         return req_id
 
-    def req_mkt_data(self, contract: Contract) -> int:
-        """Subscribe to live tick data for a contract. Returns reqId."""
+    def req_mkt_data(self, contract: Contract, generic_ticks: str = "") -> int:
+        """Subscribe to live tick data for a contract. Returns reqId.
+
+        generic_ticks: comma-joined generic tick list for the S0 substrate
+        (D37), e.g. "225" (auction) — "" preserves the legacy plain tick
+        subscription used by the watchlist.
+        """
         req_id = id_manager.get_id()
         pacing_manager.throttle()
-        self.client.reqMktData(req_id, contract, "", False, False, [])
+        self.client.reqMktData(req_id, contract, generic_ticks, False, False,
+                               [])
         return req_id
 
     def cancel_mkt_data(self, req_id: int | None):

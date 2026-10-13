@@ -34,9 +34,10 @@ from data.models import Bar
 from ibkr.contracts import get_contract_for_symbol
 from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.stream_health import StreamHealth
-from ibkr.subscription_manager import RT_BARS
+from ibkr.subscription_manager import RT_BARS, DEPTH_HEATMAP, S0_TICKS
 from ibkr.utils import parse_ibkr_date
 from services.alarm_service import evaluate_alarms
+from services.depth_heatmap import DepthHeatmapService, BUCKET_SECONDS
 from services.footprint_service import (
     FootprintService,
     FormingSpec,
@@ -68,6 +69,10 @@ class TickerSession(QObject):
     stream_health_changed = Signal()
     # D36: footprint data changed for a timeframe — the panel re-renders.
     footprint_updated = Signal(str)         # (timeframe)
+    # D37: depth feed state transitions (live / no_entitlement / ...).
+    depth_state_changed = Signal(str)       # (state)
+    # D37: auction ticks (34/35/36/61) arrived — the header chip re-renders.
+    auction_updated = Signal()
 
     def __init__(self, symbol: str, host):
         super().__init__()
@@ -145,6 +150,31 @@ class TickerSession(QObject):
         self._fp_forming_timer.setSingleShot(True)
         self._fp_forming_timer.timeout.connect(self._on_fp_forming_timeout)
 
+        # ── S0 generic-tick substrate (D37; shared with D38) ──────────
+        # One optional reqMktData per session; the generic list is the union
+        # of registered feature needs. D37 registers "225" (auction) while
+        # views are attached; D38 will add "292"/"456" the same way.
+        self._s0_req_id: int | None = None
+        self._s0_needs: dict[str, set[str]] = {}
+        self._s0_union: str = ""
+
+        # ── Auction state (D37: ticks 34/35/36/61 via S0) ─────────────
+        self._auction: dict = {
+            "volume": None,       # 34, tickSize
+            "price": None,        # 35, tickPrice
+            "imbalance": None,    # 36, tickSize (signed shares)
+            "reg_imbalance": None,  # 61, tickSize
+        }
+
+        # ── Depth heatmap (D37) ──────────────────────────────────────
+        self._depth = DepthHeatmapService(symbol)
+        self._depth_req_id: int | None = None
+        self._depth_holders: int = 0
+        self._depth_state: str = "idle"  # idle|live|no_entitlement|budget_exceeded
+        self._depth_roll_timer = QTimer(self)
+        self._depth_roll_timer.setInterval(BUCKET_SECONDS * 1000)
+        self._depth_roll_timer.timeout.connect(self._on_depth_roll_timeout)
+
     # ── Identity / lifecycle ───────────────────────────────────────────
 
     @property
@@ -186,6 +216,9 @@ class TickerSession(QObject):
             self._views.append((view, timeframe))
             if sync:
                 self._sync_view(view, timeframe)
+            # D37: the auction chip lives on chart views — register the S0
+            # "225" need while views are attached.
+            self.s0_register("auction", {"225"})
             # D25: a view opening promotes a headless monitor.
             monitor = getattr(self._host, "alarm_monitor", None)
             if monitor is not None:
@@ -194,6 +227,9 @@ class TickerSession(QObject):
     def detach_view(self, view) -> None:
         """Unregister a view; teardown when orphaned and not monitored."""
         self._views = [(v, tf) for v, tf in self._views if v is not view]
+        # D37: last view gone → drop the auction S0 need (S0 cancels).
+        if not self._views:
+            self.s0_deregister("auction")
         # D25: the last view closing may start headless monitoring.
         monitor = getattr(self._host, "alarm_monitor", None)
         if monitor is not None:
@@ -244,6 +280,12 @@ class TickerSession(QObject):
         self._wave_continue_timer.stop()  # D28.5: no deferred wave chunks
         self._prime_timer.stop()
         self._prime_req_id = None
+        # D37: cancel S0 and release the depth feed.
+        self._s0_needs.clear()
+        self._s0_cancel()
+        self._s0_union = ""
+        self._depth_holders = 0
+        self._cancel_depth()
         # D36: stop footprint timers and forget in-flight tick requests.
         self._fp_enabled = False
         self._fp_wave_active = False
@@ -340,6 +382,254 @@ class TickerSession(QObject):
         self._unsubscribe_rt()
         self._subscribe_rt(reset_backoff=False)
         return self._rt_req_id
+
+    # ── S0 generic-tick substrate (D37; shared with D38) ─────────────
+
+    def s0_register(self, feature: str, ticks: set[str]) -> None:
+        """Register a feature's generic-tick needs; resubscribe on change."""
+        self._s0_needs[feature] = set(ticks)
+        self._s0_resync()
+
+    def s0_deregister(self, feature: str) -> None:
+        """Drop a feature's needs; resubscribe (or cancel) on change."""
+        self._s0_needs.pop(feature, None)
+        self._s0_resync()
+
+    @property
+    def s0_req_id(self) -> int | None:
+        return self._s0_req_id
+
+    def _s0_union_str(self) -> str:
+        merged: set[str] = set()
+        for ticks in self._s0_needs.values():
+            merged |= ticks
+        return ",".join(sorted(merged, key=int)) if merged else ""
+
+    def _s0_resync(self) -> None:
+        """Reconcile the S0 subscription with registered needs.
+
+        One reqMktData per session; the generic list is the union of needs.
+        Re-subscribes only when the union changes; cancels when empty.
+        Never silently drops: MD-budget refusal surfaces via the host.
+        """
+        want = self._s0_union_str() if self.view_count > 0 else ""
+        if want == self._s0_union:
+            return
+        self._s0_cancel()
+        self._s0_union = want
+        if not want:
+            return
+        if not self._host._guard_md_lines(self.symbol, "S0 ticks"):
+            self._s0_union = ""
+            return
+        contract = get_contract_for_symbol(self.symbol)
+        req_id = self._host.md_manager.req_mkt_data(
+            contract, generic_ticks=want)
+        self._s0_req_id = req_id
+        self._host._register_req_id(req_id, self)
+        self._host.sub_manager.subscribe(
+            self.symbol,
+            req_id,
+            S0_TICKS,
+            reissue=self._s0_reissue,
+            rebind=self._s0_rebind,
+        )
+
+    def _s0_cancel(self) -> None:
+        if self._s0_req_id is None:
+            return
+        self._host._unregister_req_id(self._s0_req_id)
+        self._host.sub_manager.unsubscribe(self._s0_req_id)
+        try:
+            self._host.md_manager.cancel_mkt_data(self._s0_req_id)
+        except Exception:
+            pass
+        self._s0_req_id = None
+
+    def _s0_reissue(self) -> int:
+        """D27 replay hook — replay_all moves the registry entry itself, so
+        this must not touch sub_manager (mirrors _reissue_rt)."""
+        if self._s0_req_id is not None:
+            self._host._unregister_req_id(self._s0_req_id)
+            try:
+                self._host.md_manager.cancel_mkt_data(self._s0_req_id)
+            except Exception:
+                pass
+            self._s0_req_id = None
+        self._s0_union = ""
+        want = self._s0_union_str() if self.view_count > 0 else ""
+        if not want:
+            return 0
+        self._s0_union = want
+        contract = get_contract_for_symbol(self.symbol)
+        self._s0_req_id = self._host.md_manager.req_mkt_data(
+            contract, generic_ticks=want)
+        return self._s0_req_id
+
+    def _s0_rebind(self, new_req_id: int) -> None:
+        self._s0_req_id = new_req_id
+        self._host._register_req_id(new_req_id, self)
+
+    # ── S0 tick ingress (D37 auction; D38 news later) ─────────────────
+
+    # Auction tick types (generic "225"): 34 volume + 36 imbalance + 61
+    # regulatory imbalance arrive via tickSize; 35 auction price via tickPrice.
+    _AUCTION_SIZE_TICKS = {34: "volume", 36: "imbalance", 61: "reg_imbalance"}
+
+    def on_tick_price(self, req_id: int, tick_type: int, price: float) -> None:
+        if req_id != self._s0_req_id or tick_type != 35:
+            return
+        self._auction["price"] = price
+        self.auction_updated.emit()
+
+    def on_tick_size(self, req_id: int, tick_type: int, size: int) -> None:
+        if req_id != self._s0_req_id:
+            return
+        key = self._AUCTION_SIZE_TICKS.get(tick_type)
+        if key is None:
+            return
+        self._auction[key] = size
+        self.auction_updated.emit()
+
+    def on_s0_tick_generic(self, req_id: int, tick_type: int,
+                           value: float) -> None:
+        """Plumbing for D38 (generic ticks beyond auction)."""
+        if req_id != self._s0_req_id:
+            return
+
+    def on_s0_tick_string(self, req_id: int, tick_type: int,
+                          value: str) -> None:
+        """Plumbing for D38 (tick 59 dividends arrive here)."""
+        if req_id != self._s0_req_id:
+            return
+
+    def on_s0_tick_news(self, req_id: int, time_stamp: int,
+                        provider_code: str, article_id: str,
+                        headline: str) -> None:
+        """Plumbing for D38 (news push via tick 292)."""
+        if req_id != self._s0_req_id:
+            return
+
+    def auction_state(self) -> dict:
+        """Current auction values; None fields mean 'no data yet'."""
+        return dict(self._auction)
+
+    # ── Depth heatmap feed (D37) ─────────────────────────────────────
+
+    @property
+    def depth_state(self) -> str:
+        return self._depth_state
+
+    @property
+    def depth_req_id(self) -> int | None:
+        return self._depth_req_id
+
+    @property
+    def depth_service(self) -> DepthHeatmapService:
+        return self._depth
+
+    def ensure_depth_subscribed(self) -> int | None:
+        """Refcounted SMART depth subscribe. Returns reqId or None.
+
+        Returns None (with an explicit state + host warning) when the
+        depth budget or MD-line budget refuses the feed — never silently.
+        """
+        if self._depth_req_id is not None:
+            self._depth_holders += 1
+            return self._depth_req_id
+        if not self._host._guard_md_lines(self.symbol, "depth"):
+            self._set_depth_state("budget_exceeded")
+            return None
+        if not self._host._guard_depth_budget(self.symbol):
+            self._set_depth_state("budget_exceeded")
+            return None
+        contract = get_contract_for_symbol(self.symbol)
+        req_id = self._host.depth_manager.subscribe_shared(
+            self.symbol, contract, num_levels=10)
+        self._depth_req_id = req_id
+        self._depth_holders = 1
+        self._host._register_req_id(req_id, self)
+        self._host.sub_manager.subscribe(
+            self.symbol,
+            req_id,
+            DEPTH_HEATMAP,
+            reissue=self._reissue_depth,
+            rebind=self._rebind_depth_req_id,
+        )
+        self._set_depth_state("live")
+        if not self._depth_roll_timer.isActive():
+            self._depth_roll_timer.start()
+        return req_id
+
+    def release_depth(self) -> None:
+        """Release one depth hold; cancel the feed at zero holders."""
+        if self._depth_holders > 0:
+            self._depth_holders -= 1
+        if self._depth_holders == 0:
+            self._cancel_depth()
+
+    def _cancel_depth(self) -> None:
+        if self._depth_req_id is not None:
+            self._host._unregister_req_id(self._depth_req_id)
+            self._host.sub_manager.unsubscribe(self._depth_req_id)
+            self._depth_req_id = None
+        try:
+            self._host.depth_manager.release_shared(self.symbol)
+        except Exception:
+            pass
+        self._depth_roll_timer.stop()
+        if self._depth_state == "live":
+            self._set_depth_state("idle")
+
+    def _reissue_depth(self) -> int:
+        """D27 replay hook — replay_all moves the registry entry itself, so
+        this must not touch sub_manager (mirrors _reissue_rt). Forces a fresh
+        wire subscription: the old reqMktDepth died with the connection."""
+        if self._depth_req_id is not None:
+            self._host._unregister_req_id(self._depth_req_id)
+            self._depth_req_id = None
+        contract = get_contract_for_symbol(self.symbol)
+        req_id = self._host.depth_manager.resubscribe_shared(
+            self.symbol, contract, num_levels=10)
+        self._depth_req_id = req_id
+        self._host._register_req_id(req_id, self)
+        return req_id
+
+    def _rebind_depth_req_id(self, new_req_id: int) -> None:
+        self._depth_req_id = new_req_id
+        self._host._register_req_id(new_req_id, self)
+
+    def on_depth_update(self, position: int, operation: int, side: int,
+                        price: float, size: int,
+                        is_smart_depth: bool = False) -> None:
+        """Depth op ingress — data only; rendering is timer-driven."""
+        self._depth.on_depth_op(position, operation, side, price, size,
+                                is_smart_depth)
+
+    def on_depth_error(self, error_code: int, error_string: str) -> None:
+        """354 (no entitlement) → explicit state; the feed is dead.
+
+        Known limitation (reviewer A1, D37): TWS sometimes delivers *delayed*
+        depth instead of erroring 354. That path is unhandled — delayed rows
+        would render with no "delayed" label. If observed, add a delayed-data
+        state here.
+        """
+        if error_code == 354:
+            self._set_depth_state("no_entitlement")
+        else:
+            self._set_depth_state("unavailable")
+        self._cancel_depth()
+
+    def _set_depth_state(self, state: str) -> None:
+        if state != self._depth_state:
+            self._depth_state = state
+            self.depth_state_changed.emit(state)
+
+    def depth_imbalance(self, n: int = 5) -> float:
+        return self._depth.imbalance(n)
+
+    def _on_depth_roll_timeout(self) -> None:
+        self._depth.roll_bucket()
 
     # ── Realtime bar ingress ───────────────────────────────────────────
 
