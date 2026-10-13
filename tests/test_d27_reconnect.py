@@ -157,7 +157,8 @@ def _make_window(monkeypatch, qapp):
     win.depth_manager.client = fake
     win.md_manager.client = fake
     # Historical requests never reach the fake: stub at the manager.
-    win.md_manager.req_historical_data = lambda **k: 9001
+    _req_ids = iter(range(9001, 9999))
+    win.md_manager.req_historical_data = lambda **k: next(_req_ids)
     win.show()
     qapp.processEvents()
     for dock in win.findChildren(QDockWidget):
@@ -192,6 +193,8 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
         win.symbol_input.setText("TEST")
         win.tf_combo.setCurrentText("5 mins")
         win.load_chart()
+        # D27.9: the live feed attaches after priming completes.
+        win._on_historical_data_end(win._prime_req_id)
         assert fake.rt_bars, "load_chart issued no RT sub"
         rt_id_1 = win._rt_req_id
         assert rt_id_1 == fake.rt_bars[-1]
