@@ -27,14 +27,19 @@ import logging
 from PyQt6.QtCore import QObject, pyqtSignal as Signal, QTimer
 
 from config import settings
-from data.bar_aggregator import BarAggregator
+from data.bar_aggregator import BarAggregator, TIMEFRAME_SECONDS
 from data.bar_cache import BarCache
 from data.alarm_store import AlarmStore
 from data.models import Bar
 from ibkr.contracts import get_contract_for_symbol
 from ibkr.stream_health import StreamHealth
 from ibkr.subscription_manager import RT_BARS
+from ibkr.utils import parse_ibkr_date
 from services.alarm_service import evaluate_alarms
+
+# D27.9: cap the priming span — a full day of 5-sec bars on every daily-chart
+# load would burn pacing for little gain.
+_PRIME_MAX_SPAN_S = 7_200
 
 _LOG = logging.getLogger(__name__)
 
@@ -79,6 +84,7 @@ class TickerSession(QObject):
         self._backfill_missing_spans: list = []
         self._backfill_failed_req_ids: set[int] = set()
         self._history_stranded_reason: str = ""
+        self._wave_timeframe: str | None = None
         self._history_wave_timer = QTimer(self)
         self._history_wave_timer.setSingleShot(True)
         self._history_wave_timer.timeout.connect(self._on_history_wave_timeout)
@@ -86,6 +92,7 @@ class TickerSession(QObject):
         # D27.9 aggregator priming state (per load).
         self._prime_req_id: int | None = None
         self._prime_symbol: str = ""
+        self._prime_timeframe: str | None = None
         self._prime_timer = QTimer(self)
         self._prime_timer.setSingleShot(True)
         self._prime_timer.timeout.connect(self._on_prime_timeout)
@@ -354,6 +361,7 @@ class TickerSession(QObject):
                 pass
         self._history_req_ids.clear()
         self._history_req_generation.clear()
+        self._pending_bars = []
 
     def _arm_history_wave_watchdog(self) -> None:
         self._history_wave_timer.stop()
@@ -367,3 +375,112 @@ class TickerSession(QObject):
 
     def _on_prime_timeout(self) -> None:
         self._host._on_session_prime_timeout(self)
+
+    def register_history_request(self, req_id: int) -> None:
+        """Public wrapper: track a backfill-wave member reqId."""
+        self._register_history_request(req_id)
+
+    def on_historical_bar(self, req_id: int, bar) -> None:
+        """Route one historical bar: priming feeds the aggregator (D27.9),
+        wave members append to _pending_bars (D16)."""
+        if self._prime_req_id is not None and req_id == self._prime_req_id:
+            agg = self._aggregators.get(self._prime_timeframe)
+            if agg is not None:
+                agg.push(
+                    parse_ibkr_date(bar.date),
+                    bar.open,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                    float(bar.volume),
+                )
+            return
+        if not self._history_event_accepted(req_id):
+            return
+        ts = parse_ibkr_date(bar.date)
+        self._pending_bars.append(Bar(
+            symbol=self.symbol,
+            timeframe=self._wave_timeframe or "",
+            ts=ts,
+            open=bar.open,
+            high=bar.high,
+            low=bar.low,
+            close=bar.close,
+            volume=float(bar.volume),
+        ))
+
+    def on_historical_data_end(self, req_id: int) -> None:
+        """Route an end marker: priming completion attaches the live feed;
+        the last wave member triggers host finalization."""
+        if self._prime_req_id is not None and req_id == self._prime_req_id:
+            self._prime_req_id = None
+            self._prime_timer.stop()
+            self._host._on_session_prime_complete(self)
+            return
+        if not self._history_event_accepted(req_id):
+            return
+        self._history_req_ids.discard(req_id)
+        if self._history_req_ids:
+            return
+        # Last member ended: the host finalizes (persist + render + status).
+        self._host._on_session_wave_complete(self)
+
+    def on_historical_error(self, req_id: int, code: int, msg: str) -> None:
+        """D16: a failed wave member must not strand the wave. Drop it (so
+        the set can still empty) and remember it for the shortfall report."""
+        if self._prime_req_id is not None and req_id == self._prime_req_id:
+            _LOG.warning(
+                "Aggregator priming request %s failed [%s]: %s",
+                req_id, code, msg,
+            )
+            self._prime_req_id = None
+            self._prime_timer.stop()
+            # Fail open: attach the live feed rather than strand the chart.
+            self._host._on_session_prime_complete(self)
+            return
+        if req_id in self._history_req_ids:
+            self._history_req_ids.discard(req_id)
+            self._backfill_failed_req_ids.add(req_id)
+            _LOG.warning(
+                "Historical request %s failed [%s]: %s", req_id, code, msg
+            )
+            if not self._history_req_ids:
+                self._host._on_session_wave_complete(self)
+
+    def prime_aggregator(self, contract, timeframe: str, now_ts: int,
+                         extended_hours: bool) -> bool:
+        """D27.9: fetch trailing 5-sec bars for the current partial period.
+
+        Returns True when a priming request was issued — the caller must NOT
+        attach the live feed yet; it attaches from on_historical_data_end,
+        on_historical_error (fail-open), or the prime timeout backstop.
+        Returns False when there is nothing to prime.
+        """
+        agg = self._aggregators.get(timeframe)
+        if agg is None:
+            return False
+        period_s = TIMEFRAME_SECONDS.get(timeframe, 300)
+        if period_s <= 5:
+            return False
+        span_s = now_ts - agg.period_start(now_ts)
+        if span_s < 5:
+            return False  # at a period boundary: nothing to prime
+        prime_s = min(span_s, _PRIME_MAX_SPAN_S)
+        req_id = self._host.md_manager.req_historical_data(
+            contract=contract,
+            timeframe=timeframe,
+            endDateTime="",
+            whatToShow="TRADES",
+            useRTH=1,
+            extended_hours=extended_hours,
+            bar_size="5 secs",
+            duration=f"{prime_s} S",
+        )
+        self._prime_req_id = req_id
+        self._prime_timeframe = timeframe
+        self._prime_symbol = self.symbol
+        self._host._register_req_id(req_id, self)
+        # Backstop: a priming request that never answers must not strand the
+        # chart without a live feed.
+        self._prime_timer.start(15_000)
+        return True

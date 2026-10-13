@@ -196,9 +196,9 @@ def test_t43_t02_disconnect_advances_generation_rejects_late_events(
         finalise_calls: list[int] = []
         real_finalize = win._finalize_history_wave
 
-        def spy_finalize():
+        def spy_finalize(*args, **kwargs):
             finalise_calls.append(1)
-            return real_finalize()
+            return real_finalize(*args, **kwargs)
 
         win._finalize_history_wave = spy_finalize
 
@@ -233,9 +233,9 @@ def test_t43_t03_disconnect_surfaces_shortfall_once(monkeypatch, qapp, caplog):
         finalise_calls: list[int] = []
         real_finalize = win._finalize_history_wave
 
-        def spy_finalize():
+        def spy_finalize(*args, **kwargs):
             finalise_calls.append(1)
-            return real_finalize()
+            return real_finalize(*args, **kwargs)
 
         win._finalize_history_wave = spy_finalize
 
@@ -311,15 +311,17 @@ def test_t43_t05_watchdog_finalises_stalled_wave(monkeypatch, qapp, caplog):
         finalise_calls: list[int] = []
         real_finalize = win._finalize_history_wave
 
-        def spy_finalize():
+        def spy_finalize(*args, **kwargs):
             finalise_calls.append(1)
-            return real_finalize()
+            return real_finalize(*args, **kwargs)
 
         win._finalize_history_wave = spy_finalize
 
         # No connection drop: the watchdog itself strands the wave.
+        # D28.2: the watchdog lives on the session now.
+        session = win._sessions[symbol]
         with caplog.at_level(logging.WARNING, logger="ui.main_window"):
-            win._on_history_wave_timeout()
+            session._on_history_wave_timeout()
 
         assert set(stub.cancelled) == set(req_ids)
         assert win._history_req_ids == set()
@@ -368,9 +370,9 @@ def test_t43_t06_disconnect_after_wave_finalised_no_double_finalise(
         finalise_calls: list[int] = []
         real_finalize = win._finalize_history_wave
 
-        def spy_finalize():
+        def spy_finalize(*args, **kwargs):
             finalise_calls.append(1)
-            return real_finalize()
+            return real_finalize(*args, **kwargs)
 
         win._finalize_history_wave = spy_finalize
 
@@ -421,14 +423,16 @@ def test_t44_t02_close_event_disarms_via_shared_helper(monkeypatch, qapp):
         gen_before = win._history_generation
 
         # Spy on the shared helper closeEvent must call.
+        # D28.2: the watchdog lives on the session now.
+        session = win._sessions[symbol]
         disarm_calls: list[int] = []
-        real_disarm = win._disarm_history_wave_watchdog
+        real_disarm = session._disarm_history_wave_watchdog
 
         def spy_disarm():
             disarm_calls.append(1)
             return real_disarm()
 
-        win._disarm_history_wave_watchdog = spy_disarm
+        session._disarm_history_wave_watchdog = spy_disarm
 
         win.close()
 
@@ -454,7 +458,8 @@ def test_t44_t03_reason_distinguishes_timeout_and_disconnect(
             assert len(req_ids) >= 2
             with caplog.at_level(logging.WARNING, logger="ui.main_window"):
                 if via == "timeout":
-                    win._on_history_wave_timeout()
+                    # D28.2: the watchdog lives on the session now.
+                    win._sessions[symbol]._on_history_wave_timeout()
                 else:
                     win._on_disconnected()
             msg = win.status_bar.currentMessage()
@@ -503,9 +508,9 @@ def test_t44_t04_reason_is_behaviour_neutral(monkeypatch, qapp):
         finalise_calls: list[int] = []
         real_finalize = win._finalize_history_wave
 
-        def spy_finalize():
+        def spy_finalize(*args, **kwargs):
             finalise_calls.append(1)
-            return real_finalize()
+            return real_finalize(*args, **kwargs)
 
         win._finalize_history_wave = spy_finalize
 

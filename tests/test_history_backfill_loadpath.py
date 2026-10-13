@@ -347,7 +347,10 @@ def test_t39_t05_switch_and_close_cancel_all(monkeypatch, qapp):
         win.load_chart()
         assert set(stub.cancelled) == old_ids
         assert len(stub.cancelled) == len(old_ids)
-        assert win._history_generation == gen_before + 1
+        # D28.2: generations are per-session now. The old session's wave was
+        # invalidated (reqIds unregistered from the routing table); the new
+        # session starts its own generation.
+        assert win._history_generation == 1
         assert win._history_req_ids == set()
 
         # Late responses from the previous generation never reach the render path.

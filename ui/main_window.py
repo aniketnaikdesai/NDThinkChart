@@ -587,31 +587,13 @@ class MainWindow(QMainWindow):
         self._primary_session: TickerSession | None = None
         self._current_req_id: int | None = None
         self._depth_req_id: int | None = None
-        self._pending_bars: list[Bar] = []
         self._current_symbol: str = ""
         self._current_tf: str = "5 mins"
         # D27.9: in-flight aggregator-priming request (trailing 5-sec bars
         # for the current partial period). The live feed attaches only after
-        # priming completes or fails open.
-        self._prime_req_id: int | None = None
-        self._prime_symbol: str = ""
-        self._prime_timer = QTimer(self)
-        self._prime_timer.setSingleShot(True)
-        self._prime_timer.timeout.connect(self._on_prime_timeout)
-        # D16 correlated backfill wave: the reqIds of the in-flight historical
-        # request set, the generation token they belong to, the spans that wave
-        # is expected to fill, and the reqIds that errored mid-wave.
-        self._history_req_ids: set[int] = set()
-        self._history_req_generation: dict[int, int] = {}
-        self._history_generation: int = 0
-        # ESC-024: bounded watchdog for a wave that never yields an end marker,
-        # and a one-shot guard so a stranded finalise is never repeated.
-        self._history_wave_timeout_ms: int = 30_000
-        self._history_wave_timer = QTimer(self)
-        self._history_wave_timer.setSingleShot(True)
-        self._history_wave_timer.timeout.connect(self._on_history_wave_timeout)
-        self._backfill_missing_spans: list = []
-        self._backfill_failed_req_ids: set[int] = set()
+        # D28.2: priming + history-wave state lives on TickerSession now.
+        # The properties below delegate to the current symbol's session for
+        # test compatibility.
         self._current_studies: list[dict] = deepcopy(DEFAULT_STUDIES)
         # D27.5: central symbol -> last_price map (chart + watchlist feeds).
         # Position market prices look up the position's own symbol here —
@@ -771,6 +753,61 @@ class MainWindow(QMainWindow):
     def _rt_seen(self, value: bool) -> None:
         if self._primary_session is not None:
             self._primary_session._rt_seen = value
+
+    # D28.2 history-wave facades (tests read these; the state lives on the
+    # session). Setters route into the current symbol's session.
+    @property
+    def _history_req_ids(self) -> set[int]:
+        s = self._session_for_facade()
+        return s._history_req_ids if s is not None else set()
+
+    @property
+    def _pending_bars(self) -> list:
+        s = self._session_for_facade()
+        return s._pending_bars if s is not None else []
+
+    @_pending_bars.setter
+    def _pending_bars(self, value: list) -> None:
+        s = self._session_for_facade()
+        if s is not None:
+            s._pending_bars = value
+
+    @property
+    def _history_wave_timer(self):
+        s = self._session_for_facade()
+        return s._history_wave_timer if s is not None else None
+
+    @property
+    def _history_generation(self) -> int:
+        s = self._session_for_facade()
+        return s._history_generation if s is not None else 0
+
+    @_history_generation.setter
+    def _history_generation(self, value: int) -> None:
+        s = self._session_for_facade()
+        if s is not None:
+            s._history_generation = value
+
+    @property
+    def _backfill_failed_req_ids(self) -> set[int]:
+        s = self._session_for_facade()
+        return s._backfill_failed_req_ids if s is not None else set()
+
+    def _history_event_accepted(self, req_id: int) -> bool:
+        """Test seam: True only for a reqId in the current wave generation."""
+        s = self._session_for_facade()
+        return s._history_event_accepted(req_id) if s is not None else False
+
+    @property
+    def _prime_req_id(self) -> int | None:
+        s = self._session_for_facade()
+        return s._prime_req_id if s is not None else None
+
+    @_prime_req_id.setter
+    def _prime_req_id(self, value: int | None) -> None:
+        s = self._session_for_facade()
+        if s is not None:
+            s._prime_req_id = value
 
     # ── Connection slots ──────────────────────────────────────────────────────
 
@@ -998,16 +1035,25 @@ class MainWindow(QMainWindow):
         self.stream_badge.setText(text)
         self.stream_badge.setStyleSheet(f"color: {color};")
 
-    def _on_rt_stream_error(self, code: int, message: str) -> None:
+    def _on_rt_stream_error(self, session: TickerSession, code: int,
+                            message: str) -> None:
         """D27.4: the live RT subscription failed — persist + backoff retry."""
-        self._stream_health.mark_failed(code, message)
-        self._update_stream_badge()
+        session.stream_health.mark_failed(code, message)
         _LOG.warning("Realtime stream failed [%s]: %s", code, message)
-        self.status_bar.showMessage(
-            f"Realtime stream failed [{code}]: {message} — retrying…",
-            15000,
-        )
-        self._schedule_rt_retry()
+        # Badge + retry scheduling are primary-chart concerns; a background
+        # session just records the FAILED health for its views.
+        if session is self._primary_session:
+            self._update_stream_badge()
+            self.status_bar.showMessage(
+                f"Realtime stream failed [{code}]: {message} — retrying…",
+                15000,
+            )
+            self._schedule_rt_retry()
+        else:
+            self.status_bar.showMessage(
+                f"{session.symbol} realtime stream failed [{code}]: {message}",
+                15000,
+            )
 
     def _schedule_rt_retry(self) -> None:
         """D27.4: schedule a backoff retry of the failed RT subscription."""
@@ -1068,97 +1114,74 @@ class MainWindow(QMainWindow):
         # is a no-op (no second finalise, no exception).
         # The stranded-wave path writes the AC-D16.4 shortfall message; only fall
         # back to the generic disconnected message when there was no wave.
-        if not self._finalize_stranded_history_wave(reason="Disconnected from IBKR"):
+        # D28.2: strand every session's in-flight wave on disconnect.
+        stranded_any = False
+        for session in list(self._sessions.values()):
+            if self._finalize_stranded_history_wave(
+                session, reason="Disconnected from IBKR"
+            ):
+                stranded_any = True
+        if not stranded_any:
             self.status_bar.showMessage("Disconnected from IBKR")
         # D22-08: an add that was mid-flight can never complete now — surface the
         # rejection last so it is the visible cue (AC-D22.8.4). Nothing is added,
         # subscribed or persisted.
         self._reject_pending_watchlist_adds()
 
-    def _finalize_stranded_history_wave(self, reason: str = "") -> bool:
+    def _finalize_stranded_history_wave(
+        self, session: TickerSession, reason: str = ""
+    ) -> bool:
         """Drop and finalise an in-flight backfill wave that can no longer complete.
 
         Used by ``_on_disconnected`` and the wave watchdog. Returns True when a
         wave was actually stranded and finalised, False when there was nothing to
         do — so callers never run ``_finalize_history_wave`` twice and never
         fabricate a bar. Cancels every tracked reqId, advances the generation so
-        late responses for pre-drop reqIds are rejected by
-        ``_history_event_accepted``, then finalises exactly once through
-        ``_finalize_history_wave`` so AC-D16.4's shortfall is surfaced.
+        late responses for pre-drop reqIds are rejected, then finalises exactly
+        once through ``_finalize_history_wave`` so AC-D16.4's shortfall is surfaced.
         """
-        if not self._history_req_ids:
+        if not session._history_req_ids:
             return False
-        self._cancel_history_requests()
+        session._cancel_history_requests()
         # Advance the generation: any late historical_bar / historical_data_end
         # for a pre-drop reqId now fails _history_event_accepted and can neither
         # accumulate bars nor finalise the wave a second time.
-        self._history_generation += 1
-        # Make the cause live for the shortfall diagnostics. Held on the instance
-        # (rather than passed as an argument) so ``_finalize_history_wave`` keeps
-        # its zero-argument contract for normal-path callers and spies; the real
+        session._history_generation += 1
+        # Make the cause live for the shortfall diagnostics. Held on the
+        # session (rather than passed as an argument) so ``_finalize_history_wave``
+        # keeps its contract for normal-path callers and spies; the real
         # finaliser reads and clears it. Empty for a normal finalise.
-        self._history_stranded_reason = reason
-        self._finalize_history_wave()
+        session._history_stranded_reason = reason
+        self._finalize_history_wave(session)
         return True
 
-    def _on_history_wave_timeout(self):
+    def _on_session_history_wave_timeout(self, session: TickerSession) -> None:
         """Watchdog: a wave that never yields historical_data_end is bounded.
 
         ESC-024: a request that never ends must not strand the wave forever. The
         stalled wave is finalised through the same path as a disconnect (cancel
         remaining reqIds, advance the generation, surface the shortfall once).
         """
-        # Finalising through the shared stranded-wave path already surfaces the
-        # AC-D16.4 shortfall; leave that message in place (it is the meaningful
-        # signal) rather than overwriting it with a generic timeout notice.
-        self._finalize_stranded_history_wave(reason="Historical backfill timed out")
-
-    def _arm_history_wave_watchdog(self):
-        """(Re)start the bounded timeout for the current backfill wave."""
-        timer = getattr(self, "_history_wave_timer", None)
-        if timer is not None:
-            timer.stop()
-            timer.start(self._history_wave_timeout_ms)
-
-    def _disarm_history_wave_watchdog(self):
-        timer = getattr(self, "_history_wave_timer", None)
-        if timer is not None:
-            timer.stop()
+        self._finalize_stranded_history_wave(
+            session, reason="Historical backfill timed out"
+        )
 
     def _on_error(self, reqId: int, errorCode: int, errorString: str):
-        # D27.9: a failed priming request fails open — attach the live feed
-        # rather than strand the chart without realtime data.
-        if self._prime_req_id is not None and reqId == self._prime_req_id:
-            _LOG.warning(
-                "Aggregator priming request %s failed [%s]: %s",
-                reqId,
-                errorCode,
-                errorString,
-            )
-            self._prime_req_id = None
-            self._prime_timer.stop()
-            self._attach_live_feed_if_current()
-            return
-        # D16: a failure on a backfill member must not strand the wave. Drop the
-        # reqId (so the set can still empty and finalise) and remember it so the
-        # shortfall is correlated at finalisation. No bar is fabricated.
-        if reqId in self._history_req_ids:
-            self._history_req_ids.discard(reqId)
-            self._backfill_failed_req_ids.add(reqId)
-            _LOG.warning(
-                "Historical request %s failed [%s]: %s",
-                reqId, errorCode, errorString,
-            )
+        # D28.2: session-owned reqIds (RT, priming, wave members) route via
+        # the table; the session owns the priming/wave/error semantics.
+        session = self._session_for_req_id(reqId)
+        if session is not None:
+            if reqId == session.rt_req_id:
+                # D27.4: an error on the live RT subscription marks the
+                # stream failed (persistent indicator + backoff retry).
+                self._on_rt_stream_error(
+                    session, errorCode, errorString
+                )
+                return
+            session.on_historical_error(reqId, errorCode, errorString)
             self.status_bar.showMessage(
                 f"Error [{errorCode}]: {errorString}", 8000
             )
-            if not self._history_req_ids:
-                self._finalize_history_wave()
-            return
-        # D27.4: an error on the live RT subscription marks the stream failed
-        # (persistent indicator + backoff retry), not a transient toast.
-        if self._rt_req_id is not None and reqId == self._rt_req_id:
-            self._on_rt_stream_error(errorCode, errorString)
             return
         # D26.9: TWS reports order errors with the orderId in the reqId field.
         # Route them to the order registry so the ticket reflects reality
@@ -1212,22 +1235,24 @@ class MainWindow(QMainWindow):
             old_session.detach_view(self.chart_panel)
         # D27.9: a previous load's priming is stale now — its late responses
         # are ignored (reqId no longer matches) and the timer is disarmed.
-        self._prime_req_id = None
-        self._prime_symbol = ""
-        self._prime_timer.stop()
+        # D28.2: priming lives on the session.
+        new_session._prime_req_id = None
+        new_session._prime_symbol = ""
+        new_session._prime_timer.stop()
 
         self._current_symbol = symbol
         self._current_tf = timeframe
         self._current_req_id = None
-        self._pending_bars = []
 
         # D16: cancel any in-flight backfill wave from the previous load and
         # advance the generation so its late responses cannot mix series.
-        self._disarm_history_wave_watchdog()
-        self._cancel_history_requests()
-        self._history_generation += 1
-        self._backfill_failed_req_ids = set()
-        self._backfill_missing_spans = []
+        # D28.2: the wave lives on the session now.
+        new_session._disarm_history_wave_watchdog()
+        new_session._cancel_history_requests()
+        new_session._history_generation += 1
+        new_session._backfill_failed_req_ids = set()
+        new_session._backfill_missing_spans = []
+        new_session._wave_timeframe = timeframe
 
         # Wire the primary view to the session (idempotent on same session).
         self._set_primary_session(new_session)
@@ -1273,7 +1298,7 @@ class MainWindow(QMainWindow):
             ) if cached else []
         )
         plans = plan_requests(missing_spans, timeframe)
-        self._backfill_missing_spans = list(missing_spans)
+        new_session._backfill_missing_spans = list(missing_spans)
 
         contract = get_contract_for_symbol(symbol)
 
@@ -1288,7 +1313,7 @@ class MainWindow(QMainWindow):
                     useRTH=1,
                     extended_hours=extended_hours,
                 )
-                self._register_history_request(req_id)
+                new_session.register_history_request(req_id)
             self.status_bar.showMessage(
                 f"{symbol} — backfilling {len(plans)} historical chunk(s)…"
             )
@@ -1303,7 +1328,7 @@ class MainWindow(QMainWindow):
                 useRTH=1,
                 extended_hours=extended_hours,
             )
-            self._register_history_request(req_id)
+            new_session.register_history_request(req_id)
             self.status_bar.showMessage(
                 f"Requesting {symbol} [{timeframe}]… (hist reqId {req_id})"
             )
@@ -1315,15 +1340,18 @@ class MainWindow(QMainWindow):
 
         # ESC-024: bound the wave — a request that never yields an end marker
         # must not strand the chart indefinitely.
-        if self._history_req_ids:
-            self._arm_history_wave_watchdog()
+        if new_session._history_req_ids:
+            new_session._arm_history_wave_watchdog()
 
         # Step 3: prime the aggregator, then attach the live feed.
         # D27.9: replay trailing 5-sec history through the fresh aggregator
         # before the live feed attaches, so the forming candle's OHLCV isn't
         # fabricated from the first live tick. Attaches immediately when
         # there is nothing to prime (period boundary / 5-sec timeframe).
-        if not self._prime_aggregator(symbol, contract, timeframe):
+        # D28.2: priming lives on the session now.
+        if not new_session.prime_aggregator(
+            contract, timeframe, self._now_ts(), extended_hours
+        ):
             self._attach_live_feed(symbol, contract)
 
     def _attach_live_feed(self, symbol: str, contract) -> None:
@@ -1361,92 +1389,18 @@ class MainWindow(QMainWindow):
             return
         self._attach_live_feed(symbol, contract)
 
-    def _prime_aggregator(self, symbol: str, contract, timeframe: str) -> bool:
-        """D27.9: fetch trailing 5-sec bars for the current partial period.
 
-        Returns True when a priming request was issued — the caller must NOT
-        attach the live feed yet; it attaches from _on_historical_data_end,
-        _on_error (fail-open), or _on_prime_timeout (backstop). Returns False
-        when there is nothing to prime (period boundary, 5-sec timeframe).
-        """
-        if self._aggregator is None:
-            return False
-        period_s = TIMEFRAME_SECONDS.get(timeframe, 300)
-        if period_s <= 5:
-            return False
-        now = self._now_ts()
-        span_s = now - self._aggregator.period_start(now)
-        if span_s < 5:
-            return False  # at a period boundary: nothing to prime
-        # "Trailing" history is bounded: a full day of 5-sec bars on every
-        # daily-chart load would burn pacing for little gain. Sub-2h periods
-        # (1 min – 1 hour) are still covered exactly.
-        prime_s = min(span_s, _PRIME_MAX_SPAN_S)
-        self._prime_req_id = self.md_manager.req_historical_data(
-            contract=contract,
-            timeframe=timeframe,
-            endDateTime="",
-            whatToShow="TRADES",
-            useRTH=1,
-            extended_hours=self.ext_hours_btn.isChecked(),
-            bar_size="5 secs",
-            duration=f"{prime_s} S",
-        )
-        self._prime_symbol = symbol
-        # Backstop: a priming request that never answers must not strand the
-        # chart without a live feed.
-        self._prime_timer.start(15_000)
-        return True
-
-    def _attach_live_feed_if_current(self) -> None:
-        """Attach the live feed for the primed symbol if still current."""
-        if not self._prime_symbol or self._current_symbol != self._prime_symbol:
+    def _attach_live_feed_if_current(self, session: TickerSession) -> None:
+        """Attach the live feed for the primed session if still current."""
+        if session.symbol != self._current_symbol:
             return
         self._attach_live_feed(
-            self._prime_symbol, get_contract_for_symbol(self._prime_symbol)
+            session.symbol, get_contract_for_symbol(session.symbol)
         )
-
-    def _on_prime_timeout(self) -> None:
-        """D27.9 backstop: priming never answered — fail open to live."""
-        if self._prime_req_id is None:
-            return
-        _LOG.warning("Aggregator priming timed out; attaching live feed")
-        self._prime_req_id = None
-        self._attach_live_feed_if_current()
 
     def _now_ts(self) -> int:
         """Wall-clock epoch seconds; a seam for deterministic load-path tests."""
         return int(time.time())
-
-    def _register_history_request(self, req_id: int) -> None:
-        """Track one in-flight backfill request against the current generation."""
-        self._history_req_ids.add(req_id)
-        self._history_req_generation[req_id] = self._history_generation
-        self._current_req_id = req_id
-
-    def _cancel_history_requests(self) -> list[int]:
-        """Cancel every tracked backfill request and drop the wave state.
-
-        Returns the ids that were cancelled so callers/tests can assert the
-        exact set. The generation token is *not* advanced here; callers advance
-        it when they invalidate the wave (symbol/timeframe switch, close).
-        """
-        req_ids = list(self._history_req_ids)
-        for req_id in req_ids:
-            try:
-                self.md_manager.cancel_historical_data(req_id)
-            except Exception:
-                pass
-        self._history_req_ids.clear()
-        self._history_req_generation.clear()
-        self._pending_bars = []
-        return req_ids
-
-    def _history_event_accepted(self, req_id: int) -> bool:
-        """True only for a reqId belonging to the current backfill wave."""
-        if req_id not in self._history_req_ids:
-            return False
-        return self._history_req_generation.get(req_id) == self._history_generation
 
     # ── Drawing slots ─────────────────────────────────────────────────────────
 
@@ -1559,145 +1513,141 @@ class MainWindow(QMainWindow):
     # ── Historical data slots ─────────────────────────────────────────────────
 
     def _on_historical_bar(self, reqId: int, bar):
-        # D27.9: priming bars feed the fresh aggregator, not the backfill wave.
-        if self._prime_req_id is not None and reqId == self._prime_req_id:
-            if self._aggregator is not None:
-                self._aggregator.push(
-                    parse_ibkr_date(bar.date),
-                    bar.open,
-                    bar.high,
-                    bar.low,
-                    bar.close,
-                    float(bar.volume),
-                )
+        # D28.2: route by reqId → session (priming vs wave handled inside).
+        session = self._session_for_req_id(reqId)
+        if session is None:
             return
-        # D16: accept bars from any member of the in-flight backfill wave; a
-        # non-member or stale-generation response is ignored outright.
-        if not self._history_event_accepted(reqId):
-            return
-        ts = parse_ibkr_date(bar.date)
-        self._pending_bars.append(Bar(
-            symbol=self._current_symbol,
-            timeframe=self._current_tf,
-            ts=ts,
-            open=bar.open,
-            high=bar.high,
-            low=bar.low,
-            close=bar.close,
-            volume=float(bar.volume),
-        ))
+        session.on_historical_bar(reqId, bar)
 
     def _on_historical_data_end(self, reqId: int):
-        # D27.9: priming complete — attach the live feed now.
-        if self._prime_req_id is not None and reqId == self._prime_req_id:
-            self._prime_req_id = None
-            self._prime_timer.stop()
-            self._attach_live_feed_if_current()
+        # D28.2: route by reqId → session.
+        session = self._session_for_req_id(reqId)
+        if session is None:
             return
-        if not self._history_event_accepted(reqId):
-            return
-        self._history_req_ids.discard(reqId)
-        # Finalise exactly once, only after the last member has ended.
-        if self._history_req_ids:
-            return
-        self._finalize_history_wave()
+        session.on_historical_data_end(reqId)
 
-    def _finalize_history_wave(self) -> None:
+    def _on_session_wave_complete(self, session: TickerSession) -> None:
+        """A session's backfill wave emptied — finalize (persist + render)."""
+        # In 3b only the primary session backfills; a non-primary completion
+        # still persists (its data is real) but doesn't drive the chart.
+        self._finalize_history_wave(session)
+
+    def _on_session_prime_complete(self, session: TickerSession) -> None:
+        """A session's priming finished (or failed open) — attach live feed."""
+        if session.symbol == self._current_symbol:
+            self._attach_live_feed_if_current(session)
+
+    def _on_session_prime_timeout(self, session: TickerSession) -> None:
+        # Backstop: priming never answered — fail open to the live feed.
+        session._prime_req_id = None
+        session._prime_timer.stop()
+        self._on_session_prime_complete(session)
+
+    def _finalize_history_wave(self, session: TickerSession | None = None) -> None:
         """Persist, re-read and render once the last backfill request ends.
 
         If the wave was *stranded* (watchdog timeout or transport disconnect),
-        ``_finalize_stranded_history_wave`` has set ``_history_stranded_reason``.
-        That cause is purely diagnostic: it fabricates no bar and changes no
-        behaviour — it is appended to the AC-D16.4 shortfall line and the
-        WARNING record so a timeout and a disconnect are distinguishable. For a
-        normal (non-stranded) finalise the reason is empty and the wording is
-        unchanged.
+        ``_finalize_stranded_history_wave`` has set the session's
+        ``_history_stranded_reason``. That cause is purely diagnostic: it
+        fabricates no bar and changes no behaviour — it is appended to the
+        AC-D16.4 shortfall line and the WARNING record so a timeout and a
+        disconnect are distinguishable. For a normal (non-stranded) finalise
+        the reason is empty and the wording is unchanged.
+
+        The session defaults to the current symbol's session (test seam).
         """
-        self._disarm_history_wave_watchdog()
-        new_count = len(self._pending_bars)
-        if self._pending_bars:
-            BarCache.save_bars(self._pending_bars)
-        all_bars = BarCache.get_bars(self._current_symbol, self._current_tf)
-        # D28.2: session-owned bars; the emit drives the primary view render.
-        self.get_or_create_session(self._current_symbol).set_bars(
-            self._current_tf, all_bars
-        )
+        if session is None:
+            session = self._session_for_facade()
+            if session is None:
+                return
+        session._disarm_history_wave_watchdog()
+        new_count = len(session._pending_bars)
+        if session._pending_bars:
+            BarCache.save_bars(session._pending_bars)
+        timeframe = session._wave_timeframe or self._current_tf
+        all_bars = BarCache.get_bars(session.symbol, timeframe)
+        # D28.2: session-owned bars; the emit drives the view render.
+        session.set_bars(timeframe, all_bars)
         # D27.1: _last_chart_price must never move backward. If realtime bars
         # were observed since load, the live price is newer than the historical
         # close — rewinding would fabricate a discontinuous (prev, curr) pair
         # and phantom-fire alarms. Skip the assignment in that case.
-        if not self._rt_seen:
-            self._last_chart_price = all_bars[-1].close if all_bars else None
+        if not session._rt_seen:
+            session.last_chart_price = (
+                all_bars[-1].close if all_bars else None
+            )
         # D27.1 (second clause): update_chart is a full refresh that wipes the
         # live forming candle appended by update_last_bar. Re-apply the
         # aggregator's forming bar so the live candle survives finalize.
-        forming = (
-            self._aggregator.current_bar()
-            if self._aggregator is not None
-            else None
-        )
-        if forming is not None:
-            if all_bars:
-                self.chart_panel.update_last_bar(forming, False)
-            else:
-                # No history at all: the forming bar is the only bar.
-                self.chart_panel.update_chart([forming])
-        self._pending_bars = []
+        # Primary-chart only: background sessions have no live forming bar
+        # on the main chart.
+        if session is self._primary_session:
+            agg = session.aggregator_for(timeframe)
+            forming = agg.current_bar() if agg is not None else None
+            if forming is not None:
+                if all_bars:
+                    self.chart_panel.update_last_bar(forming, False)
+                else:
+                    # No history at all: the forming bar is the only bar.
+                    self.chart_panel.update_chart([forming])
+        session._pending_bars = []
 
         # Read and clear the stranded-wave cause (diagnostic suffix only).
-        reason = getattr(self, "_history_stranded_reason", "")
-        self._history_stranded_reason = ""
+        reason = session._history_stranded_reason
+        session._history_stranded_reason = ""
         cause = f" [{reason}]" if reason else ""
 
-        missing_days = self._missing_backfill_trading_days(all_bars)
-        failed_count = len(self._backfill_failed_req_ids)
+        missing_days = self._missing_backfill_trading_days(session, all_bars)
+        failed_count = len(session._backfill_failed_req_ids)
         if missing_days:
             preview = ", ".join(d.isoformat() for d in missing_days[:5])
             self.status_bar.showMessage(
-                f"{self._current_symbol} — backfill incomplete: "
+                f"{session.symbol} — backfill incomplete: "
                 f"{len(missing_days)} trading day(s) still missing ({preview})."
                 f"{cause}",
                 10000,
             )
             _LOG.warning(
                 "Historical backfill shortfall for %s [%s]: %s%s",
-                self._current_symbol,
-                self._current_tf,
+                session.symbol,
+                timeframe,
                 [d.isoformat() for d in missing_days],
                 cause,
             )
         elif failed_count:
             self.status_bar.showMessage(
-                f"{self._current_symbol} — {failed_count} historical request(s) "
+                f"{session.symbol} — {failed_count} historical request(s) "
                 f"failed; chart may be incomplete.{cause}",
                 10000,
             )
             _LOG.warning(
                 "Historical backfill failed requests for %s [%s]: %s%s",
-                self._current_symbol,
-                self._current_tf,
-                sorted(self._backfill_failed_req_ids),
+                session.symbol,
+                timeframe,
+                sorted(session._backfill_failed_req_ids),
                 cause,
             )
         else:
             # D27.4: never declare "live" unconditionally — report the
             # actual stream-health state (usually "awaiting first bar" here;
             # the badge flips to live when the first bar arrives).
-            stream_note = self._stream_health.describe()
+            stream_note = session.stream_health.describe()
             self.status_bar.showMessage(
-                f"{self._current_symbol} — {len(all_bars)} bars "
+                f"{session.symbol} — {len(all_bars)} bars "
                 f"({new_count} new). Stream {stream_note}{cause}."
             )
 
-    def _missing_backfill_trading_days(self, bars) -> list:
+    def _missing_backfill_trading_days(
+        self, session: TickerSession, bars
+    ) -> list:
         """Trading days the completed wave left empty (no bar fabricated)."""
-        if not self._backfill_missing_spans:
+        if not session._backfill_missing_spans:
             return []
         present_days = {
             datetime.fromtimestamp(b.ts, tz=_EASTERN).date() for b in bars
         }
         missing = []
-        for span in self._backfill_missing_spans:
+        for span in session._backfill_missing_spans:
             for day in trading_days(span.start_ts, span.end_ts):
                 if day not in present_days:
                     missing.append(day)
@@ -2928,19 +2878,13 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
-        # D28.2: cancel every session's realtime subscription.
+        # D28.2: teardown every session (cancels RT + wave, disarms watchdog,
+        # advances generation). Sessions stay registered (torn down) so
+        # post-close test seams can still reach them.
         for session in list(self._sessions.values()):
+            session._history_generation += 1
             session.teardown()
-        self._sessions.clear()
         self._primary_session = None
-        # Cancel every in-flight backfill request and invalidate the generation
-        # so late responses cannot mix symbols/timeframes. Disarm the backfill
-        # watchdog too, so arm/disarm stays symmetric with the other
-        # wave-terminating paths (finalise, disconnect, watchdog timeout,
-        # load_chart/switch) and the timer cannot outlive the window.
-        self._disarm_history_wave_watchdog()
-        self._cancel_history_requests()
-        self._history_generation += 1
         self._current_req_id = None
         # Cancel market depth subscription
         if self._depth_req_id is not None:
