@@ -106,6 +106,27 @@ def chart_panel(qapp):
     panel.close()
 
 @pytest.fixture(autouse=True)
+def _isolate_test_db():
+    """Hermetic DB: no test sees another test's rows (D28.6).
+
+    The suite shares one SQLite file per process; a test that writes
+    bars/alarms/drawings/positions without cleanup would otherwise leak
+    rows into later tests (order-dependent flakes). Wipe after each test.
+    """
+    yield
+    from data.db import db
+
+    cur = db.conn.cursor()
+    for table in (
+        "position_group_map",  # FK child first
+        "bars", "watchlist", "alarms", "zones", "drawing_groups",
+        "drawings", "studies", "popouts", "positions", "trade_groups",
+    ):
+        cur.execute(f"DELETE FROM {table}")
+    db.conn.commit()
+
+
+@pytest.fixture(autouse=True)
 def _reset_pacing_state():
     """Hermetic pacing: every test starts with a full realtime budget and a
     full order-token bucket (D28.1). Without this, the global singletons
