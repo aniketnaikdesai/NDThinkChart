@@ -73,7 +73,11 @@ _PROBE_SRC = textwrap.dedent(
         px_per_sec = vb.width() / x_span if x_span else 0.0
         dpr = panel.devicePixelRatioF()
         pic = panel.candlestick.boundingRect()
-        data_span = bars[-1].ts - bars[0].ts
+        # D28.4: candles render across the static layer (closed bars, measured
+        # here) and the live layer (forming bar) — the span must cover exactly
+        # the bars recorded in the measured picture.
+        static_ts = [c[0] for c in panel.candlestick._raw_data]
+        data_span = (max(static_ts) - min(static_ts)) if static_ts else 0
         # The QPicture bounding rect is [t0 - w, t_last + w] (wicks sit at x == t),
         # so the recorded body width is the bbox width minus the timestamp span.
         body_data_w = pic.width() - data_span

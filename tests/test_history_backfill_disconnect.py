@@ -286,7 +286,8 @@ def test_t43_t04_no_bar_fabricated_on_stranded_wave(monkeypatch, qapp):
         assert {b.ts for b in chart} == before_ts
 
         # Volume series carries no injected value for a missing date.
-        vol_x = [int(v) for v in win.chart_panel.volume_bars.opts["x"]]
+        vol_x = ([int(v) for v in win.chart_panel.volume_bars.opts["x"]]
+                 + [int(v) for v in win.chart_panel.live_volume.opts["x"]])
         assert set(vol_x) == before_ts
         missing_ts = {
             _et_ts(y, m, d) for y, m, d in MISSING_DAYS

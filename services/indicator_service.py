@@ -129,6 +129,125 @@ def calculate_rsi(prices: List[float], period: int = 14) -> List[Optional[float]
     return result
 
 
+# ── Incremental (single-bar) updates — D28.4 ─────────────────────────────────
+#
+# Each ``*_update(state, ...)`` advances a small plain-dict ``state`` with one
+# bar and returns the new indicator value, exactly matching the tail of the
+# corresponding batch ``calculate_*`` function. The study cache keeps one
+# state per study; a wholesale bar replacement invalidates the cache, so the
+# incremental path only ever extends a series the batch path produced.
+
+
+def sma_update(state: dict, close: float, period: int) -> Optional[float]:
+    """Incremental SMA: O(period) per bar, exact batch match."""
+    window = state.setdefault("window", [])
+    window.append(close)
+    if len(window) > period:
+        window.pop(0)
+    if len(window) < period:
+        return None
+    return sum(window) / period
+
+
+def ema_update(state: dict, close: float, period: int) -> Optional[float]:
+    """Incremental EMA: seeds with the SMA of the first ``period`` closes,
+    then Wilder-recurses — exact batch match."""
+    k = 2 / (period + 1)
+    if state.get("prev") is None:
+        seed = state.setdefault("seed", [])
+        seed.append(close)
+        if len(seed) < period:
+            return None
+        prev = sum(seed) / period
+        state["prev"] = prev
+        del state["seed"]
+        return prev
+    prev = close * k + state["prev"] * (1 - k)
+    state["prev"] = prev
+    return prev
+
+
+def vwap_update(
+    state: dict, high: float, low: float, close: float, volume: float, ts: int
+) -> Optional[float]:
+    """Incremental session-anchored VWAP (ET date resets) — exact batch match."""
+    day = datetime.fromtimestamp(ts, tz=_EASTERN).date()
+    if state.get("day") != day:
+        state["day"] = day
+        state["cum_tpv"] = 0.0
+        state["cum_vol"] = 0.0
+    tp = (high + low + close) / 3
+    state["cum_tpv"] += tp * volume
+    state["cum_vol"] += volume
+    return state["cum_tpv"] / state["cum_vol"] if state["cum_vol"] > 0 else None
+
+
+def bollinger_update(
+    state: dict, close: float, period: int = 20, std_dev: float = 2.0
+) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """Incremental Bollinger Bands — exact batch match. Returns
+    (upper, middle, lower)."""
+    window = state.setdefault("window", [])
+    window.append(close)
+    if len(window) > period:
+        window.pop(0)
+    if len(window) < period:
+        return (None, None, None)
+    avg = sum(window) / period
+    var = sum((x - avg) ** 2 for x in window) / period
+    sd = math.sqrt(var)
+    return (avg + std_dev * sd, avg, avg - std_dev * sd)
+
+
+def rsi_update(state: dict, close: float, period: int = 14) -> Optional[float]:
+    """Incremental Wilder RSI — exact batch match.
+
+    Mirrors ``calculate_rsi`` precisely, including its quirk that the first
+    emitted value re-feeds the last seed delta through the Wilder recursion.
+    """
+    prev = state.get("prev_close")
+    if prev is None:
+        state["prev_close"] = close
+        return None
+    delta = close - prev
+    state["prev_close"] = close
+    gain, loss = max(delta, 0.0), max(-delta, 0.0)
+    if not state.get("seeded"):
+        deltas = state.setdefault("deltas", [])
+        deltas.append((gain, loss))
+        if len(deltas) < period:
+            return None
+        state["avg_gain"] = sum(g for g, _ in deltas) / period
+        state["avg_loss"] = sum(l for _, l in deltas) / period
+        state["seeded"] = True
+        del state["deltas"]
+        # Fall through: the first value feeds this same delta through the
+        # Wilder recursion, exactly like the batch loop's first iteration.
+    state["avg_gain"] = (state["avg_gain"] * (period - 1) + gain) / period
+    state["avg_loss"] = (state["avg_loss"] * (period - 1) + loss) / period
+    if state["avg_loss"] == 0:
+        return 100.0
+    rs = state["avg_gain"] / state["avg_loss"]
+    return 100 - (100 / (1 + rs))
+
+
+def macd_update(
+    state: dict,
+    close: float,
+    fast: int = 12,
+    slow: int = 26,
+    signal_period: int = 9,
+) -> Tuple[Optional[float], Optional[float]]:
+    """Incremental MACD — exact batch match. Returns (macd, signal)."""
+    f = ema_update(state.setdefault("fast", {}), close, fast)
+    s = ema_update(state.setdefault("slow", {}), close, slow)
+    if f is None or s is None:
+        return (None, None)
+    macd = f - s
+    sig = ema_update(state.setdefault("signal", {}), macd, signal_period)
+    return (macd, sig)
+
+
 # ── MACD ──────────────────────────────────────────────────────────────────────
 
 def calculate_macd(

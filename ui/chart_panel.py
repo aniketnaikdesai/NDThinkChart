@@ -159,6 +159,8 @@ class _VolumeAxisItem(pg.AxisItem):
 from services.indicator_service import (
     calculate_sma, calculate_ema, calculate_vwap,
     calculate_bollinger_bands, calculate_rsi, calculate_macd,
+    sma_update, ema_update, vwap_update,
+    bollinger_update, rsi_update, macd_update,
 )
 from services.gap_vix_service import (
     calculate_rth_gaps,
@@ -172,6 +174,11 @@ from ui.zoom_overlay import ZoomOverlay
 
 # Oscillator studies rendered in a third subplot
 OSCILLATOR_TYPES = {"rsi", "macd"}
+
+# D28.4: ICT concepts are computed over a trailing window, not the full
+# series — the overlay renders window-relative bar indices, so the window
+# itself is passed as the bar list (indices stay consistent by construction).
+ICT_TRAILING_BARS = 500
 
 
 class _StudyCache:
@@ -1293,108 +1300,193 @@ class ChartPanel(QWidget):
         if hasattr(self, "_session_overlay"):
             self._session_overlay.clear()
 
+    # ── D28.4 study computation ──────────────────────────────────────────
+    # Numeric studies are computed through the incremental *_update
+    # functions (services/indicator_service.py), which exactly match the
+    # batch calculate_* tails. The full path feeds every bar once (building
+    # fresh states); the new-candle path shifts the cached arrays and
+    # computes only the new bar.
+
+    @staticmethod
+    def _study_key(stype: str, idx: int) -> str:
+        """Per-study-instance cache key (two SMAs with different periods
+        must not collide)."""
+        return f"{stype}:{idx}"
+
+    def _study_update_one(self, stype: str, params: dict, state: dict,
+                          bar) -> dict[str, object]:
+        """Advance one study's incremental state with one bar.
+
+        Returns {suffix: value}; the empty suffix is the study's primary
+        series (e.g. "bollinger:0" -> upper, "bollinger:0_mid" -> middle).
+        """
+        if stype == "sma":
+            return {"": sma_update(state, bar.close, params.get("period", 20))}
+        if stype in ("ema", "ema2"):
+            return {"": ema_update(state, bar.close, params.get("period", 9))}
+        if stype == "vwap":
+            return {"": vwap_update(state, bar.high, bar.low, bar.close,
+                                    bar.volume, bar.ts)}
+        if stype == "bollinger":
+            upper, mid, lower = bollinger_update(
+                state, bar.close,
+                params.get("period", 20), params.get("std_dev", 2.0))
+            return {"": upper, "_mid": mid, "_lower": lower}
+        if stype == "rsi":
+            return {"": rsi_update(state, bar.close, params.get("period", 14))}
+        if stype == "macd":
+            m, s = macd_update(
+                state, bar.close,
+                params.get("fast", 12), params.get("slow", 26),
+                params.get("signal", 9))
+            return {"": m, "_signal": s}
+        return {}
+
+    # Study types with incremental numeric computation (overlay studies —
+    # rth_gaps/vix_sd/ict — render directly and are never cached).
+    _INCREMENTAL_STUDIES = frozenset(
+        {"sma", "ema", "ema2", "vwap", "bollinger", "rsi", "macd"})
+
+    def _study_values_full(self, bars) -> tuple[dict, dict]:
+        """Compute every numeric study over all bars, building fresh states."""
+        all_vals: dict[str, list] = {}
+        states: dict[str, dict] = {}
+        for idx, study in enumerate(self._studies):
+            if not study.get("enabled"):
+                continue
+            stype = study["type"]
+            if stype not in self._INCREMENTAL_STUDIES:
+                continue  # overlay study — rendered, not cached
+            params = study.get("params", {})
+            key = self._study_key(stype, idx)
+            state: dict = {}
+            series: dict[str, list] = {}
+            for bar in bars:
+                for suffix, value in self._study_update_one(
+                        stype, params, state, bar).items():
+                    series.setdefault(suffix, []).append(value)
+            for suffix, vals in series.items():
+                all_vals[f"{key}{suffix}"] = vals
+            states[key] = state
+        return all_vals, states
+
+    def _study_values_incremental(self, cached: dict, new_bar) -> tuple[dict, dict]:
+        """Shift cached arrays and compute only the new bar (D28.4)."""
+        all_vals = {k: list(v) for k, v in cached["values"].items()}
+        states = cached["states"]
+        for idx, study in enumerate(self._studies):
+            if not study.get("enabled"):
+                continue
+            stype = study["type"]
+            key = self._study_key(stype, idx)
+            state = states.get(key)
+            if state is None:
+                continue  # overlay study — rendered, not cached
+            for suffix, value in self._study_update_one(
+                    stype, study.get("params", {}), state, new_bar).items():
+                all_vals[f"{key}{suffix}"].append(value)
+        return all_vals, states
+
+    def _compute_study_values(self, bars) -> tuple[dict, dict]:
+        """Full or incremental study computation (D28.4).
+
+        The incremental path applies when the cache holds this exact study
+        set for the series ending at the previous bar (n_bars == len-1 and
+        the second-to-last timestamp matches) — i.e. exactly one new candle
+        arrived. Anything else (fresh load, timeframe/study change, history
+        rewrite) takes the full path.
+        """
+        n = len(bars)
+        cached = self._study_cache.get(
+            self._symbol, self._current_timeframe or "", self._studies)
+        if (cached is not None and n >= 2
+                and cached.get("n_bars") == n - 1
+                and cached.get("last_ts") == bars[-2].ts):
+            return self._study_values_incremental(cached, bars[-1])
+        return self._study_values_full(bars)
+
+    def _render_study_values(self, all_vals: dict[str, list], xs: list) -> None:
+        """Render precomputed study values (shared by both compute paths)."""
+        for idx, study in enumerate(self._studies):
+            if not study.get("enabled"):
+                continue
+            stype = study["type"]
+            params = study.get("params", {})
+            color = params.get("color", "#ffffff")
+            key = self._study_key(stype, idx)
+
+            if stype == "sma":
+                self._add_line(xs, all_vals[key], color)
+            elif stype in ("ema", "ema2"):
+                self._add_line(xs, all_vals[key], color)
+            elif stype == "vwap":
+                self._add_line(xs, all_vals[key], color, width=1.5)
+            elif stype == "bollinger":
+                self._add_line(xs, all_vals[key], color)
+                self._add_line(xs, all_vals[f"{key}_mid"], color,
+                               style=Qt.PenStyle.DotLine)
+                self._add_line(xs, all_vals[f"{key}_lower"], color)
+            elif stype == "rsi":
+                ob = params.get("overbought", 70)
+                os_ = params.get("oversold", 30)
+                self._add_osc_line(xs, all_vals[key], "#818cf8")
+                self._add_osc_hline(ob, "#f87171", style=Qt.PenStyle.DotLine)
+                self._add_osc_hline(os_, "#34d399", style=Qt.PenStyle.DotLine)
+            elif stype == "macd":
+                macd_line = all_vals[key]
+                signal_line = all_vals[f"{key}_signal"]
+                self._add_osc_line(xs, macd_line,   "#60a5fa")
+                self._add_osc_line(xs, signal_line, "#f59e0b")
+                bar_x, bar_h, bar_c = [], [], []
+                for i, (m, s) in enumerate(zip(macd_line, signal_line)):
+                    if m is not None and s is not None:
+                        # D27.2: histogram bars share the lines' display-x
+                        # axis; raw indices would render off-screen.
+                        bar_x.append(xs[i])
+                        bar_h.append(m - s)
+                        bar_c.append('#34d399' if m - s >= 0 else '#f87171')
+                hist_bars = pg.BarGraphItem(x=bar_x, height=bar_h, width=0.6, brushes=bar_c)
+                self.osc_plot.addItem(hist_bars)
+                self._osc_items.append(hist_bars)
+            elif stype == "rth_gaps":
+                ticker = infer_ticker_context(self._symbol, self._bars)
+                gaps = calculate_rth_gaps(self._bars, ticker, params)
+                self._gap_overlay.render(gaps, self._bars)
+            elif stype == "vix_sd":
+                ticker = infer_ticker_context(self._symbol, self._bars)
+                result = calculate_vix_standard_deviation(ticker, self._bars, params)
+                self._vix_overlay.render(result, self._bars)
+            elif stype == "ict":
+                # D28.4: ICT concepts are capped to a trailing window — the
+                # overlay takes window-relative indices with the window's own
+                # bars, so indices stay consistent by construction.
+                ticker = infer_ticker_context(self._symbol, self._bars)
+                window = self._bars[-ICT_TRAILING_BARS:]
+                result = calculate_ict_concepts(window, ticker, params)
+                self._ict_overlay.render(result, window)
+
     def _apply_studies(self):
         self._clear_overlays()
         if not self._bars:
             return
 
-        closes  = [b.close  for b in self._bars]
-        highs   = [b.high   for b in self._bars]
-        lows    = [b.low    for b in self._bars]
-        volumes = [b.volume for b in self._bars]
-        timestamps = [b.ts for b in self._bars]
+        bars = self._bars
         # D21.4: indicator lines share the price/volume x-axis, so plot them at
         # display-x too (aligned with the collapsed candles).
-        xs      = [self._to_display(t) for t in timestamps]
+        xs = [self._to_display(b.ts) for b in bars]
 
-        all_vals: dict[str, list] = {}
-        for study in self._studies:
-            if not study.get("enabled"):
-                continue
-            stype  = study["type"]
-            params = study.get("params", {})
-            color  = params.get("color", "#ffffff")
+        # D28.4: full or incremental computation — the cache is actually read.
+        all_vals, states = self._compute_study_values(bars)
+        self._render_study_values(all_vals, xs)
 
-            if stype == "sma":
-                vals = calculate_sma(closes, params.get("period", 20))
-                self._add_line(xs, vals, color)
-                all_vals[stype] = vals
-
-            elif stype in ("ema", "ema2"):
-                vals = calculate_ema(closes, params.get("period", 9))
-                self._add_line(xs, vals, color)
-                all_vals[stype] = vals
-
-            elif stype == "vwap":
-                vals = calculate_vwap(
-                    highs, lows, closes, volumes,
-                    timestamps=timestamps,
-                )
-                self._add_line(xs, vals, color, width=1.5)
-                all_vals[stype] = vals
-
-            elif stype == "bollinger":
-                upper, mid, lower = calculate_bollinger_bands(
-                    closes, params.get("period", 20), params.get("std_dev", 2.0)
-                )
-                self._add_line(xs, upper, color)
-                self._add_line(xs, mid,   color, style=Qt.PenStyle.DotLine)
-                self._add_line(xs, lower, color)
-                all_vals[stype] = upper
-                all_vals[f"{stype}_mid"] = mid
-                all_vals[f"{stype}_lower"] = lower
-
-            elif stype == "rsi":
-                vals = calculate_rsi(closes, params.get("period", 14))
-                ob = params.get("overbought", 70)
-                os_ = params.get("oversold", 30)
-                self._add_osc_line(xs, vals, "#818cf8")
-                self._add_osc_hline(ob, "#f87171", style=Qt.PenStyle.DotLine)
-                self._add_osc_hline(os_, "#34d399", style=Qt.PenStyle.DotLine)
-                all_vals[stype] = vals
-
-            elif stype == "macd":
-                macd_line, signal_line, histogram = calculate_macd(
-                    closes,
-                    params.get("fast", 12),
-                    params.get("slow", 26),
-                    params.get("signal", 9),
-                )
-                self._add_osc_line(xs, macd_line,   "#60a5fa")
-                self._add_osc_line(xs, signal_line, "#f59e0b")
-                bar_x, bar_h, bar_c = [], [], []
-                for i, v in enumerate(histogram):
-                    if v is not None:
-                        # D27.2: histogram bars share the lines' display-x
-                        # axis; raw indices would render off-screen.
-                        bar_x.append(xs[i])
-                        bar_h.append(v)
-                        bar_c.append('#34d399' if v >= 0 else '#f87171')
-                hist_bars = pg.BarGraphItem(x=bar_x, height=bar_h, width=0.6, brushes=bar_c)
-                self.osc_plot.addItem(hist_bars)
-                self._osc_items.append(hist_bars)
-                all_vals[stype] = macd_line
-                all_vals["macd_signal"] = signal_line
-
-            elif stype == "rth_gaps":
-                ticker = infer_ticker_context(self._symbol, self._bars)
-                gaps = calculate_rth_gaps(self._bars, ticker, params)
-                self._gap_overlay.render(gaps, self._bars)
-
-            elif stype == "vix_sd":
-                ticker = infer_ticker_context(self._symbol, self._bars)
-                result = calculate_vix_standard_deviation(ticker, self._bars, params)
-                self._vix_overlay.render(result, self._bars)
-
-            elif stype == "ict":
-                ticker = infer_ticker_context(self._symbol, self._bars)
-                result = calculate_ict_concepts(self._bars, ticker, params)
-                self._ict_overlay.render(result, self._bars)
-
-        # Cache the computed values for incremental updates
-        cacheable = {k: list(v) for k, v in all_vals.items()}
-        if cacheable:
-            self._study_cache.set(self._symbol, self._current_timeframe or "", self._studies, cacheable)
+        # Cache values + incremental states for the new-candle path.
+        if all_vals:
+            self._study_cache.set(
+                self._symbol, self._current_timeframe or "", self._studies,
+                {"n_bars": len(bars), "last_ts": bars[-1].ts,
+                 "values": {k: list(v) for k, v in all_vals.items()},
+                 "states": states},
+            )
 
         has_oscillator = any(s.get("enabled") and s.get("type") in OSCILLATOR_TYPES for s in self._studies)
         if has_oscillator:

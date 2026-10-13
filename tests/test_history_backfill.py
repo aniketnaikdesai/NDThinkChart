@@ -321,9 +321,13 @@ def test_t40_t02_both_panels_span_backfilled_timestamps(monkeypatch, qapp):
 
         panel = win.chart_panel
         bars = panel._bars
-        candle_ts = [c[0] for c in panel.candlestick._raw_data]
-        vol_x = [int(v) for v in panel.volume_bars.opts["x"]]
-        vol_h = [float(v) for v in panel.volume_bars.opts["height"]]
+        # D28.4: candles render across the static + live layers.
+        candle_ts = ([c[0] for c in panel.candlestick._raw_data]
+                     + [c[0] for c in panel.live_candle._raw_data])
+        vol_x = ([int(v) for v in panel.volume_bars.opts["x"]]
+                 + [int(v) for v in panel.live_volume.opts["x"]])
+        vol_h = ([float(v) for v in panel.volume_bars.opts["height"]]
+                 + [float(v) for v in panel.live_volume.opts["height"]])
 
         # Both panels are driven by the same continuous bar list. The rendered
         # x-model is display-x after the D21.4 collapse, so compare through the
@@ -388,8 +392,11 @@ def test_t40_t03_closures_stay_empty_and_axis_uncompressed(monkeypatch, qapp):
         # The axis is timestamp-based and not compressed: x == the real ts list
         # and the pre/post-closure gap spans the true weekend + holiday.
         panel = win.chart_panel
-        candle_ts = [c[0] for c in panel.candlestick._raw_data]
-        vol_x = [int(v) for v in panel.volume_bars.opts["x"]]
+        # D28.4: candles render across the static + live layers.
+        candle_ts = ([c[0] for c in panel.candlestick._raw_data]
+                     + [c[0] for c in panel.live_candle._raw_data])
+        vol_x = ([int(v) for v in panel.volume_bars.opts["x"]]
+                 + [int(v) for v in panel.live_volume.opts["x"]])
         assert vol_x == candle_ts
 
         last_pre = max(b.ts for b in bars if _et_date(b.ts) == date(2026, 9, 4))
@@ -599,8 +606,11 @@ def test_t40_t06_empty_cache_fallback_renders(monkeypatch, qapp):
 
         # Rendered without error: both panels carry the returned bars, at their
         # D21.4 display-x positions (the x-model is display-x after collapse).
-        candle_ts = [c[0] for c in win.chart_panel.candlestick._raw_data]
-        vol_x = [int(v) for v in win.chart_panel.volume_bars.opts["x"]]
+        # D28.4: candles render across the static + live layers.
+        candle_ts = ([c[0] for c in win.chart_panel.candlestick._raw_data]
+                     + [c[0] for c in win.chart_panel.live_candle._raw_data])
+        vol_x = ([int(v) for v in win.chart_panel.volume_bars.opts["x"]]
+                 + [int(v) for v in win.chart_panel.live_volume.opts["x"]])
         expected_x = [
             win.chart_panel._to_display(ts) for ts in sorted(b.ts for b in expected)
         ]
