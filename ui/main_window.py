@@ -716,6 +716,10 @@ class MainWindow(QMainWindow):
 
         Lazy attach, cache-first render: the session syncs from cache on
         attach; the RT subscription follows the normal pacing path.
+
+        Runs on every (re)connect: records whose symbol/timeframe/mode is
+        already open are skipped so a reconnect never duplicates windows
+        or breaches the pop-out cap.
         """
         from ui.popout_window import PopoutChartWindow
 
@@ -726,7 +730,19 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             _LOG.warning("Pop-out restore failed: %s", exc)
             return
-        for record in saved[: settings.MAX_POPOUTS]:
+        open_keys = {
+            (p.symbol.upper(), p.timeframe, p.mode) for p in self._popouts
+        }
+        for record in saved:
+            if len(self._popouts) >= settings.MAX_POPOUTS:
+                break
+            key = (
+                str(record["symbol"]).upper(),
+                record["timeframe"],
+                record["mode"],
+            )
+            if key in open_keys:
+                continue
             try:
                 popout = PopoutChartWindow(
                     symbol=record["symbol"],
@@ -739,6 +755,7 @@ class MainWindow(QMainWindow):
                 popout.attach()
                 popout.apply_geometry(record["geometry"])
                 popout.show()
+                open_keys.add(key)
             except Exception as exc:
                 _LOG.warning(
                     "Pop-out restore failed for %s: %s",

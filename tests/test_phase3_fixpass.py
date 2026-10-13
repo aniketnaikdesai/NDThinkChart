@@ -232,3 +232,43 @@ def test_fix2e_popout_drawing_drag_does_not_mutate_payload(monkeypatch, qapp):
     finally:
         _clear(SYM)
         win.close()
+
+
+def _clear_popouts(symbol: str) -> None:
+    from data.db import db
+
+    db.conn.execute("DELETE FROM popouts WHERE symbol=?", (symbol.upper(),))
+    db.conn.commit()
+
+
+# ── Fix 3: _restore_popouts duplicates windows on reconnect ────────────────
+
+
+def test_fix3_restore_popouts_no_duplicates_on_reconnect(monkeypatch, qapp):
+    """Reviewer fix 3: firing _on_connected again (reconnect) must not
+    re-open persisted pop-outs that are already open."""
+    _clear(SYM)
+    _clear_popouts(SYM)
+    win = _make_window(monkeypatch, qapp)
+    try:
+        win._now_ts = lambda: NOW_TS
+        win.load_chart(SYM, TF)
+        win._open_popout()
+        qapp.processEvents()
+        assert len(win._popouts) == 1
+
+        # Simulate a reconnect: _on_connected fires again.
+        win._on_connected()
+        qapp.processEvents()
+
+        assert len(win._popouts) == 1, (
+            f"reconnect duplicated pop-outs: {len(win._popouts)} open"
+        )
+        assert len(win._popouts) <= 10  # cap respected
+    finally:
+        for p in list(win._popouts):
+            p.close()
+        qapp.processEvents()
+        _clear(SYM)
+        _clear_popouts(SYM)
+        win.close()
