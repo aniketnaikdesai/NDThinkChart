@@ -8,11 +8,12 @@ Supports 5 render modes and dynamic study overlays.
 import hashlib
 from bisect import bisect_left, bisect_right
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter, QPushButton, QComboBox
-from PyQt6.QtCore import Qt, QEvent, pyqtSignal
+from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter, QPushButton, QComboBox, QMenu
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QTimer
 
 from ui.candlestick_item import CandlestickItem, ChartMode
 from ui.footprint_item import FootprintItem
+from ui.depth_heatmap_item import DepthHeatmapItem
 from ui.drawing_overlay import DrawingViewBox, DrawingOverlay, TOOL_CURSOR
 from ui.alarm_overlay import AlarmOverlay
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
@@ -248,6 +249,8 @@ class ChartPanel(QWidget):
     # viewport changes → session lazy-fill.
     footprint_toggled = pyqtSignal(bool, str, str)  # enabled, style, metric
     footprint_viewport_changed = pyqtSignal(float, float)  # first_ts, last_ts
+    # D37 microstructure: control changes → MainWindow wires to the session.
+    depth_toggled = pyqtSignal(bool)  # enabled
 
     def __init__(self, tz_offset: int = 0, editable: bool = True):
         super().__init__()
@@ -358,6 +361,18 @@ class ChartPanel(QWidget):
         self._fp_status_text = pg.TextItem(anchor=(0, 0))
         self._fp_status_text.setParentItem(self.price_plot.getViewBox())
         self._fp_status_text.hide()
+        # D37 depth heatmap render layer — live only. Depth ops stream into
+        # the session's service (data plane); this item repaints on a timer,
+        # never per-op (D28 discipline — see DepthHeatmapItem.regen_count).
+        self.depth_heatmap_item = DepthHeatmapItem()
+        self.price_plot.addItem(self.depth_heatmap_item)
+        self._depth_enabled_ui = True  # default ON (owner to confirm)
+        self._imbalance_n = 5  # headline N; the label toggles 5 <-> 10
+        self._depth_state_text = pg.TextItem(anchor=(0.5, 0.5))
+        self._depth_state_text.setParentItem(self.price_plot.getViewBox())
+        self._depth_state_text.hide()
+        # D37 auction chip state (latest tick values; None = no data yet).
+        self._auction_state: dict = {}
         # D28.4: cached candle half-width, recomputed only at full rebuild
         # (bar-count or spacing change), reused by forming-bar ticks.
         self._candle_half_width: float = 0.0
@@ -511,6 +526,38 @@ class ChartPanel(QWidget):
         self._fp_toggle.raise_()
         self._fp_viewport_timer = None
         self._position_fp_controls()
+
+        # D37 microstructure controls — floating cluster, top-left below the
+        # footprint row: depth heatmap toggle, imbalance headline (click
+        # toggles top-5/top-10), auction chip (click expands raw values).
+        _d37_style = ("QPushButton { font-size: 11px; padding: 2px 6px;"
+                      " background: rgba(30,30,30,0.9); border: 1px solid"
+                      " #4b5563; border-radius: 4px; color: #e5e7eb; }"
+                      "QPushButton:checked { background: rgba(96,165,250,0.20); }")
+        self._depth_toggle = QPushButton("Depth", self)
+        self._depth_toggle.setCheckable(True)
+        self._depth_toggle.setChecked(True)
+        self._depth_toggle.setToolTip("Show/hide depth heatmap (SMART book)")
+        self._depth_toggle.setStyleSheet(_d37_style)
+        self._depth_toggle.toggled.connect(self._on_depth_toggled)
+        self._imb_label = QPushButton("IMB —", self)
+        self._imb_label.setToolTip("Book imbalance — click toggles top-5/top-10")
+        self._imb_label.setStyleSheet(_d37_style)
+        self._imb_label.clicked.connect(self._on_imb_clicked)
+        self._auction_chip = QPushButton("AUC —", self)
+        self._auction_chip.setToolTip("Auction imbalance — click for details")
+        self._auction_chip.setStyleSheet(_d37_style)
+        self._auction_chip.clicked.connect(self._on_auction_clicked)
+        for w in (self._depth_toggle, self._imb_label, self._auction_chip):
+            w.show()
+            w.raise_()
+        self._position_d37_controls()
+        # D37: heatmap repaint timer — data streams per-op into the service;
+        # rendering is timer-driven (D28 discipline), never per-op.
+        self._depth_refresh_timer = QTimer(self)
+        self._depth_refresh_timer.setInterval(500)
+        self._depth_refresh_timer.timeout.connect(self._on_depth_refresh)
+        self._depth_refresh_timer.start()
 
         # Zoom control cluster (top-right outlined) — floats over chart area
         from ui.chart_controls import ChartControls
@@ -701,6 +748,166 @@ class ChartPanel(QWidget):
             tip += f" — {proxy}"
         self._fp_toggle.setToolTip(tip)
 
+    # ── D37 microstructure ─────────────────────────────────────────────
+
+    @property
+    def depth_enabled(self) -> bool:
+        return self._depth_enabled_ui
+
+    def _position_d37_controls(self):
+        """Second top-left row: Depth toggle, imbalance label, auction chip."""
+        try:
+            price_geo = self.price_plot.geometry()
+            x = price_geo.left() + 8
+            # Below the footprint row (approx one control height + gap).
+            y = price_geo.top() + 38
+            for w in (self._depth_toggle, self._imb_label, self._auction_chip):
+                w.move(int(x), int(y))
+                w.raise_()
+                x += w.width() + 6
+        except Exception:
+            pass
+
+    def _on_depth_toggled(self, checked: bool):
+        self._depth_enabled_ui = checked
+        if not checked:
+            self.depth_heatmap_item.clear()
+            self._depth_state_text.hide()
+        # MainWindow wires this to session.ensure/release_depth.
+        self.depth_toggled.emit(checked)
+
+    def _on_imb_clicked(self):
+        """Headline toggle: top-5 <-> top-10 (owner decision)."""
+        self._imbalance_n = 10 if self._imbalance_n == 5 else 5
+        self._imb_label.setToolTip(
+            f"Book imbalance (top-{self._imbalance_n}) — click to toggle")
+
+    def _on_auction_clicked(self):
+        """Expand the chip into a popover with the raw tick values."""
+        a = self._auction_state
+        menu = QMenu(self)
+        menu.addAction(f"Auction volume (34): {a.get('volume', '—')}")
+        menu.addAction(f"Auction price (35): {a.get('price', '—')}")
+        menu.addAction(f"Auction imbalance (36): {a.get('imbalance', '—')}")
+        menu.addAction(
+            f"Regulatory imbalance (61): {a.get('reg_imbalance', '—')}")
+        menu.exec(self._auction_chip.mapToGlobal(
+            self._auction_chip.rect().bottomLeft()))
+
+    def _on_depth_refresh(self):
+        """Timer-driven repaint — depth ops never repaint directly."""
+        if not self._depth_enabled_ui:
+            return
+        session = getattr(self, "_d37_session", None)
+        if session is None:
+            return
+        matrix = session.depth_service.matrix()
+        if not matrix:
+            return
+        prices: list[float] = []
+        for bucket in matrix:
+            prices.extend(bucket.keys())
+        prices.sort()
+        half_tick = 0.01
+        if len(prices) > 1:
+            diffs = [b - a for a, b in zip(prices, prices[1:]) if b > a]
+            if diffs:
+                diffs.sort()
+                half_tick = diffs[len(diffs) // 2]
+        self.depth_heatmap_item.set_matrix(matrix, half_tick)
+        self.depth_heatmap_item.refresh()
+        # Imbalance headline (top-N toggle).
+        imb = session.depth_imbalance(self._imbalance_n)
+        sign = "+" if imb >= 0 else ""
+        self._imb_label.setText(f"IMB {sign}{imb:.1%} ({self._imbalance_n})")
+
+    def bind_d37_session(self, session) -> None:
+        """Attach the session driving the heatmap/auction/imbalance UI."""
+        self._d37_session = session
+        session.auction_updated.connect(self._on_auction_tick)
+        session.depth_state_changed.connect(self.set_depth_state)
+        self.set_depth_state(session.depth_state)
+
+    def unbind_d37_session(self, session) -> None:
+        try:
+            session.auction_updated.disconnect(self._on_auction_tick)
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            session.depth_state_changed.disconnect(self.set_depth_state)
+        except (RuntimeError, TypeError):
+            pass
+        if getattr(self, "_d37_session", None) is session:
+            self._d37_session = None
+
+    def _on_auction_tick(self):
+        session = getattr(self, "_d37_session", None)
+        if session is None:
+            return
+        self.update_auction_chip(session.auction_state())
+
+    def update_auction_chip(self, auction: dict) -> None:
+        """Render the header chip from the latest auction ticks."""
+        self._auction_state = dict(auction)
+        vol = auction.get("volume")
+        price = auction.get("price")
+        imb = auction.get("imbalance")
+        if vol is None and price is None and imb is None:
+            self._auction_chip.setText("AUC —")
+            self._auction_chip.setToolTip("Auction imbalance — no data yet")
+            return
+        side = ""
+        if imb is not None and imb != 0:
+            side = "BID" if imb > 0 else "ASK"
+        shares = f"{abs(imb):,.0f}" if imb is not None else "—"
+        px = f"@ {price:.2f}" if price is not None else ""
+        self._auction_chip.setText(f"AUC {side} {shares} {px}".strip())
+        if self._in_auction_window():
+            self._auction_chip.setStyleSheet(
+                "QPushButton { font-size: 11px; padding: 2px 6px;"
+                " background: rgba(251,191,36,0.25); border: 1px solid"
+                " #f59e0b; border-radius: 4px; color: #e5e7eb; }")
+        else:
+            self._auction_chip.setStyleSheet(
+                "QPushButton { font-size: 11px; padding: 2px 6px;"
+                " background: rgba(30,30,30,0.9); border: 1px solid"
+                " #4b5563; border-radius: 4px; color: #e5e7eb; }")
+
+    @staticmethod
+    def _in_auction_window() -> bool:
+        """Highlight near the open (9:30) and close (16:00) auctions (ET)."""
+        try:
+            from zoneinfo import ZoneInfo
+            from datetime import datetime
+            now = datetime.now(ZoneInfo("America/New_York"))
+            mins = now.hour * 60 + now.minute
+            return (565 <= mins <= 575) or (955 <= mins <= 965)
+        except Exception:
+            return False
+
+    def set_depth_state(self, state: str) -> None:
+        """Explicit degradation states — never a silently empty heatmap."""
+        if state == "live":
+            self._depth_state_text.hide()
+        elif state == "no_entitlement":
+            self._depth_state_text.setText("Depth subscription required")
+            self._depth_state_text.show()
+        elif state == "budget_exceeded":
+            self._depth_state_text.setText("Depth feed budget exceeded")
+            self._depth_state_text.show()
+        elif state == "unavailable":
+            self._depth_state_text.setText("Depth unavailable")
+            self._depth_state_text.show()
+        else:
+            self._depth_state_text.hide()
+        # Position the state text centre-plot.
+        try:
+            vb = self.price_plot.getViewBox()
+            vr = vb.viewRect()
+            self._depth_state_text.setPos(vr.center().x(), vr.center().y())
+        except Exception:
+            pass
+
     def _fp_queue_viewport_sync(self) -> None:
         """Throttled viewport → session lazy-fill (scroll)."""
         if not self._fp_enabled_ui:
@@ -742,6 +949,8 @@ class ChartPanel(QWidget):
         super().resizeEvent(event)
         self._position_zoom_controls()
         self._position_volume_toggle()
+        self._position_fp_controls()
+        self._position_d37_controls()
 
     def eventFilter(self, obj, event):
         """Hide the crosshair when the mouse leaves the price plot."""
@@ -1537,6 +1746,11 @@ class ChartPanel(QWidget):
         # D36: scrolled-into-view bars without footprint data trigger a
         # bounded lazy-fill (throttled).
         self._fp_queue_viewport_sync()
+        # D37: the heatmap strip is anchored to the visible x-range — repaint
+        # on zoom/scroll (the 500ms timer also repaints; this keeps it
+        # immediate). Timer-only would lag the strip behind the candles.
+        if self._depth_enabled_ui and getattr(self, "_d37_session", None):
+            self._on_depth_refresh()
 
     def _clear_overlays(self):
         for item in self._overlay_items:

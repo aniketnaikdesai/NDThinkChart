@@ -670,6 +670,10 @@ class WatchlistPanel(QWidget):
 
     # ── MarketDepth management ───────────────────────────────────────────────────
 
+    def active_row_count(self) -> int:
+        """Live market-data rows (each holds one reqMktData line)."""
+        return len(self._req_to_row)
+
     def on_depth_update(self, req_id: int, position: int, operation: int,
                         side: int, price: float, size: int) -> None:
         """Handle incoming depth updates from the bridge."""

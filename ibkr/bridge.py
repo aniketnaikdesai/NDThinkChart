@@ -28,6 +28,12 @@ class IBBridge(QObject):
     tick_price = pyqtSignal(int, int, float)        # reqId, tickType, price
     tick_size = pyqtSignal(int, int, int)           # reqId, tickType, size
 
+    # Generic ticks — D37 substrate S0 (shared with D38). Strictly additive.
+    tick_generic = pyqtSignal(int, int, float)      # reqId, tickType, value
+    tick_string = pyqtSignal(int, int, str)        # reqId, tickType, value
+    tick_news = pyqtSignal(int, int, str, str, str)
+    # reqId, timeStamp, providerCode, articleId, headline
+
     # Real-time 5-second bars
     realtime_bar = pyqtSignal(int, int, float, float, float, float, float, float, int)
     # reqId, time, open, high, low, close, volume, wap, count
