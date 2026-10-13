@@ -32,12 +32,17 @@ from data.bar_cache import BarCache
 from data.alarm_store import AlarmStore
 from data.models import Bar
 from ibkr.contracts import FUTURES_SCHEDULE, get_contract_for_symbol
+from ibkr.contracts import footprint_cache_key  # D39: resolved-contract key
 from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.stream_health import StreamHealth
 from ibkr.subscription_manager import RT_BARS, DEPTH_HEATMAP, S0_TICKS
 from ibkr.utils import parse_ibkr_date
-from services.alarm_service import evaluate_alarms
+from services.alarm_service import evaluate_alarms, evaluate_volume_burst
 from services.depth_heatmap import DepthHeatmapService, BUCKET_SECONDS
+from services.volume_baseline import (
+    VolumeBaselineService,
+    minutes_for_timeframe,
+)
 from services.footprint_service import (
     FootprintService,
     FormingSpec,
@@ -92,7 +97,19 @@ class TickerSession(QObject):
         self._rt_holders: int = 0
         self._last_chart_price: float | None = None
         self._rt_seen: bool = False  # D27.1: live bar observed since (re)load
-        self._alarms: list = []
+        self._alarms: list = []  # own alarms (AlarmStore.load(symbol))
+        # D39.4: burst alarms from index symbols evaluated on this tape
+        # (e.g. SPX alarms on the ES session). Survive reload_alarms().
+        self._proxy_alarms: list = []
+        # D39: last forming bar seen per timeframe — when a new candle
+        # starts, the previous bar is complete and feeds the baseline.
+        self._burst_forming: dict[str, Bar] = {}
+        # D39: resolved contract key currently feeding the baseline; a
+        # change means the front month rolled → invalidate the old key.
+        self._burst_key: str | None = None
+        # D39: per-session fallback when the host has no shared baseline
+        # service (tests / stub hosts). Production MainWindow owns one.
+        self._vb_fallback: VolumeBaselineService | None = None
         self.stream_health = StreamHealth()
 
         # ── History wave (3b-2) ────────────────────────────────────────
@@ -827,6 +844,8 @@ class TickerSession(QObject):
             monitor = getattr(self._host, "alarm_monitor", None)
             if monitor is not None:
                 monitor.on_alarm_changed()
+        # D39: volume-burst evaluation on the same per-push path.
+        self._evaluate_burst_alarms(bar, is_new_candle)
         self._last_chart_price = bar.close
         self._host._record_symbol_price(self.symbol, bar.close)
         self.bar_updated.emit(bar, is_new_candle)
@@ -838,7 +857,87 @@ class TickerSession(QObject):
         self.alarms_changed.emit()
 
     def reload_alarms(self) -> None:
-        self.set_alarms(AlarmStore.load(self.symbol))
+        # D39.4: proxy burst alarms (e.g. SPX on the ES tape) survive the
+        # reload — they are owned by the AlarmMonitor, not the store query.
+        self.set_alarms(AlarmStore.load(self.symbol) + self._proxy_alarms)
+
+    def set_proxy_alarms(self, alarms: list) -> None:
+        """D39.4: attach burst alarms from index symbols to this tape."""
+        self._proxy_alarms = list(alarms)
+        self.reload_alarms()
+
+    # ── D39 volume-burst alarms ──────────────────────────────────────────
+
+    @property
+    def _volume_baseline(self) -> VolumeBaselineService:
+        """Shared baseline service (host-owned); per-session fallback."""
+        vb = getattr(self._host, "volume_baseline", None)
+        if vb is None:
+            if self._vb_fallback is None:
+                self._vb_fallback = VolumeBaselineService()
+            vb = self._vb_fallback
+        return vb
+
+    def _prime_volume_baseline(self, resolved_key: str) -> None:
+        """One-time prime of same-time-of-day buckets from BarCache."""
+        vb = self._volume_baseline
+        if vb.is_primed(resolved_key):
+            return
+        for timeframe in ("1 min", "5 mins", "15 mins", "1 hour"):
+            bars = BarCache.get_bars(self.symbol, timeframe)
+            if bars:
+                vb.prime_from_bars(resolved_key, bars)
+                return
+
+    def _evaluate_burst_alarms(self, bar: Bar, is_new_candle: bool) -> None:
+        """D39.3: per-push volume-burst evaluation alongside price alarms.
+
+        The forming bar is *evaluated* every push (real-time burst
+        detection, conservative early in the bar since its volume is still
+        accumulating) but only *completed* bars are recorded into the
+        baseline: when a new candle starts, the previous bar for that
+        timeframe is complete.
+        """
+        burst_alarms = [
+            a for a in self._alarms
+            if a.kind == "volume_burst" and a.active and not a.triggered
+        ]
+        # Baseline bookkeeping runs even with no burst alarms so the
+        # baseline is warm if one is created later.
+        prev = self._burst_forming.get(bar.timeframe)
+        self._burst_forming[bar.timeframe] = bar
+        resolved_key = footprint_cache_key(self.symbol)
+        # C39.2: the key embeds the front-month contract — a change means a
+        # roll, so the old contract's baseline is invalidated, never reused.
+        if self._burst_key != resolved_key:
+            if self._burst_key is not None:
+                self._volume_baseline.invalidate(self._burst_key)
+            self._burst_key = resolved_key
+        if is_new_candle and prev is not None and prev.ts != bar.ts:
+            self._volume_baseline.record(
+                resolved_key, prev.ts, prev.timeframe, prev.volume or 0.0)
+        if not burst_alarms:
+            return
+        self._prime_volume_baseline(resolved_key)
+        per_min = bar.volume / minutes_for_timeframe(bar.timeframe)
+        baseline = self._volume_baseline.baseline(resolved_key, bar.ts)
+        fired = evaluate_volume_burst(per_min, baseline, burst_alarms)
+        for alarm in fired:
+            if alarm.id is not None:
+                AlarmStore.mark_triggered(alarm.id)
+            alarm.triggered = True
+        if fired:
+            # Group by alarm symbol: proxy alarms (SPX on the ES tape)
+            # toast under their own symbol, not the session's.
+            by_symbol: dict[str, list] = {}
+            for alarm in fired:
+                by_symbol.setdefault(alarm.symbol, []).append(alarm)
+            for sym, group in by_symbol.items():
+                self.alarm_triggered.emit(sym, group)
+            self.alarms_changed.emit()
+            monitor = getattr(self._host, "alarm_monitor", None)
+            if monitor is not None:
+                monitor.on_alarm_changed()
 
     # ── Footprint (D36) ────────────────────────────────────────────────
 

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QLabel,
     QLineEdit,
 )
 
@@ -37,19 +38,40 @@ class AlarmEditDialog(QDialog):
 
         layout = QFormLayout(self)
 
-        self.price_input = QDoubleSpinBox()
-        self.price_input.setDecimals(4)
-        self.price_input.setRange(0.0001, 1_000_000)
-        self.price_input.setValue(float(alarm.price))
-        layout.addRow("Price:", self.price_input)
+        # D39: burst alarms tune the z-threshold, not a price level.
+        self._is_burst = getattr(alarm, "kind", "price") == "volume_burst"
+        if self._is_burst:
+            from services.volume_baseline import DEFAULT_Z_THRESHOLD
 
-        self.condition_input = QComboBox()
-        self.condition_input.addItems(CONDITIONS.keys())
-        label_by_condition = {value: label for label, value in CONDITIONS.items()}
-        self.condition_input.setCurrentText(
-            label_by_condition.get(alarm.direction, alarm.direction)
-        )
-        layout.addRow("Condition:", self.condition_input)
+            self.z_input = QDoubleSpinBox()
+            self.z_input.setDecimals(1)
+            self.z_input.setRange(1.0, 50.0)
+            self.z_input.setSingleStep(0.5)
+            self.z_input.setToolTip("Below 1.0 fires on normal variance.")
+            try:
+                z0 = float((alarm.params or {}).get(
+                    "z_threshold", DEFAULT_Z_THRESHOLD))
+            except (TypeError, ValueError):
+                z0 = DEFAULT_Z_THRESHOLD
+            self.z_input.setValue(z0)
+            layout.addRow("Burst threshold (z ≥):", self.z_input)
+            proxy_label = (alarm.params or {}).get("proxy_label")
+            if proxy_label:
+                layout.addRow("Tape:", QLabel(f"Volume burst on {proxy_label}"))
+        else:
+            self.price_input = QDoubleSpinBox()
+            self.price_input.setDecimals(4)
+            self.price_input.setRange(0.0001, 1_000_000)
+            self.price_input.setValue(float(alarm.price))
+            layout.addRow("Price:", self.price_input)
+
+            self.condition_input = QComboBox()
+            self.condition_input.addItems(CONDITIONS.keys())
+            label_by_condition = {value: label for label, value in CONDITIONS.items()}
+            self.condition_input.setCurrentText(
+                label_by_condition.get(alarm.direction, alarm.direction)
+            )
+            layout.addRow("Condition:", self.condition_input)
 
         self.sound_input = QCheckBox("Play sound")
         self.sound_input.setChecked(bool(alarm.sound))
@@ -71,11 +93,21 @@ class AlarmEditDialog(QDialog):
 
     def _save(self):
         if self.alarm is not None and self.alarm.id is not None:
-            AlarmStore.update(
-                self.alarm.id,
-                price=float(self.price_input.value()),
-                direction=CONDITIONS[self.condition_input.currentText()],
-                sound=bool(self.sound_input.isChecked()),
-                note=self.note_input.text().strip(),
-            )
+            if self._is_burst:
+                params = dict(self.alarm.params or {})
+                params["z_threshold"] = round(float(self.z_input.value()), 1)
+                AlarmStore.update(
+                    self.alarm.id,
+                    params=params,
+                    sound=bool(self.sound_input.isChecked()),
+                    note=self.note_input.text().strip(),
+                )
+            else:
+                AlarmStore.update(
+                    self.alarm.id,
+                    price=float(self.price_input.value()),
+                    direction=CONDITIONS[self.condition_input.currentText()],
+                    sound=bool(self.sound_input.isChecked()),
+                    note=self.note_input.text().strip(),
+                )
         self.accept()

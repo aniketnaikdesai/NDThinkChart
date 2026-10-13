@@ -135,6 +135,22 @@ class DB:
             failed_at REAL NOT NULL DEFAULT 0,
             payload TEXT NOT NULL DEFAULT '[]'
         );
+        -- D39: volume-burst baseline (39.2). One row per (resolved contract,
+        -- time-of-day bucket): robust median/MAD over <=30 per-minute volume
+        -- samples. The samples JSON is the exact sample set (median/MAD need
+        -- the raw values); median/mad/n are the fast read path. Keyed on the
+        -- resolved contract (e.g. ESZ6, never bare ES) so a roll can never
+        -- compare one contract's volume against another's baseline (C39.2).
+        CREATE TABLE IF NOT EXISTS volume_baseline (
+            resolved_contract TEXT NOT NULL,
+            bucket INTEGER NOT NULL,
+            median REAL NOT NULL DEFAULT 0,
+            mad REAL NOT NULL DEFAULT 0,
+            n INTEGER NOT NULL DEFAULT 0,
+            samples TEXT NOT NULL DEFAULT '[]',
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (resolved_contract, bucket)
+        );
         """
         self.conn.executescript(schema)
         self._migrate_schema()
@@ -144,6 +160,16 @@ class DB:
         alarm_columns = self._table_columns("alarms")
         if "created_at" not in alarm_columns:
             self.conn.execute("ALTER TABLE alarms ADD COLUMN created_at INTEGER")
+        # D39.3: volume_burst alarm kind — additive columns; price alarms
+        # untouched. kind defaults to 'price', params to '{}' (JSON).
+        if "kind" not in alarm_columns:
+            self.conn.execute(
+                "ALTER TABLE alarms ADD COLUMN kind TEXT NOT NULL DEFAULT 'price'"
+            )
+        if "params" not in alarm_columns:
+            self.conn.execute(
+                "ALTER TABLE alarms ADD COLUMN params TEXT NOT NULL DEFAULT '{}'"
+            )
         # D27.5: _upsert_position's ON CONFLICT(symbol, con_id) requires a
         # matching unique constraint — without it every position persist
         # raised OperationalError.

@@ -393,6 +393,8 @@ class MainWindow(QMainWindow):
         # disabled until ``_on_connected`` flips them on.
         self._ibkr_connected = False
         self.watchlist_panel.set_add_enabled(False)
+        # D39.1: search starts disabled; enabled on connect.
+        self.watchlist_panel.set_search_enabled(False)
         # D22-08: in-flight add requests, keyed by the ContractLookupService
         # reqId. ``ContractLookupService`` drops its own pending entry before it
         # emits, and cancels silently on a disconnect, so the window keeps this
@@ -560,6 +562,25 @@ class MainWindow(QMainWindow):
             self._on_contract_lookup_finished
         )
 
+        # D39.1: debounced symbol search (watchlist header box).
+        from services.symbol_search import SymbolSearchService
+
+        self._symbol_search = SymbolSearchService(
+            self.md_manager, self.ib_client.bridge
+        )
+        self._symbol_search.search_finished.connect(
+            self._on_search_finished
+        )
+        self.watchlist_panel.search_text_changed.connect(
+            self._symbol_search.type_ahead
+        )
+        self.watchlist_panel.search_sample_selected.connect(
+            self._on_search_sample_selected
+        )
+        # Search-result contract resolution reuses the bounded D22 lookup;
+        # results are keyed separately from watchlist adds.
+        self._pending_search_select: dict[int, object] = {}
+
         # Inject md_manager into watchlist
         self.watchlist_panel.set_market_data_manager(self.md_manager)
         # D27.3: the panel type-tags its live subs for the reconnect replay.
@@ -665,6 +686,11 @@ class MainWindow(QMainWindow):
         from services.alarm_monitor import AlarmMonitor
 
         self.alarm_monitor = AlarmMonitor(self)
+        # D39: shared volume baseline (one per app — sessions share nothing
+        # across tapes because the key already holds the resolved contract).
+        from services.volume_baseline import VolumeBaselineService
+
+        self.volume_baseline = VolumeBaselineService()
         self._depth_req_id: int | None = None
         self._current_symbol: str = ""
         self._current_tf: str = "5 mins"
@@ -1111,6 +1137,9 @@ class MainWindow(QMainWindow):
     def _on_connected(self):
         self._ibkr_connected = True
         self.watchlist_panel.set_add_enabled(True)
+        # D39.1: search box enabled on connect.
+        self.watchlist_panel.set_search_enabled(True)
+        self._symbol_search.set_connected(True)
         self._update_conn_badge()
         self.load_btn.setEnabled(True)
         self.status_bar.showMessage(f"Connected — IBKR port {settings.IBKR_PORT}")
@@ -1185,8 +1214,79 @@ class MainWindow(QMainWindow):
         its ``lookup_finished`` signal here. The signal is routed to the add-flow
         decision (:meth:`_on_watchlist_symbol_validated`), which applies the
         exactly-once result: add on ``ok`` while still connected, error otherwise.
+
+        D39.1: search-result selections share the bounded lookup; they are
+        keyed in ``_pending_search_select`` and branch to chart loading.
         """
+        if request_id in self._pending_search_select:
+            self._on_search_sample_validated(request_id, ok, reason)
+            return
         self._on_watchlist_symbol_validated(request_id, symbol, ok, reason)
+
+    # ── Symbol search (D39.1) ────────────────────────────────────────────
+
+    def _on_search_finished(
+        self, req_id: int, pattern: str, ok: bool, samples_or_reason
+    ) -> None:
+        """Show search results, or a clear failure state (never silent)."""
+        if ok:
+            # The box may have been cleared while the request was in flight —
+            # never pop results over an empty query.
+            if not self.watchlist_panel.search_box.text().strip():
+                self.watchlist_panel.clear_search_results()
+                return
+            self.watchlist_panel.show_search_results(samples_or_reason or [])
+        else:
+            self.watchlist_panel.clear_search_results()
+            reason = samples_or_reason or "search failed"
+            self.status_bar.showMessage(f"Symbol search: {reason}.", 4000)
+
+    def _on_search_sample_selected(self, desc) -> None:
+        """A search result was picked → resolve its contract, then chart it.
+
+        Contract resolution reuses the bounded D22 ``ContractLookupService``
+        (exactly-once, 5s cap, cancelled on disconnect).
+        """
+        contract = getattr(desc, "contract", None)
+        if contract is None:
+            self.status_bar.showMessage(
+                "Symbol search: no contract on the selected result.", 4000)
+            return
+        symbol = (getattr(contract, "symbol", "") or "").upper()
+        if not symbol:
+            self.status_bar.showMessage(
+                "Symbol search: empty symbol on the selected result.", 4000)
+            return
+        if not self._ibkr_connected:
+            self.status_bar.showMessage(
+                "Not connected to IBKR — cannot resolve the selection.", 4000)
+            return
+        req_id = self._contract_lookup.request(symbol, contract)
+        self._pending_search_select[req_id] = desc
+        self.status_bar.showMessage(f"Resolving {symbol}…", 3000)
+
+    def _on_search_sample_validated(
+        self, request_id: int, ok: bool, reason: str
+    ) -> None:
+        """Apply a resolved search selection: load its chart (AC-D39.1)."""
+        desc = self._pending_search_select.pop(request_id, None)
+        if desc is None:
+            return  # late / unknown — never mutate state
+        contract = getattr(desc, "contract", None)
+        symbol = (getattr(contract, "symbol", "") or "").upper()
+        if not ok or not symbol:
+            self.status_bar.showMessage(
+                f"Could not resolve {symbol or 'selection'}: "
+                f"{reason or 'contract not found'}",
+                5000,
+            )
+            return
+        if not self._ibkr_connected:
+            self.status_bar.showMessage(
+                f"Could not load {symbol}: disconnected.", 5000)
+            return
+        self.load_chart(symbol)
+        self.status_bar.showMessage(f"Loaded {symbol}.", 3000)
 
     # ── Add / remove flow (D22 Phase 4) ───────────────────────────────────────
 
@@ -1400,6 +1500,10 @@ class MainWindow(QMainWindow):
         self._account_subscribed = False
         self.portfolio_panel.set_account_unavailable(True)
         self.watchlist_panel.set_add_enabled(False)
+        # D39.1: search disabled while disconnected (box greys out).
+        self.watchlist_panel.set_search_enabled(False)
+        self._symbol_search.set_connected(False)
+        self._pending_search_select.clear()
         # D22 Phase 4: a transport drop invalidates every in-flight contract
         # lookup so none can resolve an add once (re)connected.
         self._contract_lookup.cancel_all()
@@ -2093,15 +2197,30 @@ class MainWindow(QMainWindow):
         The badge reflects the main-chart symbol only (FR-4.3); a trigger
         for a background symbol still toasts + sounds.
         """
-        lines = [
-            f"{a.price:.4f} ({a.note})" if a.note else f"{a.price:.4f}"
-            for a in triggered
-        ]
+        lines = [self._alarm_toast_line(a) for a in triggered]
         self.toast.show_message(f"Alarm: {symbol} @ " + ", ".join(lines))
         if any(a.sound for a in triggered):
             self.sound_service.play_alarm()
         if symbol == self._current_symbol:
             self._refresh_alarm_badge()
+
+    @staticmethod
+    def _alarm_toast_line(alarm) -> str:
+        """D39: burst alarms toast with their tape attribution and z-score."""
+        if getattr(alarm, "kind", "price") == "volume_burst":
+            text = "Volume burst"
+            proxy_label = (alarm.params or {}).get("proxy_label")
+            if proxy_label:
+                text += f" on {proxy_label}"
+            z = getattr(alarm, "trigger_z", None)
+            if z is not None:
+                text += f" (z={z:.1f})"
+            if alarm.note:
+                text += f" ({alarm.note})"
+            return text
+        if alarm.note:
+            return f"{alarm.price:.4f} ({alarm.note})"
+        return f"{alarm.price:.4f}"
 
     # ── Chart controls ────────────────────────────────────────────────────────
 

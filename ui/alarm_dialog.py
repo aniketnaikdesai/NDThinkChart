@@ -93,6 +93,25 @@ class AlarmDialog(QDialog):
         self.note_input = QLineEdit()
         self.note_input.setPlaceholderText("Note")
 
+        # D39: alarm kind selector + burst threshold. Burst alarms fire on
+        # unusual volume (robust z-score vs the volume baseline); they have
+        # no price level, so the price/condition inputs hide when selected.
+        from services.volume_baseline import DEFAULT_Z_THRESHOLD
+
+        self.kind_input = QComboBox()
+        self.kind_input.addItems(["Price", "Volume burst"])
+        self.kind_input.currentTextChanged.connect(self._on_kind_changed)
+        self.z_input = QDoubleSpinBox()
+        self.z_input.setDecimals(1)
+        self.z_input.setRange(1.0, 50.0)
+        self.z_input.setSingleStep(0.5)
+        self.z_input.setValue(DEFAULT_Z_THRESHOLD)
+        self.z_input.setToolTip("Burst fires when the robust z-score of the\n"
+                                "bar's volume is at or above this threshold.\n"
+                                "Below 1.0 fires on normal variance.")
+        self.z_input.setFixedWidth(70)
+        self.z_label = QLabel("z ≥")
+
         add_btn = QPushButton("Add")
         add_btn.clicked.connect(self._add_alarm)
         rearm_btn = QPushButton("Rearm")
@@ -104,9 +123,13 @@ class AlarmDialog(QDialog):
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
 
-        entry_layout.addWidget(QLabel("Price:"))
+        self._price_label = QLabel("Price:")
+        entry_layout.addWidget(self._price_label)
         entry_layout.addWidget(self.price_input)
         entry_layout.addWidget(self.condition_input)
+        entry_layout.addWidget(self.kind_input)
+        entry_layout.addWidget(self.z_label)
+        entry_layout.addWidget(self.z_input)
         entry_layout.addWidget(self.sound_input)
         entry_layout.addWidget(self.note_input, 1)
         entry_layout.addWidget(add_btn)
@@ -116,8 +139,18 @@ class AlarmDialog(QDialog):
         entry_layout.addWidget(close_btn)
         layout.addWidget(entry)
 
+        self._on_kind_changed(self.kind_input.currentText())
         self._alarms: list[Alarm] = []
         self._reload()
+
+    def _on_kind_changed(self, text: str) -> None:
+        """D39: burst alarms have no price level — swap the entry inputs."""
+        is_burst = text == "Volume burst"
+        self._price_label.setVisible(not is_burst)
+        self.price_input.setVisible(not is_burst)
+        self.condition_input.setVisible(not is_burst)
+        self.z_label.setVisible(is_burst)
+        self.z_input.setVisible(is_burst)
 
     @staticmethod
     def default_condition(current_price, alarm_price) -> str:
@@ -143,9 +176,24 @@ class AlarmDialog(QDialog):
         row = self.table.rowCount()
         self.table.insertRow(row)
         label_by_condition = {value: label for label, value in CONDITIONS.items()}
+        if alarm.kind == "volume_burst":
+            # D39: burst rows show the threshold, not a price level.
+            z = alarm.params.get("z_threshold", "?")
+            price_text = "Volume burst"
+            cond_text = f"z ≥ {z}"
+            try:
+                cond_text = f"z ≥ {float(z):.1f}"
+            except (TypeError, ValueError):
+                pass
+            proxy_label = alarm.params.get("proxy_label")
+            if proxy_label:
+                cond_text += f" ({proxy_label})"
+        else:
+            price_text = f"{alarm.price:.4f}"
+            cond_text = label_by_condition.get(alarm.direction, alarm.direction)
         values = [
-            f"{alarm.price:.4f}",
-            label_by_condition.get(alarm.direction, alarm.direction),
+            price_text,
+            cond_text,
             "Yes" if alarm.active else "No",
             "Yes" if alarm.triggered else "No",
             "Yes" if alarm.sound else "No",
@@ -160,7 +208,11 @@ class AlarmDialog(QDialog):
             self.table.setItem(row, col, item)
 
         edit_btn = QPushButton("Edit")
-        edit_btn.setToolTip(f"Edit alarm at {alarm.price:.4f}")
+        edit_tip = (f"Edit volume-burst alarm (z ≥ "
+                    f"{alarm.params.get('z_threshold', '?')})"
+                    if alarm.kind == "volume_burst"
+                    else f"Edit alarm at {alarm.price:.4f}")
+        edit_btn.setToolTip(edit_tip)
         edit_btn.clicked.connect(
             lambda _checked=False, a=alarm: self._edit_alarm(a)
         )
@@ -184,6 +236,9 @@ class AlarmDialog(QDialog):
         return self._alarms[index]
 
     def _add_alarm(self):
+        if self.kind_input.currentText() == "Volume burst":
+            self._add_burst_alarm()
+            return
         AlarmStore.add(
             Alarm(
                 id=None,
@@ -192,6 +247,38 @@ class AlarmDialog(QDialog):
                 direction=CONDITIONS[self.condition_input.currentText()],
                 sound=self.sound_input.isChecked(),
                 note=self.note_input.text().strip(),
+            )
+        )
+        self.note_input.clear()
+        self._reload()
+        self.alarms_changed.emit()
+
+    def _add_burst_alarm(self):
+        """D39: create a volume_burst alarm (no price level).
+
+        Burst alarms on indices are attributed to their proxy tape at
+        creation (SPX → ES front-month via D36's resolver): the alarm is
+        stored under the index symbol but evaluated on the proxy session's
+        bars (39.4).
+        """
+        from ibkr.contracts import INDEX_PROXY
+
+        z_threshold = round(float(self.z_input.value()), 1)
+        params: dict = {"z_threshold": z_threshold, "n": 30}
+        proxy = INDEX_PROXY.get(self.symbol.upper())
+        if proxy:
+            params["proxy"] = proxy
+            params["proxy_label"] = f"{proxy} tape"
+        AlarmStore.add(
+            Alarm(
+                id=None,
+                symbol=self.symbol,
+                price=0.0,
+                direction="burst",
+                sound=self.sound_input.isChecked(),
+                note=self.note_input.text().strip(),
+                kind="volume_burst",
+                params=params,
             )
         )
         self.note_input.clear()

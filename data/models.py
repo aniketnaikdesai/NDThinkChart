@@ -25,6 +25,17 @@ class Alarm:
     sound: bool = True
     note: str = ""
     created_at: Optional[int] = None
+    # D39.3: alarm kind. "price" alarms behave exactly as before;
+    # "volume_burst" alarms fire on unusual volume (robust z-score vs the
+    # volume baseline) and carry their tuning in params. Price/chart code
+    # must ignore non-"price" kinds (they have no price level).
+    kind: str = "price"
+    # D39.3: JSON-serializable params. Burst params: {"z_threshold": float,
+    # "n": int, "proxy": str|None, "proxy_label": str}. Transient
+    # (never persisted): trigger_z — the z-score at fire time, set by
+    # evaluate_volume_burst for the toast.
+    params: dict = field(default_factory=dict)
+    trigger_z: Optional[float] = field(default=None, repr=False, compare=False)
 
 
 @dataclass

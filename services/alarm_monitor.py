@@ -55,13 +55,37 @@ class AlarmMonitor:
         - Symbols with no active alarms whose session is headless+monitored
           → release the monitor (teardown if orphaned).
         - Sessions with views are never touched (their views drive them).
+        - D39.4: active ``volume_burst`` alarms on indices (SPX/NDX/...)
+          are evaluated on their proxy tape's session (SPX→ES front-month
+          via D36's resolver) — indices have no tape. The proxy session is
+          ensured (headless if needed) and the burst alarms are attached
+          via ``set_proxy_alarms``; they toast under the index's symbol.
         """
         wanted = set(AlarmStore.symbols_with_active_alarms())
+        # D39.4: partition index burst alarms onto their proxy tapes.
+        proxy_map = self._proxy_targets(wanted)
+        for proxy_root in proxy_map:
+            wanted.add(proxy_root)
+        # A symbol whose active alarms are ALL proxied away (e.g. SPX with
+        # only a burst alarm) needs no session of its own — indices have no
+        # tape, so subscribing one would just burn a request.
+        proxied_ids = {a.id for alarms in proxy_map.values() for a in alarms}
+        for symbol in list(wanted):
+            if symbol in proxy_map:
+                continue  # proxy tape: wanted for its index alarms, not its own
+            if not any(
+                a.active and not a.triggered and a.id not in proxied_ids
+                for a in AlarmStore.load(symbol)
+            ):
+                wanted.discard(symbol)
         # Most-recently-active first: order by latest alarm created_at.
         wanted = self._order_by_recency(wanted)
 
         for symbol in wanted:
             session = self._host.get_or_create_session(symbol)
+            # D39.4: attach proxy burst alarms whether or not the session
+            # has views — evaluation is per-push either way.
+            session.set_proxy_alarms(proxy_map.get(symbol, []))
             if session.views:
                 # Has views: not headless; ensure it's not marked monitored
                 # (a view opening on a monitored session promotes it).
@@ -77,7 +101,34 @@ class AlarmMonitor:
                 and not session.views
                 and symbol not in wanted
             ):
+                session.set_proxy_alarms([])
                 self._stop_monitoring(session)
+
+    def _proxy_targets(self, wanted: set[str]) -> dict[str, list]:
+        """D39.4: map proxy-tape roots to the index burst alarms they serve.
+
+        Only active, untriggered ``volume_burst`` alarms whose symbol is an
+        index in ``INDEX_PROXY`` (or whose ``params["proxy"]`` names a tape)
+        are rerouted; price alarms stay with their own symbol.
+        """
+        from ibkr.contracts import INDEX_PROXY
+
+        proxy_map: dict[str, list] = {}
+        for symbol in wanted:
+            for alarm in AlarmStore.load(symbol):
+                if alarm.kind != "volume_burst":
+                    continue
+                if not alarm.active or alarm.triggered:
+                    continue
+                proxy = (alarm.params.get("proxy")
+                         or INDEX_PROXY.get(alarm.symbol.upper()))
+                if not proxy:
+                    continue
+                proxy_root = proxy.upper()
+                if proxy_root == alarm.symbol.upper():
+                    continue
+                proxy_map.setdefault(proxy_root, []).append(alarm)
+        return proxy_map
 
     def _order_by_recency(self, symbols: set[str]) -> list[str]:
         """Most-recently-active first (pacing guardrail)."""

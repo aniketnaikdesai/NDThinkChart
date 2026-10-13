@@ -1,3 +1,4 @@
+import json
 import time
 
 from data.db import db
@@ -13,7 +14,7 @@ class AlarmStore:
         cursor.execute(
             """
             SELECT id, symbol, price, direction, active, triggered, triggered_at,
-                   sound, note, created_at
+                   sound, note, created_at, kind, params
             FROM alarms
             WHERE symbol=?
             ORDER BY price DESC
@@ -43,9 +44,9 @@ class AlarmStore:
             """
             INSERT INTO alarms (
                 symbol, price, direction, active, triggered, triggered_at,
-                sound, note, created_at
+                sound, note, created_at, kind, params
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 alarm.symbol,
@@ -57,6 +58,8 @@ class AlarmStore:
                 1 if alarm.sound else 0,
                 alarm.note,
                 created_at,
+                alarm.kind,
+                json.dumps(alarm.params or {}),
             ),
         )
         db.conn.commit()
@@ -71,7 +74,7 @@ class AlarmStore:
         db.conn.commit()
 
     _EDITABLE = {"price", "direction", "active", "triggered", "triggered_at",
-                 "sound", "note"}
+                 "sound", "note", "kind", "params"}
 
     @staticmethod
     def update(alarm_id: int, **fields) -> None:
@@ -84,6 +87,8 @@ class AlarmStore:
             value = fields[name]
             if name in ("active", "triggered", "sound"):
                 value = 1 if value else 0
+            elif name == "params":
+                value = json.dumps(value or {})
             values.append(value)
         values.append(alarm_id)
         db.conn.execute(
@@ -114,6 +119,12 @@ class AlarmStore:
 
     @staticmethod
     def _from_row(row) -> Alarm:
+        try:
+            params = json.loads(row[11] or "{}")
+        except (ValueError, TypeError):
+            params = {}
+        if not isinstance(params, dict):
+            params = {}
         return Alarm(
             id=row[0],
             symbol=row[1],
@@ -125,4 +136,6 @@ class AlarmStore:
             sound=bool(row[7]),
             note=row[8] or "",
             created_at=row[9],
+            kind=row[10] or "price",
+            params=params,
         )
