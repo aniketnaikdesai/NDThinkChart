@@ -150,3 +150,25 @@ Footprint charts (Phase D36)
   from the ES front-month tape (labelled as such), NDX from NQ front-month.
   Cache keys follow the resolved futures contract, so a quarterly roll starts
   a fresh cache automatically.
+
+
+Depth heatmap & auction chip (Phase D37)
+---------------------------------------
+
+- The chart shows a depth heatmap as a price-aligned strip at the right edge
+  of the chart (rows = price levels, columns = recent time, brightness =
+  size at that level). It needs a depth subscription (e.g. NASDAQ TotalView);
+  without one the panel shows "Depth subscription required" instead of an
+  empty heatmap, and the status bar shows the reason (Depth [354]: ...).
+- The headline label above the heatmap shows book imbalance over the top-5
+  price levels: (bid volume - ask volume) / (bid volume + ask volume).
+  Click the label to toggle between top-5 and top-10.
+- The auction chip in the chart header shows auction imbalance side, paired
+  shares and the indicative auction price. It highlights around the open
+  (9:25-9:35 ET) and close (15:55-16:05 ET) auctions. Click the chip to expand
+  a popover with the raw auction values. If there is no auction data, the
+  chip says so explicitly.
+- Depth feeds are limited (3-60 at a time, shared with the DOM). If the
+  budget is exceeded, a status-bar warning names the symbols that did not
+  get depth. Approaching the 100 market-data-line cap also warns by symbol;
+  nothing is ever silently dropped.

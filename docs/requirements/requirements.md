@@ -660,6 +660,34 @@ repository files, which remain authoritative if the two disagree.
   and cannot address individual bars. Tick count comes from the same TRADES tick pages as volume (one
   dataset, two metrics). `AC-D36.1`–`AC-D36.5` verified; 927 tests green; Code Reviewer APPROVED 2026-10-13.
 
+### Journey 32 — D37: depth heatmap + auction imbalance
+- **Preconditions:** IBKR connected; the main chart shows ticker X (e.g. `SPY`, 5m); the user holds a
+  depth subscription (e.g. NASDAQ TotalView) for the full heatmap — otherwise the 354 path applies.
+- **Steps:** 1) The depth heatmap renders as a price-aligned overlay strip at the chart's right edge
+  (Bookmap-style: rows = price levels, columns = time buckets, intensity = size), updating on every
+  depth op. 2) The headline label shows book imbalance `(bidVol−askVol)/(bidVol+askVol)` over the **top-5**
+  levels; click the label to toggle to **top-10** (both are recomputed on every op). 3) The auction chip
+  in the chart header shows imbalance side + paired shares + indicative price from ticks 34/35/36
+  (tick 61 regulatory imbalance when present); the chip highlights during 9:25–9:35 / 15:55–16:05 ET;
+  click it to expand a popover with the raw values. 4) Without a depth subscription, the panel shows a
+  clear "Depth subscription required" state and the status bar shows `Depth [354]: <server message>`.
+  5) Approach the 100-line market-data cap — a warning names the symbols that would exceed it; depth
+  feeds stay within the 3–60 simultaneous budget or a status-bar warning names the symbols without depth.
+- **Postconditions:** Heatmap rows align to the price axis; imbalance is sign-correct for both N=5 and
+  N=10; auction chip shows explicit "no auction data" when ticks are absent; the S0 generic-tick union
+  ("225"+"292"+"456") rides the single per-symbol subscription — one IBKR subscription per symbol is
+  preserved; depth replays on reconnect via the D27 path.
+- **Edge Cases:** depth requested without entitlement (354 → explicit state, feed cancelled, never
+  silently empty); depth budget exceeded (warning names symbols); MD-line cap approached/exceeded
+  (warning/refusal names the symbol); auction ticks outside auction windows; reconnect mid-session
+  (depth replays); MPID vs exchange rows in SMART depth (disambiguated via `isSmartDepth`); symbol
+  with no views (feed lives only while `views > 0` — no headless depth).
+- **As-built note:** `AC-D37.1`–`AC-D37.5` verified; 947 tests green; Code Reviewer APPROVED 2026-10-13
+  (no blocking findings). Drive-by fix: latent `primary_session` bug (26 references, never defined)
+  fixed with a backed property. **Pending owner confirmation:** depth heatmap default ON (reviewer
+  recommends OFF, consistent with D36). Known limitation: delayed-depth-instead-of-354 would render
+  unlabeled (recorded in code; follow-up if ever observed).
+
 ## Acceptance Criteria (feature-level)
 
 ### Global (applies to every defect in this run)

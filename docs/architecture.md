@@ -2652,3 +2652,107 @@ The D36 code lives in four new modules plus additive changes to existing ones:
 38a.0 (ibapi alignment + full-suite green) ran **before** any D36 code as a gate precondition.
 D36 items built in plan order 36.1 → 36.5 on `feat/d36-footprint`; reviewer rework (B1–B3,
 A1–A5) applied on the same branch; single squashed commit `89fe152`. D37–D40 not started.
+
+## D37 increment — microstructure (as-built 2026-10-13, Code Reviewer APPROVED)
+
+> **Increment scope.** A **new-feature** increment on the built D1–D36 system: depth heatmap +
+> auction imbalance. Built on `feat/d37-microstructure` @ `69c2d66`, merged to `main` @ `9958891`
+> (not pushed); 947 tests green (927 pre-existing + 20 new). D1–D36 not reopened.
+
+### Codebase Summary (existing repository — D37 surface)
+
+The D37 code lives in three new modules plus additive changes to existing ones:
+
+- **New `[new]`** `services/depth_heatmap.py::DepthHeatmapService` — price-keyed live book from the
+  depth op stream (insert/update/delete + L2 MPID/exchange rows); 60×30s price×time matrix;
+  imbalance `(bidVol−askVol)/(bidVol+askVol)` over top-5 AND top-10 recomputed per op; refcounted
+  per symbol (feed lives only while `views > 0` — no headless depth); depth replays on reconnect
+  via the D27 path.
+- **New `[new]`** `ui/depth_heatmap_item.py` — pyqtgraph overlay item: price-aligned strip at the
+  chart's right edge (live layer, Bookmap-style rows = price levels, columns = time buckets,
+  intensity = size).
+- **New `[new]`** `services/md_line_guard.py` — owns the market-data-line accounting: `ok` <90,
+  `approaching` 90–99 (warns naming the symbol), `exceeded` ≥100 (refuses naming the symbol).
+- **`[new/changed]`** `ibkr/client.py` (`tickGeneric`/`tickString`/`tickNews` overrides —
+  10.51.1-verified, `tickNews` 6-arg incl. `extraData`), **`[new/changed]`** `ibkr/bridge.py`
+  (+3 signals), **`[new/changed]`** `ibkr/market_data.py` (`req_mkt_data(contract,
+  generic_ticks="")`), **`[new/changed]`** `ibkr/market_depth.py` (refcount hooks),
+  **`[new/changed]`** `ibkr/subscription_manager.py` (separate `DEPTH_HEATMAP`/`S0_TICKS`
+  sub-manager tags — the DOM's `unsubscribe_all_of_type(DEPTH)` would otherwise wipe session
+  feeds), **`[new/changed]`** `ui/ticker_session.py` (S0 union ownership, depth feed lifecycle,
+  auction state), **`[new/changed]`** `ui/chart_panel.py` (overlay + auction chip),
+  **`[new/changed]`** `ui/main_window.py` (354 status-bar message, backed `primary_session`
+  property — the drive-by fix), **`[new/changed]`** `ui/watchlist_panel.py`.
+
+### Tech Stack Decisions (D37 increment)
+
+- **Substrate S0 (shared by D37/D38):** per-symbol generic-tick union (`"225"` auction,
+  `"292"` news push, `"456"` IB Dividends — D38 use) merged into the single per-symbol
+  `reqMktData` — one IBKR subscription per symbol is preserved; features register/deregister
+  their tick needs and the session re-subscribes only when the union changes. New signals are
+  strictly additive (no changes to existing `tick_price`/`tick_size` routing).
+- **10.51.1 signatures verified arg-for-arg** against the installed wheel for every new override
+  (the D36 B1/B2 lesson applied proactively — no drift found).
+- **`isSmartDepth` carried as row provenance** (D36 B2 fix) so D37 can disambiguate
+  SMART-aggregated rows from exchange rows.
+
+### System Components (D37 increment)
+
+- **DepthHeatmapService** (`services/depth_heatmap.py`, one per `TickerSession`): consumes the
+  existing `MarketDepthManager.on_update` op stream → maintains the price-keyed book and the
+  60×30s matrix (bounded trailing window — the D28.4 pathology in miniature, avoided by design).
+  Imbalance over top-5 and top-10 computed simultaneously on every op; the headlined N is a
+  user-facing toggle (default top-5). 100-op burst → 0 static regens (D28 discipline holds).
+- **Auction chip** (`ui/chart_panel.py` header): imbalance side + paired shares + indicative price
+  from ticks 34/35/36 via the S0 `"225"` generic list (tick 61 regulatory imbalance when present).
+  Highlights during 9:25–9:35 / 15:55–16:05 ET; click expands a popover with raw values; absent
+  ticks → explicit "no auction data" state.
+- **Degradation:** IBKR error **354** on `reqMktDepth` → explicit `no_entitlement` state, feed
+  cancelled, panel shows "Depth subscription required" + status bar `Depth [354]: <server message>`.
+  Known limitation (in code): delayed-depth-instead-of-354 would render unlabeled — follow-up if
+  ever observed.
+- **MD line guard** (`services/md_line_guard.py`): warn — never silently drop — when the
+  session/monitor line count approaches the 100-line cap; the warning names the symbols that would
+  exceed the budget. S0's per-symbol reqMktData lines counted explicitly (§7 worst case ≈ 40).
+
+### Data Model (D37 increment)
+
+- No new tables. In-memory price-keyed book + 60×30s matrix per session (bounded, view-lifetime);
+  per-symbol generic-tick union state in `TickerSession`; refcounted depth feeds keyed by symbol
+  with `DEPTH_HEATMAP`/`S0_TICKS` tags.
+
+### Integration Points (D37 increment)
+
+- **IBKR:** `reqMktDepth` (3–60 simultaneous, refcounted) + S0 generic ticks (225/292/456) on the
+  existing per-symbol `reqMktData`. Depth replays on reconnect via the D27 path (reconnect test
+  assertions extended for S0/depth feeds — reviewer signed off, D27 guarantee not weakened).
+- **Bridge/client:** 3 new signals + 3 overrides, all additive; `super()` called first; routing by
+  reqId (D27 pattern).
+- **Render pipeline:** heatmap renders in the chart's live layer as an overlay item; auction chip in
+  the chart header. No static-layer regen per depth op (counter-asserted).
+
+### Non-Functional Approach (D37 increment)
+
+- **Pacing:** depth feeds 3–60 (budget-exceeded → status-bar warning naming symbols, same pattern as
+  D25's pacing guard); MD lines ≤100 (guard warns at 90, refuses at 100); S0 ticks add zero new MD
+  lines per feature.
+- **Performance:** 100 depth ops → 0 static-layer regenerations (counter-asserted); matrix bounded
+  60×30s.
+- **Test safety:** no test touches live TWS or transmits orders; mocked `ib_client` only. Owner
+  rule (binding): **no mock endpoint of any kind in production code** — B.6 grep PASSED for D37.
+- **Depth heatmap default ON is pending owner confirmation** (reviewer recommends OFF, consistent
+  with D36).
+
+### Architecture Risks (D37 increment)
+
+- **Depth-budget burn:** the heatmap defaulting ON consumes depth feeds (3–60 budget) for every
+  charted symbol — the reviewer-flagged reason to consider default OFF.
+- **354 vs delayed depth:** the no-entitlement path handles the 354 error; if TWS instead delivers
+  delayed depth, it renders unlabeled today — needs a labeling pass if observed.
+- **S0 is shared tick plumbing:** D38 will extend the same union — keep additions strictly additive.
+
+### Implementation sequencing (D37 increment)
+
+37.0 (S0 substrate) built first against D37 as the real consumer, then 37.1 → 37.5 on
+`feat/d37-microstructure`; reviewer APPROVED with no blocking findings (no rework cycle);
+merged to `main` @ `9958891`. D38–D40 not started.

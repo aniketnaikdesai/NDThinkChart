@@ -187,6 +187,48 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ---
 
+## Phase D37 — Microstructure (depth heatmap + auction imbalance)
+
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d37-microstructure` merged to `main` @ `9958891` (feature commit `69c2d66`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Review:** **APPROVED**, no blocking findings. B.6 mock-endpoint grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`).
+- **Tests:** 947 passing, 0 failing (offscreen): 927 pre-existing + 20 new `tests/test_d37_microstructure.py`; no test touches live TWS/network; mocked `ib_client` only. One load flake observed in `test_smoke_gate_three_popouts` (wall-clock timing gate; passes in isolation and on re-runs — not a regression).
+
+### Commits
+| SHA | Item | Change |
+|---|---|---|
+| `69c2d66` | 37.0 | **Substrate S0 — generic-tick plumbing (shared by D37/D38).** `ibkr/client.py`: `tickGeneric`/`tickString`/`tickNews` overrides (10.51.1-verified — `tickNews` is 6-arg incl. `extraData`); `ibkr/bridge.py`: 3 new signals; `ibkr/market_data.py`: `req_mkt_data(contract, generic_ticks="")`; per-symbol generic-tick union (`"225"` auction, `"292"` news push, `"456"` IB Dividends — D38 use) merged into the single per-symbol subscription; features register/deregister, session re-subscribes only when the union changes |
+| `69c2d66` | 37.1 | `services/depth_heatmap.py` — price-keyed live book from the depth op stream (insert/update/delete + L2 MPID/exchange rows); 60×30s price×time matrix; imbalance `(bidVol−askVol)/(bidVol+askVol)` computed over **top-5 AND top-10** on every op; refcounted per symbol (feed lives only while `views > 0`); depth replays on reconnect via the D27 path; `isSmartDepth` (D36 B2 fix) carried as row provenance for SMART-row disambiguation |
+| `69c2d66` | 37.2 | `ui/depth_heatmap_item.py` — price-aligned overlay strip at the chart's right edge (live layer, Bookmap-style); 100-op burst → **0 static regens** (D28 discipline holds) |
+| `69c2d66` | 37.3 | Auction **header chip**: imbalance side + paired shares + indicative price from ticks **34** (auction volume) / **35** (auction price) / **36** (auction imbalance) via the S0 `"225"` generic list, tick **61** (regulatory imbalance) when present; chip **highlights during 9:25–9:35 / 15:55–16:05 ET**; click expands a popover with raw values; absent ticks → explicit "no auction data" state |
+| `69c2d66` | 37.4 | Degradation: IBKR error **354** on `reqMktDepth` → explicit `no_entitlement` state, feed cancelled, panel shows "Depth subscription required" + status bar `Depth [354]: <server message>` — never silently empty. Depth feeds refcounted 3–60 with separate sub-manager tags `DEPTH_HEATMAP`/`S0_TICKS` (the DOM's `unsubscribe_all_of_type(DEPTH)` would otherwise wipe session feeds) |
+| `69c2d66` | 37.5 | `services/md_line_guard.py` — owns the §7 market-data-line accounting: `ok` <90, `approaching` 90–99 (warns **naming the symbol**), `exceeded` ≥100 (refuses **naming the symbol**); S0's per-symbol reqMktData lines counted explicitly |
+
+### Drive-by fixes (found while implementing, verified real)
+1. **Latent main-branch bug:** `primary_session` was referenced **26×** but never defined — any footprint/depth toggle would have raised `AttributeError`. Fixed: properly backed property added (`ui/main_window.py`).
+
+### Decisions recorded
+- Depth heatmap **default ON is PENDING owner confirmation** (2026-10-13) — the reviewer recommends **OFF** for consistency with D36's OFF default and to avoid burning depth budget by default. Code currently defaults ON.
+- Heatmap placement — **chart overlay** (price-aligned, live render layer), not a dock panel (owner, 2026-10-13).
+- Auction presentation — **expandable header chip**, not a panel (owner, 2026-10-13).
+- Imbalance — **compute both, headline top-5, top-10 as a click toggle** on the headline label (owner, 2026-10-13).
+- Known limitation (recorded in code): if TWS delivers **delayed depth instead of** the 354 error, it would render unlabeled — the 354 path is handled; delayed-depth labeling is a follow-up if the behavior is ever observed.
+
+### Review findings of note
+- **10.51.1 signatures verified arg-for-arg** against the installed wheel (no drift beyond what D36's 38a.0 already fixed).
+- **D27 reconnect test edit explicitly signed off:** replay assertions extended for S0/depth feeds — the D27 reconnect guarantee is not weakened.
+- **AC-D37.1–AC-D37.5 genuinely verified** (heatmap matrix from op stream, imbalance sign-correct for N=5 and N=10, auction chip from synthetic 34/35/36, 354 → explicit state, full suite green).
+- B.6 mock-endpoint invariant: PASSED on the full diff + new files.
+
+### Follow-ups filed (not Phase D37 scope)
+- D38–D40 not started.
+- Delayed-depth labeling, if the behavior is ever observed.
+- (Carried) pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests; 4h/daily forming-candle exactness; stale reqId accumulation.
+
+### USAGE.txt
+- New "Depth heatmap & auction chip (Phase D37)" section: overlay toggle, top-5/top-10 headline click, chip expand, auction-window highlight, no-entitlement message.
+
+---
+
 ## Phase D36 — Footprint charts
 
 - **Status:** Code complete and review-**APPROVED**; branch `feat/d36-footprint` @ `89fe152` (single squashed commit), NOT pushed and NOT merged to `main`. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
