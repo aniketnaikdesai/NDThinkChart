@@ -27,7 +27,7 @@ from PyQt6.QtCore import Qt, QSettings, QTimer, QEvent
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from config import settings
-from ibkr.client import IBApiClient, ConnectionState
+from ibkr.client import IBApiClient, ConnectionState, DisconnectClass
 from ibkr.market_data import MarketDataManager, TIMEFRAME_CONFIG
 from ibkr.tick_history import TickHistoryManager
 from data.footprint_cache import FootprintCache
@@ -138,14 +138,24 @@ RIGHT_DOCK_COLLAPSED_MARGIN = 12
 ALARM_MODE_STATUS_MESSAGE = "Alarm mode: click the chart to place a price alarm."
 
 
-def conn_badge_text(account_id: str | None, account_type: str | None) -> tuple[str, str]:
+def conn_badge_text(
+    account_id: str | None,
+    account_type: str | None,
+    monitoring_paused: bool = False,
+) -> tuple[str, str]:
     """D26.5: derive the connection badge from the verified port + account.
 
     The port is fail-fast verified at startup (settings.check_live_port), so
     reaching this point means the live port — but the account itself may still
     be paper/demo (IBKR paper accounts carry DU-prefixed IDs). Returns
     (text, stylesheet-color); never a hardcoded claim.
+
+    D40: ``monitoring_paused`` adds the owner-approved monitoring state —
+    "Monitoring paused — TWS disconnected". Amber (warning), never green:
+    the badge must not keep a connected appearance while paused.
     """
+    if monitoring_paused:
+        return "Monitoring paused — TWS disconnected", "#fbbf24"
     acct_id = (account_id or "").upper()
     acct_type = (account_type or "").upper()
     if acct_id.startswith("DU") or "DEMO" in acct_type or "PAPER" in acct_type:
@@ -392,6 +402,11 @@ class MainWindow(QMainWindow):
         # Starts disconnected, so the '+' button / "Add symbol…" action are
         # disabled until ``_on_connected`` flips them on.
         self._ibkr_connected = False
+        # D40: True while TWS is gone (nightly close) and monitoring is
+        # paused — the connection badge shows the paused state instead
+        # of Paper/Live/Disconnected. Set in _on_disconnected on a
+        # TWS-gone classification, cleared in _on_connected.
+        self._tws_paused = False
         self.watchlist_panel.set_add_enabled(False)
         # D39.1: search starts disabled; enabled on connect.
         self.watchlist_panel.set_search_enabled(False)
@@ -1125,17 +1140,27 @@ class MainWindow(QMainWindow):
     # ── Connection slots ──────────────────────────────────────────────────────
 
     def _update_conn_badge(self):
-        """D26.5: badge text/color derive from the verified port + account."""
+        """D26.5: badge text/color derive from the verified port + account.
+
+        D40: while TWS is gone the badge shows the paused monitoring
+        state (owner-approved wording), never a green "connected".
+        """
         summary = getattr(self, "_account_summary", {}) or {}
         text, color = conn_badge_text(
             getattr(self, "_account_id", None),
             summary.get("AccountType"),
+            monitoring_paused=self._tws_paused,
         )
         self.conn_badge.setText(text)
         self.conn_badge.setStyleSheet(f"color: {color};")
 
     def _on_connected(self):
         self._ibkr_connected = True
+        # D40.3: capture the resume-before-clear — a TWS-gone pause needs
+        # the reconcile + gap report below; a transient drop must not
+        # get them (40.4).
+        _resuming_from_pause = self._tws_paused
+        self._tws_paused = False
         self.watchlist_panel.set_add_enabled(True)
         # D39.1: search box enabled on connect.
         self.watchlist_panel.set_search_enabled(True)
@@ -1151,8 +1176,27 @@ class MainWindow(QMainWindow):
         self._subscribe_account_data()
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
-        # D25: reconcile headless alarm monitors on (re)connect.
-        self.alarm_monitor.reconcile()
+        # D40.3: resume from a TWS-gone pause — the D27 replay above
+        # already re-issued subscriptions. When resuming from pause,
+        # reconcile FIRST so sessions created for active alarms take the
+        # staged path (last_chart_price=None while _paused is still True —
+        # no phantom triggers on resume), then resume_all() clears pause
+        # flags, re-seeds every session (including staged ones) with the
+        # first-tick-no-eval guard, and finishes pending subscribes.
+        # (Reviewer B1, D40: the old order let reconcile-created sessions
+        # take the normal path with a stale cache seed and phantom-fire.)
+        # Gap accounting is surfaced last so it stays visible.
+        if _resuming_from_pause:
+            self.alarm_monitor.reconcile()
+            _gaps = self.alarm_monitor.resume_all()
+        else:
+            # D25: reconcile headless alarm monitors on (re)connect.
+            self.alarm_monitor.reconcile()
+            _gaps = []
+        if _gaps:
+            self.status_bar.showMessage(
+                self.alarm_monitor.format_gap_report(_gaps), 30000
+            )
 
     def _subscribe_account_data(self):
         """D27.6: subscribe positions + account summary on (re)connect.
@@ -1507,8 +1551,14 @@ class MainWindow(QMainWindow):
         # D22 Phase 4: a transport drop invalidates every in-flight contract
         # lookup so none can resolve an add once (re)connected.
         self._contract_lookup.cancel_all()
-        self.conn_badge.setText("● Disconnected")
-        self.conn_badge.setStyleSheet("color: #f87171;")
+        # D40: classify the drop. TWS-gone (nightly close) → the paused
+        # monitoring state (badge + no evaluation); anything else keeps
+        # the existing red "Disconnected" badge and fast D27 path.
+        if self.ib_client.last_disconnect_class == DisconnectClass.TWS_GONE:
+            self._enter_tws_paused_state()
+        else:
+            self.conn_badge.setText("● Disconnected")
+            self.conn_badge.setStyleSheet("color: #f87171;")
         self.load_btn.setEnabled(False)
         # D16 / ESC-024: a transport drop must not strand an in-flight backfill
         # wave. Cancel every tracked reqId, advance the generation so late
@@ -1528,12 +1578,31 @@ class MainWindow(QMainWindow):
                 session, reason="Disconnected from IBKR"
             ):
                 stranded_any = True
-        if not stranded_any:
+        if not stranded_any and not self._tws_paused:
+            # D40: while TWS-gone the paused message (set by
+            # _enter_tws_paused_state above) stays the visible cue.
             self.status_bar.showMessage("Disconnected from IBKR")
         # D22-08: an add that was mid-flight can never complete now — surface the
         # rejection last so it is the visible cue (AC-D22.8.4). Nothing is added,
         # subscribed or persisted.
         self._reject_pending_watchlist_adds()
+
+    def _enter_tws_paused_state(self):
+        """D40.2: TWS is gone — enter the paused-monitoring state.
+
+        The AlarmMonitor marks every alarmed symbol paused (no
+        evaluation, no triggers) and records pause-start per symbol for
+        gap accounting. The connection badge shows the owner-approved
+        wording — never a green "connected" appearance while paused.
+        The client's backoff loop keeps running so the morning TWS
+        login reconnects without an app restart.
+        """
+        self._tws_paused = True
+        self.alarm_monitor.pause_all()
+        self._update_conn_badge()
+        self.status_bar.showMessage(
+            "Monitoring paused — TWS disconnected", 15000
+        )
 
     def _finalize_stranded_history_wave(
         self, session: TickerSession, reason: str = ""
