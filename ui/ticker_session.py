@@ -89,6 +89,13 @@ class TickerSession(QObject):
         self._host = host  # MainWindow (duck-typed)
         self._views: list[tuple[object, str]] = []  # (view, timeframe)
         self.monitored: bool = False
+        # D40: TWS-gone pause — when True, alarm evaluation (price +
+        # burst) is skipped: no evaluation, no triggers, no phantoms.
+        # Set by AlarmMonitor.pause_all(), cleared by resume_all().
+        self.monitoring_paused: bool = False
+        # D40: RT subscribe staged while TWS was gone; resume_all()
+        # finishes it (reconcile skips already-monitored sessions).
+        self._monitor_subscribe_pending: bool = False
 
         # ── Data plane (3b-1) ──────────────────────────────────────────
         self._aggregators: dict[str, BarAggregator] = {}
@@ -829,9 +836,14 @@ class TickerSession(QObject):
                                       bar.timeframe)
             if not self._fp_wave_active:
                 self._fp_start_wave()
-        triggered = evaluate_alarms(
-            self._last_chart_price, bar.close, self._alarms
-        )
+        triggered = []
+        if not self.monitoring_paused:
+            # D40: while TWS is gone, evaluation is fully paused — no
+            # triggers, no phantom risk. (Data-plane updates below are
+            # unaffected; no bars arrive while the feeds are dead.)
+            triggered = evaluate_alarms(
+                self._last_chart_price, bar.close, self._alarms
+            )
         for alarm in triggered:
             if alarm.id is not None:
                 AlarmStore.mark_triggered(alarm.id)
@@ -845,7 +857,8 @@ class TickerSession(QObject):
             if monitor is not None:
                 monitor.on_alarm_changed()
         # D39: volume-burst evaluation on the same per-push path.
-        self._evaluate_burst_alarms(bar, is_new_candle)
+        if not self.monitoring_paused:
+            self._evaluate_burst_alarms(bar, is_new_candle)
         self._last_chart_price = bar.close
         self._host._record_symbol_price(self.symbol, bar.close)
         self.bar_updated.emit(bar, is_new_candle)

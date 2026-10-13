@@ -44,6 +44,12 @@ class AlarmMonitor:
         # host: MainWindow (duck-typed) — get_or_create_session(),
         # _sessions, _teardown_session(), status_bar.
         self._host = host
+        # D40: TWS-gone pause state. _pause_start maps symbol →
+        # pause-start epoch for per-symbol gap accounting; _paused is
+        # the global flag new headless monitors check in
+        # _start_monitoring.
+        self._paused: bool = False
+        self._pause_start: dict[str, float] = {}
 
     # ── Reconciliation ──────────────────────────────────────────────
 
@@ -145,11 +151,138 @@ class AlarmMonitor:
             recency[symbol] = row[0] or 0
         return sorted(symbols, key=lambda s: recency[s], reverse=True)
 
+    # ── D40: TWS-gone pause / resume ────────────────────────────────
+
+    @property
+    def is_paused(self) -> bool:
+        """D40: True while TWS is gone and monitoring is paused."""
+        return self._paused
+
+    def _session_has_live_alarms(self, session) -> bool:
+        """True when the session carries any active, untriggered alarm.
+
+        Own alarms come from the store; D39.4 proxy burst alarms ride
+        ``session._proxy_alarms`` (e.g. SPX on the ES tape) and must
+        pause with the tape.
+        """
+        for alarm in AlarmStore.load(session.symbol):
+            if alarm.active and not alarm.triggered:
+                return True
+        for alarm in getattr(session, "_proxy_alarms", []) or []:
+            if alarm.active and not alarm.triggered:
+                return True
+        return False
+
+    def pause_all(self) -> None:
+        """D40.2: TWS is gone — pause evaluation for every alarmed symbol.
+
+        Records pause-start per symbol (gap accounting) and sets the
+        per-session ``monitoring_paused`` flag that the evaluation path
+        checks: no evaluation, no triggers, no phantom risk while
+        paused. Sessions keep their subscriptions bookkeeping; the D27
+        replay re-issues them on resume.
+        """
+        now = time.time()
+        self._paused = True
+        count = 0
+        for symbol, session in list(self._host._sessions.items()):
+            if not self._session_has_live_alarms(session):
+                continue
+            self._pause_start.setdefault(symbol, now)
+            session.monitoring_paused = True
+            count += 1
+        _LOG.info(
+            "AlarmMonitor: TWS gone — paused %d symbol(s)", count
+        )
+
+    def resume_all(self) -> list[tuple[str, float, float]]:
+        """D40.3: TWS is back — clear pause flags, re-seed, return gaps.
+
+        Returns ``[(symbol, pause_start, pause_end)]`` for the gap
+        report. Every session's ``prev_price`` is re-seeded to None so
+        the first post-resume bar seeds WITHOUT evaluation (the
+        AC-D25.3 first-tick-no-eval guard) — no phantom triggers on
+        resume, even if the price crossed an alarm level during the
+        unmonitored gap. The caller runs the D27 subscription replay
+        first and ``reconcile()`` after; reconcile-created sessions are
+        re-seeded here too.
+        """
+        now = time.time()
+        gaps = [(s, t0, now) for s, t0 in self._pause_start.items()]
+        self._pause_start.clear()
+        self._paused = False
+        for session in list(self._host._sessions.values()):
+            session.monitoring_paused = False
+            # AC-D25.3: first tick seeds, no evaluation.
+            session.last_chart_price = None
+            # D40: finish subscribes that were staged while TWS was gone
+            # (reconcile skips these sessions as already monitored).
+            if getattr(session, "_monitor_subscribe_pending", False):
+                session._monitor_subscribe_pending = False
+                try:
+                    session.ensure_rt_subscribed()
+                except PacingExceeded as e:
+                    _LOG.warning(
+                        "AlarmMonitor: pacing-limited on resume, %s "
+                        "left unmonitored (retry in %.0fs)",
+                        session.symbol,
+                        e.wait_seconds,
+                    )
+                    QTimer.singleShot(
+                        int(e.wait_seconds * 1000),
+                        lambda s=session: self._retry_monitor_subscribe(s),
+                    )
+        if gaps:
+            _LOG.info(
+                "AlarmMonitor: resumed — %d symbol(s) were paused",
+                len(gaps),
+            )
+        return gaps
+
+    @staticmethod
+    def format_gap_report(gaps: list[tuple[str, float, float]]) -> str:
+        """D40.3: human-readable gap accounting for the status bar.
+
+        ``"ES, NQ unmonitored 22:14–09:40"``. Symbols sharing one
+        interval are grouped; differing intervals are listed per
+        symbol. Times are local HH:MM.
+        """
+        def _hm(ts: float) -> str:
+            return time.strftime("%H:%M", time.localtime(ts))
+
+        by_interval: dict[tuple[str, str], list[str]] = {}
+        for symbol, start, end in gaps:
+            by_interval.setdefault((_hm(start), _hm(end)), []).append(symbol)
+        parts = [
+            f"{', '.join(sorted(syms))} unmonitored {s}–{e}"
+            for (s, e), syms in sorted(by_interval.items())
+        ]
+        return "; ".join(parts)
+
     # ── Headless session lifecycle ──────────────────────────────────
 
     def _start_monitoring(self, session) -> None:
         """Begin headless monitoring: 1m aggregator, seeded price, RT sub."""
         session.monitored = True
+        if self._paused:
+            # D40: an alarm created while TWS is gone (or any monitor
+            # reconcile during the pause) must not evaluate and cannot
+            # subscribe yet — stage everything else and mark the
+            # subscribe pending; resume_all() finishes it on the way
+            # back up (reconcile would otherwise skip this session as
+            # already monitored, stranding it with no RT feed).
+            self._pause_start.setdefault(session.symbol, time.time())
+            session.monitoring_paused = True
+            session.last_chart_price = None
+            session.aggregator_for("1m")
+            session.reload_alarms()
+            session._monitor_subscribe_pending = True
+            _LOG.info(
+                "AlarmMonitor: %s monitor staged during TWS pause — "
+                "subscribe deferred to resume",
+                session.symbol,
+            )
+            return
         # Seed prev_price from the 1m cache; else first-tick seed (no eval).
         cached = BarCache.get_bars(session.symbol, "1m")
         if cached:

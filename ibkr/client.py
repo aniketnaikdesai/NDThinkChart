@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from ibapi.client import EClient
@@ -6,12 +7,33 @@ from ibkr.bridge import IBBridge
 from ibkr.id_manager import id_manager
 from ibkr.error_codes import classify_error
 
+_LOG = logging.getLogger(__name__)
+
 
 class ConnectionState:
     CONNECTING = "CONNECTING"
     CONNECTED = "CONNECTED"
     DISCONNECTED = "DISCONNECTED"
     RECONNECTING = "RECONNECTING"
+
+
+class DisconnectClass:
+    """D40.1: classification of a lost connection.
+
+    TRANSIENT — the reconnect loop is driven by ``_poll``/``_do_reconnect``
+    without ``connectionClosed`` ever firing (the client already
+    believes it is down, or IBKR connectivity codes 1100/1101/1102
+    arrive with the API socket still up). Keeps the fast D27 reconnect
+    path: no pause UI, no gap accounting.
+
+    TWS_GONE — the API server closed the socket (``connectionClosed``).
+    On a localhost TWS connection the peer only does this when the TWS
+    process goes away: the nightly close, a manual shutdown, or TWS's
+    daily auto-restart. Enters the D40 paused-monitoring state.
+    """
+
+    TRANSIENT = "transient"
+    TWS_GONE = "tws_gone"
 
 
 class IBApiClient(EWrapper, EClient):
@@ -30,6 +52,11 @@ class IBApiClient(EWrapper, EClient):
         self._conn_host: str | None = None
         self._conn_port: int | None = None
         self._conn_client_id: int | None = None
+        # D40.1: classification of the most recent disconnect
+        # (DisconnectClass.TRANSIENT / TWS_GONE / None if never dropped).
+        # Set BEFORE the disconnected signal is emitted so the
+        # MainWindow slot can read it synchronously.
+        self._last_disconnect_class: str | None = None
 
     def connect(self, host: str, port: int, clientId: int):
         """Connect and remember the params for reconnect (D27.3)."""
@@ -49,6 +76,11 @@ class IBApiClient(EWrapper, EClient):
     @property
     def connection_state(self) -> str:
         return self._connection_state
+
+    @property
+    def last_disconnect_class(self) -> str | None:
+        """D40.1: how the last disconnect was classified, or None."""
+        return self._last_disconnect_class
 
     def _set_state(self, new_state: str) -> None:
         prev = self._connection_state
@@ -177,14 +209,66 @@ class IBApiClient(EWrapper, EClient):
                     super().error(reqId, errorCode)
 
         severity = classify_error(errorCode)
+        # D40.1: while TWS-gone and paused, error 502 ("Couldn't connect
+        # to TWS") fires on every failed backoff attempt — expected
+        # noise, not news. The badge already shows the paused state, so
+        # downgrade to a debug log instead of spamming the status bar
+        # all night. A 502 with no prior connection (TWS simply not up
+        # at startup) still emits normally.
+        if (
+            errorCode == 502
+            and self._last_disconnect_class == DisconnectClass.TWS_GONE
+            and not self._connected
+        ):
+            _LOG.debug(
+                "D40: TWS-gone backoff attempt refused (502) — still paused"
+            )
+            return
         if severity != 'info':
             self.bridge.error_msg.emit(reqId, errorCode, errorString)
 
     def connectionClosed(self):
+        """D40.1: the API server closed the socket → TWS is gone.
+
+        Build-time observation notes (per the D40 plan, exact codes are a
+        build-time observation item):
+
+        - ibapi documents this callback as firing "when TWS closes the
+          sockets connection ... or when TWS is shut down". On a
+          localhost TWS connection the peer only closes the socket when
+          the TWS process goes away — the nightly close, a manual
+          shutdown, TWS's daily auto-restart. (The D27 ``_poll`` path,
+          which acts when the client already believes it is down
+          without a server close, stays TRANSIENT.)
+        - IBKR error codes 1100/1101/1102 ("Connectivity between IB and
+          Trader Workstation ...") describe the IB↔TWS link while the
+          API socket stays up — those are transient flaps, handled by
+          the existing fast path, never TWS-gone.
+        - Error 502 ("Couldn't connect to TWS") fires on every failed
+          backoff attempt while TWS is down; it confirms TWS-gone
+          rather than reclassifying it (see ``error()`` — it is
+          downgraded to a debug log while paused so the status bar
+          isn't spammed all night).
+
+        Two behavior changes vs the old code:
+
+        1. The classification is recorded BEFORE ``disconnected`` is
+           emitted so the UI slot can branch on it.
+        2. The backoff reconnect loop is (re)started. The old code
+           stopped polling here and scheduled nothing — the app would
+           never notice the morning TWS login without a restart.
+        """
         super().connectionClosed()
+        was_connected = self._connected
         self._connected = False
         self.stop_polling()
+        if was_connected:
+            self._last_disconnect_class = DisconnectClass.TWS_GONE
         self._set_state(ConnectionState.DISCONNECTED)
+        if was_connected:
+            # D40: keep trying so the morning login reconnects on its
+            # own. The pause UI (MainWindow) carries the visible state.
+            self._schedule_reconnect()
 
     def close(self) -> None:
         """Clean disconnect."""
