@@ -24,7 +24,7 @@ def _make_window(monkeypatch, qapp):
     win.show()
     qapp.processEvents()
     for dock in win.findChildren(QDockWidget):
-        if dock.windowTitle() in ("Active Trader",):
+        if dock.windowTitle() in ("Portfolio",):
             dock.hide()
     qapp.processEvents()
     return win

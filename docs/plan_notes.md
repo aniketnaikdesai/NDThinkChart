@@ -256,3 +256,53 @@ evidence and fully implementable on the existing stack; no product/scope decisio
 Task-Manager-owned `AC-D22.2.3` rewrite is a Phase-3 task-graph edit by its owner.
 
 **Escalation:** none.
+
+---
+
+- Issue: **RG-D41-1**
+
+**Requirement/Journey:** `AC-D41.4` (Batch 18 / D41) — "…the retained order paths (**Close / Close
+Group / Flatten All**, SL/TP dialogs) still build and **validate** orders with a **resolving
+`ref_price`**"; together with `### D41` "Scope — KEEP" → "Retained order-path `ref_price` — KEEP
+with a NEW source (Plan-level detail)" and Journey 36's postcondition ("the retained order **machinery**
+still builds/validates orders for the Portfolio / SL-TP paths").
+
+**Problem:** as written, the clause does not describe the code and has two readings (surfaced by the
+Plan proposal as **FI-1**):
+(1) *ratify the plan's re-homing* — the retained close/flatten path becomes gated (D26.9 disconnected
+guard + `validate_order()` with `risk_reducing=True` and a `ref_price` from `_ref_price_for`), so the
+retained path genuinely "builds and validates"; or
+(2) *pure removal* — no behaviour change on the close path, `validate_order`/`ref_price` exercised
+only by their own unit tests, and `MAX_ORDER_NOTIONAL` becomes an unused cap.
+Secondarily, the clause's "SL/TP dialogs" limb is **vacuous**: `ui/stop_loss_target_dialog.py`
+places **no** orders at all (verified repo-wide — no `placeOrder`/`order_registry` call in that
+module; `ui/main_window.py:3446`–`:3508` `_close_position_by_id` is the app's only surviving
+emitter). `tests/test_sltp_honesty.py:16`/`:24` asserts the dialog's **disclosure label**, not
+non-transmission, so it does not evidence the AC's clause either way.
+
+**Why it cannot be satisfied as currently written:** the sentence admits reading (2), but reading (2)
+requires an explicit requirements-level **supersession** of the clause (Plan cannot pick "do
+nothing" from a text that says "validate"), while reading (1) adds behaviour to a surviving path
+inside a removal batch. The requirements' own KEEP list resolves the tension in favour of (1)
+("`ref_price` … **must keep resolving** for the retained order paths"), and `DG71`/`A71` record both
+the source and the mechanism as Plan-level details.
+
+**Suggested Direction:** **no change to `requirements.md` is required.** The Validator has ruled
+this cycle on the basis of the KEEP list: reading (1) stands — the D26.9 guard and the
+`validate_order()` gate are re-homed onto `_close_position_by_id`, fed by
+`MainWindow._ref_price_for(symbol)` over the retained D27.5 `symbol → last_price` map
+(`ui/main_window.py:727`, `:2263`–`:2266`, `:609`, `tests/…`-verified), with one additive
+`risk_reducing: bool = False` keyword that skips only the notional cap so a position above
+USD 25,000 can still be flattened. Recorded here so a later reader does not read the clause as
+unmet and does not "fix" it by adding a gate to the SL/TP dialog (which transmits nothing).
+If the owner ever prefers reading (2), the correct route is an explicit `AC-D41.4` supersession note
+by the Requirements Analyst — not a plan-level assumption.
+
+**Status:** addressed — the Validator ruled on this item and the ruling stands in the cycle-2
+`APPROVED` review (`docs/plan_review.md`): reading (1) applies — the D26.9 guard and the
+`validate_order()` gate are re-homed onto `_close_position_by_id`, fed by
+`MainWindow._ref_price_for(symbol)`, with the additive `risk_reducing` keyword; no change to
+`requirements.md` and no Requirements Analyst action is required. `AC-D41.4` is therefore satisfied
+as written, and the plan is approved for Task Manager.
+
+**Escalation:** none.

@@ -1,7 +1,7 @@
 """Shared, Qt-free dock-width model (D17/D18 Phase 1).
 
 Single source of truth for the widths of the left watchlist dock and the right
-Active-Trader dock, **measured against the chart area** — the width of
+(Portfolio-only) dock, **measured against the chart area** — the width of
 ``MainWindow``'s central widget (B1), not the whole window.
 
 This module is deliberately pure: it imports no PyQt6 / pyqtgraph / any Qt
@@ -26,7 +26,7 @@ WATCHLIST_MIN_WIDTH = 150
 #: Default width restored for the left watchlist dock, in px.
 DEFAULT_WATCHLIST_WIDTH = 220
 
-#: Minimum width of the right (Active Trader) dock, in px.
+#: Minimum width of the right (Portfolio) dock, in px.
 RIGHT_DOCK_MIN_WIDTH = 200
 
 #: Cap fraction the watchlist max width is derived from (50% of chart area).

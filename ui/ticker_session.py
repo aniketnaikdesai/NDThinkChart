@@ -35,20 +35,12 @@ from ibkr.contracts import FUTURES_SCHEDULE, get_contract_for_symbol
 from ibkr.contracts import footprint_cache_key  # D39: resolved-contract key
 from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.stream_health import StreamHealth
-from ibkr.subscription_manager import RT_BARS, DEPTH_HEATMAP, S0_TICKS
+from ibkr.subscription_manager import RT_BARS, S0_TICKS
 from ibkr.utils import parse_ibkr_date
 from services.alarm_service import evaluate_alarms, evaluate_volume_burst
-from services.depth_heatmap import DepthHeatmapService, BUCKET_SECONDS
 from services.volume_baseline import (
     VolumeBaselineService,
     minutes_for_timeframe,
-)
-from services.footprint_service import (
-    FootprintService,
-    FormingSpec,
-    FORMING_REFRESH_MIN_S,
-    MAX_REQUESTS_PER_WAVE,
-    PageSpec,
 )
 
 # D27.9: cap the priming span — a full day of 5-sec bars on every daily-chart
@@ -72,12 +64,6 @@ class TickerSession(QObject):
     # toast + sound exactly once per trigger event.
     alarm_triggered = Signal(str, list)     # (symbol, [alarms])
     stream_health_changed = Signal()
-    # D36: footprint data changed for a timeframe — the panel re-renders.
-    footprint_updated = Signal(str)         # (timeframe)
-    # D37: depth feed state transitions (live / no_entitlement / ...).
-    depth_state_changed = Signal(str)       # (state)
-    # D37: auction ticks (34/35/36/61) arrived — the header chip re-renders.
-    auction_updated = Signal()
     # D38: tick-59 dividend string arrived — event state re-rendered.
     dividend_updated = Signal()
     # D38: corporate events (markers) changed for the symbol.
@@ -159,29 +145,9 @@ class TickerSession(QObject):
         self._drawings: list = []
         self._drawing_groups: list = []
 
-        # ── Footprint (D36) ────────────────────────────────────────────
-        self._footprint = FootprintService(symbol)
-        self._fp_enabled: bool = False
-        self._fp_style: str = "classic"   # "classic" | "heatmap"
-        self._fp_metric: str = "volume"   # "volume" | "count" (heatmap only)
-        self._fp_timeframe: str | None = None
-        self._fp_contract = None
-        self._fp_cache_key: str = ""
-        self._fp_proxy_label: str = ""
-        self._fp_wave_issued: int = 0
-        self._fp_wave_active: bool = False
-        self._fp_continue_timer = QTimer(self)
-        self._fp_continue_timer.setSingleShot(True)
-        self._fp_continue_timer.timeout.connect(self._on_fp_continue_timeout)
-        # Forming-bar incremental refresh (15s self-limit, plan 36.2).
-        self._fp_forming_timer = QTimer(self)
-        self._fp_forming_timer.setSingleShot(True)
-        self._fp_forming_timer.timeout.connect(self._on_fp_forming_timeout)
-
-        # ── S0 generic-tick substrate (D37; shared with D38) ──────────
+        # ── S0 generic-tick substrate (D38) ───────────────────────────
         # One optional reqMktData per session; the generic list is the union
-        # of registered feature needs. D37 registers "225" (auction) while
-        # views are attached; D38 will add "292"/"456" the same way.
+        # of registered feature needs (news "292" / dividends "456").
         self._s0_req_id: int | None = None
         self._s0_needs: dict[str, set[str]] = {}
         self._s0_union: str = ""
@@ -198,23 +164,6 @@ class TickerSession(QObject):
         # ── D38 corporate events (markers) ────────────────────────────
         self._events: list = []          # merged IBKR + yfinance Events
         self._events_unavailable: bool = False
-
-        # ── Auction state (D37: ticks 34/35/36/61 via S0) ─────────────
-        self._auction: dict = {
-            "volume": None,       # 34, tickSize
-            "price": None,        # 35, tickPrice
-            "imbalance": None,    # 36, tickSize (signed shares)
-            "reg_imbalance": None,  # 61, tickSize
-        }
-
-        # ── Depth heatmap (D37) ──────────────────────────────────────
-        self._depth = DepthHeatmapService(symbol)
-        self._depth_req_id: int | None = None
-        self._depth_holders: int = 0
-        self._depth_state: str = "idle"  # idle|live|no_entitlement|budget_exceeded
-        self._depth_roll_timer = QTimer(self)
-        self._depth_roll_timer.setInterval(BUCKET_SECONDS * 1000)
-        self._depth_roll_timer.timeout.connect(self._on_depth_roll_timeout)
 
     # ── Identity / lifecycle ───────────────────────────────────────────
 
@@ -257,13 +206,10 @@ class TickerSession(QObject):
             self._views.append((view, timeframe))
             if sync:
                 self._sync_view(view, timeframe)
-            # D37: the auction chip lives on chart views — register the S0
-            # "225" need while views are attached.
             # D38: IBKR dividends (tick 59 via generic "456") feed the event
-            # markers on charted symbols — same view-bound lifecycle.
+            # markers on charted symbols — view-bound lifecycle.
             # Futures have no dividend stream (plan A38.4): skip the need.
-            # One resync for both (no double re-subscribe).
-            _needs = {"auction": {"225"}}
+            _needs: dict[str, set[str]] = {}
             if self.symbol.split()[0] not in FUTURES_SCHEDULE:
                 _needs["dividends"] = {"456"}
             self.s0_register_many(_needs)
@@ -275,10 +221,9 @@ class TickerSession(QObject):
     def detach_view(self, view) -> None:
         """Unregister a view; teardown when orphaned and not monitored."""
         self._views = [(v, tf) for v, tf in self._views if v is not view]
-        # D37: last view gone → drop the auction S0 need (S0 cancels).
-        # D38: same for the dividend need. Single resync.
+        # D38: last view gone → drop the dividend S0 need (S0 cancels).
         if not self._views:
-            self.s0_deregister_many(("auction", "dividends"))
+            self.s0_deregister_many(("dividends",))
         # D25: the last view closing may start headless monitoring.
         monitor = getattr(self._host, "alarm_monitor", None)
         if monitor is not None:
@@ -329,21 +274,10 @@ class TickerSession(QObject):
         self._wave_continue_timer.stop()  # D28.5: no deferred wave chunks
         self._prime_timer.stop()
         self._prime_req_id = None
-        # D37: cancel S0 and release the depth feed.
+        # Cancel the S0 generic-tick subscription (D38 substrate).
         self._s0_needs.clear()
         self._s0_cancel()
         self._s0_union = ""
-        self._depth_holders = 0
-        self._cancel_depth()
-        # D36: stop footprint timers and forget in-flight tick requests.
-        self._fp_enabled = False
-        self._fp_wave_active = False
-        self._fp_continue_timer.stop()
-        self._fp_forming_timer.stop()
-        try:
-            self._fp_cancel_inflight()
-        except Exception:
-            pass
 
     # ── Bars / aggregators (data plane) ────────────────────────────────
 
@@ -432,7 +366,7 @@ class TickerSession(QObject):
         self._subscribe_rt(reset_backoff=False)
         return self._rt_req_id
 
-    # ── S0 generic-tick substrate (D37; shared with D38) ─────────────
+    # ── S0 generic-tick substrate (D38) ─────────────
 
     def s0_register(self, feature: str, ticks: set[str]) -> None:
         """Register a feature's generic-tick needs; resubscribe on change."""
@@ -534,30 +468,11 @@ class TickerSession(QObject):
         self._s0_req_id = new_req_id
         self._host._register_req_id(new_req_id, self)
 
-    # ── S0 tick ingress (D37 auction; D38 news later) ─────────────────
-
-    # Auction tick types (generic "225"): 34 volume + 36 imbalance + 61
-    # regulatory imbalance arrive via tickSize; 35 auction price via tickPrice.
-    _AUCTION_SIZE_TICKS = {34: "volume", 36: "imbalance", 61: "reg_imbalance"}
-
-    def on_tick_price(self, req_id: int, tick_type: int, price: float) -> None:
-        if req_id != self._s0_req_id or tick_type != 35:
-            return
-        self._auction["price"] = price
-        self.auction_updated.emit()
-
-    def on_tick_size(self, req_id: int, tick_type: int, size: int) -> None:
-        if req_id != self._s0_req_id:
-            return
-        key = self._AUCTION_SIZE_TICKS.get(tick_type)
-        if key is None:
-            return
-        self._auction[key] = size
-        self.auction_updated.emit()
+    # ── S0 tick ingress ───────────────────────────────────────────────
 
     def on_s0_tick_generic(self, req_id: int, tick_type: int,
                            value: float) -> None:
-        """Plumbing for D38 (generic ticks beyond auction)."""
+        """Plumbing for D38 generic tick values."""
         if req_id != self._s0_req_id:
             return
 
@@ -687,127 +602,6 @@ class TickerSession(QObject):
         the UI shows the explicit "event data unavailable" state."""
         return self._events_unavailable
 
-    def auction_state(self) -> dict:
-        """Current auction values; None fields mean 'no data yet'."""
-        return dict(self._auction)
-
-    # ── Depth heatmap feed (D37) ─────────────────────────────────────
-
-    @property
-    def depth_state(self) -> str:
-        return self._depth_state
-
-    @property
-    def depth_req_id(self) -> int | None:
-        return self._depth_req_id
-
-    @property
-    def depth_service(self) -> DepthHeatmapService:
-        return self._depth
-
-    def ensure_depth_subscribed(self) -> int | None:
-        """Refcounted SMART depth subscribe. Returns reqId or None.
-
-        Returns None (with an explicit state + host warning) when the
-        depth budget or MD-line budget refuses the feed — never silently.
-        """
-        if self._depth_req_id is not None:
-            self._depth_holders += 1
-            return self._depth_req_id
-        if not self._host._guard_md_lines(self.symbol, "depth"):
-            self._set_depth_state("budget_exceeded")
-            return None
-        if not self._host._guard_depth_budget(self.symbol):
-            self._set_depth_state("budget_exceeded")
-            return None
-        contract = get_contract_for_symbol(self.symbol)
-        req_id = self._host.depth_manager.subscribe_shared(
-            self.symbol, contract, num_levels=10)
-        self._depth_req_id = req_id
-        self._depth_holders = 1
-        self._host._register_req_id(req_id, self)
-        self._host.sub_manager.subscribe(
-            self.symbol,
-            req_id,
-            DEPTH_HEATMAP,
-            reissue=self._reissue_depth,
-            rebind=self._rebind_depth_req_id,
-        )
-        self._set_depth_state("live")
-        if not self._depth_roll_timer.isActive():
-            self._depth_roll_timer.start()
-        return req_id
-
-    def release_depth(self) -> None:
-        """Release one depth hold; cancel the feed at zero holders."""
-        if self._depth_holders > 0:
-            self._depth_holders -= 1
-        if self._depth_holders == 0:
-            self._cancel_depth()
-
-    def _cancel_depth(self) -> None:
-        if self._depth_req_id is not None:
-            self._host._unregister_req_id(self._depth_req_id)
-            self._host.sub_manager.unsubscribe(self._depth_req_id)
-            self._depth_req_id = None
-        try:
-            self._host.depth_manager.release_shared(self.symbol)
-        except Exception:
-            pass
-        self._depth_roll_timer.stop()
-        if self._depth_state == "live":
-            self._set_depth_state("idle")
-
-    def _reissue_depth(self) -> int:
-        """D27 replay hook — replay_all moves the registry entry itself, so
-        this must not touch sub_manager (mirrors _reissue_rt). Forces a fresh
-        wire subscription: the old reqMktDepth died with the connection."""
-        if self._depth_req_id is not None:
-            self._host._unregister_req_id(self._depth_req_id)
-            self._depth_req_id = None
-        contract = get_contract_for_symbol(self.symbol)
-        req_id = self._host.depth_manager.resubscribe_shared(
-            self.symbol, contract, num_levels=10)
-        self._depth_req_id = req_id
-        self._host._register_req_id(req_id, self)
-        return req_id
-
-    def _rebind_depth_req_id(self, new_req_id: int) -> None:
-        self._depth_req_id = new_req_id
-        self._host._register_req_id(new_req_id, self)
-
-    def on_depth_update(self, position: int, operation: int, side: int,
-                        price: float, size: int,
-                        is_smart_depth: bool = False) -> None:
-        """Depth op ingress — data only; rendering is timer-driven."""
-        self._depth.on_depth_op(position, operation, side, price, size,
-                                is_smart_depth)
-
-    def on_depth_error(self, error_code: int, error_string: str) -> None:
-        """354 (no entitlement) → explicit state; the feed is dead.
-
-        Known limitation (reviewer A1, D37): TWS sometimes delivers *delayed*
-        depth instead of erroring 354. That path is unhandled — delayed rows
-        would render with no "delayed" label. If observed, add a delayed-data
-        state here.
-        """
-        if error_code == 354:
-            self._set_depth_state("no_entitlement")
-        else:
-            self._set_depth_state("unavailable")
-        self._cancel_depth()
-
-    def _set_depth_state(self, state: str) -> None:
-        if state != self._depth_state:
-            self._depth_state = state
-            self.depth_state_changed.emit(state)
-
-    def depth_imbalance(self, n: int = 5) -> float:
-        return self._depth.imbalance(n)
-
-    def _on_depth_roll_timeout(self) -> None:
-        self._depth.roll_bucket()
-
     # ── Realtime bar ingress ───────────────────────────────────────────
 
     def on_realtime_bar(self, req_id: int, ts: int, o: float, h: float,
@@ -826,16 +620,6 @@ class TickerSession(QObject):
         """BarAggregator callback (main thread). Data-plane update + per-
         session alarm evaluation (DEC-1: fires even with zero views)."""
         self._append_bar(bar.timeframe, bar, is_new_candle)
-        # D36: a new candle needs its footprint backfill — sync the bar set
-        # and restart the wave if it's idle. (AC-D36.4: per-tick chart
-        # updates don't touch the footprint items; this path emits only the
-        # same footprint_updated the wave pump uses.)
-        if (is_new_candle and self._fp_enabled
-                and bar.timeframe == self._fp_timeframe):
-            self._footprint.sync_bars(self.get_bars(bar.timeframe),
-                                      bar.timeframe)
-            if not self._fp_wave_active:
-                self._fp_start_wave()
         triggered = []
         if not self.monitoring_paused:
             # D40: while TWS is gone, evaluation is fully paused — no
@@ -951,461 +735,6 @@ class TickerSession(QObject):
             monitor = getattr(self._host, "alarm_monitor", None)
             if monitor is not None:
                 monitor.on_alarm_changed()
-
-    # ── Footprint (D36) ────────────────────────────────────────────────
-
-    @property
-    def _fp_host_managers(self):
-        """(tick_history_manager, footprint_cache) from the host.
-
-        Production MainWindow provides both; the tick manager talks to the
-        real client, the cache persists to SQLite. Tests inject fakes on
-        their stub host (fakes live in tests/ only — never here).
-        """
-        thm = getattr(self._host, "tick_history_manager", None)
-        if thm is None:  # pragma: no cover - production always provides
-            from ibkr.tick_history import TickHistoryManager
-            thm = TickHistoryManager(getattr(self._host, "ib_client", None))
-            self._host.tick_history_manager = thm
-        cache = getattr(self._host, "footprint_cache", None)
-        if cache is None:  # pragma: no cover - production always provides
-            from data.db import db as _db
-            from data.footprint_cache import FootprintCache
-            cache = FootprintCache(_db.conn)
-            self._host.footprint_cache = cache
-        return thm, cache
-
-    # -- enable / disable ------------------------------------------------
-
-    def footprint_enable(self, style: str = "classic", metric: str = "volume",
-                         timeframe: str = "5 mins") -> None:
-        """Enable footprint for the chart timeframe (D36).
-
-        Resolves the tape contract (index proxy), preloads the persistent
-        cache, syncs the bar series into the service and starts the bounded
-        backfill wave. Emits footprint_updated so the panel re-renders.
-        """
-        from ibkr.contracts import resolve_footprint_contract
-        from data.footprint_cache import is_cacheable
-        self._fp_enabled = True
-        self._fp_style = style
-        self._fp_metric = metric
-        self._fp_timeframe = timeframe
-        key, contract, label = resolve_footprint_contract(self.symbol)
-        self._fp_cache_key = key
-        self._fp_contract = contract
-        self._fp_proxy_label = label
-        self._fp_preload_cache(timeframe, is_cacheable(self.symbol))
-        bars = self.get_bars(timeframe)
-        if bars:
-            self._footprint.sync_bars(bars, timeframe)
-        self._fp_start_wave()
-        self._fp_arm_forming_timer()
-        self.footprint_updated.emit(timeframe)
-
-    def footprint_resync(self, timeframe: str | None = None) -> None:
-        """Idempotent re-entry for symbol/timeframe changes (D36).
-
-        Re-resolves the tape contract (a new front month → new cache key →
-        a fresh FootprintService, so old entries are never read for the new
-        front month), re-syncs the current bar series and restarts the
-        bounded wave if the backfill is idle. No-op when footprint is off.
-        """
-        if not self._fp_enabled:
-            return
-        from ibkr.contracts import resolve_footprint_contract
-        from data.footprint_cache import is_cacheable
-        tf = timeframe or self._fp_timeframe
-        key, contract, label = resolve_footprint_contract(self.symbol)
-        if key != self._fp_cache_key:
-            # Contract rollover: fresh service, fresh cache preload.
-            self._footprint = FootprintService(self.symbol)
-            self._fp_cache_key = key
-            self._fp_contract = contract
-            self._fp_proxy_label = label
-            self._fp_preload_cache(tf, is_cacheable(self.symbol))
-        self._fp_timeframe = tf
-        bars = self.get_bars(tf)
-        if bars:
-            self._footprint.sync_bars(bars, tf)
-        if not self._fp_wave_active:
-            self._fp_start_wave()
-        self.footprint_updated.emit(tf)
-
-    def footprint_disable(self) -> None:
-        """Stop footprint: timers off, in-flight requests forgotten.
-
-        Bucketed levels stay in the service (cheap); the persistent cache
-        is untouched. Re-enabling re-syncs from the current series.
-        """
-        self._fp_enabled = False
-        self._fp_wave_active = False
-        self._fp_continue_timer.stop()
-        self._fp_forming_timer.stop()
-
-    def footprint_set_style(self, style: str, metric: str) -> None:
-        """Display-style toggle × metric selector (D36, owner decision).
-
-        Pure presentation — both metrics derive from the same tick buckets,
-        so no refetch is needed; the panel just re-renders.
-        """
-        self._fp_style = style
-        self._fp_metric = metric
-        if self._fp_timeframe:
-            self.footprint_updated.emit(self._fp_timeframe)
-
-    @property
-    def fp_style(self) -> str:
-        return self._fp_style
-
-    @property
-    def fp_metric(self) -> str:
-        return self._fp_metric
-
-    @property
-    def fp_enabled(self) -> bool:
-        return self._fp_enabled
-
-    @property
-    def fp_proxy_label(self) -> str:
-        """e.g. "ES tape" when viewing SPX; "" for own-tape symbols."""
-        return self._fp_proxy_label
-
-    def footprint_snapshot(self, timeframe: str) -> dict:
-        """Data for the panel render layer: ready levels, per-bar states,
-        the proxy label and the no-tick-data flag."""
-        bars = self.get_bars(timeframe)
-        levels = {}
-        states = {}
-        for bar in bars:
-            lv = self._footprint.levels(bar.ts)
-            if lv:
-                levels[bar.ts] = lv
-            states[bar.ts] = self._footprint.state(bar.ts)
-        return {
-            "levels": levels,
-            "states": states,
-            "proxy_label": self._fp_proxy_label,
-            "no_tick_data": self._footprint.no_tick_data,
-            "style": self._fp_style,
-            "metric": self._fp_metric,
-        }
-
-    # -- cache preload / persist ------------------------------------------
-
-    def _fp_preload_cache(self, timeframe: str, cacheable: bool) -> None:
-        """Load persistent blobs for the series' dates before any backfill
-        (36.4): a cache hit means zero IBKR requests for that symbol+date."""
-        if not cacheable:
-            return
-        from zoneinfo import ZoneInfo
-        from datetime import datetime
-        _eastern = ZoneInfo("America/New_York")
-        _, cache = self._fp_host_managers
-        bars = self.get_bars(timeframe)
-        if not bars:
-            return
-        by_date: dict[str, list[int]] = {}
-        for bar in bars[:-1]:  # completed bars only
-            day = datetime.fromtimestamp(
-                bar.ts, tz=_eastern).strftime("%Y%m%d")
-            by_date.setdefault(day, []).append(bar.ts)
-        preloaded: dict[int, dict] = {}
-        for day, ts_list in by_date.items():
-            blob = cache.get(self._fp_cache_key, day, timeframe)
-            if not blob:
-                continue
-            for ts in ts_list:
-                if ts in blob:
-                    preloaded[ts] = blob[ts]
-        if preloaded:
-            self._footprint.inject_cached(preloaded)
-
-    def _fp_persist_cache(self, timeframe: str) -> None:
-        """Write one blob per (contract, date, timeframe) on wave completion
-        (36.4). Only for the five owner-approved symbols."""
-        from data.footprint_cache import is_cacheable
-        from zoneinfo import ZoneInfo
-        if not is_cacheable(self.symbol):
-            return
-        _eastern = ZoneInfo("America/New_York")
-        _, cache = self._fp_host_managers
-        by_date: dict[str, dict] = {}
-        for bar_ts in self._footprint.ready_bars():
-            lv = self._footprint.levels(bar_ts)
-            if not lv:
-                continue
-            day = datetime.fromtimestamp(
-                bar_ts, tz=_eastern).strftime("%Y%m%d")
-            by_date.setdefault(day, {})[bar_ts] = {
-                str(price): vals for price, vals in lv.items()
-            }
-        for day, data in by_date.items():
-            cache.put(self._fp_cache_key, day, timeframe, data)
-
-    # -- backfill wave ------------------------------------------------------
-
-    def _fp_start_wave(self) -> None:
-        if not self._fp_enabled:
-            return
-        self._fp_wave_issued = 0
-        self._fp_wave_active = True
-        self._fp_pump()
-
-    def _fp_pump(self) -> None:
-        """Issue footprint page specs while the wave budget allows (≤60).
-
-        Never sleeps: on PacingExceeded the remainder defers via singleShot
-        (D28.3 pattern). When the burst is spent but bars remain pending, the
-        continuation timer spaces the next wave.
-        """
-        if not self._fp_wave_active or not self._fp_enabled:
-            return
-        # A4: never issue while disconnected — the client no-ops with
-        # wrapper.error(NO_VALID_ID), which cannot be routed back to this
-        # session, stranding the specs (pending_count() > 0 forever,
-        # forming refresh suppressed forever). Stop the wave here;
-        # on_fp_reconnect() restarts it.
-        if not getattr(self._host, "_ibkr_connected", True):
-            self._fp_wave_active = False
-            return
-        from ibkr.pacing import pacing_manager
-        while self._fp_wave_issued < MAX_REQUESTS_PER_WAVE:
-            specs = self._footprint.next_wave(
-                MAX_REQUESTS_PER_WAVE - self._fp_wave_issued)
-            if not specs:
-                break
-            for spec in specs:
-                if not self._fp_issue_spec(spec):
-                    return  # pacing-exceeded → deferred; wave stays active
-        self._fp_wave_active = False
-        if self._footprint.pending_count() > 0:
-            wait = pacing_manager.historical_wait_seconds()
-            ms = max(1000, int(wait * 1000))
-            self._status(
-                f"{self.symbol} — footprint backfill continuing…")
-            self._fp_continue_timer.start(ms)
-        elif self._fp_timeframe:
-            # Wave fully drained: persist the cacheable dates.
-            self._fp_persist_cache(self._fp_timeframe)
-
-    def _fp_issue_spec(self, spec) -> bool:
-        """Issue one page spec.
-
-        False → pacing exhausted (deferred via the continue timer; the wave
-        stays active) OR unexpected failure (no client / not connected; the
-        wave is stopped and the next enable/timeframe sync retries).
-        """
-        from ibkr.pacing import PacingExceeded, pacing_manager
-        thm, _ = self._fp_host_managers
-        try:
-            req_id = thm.req_historical_ticks(
-                self._fp_contract,
-                startDateTime="",
-                endDateTime=spec.end_str,
-                numberOfTicks=1000,
-                whatToShow=spec.what_to_show,
-                useRTH=1,
-            )
-        except PacingExceeded as e:
-            self._status(
-                f"{self.symbol} — pacing-limited, "
-                f"continuing footprint in {int(e.wait_seconds)}s…")
-            self._fp_continue_timer.start(max(1000, int(e.wait_seconds * 1000)))
-            return False
-        except Exception:
-            # B3: No client / not connected: stop the wave quietly; the next
-            # enable or timeframe sync retries. Never raise into the UI.
-            # Return False (not True): the spec was never issued, so
-            # next_wave() would re-return it and _fp_pump would spin
-            # forever on the main thread.
-            self._fp_wave_active = False
-            return False
-        self._fp_wave_issued += 1
-        self._footprint.note_issued(req_id, spec)
-        self._host._register_req_id(req_id, self)
-        return True
-
-    def _on_fp_continue_timeout(self) -> None:
-        self._fp_wave_active = True
-        self._fp_pump()
-
-    def _fp_cancel_inflight(self) -> None:
-        thm, _ = self._fp_host_managers
-        for req_id in list(self._footprint._req_to_spec):
-            try:
-                thm.cancel_historical_ticks(req_id)
-            except Exception:
-                pass
-            self._host._unregister_req_id(req_id)
-        self._footprint._req_to_spec.clear()
-
-    def on_fp_disconnect(self) -> None:
-        """A4: reset footprint wave state on a transport drop.
-
-        In-flight tick requests will never be answered, and the client's
-        ``wrapper.error(NO_VALID_ID)`` cannot be routed back to this
-        session (reqId −1 is in no table) — so without a reset the specs
-        would strand in ``_req_to_spec`` forever, ``pending_count()``
-        would stay > 0, and the forming-bar refresh would be suppressed
-        permanently. Drop the wave state now; queued jobs survive in the
-        service and ``on_fp_reconnect`` restarts the wave.
-        """
-        self._fp_wave_active = False
-        self._fp_continue_timer.stop()
-        try:
-            self._fp_cancel_inflight()
-        except Exception:
-            pass
-
-    def on_fp_reconnect(self) -> None:
-        """Restart the footprint backfill wave after a reconnect, when
-        footprint is enabled and bars are still pending."""
-        if (
-            self._fp_enabled
-            and not self._fp_wave_active
-            and self._footprint.pending_count() > 0
-        ):
-            self._fp_start_wave()
-
-    # -- bridge-routed callbacks (via MainWindow reqId routing) -------------
-
-    def on_fp_ticks_bid_ask(self, req_id: int, ticks, done: bool) -> None:
-        # Forming-bar refreshes are bound with FormingSpec — route first.
-        if self.on_fp_forming_ticks(req_id, ticks, done, "BID_ASK"):
-            return
-        result = self._footprint.on_ticks_bid_ask(req_id, ticks, done)
-        self._after_fp_page(req_id, result)
-
-    def on_fp_ticks_last(self, req_id: int, ticks, done: bool) -> None:
-        if self.on_fp_forming_ticks(req_id, ticks, done, "TRADES"):
-            return
-        result = self._footprint.on_ticks_last(req_id, ticks, done)
-        self._after_fp_page(req_id, result)
-
-    def _after_fp_page(self, req_id: int, result: dict) -> None:
-        self._host._unregister_req_id(req_id)
-        if not self._fp_enabled:
-            return
-        if result.get("completed") and self._fp_timeframe:
-            self.footprint_updated.emit(self._fp_timeframe)
-        # Keep pumping while the wave is active (followup pages count
-        # against the same 60-request burst).
-        if self._fp_wave_active:
-            self._fp_pump()
-        elif self._footprint.pending_count() == 0 and self._fp_timeframe:
-            self._fp_persist_cache(self._fp_timeframe)
-
-    def on_fp_error(self, req_id: int, code: int) -> bool:
-        """Route an IBKR error on a footprint reqId. Returns True when the
-        reqId belonged to footprint (handled). Error 162 (pacing) is left
-        for the wave continuation; other errors fail the bar's phase so one
-        bad bar never strands the wave."""
-        spec = self._footprint.spec_for(req_id)
-        if spec is None:
-            return False
-        # A2: forming specs must be unregistered + forgotten too — otherwise
-        # the reqId leaks into _req_to_spec and the host table forever.
-        # The next forming-timer tick re-issues the refresh.
-        self._host._unregister_req_id(req_id)
-        self._footprint.forget_request(req_id)
-        if getattr(spec, "forming", False):
-            return True
-        job = self._footprint._jobs.get(spec.bar_ts)
-        if job is not None and code != 162:
-            # Fail the in-flight phase for this bar; the other phase (if any)
-            # still completes and the bar renders with partial data.
-            if spec.kind == "BID_ASK":
-                job.bidask_cursor = None
-            elif spec.kind == "TRADES":
-                job.trades_cursor = None
-        return True
-
-    # -- viewport lazy-fill ---------------------------------------------------
-
-    def sync_footprint_viewport(self, first_ts: int, last_ts: int) -> None:
-        """Bars scrolled into view without data trigger a bounded fill."""
-        if not self._fp_enabled:
-            return
-        queued = self._footprint.set_visible_range(first_ts, last_ts)
-        if queued and not self._fp_wave_active:
-            self._fp_start_wave()
-
-    # -- forming-bar incremental refresh ----------------------------------------
-
-    def _fp_arm_forming_timer(self) -> None:
-        if not self._fp_enabled:
-            return
-        self._fp_forming_timer.start(int(FORMING_REFRESH_MIN_S * 1000))
-
-    def _on_fp_forming_timeout(self) -> None:
-        import time as _time
-        if not self._fp_enabled:
-            return
-        # Re-arm first so the cadence holds even if this refresh skips.
-        self._fp_forming_timer.start(int(FORMING_REFRESH_MIN_S * 1000))
-        # A4: never issue while disconnected — the client no-ops with
-        # wrapper.error(NO_VALID_ID), which cannot be routed back, so the
-        # forming specs would strand in _req_to_spec. The wave restarts on
-        # reconnect via on_fp_reconnect().
-        if not getattr(self._host, "_ibkr_connected", True):
-            return
-        # Daily rollover check: a new front month (cache-key change) means
-        # the old tape entries must never be read for the new front month.
-        from ibkr.contracts import resolve_footprint_contract
-        from data.footprint_cache import is_cacheable
-        key, contract, label = resolve_footprint_contract(self.symbol)
-        if key != self._fp_cache_key:
-            self._footprint = FootprintService(self.symbol)
-            self._fp_cache_key = key
-            self._fp_contract = contract
-            self._fp_proxy_label = label
-            self._fp_preload_cache(self._fp_timeframe,
-                                   is_cacheable(self.symbol))
-            self._footprint.sync_bars(self.get_bars(self._fp_timeframe),
-                                      self._fp_timeframe)
-            self._fp_start_wave()
-        if not self._footprint.forming_due(_time.time()):
-            return  # backfill pending (yields) or <15s since last refresh
-        window = self._footprint.forming_window()
-        if window is None or self._fp_contract is None:
-            return
-        from ibkr.pacing import PacingExceeded, pacing_manager
-        if pacing_manager.historical_wait_seconds() > 0:
-            return  # skip silently; fills in on the next refresh
-        thm, _ = self._fp_host_managers
-        start_str, _ = window
-        issued = 0
-        for what in ("BID_ASK", "TRADES"):
-            try:
-                req_id = thm.req_historical_ticks(
-                    self._fp_contract, startDateTime=start_str, endDateTime="",
-                    numberOfTicks=1000, whatToShow=what, useRTH=1)
-            except PacingExceeded:
-                return
-            except Exception:
-                return
-            # Forming refreshes are not wave members: bind directly with a
-            # synthetic spec the service recognises as forming-only.
-            self._footprint.note_issued(req_id, FormingSpec(what))
-            self._host._register_req_id(req_id, self)
-            issued += 1
-        if issued:
-            self._footprint.note_forming_refreshed(_time.time())
-
-    def on_fp_forming_ticks(self, req_id: int, ticks, done: bool,
-                            kind: str) -> bool:
-        """Returns True when the reqId was a forming-bar refresh."""
-        spec = self._footprint.spec_for(req_id)
-        if not isinstance(spec, FormingSpec):
-            return False
-        self._host._unregister_req_id(req_id)
-        self._footprint.forget_request(req_id)
-        bar_ts = self._footprint.apply_forming_ticks(
-            ticks, "BID_ASK" if spec.kind == "BID_ASK" else "TRADES")
-        if bar_ts is not None and self._fp_timeframe:
-            self.footprint_updated.emit(self._fp_timeframe)
-        return True
 
     # ── Studies ──────────────────────────────────────────────────────
 
@@ -1626,13 +955,6 @@ class TickerSession(QObject):
     def on_historical_error(self, req_id: int, code: int, msg: str) -> None:
         """D16: a failed wave member must not strand the wave. Drop it (so
         the set can still empty) and remember it for the shortfall report."""
-        # D36: footprint reqIds fail their bar's phase without stranding
-        # the footprint wave (handled → return).
-        if self.on_fp_error(req_id, code):
-            _LOG.warning(
-                "Footprint request %s failed [%s]: %s", req_id, code, msg
-            )
-            return
         if self._prime_req_id is not None and req_id == self._prime_req_id:
             _LOG.warning(
                 "Aggregator priming request %s failed [%s]: %s",

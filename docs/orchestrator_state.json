@@ -1,9 +1,71 @@
 {
-  "current_stage": "code_reviewer",
-  "invocation_reason": "normal_progression",
-  "plan_validator_retries": 0,
-  "pending": null,
-  "last_invoked": {"agent": "code_reviewer", "at": "2026-10-07T00:00:00Z", "owned_mtimes_before": {}},
-  "last_updated": "2026-10-07T00:00:00Z",
-  "last_status": "PIPELINE_COMPLETE"
+  "current_stage": "paused_user_input",
+  "invocation_reason": "review",
+  "pending": {
+    "kind": "code_review_escalations",
+    "targets": ["REQUIREMENTS", "BUILD"],
+    "ids": ["ESC-032","ESC-033","ESC-034","ESC-036","ESC-037","ESC-038","ESC-041","ESC-042","ESC-043","ESC-044","ESC-045"]
+  },
+  "plan_validator_retries": 1,
+  "last_invoked": {
+    "agent": "code_reviewer",
+    "at": "2026-10-15T23:20:00Z",
+    "task": "ESC-046/047 verification (completed: both addressed)"
+  },
+  "last_status": "D41_COMPLETE_AND_REVIEWED_AWAITING_USER_ON_11_ESCALATIONS",
+  "user_decision": "Close D41's loose ends first (ESC-046 + ESC-047) before the requirements escalations or the live-run bugs. The remaining 11 open escalations stay queued and will be re-surfaced after the reviewer re-runs.",
+  "build_phase": "P1",
+  "working_on": {},
+  "user_directive": {
+    "rule": "As orchestrator, do NOT edit application code. On a worker death: record the half-applied state, notify the user, and WAIT for an explicit decision.",
+    "scoped_override": "2026-10-15: for this stuck build the user instructed the orchestrator to take charge and complete the work directly rather than keep dispatching workers."
+  },
+  "d41_review": {
+    "verdict": "REVIEW_COMPLETE - the D41 removals are correct; the load-bearing order-gate re-homing verified independently",
+    "verified": [
+      "_close_position_by_id runs disconnected guard -> validate_order(risk_reducing=True) -> pacing -> placeOrder, in that order; risk_reducing skips ONLY the notional cap",
+      "KEEP list intact: footprint_cache_key, INDEX_PROXY, md_line_guard.assess, the S0 substrate, volume_baseline",
+      "9 modules + 5 suites gone; 16-token residue grep -> 0 hits; import probe clean",
+      "the two files left non-importable mid-edit (chart_panel.py, ticker_session.py) are import-clean with no dangling refs",
+      "conftest per-process DB correct (table list/wipe byte-identical, nothing removed); subscription_manager.py edit genuinely doc/constant-only",
+      "the two new Phase-3 guards are non-tautological"
+    ],
+    "closed": ["ESC-035", "ESC-039", "ESC-040 -> addressed (features removed; re-verified on the live tree)"],
+    "new_findings": ["ESC-046", "ESC-047"],
+    "non_escalations": [
+      "bracket_order is dead-but-retained: ACCEPTED KEEP-list outcome (AC-D41.4 mandates retention); residual is a requirements-wording nuance only",
+      "P1-T54/P1-T59 coverage moved rather than disappeared; P1-T60's doc-only edit legitimate"
+    ],
+    "suite": "HEAD (pre-D41) 1028 passed 3/3; D41 967 collected, green on most runs but NOT deterministic (ESC-046)"
+  },
+  "escalation_groups": {
+    "REQUIREMENTS (2, pre-existing, upstream-most)": {
+      "ESC-038": "RTH single-day: owner symptom is an intraday chart showing only the current session; proved the cause is the FETCH WINDOW, not useRTH",
+      "ESC-042": "AC-D6.4 requires an unconditional 'body >= 4 device px' while AC-D7.1 requires a positive inter-bar gap - the two requirements contradict each other"
+    },
+    "BUILD - D41's own (2)": {
+      "ESC-046": "should-fix, task P1-T59 EXISTS. The suite is intermittently RED, violating AC-D41.5: test_d27_reconnect asserts len(fake.rt_bars)==2 but sees 4, because _on_connected()->_restore_popouts() reopens a persisted 'POPA' pop-out whose session subscribes RT bars through the test's recording fake. Root-caused by instrumenting RealtimeBarsManager.subscribe. Test-isolation gap (D24), newly observable; the test must scope its count to the chart session",
+      "ESC-047": "nice-to-have, task P1-T52 EXISTS. test_d28_pacing monkeypatches the GLOBAL time.sleep and asserts sleeps == []; the D38 yfinance QThread (yfinance_source.py:256, _MIN_CALL_GAP_S=1.0) can sleep on its own thread and land in that list. Mechanism code-verified; red not reproduced by the reviewer"
+    },
+    "BUILD - pre-existing live-run bugs (9)": {
+      "ESC-032": "blocking - every TWS position update raises AttributeError: 'Position' object ... (task D27-06 MISSING from the graph)",
+      "ESC-033": "blocking - the toolbar Load Chart button loads no chart, AttributeError (task D28-02 MISSING)",
+      "ESC-034": "should-fix - watchlist flash timer (task D21-05 MISSING)",
+      "ESC-036": "should-fix - D27.9 priming hardcodes bar_size='5 secs' (task D27-09 MISSING)",
+      "ESC-037": "should-fix - under RTH a present-but-RTH-empty trading day is treated as filled (NO TASK)",
+      "ESC-041": "blocking - the D6 4-device-px candle-body floor is unconditional, so bodies overlap at high bar density (NO TASK)",
+      "ESC-043": "should-fix - portfolio shows HELD/H rows leaked from fixtures into the production DB (NO TASK)",
+      "ESC-044": "should-fix - option rows render Type=STOCK, expiry blank (ibapi.Contract has no class_/lastDateOrMonth/putCall) (NO TASK)",
+      "ESC-045": "should-fix - Account Summary shows 'Account: -' (NO TASK)"
+    }
+  },
+  "graph_state_for_rework": {
+    "ESC-046 / ESC-047": "map to DONE tasks (P1-T59, P1-T52) -> the standard BUILD rework path works (reset + advance embeds the diagnosis)",
+    "the other 11": "NONE has a usable task: 4 name ids MISSING from the current graph (D27-06, D28-02, D21-05, D27-09) and 7 have no task_id at all. Nothing for build_wave.py to reset - they need the Task Manager to create tasks first."
+  },
+  "git": {
+    "head": "29067af",
+    "tree": "ALL D41 work UNCOMMITTED. Nothing pushed."
+  },
+  "last_updated": "2026-10-15T22:35:00Z"
 }

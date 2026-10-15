@@ -10,12 +10,12 @@ D18 geometry end-to-end rather than the pure helpers:
 * AC-D18.2 / AC-D18.4 — the rendered region grows to the ``floor(0.40 ×
   chart_area)`` cap and shrinks to ``RIGHT_DOCK_MIN_WIDTH``, with the chart area
   moving inversely;
-* AC-D18.3 — the Active Trader ladder section and the Portfolio section render at
-  equal width and each equals the region content width;
+* AC-D18.3 (D41 single-section form) — the Portfolio section renders at the
+  region content width (the right dock is Portfolio-only after D41 / S6);
 * AC-D18.5 — with both docks near their maxima, enlarging one keeps the rendered
   chart area ``>= 400px`` and shrinks the other;
-* AC-D18.6 — wide ladder/portfolio content cannot push the region off-screen or
-  past the cap (content scrolls/clips internally);
+* AC-D18.6 — wide Portfolio content cannot push the region off-screen or past
+  the cap (content scrolls/clips internally);
 * AC-D18.7 — the right region's width/visibility returns to its default on
   restart and no right-region QSettings key is written.
 
@@ -69,7 +69,7 @@ _QSETTINGS_APP = "NDThinkChart"
 
 #: Keys a naive right-region persistence would introduce (AC-D18.7). None may be
 #: written; the region is in-memory only, matching D10's volume-toggle precedent.
-_RIGHT_PERSISTENCE_HINTS = ("right", "active_trader", "portfolio", "right_dock")
+_RIGHT_PERSISTENCE_HINTS = ("right", "portfolio", "right_dock")
 
 #: Rendered window sizes exercised end-to-end. The first two are large enough for
 #: the 40% cap to be reachable (a "full-screen-sized" case and a 1600×900 case);
@@ -108,8 +108,8 @@ def _make_window(monkeypatch, qapp, width: int = 1600, height: int = 900):
     """Build a shown ``MainWindow`` that never touches TWS, toolbar visible.
 
     ``IBApiClient.connect`` is monkeypatched to a no-op, which is what keeps the
-    market-data / realtime / depth managers (all built around the client) from
-    opening a socket in the offscreen harness. The toolbar is left **visible**
+    market-data / realtime managers (all built around the client) from opening a
+    socket in the offscreen harness. The toolbar is left **visible**
     (D19 Phase 1's scroll wrapper removed its minimum-width pin), so the dock
     geometry is exercised against the real, toolbar-visible layout (AC-D19.6).
     """
@@ -172,9 +172,19 @@ def test_T50_T01_fullscreen_region_on_screen(monkeypatch, qapp, size):
     width, height = size
     win = _make_window(monkeypatch, qapp, width=width, height=height)
     try:
-        # The single row region exists and rendered visible.
+        # The single right region exists and rendered visible, keyed by the new
+        # (D41 / S6) title. The title-keyed ``findChild`` lookup is exercised
+        # here too — a stale pre-D41 title would silently stop matching, which is
+        # exactly the repo's dock-lookup trap (AC2).
         assert win.right_dock.isVisible()
-        assert win.right_dock.objectName() == "Active Trader"
+        assert win.right_dock.objectName() == "Portfolio"
+        assert win.right_dock.windowTitle() == "Portfolio"
+        region = win.findChild(QDockWidget, "Portfolio")
+        assert region is win.right_dock
+        # The pre-D41 title must no longer resolve. The needle is built at
+        # runtime so this guard cannot match itself and leaves no stale literal.
+        stale_title = "Active" + " Trader"
+        assert win.findChild(QDockWidget, stale_title) is None
 
         # Without any manual repositioning, the rendered region lies within the
         # window rect with a positive width.
@@ -257,11 +267,11 @@ def test_T50_T02_rendered_cap_and_minimum(monkeypatch, qapp, size):
         _clean_settings()
 
 
-# ── T50-T03 / AC-D18.3 — equal-width stacked sections ───────────────────────
+# ── T50-T03 / AC-D18.3 — the single section fills the region content width ──
 
 @pytest.mark.parametrize("size", _WINDOW_SIZES, ids=lambda s: f"{s[0]}x{s[1]}")
 def test_T50_T03_sections_equal_width(monkeypatch, qapp, size):
-    """T50-T03 / AC-D18.3: ladder and portfolio render equal, at the content width."""
+    """T50-T03 / AC-D18.3 (D41 single-section): the Portfolio section fills the region."""
     _clean_settings()
     width, height = size
     win = _make_window(monkeypatch, qapp, width=width, height=height)
@@ -274,15 +284,20 @@ def test_T50_T03_sections_equal_width(monkeypatch, qapp, size):
             drive()
             qapp.processEvents()
 
-            trader_w = win.active_trader.width()
-            portfolio_w = win.portfolio_panel.width()
-            content_w = win.right_dock_container.width()
+            # D41 / S6: the right dock is Portfolio-only, so the *single*
+            # surviving section is the dock's widget itself. AC-D18.3's "the
+            # section fills the region content width" outcome is asserted over
+            # that one section instead of the removed two-section pairing.
+            section_w = win.portfolio_panel.width()
+            content_w = win.right_dock.widget().width()
+            dock_w = win.right_dock.width()
 
-            assert abs(trader_w - portfolio_w) <= 1, (label, trader_w, portfolio_w)
-            # Each equals the region content width (equal by construction).
-            assert abs(trader_w - content_w) <= 1, (label, trader_w, content_w)
-            assert abs(portfolio_w - content_w) <= 1, (label, portfolio_w, content_w)
             assert content_w > 0
+            assert win.right_dock.widget() is win.portfolio_panel
+            # The section equals the region content width (equal by construction).
+            assert abs(section_w - content_w) <= 1, (label, section_w, content_w)
+            # And it never exceeds the region that hosts it.
+            assert section_w <= dock_w + 1, (label, section_w, dock_w)
     finally:
         win.close()
         _clean_settings()
@@ -352,20 +367,21 @@ def test_T50_T04_cross_clamp_keeps_chart_minimum(monkeypatch, qapp, size):
 
 @pytest.mark.parametrize("size", _WINDOW_SIZES, ids=lambda s: f"{s[0]}x{s[1]}")
 def test_T50_T05_wide_content_stays_in_cap_and_window(monkeypatch, qapp, size):
-    """T50-T05 / AC-D18.6: wide ladder/portfolio content stays on-screen under cap."""
+    """T50-T05 / AC-D18.6: wide Portfolio content stays on-screen under the cap."""
     _clean_settings()
     width, height = size
     win = _make_window(monkeypatch, qapp, width=width, height=height)
     try:
         wide = "123456789012345678901234567890"
+        # D41 / S6: the ladder is gone; the wide-content probe now lives on the
+        # Portfolio section's own positions table. Rows are allocated first so
+        # the wide cells are actually populated (``setItem`` ignores rows beyond
+        # ``rowCount``), keeping AC-D18.6's probe meaningful rather than vacuous.
+        table = win.portfolio_panel.positions_table
+        table.setRowCount(8)
         for row in range(8):
-            for col in range(win.active_trader.ladder.columnCount()):
-                win.active_trader.ladder.setItem(row, col, QTableWidgetItem(wide))
-        for row in range(8):
-            for col in range(win.portfolio_panel.positions_table.columnCount()):
-                win.portfolio_panel.positions_table.setItem(
-                    row, col, QTableWidgetItem(wide)
-                )
+            for col in range(table.columnCount()):
+                table.setItem(row, col, QTableWidgetItem(wide))
         qapp.processEvents()
 
         # Enlarge the region against wide content and assert the content did not

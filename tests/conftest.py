@@ -5,11 +5,16 @@ import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-_TEST_DB_PATH = os.path.join(tempfile.gettempdir(), "tos_charting_test.sqlite3")
-try:
-    os.remove(_TEST_DB_PATH)
-except OSError:
-    pass
+# Per-process test DB (S12; ESC-024/ESC-025). The old harness used ONE fixed
+# path under ``tempfile.gettempdir()`` and ``os.remove()``'d it at import, so
+# every concurrent pytest process opened, deleted and committed against the same
+# file -- surfacing as ``sqlite3.OperationalError: attempt to write a readonly
+# database`` (SQLITE_READONLY_DBMOVED) in the autouse teardown while the test
+# bodies passed. Each process now gets its own temp directory (``mkdtemp`` is
+# unique even for same-named callers) whose name carries its PID, and nothing is
+# ever removed: a process must not delete a path it did not create.
+_TEST_DB_DIR = tempfile.mkdtemp(prefix=f"ndtc_test_db_{os.getpid()}_")
+_TEST_DB_PATH = os.path.join(_TEST_DB_DIR, "test.sqlite3")
 os.environ["DB_PATH"] = _TEST_DB_PATH
 
 import pytest

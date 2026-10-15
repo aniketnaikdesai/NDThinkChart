@@ -1,4 +1,9 @@
-"""D26.7: validate_order() gate — table-driven pure tests + _place_order wiring.
+"""D26.7: validate_order() gate — table-driven pure tests.
+
+D41: the ticket-only ``_place_order`` wiring tests are dropped along with the
+ticket. The gate's wiring on the RETAINED path (validate -> pacing -> transmit)
+is covered by ``tests/test_d28_pacing.py`` and
+``tests/test_d28_6_close_contracts.py``.
 
 AC-D26.7: invalid input is rejected with a UI message; no placeOrder call,
 no traceback.
@@ -76,49 +81,6 @@ def test_notional_cap_skipped_without_price_basis():
 def test_valid_mkt_order():
     assert validate_order(action="SELL", order_type="MKT", qty=10,
                           symbol="AAPL") == []
-
-
-def _make_window(monkeypatch, qapp):
-    from ibkr.client import IBApiClient
-    monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
-    from ui.main_window import MainWindow
-    win = MainWindow()
-    win.show()
-    qapp.processEvents()
-    return win
-
-
-def test_place_order_refuses_invalid_without_transmit(monkeypatch, qapp):
-    # Wiring: _place_order validates FIRST — no placeOrder, message surfaced.
-    win = _make_window(monkeypatch, qapp)
-    try:
-        win._ibkr_connected = True  # isolate the validation path
-        calls = []
-        monkeypatch.setattr(win.ib_client, "placeOrder",
-                            lambda *a, **k: calls.append(a))
-        win._place_order(contract=object(), symbol="", action="BUY", qty=0,
-                         order_type="MKT", lmt_price=0.0, stop_price=0.0,
-                         target_price=0.0)
-        assert calls == [], "invalid order must never reach placeOrder"
-        label = win.active_trader.order_entry.status_label.text()
-        assert "reject" in label.lower(), f"rejection not surfaced: {label!r}"
-    finally:
-        win.close()
-
-
-def test_place_order_transmits_valid(monkeypatch, qapp):
-    win = _make_window(monkeypatch, qapp)
-    try:
-        win._ibkr_connected = True  # harness never fires _on_connected
-        calls = []
-        monkeypatch.setattr(win.ib_client, "placeOrder",
-                            lambda *a, **k: calls.append(a))
-        win._place_order(contract=object(), symbol="AAPL", action="BUY",
-                         qty=10, order_type="MKT", lmt_price=0.0,
-                         stop_price=0.0, target_price=0.0)
-        assert len(calls) == 1, "valid order must transmit exactly once"
-    finally:
-        win.close()
 
 
 def test_max_order_notional_is_owner_approved_25000():

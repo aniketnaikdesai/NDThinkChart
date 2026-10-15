@@ -11,15 +11,6 @@ class IBBridge(QObject):
     historical_bar = pyqtSignal(int, object)        # reqId, BarData
     historical_data_end = pyqtSignal(int)           # reqId
 
-    # Historical ticks — D36 footprint (one tape, two metrics).
-    historical_ticks_bid_ask = pyqtSignal(int, object, bool)
-    # reqId, [HistoricalTickBidAsk], done
-    historical_ticks_last = pyqtSignal(int, object, bool)
-    # reqId, [HistoricalTickLast], done
-    # (A1: the histogram_data signal was removed — reqHistogramData takes no
-    # date parameter, so per-bar histograms are impossible; the heatmap's
-    # tick-count metric comes from TRADES tick pages instead.)
-
     # Contract details
     contract_details = pyqtSignal(int, object)      # reqId, ContractDetails
     contract_details_end = pyqtSignal(int)          # reqId
@@ -47,11 +38,6 @@ class IBBridge(QObject):
     # Real-time 5-second bars
     realtime_bar = pyqtSignal(int, int, float, float, float, float, float, float, int)
     # reqId, time, open, high, low, close, volume, wap, count
-
-    # Market Depth (DOM)
-    update_mkt_depth = pyqtSignal(int, int, int, int, float, int, bool)
-    # reqId, position, operation, side, price, size, isSmartDepth
-    # (isSmartDepth False for plain updateMktDepth; D37 disambiguates SMART rows)
 
     # Account & Orders
     account_summary = pyqtSignal(int, str, str, str)  # reqId, account, tag, value

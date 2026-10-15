@@ -157,27 +157,6 @@ def footprint_cache_key(symbol: str, now: datetime | None = None) -> str:
     return f"{proxied}{_FUTURE_MONTH_CODES[month - 1]}{year % 10}"
 
 
-def resolve_footprint_contract(
-    symbol: str, now: datetime | None = None
-) -> tuple[str, Contract, str]:
-    """Resolve the contract whose tape feeds footprint for ``symbol``.
-
-    Returns ``(cache_key, contract, label)`` where ``label`` is the
-    human-readable tape attribution ("" when the symbol uses its own tape —
-    the UI shows a proxy label like "ES tape" only for proxied indices).
-    SPY/QQQ use their own tape; SPX/NDX resolve to ES/NQ front-month.
-    """
-    base = symbol.split()[0].upper()
-    key = footprint_cache_key(symbol, now)
-    proxied = INDEX_PROXY.get(base)
-    if proxied is not None:
-        contract = get_contract_for_symbol(proxied, now)
-        return key, contract, f"{proxied} tape"
-    if base in FUTURES_SCHEDULE:
-        return key, get_contract_for_symbol(base, now), ""
-    return key, get_stock_contract(base), ""
-
-
 def get_stock_contract(symbol: str, exchange: str = "SMART", currency: str = "USD") -> Contract:
     contract = Contract()
     contract.symbol = symbol

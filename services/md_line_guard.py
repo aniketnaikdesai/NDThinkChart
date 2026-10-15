@@ -10,7 +10,7 @@ Pure logic: assess a projected market-data line count against IBKR's
   refusal is explicit, never a silent drop
 
 The host (MainWindow) supplies the count and surfaces the warning; the
-session gates new D37 subscriptions (depth feeds, S0 lines) on the verdict.
+session gates its S0 lines on the verdict.
 """
 
 MD_LINE_CAP = 100

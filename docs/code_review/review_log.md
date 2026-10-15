@@ -2434,4 +2434,682 @@ empty, full clean offscreen suite green (**726 passed / 0 failed / exit 0**, ind
 criterion regressed). **No open escalations remain** — ESC-001…ESC-031 are all `addressed`. The pipeline can
 advance (build complete).
 
+---
+
+# Review — fresh live-run defect report (two TWS run-time errors), 2026-10-15
+
+**Reviewer:** Code Reviewer agent. **Tree:** `main @ 29067af`, working tree clean. **Nature:** an out-of-band
+defect report from a **live app run against TWS** — *not* a Build run. No agent has touched the code; nothing was
+fixed. **Scope:** the two tracebacks supplied verbatim, the three IBKR-side log lines in the same log, and the
+source those errors name (`ui/main_window.py`, `ui/active_portfolio_panel.py`, `data/models.py`, `ibkr/account.py`,
+`ibkr/bridge.py`, `ibkr/client.py`, `ibkr/market_data.py`, `data/db.py`). **No `build_log.md`/`failures.json` for
+these tasks exists** — the last pipeline build/review was D23 (`docs/build/build_log.md`, 726 tests); the tree is
+ahead of it (whole suite now **1028 tests, green / 0 failed**). Nothing was fixed; only `docs/code_review/` was
+written. **No live TWS in my runs** — every probe was `QT_QPA_PLATFORM=offscreen` against the real classes.
+
+**Method:** each error was reproduced independently offscreen from the real source (not from the traceback text),
+root-caused to `file:line`, then classified for owner. `git blame`/`git log -S` used for regression status.
+
+## A. Error A — `AttributeError: 'Position' object has no attribute 'id'` (portfolio panel) — **ESC-032, BUILD, blocking**
+
+- **Exact failure.** Every TWS position update raises at **`ui/active_portfolio_panel.py:308`**
+  (`strategy_by_id.get(pos.id, "—")`), reached via `ui/main_window.py:3317`
+  (`self.portfolio_panel.add_position(position)`) → `active_portfolio_panel.py:216 add_position` →
+  `:293 _group_and_render` → `:308 _render_table`. My offscreen repro reproduces the identical traceback.
+- **Root cause — two `Position` classes, wrong one on the wire.** There are two unrelated dataclasses named
+  `Position`:
+  - `data.models.Position` (`data/models.py:73-89`) — **has** `id: Optional[int] = None` (line 89). This is what
+    the panel is written against (`active_portfolio_panel.py:23`) and what `main_window.py:81` imports.
+  - `ibkr.account.Position` (`ibkr/account.py:20-39`) — **no** `id` attribute (it adds
+    `market_price`/`unrealized_pnl`/`realized_pnl` instead).
+  The live caller `ui/main_window.py::_on_position_update` builds the object with
+  `ibkr.account.build_position_from_ib` (`main_window.py:3293` → `ibkr/account.py:47`) → an
+  **`ibkr.account.Position`**, then feeds it to a panel whose parameter annotation
+  (`active_portfolio_panel.py:210`) and whose `main_window.py:3337` annotation both claim
+  `data.models.Position`. The `.id` deref also exists at `:287/:289` (option-leg grouping) and `:222/:344/:364`
+  (SL/TP, close). Verified: `hasattr(build_position_from_ib(...), 'id') is False`;
+  `ActivePortfolioPanel().add_position(ibkr.account.Position)` raises exactly; the same call with a
+  `data.models.Position` does not.
+- **Why it manifests now.** Both classes, the `add_position` call and the `.id` derefs are all from the initial
+  commit `90b4539` (2026-09-19). The path was **dead** until commit `d7e2dc27` (D27.5, 2026-10-12) supplied the
+  missing `stop_loss`/`take_profit` args (before that the call raised `TypeError` first) and commit `2bfd097b`
+  (D27.6, 2026-10-12) added the `reqPositions()` subscription (`main_window.py:1214`) so `position()` callbacks
+  actually fire. **Not a regression** — a long-standing latent defect newly *exposed* by D27.5/D27.6.
+- **Bulk-load path.** `_on_position_end` (`main_window.py:3319`) does **not** crash: it builds a
+  `data.models.Position` whose `id` defaults to `None`. But it is **degraded** — its `SELECT` (`:3323-3327`)
+  omits `id`, so **every** bulk-loaded position has `id=None`: the Strategy/Group columns render `—` and the
+  SL/TP dialog early-returns (`active_portfolio_panel.py:344`), and `_on_portfolio_sltp_changed` persists via
+  `UPDATE positions ... WHERE id=?` (`main_window.py:3400`). Same invariant (the panel needs a populated `id`),
+  so it is folded into ESC-032 rather than split out.
+- **User-visible impact.** The table render aborts inside `_render_table` on every update → Strategy/Group columns
+  and per-row P&L never appear; **`AC-D27.6` ("the portfolio panel populates", requirements.md:2882) is unmet**.
+- **Correct fix shape (direction, not a decision).** Converge the models and **populate `id`** — not a defensive
+  `getattr`. The panel needs a *real* id (grouping keys **and** `WHERE id=?` SL/TP persistence), so a defensive
+  read would silence the crash while leaving grouping/SL-TP silently broken and keeping the two-model drift that
+  caused this. `ibkr.account.Position` should carry `id` (or the models should converge on one, keeping the
+  `market_price` field the panel reads at `active_portfolio_panel.py:386`), populated from the DB by
+  `_upsert_position` (return the rowid), and `id` added to the `_on_position_end` SELECT. If converging on a
+  single canonical model is judged an architecture decision, it should go to Plan — hence noted in the direction.
+
+## B. Error B — `AttributeError: 'bool' object has no attribute 'strip'` (Load Chart button) — **ESC-033, BUILD, blocking**
+
+- **Exact failure.** `ui/main_window.py:1717` (`symbol = symbol.strip().upper()`), the `else` (parameter-supplied)
+  branch of `load_chart`.
+- **Root cause — Qt signal arity vs the parameterised method.** `ui/main_window.py:223`
+  `self.load_btn.clicked.connect(self.load_chart)`. `QPushButton.clicked` emits
+  `clicked(bool checked = false)`. Since commit `692bb61` (D28.2, 2026-10-13) the method is
+  `load_chart(self, symbol=None, timeframe=None, extended_hours=None)` (`main_window.py:1711`), so PyQt binds the
+  emitted `False` to `symbol` → not `None` → `False.strip()`. Verified offscreen: `clicked` delivers `(False,)`
+  to a slot that accepts args, and `MainWindow.load_chart`'s first parameter is `symbol`; a **0-arg** slot
+  receives nothing.
+- **Regression status: YES — a REGRESSION from D28.2.** Pre-D28.2 the method was `def load_chart(self):`
+  (`git show 692bb61^:ui/main_window.py:1062`), so PyQt dropped the bool and the button worked; the
+  caller-supplied-symbol `.strip()` exists only from D28.2.
+- **Other call sites checked — all safe.** `:1337 load_chart(symbol)` (str), `:214 returnPressed` (no-arg signal
+  → `symbol=None` → widget path), `:2952`/`:2971 load_chart()` (no args). No other bool-emitting signal is wired
+  to `load_chart`. So the button is the **sole** wrong-type caller today; the *class* of bug (a `bool`-emitting
+  signal wired to a value-first-parameter slot) is the general hazard noted in the escalation.
+- **User-visible impact.** The primary "Load Chart" control is dead (loads nothing, logs one traceback). Enter in
+  the symbol field and watchlist double-click still work, which is why the app remains usable.
+
+## C. IBKR-side log lines — assessed, **no escalation**
+
+- `2152 Exchanges - Depth: … Need additional market data permissions` and
+  `10090 Part of requested market data is not subscribed` are **account-entitlement** conditions, not code
+  defects. The app already handles them deliberately: `_on_error` routes depth errors
+  (`main_window.py:1664-1671`) to `TickerSession.on_depth_error` (`ticker_session.py:786`), which sets an explicit
+  `no_entitlement`/`unavailable` state for the heatmap, and the DOM path surfaces
+  `"depth subscription required."` (`main_window.py:1677-1683`). No unentitled-venue filtering is required by any
+  requirement; behaviour is degrade-gracefully as specified.
+- `SPY: No earnings dates found, symbol may be delisted` is **not** the app's text — it originates inside
+  **yfinance** (the D38 source calls `ticker.get_earnings_dates`, `data/events/yfinance_source.py:143`). SPY is an
+  ETF with no earnings, so the message is benign; the "may be delisted" wording is third-party and mildly
+  misleading but is not produced or controllable by this repo. **No route.**
+
+## D. Why the green 1028-test suite missed both (missing coverage)
+
+- **Error A.** The one test that drives the real path,
+  `tests/test_d27_account_subs.py::test_d27_6_positions_populate_panel`, emits the real
+  `bridge.position_update` and therefore **does** enter `add_position → _group_and_render → _render_table` and
+  **does** raise — I reproduced the full traceback under it — yet it **passes**. Two reasons: (1) the exception is
+  swallowed — `main.py`/`ui.main_window` import **pyqtgraph**, whose `pyqtgraph/Qt/__init__.py:314-318` installs a
+  non-abort `sys.excepthook`, so a slot exception is printed and dropped instead of aborting (this also explains
+  why the live app logs Error A *repeatedly* rather than crashing, and why the user's log shows it many times);
+  and (2) the assertion checks `any(p.symbol == "HELD" for p in ..._positions)` — `_positions` is appended
+  *before* the render throws, so the assertion passes while the table render is broken.
+  `tests/test_d27_position_prices.py` never reaches it at all: it **monkeypatches `add_position`** (`:65,:91,:106`)
+  so the real render never runs. The bug is one attribute-access removed from an assertion that would catch it.
+- **Error B.** **No test clicks the button.** The suite calls `load_chart()` / `load_chart(sym, tf)` directly
+  (e.g. `tests/test_d28_2_sessions.py:145`, `tests/test_d24_smoke_gate.py:50`) and never the toolbar signal
+  connection. Notably `tests/test_order_entry_mkt.py:6-8` documents the suite's habit of **avoiding `.click()`**,
+  because a slot exception can abort an offscreen process — so the button's signal→slot arity mismatch is never
+  exercised. `tests/test_toolbar_d20.py`/`test_toolbar_scroll_d19.py` list `load_btn` only for scroll-reachability.
+- **Implication.** Both are *signal-wiring / cross-object-type* defects that unit tests calling methods directly
+  (or stubbing the very method under test) structurally cannot see. Regression tests are warranted for both
+  (assertions specified in ESC-032/ESC-033); the ESC-032 test must assert on the **rendered table**, not on
+  `_positions` membership.
+
+## E. Escalation close-out
+
+- **None to close.** No prior escalation is open: ESC-030/ESC-031 remain `addressed` (both D23 fixes re-verified
+  green last pass), and `escalations.json` held no other open entry. Nothing routed to `BUILD`/`TASK_MANAGER`/
+  `PLAN`/`REQUIREMENTS` earlier in this file links to these two new defects.
+
+## F. Findings and routing
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-032 | D27-06 | **BUILD** | bug / **blocking** | Panel (written for `data.models.Position.id`) is fed `ibkr.account.Position` (no `id`) by the live `_on_position_update`; render aborts per update → AC-D27.6 unmet. Long-standing, newly exposed by D27.5/D27.6. |
+| ESC-033 | D28-02 | **BUILD** | bug / **blocking** | `load_btn.clicked` (emits `bool`) wired to the now-parameterised `load_chart(symbol=…)`; Clicking "Load Chart" raises. **Regression from D28.2.** |
+
+- **Owner rationale (not REQUIREMENTS/PLAN/TASK_MANAGER).** Both are code defects against clear requirements —
+  `AC-D27.6` (portfolio populates, requirements.md:2882) and `AC-D28.2` ("`load_chart` works without toolbar
+  widgets", requirements.md:2932, with the `load_chart(symbol, timeframe, extended_hours)` contract at :2909).
+  Neither the requirement nor the plan is wrong; `architecture.md` (`:215`, `:790-793`, `:519-521`) treats
+  `Position` as a **single** model, so `ibkr.account.Position`'s divergence is a code/consistency break against
+  the architecture's intent, not a bad architecture decision. No task-breakdown issue (no relevant task exists —
+  these are out-of-pipeline revision batches). So: **BUILD** for both, with the unify-vs-defensive judgement left
+  in ESC-032's direction (route to Plan only if the team treats "one canonical Position model" as an
+  architecture decision).
+- **Candidate note for `docs/memory.md` (Orchestrator to decide):** *The app has no explicit
+  `sys.excepthook`; its "print-and-continue" behaviour on slot exceptions is provided incidentally by
+  **pyqtgraph**, which is imported before `QApplication` in `main.py`. Any slot bug therefore becomes silent
+  log-spam rather than a crash, and offscreen tests can pass while the real path throws.* Separately: *two
+  `Position` dataclasses exist (`data.models` with `id`, `ibkr.account` with `market_price`) and are not unified.*
+
+**Pipeline state for the Orchestrator:** two **open, blocking** `BUILD` escalations (ESC-032, ESC-033) — the
+pipeline should **pause** for user approval / rework, not advance. The failure is verified, not hearsay; both are
+`BUILD`-owned code bugs (ESC-033 a D28.2 regression, ESC-032 a long-standing latent defect newly made live by
+D27.5/D27.6). Neither existing escalation (ESC-030/ESC-031) is affected. No live TWS or order path was touched by
+this review; only `docs/code_review/` was written.
+
+---
+
+# Review addendum — third live-run error (`QTableWidgetItem` deleted), 2026-10-15
+
+**Reviewer:** Code Reviewer agent. **Tree:** `main @ 29067af`, clean tree. Same out-of-band live TWS session; a
+**third** traceback, repeated three times. Nothing fixed; ESC-032/ESC-033 remain `open`. **Method:** reproduced
+offscreen against the real `WatchlistPanel` (not from the traceback text); `git blame` for regression status.
+
+## G. Error C — `RuntimeError: wrapped C/C++ object of type QTableWidgetItem has been deleted` — **ESC-034, BUILD, should-fix**
+
+- **Exact failure.** `ui/watchlist_panel.py:992`, the timeout lambda
+  `lambda: item.setBackground(QBrush(QColor('#101218')))` — the item it closes over has been deleted.
+- **Root cause — stale capture across a table rebuild.**
+  - `_flash(row, key, color)` (**`ui/watchlist_panel.py:981-994`**) resolves the *current* cell item
+    (`:983 item = self._item(row, key)`), highlights it (`:986`), creates a **single-shot `QTimer` parented to
+    the panel** (`:990 timer = QTimer(self)`), **captures that item by closure** in the lambda (`:992`),
+    `start(400)` (`:993`), and stores it at `:994`.
+  - `_rebuild_table` (**`ui/watchlist_panel.py:674-690`**) replaces **every** cell with a fresh
+    `QTableWidgetItem` via `self.table.setItem(row, col, item)` (**`:690`**); Qt deletes the previous item at
+    each `(row, col)` (`setColumnCount` at `:680` likewise drops removed-column items).
+  - `_rebuild_table` / `_apply_columns` (`:692-696`) **never touch `_flash_timers`** → an in-flight 400 ms timer
+    keeps its `(row, key)` entry and its reference to the freed item, and fires against it.
+  - **Why the timer outlives the item:** the `QTimer` is parented to `self` (the panel), so its lifetime is the
+    panel's; the item's lifetime is the cell's, which ends the moment the cell is replaced.
+- **Reproduction.** Real `WatchlistPanel` + fake md manager, offscreen: `add_symbol("AAPL", …)` →
+  `_flash(0, "last", GREEN)` → `_apply_columns()` (→ `_rebuild_table`) → event loop past 400 ms →
+  **the exact traceback at `:992`**.
+- **Who replaces the item (trigger).** `_apply_columns` is reachable **only** from the watchlist header menu:
+  `_on_field_toggled` (`:731-742`, add/remove a column) and `_move_field` (`:744-754`, move a column). So it
+  fires when the user changes the **column layout** while a flash is pending — and flashes start on *every*
+  last-price tick (`on_tick_price` → `_flash`, `:948-950`), so the window is hit often during market hours.
+  Three occurrences fit a user toggling a few fields. No programmatic caller exists (grep: only the panel's own
+  handlers + tests).
+- **Lifetime contract — classification.** This is a **stale-capture lifetime bug** (a closure outliving the C++
+  object it captures), *not* a missing-parent bug (the timer's parent `self` is correct) and *not* a
+  teardown-order bug (teardown is safe — `closeEvent` calls `watchlist_panel.clear()` at
+  `ui/main_window.py:3568`, and `clear` `:899-915` stops+clears every timer before `setRowCount(0)`).
+- **`remove_symbol` is NOT the culprit (the task's hint, checked).** `remove_symbol` (`:841-897`) stops the
+  removed row's timers (`:874-876`) and re-indexes the surviving `_flash_timers` keys (`:893-896`). I verified
+  empirically that flashing then removing an earlier row, removing the flashed row, and `clear()` all leave no
+  stale timer (the moved items survive `removeRow` as the same C++ objects). **`_rebuild_table` is the sole path
+  that deletes flashed items without invalidating the timers.**
+- **Correct fix shape (direction).** Prefer **lazy resolution at fire time**: connect the timeout to a small
+  `_unflash(row, key)` that re-resolves `self._item(row, key)` and resets it (or no-ops if gone) — mirroring the
+  existing `_set_cell`/`_set_foreground` pattern (`:969-979`) and robust to *any* future item replacement. A
+  valid alternative is to **invalidate in `_rebuild_table`** (stop/clear `_flash_timers` before replacing, as
+  `clear` already does) — semantically fine because the replacement items start default-coloured. **Merely
+  masking** (avoid): `try/except RuntimeError` around the callback, or `shiboken6.isValid(item)` — both silence
+  the traceback while keeping a dangling intent that never resets anything.
+- **Regression status: not a regression from D22/D23 — it dates to D21's configurable columns.** `git blame`:
+  the flash lambda + timer are the **initial commit `90b4539` (2026-09-19)**; the `_flash_timers` keying and
+  `_rebuild_table` arrived with **`286341e9` (D21, 2026-10-06)** — the configurable-columns feature
+  (`watchlist_panel.py:244` "Columns are configurable (D21.5)") is what introduced item replacement, making the
+  latent mismatch reachable. The `remove_symbol` timer handling is the later **`031ea994` (D22 + D23,
+  2026-10-07)**, which actually *hardened* removal. So: the lambda predates D21; the bug became reachable in D21;
+  D22/D23 did not cause it.
+- **User-visible impact — log spam, not breakage.** The replacement item (`:686`) is created with the **default**
+  background, so no watchlist highlight is stuck or corrupted and the panel keeps working; the failed callback
+  would only have reset the already-discarded old item. So **should-fix**, not blocking.
+- **Interaction with ESC-032.** Same *theme* (a Qt slot touching a deleted C++ object) but a different object
+  type and lifetime (`QTableWidgetItem` captured by a closure vs an attribute dereference on a wrong-typed
+  Python object); no shared cause or shared fix.
+- **Why it is log spam rather than a hard failure.** Same mechanism as ESC-032 — `main.py:3` imports
+  **pyqtgraph**, whose `Qt/__init__.py:314-318` installs a non-abort `sys.excepthook`, so the QTimer-slot
+  exception is printed and swallowed. Verified: a timer-slot exception **aborts** the process without pyqtgraph
+  (`exit 134`) and **survives** with it (`exit 0`). Under PyQt's default hook the process would abort instead —
+  so this also means a test that drives the flash+rebuild under the event loop can abort the harness (see below).
+- **Warranted regression test.** Add a symbol, start a flash (`_flash(0,'last',GREEN)`, or drive
+  `on_tick_price` twice so `old is not None`), call `_on_field_toggled(<inactive field>, True)` /
+  `_apply_columns()`, run the loop past 400 ms, and assert (a) **an empty record of unhandled exceptions**
+  (install a temporary `sys.excepthook` that records — the suite's pyqtgraph hook swallows them, so a bare
+  `# no exception` expectation does not exist) **and** (b) the current cell's background is the default
+  `#101218`. Test must not rely on the exception propagating to fail it.
+
+## H. Findings and routing (addendum)
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-034 | D21-05 | **BUILD** | bug / **should-fix** | Flash timeout lambda captures a `QTableWidgetItem` that `_rebuild_table` (via a header column change) replaces/deletes; the panel-parented `QTimer` outlives it → `RuntimeError` at `watchlist_panel.py:992`. Not a regression (dates to D21 configurable columns); log spam only. |
+
+- **Owner rationale.** Pure code defect: `_flash` and `_rebuild_table` are correct in isolation; the bug is the
+  missing invalidation between them (a lifetime/consistency break). Requirements (watchlist cells flash on
+  ticks, `watchlist_panel.py:242`) and the design are fine; not a task-split or architecture issue → **BUILD**.
+- **Cross-finding note for the Orchestrator:** ESC-032, ESC-033 and now ESC-034 are all *live-run, no-test*
+  defects on paths the 1028-test suite never exercises, and all three are invisible-as-failures because of the
+  pyqtgraph non-abort `sys.excepthook` (or, for ESC-033, because the button signal is never exercised). Same
+  candidate memory note as before.
+
+**Pipeline state for the Orchestrator:** **three open `BUILD` escalations** — ESC-032 (blocking), ESC-033
+(blocking), ESC-034 (should-fix). Pipeline should **pause** for user approval / rework. ESC-030/ESC-031 remain
+`addressed`. Only `docs/code_review/` was written; no code/requirements/plan/architecture/task/build file touched.
+
+Status: REVIEW_COMPLETE
+
+---
+
+## Owner symptom: "I have L2 in TWS but can't see depth in the app" — diagnosis (2026-10-15)
+
+**Deliverable:** the plain-language answer and the full evidence live in
+`docs/code_review/market_depth_permissions.md` (§ "Follow-up — diagnosis of the user-visible symptom").
+This entry records the routed finding only.
+
+**Asked:** *"why can't I see depth in the app when TWS shows it, and why is the error showing"* — replacing the
+earlier framing that asked the owner to pick option (a)/(b)/(c).
+
+**Two independent causes, same symptom:**
+
+1. **PROVED (default-ON heatmap).** The heatmap requests SMART-aggregated depth correctly
+   (`isSmartDepth=True`, `ibkr/market_depth.py:65`) but `TickerSession.on_depth_error` maps **every** code ≠ 354
+   to `"unavailable"` and calls `_cancel_depth()` (`ui/ticker_session.py:786-798` → `:748-759`), tearing down the
+   shared feed. Reproduced offscreen: `on_depth_error(2152, …)` → `state='unavailable'`, `req_id=None`,
+   `active_feeds 1→0`; panel text "Depth unavailable". So the app discards the entitled-venue book that TWS
+   renders. **Already covered by ESC-035 / Q46 — not duplicated here.**
+2. **NEW — PROVED code shape, INFERRED consequence (ESC-039).** The Active-Trader ladder pairs a `SMART`
+   contract with `isSmartDepth=False` (`ibkr/market_depth.py:25` + `ibkr/contracts.py:187`). Proved offscreen:
+   ladder emits `('reqMktDepth', 1, 'SMART', 'STK', 10, False)`; heatmap emits `(…, True)`. IBKR documents
+   `False` as *direct routed* ("must name a venue"); a third-party test reports SMART + non-smart returns no
+   data. Inferred (not locally verifiable): the ladder stays empty for stocks even without 2152. Ladder feed is
+   default-OFF (`ui/main_window.py:252`), so it is not the cause of the blank default view.
+
+**Verdict:** cause 1 is an undefined-behaviour/over-reaction (already ESC-035/Q46 — the fix that *alone* makes
+the app show what TWS shows); cause 2 is a distinct code defect.
+
+### Finding and routing
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-039 | — (D18/D35 DOM ladder; not in the current D23 task graph) | **BUILD** | bug / **should-fix** | Ladder requests `reqMktDepth(…, isSmartDepth=False)` on a `SMART` contract — an incoherent pairing per IBKR's direct-routed semantics; likely yields no book even without 2152. `ibkr/market_depth.py:25` + `ibkr/contracts.py:187`; emitted from `ui/main_window.py:2995-3019`. |
+
+- **Owner rationale:** a concrete implementation defect (wrong flag for the contract passed), distinct from the
+  ESC-035 policy decision → **BUILD**. If ladder semantics are meant to be per-venue rather than SMART, the
+  choice should reach REQUIREMENTS/PLAN first (noted in `suggested_direction`).
+- **ESC-035 not duplicated:** it already covers "2152 has no defined behaviour" and remains the single entry for
+  cause 1 (owner decision Q46 pending).
+- **Proved vs unverifiable:** request shapes, teardown, panel states, defaults and `classify_error(2152)='warning'`
+  are proved in-repo (`file:line` above); "IBKR keeps streaming the entitled book after 2152" and "SMART +
+  `isSmartDepth=False` returns no data" are IBKR-side facts **not verifiable locally** (flagged in the report).
+
+**Pipeline state for the Orchestrator:** open escalations now include ESC-032/ESC-033 (blocking), ESC-034,
+ESC-035, ESC-036, ESC-037, ESC-038, and the new **ESC-039** (should-fix). Only `docs/code_review/` was written;
+no code/requirements/plan/architecture/task/build file was touched.
+
+Status: REVIEW_COMPLETE
+
+---
+
+# Review — 2026-10-15 — Owner question: "Do I have the permissions needed for the footprint chart?"
+
+**Reviewer:** Code Reviewer agent
+**Reviewed revision:** repo `main` @ `29067af` (working tree carries only docs/`docs/code_review/` edits from
+parallel reviewer sessions)
+**Scope:** the owner's question only — nothing in `build_log.md` / `failures.json` was re-reviewed, and no
+already-reviewed task's files changed since the last `REVIEW_COMPLETE`.
+**Method:** read the real source and reproduced the error path offscreen; every claim cites `file:line`.
+Nothing was fixed. Investigation written to **`docs/code_review/footprint_permissions.md`** (new file).
+**Concurrency:** the two shared files were otherwise quiescent this pass (max id ESC-039); one new entry appended.
+
+## Finding and routing
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-040 | — (D36 footprint; not in the current D22/D23 task graph) | **BUILD** | bug / **should-fix** | `ui/ticker_session.py::TickerSession.on_fp_error` (`:1299-1322`) never resolves an IBKR error on a footprint request to a user-visible state and **explicitly ignores code 162** (`if job is not None and code != 162`, `:1315`) — IBKR's *"No market data permissions"* code for historical data, not pacing-only. Bars stay `loading` forever (`services/footprint_service.py:412-422`; `ui/chart_panel.py:742-745` shows "Footprint loading…" indefinitely); `mark_no_tick_data()` (`:401-404`) is dead code; no test covers the error path. |
+
+### What the owner's question resolves to
+
+- **The footprint does not need the depth (L2) entitlement.** It uses **only** `reqHistoricalTicks`
+  (`ibkr/tick_history.py`, whole file), a different request family from `reqMktDepth`. **The owner's L2 gap
+  (BATS/NASDAQ/ARCA/BEX/NYSE) is irrelevant to the footprint.**
+- **What it does need** (IBKR-documented, not locally verifiable): a **Level 1 / Top-Of-Book** market-data
+  subscription for the instrument — the same *class* the ordinary chart bars require, and **different/lighter**
+  than L2 depth. IBKR's Historical Time & Sales page: *"Time & Sales data requires a Level 1, Top Of Book
+  market data subscription"* (covers both `TRADES` and `BID_ASK`).
+- **The app cannot answer this for the user.** Unlike depth (`354 → no_entitlement`, `ui/ticker_session.py:794-795`)
+  and news (`reqNewsProviders` → "No API news subscription", `ibkr/news.py:50`, `ui/news_digest_dock.py:146-148`),
+  the footprint has **no entitlement probe and no "not subscribed" state** — the inference-only situation is
+  itself the finding (ESC-040).
+
+### Proved vs unverified
+
+- **Proved in-repo (`file:line`):** request shape (`ibkr/tick_history.py:35,50-88`; `ui/ticker_session.py:1202-1209,
+  1379-1393`); 60-request wave cap (`services/footprint_service.py:46`; `ui/ticker_session.py:1173-1175`) and
+  600s/60 pacing (`config/settings.py:35`); proxy contracts (`ibkr/contracts.py:133-138,160-178,181-187`);
+  error routing/handling (`ibkr/error_codes.py:12`; `ibkr/client.py:228-245`; `ui/main_window.py:1650-1676`;
+  `ui/ticker_session.py:1626-1635, 1299-1322`); states/UI (`services/footprint_service.py:392-404, 412-422`;
+  `ui/chart_panel.py:359, 737-745`); the offscreen reproduction (codes 162/354/10197/10168/200 → all bars
+  `loading`, `no_tick_data=False`); missing coverage (`on_fp_error` in no test).
+- **IBKR-side (documentation, unverified locally):** Level 1 requirement for historical ticks; `162` =
+  "Historical market data Service error message" incl. "No market data permissions"; the exact code IBKR emits
+  for a missing permission on historical *ticks* (expected 162).
+- **Observation, not escalated:** the datetimes are formatted in **UTC** (`services/footprint_service.py:69-71`)
+  while IBKR docs say they "use the TWS timezone specified at login" — shared with the bars path
+  (`services/backfill_service.py:128-133`), which works in practice, so I could not substantiate a defect.
+
+### Distinctness / not duplicated
+
+- **Not ESC-035** (depth `2152` → `unavailable`, a REQUIREMENTS behaviour decision) — this is the footprint's own
+  error path, a different subsystem and symptom (stuck loading, not blank).
+- **Not ESC-039** (DOM-ladder request shape). **No request-shape defect found** — the request combination is valid
+  (exactly one of start/end set; `numberOfTicks=1000` = IBKR max; `BID_ASK`/`TRADES` Level-1-gated).
+
+**Pipeline state for the Orchestrator:** open escalations now include ESC-032/ESC-033 (blocking), ESC-034,
+ESC-035, ESC-036, ESC-037, ESC-038, ESC-039, and the new **ESC-040** (should-fix). Only `docs/code_review/`
+was written (`footprint_permissions.md`, `escalations.json`, this log); no code/requirements/plan/architecture/
+task/build file was touched.
+
+Status: REVIEW_COMPLETE
+
+---
+
+# Revision 12 review — live-run defect: portfolio shows `HELD` / `H`; options read `STOCK`; `Account: —` — 2026-10-15
+
+**Reviewer:** Code Reviewer agent. **Scope:** a fresh owner report (*"In portfolio I can see `HELD` and
+`H` symbol"*) with a positions-table screenshot, diagnosed from the source. Full investigation in
+`docs/code_review/portfolio_held_rows.md`. **Method:** read-only dump of the production SQLite DB and
+of both `ui/main_window.py::_on_position_update` / `_on_position_end` and
+`ui/active_portfolio_panel.py`; introspection of the installed `ibapi` (`9.81.1.post1`);
+`config/paths.py` path-selection proof by subprocess. **No live TWS was used by this review.**
+Nothing was fixed; only `docs/code_review/` was written (the production DB was opened `-readonly` and
+its junk rows were deliberately **not** deleted). **The task-graph is Batch 17 / D23 (`READY_FOR_BUILD`)
+and does not cover this report**, so there is no per-task result to review — these are live-run defects
+of the same class as ESC-032…ESC-042.
+
+## A. Finding — `HELD`/`H` are persisted production-DB rows, not live positions (ESC-043)
+
+- **Category** `bug` · **root-cause classification** `code_bug` (persistence/isolation + unscoped render)
+  · **severity** `should-fix` · **route** `BUILD`.
+- **Evidence.** Production DB `~/Library/Application Support/NDThinkChart/charting_app.sqlite3`,
+  `positions` table: row id 7 `HELD|DU123|999|stock|10.0|40.0|HELD|1.0|<NULL>|1.7976931348623157e+308|<NULL>`
+  (updated 2026-10-15 17:52:07 UTC) and row id 13 `H|DU1|1|stock|1.0|2.0|H|1.0||1.7976931348623157e+308||`
+  (17:52:16 UTC). Row 7 is an **arg-for-arg match** for
+  `tests/test_d27_account_subs.py::test_d27_6_positions_populate_panel` (`:78-94`);
+  row 13 matches no committed test (ad-hoc probe). The live account in the same table is `U13148604`.
+- **Why it renders.** `ui/main_window.py::_on_position_end` (`:3319-3335`) selects the **whole**
+  `positions` table with no account/qty filter and passes it to
+  `ActivePortfolioPanel.set_positions` → `_render_table` (`ui/active_portfolio_panel.py:295-314`). The
+  screenshot's 8 rows equal the table's 8 rows exactly.
+- **Why it could be written at all.** `config/paths.py::get_db_path` (`:68-81`) returns the user-space
+  production path whenever `DB_PATH` is unset (verified by subprocess);
+  `tests/conftest.py` (`:8-13`) sets `DB_PATH` to a temp file, so **pytest is hermetic** (verified: the
+  temp DB's `positions` table is empty, `sqlite_sequence.seq=1`). Only a **non-pytest** offscreen/REPL
+  probe that drives `_on_position_update` reaches the real DB. No seeding path exists.
+- **Impact.** Junk shown as holdings; selectable, and actable once ESC-032 populates `id`.
+
+## B. Finding — the position→model mapping reads contract fields that `ibapi.Contract` doesn't have (ESC-044)
+
+- **Category** `bug` · **classification** `code_bug` · **severity** `should-fix` · **route** `BUILD`.
+- **Evidence.** `ui/main_window.py:3286/3288/3290` read `class_`, `lastDateOrMonth`, `putCall`; the
+  installed `Contract` exposes `secType`, `lastTradeDateOrContractMonth`, `right` and **none** of those
+  three (introspection `hasattr == False`). Hence `contract_type` is **always `"stock"`** (every option
+  renders `STOCK` and never groups — `active_portfolio_panel.py:271`), `expiry` is always `None`,
+  `right` is always `None`; and `strike` (`:3289`) stores ibapi's `UNSET_DOUBLE`
+  `1.7976931348623157e+308` when unset. **Already recorded** as an open follow-up at
+  `docs/phase-changelog.md:176` and `docs/architecture.md:2524-2525, :2711` but with **no escalation and
+  no task**. The test that should catch it, `tests/test_d27_position_prices.py::_held_contract()`,
+  fakes the contract with the **same wrong attribute names**, so it cannot fail.
+- **One invariant, one escalation:** secType / expiry / right / sentinel-strike are the same defect
+  (wrong field names) — bundled, not filed as four cases.
+
+## C. Finding — `Account: —` is an independent summary-plumbing bug (ESC-045)
+
+- **Category** `bug` · **classification** `code_bug` · **severity** `should-fix` · **route** `BUILD`.
+- **Evidence.** `ui/active_portfolio_panel.py:262` reads `self._summary.get("Account","—")`, but
+  `ui/main_window.py:1219-1224` requests `AccountType,AvailableFunds,BuyingPower,TotalCashValue,
+  NetLiquidation` — there is **no `Account` tag**, and IBKR delivers the account id as the callback's
+  `account` arg (`_on_account_summary` `:3263-3270` → `self._account_id`), never in `_summary`.
+
+## D. Escalation close-out
+
+All previously open entries were re-checked against the tree: **ESC-032…ESC-042 remain `open`** — none
+links to a task that has since reached `done`, and no `architecture.md`/`plan.md`/`requirements.md`
+version relevant to them changed this cycle (ESC-032/ESC-033 are today's fresh live-run defects). No
+entry closed; no re-diagnosis performed beyond recording the residual. New this pass: **ESC-043,
+ESC-044, ESC-045** (all `BUILD`, `should-fix`).
+
+## E. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-043 | n/a (live-run) | BUILD | bug / should-fix | `HELD`/`H` are fixture rows persisted in the **production** `positions` table by a non-hermetic offscreen run; the panel renders the whole table unscoped (no account/qty filter) |
+| ESC-044 | n/a (live-run) | BUILD | bug / should-fix | `_on_position_update` reads `class_`/`lastDateOrMonth`/`putCall` — not real `Contract` fields — so options read `STOCK` (never group) and expiry/right are always None; unset `strike` stores the `UNSET_DOUBLE` sentinel |
+| ESC-045 | n/a (live-run) | BUILD | bug / should-fix | `Account: —` because the request omits/needs no `Account` tag while `_render_summary` reads `_summary["Account"]` |
+
+**Pipeline state for the Orchestrator:** open escalations now number **14** (`ESC-032`…`ESC-045`); the
+two `blocking` ones remain **ESC-032** (missing `Position.id` → live render aborts) and **ESC-033**
+(Load-Chart button). New this pass are **ESC-043/ESC-044/ESC-045** (all `BUILD`, `should-fix`, none
+blocks a task). Only `docs/code_review/` was written (`portfolio_held_rows.md`, `escalations.json`, this
+log); no code, requirements, plan, architecture, task, or build file was touched, and the production DB
+was opened read-only.
+
+Status: REVIEW_COMPLETE
+
+---
+
+# D41 removal batch (Batch 18) review — 2026-10-15
+
+**Reviewer:** Code Reviewer agent. **Scope:** `docs/build/build_log.md` (Batch D41, ends `Status: READY_FOR_REVIEW`,
+65/65 done, 0 blocked) and the 39 tasks scoped by `docs/code_review/precheck.json`. Reviewed the uncommitted D41
+diff (working tree vs `29067af`) for each task's `files_changed`; read full files only where the diff was
+ambiguous. **No live TWS** — every run was `QT_QPA_PLATFORM=offscreen`; suite run as
+`.venv/bin/python -m pytest` (the `.venv/bin/pytest` entry point has a stale shebang). Mechanical facts
+(`files_changed` vs git, footprint vs `touches_files`, the doc scan) are taken from `precheck.json` as ground
+truth and **not** re-derived; judgment findings below were independently reproduced.
+
+## A. Verdict
+
+The D41 removals are correct and thorough; the KEEP-list substrate survives; the load-bearing order-gate
+re-homing is right. **Two findings**, both test-determinism/hygiene (not product defects): a **newly observed
+full-suite flake** in `tests/test_d27_reconnect.py` (**ESC-046**, should-fix) and the previously-noted
+thread-unsafe global `time.sleep` monkeypatch in `tests/test_d28_pacing.py` (**ESC-047**, nice-to-have).
+**ESC-035/ESC-039/ESC-040 are moot → closed.** The re-homed gates, the D38/D39 KEEP list, the footprint-table
+drop, the doc-only `subscription_manager.py` edit, and the `conftest.py` per-process DB were all independently
+verified.
+
+## B. The re-homed order gates (P1-T65) — VERIFIED
+
+`ui/main_window.py::_close_position_by_id` (`:3072-3157`) is now, in order: (1) the D26.9 disconnected guard
+(`:3083-3086` — refuse + status, **before** the row read and before any pacing token); (2)
+`validate_order(action, "MKT", qty, symbol, ref_price=self._ref_price_for(symbol), risk_reducing=True)`
+(`:3111-3119`) — refusal surfaced as `"Order rejected: …"` before the pacing deferral; (3)
+`order_limiter.try_acquire()` pacing deferral (`:3143-3151`); (4) `placeOrder` (`:3154`). `_ref_price_for`
+(`:2095-2104`) is an upper-case-normalised read of `_symbol_last_prices`, `None` for unknown.
+`ibkr/validation.py::validate_order` gained the additive `risk_reducing` keyword; the notional cap is skipped
+**only** when `risk_reducing` is true (`:69-76`) — every structural check is unchanged. `_place_order` /
+`_on_order_place_requested` are gone, and `validate_order`'s only production caller is `_close_position_by_id`
+(grep: `validate_order` at `:37` import + `:3111`; `placeOrder` only at `:3154`).
+`tests/test_d41_retained_order_path.py` exercises all four gate cases (disconnected refuse, invalid refuse,
+valid-above-cap transmit-once, risk-increasing-still-rejected) and is discriminating — the disconnected/invalid
+cases fail against a guard-less implementation. **No escalation.**
+
+## C. KEEP list (AC-D41.4) — VERIFIED intact
+
+`footprint_cache_key` (`ibkr/contracts.py:144`, used `ui/ticker_session.py:706`), `INDEX_PROXY`
+(`ui/alarm_dialog.py`, `services/alarm_monitor.py`), `md_line_guard.assess` (`ui/main_window.py:89`), the S0
+substrate, and `volume_baseline` are all present and exercised. The `footprint_cache` DDL is removed from
+`data/db.py` and `DROP TABLE IF EXISTS footprint_cache` added to `_migrate_schema` (`data/db.py:174`). All nine
+deleted modules and five deleted suites are absent (`find_spec`/path checks in `tests/test_d41_removal.py`).
+Import probe: `ui.chart_panel`, `ui.ticker_session`, `ui.main_window`, `ui.watchlist_panel`,
+`ui.active_portfolio_panel`, `ibkr.*`, `data.*`, `services.md_line_guard` all import cleanly; AST parse OK.
+Residue grep for 16 removed tokens (`FootprintItem` … `ensure_depth_subscribed`) → 0 hits outside `__pycache__`.
+
+## D. Provenance / orchestrator-completed tasks — VERIFIED
+
+The 8 `footprint_flags` in the results JSONs for the orchestrator-completed tasks
+(`P1-T09/10/11/18/27→split/35/36/38/41/66`) were read. The two files left non-importable mid-edit
+(`ui/chart_panel.py`, `ui/ticker_session.py`) are now import-clean with no dangling references (B/C above). The
+D10/D13 and dock suites are green (E). The `P1-T41`/`P1-T66` overlap on `tests/test_d10_d13_integration.py` is
+benign: P1-T66 added a bounded `_settle_dock_clamp` drain (80 turns **and** a 5.0 s monotonic deadline) between
+the overshoot drag and the width asserts; the asserts (`>= CHART_MIN_WIDTH`) are unchanged.
+
+## E. Independent suite evidence
+
+- Targeted D41 suites: `test_d41_removal` + `test_d41_portfolio_dock` + `test_d41_retained_order_path` +
+  `test_db_schema` + `test_d28_pacing` + `test_d28_6_close_contracts` + `test_d27_reconnect` +
+  `test_d10_d13_integration` → **38 passed**.
+- Full suite: **967 passed** on 2 of 3 runs; **1 failed** on the third (`test_d27_reconnect`). HEAD (`29067af`,
+  pre-D41) full suite → **1028 passed** on 3/3 runs. See F for the flake.
+
+## F. Findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-046 | P1-T59 | BUILD | quality / **should-fix** | Full suite intermittently red: `test_d27_reconnect.py::test_d27_3_drop_reconnect_reissues_with_rebound_reqids` `assert len(fake.rt_bars) == 2` sees 4 because `_on_connected()` restores a persisted pop-out (`POPA`) whose session subscribes RT bars through the test's recording fake; violates AC-D41.5's "suite green". |
+| ESC-047 | P1-T52 | BUILD | quality / nice-to-have | `test_d28_pacing.py` monkeypatches the **global** `time.sleep`; the D38 yfinance worker QThread (`data/events/yfinance_source.py:256`) can sleep on its own thread and append to the captured list → false red. |
+
+### F1 — ESC-046 (new full-suite flake, `test_d27_reconnect`)
+
+- **Reproduction.** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` → intermittent
+  `1 failed, 966 passed`; failure `tests/test_d27_reconnect.py:209 assert (4 == 2)` where
+  `4 = len([38, 40, 43, 45])`, `rt_id_1 = 40` (so `fake.rt_bars` already held **two** entries at line 197).
+  Passes 4/4 in isolation; fails 3/3 full-suite runs with `-x`. HEAD (pre-D41) full suite 3/3 green.
+- **Root cause (instrumented, not inferred).** A reviewer probe wrapping
+  `ibkr.realtime_bars.RealtimeBarsManager.subscribe` shows, under the failing test, **four** subscribes —
+  `POPA`×2 and `TEST`×2 — versus `TEST`×2 on a passing run and at HEAD. `win._on_connected()` →
+  `_restore_popouts()` (`ui/main_window.py:1057,796`) reopens a persisted pop-out whose record names symbol
+  `POPA` (the only file that uses `POPA` is `tests/test_d24_popouts.py`; persistence is
+  `data/popout_store.PopoutStore`). That pop-out's session subscribes RT bars through the same
+  `win.rt_manager` the test fakes (`win.rt_manager.client = fake`), so the test's `len(fake.rt_bars) == 2`
+  counts the pop-out's sub too (once on restore, once on the reconnect replay). The pop-out record survives
+  into this test despite the per-test `popouts` wipe — a pre-existing test-isolation gap (D24), newly
+  *observable* here because D41's collection changes let it survive into this test.
+- **Suggested direction.** Make the reconnect assertion count only the chart session's RT subs (e.g. filter by
+  the primary session's reqId), and/or isolate the pop-out store between tests (wipe/neutralise
+  `_restore_popouts` in the harness). Do **not** weaken the rebound / one-new-reqId guarantee.
+
+### F2 — ESC-047 (thread-unsafe global `time.sleep` monkeypatch)
+
+- **Mechanism verified; the red was not independently reproduced.** `tests/test_d28_pacing.py:97` does
+  `monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))` then asserts `sleeps == []` (`:107`).
+  `data/events/yfinance_source.py:256` calls `time.sleep(gap)` on its own `QThread` (the D38 event source,
+  `_MIN_CALL_GAP_S = 1.0`, `:33`); if that thread is mid-task during the test, its sleep lands in the global
+  `sleeps` list and the assertion fails on an unrelated thread. Both halves predate D41. In my runs the full
+  suite failed only via ESC-046 (never this test), consistent with the brief's "1/4 runs".
+- **Suggested direction.** Scope the capture to the GUI thread (patch `MainWindow`'s sleep reference, or record
+  the calling thread and assert only main-thread sleeps), or assert the observable deferral (status message +
+  one deferred subscribe) instead of "no sleep anywhere".
+
+## G. Non-escalation observations (recorded, no action)
+
+- **Dead-but-retained `bracket_order` (P1-T53).** `ibkr/orders.py::bracket_order` now has **zero production
+  call sites**: the only production `placeOrder` is `_close_position_by_id` → `order_registry.market_order`
+  (`ui/main_window.py:3154`); the SL/TP handlers (`_on_portfolio_sltp_changed` `:3020`,
+  `_on_portfolio_group_sltp_changed` `:3032`) persist to the DB only. This is an **accepted KEEP-list
+  outcome** — `AC-D41.4` and the D41 "Scope — KEEP" list explicitly retain `bracket_order` ("incl.
+  `bracket_order`") and require it "present and exercised", and P1-T53 correctly re-points D26.8's
+  all-three-legs coverage at the builder. No code change is warranted. The residual is a
+  **requirements-wording nuance** only: the D41 entry's rationale that the SL/TP dialogs "place orders
+  through it" does not hold (they persist only), so the Requirements Analyst may wish to state explicitly on a
+  later pass that `bracket_order` is retained-but-currently-unreachable. **Not escalated** — the retention
+  decision is explicit and unaffected, and a separate entry would pause the pipeline for a doc nuance.
+- **Coverage that moved rather than disappeared (P1-T54, P1-T59).** P1-T54 dropped `test_order_validation.py`'s
+  two `_place_order` wiring tests; the gate's wiring is now carried by
+  `tests/test_d28_pacing.py::test_close_position_defers_when_limiter_empty` (which pins gate→pacing→transmit)
+  and `tests/test_d28_6_close_contracts.py`, recorded in the module docstring. P1-T59 dropped the DOM half of
+  `test_d27_reconnect.py`; the retained RT/S0/watchlist rebound coverage is intact. Both are legitimate
+  re-homings for removed features, not weakened assertions.
+- **Doc-only out-of-footprint edit (P1-T60).** `ibkr/subscription_manager.py`'s module docstring + the
+  `DEPTH`/`DEPTH_HEATMAP` tag removal are docstring/constant-only (verified by the diff: no behaviour change;
+  the two tags had no remaining consumers). Legitimate.
+- **`tests/conftest.py` (P1-T66).** Now `mkdtemp(prefix=f"ndtc_test_db_{os.getpid()}_")` with nothing removed;
+  the autouse `_isolate_test_db` table list and post-test wipe are byte-for-byte unchanged, and no path is
+  deleted that the process did not create. Legitimate (fixes the wave-wide `attempt to write a readonly
+  database` race). Minor: the per-process temp dirs are never cleaned up — acceptable, out of scope.
+
+## H. Escalation close-out
+
+- **ESC-035 (depth 2152), ESC-039 (ladder `SMART` + `isSmartDepth=False`), ESC-040 (footprint `on_fp_error`)**
+  → **`addressed`** (edited in place, `verified:` line added). Independently re-verified on the live tree: the
+  code each targets is gone — `on_depth_error`, `on_fp_error`, `mark_no_tick_data`, `MarketDepthManager`,
+  `subscribe_shared`, `reqMktDepth`, `isSmartDepth`, `FootprintService`, `"2152"` → 0 occurrences;
+  `ibkr/market_depth.py`, `ibkr/order_book.py`, `services/footprint_service.py`, `data/footprint_cache.py`,
+  `ui/footprint_item.py`, `ui/depth_heatmap_item.py`, `services/depth_heatmap.py`, `ibkr/tick_history.py`,
+  `ui/active_trader_panel.py` all absent. The features are removed, so the findings are moot (as
+  `requirements.md` itself records).
+- **ESC-032, ESC-033, ESC-034, ESC-036, ESC-037, ESC-038, ESC-041, ESC-042, ESC-043, ESC-044, ESC-045 remain
+  `open`** — none is D41's work, and the D41 diff does not change my assessment of any (it touched none of
+  their cited code paths). Not re-diagnosed; left open.
+- **ESC-030, ESC-031 remain `addressed`** (unchanged).
+
+## I. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| ESC-046 | P1-T59 | BUILD | quality / should-fix | intermittent full-suite red in `test_d27_reconnect.py` (persisted pop-out `POPA` subscribes an extra RT bar through the test's fake) |
+| ESC-047 | P1-T52 | BUILD | quality / nice-to-have | thread-unsafe global `time.sleep` monkeypatch can capture the D38 yfinance QThread's sleep |
+
+**Pipeline state for the Orchestrator:** the D41 batch is complete (65/65 done) and the removals are correct.
+Open escalations: **ESC-046 (BUILD, should-fix)**, **ESC-047 (BUILD, nice-to-have)**, plus the pre-existing
+ESC-032…ESC-045 (not D41's work). ESC-035/039/040 closed. The suite is green on most runs but **not
+deterministically** (ESC-046), so AC-D41.5's "suite green" evidence is not yet reliable.
+
+# Revision 16 review — Batch D41 rework verification (ESC-046 / P1-T59, ESC-047 / P1-T52), 2026-10-15
+
+**Scope (incremental, per `docs/code_review/precheck.json`):** only the two tasks whose results are newer than my
+last `REVIEW_COMPLETE` — **P1-T59** (`tests/test_d27_reconnect.py`, ESC-046) and **P1-T52**
+(`tests/test_d28_pacing.py`, ESC-047). Both `done`, both 1/1 and 2/2 pass, 0 fail_fast, 0 precheck escalation
+entries. Everything else in D41 is already reviewed and is **not** re-opened. Reviewed against the live working
+tree (uncommitted D41 diff), not the workers' reports. All runs `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`.
+
+## A. ESC-046 / P1-T59 — pop-out restore neutralised in the D27.3 reconnect harness — **VERIFIED, CLOSED**
+
+- **The fix (read + `git diff`).** `tests/test_d27_reconnect.py::_make_window` now sets
+  `win._restore_popouts = lambda: None` (line 164) before `win.show()`. `_on_connected()`
+  (`ui/main_window.py:1060`) therefore cannot restore a leftover persisted `POPA` record, so every subscription the
+  recording `_FakeTws` sees is the **chart session's own**. The stub is instance-scoped to the window under test and
+  is a genuine neutralisation of the restore path for this suite, not a counter tweak.
+- **The invariant's assertions are present and unweakened.** The reconnect block still asserts, verbatim:
+  `len(fake.rt_bars) == 2 and fake.rt_bars[1] != rt_id_1` (exactly one new reqId); `_surviving_mkt_lines == 2`
+  and `len(fake.mkt_data) == 2 * _surviving_mkt_lines` (watchlist row + session S0 each re-issued once per
+  connect — the count is re-derived from live routing state, not hard-coded); `set(fake.mkt_data[2:]).isdisjoint(
+  fake.mkt_data[:2])`; `win._rt_req_id == rt_id_2` ("stale RT reqId not rebound"); `primary_session.s0_req_id in
+  fake.mkt_data[2:]` (S0 rebound); the watchlist row rebound with `len(win.watchlist_panel._req_to_row) == 1`;
+  bars flow on the rebound `rt_id_2` (price 11.5); the **stale pre-drop `rt_id_1` is ignored** (price stays 11.5);
+  and `win._current_symbol == "TEST"` (no manual reload). Nothing was deleted or narrowed to make the count pass.
+  The only other test-content change since the last review is the already-accepted wave-37 DOM-depth removal (the
+  feature is deleted by D41).
+- **Not a masked product defect.** `_restore_popouts()` itself remains genuinely covered —
+  `tests/test_phase3_fixpass.py::test_fix3_restore_popouts_no_duplicates_on_reconnect` drives `_on_connected()`
+  twice with a persisted pop-out and asserts no duplicate window; `tests/test_d24_9_popout_persistence.py` covers
+  the store save/load/delete and open/close persistence. I also checked the one plausible hidden defect —
+  "a closed pop-out's deferred geometry save re-persists it" — and it does **not** exist: `ui/popout_window.py`
+  sets `WA_DeleteOnClose` (line 59), and my own probe showed that after `pop.close()` the pop-out's `QTimer`
+  C++ object is deleted and no `popouts` row is re-saved (the debounce timer dies with the window). The leftover
+  `POPA` row is therefore a **test-lifecycle** leak (a pop-out left open by a D24 test whose 500 ms geometry
+  single-shot fires after the autouse teardown wipe), not a product defect. It is now harmless to this suite.
+  (I tried to reproduce the residual leak directly — ran `tests/test_d24_popouts.py tests/test_d28_pacing.py` and
+  inspected the per-process test DB — and the `popouts` table was empty at exit; the leak is nondeterministic and
+  not currently observable, so it is recorded as an observation, not an escalation.)
+- **Determinism (my own runs).** 2 consecutive **full** offscreen suites: `967 passed`, EXIT=0 (23.5s each).
+  Plus 3 isolated runs and 1 `-x` run of `tests/test_d27_reconnect.py tests/test_d28_pacing.py`: `12 passed` each.
+  With the orchestrator's 3 and the worker's 4/4, this is 10+ consecutive green runs. AC-D41.5's "suite green"
+  evidence is now reliable.
+
+## B. ESC-047 / P1-T52 — GUI-thread-scoped sleep capture, D28.1 guarantee preserved — **VERIFIED, CLOSED**
+
+- **The fix (read + `git diff`).** `tests/test_d28_pacing.py::_capture_gui_sleeps` (lines 18-37) records
+  `time.sleep` only when `threading.current_thread() is threading.main_thread()` and never sleeps. **All three**
+  sleep-patching tests use it (`test_subscribe_raises_pacing_exceeded_without_sleep` :77,
+  `test_attach_live_feed_defers_with_status_and_retries` :118,
+  `test_close_position_defers_when_limiter_empty` :167); no bare `monkeypatch.setattr(time, "sleep", ...)` remains
+  in the file (grep). This matches the brief's "all three sleep-patching tests".
+- **Still genuinely falsifiable (my own probe).** Loading the module and exercising the helper directly: a
+  main-thread `time.sleep(0.01)` **is** recorded (`sleeps == [0.01]`); a worker-thread `time.sleep(0.01)` is **not**.
+  So a GUI-thread sleep still fails the `sleeps == []` assertion — the capture was not narrowed into something that
+  can never fail. The guard protects a real sleep site: `ibkr/pacing.py:40` (`PacingManager.throttle` →
+  `time.sleep`), reached from `ibkr/market_data.py:75/91/104` on the GUI thread. The D38 contaminant this excludes
+  is confirmed present: `data/events/yfinance_source.py:256` `time.sleep(gap)`, `_MIN_CALL_GAP_S = 1.0` (:33).
+- **P1-T52's original re-point intact (read + `git diff`).** `test_close_position_defers_when_limiter_empty` still
+  (a) drives a gate-rejected blank-symbol close and asserts **no transmit and no "pacing-limited" status** (proving
+  gate → pacing → transmit), (b) asserts the retained close defers with no GUI-thread sleep and a pacing-limited
+  status, (c) asserts **exactly one** transmit after the deferred retry; seeded `positions` rows are deleted in a
+  `finally` block (no leak into the shared DB — the ESC-043 lesson). No assertion removed or narrowed.
+- `tests/test_d28_pacing.py` 8 passed (isolated pair 12 passed, ×4 runs).
+
+## C. Escalation close-out
+
+- **ESC-046 → `addressed`** (edited in place, `verified:` line added) — see A. Independently re-verified.
+- **ESC-047 → `addressed`** (edited in place, `verified:` line added) — see B. Independently re-verified.
+- **ESC-032…ESC-045 remain `open`/`addressed` exactly as before** — none is D41's work; the two D41 files reviewed
+  here touch none of their cited code paths. Not re-diagnosed.
+
+## D. New findings
+
+None. Both invariants hold on the live tree; neither fix was superficial (no assertion removed, narrowed, or made
+unfalsifiable), and neither masks a product defect.
+
+**Pipeline state for the Orchestrator:** the D41 rework is complete and verified. ESC-046 and ESC-047 are closed;
+the only remaining open items are the pre-existing ESC-032…ESC-045 (not D41's work, open by design). The full
+offscreen suite is deterministically green (967 passed, EXIT=0, 2/2 of my runs). No D41 blocker remains.
+
 Status: REVIEW_COMPLETE

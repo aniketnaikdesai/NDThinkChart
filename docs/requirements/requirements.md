@@ -57,6 +57,37 @@
 > See D24–D28, Journeys 29–35, `AC-D24.*`–`AC-D40.*`, A56–A67, R51–R60, DG46–DG52. **Owner decision 2026-10-14
 > (Q41): D24–D28 approved as-built; D36–D40 as-built/APPROVED (see the Status block).**
 
+> **2026-10-15 — Batch 18 (D41): remove D36 (footprint) + D37 (depth heatmap / imbalance / auction) + the Active Trader DOM ladder — USER-REQUESTED; scope FINALISED 2026-10-15 (Q48/Q49 answered).**
+> The owner requested (verbatim): *"I want to remove footprint, Depth, Imbalance (IMB), Auction (AUC) and all
+> associated code from the app. There is no need for them when it does not work properly."* These are the
+> **D36** (footprint charts) and **D37** (depth heatmap + auction imbalance) features — both **built/merged**
+> and previously APPROVED — surfaced by the four floating controls in `ui/chart_panel.py` (`Footprint` +
+> `Classic`/`Tick count`, `Depth`, `IMB —`, `AUC —`). The owner's rationale ("does not work properly") is
+> corroborated by open Code Reviewer findings (**ESC-040** footprint never leaves `loading` on error 162 / no
+> not-subscribed state; **ESC-035** depth error 2152 blanks the default-ON heatmap; **ESC-039** the DOM ladder
+> pairs a SMART contract with `isSmartDepth=False`; plus a pending overlap investigation). **D41 is a removal
+> work item, not a fix.** `AC-D36.*` and `AC-D37.*` are **SUPERSEDED BY D41** (retained for history per DOC-4).
+> **D1–D35 and D38–D40 are NOT reopened**, and the shared substrate they reuse — D38 (news/dividends) and D39
+> (burst/search) — is **explicitly preserved** (S0 generic ticks, `INDEX_PROXY`, `footprint_cache_key`,
+> `md_line_guard`, `volume_baseline`).
+> **All owner confirmations are ANSWERED (2026-10-15):** **Q48 = YES** — D41 removes the **Active Trader DOM
+> ladder** (the whole depth path, not just the heatmap); **Q49 = "delete"** — the persisted D36 footprint data
+> (`footprint_cache` table + rows) is **removed**; and **Q50 = YES / YES** — D41 is **widened to the entire
+> Active Trader panel**: the **in-app order-entry UI** (MKT/LMT/STP/Bracket ticket) is removed with it (there is
+> **no in-app order ticket** afterwards), and the **right dock becomes Portfolio-only**. Portfolio's
+> **Close / Close Group / Flatten All** and the **SL/TP dialogs** remain — they place orders through the
+> **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket
+> construction, kill switch). All of `ui/active_trader_panel.py` (panel shell, ladder/book, order-entry widget,
+> its `header_bar`/`header_button`, `set_symbol`/`set_last_price`/`last_price`) is **REMOVED**, and the **D18
+> right-dock model** and **D21.13 dock-title-bar / collapse** clauses that assumed the two-section
+> Active-Trader+Portfolio region are **superseded by D41** (the right dock is now a single Portfolio section
+> with its width cap and header **re-derived**). The kept order path's `ref_price` (previously the panel's
+> `last_price`, fed by the DOM feed) now takes a **retained source** (the session's last price / watchlist
+> price map) — recorded as a Plan-level detail. Consequences: **ESC-039** is **moot** (no ladder request
+> remains); **ESC-035 / Q46 + DG64** (depth error 2152) are **moot — superseded by D41** (no depth feed
+> remains; the owner did not pick options (a)/(b)/(c)). See A68–A71 and `open_questions.md` Q48–Q50
+> (answered).
+
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
 official `ibapi`, live TWS port 7496) built through Phases 1–10. (That roadmap,
@@ -243,6 +274,8 @@ B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
   stale key is currently benign — so D23 does **not** reopen D22's feature criteria (`AC-D22.1`–`AC-D22.9` stand).
   See D23, Journey 28, `AC-D23.1.*`/`AC-D23.2.*`, A53–A55, R49–R50.
 
+- **D41 — remove the D36 footprint + D37 depth heatmap / imbalance / auction + the ENTIRE Active Trader panel (DOM ladder + order-entry UI) (NEW, 2026-10-15, USER-REQUESTED; scope FINALISED 2026-10-15 — Q48/Q49/Q50 answered):** the four chart-panel cluster controls (`Footprint` + `Classic`/`Tick count`, `Depth`, `IMB —`, `AUC —`) and **all of `ui/active_trader_panel.py`** (`ActiveTraderPanel` shell, the DOM ladder/book, and the in-app **order-entry widget** MKT/LMT/STP/Bracket) are removed, along with the **`DOM` toolbar button**; the persisted D36 footprint data (`footprint_cache` table + rows) is **deleted**; the **right dock becomes Portfolio-only**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) stays and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**; the kept order path's `ref_price` takes a **retained source**. The shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is preserved. See D41, Journey 36, `AC-D41.1`–`AC-D41.7`, A68–A71, R61–R62, and `open_questions.md` Q48–Q50 (answered).
+
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
 Editor & Validator, Task Manager, Build/Build Worker, and Code Reviewer — **may use the
@@ -311,16 +344,18 @@ repository files, which remain authoritative if the two disagree.
 | Test condition | The per-task pass/fail check for a defect fix; must be independently testable (Q3). |
 | Study | A technical indicator/overlay (SMA, EMA, VWAP, Bollinger, RSI, MACD, ICT, RTH gaps, VIX SD). |
 | Drawing | A user chart annotation (trendline, horizontal, zone, fibonacci, measure), optionally in a group. |
-| DOM / Ladder | Level II market-depth ladder with click-to-trade rows. |
+| DOM / Ladder | Level II market-depth ladder with click-to-trade rows. **REMOVED by D41 (2026-10-15)** — retained for history. |
 | Live-order path | Code that builds/transmits orders via `ibkr/orders.py` + `IBApiClient`. The per-run "gated
   in TWS" planning assumption is **retired** (owner decision 2026-10-14, Q42); D26 may be planned/decomposed
   against this path. Safety behaviour is unchanged: `IBKR_PORT != 7496` fails fast
   (`config/settings.py::check_live_port`), every order needs explicit user action, confirm dialogs remain, and
-  no automated test transmits an order. |
+  no automated test transmits an order. **After D41 (2026-10-15)** the in-app order-entry ticket is removed; the
+  retained order paths are Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**, which use
+  the retained machinery (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, the kill switch). |
 | Genuine closure | A market-closed interval that is legitimately non-trading (weekend, actual US-equity holiday, or overnight). Stays **empty** per D16 (`AC-D16.3`). **Dec 31 of a year whose next Jan 1 is a Saturday is NOT a genuine closure** — it is a trading day (`AC-D16.7`, ESC-023). |
-| Chart area | The central region of `MainWindow` holding the chart, excluding the docked panels (Watchlist on the left; the single Active Trader + Portfolio right dock). Panel caps in D17/D18 are percentages of **this** region (B1/B2), not of the whole window. |
+| Chart area | The central region of `MainWindow` holding the chart, excluding the docked panels (Watchlist on the left; the **Portfolio-only** right dock, after D41). Panel caps in D17/D18 are percentages of **this** region (B1/B2), not of the whole window. |
 | Chart-minimum rule | The hard floor (~400px) the chart area must keep, independent of the two docks (B3): each dock clamps against its own % **and** against the space left so the chart never drops below the minimum. Enlarging one dock can force the other to shrink. |
-| Right dock (D18) | The **single** `RightDockWidgetArea` region containing the Active Trader ladder and the Portfolio section stacked vertically (B2). Because it is one region, its two sections are inherently equal width; the 40%-of-chart-area cap applies to the region as a whole. |
+| Right dock (D18) | The **single** `RightDockWidgetArea` region on the right. **After D41 (2026-10-15) it contains the Portfolio section only** — the Active Trader ladder/panel is removed, so the former two-section "Active Trader + Portfolio" model is **superseded by D41** and its 40%-of-chart-area cap and header are **re-derived for the single section**. |
 
 ## User Journeys
 
@@ -816,6 +851,35 @@ repository files, which remain authoritative if the two disagree.
   re-grep PASSED. One load flake in the reviewer's run (`test_place_order_defers_when_limiter_empty`,
   wall-clock timing — order path untouched) — passes in isolation, not a regression.
 
+
+### Journey 36 — D41: the D36/D37 controls and the whole Active Trader panel are gone and nothing D36/D37/DOM/order-ticket ever runs
+- **Preconditions:** IBKR connected; a symbol is loaded (e.g. `SPY`, 5m); a checkout where D36/D37 and the whole
+  Active Trader panel (DOM ladder + order-entry ticket) were previously present; an existing user DB that may
+  carry a `footprint_cache` table.
+- **Steps:** 1) Inspect the chart's floating control cluster and the toolbar. 2) Load several symbols/timeframes
+  and watch the IBKR request log. 3) Exercise every remaining control (volume, zoom, alarms, studies, and the
+  **Portfolio** Close / Close Group / Flatten All + SL/TP dialogs). 4) Run the full offscreen suite. 5) Start the
+  app and load a chart. 6) Look at the right dock.
+- **Postconditions:** No `Footprint`, `Classic`/`Tick count`, `Depth`, `IMB —`, or `AUC —` control renders
+  anywhere, **no `DOM` toolbar button exists**, and **no Active Trader panel renders** — the **in-app
+  order-entry ticket** and the ladder/book tables are gone; **no** D36/D37/DOM-ladder IBKR request is ever
+  issued (no `reqHistoricalTicks`/`reqTickByTickData`, **no `reqMktDepth`/`cancelMktDepth` at all** — heatmap or
+  ladder, no generic-tick **`"225"`** auction line); the **right dock is Portfolio-only** (re-derived width cap
+  + header); the app starts and charts normally, the **retained order machinery** still builds/validates orders
+  for the Portfolio / SL-TP paths, and the full offscreen suite is green.
+- **Edge Cases:** the **DOM ladder is removed too** (Q48) — `MarketDepthManager`, `ibkr/order_book.py`,
+  `_subscribe_dom`, `_on_mkt_depth` and the ladder/book rendering all go, so **ESC-039** (the ladder's `SMART` +
+  `isSmartDepth=False` shape) is **moot**; the **whole Active Trader panel — including the `OrderEntryWidget`
+  order ticket — is removed** (Q50), so `ui/active_trader_panel.py` no longer exists and there is **no in-app
+  order ticket** (DG69); the **order execution/safety machinery** (`ibkr/orders.py`, `ibkr/validation.py`,
+  validate-order gate, bracket construction, kill switch) is **kept** for the retained **Close / Close Group /
+  Flatten All** and **SL/TP** order paths, and the retained path's `ref_price` comes from a **retained source**
+  (session last price / watchlist price map — Plan-level detail, DG71); the **right dock is Portfolio-only** and
+  the `D18`/`D21.13` two-section clauses are **superseded by D41** (DG71); the **D38** news digest + dividend
+  markers still work (S0 `"292"`/`"456"`); the **D39** burst/search still works (`INDEX_PROXY` /
+  `footprint_cache_key` / `volume_baseline`); the persisted `footprint_cache` table + rows are **removed** (Q49,
+  A69, DG70); the **order-entry tests** are re-pointed at the retained machinery or removed with the widget; the
+  `DOM` button's deletion changes the D19/D20 toolbar control set, so those geometry fixtures are re-checked.
 
 ## Acceptance Criteria (feature-level)
 
@@ -1797,6 +1861,21 @@ Chart; Q29 no-op semantics):**
     **missing trading session**, so it must be backfilled (`AC-D16.1`) or its shortfall surfaced
     explicitly (`AC-D16.4`) — **never** classified as a genuine closure and left as a silent hole.
 
+- **AC-D16.8 (minimum intraday history depth under RTH — 30 trading sessions; Q47/ESC-038, answered 2026-10-15)**
+  Given an intraday timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`) under **RTH**
+  (`extended_hours=False` → `useRTH=1`), When the symbol is loaded and all historical request(s) complete, Then
+  the displayed bar series covers **at least 30 trading sessions before the current session** — 30 **trading
+  sessions** (not 30 calendar days) — so the fetch/backfill must exceed one IBKR request window and extend
+  history **backwards**, not merely carry the current session. (`1 day` is not covered by this floor.)
+  - Measurable (offscreen, no live TWS): drive the real load path with a stubbed historical feed and assert the
+    resulting bar series spans **>= 30 distinct trading sessions before the current one** for each intraday
+    timeframe under RTH.
+  - **Practical consequence (implementation matter — Plan/Build, not a requirements gap):** IBKR caps `1 min`
+    at `1 D` per request, so the floor requires **chained, paced, backwards-extending fetches** — the D16
+    backfill today anchors at `min(present_days)` and heals only holes *inside* `[earliest_cached_day, now]`,
+    never backwards (DG65). If Plan judges this a **request-window strategy** change rather than a constant, the
+    downstream route is **Plan**; the requirement itself is settled here.
+
 **Correction record (ESC-023, 2026-10-02) — artifacts that must change:**
 - **Task Manager:** the `T37-T03` acceptance criterion in `docs/tasks/task-graph.json` currently
   encodes "New Year's 2022-01-01 Saturday gives 2021-12-31 Friday closed" — this is **wrong** and
@@ -1830,6 +1909,16 @@ Chart; Q29 no-op semantics):**
   mechanism (tail gap).
 - All timeframes and any symbol must behave identically (Q39), including `1 day` (which has a much
   wider configured duration).
+
+**Resolved (2026-10-15 — ESC-038 / Q47 answered):** the minimum intraday history depth under **RTH** is now
+specified — **a minimum of 30 trading sessions before the current session** for each intraday timeframe
+(`1 min`…`4 hours`) — recorded as **`AC-D16.8`**. `ibkr/market_data.py::TIMEFRAME_CONFIG` gives `1 min` a
+`"1 D"` window (exactly one RTH session under `useRTH=1`) and `services/backfill_service.py::find_missing_spans`
+anchors at the earliest cached day (never backwards), so a fresh `1 min` RTH chart shows one session — now a
+**shortfall against `AC-D16.8`**, no longer an unfiled behaviour. Delivering the floor needs chained, paced,
+backwards-extending fetches (IBKR caps `1 min` at `1 D` per request) — an implementation matter for
+**Plan/Build** (window strategy), not a requirements gap. See `design_gaps.md` **DG65** (resolved).
+
 
 ### D17 — Watchlist dock will not extend/reduce in full screen (D13 resize not effective)
 - **Area:** Watchlist dock / `ui/main_window.py` (`resizeEvent` clamp, `resizeDocks`, dock drag hook),
@@ -1927,6 +2016,17 @@ Chart; Q29 no-op semantics):**
   stacked), so the 40% cap applies to that region and the two sections are equal width by construction.
   B3 gives the combined rule: independent caps + chart minimum, so enlarging one dock can force the
   other to shrink.
+> **SUPERSEDED (partially) BY D41 — 2026-10-15.** The owner confirmed (Q50 = YES) that the **right dock becomes
+> Portfolio-only**: the **whole Active Trader panel** (its DOM ladder **and** its order-entry widget) is removed
+> by **D41**, so the two-section "Active Trader + Portfolio" model below no longer describes the shipped shape.
+> **Superseded clauses:** `AC-D18.3` (Active-Trader/Portfolio **equal width** — no longer two sections), the
+> **"Active Trader ladder + Portfolio"** wording in `AC-D18.1`/`AC-D18.2`, and the **ladder content** references
+> in `AC-D18.6`/edge cases. **Still in force:** the right dock must remain **fully visible in full screen** with
+> a **non-zero width** and remain **clamped against the chart minimum** (`AC-D18.1`/`AC-D18.4`/`AC-D18.5`/
+> `AC-D18.7`/`AC-D18.8`), now applied to a **single Portfolio section**. The **40%-of-chart-area cap (B2)** and
+> the **dock header** are **re-derived for the single-section dock** (see `### D41` and `design_gaps.md` DG71) —
+> the numeric cap and header mechanism are Plan-level details. The old clauses are kept below for history
+> (DOC-4), not silently deleted.
 - **Visual reference (ESC-004 gate):** the user supplied a full-screen screenshot (2026-10-03) showing
   the right side clipped off-screen — "Active Trader" title truncated at the far right ("Active Tra..."),
   with "Ladder / Ask Size" headers and a mostly empty ladder, then a "Portfolio" section ("Account
@@ -1970,22 +2070,28 @@ Chart; Q29 no-op semantics):**
   force it off-screen.
 
 **Acceptance Criteria (Given/When/Then) — FINAL:**
-- **AC-D18.1 (full-screen visibility; reported defect)** Given the app is shown **full screen**, When
-  the chart and the right region render, Then the right region (Active Trader ladder + Portfolio) is
+- **AC-D18.1 (full-screen visibility; reported defect)** *(The "Active Trader ladder + Portfolio" wording is
+  **superseded by D41** — the region is now **Portfolio-only**; the visibility requirement stands.)* Given the
+  app is shown **full screen**, When the chart and the right region render, Then the right region (Portfolio;
+  **was** Active Trader ladder + Portfolio) is
   **fully within the visible window area** — its left edge `>= chart area right edge` and its right edge
   `<= window right edge`, with a **non-zero visible width** — and is on-screen **without manual
   repositioning**. (Measurable: assert the dock's `geometry()` lies within the window's `rect()` and
   `width() > 0` in an offscreen full-screen-sized window.)
-- **AC-D18.2 (grow up to the 40%-of-chart-area cap; chart shrinks)** Given the right region is visible,
+- **AC-D18.2 (grow up to the cap; chart shrinks)** *(The **40%-of-chart-area cap is re-derived for the single
+  Portfolio section** by D41 — the numeric cap is a Plan-level detail; the grow/chart-shrink requirement
+  stands.)* Given the right region is visible,
   When the user enlarges it (drag the handle / `resizeDocks`), Then its width grows continuously up to
   `floor(0.40 × chart_area)` and the **chart area narrows correspondingly**. (Measurable: right-region
   width `<= floor(0.40 × chart_area)` during and after the resize; chart width decreases as the region
   grows.)
-- **AC-D18.3 (equal width by construction; B2)** Given the single right region is visible, Then the
-  Active Trader ladder section and the Portfolio section render at **equal width** — i.e. each section's
-  width equals the region's content width (they are stacked in one region). (Measurable: `active_trader
-  section width ≤ region content width` and `portfolio section width ≤ region content width`, and the
-  two sections' widths are equal within a 1px tolerance.)
+- **AC-D18.3 (equal width by construction; B2)** — **SUPERSEDED BY D41 (2026-10-15):** with the Active Trader
+  panel removed, the right dock is **Portfolio-only**, so there are no longer two sections to keep equal. (Kept
+  for history; the D18 visibility/clamp clauses still apply to the single Portfolio section.) Given the single
+  right region is visible, Then the Active Trader ladder section and the Portfolio section render at **equal
+  width** — i.e. each section's width equals the region's content width (they are stacked in one region).
+  (Measurable: `active_trader section width ≤ region content width` and `portfolio section width ≤ region
+  content width`, and the two sections' widths are equal within a 1px tolerance.)
 - **AC-D18.4 (reduce direction + stop at cap and minimum)** Given the right region is at/near its cap,
   When the user drags further to enlarge, Then the width **stops at the cap** with no overshoot; When
   the user drags to shrink, Then the region reduces down to its minimum and stops. (Measurable: no
@@ -1996,8 +2102,9 @@ Chart; Q29 no-op semantics):**
   **forces the other to shrink** rather than letting the chart collapse. (Measurable: set both docks
   near their individual maxima, then enlarge one; assert `chart_area >= 400px` and the other dock's
   width decreased.)
-- **AC-D18.6 (content must not push the dock off-screen)** Given the ladder/portfolio content is wider
-  than the region (e.g. a wide ladder), When the region renders, Then the region's own geometry still
+- **AC-D18.6 (content must not push the dock off-screen)** *(The **ladder content** reference is
+  **superseded by D41** — the region is Portfolio-only; the portfolio content rule stands.)* Given the
+  portfolio content is wider than the region, When the region renders, Then the region's own geometry still
   satisfies `AC-D18.1`/`AC-D18.2` — content minimums do not force it past the window edge or past the
   cap. (Measurable: with wide content, the region's `width()` and right edge still satisfy the
   visibility + cap assertions; content scrolls/clips internally instead.)
@@ -2362,6 +2469,16 @@ Chart; Q29 no-op semantics):**
 - **Status:** **clarified and finalised 2026-10-06 (B12 answered).**
 - **Reported (verbatim):** "Current state: user is unable to hide the active trader and account summary panels. fix: change the active trader label to active trader button, if a user clicks on the active trader button then the panel should be hidden. Change the account summary label to account summary button, if you set clicks on account summary button, then the account summary panel should be hidden. Is both the active trader panel and account summary panel are hidden, then the should call apps completely to the right and only occupy the width required to show the buttons. If only one panel is hidden and the other panel is open among active trader and account summary, then the hidden panel should collapse in height, and only occupy the space required to display the button. The other panel should expand to cover the space vacated by the hidden panel. If any panel is hidden, active trader or account summary that particular button should have a diagonal line crossing from top left to right bottom."
 - **Observed in repo:** the right dock is one region containing `ActiveTraderPanel` (tabs) and `ActivePortfolioPanel` (whose first widget is `summary_label = QLabel("Account summary — disconnected")`); neither has a hide button; the region's title bar reads "Active Trader".
+> **SUPERSEDED (partially) BY D41 — 2026-10-15.** The owner confirmed (Q50 = YES) that the **whole Active Trader
+> panel is removed** and the **right dock becomes Portfolio-only**, so the **two-toggle / two-section collapse
+> model** below no longer describes the shipped shape: **`AC-D21.13.1`** (making **"Active Trader" = the right
+> dock's title bar** one of the two toggles) is **superseded** — the right dock's title-bar widget can no longer
+> be the (removed) Active Trader header — and **`AC-D21.13.2`/`AC-D21.13.3`** (one-hidden-collapses-in-height
+> **of two** panels; both-hidden-collapses-horizontally) are **superseded** because only **one** section
+> (Portfolio) remains. The **`AC-D21.13.4`** strike-through convention **still applies** to the retained
+> Portfolio toggle. The **single-section** dock's **header / collapse affordance is re-derived** (see `### D41`
+> and `design_gaps.md` DG71) — the exact mechanism is a Plan-level detail. The DOM button referenced in the edge
+> cases below is **removed by D41**, so that reconciliation is moot. Old clauses kept below for history.
 - **AC-D21.13.1 (B12)** Given the right dock is visible, Then **"Active Trader" = the right dock's title bar** and **"Account Summary" = the portfolio's summary label**, and **both become toggle buttons**: the Active Trader button hides/shows the Active Trader panel, and the Account Summary button hides/shows the Account Summary (portfolio) panel.
 - **AC-D21.13.2 (B12)** Given **one** of the two panels is hidden, Then that panel collapses **in height** to just its button, and the other panel **expands** to fill the vacated vertical space.
 - **AC-D21.13.3 (B12)** Given **both** panels are hidden, Then the right dock collapses **horizontally** to the minimum width required to show the two buttons (the chart reclaims the width).
@@ -2787,6 +2904,19 @@ Chart; Q29 no-op semantics):**
   Not a feature; D1–D23 not reopened.
 - **Visual reference (ESC-004 gate):** NOT APPLICABLE — behaviour/correctness fixes, no UI-visual decisions
   (any label changes, e.g. D26.3's dialog labelling, are text-only).
+> **D41 interaction (2026-10-15, Q50 = YES).** The **order-entry UI** that D26 hardened — the `OrderEntryWidget`
+> MKT/LMT/STP/Bracket ticket (`ui/active_trader_panel.py`) and the DOM-ladder click-to-order (ask/bid) path — is
+> **REMOVED** by **D41**. **What goes:** the order-entry **UI surface** (those controls). **What stays:** **all
+> D26 safety requirements and machinery** — the single `validate_order()` gate (D26.7), bracket side-correctness
+> (D26.1), order-ID reservation (D26.2), the fail-fast port check (D26.5), the kill switch (D26.8),
+> rejection/registry/error handling and blocked-while-disconnected (D26.9) — because they **also guard the
+> retained order paths**: Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs** (D26.3)
+> place orders through the same `ibkr/orders.py` + `ibkr/validation.py` machinery. The **control-specific**
+> clauses that name the removed ticket — **`AC-D26.4`** (MKT buttons) and the order-entry/ask-click half of
+> **`AC-D26.6`** (its `_pending_ladder` ask-click path is on the removed ladder) — have **no control to exercise**
+> after D41; the **safety invariant they guarded** (validate with the spinbox quantity, `qty>0`, no traceback,
+> correct side) **remains required** for the retained controls. **Do not delete the safety machinery** when
+> removing the order-entry UI.
 - **Requirements (final — corrective, SHALL language):**
   - **D26.1 (B-0.1):** bracket-order stop-loss and take-profit children **SHALL** be placed on the **opposite**
     side of the entry (`BUY` entry → `SELL` STP + `SELL` LMT; `SELL` entry → `BUY` STP + `BUY` LMT).
@@ -2942,6 +3072,10 @@ Chart; Q29 no-op semantics):**
     regresses.
 
 ### D36 — Footprint charts (bid×ask volume-at-price) — as-built / APPROVED 2026-10-13
+> **SUPERSEDED BY D41 (2026-10-15)** — the D36 footprint feature is being **removed** at the owner's
+> 2026-10-15 request (see `### D41`). This section and `AC-D36.*` are retained **for history only** and are
+> no longer live criteria. The related ESC-040 open item (the footprint tick-request error path stuck in
+> `loading` on error 162 / no not-subscribed state) is made **moot** by D41 (the footprint is removed wholesale).
 - **Area:** `services/footprint_service.py` (`FootprintService`), `data/footprint_cache.py`
   (`FootprintCache`, `is_cacheable`), `ui/footprint_item.py` (`FootprintItem`),
   `ibkr/tick_history.py` (`TickHistoryManager.req_historical_ticks`), `ibkr/contracts.py`
@@ -2979,6 +3113,11 @@ Chart; Q29 no-op semantics):**
   produces a different cache key so an old tape never serves the new contract.
 
 ### D37 — Depth heatmap + auction imbalance — as-built / APPROVED 2026-10-13
+> **SUPERSEDED BY D41 (2026-10-15)** — the D37 depth heatmap / imbalance / auction feature is being
+> **removed** at the owner's 2026-10-15 request (see `### D41`). This section and `AC-D37.*` are retained
+> **for history only** and are no longer live criteria. The related open items — **ESC-035** (depth error 2152;
+> Q46/DG64) and, because **Q48 (2026-10-15) also removes the Active Trader DOM ladder**, **ESC-039** (the ladder's
+> `SMART` + `isSmartDepth=False` request shape) — are both made **moot** by D41 (no depth feed remains).
 - **Area:** `services/depth_heatmap.py` (`DepthHeatmapService`), `ui/depth_heatmap_item.py`
   (`DepthHeatmapItem`), `services/md_line_guard.py` (`assess`), `ui/chart_panel.py`
   (`DepthHeatmapItem`, `set_depth_state`, auction chip), `ui/ticker_session.py` (S0 union subscription,
@@ -3010,6 +3149,14 @@ Chart; Q29 no-op semantics):**
   auction ticks outside auction windows; reconnect mid-session (depth replays via D27); MPID vs exchange rows in
   SMART depth (`isSmartDepth`); symbol with no views → no headless depth (feed lives only while `views > 0`);
   delayed-depth instead of 354 renders unlabelled (known limitation, recorded).
+
+**Moot (2026-10-15 — D41 / Q46 supersession):** the ESC-035 question about IBKR depth error **2152**
+("Market depth smart depth exchanges" — a *partial* venue-permission report) is **moot**. The D37 depth feed is
+being **removed** by **D41** (and Q48 also removes the DOM ladder), so there is **no depth feed whose 2152
+behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); the correct resolution is
+**supersession by D41**. `ibkr/error_codes.py::classify_error`'s 2152 handling and
+`ui/ticker_session.py::TickerSession.on_depth_error` are removed with the feature.
+
 
 ### D38 — Event markers + news-for-holdings digest — as-built / APPROVED 2026-10-13
 - **Area:** `data/events/provider.py` (`Event`, `EVENT_TYPES`, corporate-events-only guard,
@@ -3113,6 +3260,171 @@ Chart; Q29 no-op semantics):**
   connect); reconnect timer cancel-then-armed (no double-arm); backfill waves in flight keep generation
   fencing; TWS daily auto-restart classifies as TWS-gone; 502 at startup with no prior connection surfaces.
 
+### D41 — Remove D36 (footprint) + D37 (depth heatmap / imbalance / auction) + the **entire Active Trader panel** (DOM ladder + order-entry UI) — USER-REQUESTED 2026-10-15
+- **Area (REMOVE):** the D36/D37 feature code across `ui/chart_panel.py` (floating cluster + render layers),
+  `ui/ticker_session.py` (footprint / depth / auction), `ui/main_window.py` (wiring), and the feature-exclusive
+  modules `ui/footprint_item.py`, `ui/depth_heatmap_item.py`, `services/footprint_service.py`,
+  `services/depth_heatmap.py`, `data/footprint_cache.py`, `ibkr/tick_history.py`; plus the D36/D37 halves of
+  `ibkr/bridge.py` (historical-tick signals), `ibkr/client.py` (`historicalTicks*` overrides),
+  `ibkr/subscription_manager.py` (`DEPTH_HEATMAP` tag), `ibkr/contracts.py` (`resolve_footprint_contract`),
+  `data/db.py` (`footprint_cache` DDL), and the two feature test files `tests/test_d36_footprint.py` /
+  `tests/test_d37_microstructure.py`. **Scope widened 2026-10-15 (Q48 = YES):** the **Active Trader DOM
+  ladder** depth path is **also removed** (see "Scope — REMOVE", DOM ladder bullet). **Scope widened again
+  2026-10-15 (Q50 = YES / YES):** the removal now covers the **entire Active Trader panel** — the ladder/DOM
+  **and** the in-app **order-entry widget** — and the **right dock becomes Portfolio-only** (see "Scope —
+  REMOVE", the "Active Trader panel — whole" bullet, and "Scope — KEEP").
+- **Status:** **NEW / USER-REQUESTED 2026-10-15; scope FINALISED 2026-10-15 (Q48/Q49/Q50 answered)** — a
+  **removal** work item that **SUPERSEDES `AC-D36.*` and `AC-D37.*`** (retained for history per DOC-4) **and
+  supersedes the affected `D18` and `D21.13` clauses** (the two-section Active-Trader+Portfolio dock model; see
+  those entries' supersession notes). D1–D35 and D38–D40 are **not** reopened; the **retained order machinery**
+  (execution/safety) is **not** removed.
+- **Rationale (owner, verbatim 2026-10-15):** *"I want to remove footprint, Depth, Imbalance (IMB), Auction
+  (AUC) and all associated code from the app. There is no need for them when it does not work properly."*
+  Corroborated by open findings ESC-040 (footprint), ESC-035 (depth 2152), ESC-039 (DOM ladder SMART /
+  `isSmartDepth`), and a pending overlap investigation (DG68). **Owner follow-ups (Q50, 2026-10-15):** remove
+  the **whole Active Trader panel** — the in-app **order-entry UI** goes with it (there is **no in-app order
+  ticket** afterwards) — and make the **right dock Portfolio-only**. Portfolio's **Close / Close Group /
+  Flatten All** and the **SL/TP dialogs** remain and place orders through the retained order machinery.
+- **Scope — REMOVE (feature-exclusive):**
+  - **D36:** `FootprintItem` (`ui/footprint_item.py`), `FootprintService` (`services/footprint_service.py`),
+    `FootprintCache`/`is_cacheable` (`data/footprint_cache.py`), `TickHistoryManager` (`ibkr/tick_history.py`),
+    the `historical_ticks_bid_ask`/`historical_ticks_last` bridge signals + `historicalTicksBidAsk`/
+    `historicalTicksLast` overrides, the `footprint_cache` DB table DDL, the session footprint
+    wave/forming/snapshot/cache, the chart `Footprint`/`Classic`/`Tick count` controls + render/status layer, and
+    `ibkr/contracts.py::resolve_footprint_contract`.
+  - **D37:** `DepthHeatmapItem` (`ui/depth_heatmap_item.py`), `DepthHeatmapService` (`services/depth_heatmap.py`),
+    the chart `Depth`/`IMB —`/`AUC —` controls + heatmap strip + state text, the session depth
+    refcount/shared-feed/error-state (`ui/ticker_session.py` `subscribe_shared`/`release_shared`/
+    `resubscribe_shared`/`on_depth_update`/`on_depth_error`, session `depth_req_id`), the auction S0 **`"225"`**
+    need + `auction_state`, and the `DEPTH_HEATMAP` subscription tag.
+  - **DOM ladder (widened 2026-10-15, Q48 = YES):** the whole Active Trader depth path —
+    `ibkr/market_depth.py` (`MarketDepthManager` in full: `subscribe`/`cancel`/`cancel_all`/`has_subscription`/
+    `on_update`/`snapshot` **and** the D37 shared-feed half `subscribe_shared`/`release_shared`/`shared_req_id`/
+    `resubscribe_shared`/`_shared`), `ibkr/order_book.py` (`OrderBook`, `apply_operation`, `Level`, `SIDE_*`),
+    the ladder/book rendering in `ui/active_trader_panel.py` (`LadderTable`, `BookTable`, `on_depth_callback`,
+    the ladder/book tabs, `update_from_snapshot`), `ibkr/bridge.py::update_mkt_depth`,
+    `ibkr/client.py::updateMktDepth`/`updateMktDepthL2`, `MainWindow._on_mkt_depth` (the DOM-reqId branch **and**
+    the D37 session-heatmap branch), the **`DOM` toolbar button** + `MainWindow._on_dom_toggled` +
+    `_subscribe_dom` + `_depth_req_id`/`_rebind_depth_req_id`, the depth error branch (`reqId ==
+    self._depth_req_id` in `_on_error`), `ui/watchlist_panel.py::set_depth_manager`/`on_depth_update`/
+    `_depth_manager` (dead wiring — no caller), the `DEPTH` subscription tag (`ibkr/subscription_manager.py`),
+    `tests/test_market_depth.py`, and the depth parts of `MainWindow._md_line_count` (the `depth` term) /
+    `_guard_depth_budget` / `DEPTH_FEED_CAP`.
+  - **Active Trader panel — whole (widened 2026-10-15, Q50 = YES):** the remainder of `ui/active_trader_panel.py`
+    not already listed is removed too — the `ActiveTraderPanel` shell, the **`OrderEntryWidget`** in-app order
+    ticket (Buy/Sell MKT + LMT/STP/Bracket controls, the live-orders gate, the confirmation step, `status_label`,
+    the `order_place_requested` signal), its `header_bar`/`header_button`, and `set_symbol`/`set_last_price`/
+    `last_price`. `MainWindow._on_order_place_requested` and every other ticket-only helper go with it, and
+    **`ui/active_trader_panel.py` no longer exists** after D41. The **order machinery** those controls drove
+    (`ibkr/orders.py`, `ibkr/validation.py`, the `validate_order()` gate, `bracket_order`, the kill switch) is
+    **retained** (see "Scope — KEEP") because Portfolio's **Close / Close Group / Flatten All** and the
+    **SL/TP dialogs** place orders through it.
+  - **Persisted footprint data (Q49 = "delete"):** the **`footprint_cache` table + its rows are removed** from
+    the user DB — the DDL leaves `data/db.py` (fresh DBs never create it) **and** an existing DB's
+    `footprint_cache` table (with any rows) is dropped/deleted by a small migration. **Interpretation recorded
+    (A69):** the owner's word was "delete"; the feature that owns the data is removed, so the table + rows go
+    with it rather than being left as dead data. The one-line alternative ("delete rows only, keep the empty
+    table") is recorded as **DG70**; the chosen default is the **full drop** (the whole table).
+- **Scope — KEEP (shared with features the owner did NOT remove — MUST NOT break):**
+  - `ibkr/contracts.py::footprint_cache_key` + `::INDEX_PROXY` — **D39** uses them
+    (`ui/ticker_session.py::TickerSession` burst-baseline key; `services/alarm_monitor.py`,
+    `ui/alarm_dialog.py` — `INDEX_PROXY`). Keep both; only D36-only `resolve_footprint_contract` goes.
+  - `services/md_line_guard.py::assess` + `MainWindow._guard_md_lines` + the RT/S0/watchlist terms of
+    `_md_line_count` — **D38** news S0 lines use them (`ui/ticker_session.py::TickerSession` "S0 ticks" guard).
+    Keep the guard; remove only the `depth` term from `_md_line_count` and delete `_guard_depth_budget` /
+    `DEPTH_FEED_CAP`.
+  - The **S0 generic-tick substrate** (`s0_register_many`/`s0_deregister_many`, `S0_TICKS` tag, the
+    `tick_generic`/`tick_string`/`tick_news` signals and their `client.py` overrides) — **D38**
+    news/dividends (`"292"`/`"456"`). Remove only the **`"225"` auction** need registration.
+  - `services/volume_baseline.py` + the `volume_baseline` DB table — **D39**. Keep.
+  - `data/db.py` — remove the `footprint_cache` DDL; keep `volume_baseline` (D39) and `yfinance_events_cache` (D38).
+  - **Order execution / safety machinery — KEEP (retained order paths).** The in-app order ticket is removed,
+    but the **order machinery it used is retained** because Portfolio's **Close / Close Group / Flatten All** and
+    the **SL/TP dialogs** (`ui/stop_loss_target_dialog.py`) place orders **independently** through it:
+    `ibkr/orders.py` (incl. `bracket_order`), `ibkr/validation.py` + the `validate_order()` gate, order-ID
+    reservation (`id_manager`), the **kill switch** (`reqGlobalCancel` + per-ID cancels), the order registry /
+    order-error handling, and the fail-fast port check (`config/settings.py::check_live_port`). **Do not delete
+    the safety machinery** while removing the order-entry UI (DG69).
+  - **Retained order-path `ref_price` — KEEP with a NEW source (Plan-level detail).** `MainWindow` passed
+    `ref_price=self.active_trader.last_price` to the MKT notional cap, and `last_price` was populated from the
+    **DOM depth feed** (`_on_mkt_depth` → `active_trader.set_last_price(price)`). Both the panel and the DOM feed
+    are now removed, so `ref_price` **MUST** be sourced from a **retained** price — the session's last price (the
+    live RT-bar / aggregator last) or the `symbol → last_price` watchlist price map (the same source D27.5
+    mandates for position market prices) — and **must keep resolving** for the retained order paths. The exact
+    source is a **Plan-level detail** (DG71).
+  - **D18 / D21.13 — superseded, not deleted.** The right-dock model (D18) and the dock-title-bar / collapse
+    behaviour (D21.13) assumed a **two-section Active Trader + Portfolio region**. With the Active Trader panel
+    removed, the **right dock is a single Portfolio section**; the **40%-of-chart-area cap (D18/B2)** and the
+    **dock header / collapse affordance** are **re-derived for a single section** (Plan-level detail, DG71). The
+    affected D18/D21.13 clauses are marked **superseded by D41** with a reason; their outcomes that still apply
+    (the dock is on-screen in full screen, non-zero width, clamped against the chart minimum) carry over to the
+    Portfolio-only dock.
+  - **D26 — safety KEPT; order-entry UI surface superseded.** D26's **safety requirements and machinery stay**
+    (they guard the **retained** close/flatten/SL-TP order paths); only the **order-entry UI surface** D26
+    hardened — the ticket and the DOM-ladder click-to-order path — goes. See the D26 entry's D41-interaction
+    note.
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D41.1 (no D36/D37/DOM-ladder/Active-Trader/order-entry control renders)** Given a loaded chart in the
+    running app, Then no `Footprint`, `Classic`/`Tick count`, `Depth`, `IMB —`, or `AUC —` control exists in
+    `ChartPanel` or its floating cluster; **no `DOM` toolbar button exists**; and **no Active Trader panel
+    renders** — no ladder/book table, **no in-app order-entry (Buy/Sell MKT/LMT/STP/Bracket) control**, and no
+    Active-Trader title-bar button; `ChartPanel`/`MainWindow` expose no `footprint_*`/`depth_*`/`auction_*`
+    signal or attribute and no `active_trader` attribute. The zoom cluster, `Volume` toggle and every other
+    **retained** control are unchanged, and the **Portfolio section** (Close / Close Group / Flatten All + the
+    SL/TP dialogs) still renders.
+  - **AC-D41.2 (no D36/D37/DOM-ladder request is ever issued)** Given any symbol/timeframe load and any control
+    interaction while connected, Then the app issues **zero** `reqHistoricalTicks`/`reqTickByTickData`, **zero**
+    `reqMktDepth`/`cancelMktDepth` of any kind (heatmap or ladder), and **zero** `reqMktData` with generic
+    **`"225"`** (auction). (D38's S0 `"292"`/`"456"` lines and D39's `reqMatchingSymbols`/burst path are
+    unaffected.)
+  - **AC-D41.3 (D36/D37/DOM-ladder + `ui/active_trader_panel.py` modules/tests are gone; no dangling import)**
+    Given the repository after the change, Then `ui/footprint_item.py`, `ui/depth_heatmap_item.py`,
+    `services/footprint_service.py`, `services/depth_heatmap.py`, `data/footprint_cache.py`,
+    `ibkr/tick_history.py`, `ibkr/market_depth.py`, `ibkr/order_book.py`, **`ui/active_trader_panel.py`**,
+    `tests/test_d36_footprint.py`, `tests/test_d37_microstructure.py` and `tests/test_market_depth.py` no longer
+    exist, and no remaining production or test module imports them or references `FootprintItem`/
+    `DepthHeatmapItem`/`FootprintService`/`DepthHeatmapService`/`TickHistoryManager`/`resolve_footprint_contract`/
+    `DEPTH_HEATMAP`/`MarketDepthManager`/`OrderBook`/`ActiveTraderPanel`/`OrderEntryWidget`.
+  - **AC-D41.4 (shared substrate + retained order machinery intact)** Given the change, Then the **shared
+    substrate for the kept D38/D39 and the D27–D28/chart paths stays intact** — the D38 news digest + dividend
+    markers and the D39 volume-burst alerts + symbol search still work and their tests stay green;
+    `footprint_cache_key`, `INDEX_PROXY`, `md_line_guard.assess`, `S0_TICKS` and `volume_baseline` all remain and
+    remain exercised by their tests — **and** the **retained order machinery** still functions: `ibkr/orders.py`,
+    `ibkr/validation.py`/`validate_order()`, `bracket_order` side-correctness, order-ID reservation, the kill
+    switch and the fail-fast port check are present and exercised; the retained order paths (**Close / Close
+    Group / Flatten All**, SL/TP dialogs) still build and validate orders with a **resolving `ref_price`**.
+  - **AC-D41.5 (app starts and charts normally; suite green)** Given the change, Then the app launches, loads
+    and renders a chart (candles + volume), and the full offscreen suite (`QT_QPA_PLATFORM=offscreen`) is green
+    with no D1–D35/D38–D40 criterion regressed.
+  - **AC-D41.6 (history preserved)** Given `requirements.md`, Then the `### D36` and `### D37` sections and
+    `AC-D36.*`/`AC-D37.*` remain in the file, each carrying an explicit **`SUPERSEDED BY D41`** marker (per
+    DOC-4); the affected `D18`/`D21.13` clauses carry an explicit **superseded-by-D41** note with a reason; and
+    the Existing Repository marker sentence + Current Tech Stack are unchanged.
+  - **AC-D41.7 (right dock is Portfolio-only; D18/D21.13 re-derived)** Given the running app, Then the right
+    dock contains **only the Portfolio section** (no Active Trader panel/ladder/ticket), is **fully visible in
+    full screen** with a **non-zero width**, and remains **clamped against the chart minimum**; its **width
+    cap** and its **header / collapse affordance** are **re-derived for the single section** (not the old
+    two-section Active-Trader+Portfolio model). (Measurable: no Active Trader widget exists in the right dock;
+    the Portfolio dock satisfies the surviving D18 visibility/clamp assertions; the cap and header are the
+    re-derived single-section values, documented by Plan.)
+- **Edge Cases:** the **DOM ladder is removed too** (Q48) — the `DOM` button, `_subscribe_dom`, `_on_mkt_depth`,
+  `MarketDepthManager` and the ladder/book tables all go, so **ESC-039** (ladder `SMART` + `isSmartDepth=False`)
+  becomes **moot** (no ladder request remains); the **entire Active Trader panel — including the order-entry
+  widget — is removed** (Q50), so `ui/active_trader_panel.py` no longer exists and there is **no in-app order
+  ticket**, while **D26's safety machinery stays** for the retained close/flatten/SL-TP order paths (DG69); the
+  retained order path's `ref_price` comes from a **retained source** (session last price / watchlist price map)
+  — Plan-level detail (DG71); the **right dock is Portfolio-only** and the `D18`/`D21.13` two-section clauses
+  are **superseded by D41** (cap + header re-derived, DG71); D38/D39 sharing must not break; the persisted
+  `footprint_cache` table + rows are **removed** (Q49, A69, DG70); `tests/test_d27_reconnect.py` drops both its
+  D37 session-depth assertions **and** its DOM-depth assertions (keeping its RT/S0/watchlist reconnect/replay
+  assertions); `tests/test_d38_events_news.py`'s D36 references are comment-only; the **order-entry tests**
+  (`tests/test_order_entry_mkt.py`, `tests/test_order_validation.py`, and any `OrderEntryWidget`/`active_trader`
+  reference in `tests/test_dock_d18_region.py` / `tests/test_right_dock_d21.py`) are **re-pointed at the retained
+  machinery or removed with the widget** — they must not be deleted wholesale if they also guard the retained
+  order paths; the `DOM` button's deletion changes the D19/D20 toolbar control set, so
+  `tests/test_toolbar_scroll_d19.py` / `tests/test_toolbar_d20.py` geometry fixtures are re-checked;
+  `services/volume_baseline.py` docstring references to the D36 key rule are comment-only.
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -3184,6 +3496,10 @@ Chart; Q29 no-op semantics):**
 | A65 **[NEW v1.2]** | **D26–D28 are corrective batches:** they fix documented defects and change no D1–D23 feature criterion; D1–D23 are not reopened. | Deep-dive review 2026-10-12; user directed documenting all identified bugs | y (user-directed 2026-10-12) | 2026-10-12 |
 | A66 **[NEW v1.2]** | **D24 — pop-out always-on-top defaults OFF (standard windows):** the user can toggle it per window via the header context menu. | Owner-confirmed 2026-10-14 (Q43); matches `ui/popout_window.py::PopoutWindow` (`self._always_on_top = False` — `:56`; `_toggle_always_on_top` applies `Qt.WindowStaysOnTopHint` — `:289`; indicative) | y | 2026-10-14 |
 | A67 **[NEW v1.2]** | **D37 — depth heatmap defaults ON:** the `DepthHeatmapItem` is created unconditionally, overriding the reviewer's OFF suggestion (D36 footprint stays OFF). | Owner-confirmed 2026-10-14 (Q44); matches `ui/chart_panel.py::ChartPanel.__init__` (unconditional add — `:368`; `_depth_enabled_ui = True` — `:370`; indicative) | y | 2026-10-14 |
+| A68 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q48 = YES; composition clause SUPERSEDED by A70 2026-10-15]** | **D41 — "Depth" ALSO includes the Active Trader DOM ladder** (toolbar `DOM` button; `ibkr/market_depth.py`, `ibkr/order_book.py`, and the ladder/book rendering in `ui/active_trader_panel.py`), which is **removed** along with the D37 heatmap. *(Originally recorded as a **ladder-scoped** removal keeping the `OrderEntryWidget`/D18 shell/D21.13 header — that composition clause is **superseded by A70**, Q50.)* | Owner answered **Q48 = YES** on 2026-10-15 (the ladder goes too). Consequence: **ESC-039** becomes moot. | y | 2026-10-15 |
+| A69 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q49 = "delete"]** | **D41 — persisted D36 footprint data is DELETED.** The `footprint_cache` DB table's DDL is removed from `data/db.py` (so fresh DBs never create it) **and** an existing user DB's `footprint_cache` table + rows are **dropped/deleted** by a small migration. | Owner answered **Q49 = "delete"** on 2026-10-15; the feature that owns the data is removed, so the table + rows go with it. Interpretation recorded; the one-line alternative ("delete rows only, keep the empty table") is noted as **DG70**, but the chosen default is the full drop. | y | 2026-10-15 |
+| A70 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q50 = YES/YES]** | **D41 scope widened to the ENTIRE Active Trader panel: the in-app order-entry UI is removed with it (no in-app order ticket), and the right dock becomes Portfolio-only.** All of `ui/active_trader_panel.py` (panel shell, ladder/book, `OrderEntryWidget`, `header_bar`/`header_button`, `set_symbol`/`set_last_price`/`last_price`) is **removed**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, `validate_order()`, `bracket_order`, order-ID reservation, the kill switch, the fail-fast port check) is **kept** and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**. **D18** (right-dock model) and **D21.13** (dock title bar / collapse) clauses that assumed the two-section Active-Trader+Portfolio region are **superseded by D41**; the single Portfolio dock's width cap and header are re-derived. | Owner answered **Q50 = YES / YES** on 2026-10-15 (whole panel removed incl. order entry; right dock Portfolio-only). Supersedes A68's ladder-scoped composition clause and DG69's conservative default. | y | 2026-10-15 |
+| A71 **[NEW 2026-10-15; Plan-level detail (non-blocking)]** | **D41 — retained order-path `ref_price` source and the Portfolio-only dock's re-derived cap/header.** The kept order path's `ref_price` (previously `active_trader.last_price`, fed by the DOM depth feed) **MUST** come from a **retained** source — the session's last price (live RT-bar / aggregator last) or the `symbol → last_price` watchlist price map (as D27.5 mandates for position market prices) — and must keep resolving. The right dock's width cap (was `floor(0.40 × chart_area)` for the two-section region) and its dock header / collapse affordance are **re-derived for the single Portfolio section**. | Owner confirmed the outcomes (Q50); the exact source/cap/header are implementation choices → **Plan-level details** (DG71), not blocking questions. Logged per the Quality Bar rather than silently baked in. | n | 2026-10-15 |
 ## Documentation Maintenance Requirements
 
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
@@ -3299,6 +3615,8 @@ Chart; Q29 no-op semantics):**
 | R58 **[NEW v1.2]** | D24: `load_chart` parameterisation changes the signature every caller uses; missed call sites silently keep the old widget-reading path | M | M | Grep all callers (`_on_ext_hours_toggled`, watchlist double-click, tests); offscreen test loads without toolbar widgets (AC-D28.2) |
 | R59 **[NEW v1.2]** | D27.7/D28.3: backfill and pacing changes alter IBKR request patterns; error-162 storms are timing-dependent and hard to reproduce offscreen | M | M | Pacing math unit-tested with monkeypatched time (AC-D28.6); chunk-cap + retry-once keeps worst case bounded |
 | R60 **[NEW v1.2]** | D24–D28 are specified from a read-only review; behaviour on live TWS (real reconnects, real pacing errors) cannot be fully verified offscreen | M | H | Manual live-TWS verification checklist per batch before merge; no batch ships on offscreen-green alone |
+| R61 **[NEW 2026-10-15; updated for Q50]** | Removing D36/D37, the DOM ladder (Q48), **and the whole Active Trader panel incl. the order-entry UI** (Q50) could silently break a feature the owner did **not** remove: (a) D38 (S0 ticks `"292"`/`"456"`, `md_line_guard`) and D39 (`INDEX_PROXY`, `footprint_cache_key`, `volume_baseline`); (b) the **retained order machinery** (validation, bracket construction, kill switch, `ibkr/orders.py`, `ibkr/validation.py`) that Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs** still use; (c) the order path's `ref_price` (was fed by the DOM depth feed) losing its source; (d) accidentally deleting the retained order machinery **with** the order-entry UI | H | M | `AC-D41.4` + the D41 "Scope — KEEP" list pin every shared symbol and the order machinery; the order-entry **UI** is removed but the **safety machinery is explicitly KEPT** (DG69); `AC-D41.4` requires retained order paths to still validate with a **resolving `ref_price`** (new retained source — A71); `AC-D41.5` requires the full suite green; the D38/D39/order/D27–D28 suites stay green as the regression guard |
+| R62 **[NEW 2026-10-15]** | The Portfolio-only right dock's **re-derived width cap and header/collapse** could be left unspecified, so the single-section dock might inherit the old two-section assumptions (equal-width clause in `AC-D18.3`, Active-Trader title-bar widget) | M | M | `AC-D41.7` requires the right dock to be Portfolio-only with a re-derived cap/header; `D18`/`D21.13` carry explicit **superseded-by-D41** notes; `DG71` records the re-derivation as the Plan/Build detail |
 
 
 ---
@@ -3383,5 +3701,17 @@ literal remains) and the changelog's own stale phase/branch statuses (DG62 — *
 stale claims are corrected in the changelog by commit `96b72c4`, verified against the file). The requirements-side figures are corrected in place;
 the test/code-side items are Build's to fix. **No new blocking question; no requirement was invented.**
 
-Status: READY_FOR_PLAN — D24–D40 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14;
-D36–D40 as-built/APPROVED with acceptance criteria now authored); D1–D23 unchanged.
+**REQUIREMENTS escalations (2026-10-15) — both resolved:**
+- **ESC-035 / Q46 / DG64 — MOOT, superseded by D41.** The depth error **2152** (partial venue-permission)
+  behaviour no longer needs defining: the D37 depth feed (and, per Q48, the DOM ladder) is being **removed**, so
+  there is no depth feed to degrade. No option (a)/(b)/(c) was chosen — the correct resolution is supersession.
+  The related **ESC-040** (footprint stuck in `loading`) is likewise **moot** (footprint removed wholesale), and
+  **ESC-039** (DOM ladder `SMART` + `isSmartDepth=False`) is **moot** (ladder removed).
+- **ESC-038 / Q47 / DG65 — RESOLVED (Q47 answered 2026-10-15).** The minimum intraday history depth under RTH is
+  **30 trading sessions** before the current session, recorded as **`AC-D16.8`**. Delivering it (chained, paced,
+  backwards-extending fetches, since IBKR caps `1 min` at `1 D`) is a **Plan/BUILD** window-strategy concern.
+The silent-RTH-hole item **ESC-037** remains routed to **BUILD**.
+
+**[NEW 2026-10-15] Batch 18 (D41)** — the owner requested removal of the **D36 footprint**, the **D37 depth heatmap / imbalance / auction** features and "all associated code"; **scope FINALISED 2026-10-15 (Q48/Q49/Q50 answered)**: the **Active Trader DOM ladder** is **also removed** (Q48 = YES), the persisted **`footprint_cache` table + rows are deleted** (Q49 = "delete"), and the **entire Active Trader panel — including the in-app order-entry UI — is removed with the right dock becoming Portfolio-only** (Q50 = YES/YES). D41 carries acceptance criteria `AC-D41.1`–`AC-D41.7`; `AC-D36.*`/`AC-D37.*` are **SUPERSEDED BY D41** (retained for history, DOC-4), and the affected **D18**/**D21.13** clauses are **superseded by D41** with reasons. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) is **kept** for the Portfolio close/flatten/SL-TP paths, and the kept order path's `ref_price` takes a **retained source** (Plan-level detail); the shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is **explicitly preserved** (see D41 "Scope — KEEP"); **ESC-039 / ESC-035 / ESC-040** are moot. No **blocking** question remains; **Q47** is answered as **`AC-D16.8`** (30 trading sessions). This document carries `Status: READY_FOR_PLAN`.
+
+Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14; D36–D40 as-built with acceptance criteria authored, **D36/D37 now SUPERSEDED BY D41**); **D41 (Batch 18)** — the D36/D37 **+ the entire Active Trader panel (DOM ladder + order-entry UI)** removal is specified with `AC-D41.1`–`AC-D41.7` (Q48/Q49/Q50 answered 2026-10-15), the **right dock is Portfolio-only** (D18/D21.13 clauses superseded by D41), the **retained order machinery** is kept for Portfolio's close/flatten/SL-TP paths, and the shared substrate is preserved; **`AC-D16.8`** records the 30-trading-session RTH depth floor (Q47); D1–D23 unchanged. No blocking question remains.

@@ -2,8 +2,8 @@
 
 Pure function — no I/O, no Qt, no IBKR calls. Returns a list of human-readable
 problems; an empty list means the order is valid. Wired at the top of
-``MainWindow._place_order`` so invalid input is rejected in the UI and can
-never reach ``placeOrder`` (and never raises).
+``MainWindow._close_position_by_id`` so invalid input is rejected in the UI and
+can never reach ``placeOrder`` (and never raises).
 """
 
 from config.settings import MAX_ORDER_NOTIONAL
@@ -15,13 +15,21 @@ _VALID_TYPES = ("MKT", "LMT", "STP", "BRACKET")
 def validate_order(*, action: str, order_type: str, qty: float,
                    lmt_price: float = 0.0, stop_price: float = 0.0,
                    target_price: float = 0.0, symbol: str = "",
-                   ref_price: float | None = None) -> list[str]:
+                   ref_price: float | None = None,
+                   risk_reducing: bool = False) -> list[str]:
     """Validate a prospective order; return problems (empty == valid).
 
     ``ref_price`` is a best-effort market reference used for the notional
     check on price-less orders (MKT/STP). LMT/BRACKET always carry lmt_price.
     When no positive price basis exists the notional check is skipped —
     every other check still applies.
+
+    ``risk_reducing`` marks an order that closes/reduces existing exposure
+    (the Portfolio close/flatten path). When ``True`` **only** the
+    notional-cap check is skipped — the cap exists to bound *new* exposure,
+    so a position above the cap must still be closable. Every structural
+    check (symbol, side, type, quantity, per-type prices, bracket geometry)
+    applies unchanged.
     """
     problems: list[str] = []
 
@@ -58,13 +66,14 @@ def validate_order(*, action: str, order_type: str, qty: float,
             problems.append(
                 "Bracket geometry wrong for SELL: need stop > entry > target.")
 
-    # Notional cap.
+    # Notional cap. Skipped for risk-reducing orders (they shrink existing
+    # exposure rather than create it), so only when risk_reducing is False.
     price_basis = None
     if order_type in ("LMT", "BRACKET") and lmt_price > 0:
         price_basis = lmt_price
     elif ref_price and ref_price > 0:
         price_basis = ref_price
-    if price_basis and qty and qty > 0:
+    if not risk_reducing and price_basis and qty and qty > 0:
         notional = qty * price_basis
         if notional > MAX_ORDER_NOTIONAL:
             problems.append(

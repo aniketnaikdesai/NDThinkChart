@@ -161,9 +161,17 @@ def _make_window(monkeypatch, qapp):
     win.rt_manager.subscribe = lambda *a, **k: 4242
     win.show()
     qapp.processEvents()
-    for dock in win.findChildren(QDockWidget):
-        if dock.windowTitle() in ("Active Trader",):
-            dock.hide()
+    # D41 / S6: the old two-section right dock collapsed into the single,
+    # renamed "Portfolio" section. Keep the title-keyed hide pointed at the
+    # surviving dock — and assert it was actually found — so the width
+    # constraint cannot silently stop applying (the D19 masking trap).
+    right_docks = [
+        dock for dock in win.findChildren(QDockWidget)
+        if dock.windowTitle() in ("Portfolio",)
+    ]
+    assert right_docks, "expected the renamed 'Portfolio' right dock to exist"
+    for dock in right_docks:
+        dock.hide()
     qapp.processEvents()
     return win
 

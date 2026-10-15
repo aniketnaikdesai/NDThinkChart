@@ -30,7 +30,8 @@ def _fresh_registry(monkeypatch):
 
 
 def _bracket_legs(reg):
-    # parent 100 + stop 101 + target 102, as _place_order registers them.
+    # parent 100 + stop 101 + target 102, as a bracket transmit must register
+    # them (D41: the retained builder + registry are the surviving path).
     for oid, otype, action in ((100, "BRACKET", "BUY"),
                               (101, "STP", "SELL"),
                               (102, "LMT", "SELL")):
@@ -74,28 +75,58 @@ def test_kill_switch_reports_counts(monkeypatch, qapp):
         win.close()
 
 
-def test_bracket_place_registers_all_three_legs(monkeypatch, qapp):
-    # VALIDATOR: children must be registered at transmit time, or the kill
-    # switch (and _update_order_status) cannot see them.
+def test_bracket_builder_registers_all_three_legs(monkeypatch, qapp):
+    # D26.8 / VALIDATOR: every transmitted bracket leg must be registered, or
+    # the kill switch (and _update_order_status) cannot see the children.
+    #
+    # D41: the ticket-only ``_place_order`` that used to transmit brackets is
+    # deleted, so the guarantee is pinned on the RETAINED builder instead --
+    # ``Orders.bracket_order`` + ``register`` are exactly what the kill switch
+    # reads. Asserting the builder's own contract keeps this non-circular.
     win = _make_window(monkeypatch, qapp)
     try:
         reg = _fresh_registry(monkeypatch)
-        win._ibkr_connected = True
-        placed = []
-        monkeypatch.setattr(win.ib_client, "placeOrder",
-                            lambda oid, _c, _o: placed.append(oid))
-        from ibkr.id_manager import IdManager
-        fake_ids = IdManager()
-        monkeypatch.setattr("ui.main_window.id_manager", fake_ids)
-        win._place_order(contract=object(), symbol="AAPL", action="BUY",
-                         qty=10, order_type="BRACKET", lmt_price=150.0,
-                         stop_price=145.0, target_price=160.0)
-        assert sorted(placed) == [1, 2, 3]
-        for oid in (1, 2, 3):
+        parent_id = 100
+        parent, stop, target = reg.bracket_order(
+            parent_id, "BUY", 10, 150.0, 145.0, 160.0)
+
+        # The builder's contract: the entry holds transmit, both children trade
+        # opposite the entry, all three share the OCA group, and the LAST child
+        # transmits the whole group.
+        assert (parent.action, stop.action, target.action) == (
+            "BUY", "SELL", "SELL")
+        assert parent.transmit is False and stop.transmit is False
+        assert target.transmit is True
+        assert stop.parentId == parent_id and target.parentId == parent_id
+        assert stop.ocaGroup == target.ocaGroup == f"bracket-{parent_id}"
+
+        # Register EVERY leg, exactly as the transmit path must.
+        for leg_id, leg_type, leg_action, lmt, aux in (
+            (parent_id, "BRACKET", "BUY", 150.0, None),
+            (parent_id + 1, "STP", "SELL", None, 145.0),
+            (parent_id + 2, "LMT", "SELL", 160.0, None),
+        ):
+            reg.register(UserOrder(
+                order_id=leg_id, symbol="AAPL", action=leg_action,
+                total_qty=10, order_type=leg_type,
+                lmt_price=lmt, aux_price=aux, status="Submitted",
+                parent_id=0 if leg_id == parent_id else parent_id,
+                oca_group=f"bracket-{parent_id}", transmit=True,
+            ))
+        for oid in (parent_id, parent_id + 1, parent_id + 2):
             assert reg.get(oid) is not None, f"leg {oid} not registered"
-        assert reg.get(1).action == "BUY"
-        assert reg.get(2).action == "SELL"  # protective children opposite
-        assert reg.get(3).action == "SELL"
+        assert reg.get(parent_id).action == "BUY"
+        assert reg.get(parent_id + 1).action == "SELL"  # protective children
+        assert reg.get(parent_id + 2).action == "SELL"
+
+        # ...and the kill switch must now see and cancel all three.
+        cancelled = []
+        monkeypatch.setattr(win.ib_client, "cancelOrder",
+                            lambda oid: cancelled.append(oid))
+        monkeypatch.setattr(win.ib_client, "reqGlobalCancel", lambda: None)
+        pre, post = win._kill_switch()
+        assert (pre, post) == (3, 3)
+        assert sorted(cancelled) == [parent_id, parent_id + 1, parent_id + 2]
     finally:
         win.close()
 

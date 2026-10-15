@@ -568,3 +568,26 @@ def test_ac_d38_production_tree_has_no_mock_endpoint():
             assert "fakeserver" not in lowered, path
             assert "mockserver" not in lowered, path
             assert "mockendpoint" not in lowered, path
+
+
+# ── MD-line guard (37.5, re-homed from the deleted D37 suite) ─────────
+
+def test_md_line_guard_thresholds():
+    """`services/md_line_guard.py::assess` keeps its only test post-D41.
+
+    The assertions moved from the deleted
+    ``tests/test_d37_microstructure.py::test_md_line_guard_thresholds``,
+    re-purposed to the surviving purpose: D38's S0 lines (``"292"``/
+    ``"456"``) are what ``MainWindow._guard_md_lines`` still gates, so the
+    thresholds are asserted against that caller rather than the removed
+    depth feed.
+    """
+    from services.md_line_guard import assess
+
+    assert assess(50, "SPX", "S0 ticks") == ("ok", "")
+    level, msg = assess(90, "SPX", "S0 ticks")
+    assert level == "approaching"
+    assert "SPX" in msg and "90/100" in msg
+    level, msg = assess(100, "SPX", "S0 ticks")
+    assert level == "exceeded"
+    assert "SPX" in msg and "not subscribing" in msg

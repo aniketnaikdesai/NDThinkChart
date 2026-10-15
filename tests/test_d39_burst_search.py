@@ -478,6 +478,25 @@ def test_proxy_released_when_alarm_deleted(monkeypatch, qapp):
         win.close()
 
 
+# ── footprint_cache_key: front-month rollover isolates the tape ──────────
+
+def test_footprint_cache_key_rollover_isolates_tape():
+    """A roll to the next front month yields a different tape key.
+
+    Re-homed verbatim from ``test_d36_footprint.py`` (KEEP coverage, D41):
+    D39's burst baseline is the surviving consumer of the key.
+    """
+    from ibkr.contracts import footprint_cache_key
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    et = ZoneInfo("America/Toronto")
+    key1 = footprint_cache_key("SPX", now=datetime(2026, 10, 13, tzinfo=et))
+    key2 = footprint_cache_key("SPX", now=datetime(2027, 2, 1, tzinfo=et))
+    assert key1.startswith("ES")
+    assert key2.startswith("ES")
+    assert key1 != key2  # front-month rollover → different key
+
+
 # ── Search select → contract resolution → load_chart (AC-D39.1) ──────────
 
 def test_ac_d39_1_select_loads_chart(monkeypatch, qapp):

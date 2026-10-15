@@ -47,6 +47,10 @@ def _make_window(monkeypatch, qapp):
     from ui.main_window import MainWindow
 
     win = MainWindow()
+    # D41-S5: ``_close_position_by_id`` now carries the D26.9 disconnected
+    # guard, so the fixture window (whose ``connect`` is stubbed) must be
+    # marked connected for the close contracts below to transmit.
+    win._ibkr_connected = True
     win.show()
     qapp.processEvents()
     return win
@@ -139,5 +143,66 @@ def test_close_zero_qty_and_missing_row_are_noops(closer):
         win._close_position_by_id(pid)
         win._close_position_by_id(999_999_999)  # no such row
         assert placed == []
+    finally:
+        _clear_position(pid)
+
+
+# ── P1-T65: `_ref_price_for` + the re-homed D41-S5 / D26 gates ───────────────
+
+
+def test_p1_t65_t11_ref_price_for_normalises_case(closer):
+    """T11 (AC1): upper-case-normalised read; None for an unknown symbol."""
+    win, _ = closer
+    win._symbol_last_prices["T65STK"] = 100.0
+    assert win._ref_price_for("t65stk") == 100.0
+    assert win._ref_price_for("T65STK") == 100.0
+    assert win._ref_price_for("ZZZ") is None
+
+
+def test_p1_t65_t21_disconnected_refuses_without_transmitting(closer):
+    """T21 (AC2): D26.9 guard refuses while disconnected, never placing."""
+    win, placed = closer
+    win._ibkr_connected = False
+    pid = _insert_position(symbol="T65DISC", qty=5.0)
+    try:
+        win._close_position_by_id(pid)
+        assert placed == []
+        assert "Not connected" in win.status_bar.currentMessage()
+    finally:
+        _clear_position(pid)
+
+
+def test_p1_t65_t31_validation_rejection_precedes_pacing(closer, monkeypatch):
+    """T31 (AC3): a failed validation refuses before the pacing token."""
+    win, placed = closer
+    import ui.main_window as mw
+
+    calls = []
+    monkeypatch.setattr(
+        mw.order_limiter, "try_acquire",
+        lambda: calls.append(1) or False,
+    )
+    pid = _insert_position(symbol="", qty=5.0)
+    try:
+        win._close_position_by_id(pid)
+        assert placed == []
+        assert win.status_bar.currentMessage().startswith("Order rejected:")
+        assert calls == []  # gate ran before pacing — no token consumed
+    finally:
+        _clear_position(pid)
+
+
+def test_p1_t65_t41_valid_close_transmits_once_with_ref_price(closer):
+    """T41 (AC4): a valid close transmits exactly once with ref_price used."""
+    win, placed = closer
+    win._symbol_last_prices["T65OK"] = 42.5
+    pid = _insert_position(symbol="T65OK", contract_type="stock", qty=10.0)
+    try:
+        win._close_position_by_id(pid)
+        assert len(placed) == 1
+        _, contract, order = placed[0]
+        assert contract.secType == "STK"
+        assert contract.symbol == "T65OK"
+        assert order.action == "SELL" and order.totalQuantity == 10.0
     finally:
         _clear_position(pid)

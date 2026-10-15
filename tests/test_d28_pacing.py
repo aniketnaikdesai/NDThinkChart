@@ -4,6 +4,7 @@ Throttlers return a wait duration (or raise PacingExceeded); callers defer via
 QTimer.singleShot with a persistent "pacing-limited, retrying" status. Orders
 use their own token-bucket limiter, never the realtime throttle.
 """
+import threading
 import time
 
 import pytest
@@ -12,6 +13,28 @@ from PyQt6.QtTest import QTest
 from ibkr import pacing as pacing_mod
 from ibkr.pacing import PacingExceeded, PacingManager, OrderRateLimiter
 from ibkr.realtime_bars import RealtimeBarsManager
+
+
+def _capture_gui_sleeps(monkeypatch) -> list[float]:
+    """Record ``time.sleep`` calls made on the GUI thread, and never sleep.
+
+    D28.1's guarantee is about the GUI thread only, so the capture is scoped to
+    it: a sleep issued by an unrelated thread — e.g. the D38 yfinance event
+    worker's ``time.sleep(gap)`` on its own QThread
+    (``data/events/yfinance_source.py``) — must not be mistaken for a
+    GUI-thread sleep, or the assertion fails on another thread's work
+    (ESC-047). The GUI thread is the process main thread, since Qt requires
+    ``QApplication`` to be created on it.
+    """
+    gui_thread = threading.main_thread()
+    sleeps: list[float] = []
+
+    def _record(seconds: float) -> None:
+        if threading.current_thread() is gui_thread:
+            sleeps.append(seconds)
+
+    monkeypatch.setattr(time, "sleep", _record)
+    return sleeps
 
 
 def _exhaust_realtime_budget(pm: PacingManager, wait_s: float = 600.0) -> None:
@@ -51,8 +74,7 @@ def test_realtime_wait_positive_when_budget_exhausted():
 
 def test_subscribe_raises_pacing_exceeded_without_sleep(monkeypatch):
     """Budget exhausted -> PacingExceeded, and time.sleep is never called."""
-    sleeps: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+    sleeps = _capture_gui_sleeps(monkeypatch)
     # Use the real singleton: the conftest fixture resets it per test.
     _exhaust_realtime_budget(pacing_mod.pacing_manager)
     fake = _FakeClient()
@@ -93,8 +115,7 @@ def _make_window(monkeypatch, qapp):
 
 def test_attach_live_feed_defers_with_status_and_retries(monkeypatch, qapp):
     """Chart load while pacing-limited: no sleep, status shown, sub fires later."""
-    sleeps: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+    sleeps = _capture_gui_sleeps(monkeypatch)
     win, fake = _make_window(monkeypatch, qapp)
     try:
         from ibkr.contracts import get_contract_for_symbol
@@ -114,11 +135,39 @@ def test_attach_live_feed_defers_with_status_and_retries(monkeypatch, qapp):
         win.close()
 
 
-def test_place_order_defers_when_limiter_empty(monkeypatch, qapp):
-    """Order path: limiter empty -> no sleep, no transmit, status; retry sends."""
-    sleeps: list[float] = []
-    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+def _seed_position(symbol="AAPL", qty=10.0):
+    """Seed a positions row so the retained close path can be driven."""
+    from data.db import db
+    cur = db.conn.cursor()
+    cur.execute(
+        "INSERT INTO positions (symbol, account, con_id, contract_type, qty,"
+        " avg_cost, local_symbol, multiplier, expiry, strike, right,"
+        " updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (symbol, "DU123", None, "stock", qty, 100.0, None, 1.0,
+         None, None, None, 1_760_000_000),
+    )
+    db.conn.commit()
+    return cur.lastrowid
+
+
+def _clear_position(pid):
+    from data.db import db
+    cur = db.conn.cursor()
+    cur.execute("DELETE FROM positions WHERE id=?", (pid,))
+    db.conn.commit()
+
+
+def test_close_position_defers_when_limiter_empty(monkeypatch, qapp):
+    """D28.1 retained close path: limiter empty -> no sleep, no transmit,
+    status; the deferred retry transmits exactly once.
+
+    Also pins the D41-S5 ordering: the D26.7 gate runs BEFORE the pacing
+    deferral, so a gate-rejected close never shows the pacing status.
+    """
+    sleeps = _capture_gui_sleeps(monkeypatch)
     win, _fake = _make_window(monkeypatch, qapp)
+    pid = _seed_position()
+    bad_pid = None
     try:
         win._ibkr_connected = True
         calls: list = []
@@ -127,16 +176,31 @@ def test_place_order_defers_when_limiter_empty(monkeypatch, qapp):
         lim = pacing_mod.order_limiter
         for _ in range(5):
             assert lim.try_acquire()
-        win._place_order(contract=object(), symbol="AAPL", action="BUY",
-                         qty=10, order_type="MKT", lmt_price=0.0,
-                         stop_price=0.0, target_price=0.0)
+
+        # (a) S5 gate order: a gate-rejected close (blank symbol) returns at
+        # the gate -- no transmit, and crucially no pacing status, which it
+        # would show if the deferral ran before validation.
+        bad_pid = _seed_position(symbol="")
+        win._close_position_by_id(bad_pid)
         qapp.processEvents()
-        assert calls == [], "rate-limited order must not transmit immediately"
+        assert calls == [], "a rejected close must not transmit"
+        assert "pacing-limited" not in win.status_bar.currentMessage().lower(), (
+            "the validation gate must run before the pacing deferral")
+
+        # (b) the retained close emitter defers when the bucket is empty.
+        win._close_position_by_id(pid)
+        qapp.processEvents()
+        assert calls == [], "rate-limited close must not transmit immediately"
         assert sleeps == [], "no sleep on the GUI thread"
         assert "pacing-limited" in win.status_bar.currentMessage().lower()
+
+        # (c) the deferred retry transmits exactly once once the bucket refills.
         QTest.qWait(1200)  # bucket refills at 5/s; deferred retry fires
-        assert len(calls) == 1, "deferred order must transmit exactly once"
+        assert len(calls) == 1, "deferred close must transmit exactly once"
     finally:
+        if bad_pid is not None:
+            _clear_position(bad_pid)
+        _clear_position(pid)
         win.close()
 
 

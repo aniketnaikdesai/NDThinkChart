@@ -1,20 +1,21 @@
 """D21-11 / D21.13 — right dock hide/show toggles + horizontal collapse.
 
-Focused offscreen integration tests for the single right dock region (D18)
-gaining the two D21.13 toggles:
+Focused offscreen integration tests for the single right dock region (D18),
+re-pointed to the **Portfolio-only** dock (D41 / S6):
 
-* the dock's **title bar** is the Active Trader panel's header strip, whose
-  label is a ``DiagonalStrikeButton("Active Trader")``; and
-* the portfolio's ``summary_label`` is a ``DiagonalStrikeButton("Account
-  Summary")``.
+* the dock's **title bar** is the Portfolio panel's header strip, whose label is
+  the retained ``summary_label`` — a ``DiagonalStrikeButton("Account Summary")``.
+  With the two-section container gone there is exactly one visible label and it
+  is the hide/show toggle; and
+* the dock's ``windowTitle()`` **and** ``objectName()`` are ``"Portfolio"``, the
+  region's stable title-keyed handle (the rename contract, S6).
 
-Clicking either button hides/shows the matching panel body while the button
-itself stays visible and struck (VIS-D21.1). Hiding one panel collapses it in
-height and the other expands into the vacated space (AC-D21.13.2). Hiding both
-collapses the whole region horizontally to a two-button strip — the dock's
-minimum is relaxed below ``RIGHT_DOCK_MIN_WIDTH`` and the width is pinned
-explicitly — so the chart reclaims the space (AC-D21.13.3). ``_on_dom_toggled``
-stays the whole-region toggle and never resets per-panel state; a fully
+Clicking the button hides/shows the panel body while the button itself stays
+visible and struck (VIS-D21.1). Hiding the section collapses the whole region
+horizontally to a single-button strip — the dock's minimum is relaxed below
+``RIGHT_DOCK_MIN_WIDTH`` and the width is pinned explicitly — so the chart
+reclaims the space (AC-D21.13.3). Hiding the region via the dock's own
+visibility toggle never resets the panel's collapsed state, and a fully
 collapsed region is treated as hidden by the cross-clamp so the watchlist
 regains its own cap (T05).
 
@@ -22,11 +23,9 @@ Harness note: the D19 ``ToolbarScroll`` wrapper keeps the toolbar from pinning
 the chart area, so the harness runs with the toolbar visible and no masking.
 """
 
-import pytest
 from PyQt6.QtWidgets import QDockWidget
 
 from ui.active_portfolio_panel import ActivePortfolioPanel
-from ui.active_trader_panel import ActiveTraderPanel
 from ui.dock_layout import (
     CHART_MIN_WIDTH,
     RIGHT_DOCK_MIN_WIDTH,
@@ -51,41 +50,34 @@ def _boot(monkeypatch, qapp, width=1600, height=900):
     return win
 
 
-# ── D21-11-T01 / AC-D21.13.1 — title + summary are mapped toggle buttons ─────
+# ── D21-11-T01 / AC-D21.13.1 — title bar button + summary are one toggle ─────
 
 def test_D21_11_T01_title_and_summary_are_toggle_buttons(monkeypatch, qapp):
-    """D21-11-T01: title bar = 'Active Trader' button; summary = 'Account Summary'."""
+    """D21-11-T01: dock title/objectName "Portfolio"; title bar = summary button."""
     win = _boot(monkeypatch, qapp)
     try:
         dock = win.right_dock
 
-        # The dock's title-bar widget is the Active Trader panel's header strip,
-        # and its label is a checkable DiagonalStrikeButton.
-        assert dock.titleBarWidget() is win.active_trader.header_bar
-        at_btn = win.active_trader.header_button
-        assert isinstance(at_btn, DiagonalStrikeButton)
-        assert at_btn.text() == "Active Trader"
-        assert at_btn.isCheckable()
-        assert win.active_trader.header_bar.isAncestorOf(at_btn)
-        assert at_btn.isChecked() and not at_btn.is_struck()
+        # The single right dock is the renamed Portfolio region (S6): its title
+        # and objectName are "Portfolio" and its widget IS the Portfolio panel
+        # directly (no two-section container).
+        assert isinstance(dock, QDockWidget)
+        assert dock.windowTitle() == "Portfolio"
+        assert dock.objectName() == "Portfolio"
+        assert isinstance(dock.widget(), ActivePortfolioPanel)
+        assert dock.widget() is win.portfolio_panel
 
-        # The portfolio summary label is the Account Summary toggle button.
+        # The dock's title-bar widget is the Portfolio panel's header strip, and
+        # its label is a checkable DiagonalStrikeButton.
         pf_btn = win.portfolio_panel.summary_label
+        assert dock.titleBarWidget() is win.portfolio_panel.summary_label
         assert isinstance(pf_btn, DiagonalStrikeButton)
         assert pf_btn.text() == "Account Summary"
         assert pf_btn.isCheckable()
+        assert pf_btn.isVisible()
         assert pf_btn.isChecked() and not pf_btn.is_struck()
 
-        # Clicking each button toggles the matching panel body.
-        at_btn.click()
-        qapp.processEvents()
-        assert win.active_trader.is_collapsed()
-        assert not win.active_trader.body.isVisible()
-        at_btn.click()
-        qapp.processEvents()
-        assert not win.active_trader.is_collapsed()
-        assert win.active_trader.body.isVisible()
-
+        # Clicking the button toggles the panel body.
         pf_btn.click()
         qapp.processEvents()
         assert win.portfolio_panel.is_collapsed()
@@ -98,53 +90,47 @@ def test_D21_11_T01_title_and_summary_are_toggle_buttons(monkeypatch, qapp):
         win.close()
 
 
-# ── D21-11-T02 / AC-D21.13.2 — one hidden collapses, the other expands ───────
+# ── D21-11-T02 / AC-D21.13.2 — collapsing removes the body, dock stays real ──
 
-def test_D21_11_T02_one_hidden_collapses_other_expands(monkeypatch, qapp):
-    """D21-11-T02: hiding one panel collapses it; the other fills the space."""
+def test_D21_11_T02_collapsed_section_keeps_real_window(monkeypatch, qapp):
+    """D21-11-T02: collapse removes the body; the dock stays a visible window."""
     win = _boot(monkeypatch, qapp)
     try:
-        at, pf = win.active_trader, win.portfolio_panel
-        at_h0, pf_h0 = at.height(), pf.height()
-        assert at_h0 > 0 and pf_h0 > 0
+        pf = win.portfolio_panel
+        # Expanded, the body contributes height: the panel needs more room than
+        # its header button alone.
+        hint_h0 = pf.sizeHint().height()
+        assert pf.body.isVisible()
+        assert hint_h0 > pf.summary_label.sizeHint().height()
 
-        # Hide the portfolio: it collapses to just its button, Active Trader grows.
+        # Collapse: the body goes and the panel shrinks to just its header
+        # button (AC-D21.13.2's surviving collapse outcome), while the dock
+        # remains visible and non-zero width — still a real docked window, so
+        # the geometry assertions below measure something (not a hidden dock).
         pf.summary_label.click()
         qapp.processEvents()
         assert pf.is_collapsed()
-        assert pf.height() <= pf.summary_label.height() + 2, (
-            pf.height(), pf.summary_label.height()
+        assert not pf.body.isVisible()
+        assert pf.sizeHint().height() <= pf.summary_label.sizeHint().height() + 2, (
+            pf.sizeHint().height(), pf.summary_label.sizeHint().height()
         )
-        assert at.height() > at_h0, (at.height(), at_h0)
+        assert win.right_dock.isVisible()
+        assert win.right_dock.width() > 0
 
-        # Re-show: the original split is restored.
+        # Re-show: the body is back and the panel needs its full height again.
         pf.summary_label.click()
         qapp.processEvents()
         assert not pf.is_collapsed()
-        assert abs(pf.height() - pf_h0) <= 2
-        assert abs(at.height() - at_h0) <= 2
-
-        # Hide the Active Trader body: it collapses; the portfolio fills.
-        at.header_button.click()
-        qapp.processEvents()
-        assert at.is_collapsed()
-        assert not at.body.isVisible()
-        assert pf.height() > pf_h0, (pf.height(), pf_h0)
-
-        # Re-show restores.
-        at.header_button.click()
-        qapp.processEvents()
-        assert not at.is_collapsed()
-        assert abs(at.height() - at_h0) <= 2
-        assert abs(pf.height() - pf_h0) <= 2
+        assert pf.body.isVisible()
+        assert abs(pf.sizeHint().height() - hint_h0) <= 2
     finally:
         win.close()
 
 
-# ── D21-11-T03 / AC-D21.13.3 — both hidden collapses horizontally ────────────
+# ── D21-11-T03 / AC-D21.13.3 — collapsed region collapses horizontally ──────
 
-def test_D21_11_T03_both_hidden_collapses_horizontally(monkeypatch, qapp):
-    """D21-11-T03: both hidden -> button strip width; showing restores 200px."""
+def test_D21_11_T03_collapsed_region_collapses_horizontally(monkeypatch, qapp):
+    """D21-11-T03: collapsed -> button strip width; showing restores 200px."""
     win = _boot(monkeypatch, qapp)
     try:
         calls = []
@@ -156,18 +142,16 @@ def test_D21_11_T03_both_hidden_collapses_horizontally(monkeypatch, qapp):
 
         monkeypatch.setattr(win, "_resize_docks_guarded", spy)
 
-        win.active_trader.header_button.click()
         win.portfolio_panel.summary_label.click()
         qapp.processEvents()
 
         collapsed_w = win._right_dock_collapsed_min_width
         assert win._right_region_collapsed
         # Relaxed minimum: below RIGHT_DOCK_MIN_WIDTH, at/above the baseline, and
-        # wide enough for both toggle buttons.
+        # wide enough for the retained toggle button.
         assert win.right_dock.minimumWidth() == collapsed_w
         assert collapsed_w < RIGHT_DOCK_MIN_WIDTH
         assert collapsed_w >= RIGHT_DOCK_COLLAPSED_MIN_WIDTH
-        assert collapsed_w >= win.active_trader.header_button.sizeHint().width()
         assert collapsed_w >= win.portfolio_panel.summary_label.sizeHint().width()
 
         # The dock was explicitly reduced to the button strip via
@@ -181,12 +165,11 @@ def test_D21_11_T03_both_hidden_collapses_horizontally(monkeypatch, qapp):
         # The chart keeps at least its minimum width.
         assert win._chart_area_width() >= CHART_MIN_WIDTH - 1
 
-        # Show one panel again: the 200px minimum and the cross-clamp are back.
+        # Show the panel again: the 200px minimum and the cross-clamp are back.
         win.portfolio_panel.summary_label.click()
         qapp.processEvents()
         assert not win._right_region_collapsed
         assert win.right_dock.minimumWidth() == RIGHT_DOCK_MIN_WIDTH
-        assert win.active_trader.minimumWidth() == RIGHT_DOCK_MIN_WIDTH
         assert win.portfolio_panel.minimumWidth() == RIGHT_DOCK_MIN_WIDTH
         assert win.right_dock.isVisible()
         assert win._right_dock_available()
@@ -194,59 +177,49 @@ def test_D21_11_T03_both_hidden_collapses_horizontally(monkeypatch, qapp):
         win.close()
 
 
-# ── D21-11-T04 / AC-D21.13.4 — strike reflects each panel's hidden state ─────
+# ── D21-11-T04 / AC-D21.13.4 — strike reflects the panel's hidden state ─────
 
 def test_D21_11_T04_strike_reflects_hidden_state(monkeypatch, qapp):
-    """D21-11-T04: each button is struck iff its panel is hidden."""
+    """D21-11-T04: the button is struck iff the panel is hidden."""
     win = _boot(monkeypatch, qapp)
     try:
-        at_btn = win.active_trader.header_button
         pf_btn = win.portfolio_panel.summary_label
-        assert not at_btn.is_struck() and not pf_btn.is_struck()
-
-        at_btn.click()
-        qapp.processEvents()
-        assert at_btn.is_struck() and not at_btn.isChecked()
+        # The struck button is the dock's title-bar control (the retained one).
+        assert win.right_dock.titleBarWidget() is pf_btn
         assert not pf_btn.is_struck()
-
-        at_btn.click()
-        qapp.processEvents()
-        assert not at_btn.is_struck()
 
         pf_btn.click()
         qapp.processEvents()
         assert pf_btn.is_struck() and not pf_btn.isChecked()
-        assert not at_btn.is_struck()
 
         pf_btn.click()
         qapp.processEvents()
         assert not pf_btn.is_struck()
+        assert pf_btn.isChecked()
     finally:
         win.close()
 
 
-# ── D21-11-T05 / AC-D21.13.1 — DOM toggle whole-region; collapsed = hidden ───
+# ── D21-11-T05 / AC-D21.13.1 — region toggle; collapsed = hidden ─────────────
 
-def test_D21_11_T05_dom_toggle_and_collapsed_crossclamp(monkeypatch, qapp):
-    """D21-11-T05: DOM toggle keeps per-panel state; collapsed region is hidden."""
+def test_D21_11_T05_region_toggle_and_collapsed_crossclamp(monkeypatch, qapp):
+    """D21-11-T05: hiding the region keeps panel state; collapsed region is hidden."""
     win = _boot(monkeypatch, qapp)
     try:
-        win.active_trader.header_button.click()
         win.portfolio_panel.summary_label.click()
         qapp.processEvents()
-        assert win.active_trader.is_collapsed()
         assert win.portfolio_panel.is_collapsed()
         assert win._right_region_collapsed
 
-        # _on_dom_toggled stays the whole-region toggle.
-        win._on_dom_toggled(False)
+        # The whole-region toggle is now the dock's own visibility (the DOM
+        # toolbar button is gone, D41). It must not reset the panel's hidden
+        # state.
+        win.right_dock.setVisible(False)
         qapp.processEvents()
         assert not win.right_dock.isVisible()
-        win._on_dom_toggled(True)
+        win.right_dock.setVisible(True)
         qapp.processEvents()
         assert win.right_dock.isVisible()
-        # It must not reset the per-panel hidden states.
-        assert win.active_trader.is_collapsed()
         assert win.portfolio_panel.is_collapsed()
         assert win._right_region_collapsed
 
@@ -275,8 +248,7 @@ def test_D21_11_T05_dom_toggle_and_collapsed_crossclamp(monkeypatch, qapp):
         assert ca >= CHART_MIN_WIDTH - 1
         collapsed_w = win._right_dock_collapsed_min_width
         assert win.right_dock.width() <= collapsed_w + 2
-        # Per-panel state still persists after the clamp cycle.
-        assert win.active_trader.is_collapsed()
+        # The panel's hidden state still persists after the clamp cycle.
         assert win.portfolio_panel.is_collapsed()
     finally:
         win.close()

@@ -680,3 +680,545 @@ once in `architecture.md` and mirrored in `plan.md`; 30 current citations conver
 `path::symbol`; the D16–D23 increment sections and the D24/D25/D28 "Moved from (as-built)" column
 are bounded as historical, not renumbered; **no architectural decision, requirement, phase or
 scope claim changed**; `docs/plan.md` keeps `Status: READY_FOR_TASK_MANAGER`)
+
+---
+
+# Plan Review — Batch 18 (**D41**) removal proposal — 2026-10-15 (initial validation)
+
+> Legacy single-scope run (no `Phase: P<n>` header in the preamble; inputs are the unsuffixed
+> `docs/plan_proposal.md` / `docs/architecture_proposal.md`), so no phase gate applies and this
+> review is final for the cycle. Validation method run in full (no provisional pass existed).
+
+## Review Status
+`Status: CHANGES_REQUIRED` — round **1** of the 3-retry cap. The three architecture decisions and
+the order-path finding all **verify against source**; the phases are well-formed. The proposal is
+**not promotable**: both `touches_files` maps are **incomplete** (7 test files, 3 of which fail
+deterministically) and two KEEP-listed symbols lose their **only** test coverage, so Task Manager
+would have to invent file/test scope and Phase 2/3 acceptance cannot be met as mapped.
+`docs/architecture.md` and `docs/plan.md` were **not modified** by this cycle.
+
+## Validation Summary
+**Inputs read.** `requirements.md` (`Status: READY_FOR_PLAN`; `### D41` `:3263`–`:3426`;
+`AC-D41.1`–`AC-D41.7`; Journey 36 `:855`–`:882`; `A68`–`A71` `:3499`–`:3502`; the surviving
+D18 outcomes `:2060`–`:2129`; D21.13 `:2467`–`:2486`; the `AC-D41.6` markers at `:69`, `:83`,
+`:2074`, `:2088`, `:3075`, `:3116` — all present, Requirements-owned ✓). `design_gaps.md`
+DG66–DG71 `:1012`–`:1153`. `escalations.json`: 16 entries, 14 `open`, **zero** `routed_to: PLAN`
+→ the escalation-validation path does not apply. `memory.md` (120 lines) — including the
+title-keyed-dock gotcha (`:44`) and the D19 masking trap (`:64`), both load-bearing here.
+`docs/plan_proposal.md` (316 lines, `READY_FOR_VALIDATION`, 16:03) and
+`docs/architecture_proposal.md` (317 lines, 16:03). The previous `plan_proposal.md` held a stale
+Batch-17/D23 draft; it was replaced and **no D22/D23 content survives** in the new proposal ✓
+(nothing of it was carried into the canonical files — they were not touched).
+
+**Source verification.** Every load-bearing claim was checked against the working tree
+(`ui/main_window.py`, `ui/ticker_session.py`, `ui/chart_panel.py`, `ui/watchlist_panel.py`,
+`ui/active_portfolio_panel.py`, `ui/active_trader_panel.py`, `ui/dock_layout.py`,
+`ibkr/validation.py`, `data/db.py`, `data/models.py`, `tests/*`). Freshness: proposal (16:03) ≥
+requirements (15:25) ✓.
+
+## Requirements Coverage
+| Criterion / journey | Plan treatment | Verdict |
+|---|---|---|
+| `AC-D41.1` (no D36/D37/DOM/Active-Trader/order-entry control or `active_trader` attribute renders) | Phase 1 (footprint/depth controls) + Phase 2 (DOM button, panel, Portfolio-only dock); render/attribute probe in Phase 3 | **Covered** |
+| `AC-D41.2` (zero `reqHistoricalTicks`/`reqTickByTickData`/`reqMktDepth`/`cancelMktDepth`/generic `"225"`) | Phase 1 (ticks/heatmap/`"225"`) + Phase 2 (depth/ladder); request probe in Phase 3; removal also enforced at the client edge (S9) | **Covered** |
+| `AC-D41.3` (9 modules + 3 suites gone, no dangling import/reference) | Deletions in Phases 1–2; `find_spec` + token scan in Phase 3 | **Covered**, but the guard's token set is incomplete → **R3** |
+| `AC-D41.4` (D38/D39/D27–D28 substrate intact **and** retained order machinery + resolving `ref_price`) | Phase 1 preserves the substrate; Phase 2 re-homes the gates (S5, S4); Phase 3 evidence | **Partially covered** — two KEEP symbols lose their only tests → **R2**; the kill-switch/bracket half rests on an unmapped suite → **R1** |
+| `AC-D41.5` (app starts and charts; full offscreen suite green) | Phase 3 (+ Phases 1–2 as prerequisites) | **Cannot be met as mapped** — 3 unlisted suites fail deterministically → **R1** |
+| `AC-D41.6` (`SUPERSEDED BY D41` markers; D18/D21.13 notes; tech-stack sentence intact) | Requirements-owned, already applied; no code work (AP-5) | **Covered** (verified present at the six lines above) |
+| `AC-D41.7` (right dock Portfolio-only, visible in full screen, non-zero width, clamped; cap/header re-derived) | S6 + Phase 2 implementation + Phase 3 `test_d41_portfolio_dock.py` | **Covered**, subject to **R1** (dock-title consumers) |
+| Journey 36 (6 steps + edge cases) | Steps spread across Phases 1–3 | **Covered** (the per-phase step attribution is inconsistent but all six are addressed) |
+| KEEP-list protections (D38 news/dividends, D39 bursts/search, D27/D28, the chart, the retained order machinery, `footprint_cache_key`/`INDEX_PROXY`/`md_line_guard.assess`/`S0_TICKS`/`volume_baseline`) | Phases 1–2 preservation + Phase 3 evidence | **Hold**, except the two coverage losses → **R2** |
+| DG66/DG69/DG70/DG71 (escalations moot; panel scope; table drop; `ref_price` + cap/header re-derivation) | S7/S8/S9/S10, AP-7 | **Covered** — DG71(1) by S4, DG71(2) by S6, DG69 by S3/S5, DG70 by S7 |
+
+## Architecture Findings
+**(a) `ref_price` re-sourced to `_symbol_last_prices` — VERIFIED.** `ui/main_window.py:727` is the
+D27.5 map; `:2263`–`:2266` `_record_symbol_price` normalises to upper case; `:609` wires the
+watchlist sink; `ui/watchlist_panel.py:919`–`:937` feeds it from each row's `reqMktData`
+subscription (`ui/watchlist_panel.py:241`); `ui/ticker_session.py:862`–`:863` feeds it from **every
+aggregated chart bar**; `:3313` is the existing D27.5 consumer. `_ref_price_for` does not exist yet
+(new) and its upper-case normalisation matches the map's keys ✓. `None` for an unknown symbol is
+safe (`ibkr/validation.py:62`–`:72` skips the notional check with no positive price basis) and S4
+states exactly that. **One rationale overstatement to soften:** the map resolves for a symbol that
+is on the **watchlist** or has a **live session**; a position in neither returns `None`, so the
+phrase "resolves for a position whose symbol has no live chart session — the exact case a
+multi-symbol portfolio close hits" is stronger than the code supports. The decision itself is
+unchanged and is one of the two sources A71/DG71 bless.
+
+**(b) Portfolio-only dock — VERIFIED, including "by construction".** As-built:
+`ui/main_window.py:485`–`:493` (one `QDockWidget`, title **and** `objectName` `"Active Trader"`,
+`setTitleBarWidget(self.active_trader.header_bar)`); `:471`–`:483` (`RightDockContainer` with both
+panels stacked); `:2455`–`:2475` (collapsed floor over **both** buttons); `:2477`–`:2485`
+(`_right_region_is_collapsed` = AND of both); `:2494`+ (per-panel stretch juggling).
+`ui/active_portfolio_panel.py:80`–`:97` — `summary_label` is a checkable `DiagonalStrikeButton`
+wired `toggled → _on_header_toggled → body.setVisible`, with `is_collapsed()` at `:179` — the
+**identical** shape to `ActiveTraderPanel.header_bar` (`ui/active_trader_panel.py:491`–`:518`,
+which the dock already re-parents today). So S6's "`ui/active_portfolio_panel.py` — not modified"
+holds ✓. `ui/dock_layout.py` is pure Qt-free (`:8`–`:10`), `RIGHT_DOCK_CAP_FRACTION = 0.40`
+(`:36`), `RIGHT_DOCK_MIN_WIDTH = 200` (`:30`), `right_dock_max_width`/`plan_dock_widths`
+(`:58`–`:113`) — unchanged, as S6 claims ✓. The surviving D18 outcomes hold by construction:
+AC-D18.1 visibility (`requirements.md:2073`–`:2080`), AC-D18.2's **0.40** cap (`:2081`–`:2087` —
+the numeric cap survives *in the AC itself*, so keeping it is not a weakening), AC-D18.4
+(`:2095`), AC-D18.5 (`:2099`), AC-D18.6 (`:2105`), AC-D18.7 no persistence (`:2111`); AC-D21.13.4's
+strike-through survives on the retained Portfolio toggle (`:2478`). **But the consumer list is
+wrong** (`architecture_proposal.md:109` says "8 files" and lists 9; there are **14** title/objectName
+consumers) → **R1**.
+
+**(c) `footprint_cache` drop — VERIFIED.** `data/db.py:6`–`:12` `DB.__init__` → `_init_schema()`;
+`:155`–`:156` the DDL script then `_migrate_schema()`; `:159`–`:179` `_migrate_schema()` **is** this
+repo's migration mechanism — it runs unconditionally on every open and is already additive and
+idempotent (`ALTER TABLE` guards, `CREATE UNIQUE INDEX IF NOT EXISTS`). A `DROP TABLE IF EXISTS
+footprint_cache` there is a one-time, crash-safe, operator-free step ✓ (S7 correct; DG70's
+recorded default = full drop ✓). The DDL to remove is `:118`–`:127` ✓. `tests/test_db_schema.py:13`
+/`:47`–`:49` **subset-asserts** `EXPECTED_TABLES`, so removing the DDL is silent — the Phase-3
+absence/drop assertion the proposal adds is genuinely required ✓.
+
+**(d) The order-path finding (FI-1's load-bearing claim) — VERIFIED EXACTLY (source-verified
+independently).**
+- `validate_order(` has **exactly one** production call site: `ui/main_window.py:3112` (all other
+  matches are in `tests/test_order_validation.py`).
+- `_place_order`'s production callers: `_on_order_place_requested` (`:3097`) and its own
+  `QTimer.singleShot` retry (`:3135`); `_on_order_place_requested` is wired **only** to
+  `active_trader.order_place_requested` (`:693`) ⇒ ticket-only ✓.
+- `_close_position_by_id` (`:3446`–`:3508`) builds the offsetting MKT order and calls
+  `self.ib_client.placeOrder(order_id, contract, order)` at `:3505` with **no** `validate_order`
+  and **no** connection guard ✓.
+- The only order-transmit guard is `:3105` (`if not self._ibkr_connected`) inside `_place_order` ✓.
+- `placeOrder(` sites: six inside `_place_order` (`:3146`, `:3157`, `:3169`, `:3185`–`:3187`) + one
+  at `:3505` ⇒ after D41 the close/flatten path is the app's **sole** emitter ✓.
+- `bracket_order`'s only production caller is `:3182` (inside `_place_order`) ✓ — retained and
+  exercised by `tests/test_order_builders.py`.
+⇒ **The claim is right and Phase 2's re-homing target is right.** `validate_order`/`_ref_price`
+would otherwise become production-dead; S5's `risk_reducing` carve-out (skip only the notional
+cap) is additive and default-off, so no existing caller's behaviour changes.
+
+**(e) Run mode / promotion shape.** The proposal is a **legacy single-scope** proposal: no
+`Phase: P<n>` header, decisions labelled `[existing]`/`[new]`/`[new/changed]` — the phased template
+check does not apply, and there is no `docs/plan_review_P<n>.md` in play. When it is eventually
+approved, promotion must **append** a `## D41 increment` to the cumulative `docs/architecture.md`
+(after the D40 increment at `:3268`) and a D41 section to `docs/plan.md` (which today is explicitly
+`Scope: D23 only` + as-built D24–D40). A literal `cp` over either file would destroy the D1–D40
+as-built record.
+
+**(f) Internal cross-reference and factual defects that must not reach the canonical files
+(editorial, no new decision).**
+- `architecture_proposal.md:93` cites **`S19`** — no such decision exists; it means **`S5`**
+  (corroborated by the same paragraph's AR-D41-6 and by `plan_proposal.md:104`).
+- `:109` "**8** test files" then lists **9**, while the tree has **14** title/`objectName`
+  consumers (`test_dock_widths_d17.py:37`+`:73`; `test_watchlist_d14_midrag.py:35`+`:82`;
+  `test_crosshair_axis_lane.py:101`–`:106`; `test_d27_position_prices.py:30`;
+  `test_history_backfill.py:199`; `test_history_backfill_disconnect.py:136`;
+  `test_watchlist_columns_d21.py:308`+`:322`; `test_d10_d13_integration.py:35`+`:53`;
+  `test_d27_stream_health.py:67`; `test_d27_account_subs.py:27`; `test_d27_phantom_alarms.py:56`;
+  `test_dock_d18_region.py:107`+`:110`; `test_d27_reconnect.py:163`;
+  `test_history_backfill_loadpath.py:165`) + 2 title-bar-text assertions
+  (`test_right_dock_d21.py:64`, `test_watchlist_nonregression_d22.py:142`).
+- `architecture_proposal.md:180` and `:206` attribute `OrderBookLevel` to **FI-1** — it is
+  **FI-2**; `:284` (AR-D41-9) attributes the wide-candle issue to **FI-2** — it is **FI-3**.
+- `:284` calls ESC-041 "should-fix"; `docs/code_review/escalations.json` records ESC-041 as
+  **blocking**, routed BUILD (corroborated by `docs/orchestrator_state.json.blocking_bugs`).
+- `plan_proposal.md:29` "**14** escalations stay open and untouched" contradicts AP-7: ESC-035 /
+  ESC-039 / ESC-040 are mooted by removal (DG66), leaving **11** open and untouched
+  (ESC-032/033/034/036/037/038/041/042/043/044/045; ESC-038 is open/routed REQUIREMENTS and is
+  D41-neutral).
+- `ui/dock_layout.py` is listed in Phase 1 as an optional comment edit, but its only
+  "Active-Trader" references (`:4`, `:29`) belong to the **Phase 2** rename.
+- The descriptive file counts ("Phase 1 (16 file entries)", "Phase 2 (21)") do not match the maps
+  (≈22 and ≈31 enumerated files).
+- Every line range in the maps is a bare `file:line`, while the repo adopted the `path::symbol`
+  citation convention (DG56; `docs/plan.md` header) — pair each range with its symbol when the
+  canonical artifacts are written.
+
+**(g) Load-bearing anchors spot-checked** (within 1–2 lines of the cited ranges):
+`ui/chart_panel.py:355`–`:358` (`footprint_static`/`footprint_live`), `:370`/`:758`/`:775`
+(`_depth_enabled_ui`), `:560`–`:563` (`_depth_refresh_timer` 500 ms), `:699` (`refresh_footprint`),
+`:827` (`bind_d37_session`), `:852` (`bind_d38_session` — kept); `ui/main_window.py:99`
+(`DEPTH_FEED_CAP`), `:351`–`:355`, `:557`–`:558`, `:654`–`:655`, `:790` (`_md_line_count`), `:817`
+(`_guard_depth_budget`), `:965`/`:988`/`:1004`; `ibkr/subscription_manager.py:37`–`:38` (`DEPTH`,
+`DEPTH_HEATMAP`); `data/models.py:105`–`:110` (`OrderBookLevel`, **zero** references — verified).
+
+## Plan Findings
+- **Phase structure ✓.** Three phases, strictly ordered, each with a goal, the requirements/journeys
+  it covers and its dependencies; one task per file; `ui/main_window.py` a single task per phase;
+  no two entries of a phase share a file (intra-phase `touches_files` sets are disjoint), and the
+  only cross-phase file overlap is the six shared production files, which AP-1's strict sequencing
+  covers.
+- **Granularity ✓.** Each phase is a meaningful body of work ("remove the D36/D37 feature trees",
+  "remove the Active Trader panel and make the dock Portfolio-only", "non-regression verification"),
+  not a task list: no acceptance criteria per task, no test specifications per task, no task graph.
+  The per-file line-range tables are sequencing/partition support (this repo's established
+  convention) and are acceptable at that level.
+- **Map completeness ✗** — the decisive finding. Seven test files reference symbols or titles D41
+  removes and appear in **neither** map; three of them fail deterministically
+  (`tests/test_d28_pacing.py:130`, `tests/test_kill_switch.py:90` → `AttributeError` on the deleted
+  `_place_order`; `tests/test_crosshair_axis_lane.py:105` → `KeyError` on the renamed dock). The
+  other four silently stop hiding the right dock (the D19/D21 masking trap that `memory.md:44`/`:64`
+  records and that AR-D41-3 claims to neutralise). See **R1**.
+- **Coverage carried by the deletions ✗** — `footprint_cache_key` and `md_line_guard.assess` each
+  have exactly one test, both inside suites this plan deletes. See **R2**.
+- **Verification design ✓** (phases 1–2 per-phase evidence, phase 3 the three new suites + full
+  offscreen run; AP-3's invocation is right, and `tests/conftest.py:13` does export `DB_PATH`).
+  The guard's credibility rests on a complete file map, which is why R1/R3 matter.
+- **Assumptions AP-1–AP-9** are plan-level, not requirements gaps, and are consistent with
+  `A68`–`A71`/DG66–DG71 ✓ (AP-4/A36 no-new-QSettings-key is asserted by the new dock suite ✓).
+
+## Existing Repo Compliance
+Run is an existing repository (`requirements.md` carries the marker sentence). Per check:
+- **Codebase Summary present and substantive — PASS.** Field-level data-model inventory, a
+  components table with responsibilities and sizes, key entry points with signal/wiring paths, the
+  integration surface with the pinned `ibapi`/live-7496 constraint, and ten numbered
+  source-validated facts. Not a placeholder.
+- **Existing stack respected — PASS.** S1/S2/S12 list the constrained choices first (Python 3.11+
+  `.venv`, PyQt6 ≥6.6, pyqtgraph ≥0.13, `ibapi` `9.81.1.post1`, live port 7496 fail-fast, numpy,
+  SQLite via `config/paths.get_db_path()`, PyInstaller, pytest + pytest-qt offscreen). Nothing
+  existing is replaced or deprecated and no new dependency/integration is added
+  (`Integration Points` = "New integrations: none") ✓.
+- **Labels present — PASS.** Tech Stack: `[existing]` S1/S2/S12, `[new]` S3/S4, `[new/changed]`
+  S5–S11. System Components: `[existing → deleted]`, `[existing]`, `[new/changed]` on every row.
+  Data Model and Integration Points label every entry (`[existing]`, `[existing → removed]`,
+  `[new/changed]`).
+- **Additive-only — PASS.** No existing component is redesigned beyond a requirement: the single
+  behaviour addition (S5's additive `risk_reducing` keyword + re-homed gates on the retained close
+  path) is required by `AC-D41.4`/`A71`/DG71; `ui/active_portfolio_panel.py` is deliberately
+  untouched; `footprint_cache_key` is deliberately **not** renamed (S10, FS17).
+- **Codebase Summary consistent with the proposal — PASS.** Every `[existing]` item exists as
+  described (`RightDockContainer` + two-section dock, `_symbol_last_prices` `:727`,
+  `DEPTH`/`DEPTH_HEATMAP`, `MarketDepthManager`, `OrderBook`/`Level`, `OrderBookLevel`,
+  `FootprintCache`, the `footprint_cache` DDL) and every `[existing → removed]` item was verified
+  in source; the five KEEP-list survivors were verified present
+  (`ibkr/contracts.py:144` `footprint_cache_key`, `INDEX_PROXY`; `services/md_line_guard.py:13`
+  `assess`; `S0_TICKS`; `volume_baseline`).
+- **Requirements-side marker:** `Current Tech Stack` is present and placeholder-free — no
+  requirements escalation on that count.
+
+## Required Changes
+**R1 — complete both `touches_files` maps (blocking).** Add these seven test files, with the edit
+each needs, to the phase shown:
+1. `tests/test_d28_pacing.py` → **Phase 2**: `test_place_order_defers_when_limiter_empty`
+   (`:117`–`:140`) calls the deleted `win._place_order(...)` (`:130`). Re-point it at the retained
+   emitter (`_close_position_by_id` with a seeded `positions` row) so the D28.1 order-path
+   deferral guarantee stays exercised.
+2. `tests/test_kill_switch.py` → **Phase 2**: `test_bracket_place_registers_all_three_legs`
+   (`:77`–`:100`) calls `win._place_order(order_type="BRACKET", …)` (`:90`) — this is D26.8's
+   **only** test that all three bracket legs are registered at transmit time (`AC-D41.4`'s
+   "retained machinery … exercised"). Re-point it to build the legs via
+   `order_registry.bracket_order` + `order_registry.register` (or via the retained path) rather
+   than deleting the assertion.
+3. `tests/test_crosshair_axis_lane.py` → **Phase 2**: `docks = {d.windowTitle(): d …}` then
+   `region = docks["Active Trader"]` (`:101`–`:105`) raises `KeyError` after the rename, and
+   `assert "Portfolio" not in docks` (`:106`) **inverts**. Re-point to the single `"Portfolio"`
+   dock and invert that assertion.
+4. `tests/test_watchlist_d14_midrag.py` (`:35` `_RIGHT_DOCKS = ("Active Trader",)`, used `:82`)
+   → **Phase 2**: dock-hide helper must hide the renamed dock or the D14 gesture harness runs
+   against a different chart width.
+5. `tests/test_d27_position_prices.py` (`:29`–`:31`) → **Phase 2**: same hide-helper.
+6. `tests/test_history_backfill.py` (`:199`) → **Phase 2**: same hide-helper.
+7. `tests/test_history_backfill_disconnect.py` (`:136`) → **Phase 2**: same hide-helper.
+
+Also correct the stated consumer count ("8 test files" / "9 test files" → the verified **14**
+title/`objectName` consumers + the 2 title-bar-text assertions) and enumerate them, so the
+AR-D41-3 mitigation ("a stale tuple is then detectable, not silent") is actually true.
+
+**R2 — re-home the coverage the deletions take with them (blocking; `AC-D41.4`).**
+- `ibkr/contracts.py::footprint_cache_key` — its **only** test is
+  `tests/test_d36_footprint.py::test_rollover_key_change_isolates_tape` (`:389`–`:395`); no other
+  test in the tree names the symbol.
+- `services/md_line_guard.py::assess` — its **only** test is
+  `tests/test_d37_microstructure.py::test_md_line_guard_thresholds` (`:336`–`:342`); no other test
+  imports `assess`.
+`AC-D41.4` requires both to "remain **and remain exercised by their tests**". Move these assertions
+into a surviving suite (e.g. the D39 burst/`volume_baseline` suite for the roll-over key rule, and a
+retained-substrate assertion for the guard thresholds), or assert them inside
+`tests/test_d41_removal.py`, and record that in the map and in the `AC-D41.4` traceability row.
+
+**R3 — widen the Phase-3 removal guard's token set (blocking for its own claim).** AR-D41-3 /
+AR-D41-8 promise that every reference is enumerated and that a stale one is detectable, but
+`tests/test_d41_removal.py`'s scan omits identifiers Phase 2 deletes that **are referenced today**
+outside it: `_place_order` (`ibkr/validation.py:5`; `tests/test_d28_pacing.py:130`;
+`tests/test_kill_switch.py:90`), `_on_order_place_requested`, `_on_dom_toggled`, `_on_mkt_depth`,
+`_rebind_depth_req_id`, `_on_fp_*`/`_fp_host_managers`, `active_feed_count`, `has_subscription`,
+`apply_operation`, `is_cacheable`, `LadderTable`, `BookTable`, `right_dock_container`,
+`_right_dock_layout`, and the literal removed dock title `"Active Trader"` in `tests/` (with an
+allow-list for the new negative assertions in `tests/test_d41_portfolio_dock.py`).
+
+**R4 — correct the FI-1/FI-3 evidence and severity (low).** FI-1's SL/TP claim should be evidenced
+by `ui/stop_loss_target_dialog.py` containing **no** `placeOrder` (verified repo-wide) —
+`tests/test_sltp_honesty.py:16`/`:24` asserts the dialog's **label text**, not non-transmission.
+FI-3 should cite `docs/code_review/candle_overlap_investigation.md` (concluded; rules the footprint
+overlay **out**; cause is `ui/candlestick_item.py:122`–`:138` + `ui/chart_panel.py:1688`–`:1690`)
+and record ESC-041's true severity (**blocking**, per `escalations.json`).
+
+**R5 — fold in the internal cross-reference corrections (low).** All of Architecture Findings (f) —
+none of it may reach the canonical artifacts, and the `S19` → `S5` reference must be fixed or the
+canonical architecture would name a decision that does not exist.
+
+**R6 — re-point the `validate_order` module docstring (low).** `ibkr/validation.py:5` says the gate
+is "Wired at the top of `MainWindow._place_order`"; after Phase 2 that symbol is gone — the docstring
+must name the retained emitter (S5 already says the docstring is updated; make it explicit that this
+sentence is included).
+
+## Requirements Escalations
+**One recorded, not escalated** — `docs/plan_notes.md` **RG-D41-1** (`Status: open`,
+`Escalation: none`): `AC-D41.4`'s "the retained order paths … still build and **validate** orders
+with a resolving `ref_price`" carries the two readings FI-1 identifies, and its "SL/TP dialogs"
+clause is **vacuous** — `ui/stop_loss_target_dialog.py` transmits no orders at all (verified
+repo-wide; `tests/test_sltp_honesty.py` asserts only the disclosure label).
+**Ruling (this cycle): ratify the proposal's reading (a)** — re-homing the D26.9 disconnected guard
+and the `validate_order()` gate onto `_close_position_by_id`, fed by `_ref_price_for` and with the
+additive `risk_reducing` keyword, is what `AC-D41.4` and the KEEP list ask for ("must keep
+resolving for the retained order paths"), and `DG71`/`A71` bless both the source and the mechanism.
+It is **not** scope addition and **not** an invention, so **no `ESCALATED_TO_REQUIREMENTS`** and no
+Requirements Analyst action is required.
+
+## Task Manager Readiness
+**Not ready — do not start Task Manager.** Two independent blockers:
+1. The `touches_files` maps are incomplete (R1/R2/R3), so Task Manager would have to decide which
+   further files and tests to edit — a scope decision that is not its own.
+2. With the maps as written, Phase 2's acceptance ("the re-pointed dock/toolbar/order suites green")
+   and Phase 3's (`AC-D41.5` full suite green) are unreachable: `tests/test_d28_pacing.py`,
+   `tests/test_kill_switch.py` and `tests/test_crosshair_axis_lane.py` fail deterministically, and
+   four more suites would be silently masked.
+
+Everything else is decision-complete: the three architecture decisions are explicit, reasoned and
+source-verified; the D18/AC-D18.3/D21.13/D26 outcomes are preserved or explicitly re-derived; and
+no requirement clause is left without architectural treatment.
+
+**Artifact state.** `docs/architecture.md` and `docs/plan.md` were **not modified** this cycle —
+`docs/plan.md` carries no D41 content, its `Status: READY_FOR_TASK_MANAGER` line belongs to the
+already-built D23 increment whose handoff block scopes itself to "the three phases above", and the
+authoritative gate for this cycle is this review. No `READY_FOR_TASK_MANAGER` marker anywhere
+represents D41, so none had to be removed to prevent an unsafe handoff. `docs/plan.md` must **not**
+gain one until R1–R3 are addressed and the proposal is re-validated.
+
+## Final Decision
+Status: CHANGES_REQUIRED (2026-10-15, D41 initial validation — round 1 of 3. The three substantive
+architecture decisions (S4 `ref_price` source, S6 Portfolio-only dock, S7 `footprint_cache` drop)
+and FI-1's order-path finding all **verify against source**; the phases are well-formed and
+correctly scoped. The proposal is blocked by an **incomplete test/file map** (7 files, 3 of them
+deterministically failing) and by **two KEEP-listed symbols losing their only test coverage**,
+which would force Task Manager to invent file/test scope. Fix R1–R3 (R4–R6 alongside), re-issue
+`docs/plan_proposal.md` / `docs/architecture_proposal.md`, and re-run validation.)
+
+---
+
+# Plan Review — Batch 18 (**D41**) removal proposal — 2026-10-15 (round 2: R1–R6 verification, **APPROVED**)
+
+> Legacy single-scope run (no `Phase: P<n>` header in the preamble; inputs are the unsuffixed
+> `docs/plan_proposal.md` / `docs/architecture_proposal.md`), so no phase gate applies and this
+> review is final for the cycle. Round **2** of the 3-retry cap: the proposal was re-issued in place
+> (`docs/plan_proposal.md`, `docs/architecture_proposal.md`, both `Status: READY_FOR_VALIDATION`,
+> 16:21) and re-marked for validation.
+
+## Review Status
+`Status: APPROVED` — R1, R2 and R3 (the three blockers) are **fixed and independently verified
+against the tree**, and R4–R6 are folded in. No new defect was introduced by the revision: the
+previously-verified architecture decisions (`S4`, `S6`, `S7`) and the order-path finding are
+unchanged and re-verified. The canonical artifacts were written from this cycle.
+
+## Validation Summary
+
+**Inputs read.** `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`, last line `:3717`;
+`### D41` `:3263`, `AC-D41.1`–`AC-D41.7`; the `SUPERSEDED BY D41` markers at `:69`, `:83`, `:2088`,
+`:3075`, `:3116` ✓). `docs/requirements/design_gaps.md` (DG66–DG71). `docs/code_review/
+escalations.json` — **16 entries, 14 `open`, zero `routed_to: PLAN`** ⇒ the escalation-validation
+path does not apply, and no PLAN escalation was addressed during the round-1 gap. `docs/plan_proposal.md`
+(443 lines) and `docs/architecture_proposal.md` (352 lines), both `Status: READY_FOR_VALIDATION`,
+both **newer than `requirements.md`** (16:21 ≥ 15:25 — freshness ✓). `docs/plan.md`,
+`docs/plan_notes.md` (RG-D41-1) and this file's own round-1 review were read as the retry context.
+
+**Source verification (all independent, this cycle).** Every R1–R3 claim was re-checked against the
+working tree with `grep`/`read` — not accepted from the proposal. Files touched by the checks:
+`tests/*` (the 17 dock consumers, the seven formerly-unmapped suites, the two re-home targets, the
+toolbar/order/dock suites), `ui/main_window.py`, `ui/chart_panel.py`, `ui/ticker_session.py`,
+`ui/watchlist_panel.py`, `ui/validation…`→`ibkr/validation.py`, `ibkr/{market_depth,order_book,
+subscription_manager,contracts,orders}.py`, `data/{db,models}.py`, `services/md_line_guard.py`, and
+`docs/code_review/escalations.json`.
+
+## Required Changes — verdicts
+
+| # | Required change | Verdict | Evidence checked |
+|---|---|---|---|
+| **R1.1** | `tests/test_d28_pacing.py` called the deleted `_place_order` | **FIXED** | `tests/test_d28_pacing.py:130` is `win._place_order(contract=object(), symbol="AAPL", …)` inside `test_place_order_defers_when_limiter_empty` (`:117`–`:140`) ✓. The Phase-2 row re-points it at `win._close_position_by_id(<seeded id>)` with a seeded `positions` row and keeps all **four** D28.1 guarantees, which the test does assert: no immediate transmit (`:134`), no GUI-thread sleep (`:135`), the `pacing-limited` status (`:136`), exactly one deferred transmit after `QTest.qWait(1200)` at `:137` (`:138`) ✓ |
+| **R1.2** | `tests/test_kill_switch.py:90` called the deleted `_place_order` — D26.8's only all-three-legs test | **FIXED** | `tests/test_kill_switch.py:90` is `win._place_order(… order_type="BRACKET" …)` ✓; the assertions at `:93`–`:98` (ids `[1,2,3]`, parent `BUY`, both children `SELL`) and the `IdManager` patch at `:87`–`:89` are as described ✓. **"Only all-three-legs-at-transmit test" confirmed independently**: `bracket_order`'s consumers are `ui/main_window.py:3182` (inside the deleted `_place_order`) and `tests/test_order_builders.py` (builder-level structure/transmit-flag tests), neither of which drives a place and asserts transmit-time registration of all three legs. The re-point at `order_registry.bracket_order` + `register` keeps the property ✓ |
+| **R1.3** | `tests/test_crosshair_axis_lane.py:105`/`:106` | **FIXED** | `:105 region = docks["Active Trader"]`, `:106 assert "Portfolio" not in docks`, with the D18 comment at `:102`–`:104` and the f-string at `:123` — exactly as the plan states ✓. The proposed replacement (positive `"Portfolio" in docks` **and** `"Active Trader" not in docks`) preserves the original intent ✓ |
+| **R1.4–R1.7** | Four silently-masked dock-hide helpers | **FIXED** | `tests/test_watchlist_d14_midrag.py:35` (`_RIGHT_DOCKS = ("Active Trader",)`, used `:82`) ✓; `tests/test_d27_position_prices.py:30` ✓; `tests/test_history_backfill.py:199` ✓; `tests/test_history_backfill_disconnect.py:136` ✓ — all four now have a Phase-2 row → `("Portfolio",)` |
+| **R1 (count)** | "8/9" consumers → the verified number | **FIXED — verified independently at 15 + 2 = 17** | See the dedicated count verification below |
+| **R2** | `footprint_cache_key` and `md_line_guard.assess` lose their only tests | **FIXED** | `footprint_cache_key`: its only test is `tests/test_d36_footprint.py::test_rollover_key_change_isolates_tape` (`:389` def; calls `:394`–`:395`; assertions `:396`–`:398`) — no other test in the tree names the symbol ✓. `services/md_line_guard.py::assess`: its only test is `tests/test_d37_microstructure.py::test_md_line_guard_thresholds` (`:336`–`:344`) ✓. Both **re-homes land in Phase 1**, the phase that deletes the two suites ✓ (`tests/test_d39_burst_search.py`, `tests/test_d38_events_news.py` both exist and are Phase-1 rows). The re-home targets are the right homes: `ui/ticker_session.py:922` is inside `_evaluate_burst_alarms` (D39.3, surviving — the section boundary `# ── Footprint (D36) ──` is at `:955`, so `:922` is genuinely a D39 use) ✓; the D38 suite is what `_guard_md_lines` still gates ✓. The re-purposed guard assertions match the surviving suite's content — `assess(50) == ("ok","")`, `assess(90)` → `"approaching"` with `"SPX"`/`"90/100"`, `assess(100)` → `"exceeded"` with `"not subscribing"` (the existing assertions at `:337`–`:344`), only the purpose label changes from `"depth"` to `"S0 ticks"`, which is faithful (the label is not asserted) ✓ |
+| **R3** | Widen the Phase-3 removal guard's token scan | **FIXED** | Every token in the widened set **fires pre-D41** (counted repo-wide over `ui ibkr services data config tests main.py`): `active_feed_count` 3, `apply_operation` 11, `is_cacheable` 13, `LadderTable` 3, `BookTable` 2, `OrderEntryWidget` 6, `_rebind_depth_req_id` 4, `_on_dom_toggled` 11, `_on_mkt_depth` 2, `_on_order_place_requested` 4, `_place_order` 15, `_fp_host_managers` 6, `resolve_footprint_contract` 11, `historical_ticks_` 6, `update_mkt_depth` 4, `DEPTH_HEATMAP` 5, `reqMktDepth` 16, `reqHistoricalTicks` 7, `reqTickByTickData` 4, `RightDockContainer` 1, `right_dock_container` 7, `_right_dock_layout` 2, `dom_btn` 10, `set_depth_manager` 2, `_depth_manager` 7, `bind_d37_session` 4, `update_auction_chip` 5, `DEPTH_FEED_CAP` 4, `OrderBookLevel` 1 (its own definition — the inert claim holds), `active_trader` 63 ⇒ the "red before the change" proof is achievable for the whole set ✓. **`has_subscription` scoping is correct**: bare occurrences today are `ibkr/market_depth.py:45` (deleted with the module) and `ibkr/subscription_manager.py:81` (retained) plus `tests/test_market_depth.py:164`/`:168`–`:170` (deleted with that suite) ⇒ after D41 the **only** surviving bare occurrence is `ibkr/subscription_manager.py:81`, exactly as the allow-list documents ✓; the module-absence check covers `MarketDepthManager.has_subscription` since the whole module goes ✓. `"Active Trader"` allow-listing is consistent (negative assertions only in the two guard files) ✓ |
+| **R4** | FI-1/FI-3 evidence + ESC-041 severity | **FIXED** | FI-1 now cites `ui/stop_loss_target_dialog.py` (no `placeOrder` — re-confirmed repo-wide) and `tests/test_sltp_honesty.py`'s label-only assertion ✓. FI-3 cites `docs/code_review/candle_overlap_investigation.md` + `ui/candlestick_item.py:122`–`:138` / `ui/chart_panel.py:1688`–`:1690` ✓. ESC-041 recorded **`blocking`** ✓ — independently confirmed in `escalations.json`: ESC-041 = `blocking`/BUILD/`open` (the only blocking entry besides ESC-032/033) |
+| **R5** | Internal cross-reference corrections | **FIXED** | `S19` appears **nowhere** in either proposal except the R5 changelog row itself; the decision reference is `S5` ✓. `OrderBookLevel` → **FI-2** in Components (`:200`) and Data Model (`:233`) ✓; AR-D41-9 → **FI-3** (`:311`) ✓; ESC-041 `blocking` ✓. Escalations count corrected: header `:34` and AP-7 both say **11** stay open (14 open − ESC-035/039/040 moot) and list `ESC-032/033/034/036/037/038/041/042/043/044/045` — 11 IDs ✓ (verified against `escalations.json`: 14 `open`, and ESC-035/039/040 are all `should-fix`). File counts **20** (Phase 1) / **39** (Phase 2) — **recounted independently row by row: 20 ✓ and 37 rows / 39 entries ✓**. `ui/dock_layout.py` now a **Phase-2** row ✓. Line ranges are paired with their symbols (`path::symbol`) per the citation convention ✓. The `S4` rationale is softened to the accurate "resolves for a symbol that is on the watchlist **or** has a live chart session" ✓ |
+| **R6** | `ibkr/validation.py:5`'s `_place_order` docstring reference | **FIXED** | `ibkr/validation.py:5` says "Wired at the top of ``MainWindow._place_order``" ✓ (as cited), and the Phase-2 `ibkr/validation.py` row + `S5`'s decision text both re-point it at `MainWindow._close_position_by_id` ✓ |
+
+## Independent consumer-count verification (R1's count claim)
+
+**The claim "15 `windowTitle()`/`objectName()` consumers + 2 title-bar-text files = 17" is CORRECT —
+verified from the tree, not accepted.** Sweeping every `*.py` under `tests/` for title/`objectName`
+keys on the right dock yields exactly these 15 files:
+
+`tests/test_dock_widths_d17.py` (`:37`+`:73`), `tests/test_watchlist_d14_midrag.py` (`:35`+`:82`),
+`tests/test_crosshair_axis_lane.py` (`:101`–`:106`, `:123`), `tests/test_d27_position_prices.py:30`,
+`tests/test_history_backfill.py:199`, `tests/test_history_backfill_disconnect.py:136`,
+`tests/test_dock_widths_d18.py:177`, `tests/test_d10_d13_integration.py` (`:35`+`:53`),
+`tests/test_d27_account_subs.py:27`, `tests/test_watchlist_columns_d21.py` (`:308`+`:322`),
+`tests/test_d27_phantom_alarms.py:56`, `tests/test_d27_stream_health.py:67`,
+`tests/test_history_backfill_loadpath.py:165`, `tests/test_dock_d18_region.py` (`:107`+`:110`),
+`tests/test_d27_reconnect.py:163` — **15** ✓.
+
+Plus the two title-bar-**text** assertion files: `tests/test_right_dock_d21.py` (`assert at_btn.text()
+== "Active Trader"` at `:67`) and `tests/test_watchlist_nonregression_d22.py:142` — **2** ✓.
+**Total 17** ✓, and **all 17 appear in the Phase-2 map with the edit each needs** (rows at
+`docs/plan_proposal.md:133`–`:151` / the canonical `docs/plan.md` Phase-2 table) ✓.
+
+The delta from the round-1 enumeration is explained and honest: the round-1 list of 14 omitted
+`tests/test_dock_widths_d18.py:177` (`assert win.right_dock.objectName() == "Active Trader"`), which
+the proposal notes was already inside the Phase-2 map — hence 15 keyed consumers.
+
+**No other consumer is missing.** Cross-checks: (a) every `active_trader` reference in `tests/` is in
+the map (`test_right_dock_d21.py`, `test_dock_widths_d18.py`, `test_dock_widths_d18_impl.py`,
+`test_dock_d18_region.py`, `test_watchlist_nonregression_d22.py`, `test_order_validation.py`,
+`test_order_rejections.py`, `test_d27_position_prices.py`, and the two deleted order-entry suites);
+(b) `right_dock_container` consumers are only `test_dock_d18_region.py:88`/`:173` and
+`test_dock_widths_d18.py:279` — all in the map; (c) no test asserts a *different* dock title that the
+rename would newly collide with (only `test_crosshair_axis_lane.py:106`'s `"Portfolio" not in docks`,
+which the plan inverts); (d) `tests/test_dock_layout.py` uses `win.right_dock` and pure
+`plan_dock_widths` geometry only — it does **not** key on a title, so it correctly does not appear,
+and the canonical map lists it explicitly under "Phase-2 files checked and *not* changed".
+
+## Regression check — nothing the round-1 approval rested on was broken
+
+- **`S4` (`ref_price` source) — unchanged and still verifies.** `ui/main_window.py:727`
+  `self._symbol_last_prices: dict[str, float] = {}`; written at `:2266`
+  (`self._symbol_last_prices[symbol.upper()] = float(price)`, `_record_symbol_price`); already the
+  D27.5 consumer's source at `:3313` (`position.market_price = self._symbol_last_prices.get(...)`).
+  `_ref_price_for` does **not** exist yet (grep-negative ⇒ genuinely new) ✓. The rationale sentence
+  was **softened** to the code's actual reach (watchlist **or** live session), removing the round-1
+  overstatement ✓.
+- **`S6` (Portfolio-only dock) — unchanged.** Still `windowTitle()` **and** `objectName()` =
+  `"Portfolio"`, widget = `ActivePortfolioPanel` directly, title bar = `summary_label`,
+  `RIGHT_DOCK_MIN_WIDTH` 200, collapsed floor over **one** button, `RIGHT_DOCK_CAP_FRACTION` 0.40,
+  `ui/dock_layout.py` + `plan_dock_widths` unchanged; `ui/active_portfolio_panel.py` not modified.
+  The as-built shape it replaces is as described (`:485`–`:502` one dock titled/`objectName`d
+  "Active Trader", `:471`–`:487` container + `_right_dock_layout`, `:2494` stretch juggling) ✓.
+- **`S7` (`footprint_cache` drop) — unchanged.** DDL removal from `_init_schema` + idempotent
+  `DROP TABLE IF EXISTS` in `_migrate_schema()`, which runs on every `DB()` open ✓. Confirmed the
+  silent-removal risk is real: `tests/test_db_schema.py` `EXPECTED_TABLES` (`:13`–`:24`, ten tables)
+  never listed `footprint_cache` and asserts `EXPECTED_TABLES <= tables`, so the Phase-3 absence/drop
+  assertion is genuinely required ✓.
+- **The order-path finding (FI-1's load-bearing claim) — unchanged.** `validate_order(`'s only
+  production call site is still `ui/main_window.py:3112`; `_place_order` is at `:3100` with its
+  `placeOrder` calls at `:3146`/`:3157`/`:3169`/`:3185`–`:3187`; `_close_position_by_id` (`:3446`)
+  still calls `self.ib_client.placeOrder(order_id, contract, order)` at `:3505` with no validation
+  and no connection guard; `_on_order_place_requested` is at `:3092` ✓. `S5`'s target and the
+  `risk_reducing` carve-out are unchanged ✓.
+- **The Phase-1/Phase-2 `tests/test_d27_reconnect.py` split — re-verified line by line**, since a
+  wrong split would be a new defect: `:163` dock-title tuple ✓ (Phase 2), `:200`–`:203` DOM-depth
+  assertions to keep ✓, `:204`–`:208` D37 session-depth to drop ✓, `:220` RT reissue keep ✓,
+  `:221`–`:223` the `len(fake.mkt_data) == 4` count to re-derive ✓, `:224`–`:227` rebinding keep ✓,
+  `:228`–`:229` DOM-depth rebound keep ✓, `:230`–`:232` session-depth rebound drop ✓, `:233`–`:236`
+  S0 + watchlist keep ✓.
+
+**Newly broken: nothing.** No previously-verified claim regressed; the revision only completed the
+maps, the coverage re-homes, the token set and the cross-references.
+
+## Validation steps (short form)
+
+- **Requirements coverage** — **PASS.** All seven `AC-D41.1`–`AC-D41.7`, Journey 36's six steps and
+  its edge cases, and `DG66`–`DG71` have an architecture home and a phase; the KEEP list (D38/D39,
+  D27/D28, the chart, the retained order machinery, `footprint_cache_key`/`INDEX_PROXY`/
+  `md_line_guard.assess`/`S0_TICKS`/`volume_baseline`) is preserved **and** now retains its test
+  coverage (R2). `AC-D41.6` is correctly marked Requirements-owned/no code work.
+- **Architecture completeness** — **PASS.** Stack, components, responsibilities, relationships,
+  data model, integrations, boundaries, security/safety, performance, scalability, operational
+  constraints and risks are all present, each decision with rationale and rejected alternatives.
+- **Architecture consistency** — **PASS.** No contradiction found: no component depends on a
+  removed service without an explicit re-home; the removed surface has no remaining caller; the
+  D18/D21.13 outcomes survive on the renamed dock by construction; the request surface is closed at
+  both the call sites and the client edge (`S9`).
+- **Plan quality** — **PASS.** Three ordered, coarse phases with goals, requirement/journey coverage
+  and dependencies; per-file partition (no implementation task list, no task graph, no per-task test
+  spec); the only cross-phase overlap is the six shared production files + the one deliberately
+  two-phase test file, both covered by strict sequencing (AP-1/AP-11).
+- **Task Manager readiness** — **PASS.** No architectural decision is left to Task Manager. One
+  mechanical gap was found and closed by the Validator without a decision (below).
+- **Existing-repo compliance** — **PASS**, all five checks (see below).
+
+## Existing Repo Compliance
+
+- **Codebase Summary present and substantive — PASS.** The D41 increment carries its own
+  Codebase Summary (data models + schema with the D41-relevant tables, a components table with
+  responsibilities, key entry points with the wiring paths, the integration surface, and ten
+  numbered source-validated facts).
+- **Existing stack respected — PASS.** `S1`/`S2`/`S12` list the constrained choices first (Python
+  3.11+ `.venv`, PyQt6, pyqtgraph, official `ibapi`, live-7496 fail-fast, numpy, SQLite via
+  `config/paths.get_db_path()`, PyInstaller, pytest + pytest-qt offscreen) and **nothing existing is
+  replaced or deprecated** — D41 only deletes. No new dependency; "New integrations: none".
+- **Labels present — PASS.** `[existing]`/`[existing → deleted]`/`[existing → removed]`/`[new]`/
+  `[new/changed]` on every Tech Stack, Components, Data Model and Integration Points entry.
+- **Additive-only — PASS.** The single behaviour addition (`S5`'s additive `risk_reducing` keyword
+  plus the re-homed gates) is what `AC-D41.4`/A71/DG71 require; the existing components it touches
+  are otherwise untouched (`ui/active_portfolio_panel.py` explicitly not modified;
+  `footprint_cache_key` deliberately not renamed).
+- **Codebase Summary consistent with the proposal — PASS.** Every `[existing]` item exists as
+  described and every `[existing → removed]` item was verified in source (`DEPTH`/`:37`,
+  `DEPTH_HEATMAP`/`:38`, `MarketDepthManager.has_subscription`/`:45`, `OrderBookLevel`/`:105`–`:110`
+  with zero references, the `footprint_cache` DDL, the single "Active Trader" dock);
+  `footprint_cache_key` (`ibkr/contracts.py:144`) and `INDEX_PROXY` (`:133`) verified present as
+  required survivors.
+- **Requirements-side marker:** `Current Tech Stack` is present and placeholder-free — no
+  requirements escalation on that count.
+
+## Non-blocking observations (recorded, no decision required)
+
+1. **One mechanical map gap, closed in the canonical plan without a new decision.** The Phase-2
+   `ui/main_window.py` row did not name the now-dead `MarketDepthManager` import
+   (`ui/main_window.py:35`) and the `self.depth_manager` construction (`:560`). Phase 1 deliberately
+   keeps both (`:560`'s "last consumers are Phase 2's DOM path"); once Phase 2 removes those
+   consumers the import would raise `ModuleNotFoundError` — loudly, so no silent failure, and
+   AR-D41-2 already names `MarketDepthManager` among the dead imports the guard catches. The
+   canonical plan's Phase-2 row now says so explicitly (marked *Validator completion, no new
+   decision*), so Task Manager needs no inference.
+2. **Two citation bounds tightened while carrying the map into the canonical plan** (editorial,
+   per the citation convention): `tests/test_order_validation.py`'s transmits-valid test is
+   `:109`–`:121` (the proposal wrote `:109`–`?`), and the `footprint_cache_key` re-home source is
+   `tests/test_d36_footprint.py:389`–`:398` (the proposal's `:389`–`:395` covered the def + the two
+   calls but stopped before the three assertions).
+3. `tests/test_dock_layout.py` reads `win.right_dock` and pure `plan_dock_widths` geometry but keys
+   on no title — the canonical map now names it under "files checked and *not* changed" so no worker
+   "fixes" it.
+
+## Requirements Escalations
+
+**None this cycle.** `docs/plan_notes.md` **RG-D41-1** is recorded (`Status: addressed`,
+`Escalation: none`): `AC-D41.4`'s two readings are resolved by the Validator's ruling in favour of
+reading (1) (the re-homed gates), on the basis of the requirement's own KEEP list and `DG71`/`A71`.
+No `ESCALATED_TO_REQUIREMENTS`; no Requirements Analyst action is required, and Task Manager may
+proceed. `AC-D41.6`'s markdown markers are already present in `requirements.md` (Requirements-owned;
+`AP-5` correctly forbids Build editing that file).
+
+## Task Manager Readiness
+
+**Ready.** The architecture is decision-complete (no stack, boundary, integration, data-model or
+dependency decision is left open), the three phases are coarse, ordered and partitioned by file, both
+`touches_files` maps are complete and independently verified, the KEEP-list coverage survives with
+re-homed tests, and no requirement clause is left without architectural treatment. Task Manager can
+build a valid task graph — including meaningful `touches_files` sets for wave scheduling — without
+making any architectural decision.
+
+## Artifacts written this cycle
+
+- `docs/architecture.md` — `## D41 increment` appended (Codebase Summary, `S1`–`S12`, components,
+  data model, integration points, non-functional approach, `AR-D41-1`–`AR-D41-12`, sequencing,
+  supersessions, FI-1–FI-6 dispositions); supersession markers added under the `## D36 increment` and
+  `## D37 increment` headings; a D41 clause added to the title line. The D1–D40 as-built record is
+  preserved unchanged.
+- `docs/plan.md` — `## D41 — Batch 18 removal …` appended with the coverage/traceability table, the
+  three phases and their full `touches_files` maps, the sequencing/wave shape, `AP-1`–`AP-11`, the
+  FI dispositions and the handoff; the document-state block updated. Terminal status line:
+  `Status: READY_FOR_TASK_MANAGER`.
+- `docs/plan_notes.md` — `RG-D41-1` status updated to `addressed` (ruling recorded; no escalation).
+- `docs/plan_review.md` — this review.
+
+## Final Decision
+Status: APPROVED (2026-10-15, D41 cycle 2 of 3 — R1–R6 verified fixed against the tree; the
+architecture decisions `S4`/`S6`/`S7` and the order-path finding are unchanged and re-verified; the
+17-consumer dock-rename count is independently confirmed; no new defect was introduced. Task Manager
+may proceed; `docs/plan.md` carries `Status: READY_FOR_TASK_MANAGER`.)

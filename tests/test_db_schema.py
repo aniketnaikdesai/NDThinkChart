@@ -60,3 +60,73 @@ def test_init_schema_defined_once():
         and node.name == "_init_schema"
     )
     assert count == 1, f"expected 1 _init_schema definition, found {count}"
+
+
+def test_footprint_cache_absent_and_dropped(tmp_path, monkeypatch):
+    """P1-T63-T11 / AC-D41.3 (Q49/A69/DG70): the removed D36 footprint cache
+    table is absent from a fresh DB and is DROPPED from a legacy DB on open.
+
+    A pre-D41 install carries ``footprint_cache`` with rows; the S7 migration
+    must remove both the table and its data on the next open.
+    """
+    import sqlite3
+
+    # (a) legacy DB: pre-seed the OLD DDL + a row, as a pre-D41 install has it.
+    legacy_file = tmp_path / "legacy_footprint.sqlite3"
+    legacy = sqlite3.connect(str(legacy_file))
+    legacy.execute(
+        "CREATE TABLE footprint_cache (key TEXT PRIMARY KEY, payload TEXT,"
+        " updated_at INTEGER)"
+    )
+    legacy.execute(
+        "INSERT INTO footprint_cache (key, payload, updated_at) VALUES (?,?,?)",
+        ("AAPL|5 mins|stock", "{}", 1_760_000_000),
+    )
+    legacy.commit()
+    legacy.close()
+
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(legacy_file))
+    from data.db import DB
+
+    upgraded = DB()
+    try:
+        tables = {r[0] for r in upgraded.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+        assert "footprint_cache" not in tables, (
+            "the removed D36 table must be dropped on open")
+    finally:
+        upgraded.conn.close()
+
+    # (b) fresh DB: the DDL is gone from _init_schema too, so it never appears.
+    fresh_file = tmp_path / "fresh_no_footprint.sqlite3"
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(fresh_file))
+    fresh = DB()
+    try:
+        tables = {r[0] for r in fresh.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+        assert "footprint_cache" not in tables
+    finally:
+        fresh.conn.close()
+
+
+def test_retained_d41_tables_survive(tmp_path, monkeypatch):
+    """P1-T63-T21 / AC-D41.4: the D38/D39 tables survive the footprint removal.
+
+    ``yfinance_events_cache`` (D38) and ``volume_baseline`` (D39) are KEEP-list
+    substrate; the D41 drop must not take them with it.
+    """
+    db_file = tmp_path / "retained_tables.sqlite3"
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(db_file))
+
+    from data.db import DB
+
+    fresh = DB()
+    try:
+        tables = {r[0] for r in fresh.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+    finally:
+        fresh.conn.close()
+
+    assert {"volume_baseline", "yfinance_events_cache"} <= tables
+    # The pre-existing subset assertion still holds.
+    assert EXPECTED_TABLES <= tables

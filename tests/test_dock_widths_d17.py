@@ -34,7 +34,10 @@ from ui.watchlist_panel import (
 )
 
 # Right-hand docks are unrelated to the D17 watchlist clamp under test.
-_RIGHT_DOCKS = ("Active Trader", "Portfolio")
+# D41 / S6: the two right docks ("Active Trader" + "Portfolio") collapsed into a
+# single Portfolio-only dock, so the stale two-title tuple would silently stop
+# hiding it. The title-keyed lookup now names the one surviving dock.
+_RIGHT_DOCKS = ("Portfolio",)
 
 _QSETTINGS_ORG = "NDThinkChart"
 _QSETTINGS_APP = "NDThinkChart"
@@ -69,9 +72,18 @@ def _make_window(monkeypatch, qapp, width=1600, height=900):
     # Drop the unrelated right docks so the watchlist clamp is the only
     # horizontal constraint under test. The toolbar is intentionally left
     # visible: the D19 scroll wrapper means it no longer pins the central widget.
+    hidden = 0
     for dock in win.findChildren(QDockWidget):
         if dock.windowTitle() in _RIGHT_DOCKS:
             dock.hide()
+            hidden += 1
+    # AC-D41.4 / AC2: the title-keyed lookup must actually match the real right
+    # dock. A stale tuple would silently stop hiding it and quietly change the
+    # chart width under test (the D19 masking trap) — assert it matched instead.
+    assert hidden == 1, (
+        f"expected exactly one dock titled {_RIGHT_DOCKS}, hid {hidden}; "
+        "the title-keyed lookup is stale"
+    )
     qapp.processEvents()
     return win
 

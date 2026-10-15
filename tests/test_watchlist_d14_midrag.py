@@ -30,9 +30,9 @@ from data.bar_cache import BarCache
 from data.models import Bar, Drawing
 from ui.chart_mouse_router import RouterMode
 
-# The single right region (Active Trader ladder + Portfolio, D18 Phase 3) is
-# unrelated to the D14 gesture/mode reset under test.
-_RIGHT_DOCKS = ("Active Trader",)
+# The single right dock (Portfolio-only since D41 / S6) is unrelated to the
+# D14 gesture/mode reset under test.
+_RIGHT_DOCKS = ("Portfolio",)
 
 # pyqtgraph's GraphicsScene only converts a press into a drag after this long
 # (see GraphicsScene.minDragTime = 0.5s) or a movement beyond 5px.

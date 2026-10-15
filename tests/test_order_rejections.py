@@ -1,9 +1,13 @@
-"""D26.9: TWS order errors route to the registry + ticket; codes promoted;
-order entry blocked while disconnected.
+"""D26.9: TWS order errors route to the registry + the status bar; codes
+promoted; placement blocked while disconnected.
 
 Pre-fix behaviour: _on_error only special-cased backfill reqIds; order
 errors (orderId in the reqId field) got an 8-second status message while the
 ticket permanently read "Submitted".
+
+D41: the order-entry ticket is gone, so the surfaced message is the status bar
+(``MainWindow._on_order_error``) and the disconnected refusal is asserted on the
+retained close path.
 """
 
 import pytest
@@ -34,8 +38,9 @@ def _register(reg, order_id=42):
     return order_id
 
 
-def test_rejected_order_updates_registry_and_ticket(monkeypatch, qapp):
-    # AC-D26.9: TWS 201 for a tracked orderId -> ticket shows Rejected.
+def test_rejected_order_updates_registry_and_status(monkeypatch, qapp):
+    # AC-D26.9: TWS 201 for a tracked orderId -> registry Rejected, surfaced.
+    # D41: the ticket is gone; the surfaced message is the status bar.
     win = _make_window(monkeypatch, qapp)
     try:
         reg = _fresh_registry(monkeypatch)
@@ -43,9 +48,9 @@ def test_rejected_order_updates_registry_and_ticket(monkeypatch, qapp):
         win._on_error(reqId=oid, errorCode=201,
                       errorString="Order rejected - reason: price violates tick")
         assert reg.get(oid).status == "Rejected"
-        label = win.active_trader.order_entry.status_label.text()
-        assert "Rejected" in label, f"ticket not updated: {label!r}"
-        assert "tick" in label, f"TWS message missing from ticket: {label!r}"
+        msg = win.status_bar.currentMessage()
+        assert "Rejected" in msg, f"rejection not surfaced: {msg!r}"
+        assert "tick" in msg, f"TWS message missing from status: {msg!r}"
     finally:
         win.close()
 
@@ -74,20 +79,32 @@ def test_non_order_error_untouched(monkeypatch, qapp):
         win.close()
 
 
-def test_order_entry_blocked_while_disconnected(monkeypatch, qapp):
-    # AC-D26.9: no placement while disconnected.
+def test_close_blocked_while_disconnected(monkeypatch, qapp):
+    # AC-D26.9 / D41-S5: no placement while disconnected. The retained close
+    # path carries the guard now that the order-entry ticket is gone.
+    from data.db import db
     win = _make_window(monkeypatch, qapp)
+    cur = db.conn.cursor()
+    cur.execute(
+        "INSERT INTO positions (symbol, account, con_id, contract_type, qty,"
+        " avg_cost, local_symbol, multiplier, expiry, strike, right,"
+        " updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("AAPL", "DU123", None, "stock", 10.0, 100.0, None, 1.0,
+         None, None, None, 1_760_000_000),
+    )
+    db.conn.commit()
+    pid = cur.lastrowid
     try:
         assert win._ibkr_connected is False  # harness never connects
         calls = []
         monkeypatch.setattr(win.ib_client, "placeOrder",
                             lambda *a, **k: calls.append(a))
-        win._place_order(contract=object(), symbol="AAPL", action="BUY",
-                         qty=10, order_type="MKT", lmt_price=0.0,
-                         stop_price=0.0, target_price=0.0)
+        win._close_position_by_id(pid)
         assert calls == [], "must not transmit while disconnected"
         assert "not connected" in win.status_bar.currentMessage().lower()
     finally:
+        cur.execute("DELETE FROM positions WHERE id=?", (pid,))
+        db.conn.commit()
         win.close()
 
 

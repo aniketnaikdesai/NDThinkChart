@@ -83,6 +83,7 @@
 - **Suggested priority:** low
 
 ## FS12 — A true per-bar historical volume profile (alternative to per-session tick fetches)
+> **MOOT as of 2026-10-15 (D41):** D36 footprint is being removed, so this D36-sourcing suggestion no longer applies. Retained for history.
 - **Gap/opportunity:** D36 removed the planned `reqHistogramData` path because the method takes **no date
   parameter** and cannot address individual bars (see `docs/architecture.md:218`), so footprint history is built
   from per-session TRADES tick pages. An alternative source (e.g. `reqHistoricalTicks` or a dedicated
@@ -92,6 +93,7 @@
 - **Suggested priority:** low
 
 ## FS13 — Label delayed (non-real-time) depth distinctly in the heatmap
+> **MOOT as of 2026-10-15 (D41):** the D37 depth heatmap is being removed, so this suggestion no longer applies. Retained for history.
 - **Gap/opportunity:** D37's Journey 32 as-built note records a known limitation — if a delayed-depth feed is
   used **instead of** error 354, the heatmap would render **unlabelled** as if real-time. A small "delayed"
   badge/tint would prevent a user mistaking stale depth for live depth.
@@ -127,3 +129,12 @@
   per-pop-out indicator) and states that "a per-window indicator would be **a new request**" — it is not part
   of the approved D24 scope.
 - **Suggested priority:** low
+
+## FS17 — Rename the D36-named shared helper `footprint_cache_key` to a neutral name
+- **Gap/opportunity:** after D41 removes the D36 footprint feature, `ibkr/contracts.py::footprint_cache_key`
+  survives only because the **kept D39** burst baseline uses it as its resolved-contract key
+  (`ui/ticker_session.py:922`). A helper named for a removed feature is misleading to future readers (the same
+  applies to `resolve_footprint_contract`'s now-dangling name, which D41 deletes).
+- **Why not in the original ask:** the owner asked to remove D36/D37, not to rename shared survivors; a rename
+  touches D39 call sites, `services/volume_baseline.py` docstrings and tests, i.e. beyond the removal.
+- **Suggested priority:** low (cosmetic/naming; no behaviour change). Defer until after D41 lands.

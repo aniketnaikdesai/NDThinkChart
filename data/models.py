@@ -102,15 +102,6 @@ class TradeGroup:
 
 
 @dataclass
-class OrderBookLevel:
-    position: int      # level index from IBKR
-    side: str          # 'bid' | 'ask'
-    price: float
-    size: int
-    market_maker: str = ""
-
-
-@dataclass
 class UserOrder:
     order_id: int
     symbol: str

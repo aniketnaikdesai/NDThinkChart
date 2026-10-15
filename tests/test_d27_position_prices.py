@@ -26,9 +26,16 @@ def _make_window(monkeypatch, qapp):
     win = MainWindow()
     win.show()
     qapp.processEvents()
+    # D41/S6: the right region is now ONE dock titled "Portfolio". Hiding it
+    # keeps the window at the width this suite has always exercised. The
+    # found-count guard makes a stale title a hard failure instead of a silent
+    # no-op (AR-D41-3).
+    hidden = 0
     for dock in win.findChildren(QDockWidget):
-        if dock.windowTitle() in ("Active Trader",):
+        if dock.windowTitle() in ("Portfolio",):
             dock.hide()
+            hidden += 1
+    assert hidden >= 1, "no dock titled 'Portfolio' found to hide"
     qapp.processEvents()
     return win
 

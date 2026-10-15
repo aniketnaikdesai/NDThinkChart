@@ -668,3 +668,491 @@ were already correct; the defect was confined to the Task-Manager-owned task-gra
 No task was reopened, no dependency edge changed, and no acceptance criterion was reworded.
 The Code Reviewer (not Task Manager) flips ESC-029 to `addressed` after independently
 re-verifying.
+
+---
+
+## D41 (Batch 18) — task graph regenerated 2026-10-15 (`fresh_graph`)
+
+**Status:** graph written and validated; `docs/tasks/task-graph.json` + `docs/tasks/execution_graph.json`
+carry `"status": "READY_FOR_BUILD"`. **63 tasks**, **999 dependency edges**, `check_tasks.py` exit 0.
+
+### 1. Task-id convention (and a tooling flag)
+
+`check_tasks.py` **requires** ids matching `^(P\d+)-` and enforces **one phase per graph**. The repo's
+previous graph used batch-prefixed ids (`D22-02`, `D23-01`, …) — **those now FAIL the validator**
+(`ERROR: task id must be phase-prefixed as P<n>-T<m>`), so this graph uses **`P1-T01` … `P1-T63`**.
+
+- The D41 batch is **one graph** under the **`P1`** prefix (the legacy unsuffixed `plan_proposal.md`
+  maps to `P1` in `pipeline_state.py`; `requirements.md` has no `## Phase P<n>` sections).
+- The plan's **three internal phases are encoded as dependency barriers**, not as separate prefixes
+  (a second prefix would fail the validator's one-phase rule):
+  - every Phase-2 task (`P1-T21`–`P1-T59`) depends on **all 20** Phase-1 tasks;
+  - every Phase-3 task (`P1-T60`–`P1-T63`) depends on **all 39** Phase-2 tasks.
+- **Flag (tooling owner):** the id convention changed under the repo's existing graph; anyone
+  re-running `check_tasks.py` on the committed `D2x-*` graph will see it fail. Not a D41 defect.
+
+### 2. Phase / file / parallelism model
+
+Phase-1 has **20 tasks** (one per file), Phase-2 **39 tasks** (one per file), Phase-3 **4 tasks**.
+`ui/main_window.py` is a single task per phase (`P1-T11`, `P1-T27`). `tests/test_d27_reconnect.py` is
+edited in **Phase 1** (`P1-T18`) and **Phase 2** (`P1-T59`) on disjoint line sets — the two tasks sit
+in different phases and never share a wave.
+
+Read-only simulation of the rolling frontier (`max_parallel_tasks` = 6, `touches_files` overlap rule)
+gives **13 waves**: Phase 1 in waves 1–4, Phase 2 in waves 5–12, Phase 3 in wave 13 — i.e. **no wave
+mixes two phases** (strict sequencing holds), and `P1-T27` (the long pole) sits alone in its wave.
+
+### 3. Intra-phase dependency edges (why each exists)
+
+Beyond the phase barriers, edges encode only load-bearing **contract / reference** relationships
+(not file overlap — that is `touches_files`' job):
+
+- **Deletion after the last referrer's removal:** `P1-T01←T09`; `T02←T09,T10,T11`; `T03←T10,T11`;
+  `T04←T10,T11`; `T05←T09`; `T06←T10,T11` (Phase 1); `T21←T27,T25,T26,T35,T36`; `T22←T27,T24`;
+  `T23←T22,T24` (Phase 2). Deleting a module while a same-phase referrer still imports it would break
+  the tree mid-wave; this makes "remove the reference, then delete" explicit rather than incidental.
+- **Provider-removal after its consumers' removal:** `T12←T11,T13` (bridge tick signals ← main_window
+  connects + client emitter); `T14←T10` (`DEPTH_HEATMAP` ← session); `T15←T10,T11`
+  (`resolve_footprint_contract` ← its callers); `T16←T11` (`footprint_cache` DDL ← main_window holder);
+  `T28←T27,T29` (`update_mkt_depth` ← main_window connect + client emitter); `T30←T27,T22` (`DEPTH` ←
+  main_window DOM + market_depth).
+- **Contract assumption:** `P1-T27←T31` (the phase-2 gates call the new `validate_order(risk_reducing=)`
+  keyword, so the keyword must land first); `P1-T32←T27` (main_window drops the
+  `watchlist_panel.set_depth_manager` call); every Phase-2 test re-point that asserts the renamed dock,
+  the removed `DOM` button or the removed `_place_order`/`active_trader` surface (`P1-T35`…`P1-T59`)
+  depends on `P1-T27`.
+- **Plan-directed:** `P1-T18←T10` — the plan's sequencing note says the depth-assertion drops "must
+  land with the code they assert".
+
+### 4. KEEP-list protection (AC-D41.4) — every survivor keeps an AC + a test
+
+| Retained symbol (AC-D41.4 KEEP) | Task(s) that assert it survives |
+|---|---|
+| `footprint_cache_key` + `INDEX_PROXY` (S10) | `P1-T15` (kept verbatim) + `P1-T19` (rollover test re-homed into `test_d39_burst_search.py`) |
+| `services/md_line_guard.py::assess` + `MainWindow._guard_md_lines` (S8) | `P1-T11` (guard kept), `P1-T17` (body unchanged), `P1-T20` (thresholds test re-homed into `test_d38_events_news.py`) |
+| S0 generic-tick substrate (`S0_TICKS`, `s0_register_many`, `on_s0_*`, `tick_generic/tick_string/tick_news`) | `P1-T10`, `P1-T12`, `P1-T13`, `P1-T14`, `P1-T30` |
+| `volume_baseline` + `yfinance_events_cache` tables | `P1-T16`, `P1-T63` |
+| Retained order machinery: `ibkr/orders.py::bracket_order`, `validate_order`, id reservation, kill switch, registry/error routing, `check_live_port` | `P1-T31` (additive keyword; structural checks unchanged), `P1-T53` (D26.8 all-three-legs re-point), `P1-T54`, `P1-T55`, `P1-T62` |
+| Retained `ref_price` source (`_symbol_last_prices` via `_ref_price_for`) | `P1-T27`, `P1-T62` |
+| D27/D28 + chart; `ui/candlestick_item.py` and the volume-width math **untouched** (ESC-041 is separate) | `P1-T09` (explicit "unchanged + file untouched" AC), `P1-T52` (D28.1 order-path deferral re-pointed) |
+| Deck/geometry rules (`ui/dock_layout.py::plan_dock_widths`, cap constants) | `P1-T34` (unchanged), `P1-T61` (re-asserted) |
+
+### 5. Flags (no requirements ambiguity found; no Plan escalation)
+
+- **F1 — plan-map imprecision (non-blocking), scoped and flagged, not silently resolved.** The plan's
+  **Phase-2** `tests/test_d27_reconnect.py` row says *"edit (1 line) … Only this line changes in this
+  phase"*, but its own **Phase-1** row and the **sequencing note** say the **DOM-depth** assertions are
+  *kept until Phase 2* — and Phase 2 removes their subjects (`_subscribe_dom`, `_depth_req_id`,
+  `self.depth_manager`). Dropping only the dock-title line would leave the suite red in Phase 2,
+  violating `AP-11` (per-phase green). **Scoping taken:** `P1-T59` drops the DOM-depth assertions
+  **and** re-points the dock title, on the basis of the plan's sequencing note + `AP-11`. **Plan should
+  confirm** the Phase-2 row's "1 line" wording was shorthand. No requirements change implied.
+- **F2 — `AC-D41.6` is deliberately not a Build task.** The `requirements.md` history markers are
+  Requirements-owned and already applied (`AP-5`/`FI-3`); `P1-T60`'s scan excludes `docs/`.
+- **F3 — three validator WARNs, not errors.** `P1-T60/T61/T62` create new files
+  (`tests/test_d41_{removal,portfolio_dock,retained_order_path}.py`) that cannot appear in
+  `context.read_files` (they do not exist yet); `check_tasks.py` labels this "ok if pure-output file".
+- **F4 — escalation posture (not D41's work).** ESC-035/ESC-039/ESC-040 go **moot** by removal (DG66)
+  and are **not** tasks; the **Code Reviewer** flips them after re-verification. The 11 unrelated open
+  escalations (ESC-032/033/034/036/037/038/041/042/043/044/045, incl. **blocking ESC-041**) are out of
+  scope and untouched. `P1-T09` explicitly keeps `ui/candlestick_item.py` / the volume-width math as-is.
+- **F5 — graph status location.** `task-graph.json` carries `"status": "READY_FOR_BUILD"` **both** at the
+  top level and under `"metadata"` (`pipeline_state.py` reads `metadata.status`; the pre-existing graph
+  had it only top-level).
+- **F6 — no undecided architectural choice and no requirements ambiguity** was encountered: the D41
+  plan's `S1`–`S12`, `AP-1`–`AP-11` and the `FI-1`–`FI-6` dispositions settle every decision the
+  decomposition needed (`ref_price` source = `S4`; dock model = `S6`; table drop = `S7`; re-homed gates
+  = `S5`). **No Plan escalation.**
+
+### 6. Verification (exact result)
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P1-T60: touches_files 'tests/test_d41_removal.py' not in context read_files (ok if pure-output file)
+WARN: P1-T61: touches_files 'tests/test_d41_portfolio_dock.py' not in context read_files (ok if pure-output file)
+WARN: P1-T62: touches_files 'tests/test_d41_retained_order_path.py' not in context read_files (ok if pure-output file)
+OK: 63 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+Cross-checks (read-only): `execution_graph.json` = **63 nodes / 999 edges**, equal to the sum of every
+task's `dependencies`; all tasks `not_started`; all `agent == "Build"`; every acceptance criterion has
+≥1 linked test; the P2→P1 and P3→P2 barriers hold; no backward edge from Phase 1.
+
+### 7. Additional flag — mechanical `PAUSE` from a stale Requirements-owned file (tooling false positive)
+
+`pipeline_state.py` computes `open_questions = open_questions.md.count("Status: open")`. The file's only
+match is **prose**, not a live item — `docs/requirements/open_questions.md:828`: *"…without opening a
+`Status: open (blocking)` item…"*. So `open_questions` reads as **1** and `pipeline_state` mechanically
+returns `next: PAUSE — reason: open blocking questions for the user`, **before** it ever evaluates
+`graph_current`. There is **no real blocking question** (`requirements.md` carries `Status: READY_FOR_PLAN`
+and D41's Q48/Q49/Q50 are recorded answered; the batch-17 `open_questions.md` is a stale Requirements-owned
+artifact with no D41 section). This is **not** a D41 decomposition issue and **not** mine to fix — flagged
+for the **Requirements Analyst** / tooling owner (either refresh `open_questions.md` for D41, or make the
+counter marker-aware so prose cannot fabricate a blocking question). The task graph itself is unaffected:
+`check_tasks.py` passes and `task_manager_escalated` is `False`.
+
+---
+
+## D41 revision — P1-T27 split into P1-T64 + P1-T65 (`fresh_graph`, 2026-10-15)
+
+**Trigger.** `P1-T27` was dispatched, its Build Worker **exhausted its 25-step budget mid-edit** and the task is now
+abandoned. The user's directive: split it so no single worker can exhaust its budget, then finish it. This is a
+**targeted revision of one task**, not a new phase: the other 62 tasks (24 `done` / 38 `not_started`) keep their
+scope, acceptance criteria and `touches_files` unchanged.
+
+### 1. The partial-application state the split must start from
+
+`ui/main_window.py` **parses and imports cleanly** but is **incomplete and not functionally correct**. Already applied
+by the abandoned worker (the new tasks must treat these as the starting state and **verify, not redo**): the
+`MarketDepthManager`/`ActiveTraderPanel`/`on_depth_callback` imports and `DEPTH` from the `subscription_manager` import;
+the `dom_btn` + its toolbar add; the single `QDockWidget("Portfolio")` (widget = `portfolio_panel`, title bar =
+`portfolio_panel.summary_label`, `active_trader`/`right_dock_container`/`_right_dock_layout` deleted, collapse wiring on
+`summary_label` only); `self.depth_manager` + `watchlist_panel.set_depth_manager(...)`; the
+`update_mkt_depth`/`order_place_requested` connects and `self._depth_req_id`'s assignment; `_rebind_depth_req_id`; the
+`DEPTH` replay tag; the `_on_error` depth branch and the `_on_order_error` ticket line; the `_attach_live_feed` DOM
+block; the re-written `_compute_right_dock_collapsed_min_width` / `_right_region_is_collapsed` /
+`_sync_right_dock_collapse`; the whole `# ── DOM / Active Trader slots ──` and `# ── Order Entry ──` sections; and the
+`_kill_switch` ticket line.
+
+Still broken / not done (the new tasks' whole scope): **(1)** `_update_order_status` still calls the removed
+`self.active_trader.set_order_status(...)`; **(2)** `closeEvent` still cancels the removed depth machinery via
+`self._depth_req_id` / `self.depth_manager`; **(3)** `_ref_price_for` was never added; **(4)** the re-homed D26 gates
+were never added to `_close_position_by_id`; **(5)** no AC probe was ever run, so the ACs were never verified.
+
+### 2. The split (2 tasks — the rationale for not making it 3)
+
+- **`P1-T64`** — *ui/main_window.py residual dead-reference cleanup: drop the Active Trader ticket call and the
+  closeEvent depth cancels* (`size: S`). Leftovers 1–2. `touches_files: ["ui/main_window.py"]`.
+- **`P1-T65`** — *ui/main_window.py — add `_ref_price_for` and re-home the D26 order gates onto
+  `_close_position_by_id`* (`size: M`). Leftovers 3–4. `touches_files: ["ui/main_window.py",
+  "tests/test_d28_6_close_contracts.py"]`. `dependencies: [Phase-1 barrier (20), P1-T31, P1-T64]`.
+
+**Why two, not three.** The suggested third slice would have been "`_ref_price_for` alone" — a ~4-line method on the
+same file as the gate task. Per the task-sizing rules, two tasks that share `touches_files` and context (and where one
+is only minutes of work) merge rather than serialising on the same file and paying worker startup twice;
+`_ref_price_for` is also the gate's own argument (`ref_price=self._ref_price_for(symbol)`), so it is one
+independently-verifiable unit only when split from the gate by intent, not by file. The failure mode being fixed is
+**worker exhaustion**, and the honest step count is what sizes the tasks: T64 is two small deletions plus a source scan
+and one close-path suite run (~8 steps); T65 is one new method plus one insertion point plus one test-file re-point plus
+its own gate probes (~15 steps). Both sit inside the ~20-step budget with headroom; the abandoned L-sized T27 tried to
+carry all five leftovers at once.
+
+**Why `P1-T65 → P1-T64` is a real edge, not a file-overlap shortcut.** Bit-for-bit the two tasks do not need each
+other's edits to be *written*, but the 38 dependents must gate on the **complete** T27 deliverable, and Build serialises
+them on `ui/main_window.py` regardless. Making T64 the head of an explicit chain means "the last task in the chain"
+(T65) is a sound single dependency for every dependent: depending on T65 implies depending on T64 transitively. Without
+the edge, a wave could complete T65 (the gate) while T64's cleanup was still outstanding, and a dependent would start
+against a file that is not in its final T27 shape. The edge costs nothing (they cannot run in parallel anyway) and makes
+the barrier correct.
+
+### 3. Re-pointing the 38 dependents
+
+All **38** former `P1-T27` dependents now list **`P1-T65`** in `dependencies`, exactly as before otherwise:
+
+`P1-T21, P1-T22, P1-T23, P1-T28, P1-T29, P1-T30, P1-T32 … P1-T63` (38 tasks; `P1-T32`–`P1-T63` contiguous).
+`P1-T27` appears in **no** `dependencies` list any more (`grep`/programmatic check: `any("P1-T27" in deps) == False`).
+
+The **Phase-3 barrier** (`P1-T60`–`P1-T63`, each previously listing all 39 Phase-2 tasks) now reaches the complete
+Phase-2 set as `P1-T21`–`P1-T59` + `P1-T65`, with **`P1-T64` covered transitively through `P1-T65`** — so the barrier
+stays literally true for frontier computation without adding four redundant edges. Recorded in `metadata.notes`.
+
+**Stale prose references left in place (deliberate).** Eight non-dependency mentions of the old id remain inside other
+tasks' text — `P1-T21`/`P1-T22` read_files `why`, `P1-T22`/`P1-T28` acceptance-criteria prose, one `P1-T26` test
+description, one `P1-T65`-adjacent `P1-T32` read_files `why`, and `P1-T59`'s description. They are not edited because the
+directive for this revision is dependency-only and explicitly forbids changing another task's acceptance criteria; they
+are inert strings that nothing parses. **Old → new mapping for a reader: any surviving `P1-T27` reference means
+`P1-T64` (residual cleanup) followed by `P1-T65` (the complete deliverable).**
+
+### 4. `test_command` defect fixed (it was self-referential)
+
+`P1-T27`'s declared `test_command` was
+`pytest tests/test_dock_widths_d18.py tests/test_d41_portfolio_dock.py -q` — but `tests/test_d41_portfolio_dock.py` is
+**created by `P1-T61`** and `tests/test_dock_widths_d18.py` is **re-pointed by `P1-T38`**, both *downstream* of T27. T27
+could therefore never make its own command pass. Each new task now carries a command that is runnable at its own
+dispatch point:
+
+- **`P1-T64`** — `source scan for the three leftover tokens` **&&** `pytest tests/test_d28_6_close_contracts.py -q`.
+  Both are red before the task (the tokens are present; the suite's fixture closes a real window, so `closeEvent`'s
+  leftover `AttributeError` fails it) and green after.
+- **`P1-T65`** — `pytest tests/test_d28_6_close_contracts.py -q` (existing file), plus the task's own gate probes
+  described in its `tests` block.
+
+**Deferral recorded in each task's AC/tests** (so a red downstream command is not read as an implementation defect):
+`P1-T64`'s `AC4`/`P1-T64-T41` (manual) and `P1-T65`'s `AC5`/`P1-T65-T51` (manual) state that
+`tests/test_dock_widths_d18.py` (re-pointed by `P1-T38`) and `tests/test_d41_portfolio_dock.py` (created by `P1-T61`)
+are **downstream**, that the new tasks' commands name only files that exist at dispatch, and that the AC-D41.5
+full-suite/dock evidence is deferred to `P1-T38`/`P1-T61` and the Phase-3 gates (`P1-T60`–`P1-T63`).
+
+### 5. New finding — a missed consumer of the retained close path, folded into `P1-T65`
+
+The approved plan's Phase-2 `touches_files` map omits `tests/test_d28_6_close_contracts.py`, and no task in the graph
+covered it. It is the **only existing suite that executes the real `_close_position_by_id`** (stock/option/future
+contract reconstruction, four tests). Its `_make_window` stubs `IBApiClient.connect`, so the window's `_ibkr_connected`
+stays `False` (set `False` in `__init__`, flipped only by `_on_connected` on the bridge's `connected` signal) — therefore
+**`P1-T65`'s disconnected guard would blank all four tests**. That is a decomposition defect of exactly the kind the
+escalation path exists for: on its own the task could not keep the retained suite green.
+
+Resolution (mechanical, no re-scope of any other task): the file became part of **`P1-T65`'s `touches_files`**, its
+fixture window is marked connected in that task, and the file is that task's `test_command`. Full-suite evidence belongs
+to `P1-T60`/`AC-D41.5` regardless; this only keeps a retained, previously-green suite truthful between T65 and Phase 3.
+(The Batch-14 `T61` precedent — production change plus the assertion it invalidates in one task — applies.)
+
+### 6. Two supporting checks run this round
+
+- **Source verification of the leftovers** (read-only `grep`): `self.active_trader` occurs only at
+  `ui/main_window.py:3006`; `self.depth_manager` only at `:3170`/`:3173`; `self._depth_req_id` only at `:3169`/`:3171`
+  (nothing assigns it) — i.e. exactly leftovers 1–2 and nothing else. `main_window.py` is touched by `P1-T11` (`done`)
+  and the new chain only, so no other live task shares the file.
+- **Two cross-checks** for features that would be named as *kept*: `ibkr/validation.py` already carries the additive
+  `risk_reducing` keyword and its docstring already points at `_close_position_by_id` (`P1-T31`, `done`), and
+  `MainWindow._symbol_last_prices` is declared (`:669`) and written through the upper-cased key (`:2093`) — so
+  `_ref_price_for` has a real source and needs no new architecture.
+
+### 7. Stale `context.read_files` cleared on 13 `done` tasks (validator gate, not a re-scope)
+
+`check_tasks.py` requires every `context.read_files` path to exist. Thirteen **`done`** Phase-1/Phase-2 tasks still
+listed the file their own task (or a sibling) **deleted**, so the validator reported
+`context read_files path does not exist` for `P1-T01`–`P1-T08`, `P1-T19`, `P1-T20`, `P1-T24`, `P1-T25` and `P1-T26`. This
+was not caused by this revision — it is a consequence of the build having landed those deletions — but it blocked the
+"must exit 0" gate. Those thirteen stale entries were removed from `context.read_files` only; **no** `status`,
+`dependencies`, acceptance criterion or `touches_files` of any of those tasks was touched, and each now produces the
+benign "touches_files … not in context read_files (ok if pure-output file)" warning instead of an error. The removal is
+recorded here in full so the change is auditable.
+
+### 8. No Plan escalation and no requirements ambiguity
+
+The decomposition needed no undecided choice: the `ref_price` source is `S4` (the D27.5 `_symbol_last_prices` map), the
+re-homed gate set/order is `S5`, the guard/validate/pacing ordering is `S5`'s step list, and the dock model is `S6` —
+all already in `docs/architecture.md`/`docs/plan.md`. **No `ESC-PLAN-*` entry is open.** No requirements ambiguity was
+found; nothing here is flagged for the Requirements Analyst beyond what the graph already notes.
+
+### 9. Graph state and exact verification result
+
+Revision totals: **64 tasks** (was 63: `P1-T27` → `P1-T64` + `P1-T65`), **1020 dependency edges**, **40** tasks
+`not_started` (`P1-T64`/`P1-T65` among them) and **24** `done` (`P1-T64`/`P1-T65` initialized to `not_started`;
+Task Manager never advances a status). `P1-T65`'s dependents = 38; `P1-T64`'s dependents = `["P1-T65"]`. No dependency
+cycles; every edge resolves to an existing id; `P1-T64` is immediately ready (its 20 Phase-1 dependencies are `done`)
+and `P1-T65` is ready once `P1-T64` and `P1-T31` (both satisfied except T64) are `done`.
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P1-T01: touches_files 'ui/footprint_item.py' not in context read_files (ok if pure-output file)
+WARN: P1-T02: touches_files 'services/footprint_service.py' not in context read_files (ok if pure-output file)
+WARN: P1-T03: touches_files 'data/footprint_cache.py' not in context read_files (ok if pure-output file)
+WARN: P1-T04: touches_files 'ibkr/tick_history.py' not in context read_files (ok if pure-output file)
+WARN: P1-T05: touches_files 'ui/depth_heatmap_item.py' not in context read_files (ok if pure-output file)
+WARN: P1-T06: touches_files 'services/depth_heatmap.py' not in context read_files (ok if pure-output file)
+WARN: P1-T07: touches_files 'tests/test_d36_footprint.py' not in context read_files (ok if pure-output file)
+WARN: P1-T08: touches_files 'tests/test_d37_microstructure.py' not in context read_files (ok if pure-output file)
+WARN: P1-T24: touches_files 'tests/test_market_depth.py' not in context read_files (ok if pure-output file)
+WARN: P1-T25: touches_files 'tests/test_order_entry_mkt.py' not in context read_files (ok if pure-output file)
+WARN: P1-T26: touches_files 'tests/test_order_entry_side.py' not in context read_files (ok if pure-output file)
+WARN: P1-T60: touches_files 'tests/test_d41_removal.py' not in context read_files (ok if pure-output file)
+WARN: P1-T61: touches_files 'tests/test_d41_portfolio_dock.py' not in context read_files (ok if pure-output file)
+WARN: P1-T62: touches_files 'tests/test_d41_retained_order_path.py' not in context read_files (ok if pure-output file)
+OK: 64 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+`docs/tasks/execution_graph.json` regenerated by the script: **64 nodes / 1020 edges**; `task-graph.json` carries
+`"status": "READY_FOR_BUILD"` both at the top level and under `"metadata"`. Task-manager escalation state: **none**
+(`ESC-PLAN-*` is not open; nothing flagged to requirements).
+
+---
+
+## D41 revision — `P1-T66` added: test-harness determinism (`fresh_graph` addition, 2026-10-15)
+
+This is a **targeted graph addition, not a re-scope**: one new infrastructure task was inserted because the
+harness itself reddened suites wave-wide during the D41 build. Nothing else in the graph was re-scoped.
+
+### 1. The defect (reported independently by five wave workers)
+
+**1a. PRIMARY — one shared test DB across concurrent pytest processes.** `tests/conftest.py:8-13` derived a
+single hard-coded path, `tempfile.gettempdir()/tos_charting_test.sqlite3`, and `os.remove()`d it **at import**:
+
+```python
+_TEST_DB_PATH = os.path.join(tempfile.gettempdir(), "tos_charting_test.sqlite3")
+try:
+    os.remove(_TEST_DB_PATH)
+except OSError:
+    pass
+os.environ["DB_PATH"] = _TEST_DB_PATH
+```
+
+With up to ~20 concurrent Build Workers, one process deletes the file another is mid-use on, producing
+`sqlite3.OperationalError: attempt to write a readonly database` (SQLITE_READONLY_DBMOVED) in the autouse
+`_isolate_test_db` teardown — **test bodies pass, the teardown races**. Evidence, verbatim from the
+`P1-T35`/`P1-T36`/`P1-T38`/`P1-T41`/`P1-T43` workers:
+
+- *"the raw command's failures are cross-worker shared-temp-DB contention, not assertions"*
+- *"concurrent wave workers share the hard-coded temp DB path"*
+- *"with a private TMPDIR the run is deterministically 4 passed"*
+
+This is the **pytest-process variant** of the already-recorded ESC-043 gotcha (`docs/memory.md`), and it is a
+prior-recorded gotcha too (ESC-024/ESC-025: *"`tests/conftest.py` seeds a single shared on-disk SQLite DB …
+so concurrent/interleaved runs contend on it"*). Left unfixed it hands the Code Reviewer **false failures**
+across Phases 2–3.
+
+**1b. SECONDARY — dock-clamp timing flake.** `test_T28_T01_volume_hidden_and_watchlist_max_clamp_keeps_price_panel`
+(`tests/test_d10_d13_integration.py`) asserts a chart width after an overshoot drag and can observe the
+**pre-clamp** value (`assert 88 >= 400`) under load, because `MainWindow._deferred_dock_clamp` applies its
+re-clamp through **chained `QTimer.singleShot(0)`** passes that may not have run when the assertion fires.
+Evidence that it is pre-existing and load-dependent, **not** a product bug: it failed in `P1-T41`'s **baseline**
+run *before* that task's edit, and passes **20/20** with no concurrent load.
+
+### 2. The new task (`P1-T66`)
+
+- **Title:** *Test-harness determinism — per-process pytest DB path and a load-proof D10/D13 overshoot assertion*
+- **Files (`touches_files`):** `tests/conftest.py`, `tests/test_d10_d13_integration.py` — no other task's file
+  is overlapped (`tests/conftest.py` is touched by nothing else in the graph; the D10/D13 file is also edited by
+  `P1-T41`, which now depends on `P1-T66`, so Build serializes them in that order).
+- **Size `L`** (two fixes, two files; directive order inside the task: conftest DB isolation **first**, because
+  it reddens the most suites, then the timing flake).
+- **Directive:** a process-unique `DB_PATH` (PID and/or a per-process temp directory) with no removal of a path
+  the process did not create; and a **bounded** drain/settled-wait before the overshoot assertions, with the
+  `>= CHART_MIN_WIDTH` assertions **not weakened, narrowed, skipped, xfailed or deleted**.
+- **ACs/tests:** 4 ACs / 6 tests, incl. the **concurrency acceptance test** (AC2/`P1-T66-T21`: two simultaneous
+  pytest processes of a DB-touching suite, both must exit 0, 3 consecutive pair-runs) and AC4/`P1-T66-T41`, a
+  scope-guard check on the task's own write footprint.
+- **Requirement anchor:** `AC-D41.5` ("app starts and charts normally; suite green"). `P1-T66` introduces no new
+  requirement — it is harness hygiene that makes the D41 evidence trustworthy.
+
+### 3. Dependency edges added (exhaustive — old → new)
+
+The new task is a **dependency of every remaining task that executes pytest**, so nothing re-runs its suite
+against the racy conftest (edges are `P1-T66 → <task>`):
+
+```
+P1-T66 -> P1-T21, P1-T35, P1-T36, P1-T38, P1-T41,
+          P1-T51, P1-T52, P1-T53, P1-T54, P1-T55, P1-T56, P1-T57, P1-T58, P1-T59,
+          P1-T60, P1-T61, P1-T62, P1-T63
+```
+
+plus the edge that orders the new task itself:
+
+```
+P1-T65 -> P1-T66      (the D10/D13 suite constructs MainWindow; it must be verified against the
+                       final ui/main_window.py state, i.e. after the P1-T64 -> P1-T65 chain)
+```
+
+**19 edges total.** No remaining task was left independent: every one of the 18 executes pytest —
+`P1-T21` via its `P1-T21-T21` test (`pytest --collect-only` on the re-pointed dock/order suites, which imports
+`tests/conftest.py`), `P1-T35`/`P1-T36`/`P1-T38`/`P1-T41`/`P1-T51`–`P1-T59` by running their own module, and
+`P1-T60`–`P1-T63` (the new/extended suites) by running themselves. Because all 18 depend on `P1-T66`, it is
+**alone on the wave frontier** — which is also why AC4's `git`-delta footprint check is reliable.
+
+### 4. The timing flake: scoped as **test determinism**, with a conditional plan flag
+
+`P1-T66` fixes determinism **in the test** (bounded drain of the pending `singleShot(0)` passes before the
+assertion). `ui/main_window.py` is listed in the task's `context.read_files` as **READ-ONLY** and AC4 forbids
+editing it. Rationale: the assertion observes a *pre-clamp* value because the clamp is *deferred*, so waiting for
+the deferral is the correct fix; the product's clamp logic is not wrong, and the D41 design must not be touched
+by an infrastructure fix.
+
+**Conditional flag (not an escalation).** If the worker finds that determinism genuinely cannot be reached from
+the test side, it must **stop and report** rather than edit `ui/main_window.py`. That outcome would make
+"is the deferred dock clamp itself under-specified?" an **open plan-level question** for Plan — it would be
+raised in the next revision of this file. **No `ESC-PLAN-*` entry is open now**: the decomposition of this task
+needs no undecided architectural choice (the harness-fix strategy is a test detail, not an architecture
+decision). No requirements ambiguity was found either.
+
+### 5. What was deliberately **not** touched (graph integrity)
+
+- All 46 `done` tasks keep their status; the 18 remaining tasks keep their scope, ACs, tests and `touches_files`
+  — they only gained the `P1-T66` dependency.
+- **`P1-T65`'s dependents: the original 38 are intact.** `P1-T65` now has **39** dependents only because
+  `P1-T65 → P1-T66` was added deliberately (section 3); no pre-existing edge was removed or re-pointed.
+- `P1-T64 → P1-T65` intact (the chain still ends at `P1-T65`, the complete `P1-T27` deliverable).
+- The **Phase-3 barrier** is intact: `P1-T60`–`P1-T63` still depend on every Phase-2 task (`P1-T21`–`P1-T59`
+  incl. `P1-T64`/`P1-T65`), with `P1-T66` added on top.
+- `ui/main_window.py` remains one task per phase; this revision adds no consumer of it.
+
+### 6. Gate-only edits to two `done` task context packs (not a re-scope)
+
+`check_tasks.py` requires every `context.read_files` path to exist. Two `done` tasks still listed **the module
+their own task deleted**, so the gate errored:
+
+```
+ERROR: P1-T22: context read_files path does not exist: ibkr/market_depth.py
+ERROR: P1-T23: context read_files path does not exist: ibkr/order_book.py
+```
+
+These were the last two of the class the earlier revision cleared 13 of (section 7 of the `P1-T27`-split
+revision). Both stale entries were removed from `context.read_files` **only**; no `status`, `dependencies`,
+acceptance criterion or `touches_files` of `P1-T22`/`P1-T23` was touched, and each now yields the benign
+`touches_files … not in context read_files (ok if pure-output file)` warning instead of an error.
+A `metadata.revision` key and a `notes[]` entry were added to record this revision.
+
+### 7. Graph state and exact verification result
+
+Totals after this revision: **65 tasks** (was 64), **1039 dependency edges** (was 1020), **46 `done` /
+19 `not_started`** (`P1-T66` initialized to `not_started`; Task Manager never advances a status). No dependency
+cycles; every edge resolves to an existing id; every AC has a matching test; `P1-T66` carries a well-formed
+context pack. `task-graph.json` carries `"status": "READY_FOR_BUILD"` both at the top level and under
+`"metadata"`. Task-manager escalation state: **none** (`ESC-PLAN-*` is not open; nothing flagged to requirements
+— the timing-flake plan question above is conditional and not yet triggered).
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P1-T01: touches_files 'ui/footprint_item.py' not in context read_files (ok if pure-output file)
+WARN: P1-T02: touches_files 'services/footprint_service.py' not in context read_files (ok if pure-output file)
+WARN: P1-T03: touches_files 'data/footprint_cache.py' not in context read_files (ok if pure-output file)
+WARN: P1-T04: touches_files 'ibkr/tick_history.py' not in context read_files (ok if pure-output file)
+WARN: P1-T05: touches_files 'ui/depth_heatmap_item.py' not in context read_files (ok if pure-output file)
+WARN: P1-T06: touches_files 'services/depth_heatmap.py' not in context read_files (ok if pure-output file)
+WARN: P1-T07: touches_files 'tests/test_d36_footprint.py' not in context read_files (ok if pure-output file)
+WARN: P1-T08: touches_files 'tests/test_d37_microstructure.py' not in context read_files (ok if pure-output file)
+WARN: P1-T22: touches_files 'ibkr/market_depth.py' not in context read_files (ok if pure-output file)
+WARN: P1-T23: touches_files 'ibkr/order_book.py' not in context read_files (ok if pure-output file)
+WARN: P1-T24: touches_files 'tests/test_market_depth.py' not in context read_files (ok if pure-output file)
+WARN: P1-T25: touches_files 'tests/test_order_entry_mkt.py' not in context read_files (ok if pure-output file)
+WARN: P1-T26: touches_files 'tests/test_order_entry_side.py' not in context read_files (ok if pure-output file)
+WARN: P1-T60: touches_files 'tests/test_d41_removal.py' not in context read_files (ok if pure-output file)
+WARN: P1-T61: touches_files 'tests/test_d41_portfolio_dock.py' not in context read_files (ok if pure-output file)
+WARN: P1-T62: touches_files 'tests/test_d41_retained_order_path.py' not in context read_files (ok if pure-output file)
+OK: 65 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+`docs/tasks/execution_graph.json` was regenerated by the script: **65 nodes / 1039 edges**.
+
+---
+
+## D41 revision — `P1-T35`/`P1-T36`/`P1-T38`/`P1-T41` already-applied re-dispatch guard (`fresh_graph`, 2026-10-15)
+
+**Trigger.** Four Build Workers **exhausted their 25-step budget after applying their edits but before writing their handoff pair** (`docs/build/results/<id>.json` + `docs/build/logs/<id>.md`): `P1-T35`, `P1-T36`, `P1-T38`, `P1-T41`. The Orchestrator reset those four tasks to `not_started` so they can be re-dispatched. **Their edits are still on disk.** This is a **small DESCRIPTIVE revision** to four existing tasks: no new task, no status change, no dependency change, no acceptance-criterion change, no `test_id` change, no `touches_files` change. `P1-T66` (the test-harness fix, `in_progress`) is **untouched**.
+
+### 1. What was applied (verified on disk this round, `git diff`)
+
+| Task | File | Applied edits (verify, do not redo) |
+|---|---|---|
+| `P1-T35` | `tests/test_dock_d18_region.py` | docstring → single Portfolio region; `ActiveTraderPanel` import dropped; `findChild(..., "Active Trader")` → `findChild(..., "Portfolio")` + `objectName() == "Portfolio"`; `active_trader`/`right_dock_container` geometry → `right_dock.widget()`; `_on_dom_toggled` flip → retained `summary_label` collapse/restore; two test fns renamed (`T48_T01_sections_equal_width_within_region` → `T48_T01_portfolio_section_fills_region`, `T48_T03_panels_present_and_signals_wired` → `T48_T03_panel_present_and_signals_wired`) |
+| `P1-T36` | `tests/test_right_dock_d21.py` | `ActiveTraderPanel` import dropped; every `win.active_trader.*` → `win.portfolio_panel`; title assertions → `windowTitle()/objectName() == "Portfolio"` + `titleBarWidget() is summary_label`; D21.13 strike/collapse → retained `summary_label`; `_on_dom_toggled` → `right_dock.setVisible(...)`; test fns renamed (`T02`/`T03`/`T05`) |
+| `P1-T38` | `tests/test_dock_widths_d18.py` | `_RIGHT_PERSISTENCE_HINTS` drops `"active_trader"`; `objectName() == "Portfolio"` + negative pre-D41-title check; equal-width two-section → single section fills region; wide-content probe `active_trader.ladder` → `portfolio_panel.positions_table`; cap/min/chart-minimum assertions kept |
+| `P1-T41` | `tests/test_d10_d13_integration.py` | exactly two hunks — module docstring → "the single Portfolio section, D41 / S6"; `_RIGHT_DOCKS = ("Active Trader",)` → `("Portfolio",)`; probe-verified the title-keyed lookup now finds/hides the renamed dock |
+
+### 2. The descriptive change made (and nothing else)
+
+- An **"ALREADY APPLIED BY A PREVIOUS WORKER — VERIFY, DO NOT REDO"** preamble was **prepended** to each of the four tasks' `description`, enumerating that task's applied edits, the step-exhaustion context, and that the **ONLY outstanding deliverable is verification plus the two handoff artifacts** (`docs/build/results/<id>.json`, `docs/build/logs/<id>.md`). Each retains its original description after "Original scope for reference: ".
+- `P1-T41`'s preamble additionally states its edit is **correct and probe-verified**, that its earlier `blocked` report was caused **solely** by the shared-temp-DB / deferred-dock-clamp issues now owned by `P1-T66` (which it depends on), and that **after `P1-T66` lands the command should be re-run, not the file re-edited**.
+- Each of the four tasks' `context.memory_notes` gained one entry: `tests/conftest.py`'s cross-process shared-temp-DB race is being fixed by `P1-T66`; a mid-run teardown `sqlite3.OperationalError: attempt to write a readonly database` (SQLITE_READONLY_DBMOVED) is **environmental**, not that task's failure.
+- `metadata.revision` updated to `2026-10-15c — P1-T35/T36/T38/T41 already-applied re-dispatch guard (descriptions + memory_notes only; no status/dependency/AC/touches_files change), under fresh_graph`.
+
+### 3. Invariants held (mechanically verified this round)
+
+A script reversed the nine insertions and the one `metadata.revision` swap; the reversed text parsed as valid JSON with the same 65-task set, 0 preambles, 0 notes, 3 memory-notes per target, and the old revision restored — proving **the only content changed is the 4 description preambles + 4 memory_notes + `metadata.revision`**. Additionally asserted: every task's `status`, `dependencies`, `acceptance_criteria`, `tests`, `touches_files`, `expected_artifacts`, `inputs`, `outputs`, `title`, `agent`, `task_type`, `size` and every non-`memory_notes` context field are **unchanged**; all `test_id`s unchanged; **`P1-T66` byte-identical** to before; top-level and `metadata` status both `READY_FOR_BUILD`.
+
+### 4. Graph state and exact verification result
+
+**65 tasks**, **1039 dependency edges** (unchanged), **46 `done` / 18 `not_started` / 1 `in_progress`** (`P1-T66`). `P1-T35`/`P1-T36`/`P1-T38`/`P1-T41` remain `not_started` (Task Manager never advances a status) and each still depends on `P1-T65` and `P1-T66`.
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P1-T01: touches_files 'ui/footprint_item.py' not in context read_files (ok if pure-output file)
+... (the same 16 benign pure-output warnings as the prior revision: P1-T01..T08, P1-T22..T26, P1-T60..T62) ...
+OK: 65 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+`docs/tasks/execution_graph.json` regenerated: **65 nodes / 1039 edges** (identical to the prior revision — no edge moved). Task-manager escalation state: **none** (`ESC-PLAN-*` not open; no requirements ambiguity — this revision is purely descriptive).

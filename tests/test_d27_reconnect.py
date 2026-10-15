@@ -3,8 +3,8 @@
 (a) ``_do_reconnect`` uses the stored ``connect(host, port, clientId)`` —
     never the nonexistent ``eConnect``; ``_poll`` does not re-arm while a
     reconnect is pending (otherwise backoff is defeated).
-(b) every live subscription (chart RT bars, DOM depth, watchlist mkt-data)
-    is registered with type tags and replayed on reconnect with rebound
+(b) every live subscription (chart RT bars, watchlist mkt-data) is
+    registered with type tags and replayed on reconnect with rebound
     reqIds.
 
 AC-D27.3: simulated drop/reconnect (mocked client) -> reconnect without
@@ -152,15 +152,23 @@ def _make_window(monkeypatch, qapp):
     win = MainWindow()
     fake = _FakeTws()
     win.rt_manager.client = fake
-    win.depth_manager.client = fake
     win.md_manager.client = fake
+    # ESC-046: pop-out records are process-global — the per-process temp DB is
+    # shared across the suite, and a pop-out's deferred geometry save can
+    # outlive the per-test ``popouts`` wipe. ``_on_connected()`` would then
+    # restore such a record, and the restored pop-out's session subscribes
+    # through this same fake, inflating the per-session RT and market-data
+    # counts below. This suite proves the *chart* session's replay/rebinding,
+    # so neutralise pop-out restore here: every subscription the fake records
+    # is then the chart session's own.
+    win._restore_popouts = lambda: None
     # Historical requests never reach the fake: stub at the manager.
     _req_ids = iter(range(9001, 9999))
     win.md_manager.req_historical_data = lambda **k: next(_req_ids)
     win.show()
     qapp.processEvents()
     for dock in win.findChildren(QDockWidget):
-        if dock.windowTitle() in ("Active Trader",):
+        if dock.windowTitle() in ("Portfolio",):
             dock.hide()
     qapp.processEvents()
     return win, fake
@@ -173,8 +181,8 @@ def _seed_watchlist_db():
 
 
 def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
-    """Full drop/reconnect: RT + DOM + watchlist re-issued, reqIds rebound,
-    bars flow on the new RT reqId, stale ids ignored — no manual reload."""
+    """Full drop/reconnect: RT + watchlist re-issued, reqIds rebound, bars flow
+    on the new RT reqId, stale ids ignored — no manual reload."""
     from ibkr.contracts import get_contract_for_symbol
 
     win, fake = _make_window(monkeypatch, qapp)
@@ -182,8 +190,8 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
     try:
         win._now_ts = lambda: 1_760_000_000
 
-        # Establish live subscriptions: watchlist (via connect->restore),
-        # chart RT (via load_chart), DOM (via _subscribe_dom).
+        # Establish live subscriptions: watchlist (via connect->restore) and
+        # chart RT (via load_chart). D41: the DOM depth feed is gone.
         win._on_connected()
         assert fake.mkt_data, "watchlist restore issued no mkt-data sub"
         md_id_1 = fake.mkt_data[-1]
@@ -197,16 +205,6 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
         rt_id_1 = win._rt_req_id
         assert rt_id_1 == fake.rt_bars[-1]
 
-        win._subscribe_dom()
-        assert fake.mkt_depth, "DOM subscribe issued nothing"
-        depth_id_1 = win._depth_req_id
-        assert depth_id_1 == fake.mkt_depth[-1]
-        # D37: the primary session holds its own heatmap depth feed
-        # (depth toggle defaults ON) alongside the DOM feed.
-        session_depth_id_1 = win.primary_session.depth_req_id
-        assert session_depth_id_1 is not None
-        assert session_depth_id_1 == fake.mkt_depth[0]
-
         # Pre-drop sanity: bars flow on the live RT reqId.
         win._on_realtime_bar(rt_id_1, 1_760_000_000, 10, 11, 9, 10.5,
                              100, 10.5, 5)
@@ -218,18 +216,19 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
 
         # Every live subscription re-issued with a NEW reqId...
         assert len(fake.rt_bars) == 2 and fake.rt_bars[1] != rt_id_1
-        # D37: watchlist row + session S0 feed both re-issued (4 total).
-        assert len(fake.mkt_data) == 4
+        # The surviving market-data lines are the watchlist row and the
+        # session's S0 line; each is issued once per connect, so the
+        # reconnect re-issues both (the D37 session depth feed and the
+        # generic "225" auction need are gone).
+        _surviving_mkt_lines = len(win.watchlist_panel._req_to_row) + int(
+            win.primary_session.s0_req_id is not None)
+        assert _surviving_mkt_lines == 2
+        assert len(fake.mkt_data) == 2 * _surviving_mkt_lines
         assert set(fake.mkt_data[2:]).isdisjoint(fake.mkt_data[:2])
         rt_id_2 = fake.rt_bars[1]
 
         # ...and rebound to the live routing state.
         assert win._rt_req_id == rt_id_2, "stale RT reqId not rebound"
-        assert win._depth_req_id in fake.mkt_depth[2:], \
-            "stale DOM depth reqId not rebound"
-        assert win.primary_session.depth_req_id in fake.mkt_depth[2:], \
-            "stale session depth reqId not rebound"
-        assert win._depth_req_id != win.primary_session.depth_req_id
         assert win.primary_session.s0_req_id in fake.mkt_data[2:], \
             "stale S0 reqId not rebound"
         assert list(win.watchlist_panel._req_to_row)[0] in fake.mkt_data[2:]

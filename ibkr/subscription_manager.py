@@ -2,24 +2,24 @@
 subscription_manager.py
 
 Registry of live IBKR subscriptions (chart realtime bars, watchlist market
-data, DOM depth) and their replay on reconnection (D27.3).
+data) and their replay on reconnection (D27.3).
 
 Each entry is keyed by reqId and carries a type tag plus the reissue/rebind
 hooks the reconnect replay needs:
 
 - ``reissue() -> new_req_id`` re-subscribes through the owning manager.
 - ``rebind(new_req_id)`` points the live routing state (``_rt_req_id``,
-  ``_depth_req_id``, ``_req_to_row``) at the new reqId.
+  ``_req_to_row``) at the new reqId.
 
 The API is deliberately session-agnostic (type-tagged entries keyed by
 symbol); Phase 3b migrates ownership into ``TickerSession`` without changing
 the mechanism.
 
-Reconnect division of labour (D27.3): chart RT bars and DOM depth are
-re-issued here via ``replay_all``; watchlist market-data is re-issued by the
-existing ``_restore_watchlist`` clear+re-add path (pinned by AC-D22.7.2), so
-``MainWindow._replay_subscriptions`` replays only the ``rt_bars``/``depth``
-types — replaying ``market_data`` too would double-subscribe every row.
+Reconnect division of labour (D27.3): chart RT bars are re-issued here via
+``replay_all``; watchlist market-data is re-issued by the existing
+``_restore_watchlist`` clear+re-add path (pinned by AC-D22.7.2), so
+``MainWindow._replay_subscriptions`` replays only the ``rt_bars`` type —
+replaying ``market_data`` too would double-subscribe every row.
 Watchlist entries are still registered (and unregistered on clear/remove)
 so the registry is the single source of truth for what is live.
 """
@@ -34,8 +34,6 @@ from ibkr.pacing import pacing_manager, PacingExceeded
 # Type tags for registry entries.
 RT_BARS = "rt_bars"
 MARKET_DATA = "market_data"
-DEPTH = "depth"
-DEPTH_HEATMAP = "depth_heatmap"  # D37: session SMART depth (not the DOM's)
 S0_TICKS = "s0_ticks"  # D37 substrate: per-session generic-tick reqMktData
 
 

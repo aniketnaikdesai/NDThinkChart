@@ -908,3 +908,135 @@
   intended requirement before the ACs are written from it.
 - **Affected requirement section:** D36–D40 (Journeys 31–35, `requirements.md:640`–`:806`); DG46; FI-D24-1.
 - **Answer (owner, 2026-10-14):** **The Requirements Analyst authors the missing D36–D40 acceptance criteria from the as-built behaviour.** Written as `AC-D36.1`–`.5`, `AC-D37.1`–`.5`, `AC-D38.1`–`.6`, `AC-D39.1`–`.5`, `AC-D40.1`–`.5` (the IDs Journeys 31–35 cite), sourced from the shipped behaviour and its backing tests (`tests/test_d36_footprint.py` … `tests/test_d40_tws_lifecycle.py`). Where a backing test is narrower than the cited ID it is marked with an **AMBIGUITY** note (AC-D39.5, AC-D40.5). DG46/FI-D24-1 resolved.
+
+
+---
+
+# Open Questions — 2026-10-15 (REQUIREMENTS escalations ESC-035 / ESC-038) — ANSWERED / MOOT (2026-10-15)
+
+> Two Code Reviewer escalations from the 2026-10-15 live-TWS review were routed to **REQUIREMENTS**
+> (`docs/code_review/escalations.json`; long-form evidence `docs/code_review/market_depth_permissions.md`
+> and `docs/code_review/rth_single_day_investigation.md`). **Both are now resolved (2026-10-15):** **Q46**
+> (ESC-035, depth error 2152) is **MOOT — superseded by D41** (the depth feed is being removed; no (a)/(b)/(c)
+> choice is made), and **Q47** (ESC-038, minimum intraday history depth under RTH) is **ANSWERED — 30 trading
+> sessions**, recorded as **`AC-D16.8`**. The code claims in both reports were independently re-verified against
+> this tree (findings in `design_gaps.md` DG64/DG65).
+
+## Q46 — ESC-035: what should the app do on IBKR depth error **2152** (a *partial* venue-permission report)?
+
+- **Status:** **MOOT — superseded by D41 (2026-10-15).** No option (a)/(b)/(c) is chosen.
+- **Resolution:** the D37 depth feed (and, per **Q48**, the Active Trader DOM ladder) is being **removed** by
+  **D41**, so there is **no depth feed whose 2152 behaviour needs defining**. The owner did **not** pick options
+  (a)/(b)/(c); the correct resolution is **supersession** — the behaviour no longer exists to specify.
+- **Consequence:** `design_gaps.md` **DG64** is marked moot; the ESC-035 REQUIREMENTS item is routed to closure
+  via the Code Reviewer once D41 lands (the Analyst does not edit `escalations.json`).
+  `ui/ticker_session.py::TickerSession.on_depth_error` and `ibkr/error_codes.py`'s 2152 handling are removed
+  with the feature.
+- **Affected requirement section:** D37 / Journey 32; D41 (`### D41`).
+
+
+## Q47 — ESC-038: what minimum history depth must each intraday timeframe show under **RTH**?
+
+- **Status:** **answered 2026-10-15** — no longer blocking.
+- **Answer (owner-confirmed 2026-10-15):** each intraday timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`,
+  `4 hours`) must show **a minimum of 30 trading sessions** before the current session under **RTH** — 30
+  **trading sessions** (not 30 calendar days). Recorded as acceptance criterion **`AC-D16.8`** in
+  `requirements.md`. Option (a) (one session is acceptable) is **not adopted**.
+- **Practical consequence (implementation — Plan/BUILD):** IBKR caps `1 min` at `1 D` per request and the D16
+  backfill (`services/backfill_service.py::find_missing_spans`) anchors at the earliest cached day (never
+  backwards), so delivering the floor needs **chained, paced, backwards-extending fetches** (a request-window
+  strategy change in `ibkr/market_data.py::TIMEFRAME_CONFIG` / the backfill). If Plan judges this a strategic
+  change rather than a constant, the downstream route is **Plan**; the requirement itself is settled here.
+- **Closes:** `design_gaps.md` **DG65** (resolved).
+- **Affected requirement section:** D16 / Journey 17 / **`AC-D16.8`** (new); `design_gaps.md` DG65.
+- **(Distinct BUILD item ESC-037 — the mode-blind day-presence pass — remains routed to BUILD.)**
+
+
+# Open Questions — 2026-10-15 (Batch 18 / D41 — D36/D37 + whole Active Trader panel removal) — ANSWERED (2026-10-15)
+
+> The owner requested removal of the **D36** footprint and **D37** depth heatmap / imbalance / auction features
+> and "all associated code" (Batch **D41**; `requirements.md`). The removal was initially recorded on the
+> **conservative default** (see `requirements.md` A68/A69), so the questions below did **not** block Plan — each
+> is an owner confirmation that may widen/narrow the removal. They are relayed verbatim because the Analyst
+> cannot ask the owner interactively in this run. **Q48** widened the removal to the DOM ladder; **Q49** set the
+> persisted-data disposition; **Q50** widened it again to the **entire Active Trader panel (order-entry UI
+> included)** and made the **right dock Portfolio-only**. See `requirements.md` A68–A71 and `design_gaps.md`
+> DG69/DG71.
+
+## Q48 — D41: does "Depth" mean only the **D37 depth heatmap** floating control, or also the **Active Trader DOM ladder**?
+
+- **Status:** **answered 2026-10-15** — no longer blocking.
+- **Answer (owner-confirmed 2026-10-15): YES — the Active Trader DOM ladder is also removed.** "Depth" covers
+  **both** the D37 heatmap **and** the DOM ladder. D41 is **widened** to remove the whole depth path:
+  `ibkr/market_depth.py` (in full), `ibkr/order_book.py`, the ladder/book rendering in
+  `ui/active_trader_panel.py`, `ibkr/bridge.py::update_mkt_depth`, `ibkr/client.py::updateMktDepth`/
+  `updateMktDepthL2`, `MainWindow._on_mkt_depth`, the **`DOM` toolbar button** + `_on_dom_toggled` +
+  `_subscribe_dom`, `ui/watchlist_panel.py::set_depth_manager`/`on_depth_update`, the `DEPTH` subscription tag,
+  `tests/test_market_depth.py`, and the depth parts of `_md_line_count`/`_guard_depth_budget`/`DEPTH_FEED_CAP`.
+  The safe-default wording (A68) is superseded; A68 is now **CONFIRMED (y)**.
+- **Not removed (order-entry / D18 / D21.13):** `ui/active_trader_panel.py` is **not purely the ladder** — it
+  also carries the **`OrderEntryWidget`** (kept **D26** order path), the **`ActiveTraderPanel` shell** (the
+  **D18** right-dock section) and the **`header_bar`/`header_button`** (**D21.13** collapse toggle). These are
+  **kept**; the removal is ladder-scoped, **not** a blind file delete (see `design_gaps.md` **DG69**). The order
+  path's `ref_price` (`active_trader.last_price`, previously fed by the DOM feed) needs a new source (DG69).
+  **→ SUPERSEDED by Q50 (2026-10-15):** the owner later confirmed the **whole panel is removed** (order entry
+  included) and the **right dock becomes Portfolio-only**, so this "kept" composition no longer holds. See
+  **Q50** below.
+- **Consequence:** **ESC-039** (the DOM ladder's `SMART` + `isSmartDepth=False` request shape) becomes **moot**
+  (no ladder request remains) — see `design_gaps.md` DG66 (updated).
+- **Affected requirement section:** D41 (`### D41`, "Scope — REMOVE" DOM-ladder bullet; `AC-D41.1`–`AC-D41.6`);
+  A68; Journey 36; `design_gaps.md` DG66/DG69.
+
+
+## Q49 — D41: what happens to **persisted footprint data** — left in place, or cleaned up?
+
+- **Status:** **answered 2026-10-15** — no longer blocking.
+- **Answer (owner-confirmed 2026-10-15, verbatim: "delete"):** the persisted D36 footprint data is
+  **removed**. Interpreted as **dropping the persisted footprint data — the `footprint_cache` table + its
+  rows** — since the feature that owns it is also being removed. The `footprint_cache` DDL leaves `data/db.py`
+  (fresh DBs never create it) **and** an existing user DB's `footprint_cache` table (with any rows) is
+  **dropped/deleted** by a small migration. The "leave in place" default (A69) is **superseded**; A69 is now
+  **CONFIRMED (y)** with the delete interpretation recorded.
+- **Interpretation note (labelled):** the one-line distinction "delete rows only, keep the empty table" vs
+  "`DROP TABLE`" is recorded as `design_gaps.md` **DG70**; the recorded default is the **full drop** (the whole
+  table), matching "delete".
+- **Affected requirement section:** D41 (`### D41`, "Persisted footprint data" bullet; Edge Cases); A69; DG70;
+  `design_gaps.md` DG67 (shared inventory).
+- **Follow-on:** a small BUILD data-migration step drops the `footprint_cache` table + rows.
+
+
+## Q50 — D41: is the **whole Active Trader panel** removed (order-entry UI included), and does the **right dock become Portfolio-only**?
+
+- **Status:** **answered 2026-10-15** — no longer blocking.
+- **Answer (owner-confirmed 2026-10-15): YES / YES.** **(a)** the **in-app order-entry UI (MKT/LMT/STP/Bracket)
+  is removed with the panel** — there will be **no in-app order ticket**; Portfolio's **Close / Close Group /
+  Flatten All** and the **SL/TP dialogs** remain and place orders independently through the **retained order
+  machinery**. **(b)** the **right dock becomes Portfolio-only** — the **40%-of-chart-area cap** (D18/B2) and the
+  **dock title bar** (D21.13, which used the Active Trader header as the title-bar widget) are **re-derived** for
+  a single-section dock.
+- **Consequences recorded in `requirements.md`:**
+  - **D41 scope widened to the whole panel:** **all of `ui/active_trader_panel.py`** (panel shell, ladder/book,
+    `OrderEntryWidget`, `header_bar`/`header_button`, and `set_symbol`/`set_last_price`/`last_price`) is removed;
+    the file no longer exists. **A70** records the decision; **A68**'s ladder-scoped composition clause is
+    superseded.
+  - **Retained order machinery KEPT:** `ibkr/orders.py`, `ibkr/validation.py`, the `validate_order()` gate,
+    `bracket_order` side-correctness, order-ID reservation, the kill switch and the fail-fast port check stay —
+    they guard the retained close/flatten/SL-TP order paths. **D26's safety requirements stay**; only the
+    **order-entry UI surface** D26 described goes (see the D26 entry's D41-interaction note).
+  - **`ref_price` re-sourced (Plan-level detail):** the retained order path's `ref_price` (was
+    `active_trader.last_price`, fed by the DOM feed) **MUST** come from a **retained** source (session last price
+    / watchlist price map) — **A71**, **DG71**.
+  - **D18 / D21.13 superseded:** the two-section Active-Trader+Portfolio clauses are marked **superseded by D41**
+    with reasons; the right dock is single-section with its cap + header re-derived — **AC-D41.7**, **DG71**.
+- **Closes:** `design_gaps.md` **DG69** (resolved — whole-panel removal confirmed); **DG70** remains resolved
+  (full table drop, Q49).
+- **Affected requirement section:** D41 (`### D41`, "Scope — REMOVE"/"Scope — KEEP"; `AC-D41.1`, `AC-D41.3`,
+  `AC-D41.4`, `AC-D41.7`); A68–A71; R61/R62; Journey 36; D18; D21.13; D26; `design_gaps.md` DG69/DG71.
+- **No new blocking question arose:** the owner confirmed both the panel removal and the Portfolio-only dock; the
+  retained `ref_price` source and the single-section cap/header are **Plan-level details** (DG71), not blocking.
+
+
+> **Reminder:** answering the questions above does **not** reopen D1–D35/D38–D40; Q48 **widened** D41's removal
+> scope (the DOM ladder), Q49 set the persisted-data disposition, and Q50 **widened it again** to the **entire
+> Active Trader panel (order-entry UI included)** with the **right dock Portfolio-only**. **Q46 was resolved as
+> moot** (superseded by D41), not by picking an option.

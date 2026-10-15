@@ -115,16 +115,6 @@ class DB:
             trade_group_id INTEGER NOT NULL REFERENCES trade_groups(id),
             PRIMARY KEY (ibkr_position_id, trade_group_id)
         );
-        -- D36: footprint cache (additive). One compressed JSON blob per
-        -- (resolved contract, date, timeframe). Keyed on the resolved
-        -- futures contract (e.g. ESZ6), never the continuous symbol (C36.3).
-        CREATE TABLE IF NOT EXISTS footprint_cache (
-            resolved_contract TEXT NOT NULL,
-            date TEXT NOT NULL,
-            timeframe TEXT NOT NULL,
-            blob BLOB NOT NULL,
-            PRIMARY KEY (resolved_contract, date, timeframe)
-        );
         -- D38: yfinance event cache (38b.1). One row per symbol: JSON list of
         -- corporate events (earnings/dividends/splits), 24h TTL (6h for
         -- near-term events). failed_at marks the last failed fetch with no
@@ -177,6 +167,11 @@ class DB:
             "CREATE UNIQUE INDEX IF NOT EXISTS "
             "idx_positions_symbol_con_id ON positions(symbol, con_id)"
         )
+        # D41 / S7 (Q49/A69/DG70): the D36 footprint cache feature is removed;
+        # drop its table and rows on every open. _migrate_schema() already runs
+        # unconditionally here, and IF EXISTS keeps this an idempotent,
+        # crash-safe no-op on fresh DBs and after the first drop.
+        self.conn.execute("DROP TABLE IF EXISTS footprint_cache")
 
     def _table_columns(self, table_name: str) -> set[str]:
         cursor = self.conn.cursor()

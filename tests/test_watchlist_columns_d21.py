@@ -305,7 +305,7 @@ def test_D21_09_sanitise_and_save_helpers(tmp_path):
 # stubbed, the unrelated right region is hidden, and the toolbar stays visible
 # (D19's scroll wrapper keeps it from pinning the chart area).
 
-_RIGHT_DOCK_TITLES = ("Active Trader",)
+_RIGHT_DOCK_TITLES = ("Portfolio",)
 
 
 def _boot_main_window(monkeypatch, qapp, width=1600, height=900):

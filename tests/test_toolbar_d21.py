@@ -149,7 +149,7 @@ def test_D21_05_T02_label_reflects_state_after_reload(monkeypatch, qapp):
 #: means (asserting the resolved style, not just the dynamic property).
 _ACTIVE_FILL = QColor("#1f6feb")
 
-_CHECKABLE_TOGGLES = ("sound_btn", "dom_btn", "ext_hours_btn", "alarm_mode_btn")
+_CHECKABLE_TOGGLES = ("sound_btn", "ext_hours_btn", "alarm_mode_btn")
 
 
 def _render(widget: QWidget) -> QImage:

@@ -6,7 +6,7 @@ the single right region wired into the shared ``MainWindow._apply_dock_widths``
 cross-clamps with the watchlist so ``chart_area >= 400px``), the
 ``changeEvent(WindowStateChange)`` / ``resizeEvent`` full-screen normalize, the
 "not persisted" default, and the panel content bound that keeps the region
-on-screen when the ladder/portfolio content is wider than the region.
+on-screen when the portfolio content is wider than the region.
 
 Geometry note (deterministic offscreen harness)
 ----------------------------------------------
@@ -45,7 +45,7 @@ _QSETTINGS_APP = "NDThinkChart"
 
 # Keys a naive right-region persistence would introduce (AC-D18.7). None may be
 # written; the region is in-memory only, matching D10's volume-toggle precedent.
-_RIGHT_PERSISTENCE_HINTS = ("right", "active_trader", "portfolio", "right_dock")
+_RIGHT_PERSISTENCE_HINTS = ("right", "portfolio", "right_dock")
 
 
 def _clean_settings() -> QSettings:
@@ -258,19 +258,20 @@ def test_T49_T04_fullscreen_normalize_region_on_screen(monkeypatch, qapp):
 # ── T49-T05 / AC-D18.6 — wide content must not push the region off-screen ────
 
 def test_T49_T05_wide_content_stays_within_cap_and_window(monkeypatch, qapp):
-    """T49-T05 / AC-D18.6: wide ladder/portfolio content does not overflow."""
+    """T49-T05 / AC-D18.6: wide portfolio content does not overflow."""
     _clean_settings()
     win = _make_window(monkeypatch, qapp, width=1600, height=900)
     try:
+        # D41 / S6: the right dock is now Portfolio-only, so the only wide
+        # widget it hosts is the Portfolio section's positions table. Fill it
+        # with wide content (rows are created first so the content is real and
+        # the probe still exercises AC-D18.6).
         wide = "123456789012345678901234567890"
+        table = win.portfolio_panel.positions_table
+        table.setRowCount(8)
         for row in range(8):
-            for col in range(win.active_trader.ladder.columnCount()):
-                win.active_trader.ladder.setItem(row, col, QTableWidgetItem(wide))
-        for row in range(8):
-            for col in range(win.portfolio_panel.positions_table.columnCount()):
-                win.portfolio_panel.positions_table.setItem(
-                    row, col, QTableWidgetItem(wide)
-                )
+            for col in range(table.columnCount()):
+                table.setItem(row, col, QTableWidgetItem(wide))
         qapp.processEvents()
 
         win._apply_dock_widths(None, 10 ** 6)

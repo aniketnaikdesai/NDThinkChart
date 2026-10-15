@@ -9,8 +9,9 @@ prior D1-D21 watchlist / dock behaviours are unchanged alongside them:
   * D21.11 — the in-panel "Watchlist" toggle still hides/shows the body and the
              collapsed button stays visible + struck (VIS-D21.1);
   * D14    — a double-click still emits the row's symbol, resolved by field key;
-  * D21.13 — the right-dock title / summary toggles still collapse + restore
-             their panels and the button stays struck iff its panel is hidden.
+  * D21.13 — the retained Portfolio header (the single right dock's title-bar
+             toggle) still collapses + restores its panel and stays struck iff
+             the panel is hidden.
 
 Harness note: mirrors the D21 / D22-07 offscreen harness — ``IBApiClient.connect``
 is monkeypatched to a no-op, the DB is a throwaway SQLite file, and the
@@ -24,6 +25,7 @@ import os
 
 import pytest
 from PyQt6.QtCore import QPoint, QSettings
+from PyQt6.QtWidgets import QDockWidget
 
 import config.paths as paths
 import ui.main_window as main_window
@@ -134,41 +136,39 @@ def test_D22_09_T01_watchlist_nonregression(window, qapp):
 # ── D22-09-T01 / AC-D22.9.1 — D21.13 right-dock toggles still work ───────────
 
 def test_D22_09_T01_right_dock_toggles_nonregression(window, qapp):
-    at_btn = window.active_trader.header_button
-    pf_btn = window.portfolio_panel.summary_label
+    # D41 / S6: the right region is ONE Portfolio-only dock. The title-keyed
+    # lookup follows the rename — a stale "Active Trader" handle would silently
+    # stop addressing the dock (AR-D41-3), so the new title is asserted and the
+    # old one proven absent.
+    dock = window.findChild(QDockWidget, "Portfolio")
+    assert dock is not None
+    assert dock is window.right_dock
+    assert dock.windowTitle() == "Portfolio"
+    assert window.findChild(QDockWidget, "Active Trader") is None
 
-    # Both title/summary controls are still mapped toggle buttons.
-    assert isinstance(at_btn, DiagonalStrikeButton)
-    assert at_btn.text() == "Active Trader"
-    assert at_btn.isCheckable()
-    assert isinstance(pf_btn, DiagonalStrikeButton)
-    assert pf_btn.text() == "Account Summary"
-    assert pf_btn.isCheckable()
+    # The retained Portfolio header IS the dock's title-bar toggle button.
+    btn = window.portfolio_panel.summary_label
+    assert dock.titleBarWidget() is btn
+    assert isinstance(btn, DiagonalStrikeButton)
+    assert btn.text() == "Account Summary"
+    assert btn.isCheckable()
+    assert btn.isChecked() and not btn.is_struck()
 
-    # Collapse + restore the Active Trader panel; strike tracks hidden state.
-    at_btn.click()
-    qapp.processEvents()
-    assert window.active_trader.is_collapsed()
-    assert not window.active_trader.body.isVisible()
-    assert at_btn.is_struck() and not at_btn.isChecked()
-    assert not pf_btn.is_struck()
+    # The geometry measured below is a real docked window, not a detached widget.
+    assert window.portfolio_panel.isVisible()
+    assert btn.isVisible()
+    assert dock.width() > 0
 
-    at_btn.click()
-    qapp.processEvents()
-    assert not window.active_trader.is_collapsed()
-    assert window.active_trader.body.isVisible()
-    assert not at_btn.is_struck()
-
-    # Collapse + restore the Portfolio summary panel.
-    pf_btn.click()
+    # Collapse + restore the retained Portfolio panel; strike tracks hidden state.
+    btn.click()
     qapp.processEvents()
     assert window.portfolio_panel.is_collapsed()
     assert not window.portfolio_panel.body.isVisible()
-    assert pf_btn.is_struck() and not pf_btn.isChecked()
-    assert not at_btn.is_struck()
+    assert btn.is_struck() and not btn.isChecked()
 
-    pf_btn.click()
+    btn.click()
     qapp.processEvents()
     assert not window.portfolio_panel.is_collapsed()
     assert window.portfolio_panel.body.isVisible()
-    assert not pf_btn.is_struck()
+    assert not btn.is_struck()
+    assert btn.isChecked()

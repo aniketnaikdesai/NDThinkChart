@@ -29,10 +29,7 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from config import settings
 from ibkr.client import IBApiClient, ConnectionState, DisconnectClass
 from ibkr.market_data import MarketDataManager, TIMEFRAME_CONFIG
-from ibkr.tick_history import TickHistoryManager
-from data.footprint_cache import FootprintCache
 from data.db import db as _app_db
-from ibkr.market_depth import MarketDepthManager
 from ibkr.realtime_bars import RealtimeBarsManager
 from ibkr.contracts import get_contract_for_symbol
 from ibkr.utils import parse_ibkr_date
@@ -41,8 +38,6 @@ from ibkr.validation import validate_order
 from ibkr.id_manager import id_manager
 from ibkr.pacing import pacing_manager, order_limiter, PacingExceeded
 from ibkr.subscription_manager import (
-    DEPTH,
-    DEPTH_HEATMAP,
     RT_BARS,
     S0_TICKS,
     SubscriptionManager,
@@ -73,7 +68,6 @@ from ui.studies_dialog import StudiesDialog, DEFAULT_STUDIES
 from ui.alarm_dialog import AlarmDialog
 from ui.drawing_groups_dialog import DrawingGroupsDialog
 from ui.visual_conventions import apply_toolbar_stylesheet, set_button_active
-from ui.active_trader_panel import ActiveTraderPanel, on_depth_callback
 from ui.active_portfolio_panel import ActivePortfolioPanel
 from ui.toast import Toast
 from ui.ticker_session import TickerSession
@@ -93,10 +87,6 @@ from services.backfill_service import (
 from services.market_calendar import trading_days
 from services.contract_lookup_service import ContractLookupService
 from services.md_line_guard import assess as md_assess
-
-# D37: depth feed budget — IBKR allows 3–60 simultaneous depth feeds
-# (scales with market-data lines); warn + refuse past the cap.
-DEPTH_FEED_CAP = 60
 
 _LOG = logging.getLogger(__name__)
 
@@ -246,13 +236,6 @@ class MainWindow(QMainWindow):
         self.sound_btn.setToolTip("Alert sounds")
         self.sound_btn.toggled.connect(self._on_sound_toggled)
 
-        # DOM / Active Trader toggle
-        self.dom_btn = QPushButton("DOM")
-        self.dom_btn.setCheckable(True)
-        self.dom_btn.setChecked(False)
-        self.dom_btn.setToolTip("Market Depth / Active Trader Panel")
-        self.dom_btn.toggled.connect(self._on_dom_toggled)
-
         # Extended Hours toggle. D21.3: the label reflects the state — "Ext Hours"
         # when ON (extended/pre/post-market) and "RTH" when OFF (regular trading
         # hours). The 80px fixed width fits both labels.
@@ -318,7 +301,6 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(self.alarms_btn)
         tb_layout.addWidget(self.alarm_mode_btn)
         tb_layout.addWidget(self.sound_btn)
-        tb_layout.addWidget(self.dom_btn)
         tb_layout.addWidget(self.ext_hours_btn)
         tb_layout.addWidget(self.tz_combo)
         tb_layout.addWidget(QLabel("|"))
@@ -347,12 +329,6 @@ class MainWindow(QMainWindow):
         # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000
         self._tz_offset = _eastern_offset()
         self.chart_panel = ChartPanel(tz_offset=self._tz_offset)
-        # D36: footprint UI signals → the active session.
-        self.chart_panel.footprint_toggled.connect(self._on_fp_toggled)
-        self.chart_panel.footprint_viewport_changed.connect(
-            self._on_fp_viewport)
-        # D37: depth heatmap toggle → the active session.
-        self.chart_panel.depth_toggled.connect(self._on_depth_toggled)
         # D19 Phase 1: keep the toolbar inside the central widget but stop its
         # ~1716px minimumSizeHint from pinning the central widget. A frameless
         # horizontal QScrollArea holds the full-natural-width toolbar so it stays
@@ -460,44 +436,26 @@ class MainWindow(QMainWindow):
             self._on_watchlist_symbol_remove_requested
         )
 
-        # ── Single right dock region (D18 Phase 3) ────────────────────────
-        # Active Trader and Portfolio used to be two separate RightDockWidgetArea
-        # docks; they are now stacked sections of ONE region so they share the
-        # region's width by construction (AC-D18.3). The region keeps the
-        # "Active Trader" title + objectName so ``_on_dom_toggled``'s
-        # ``findChild(QDockWidget, "Active Trader")`` still resolves it. The
-        # ladder/portfolio panels and all their signal wiring are unchanged —
-        # only the container around them. No width cap is added here (T49).
-        self.active_trader = ActiveTraderPanel()
+        # ── Single right dock: Portfolio-only (D41 / S6) ────────────────────
+        # The Active Trader panel (DOM ladder + order-entry ticket), the
+        # two-section container and the depth machinery are removed: the right
+        # region is now ONE ``QDockWidget`` hosting the retained Portfolio panel
+        # directly. Its title **and** objectName are ``"Portfolio"`` — the
+        # region's stable title-keyed handle — and its title-bar widget IS the
+        # panel's ``summary_label``, so exactly one label is visible and it is
+        # the hide/show toggle (AC-D41.7 / AC-D21.13.1).
         self.portfolio_panel = ActivePortfolioPanel()
-        self.right_dock_container = QWidget()
-        self.right_dock_container.setObjectName("RightDockContainer")
-        right_layout = QVBoxLayout(self.right_dock_container)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-        # Stretch 1 each while both are shown; ``_sync_right_dock_collapse``
-        # re-balances them so a shown panel absorbs the space a hidden one vacates
-        # (AC-D21.13.2).
-        right_layout.addWidget(self.active_trader, 1)
-        right_layout.addWidget(self.portfolio_panel, 1)
-        self._right_dock_layout = right_layout
-
-        self.right_dock = QDockWidget("Active Trader", self)
-        self.right_dock.setObjectName("Active Trader")
-        self.right_dock.setWidget(self.right_dock_container)
-        # D21.13: the dock's title bar IS the Active Trader panel's header strip,
-        # whose label is a ``DiagonalStrikeButton``. Setting a title-bar widget
-        # hides the native dock title (the ``windowTitle`` is kept for
-        # windowTitle-keyed lookups elsewhere) so exactly one "Active Trader"
-        # label is visible and it is the hide/show toggle (AC-D21.13.1).
-        self.right_dock.setTitleBarWidget(self.active_trader.header_bar)
+        self.right_dock = QDockWidget("Portfolio", self)
+        self.right_dock.setObjectName("Portfolio")
+        self.right_dock.setWidget(self.portfolio_panel)
+        self.right_dock.setTitleBarWidget(self.portfolio_panel.summary_label)
         self.right_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
-        # D18 Phase 4: pin the single region's minimum to the shared constant so
+        # D18 Phase 4: pin the region's minimum to the shared constant so
         # ``_apply_dock_widths`` can shrink it exactly to RIGHT_DOCK_MIN_WIDTH
-        # and the panels' bounded content cannot raise it (AC-D18.4/AC-D18.6).
+        # and the panel's bounded content cannot raise it (AC-D18.4/AC-D18.6).
         self.right_dock.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
         # ── D38 news digest dock (38a.2) ──────────────────────────────────
@@ -521,15 +479,12 @@ class MainWindow(QMainWindow):
         # D18 Phase 4: in-memory-only right-region width. Never persisted — no new
         # QSettings key (AC-D18.7 / A36), matching D10's volume-toggle precedent.
         self._right_dock_width = RIGHT_DOCK_MIN_WIDTH
-        # D21.13: per-panel hide/show state. Both panels start shown; when BOTH
-        # are collapsed the whole region collapses to a two-button strip and is
-        # treated as hidden by the cross-clamp (AC-D21.13.3).
+        # D21.13/S6: the retained panel's hide/show state. With one section the
+        # collapsed state IS the region-collapse state and the collapsed strip is
+        # that single button.
         self._right_region_collapsed = False
         self._right_dock_collapsed_min_width = (
             self._compute_right_dock_collapsed_min_width()
-        )
-        self.active_trader.header_button.toggled.connect(
-            self._on_right_panel_toggled
         )
         self.portfolio_panel.summary_label.toggled.connect(
             self._on_right_panel_toggled
@@ -553,11 +508,7 @@ class MainWindow(QMainWindow):
         # ── IBKR client ───────────────────────────────────────────────────────
         self.ib_client = IBApiClient()
         self.md_manager = MarketDataManager(self.ib_client)
-        # D36: historical-tick manager (footprint) + persistent cache.
-        self.tick_history_manager = TickHistoryManager(self.ib_client)
-        self.footprint_cache = FootprintCache(_app_db.conn)
         self.rt_manager = RealtimeBarsManager(self.ib_client)
-        self.depth_manager = MarketDepthManager(self.ib_client)
         self.sub_manager = SubscriptionManager()
         # D38: news API client (38a.1) — headline backfill + article fetch.
         from ibkr.news import NewsManager
@@ -607,7 +558,6 @@ class MainWindow(QMainWindow):
         self.watchlist_panel.set_subscription_manager(self.sub_manager)
         # D27.5: watchlist ticks feed the central symbol -> last_price map.
         self.watchlist_panel.set_price_sink(self._record_symbol_price)
-        self.watchlist_panel.set_depth_manager(self.depth_manager)
 
         # Drawing overlay wiring
         self.chart_panel.drawing_overlay.created.connect(self._on_drawing_created)
@@ -650,9 +600,6 @@ class MainWindow(QMainWindow):
         b.error_msg.connect(self._on_error)
         b.historical_bar.connect(self._on_historical_bar)
         b.historical_data_end.connect(self._on_historical_data_end)
-        # D36 footprint: historical ticks, routed by reqId.
-        b.historical_ticks_bid_ask.connect(self._on_fp_ticks_bid_ask)
-        b.historical_ticks_last.connect(self._on_fp_ticks_last)
         b.tick_price.connect(self.watchlist_panel.on_tick_price)
         b.tick_size.connect(self.watchlist_panel.on_tick_size)
         # D37 S0: route price/size ticks to sessions too (auction 34/35/36/61
@@ -665,7 +612,6 @@ class MainWindow(QMainWindow):
         b.tick_string.connect(self._on_s0_tick_string)
         b.tick_news.connect(self._on_s0_tick_news)
         b.realtime_bar.connect(self._on_realtime_bar)
-        b.update_mkt_depth.connect(self._on_mkt_depth)
         b.open_order.connect(self._on_open_order)
         b.exec_details.connect(self._on_exec_details)
         b.order_status.connect(self._on_order_status)
@@ -689,9 +635,6 @@ class MainWindow(QMainWindow):
         self.portfolio_panel.position_sltp_changed.connect(self._on_portfolio_sltp_changed)
         self.portfolio_panel.group_sltp_changed.connect(self._on_portfolio_group_sltp_changed)
 
-        # Active trader order entry
-        self.active_trader.order_place_requested.connect(self._on_order_place_requested)
-
         # State
         # D28.2: per-symbol sessions. Chart data-plane state (_rt_req_id,
         # _aggregator, _current_alarms, _last_chart_price, _rt_seen,
@@ -711,7 +654,6 @@ class MainWindow(QMainWindow):
         from services.volume_baseline import VolumeBaselineService
 
         self.volume_baseline = VolumeBaselineService()
-        self._depth_req_id: int | None = None
         self._current_symbol: str = ""
         self._current_tf: str = "5 mins"
         # D27.9: in-flight aggregator-priming request (trailing 5-sec bars
@@ -785,22 +727,19 @@ class MainWindow(QMainWindow):
     def _session_for_req_id(self, req_id: int) -> TickerSession | None:
         return self._req_to_session.get(req_id)
 
-    # ── D37 budget guards (37.4 depth budget, 37.5 MD-line guard) ────────
+    # ── §7 market-data line guard (37.5) ─────────────────────────────────
 
     def _md_line_count(self) -> int:
         """Active market-data lines (owns the §7 accounting — C37.1).
 
-        Counts RT-bar lines, S0 lines (new in D37), depth feeds, and
-        watchlist rows explicitly. Called before new D37 subscriptions.
+        Counts RT-bar lines, S0 lines, and watchlist rows explicitly.
         """
         rt = sum(1 for s in self._sessions.values()
                  if s.rt_req_id is not None)
         s0 = sum(1 for s in self._sessions.values()
                  if s.s0_req_id is not None)
-        depth = (self.depth_manager.active_feed_count()
-                 if self.depth_manager is not None else 0)
         watchlist = self.watchlist_panel.active_row_count()
-        return rt + s0 + depth + watchlist
+        return rt + s0 + watchlist
 
     def _guard_md_lines(self, symbol: str, purpose: str) -> bool:
         """Warn (never silently drop) near the 100-line cap; refuse past it.
@@ -813,15 +752,6 @@ class MainWindow(QMainWindow):
             return True
         self.status_bar.showMessage(message, 8000)
         return level != "exceeded"
-
-    def _guard_depth_budget(self, symbol: str) -> bool:
-        """Refuse a new depth feed past DEPTH_FEED_CAP with a named warning."""
-        if self.depth_manager.active_feed_count() >= DEPTH_FEED_CAP:
-            self.status_bar.showMessage(
-                f"Depth feed budget exceeded ({DEPTH_FEED_CAP}) — "
-                f"no depth for {symbol}.", 8000)
-            return False
-        return True
 
     # ── Pop-outs (D24) ──────────────────────────────────────────────────
 
@@ -932,8 +862,6 @@ class MainWindow(QMainWindow):
                 (old.bars_refreshed, self._on_primary_bars_refreshed),
                 (old.stream_health_changed,
                  self._on_primary_stream_health_changed),
-                (old.footprint_updated,
-                 self._on_primary_footprint_updated),
             ):
                 try:
                     sig.disconnect(slot)
@@ -941,7 +869,6 @@ class MainWindow(QMainWindow):
                     pass
         self._primary_session = session
         if old is not None:
-            self.chart_panel.unbind_d37_session(old)
             self.chart_panel.unbind_d38_session(old)
         if session is not None:
             session.bar_updated.connect(self._on_primary_bar_updated)
@@ -949,28 +876,9 @@ class MainWindow(QMainWindow):
             session.stream_health_changed.connect(
                 self._on_primary_stream_health_changed
             )
-            # D36: footprint data changed → re-render the footprint layer.
-            session.footprint_updated.connect(
-                self._on_primary_footprint_updated)
-            # D37: heatmap/auction/imbalance UI binds to the primary session.
-            self.chart_panel.bind_d37_session(session)
             # D38: event markers bind to the primary session (38b.2). The
             # shared yfinance source feeds the async refresh.
             self.chart_panel.bind_d38_session(session, self.yf_event_source)
-            # D37: the depth toggle defaults ON — sync the feed now (the
-            # toggle only emits on user interaction).
-            if self.chart_panel.depth_enabled:
-                session.ensure_depth_subscribed()
-
-    def _on_depth_toggled(self, enabled: bool) -> None:
-        """Depth heatmap toggle → refcounted session feed."""
-        session = self.primary_session
-        if session is None:
-            return
-        if enabled:
-            session.ensure_depth_subscribed()
-        else:
-            session.release_depth()
 
     def _on_primary_bar_updated(self, bar: Bar, is_new_candle: bool) -> None:
         if bar.timeframe != self._current_tf:
@@ -981,34 +889,6 @@ class MainWindow(QMainWindow):
         if timeframe != self._current_tf:
             return
         self.chart_panel.update_chart(bars)
-        # D36: keep footprint in step with the new bar set.
-        if self.primary_session is not None and self.primary_session.fp_enabled:
-            self.primary_session.footprint_resync(timeframe)
-
-    def _on_fp_toggled(self, enabled: bool, style: str, metric: str) -> None:
-        """Footprint control → session enable/disable + style/metric."""
-        if self.primary_session is None:
-            return
-        if enabled:
-            self.primary_session.footprint_enable(style=style, metric=metric)
-            self.primary_session.footprint_resync()
-        else:
-            self.primary_session.footprint_disable()
-
-    def _on_fp_viewport(self, first_ts: float, last_ts: float) -> None:
-        """Scroll → lazy-fill bars lacking footprint data (bounded)."""
-        if self.primary_session is None or not self.primary_session.fp_enabled:
-            return
-        self.primary_session.sync_footprint_viewport(first_ts, last_ts)
-
-    def _on_primary_footprint_updated(self, timeframe: str) -> None:
-        # D36: pull the snapshot from the session and re-render footprint.
-        if timeframe != self._current_tf:
-            return
-        session = self._primary_session
-        if session is None:
-            return
-        self.chart_panel.refresh_footprint(session.footprint_snapshot(timeframe))
 
     def _on_primary_stream_health_changed(self) -> None:
         self._update_stream_badge()
@@ -1175,9 +1055,6 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Connected — IBKR port {settings.IBKR_PORT}")
         self._restore_watchlist()
         self._replay_subscriptions()
-        # D36/A4: restart footprint backfill waves stranded by the drop.
-        for session in list(self._sessions.values()):
-            session.on_fp_reconnect()
         self._subscribe_account_data()
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
@@ -1434,16 +1311,12 @@ class MainWindow(QMainWindow):
         )
         return True
 
-    def _rebind_depth_req_id(self, new_req_id: int) -> None:
-        """D27.3: point DOM routing at the replayed subscription's reqId."""
-        self._depth_req_id = new_req_id
-
     def _replay_subscriptions(self):
         """Re-issue live subscriptions after reconnection (D27.3).
 
-        Chart RT bars, DOM depth, session depth feeds, and S0 generic-tick
-        subscriptions replay through the subscription registry, which
-        rebinds the new reqIds into the routing state.
+        Chart RT bars and S0 generic-tick subscriptions replay through the
+        subscription registry, which rebinds the new reqIds into the routing
+        state.
         Watchlist market-data is re-issued by ``_restore_watchlist``'s
         clear+re-add path (pinned by AC-D22.7.2), so MARKET_DATA stays
         excluded here — replaying it too would double-subscribe every row.
@@ -1454,7 +1327,7 @@ class MainWindow(QMainWindow):
         """
         try:
             self.sub_manager.replay_all(
-                include_types={RT_BARS, DEPTH, DEPTH_HEATMAP, S0_TICKS})
+                include_types={RT_BARS, S0_TICKS})
         except PacingExceeded as e:
             self.status_bar.showMessage(
                 f"Subscription replay pacing-limited, "
@@ -1575,10 +1448,6 @@ class MainWindow(QMainWindow):
         # D28.2: strand every session's in-flight wave on disconnect.
         stranded_any = False
         for session in list(self._sessions.values()):
-            # D36/A4: a transport drop strands every in-flight footprint
-            # tick request (the NO_VALID_ID error cannot be routed back) —
-            # reset the wave state now; the reconnect restarts it.
-            session.on_fp_disconnect()
             if self._finalize_stranded_history_wave(
                 session, reason="Disconnected from IBKR"
             ):
@@ -1661,24 +1530,9 @@ class MainWindow(QMainWindow):
                     session, errorCode, errorString
                 )
                 return
-            if reqId == session.depth_req_id:
-                # D37: depth feed errors (354 = no entitlement) drive the
-                # heatmap's explicit degradation state.
-                session.on_depth_error(errorCode, errorString)
-                self.status_bar.showMessage(
-                    f"Depth [{errorCode}]: {errorString}", 8000
-                )
-                return
             session.on_historical_error(reqId, errorCode, errorString)
             self.status_bar.showMessage(
                 f"Error [{errorCode}]: {errorString}", 8000
-            )
-            return
-        if reqId == self._depth_req_id:
-            # D37: DOM depth feed entitlement failure — explicit, not silent.
-            self.status_bar.showMessage(
-                f"DOM depth [{errorCode}]: {errorString} — "
-                "depth subscription required.", 8000
             )
             return
         # D26.9: TWS reports order errors with the orderId in the reqId field.
@@ -1690,7 +1544,7 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)
 
     def _on_order_error(self, order_id: int, error_code: int, error_string: str):
-        """D26.9: surface a TWS order error on the registry and the ticket."""
+        """D26.9: surface a TWS order error on the registry and the status bar."""
         if error_code in (201, 103):
             status = "Rejected"
         elif error_code == 202:
@@ -1698,11 +1552,6 @@ class MainWindow(QMainWindow):
         else:
             status = f"Error {error_code}"
         order_registry.update_status(order_id, status)
-        order = order_registry.get(order_id)
-        action = getattr(order, "action", "?")
-        qty = getattr(order, "total_qty", 0)
-        ticket_text = f"{status}: {error_string}"
-        self.active_trader.set_order_status(order_id, action, qty, ticket_text)
         self.status_bar.showMessage(
             f"Order #{order_id} {status}: {error_string}", 12000)
 
@@ -1879,10 +1728,6 @@ class MainWindow(QMainWindow):
         self._rt_retry_timer.stop()
         self._update_stream_badge()
 
-        # DOM subscription (only if DOM panel is visible)
-        if self.dom_btn.isChecked():
-            self._subscribe_dom()
-
     def _retry_attach_live_feed(self, symbol: str, contract) -> None:
         """D28.1: pacing-deferred live-feed attach. Skips if the user moved on
         to another symbol while the retry was pending."""
@@ -2036,24 +1881,6 @@ class MainWindow(QMainWindow):
         if session is None:
             return
         session.on_historical_data_end(reqId)
-
-    # ── D36 footprint slots ─────────────────────────────────────────────
-
-    def _on_fp_ticks_bid_ask(self, reqId: int, ticks, done: bool):
-        if self._closing:
-            return  # D28.5
-        session = self._session_for_req_id(reqId)
-        if session is None:
-            return
-        session.on_fp_ticks_bid_ask(reqId, ticks, done)
-
-    def _on_fp_ticks_last(self, reqId: int, ticks, done: bool):
-        if self._closing:
-            return  # D28.5
-        session = self._session_for_req_id(reqId)
-        if session is None:
-            return
-        session.on_fp_ticks_last(reqId, ticks, done)
 
     # ── D37 S0 routing ───────────────────────────────────────────────
 
@@ -2265,6 +2092,17 @@ class MainWindow(QMainWindow):
         if symbol and price and price > 0:
             self._symbol_last_prices[symbol.upper()] = float(price)
 
+    def _ref_price_for(self, symbol: str) -> float | None:
+        """D41-S4: the retained ``ref_price`` source (closes DG71(1)).
+
+        Upper-case-normalised read of the D27.5 central symbol -> last_price
+        map (:attr:`_symbol_last_prices`); returns ``None`` when the symbol has
+        no recorded price. No other source is consulted.
+        """
+        if not symbol:
+            return None
+        return self._symbol_last_prices.get(symbol.upper())
+
     def _on_session_alarm_triggered(self, symbol: str, triggered: list) -> None:
         """Toast + sound exactly once per trigger event (A57).
 
@@ -2453,20 +2291,16 @@ class MainWindow(QMainWindow):
             return False
 
     def _compute_right_dock_collapsed_min_width(self) -> int:
-        """D21.13: minimum width of the region once BOTH panels are collapsed.
+        """D21.13: minimum width of the region once the panel is collapsed.
 
-        The collapsed region is a vertical strip of the two toggle buttons (the
-        Active Trader title-bar button and the Account Summary header button), so
-        its width is the widest button's ``sizeHint`` plus the standard margins,
-        floored at :data:`RIGHT_DOCK_COLLAPSED_MIN_WIDTH`. Never raises.
+        The collapsed region is a vertical strip holding the Portfolio
+        (Account Summary) header button, so its width is that button's
+        ``sizeHint`` plus the standard margins, floored at
+        :data:`RIGHT_DOCK_COLLAPSED_MIN_WIDTH`. Never raises.
         """
         try:
-            buttons = [
-                getattr(self.active_trader, "header_button", None),
-                getattr(self.portfolio_panel, "summary_label", None),
-            ]
-            widths = [b.sizeHint().width() for b in buttons if b is not None]
-            content = max(widths) if widths else 0
+            button = getattr(self.portfolio_panel, "summary_label", None)
+            content = button.sizeHint().width() if button is not None else 0
             return max(
                 RIGHT_DOCK_COLLAPSED_MIN_WIDTH,
                 int(content) + 2 * RIGHT_DOCK_COLLAPSED_MARGIN,
@@ -2475,12 +2309,9 @@ class MainWindow(QMainWindow):
             return RIGHT_DOCK_COLLAPSED_MIN_WIDTH
 
     def _right_region_is_collapsed(self) -> bool:
-        """True when BOTH right-region panels are collapsed to their buttons."""
+        """True when the right-region panel is collapsed to its button."""
         try:
-            return bool(
-                self.active_trader.is_collapsed()
-                and self.portfolio_panel.is_collapsed()
-            )
+            return bool(self.portfolio_panel.is_collapsed())
         except Exception:
             return False
 
@@ -2494,11 +2325,8 @@ class MainWindow(QMainWindow):
     def _sync_right_dock_collapse(self) -> None:
         """Apply the D21.13 right-region collapse state.
 
-        * vertical stretch: only a shown panel absorbs slack, so the panel that
-          stays visible expands into the space the hidden one vacates
-          (AC-D21.13.2);
-        * both hidden: relax the region's (and the two panels') minimum width to
-          the button strip and pin the dock to it explicitly via
+        * hidden: relax the dock's (and the panel's) minimum width to the button
+          strip and pin the dock to it explicitly via
           ``_resize_docks_guarded`` so the chart reclaims the width
           (AC-D21.13.3);
         * otherwise: restore ``RIGHT_DOCK_MIN_WIDTH`` and re-run the B3
@@ -2507,24 +2335,9 @@ class MainWindow(QMainWindow):
         collapsed = self._right_region_is_collapsed()
         self._right_region_collapsed = collapsed
 
-        layout = getattr(self, "_right_dock_layout", None)
-        if layout is not None:
-            try:
-                layout.setStretchFactor(
-                    self.active_trader,
-                    0 if self.active_trader.is_collapsed() else 1,
-                )
-                layout.setStretchFactor(
-                    self.portfolio_panel,
-                    0 if self.portfolio_panel.is_collapsed() else 1,
-                )
-            except Exception:
-                pass
-
         right_dock = getattr(self, "right_dock", None)
         widgets = (
             right_dock,
-            getattr(self, "active_trader", None),
             getattr(self, "portfolio_panel", None),
         )
         if collapsed:
@@ -2979,68 +2792,6 @@ class MainWindow(QMainWindow):
         self.chart_panel.set_timezone(self._tz_offset)
         self.status_bar.showMessage(f"Timezone: {label}", 3000)
 
-    # ── DOM / Active Trader slots ────────────────────────────────────────────
-
-    def _on_dom_toggled(self, enabled: bool):
-        """Show/hide the Active Trader dock."""
-        trader_dock = self.findChild(QDockWidget, "Active Trader")
-        if trader_dock:
-            trader_dock.setVisible(enabled)
-        if enabled:
-            self._subscribe_dom()
-            self.status_bar.showMessage(
-                f"DOM active for {self._current_symbol or '—'}", 4000
-            )
-
-    def _subscribe_dom(self):
-        """Subscribe to Level I/II market depth for the current symbol."""
-        if not self._current_symbol or self.depth_manager is None:
-            return
-        # Cancel any previous subscription
-        self.depth_manager.cancel_all()
-        self.sub_manager.unsubscribe_all_of_type(DEPTH)
-        contract = get_contract_for_symbol(self._current_symbol)
-        self._depth_req_id = self.depth_manager.subscribe(
-            self._current_symbol, contract, num_levels=10
-        )
-        # D27.3: register for the reconnect replay (rebinds _depth_req_id).
-        self.sub_manager.subscribe(
-            self._current_symbol,
-            self._depth_req_id,
-            DEPTH,
-            reissue=lambda s=self._current_symbol, c=contract: (
-                self.depth_manager.subscribe(s, c, num_levels=10)
-            ),
-            rebind=self._rebind_depth_req_id,
-        )
-        self.active_trader.set_symbol(self._current_symbol)
-        self.status_bar.showMessage(
-            f"Subscribing to DOM for {self._current_symbol}…", 3000
-        )
-
-    def _on_mkt_depth(self, req_id: int, position: int, operation: int,
-                      side: int, price: float, size: int,
-                      is_smart_depth: bool):
-        """Handle incoming market-depth updates."""
-        # is_smart_depth (10.51.1) is carried for D37's SMART-aggregated-row
-        # disambiguation; the DOM path below is unchanged.
-        if req_id == self._depth_req_id:
-            symbol = self.depth_manager.on_update(req_id, position, operation, side, price, size)
-            if symbol is None:
-                return
-            # Update last price for the ladder mid-row display
-            if price > 0:
-                self.active_trader.set_last_price(price)
-            snapshot = self.depth_manager.snapshot(req_id)
-            on_depth_callback(self.active_trader, snapshot)
-            return
-        # D37: session heatmap feeds (shared SMART subscriptions) route by
-        # reqId to the owning session; the service owns the book model.
-        session = self._session_for_req_id(req_id)
-        if session is not None:
-            session.on_depth_update(position, operation, side, price, size,
-                                    is_smart_depth)
-
     # ── Alarm overlay slots ───────────────────────────────────────────────────
 
     def _on_alarm_create_requested(self, price: float):
@@ -3087,127 +2838,6 @@ class MainWindow(QMainWindow):
         self._reload_current_alarms()
         self.status_bar.showMessage("Alarm deleted.", 2000)
 
-    # ── Order Entry ─────────────────────────────────────────────────
-
-    def _on_order_place_requested(self, symbol: str, action: str, qty: float,
-                                    order_type: str, lmt_price: float,
-                                    stop_price: float, target_price: float):
-        """Handle order placement request from ActiveTraderPanel."""
-        contract = get_contract_for_symbol(symbol)
-        self._place_order(contract, symbol, action, qty, order_type,
-                           lmt_price, stop_price, target_price)
-
-    def _place_order(self, contract, symbol, action, qty, order_type,
-                      lmt_price, stop_price, target_price):
-        """Build order(s) and place via the client."""
-        # D26.9: never transmit while disconnected — a dead socket used to
-        # show "Submitted" before TWS error 504 arrived.
-        if not self._ibkr_connected:
-            msg = "Order not placed: not connected to TWS."
-            self.status_bar.showMessage(msg, 8000)
-            self.active_trader.order_entry.status_label.setText(msg)
-            return
-        # D26.7: validate BEFORE anything else — rejected orders never reach
-        # placeOrder and never raise; the rejection is surfaced in the UI.
-        problems = validate_order(
-            action=action, order_type=order_type, qty=qty,
-            lmt_price=lmt_price, stop_price=stop_price,
-            target_price=target_price, symbol=symbol,
-            ref_price=self.active_trader.last_price,
-        )
-        if problems:
-            msg = "Order rejected: " + "; ".join(problems)
-            self.status_bar.showMessage(msg, 8000)
-            self.active_trader.order_entry.status_label.setText(msg)
-            return
-
-        # D28.1: orders no longer share the realtime-bar throttle (which could
-        # sleep the GUI thread for up to 10 minutes). They get their own
-        # token-bucket limiter; when empty the order defers via singleShot —
-        # never blocks, never silently dropped.
-        if not order_limiter.try_acquire():
-            delay_ms = max(200, int(order_limiter.retry_delay_s() * 1000))
-            msg = "Order pacing-limited, retrying…"
-            self.status_bar.showMessage(msg, 4000)
-            self.active_trader.order_entry.status_label.setText(msg)
-            QTimer.singleShot(
-                delay_ms,
-                lambda: self._place_order(
-                    contract=contract, symbol=symbol, action=action, qty=qty,
-                    order_type=order_type, lmt_price=lmt_price,
-                    stop_price=stop_price, target_price=target_price,
-                ),
-            )
-            return
-
-        if order_type == "MKT":
-            order = order_registry.market_order(action, qty)
-            parent_id = id_manager.get_id()
-            self.ib_client.placeOrder(parent_id, contract, order)
-            user_order = UserOrder(
-                order_id=parent_id, symbol=symbol, action=action,
-                total_qty=qty, order_type="MKT", transmit=True,
-            )
-            order_registry.register(user_order)
-            self.active_trader.set_order_status(parent_id, action, qty, "Submitted")
-
-        elif order_type == "LMT":
-            order = order_registry.limit_order(action, qty, lmt_price)
-            parent_id = id_manager.get_id()
-            self.ib_client.placeOrder(parent_id, contract, order)
-            user_order = UserOrder(
-                order_id=parent_id, symbol=symbol, action=action,
-                total_qty=qty, order_type="LMT", lmt_price=lmt_price,
-                transmit=True,
-            )
-            order_registry.register(user_order)
-            self.active_trader.set_order_status(parent_id, action, qty, "Submitted")
-
-        elif order_type == "STP":
-            order = order_registry.stop_order(action, qty, stop_price)
-            parent_id = id_manager.get_id()
-            self.ib_client.placeOrder(parent_id, contract, order)
-            user_order = UserOrder(
-                order_id=parent_id, symbol=symbol, action=action,
-                total_qty=qty, order_type="STP", aux_price=stop_price,
-                transmit=True,
-            )
-            order_registry.register(user_order)
-            self.active_trader.set_order_status(parent_id, action, qty, "Submitted")
-
-        elif order_type == "BRACKET":
-            # D26.2: reserve all three leg IDs up front so no later get_id()
-            # (order or reqId) can reissue a live bracket-leg order ID.
-            parent_id = id_manager.reserve(3)
-            parent, stop, target = order_registry.bracket_order(
-                parent_id, action, qty, lmt_price, stop_price, target_price,
-            )
-            self.ib_client.placeOrder(parent_id, contract, parent)
-            self.ib_client.placeOrder(parent_id + 1, contract, stop)
-            self.ib_client.placeOrder(parent_id + 2, contract, target)
-            # D26.8 / VALIDATOR: register EVERY transmitted leg at transmit
-            # time, or the kill switch and _update_order_status cannot see
-            # the protective children. (The old code registered only the
-            # parent, with a self-referential parent_id and transmit=False.)
-            child_action = "SELL" if action == "BUY" else "BUY"
-            for leg_id, leg_type, leg_action, leg_price in (
-                (parent_id, "BRACKET", action, lmt_price),
-                (parent_id + 1, "STP", child_action, stop_price),
-                (parent_id + 2, "LMT", child_action, target_price),
-            ):
-                order_registry.register(UserOrder(
-                    order_id=leg_id, symbol=symbol, action=leg_action,
-                    total_qty=qty, order_type=leg_type,
-                    lmt_price=leg_price if leg_type != "STP" else None,
-                    aux_price=leg_price if leg_type == "STP" else None,
-                    status="Submitted",
-                    parent_id=0 if leg_id == parent_id else parent_id,
-                    oca_group=f"bracket-{parent_id}", transmit=True,
-                ))
-            self.active_trader.set_order_status(
-                parent_id, action, qty, "Bracket Submitted"
-            )
-
     def _on_open_order(self, orderId: int, contract, order, orderState):
         self._update_order_status(orderId, getattr(orderState, "status", ""))
 
@@ -3240,7 +2870,6 @@ class MainWindow(QMainWindow):
         msg = (f"Kill switch: {sent}/{pre} cancel requests sent "
                f"(reqGlobalCancel + per-order cancel).")
         self.status_bar.showMessage(msg, 12000)
-        self.active_trader.order_entry.status_label.setText(msg)
         return pre, sent
 
     def _on_kill_switch_clicked(self):
@@ -3385,9 +3014,6 @@ class MainWindow(QMainWindow):
         order = order_registry.get(orderId)
         if order:
             order.status = status
-            self.active_trader.set_order_status(
-                orderId, order.action, order.total_qty, status
-            )
 
     # ── Portfolio SL/TP and close handlers (Phase 7) ────────────────────────────
 
@@ -3451,6 +3077,14 @@ class MainWindow(QMainWindow):
         from ibkr.pacing import pacing_manager
         from ibkr.orders import orders as order_registry
 
+        # D41-S5 step 1 (D26.9): refuse while disconnected — never transmit.
+        # Evaluated first, before the row read and before any pacing token is
+        # taken, so a disconnected window can never reach placeOrder.
+        if not self._ibkr_connected:
+            self.status_bar.showMessage(
+                "Not connected to IBKR — cannot close positions.", 4000)
+            return
+
         cursor = db.conn.cursor()
         cursor.execute(
             "SELECT symbol, account, con_id, contract_type, qty, avg_cost, "
@@ -3468,6 +3102,21 @@ class MainWindow(QMainWindow):
         # Build offsetting order
         action = "SELL" if qty > 0 else "BUY"
         close_qty = abs(qty)
+
+        # D41-S5 step 2 (D26.7): the retained validation gate. Runs before the
+        # contract build and the pacing deferral below, so a rejected order
+        # never consumes a pacing token. ``risk_reducing=True`` skips only the
+        # notional cap (a position above the cap must still be closable);
+        # ``ref_price`` comes from the retained S4 accessor.
+        problems = validate_order(
+            action=action, order_type="MKT", qty=close_qty,
+            symbol=symbol, ref_price=self._ref_price_for(symbol),
+            risk_reducing=True,
+        )
+        if problems:
+            self.status_bar.showMessage(
+                "Order rejected: " + " ".join(problems), 6000)
+            return
 
         # Use the stored con_id if available for options/futures, else stock
         contract = get_contract_for_symbol(symbol)
@@ -3547,12 +3196,6 @@ class MainWindow(QMainWindow):
             session._history_generation += 1
             session.teardown()
         self._primary_session = None
-        # Cancel market depth subscription
-        if self._depth_req_id is not None:
-            self.depth_manager.cancel(self._depth_req_id)
-            self._depth_req_id = None
-        # Cancel all depth subscriptions
-        self.depth_manager.cancel_all()
         # Cancel all realtime bar subscriptions across tracked symbols
         self.rt_manager.cancel_all()
         # Disconnect from IBKR, then join the reader thread with a timeout

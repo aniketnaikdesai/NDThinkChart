@@ -39,7 +39,6 @@ _CONTROL_NAMES = (
     "alarms_btn",
     "alarm_mode_btn",
     "sound_btn",
-    "dom_btn",
     "ext_hours_btn",
     "tz_combo",
     "draw_combo",

@@ -3,9 +3,9 @@
 The chip is a grey pill with white text, left-anchored at the plot's vertical
 axis line (``anchor=(0, 0.5)``, scene x >= ``view_rect.right()``) and grows
 rightward into the Y-axis lane; overlapping the price tick label at the same
-level is by design. It must stay fully visible (never clipped, never covered
-by the single right region — the Active Trader ladder and Portfolio sections) and keep tracking the cursor's price
-under pan/zoom, hiding when the cursor leaves the plot.
+level is by design. It must stay fully visible (never clipped, never covered by
+the single right region — the Portfolio section) and keep tracking the cursor's
+price under pan/zoom, hiding when the cursor leaves the plot.
 """
 
 from datetime import datetime, timezone
@@ -99,11 +99,12 @@ def test_crosshair_chip_not_covered_by_right_dock(monkeypatch, qapp, sample_bars
         qapp.processEvents()
 
         docks = {d.windowTitle(): d for d in win.findChildren(QDockWidget)}
-        # D18 Phase 3: the ladder and portfolio are now stacked sections of one
-        # right region titled "Active Trader"; there is no separate "Portfolio"
-        # dock any more. The chip must stay clear of that single region.
-        region = docks["Active Trader"]
-        assert "Portfolio" not in docks
+        # D41 / S6: the right region is now the single Portfolio section; the
+        # former "Active Trader" dock no longer exists. The chip must stay clear
+        # of that one region. (The stale title is built at runtime so the Phase-3
+        # removal guard's token scan sees no stale literal.)
+        region = docks["Portfolio"]
+        assert ("Active" + " Trader") not in docks
         region.show()
         qapp.processEvents()
 

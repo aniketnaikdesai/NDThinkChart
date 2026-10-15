@@ -270,7 +270,6 @@ class WatchlistPanel(QWidget):
         # cell through the correct extractor (field-identity binding, DG32).
         self._row_data: dict[int, dict] = {}
         self._md_manager = None  # injected after connection
-        self._depth_manager = None  # injected after connection
         # D27.3: subscription registry (injected by MainWindow) so live
         # market-data subs are type-tagged for the reconnect replay.
         self._sub_manager = None
@@ -764,10 +763,6 @@ class WatchlistPanel(QWidget):
         if symbol and symbol != "—":
             self.row_double_clicked.emit(symbol)
 
-    def set_depth_manager(self, depth_manager):
-        """Inject MarketDepthManager for position mapping."""
-        self._depth_manager = depth_manager
-
     def set_market_data_manager(self, md_manager):
         """Inject MarketDataManager for live tick subscriptions."""
         self._md_manager = md_manager
@@ -785,12 +780,6 @@ class WatchlistPanel(QWidget):
     def active_row_count(self) -> int:
         """Live market-data rows (each holds one reqMktData line)."""
         return len(self._req_to_row)
-
-    def on_depth_update(self, req_id: int, position: int, operation: int,
-                        side: int, price: float, size: int) -> None:
-        """Handle incoming depth updates from the bridge."""
-        if self._depth_manager:
-            self._depth_manager.on_update(req_id, position, operation, side, price, size)
 
     def add_symbol(self, symbol: str, contract):
         """Add a new row and subscribe to live ticks."""

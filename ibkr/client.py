@@ -306,19 +306,6 @@ class IBApiClient(EWrapper, EClient):
         super().historicalDataEnd(reqId, start, end)
         self.bridge.historical_data_end.emit(reqId)
 
-    # ── D36 footprint: historical ticks ──────────────────────
-    # These overrides are strictly additive: they call super() first, then
-    # forward the payload on the matching bridge signal. Routing to the
-    # requesting session is by reqId (D27 pattern).
-
-    def historicalTicksBidAsk(self, reqId: int, ticks, done: bool):
-        super().historicalTicksBidAsk(reqId, ticks, done)
-        self.bridge.historical_ticks_bid_ask.emit(reqId, ticks, done)
-
-    def historicalTicksLast(self, reqId: int, ticks, done: bool):
-        super().historicalTicksLast(reqId, ticks, done)
-        self.bridge.historical_ticks_last.emit(reqId, ticks, done)
-
     # ── D37 substrate S0: generic ticks (shared by D37 auction + D38 news) ──
     # Strictly additive: super() first, then the bridge signal. Signatures
     # verified against the 10.51.1 wheel — tickNews takes 6 args (extraData
@@ -387,24 +374,6 @@ class IBApiClient(EWrapper, EClient):
                     low: float, close: float, volume: float, wap: float, count: int):
         super().realtimeBar(reqId, time, open_, high, low, close, volume, wap, count)
         self.bridge.realtime_bar.emit(reqId, time, open_, high, low, close, volume, wap, count)
-
-    def updateMktDepth(self, reqId: int, position: int, operation: int,
-                       side: int, price: float, size: int):
-        super().updateMktDepth(reqId, position, operation, side, price, size)
-        self.bridge.update_mkt_depth.emit(reqId, position, operation, side,
-                                          price, size, False)
-
-    def updateMktDepthL2(self, reqId: int, position: int, marketMaker: str,
-                         operation: int, side: int, price: float, size: int,
-                         isSmartDepth: bool):
-        # B2 (10.51.1): the decoder ALWAYS passes 8 positional args —
-        # isSmartDepth is False on old servers (see
-        # Decoder.processMarketDepthL2Msg). Kept in the signal payload:
-        # D37 uses it to disambiguate SMART-aggregated rows.
-        super().updateMktDepthL2(reqId, position, marketMaker, operation,
-                                 side, price, size, isSmartDepth)
-        self.bridge.update_mkt_depth.emit(reqId, position, operation, side,
-                                          price, size, isSmartDepth)
 
     def accountSummary(self, reqId: int, account: str, tag: str, value: str, currency: str):
         super().accountSummary(reqId, account, tag, value, currency)
