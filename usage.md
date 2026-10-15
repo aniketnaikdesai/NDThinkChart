@@ -163,10 +163,10 @@ Tables:
 ## Testing
 
 ```bash
-# Full suite (383 tests, ~6s)
+# Full suite -- run it for the current total (~25s offscreen)
 python -m pytest tests/ -v
 
-# Phase 10 core logic tests only (105 tests, ~0.2s)
+# Phase 10 core logic tests only (~0.2s)
 python -m pytest tests/test_indicator_service.py tests/test_gap_vix_service.py \
   tests/test_ict_service.py tests/test_alarm_service.py tests/test_bar_aggregator.py \
   tests/test_strategy_detection.py tests/test_order_builders.py tests/test_ui_smoke.py -v

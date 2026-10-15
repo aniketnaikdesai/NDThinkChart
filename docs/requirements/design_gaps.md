@@ -185,7 +185,19 @@
   file-ownership table, the Analyst records the requirement/ownership in `requirements.md`
   rather than editing the root doc; any residual owner action is a recorded dependency. DOC-3
   is covered by ESC-001 (BUILD).
-- **Status:** open — DOC-2 decided/owned (Analyst closes; Code Reviewer verifies); physical root-doc edit remains a recorded dependency
+- **Status:** **partially resolved 2026-10-14 — DOC-2 and DOC-3 resolved; DOC-1 re-drifted (owner).**
+- **DOC-2 — resolved.** `PENDING_IMPLEMENTATION_PLAN.md` now marks **all ten** phases `✅ COMPLETE`
+  (Phases 1–5 were added in commit **`fe5a63f`**; 6–10 already carried their markers).
+- **DOC-3 — resolved.** The source-less bytecode is gone: `tests/test_db_schema.py` was added in
+  commit **`952a083`**, so the previously orphaned `test_db_schema*.pyc` now has a matching source.
+  (Same workstream as ESC-001.)
+- **DOC-1 — re-drifted.** The counts were corrected "269" → "383" in `fe5a63f`, but the suite is now
+  **1028**, so any hard-coded total goes stale on the next batch. **Fix applied 2026-10-14:** the
+  *current-use* figure in `usage.md` no longer hard-codes a total (it points the reader at `pytest`),
+  and `PENDING_IMPLEMENTATION_PLAN.md` now states up front that its per-phase "N passed" figures are
+  **historical records of that phase's run**, not the current number. This ends the drift class.
+- **Residual:** none expected. The root docs remain outside the Analyst's file-ownership table, so a
+  future owner edit there is a recorded dependency rather than an agent action.
 
 ## DG15 — D14 double-click row to load chart — scope and no-ops
 - **Where it shows up:** D14 / AC-D14.1–D14.4 / Journey 15.

@@ -5,6 +5,9 @@ current state. It assumes the app already has the scaffold, IBKR client bridge,
 historical/realtime chart plumbing, study persistence, basic indicators, first-pass
 advanced study services, and basic alarm persistence.
 
+> **Note on test counts.** The per-phase "N passed" figures below are **historical records of the
+> verification run at that phase**, not the current total. Run `python -m pytest` for today's number.
+
 **Confirmed project decisions:**
 - Live TWS only, port 7496. **No paper mode.**
 - `positions` table will be added to the SQLite schema (Phase 6).
