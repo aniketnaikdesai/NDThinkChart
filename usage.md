@@ -216,6 +216,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 
 ## Support
 
-- Check `PENDING_IMPLEMENTATION_PLAN.md` for roadmap status
+- Check `docs/phase-changelog.md` for the phase-by-phase change record
+  (`PENDING_IMPLEMENTATION_PLAN.md`, the old Phases 1-10 roadmap, was deleted 2026-10-15)
 - Run `python -m pytest` to verify environment
 - TWS must be running before app launch

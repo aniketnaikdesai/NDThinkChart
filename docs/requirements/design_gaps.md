@@ -210,6 +210,8 @@
 - **Why it matters:** `usage.md:166` and `PENDING_IMPLEMENTATION_PLAN.md:364/:412/:458`
   state "269 tests" (measured: **339**); Phases 1–5 carry no completion marker though
   their files exist; a source-less `.pyc` remains. Stale docs mislead every later agent.
+  *(The `PENDING_IMPLEMENTATION_PLAN.md` half of this entry is now moot: the owner deleted
+  that file on 2026-10-15, after both corrections below had been applied.)*
 - **Suggested resolution:** DOC-1 correction is mechanical (use measured 339 / ~2.9s).
   DOC-2 ownership is decided (Q34, answered 2026-09-27): the **Requirements Analyst owns
   closing DOC-2** (mark Phases 1–5 `✅ COMPLETE`); **Code Reviewer verification** is the
@@ -218,16 +220,18 @@
   rather than editing the root doc; any residual owner action is a recorded dependency. DOC-3
   is covered by ESC-001 (BUILD).
 - **Status:** **partially resolved 2026-10-14 — DOC-2 and DOC-3 resolved; DOC-1 re-drifted (owner).**
-- **DOC-2 — resolved.** `PENDING_IMPLEMENTATION_PLAN.md` now marks **all ten** phases `✅ COMPLETE`
-  (Phases 1–5 were added in commit **`fe5a63f`**; 6–10 already carried their markers).
+- **DOC-2 — resolved.** `PENDING_IMPLEMENTATION_PLAN.md` marked **all ten** phases `✅ COMPLETE`
+  (Phases 1–5 were added in commit **`fe5a63f`**; 6–10 already carried their markers) —
+  verified before the file was deleted on 2026-10-15.
 - **DOC-3 — resolved.** The source-less bytecode is gone: `tests/test_db_schema.py` was added in
   commit **`952a083`**, so the previously orphaned `test_db_schema*.pyc` now has a matching source.
   (Same workstream as ESC-001.)
 - **DOC-1 — re-drifted.** The counts were corrected "269" → "383" in `fe5a63f`, but the suite is now
   **1028**, so any hard-coded total goes stale on the next batch. **Fix applied 2026-10-14:** the
   *current-use* figure in `usage.md` no longer hard-codes a total (it points the reader at `pytest`),
-  and `PENDING_IMPLEMENTATION_PLAN.md` now states up front that its per-phase "N passed" figures are
-  **historical records of that phase's run**, not the current number. This ends the drift class.
+  and `PENDING_IMPLEMENTATION_PLAN.md` stated up front that its per-phase "N passed" figures are
+  **historical records of that phase's run**, not the current number. This ended the drift class —
+  and the file itself was deleted on 2026-10-15, removing the last surface for it.
 - **Residual:** none expected. The root docs remain outside the Analyst's file-ownership table, so a
   future owner edit there is a recorded dependency rather than an agent action.
 

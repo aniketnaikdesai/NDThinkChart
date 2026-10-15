@@ -345,14 +345,15 @@
      (accept possible coincidence in extreme cases).
   4. **Hide labels at the exact price under the cursor** — show only the chip there.
 
-## Q34 — Docs owner: should Phases 1–5 of `PENDING_IMPLEMENTATION_PLAN.md` be marked `✅ COMPLETE`, and who confirms it?
+## Q34 — Docs owner: should Phases 1–5 of `PENDING_IMPLEMENTATION_PLAN.md` be marked `✅ COMPLETE`, and who confirms it? *(that file was deleted 2026-10-15; Q34 remains closed)*
 - **Status:** answered 2026-09-27
 - **Answer:** **Option 1 — mark Phases 1–5 `✅ COMPLETE`.** Ownership split: the
   **Requirements Analyst owns closing `DOC-2`** (the mark-complete correction) and
   **Code Reviewer verification is the confirming step** (it confirms the drift, then verifies
-  the correction was applied). Because `PENDING_IMPLEMENTATION_PLAN.md` is **not in the
-  Analyst's file-ownership table**, the Analyst records the requirement and this ownership
-  split in `requirements.md` (`DOC-2`) rather than editing that root doc. Any residual
+  the correction was applied). Because `PENDING_IMPLEMENTATION_PLAN.md` was **not in the
+  Analyst's file-ownership table**, the Analyst recorded the requirement and this ownership
+  split in `requirements.md` (`DOC-2`) rather than editing that root doc (the owner has
+  since deleted the file, 2026-10-15). Any residual
   user/owner action needed to physically apply the markers is a **recorded dependency**, not
   a blocking question. **Not blocking — closed.**
 - **Affected requirement section:** Documentation Maintenance Requirements (`DOC-2`); ESC-011.

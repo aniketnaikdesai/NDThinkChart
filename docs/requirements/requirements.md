@@ -59,9 +59,10 @@
 
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
-official `ibapi`, live TWS port 7496) built through Phases 1–10 of
-`PENDING_IMPLEMENTATION_PLAN.md`. It is now in a **feedback-driven stabilization
-phase**: the user reviewed the running app and reported functional issues and UI
+official `ibapi`, live TWS port 7496) built through Phases 1–10. (That roadmap,
+`PENDING_IMPLEMENTATION_PLAN.md`, was deleted by the owner on 2026-10-15;
+`docs/phase-changelog.md` is the surviving phase-by-phase record.) It is now in a
+**feedback-driven stabilization phase**: the user reviewed the running app and reported functional issues and UI
 bugs, which this run must triage and fix. Batch 1 (D1–D3) was the complete list
 for the first stabilization run and is clarified and built. Batch 2 (D4–D6) is now
 fully clarified from post-build UI feedback 2026-09-19 (zoom label size with
@@ -3115,8 +3116,8 @@ Chart; Q29 no-op semantics):**
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
-| A1 | This repo is the Python reimplementation of the React reference app | Consistent across `dev_docs/delta.md` and `PENDING_IMPLEMENTATION_PLAN.md` | n | 2026-09-19 |
-| A2 | Phases 1–10 of `PENDING_IMPLEMENTATION_PLAN.md` are effectively implemented | All referenced modules and tests exist on disk | n | 2026-09-19 |
+| A1 | This repo is the Python reimplementation of the React reference app | Consistent across `dev_docs/delta.md` and the since-deleted `PENDING_IMPLEMENTATION_PLAN.md` | n | 2026-09-19 |
+| A2 | Phases 1–10 are effectively implemented | All referenced modules and tests exist on disk (the roadmap that defined them was deleted 2026-10-15) | n | 2026-09-19 |
 | A3 | Defects are diagnosed against the dev build (`python main.py`), not the packaged `.app` | Dev build is the working target; bundle untested per-defect unless stated | n | 2026-09-19 |
 | A4 | "Test conditions pass" means the existing offscreen suite plus new per-defect checks | Q3 + Q8 confirmed + repo test conventions | y | 2026-09-19 |
 | A5 | D2 chip keeps current 2-decimal format, or matches axis tick precision if that differs | Decimals still unspecified; **placement since revised by Q33** (chip moved to the Y-axis lane, grey pill + white text) — see D2/A25. The original "option (a)" inside-plot right-alignment no longer applies | n | 2026-09-19 (placement revised 2026-09-27) |
@@ -3188,8 +3189,14 @@ Chart; Q29 no-op semantics):**
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
 > ESC-004 process gate. These are requirements on the *repository's own docs*, not on
 > shipped code; the Requirements Analyst records them here because the owning files
-> (`usage.md`, `PENDING_IMPLEMENTATION_PLAN.md`) are root-level docs the Analyst does
+> (`usage.md`, and formerly `PENDING_IMPLEMENTATION_PLAN.md`) are root-level docs the Analyst does
 > not edit.
+
+> **Update 2026-10-15 — `PENDING_IMPLEMENTATION_PLAN.md` was deleted by the owner.**
+> DOC-1's correction had been applied and DOC-2 was closed (all ten phases marked
+> `✅ COMPLETE`) *before* the deletion, so both are **satisfied and now moot** — the file
+> they governed no longer exists. DOC-3 (orphaned bytecode) was closed separately via
+> ESC-001. `docs/phase-changelog.md` is the surviving phase-by-phase record.
 
 - **DOC-1 (test count/timing accuracy, ESC-011):** `usage.md` and
   `PENDING_IMPLEMENTATION_PLAN.md` MUST NOT state a test count or runtime that
@@ -3197,7 +3204,8 @@ Chart; Q29 no-op semantics):**
   - **Measured 2026-09-27 at `09070e8`:** `QT_QPA_PLATFORM=offscreen python -m pytest
     tests/` → **339 passed in 2.87s**.
   - **Stale values to correct** (`[historical]` 2026-10-02 figures): `usage.md:166` "Full suite (269 tests, ~1.5s)";
-    `PENDING_IMPLEMENTATION_PLAN.md:364`, `:412`, `:458` "269 passed".
+    `PENDING_IMPLEMENTATION_PLAN.md:364`, `:412`, `:458` "269 passed" *(that file was deleted 2026-10-15;*
+    *`usage.md` now points the reader at `pytest` rather than a hard-coded total).*
   - **Recommended correction:** update each to **339 tests / ~2.9s** (or replace the
     hard-coded numbers with a pointer to the CI/build log so they cannot drift again).
 - **DOC-2 (phase completion markers, ESC-011):** `PENDING_IMPLEMENTATION_PLAN.md`
@@ -3216,6 +3224,9 @@ Chart; Q29 no-op semantics):**
     here rather than editing that root doc. If a user/owner action is still needed to
     physically apply the `✅ COMPLETE` markers, that is a **recorded dependency**, not a
     blocking open question (Q34 is answered; DOC-2 is Analyst-owned to close).
+  - **Resolution (2026-10-15):** the `✅ COMPLETE` markers were applied in commit `fe5a63f`
+    and verified; the owner has since **deleted `PENDING_IMPLEMENTATION_PLAN.md`**, so DOC-2
+    is satisfied and moot.
 - **DOC-3 (no orphaned build artifacts, ESC-011):** the source-less
   `tests/__pycache__/test_db_schema.cpython-311-*.pyc` must be removed and the
   corresponding `tests/test_db_schema.py` committed as source (tracked by **ESC-001**,
