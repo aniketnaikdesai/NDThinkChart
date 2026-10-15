@@ -58,10 +58,10 @@ Requirements before running
    Port: 7496
    Client ID: 1
 
-   Port 7496 is the default live TWS API port. If you want to use paper trading,
-   set the app to the paper trading port before launching:
-
-   IBKR_PORT=7497 .venv/bin/python main.py
+   Port 7496 is the default live TWS API port. The app refuses to start on any
+   other port (safety guard) — do NOT set IBKR_PORT=7497. For paper trading,
+   log into your paper (DU) account in TWS itself and keep the port at 7496;
+   the connection badge shows amber "Paper" for demo accounts.
 
 
 5. Market data permissions
@@ -76,3 +76,163 @@ Requirements before running
    The current implementation targets macOS with PyQt6 and pyqtgraph. If macOS
    blocks network/socket access on first launch, allow the Python process to
    connect to localhost/TWS.
+
+
+Trading & safety notes (Phases 1-2)
+-----------------------------------
+
+- Order ticket: choose Buy or Sell explicitly, then quantity and order type.
+  Every order is validated before it leaves the app (quantity > 0, sane
+  prices, per-order notional cap of $25,000). Rejected orders show the reason
+  in the ticket; nothing is sent to IBKR.
+- Bracket orders: the stop-loss and take-profit legs are placed on the
+  protective (opposite) side of the entry, and all three order IDs are
+  reserved up front so they can never collide with another order.
+- Kill switch: the red toolbar button cancels every open order (IBKR global
+  cancel plus each tracked order). It asks for no confirmation — it is a
+  panic control. The status bar reports how many orders were open and how
+  many cancels were sent.
+- Set Stop-Loss / Take-Profit dialog: saves your targets locally only. It
+  does NOT place orders — a position has no protective orders until you
+  place them yourself from the ticket.
+- Connection badge: derived from the verified port and your TWS account type.
+  Amber "Paper" means you are on a demo (DU) account.
+- Orders cannot be placed while disconnected. IBKR rejections and
+  cancellations appear in the ticket together with TWS's message.
+- Stream health: the toolbar indicator shows the realtime subscription state
+  (subscribed / awaiting first bar / live / failed). A failed subscription
+  retries with backoff (5s up to 60s).
+- Account data (positions, account summary) is subscribed on connect; the
+  panel shows "unavailable" when it is not subscribed.
+- Drawings: colour, label and group can be edited from the drawing settings;
+  edits persist across restarts.
+
+
+Pop-out charts (Phase 3)
+------------------------
+
+- Toolbar "Pop out" button (or Ctrl/Cmd+P) detaches the current ticker into a
+  slim standalone chart window. Up to 10 per ticker.
+- Pop-outs follow their ticker in real time: bars, studies, zones, lines and
+  alarms stay in sync with the main chart. There is only one IBKR market-data
+  subscription per symbol no matter how many windows show it.
+- The pop-out's timeframe, mode and extended-hours setting are frozen at the
+  moment you pop it out. Drawing, alarm placement and study changes are done
+  in the main chart only — pop-outs are read-only views (zoom, pan and
+  crosshair still work).
+- Header context menu: toggle always-on-top per window (off by default).
+- Pop-outs are restored after an app restart (positions and sizes kept).
+- Alarms are evaluated per ticker, so a ticker's alarm fires even while the
+  main chart shows a different symbol — including tickers with no visible
+  chart, which are monitored headlessly.
+
+
+Footprint charts (Phase D36)
+----------------------------
+
+- The chart toolbar has a footprint toggle. Footprint is OFF by default —
+  turn it on per chart when you want it (it uses IBKR historical-tick
+  requests, which are pacing-limited).
+- Display toggle: classic bid×ask bars drawn beside each candle, or
+  heatmap-shaded candles. In heatmap mode a metric selector chooses what the
+  shading shows: per-level volume (bid/ask volume, the same data as classic
+  mode) or per-level trade count. Classic mode always shows volume.
+- Works on intraday and daily timeframes. Completed bars are static; only the
+  forming bar updates as new ticks arrive.
+- Data comes from IBKR historical ticks (never live tick-by-tick). Backfill
+  is bounded and viewport-first: bars still loading show a "loading" state
+  and never block the chart. A symbol with no tick history shows a clear
+  "no tick data" state.
+- Footprint data is cached across restarts for SPX, SPY, QQQ, ES front-month
+  and NQ front-month only — these reopen with no new IBKR requests. All other
+  symbols re-fetch each session.
+- Index note: SPX and NDX have no tape of their own — SPX footprint comes
+  from the ES front-month tape (labelled as such), NDX from NQ front-month.
+  Cache keys follow the resolved futures contract, so a quarterly roll starts
+  a fresh cache automatically.
+
+
+Depth heatmap & auction chip (Phase D37)
+---------------------------------------
+
+- The chart shows a depth heatmap as a price-aligned strip at the right edge
+  of the chart (rows = price levels, columns = recent time, brightness =
+  size at that level). It needs a depth subscription (e.g. NASDAQ TotalView);
+  without one the panel shows "Depth subscription required" instead of an
+  empty heatmap, and the status bar shows the reason (Depth [354]: ...).
+- The headline label above the heatmap shows book imbalance over the top-5
+  price levels: (bid volume - ask volume) / (bid volume + ask volume).
+  Click the label to toggle between top-5 and top-10.
+- The auction chip in the chart header shows auction imbalance side, paired
+  shares and the indicative auction price. It highlights around the open
+  (9:25-9:35 ET) and close (15:55-16:05 ET) auctions. Click the chip to expand
+  a popover with the raw auction values. If there is no auction data, the
+  chip says so explicitly.
+- Depth feeds are limited (3-60 at a time, shared with the DOM). If the
+  budget is exceeded, a status-bar warning names the symbols that did not
+  get depth. Approaching the 100 market-data-line cap also warns by symbol;
+  nothing is ever silently dropped.
+
+Event markers & news digest (Phase D38)
+--------------------------------------
+- The chart shows event markers on the time axis for earnings (gold diamond
+  with E), dividends (green circle with D) and splits (blue triangle with
+  S). A countdown label ("Earnings in 3d") shows for the next upcoming event;
+  if there are no upcoming events the countdown is hidden.
+- Dividend data comes from IBKR first (free, live) and earnings/splits come
+  from yfinance (the app's only secondary data source). If neither source has
+  events for the symbol, the chart says so explicitly instead of showing
+  nothing.
+- The news digest is a dock you can move and close: open it from
+  View -> News Digest (Ctrl+Shift+N). It lists recent headlines for each
+  position you hold, grouped by holding; click a headline to read the
+  article. Opening it fetches the latest headlines, new ones arrive live
+  while it is open, and it re-checks every 15 minutes as a backstop.
+- If you have no API news subscription the digest says so plainly ("No API
+  news subscription" - most TWS news services are not available through the
+  API) instead of showing an empty list. If you hold no positions it says
+  "No holdings". Headlines for each holding are fetched one at a time so
+  opening the digest never floods the connection.
+
+Volume-burst alerts & symbol search (Phase D39)
+----------------------------------------------
+- The search box sits in the watchlist header. Type part of a ticker -
+  requests are sent at most about once every 300ms while you type, and up
+  to 16 matches come back as symbol, security type and exchange. Pick one
+  and its chart loads. While disconnected the box is disabled with a
+  message; no matches shows a clear empty state.
+- To create a volume-burst alarm, add an alarm of kind "volume_burst" on a
+  symbol. Each bar's volume is compared against the typical volume for
+  that time of day (a robust median/MAD baseline built from the last 30
+  bars of the same minute-of-day) and the alarm fires when the z-score
+  reaches your threshold (default 4.0; the lowest allowed setting is 1.0,
+  since anything lower fires on normal market noise).
+- The baseline needs 5 bars before it can evaluate; until then the alarm
+  shows "warming up (n/5)" and stays silent. Very quiet symbols (under
+  1.0 contracts/shares per minute) are never evaluated, so dust volume
+  cannot trigger an alert.
+- Forming bars are evaluated as they build and completed bars are
+  recorded; a fired burst behaves exactly like a price alarm (toast +
+  sound once, re-arm re-enables it, and it works for tickers with no
+  chart open).
+- Alarms on indices trade the proxy tape: a burst alarm on SPX watches ES
+  front-month volume, and the toast says so - "Volume burst on ES tape
+  (z=9.4)". The baseline resets automatically when a futures contract
+  rolls, so volume is never compared against the wrong contract month.
+
+TWS daily lifecycle (Phase D40)
+- You close TWS every night; the app handles the rest. When TWS goes away,
+  the connection badge shows "Monitoring paused — TWS disconnected" in
+  amber — never a green "connected". While paused, no alarm is evaluated
+  and nothing can fire: there is no data, so the app says so instead of
+  guessing.
+- In the morning, log into TWS as usual — no app restart needed. The app
+  detects TWS back, reconnects, resubscribes your symbols, and resumes
+  monitoring. The status bar reports the gap, e.g. "ES, NQ unmonitored
+  22:14–09:40", so you can see exactly what was not watched.
+- Resume never triggers alarms by itself: prices re-seed quietly, and an
+  alarm fires only if the live price then crosses its level. A move that
+  happened overnight while TWS was closed fires no alarm — that is by
+  design (check the gap report).
+- Brief drops during the day are different: they reconnect fast in the
+  background with no pause badge and no gap report.
