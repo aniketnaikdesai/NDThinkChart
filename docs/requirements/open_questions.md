@@ -828,7 +828,7 @@
 
 ## D23-Q1 (ESC-030) — can a `reqContractDetails` request be cancelled on the pinned ibapi, and does `AC-D22.2.3` need correcting?
 - **Status:** **resolved without a user question** (evidence-derived; the user approved the fix 2026-10-07). Not blocking.
-- **Resolution:** No — the pinned `ibapi` (**9.81.1.post1**) exposes **no** `EClient.cancelContractDetails`
+- **Resolution:** No — the pinned `ibapi` (**9.81.1.post1** at D23 report time; the pin is now `ibapi-latest==10.51.1`, and `hasattr(EClient, 'cancelContractDetails')` is still **False** as re-verified 2026-10-14) exposes **no** `EClient.cancelContractDetails`
   (`hasattr(EClient,'cancelContractDetails') is False`; only `reqContractDetails` exists), so on the real TWS path
   the current call raises an `AttributeError` that is silently swallowed and the cancel is a wire no-op. The
   method is also **not called by any production path** (`ContractLookupService.cancel`/`cancel_all` only drop the
@@ -860,6 +860,10 @@
 > APPROVED"** in `requirements.md` (Q41); **D36–D40 are as-built / Code-Reviewer APPROVED** and their acceptance
 > criteria are now defined (Q45). The items below were relayed to the owner and **all five are answered
 > (2026-10-14)** — `requirements.md` carries `Status: READY_FOR_PLAN`.
+>
+> **2026-10-14 (audit pass):** a requirements-vs-shipped-code audit found **no open question** that the code
+> has since settled — Q1–Q45 remain correctly statused. Drift found in that pass (pinned-`ibapi` version,
+> stale line references, D24/D25 backing-test mapping) is recorded in `design_gaps.md` DG54–DG58, not here.
 
 ## Q41 — Are Batches D24–D28 approved for Plan, or do they remain DRAFT?
 - **Status:** **answered 2026-10-14** — no longer blocking.

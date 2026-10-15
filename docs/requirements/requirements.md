@@ -31,7 +31,7 @@
 > (**ESC-030**, **ESC-031**) that the user **approved fixing** and asked to take through the full pipeline.
 > They are captured as batch **D23** (sub-defects **D23.1 = ESC-030**, **D23.2 = ESC-031**) and **do not reopen
 > D22** (D22 stays built; only the two implementation/task-level defects are corrected). **D23.1** corrects the
-> D22 requirement that the cancel call `client.cancelContractDetails`: the pinned `ibapi` (**9.81.1.post1**)
+> D22 requirement that the cancel call `client.cancelContractDetails`: the pinned `ibapi` (**9.81.1.post1** at D23 report time; the pin is **10.51.1** now, where the capability is still absent — see the Current Tech Stack, and the pin change itself is recorded in `phase-changelog.md` Phase D36 item 38a.0)
 > exposes **no** `EClient.cancelContractDetails` (verified in-repo: `hasattr(EClient,'cancelContractDetails') is
 > False`), so the required behaviour is a **capability-guarded, documented** cancel with `ContractLookupService`'s
 > local invalidation as the real safety net. This **supersedes the task-level `AC-D22.2.3`** wire-cancel mandate
@@ -229,7 +229,7 @@ B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
 - **D23 — Batch 17, D22 post-build quality corrections (NEW, 2026-10-07, CLARIFIED AND FINALISED
   2026-10-07):** two **nice-to-have** Code Reviewer findings on the just-built D22 work, approved by the user for
   correction. **(D23.1 = ESC-030)** `MarketDataManager.cancel_contract_details` calls
-  `self.client.cancelContractDetails(req_id)` inside `try/except`, but the pinned `ibapi` **9.81.1.post1** `EClient`
+  `self.client.cancelContractDetails(req_id)` inside `try/except`, but the pinned `ibapi` **9.81.1.post1** (the pin at D23 report time; **10.51.1** now) `EClient`
   has **no** `cancelContractDetails` (verified: `hasattr(EClient,'cancelContractDetails') is False`; only
   `reqContractDetails` exists), so on the real TWS path the call raises `AttributeError` that is silently swallowed
   → the cancel is a wire no-op. The fix is a **capability-guarded, documented** cancel (call the method only if
@@ -252,8 +252,9 @@ repository files, which remain authoritative if the two disagree.
 **Current Tech Stack:**
 - **Language/runtime:** Python 3.11+ (`.venv`), macOS Apple Silicon (arm64).
 - **UI:** PyQt6 (`PyQt6>=6.6`), pyqtgraph (`>=0.13`).
-- **Broker:** official `ibapi` (`>=9.81`), Interactive Brokers TWS, **live port 7496 only — no paper mode**.
+- **Broker:** official `ibapi` — pinned `ibapi-latest==10.51.1` (PyPI dist name; provides the `ibapi` module), Interactive Brokers TWS, **live port 7496 only — no paper mode**.
 - **Numerics:** numpy (`>=1.26`).
+- **Secondary data source (D38):** `yfinance==1.7.0` (pinned; the sole secondary source for corporate events/news — owner decision 2026-10-13; quarterly re-pin policy).
 - **Persistence:** SQLite. `config/paths.get_db_path()` always resolves to the user-space
   database `~/Library/Application Support/NDThinkChart/charting_app.sqlite3` (the filename
   can be overridden with the `DB_PATH` env var). A stale repo-root `./charting_app.sqlite3`
@@ -272,10 +273,10 @@ repository files, which remain authoritative if the two disagree.
 ### Observed from repository (confirmed, Q5)
 - **Language/runtime:** Python 3.11+ (`.venv`), macOS Apple Silicon (arm64).
 - **UI:** PyQt6 (`PyQt6>=6.6`), pyqtgraph (`>=0.13`) for charting.
-- **Broker:** official `ibapi` (`>=9.81`), Interactive Brokers TWS.
+- **Broker:** official `ibapi` — pinned `ibapi-latest==10.51.1` (provides the `ibapi` module), Interactive Brokers TWS.
 - **Numerics:** numpy (`>=1.26`).
-- **Persistence:** SQLite (dev: `./charting_app.sqlite3`; bundled:
-  `~/Library/Application Support/NDThinkChart/charting_app.sqlite3`).
+- **Secondary data source (D38):** `yfinance==1.7.0` (pinned; sole secondary source for corporate events/news).
+- **Persistence:** SQLite — always the user-space database returned by `config/paths.get_db_path()` (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`; filename overridable via the `DB_PATH` env var). `config/settings.py::DB_PATH` is **unused**, and the stale repo-root `./charting_app.sqlite3` is **not** the live path (see Current Tech Stack).
 - **Connectivity:** live TWS port **7496 only — no paper mode**.
 - **Packaging:** PyInstaller windowed `.app`, bundle id `com.ndthinkchart.app`.
 - **Tests:** pytest + pytest-qt, run offscreen (`QT_QPA_PLATFORM=offscreen`),
@@ -2037,7 +2038,7 @@ Chart; Q29 no-op semantics):**
   - `ui/main_window.py:100–211` builds `toolbar = QWidget()` with a `QHBoxLayout` of fixed-width controls
     (`symbol_input` 120, `tf_combo` 90, `mode_combo` 110, `sound_btn` 56, `ext_hours_btn` 80, `tz_combo` 110,
     `draw_combo` 110, `draw_set_combo` 140, `draw_delete_btn` 38, plus buttons/labels), giving it a
-    **`minimumSizeHint` of ~1716px**.
+    **`minimumSizeHint` of ~1716px** at D19 report time (2026-10-05). **Re-measured 2026-10-14:** the toolbar has since gained controls (pop-out / footprint / depth / symbol-search, etc.), so its intrinsic minimum is now **~1965px offscreen** (offscreen value; platform/font dependent) — the figure illustrates the pinning mechanism, it is not a current constant.
   - `ui/main_window.py:217–223` puts the toolbar **inside the central widget**:
     `central = QWidget(); vbox.addWidget(toolbar); vbox.addWidget(self.chart_panel); self.setCentralWidget(central)`.
     So the central widget's `minimumSizeHint` becomes ~1716px and `QMainWindow` refuses to shrink the central area
@@ -2094,8 +2095,7 @@ Chart; Q29 no-op semantics):**
   directly visible.)
   - **Superseded by D20 (2026-10-06, B7–B8 answered):** the `<= ~40px` laid-out-height bound is **relaxed to a new ~52px container bound** so the toolbar can fit a dedicated horizontal-scrollbar lane below the ~36px content row and its labels are no longer clipped — see `AC-D20.1`/`AC-D20.2` and the supersession note below. The D19 **reachability** intent (toolbar stays inside the central widget, single content row, controls reachable via scroll/elide) is preserved and is **not** superseded.
 - **AC-D19.5 (central widget can shrink)** Given the toolbar is visible, When the window is resized down toward the
-  feasible minimum, Then `centralWidget().width()` decreases accordingly and does not remain at the toolbar's
-  ~1716px minimum.
+  feasible minimum, Then `centralWidget().width()` decreases accordingly and does not remain pinned at the toolbar's intrinsic minimum width (~1716px at D19 report time; re-measured ~1965px offscreen on 2026-10-14 — see the note above).
 - **AC-D19.6 (test-masking regression guard — REQUIRED)** Given the D17 and D18 acceptance tests, When they run,
   Then they exercise a **toolbar-visible** window (or otherwise reproduce the toolbar's real minimum-width
   constraint), so this exact regression cannot recur. (Measurable: the harness no longer hides the toolbar to
@@ -2482,14 +2482,14 @@ Chart; Q29 no-op semantics):**
 > required** — the correct outcome is unambiguous from the source evidence (see the D23.1 correction record and A53).
 
 #### D23.1 — ESC-030: `cancel_contract_details` is a silently-swallowed `AttributeError` no-op on the pinned ibapi
-- **Area:** `ibkr/market_data.py::MarketDataManager.cancel_contract_details` (`:78–84`); the pinned `ibapi` `EClient`
+- **Area:** `ibkr/market_data.py::MarketDataManager.cancel_contract_details` (`:108` as of 2026-10-14; `:78–84` at D23 report time); the pinned `ibapi` `EClient`
   surface (`ibkr/client.py::IBApiClient`); `services/contract_lookup_service.py` (the real safety net);
   `tests/test_ibkr_contract_details_d22.py` (`_FakeClient`); task-level `AC-D22.2.3`; architecture `S3`.
 - **Status:** clarified and finalised 2026-10-07 — **quality fix** (nice-to-have). No D22 behaviour depends on the
   wire cancel.
 - **Observed (source-validated 2026-10-07; repo is authoritative):**
-  - `ibkr/market_data.py:78–84` calls `self.client.cancelContractDetails(req_id)` inside `try/except Exception: pass`.
-  - The pinned dependency is `ibapi` **9.81.1.post1**; verified in-repo: `hasattr(EClient, 'cancelContractDetails')
+  - At D23 report time `ibkr/market_data.py:78–84` called `self.client.cancelContractDetails(req_id)` inside `try/except Exception: pass`; the method now lives at `ibkr/market_data.py:108` and performs the capability-guarded cancel required below.
+  - The pinned dependency was `ibapi` **9.81.1.post1** at D23 report time and is `ibapi-latest==10.51.1` now (re-verified 2026-10-14); in both, `hasattr(EClient, 'cancelContractDetails')
     is False` while `hasattr(EClient, 'reqContractDetails') is True`. On the real TWS path the call therefore raises
     `AttributeError`, which is swallowed → the cancel is a **no-op on the wire**.
   - `tests/test_ibkr_contract_details_d22.py::_FakeClient` **defines** `cancelContractDetails` (`:127`), so the D22
@@ -2510,8 +2510,7 @@ Chart; Q29 no-op semantics):**
   - `cancel_contract_details(req_id)` MUST perform a **capability-guarded best-effort cancel**: resolve the client
     call via `getattr(self.client, 'cancelContractDetails', None)` and call it **only if present**; when absent (the
     pinned `ibapi`) it returns **without raising** and **without** a swallowed `AttributeError`.
-  - The pinned-`ibapi` absence MUST be **documented in code** (comment/docstring): (a) `ibapi 9.81.1.post1` exposes
-    no `EClient.cancelContractDetails`; (b) the wire-side `reqContractDetails` is ended by TWS's own
+  - The pinned-`ibapi` absence MUST be **documented in code** (comment/docstring): (a) the pinned `ibapi` (`9.81.1.post1` at D23 report time, `10.51.1` now) exposes no `EClient.cancelContractDetails`; (b) the wire-side `reqContractDetails` is ended by TWS's own
     `contractDetailsEnd`/error; (c) `ContractLookupService`'s local invalidation (bounded QTimer + `cancel_all` on
     disconnect) is the real safety net.
   - `req_id is None` remains a no-op (unchanged); a client whose capability-guarded cancel **is** present but
@@ -2630,7 +2629,7 @@ Chart; Q29 no-op semantics):**
     drawings/groups, alarms, IBKR realtime subscription, and history-wave lifecycle (req-id registry, watchdog,
     generation fencing — moved out of `MainWindow` unchanged in semantics). It emits Qt signals
     `bar_updated` (incremental tick) / `bars_refreshed` (full series replace) / `studies_changed` /
-    `drawings_changed` / `alarms_changed` / `alarm_triggered` (verified against `ui/ticker_session.py:65–73`).
+    `drawings_changed` / `alarms_changed` / `alarm_triggered` (verified against `ui/ticker_session.py:65–73`; that block now spans `:65–85` and has grown `stream_health_changed` / `footprint_updated` / `depth_state_changed` / `auction_updated` / `dividend_updated` / `events_updated`).
     `MainWindow` holds a `dict[symbol, TickerSession]` registry; views attach/detach; attaching performs an
     initial full sync (bars → studies → drawings → alarms) with **no** extra IBKR request when the session
     already holds the data. A session is destroyed when its last view detaches **and** it is not
@@ -2690,10 +2689,10 @@ Chart; Q29 no-op semantics):**
     study arrays are computed once per `(symbol, timeframe, studies-hash)`.
   - **AC-D24.5 (cap)** Given 10 pop-outs open, When an 11th is attempted, Then it is refused with a status-bar
     message and the pop-out action is disabled until a slot frees. **[VERIFIED 2026-10-14 — narrower:** the
-    shipped code refuses the 11th with a status-bar message (`ui/main_window.py:840–846`) but does **not**
+    shipped code refuses the 11th with a status-bar message (`ui/main_window.py:845–851` as of 2026-10-14; `:840–846` when verified) but does **not**
     `setEnabled(False)` the pop-out affordance; the "disabled" clause is not literally implemented.]**
   - **AC-D24.6 (read-only pop-outs)** Given a pop-out, When chart clicks/draw gestures are simulated, Then no
-    drawing, alarm-placement, study, timeframe, or mode affordance activates (router modes never arm).
+    drawing, alarm-placement, study, timeframe, or mode affordance activates (router modes never arm). *[VERIFICATION 2026-10-14: the shipped read-only test (`tests/test_d24_popouts.py::test_popout_readonly`) is labelled **AC-D24.3** (an AC-numbering mismatch) and only asserts `_editable is False` plus "no exception" — the "router modes never arm" clause is **not** asserted. `AC-D24.2` (drawing sync), `AC-D24.4` (study sync), `AC-D24.7` (reconnect) and `AC-D24.10` (always-on-top) have **no** backing test. See `design_gaps.md` DG58.]*
   - **AC-D24.7 (reconnect)** Given live sessions + pop-outs, When TWS drops and reconnects, Then all
     subscriptions replay (reqIds rebound to sessions) and every view resumes ticking with no manual reload
     (depends on D27/B-1.3 fix; assert with mocked client).
@@ -2764,14 +2763,14 @@ Chart; Q29 no-op semantics):**
     subscription exists for X; driving X's price through the alarm level fires toast + sound exactly once;
     `AlarmStore` shows triggered; deleting the alarm with no view open tears the session down (sub cancelled).
   - **AC-D25.2 (no historical requests)** Given headless monitoring starts for X, Then zero historical-data
-    requests are issued (assert on the request registry); `prev_price` seeds from the 1m cache when present.
+    requests are issued (assert on the request registry); `prev_price` seeds from the 1m cache when present. *[VERIFICATION 2026-10-14: the shipped `tests/test_d25_alarm_monitor.py` does **not** assert on the request registry — the zero-historical-request check is a comment only. See `design_gaps.md` DG57.]*
   - **AC-D25.3 (no phantom trigger)** Given monitoring starts while X's price is already beyond the alarm level,
     Then no trigger fires — only a genuine subsequent cross triggers (documented; no "catch-up" of stale
     crosses).
   - **AC-D25.4 (rearm + disconnect)** Given a triggered alarm is re-armed, Then X re-enters monitoring on the
     next reconcile; given an alarm is added while disconnected, Then X is monitored on the next connect
-    reconcile with no error and no silent drop.
-  - **AC-D25.5 (regression)** Given the feature, Then the pre-existing offscreen suite stays green.
+    reconcile with no error and no silent drop. *[VERIFICATION 2026-10-14: no shipped test covers the re-arm + disconnected-add case. See `design_gaps.md` DG57.]*
+  - **AC-D25.5 (regression)** Given the feature, Then the pre-existing offscreen suite stays green. *[VERIFICATION 2026-10-14: no dedicated test function exists (the batch regression convention applies, cf. AC-D39.5/AC-D40.5). The `tests/test_d25_alarm_monitor.py` docstrings label its five tests AC-D25.1–AC-D25.5 **in test order**, which does not match this numbering — see `design_gaps.md` DG57.]*
 - **Edge Cases:** alarm added while disconnected; price beyond level at monitor start (A62); re-armed alarm;
   triggered-then-deleted alarm (never re-monitored); monitored set exceeding the pacing budget (A63); symbol
   with a view open (view-backed evaluation, no duplicate); app quit with headless sessions (teardown like any
@@ -2937,7 +2936,7 @@ Chart; Q29 no-op semantics):**
   - **AC-D28.5** Given app close mid-backfill, Then teardown completes without touching cleared widgets and
     the reader thread joins within the timeout.
   - **AC-D28.6** Given the new tests, Then T-1..T-6 behaviours above are covered and the doc-assert/phantom
-    tests are gone; the suite is green.
+    tests are gone; the suite is green. *[VERIFICATION 2026-10-14: **satisfied as intended** — Phase 4 item 4d (commit `3363422`; `docs/phase-changelog.md:166`) deleted the three doc-text tests inside `tests/test_d23_nonregression.py` **and** the phantom `validate_sltp` test, deliberately keeping the file's behavioural guard/invariant checks (see the commit message). The only residue is `tests/test_d23_nonregression.py:61` `assert "9.81.1.post1" in src`, which pins the pre-D36 `ibapi` version literal and must move with DG54's docstring fix. See `design_gaps.md` DG61.]*
   - **AC-D28.7 (regression)** Given the fixes, Then the full offscreen suite is green; no D1–D23 criterion
     regresses.
 
@@ -3169,7 +3168,7 @@ Chart; Q29 no-op semantics):**
 | A50 | **D22 input normalisation:** trim + uppercase; reject empty/whitespace-only input; treat a case-insensitive duplicate as a no-op with a message (no duplicate row). **CONFIRMED** as the intended behaviour (non-blocking default, now recorded final). | Reasonable defaults that need no user decision; logged per the Quality Bar rather than silently baked in; no contrary user direction | y | 2026-10-07 |
 | A51 | **D22 scope — RESOLVED (B14, 2026-10-07):** scope is **add + remove**; **reordering is NOT in scope** (a future suggestion, FS10). | B14 answered by the user 2026-10-07 ("Add + remove") | y | 2026-10-07 |
 | A52 | **D22 empty-watchlist persistence (non-blocking default):** if the user removes **every** symbol, the watchlist stays **empty** across restarts — the `_restore_watchlist` seed-if-empty branch must **not** re-seed `DEFAULT_WATCHLIST` after an explicit removal (otherwise "remove" cannot empty the list). | The seed-if-empty behaviour exists today for a first run; D22's remove makes an explicitly-emptied list meaningful. Logged as a default rather than a blocking question because it is a corner case and the sensible outcome is clear; the user can override | n | 2026-10-07 |
-| A53 | **D23.1 — capability-guarded, documented cancel (ESC-030):** the pinned `ibapi` (`9.81.1.post1`) exposes **no** `EClient.cancelContractDetails`, so the required behaviour is a capability-guarded best-effort cancel plus an in-code note; the task-level `AC-D22.2.3` wire-cancel mandate is **superseded/corrected** and architecture `S3` is reconciled. The local invalidation (`ContractLookupService` bounded QTimer + `cancel_all`) is the safety net. | Repo-validated: `hasattr(EClient,'cancelContractDetails') is False` on the pinned dep; `ContractLookupService.cancel`/`cancel_all` already drop the pending entry + stop the timer; no production path calls `cancel_contract_details`. The user approved fixing ESC-030; capturing the guard as the requirement needs no blocking question | y (evidence-derived; user approved the fix 2026-10-07) | 2026-10-07 |
+| A53 | **D23.1 — capability-guarded, documented cancel (ESC-030):** the pinned `ibapi` (`9.81.1.post1` at D23 report time; `10.51.1` now — `hasattr` still **False**, re-verified 2026-10-14) exposes **no** `EClient.cancelContractDetails`, so the required behaviour is a capability-guarded best-effort cancel plus an in-code note; the task-level `AC-D22.2.3` wire-cancel mandate is **superseded/corrected** and architecture `S3` is reconciled. The local invalidation (`ContractLookupService` bounded QTimer + `cancel_all`) is the safety net. | Repo-validated: `hasattr(EClient,'cancelContractDetails') is False` on the pinned dep; `ContractLookupService.cancel`/`cancel_all` already drop the pending entry + stop the timer; no production path calls `cancel_contract_details`. The user approved fixing ESC-030; capturing the guard as the requirement needs no blocking question | y (evidence-derived; user approved the fix 2026-10-07) | 2026-10-07 |
 | A54 | **D23.1 — the wire cancel is dead code today:** `MarketDataManager.cancel_contract_details` is not called by any production path (only by its own D22 test). Making it capability-guarded + documented is a forward-correctness fix; it changes no D22 observable behaviour. | Source-validated 2026-10-07 (grep: only the definition + `tests/` references); `_on_disconnected` uses `ContractLookupService.cancel_all` | y (source-validated) | 2026-10-07 |
 | A55 | **D23.2 — only `_row_data` carries a stale row key after `remove_symbol`:** `_req_to_row` (removed row's reqIds popped first), `_prev_close`/`_last_price` (reqId-keyed) and `_flash_timers` (removed row stopped first) are already explicit; the stale-key branch is the **last-row** removal, where no later key overwrites the removed index. | Reproduced 2026-10-07: 3-row panel, `remove_symbol(last)` → `_row_data.keys() == [0,1,2]` while `rowCount()==2`; middle-row removal leaves `[0,1]` | y (reproduced) | 2026-10-07 |
 | A56 **[NEW v1.2]** | **D24 — pop-out timeframe/mode/extended-hours frozen at creation:** no per-pop-out switcher; the snapshot comes from the main chart at pop-out time. Studies stay per-symbol shared, so a study edit propagates to pop-outs even on different timeframes (the `(symbol, timeframe, studies-hash)` cache handles it). | User demanded "no tool bars" in pop-outs; a switcher would need chrome. Flagged as an open question in the v1.2 feature doc — frozen is the specified default | y (user-specified 2026-10-12) | 2026-10-12 |
@@ -3297,7 +3296,7 @@ Chart; Q29 no-op semantics):**
 
 **Status: READY_FOR_PLAN** — Batch 17 (**D23**, two D22 post-build quality corrections) was captured 2026-10-07
 and is **CLARIFIED AND FINALISED 2026-10-07**. **D23.1 (ESC-030)** requires the contract-details cancel to be
-**capability-guarded and documented** (the pinned `ibapi 9.81.1.post1` has no `EClient.cancelContractDetails`; the
+**capability-guarded and documented** (the pinned `ibapi` — `9.81.1.post1` at D23 report time, **10.51.1** now — has no `EClient.cancelContractDetails`; the
 local `ContractLookupService` invalidation is the safety net) and **supersedes/corrects the task-level
 `AC-D22.2.3`** wire-cancel mandate, reconciling architecture `S3`. **D23.2 (ESC-031)** requires
 `WatchlistPanel.remove_symbol` to leave **no stale row key** (`_row_data` keys exactly `range(rowCount())`) for
@@ -3345,6 +3344,18 @@ DG50), not missing content.
   A56–A67, DG46–DG52).
 - **FI-D24-4 / DG50** — resolved: the D29–D35 gap is recorded explicitly (above).
 - **FI-D24-5 / DG47** — resolved: D24–D28 re-statused as-built/APPROVED (Q41).
+
+**Requirements-vs-shipped-code audit (2026-10-14, advisory).** The acceptance criteria for D1–D40 were
+spot-checked against the shipped code on this checkout (`262ec81`, 1020 passed / 0 failed): the numeric and named
+facts (ports, caps, thresholds, timeframes, pinned dependencies), the D8 volume family, the D21 UI rules and the
+D24–D40 criteria were re-verified against source, and every gap was then re-checked against
+`docs/phase-changelog.md` (the as-built record of intent). Result: **in sync except for the items recorded as
+`design_gaps.md` DG54–DG62** — pinned-`ibapi` version figures (DG54, explained and dated by the changelog's D36
+item 38a.0), one stale DB-path bullet (DG55), drifted line citations (DG56), the D25 AC↔test mapping (DG57), D24
+test coverage/mislabelling (DG58), the D19/D20 toolbar geometry figures (DG59), a duplicate `DG14` id (DG60), the
+`AC-D28.6` doc-assert residue (DG61 — resolved-with-reference: the file was kept deliberately, only the version
+literal remains) and the changelog's own stale phase/branch statuses (DG62, reported not edited). The requirements-side figures are corrected in place;
+the test/code-side items are Build's to fix. **No new blocking question; no requirement was invented.**
 
 Status: READY_FOR_PLAN — D24–D40 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14;
 D36–D40 as-built/APPROVED with acceptance criteria now authored); D1–D23 unchanged.

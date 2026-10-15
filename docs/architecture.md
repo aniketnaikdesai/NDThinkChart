@@ -1,4 +1,4 @@
-# Architecture — NDThinkChart Stabilization (as-built D1–D15 + ESC revision + post-document rework ESC-013…ESC-021, verified 2026-09-28, 383 passed; increment D16 historical-bar gap backfill, validated 2026-10-02; ESC-023 trading-day calendar correction, validated 2026-10-02; increment D17 + D18 panel-layout / full-screen dock sizing, validated 2026-10-03 — as-built D1–D18 at commit `5bd7c93`, 566 passed; increment D19 toolbar scroll/elide wrapper, validated 2026-10-05; increment D20 toolbar scrollbar lane, validated 2026-10-06 — as-built D1–D19 at commit `4d8952a`; increment D21 (Batch 15) UI repairs, validated 2026-10-06 — as-built D1–D20 at commit `04397d9`; increment D22 in-app watchlist "Add symbol" / "Remove symbol" affordance, validated 2026-10-07 — as-built D1–D21 at commit `286341e`, 673 passed; increment D23 (Batch 17) two D22 post-build quality corrections, validated 2026-10-07 — as-built D1–D23 at commit `031ea99` (D22 baseline 712 passed); Phase 1 (D26) order-path safety as-built 2026-10-12 — merged to `main` at `5d4daf4` (review APPROVED), 779 passed; Phase 2 (D27) correctness sweep as-built 2026-10-12 — `d27-correctness` at `69a2313` (re-review PASSED), 819 passed; Phase 3 (3a pacing off the GUI thread + 3b `TickerSession` keystone + 3c pop-outs/D24.9 + 3d headless alarm monitor) as-built 2026-10-12 — `ba28c08`, 855 passed; Phase 4 (4a rolling 600 s historical pacing + 4b D28.4 render split/study-cache/bisection/retention + 4c explicit teardown + 4d test hardening) as-built 2026-10-13 — `3d12821`, 898 passed; D36 footprint charts as-built 2026-10-13 — `89fe152` (merged at `efffc51`), 927 passed, Code Reviewer APPROVED; D37 microstructure as-built 2026-10-13 — merged to `main` @ `9958891`, 947 passed, APPROVED; D38 events & news as-built 2026-10-13 — merged to `main` @ `8599ce4`, 970 passed, APPROVED; D39 burst alerts + symbol search as-built 2026-10-13 — merged to `main` @ `83f792a`, 1009 passed, APPROVED; D40 TWS daily-lifecycle pause/resume as-built 2026-10-13 — merged to `main` @ `b366b19`, CHANGES REQUIRED → rework → APPROVED, 1020 passed. **All of D1–D40 are built and merged to `main`; as-built at commit `b366b19` (= `origin/main`).** **Owner decisions 2026-10-14 (Q41–Q45):** D24–D28 are **approved as-built** (the former "DRAFT, owner review required" markers are cleared); the per-run **"gated in TWS" planning gate is retired** (Q42/DEC-4) so D26 is planned against the live-order path with the retained safety behaviour unchanged; pop-out always-on-top defaults **OFF** (`AC-D24.10`/A66, Q43); the D37 depth heatmap defaults **ON** (A67, Q44); and the D36–D40 acceptance criteria are now **authored** in `requirements.md` (Q45/DG46). **Suite figure (verified 2026-10-14 on this checkout):** 1,020 collected, **1,016 passed / 4 failed** — the 4 are the pre-existing offscreen D19/D20 **toolbar-geometry** tests (`tests/test_toolbar_d20.py::test_T62_T02/T04/T05`, `tests/test_toolbar_scroll_d19.py::test_T53_T02`), unrelated to D24–D40; they are **open, not silently green** (see the Suite-figure provenance note in the Codebase Summary).
+# Architecture — NDThinkChart Stabilization (as-built D1–D15 + ESC revision + post-document rework ESC-013…ESC-021, verified 2026-09-28, 383 passed; increment D16 historical-bar gap backfill, validated 2026-10-02; ESC-023 trading-day calendar correction, validated 2026-10-02; increment D17 + D18 panel-layout / full-screen dock sizing, validated 2026-10-03 — as-built D1–D18 at commit `5bd7c93`, 566 passed; increment D19 toolbar scroll/elide wrapper, validated 2026-10-05; increment D20 toolbar scrollbar lane, validated 2026-10-06 — as-built D1–D19 at commit `4d8952a`; increment D21 (Batch 15) UI repairs, validated 2026-10-06 — as-built D1–D20 at commit `04397d9`; increment D22 in-app watchlist "Add symbol" / "Remove symbol" affordance, validated 2026-10-07 — as-built D1–D21 at commit `286341e`, 673 passed; increment D23 (Batch 17) two D22 post-build quality corrections, validated 2026-10-07 — as-built D1–D23 at commit `031ea99` (D22 baseline 712 passed); Phase 1 (D26) order-path safety as-built 2026-10-12 — merged to `main` at `5d4daf4` (review APPROVED), 779 passed; Phase 2 (D27) correctness sweep as-built 2026-10-12 — `d27-correctness` at `69a2313` (re-review PASSED), 819 passed; Phase 3 (3a pacing off the GUI thread + 3b `TickerSession` keystone + 3c pop-outs/D24.9 + 3d headless alarm monitor) as-built 2026-10-12 — `ba28c08`, 855 passed; Phase 4 (4a rolling 600 s historical pacing + 4b D28.4 render split/study-cache/bisection/retention + 4c explicit teardown + 4d test hardening) as-built 2026-10-13 — `3d12821`, 898 passed; D36 footprint charts as-built 2026-10-13 — `89fe152` (merged at `efffc51`), 927 passed, Code Reviewer APPROVED; D37 microstructure as-built 2026-10-13 — merged to `main` @ `9958891`, 947 passed, APPROVED; D38 events & news as-built 2026-10-13 — merged to `main` @ `8599ce4`, 970 passed, APPROVED; D39 burst alerts + symbol search as-built 2026-10-13 — merged to `main` @ `83f792a`, 1009 passed, APPROVED; D40 TWS daily-lifecycle pause/resume as-built 2026-10-13 — merged to `main` @ `b366b19`, CHANGES REQUIRED → rework → APPROVED, 1020 passed. **All of D1–D40 are built and merged to `main`; as-built at commit `b366b19` (the D40 merge; `origin/main` is now `262ec81`, after `7566860` → `99fb8fa` → `262ec81`).** **Owner decisions 2026-10-14 (Q41–Q45):** D24–D28 are **approved as-built** (the former "DRAFT, owner review required" markers are cleared); the per-run **"gated in TWS" planning gate is retired** (Q42/DEC-4) so D26 is planned against the live-order path with the retained safety behaviour unchanged; pop-out always-on-top defaults **OFF** (`AC-D24.10`/A66, Q43); the D37 depth heatmap defaults **ON** (A67, Q44); and the D36–D40 acceptance criteria are now **authored** in `requirements.md` (Q45/DG46). **Suite figure (re-verified 2026-10-14 on this checkout):** 1,020 collected, **1,020 passed / 0 failed**. The four offscreen D19/D20 toolbar-geometry assertions that previously failed were fixed by `99fb8fa` (the theme font is now declared inside the `#MainToolbar` rule and the D19/D20 `_WIDE_SIZE` fixture is 2,400 → 2,600px); they are **no longer open** (see the Suite-figure provenance note in the Codebase Summary).
 
 ## Summary
 An **as-built** description of a stabilization change-set against an existing
@@ -36,6 +36,22 @@ defaults OFF** (`AC-D24.10`/A66, Q43 — matches `ui/popout_window.py:56`), the 
 heatmap **defaults ON** (A67, Q44 — matches `ui/chart_panel.py:368`/`:370`), and the
 D36–D40 acceptance criteria **now exist** (Q45, resolving DG46 — see the AC citations in
 the D36–D40 increment sections below).
+
+**Line-citation currency (2026-10-14).** Every *symbol, module path, constant and behaviour*
+cited in this document was re-verified against the current source (the repository is
+authoritative). Line numbers are a separate matter: the **historical** increment sections
+(D16–D23, and D17–D21 in particular) cite `ui/main_window.py`, `ui/watchlist_panel.py` and
+`ibkr/market_data.py` at the line numbers those files had when the increment was validated,
+and all three have grown since (the D22–D40 work, plus the `99fb8fa` toolbar-font commit,
+which alone shifted every `ui/main_window.py` reference after ~`:190` by +5). Examples that no
+longer resolve: `ui/main_window.py:100–211` / `:213–223` / `:223–234` / `:236–242` (the D19/D20
+toolbar and central composition; the toolbar now spans ~`:185–345`), `ui/main_window.py:290`
+(`conn_badge`, now `:295`) and `:840–846` (the pop-out cap refusal, now `:845–851` — both
+corrected in the D24 sections below), `ui/watchlist_panel.py:682–728` / `:716–719` (the D23
+`remove_symbol`, now `:841–897` with the D23 `_row_data.pop` fix at `:884`), and
+`ibkr/market_data.py:78–84` (`cancel_contract_details`, now `:108`). The symbol named is the
+contract; treat a historical line number as indicative. The **D24–D40** sections carry current
+line numbers.
 
 **Revision lineage:** the validated 2026-09-27 revision added (1) an explicit
 `RouterMode` state machine for gesture precedence (**ESC-002**,
@@ -113,19 +129,20 @@ re-planned.
 >
 > **Suite-figure provenance (D1–D40).** The header lineage records the *recorded green*
 > offscreen-suite count at each landing commit (`383 → 566 → 673 → 712 → 779 → 819 → 855 →
-> 898 → 927 → 947 → 970 → 1009 →` **`1,020`**). **1,020 tests** was the last recorded green
-> figure, at `b366b19` (the D40 as-built record on
-> `origin/docs/d24-d28-requirements-architecture`). **Re-verified on this checkout
-> 2026-10-14, after the repo `.venv` rebuild (now on the pinned `ibapi-latest==10.51.1`):**
-> `pytest tests/` **collects 1,020** and the run is **1,016 passed / 4 failed**. The four
-> failures are the **pre-existing offscreen toolbar-geometry** assertions —
-> `tests/test_toolbar_d20.py::test_T62_T02_labels_legible_scrollbar_hidden`,
+> 898 → 927 → 947 → 970 → 1009 →` **`1,020`**). **Re-verified on this checkout 2026-10-14**
+> (repo `.venv` on the pinned `ibapi-latest==10.51.1`):
+> `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` →
+> **1,020 passed / 0 failed** (`pytest tests/` collects 1,020). The previous note recorded
+> **1,016 passed / 4 failed** — four offscreen toolbar-geometry assertions
+> (`tests/test_toolbar_d20.py::test_T62_T02_labels_legible_scrollbar_hidden`,
 > `::test_T62_T04_scrollbar_as_needed_in_lane`, `::test_T62_T05_d19_reachability_preserved`
-> and `tests/test_toolbar_scroll_d19.py::test_T53_T02_controls_reachable_via_scroll`
-> (they assert viewport-vs-toolbar width under the offscreen platform; e.g. 1950 >= 1965).
-> They touch the D19/D20 toolbar wrapper only and are **unrelated to D24–D40**; they are
-> **open, not silently green** — a pre-existing D19/D20 platform-metric tolerance issue, not
-> a regression from this work.
+> and `tests/test_toolbar_scroll_d19.py::test_T53_T02_controls_reachable_via_scroll`, which
+> assert viewport-vs-toolbar width under the offscreen platform; e.g. 1950 >= 1965) whose
+> "everything visible at the wide size" premise the 2,400px fixture no longer satisfied.
+> **`99fb8fa` fixed all four** — it declares the theme font inside the `#MainToolbar` rule and
+> raises the fixture's `_WIDE_SIZE` to 2,600px. They are **no longer open**; the suite is
+> green. (The changelog agrees with the corrected figure: `docs/phase-changelog.md`, Phase D40,
+> "Tests: 1020 passing, 0 failing (offscreen)".)
 >
 > **Pinned-`ibapi` note (version-neutral).** The D23 capability guard remains **required on
 > the current pin**: `EClient.cancelContractDetails` is absent both on the
@@ -226,7 +243,10 @@ rationale lives in the D36–D40 Tech-Stack subsections further down.
 | **`[existing]` UI / numerics stack (unchanged)** | Python 3.11+, PyQt6, pyqtgraph, numpy, SQLite | Stabilization/extension run on the existing stack — changing it is a stated non-goal | New charting library or embedded web view |
 
 **Pinned-`ibapi` capability facts the code depends on** (all worked around in-tree, never
-assumed away):
+assumed away; the 10.51.01 API-surface research behind them — confidence-tagged as
+`verified live` / `client-verified` / `mirror` — is recorded in
+`docs/ibkr-api-data-inventory.md`, and each fact below was independently re-verified against
+the installed wheel):
 
 - **No `EClient.cancelContractDetails`** — not exposed by the pinned API surface, on
   `9.81.1.post1` **or** on the current `ibapi-latest==10.51.1` pin (re-verified 2026-10-14);
@@ -480,11 +500,22 @@ value types in `services/backfill_service.py` (`MissingSpan {start_ts, end_ts}`,
 `_backfill_missing_spans`, `_backfill_failed_req_ids`); the existing `_pending_bars`
 retains its role, now shared across the chunk set.
 
-*As-built note:* `data/db.py` defines `_init_schema` **once** (`data/db.py:14–111`;
-the file is 154 lines), followed by `_migrate_schema` (`:113–121`) and
-`_table_columns` (`:118`). T26/ESC-001 removed the former shadowed second definition;
-`tests/test_db_schema.py` guards the single-definition/schema contract. The previously
-flagged latent hygiene debt (audit `D-6`) is **resolved** — no behaviour change.
+**Additive tables (D24–D39).** On top of the set above, later increments add four tables —
+`popouts` (D24.9), `footprint_cache` (D36), `yfinance_events_cache` (D38), `volume_baseline`
+(D39) — plus `alarms.kind`/`alarms.params` (D39) and the `positions(symbol, con_id)` unique
+index (D27.5). Each is described in its own increment section and recorded in
+`docs/phase-changelog.md` (Phase 3 — D24.9; Phase D36 item 36.4; Phase D38 item 38b.1;
+Phase D39 item 39.2); none alters an existing table's columns.
+
+*As-built note (line numbers refreshed 2026-10-14):* `data/db.py` defines `_init_schema`
+**once** (`data/db.py:14–157`; the file is 258 lines), followed by `_migrate_schema`
+(`:159–179`) and `_table_columns` (`:181`). T26/ESC-001 removed the former shadowed second
+definition; `tests/test_db_schema.py` guards the single-definition/schema contract. The schema
+has since grown **additively** (still inside that single `_init_schema` / `_migrate_schema`
+pair): the D24/D36/D38/D39 tables `popouts`, `footprint_cache`, `yfinance_events_cache` and
+`volume_baseline`, plus the D27 `positions(symbol, con_id)` unique index and the D39
+`alarms.kind` / `alarms.params` columns. The previously flagged latent hygiene debt
+(audit `D-6`) is **resolved** — no behaviour change.
 
 ## Integration Points
 - **IBKR historical / RT data** — no new calls. D13/D14 reuse the existing
@@ -624,7 +655,7 @@ architectural decision changed**. Full offscreen suite: **383 passed**.
 | Router and `ChartPanel` both writing mode state (drift) | M | Router is the single writer of `_active_mode`; `ChartPanel` methods are adapters; `test_router_mode_is_mutually_exclusive` |
 | `chart_panel.py` touched by R1/R2/Phase 1/Phase 3 → serial build chain | L (schedule) | `touches_files` populated per the constraint above; Lead serializes overlapping waves |
 | DST / UTC-vs-ET band misplacement | M | `ZoneInfo` boundaries plus DST tests |
-| `data/db.py` duplicate `_init_schema` (latent hygiene debt) | — **resolved** | T26/ESC-001 deduplicated it: `_init_schema` is defined once (`data/db.py:14–111`), guarded by `tests/test_db_schema.py` (audit `D-6`) |
+| `data/db.py` duplicate `_init_schema` (latent hygiene debt) | — **resolved** | T26/ESC-001 deduplicated it: `_init_schema` is defined once (`data/db.py:14–157`), guarded by `tests/test_db_schema.py` (audit `D-6`) |
 | Drawing `InfiniteLine` use-after-free during drag (fixed 2026-09-19) | L (was H) | In-place mutation + defensive `scene.dragItem` clear; 26 drawing tests; suite green |
 | `fibonacci` rebuild on level-count change still calls `_restore_drawing_style` mid-drag | L | Guarded by defensive `dragItem` clear; rebuild only when count changes |
 | D16 holiday calendar drifts for future years | M | Holidays computed **by rule** (nth-weekday/fixed-date/Good Friday), not a fixed list; `tests/test_market_calendar.py` pins known holidays incl. Good Friday, Juneteenth, observed-day shifts |
@@ -2546,7 +2577,7 @@ Data flow per pop-out: `registry.get_or_create(symbol)` → build `ChartPanel(ed
 → set symbol/timeframe/mode/ext-hours → `session.attach_view(view)` (initial full sync) →
 show. Cap: `MAX_POPOUTS = 10` (`config/settings.py:42`); at the cap the 11th pop-out is
 **refused with a status-bar message** ("Pop-out limit reached (10). Close one to open
-another." — `ui/main_window.py:840–846`). **Verified against the shipped code (2026-10-14,
+another." — `ui/main_window.py:845–851`). **Verified against the shipped code (2026-10-14,
 DG53):** the affordance is **not** `setEnabled(False)`-ed — the requirement's earlier
 "disabled at the cap" wording is narrower than the code, and the as-built behaviour is the
 status-bar refusal. Closing a pop-out
@@ -2555,7 +2586,7 @@ subscription (A62); main chart may show the same ticker (primary view joins the 
 **Opened while disconnected:** cached bars render immediately from the session cache and the
 subscription starts on connect via the existing reconnect path — there is **no per-pop-out
 "connecting" indicator** (the only connecting affordance is the main window's `conn_badge`,
-`ui/main_window.py:290`); a per-window indicator would be a new request. **Always-on-top:**
+`ui/main_window.py:295`); a per-window indicator would be a new request. **Always-on-top:**
 pop-outs are standard windows by default (`ui/popout_window.py:56`
 `self._always_on_top = False`); the user may enable it per window via the header context
 menu ("Always on top"), which applies `Qt.WindowStaysOnTopHint` at runtime
@@ -2569,7 +2600,7 @@ symbol's views; no per-view polling timers.
 **AC-D24.9 — pop-out restore across restarts (as-built; owner-confirmed 2026-10-12; reconciled 2026-10-14).**
 Narrow amendment to the D24 "no DB schema changes" constraint: one **additive**
 `popouts` table only — `(symbol TEXT, timeframe TEXT, mode TEXT, ext_hours INTEGER,
-geometry BLOB, updated_at INTEGER)` — no changes to existing tables (consistent with
+geometry TEXT, updated_at INTEGER)` — no changes to existing tables (consistent with
 the repo's additive-migration precedent; `schema_version` tracking per m-5 if this
 is the first structural migration). Write path: `MainWindow` (or the session
 registry owner) upserts the pop-out row on open, close, and geometry change
@@ -2643,7 +2674,7 @@ overflow → most-recently-active first + status-bar warning naming the unmonito
 | Positions/account | **[P1/P2 2026-10-12]** D27.5/D27.6: central `_symbol_last_prices` map fed by chart bars + watchlist ticks; positions use their own symbol's price, 0.0 = honest unknown (no fabricated P&L); `reqPositions` + `reqAccountSummary` issued on connect, with an "unavailable" panel state on disconnect; `positions` table gained `CREATE UNIQUE INDEX IF NOT EXISTS (symbol, con_id)` via additive `_migrate_schema`. | `symbol → last_price` map; subscribe on connect; "unavailable" state | D27.5, D27.6 |
 | Teardown | **[P4 2026-10-13]** (4c) `_closing` flag — all four IBKR slots early-return. Explicit `closeEvent` order: persist prefs (watchlist dock width, re-clamped) → cancel in-flight contract lookups → disarm retry timers (`_rt_retry_timer`; per-session teardown cancels RT + wave, disarms the watchdog, stops the wave-continue timer, advances generation) → cancel depth + all RT subscriptions → `disconnect()` → join the `ibkr-reader` thread with a 5s timeout (`READER_JOIN_TIMEOUT_S`, close never hangs on a wedged socket read) → clear UI. `closeEvent` idempotent (second close is a no-op). Pop-outs are Qt children destroyed with the parent. | **[NOW AS-BUILT]** `_closing` flag; explicit order; thread joined with timeout | D28.5 |
 | Drawings | **[P1/P2 2026-10-12]** D27.10: `DrawingStore.update_drawing` persists colour/label/group_id (`None` = unchanged, never clobbered); the `updated` signal carries `(id, payload, color)` from all emitters; colour edits survive reload. **[P3 2026-10-12]** Single-writer invariant now enforced: main chart is the sole writer of drawings/alarms/studies; pop-outs render overlays read-only — `ChartPanel(editable=False)` gates drag/click/menu/Delete at the overlay level (`AlarmOverlay`/`DrawingOverlay` `editable` flag; fix `8ef0342` also closed a `DrawingOverlay` drag/settings hole the review missed). Drawings/groups live in the session; `drawings_changed` fans out to views. | **[NOW AS-BUILT]** Colour/label/group persisted; single-writer invariant enforced (A64) | D27.10, D24 |
-| Pop-out windows | — (did not exist) | **[NOW AS-BUILT]** `ui/popout_window.py::PopoutChartWindow` (28px header `SYMBOL · timeframe · mode` + close, `ChartPanel(editable=False)`); timeframe/mode/ext-hours frozen at creation; `MAX_POPOUTS = 10` (`config/settings.py:42`), the 11th is **refused with a status-bar message** (`ui/main_window.py:840–846` — the affordance is *not* `setEnabled(False)`-ed); toolbar "Pop out" action + `Ctrl/Cmd+P`; opened while disconnected → cached bars render and the subscription starts on connect, with **no per-pop-out "connecting" indicator** (main window `conn_badge` only); always-on-top default off with per-window toggle (header context menu) — `AC-D24.10`/A66, owner-confirmed 2026-10-14 | D24, AC-D24.5, AC-D24.10 |
+| Pop-out windows | — (did not exist) | **[NOW AS-BUILT]** `ui/popout_window.py::PopoutChartWindow` (28px header `SYMBOL · timeframe · mode` + close, `ChartPanel(editable=False)`); timeframe/mode/ext-hours frozen at creation; `MAX_POPOUTS = 10` (`config/settings.py:42`), the 11th is **refused with a status-bar message** (`ui/main_window.py:845–851` — the affordance is *not* `setEnabled(False)`-ed); toolbar "Pop out" action + `Ctrl/Cmd+P`; opened while disconnected → cached bars render and the subscription starts on connect, with **no per-pop-out "connecting" indicator** (main window `conn_badge` only); always-on-top default off with per-window toggle (header context menu) — `AC-D24.10`/A66, owner-confirmed 2026-10-14 | D24, AC-D24.5, AC-D24.10 |
 | Pop-out persistence | Pop-outs are session-only (D24 as drafted) | **[NOW AS-BUILT]** Additive `popouts` table + `data/popout_store.py`; upsert on open/close and on 500ms-debounced move/resize end; lazy cache-first restore after connect, with dedup against already-open pop-outs on reconnect (`282aae5`); unresolvable symbols skipped with a non-blocking note | D24 / AC-D24.9 |
 | Headless alarm monitor | — (did not exist) | **[NOW AS-BUILT]** `services/alarm_monitor.py::AlarmMonitor` (owned by `MainWindow`, wired to the session registry) + `AlarmStore.symbols_with_active_alarms()` (`SELECT DISTINCT symbol FROM alarms WHERE active=1 AND triggered=0`); headless sessions are ordinary `TickerSession`s (`views == 0`, `monitored == True`) with one 5-sec RT subscription, `BarAggregator("1m")`, per-push evaluation; `prev_price` seeded from the 1m cache else first-tick-no-eval (no phantom trigger); **zero history requests**; singleShot retry on pacing exhaustion; detach→headless promotion via `on_session_detached` (a duplicate `detach_view` def that shadowed the notify path was removed, `8383d49`) | D25 |
 | Test hardening | **[P4 2026-10-13]** (4d) T-1: alarm E2E assertions verified-not-duplicated (the four assertions live in `test_d24_alarm_full_chain.py` — no second alarm-chain test). T-2: close-path contract reconstruction for stock/option/future with correct IBKR secType vocabulary (`OPT`/`FUT`, not `OPTION`/`FUTURE`) — `ui/main_window.py` close-order path fixed to emit them. T-4: `DrawingStore` → overlay round-trip per drawing kind. T-5: `IdManager` behavioural + concurrency tests. Deleted 3 doc-asserting tests + the phantom `validate_sltp` helper; autouse `_isolate_test_db` fixture makes every test DB-hermetic. Open, not as-built: `contract.class_` is never populated (`_on_position_update` always stores `"stock"` — option/future close unreachable via the real position path; fix = derive from `contract.secType`, own commit). | **[NOW AS-BUILT]** Close-path contracts (OPT/FUT); drawing round-trip; id_manager tests; doc-asserting/phantom tests removed; DB hermeticity | D28.6 |
@@ -2681,8 +2712,11 @@ The D36 code lives in four new modules plus additive changes to existing ones:
 - **New `[new]`** `data/footprint_cache.py` — SQLite cache (additive `footprint_cache` table in
   `data/db.py`), one compressed JSON blob per (resolved contract, date, timeframe).
 - **New `[new]`** `ui/footprint_item.py` — pyqtgraph render item (classic bars + heatmap shading).
-- **`[new/changed]`** `ibkr/bridge.py` (+3 signals), **`[new/changed]`** `ibkr/client.py` (3 overrides +
-  10.51.1 signature fixes), **`[new/changed]`** `ibkr/contracts.py` (`INDEX_PROXY`,
+- **`[new/changed]`** `ibkr/bridge.py` (+2 signals: `historical_ticks_bid_ask` /
+  `historical_ticks_last`), **`[new/changed]`** `ibkr/client.py` (2 overrides:
+  `historicalTicksBidAsk` / `historicalTicksLast` + 10.51.1 signature fixes — the planned
+  histogram override was removed with the histogram path, see “Histogram removal” below),
+  **`[new/changed]`** `ibkr/contracts.py` (`INDEX_PROXY`,
   `resolve_footprint_contract`, `footprint_cache_key`), **`[new/changed]`**
   `ui/ticker_session.py` (service ownership, wave pump, forming timer, disconnect/reconnect hooks),
   **`[new/changed]`** `ui/chart_panel.py` (toggle wiring, throttled viewport sync),
@@ -2700,7 +2734,12 @@ The D36 code lives in four new modules plus additive changes to existing ones:
   installed wheel, not just the plan-named ones.
 - **Histogram removal:** `reqHistogramData(tickerId, contract, useRTH, timePeriod)` takes **no date
   parameter** — per-bar histograms are impossible. The planned histogram path was removed from code
-  and docs; tick-count metric derives from the same TRADES tick pages as volume.
+  and docs; tick-count metric derives from the same TRADES tick pages as volume. This is the
+  owner-confirmed as-built deviation recorded in `docs/phase-changelog.md` (Phase D36 — Decisions:
+  "the planned histogram path was REMOVED from code and docs … one dataset, two metrics, zero new
+  requests"; and its review finding A1, "dead histogram plumbing removed"). It is also why this
+  increment's bridge/client surface is **2 signals + 2 overrides**, not the 3 + 3 the pre-removal
+  plan (and the changelog's own 36.1 row) stated.
 
 ### System Components (D36 increment)
 
@@ -2739,8 +2778,10 @@ The D36 code lives in four new modules plus additive changes to existing ones:
 
 - Additive `footprint_cache(resolved_contract TEXT, date TEXT, timeframe TEXT, blob BLOB,
   PRIMARY KEY(resolved_contract, date, timeframe))` — one zlib-compressed JSON blob per key:
-  `{bar_ts: {level: [bid, ask]}}`. Read before any paginated backfill; write on backfill
-  completion. **Scope:** only SPX/SPY/QQQ/ES-front/NQ-front (owner decision); all other symbols
+  `{bar_ts: {level: [bidVol, askVol, tradeVol, tradeCount]}}`. Read before any paginated
+  backfill; write on backfill completion. (`docs/phase-changelog.md`, Phase D36 item 36.2 records
+  the same two-metric shape — per-level bid/ask volume from `BID_ASK` plus per-level trade volume
+  and trade count from `TRADES`.) **Scope:** only SPX/SPY/QQQ/ES-front/NQ-front (owner decision); all other symbols
   are in-memory only (re-fetch per session).
 - In-memory per-level aggregates keyed `(resolved_contract, timeframe)` in the service; per-bar
   job states (ready | loading | unavailable) drive the structural loading UI.
@@ -2750,8 +2791,11 @@ The D36 code lives in four new modules plus additive changes to existing ones:
 - **IBKR:** `reqHistoricalTicks` (BID_ASK + TRADES) only — **zero** `reqTickByTickData` for footprint
   (asserted on the request registry + source call-site scan, AC-D36.3). Tick requests count against
   the rolling 600s historical budget (`pacing_manager` is the single owner).
-- **Bridge/client:** 3 new signals + 3 overrides, all additive; `super()` called first; routing by
-  reqId (D27 pattern). 10.51.1 fixes: `error()` 5-arg, `orderStatus` 11-arg (`mktCapPrice`),
+- **Bridge/client:** 2 new signals (`historical_ticks_bid_ask` / `historical_ticks_last`) +
+  2 new overrides (`historicalTicksBidAsk` / `historicalTicksLast`), all additive; `super()`
+  called first; routing by reqId (D27 pattern). (An earlier "3 signals + 3 overrides" count
+  predated the histogram-path removal — see “Histogram removal” above.) 10.51.1 fixes: `error()` 5-arg,
+  `orderStatus` 11-arg (`mktCapPrice`),
   `updateMktDepthL2` 8-arg (`isSmartDepth`, carried through for D37's SMART-row disambiguation).
 - **Render pipeline:** footprint renders in the chart's live layer beside the Phase 4
   static-history/live-bar split; completed-bar footprint data is static (no per-tick regen).
@@ -2939,7 +2983,8 @@ The D38 code lives in two new modules, one new package, plus additive changes to
   green ●D, split blue ▲S; countdown label ("Earnings in 3d") for the next upcoming event;
   markers **id-keyed, not date-keyed** (date corrections move the marker).
 - **`[new/changed]`** `ibkr/client.py` (4 new news overrides — 10.51.1 arg-for-arg verified),
-  **`[new/changed]`** `ibkr/bridge.py` (`historical_news` / `news_article` signals),
+  **`[new/changed]`** `ibkr/bridge.py` (`news_providers` / `historical_news` /
+  `historical_news_end` / `news_article` signals),
   **`[new/changed]`** `ui/ticker_session.py` (S0 register/deregister batching, tick-59 dividend
   state, `_merge_events` — the reviewer A1 re-point target; headless-session lifecycle for
   digest holdings), **`[new/changed]`** `ui/main_window.py` (menubar, dock wiring,
@@ -3194,7 +3239,7 @@ Final phase of the D36–D40 program. Owner-approved 2026-10-13: TWS ONLY (never
 Aniket closes TWS nightly and logs in manually each morning — no 24/7 headless scenario
 to protect; D40 is pause/resume around TWS's daily lifecycle. Built on
 `feat/d40-tws-lifecycle` @ `4ac2453` (+ review fixes `d6f38e8`); reviewer
-CHANGES REQUIRED → rework → APPROVED; merged to `main` @ `b366b19` (= `origin/main`).
+CHANGES REQUIRED → rework → APPROVED; merged to `main` @ `b366b19` (the D40 merge; `origin/main` is now `262ec81`).
 **Acceptance criteria `AC-D40.1`–`AC-D40.5` are now authored** in `requirements.md`
 (`### D40`, Q45/DG46); `AC-D40.5` carries an explicit AMBIGUITY note (the shipped tests label only
 `AC-D40.1`–`AC-D40.4`, so `.5` is the batch regression criterion authored from the batch-regression
@@ -3286,4 +3331,4 @@ convention).
 40.4 (transient verification) on `feat/d40-tws-lifecycle`; reviewer CHANGES REQUIRED
 (B1: resume/reconcile call order — phantom-trigger hole) → rework in `d6f38e8` (call-order
 swap + staged path + regression test + A1/A2) → re-check APPROVED; merged to `main` @
-`b366b19` (= `origin/main`). Program complete — no D41 without Aniket's explicit go-ahead.
+`b366b19` (the D40 merge; `origin/main` is now `262ec81`). Program complete — no D41 without Aniket's explicit go-ahead.

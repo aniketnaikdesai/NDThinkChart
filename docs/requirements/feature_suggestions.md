@@ -98,3 +98,13 @@
 - **Why not in the original ask:** the user asked for the heatmap; the 354-vs-delayed distinction is an edge the
   reviewer recorded in code, not a requested surface.
 - **Suggested priority:** low
+
+## FS14 — Per-pop-out connection indicator
+- **Gap/opportunity:** a pop-out opened while IBKR is disconnected renders cached bars but shows **no**
+  per-window connection state — the only connecting affordance is the main window's `conn_badge`
+  (`ui/main_window.py:295`). With up to 10 pop-outs on separate monitors, the user cannot tell from the
+  pop-out whether its feed is live or the subscription is merely pending.
+- **Why not in the original ask:** D24's requirement text explicitly records the shipped behaviour (no
+  per-pop-out indicator) and states that "a per-window indicator would be **a new request**" — it is not part
+  of the approved D24 scope.
+- **Suggested priority:** low

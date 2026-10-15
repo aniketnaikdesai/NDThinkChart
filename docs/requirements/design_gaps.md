@@ -18,7 +18,7 @@
   testable once the precision source is fixed, and it should match the price axis.
 - **Suggested resolution:** Reuse the axis tick precision (current tag uses
   `f"{y:,.2f}"`); confirm during build. See assumption A5.
-- **Status:** open
+- **Status:** resolved 2026-10-14 — the precision source is fixed in code: the D2 chip formats `f"{y:,.2f}"` (`ui/chart_panel.py:1093`), matching A5. (No test asserts chip-vs-axis precision equality; cosmetic only.)
 
 ## DG3 — D3 magnifier mode lifecycle on symbol/timeframe change
 - **Where it shows up:** D3 / AC-D3.4 and its edge cases.
@@ -45,7 +45,7 @@
 - **Suggested resolution:** Add targeted `pytest-qt` offscreen checks per defect
   (e.g. overlay band geometry, chip bounds, zoom button signals). A full GUI suite
   remains out of scope for this run.
-- **Status:** open
+- **Status:** resolved 2026-10-14 — the `test_gui.md` 11-file suite is still absent, but GUI-level offscreen pytest-qt coverage now exists extensively (e.g. `tests/test_toolbar_d20.py`, `tests/test_dock_widths_d17.py`, `tests/test_d24_popouts.py`, `tests/test_d37_microstructure.py`), so the "no GUI-level regression guard" concern no longer holds.
 
 ## DG5 — D4 zoom cluster position depends on dynamic price-axis width
 - **Where it shows up:** D4 / AC-D4.2.
@@ -183,7 +183,7 @@
 - **Where it shows up:** D14 / AC-D14.1–D14.4 / Journey 15.
 - **Why it matters:** "Double-click anywhere on the row" must be distinguished from header/empty-area clicks and from same-symbol/disconnected no-ops; otherwise single-click selection could be mistaken for a load or a disconnected double-click could queue a request.
 - **Suggested resolution:** Wire `QTableWidget.cellDoubleClicked(int,int)` and resolve row Symbol via `COL_SYMBOL`; ignore when `row<0` or `symbol` empty/header; case-insensitive compare to `_current_symbol` for no-op; check `ConnectionState` / `load_btn.isEnabled()` before issuing `req_historical_data`; show status message on disconnected as specified. See Q27–Q29, A18–A19, R16.
-- **Status:** open
+- **Status:** resolved 2026-10-14 — D14 is built: `ui/watchlist_panel.py:432` wires `cellDoubleClicked`; `AC-D14.1`–`AC-D14.4` are final per Q27–Q29.
 
 
 ---
@@ -208,8 +208,7 @@
   shortfall must be surfaced.
 - **Suggested resolution:** chunk backfill requests (respecting `pacing_manager`) or size a
   single request to the gap when within IBKR limits; document the bound.
-- **Status:** open (non-blocking; implementation detail for Plan, but it constrains
-  `AC-D16.4`)
+- **Status:** resolved 2026-10-14 — chunked waves are implemented: `ui/ticker_session.py:1529` issues ~60 `reqHistoricalData` chunks per wave against the rolling 600s budget (`MAX_HISTORICAL_PER_600S = 60`, `config/settings.py:35`), with continuation across waves (D28.3).
 
 ## DG20 — D16: no user-facing date-range control exists
 - **Where it shows up:** D16 / Journey 17.
@@ -235,8 +234,7 @@
   from the cached series (e.g., the largest gap between consecutive cached blocks, or between the
   last pre-gap bar and now) rather than only `MAX(ts)`, then backfill that span in chunks. The
   tail-gap case is a special case of the same mechanism.
-- **Status:** open (non-blocking; recorded so Plan does **not** implement a tail-only anchor that
-  silently leaves the reported hole in place).
+- **Status:** resolved 2026-10-14 — the shipped detector handles internal holes, not only a tail anchor: `services/backfill_service.py:239` `_bar_level_missing_spans` finds "Internal gaps between consecutive cached bars" (`:285`) as well as session-window gaps, at bar-period granularity (D27.7).
 
 ---
 
@@ -270,7 +268,7 @@
   the cap and apply it on a **dock-resize/drag-completion hook** (or enforce a `maximumWidth` derived
   from the cap so the handle cannot be dragged past it), not only in `resizeEvent`. Reuse the existing
   helpers so the D13 tests stay valid. Decide B1 (window width vs chart area) before wiring.
-- **Status:** open (blocking on B1; diagnosed)
+- **Status:** resolved 2026-10-14 — B1 was answered 2026-10-03 (cap = **50% of the chart area**), so this was never left blocking; D17 is built and merged (`ui/dock_layout.py`, `ui/main_window.py` dock hooks, `AC-D17.1`–`AC-D17.6`).
 
 ## DG24 — D18: the right docks have no width governance at all and are an unaccounted horizontal consumer
 - **Where it shows up:** D18 / `ui/main_window.py:234-252` (`RightDockWidgetArea` setup);
@@ -284,7 +282,7 @@
   fit within the full-screen window, and fold left+right dock widths into one combined budget that
   preserves the chart minimum (B3). If Active Trader/Portfolio are one dock (B2), a single width rule
   covers both.
-- **Status:** open (blocking on B2/B3; diagnosed)
+- **Status:** resolved 2026-10-14 — B2/B3 were answered 2026-10-03 (one right-dock region, 40% of the chart area, combined cross-clamp); built as `ui/dock_layout.py::plan_dock_widths` + `MainWindow._apply_dock_widths` (`AC-D18.1`–`AC-D18.8`).
 
 ## DG25 — D18: "fits in the visible area of the full screen" is not yet a testable condition
 - **Where it shows up:** D18 / provisional `AC-D18.1`.
@@ -294,7 +292,7 @@
 - **Suggested resolution:** express as a measurable condition — e.g. the Active Trader/Portfolio dock's
   right edge `<= window right edge` and left edge `>= chart right edge` in full screen, with a
   non-zero visible width, and the chart still ≥ its minimum. Confirm once B2/B3 are answered.
-- **Status:** open (blocking on B2/B3; will be made measurable when answered)
+- **Status:** resolved 2026-10-14 — B2/B3 answered 2026-10-03 and `AC-D18.1` is the measurable condition (right region within the window rect, non-zero visible width, chart >= 400px).
 
 
 ## DG27 — D19: toolbar minimumSizeHint pins the central widget (root cause of the D17/D18 real-app failure)
@@ -426,7 +424,7 @@
 - **Suggested resolution:** keep the in-panel header button as the toggle; if the dock must remain movable, give
   the header strip a drag handle (or retain a frameless/title-bar drag region) so docking still works. Plan/Build
   to choose the exact mechanism; the requirement outcome (single toggle that stays visible when hidden) is fixed.
-- **Status:** open (non-blocking; affordance detail for Plan/Build)
+- **Status:** resolved 2026-10-14 — the header strip itself is the dock's title-bar widget (`ui/main_window.py:400` `setTitleBarWidget(self.watchlist_panel.header_bar)`) with `DockWidgetMovable` retained (`:401–403`), so the toggle stays visible when hidden and the dock is still movable.
 
 ## DG38 — D21.13: the right dock's title bar becomes the "Active Trader" toggle button
 - **Where it shows up:** D21.13 / `ui/main_window.py` right dock region (`:295–337`).
@@ -435,7 +433,7 @@
   badly with the existing DOM button (which hides the whole region).
 - **Suggested resolution:** make the title-bar label a clickable toggle while keeping a drag region; treat a
   fully-collapsed region as hidden for the D17/D18 cross-clamp (`DG35`); reconcile with `_on_dom_toggled`.
-- **Status:** open (non-blocking; affordance/reconciliation detail for Plan/Build)
+- **Status:** resolved 2026-10-14 — the right dock's title-bar widget is the Active Trader header button (`ui/main_window.py:493–495`) with the toggle wired at `:531`, and `Movable` retained (`:495`).
 
 
 ---
@@ -476,7 +474,7 @@
 - **Suggested resolution:** Plan chooses the mechanism — reuse `set_watchlist` with the full desired list (preserving
   `category` and contiguous `sort_order`), or add explicit `add`/`remove` helpers — but the requirement is the
   persisted outcome (`AC-D22.2`), and the seed-if-empty guard must not re-seed after an add. Non-blocking beyond B14.
-- **Status:** open (non-blocking; implementation detail for Plan — B14 answered add + remove, so Plan must pick a mechanism that preserves `category`/contiguous `sort_order` and does not re-seed `DEFAULT_WATCHLIST` after an add/remove).
+- **Status:** resolved 2026-10-14 — dedicated helpers now exist: `data/db.py::add_watchlist_symbol` (`:194`) and `remove_watchlist_symbol` (`:213`); `set_watchlist` (`:235`) keeps `category` + explicit `sort_order`. D22 is built (`AC-D22.1`–`AC-D22.9`).
 
 ## DG42 — D22: the new add affordance must not shadow the D21.5 column header menu or the D21.11 collapse toggle
 - **Where it shows up:** D22 / `AC-D22.5`; `ui/watchlist_panel.py` header strip (`header_bar`/`header_button`,
@@ -504,7 +502,7 @@
   callbacks, an error/timeout path, and a result the add flow can await) that resolves a symbol to at least one
   contract; the add proceeds on resolution and is rejected (nothing persisted) on failure/timeout. Non-blocking
   beyond B16 (answered 2026-10-07); the requirement outcome is fixed by `AC-D22.4`.
-- **Status:** open (non-blocking; implementation path for Plan — the requirement is settled)
+- **Status:** resolved 2026-10-14 — the path is built: `ibkr/market_data.py::req_contract_details` (`:85`) + `contractDetails`/`contractDetailsEnd` callbacks + `services/contract_lookup_service.py` (bounded `QTimer`, `cancel_all`). D22's add validates live per B16.
 
 ## DG44 — D22: the `_restore_watchlist` seed-if-empty branch can re-seed `DEFAULT_WATCHLIST` after the user removes every symbol
 - **Where it shows up:** D22 / `AC-D22.6`, `AC-D22.7`; `ui/main_window.py::_restore_watchlist` (`if not symbols: symbols = list(DEFAULT_WATCHLIST); db.set_watchlist(symbols)`); `data/db.py::get_watchlist`/`set_watchlist`.
@@ -515,7 +513,7 @@
   a persisted sentinel/flag, or seed only on a genuine first run) so an emptied watchlist stays empty; otherwise the
   seed-if-empty branch must not fire after an explicit removal. Plan's call; recorded so the persistence outcome is
   not silently violated.
-- **Status:** open (non-blocking; default A52, interaction to settle in Plan)
+- **Status:** resolved 2026-10-14 — implemented via the persisted sentinel `WATCHLIST_CONFIGURED_KEY = "watchlist/configured"` (`ui/main_window.py:110–116`), so an explicitly emptied watchlist is not re-seeded with `DEFAULT_WATCHLIST` (A52).
 
 
 ## DG45 — D23.1 (ESC-030): the contract-details cancel requirement conflicts with the pinned ibapi surface
@@ -601,7 +599,7 @@
   trail and invites a future mis-numbering.
 - **Suggested resolution:** record an explicit note (e.g. "D29–D35 intentionally unassigned / folded") or
   backfill the batches if they exist.
-- **Status:** resolved 2026-10-14 (Q41) — the D29–D35 gap is now recorded explicitly in the `requirements.md` Status block as an intentional numbering gap (not missing content).
+- **Status:** resolved 2026-10-14 (Q41) — the D29–D35 gap is now recorded explicitly in the `requirements.md` Status block as an intentional numbering gap (not missing content). *(Corroborated 2026-10-14 against the changelog: `docs/phase-changelog.md:53` records D26.3's real-leg transmission as a follow-up "proposed **D29**", i.e. D29+ were reserved for planned follow-up batches rather than lost.)*
 
 ## DG51 — D37 depth-heatmap default ON is unconfirmed and conflicts with the D36 OFF precedent
 - **Where it shows up:** `requirements.md` Journey 32 `:687` — "**Pending owner confirmation:** depth heatmap
@@ -650,3 +648,193 @@
     `PacingExceeded`/`historical_wait_seconds` never sleeps (`ibkr/pacing.py`); D28.2 `TickerSession` extraction;
     D28.4 `SESSION_BAR_CAP = 5000` (`config/settings.py:45`); D24.9 `popouts` persistence (`data/popout_store.py`).
 - **Status:** resolved 2026-10-14.
+
+---
+
+## DG54 — the pinned `ibapi` version has moved (9.81.1.post1 → 10.51.1) but the D23 record still names the old pin
+- **Where it shows up:** `requirements.md:34` (D23 intro), `:232` (D23 overview), `:2484–2516` (D23.1, esp.
+  `:2492` "The pinned dependency is `ibapi` **9.81.1.post1**" and `:2513` "`ibapi 9.81.1.post1` exposes no
+  `EClient.cancelContractDetails`"), `:3172` (A53), `:3300` (Status); `open_questions.md:831`;
+  `design_gaps.md:523` (DG45). The shipped code perpetuates it too: `ibkr/market_data.py:110–137`
+  (docstring "The pinned ``ibapi 9.81.1.post1``") and `tests/test_ibkr_contract_details_d22.py:234–236`.
+- **Why it matters:** `requirements.txt:3` pins **`ibapi-latest==10.51.1`** (installed `ibapi 10.51.01`), and
+  D37/D38 already cite "the 10.51.1 wheel". A reader (or the Validator) checking a "pinned `ibapi`" claim gets
+  the wrong version, and the D23.1 requirement's own "document it in code" clause names a version the tree no
+  longer pins. **The behaviour is unaffected:** re-verified 2026-10-14 that
+  `hasattr(EClient, 'cancelContractDetails') is False` on **10.51.1**, so `AC-D23.1.*` stands unchanged.
+- **Changelog cross-reference (2026-10-14):** the pin change is **recorded and dated** — `docs/phase-changelog.md:376`
+  (Phase D36, item **38a.0**): "`requirements.txt`: `ibapi>=9.81` → `ibapi-latest==10.51.1` (plain
+  `ibapi==10.51.01` is not on PyPI — verified). Full suite re-run green on the aligned version before any D36
+  code." So the D23-era figures were **correct when written** (2026-10-07) and the D36 upgrade (2026-10-13,
+  after D22/D23) simply did not sweep the D23 prose, the code docstring or the test literal. The requirement text
+  now cites the pin and the changelog rather than being re-worded per site.
+- **Suggested resolution:** requirements/open_questions/design_gaps figures corrected 2026-10-14 (done, citing the
+  changelog). **Re-routed to Build:** update `ibkr/market_data.py:110–137` (docstring "The pinned
+  ``ibapi 9.81.1.post1``") and `tests/test_ibkr_contract_details_d22.py:234–236` — **only in the same change as
+  `tests/test_d23_nonregression.py:61`**, which asserts the literal `"9.81.1.post1"` is present in that source
+  (see DG61). Tests/code are not the Analyst's to edit.
+- **Status:** open (narrowed 2026-10-14) — **explained, dated and cross-referenced by the changelog**; every
+  requirements-side figure is corrected (resolved), and only the Build-side code/test prose remains.
+
+## DG55 — the Constraints "Observed from repository" block contradicted the code on the database path
+- **Where it shows up:** `requirements.md` Constraints (pre-2026-10-14 `:277–278`: "SQLite (dev:
+  `./charting_app.sqlite3`; bundled: `~/Library/Application Support/NDThinkChart/charting_app.sqlite3`)").
+- **Why it matters:** the code has one path: `config/paths.py::get_db_path()` (`:68–81`) **always** returns the
+  user-space file (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`, filename overridable with
+  `DB_PATH`); `data/db.py:8` uses it. `config/settings.py:26` `DB_PATH` is **unused**, and the repo-root
+  `charting_app.sqlite3` is stale. The bullet contradicted both the code and the Current Tech Stack, which
+  states the same thing correctly.
+- **Suggested resolution:** state the user-space path only (done 2026-10-14).
+- **Status:** resolved 2026-10-14 (documentation only) — no cross-reference available: the changelog begins at
+  Phase 1 / D26 (2026-10-12) and does not cover the D1–D23 era (`docs/phase-changelog.md:24–26`), so it records
+  nothing about this bullet.
+
+## DG56 — embedded line references drifted by +5 after commit `99fb8fa`
+- **Where it shows up:** `requirements.md` `AC-D24.5` (cited `ui/main_window.py:840–846`; actual **`:845–850`**),
+  D24's conn-badge reference (`:290`; actual **`:295`** — the badge is built at `ui/main_window.py:295`,
+  `conn_badge_text` at `:141`), DG53 (`:3176` → actual **`:3181`** `id_manager.reserve(3)`; `:3107` → actual
+  **`:3112`** `validate_order(`; `:3223` → actual **`:3228`** `reqGlobalCancel()`), D23.1
+  (`ibkr/market_data.py:78–84` → actual **`:108`**), and D19's `ui/main_window.py:100–211` / `:217–223`.
+- **Why it matters:** `99fb8fa` ("apply the theme font to the toolbar") inserted **5 lines** into
+  `ui/main_window.py` around line 190, shifting every later reference by +5. Validator / Code Reviewer /
+  Task Manager trace acceptance criteria by these citations; an off-by-five range silently points at unrelated
+  code (e.g. `:290` is now `draw_delete_btn`, not the connection badge).
+- **Suggested resolution:** cite a symbol/function name alongside — or instead of — a line range, so
+  insertions cannot invalidate the citation. The two references that sit *inside* acceptance criteria and were
+  verified in this pass (`AC-D24.5`, the D24 signal block) are corrected; the rest are dated/annotated rather
+  than rewritten.
+- **Changelog check (2026-10-14):** the changelog does **not** discuss line-number churn; its own convention is
+  **symbol-first with the line as a secondary pointer** (`ibkr/client.py::DisconnectClass`,
+  `services/alarm_monitor.py::AlarmMonitor.pause_all()`, `tests/test_order_builders.py:83-104`), which supports
+  the recommendation below.
+- **Standing recommendation (for the docs owners, not unilaterally applied):** cite `path::symbol` and treat any
+  line range as indicative; a `+5`-line commit invalidates every downstream range, and no test or check catches
+  it. Re-citing every range in `requirements.md` is deliberately **not** done here — that is a separate sweep.
+- **Status:** open (non-blocking; residual stale references remain in `requirements.md` D19/D24/DG53 prose and in
+  this file's own quoted pre-edit line numbers)
+
+## DG57 — D25 acceptance criteria and their backing tests use different AC→behaviour mappings
+- **Where it shows up:** `requirements.md` `AC-D25.1`–`AC-D25.5` (`:2763–2774`) vs
+  `tests/test_d25_alarm_monitor.py` (`:1` header, and the docstrings at `:49`, `:70`, `:95`, `:134`, `:168`).
+- **Why it matters:** the test docstrings assign the AC numbers in **test order**, which maps differently to the
+  criteria: the test labelled `AC-D25.1` asserts the *store query* (a D25 requirements bullet, not AC-D25.1);
+  the one labelled `AC-D25.3` asserts *headless firing* (that is AC-D25.1); the one labelled `AC-D25.4` asserts
+  the *no-phantom* rule (that is AC-D25.3); the one labelled `AC-D25.5` asserts *monitor stand-down*. As a
+  result three criteria have **no** matching test: `AC-D25.2` ("assert on the request registry" — in
+  `test_d25_2` the zero-historical-request check is a **comment**, `:86–88`, not an assertion), `AC-D25.4`
+  (re-arm + alarm added while disconnected) and `AC-D25.5` (regression).
+- **Suggested resolution:** either relabel the tests to the criteria they actually verify and add tests for
+  `AC-D25.2`/`.4`/`.5`, or renumber the criteria to match the tests. Renumbering changes AC traceability, so
+  this is an owner/Build call; annotated in `requirements.md` in the meantime (same convention as
+  `AC-D39.5`/`AC-D40.5`).
+- **Changelog check (2026-10-14):** the changelog confirms the **behaviour** shipped — Phase 3 item **3d**
+  (`docs/phase-changelog.md:120`) records D25's "`prev_price` seeded from 1m cache, else first-tick seed with NO
+  evaluation (no phantom). Zero history requests", and D40 item **40.3** (`:245`) re-affirms the same guard on
+  resume — but it names **no D25 test** and gives no AC→test mapping, so it neither explains nor resolves this gap.
+- **Status:** open (non-blocking; recorded, not silently reconciled; changelog confirms the behaviours but not the
+  coverage)
+
+## DG58 — D24 acceptance criteria: four have no backing test, and one is mislabelled
+- **Where it shows up:** `requirements.md` `AC-D24.*` (`:2681–2711`); `tests/test_d24_popouts.py`
+  (`:30`, `:65`, `:89`), `tests/test_d24_alarm_full_chain.py`, `tests/test_d24_9_popout_persistence.py`,
+  `tests/test_d24_smoke_gate.py`.
+- **Why it matters:** `AC-D24.2` (drawing sync), `AC-D24.4` (study sync), `AC-D24.7` (reconnect with pop-outs)
+  and `AC-D24.10` (always-on-top defaults OFF) have **no** backing test — a tree-wide grep finds no test
+  referencing `drawings_changed`/`studies_changed`, no pop-out reconnect test, and no
+  `WindowStaysOnTop`/`always_on_top` assertion anywhere. Separately,
+  `tests/test_d24_popouts.py::test_popout_readonly` is labelled **AC-D24.3** (which is the *alarm-sync*
+  criterion) while it actually exercises **AC-D24.6** (read-only), and its mode-guard check is effectively
+  vacuous: it calls `set_drawing_tool(...)` / `set_alarm_mode(True)` and asserts nothing about the router modes
+  ("verified by `_editable` guard" is a comment, `:99–102`) — so `AC-D24.6`'s "router modes never arm" clause
+  is not verified either.
+- **Suggested resolution:** add tests for `AC-D24.2`/`.4`/`.7`/`.10`; correct the mislabelled docstring; assert
+  the router mode is unchanged after the read-only no-op attempts.
+- **Changelog check + correction (2026-10-14):** two of my claims are narrower than first stated. (a) The
+  changelog's Phase 3 fix-pass entry **MODERATE** (`docs/phase-changelog.md:126`, commit `8ef0342`) records the
+  read-only pop-out guard work, and `tests/test_phase3_fixpass.py` (fix2a–2e, `:129`–`:246`) does exercise the
+  pop-out overlay guards (alarm drag/no-menu/delete, drawing-drag no-payload-mutation) — so **AC-D24.6's
+  behaviour is covered**, though no test cites the AC id and `test_popout_readonly`'s own assertions remain weak.
+  (b) The changelog's Phase 4 item **4d** (`:166`) notes T-1 alarm E2E coverage lives in
+  `test_d24_alarm_full_chain.py`, which covers **AC-D24.3**. What remains untested is unchanged:
+  **AC-D24.2** (drawing sync to pop-outs), **AC-D24.4** (study sync), **AC-D24.7** (reconnect with pop-outs),
+  **AC-D24.10** (always-on-top default OFF) — no test references any of them.
+- **Status:** open (narrowed 2026-10-14) — AC-D24.2/.4/.7/.10 still need tests, and the `test_popout_readonly`
+  docstring still mislabels read-only as `AC-D24.3`; the AC-D24.6 coverage concern is withdrawn.
+
+## DG59 — toolbar geometry figures: the `~1716px` intrinsic minimum is stale, and D20's `~50–52px` band is macOS-only
+- **Where it shows up:** `requirements.md` D19 (`:2040`, `:2043`, `:2048–2049`, `:2065`, `AC-D19.5`) and A37
+  ("`~1716px minimumSizeHint`"); D20 `AC-D20.2`/A39 (total strip "~50–52px"). Code:
+  `ui/main_window.py:120` (`TOOLBAR_CONTENT_HEIGHT = 36`) and `:374–377` (wrapper height =
+  `36 + horizontalScrollBar().sizeHint().height()`), measured through
+  `tests/test_toolbar_d20.py:8` and `:250–251`.
+- **Why it matters:** the toolbar's intrinsic minimum was re-measured **~1965px** offscreen on 2026-10-14
+  (27 layout items, incl. pop-out / footprint / depth / search controls added after D19), so "~1716px" no
+  longer describes the code — it is a 2026-10-05 observation. Likewise the D20 strip is *derived*, and the
+  offscreen value is **54px**, outside the stated "~50–52px" band (macOS ≈52px); the D20 test deliberately
+  refuses a literal `[50, 52]` bound for exactly this reason.
+- **Suggested resolution:** annotate the figures as report-time/macOS figures (done 2026-10-14) and, if a hard
+  requirement is wanted, state it platform-neutrally as "content row 36px + the horizontal scrollbar's own
+  height" rather than a pixel band. No behavioural change to `AC-D19.4`/`AC-D20.*`.
+- **Changelog check (2026-10-14):** the changelog has **no D19/D20 entry** (it starts at Phase 1 / D26,
+  `docs/phase-changelog.md:24–26`), so there is no cross-reference to cite for these figures; the annotations
+  stand on the code measurement alone (`ui/main_window.py:120`, `:374–377`).
+- **Status:** resolved 2026-10-14 (documentation annotated; the underlying behaviour is unchanged)
+
+## DG60 — two different gaps share the identifier `DG14`
+- **Where it shows up:** `design_gaps.md:138` ("DG14 — D15 horizontal line popup — single coordinate vs zone")
+  and `design_gaps.md:148` ("DG14 — D13 watchlist width 50% + persistence — mechanism and clamping").
+- **Why it matters:** any downstream citation of "DG14" is ambiguous (the D15 gap and the D13 gap are
+  unrelated). Pre-existing doc defect, not opened by the recent work.
+- **Suggested resolution:** renumber the D13 entry to the next free id (nothing else in the tree cites
+  `DG14`); left un-renumbered here deliberately, to avoid a gratuitous identifier change inside an audit pass —
+  flagged for the owner.
+- **Status:** open (non-blocking; doc hygiene)
+
+## DG61 — AC-D28.6's doc-assert deletion: the *file* was kept deliberately; the real residue is a version literal pinning the stale `ibapi`
+- **Where it shows up:** `requirements.md` D28.6 / `AC-D28.6` ("the doc-assert/phantom tests are gone") vs
+  `tests/test_d23_nonregression.py` (still present) and `tests/test_stop_loss_target.py`.
+- **Changelog check — this largely resolves it (2026-10-14):** Phase 4 item **4d**, commit **`3363422`**
+  (`docs/phase-changelog.md:166`: "Deleted 3 doc-asserting tests + phantom `validate_sltp` (kept behavioural
+  guards)"), whose own commit message is explicit: *"Delete the three doc-asserting tests in
+  test_d23_nonregression.py (they asserted on docs/tasks/task-graph.json, docs/architecture.md,
+  docs/requirements text); the behavioural T03 guard/invariant checks stay."* Verified against the tree:
+  `git show 3363422 -- tests/` removes **three** `T01` doc-text tests (`-143` lines) and the `TestValidateSLTP`
+  block (`-122` lines) while leaving `test_D23_03_T03_guard_source_shape`. So **AC-D28.6 is satisfied in
+  intent**: the doc-text assertions and the phantom test are gone, and the surviving file is the *behavioural*
+  guard the changelog says was kept on purpose. *(My earlier reading — "the AC is falsified because the file
+  exists" — was wrong, and is corrected here.)*
+- **What genuinely remains open:** the surviving guard asserts on the live **source text** of
+  `MarketDataManager.cancel_contract_details` (`tests/test_d23_nonregression.py:52`, `:61`–`:64`), including
+  `assert "9.81.1.post1" in src` at **`:61`** — the only remaining hard-coded reference to the pre-D36 pin. It is
+  a legitimate code-shape check, but it **couples the suite to the stale version**: applying DG54's docstring fix
+  fails this test unless both change together.
+- **Secondary (wording) nit:** `AC-D28.6` names the *file* (`test_d23_nonregression.py` markdown-string asserts)
+  where the change deleted three *tests* inside it — which is what invited the misreading above. Low priority.
+- **Suggested resolution:** **Re-routed to Build:** update `ibkr/market_data.py:110–137` + `:61` (and the
+  `test_ibkr_contract_details_d22.py:234–236` prose) in one change. Owner/Build may optionally reword
+  `AC-D28.6` to name the deleted tests rather than the file.
+- **Status:** resolved-with-reference 2026-10-14 — explained by `docs/phase-changelog.md:166` (Phase 4, 4d,
+  `3363422`) and verified against the tree; the residual version literal is carried by DG54 and re-routed to
+  Build.
+
+## DG62 — the changelog's own branch/merge/push status (and one SHA) disagrees with the current tree
+- **Where it shows up:** `docs/phase-changelog.md:110` (Phase 3: "NOT pushed and NOT merged"), `:151` (Phase 4:
+  "NOT pushed and NOT merged"), `:364` (D36: "NOT pushed and NOT merged to `main`"), `:322`/`:275`/`:192`/`:236`
+  (D37/D38/D39/D40: "merged to `main` @ <sha>, NOT pushed", each with "Docs gate (this entry) on
+  `docs/d24-d28-requirements-architecture`"), and `:236` (D40 "review fixes `d6f38e8` — hashes per git history").
+- **Why it matters:** it is the **record of intent**, not the state. Verified against the tree 2026-10-14:
+  `HEAD == main == origin/main == 262ec81`, **no other branches exist** (local or remote), and every phase's code
+  is merged into `main` (`efffc51` D36, `9958891` D37, `8599ce4` D38, `83f792a` D39, `b366b19` D40) and pushed.
+  So every "NOT pushed"/"NOT merged" status is stale, the branch names it cites no longer exist, and the
+  docs-gate branch was folded in by `262ec81`. Separately, the D40 review-fix SHA **`d6f38e8` does not exist in
+  this history** (`git cat-file -t d6f38e8` → missing); the D40 B1 fix and its regression test
+  (`test_d40_2_resume_session_recreated_mid_pause_no_phantom`) are present, committed under `4ac2453`.
+- **Also stale inside it:** the D37 entry (`:340`) records the depth-heatmap default as "**PENDING owner
+  confirmation** (reviewer recommends OFF)", and the D38/D39/D40 follow-up lists (`:313`, `:227`, `:265`) still
+  carry "depth heatmap default ON pending owner confirmation" — **resolved 2026-10-14 by Q44** (owner confirmed
+  ON; `requirements.md` A67 / DG51). The changelog predates that decision.
+- **Suggested resolution:** the changelog is **not the Analyst's file** — reported, not edited. The owner (or
+  whoever owns `docs/phase-changelog.md`) should refresh the phase statuses/SHAs and drop the resolved
+  "pending" item; a short "status as of 2026-10-14: all phases merged and pushed at `262ec81`" header note would
+  stop the next reader re-deriving it.
+- **Status:** open (non-blocking; changelog-side documentation drift — routed to the file's owner)

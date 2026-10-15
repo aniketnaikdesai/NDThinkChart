@@ -318,16 +318,271 @@ remains open, so no new `RG-*`/`FI-*` entry was warranted and no `ESCALATED_TO_R
 was added.
 
 ### Residual items (recorded, non-blocking, no decision required)
-1. **Four open pre-existing test failures** — `tests/test_toolbar_d20.py::test_T62_T02/T04/T05` and
+1. **[RESOLVED 2026-10-14 by `99fb8fa`] Four open pre-existing test failures** — `tests/test_toolbar_d20.py::test_T62_T02/T04/T05` and
    `tests/test_toolbar_scroll_d19.py::test_T53_T02` (offscreen viewport-vs-toolbar geometry). Unrelated
    to D24–D40; recorded as open in `architecture.md` (header + provenance note) and `plan.md` (D40
    status). If the owner wants them fixed, that is a small D19/D20 follow-up for Build — it is not a
-   planning or architectural gap.
-2. **Stale in-code comment** — `ui/chart_panel.py:370` still reads `# default ON (owner to confirm)`
-   although the owner has now confirmed ON (Q44). Build-owned source, outside this agent's writable
+   planning or architectural gap. **Fixed:** the commit declares the theme font inside the
+   `#MainToolbar` rule and raises the D19/D20 `_WIDE_SIZE` fixture 2,400 → 2,600px; the suite is now
+   **1,020 passed / 0 failed**, and both artifacts now state that (see the second-pass record below).
+2. **[RESOLVED 2026-10-14 by `99fb8fa`] Stale in-code comment** — `ui/chart_panel.py:370` read `# default ON (owner to confirm)`
+   although the owner had confirmed ON (Q44). Build-owned source, outside this agent's writable
    files; recorded here so it is not mistaken for a documentation contradiction. No artifact of mine
-   asserts "pending" any longer.
+   asserts "pending" any longer. **Fixed:** the comment now reads
+   `# default ON (owner-confirmed 2026-10-14, Q44/A67)`.
 
 ### Final Decision
 Status: APPROVED (standing D23 approval unchanged; this append records the Q41–Q45 propagation, the
 D24–D40 plan-vs-code verification, and that **no architectural decision changed**)
+
+---
+
+## Scoped as-built verification — D1–D40 artifacts vs the shipped code at `262ec81` (2026-10-14, second pass)
+
+> **Scope.** A **scoped verification pass on an existing-repo run**, not a new Plan→Validator cycle:
+> no `docs/plan_proposal*.md` / `docs/architecture_proposal*.md` was produced and no new
+> architectural decision is available or was made. This record does **not** reopen or change the
+> standing `APPROVED` decisions above. It exists because two commits landed *after* the previous
+> refresh — `99fb8fa` (toolbar theme font declared inside the `#MainToolbar` rule; D19/D20
+> `_WIDE_SIZE` fixture 2,400 → 2,600; D37 comment) and `262ec81` (three salvaged docs +
+> `USAGE.txt`) — and the knowledge graph at `graphify-out/graph.json` was built at `b366b19`, i.e.
+> behind both. Nothing was taken from the graph unverified; every claim below was re-checked
+> against the source.
+
+### Review Status
+Status: APPROVED (standing decisions unchanged; this append records a verification pass)
+
+### Validation Summary
+The authoritative input is the source at `262ec81` (= `origin/main`), the previously validated
+artifacts, and `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`). Existing-repo mode
+holds (marker sentence + Current Tech Stack present; labels kept). No
+`docs/code_review/escalations.json` entry is `routed_to: PLAN` and `open`, so there was nothing to
+process (file not edited).
+
+**Verdict: the artifacts are in sync with the shipped code.** Every D24–D40 work item, every
+`RouterMode`/TR-1…TR-17 cell, the D2/Q33 chip lane, the D6/D9 ordering contract, D11 stacking, the
+D37 depth default, the D24 pop-out cap / always-on-top default and the D40 pause/resume ordering
+describe what the code does. **No behavioural drift was found.** Six *record/claim* corrections
+were applied — all factual, none architectural. Two of the previous pass's residual items are
+resolved by `99fb8fa`.
+
+### Corrections applied (all factual — no architectural decision)
+| # | Was wrong | Now reads | Evidence |
+|---|---|---|---|
+| 1 | Suite "1,020 collected, **1,016 passed / 4 failed** … open, not silently green" (architecture header + Suite-figure provenance; `plan.md` D40 status) | **1,020 passed / 0 failed** (re-run: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` → `1020 passed in 26.06s`); the four assertions were fixed by `99fb8fa` | measured run; `git show 99fb8fa` |
+| 2 | D36 "Bridge: **3 signals**; `ibkr/client.py`: **3 overrides**" / "3 new signals + 3 overrides" | **2 + 2** (`historical_ticks_bid_ask`, `historical_ticks_last`; `historicalTicksBidAsk`, `historicalTicksLast`) — the third pair was the histogram path deleted under D36 deviation 1 | `ibkr/bridge.py:15–17`; `ibkr/client.py:314–318`; the same section's deviation note |
+| 3 | D36 `footprint_cache` blob "`{bar_ts: {level: [bid, ask]}}`" | "`{bar_ts: {level: [bidVol, askVol, tradeVol, tradeCount]}}`" (4 values — the trade-count metric reads the last two) | `data/footprint_cache.py:3–4`; `services/footprint_service.py:177`, `:409` |
+| 4 | D24.9 `popouts` DDL "`geometry BLOB`" | "`geometry TEXT`" (JSON) | `data/db.py:76–84`; `data/popout_store.py:27` |
+| 5 | Data-Model as-built note "`_init_schema :14–111`; the file is 154 lines; `_migrate_schema :113–121`; `_table_columns :118`" (and the same ref in the risk table) | "`:14–157`; 258 lines; `_migrate_schema :159–179`; `_table_columns :181`" | `data/db.py` (258 lines) |
+| 6 | `origin/main` presented as `b366b19` (architecture header + D40 sections; `plan.md` doc-state, D40/verification headers) | `b366b19` is the **D40 merge**; `origin/main` is now **`262ec81`**. Also corrected `:840–846` → `:845–851` (pop-out cap refusal) and `conn_badge :290` → `:295`, both shifted +5 by `99fb8fa`, and the four stale "`(NOT pushed)`" notes (the branches are on `origin/main`) | `git rev-parse origin/main` = `262ec81`; `ui/main_window.py:295`, `:845–851` |
+
+Two editorial additions, no architecture: a **"Line-citation currency"** note in `architecture.md`
+(bounding the pre-D24 line numbers in the frozen D16–D23 sections — the cited *symbols* are verified
+present; `ui/main_window.py` is now 3,569 lines and `ui/watchlist_panel.py` 994, so e.g. the D23
+`remove_symbol` refs `:682–728`/`:716–719` are now `:841–897`/`:884` and
+`ibkr/market_data.py:78–84` is now `:108`), and a **Data Model pointer** to the four additive
+tables (`popouts`, `footprint_cache`, `yfinance_events_cache`, `volume_baseline`) plus the
+D27/D39 column additions, which the pre-D24 "no schema change" framing did not name.
+
+### Verified in this pass (spot list — all confirmed against source)
+`MAX_POPOUTS = 10` (`config/settings.py:42`), `SESSION_BAR_CAP = 5000` (`:45`),
+`MAX_REALTIME_BARS_PER_10_MIN = 60` (`:30`), `MAX_HISTORICAL_PER_600S = 60` (`:35`),
+`LIVE_PORT = 7496` + `check_live_port` (`:11`/`:14–24`), `MAX_ORDER_NOTIONAL = 25000` (`:39`);
+`_always_on_top = False` (`ui/popout_window.py:56`) + `_toggle_always_on_top` (`:289`),
+`ChartPanel(editable=False)` (`:99`), 500 ms geometry debounce (`:121`);
+`DepthHeatmapItem` added unconditionally (`ui/chart_panel.py:368`) + `_depth_enabled_ui = True`
+(`:370`); `TickerSession` signal pair (`ui/ticker_session.py:65–73`); pop-out refusal text
+(`ui/main_window.py:845–851`); `AlarmStore.symbols_with_active_alarms` (`data/alarm_store.py:27`);
+`AlarmMonitor.pause_all`/`resume_all`/`_pause_start` (`services/alarm_monitor.py:52`, `:176`,
+`:198`) incl. the reconcile-then-`resume_all` order (`ui/main_window.py:1189–1196`) and staged
+`_monitor_subscribe_pending` (`services/alarm_monitor.py:274–283`); `DisconnectClass`
+`TRANSIENT`/`TWS_GONE` + `_last_disconnect_class` reset on connect + 2 s/16 s backoff
+(`ibkr/client.py:20–59`, `:47–48`, `:192`); 11 new D40 tests (`tests/test_d40_tws_lifecycle.py`);
+`conn_badge_text(..., monitoring_paused=)` amber `#fbbf24` (`ui/main_window.py:141–163`);
+`CACHEABLE_SYMBOLS` + `is_cacheable` (`data/footprint_cache.py:26`, `:29`);
+`BUCKET_COUNT = 60`/`BUCKET_SECONDS = 30` + top-5/top-10 imbalance (`services/depth_heatmap.py:30–31`,
+`:98–99`); `MD_LINE_CAP = 100`/`MD_LINE_WARN_AT = 90` (`services/md_line_guard.py:16–17`);
+`N_BASELINE_BARS = 30`/`MIN_WARMUP_BARS = 5`/`VOLUME_FLOOR_PER_MIN = 1.0`/`MAD_FLOOR_RATIO = 0.05`/
+`DEFAULT_Z_THRESHOLD = 4.0` (`services/volume_baseline.py:58–66`); `evaluate_alarms` kind-filtered
+(`services/alarm_service.py:21`) + `evaluate_volume_burst` (`:39`); z-threshold spinbox floor 1.0
+(`ui/alarm_dialog.py:106`, `ui/alarm_edit_dialog.py:48`); search debounce 300 ms / 5 s timeout /
+16 samples (`services/symbol_search.py:35–39`) and the 180px-capped, zero-minimum search box
+(`ui/watchlist_panel.py:349–350`); `TickHistoryManager` 1000-tick windows (`ibkr/tick_history.py:35`)
+with zero `reqTickByTickData`; `INDEX_PROXY` + `footprint_cache_key`/`resolve_footprint_contract`
+(`ibkr/contracts.py:133`, `:144`, `:160`); S0 union `"225"/"292"/"456"` + `s0_register_many`
+(`ui/ticker_session.py:266–269`, `:447`); auction ticks 34/35/36/61 (`:541`) and the 9:25–9:35 /
+15:55–16:05 highlight window (`ui/chart_panel.py:917–924`); news overrides ×4 + `news_providers`/
+`historical_news`/`historical_news_end`/`news_article` signals (`ibkr/client.py:346–361`,
+`ibkr/bridge.py:41–45`); `yfinance==1.7.0` + `ibapi-latest==10.51.1` (`requirements.txt`);
+`parse_ib_dividend_string` never raises (`data/events/provider.py:53–82`); yfinance 24 h/6 h/7 d
+TTL + ≥1 s gap + `failed_at` (`data/events/yfinance_source.py:33–37`); event-marker icons/colours
+(`ui/event_marker_overlay.py:20–22`); `_in_auction_window`; the RouterMode machine (271 lines;
+TR-9 refusal at `ui/chart_mouse_router.py:168`; TR-17 `exit_to_idle` at `ui/chart_panel.py:1362`);
+the D2 chip lane (`PRICE_TAG_LANE_SAMPLE` `ui/chart_panel.py:238`, `_reserve_price_tag_lane`
+`:1024`, lane folded into the zoom offset `:620`, `anchor=(0,0.5)` + `x = right + PRICE_TAG_PAD`
+`:1014`/`:1056`); the ESC-013/ESC-020 ordering contract (`vb.setRange` `:1676` before `w_vol`
+`:1688`); D11 stacking `max(15.0, height, last_height)` + `right() - 4`
+(`ui/drawing_overlay.py:476`, `:481`); `BarCache.prune(keep=RETENTION_BARS=5000)`
+(`data/bar_cache.py:8`, `:39`); the ESC-023 New-Year's rule (`services/market_calendar.py:105–120`).
+
+### Salvaged docs (`262ec81`) — reference material, deliberately *not* wired into the architecture
+- `docs/ibkr-api-data-inventory.md` (IBKR TWS API inventory, 10.51.01) — **referenced** from
+  `architecture.md` in one place: the preamble to the "Pinned-`ibapi` capability facts", where it is
+  named as the confidence-tagged research source behind those facts (each of which is independently
+  re-verified against the installed wheel, so the architecture does not depend on the inventory).
+  It is evidence, not a decision, so it needs no section of its own.
+- `docs/phase-changelog.md` — a phase-by-phase narrative. It is **not** wired in as a structural
+  reference (no section of its own; the canonical as-built record stays `architecture.md`/`plan.md`),
+  but per the owner's standing instruction ("whenever an agent raises a gap or drift it must review
+  the changelog") it is now **cited for provenance at four specific points** where it records the
+  change in question — the D40 test figure, D36 item 36.2's two-metric footprint shape, D36's
+  histogram-removal decision (which explains the 2 + 2 API surface), and the four additive tables.
+  See the cross-check record below. (Its own header already points *to* `requirements.md` and
+  `architecture.md`.)
+- `docs/thinkorswim-feature-gap-analysis.md` — a ThinkOrSwim feature-gap analysis, i.e. **forward
+  product scope**. **Not referenced from the architecture**: the architecture must not imply
+  unapproved scope. Handed to the Requirements Analyst (see *Requirements-side observations* below),
+  not to a planning artifact.
+- **`USAGE.txt`** — confirmed the retired instruction is gone: it now reads "do NOT set
+  `IBKR_PORT=7497`; for paper trading log into your paper (DU) account and keep the port at 7496",
+  consistent with `config/settings.py::check_live_port`. Neither `architecture.md` nor `plan.md`
+  asserts a `7497`/paper-port instruction anywhere (grep: `7497` appears only in
+  `requirements.md`'s `AC-D26.5` and in build/review logs).
+
+### Requirements-side observations (not edited here — for the Requirements Analyst)
+Recorded only; none of these blocks the standing decision, and none is mine to change:
+1. `docs/thinkorswim-feature-gap-analysis.md` (salvaged `262ec81`) is unratified product scope —
+   it needs an owner decision on whether any of it enters `requirements.md` as a future phase.
+2. `requirements.md` `AC-D26.5` cites `IBKR_PORT=7497` only as the fail-fast negative case — correct
+   — but the D26 prose should not be read as offering a paper-port mode (it does not).
+3. Pre-existing wording imprecisions already tracked in `docs/plan_notes.md` (FI-D22-1's
+   "clear() on disconnect" prose) remain open-but-informational; unchanged by this pass.
+
+### Validation steps (short form)
+- **Coverage — PASS.** Every D24–D40 work item maps to shipped code; no requirement is weakened or
+  reinterpreted; no requirement lost its architectural treatment.
+- **Completeness — PASS.** Every component/module/constant named exists and behaves as described;
+  the corrections above are record fidelity, not missing architecture.
+- **Consistency — PASS.** No internal contradiction remains: `origin/main` is `262ec81`, the suite
+  figure is 1,020/0 in both artifacts, and the D37 default-ON / D36 default-OFF pair is stated
+  distinctly.
+- **Plan quality — PASS (unchanged).** No task-level breakdown or dependency graph is introduced;
+  the added material is correction + a verification record.
+- **Existing-repo compliance — PASS.** Marker sentence + Current Tech Stack preserved; labels kept;
+  Codebase Summary substantive and source-consistent; the `ibapi` pin bump remains the D36-flagged
+  38a.0 alignment.
+- **Task Manager readiness — no new decision, no action.** Nothing here introduces a decision Task
+  Manager must make; every D1–D40 item is already built and merged, and the D23 phases were already
+  approved. `docs/plan.md` keeps `Status: READY_FOR_TASK_MANAGER` (unchanged — this pass corrected
+  records, it did not invalidate the plan).
+
+### Required Changes
+**None.**
+
+### Requirements Escalations
+**None** raised from this pass. `docs/plan_notes.md` was **not** modified: nothing here is a
+requirements or planning *gap* (the strictly-factual corrections above are the Validator's own
+artifacts, and the two requirements-side observations are informational, non-blocking, and recorded
+here and in the reply for the Requirements Analyst's parallel audit).
+
+### Final Decision
+Status: APPROVED (2026-10-14, second pass — standing D23 approval unchanged; six factual
+corrections applied, **no architectural decision changed**; `docs/plan.md` keeps
+`Status: READY_FOR_TASK_MANAGER`)
+
+---
+
+## Scoped append — changelog cross-check of the second-pass drifts (2026-10-14, owner's standing instruction)
+
+> **Scope.** A read-only cross-check of `docs/phase-changelog.md` (read in full, 401 lines,
+> salvaged by `262ec81`) against the ten drifts corrected in the second pass and the two editorial
+> additions. No new Plan→Validator cycle; no architectural decision; the standing `APPROVED`
+> decisions are unchanged. The changelog is **not mine** and was **not edited**. Findings already
+> recorded as **DG62** in `docs/requirements/design_gaps.md` are **not duplicated** — only the
+> architecture/plan-angle additions are recorded here.
+
+### Review Status
+Status: APPROVED (standing decisions unchanged; this append records a changelog cross-check)
+
+### Per-drift disposition — explained by the changelog, or changelog-silent
+| # | Second-pass correction | Changelog verdict | Entry |
+|---|---|---|---|
+| 1 | Suite figure 1,016/4 → **1,020/0** | **Corroborated** (not "explained": the changelog never states 1,016/4). It records the green figure for every phase, ending `1020 passing, 0 failing` for D40 | Phase D40 — `:238`; also `:31`/`:68`/`:112`/`:153`/`:366`/`:324`/`:277`/`:194` |
+| 2 | `origin/main` was `b366b19` → **`262ec81`** | **Silent** (the changelog says "NOT pushed") — and this is the DG62 class; not duplicated | DG62 |
+| 3 | The `+5` line shifts (`ui/main_window.py:845–851`, `conn_badge :295`) | **Silent** — the changelog predates `99fb8fa` and cites no `ui/main_window.py` line numbers for these | — |
+| 4 | `popouts.geometry` `BLOB` → **`TEXT`** | **Silent** on the column type; **corroborates** the table's additive existence and SQLite (not QSettings) implementation | Phase 3 — D24.9 at `:119`/`:137` |
+| 5 | `footprint_cache` blob `[bid, ask]` → **4 values** | **Recorded** — the changelog states the two-metric shape (per-level trade volume + trade count from the same `TRADES` pages), which the doc had dropped | Phase D36 item 36.2 at `:372` |
+| 6 | D36 "3 signals + 3 overrides" → **2 + 2** | **Partially explained AND itself wrong** — the changelog records the histogram removal that invalidates the count, yet its own 36.1 row still says "3 new signals / 3 overrides". See the disagreement below | Phase D36 — `:371` (count) vs `:386` (removal) |
+| 7 | D38 bridge list 2-of-4 → **4 signals** | **Same error present** — the changelog's own 38a.1 row names only `historical_news`/`news_article`. See the disagreement below | Phase D38 — `:282` |
+| 8 | `data/db.py` line numbers / file length | **Silent** — the changelog cites no `data/db.py` lines | — |
+| 9 | Four stale "`(NOT pushed)`" notes in `plan.md` | **Explained — and the changelog is their source.** The changelog's per-phase status lines say "NOT pushed" (D37 `:322`, D38 `:275`, D39 `:192`, D40 `:236`), so `plan.md` inherited it. The status drift itself is DG62; not duplicated | DG62 (+ origin noted) |
+| 10 | Editorial: "Line-citation currency" note | **Silent** — no relevant line cites | — |
+| 11 | Editorial: Data Model pointer to the four additive tables | **Corroborated** — each table is recorded in its phase entry | Phase 3 D24.9 `:137`; D36 36.4 `:374`; D38 38b.1 `:284`; D39 39.2 `:200` |
+
+### Changelog-vs-tree disagreements **beyond DG62** (architecture/plan angle)
+DG62 already covers the stale phase statuses ("NOT pushed"/"NOT merged"), the non-existent D40 fix
+SHA `d6f38e8`, and the "depth heatmap default ON is PENDING owner confirmation" wording. Two
+**additional** disagreements were found and are **not** in DG62 — both are counting claims that the
+architecture and the plan had inherited verbatim, which is why they matter to this artifact set:
+
+1. **D36 signal/override count (`docs/phase-changelog.md:371`):** the changelog's own 36.1 row says
+   "Bridge: **3 new signals**; `ibkr/client.py`: **3 overrides**", but the tree has **2 + 2**
+   (`ibkr/bridge.py:15–17` — `historical_ticks_bid_ask`, `historical_ticks_last`;
+   `ibkr/client.py:314–318` — `historicalTicksBidAsk`, `historicalTicksLast`). The changelog
+   *self-contradicts*: its own Phase D36 Decisions entry (`:386`) and review finding A1 record that
+   "the planned histogram path was REMOVED from code and docs" and that the "dead histogram plumbing
+   [was] deleted", which is precisely the third signal/override pair. So the `:371` count is a
+   pre-removal leftover inside a document that elsewhere records the removal.
+2. **D38 bridge signal list (`docs/phase-changelog.md:282`):** the changelog's 38a.1 row names only
+   "Bridge: `historical_news` / `news_article` signals" (its "`ibkr/client.py`: 4 new overrides" is
+   correct), but `ibkr/bridge.py:41–45` defines **four** D38 signals — `news_providers`,
+   `historical_news`, `historical_news_end`, `news_article`. The architecture and the plan had the
+   same two-of-four list.
+3. *(Low severity, also not in DG62)* **Phase 4 is described as the last phase while the same file
+   carries four later phase entries:** `docs/phase-changelog.md:151` ("This is the last phase of the
+   plan") is a leftover from before D36–D40 were appended to the same document. Not a tree
+   disagreement, but a reader following the file top-to-bottom gets a false "the plan is done at
+   Phase 4" signal — worth the same refresh DG62 asks for.
+
+**Checked and found consistent** (no disagreement): the changelog's per-phase test figures
+(779/819/855/898/927/947/970/1009/1020) match the architecture lineage and the current run;
+`MAX_ORDER_NOTIONAL == 25000` regression test (`tests/test_order_validation.py:128`); the
+`test_ac_d36_3_production_tree_has_no_mock_endpoint` test (`tests/test_d36_footprint.py:208`); the
+OPT/FUT secType mapping (`ui/main_window.py:3480`); `READER_JOIN_TIMEOUT_S = 5.0`
+(`ui/main_window.py:3511`); the single `detach_view` (`ui/ticker_session.py:275` — the shadowing
+second one is indeed gone); the D37 `"225"`/`"292"`/`"456"` union and its `3 new signals`
+(changelog `:329`, correct for D37); `zoom_manager`-independent claims aside, no `7497`/paper-port
+instruction appears in the changelog at all. The gate timings (`:119` "1.27ms/tick"; `:164`
+"4.45ms/tick") differ from this checkout's run (0.39ms and 1.31ms per tick) — **wall-clock
+measurement variance inside the same bounds, not a disagreement** (the deterministic counters,
+0 static regens and 990/990 live regens, match exactly).
+
+### Citations changed to reference the changelog
+Per the owner's instruction, four claims whose change the changelog records now cite it (the same
+pattern the Requirements Analyst used for the `ibapi` pin, "Phase D36 item 38a.0"):
+1. `architecture.md` Suite-figure provenance → cites Phase D40's "1020 passing, 0 failing".
+2. `architecture.md` D36 Data Model (`footprint_cache` blob) → cites Phase D36 item 36.2.
+3. `architecture.md` D36 "Histogram removal" → cites Phase D36 Decisions + review finding A1, and
+   explains the 2 + 2 surface.
+4. `architecture.md` Data Model additive-tables pointer → cites Phase 3 (D24.9), D36 (36.4),
+   D38 (38b.1), D39 (39.2).
+`plan.md` mirrors 1–3 (its D36 deviation 1, its D40 status, its follow-up table) and carries a short
+**"Changelog cross-check"** paragraph. Where the changelog is itself the source of an error (#6, #7)
+the artifacts keep the **tree** as the citation and the changelog is named as the origin instead —
+citing a wrong entry as authority would defeat the correction.
+
+### Required Changes
+**None.**
+
+### Requirements Escalations
+**None.** The changelog is not the Analyst's file and not mine; the two new disagreements are
+reported here for the file's owner (see also DG62). `docs/plan_notes.md` remains **unmodified** —
+these are documentation-currency findings routed to the changelog's owner, not requirements or
+planning gaps.
+
+### Final Decision
+Status: APPROVED (2026-10-14, changelog cross-check append — standing decisions unchanged; four
+changelog provenance citations added to `architecture.md` and mirrored in `plan.md`'s
+"Changelog cross-check" paragraph, two further changelog-vs-tree count disagreements reported for
+the changelog's owner, **no architectural decision changed**; `docs/plan.md` keeps
+`Status: READY_FOR_TASK_MANAGER`)

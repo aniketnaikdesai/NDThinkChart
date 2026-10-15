@@ -103,3 +103,13 @@
 **Category:** Known Gotcha
 **Finding:** `~/.config/opencode/scripts/build_wave.py advance` crashes in its circuit-breaker loop (`AttributeError: 'list' object has no attribute 'get'`) when `docs/build/failures.json` contains **list-valued** keys (`blocked`, `pending_routing`, `notes`) instead of task dicts. It crashes after the consolidation writes but before finalizing `wave.json`; mark the wave `CONSOLIDATED` and re-run to complete deterministically. Global tool — do not edit from within a repo. Recorded for the tool author.
 **Source:** D22/D23 Build consolidations (ESC-030/031 rounds).
+
+### 2026-10-14 — discovered during Build/verification (toolbar + font environment)
+**Category:** Known Gotcha
+**Finding:** The startup notice `qt.qpa.fonts: Populating font family aliases took ~45 ms. Replace uses of missing font family "Sans Serif" with one that exists` is **Qt-internal and cannot be fixed from this codebase**. `"Sans Serif"` is Qt's own placeholder family (`QFont().family()` returns it before anything is set); the first widget that renders text makes Qt populate its alias table and log the notice once (~45 ms, one-time, harmless). Verified NOT fixed by: (a) replacing the generic `sans-serif`/`monospace` families in `config/theme.qss` with real ones (Inter/.AppleSystemUIFont/Menlo); (b) setting a real application font via `app.setFont(...)` — that fixes a bare `QLineEdit` but not the full `MainWindow`; (c) adding a font family to the toolbar's local `#MainToolbar` stylesheet. It is only **silenceable** via `QT_LOGGING_RULES=qt.qpa.fonts=false` (verified), which the owner has declined (2026-10-14) because it would also hide genuine font-loading warnings. It does **not** appear in pytest output (pytest captures stderr), so a green suite never shows it. **Do not re-investigate; accepted as-is.**
+**Source:** Toolbar font investigation (post-D40 verification)
+
+### 2026-10-14 — discovered during Build (toolbar)
+**Category:** Known Gotcha
+**Finding:** The toolbar (`#MainToolbar`) sets a **widget-local stylesheet**, so the app-level `* { font-family: "Inter", ... }` rule in `config/theme.qss` does **not** reach its controls — they render the Qt default (9pt) unless the font is re-declared inside `#MainToolbar`. Fixed in `ui/main_window.py` (font re-declared in that rule). Consequence for tests: the toolbar's intrinsic width is **font-dependent** (measured 1965px with the 9pt default, 1921px once Inter 11px applies) — the D19/D20 geometry fixtures (`_WIDE_SIZE`) must be sized for both. Also note `ui/main_window.py` is edited often and the docs cite `main_window.py:NNN` line numbers, so any edit above a cited line invalidates them (a 5-line change shifted ~10 citations).
+**Source:** Toolbar font fix (`99fb8fa`) + DG56
