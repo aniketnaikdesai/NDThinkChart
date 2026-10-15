@@ -153,7 +153,7 @@
   "horizontal"`. See Q30, A17, R15.
 - **Status:** open
 
-## DG14 — D13 watchlist width 50% + persistence — mechanism and clamping
+## DG63 — D13 watchlist width 50% + persistence — mechanism and clamping  *(renumbered from DG14, 2026-10-14 — see DG60)*
 - **Where it shows up:** D13 / AC-D13.1–D13.3 / Journey 14.
 - **Why it matters:** "Freely draggable to 50%" needs an explicit min/max and a concrete persistence store; without it the build may pick a different store or miss the `W−400` chart-minimum clamp, causing chart collapse on small windows or loss of width on restart.
 - **Suggested resolution:** Enforce `[150, min(floor(0.50×W), W−400)]` for docked watchlist (chart ≥400px) with resize-time clamping; persist via `QSettings("NDThinkChart","watchlist/width")` (or DB key) as integer pixels, restore clamped to current 50%, default 220px; floating dock not constrained. See Q25–Q26, A17, R15, R17.
@@ -681,8 +681,13 @@
   ``ibapi 9.81.1.post1``") and `tests/test_ibkr_contract_details_d22.py:234–236` — **only in the same change as
   `tests/test_d23_nonregression.py:61`**, which asserts the literal `"9.81.1.post1"` is present in that source
   (see DG61). Tests/code are not the Analyst's to edit.
-- **Status:** open (narrowed 2026-10-14) — **explained, dated and cross-referenced by the changelog**; every
-  requirements-side figure is corrected (resolved), and only the Build-side code/test prose remains.
+- **Status:** **resolved 2026-10-14** — the Build-side residue is fixed. Commit **`bb7f667`** made the
+  `ibkr/market_data.py::MarketDataManager.cancel_contract_details` docstring version-neutral (it states the
+  pinned-API absence and records the verification on both `9.81.1.post1` and the current pin
+  `ibapi-latest==10.51.1`) and retargeted both assertions off the literal `"9.81.1.post1"`
+  (`tests/test_ibkr_contract_details_d22.py`, `tests/test_d23_nonregression.py`). The requirements-side figures
+  were corrected in the same pass. Behaviour unchanged — `AC-D23.1.*` stands. This also closes the DG61 residue
+  (the survivor test that pinned the literal), per DG61's own hand-off.
 
 ## DG55 — the Constraints "Observed from repository" block contradicted the code on the database path
 - **Where it shows up:** `requirements.md` Constraints (pre-2026-10-14 `:277–278`: "SQLite (dev:
@@ -757,8 +762,14 @@
   (`docs/phase-changelog.md:120`) records D25's "`prev_price` seeded from 1m cache, else first-tick seed with NO
   evaluation (no phantom). Zero history requests", and D40 item **40.3** (`:245`) re-affirms the same guard on
   resume — but it names **no D25 test** and gives no AC→test mapping, so it neither explains nor resolves this gap.
-- **Status:** open (non-blocking; recorded, not silently reconciled; changelog confirms the behaviours but not the
-  coverage)
+- **Status:** **resolved 2026-10-14** — commit **`ada080d`** took the "relabel the tests" option (the criteria
+  are unchanged, so AC traceability is preserved). The five existing tests were relabelled to the criteria they
+  actually verify, and the three uncovered criteria gained coverage: `AC-D25.2`
+  (`test_d25_2_no_history_and_cache_seed` now asserts the request registry instead of only commenting on it),
+  `AC-D25.4` (`test_d25_4_rearm_reenables_monitoring`, `test_d25_4_alarm_added_while_disconnected` — the latter
+  asserts the intermediate staged state) and `AC-D25.1`
+  (`test_d25_1_delete_alarm_tears_down_headless_session`). `AC-D25.5` remains the batch-regression convention
+  (cf. `AC-D39.5`/`AC-D40.5`) and is verified by the full suite. All new tests are break-verified.
 
 ## DG58 — D24 acceptance criteria: four have no backing test, and one is mislabelled
 - **Where it shows up:** `requirements.md` `AC-D24.*` (`:2681–2711`); `tests/test_d24_popouts.py`
@@ -784,8 +795,13 @@
   `test_d24_alarm_full_chain.py`, which covers **AC-D24.3**. What remains untested is unchanged:
   **AC-D24.2** (drawing sync to pop-outs), **AC-D24.4** (study sync), **AC-D24.7** (reconnect with pop-outs),
   **AC-D24.10** (always-on-top default OFF) — no test references any of them.
-- **Status:** open (narrowed 2026-10-14) — AC-D24.2/.4/.7/.10 still need tests, and the `test_popout_readonly`
-  docstring still mislabels read-only as `AC-D24.3`; the AC-D24.6 coverage concern is withdrawn.
+- **Status:** **resolved 2026-10-14** — commit **`ada080d`** implements the suggested resolution in full.
+  `AC-D24.2` (`test_popout_drawing_sync`), `AC-D24.4` (`test_popout_study_sync`), `AC-D24.7`
+  (`test_popout_reconnect_replays_and_resumes`) and `AC-D24.10` (`test_popout_always_on_top_default_off`) now
+  have backing tests. `test_popout_readonly`'s label is corrected to `AC-D24.6`, and it now asserts the router
+  stays `RouterMode.IDLE` and that neither a drawing tool nor alarm mode arms. A latent defect was fixed in
+  passing: the test passed `"Trendline"` where `DRAWING_TOOLS` is lowercase, so the call had been asserting
+  nothing. Each new test is break-verified (disabling the guarded behaviour makes it fail).
 
 ## DG59 — toolbar geometry figures: the `~1716px` intrinsic minimum is stale, and D20's `~50–52px` band is macOS-only
 - **Where it shows up:** `requirements.md` D19 (`:2040`, `:2043`, `:2048–2049`, `:2065`, `AC-D19.5`) and A37
@@ -807,14 +823,17 @@
 - **Status:** resolved 2026-10-14 (documentation annotated; the underlying behaviour is unchanged)
 
 ## DG60 — two different gaps share the identifier `DG14`
-- **Where it shows up:** `design_gaps.md:138` ("DG14 — D15 horizontal line popup — single coordinate vs zone")
-  and `design_gaps.md:148` ("DG14 — D13 watchlist width 50% + persistence — mechanism and clamping").
+- **Where it shows up:** `design_gaps.md:146` ("DG14 — D15 horizontal line popup — single coordinate vs zone")
+  and `design_gaps.md:156` ("DG14 — D13 watchlist width 50% + persistence — mechanism and clamping"; when DG60
+  was written it sat at `:148` — markers move, cite the symbol).
 - **Why it matters:** any downstream citation of "DG14" is ambiguous (the D15 gap and the D13 gap are
   unrelated). Pre-existing doc defect, not opened by the recent work.
 - **Suggested resolution:** renumber the D13 entry to the next free id (nothing else in the tree cites
   `DG14`); left un-renumbered here deliberately, to avoid a gratuitous identifier change inside an audit pass —
   flagged for the owner.
-- **Status:** open (non-blocking; doc hygiene)
+- **Status:** **resolved 2026-10-14** — the D13 entry was renumbered to the next free id, **`DG63`**, and now
+  carries a back-reference to this gap; the D15 entry keeps `DG14`. Verified nothing else in the tree cited the
+  D13-side `DG14`, so no downstream citation needed updating.
 
 ## DG61 — AC-D28.6's doc-assert deletion: the *file* was kept deliberately; the real residue is a version literal pinning the stale `ibapi`
 - **Where it shows up:** `requirements.md` D28.6 / `AC-D28.6` ("the doc-assert/phantom tests are gone") vs
