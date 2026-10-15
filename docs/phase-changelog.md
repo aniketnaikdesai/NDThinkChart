@@ -107,7 +107,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ## Phase 3 — Session keystone + pop-outs + alarm monitor (3a→3b→3c→3d)
 
-- **Status:** Code complete and review-**APPROVED**; branch `phase3-sessions-popouts` NOT pushed and NOT merged (stacked on `d27-correctness` @ `69a2313`; stays unmerged until the Phase 4 AC-D28.4 performance gate passes, per the R52 reconciliation).
+- **Status:** Code complete and review-**APPROVED**; branch `phase3-sessions-popouts` (stacked on `d27-correctness` @ `69a2313`) **merged to `main`** and pushed — the Phase 4 AC-D28.4 performance gate later passed, which cleared it per the R52 reconciliation.
 - **Review:** first verdict **REQUEST-CHANGES** (5 wiring items); fix pass done; re-review verdict **Phase 3 PASSES gate**.
 - **Tests:** 855 passing, 0 failing (offscreen). 36 new tests (27 Phase-3 + 9 fix-pass); no test touches live TWS/network.
 
@@ -148,7 +148,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ## Phase 4 — Historical pacing, performance, teardown, test hardening
 
-- **Status:** Code complete and review-**APPROVED**; branch `phase4-pacing-perf-teardown` (stacked on `phase3-sessions-popouts` @ `ba28c08`) NOT pushed and NOT merged. This is the last phase of the plan.
+- **Status:** Code complete and review-**APPROVED**; branch `phase4-pacing-perf-teardown` (stacked on `phase3-sessions-popouts` @ `ba28c08`) **merged to `main`** and pushed. *(This was not the last phase: four further phases — D36–D40 — followed; see their entries below.)*
 - **Review:** first verdict **REQUEST-CHANGES** (2 items); fix pass done; re-review verdict **Phase 4 PASSES gate** — and per the R52 reconciliation, **Phase 3 is cleared to merge to `main`**.
 - **Tests:** 898 passing, 0 failing (offscreen). 43 new tests across the phase; no test touches live TWS/network.
 
@@ -189,7 +189,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ## Phase D39 — Volume-burst alerts + symbol search
 
-- **Status:** Code complete and review-**APPROVED**; branch `feat/d39-burst-search` merged to `main` @ `83f792a` (feature commit `90b01e7`, post-review advisories `0b50fb7`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d39-burst-search` merged to `main` @ `83f792a` (feature commit `90b01e7`, post-review advisories `0b50fb7`), and pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
 - **Review:** **APPROVED**, no blocking findings. B.6 mock-endpoint grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`).
 - **Tests:** 1009 passing, 0 failing (offscreen): 970 pre-existing + 39 new `tests/test_d39_burst_search.py`; no test touches live TWS/network; mocked `ib_client` only. Two load flakes observed in reviewer runs (`test_attach_live_feed_defers_with_status_and_retries`, `test_smoke_gate_three_popouts`) — pass in isolation, not regressions.
 
@@ -224,7 +224,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ### Follow-ups filed (not Phase D39 scope)
 - D40 not started.
-- (Carried) depth heatmap default ON pending owner confirmation (D37, reviewer recommends OFF); delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests (plus the two D39 reviewer-run load flakes); 4h/daily forming-candle exactness; stale reqId accumulation.
+- (Carried) delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests (plus the two D39 reviewer-run load flakes); 4h/daily forming-candle exactness; stale reqId accumulation.
 
 ### USAGE.txt
 - New "Volume-burst alerts & symbol search (Phase D39)" section: creating a burst alarm, z-threshold, warm-up note, search box location, proxy labels.
@@ -233,7 +233,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ## Phase D40 — TWS daily-lifecycle pause/resume
 
-- **Status:** Code complete and review-**APPROVED**; branch `feat/d40-tws-lifecycle` merged to `main` @ `b366b19` (feature `4ac2453`, review fixes `d6f38e8` — hashes per git history), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d40-tws-lifecycle` merged to `main` @ `b366b19` (feature `4ac2453`; the reviewer's findings were applied **in the merge commit `b366b19` itself** — an earlier draft of this entry cited a review-fix SHA `d6f38e8`, which **does not exist** in the repository), and pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
 - **Review:** **CHANGES REQUIRED → rework → APPROVED.** First pass found 1 blocking (B1, below); the Coder fixed it plus 2 advisories, added a B1 regression test (verified to **fail on the old call order** with the stale 99.0 seed and **pass on the fix**), and the re-check verified APPROVED. B.6 mock-endpoint re-grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`).
 - **Tests:** 1020 passing, 0 failing (offscreen): 1009 pre-existing + 11 new `tests/test_d40_tws_lifecycle.py`; no test touches live TWS/network; mocked `ib_client` only. One load flake in the reviewer's run (`test_place_order_defers_when_limiter_empty` — wall-clock timing; the order path is untouched — passes in isolation, not a regression).
 
@@ -244,7 +244,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 | `c24f4f3` | 40.2 | **Pause** — new `AlarmMonitor.pause_all()`: records per-symbol pause-start, sets `monitoring_paused` on every alarmed session; both evaluation entry points (price-alarm and burst-alarm in `_on_aggregated_bar`) gate on the flag — headless uses the same path. `conn_badge_text(..., monitoring_paused=...)` shows the owner-approved **"Monitoring paused — TWS disconnected"** in amber `#fbbf24`, never green. Proxy burst alarms pause with their tape |
 | `c24f4f3` | 40.3 | **Resume** — on `connected`, the as-built D27 replay re-issues subscriptions, then `reconcile()` FIRST, then `resume_all()`: every session's `prev_price` re-seeded to None (**AC-D25.3 first-tick-no-eval guard** — no phantom triggers), staged subscribes finished, gap intervals returned. Per-symbol gap report surfaced in the status bar, e.g. "ES, NQ unmonitored 22:14–09:40". Alarms created while TWS is down are **staged** (`_monitor_subscribe_pending`) and covered on resume. Backfill waves in flight keep the existing generation fencing |
 | `c24f4f3` | 40.4 | **Transient path unchanged** — poll-driven drops and 1100/1101/1102 stay transient: fast D27 reconnect, no pause UI, no gap accounting, `prev_price` untouched |
-| `d6f38e8` | Review | **B1 fix (blocking):** call order swapped to reconcile-then-resume — reconcile-created sessions now take the staged path (`monitoring_paused=True`, `last_chart_price=None`, subscribe deferred) instead of the normal path with a stale cache seed (phantom-trigger hole). Regression test `test_d40_2_resume_session_recreated_mid_pause_no_phantom`. **A1:** `_last_disconnect_class` reset on connect (a stale TWS_GONE would otherwise downgrade a later transient drop to the paused path). **A2:** cancel-then-arm reconnect timer (no double-arm) |
+| `b366b19` | Review | **B1 fix (blocking):** call order swapped to reconcile-then-resume — reconcile-created sessions now take the staged path (`monitoring_paused=True`, `last_chart_price=None`, subscribe deferred) instead of the normal path with a stale cache seed (phantom-trigger hole). Regression test `test_d40_2_resume_session_recreated_mid_pause_no_phantom`. **A1:** `_last_disconnect_class` reset on connect (a stale TWS_GONE would otherwise downgrade a later transient drop to the paused path). **A2:** cancel-then-arm reconnect timer (no double-arm) |
 
 ### Drive-by fixes (found while implementing, verified real)
 1. **Reconnect loop never restarted on `connectionClosed`:** the old code stopped polling and scheduled nothing — the app could never detect a morning TWS login without a restart. Fixed as part of 40.1 (reviewer-verified real).
@@ -262,7 +262,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 - B.6 mock-endpoint invariant: PASSED on the re-grep of the full D40 diff.
 
 ### Follow-ups filed (not Phase D40 scope)
-- (Carried) depth heatmap default ON pending owner confirmation (D37, reviewer recommends OFF); delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; flaky UI-timing tests under load; 4h/daily forming-candle exactness; stale reqId accumulation.
+- (Carried) delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; flaky UI-timing tests under load; 4h/daily forming-candle exactness; stale reqId accumulation.
 - **No further phases (D41+) without Aniket's explicit go-ahead** (owner, 2026-10-13).
 
 ### USAGE.txt
@@ -272,14 +272,14 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ## Phase D38 — Events & news (event markers + news-for-holdings digest)
 
-- **Status:** Code complete and review-**APPROVED**; branch `feat/d38-events-news` merged to `main` @ `8599ce4` (feature commit `b893911`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d38-events-news` merged to `main` @ `8599ce4` (feature commit `b893911`), and pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
 - **Review:** **APPROVED**, no blocking findings. B.6 mock-endpoint grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`). Single-secondary-source rule PASSED (no other external API anywhere in the tree).
 - **Tests:** 970 passing, 0 failing (offscreen): 947 pre-existing + 23 new `tests/test_d38_events_news.py`; no test touches live TWS/network; mocked `ib_client` only. yfinance calls are mocked at the boundary; a B.6-style no-mock-endpoint test follows the D36/D37 pattern.
 
 ### Commits
 | SHA | Item | Change |
 |---|---|---|
-| `b893911` | 38a.1 | `ibkr/news.py::NewsManager` — `reqNewsProviders()` → the user's actual entitlement list (API news requires API-specific subscriptions — most TWS news services are NOT available via the API); per-holding `reqHistoricalNews(conId, providerCodes, startDateTime, endDateTime, totalResults)` issued **sequentially via a FIFO queue** (no headline-fetch storm on digest open), pacing-aware; `reqNewsArticle(providerCode, articleId)` on headline click. Bridge: `historical_news` / `news_article` signals; `ibkr/client.py`: 4 new overrides (10.51.1 arg-for-arg verified) |
+| `b893911` | 38a.1 | `ibkr/news.py::NewsManager` — `reqNewsProviders()` → the user's actual entitlement list (API news requires API-specific subscriptions — most TWS news services are NOT available via the API); per-holding `reqHistoricalNews(conId, providerCodes, startDateTime, endDateTime, totalResults)` issued **sequentially via a FIFO queue** (no headline-fetch storm on digest open), pacing-aware; `reqNewsArticle(providerCode, articleId)` on headline click. Bridge: 4 signals — `news_providers` / `historical_news` / `historical_news_end` / `news_article`; `ibkr/client.py`: 4 new overrides (10.51.1 arg-for-arg verified) |
 | `b893911` | 38a.2 | `ui/news_digest_dock.py` — **repositionable, closable digest dock**, reopenable from a minimal View-only menubar (`View → News Digest`, `Ctrl+Shift+N`; the app had no menubar — added, drive-by). Refresh = **backfill on open** (38a.1) + **live push primary** (generic tick `"292"` on holdings' S0 subscriptions → `tickNews` → headline prepended) + **15-min periodic re-query backstop** (QTimer, only while the digest is open). Non-charted holdings get lightweight headless `TickerSession`s while the digest is open (D24 headless semantics), torn down on close; their S0 lines are counted in the MD-line budget. Honest states — "No API news subscription" (entitlement honesty), "No holdings", "Headlines unavailable" — never silently empty |
 | `b893911` | 38b.1 | **Event-provider layer** — new `data/events/` package: `provider.py` (`Event` dataclass with id/type/symbol/date/source/details, corporate-events-only guard **rejecting non-corporate types at the provider boundary** — AC-D38.4; `EventProvider` ABC; defensive tick-59 dividend parser `parse_ib_dividend_string` that **never raises**), `ibkr_source.py` (dividends from session tick-59 state, **skips futures contracts** — no dividend stream there), `yfinance_source.py` (SQLite per-symbol cache: 24h TTL, **6h revalidation for events within 7 days** so corrections propagate; single `QThread` worker, **≥1s between calls**, own connections — never on the IBKR pacing budget; lazy import; `failed_at` distinguishes outage from loading). `requirements.txt`: **`yfinance==1.7.0`** with a re-pin policy comment (re-pin quarterly or whenever Yahoo breaks the library; every re-pin re-runs the full offscreen suite). **yfinance is the sole secondary source — no other external API** (owner-mandated 2026-10-13; WSH removed entirely) |
 | `b893911` | 38b.2 | `ui/event_marker_overlay.py` — time-axis markers with **distinct icon/color per type**: earnings gold ◆E, dividend green ●D, split blue ▲S; countdown label ("Earnings in 3d") for the next upcoming event. Source priority **IBKR tick-59 dividends first → yfinance** (earnings/splits + dividend fallback); IBKR-first merge **drops same-date yfinance dividends**. **No-data rule (owner):** both sources empty → explicit "no event data" state, logged for the owner (owner decides on feature removal). Markers are **id-keyed, not date-keyed** — date corrections move the marker |
@@ -310,7 +310,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 ### Follow-ups filed (not Phase D38 scope)
 - D39–D40 not started.
 - Re-pin `yfinance` quarterly or whenever Yahoo breaks the library — every re-pin re-runs the full offscreen suite (policy recorded in `requirements.txt`).
-- (Carried) depth heatmap default ON pending owner confirmation (D37, reviewer recommends OFF); delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests; 4h/daily forming-candle exactness; stale reqId accumulation.
+- (Carried) delayed-depth labeling if ever observed; pop-out panels to adopt footprint later; `contract.class_` never populated; `_close_position_by_id` bypass; kill-switch failed-cancel marking; two flaky UI-timing tests; 4h/daily forming-candle exactness; stale reqId accumulation.
 
 ### USAGE.txt
 - New "Event markers & news digest (Phase D38)" section: marker icons, countdown, digest open/close, no-entitlement messages, yfinance note.
@@ -319,7 +319,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ## Phase D37 — Microstructure (depth heatmap + auction imbalance)
 
-- **Status:** Code complete and review-**APPROVED**; branch `feat/d37-microstructure` merged to `main` @ `9958891` (feature commit `69c2d66`), NOT pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d37-microstructure` merged to `main` @ `9958891` (feature commit `69c2d66`), and pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
 - **Review:** **APPROVED**, no blocking findings. B.6 mock-endpoint grep PASSED (production tree clean — no mock/fake/stubbed endpoint of any kind outside `tests/`).
 - **Tests:** 947 passing, 0 failing (offscreen): 927 pre-existing + 20 new `tests/test_d37_microstructure.py`; no test touches live TWS/network; mocked `ib_client` only. One load flake observed in `test_smoke_gate_three_popouts` (wall-clock timing gate; passes in isolation and on re-runs — not a regression).
 
@@ -337,7 +337,7 @@ coder's and reviewer's reports for that phase, verified against the branch.
 1. **Latent main-branch bug:** `primary_session` was referenced **26×** but never defined — any footprint/depth toggle would have raised `AttributeError`. Fixed: properly backed property added (`ui/main_window.py`).
 
 ### Decisions recorded
-- Depth heatmap **default ON is PENDING owner confirmation** (2026-10-13) — the reviewer recommends **OFF** for consistency with D36's OFF default and to avoid burning depth budget by default. Code currently defaults ON.
+- Depth heatmap **default ON — CONFIRMED by the owner 2026-10-14 (Q44 / assumption A67)**. The reviewer had recommended **OFF** for consistency with D36's OFF default and to avoid burning depth budget by default; the owner chose ON. Code defaults ON (unchanged).
 - Heatmap placement — **chart overlay** (price-aligned, live render layer), not a dock panel (owner, 2026-10-13).
 - Auction presentation — **expandable header chip**, not a panel (owner, 2026-10-13).
 - Imbalance — **compute both, headline top-5, top-10 as a click toggle** on the headline label (owner, 2026-10-13).
@@ -361,14 +361,14 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ## Phase D36 — Footprint charts
 
-- **Status:** Code complete and review-**APPROVED**; branch `feat/d36-footprint` @ `89fe152` (single squashed commit), NOT pushed and NOT merged to `main`. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
+- **Status:** Code complete and review-**APPROVED**; branch `feat/d36-footprint` @ `89fe152` (single squashed commit), later **merged to `main` @ `efffc51`** and pushed. Docs gate (this entry) on `docs/d24-d28-requirements-architecture`.
 - **Review:** first verdict **CHANGES REQUIRED** (3 blocking + 5 advisories + 1 cosmetic); rework done; re-review verdict **APPROVED** (every finding verified, not trusted).
 - **Tests:** 927 passing, 0 failing (offscreen). 29 new `tests/test_d36_footprint.py`; no test touches live TWS/network; mocked `ib_client` only. Includes `test_ac_d36_3_production_tree_has_no_mock_endpoint` — scans `ibkr/`, `services/`, `ui/`, `data/` for fake/mock/stub/simulated clients/servers/endpoints (owner rule: mocks exist only in tests).
 
 ### Commits
 | SHA | Item | Change |
 |---|---|---|
-| `89fe152` | 36.1 | `ibkr/tick_history.py::TickHistoryManager` — backward-paging `reqHistoricalTicks` client (1000-tick windows, BID_ASK + TRADES), pacing-counted via `pacing_manager` (never sleeps), zero `reqTickByTickData` (AC-D36.3 asserted on the request registry + source call-site scan). Bridge: 3 new signals; `ibkr/client.py`: 3 overrides |
+| `89fe152` | 36.1 | `ibkr/tick_history.py::TickHistoryManager` — backward-paging `reqHistoricalTicks` client (1000-tick windows, BID_ASK + TRADES), pacing-counted via `pacing_manager` (never sleeps), zero `reqTickByTickData` (AC-D36.3 asserted on the request registry + source call-site scan). Bridge: 2 new signals; `ibkr/client.py`: 2 overrides (a third pair — the histogram path — was removed under this phase's deviation 1) |
 | `89fe152` | 36.2 | `services/footprint_service.py` — per-level `{bidVol, askVol, delta}` buckets from BID_ASK ticks, per-level trade volume + trade count from TRADES ticks; bounded waves (≤60 requests/wave), viewport-newest-first, lazy-fill on scroll/timeframe change, structural per-bar loading/unavailable states, forming-bar incremental refresh following the selected metric |
 | `89fe152` | 36.3 | `ibkr/contracts.py`: `INDEX_PROXY` (SPX→ES, NDX→NQ, DJI→YM, RUT→RTY), `resolve_footprint_contract()` (front-month via existing `_front_month()` schedule), `footprint_cache_key()` — all cache/state keys use the RESOLVED contract (e.g. `ESZ6`), never the continuous symbol |
 | `89fe152` | 36.4 | `data/footprint_cache.py` + additive `footprint_cache` table (`data/db.py`) — one compressed JSON blob per (resolved contract, date, timeframe); read before backfill, write on completion; **only** for SPX/SPY/QQQ/ES-front/NQ-front (owner decision), all other symbols re-fetch per session (in-memory only) |
