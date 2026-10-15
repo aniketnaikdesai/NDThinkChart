@@ -18,7 +18,11 @@
   boundaries; applying the equity `04:00–20:00 ET` model may mis-shade them.
 - **Suggested resolution:** Keep the accepted default for this run; if futures are
   ever charted with shading, add a per-contract session map.
-- **Status:** open
+- **Status:** **closed 2026-10-14 — accepted default, not a defect.** Verified: `services/session_service.py`
+  is explicitly an **equity** RTH/ETH model (pre-market 04:00–09:30 ET, post-market 16:00–20:00 ET) with no
+  `secType`/per-contract handling — i.e. exactly the "keep the accepted default for this run" disposition this
+  entry proposed. Futures charted with shading therefore follow the equity bands; that is a **known limitation**,
+  deferred as feature suggestion **FS16** (per-contract session map), not an open gap.
 
 ## DG2 — D2 chip decimal precision is unspecified
 - **Where it shows up:** D2 / AC-D2.1.
@@ -67,7 +71,10 @@
 - **Suggested resolution:** Position as `panel.width - ctrl.width - axis_width - 12`
   with `axis_width = price_plot.getAxis('right').width()` (fallback 50) and `x >= 8`
   clamp. See Q16, R6, A8.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q16 answered):
+  `ui/chart_panel.py::ChartPanel._position_zoom_controls` derives the axis width live —
+  `axis_w = self.price_plot.getAxis('right').width()` — and positions the cluster relative to it, so the cluster
+  stays left of a dynamically-sized price axis.
 
 ## DG6 — ~~D5 volume log scale cannot display zero~~ SUPERSEDED by D8
 - **Where it shows up:** D5 / AC-D5.2 — **superseded** (see D8 / `AC-D8.1`).
@@ -84,7 +91,10 @@
   with it the two become indistinguishable, defeating the requested clarity.
 - **Suggested resolution:** Keep wick fixed at ~1px regardless of zoom/density;
   let body width scale with density (≥4× wick). See Q18, A10, R8.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q18 answered): in `ui/candlestick_item.py`
+  the wick and body outline are drawn with `setWidthF(1.0)` + `setCosmetic(True)` (device-pixel stable at any
+  density), while the body half-width is clamped to a 4-device-pixel minimum (`min_w = 2.0 / px_per_sec`;
+  `if w < min_w: w = min_w`). The body therefore stays ≥4× the 1px wick at high bar density.
 
 ## DG8 — D7 gap vs framing — inter-candle gap vs outer padding
 - **Where it shows up:** D7 / AC-D7.1, AC-D7.2.
@@ -94,7 +104,10 @@
 - **Suggested resolution:** Use inter-candle gap (body half-width `0.325` instead of
   `0.40`, gap 35% of spacing, confirmed Q19) as proposed in Q19; keep `xRange`
   `-2*bar_w / +8*bar_w` unchanged. See Q19, A11, R9.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q19 answered):
+  `ui/candlestick_item.py:111` — `w = median_diff * 0.325  # half-width = 32.5% of spacing (gap 35%)`, with the
+  `xRange` framing (`-2*bar_w / +8*bar_w`) unchanged. The gap is achieved by narrowing bodies, not by widening
+  the frame, as decided.
 
 ## DG9 — D8 volume nice-max and tick formatting — which set?
 - **Where it shows up:** D8 / AC-D8.1, AC-D8.3, AC-D8.4, AC-D8.5.
@@ -115,7 +128,9 @@
   separation.
 - **Suggested resolution:** Use exactly the same `w` (width `w*2`, gap 35%) as
   proposed in Q21; keep XLink. See Q21, A13, R11.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q21 answered): `ui/chart_panel.py:1690` —
+  `self.volume_bars.setOpts(x=vol_x, height=vol_h, width=w_vol*2, brushes=vol_colors)` — the volume bars share
+  the price body's `w` (width `w*2`, 35% gap) with X still `setXLink`ed, so price and volume columns align.
 
 ## DG11 — D10 volume toggle — where and should it persist?
 - **Where it shows up:** D10 / AC-D10.1, AC-D10.2.
@@ -135,7 +150,10 @@
 - **Suggested resolution:** Place labels inside the plot at `view_rect.right() - 4`,
   `anchor=(1, 0.5)`, same colour as the drawing, one per price, stacking when
   nearby. See Q23, A15, R13.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q23 answered): `ui/drawing_overlay.py`
+  places the inner-right labels **inside the plot** — `anchor=(1, 0.5)` (`:385`) at
+  `view_rect_scene.right() - 4` (`:392`) — with positioning and stacking finalised by
+  `_update_inner_labels()` (`:377`).
 
 ## DG13 — D12 zone popup — Extend omitted, 4 tabs
 - **Where it shows up:** D12 / AC-D12.1, Style tab.
@@ -145,7 +163,10 @@
 - **Suggested resolution:** Omit `Extend` entirely (zone always both-sides) and
   keep `Border`, `Middle line`, `Background` as shown; double-click is the only
   opener. See Q24, A16, R14.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q24 answered):
+  `ui/zone_settings_dialog.py` provides four tabs (Style / Text / Coordinates / Visibility) and carries an
+  explicit `# NOTE: no "Extend" control — zone always extends both sides (Q24)`; `Border`, `Middle line` and
+  `Background` remain as shown in the reference.
 
 ## DG14 — D15 horizontal line popup — single coordinate vs zone
 - **Where it shows up:** D15 / AC-D15.1, Coordinates tab.
@@ -155,13 +176,20 @@
 - **Suggested resolution:** Keep a dedicated `Horizontal line` dialog with single
   `#1 (price)` stepper (as per the attachment) or hide `#2` when `kind ==
   "horizontal"`. See Q30, A17, R15.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q30 answered):
+  `ui/horizontal_line_settings_dialog.py` is a **dedicated** horizontal-line dialog (not the zone dialog) with
+  four tabs (Style / Text / Coordinates / Visibility) and a single `#1 (price)` field — no bar, no `#2`.
 
 ## DG63 — D13 watchlist width 50% + persistence — mechanism and clamping  *(renumbered from DG14, 2026-10-14 — see DG60)*
 - **Where it shows up:** D13 / AC-D13.1–D13.3 / Journey 14.
 - **Why it matters:** "Freely draggable to 50%" needs an explicit min/max and a concrete persistence store; without it the build may pick a different store or miss the `W−400` chart-minimum clamp, causing chart collapse on small windows or loss of width on restart.
 - **Suggested resolution:** Enforce `[150, min(floor(0.50×W), W−400)]` for docked watchlist (chart ≥400px) with resize-time clamping; persist via `QSettings("NDThinkChart","watchlist/width")` (or DB key) as integer pixels, restore clamped to current 50%, default 220px; floating dock not constrained. See Q25–Q26, A17, R15, R17.
-- **Status:** open
+- **Status:** **resolved 2026-10-14** — implemented as proposed (Q25–Q26 answered):
+  `ui/dock_layout.py::watchlist_max_width` returns
+  `max(WATCHLIST_MIN_WIDTH, min(floor(0.50 * chart_area_w), chart_area_w - CHART_MIN_WIDTH))` — precisely the
+  proposed `[150, min(floor(0.50×W), W−400)]` clamp, with `CHART_MIN_WIDTH = 400`; the width persists via
+  `QSettings` under `WATCHLIST_WIDTH_KEY = "watchlist/width"` (`ui/watchlist_panel.py:96`) and is clamped on
+  restore by `load_watchlist_width(...)`.
 
 ## DG16 — ESC-006: crosshair chip and drawing labels shared the right-edge lane
 - **Where it shows up:** D11 / AC-D11.4 / ESC-006.

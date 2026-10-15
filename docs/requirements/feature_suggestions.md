@@ -110,6 +110,14 @@
 - **Suggested priority:** low–medium (a periodic/on-close `save_bars` of the current session's bars is small and
   self-contained, and would trim some redundant historical traffic on restart).
 
+## FS16 — Per-contract session boundaries for futures
+- **Gap/opportunity:** `services/session_service.py` implements an **equity** RTH/ETH model (pre-market
+  04:00–09:30 ET, post-market 16:00–20:00 ET). Futures trade nearly 24 hours with different session boundaries,
+  so charting a futures symbol with session shading enabled produces mis-shaded bands.
+- **Why not in the original ask:** DG1 was disposed as "keep the accepted default for this run"; a
+  per-contract session map was explicitly deferred.
+- **Suggested priority:** low (matters only when futures are charted with shading on).
+
 ## FS14 — Per-pop-out connection indicator
 - **Gap/opportunity:** a pop-out opened while IBKR is disconnected renders cached bars but shows **no**
   per-window connection state — the only connecting affordance is the main window's `conn_badge`
