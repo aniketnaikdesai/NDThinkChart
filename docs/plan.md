@@ -12,6 +12,16 @@
 > **ON** (A67, Q44). No "DRAFT" / "unmerged" / "pending owner review" wording remains for
 > D24–D28.
 
+> **Citation convention (mirrors `docs/architecture.md`, adopted 2026-10-14 per `DG56`).**
+> Cite a location as **`path::symbol`** — `ui/main_window.py::MainWindow._open_popout`,
+> `config/settings.py::MAX_POPOUTS` — because a symbol survives any edit above it. A bare
+> `file:line` is **indicative only** and drifts whenever lines are inserted above it
+> (`99fb8fa` inserted 5 lines into `ui/main_window.py` and invalidated ~10 references at once).
+> Where a line is kept it follows the symbol, in parentheses. The historical D16–D23 record
+> (architecture increment sections, and the D23 phases below) keeps its at-that-commit line
+> numbers deliberately — bounded, not renumbered; every symbol in it was re-verified against
+> the tree. See `docs/architecture.md` § *Citation convention*.
+
 Scope: **D23 only** — the two *nice-to-have* Code Reviewer findings on the just-built **D22** work,
 both approved by the user for a full-pipeline fix:
 
@@ -277,14 +287,15 @@ alarm monitor (D25) (855 passed, `ba28c08`); Phase 4 = **4a** rolling-600 s hist
   automated test transmits an order or connects to live TWS (Q9). The former "G5" reference in
   DEC-4 is dangling (no such item exists) and is recorded as resolved.
 - **Q43** — pop-out **always-on-top defaults OFF** (standard windows; per-window toggle via the
-  header context menu) — `AC-D24.10` / A66, matching `ui/popout_window.py:56`/`:289`.
+  header context menu) — `AC-D24.10` / A66, matching
+  `ui/popout_window.py::PopoutChartWindow._always_on_top` / `::PopoutChartWindow._toggle_always_on_top`.
 
 **As-built feature detail (verified against the merged code 2026-10-14 — see the plan-vs-code
 verification section at the end of this file):**
 
 | Feature | As-built | ACs |
 |---|---|---|
-| **D24** pop-out chart windows | `ui/popout_window.py::PopoutChartWindow` — chrome-free (28px header `SYMBOL · timeframe · mode` + close; no toolbar/docks/status bar), `ChartPanel(editable=False)` (drawing / alarm-placement / study / timeframe / mode controls disabled — interaction only; overlays still render, crosshair/zoom/pan work); timeframe/mode/ext-hours frozen at creation (A56); `MAX_POPOUTS = 10` (`config/settings.py:42`) — the 11th is **refused with a status-bar message** (`ui/main_window.py:845–851`), the affordance is *not* `setEnabled(False)`-ed; opened while disconnected → cached bars render and the subscription starts on connect, with **no per-pop-out "connecting" indicator** (main window `conn_badge` only); always-on-top default OFF with per-window toggle; `AC-D24.9` restore via the additive `popouts` table + `data/popout_store.py`; one refcounted `reqRealTimeBars` per symbol; per-symbol sync of bars/studies/zones/lines/alarms with the main chart the sole writer (A64); `load_chart(symbol, timeframe, extended_hours)` parameterised | `AC-D24.1`–`AC-D24.10` |
+| **D24** pop-out chart windows | `ui/popout_window.py::PopoutChartWindow` — chrome-free (28px header `SYMBOL · timeframe · mode` + close; no toolbar/docks/status bar), `ChartPanel(editable=False)` (drawing / alarm-placement / study / timeframe / mode controls disabled — interaction only; overlays still render, crosshair/zoom/pan work); timeframe/mode/ext-hours frozen at creation (A56); `MAX_POPOUTS` (`config/settings.py::MAX_POPOUTS` = 10) — the 11th is **refused with a status-bar message** (`ui/main_window.py::MainWindow._open_popout`), the affordance is *not* `setEnabled(False)`-ed; opened while disconnected → cached bars render and the subscription starts on connect, with **no per-pop-out "connecting" indicator** (main window `conn_badge` only); always-on-top default OFF with per-window toggle; `AC-D24.9` restore via the additive `popouts` table + `data/popout_store.py`; one refcounted `reqRealTimeBars` per symbol; per-symbol sync of bars/studies/zones/lines/alarms with the main chart the sole writer (A64); `load_chart(symbol, timeframe, extended_hours)` parameterised | `AC-D24.1`–`AC-D24.10` |
 | **D25** headless alarm monitor | `services/alarm_monitor.py::AlarmMonitor` + `AlarmStore.symbols_with_active_alarms()`; every alarmed symbol with no open view gets an ordinary headless `TickerSession` (`views == 0`, `monitored == True`) — one 5-sec RT sub, `BarAggregator("1m")`, per-push `evaluate_alarms`; `prev_price` seeded from the 1m cache else first-tick-no-eval (A59); **zero historical requests** (A60); reconcile on connect / alarm add-update-delete-rearm-trigger / view attach-detach; teardown only when `views == 0 AND NOT monitored` (A61); pacing guardrail with a warning naming unmonitored symbols (A63) | `AC-D25.1`–`AC-D25.5` |
 | **D26** P0 real-money safety | bracket children on the **opposite** side; `id_manager.reserve(3)` before transmit; SL/TP dialog honestly labelled (no silent order transmission); MKT buttons fixed (qty from input, qty>0 guard); `IBKR_PORT == 7496` fail-fast + badge derived from the verified port and `AccountType`; explicit Buy/Sell side; single `validate_order()` gate; `reqGlobalCancel()` kill switch + per-ID cancels; reject/connection codes promoted to first-class alerts; order entry blocked while disconnected; orders removed from the realtime throttle onto their own `OrderRateLimiter` | `AC-D26.1`–`AC-D26.10` |
 | **D27** P1 correctness | `_last_chart_price` never moves backward; MACD/ICT/gaps/VIX overlays plot in display-x; reconnect works (`connect()` not `eConnect`; subs type-tagged and replayed with rebound reqIds); per-session stream-health state + backoff retry; positions priced from a `symbol → last_price` map; `reqPositions`/`reqAccountSummary` on connect; bar-period backfill-gap detection; ET-anchored daily/4h aggregation; aggregator primed from trailing 5-sec history; drawing style edits persist | `AC-D27.1`–`AC-D27.11` |
@@ -371,8 +382,9 @@ findings). D1–D36 not reopened.
 ### As-built deviations from plan
 
 1. **Depth heatmap default ON — owner-confirmed 2026-10-14 (Q44, assumption A67).** The plan did not
-   specify a default; the code defaults ON (`ui/chart_panel.py:368` adds `DepthHeatmapItem`
-   unconditionally, `:370` `_depth_enabled_ui = True`). The reviewer recommended **OFF** for
+   specify a default; the code defaults ON (`ui/chart_panel.py::ChartPanel.depth_heatmap_item` adds
+   `DepthHeatmapItem` unconditionally, `ui/chart_panel.py::ChartPanel._depth_enabled_ui` is `True`).
+   The reviewer recommended **OFF** for
    consistency with D36's OFF default and to avoid burning depth budget by default; the **owner
    confirmed ON** on 2026-10-14, so the shipped default stands and the reviewer's OFF suggestion is
    an accepted-and-overridden trade-off (recorded as an architecture risk, not an open question).
@@ -512,10 +524,10 @@ Every D24–D28 and D36–D40 feature in this plan was cross-checked against the
 
 | Item | Drift | Correction |
 |---|---|---|
-| D24 pop-out cap (`AC-D24.5`) | `architecture.md` and this plan said the pop-out action is **"disabled at the cap"** | Rewritten: the 11th pop-out is **refused with a status-bar message** (`ui/main_window.py:845–851`); the affordance is **not** `setEnabled(False)`-ed |
-| D24 session signals | `architecture.md` named a single **`bars_updated`** signal | Rewritten to the shipped pair: **`bar_updated`** (incremental) **and `bars_refreshed`** (full replace) — `ui/ticker_session.py:65–73` |
-| D24 disconnected pop-out | Requirement asserted a **per-pop-out "connecting" indicator** | Removed/corrected: cached bars render and the subscription starts on connect; there is **no per-pop-out indicator** — only the main window's `conn_badge` (`ui/main_window.py:295`) |
-| D37 depth heatmap default | This plan said **"owner decision pending … awaiting owner confirmation 2026-10-13"** | Rewritten as **owner-confirmed ON 2026-10-14** (Q44/A67); matches `ui/chart_panel.py:368`/`:370`; D36 footprint stays OFF |
+| D24 pop-out cap (`AC-D24.5`) | `architecture.md` and this plan said the pop-out action is **"disabled at the cap"** | Rewritten: the 11th pop-out is **refused with a status-bar message** (`ui/main_window.py::MainWindow._open_popout`); the affordance is **not** `setEnabled(False)`-ed |
+| D24 session signals | `architecture.md` named a single **`bars_updated`** signal | Rewritten to the shipped pair: **`bar_updated`** (incremental) **and `bars_refreshed`** (full replace) — `ui/ticker_session.py::TickerSession.bar_updated` / `::TickerSession.bars_refreshed` |
+| D24 disconnected pop-out | Requirement asserted a **per-pop-out "connecting" indicator** | Removed/corrected: cached bars render and the subscription starts on connect; there is **no per-pop-out indicator** — only the main window's `conn_badge` (`ui/main_window.py::MainWindow.conn_badge`) |
+| D37 depth heatmap default | This plan said **"owner decision pending … awaiting owner confirmation 2026-10-13"** | Rewritten as **owner-confirmed ON 2026-10-14** (Q44/A67); matches `ui/chart_panel.py::ChartPanel.depth_heatmap_item` / `::ChartPanel._depth_enabled_ui`; D36 footprint stays OFF |
 | D24–D28 status | Plan/architecture described the increments as as-built but the requirements still carried "DRAFT" | Plan now states **as-built / OWNER-APPROVED 2026-10-14 (Q41)**; no DRAFT / unmerged / pending-owner-review wording remains |
 | "gated in TWS" (DEC-4) | Plan/architecture still carried the retired gate | Removed/rewritten per Q42 — D26 is planned against the live-order path; the safety behaviour (`IBKR_PORT == 7496` fail-fast, explicit user action per order, confirm dialogs) is retained |
 | `AC-D36.*`–`AC-D40.*` citations | Cited while undefined (DG46) | Re-checked against the now-authored text: `AC-D36.3` (ticks-only + no mock endpoint), `AC-D38.4` (corporate-events-only guard), `AC-D40.1`–`AC-D40.4` (classification/pause, resume-without-phantoms, gap report + staging, transient path) — **all consistent**; no citation needed changing |
@@ -531,7 +543,7 @@ remains required and is kept version-neutral in both artifacts.
 `check_live_port` (`:11`/`:20`), `MAX_ORDER_NOTIONAL = 25000` (`:39`), `_always_on_top = False`
 (`ui/popout_window.py:56`) + toggle (`:289`), `DepthHeatmapItem` added unconditionally
 (`ui/chart_panel.py:368`) with `_depth_enabled_ui = True` (`:370`), `TickerSession` signal pair
-(`ui/ticker_session.py:65–73`), pop-out cap refusal (`ui/main_window.py:845–851`),
+(`ui/ticker_session.py:65–73`), pop-out cap refusal (`ui/main_window.py::MainWindow._open_popout`),
 `CACHEABLE_SYMBOLS = {"SPX","SPY","QQQ","ES","NQ"}` (`data/footprint_cache.py:26`),
 `MD_LINE_CAP = 100` / `MD_LINE_WARN_AT = 90` (`services/md_line_guard.py:16–17`),
 `DEFAULT_Z_THRESHOLD = 4.0` / `MIN_WARMUP_BARS = 5` / `N_BASELINE_BARS = 30` /
@@ -561,7 +573,7 @@ applied (none architectural; all in `architecture.md` and/or this file):
 `MAX_HISTORICAL_PER_600S = 60` (`:35`); `_always_on_top = False` (`ui/popout_window.py:56`) +
 toggle (`:289`); `DepthHeatmapItem` added unconditionally with `_depth_enabled_ui = True`
 (`ui/chart_panel.py:368`/`:370`); the `TickerSession` signal pair (`ui/ticker_session.py:65–73`);
-the pop-out refusal message text (`ui/main_window.py:845–851`); `CACHEABLE_SYMBOLS` +
+the pop-out refusal message text (`ui/main_window.py::MainWindow._open_popout`); `CACHEABLE_SYMBOLS` +
 `is_cacheable` (`data/footprint_cache.py:26`/`:29`); `MD_LINE_CAP = 100` / `MD_LINE_WARN_AT = 90`
 (`services/md_line_guard.py:16–17`); `DEFAULT_Z_THRESHOLD = 4.0` / `MIN_WARMUP_BARS = 5` /
 `N_BASELINE_BARS = 30` / `MAD_FLOOR_RATIO = 0.05` / `VOLUME_FLOOR_PER_MIN = 1.0`
@@ -580,9 +592,12 @@ ESC-013/ESC-020 ordering contract (`vb.setRange` before the candle picture, `w_v
 
 **Not behaviour, but recorded:** the historical D16–D23 increment sections of `architecture.md`
 (and the D23 phases here) cite `ui/main_window.py`, `ui/watchlist_panel.py` and
-`ibkr/market_data.py` at pre-D24 line numbers; all three files have grown. A "Line-citation
-currency" note in `architecture.md` bounds this — the *symbols* are verified present, the line
-numbers are indicative.
+`ibkr/market_data.py` at pre-D24 line numbers; all three files have grown; the same applies to the
+"Moved from (as-built)" column of the D24/D25/D28 session-extraction table (pre-extraction
+`MainWindow`). The **§ *Citation convention*** block in `architecture.md` bounds both regions
+explicitly — `path::symbol` is the durable form, a bare `file:line` is indicative only, and those
+two regions keep their at-that-commit numbers deliberately (the *symbols* in them are verified
+present; the line numbers are not renumbered).
 
 **Changelog cross-check (`docs/phase-changelog.md`, read in full per the owner's standing
 instruction, 2026-10-14).** Four of the corrections above are ones the changelog **records or

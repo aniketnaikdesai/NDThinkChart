@@ -110,12 +110,15 @@ class MarketDataManager:
 
         Three facts motivate the shape of this method:
 
-        (a) The pinned ``ibapi 9.81.1.post1`` exposes **no**
+        (a) The pinned ``ibapi`` API surface exposes **no**
             ``EClient.cancelContractDetails`` on the wire client, so a bare
             attribute access would raise ``AttributeError``. We therefore
             resolve the method via
             ``getattr(self.client, 'cancelContractDetails', None)`` and invoke
-            it only when the capability is actually present.
+            it only when the capability is actually present. This absence is a
+            property of the pinned API, not of any one version string: it was
+            verified on both ``9.81.1.post1`` and the current pin ``10.51.1``,
+            and no single version is load-bearing here.
         (b) The wire-side ``reqContractDetails`` request is normally ended by
             TWS's own ``contractDetailsEnd`` callback (or an error message), so
             there is nothing reliable to cancel from this side anyway.

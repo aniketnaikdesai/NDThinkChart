@@ -231,7 +231,7 @@ class TestD22_02_T04ExistingCallbacksUnchanged:
 class TestD23_01_CapabilityGuardedCancel:
     """D23.1 / ESC-030: ``cancel_contract_details`` must be capability-guarded.
 
-    The pinned ``ibapi 9.81.1.post1`` exposes no ``EClient.cancelContractDetails``;
+    The pinned ``ibapi`` API surface exposes no ``EClient.cancelContractDetails``;
     the bare ``self.client.cancelContractDetails(...)`` access is gone, the method
     is resolved via ``getattr(self.client, "cancelContractDetails", None)``, and
     the absence + real safety net are documented in the source.
@@ -284,12 +284,20 @@ class TestD23_01_CapabilityGuardedCancel:
         assert client.cancel_calls == [7]
 
     def test_D23_01_T04_source_documents_absence_and_safety_net(self):
-        """The method documents the pinned-version absence, TWS end, and safety net."""
+        """The method documents the pinned-surface absence, TWS end, and safety net."""
         import inspect
 
         src = inspect.getsource(MarketDataManager.cancel_contract_details)
+        # Assess the docstring itself (not the code) so the assertion really
+        # requires the *absence* to be documented rather than merely named.
+        doc = " ".join((MarketDataManager.cancel_contract_details.__doc__ or "").split())
 
-        assert "9.81.1.post1" in src
+        assert "pinned" in doc, (
+            "the docstring must document the pinned-surface absence"
+        )
+        assert "cancelContractDetails" in doc, (
+            "the docstring must name the missing EClient.cancelContractDetails capability"
+        )
         assert "contractDetailsEnd" in src
         assert "ContractLookupService" in src
         assert "cancel_all" in src

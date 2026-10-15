@@ -696,7 +696,7 @@ repository files, which remain authoritative if the two disagree.
 - **As-built note:** `AC-D37.1`–`AC-D37.5` verified; 947 tests green; Code Reviewer APPROVED 2026-10-13
   (no blocking findings). Drive-by fix: latent `primary_session` bug (26 references, never defined)
   fixed with a backed property. **Owner-confirmed 2026-10-14 (Q44): the depth heatmap defaults ON**
-  (`ui/chart_panel.py:368` adds `DepthHeatmapItem` unconditionally; `:370` `_depth_enabled_ui = True`),
+  (`ui/chart_panel.py::ChartPanel.__init__` adds `DepthHeatmapItem` unconditionally; `_depth_enabled_ui = True` — `ui/chart_panel.py:370`, indicative),
   overriding the reviewer's OFF suggestion. Known limitation: delayed-depth-instead-of-354 would render
   unlabeled (recorded in code; follow-up if ever observed).
 
@@ -1700,8 +1700,8 @@ Chart; Q29 no-op semantics):**
     candle item and the volume bars from the same `self._bars` list, so a hole in the bar list
     shows as a hole in **both** panels. No separate volume fix is needed once the bar list is
     continuous.
-  - `BarCache.get_last_timestamp(symbol, timeframe)` (`data/bar_cache.py:33`) returns `MAX(ts)` but
-    is **not** used by `load_chart` (`ui/main_window.py:430–444` does not read it); the fetch is
+  - `BarCache.get_last_timestamp(symbol, timeframe)` (`data/bar_cache.py::BarCache.get_last_timestamp`; cited `:33`, now `:55` — indicative) returns `MAX(ts)` but
+    is **not** used by `load_chart` (`ui/main_window.py::MainWindow.load_chart` does not read it; cited `:430–444` — indicative); the fetch is
     neither anchored to, nor sized to reach, the cached span.
   - **Empirically confirmed against the live SQLite cache** (read-only inspection of
     `~/Library/Application Support/NDThinkChart/charting_app.sqlite3`, 2026-10-02): `SPY 5 mins`
@@ -1848,12 +1848,12 @@ Chart; Q29 no-op semantics):**
   or reduce in width if user tries it. Fix: allow watch list section to be extended till 50% of the
   chart area. the chart area should become smaller if watch list is made bigger."
 - **Observed in repository (validated 2026-10-03 against the current files):**
-  - `WatchlistPanel.setMinimumWidth(WATCHLIST_MIN_WIDTH)` = 150px is set (`ui/main_window.py:225`);
+  - `WatchlistPanel.setMinimumWidth(WATCHLIST_MIN_WIDTH)` = 150px is set (`ui/main_window.py:225`, `[historical]` 2026-10-03);
     **no maximum width is ever set on the dock** and there is no `setMaximumWidth` anywhere.
   - The clamp helpers exist and are correct in isolation (`watchlist_max_width` = `max(150, min(int(W*0.50),
     W-400))`, `clamp_watchlist_width`), but they are applied **only** at construction and inside
     `resizeEvent`, and `resizeEvent` re-clamps **only when the dock is already wider than max**
-    (`if self.watchlist_dock.width() > max_w`, `ui/main_window.py:962-968`). `resizeEvent` fires on
+    (`if self.watchlist_dock.width() > max_w`, `ui/main_window.py:962-968`, `[historical]` 2026-10-03; now `ui/main_window.py::MainWindow.resizeEvent`). `resizeEvent` fires on
     *window* resize, **not** on a dock-splitter drag, so a user drag that stays within the window can
     move the dock freely and the cap is not enforced during the drag.
   - No `splitterMoved`/`dockLocationChanged` handler exists; nothing wires the dock's internal splitter
@@ -1941,14 +1941,14 @@ Chart; Q29 no-op semantics):**
   made bigger."
 - **Observed in repository (validated 2026-10-03 against the current files):**
   - `ActiveTraderPanel` and `ActivePortfolioPanel` are currently added as **two separate `QDockWidget`s**
-    in `RightDockWidgetArea` (`ui/main_window.py:234-252`). Neither panel sets any
+    in `RightDockWidgetArea` (`ui/main_window.py:234-252`, `[historical]` 2026-10-03). Neither panel sets any
     `setMinimumWidth`/`setMaximumWidth`/`setMinimumSize`/`sizeHint`, and **no `resizeDocks` call is
     made for either right dock** — unlike the watchlist, they get no explicit width at all.
   - There is **no 40% rule, no equal-width rule, no chart-shrink coupling, and no full-screen
     reposition/visibility handling** anywhere in the codebase (searched: no `showFullScreen`,
     `setWindowState`, `WindowFullScreen`, or full-screen branch exists in `ui/`).
   - Both docks are user-hidden by default in the existing integration tests
-    (`tests/test_d10_d13_integration.py:33,50-52`), confirming they are an **independent horizontal
+    (`tests/test_d10_d13_integration.py` dock-hide setup at `:33,50-52` when written — indicative), confirming they are an **independent horizontal
     consumer** that the current D13 clamp does not account for — the existing clamp uses the whole
     window width, not the width left after the right region.
   - This is a **new requirement**, distinct from D13.
@@ -2035,11 +2035,11 @@ Chart; Q29 no-op semantics):**
   `ui/dock_layout.watchlist_max_width(chart_area=1716)` returns **858px** (= `floor(0.50 × 1716)`), which is correct.
   The cap is not the problem.
 - **Observed in repository (validated against source 2026-10-05; the Orchestrator's offscreen probe agrees):**
-  - `ui/main_window.py:100–211` builds `toolbar = QWidget()` with a `QHBoxLayout` of fixed-width controls
+  - `ui/main_window.py:100–211` `[historical]` 2026-10-05 — builds `toolbar = QWidget()` with a `QHBoxLayout` of fixed-width controls
     (`symbol_input` 120, `tf_combo` 90, `mode_combo` 110, `sound_btn` 56, `ext_hours_btn` 80, `tz_combo` 110,
     `draw_combo` 110, `draw_set_combo` 140, `draw_delete_btn` 38, plus buttons/labels), giving it a
     **`minimumSizeHint` of ~1716px** at D19 report time (2026-10-05). **Re-measured 2026-10-14:** the toolbar has since gained controls (pop-out / footprint / depth / symbol-search, etc.), so its intrinsic minimum is now **~1965px offscreen** (offscreen value; platform/font dependent) — the figure illustrates the pinning mechanism, it is not a current constant.
-  - `ui/main_window.py:217–223` puts the toolbar **inside the central widget**:
+  - `ui/main_window.py:217–223` `[historical]` 2026-10-05 — puts the toolbar **inside the central widget**:
     `central = QWidget(); vbox.addWidget(toolbar); vbox.addWidget(self.chart_panel); self.setCentralWidget(central)`.
     So the central widget's `minimumSizeHint` becomes ~1716px and `QMainWindow` refuses to shrink the central area
     below it.
@@ -2125,7 +2125,7 @@ Chart; Q29 no-op semantics):**
 - **Relation to D19 (recorded supersession — not a silent contradiction):** D19 (`AC-D19.4`) required the
   toolbar to stay a **single ~36px row** with a laid-out height `<= ~40px`, and B5 chose "horizontal
   scroll/elide in place". The D19 implementation sets **both** the toolbar widget and the `ToolbarScroll`
-  QScrollArea to a **fixed 36px** (`ui/main_window.py:102`, `:233`). Because the scroll area's horizontal
+  QScrollArea to a **fixed 36px** (`ui/main_window.py:102`, `:233`, `[historical]` — D19 implementation snapshot; the content-row constant is now `ui/main_window.py::TOOLBAR_CONTENT_HEIGHT`, `:120`). Because the scroll area's horizontal
   scrollbar is laid out **within** that same 36px, it overlaps the bottom of the toolbar content, clipping
   label descenders. D20 **explicitly revises/relaxes** `AC-D19.4`'s `<= ~40px` height bound (see the
   supersession note on `AC-D19.4`); the D19 scroll/elide reachability behaviour and the D17/D18 criteria are
@@ -2140,9 +2140,9 @@ Chart; Q29 no-op semantics):**
 - **Reported (verbatim):** "UI Edit: see attachment. I want the height increased so that the label can be clearly
   read. current state: the bottom of the alphabets in the labels gets covered slightly by the horizontal scroll."
 - **Observed in repository (validated against source 2026-10-06):**
-  - `ui/main_window.py:100–102` — `toolbar = QWidget(); toolbar.setObjectName("MainToolbar");
+  - `ui/main_window.py:100–102` `[historical]` 2026-10-06 — `toolbar = QWidget(); toolbar.setObjectName("MainToolbar");
     toolbar.setFixedHeight(36)`.
-  - `ui/main_window.py:223–234` — `toolbar_scroll = QScrollArea()` (`objectName "ToolbarScroll"`, `NoFrame`,
+  - `ui/main_window.py:223–234` `[historical]` 2026-10-06 — `toolbar_scroll = QScrollArea()` (`objectName "ToolbarScroll"`, `NoFrame`,
     `setWidgetResizable(False)`, horizontal `ScrollBarAsNeeded`, vertical `ScrollBarAlwaysOff`,
     `setFixedHeight(36)`), wrapping the toolbar and added to the central `QVBoxLayout` (D19/B5).
   - The container is fixed at **36px** and the horizontal scrollbar is laid out within that 36px, so it
@@ -2342,7 +2342,7 @@ Chart; Q29 no-op semantics):**
 - **Area:** `ui/main_window.py` watchlist dock title (`:258`) + `ui/watchlist_panel.py` header strip (`:117–124`).
 - **Status:** **clarified and finalised 2026-10-06 (B12 answered).**
 - **Reported (verbatim):** "current state: there is no button to hide the watchlist, also, the watchlist header is mentioned twice in the UI. Screenshot attached. Fix: the label watch list, besides the yellow – – should be deleted. and the watch list besides the red – – should be kept, the kept label should be turned into a button which user can click to show or hide the watch list. If watch list is hidden, that label should be updated to watch list over which there is a diagonal line crossing from top left to right bottom."
-- **Observed in repo:** two "Watchlist" texts exist — the `QDockWidget("Watchlist")` **title bar** (`main_window.py:258`) and the `WatchlistPanel` internal **header_bar `QLabel("Watchlist")`** (`watchlist_panel.py:122`).
+- **Observed in repo** `[historical]` 2026-10-06 (pre-D21.11 state): two "Watchlist" texts existed — the `QDockWidget("Watchlist")` **title bar** (`main_window.py:258`) and the `WatchlistPanel` internal **header_bar** (`ui/watchlist_panel.py::WatchlistPanel.header_bar`, cited `:122`).
 - **AC-D21.11.1 (B12)** Given the app is running, Then exactly **one** "Watchlist" label is shown — the **in-panel header label** is **kept** and turned into a **clickable toggle button**, and the duplicate **dock title bar** is **deleted**.
 - **AC-D21.11.2 (B12)** Given the watchlist is hidden via that button, Then the retained button **stays visible** (it must not disappear with the dock) and is rendered with the `VIS-D21.1` diagonal strike-through; clicking it again shows the watchlist (strike removed).
 - **AC-D21.11.3 (B12)** Given the watchlist is hidden/collapsed, Then the collapsed state still shows the button.
@@ -2386,10 +2386,10 @@ Chart; Q29 no-op semantics):**
     `DiagonalStrikeButton` (`header_button`); the table's **column** header has the D21.5
     `customContextMenuRequested` → `_on_header_context_menu` (add/remove/rearrange **columns**). There is **no**
     add-symbol affordance anywhere on the panel. `header_bar` is set as the dock's title bar
-    (`ui/main_window.py:303`).
+    (`ui/main_window.py:303` when written; now `setTitleBarWidget(self.watchlist_panel.header_bar)` — `ui/main_window.py:400`).
   - `WatchlistPanel.add_symbol(symbol, contract)` appends a row and calls `md_manager.req_mkt_data(contract)`; it
     **early-returns when `_md_manager` is None** and does **not** persist anything. `clear()` cancels subscriptions
-    and empties the table (called on disconnect, `ui/main_window.py:2107`). There is **no** `remove_symbol` helper.
+    and empties the table (called on disconnect, `ui/main_window.py::MainWindow._on_disconnected`; cited `:2107`, now `:1546` — indicative). There is **no** `remove_symbol` helper.
   - `ui/main_window.py::_restore_watchlist` reads `db.get_watchlist()`, seeds `DEFAULT_WATCHLIST` via
     `db.set_watchlist(symbols)` **only when the DB list is empty**, then calls `add_symbol` per symbol; it runs on
     `_on_connected` only. `_on_disconnected` sets `load_btn` disabled and does not restore the panel until reconnect.
@@ -2488,7 +2488,7 @@ Chart; Q29 no-op semantics):**
 - **Status:** clarified and finalised 2026-10-07 — **quality fix** (nice-to-have). No D22 behaviour depends on the
   wire cancel.
 - **Observed (source-validated 2026-10-07; repo is authoritative):**
-  - At D23 report time `ibkr/market_data.py:78–84` called `self.client.cancelContractDetails(req_id)` inside `try/except Exception: pass`; the method now lives at `ibkr/market_data.py:108` and performs the capability-guarded cancel required below.
+  - At D23 report time (`ibkr/market_data.py:78–84`, `[historical]`) the code called `self.client.cancelContractDetails(req_id)` inside `try/except Exception: pass`; the method now lives at `ibkr/market_data.py::MarketDataManager.cancel_contract_details` (`:108`) and performs the capability-guarded cancel required below.
   - The pinned dependency was `ibapi` **9.81.1.post1** at D23 report time and is `ibapi-latest==10.51.1` now (re-verified 2026-10-14); in both, `hasattr(EClient, 'cancelContractDetails')
     is False` while `hasattr(EClient, 'reqContractDetails') is True`. On the real TWS path the call therefore raises
     `AttributeError`, which is swallowed → the cancel is a **no-op on the wire**.
@@ -2498,7 +2498,7 @@ Chart; Q29 no-op semantics):**
     `client.cancelContractDetails(req_id)`"; architecture `S3` adds `MarketDataManager.cancel_contract_details(req_id)`.
     Both describe a call the pinned dependency cannot make.
   - **The method is not called by any production path** (source-validated 2026-10-07): `ContractLookupService.cancel`
-    / `cancel_all` (`services/contract_lookup_service.py:114–125`) drop the pending entry and stop the bounded
+    / `services/contract_lookup_service.py::ContractLookupService.cancel_all` (cited `:114–125`, now `:122` — indicative) drop the pending entry and stop the bounded
     `QTimer` — they do **not** call `md_manager.cancel_contract_details`; `ui/main_window.py` uses
     `self._contract_lookup.cancel_all()` (`:724`). The wire cancel is therefore currently write-only/dead code,
     which is why the defect is benign.
@@ -2623,13 +2623,13 @@ Chart; Q29 no-op semantics):**
     callers — reconnect replay is dead code (see D27/B-1.3).
   - Studies persist per symbol (`StudyStore.load/save(symbol)`); drawings/alarms persist per symbol
     (`DrawingStore.drawings_for_symbol`, `AlarmStore.load(symbol)`). `PacingManager` enforces
-    `MAX_REALTIME_BARS_PER_10_MIN = 60` (`config/settings.py:12`); IBKR realtime bars are 5-second only.
+    `config/settings.py::MAX_REALTIME_BARS_PER_10_MIN = 60` (cited `:12`, now `:30` — indicative); IBKR realtime bars are 5-second only.
 - **Requirements (final):**
   - **Session model:** a `TickerSession` keyed by symbol owns that symbol's bar series, studies config,
     drawings/groups, alarms, IBKR realtime subscription, and history-wave lifecycle (req-id registry, watchdog,
     generation fencing — moved out of `MainWindow` unchanged in semantics). It emits Qt signals
     `bar_updated` (incremental tick) / `bars_refreshed` (full series replace) / `studies_changed` /
-    `drawings_changed` / `alarms_changed` / `alarm_triggered` (verified against `ui/ticker_session.py:65–73`; that block now spans `:65–85` and has grown `stream_health_changed` / `footprint_updated` / `depth_state_changed` / `auction_updated` / `dividend_updated` / `events_updated`).
+    `drawings_changed` / `alarms_changed` / `alarm_triggered` (verified against `ui/ticker_session.py::TickerSession` signals; cited `:65–73`, now `:65–84` — indicative — and grown `stream_health_changed` / `footprint_updated` / `depth_state_changed` / `auction_updated` / `dividend_updated` / `events_updated`).
     `MainWindow` holds a `dict[symbol, TickerSession]` registry; views attach/detach; attaching performs an
     initial full sync (bars → studies → drawings → alarms) with **no** extra IBKR request when the session
     already holds the data. A session is destroyed when its last view detaches **and** it is not
@@ -2643,7 +2643,7 @@ Chart; Q29 no-op semantics):**
     the main window. If disconnected at pop-out time, cached bars render immediately from the session cache
     and the subscription starts on connect via the existing reconnect path. **[VERIFIED 2026-10-14 — text
     corrected:** the shipped code has **no** per-pop-out "connecting" indicator (the only connecting
-    affordance is the main window's `conn_badge`, `ui/main_window.py:290`); the requirement no longer asserts
+    affordance is the main window's `ui/main_window.py::MainWindow.conn_badge` (cited `:290`, now `:295` — indicative)); the requirement no longer asserts
     behaviour the code does not have. A per-window indicator would be a new request.]**
   - **Chrome-free window:** each pop-out contains exactly a slim header strip (symbol · timeframe · mode + close
     button, ~28px) and a `ChartPanel`; no toolbar row, no docks, no watchlist, no status bar. Native OS frame
@@ -2654,7 +2654,7 @@ Chart; Q29 no-op semantics):**
   - **Always-on-top:** pop-out windows are **standard windows by default** — always-on-top defaults **OFF**;
     the user can enable it per window via the header context menu ("Always on top"), which applies
     `Qt.WindowStaysOnTopHint` at runtime. **Owner-confirmed 2026-10-14 (Q43)**; matches
-    `ui/popout_window.py:56` (`self._always_on_top = False`) and `:289` (toggle).
+    `ui/popout_window.py::PopoutWindow` (`self._always_on_top = False` — cited `:56`; `_toggle_always_on_top` — cited `:289`; both indicative).
   - **Main chart:** keeps its full UI and becomes view #0 on the current symbol's session. Loading a new ticker
     detaches the primary view from the old session and attaches to (or creates) the new one; the old session
     persists while pop-outs remain. Watchlist double-click still targets the main chart only. The toolbar alarm
@@ -2689,7 +2689,7 @@ Chart; Q29 no-op semantics):**
     study arrays are computed once per `(symbol, timeframe, studies-hash)`.
   - **AC-D24.5 (cap)** Given 10 pop-outs open, When an 11th is attempted, Then it is refused with a status-bar
     message and the pop-out action is disabled until a slot frees. **[VERIFIED 2026-10-14 — narrower:** the
-    shipped code refuses the 11th with a status-bar message (`ui/main_window.py:845–851` as of 2026-10-14; `:840–846` when verified) but does **not**
+    shipped code refuses the 11th with a status-bar message (`ui/main_window.py::MainWindow._open_popout`; `:845–851` as of 2026-10-14, `:840–846` when verified — indicative) but does **not**
     `setEnabled(False)` the pop-out affordance; the "disabled" clause is not literally implemented.]**
   - **AC-D24.6 (read-only pop-outs)** Given a pop-out, When chart clicks/draw gestures are simulated, Then no
     drawing, alarm-placement, study, timeframe, or mode affordance activates (router modes never arm). *[VERIFICATION 2026-10-14: the shipped read-only test (`tests/test_d24_popouts.py::test_popout_readonly`) is labelled **AC-D24.3** (an AC-numbering mismatch) and only asserts `_editable is False` plus "no exception" — the "router modes never arm" clause is **not** asserted. `AC-D24.2` (drawing sync), `AC-D24.4` (study sync), `AC-D24.7` (reconnect) and `AC-D24.10` (always-on-top) have **no** backing test. See `design_gaps.md` DG58.]*
@@ -2789,7 +2789,7 @@ Chart; Q29 no-op semantics):**
 - **Requirements (final — corrective, SHALL language):**
   - **D26.1 (B-0.1):** bracket-order stop-loss and take-profit children **SHALL** be placed on the **opposite**
     side of the entry (`BUY` entry → `SELL` STP + `SELL` LMT; `SELL` entry → `BUY` STP + `BUY` LMT).
-    `tests/test_order_builders.py:83-104` (which asserts the buggy same-side behaviour) **SHALL** be rewritten
+    `tests/test_order_builders.py::test_bracket_order_structure` / `::test_bracket_order_sell` (cited `:83-104` — indicative; they assert the buggy same-side behaviour) **SHALL** be rewritten
     to assert the protective direction.
   - **D26.2 (B-0.2):** all three bracket order IDs **SHALL** be reserved from `id_manager` before transmit
     (e.g. `reserve(3)` or three `get_id()` calls); no subsequent order or reqId may reuse a live order ID.
@@ -2936,7 +2936,7 @@ Chart; Q29 no-op semantics):**
   - **AC-D28.5** Given app close mid-backfill, Then teardown completes without touching cleared widgets and
     the reader thread joins within the timeout.
   - **AC-D28.6** Given the new tests, Then T-1..T-6 behaviours above are covered and the doc-assert/phantom
-    tests are gone; the suite is green. *[VERIFICATION 2026-10-14: **satisfied as intended** — Phase 4 item 4d (commit `3363422`; `docs/phase-changelog.md:166`) deleted the three doc-text tests inside `tests/test_d23_nonregression.py` **and** the phantom `validate_sltp` test, deliberately keeping the file's behavioural guard/invariant checks (see the commit message). The only residue is `tests/test_d23_nonregression.py:61` `assert "9.81.1.post1" in src`, which pins the pre-D36 `ibapi` version literal and must move with DG54's docstring fix. See `design_gaps.md` DG61.]*
+    tests are gone; the suite is green. *[VERIFICATION 2026-10-14: **satisfied as intended** — Phase 4 item 4d (commit `3363422`; `docs/phase-changelog.md:166`) deleted the three doc-text tests inside `tests/test_d23_nonregression.py` **and** the phantom `validate_sltp` test, deliberately keeping the file's behavioural guard/invariant checks (see the commit message). The only residue is `tests/test_d23_nonregression.py::test_D23_03_T03_guard_source_shape` (`assert "9.81.1.post1" in src` at `:61`), which pins the pre-D36 `ibapi` version literal and must move with DG54's docstring fix. See `design_gaps.md` DG61.]*
   - **AC-D28.7 (regression)** Given the fixes, Then the full offscreen suite is green; no D1–D23 criterion
     regresses.
 
@@ -3151,7 +3151,7 @@ Chart; Q29 no-op semantics):**
 | A34 | **D17 target geometry — RESOLVED (B1, B4).** The watchlist cap is `floor(0.50 × chart_area)` (B1; **supersedes D13's Q25 window-width denominator**), the handle drags **both directions** (B4), min **150px**, default **~220px**, persistence still required (Q26), and the cap is enforced **during the drag** (not only on `resizeEvent`). Chart minimum ~400px per B3. | B1/B4 answered by the user 2026-10-03; B1 explicitly corrected the Q25 denominator | y | 2026-10-03 |
 | A35 | **D18 grouping — RESOLVED (B2).** Active Trader and Portfolio are **one right-dock region** containing both sections stacked vertically, so they are inherently equal width; the **40%-of-chart-area** cap applies to that single region. The current two-`QDockWidget` structure is re-shaped into one region. | B2 answered by the user 2026-10-03 ("one right-dock region, stacked — Recommended") | y | 2026-10-03 |
 | A36 | **D18 persistence default (non-blocking, UNCHANGED):** the right region's width/visibility is **not persisted** unless the user asks, matching D10's volume-toggle precedent (Q22: not persisted). B3/B4 did not add a persistence requirement for the right dock (only the watchlist keeps Q26 persistence, per B4). | D13 explicitly required persistence for the watchlist (Q26) and B4 re-confirmed it, but the user did not request it for the right region; recorded as a non-blocking default (not a blocking question) | n | 2026-10-03 |
-| A37 | **D19 diagnosis:** the root cause of "D17 does not work in the real app" is the toolbar's ~1716px `minimumSizeHint` pinning the central widget (not the 50% cap, which computes correctly to 858px at chart_area 1716). **Resolution (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container **in place** (one ~36px row, still inside the central widget) so its minimum width no longer pins the layout | Repo-validated against `ui/main_window.py:100–223`; the Orchestrator's offscreen probe agrees (watchlist stayed 150 after driving to cap with the toolbar visible); B5 chose scroll/elide 2026-10-05 | y (repo-validated 2026-10-05; fix chosen by B5) | 2026-10-05 |
+| A37 | **D19 diagnosis:** the root cause of "D17 does not work in the real app" is the toolbar's ~1716px `minimumSizeHint` pinning the central widget (not the 50% cap, which computes correctly to 858px at chart_area 1716). **Resolution (B5, 2026-10-05):** wrap the existing toolbar in a **horizontal scroll / elide** container **in place** (one ~36px row, still inside the central widget) so its minimum width no longer pins the layout | Repo-validated against `ui/main_window.py:100–223` (`[historical]` 2026-10-05); the Orchestrator's offscreen probe agrees (watchlist stayed 150 after driving to cap with the toolbar visible); B5 chose scroll/elide 2026-10-05 | y (repo-validated 2026-10-05; fix chosen by B5) | 2026-10-05 |
 | A38 | **D19 covers both D17 and D18 symptoms** (they share the one toolbar-pinning root cause), and the fix must make the D17/D18 criteria hold in a **toolbar-visible** window; the D17/D18 criteria themselves are unchanged. **B6:** the watchlist cap **stays `floor(0.50 × chart_area)`** — no cap change | Both symptoms are produced by the same no-slack splitter; the probe shows the watchlist pinned and the right dock pushed to the window edge; B6 answered "Keep 50%" 2026-10-05 | y (derived from the validated diagnosis; B6 answered 2026-10-05 |
 | A39 | **D20 target — RESOLVED (B7/B8, 2026-10-06):** the toolbar strip keeps the **content row at ~36px** and adds a **reserved horizontal-scrollbar lane below** it, so the **total strip is ~50–52px** and label descenders are no longer overlapped; the content row does **not** grow and the strip does **not** reach ~60px. The scrollbar is **as-needed** in that reserved lane (shown only on overflow), and the reserved lane keeps the strip height stable in both states. | B7 answered by the user 2026-10-06 (verbatim: "Content row 36px + scrollbar lane (~52px total)"); B8 answered 2026-10-06 (verbatim: "As-needed in a reserved lane"). Supersedes `AC-D19.4`'s `<= ~40px` bound to a ~52px container bound | y (B7/B8 answered 2026-10-06) | 2026-10-06 |
 | A41 | **D21.7/D21.8 active-button highlight (`VIS-D21.2`) — RESOLVED (user-confirmed 2026-10-06).** An active/selected button uses a distinct filled background (accent tint) plus a border, clearly distinguishable from the inactive state, applied while active and removed when inactive. The user confirmed the highlight convention on 2026-10-06 (D21.7/D21.8, B12 "As recommended"); exact colours remain an implementation detail while the outcome is the testable requirement. | The user asked to "highlight the button in some way"; the convention is confirmed and the outcome (a persistent, distinguishable highlight) is testable. See `VIS-D21.2`, `AC-D21.7.1`/`AC-D21.8.1` | y | 2026-10-06 |
@@ -3181,8 +3181,8 @@ Chart; Q29 no-op semantics):**
 | A63 **[NEW v1.2]** | **D25 — monitored-set pacing guardrail:** if alarmed tickers would exceed the realtime-bar budget, most-recently-active symbols win and a status-bar warning names the unmonitored ones. | Typical use is far below the cap; this is a guardrail, not a feature | n (analyst default) | 2026-10-12 |
 | A64 **[NEW v1.2]** | **D24 — single-writer invariant:** the main chart is the sole writer of a symbol's drawings/alarms/studies; stores stay last-writer-wins with no versioning, and the invariant is documented where the session work lands. | User-specified "drawing limited to main chart"; avoids silent cross-view clobbering | y (user-specified 2026-10-12) | 2026-10-12 |
 | A65 **[NEW v1.2]** | **D26–D28 are corrective batches:** they fix documented defects and change no D1–D23 feature criterion; D1–D23 are not reopened. | Deep-dive review 2026-10-12; user directed documenting all identified bugs | y (user-directed 2026-10-12) | 2026-10-12 |
-| A66 **[NEW v1.2]** | **D24 — pop-out always-on-top defaults OFF (standard windows):** the user can toggle it per window via the header context menu. | Owner-confirmed 2026-10-14 (Q43); matches `ui/popout_window.py:56` (`self._always_on_top = False`) and `:289` (toggle applies `Qt.WindowStaysOnTopHint`) | y | 2026-10-14 |
-| A67 **[NEW v1.2]** | **D37 — depth heatmap defaults ON:** the `DepthHeatmapItem` is created unconditionally, overriding the reviewer's OFF suggestion (D36 footprint stays OFF). | Owner-confirmed 2026-10-14 (Q44); matches `ui/chart_panel.py:368` (unconditional add) and `:370` (`_depth_enabled_ui = True`) | y | 2026-10-14 |
+| A66 **[NEW v1.2]** | **D24 — pop-out always-on-top defaults OFF (standard windows):** the user can toggle it per window via the header context menu. | Owner-confirmed 2026-10-14 (Q43); matches `ui/popout_window.py::PopoutWindow` (`self._always_on_top = False` — `:56`; `_toggle_always_on_top` applies `Qt.WindowStaysOnTopHint` — `:289`; indicative) | y | 2026-10-14 |
+| A67 **[NEW v1.2]** | **D37 — depth heatmap defaults ON:** the `DepthHeatmapItem` is created unconditionally, overriding the reviewer's OFF suggestion (D36 footprint stays OFF). | Owner-confirmed 2026-10-14 (Q44); matches `ui/chart_panel.py::ChartPanel.__init__` (unconditional add — `:368`; `_depth_enabled_ui = True` — `:370`; indicative) | y | 2026-10-14 |
 ## Documentation Maintenance Requirements
 
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
@@ -3196,7 +3196,7 @@ Chart; Q29 no-op semantics):**
   differs from a measured run at the current revision.
   - **Measured 2026-09-27 at `09070e8`:** `QT_QPA_PLATFORM=offscreen python -m pytest
     tests/` → **339 passed in 2.87s**.
-  - **Stale values to correct:** `usage.md:166` "Full suite (269 tests, ~1.5s)";
+  - **Stale values to correct** (`[historical]` 2026-10-02 figures): `usage.md:166` "Full suite (269 tests, ~1.5s)";
     `PENDING_IMPLEMENTATION_PLAN.md:364`, `:412`, `:458` "269 passed".
   - **Recommended correction:** update each to **339 tests / ~2.9s** (or replace the
     hard-coded numbers with a pointer to the CI/build log so they cannot drift again).
@@ -3282,7 +3282,7 @@ Chart; Q29 no-op semantics):**
 | R52 **[NEW v1.2]** | D24/D28: per-tick costs multiply by chart count — 10 live charts × full QPicture regen per 5-sec tick can stall the main thread in lockstep with the feed | H | H | D28.4 bounds bars, splits render layers, and wires the study cache **before** pop-outs ship; assert via render-call counters (AC-D28.4). **[RECONCILIATION 2026-10-12 — plan deviation accepted:** Phase 3 ships D24/D25 functionally on a feature branch with a measurable smoke gate (baseline tick-burst cost recorded at end of 3b; 3c asserts ≤2× baseline across 3 pop-outs + zero full QPicture regens per tick); **merge to main requires the Phase 4 AC-D28.4 gate.** The "before pop-outs ship" contract is thus enforced at merge time, not at feature-branch time. Validator-approved.] |
 | R53 **[NEW v1.2]** | D24: fixing reconnect replay without fixing `eConnect` (or vice versa) changes nothing — the two halves of D27.3 are coupled | M | H | Plan them as one work item with a single drop/reconnect acceptance test (AC-D27.3) |
 | R54 **[NEW v1.2]** | D25: headless sessions add realtime-bar subscriptions per alarmed ticker; a large alarm book could exhaust the 60/10-min pacing budget | M | L | FR-7.7 guardrail (most-recently-active first + warning); typical use far below cap |
-| R55 **[NEW v1.2]** | D26: any order-path change touches real money; the existing suite **asserts the bracket bug** (`test_order_builders.py:83-104`) and must be rewritten, not just extended | H | H | Rewrite those tests to assert the protective direction first (pre-fix-red), mocked `ib_client` everywhere, no test transmits an order (AC-Global invariant) |
+| R55 **[NEW v1.2]** | D26: any order-path change touches real money; the existing suite **asserts the bracket bug** (`tests/test_order_builders.py::test_bracket_order_structure` / `::test_bracket_order_sell`; cited `:83-104` — indicative) and must be rewritten, not just extended | H | H | Rewrite those tests to assert the protective direction first (pre-fix-red), mocked `ib_client` everywhere, no test transmits an order (AC-Global invariant) |
 | R56 **[NEW v1.2]** | D27: the overlay coordinate fixes (MACD/ICT/gaps/VIX) are one-liners, but the tests that missed them assert counts not positions — the same blind spot could hide other invisible-render bugs | M | M | AC-D27.2's x-in-view-range assertion pattern becomes the standard for every overlay test going forward |
 | R57 **[NEW v1.2]** | D26.3/D26.8: transmitting real SL/TP legs and a kill switch are new live-order surface; partial implementation is worse than none (user believes they are protected) | H | M | Each ships only with mocked-client `placeOrder` assertions and explicit UI labelling of what is/isn't transmitted |
 | R58 **[NEW v1.2]** | D24: `load_chart` parameterisation changes the signature every caller uses; missed call sites silently keep the old widget-reading path | M | M | Grep all callers (`_on_ext_hours_toggled`, watchlist double-click, tests); offscreen test loads without toolbar widgets (AC-D28.2) |
@@ -3345,16 +3345,31 @@ DG50), not missing content.
 - **FI-D24-4 / DG50** — resolved: the D29–D35 gap is recorded explicitly (above).
 - **FI-D24-5 / DG47** — resolved: D24–D28 re-statused as-built/APPROVED (Q41).
 
+**Source-citation convention (adopted 2026-10-14; resolves `design_gaps.md` DG56).** Code references in
+this file and in `design_gaps.md` cite a **symbol** as the primary pointer — `path::symbol`, e.g.
+`ui/main_window.py::MainWindow._open_popout`, `config/settings.py::MAX_POPOUTS`,
+`ibkr/market_data.py::MarketDataManager.cancel_contract_details`. A symbol is what a reader should trust:
+it survives line insertions, where a `file:NNN` / `file:NNN–MMM` range does not (commit `99fb8fa`, a
+5-line toolbar insertion, invalidated roughly ten ranges in this file). A bare line number or range is
+therefore **indicative only** — it records where the code sat when the sentence was written and may have
+drifted since; resolve by symbol, not by line. References that describe code **as it was at their own
+commit** (the dated "Observed in repository (validated …)" diagnoses for D17–D22, the D19/D20
+implementation snapshots, the DG17 doc-drift figures) are kept verbatim and tagged `[historical]`; they
+are deliberately **not** re-pointed at current lines. Where a stale range was load-bearing for a live
+criterion it has been re-pointed at the symbol, with any companion line marked indicative.
+
 **Requirements-vs-shipped-code audit (2026-10-14, advisory).** The acceptance criteria for D1–D40 were
 spot-checked against the shipped code on this checkout (`262ec81`, 1020 passed / 0 failed): the numeric and named
 facts (ports, caps, thresholds, timeframes, pinned dependencies), the D8 volume family, the D21 UI rules and the
 D24–D40 criteria were re-verified against source, and every gap was then re-checked against
 `docs/phase-changelog.md` (the as-built record of intent). Result: **in sync except for the items recorded as
 `design_gaps.md` DG54–DG62** — pinned-`ibapi` version figures (DG54, explained and dated by the changelog's D36
-item 38a.0), one stale DB-path bullet (DG55), drifted line citations (DG56), the D25 AC↔test mapping (DG57), D24
+item 38a.0), one stale DB-path bullet (DG55), drifted line citations (DG56 — **resolved 2026-10-14:** the `path::symbol`
+convention adopted above was applied to the load-bearing citations), the D25 AC↔test mapping (DG57), D24
 test coverage/mislabelling (DG58), the D19/D20 toolbar geometry figures (DG59), a duplicate `DG14` id (DG60), the
 `AC-D28.6` doc-assert residue (DG61 — resolved-with-reference: the file was kept deliberately, only the version
-literal remains) and the changelog's own stale phase/branch statuses (DG62, reported not edited). The requirements-side figures are corrected in place;
+literal remains) and the changelog's own stale phase/branch statuses (DG62 — **resolved 2026-10-14:** all six
+stale claims are corrected in the changelog by commit `96b72c4`, verified against the file). The requirements-side figures are corrected in place;
 the test/code-side items are Build's to fix. **No new blocking question; no requirement was invented.**
 
 Status: READY_FOR_PLAN — D24–D40 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14;

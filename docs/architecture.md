@@ -32,26 +32,54 @@ retired** (Q42/DEC-4), so D26 is planned/decomposed against the live-order path 
 retained safety behaviour is unchanged (`config/settings.py::check_live_port` fails fast
 unless `IBKR_PORT == 7496`; explicit user action per order; confirm dialogs remain; no
 automated test transmits an order or connects to live TWS). Pop-out **always-on-top
-defaults OFF** (`AC-D24.10`/A66, Q43 — matches `ui/popout_window.py:56`), the D37 depth
-heatmap **defaults ON** (A67, Q44 — matches `ui/chart_panel.py:368`/`:370`), and the
+defaults OFF** (`AC-D24.10`/A66, Q43 — matches
+`ui/popout_window.py::PopoutChartWindow._always_on_top`), the D37 depth
+heatmap **defaults ON** (A67, Q44 — matches
+`ui/chart_panel.py::ChartPanel.depth_heatmap_item` / `::ChartPanel._depth_enabled_ui`), and the
 D36–D40 acceptance criteria **now exist** (Q45, resolving DG46 — see the AC citations in
 the D36–D40 increment sections below).
 
-**Line-citation currency (2026-10-14).** Every *symbol, module path, constant and behaviour*
-cited in this document was re-verified against the current source (the repository is
-authoritative). Line numbers are a separate matter: the **historical** increment sections
-(D16–D23, and D17–D21 in particular) cite `ui/main_window.py`, `ui/watchlist_panel.py` and
-`ibkr/market_data.py` at the line numbers those files had when the increment was validated,
-and all three have grown since (the D22–D40 work, plus the `99fb8fa` toolbar-font commit,
-which alone shifted every `ui/main_window.py` reference after ~`:190` by +5). Examples that no
-longer resolve: `ui/main_window.py:100–211` / `:213–223` / `:223–234` / `:236–242` (the D19/D20
-toolbar and central composition; the toolbar now spans ~`:185–345`), `ui/main_window.py:290`
-(`conn_badge`, now `:295`) and `:840–846` (the pop-out cap refusal, now `:845–851` — both
-corrected in the D24 sections below), `ui/watchlist_panel.py:682–728` / `:716–719` (the D23
-`remove_symbol`, now `:841–897` with the D23 `_row_data.pop` fix at `:884`), and
-`ibkr/market_data.py:78–84` (`cancel_contract_details`, now `:108`). The symbol named is the
-contract; treat a historical line number as indicative. The **D24–D40** sections carry current
-line numbers.
+**Citation convention — symbol-first (adopted 2026-10-14; formalizes `DG56`, the `+5`-line
+drift found after `99fb8fa`).** The rule for every citation in this document:
+
+- **`path::symbol` is the durable form.** Cite a location by its symbol, not its line:
+  `ui/main_window.py::MainWindow._open_popout`, `config/settings.py::MAX_POPOUTS`,
+  `ui/ticker_session.py::TickerSession.bar_updated`. A symbol, module path, constant or
+  behaviour survives any edit above it and is the contract a reader should follow.
+- **A bare `file:line` is *indicative only*.** Any edit above a cited line can drift it —
+  `99fb8fa` ("apply the theme font to the toolbar") inserted 5 lines into `ui/main_window.py`
+  around ~`:190` and invalidated ~10 downstream references in one stroke, and no test or check
+  catches it. Where a line number is retained for convenience it appears **after** the symbol,
+  in parentheses, as a secondary pointer — never as the sole citation.
+- **Historical line numbers are bounded, not renumbered.** Two regions deliberately describe
+  code *as it stood at its own validation/planning commit* and keep those numbers as written
+  (inventing current numbers for a past state would itself mislead — the audit trail must stay
+  honest):
+
+  1. **The frozen D16–D23 increment sections** — D16 additions/changes (`services/backfill_service.py`,
+     `services/market_calendar.py` surface); D17+D18; D19; D20; D21; D22; D23 — plus the
+     D16/D17/D18/D19 increment paragraphs in the header area above, which cite `ui/main_window.py`,
+     `ui/watchlist_panel.py` and `ibkr/market_data.py` at the lines those files had when the
+     increment was validated. All three files have grown since (the D22–D40 work, plus `99fb8fa`).
+     Stale examples retained under the bound, **not to be re-derived as current**:
+     `ui/main_window.py:100–211` / `:217–223` / `:223–234` / `:236–242` (the D19/D20 toolbar and
+     central composition; the toolbar now spans ~`:185–345`), `ui/main_window.py:290` (`conn_badge`,
+     now `ui/main_window.py::MainWindow.conn_badge`) and `:840–846` (the pop-out cap refusal, now
+     `ui/main_window.py::MainWindow._open_popout`), `ui/watchlist_panel.py:682–728` / `:716–719`
+     (the D23 `remove_symbol`, now with the D23 `_row_data.pop` fix), and
+     `ibkr/market_data.py:78–84` (`MarketDataManager.cancel_contract_details`).
+  2. **The "Moved from (as-built)" column** of the D24/D25/D28 session-extraction table
+     (§ *The session object*), whose bare `(:537)`-style refs cite the **pre-extraction**
+     `MainWindow` as it was when D28.2 was planned, not today's file.
+
+  In both bounded regions the symbol named is the contract; the line number is at-that-commit.
+  Every *symbol, module path, constant and behaviour* in them was re-verified against the current
+  source (the repository is authoritative) — only the line numbers bind to the past.
+
+- **Current sections carry current citations.** The **D24/D25/D28, D36–D40** increment sections,
+  the header/owner-decision block, the Data Model and the Architecture Risks table are
+  symbol-first per the rule above; where a line survives there it was checked against the tree
+  on 2026-10-14.
 
 **Revision lineage:** the validated 2026-09-27 revision added (1) an explicit
 `RouterMode` state machine for gesture precedence (**ESC-002**,
@@ -507,9 +535,10 @@ index (D27.5). Each is described in its own increment section and recorded in
 `docs/phase-changelog.md` (Phase 3 — D24.9; Phase D36 item 36.4; Phase D38 item 38b.1;
 Phase D39 item 39.2); none alters an existing table's columns.
 
-*As-built note (line numbers refreshed 2026-10-14):* `data/db.py` defines `_init_schema`
-**once** (`data/db.py:14–157`; the file is 258 lines), followed by `_migrate_schema`
-(`:159–179`) and `_table_columns` (`:181`). T26/ESC-001 removed the former shadowed second
+*As-built note (line numbers refreshed 2026-10-14; symbol-first per the citation convention above):*
+`data/db.py` defines `_init_schema` **once** (`data/db.py::_init_schema`, `:14–157`; the file is
+258 lines), followed by `_migrate_schema` (`data/db.py::_migrate_schema`, `:159–179`) and
+`_table_columns` (`data/db.py::_table_columns`, `:181`). T26/ESC-001 removed the former shadowed second
 definition; `tests/test_db_schema.py` guards the single-definition/schema contract. The schema
 has since grown **additively** (still inside that single `_init_schema` / `_migrate_schema`
 pair): the D24/D36/D38/D39 tables `popouts`, `footprint_cache`, `yfinance_events_cache` and
@@ -655,7 +684,7 @@ architectural decision changed**. Full offscreen suite: **383 passed**.
 | Router and `ChartPanel` both writing mode state (drift) | M | Router is the single writer of `_active_mode`; `ChartPanel` methods are adapters; `test_router_mode_is_mutually_exclusive` |
 | `chart_panel.py` touched by R1/R2/Phase 1/Phase 3 → serial build chain | L (schedule) | `touches_files` populated per the constraint above; Lead serializes overlapping waves |
 | DST / UTC-vs-ET band misplacement | M | `ZoneInfo` boundaries plus DST tests |
-| `data/db.py` duplicate `_init_schema` (latent hygiene debt) | — **resolved** | T26/ESC-001 deduplicated it: `_init_schema` is defined once (`data/db.py:14–157`), guarded by `tests/test_db_schema.py` (audit `D-6`) |
+| `data/db.py` duplicate `_init_schema` (latent hygiene debt) | — **resolved** | T26/ESC-001 deduplicated it: `_init_schema` is defined once (`data/db.py::_init_schema`, `:14–157`), guarded by `tests/test_db_schema.py` (audit `D-6`) |
 | Drawing `InfiniteLine` use-after-free during drag (fixed 2026-09-19) | L (was H) | In-place mutation + defensive `scene.dragItem` clear; 26 drawing tests; suite green |
 | `fibonacci` rebuild on level-count change still calls `_restore_drawing_style` mid-drag | L | Guarded by defensive `dragItem` clear; rebuild only when count changes |
 | D16 holiday calendar drifts for future years | M | Holidays computed **by rule** (nth-weekday/fixed-date/Good Friday), not a fixed list; `tests/test_market_calendar.py` pins known holidays incl. Good Friday, Juneteenth, observed-day shifts |
@@ -2524,7 +2553,8 @@ One instance per symbol per process, held in a registry on `MainWindow`
 
 Signals (same-process Qt, queued where crossing from IBKR threads as today):
 **`bar_updated(Bar, is_new_candle)` (incremental tick) and `bars_refreshed(timeframe, bars)`
-(full series replace)** — verified against `ui/ticker_session.py:65–73`, which emits **two**
+(full series replace)** — verified against `ui/ticker_session.py::TickerSession.bar_updated` and
+`::TickerSession.bars_refreshed`, which emit **two**
 bar signals and not a single `bars_updated` — plus `studies_changed`,
 `drawings_changed`, `alarms_changed`, `alarm_triggered(symbol, alarms)`,
 `stream_health_changed`, and the D36–D38 feature signals (`footprint_updated`,
@@ -2575,9 +2605,9 @@ Timeframe/mode/extended-hours are frozen at the pop-out snapshot (A56).
 
 Data flow per pop-out: `registry.get_or_create(symbol)` → build `ChartPanel(editable=False)`
 → set symbol/timeframe/mode/ext-hours → `session.attach_view(view)` (initial full sync) →
-show. Cap: `MAX_POPOUTS = 10` (`config/settings.py:42`); at the cap the 11th pop-out is
+show. Cap: `config/settings.py::MAX_POPOUTS` (= 10); at the cap the 11th pop-out is
 **refused with a status-bar message** ("Pop-out limit reached (10). Close one to open
-another." — `ui/main_window.py:845–851`). **Verified against the shipped code (2026-10-14,
+another." — `ui/main_window.py::MainWindow._open_popout`). **Verified against the shipped code (2026-10-14,
 DG53):** the affordance is **not** `setEnabled(False)`-ed — the requirement's earlier
 "disabled at the cap" wording is narrower than the code, and the as-built behaviour is the
 status-bar refusal. Closing a pop-out
@@ -2585,12 +2615,13 @@ detaches its view and frees the slot. Same symbol in N pop-outs = one session, o
 subscription (A62); main chart may show the same ticker (primary view joins the session).
 **Opened while disconnected:** cached bars render immediately from the session cache and the
 subscription starts on connect via the existing reconnect path — there is **no per-pop-out
-"connecting" indicator** (the only connecting affordance is the main window's `conn_badge`,
-`ui/main_window.py:295`); a per-window indicator would be a new request. **Always-on-top:**
-pop-outs are standard windows by default (`ui/popout_window.py:56`
-`self._always_on_top = False`); the user may enable it per window via the header context
-menu ("Always on top"), which applies `Qt.WindowStaysOnTopHint` at runtime
-(`:289`) — **owner-confirmed 2026-10-14, Q43 / `AC-D24.10` / A66**.
+"connecting" indicator** (the only connecting affordance is the main window's
+`ui/main_window.py::MainWindow.conn_badge`); a per-window indicator would be a new request.
+**Always-on-top:** pop-outs are standard windows by default
+(`ui/popout_window.py::PopoutChartWindow._always_on_top` = `False`); the user may enable it per
+window via the header context menu ("Always on top"), which applies `Qt.WindowStaysOnTopHint` at
+runtime (`ui/popout_window.py::PopoutChartWindow._toggle_always_on_top`) — **owner-confirmed
+2026-10-14, Q43 / `AC-D24.10` / A66**.
 
 Performance contract (D28.4, required before pop-outs ship): bars stored once per
 `(symbol, timeframe)` and shared; no full chart rebuild on any tick (static-history +
@@ -2656,7 +2687,7 @@ overflow → most-recently-active first + status-bar warning naming the unmonito
 
 | Subsystem | As-built (D1–D23) | Target (D24/D25/D28) | Requirement |
 |---|---|---|---|
-| Chart data ownership | **[P3 2026-10-12]** `ui/ticker_session.py::TickerSession(QObject)` keyed by uppercase symbol; `MainWindow` holds `_sessions: dict[str, TickerSession]` registry. Moved in 4 clusters (data plane → history wave → studies → drawings/groups); per-timeframe `BarAggregator`s, per-timeframe bars capped at `SESSION_BAR_CAP=5000` (`config/settings.py:45`). | **[NOW AS-BUILT]** `TickerSession` per symbol; registry on `MainWindow` | D28.2 |
+| Chart data ownership | **[P3 2026-10-12]** `ui/ticker_session.py::TickerSession(QObject)` keyed by uppercase symbol; `MainWindow` holds `_sessions: dict[str, TickerSession]` registry. Moved in 4 clusters (data plane → history wave → studies → drawings/groups); per-timeframe `BarAggregator`s, per-timeframe bars capped at `config/settings.py::SESSION_BAR_CAP` (= 5000). | **[NOW AS-BUILT]** `TickerSession` per symbol; registry on `MainWindow` | D28.2 |
 | Bar routing | **[P3 2026-10-12]** `_on_realtime_bar` / `_on_historical_bar` / `_on_historical_data_end` / `_on_error` route by `_req_to_session: dict[int, TickerSession]`, maintained at subscribe time. `load_chart(symbol, timeframe, extended_hours)` is parameterised (no toolbar reads). Dead `_pending_brackets` and `_current_req_id` deleted. | **[NOW AS-BUILT]** `reqId → TickerSession` routing table | D28.2, D27.3 |
 | Reconnect | **[P1/P2 2026-10-12]** `_do_reconnect` re-issues the real `connect()` (host/port/clientId stored on the client, D27.3); `SubscriptionManager` rewritten as a reqId-keyed registry with rebind; chart/DOM/watchlist subs are type-tagged at subscribe time and `_replay_subscriptions` replays RT_BARS+DEPTH on reconnect. | `self.connect(host, port, clientId)`; every live sub registered with type tags; replay rebinds reqIds to sessions | D27.3 |
 | Alarm evaluation | **[P3 2026-10-12]** Per-session evaluation (DEC-1): the session runs `evaluate_alarms` on every aggregated bar for its own symbol, regardless of which ticker the main chart shows. `alarm_triggered` carries the firing symbol; toast + sound are window-global and fire exactly once per trigger event. | **[NOW AS-BUILT]** Session evaluates its own symbol every aggregated bar; headless sessions evaluate with zero views | D24, D25 |
@@ -2674,7 +2705,7 @@ overflow → most-recently-active first + status-bar warning naming the unmonito
 | Positions/account | **[P1/P2 2026-10-12]** D27.5/D27.6: central `_symbol_last_prices` map fed by chart bars + watchlist ticks; positions use their own symbol's price, 0.0 = honest unknown (no fabricated P&L); `reqPositions` + `reqAccountSummary` issued on connect, with an "unavailable" panel state on disconnect; `positions` table gained `CREATE UNIQUE INDEX IF NOT EXISTS (symbol, con_id)` via additive `_migrate_schema`. | `symbol → last_price` map; subscribe on connect; "unavailable" state | D27.5, D27.6 |
 | Teardown | **[P4 2026-10-13]** (4c) `_closing` flag — all four IBKR slots early-return. Explicit `closeEvent` order: persist prefs (watchlist dock width, re-clamped) → cancel in-flight contract lookups → disarm retry timers (`_rt_retry_timer`; per-session teardown cancels RT + wave, disarms the watchdog, stops the wave-continue timer, advances generation) → cancel depth + all RT subscriptions → `disconnect()` → join the `ibkr-reader` thread with a 5s timeout (`READER_JOIN_TIMEOUT_S`, close never hangs on a wedged socket read) → clear UI. `closeEvent` idempotent (second close is a no-op). Pop-outs are Qt children destroyed with the parent. | **[NOW AS-BUILT]** `_closing` flag; explicit order; thread joined with timeout | D28.5 |
 | Drawings | **[P1/P2 2026-10-12]** D27.10: `DrawingStore.update_drawing` persists colour/label/group_id (`None` = unchanged, never clobbered); the `updated` signal carries `(id, payload, color)` from all emitters; colour edits survive reload. **[P3 2026-10-12]** Single-writer invariant now enforced: main chart is the sole writer of drawings/alarms/studies; pop-outs render overlays read-only — `ChartPanel(editable=False)` gates drag/click/menu/Delete at the overlay level (`AlarmOverlay`/`DrawingOverlay` `editable` flag; fix `8ef0342` also closed a `DrawingOverlay` drag/settings hole the review missed). Drawings/groups live in the session; `drawings_changed` fans out to views. | **[NOW AS-BUILT]** Colour/label/group persisted; single-writer invariant enforced (A64) | D27.10, D24 |
-| Pop-out windows | — (did not exist) | **[NOW AS-BUILT]** `ui/popout_window.py::PopoutChartWindow` (28px header `SYMBOL · timeframe · mode` + close, `ChartPanel(editable=False)`); timeframe/mode/ext-hours frozen at creation; `MAX_POPOUTS = 10` (`config/settings.py:42`), the 11th is **refused with a status-bar message** (`ui/main_window.py:845–851` — the affordance is *not* `setEnabled(False)`-ed); toolbar "Pop out" action + `Ctrl/Cmd+P`; opened while disconnected → cached bars render and the subscription starts on connect, with **no per-pop-out "connecting" indicator** (main window `conn_badge` only); always-on-top default off with per-window toggle (header context menu) — `AC-D24.10`/A66, owner-confirmed 2026-10-14 | D24, AC-D24.5, AC-D24.10 |
+| Pop-out windows | — (did not exist) | **[NOW AS-BUILT]** `ui/popout_window.py::PopoutChartWindow` (28px header `SYMBOL · timeframe · mode` + close, `ChartPanel(editable=False)`); timeframe/mode/ext-hours frozen at creation; `MAX_POPOUTS = 10` (`config/settings.py::MAX_POPOUTS`), the 11th is **refused with a status-bar message** (`ui/main_window.py::MainWindow._open_popout` — the affordance is *not* `setEnabled(False)`-ed); toolbar "Pop out" action + `Ctrl/Cmd+P`; opened while disconnected → cached bars render and the subscription starts on connect, with **no per-pop-out "connecting" indicator** (main window `conn_badge` only); always-on-top default off with per-window toggle (header context menu) — `AC-D24.10`/A66, owner-confirmed 2026-10-14 | D24, AC-D24.5, AC-D24.10 |
 | Pop-out persistence | Pop-outs are session-only (D24 as drafted) | **[NOW AS-BUILT]** Additive `popouts` table + `data/popout_store.py`; upsert on open/close and on 500ms-debounced move/resize end; lazy cache-first restore after connect, with dedup against already-open pop-outs on reconnect (`282aae5`); unresolvable symbols skipped with a non-blocking note | D24 / AC-D24.9 |
 | Headless alarm monitor | — (did not exist) | **[NOW AS-BUILT]** `services/alarm_monitor.py::AlarmMonitor` (owned by `MainWindow`, wired to the session registry) + `AlarmStore.symbols_with_active_alarms()` (`SELECT DISTINCT symbol FROM alarms WHERE active=1 AND triggered=0`); headless sessions are ordinary `TickerSession`s (`views == 0`, `monitored == True`) with one 5-sec RT subscription, `BarAggregator("1m")`, per-push evaluation; `prev_price` seeded from the 1m cache else first-tick-no-eval (no phantom trigger); **zero history requests**; singleShot retry on pacing exhaustion; detach→headless promotion via `on_session_detached` (a duplicate `detach_view` def that shadowed the notify path was removed, `8383d49`) | D25 |
 | Test hardening | **[P4 2026-10-13]** (4d) T-1: alarm E2E assertions verified-not-duplicated (the four assertions live in `test_d24_alarm_full_chain.py` — no second alarm-chain test). T-2: close-path contract reconstruction for stock/option/future with correct IBKR secType vocabulary (`OPT`/`FUT`, not `OPTION`/`FUTURE`) — `ui/main_window.py` close-order path fixed to emit them. T-4: `DrawingStore` → overlay round-trip per drawing kind. T-5: `IdManager` behavioural + concurrency tests. Deleted 3 doc-asserting tests + the phantom `validate_sltp` helper; autouse `_isolate_test_db` fixture makes every test DB-hermetic. Open, not as-built: `contract.class_` is never populated (`_on_position_update` always stores `"stock"` — option/future close unreachable via the real position path; fix = derive from `contract.secType`, own commit). | **[NOW AS-BUILT]** Close-path contracts (OPT/FUT); drawing round-trip; id_manager tests; doc-asserting/phantom tests removed; DB hermeticity | D28.6 |
@@ -2920,8 +2951,9 @@ The D37 code lives in three new modules plus additive changes to existing ones:
 - **Test safety:** no test touches live TWS or transmits orders; mocked `ib_client` only. Owner
   rule (binding): **no mock endpoint of any kind in production code** — B.6 grep PASSED for D37.
 - **Depth heatmap default ON — owner-confirmed 2026-10-14 (Q44/A67), overriding the reviewer's OFF
-  suggestion.** `ui/chart_panel.py:368` creates the `DepthHeatmapItem` unconditionally and `:370` sets
-  `_depth_enabled_ui = True`, so the panel is visible by default; D36 footprint stays **OFF** (owner
+  suggestion.** `ui/chart_panel.py::ChartPanel.depth_heatmap_item` creates the `DepthHeatmapItem`
+  unconditionally and `ui/chart_panel.py::ChartPanel._depth_enabled_ui` sets it `True`, so the panel
+  is visible by default; D36 footprint stays **OFF** (owner
   decision 2026-10-13). The reviewer's OFF recommendation (consistency with D36, depth-budget) is
   recorded under Architecture Risks below as an accepted trade-off, not an open question.
 

@@ -586,3 +586,97 @@ changelog provenance citations added to `architecture.md` and mirrored in `plan.
 "Changelog cross-check" paragraph, two further changelog-vs-tree count disagreements reported for
 the changelog's owner, **no architectural decision changed**; `docs/plan.md` keeps
 `Status: READY_FOR_TASK_MANAGER`)
+
+---
+
+## Scoped review append — citation convention, `DG56` (2026-10-14)
+
+**Trigger.** A citation-form task on the canonical planning artifacts: adopt and enforce the
+**symbol-first citation convention** recommended in `docs/requirements/design_gaps.md` **DG56**
+(open, non-blocking), which records that `99fb8fa` inserted 5 lines into `ui/main_window.py`
+around ~`:190` and invalidated every later reference by +5 (`ui/main_window.py:840–846` →
+`:845–851`, the pop-out cap refusal; `conn_badge` `:290` → `:295`; etc.).
+
+**Not a new Plan proposal.** `docs/plan_proposal.md` / `docs/architecture_proposal.md` are the
+D23-era proposals and were **not** re-validated (no new proposal was required or offered); the
+approved D23 architecture and its phases are unchanged. This append records an **editorial**
+change to the canonical artifacts — permitted because it introduces **no architectural decision**.
+
+**No architectural decision, requirement, phase, assumption or scope item changed.** Every edit
+is either (a) a citation's *form* — bare `file:line` → `path::symbol`, with the line retained as
+an indicative parenthetical where it helps — or (b) a statement about *which* line numbers are
+historical. No constant, behaviour, component, boundary, dependency, acceptance criterion,
+phase, assumption or risk claim was altered, and `docs/requirements/*` and
+`docs/phase-changelog.md` were not touched.
+
+### Convention text and where it was placed
+Stated **once**, prominently, in `docs/architecture.md`: the block
+**"Citation convention — symbol-first (adopted 2026-10-14; formalizes `DG56` …)"** at the top of
+the provenance area (immediately after the owner-decisions paragraph) — the position the earlier
+scoped "Line-citation currency" note occupied, which it replaces. It states:
+
+- **`path::symbol` is the durable form** (e.g. `ui/main_window.py::MainWindow._open_popout`,
+  `config/settings.py::MAX_POPOUTS`, `ui/ticker_session.py::TickerSession.bar_updated`) — a
+  symbol survives any edit above it and is the contract; and
+- **a bare `file:line` is *indicative only*.** Any edit above a cited line can drift it, nothing
+  catches it, and where a line is kept it follows the symbol, in parentheses.
+- **Historical line numbers are bounded, not renumbered.**
+
+A short mirror (**"Citation convention (mirrors `docs/architecture.md` …)"**) sits in
+`docs/plan.md` under the Document-state block, pointing at the architecture section.
+
+### Citations converted — 18 edit sites, 30 line-bearing citations
+`architecture.md` (9 sites / 17 citations): header owner-decision block
+(`ui/popout_window.py:56` → `::PopoutChartWindow._always_on_top`; `ui/chart_panel.py:368`/`:370` →
+`::ChartPanel.depth_heatmap_item` / `::ChartPanel._depth_enabled_ui`); Data Model as-built note and
+Architecture Risks row (`data/db.py:14–157`/`:159–179`/`:181` → `::_init_schema` /
+`::_migrate_schema` / `::_table_columns`); D24 session signals (`ui/ticker_session.py:65–73` →
+`::TickerSession.bar_updated` / `::TickerSession.bars_refreshed`); D24 pop-out cap and the D24
+delta row (`config/settings.py:42` → `::MAX_POPOUTS`; `ui/main_window.py:845–851` →
+`::MainWindow._open_popout`); the D24 disconnected-pop-out `conn_badge` (`ui/main_window.py:295` →
+`::MainWindow.conn_badge`); always-on-top (`ui/popout_window.py:56`/`:289` →
+`::PopoutChartWindow._always_on_top` / `::PopoutChartWindow._toggle_always_on_top`);
+`config/settings.py:45` → `::SESSION_BAR_CAP`; D37 depth-heatmap default
+(`ui/chart_panel.py:368`/`:370` → the two `ChartPanel` symbols).
+
+`plan.md` (9 sites / 13 citations): the Q43 always-on-top line, the D24 as-built feature row, the
+D37 deviation 1, the four plan-vs-code verification rows (D24 cap, D24 signals, D24 disconnected,
+D37 default), and the two "pop-out refusal" anchors in the second-pass verification list.
+
+Each converted symbol was verified against the current source (`ui/main_window.py`,
+`ui/popout_window.py`, `config/settings.py`, `data/db.py`, `ui/ticker_session.py`,
+`ui/chart_panel.py`) before it was written — the repository is authoritative.
+
+### Citations bounded as historical — not renumbered
+The convention block names both bounded regions explicitly, and the `plan.md` mirror repeats them:
+
+1. **The frozen D16–D23 increment sections** of `architecture.md` — D16 additions/changes,
+   D17+D18, D19, D20, D21, D22, D23 — plus the D16/D17/D18/D19 increment paragraphs in the
+   header area. These keep their at-that-commit numbers; **36 bare `file:line` citations remain
+   in them as written** (e.g. `ui/main_window.py:100–211`, `:102`, `:233`, `:258`, `:323`,
+   `ui/watchlist_panel.py:682–728`/`:716–719`, `ibkr/market_data.py:78–84`, `data/db.py:23–27`
+   …), together with the symbol-preceded parenthetical refs (e.g. `remove_symbol` (`:682–728`) in
+   `plan.md`'s D23 phases). Renumbering a past state would itself mislead.
+2. **The "Moved from (as-built)" column** of the D24/D25/D28 session-extraction table
+   (§ *The session object*) — its symbol-preceded `(:537)`-style refs cite the **pre-extraction**
+   `MainWindow` as it was when D28.2 was planned (today `MainWindow._aggregator` is a property,
+   not a `:537` field), not today's file.
+
+The stale examples quoted inside the convention block itself
+(`ui/main_window.py:100–211`/`:217–223`/`:223–234`/`:236–242`, `:290`, `:840–846`,
+`ui/watchlist_panel.py:682–728`/`:716–719`, `ibkr/market_data.py:78–84`) are intentionally kept
+verbatim as the bound's worked examples.
+
+### Requirements Escalations
+**None.** `DG56` is an open, non-blocking documentation-hygiene item owned by the docs owners and
+is **not** a requirements or planning gap — no `docs/plan_notes.md` entry is warranted, and
+`plan_notes.md` is unmodified. The residual stale references DG56 names are in
+`docs/requirements/requirements.md` prose (D19/D24/DG53), i.e. the Requirements Analyst's file —
+reported there by DG56 itself, not edited here.
+
+### Final Decision
+Status: APPROVED (2026-10-14, citation-convention append — the symbol-first convention is stated
+once in `architecture.md` and mirrored in `plan.md`; 30 current citations converted to
+`path::symbol`; the D16–D23 increment sections and the D24/D25/D28 "Moved from (as-built)" column
+are bounded as historical, not renumbered; **no architectural decision, requirement, phase or
+scope claim changed**; `docs/plan.md` keeps `Status: READY_FOR_TASK_MANAGER`)

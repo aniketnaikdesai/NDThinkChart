@@ -5,7 +5,7 @@ D22 post-build corrections:
 
   * **D23.1 / ESC-030** — ``MarketDataManager.cancel_contract_details`` is a
     capability-guarded, documented best-effort cancel (the pinned
-    ``ibapi 9.81.1.post1`` exposes no ``EClient.cancelContractDetails``);
+    ``ibapi`` API surface exposes no ``EClient.cancelContractDetails``);
   * **D23.2 / ESC-031** — ``WatchlistPanel.remove_symbol`` drops the removed
     row's own ``_row_data`` key so the row-key invariant holds after any
     removal (first / middle / last / only).
@@ -57,8 +57,14 @@ def test_D23_03_T03_guard_source_shape():
     )
     assert guard, "the capability guard must be present"
 
-    # The pinned-version absence, TWS termination and safety net are documented.
-    assert "9.81.1.post1" in src
+    # The pinned-surface absence, TWS termination and safety net are documented.
+    # Assess the docstring so the check requires the *absence* to be documented,
+    # not merely the method name (which also appears in the guard code).
+    doc = " ".join((MarketDataManager.cancel_contract_details.__doc__ or "").split())
+    assert "pinned" in doc, "the docstring must document the pinned-surface absence"
+    assert "cancelContractDetails" in doc, (
+        "the docstring must name the missing EClient.cancelContractDetails capability"
+    )
     assert "contractDetailsEnd" in src
     assert "ContractLookupService" in src
     assert "cancel_all" in src

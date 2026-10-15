@@ -4,6 +4,14 @@
 > the requested design that should be resolved before/while building, but do not
 > halt progress.
 
+> **Source-citation convention (adopted 2026-10-14; resolves DG56 — the full statement is in
+> `requirements.md`'s Status/audit block).** Cite a **symbol** as the primary pointer — `path::symbol`,
+> e.g. `ui/main_window.py::MainWindow._open_popout`, `config/settings.py::MAX_POPOUTS`. A bare line
+> number or range is **indicative only**: it records where the code sat when the entry was written and
+> may drift (commit `99fb8fa`, a 5-line insert, invalidated ~10 such ranges). Resolve by symbol, not by
+> line. Entries that describe code **as it was at their own commit** keep their line references and are
+> tagged `[historical]`; they are deliberately *not* re-pointed at current lines.
+
 ## DG1 — D1 session shading applies equity sessions to every symbol
 - **Where it shows up:** D1 / Journey 2.
 - **Why it matters:** Futures trade nearly 24 hours and have different session
@@ -183,7 +191,7 @@
 - **Where it shows up:** D14 / AC-D14.1–D14.4 / Journey 15.
 - **Why it matters:** "Double-click anywhere on the row" must be distinguished from header/empty-area clicks and from same-symbol/disconnected no-ops; otherwise single-click selection could be mistaken for a load or a disconnected double-click could queue a request.
 - **Suggested resolution:** Wire `QTableWidget.cellDoubleClicked(int,int)` and resolve row Symbol via `COL_SYMBOL`; ignore when `row<0` or `symbol` empty/header; case-insensitive compare to `_current_symbol` for no-op; check `ConnectionState` / `load_btn.isEnabled()` before issuing `req_historical_data`; show status message on disconnected as specified. See Q27–Q29, A18–A19, R16.
-- **Status:** resolved 2026-10-14 — D14 is built: `ui/watchlist_panel.py:432` wires `cellDoubleClicked`; `AC-D14.1`–`AC-D14.4` are final per Q27–Q29.
+- **Status:** resolved 2026-10-14 — D14 is built: `ui/watchlist_panel.py::WatchlistPanel` wires `cellDoubleClicked` (cited `:432` — indicative); `AC-D14.1`–`AC-D14.4` are final per Q27–Q29.
 
 
 ---
@@ -208,7 +216,7 @@
   shortfall must be surfaced.
 - **Suggested resolution:** chunk backfill requests (respecting `pacing_manager`) or size a
   single request to the gap when within IBKR limits; document the bound.
-- **Status:** resolved 2026-10-14 — chunked waves are implemented: `ui/ticker_session.py:1529` issues ~60 `reqHistoricalData` chunks per wave against the rolling 600s budget (`MAX_HISTORICAL_PER_600S = 60`, `config/settings.py:35`), with continuation across waves (D28.3).
+- **Status:** resolved 2026-10-14 — chunked waves are implemented: `ui/ticker_session.py::TickerSession._issue_wave_chunks` (`:1529`) issues ~60 `reqHistoricalData` chunks per wave against the rolling 600s budget (`config/settings.py::MAX_HISTORICAL_PER_600S = 60`, `:35`), with continuation across waves (D28.3).
 
 ## DG20 — D16: no user-facing date-range control exists
 - **Where it shows up:** D16 / Journey 17.
@@ -226,9 +234,9 @@
   now", but the reported repro cache is an **internal** discontinuity: `SPY 5 mins` holds bars
   through Fri 2026-09-18 **and** bars for 2026-09-28…now, with 2026-09-19…2026-09-27 missing. A fix
   anchored only to `BarCache.get_last_timestamp` (`MAX(ts)` = the 09/28+ block) would see no gap and
-  leave the reported hole unfixed. `get_last_timestamp` exists (`data/bar_cache.py:33`) but is not
+  leave the reported hole unfixed. `data/bar_cache.py::BarCache.get_last_timestamp` exists (cited `:33`, now `:55` — indicative) but is not
   used by `load_chart`, which fetches `endDateTime=""` with the fixed `TIMEFRAME_CONFIG` duration
-  (`ui/main_window.py:430–444`).
+  (`ui/main_window.py::MainWindow.load_chart`; cited `:430–444` — indicative).
 - **Suggested resolution:** State the requirement as an outcome (continuous bar series over the
   displayed span) — already done in `AC-D16.1`/`AC-D16.5` — and have Plan detect the missing span
   from the cached series (e.g., the largest gap between consecutive cached blocks, or between the
@@ -256,7 +264,7 @@
 ---
 
 ## DG23 — D17: the D13 watchlist cap is enforced only on window resize, not during a dock drag
-- **Where it shows up:** D17 / D13 / `ui/main_window.py::resizeEvent` (lines ~962-968),
+- **Where it shows up:** D17 / D13 / `ui/main_window.py::MainWindow.resizeEvent` (line range `~962-968` when written — indicative),
   `ui/watchlist_panel.py::watchlist_max_width` / `clamp_watchlist_width`; `tests/test_d10_d13_integration.py`.
 - **Why it matters:** D13's "freely draggable up to 50%" is **not actually enforced** — the clamp
   helpers run only at construction and inside `resizeEvent`, which fires on *window* resize, not on a
@@ -271,7 +279,7 @@
 - **Status:** resolved 2026-10-14 — B1 was answered 2026-10-03 (cap = **50% of the chart area**), so this was never left blocking; D17 is built and merged (`ui/dock_layout.py`, `ui/main_window.py` dock hooks, `AC-D17.1`–`AC-D17.6`).
 
 ## DG24 — D18: the right docks have no width governance at all and are an unaccounted horizontal consumer
-- **Where it shows up:** D18 / `ui/main_window.py:234-252` (`RightDockWidgetArea` setup);
+- **Where it shows up:** D18 / `ui/main_window.py:234-252` (`[historical]` 2026-10-03; the `RightDockWidgetArea` setup, now `ui/main_window.py::MainWindow` init ~`:464–523`);
   `ui/active_trader_panel.py`, `ui/active_portfolio_panel.py`.
 - **Why it matters:** neither right panel sets a min/max width, and no `resizeDocks` call is made for
   them, so their width is entirely at Qt's discretion — which is why they can be squeezed off-screen in
@@ -317,7 +325,7 @@
 - **Status:** resolved (B5/B6 answered 2026-10-05 — the masking removal is settled and carried by `AC-D19.6`)
 
 ## DG29 — D20: the D19 wrapper's fixed 36px height leaves no lane for the horizontal scrollbar, so it overlaps the toolbar labels
-- **Where it shows up:** D20 / D19 / `AC-D19.4`; `ui/main_window.py:102` (`toolbar.setFixedHeight(36)`), `:233`
+- **Where it shows up:** D20 / D19 / `AC-D19.4`; `ui/main_window.py:102` (`toolbar.setFixedHeight(36)`), `:233` — `[historical]` D19/D20 snapshot 2026-10-06
   (`toolbar_scroll.setFixedHeight(36)`); `tests/test_toolbar_scroll_d19.py`.
 - **Why it matters:** the scroll area's horizontal scrollbar is laid out inside the same 36px as the toolbar
   content, so it covers the bottom of the labels (descenders), making them hard to read — the reported defect.
@@ -415,7 +423,7 @@
 ---
 
 ## DG37 — D21.11: deleting the watchlist dock title bar removes the dock's drag/float affordance
-- **Where it shows up:** D21.11 / `ui/main_window.py` watchlist dock title (`:258`), `ui/watchlist_panel.py`
+- **Where it shows up:** D21.11 / `ui/main_window.py` watchlist dock title (`:258`, `[historical]` 2026-10-06), `ui/watchlist_panel.py`
   in-panel header strip (`:117–124`).
 - **Why it matters:** B12 keeps the **in-panel header label** as the hide/show toggle and deletes the duplicate
   **dock title bar**. A `QDockWidget`'s title bar is normally what the user drags to move/float the dock, so
@@ -424,22 +432,22 @@
 - **Suggested resolution:** keep the in-panel header button as the toggle; if the dock must remain movable, give
   the header strip a drag handle (or retain a frameless/title-bar drag region) so docking still works. Plan/Build
   to choose the exact mechanism; the requirement outcome (single toggle that stays visible when hidden) is fixed.
-- **Status:** resolved 2026-10-14 — the header strip itself is the dock's title-bar widget (`ui/main_window.py:400` `setTitleBarWidget(self.watchlist_panel.header_bar)`) with `DockWidgetMovable` retained (`:401–403`), so the toggle stays visible when hidden and the dock is still movable.
+- **Status:** resolved 2026-10-14 — the header strip itself is the dock's title-bar widget (`ui/main_window.py::MainWindow` — `setTitleBarWidget(self.watchlist_panel.header_bar)`, `:400`) with `DockWidgetMovable` retained (`:401–403`), so the toggle stays visible when hidden and the dock is still movable.
 
 ## DG38 — D21.13: the right dock's title bar becomes the "Active Trader" toggle button
-- **Where it shows up:** D21.13 / `ui/main_window.py` right dock region (`:295–337`).
+- **Where it shows up:** D21.13 / `ui/main_window.py` right dock region (`:295–337` — indicative).
 - **Why it matters:** B12 makes the right dock's **title bar** the "Active Trader" hide/show button. The title bar
   is also the region's drag/hide affordance, so making it a toggle must not break moving the dock or reconcile
   badly with the existing DOM button (which hides the whole region).
 - **Suggested resolution:** make the title-bar label a clickable toggle while keeping a drag region; treat a
   fully-collapsed region as hidden for the D17/D18 cross-clamp (`DG35`); reconcile with `_on_dom_toggled`.
-- **Status:** resolved 2026-10-14 — the right dock's title-bar widget is the Active Trader header button (`ui/main_window.py:493–495`) with the toggle wired at `:531`, and `Movable` retained (`:495`).
+- **Status:** resolved 2026-10-14 — the right dock's title-bar widget is the Active Trader header button (`ui/main_window.py::MainWindow` — `setTitleBarWidget(self.active_trader.header_bar)`, `:493`; `setFeatures` `:494`) with the toggle wired at `:531` (indicative), and `Movable` retained.
 
 
 ---
 
 ## DG39 — D22: no offline symbol validation exists, so an unknown/invalid ticker cannot be rejected locally
-- **Where it shows up:** D22 / `AC-D22.4`; `ibkr/contracts.py::get_contract_for_symbol` (`:169`); `data/db.py`
+- **Where it shows up:** D22 / `AC-D22.4`; `ibkr/contracts.py::get_contract_for_symbol` (cited `:169`, now `:220` — indicative); `data/db.py`
   `watchlist` table; the add path.
 - **Why it matters:** `get_contract_for_symbol` builds a **stock contract for any string** and only special-cases a
   small `FUTURES_SCHEDULE` set; it performs **no IBKR lookup and raises no error** for an unknown symbol. Without a
@@ -466,7 +474,7 @@
 - **Status:** resolved (B16b answered 2026-10-07 — adding is **disallowed while IBKR is disconnected**, so the add-while-disconnected persistence question no longer arises; on reconnect `_restore_watchlist` repopulates from the DB. The `clear()`/`_restore_watchlist` interaction is still recorded here for Plan).
 
 ## DG41 — D22: persistence via the replace-all `set_watchlist` vs new add/remove DB helpers
-- **Where it shows up:** D22 / `AC-D22.2`; `data/db.py::get_watchlist` (`:125`) / `set_watchlist` (`:131`).
+- **Where it shows up:** D22 / `AC-D22.2`; `data/db.py::get_watchlist` (cited `:125`, now `:188`) / `data/db.py::set_watchlist` (cited `:131`, now `:235`) — both indicative.
 - **Why it matters:** `set_watchlist` **replaces the whole list** (DELETE + INSERT), and `_restore_watchlist` uses it
   to seed `DEFAULT_WATCHLIST` only when the DB list is empty. An add (or remove) path must not accidentally trigger
   the seed-again branch or drop `category`/`sort_order`. There is no `add_watchlist_symbol`/`remove_watchlist_symbol`
@@ -502,7 +510,7 @@
   callbacks, an error/timeout path, and a result the add flow can await) that resolves a symbol to at least one
   contract; the add proceeds on resolution and is rejected (nothing persisted) on failure/timeout. Non-blocking
   beyond B16 (answered 2026-10-07); the requirement outcome is fixed by `AC-D22.4`.
-- **Status:** resolved 2026-10-14 — the path is built: `ibkr/market_data.py::req_contract_details` (`:85`) + `contractDetails`/`contractDetailsEnd` callbacks + `services/contract_lookup_service.py` (bounded `QTimer`, `cancel_all`). D22's add validates live per B16.
+- **Status:** resolved 2026-10-14 — the path is built: `ibkr/market_data.py::MarketDataManager.req_contract_details` (cited `:85`, now `:88` — indicative) + `contractDetails`/`contractDetailsEnd` callbacks + `services/contract_lookup_service.py` (bounded `QTimer`, `cancel_all`). D22's add validates live per B16.
 
 ## DG44 — D22: the `_restore_watchlist` seed-if-empty branch can re-seed `DEFAULT_WATCHLIST` after the user removes every symbol
 - **Where it shows up:** D22 / `AC-D22.6`, `AC-D22.7`; `ui/main_window.py::_restore_watchlist` (`if not symbols: symbols = list(DEFAULT_WATCHLIST); db.set_watchlist(symbols)`); `data/db.py::get_watchlist`/`set_watchlist`.
@@ -513,13 +521,13 @@
   a persisted sentinel/flag, or seed only on a genuine first run) so an emptied watchlist stays empty; otherwise the
   seed-if-empty branch must not fire after an explicit removal. Plan's call; recorded so the persistence outcome is
   not silently violated.
-- **Status:** resolved 2026-10-14 — implemented via the persisted sentinel `WATCHLIST_CONFIGURED_KEY = "watchlist/configured"` (`ui/main_window.py:110–116`), so an explicitly emptied watchlist is not re-seeded with `DEFAULT_WATCHLIST` (A52).
+- **Status:** resolved 2026-10-14 — implemented via the persisted sentinel `ui/main_window.py::WATCHLIST_CONFIGURED_KEY = "watchlist/configured"` (`:114` — indicative), so an explicitly emptied watchlist is not re-seeded with `DEFAULT_WATCHLIST` (A52).
 
 
 ## DG45 — D23.1 (ESC-030): the contract-details cancel requirement conflicts with the pinned ibapi surface
 - **Where it shows up:** D22 task-level `AC-D22.2.3` (`docs/tasks/task-graph.json`, task `D22-02`) and architecture
   `S3` (`docs/architecture.md:1863`) vs the pinned dependency `ibapi` **9.81.1.post1**; the implementation
-  `ibkr/market_data.py::MarketDataManager.cancel_contract_details` (`:78–84`).
+  `ibkr/market_data.py::MarketDataManager.cancel_contract_details` (`:78–84` — `[historical]` D23 report time; now `:108`).
 - **Why it matters:** `AC-D22.2.3` mandates that `cancel_contract_details` call `client.cancelContractDetails(req_id)`,
   but the pinned `EClient` exposes **no** `cancelContractDetails` (`hasattr(EClient,'cancelContractDetails') is
   False`; only `reqContractDetails` exists). As written, the implemented call raises `AttributeError`, which the
@@ -603,7 +611,7 @@
 
 ## DG51 — D37 depth-heatmap default ON is unconfirmed and conflicts with the D36 OFF precedent
 - **Where it shows up:** `requirements.md` Journey 32 `:687` — "**Pending owner confirmation:** depth heatmap
-  default ON (reviewer recommends OFF, consistent with D36)". Code: `ui/chart_panel.py:368-369` unconditionally
+  default ON (reviewer recommends OFF, consistent with D36)". Code: `ui/chart_panel.py::ChartPanel.__init__` (cited `:368-369`) unconditionally
   constructs `DepthHeatmapItem()` and adds it to `price_plot`; D36 footprint, by contrast, is **OFF by default**
   (owner decision 2026-10-13).
 - **Why it matters:** a default-visible panel is user-visible behaviour shipped without the owner's confirmation,
@@ -611,7 +619,7 @@
   as-built state.
 - **Suggested resolution:** owner confirms the default; if OFF, gate the item's creation/visibility on an explicit
   enable (matching D36).
-- **Status:** resolved 2026-10-14 (Q44) — the owner confirmed the depth heatmap defaults **ON**, matching the shipped code (`ui/chart_panel.py:368`/`:370`); assumption A67 added and the "pending owner confirmation" wording removed from Journey 32.
+- **Status:** resolved 2026-10-14 (Q44) — the owner confirmed the depth heatmap defaults **ON**, matching the shipped code (`ui/chart_panel.py::ChartPanel.__init__` — `:368`/`:370`, indicative); assumption A67 added and the "pending owner confirmation" wording removed from Journey 32.
 
 ## DG52 — D24–D40 owner-open items live only in footer prose, with no AC or test
 - **Where it shows up:** `requirements.md:3131` — "**DEC-4 (pending owner nod)**" and "**Open:** always-on-top
@@ -630,21 +638,21 @@
 - **Result:** all shipped behaviours are captured as requirements/ACs, with three findings flagged (none silently
   deleted):
   - **D24 signal list corrected** — the requirement named a single `bars_updated` signal; the shipped
-    `ui/ticker_session.py:65–73` emits `bar_updated` (incremental tick) **and** `bars_refreshed` (full series
+    `ui/ticker_session.py::TickerSession` signals (cited `:65–73`, now `:65–84` — indicative) emit `bar_updated` (incremental tick) **and** `bars_refreshed` (full series
     replace). The text now names both.
   - **D24 "connecting" indicator corrected** — the requirement asserted a per-pop-out "connecting" indicator
     when opened while disconnected; the shipped code renders cached bars but has **no** per-pop-out indicator
-    (only the main window's `conn_badge`, `ui/main_window.py:290`). The requirement text is corrected rather than
+    (only the main window's `ui/main_window.py::MainWindow.conn_badge`, cited `:290`, now `:295` — indicative). The requirement text is corrected rather than
     asserting behaviour the code lacks; a per-window indicator would be a new request.
   - **D24 cap "disabled" clause flagged (AC-D24.5)** — the requirement says the pop-out action is **disabled** at
-    the 10-cap; the shipped code refuses the 11th with a status-bar message (`ui/main_window.py:840–846`) but does
+    the 10-cap; the shipped code refuses the 11th with a status-bar message (`ui/main_window.py::MainWindow._open_popout`, cited `:840–846` — indicative) but does
     **not** `setEnabled(False)` the affordance. Recorded as a narrower shipped behaviour (AC-D24.5 carries the note);
     a literal disable would be a small follow-up if wanted.
   - **No silently-deleted requirements.** Verified shipped and matching: `MAX_POPOUTS = 10`
-    (`config/settings.py:42`); `check_live_port` fail-fast + `LIVE_PORT = 7496` (`config/settings.py:11–24`);
-    D26.1 bracket children opposite-side (`ibkr/orders.py:91`); D26.2 `id_manager.reserve(3)`
-    (`ui/main_window.py:3176`); D26.7 `validate_order` gate (`ibkr/validation.py`, wired at
-    `ui/main_window.py:3107`); D26.8 kill switch `reqGlobalCancel` (`ui/main_window.py:3223`); D28.1
+    (`config/settings.py::MAX_POPOUTS`, `:42`); `config/settings.py::check_live_port` fail-fast + `LIVE_PORT = 7496` (`:11–24`);
+    D26.1 bracket children opposite-side (`ibkr/orders.py:91` — `child_action`); D26.2 `id_manager.reserve(3)`
+    (`ui/main_window.py:3181`, cited `:3176` — indicative); D26.7 `validate_order` gate (`ibkr/validation.py`, wired at
+    `ui/main_window.py:3112`, cited `:3107` — indicative); D26.8 kill switch `reqGlobalCancel` (`ui/main_window.py:3228`, cited `:3223` — indicative); D28.1
     `PacingExceeded`/`historical_wait_seconds` never sleeps (`ibkr/pacing.py`); D28.2 `TickerSession` extraction;
     D28.4 `SESSION_BAR_CAP = 5000` (`config/settings.py:45`); D24.9 `popouts` persistence (`data/popout_store.py`).
 - **Status:** resolved 2026-10-14.
@@ -656,7 +664,7 @@
   `:2492` "The pinned dependency is `ibapi` **9.81.1.post1**" and `:2513` "`ibapi 9.81.1.post1` exposes no
   `EClient.cancelContractDetails`"), `:3172` (A53), `:3300` (Status); `open_questions.md:831`;
   `design_gaps.md:523` (DG45). The shipped code perpetuates it too: `ibkr/market_data.py:110–137`
-  (docstring "The pinned ``ibapi 9.81.1.post1``") and `tests/test_ibkr_contract_details_d22.py:234–236`.
+  (docstring "The pinned ``ibapi 9.81.1.post1``") and `tests/test_ibkr_contract_details_d22.py:234–236` (indicative).
 - **Why it matters:** `requirements.txt:3` pins **`ibapi-latest==10.51.1`** (installed `ibapi 10.51.01`), and
   D37/D38 already cite "the 10.51.1 wheel". A reader (or the Validator) checking a "pinned `ibapi`" claim gets
   the wrong version, and the D23.1 requirement's own "document it in code" clause names a version the tree no
@@ -707,11 +715,29 @@
   **symbol-first with the line as a secondary pointer** (`ibkr/client.py::DisconnectClass`,
   `services/alarm_monitor.py::AlarmMonitor.pause_all()`, `tests/test_order_builders.py:83-104`), which supports
   the recommendation below.
-- **Standing recommendation (for the docs owners, not unilaterally applied):** cite `path::symbol` and treat any
-  line range as indicative; a `+5`-line commit invalidates every downstream range, and no test or check catches
-  it. Re-citing every range in `requirements.md` is deliberately **not** done here — that is a separate sweep.
-- **Status:** open (non-blocking; residual stale references remain in `requirements.md` D19/D24/DG53 prose and in
-  this file's own quoted pre-edit line numbers)
+- **Adopted 2026-10-14 — `path::symbol` is the primary citation.** The convention is stated once in
+  `requirements.md`'s Status/audit block (and repeated in this file's header): cite a **symbol**
+  (`path::symbol`) as the primary pointer and treat a bare line number/range as **indicative only**.
+  Applied as a bounded sweep, not an exhaustive rewrite:
+  - **Converted (symbol-first, line demoted to indicative):** every citation that is load-bearing for a
+    live/normative criterion — 17 sites in `requirements.md` (D16 `bar_cache`/`load_chart`, D22 `clear`/
+    `header_bar`, D23.1 cancel path, D24 signal block / conn-badge / pop-out cap / always-on-top, D26
+    bracket tests, D28.6 guard test, A66/A67, R55) and ~27 reference-level sites in `design_gaps.md` (DG15, DG19, DG21,
+    DG23, DG37, DG38, DG39, DG41, DG43, DG44, DG51, DG53, DG54, DG59). Where a cited line had already
+    drifted it is corrected and marked indicative (e.g. `data/bar_cache.py` `:33`→`:55`,
+    `config/settings.py` `:12`→`:30`, `conn_badge` `:290`→`:295`, DG53's `:3176`/`:3107`/`:3223` →
+    `:3181`/`:3112`/`:3228`).
+  - **Bounded as historical (kept verbatim, tagged `[historical]`):** references that describe code **as it
+    was at their own commit** — the dated "Observed in repository (validated 2026-10-03/05/06/07)"
+    diagnoses for D17–D22, the D19/D20 implementation snapshots, the D23-era `ibapi` figures, the DG17
+    doc-drift figures and A37's 2026-10-05 validation. 12 such sites in `requirements.md` and 4 in
+    `design_gaps.md`. Their line numbers are deliberately **not** re-pointed at current lines.
+  - **Out of scope (deliberately not swept):** requirements.md *section/section-line* references used as
+    document anchors (e.g. DG47/DG48/DG50/DG54's `requirements.md:2583`-style figures) — these point at a
+    prose document, not code, and are accurate for the revision they name.
+- **Status:** resolved 2026-10-14 — convention adopted and applied (see `requirements.md` Status/audit
+  block for the normative statement). Residual bare line numbers are all either `[historical]`-tagged or
+  explicitly marked indicative.
 
 ## DG57 — D25 acceptance criteria and their backing tests use different AC→behaviour mappings
 - **Where it shows up:** `requirements.md` `AC-D25.1`–`AC-D25.5` (`:2763–2774`) vs
@@ -764,7 +790,7 @@
 ## DG59 — toolbar geometry figures: the `~1716px` intrinsic minimum is stale, and D20's `~50–52px` band is macOS-only
 - **Where it shows up:** `requirements.md` D19 (`:2040`, `:2043`, `:2048–2049`, `:2065`, `AC-D19.5`) and A37
   ("`~1716px minimumSizeHint`"); D20 `AC-D20.2`/A39 (total strip "~50–52px"). Code:
-  `ui/main_window.py:120` (`TOOLBAR_CONTENT_HEIGHT = 36`) and `:374–377` (wrapper height =
+  `ui/main_window.py::TOOLBAR_CONTENT_HEIGHT` (`:120`) and `:374–377` (wrapper height =
   `36 + horizontalScrollBar().sizeHint().height()`), measured through
   `tests/test_toolbar_d20.py:8` and `:250–251`.
 - **Why it matters:** the toolbar's intrinsic minimum was re-measured **~1965px** offscreen on 2026-10-14
@@ -777,7 +803,7 @@
   height" rather than a pixel band. No behavioural change to `AC-D19.4`/`AC-D20.*`.
 - **Changelog check (2026-10-14):** the changelog has **no D19/D20 entry** (it starts at Phase 1 / D26,
   `docs/phase-changelog.md:24–26`), so there is no cross-reference to cite for these figures; the annotations
-  stand on the code measurement alone (`ui/main_window.py:120`, `:374–377`).
+  stand on the code measurement alone (`ui/main_window.py::TOOLBAR_CONTENT_HEIGHT`, `:374–377`).
 - **Status:** resolved 2026-10-14 (documentation annotated; the underlying behaviour is unchanged)
 
 ## DG60 — two different gaps share the identifier `DG14`
@@ -835,6 +861,26 @@
   ON; `requirements.md` A67 / DG51). The changelog predates that decision.
 - **Suggested resolution:** the changelog is **not the Analyst's file** — reported, not edited. The owner (or
   whoever owns `docs/phase-changelog.md`) should refresh the phase statuses/SHAs and drop the resolved
-  "pending" item; a short "status as of 2026-10-14: all phases merged and pushed at `262ec81`" header note would
-  stop the next reader re-deriving it.
-- **Status:** open (non-blocking; changelog-side documentation drift — routed to the file's owner)
+  "pending" item; a short "status as of 2026-10-14: all phases merged and pushed" header note would
+  stop the next reader re-deriving it. **Actioned upstream in `96b72c4`** — see Status below.
+- **Status:** resolved 2026-10-14 — **verified against the file** (not just the commit message) and against
+  the tree at commit **`96b72c4`** ("docs(changelog): correct six stale claims in phase-changelog.md").
+  All six items DG62 named are corrected in `docs/phase-changelog.md`:
+  1. **Phase statuses** — `grep` finds no remaining "NOT pushed"/"NOT merged"; all seven sites DG62 named
+     now read merged/pushed (`:110` Phase 3, `:151` Phase 4, `:192` D39, `:236` D40, `:275` D38, `:322`
+     D37, `:364` D36). `HEAD == main == origin/main` and only `main` exists, so this matches the tree.
+  2. **The non-existent review-fix SHA `d6f38e8`** is gone from `:236` and from the review row at `:247`
+     (both now name `b366b19`, which exists); `git cat-file -t d6f38e8` fails as DG62 reported.
+  3. **The D37 "depth heatmap default ON is PENDING owner confirmation" decision** (`:340`) and the three
+     carried follow-up lists (`:227` D39, `:265` D40, `:313` D38) no longer carry the pending item; `:340`
+     now reads "CONFIRMED by the owner 2026-10-14 (Q44 / assumption A67)".
+  4. **The D36 36.1 row** (`:371`) now says **2 new signals / 2 overrides**, noting the removed histogram
+     pair — verified against the tree: `ibkr/bridge.py` declares exactly `historical_ticks_bid_ask` /
+     `historical_ticks_last`, and `ibkr/client.py` has exactly **2** `historicalTicks*` overrides.
+  5. **The D38 38a.1 row** (`:282`) now lists all **four** bridge signals — `news_providers` /
+     `historical_news` / `historical_news_end` / `news_article` — matching `ibkr/bridge.py`.
+  6. **`:151` "the last phase of the plan"** is corrected (it now notes D36–D40 followed).
+  Line count is unchanged (401), so the ~87 citations into the changelog remain valid. **Deliberately left
+  alone** (correct as history, not drift): the branch names and the per-phase "Docs gate (this entry) on
+  `docs/d24-d28-requirements-architecture`" provenance notes. The changelog is not the Analyst's file —
+  reported, not edited. **No item remains stale.**
