@@ -43,8 +43,12 @@
   2026-09-27; `AC-D3.9`). The `ALARM_PLACING → ZOOMING` corner (formerly Plan PA-R1 /
   TR-9, Q36) is therefore **specified required behaviour**, and the router transition
   table is total.
-- **Status:** open (only the symbol/timeframe-change lifecycle sub-question remains; it is
-  non-blocking — the transition-specification part is resolved)
+- **Status:** **resolved 2026-10-14** — the residual sub-question is answered by the shipped code: the
+  magnifier reverts to Cursor on **both** a symbol change and a timeframe change, exactly as assumption **A6**
+  proposed. `ui/chart_panel.py::ChartPanel.set_symbol` carries "Reset magnifier on symbol change (A6)" and
+  calls `set_zoom_mode(False)`; `::ChartPanel.set_timeframe` does the same on the timeframe path. Recorded as
+  **TR-12** in the router transition table (`ZOOMING` + symbol/timeframe change → `IDLE`). The
+  transition-specification part was already resolved (see above), so nothing remains.
 
 ## DG4 — No GUI-level regression tests exist despite the `test_gui.md` spec
 - **Where it shows up:** Test coverage for all D1–D3 UI changes.
@@ -218,7 +222,13 @@
   load-time backfill (D16) covers the visible hole either way.
 - **Suggested resolution:** out of D16's minimal scope; if live-bar persistence is wanted,
   add a periodic/on-close `save_bars` of the current session's bars as a separate item.
-- **Status:** open (non-blocking; surfaced for awareness)
+- **Status:** **closed 2026-10-14 — not a defect; recorded as an out-of-scope enhancement
+  (`docs/requirements/feature_suggestions.md` FS15).** Re-verified against the tree:
+  `BarCache.save_bars` has exactly **one** caller, `ui/main_window.py::MainWindow._finalize_history_wave`
+  (the historical path), so bars aggregated from the live stream still update only the in-memory `_bars` and
+  are lost on restart. That is a **deliberate scope boundary** of D16 — which heals *visible* holes by
+  load-time backfill — not a defect, so it is an enhancement suggestion rather than an open gap. The original
+  analysis above is kept for the record.
 
 ## DG19 — D16: IBKR per-request duration/bar limits vs a long backfill
 - **Where it shows up:** D16 / `AC-D16.4`; `TIMEFRAME_CONFIG` is a single fixed duration per

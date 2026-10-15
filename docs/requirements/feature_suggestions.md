@@ -99,6 +99,17 @@
   reviewer recorded in code, not a requested surface.
 - **Suggested priority:** low
 
+## FS15 — Persist live/aggregated bars to the cache
+- **Gap/opportunity:** `BarCache.save_bars` is called only from the historical path
+  (`ui/main_window.py::MainWindow._finalize_history_wave`), so bars aggregated from the real-time stream update
+  the in-memory `_bars` but never reach SQLite. After a restart those bars are refetched rather than restored,
+  and any span the app ran through but the historical window did not cover shows a hole until the load-time
+  backfill re-requests it.
+- **Why not in the original ask:** D16's scope was the *visible* historical hole, healed by load-time backfill;
+  live-bar persistence was explicitly deferred ("out of D16's minimal scope") in `design_gaps.md` DG18.
+- **Suggested priority:** low–medium (a periodic/on-close `save_bars` of the current session's bars is small and
+  self-contained, and would trim some redundant historical traffic on restart).
+
 ## FS14 — Per-pop-out connection indicator
 - **Gap/opportunity:** a pop-out opened while IBKR is disconnected renders cached bars but shows **no**
   per-window connection state — the only connecting affordance is the main window's `conn_badge`
