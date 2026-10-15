@@ -190,8 +190,13 @@ class MainWindow(QMainWindow):
         # The base look is scoped with the #MainToolbar selector so it composes
         # with the VIS-D21.2 shared stylesheet below into one parseable sheet
         # (a bare declaration list fails to parse once further rules are added).
+        # The font is re-declared here too: with a widget-local stylesheet Qt
+        # resolves this subtree against it, so the app-level `*` rule in
+        # config/theme.qss (Inter 11px) did not reach the toolbar controls --
+        # observed: they rendered the 9pt Qt default instead of the theme font.
         toolbar.setStyleSheet(
-            "#MainToolbar { background: #101218; border-bottom: 1px solid #232938; }"
+            "#MainToolbar { background: #101218; border-bottom: 1px solid #232938;"
+            ' font-family: "Inter", "Segoe UI", sans-serif; font-size: 11px; }'
         )
         # D21.7 / VIS-D21.2: give active/selected toolbar buttons a persistent,
         # clearly visible highlight. The shared stylesheet is objectName-keyed

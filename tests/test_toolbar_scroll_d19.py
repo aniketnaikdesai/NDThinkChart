@@ -49,7 +49,7 @@ _CONTROL_NAMES = (
     "conn_badge",
 )
 
-_WIDE_SIZE = (2400, 900)
+_WIDE_SIZE = (2600, 900)
 _NARROW_SIZE = (1200, 700)
 
 

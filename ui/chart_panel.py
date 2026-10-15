@@ -367,7 +367,7 @@ class ChartPanel(QWidget):
         # never per-op (D28 discipline — see DepthHeatmapItem.regen_count).
         self.depth_heatmap_item = DepthHeatmapItem()
         self.price_plot.addItem(self.depth_heatmap_item)
-        self._depth_enabled_ui = True  # default ON (owner to confirm)
+        self._depth_enabled_ui = True  # default ON (owner-confirmed 2026-10-14, Q44/A67)
         self._imbalance_n = 5  # headline N; the label toggles 5 <-> 10
         self._depth_state_text = pg.TextItem(anchor=(0.5, 0.5))
         self._depth_state_text.setParentItem(self.price_plot.getViewBox())
