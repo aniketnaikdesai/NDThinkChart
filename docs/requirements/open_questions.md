@@ -1,5 +1,15 @@
 # Open Questions
 
+> **2026-10-14 — Batches D24–D40 folded into `requirements.md`; Q41–Q45 ANSWERED (2026-10-14).**
+> The D24–D40 requirements were authored on `origin/docs/d24-d28-requirements-architecture` and folded into
+> `requirements.md` by the Requirements Analyst. **All five owner items (Q41–Q45, at the end of this file) were
+> answered by the owner on 2026-10-14.** D24–D28 are re-statused **as-built / APPROVED** (Q41); the "gated in TWS"
+> planning gate is retired (Q42); pop-out always-on-top defaults OFF (Q43); the D37 depth heatmap defaults ON (Q44);
+> and the Analyst authored the missing D36–D40 acceptance criteria from the as-built behaviour (Q45). The
+> `requirements.md` footer now reads a clean **`Status: READY_FOR_PLAN`**. D1–D23 are unaffected. See
+> `design_gaps.md` DG46–DG52 (all resolved 2026-10-14).
+
+
 > **2026-10-06 (later) — Batch 15 (D21): blocking questions B9–B13 are ANSWERED — D21 clarified and finalised.**
 > The user reported **13 UI defects/issues** in one message after D20 was built and green (`04397d9`, 585 tests),
 > captured as batch **D21** (sub-defects D21.1–D21.13) in `requirements.md`. All five questions (**B9–B13**) were
@@ -840,3 +850,56 @@
   is that `_row_data` keys are exactly `range(rowCount())` after any removal, with the missing last/first/only-row
   coverage added. This is a mechanical correctness fix with no user-visible choice. Recorded as D23.2.
 - **Affected requirement section:** D23.2 / `AC-D23.2.1`–`AC-D23.2.4`; Journey 28; A55; R50.
+
+
+---
+
+# Open Questions — Batches D24–D40 — ANSWERED (2026-10-14)
+
+> Folded in from `origin/docs/d24-d28-requirements-architecture` on 2026-10-14. **D24–D28 now read "as-built /
+> APPROVED"** in `requirements.md` (Q41); **D36–D40 are as-built / Code-Reviewer APPROVED** and their acceptance
+> criteria are now defined (Q45). The items below were relayed to the owner and **all five are answered
+> (2026-10-14)** — `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## Q41 — Are Batches D24–D28 approved for Plan, or do they remain DRAFT?
+- **Status:** **answered 2026-10-14** — no longer blocking.
+- **Why it's blocking:** the five section bodies (`requirements.md:2583` D24, `:2698` D25, `:2757` D26, `:2809` D27,
+  `:2869` D28) all read "DRAFT … owner review required", while the code is **built and merged to `main`** (Phase 1–4,
+  as-built at `b366b19`, 855→898 tests green) and the branch's former footer claimed "owner-approved … READY_FOR_PLAN
+  (batches D24–D28)". A clean `READY_FOR_PLAN` cannot be asserted until the owner confirms.
+- **Affected requirement section:** D24–D28 (`requirements.md:2583`–`:2917`); the file footer status line.
+- **Answer (owner, 2026-10-14):** **Approved — D24–D28 are already developed/coded.** The five section headers/status lines are re-statused **as-built / APPROVED** (consistent with D36–D40), the earlier "DRAFT, owner review required" markers are cleared, and the footer reads `Status: READY_FOR_PLAN`. The owner also asked the Analyst to **verify each D24–D28 section against the shipped code** (see the D24–D28 verification result in `design_gaps.md` DG47 and the requirements sections).
+
+## Q42 — DEC-4 / G5: does the "gated in TWS" constraint get retired for D26?
+- **Status:** **answered 2026-10-14** — resolved; no longer blocking.
+- **Why it's blocking:** D26 operates on the **live-order path**. The recorded decision (DEC-4) proposes replacing
+  the old "gated in TWS, don't worry" per-run constraint with "D26 must land before any live order use" plus dev
+  guardrails (mocked `ib_client` only; no live transmission during development; the `IBKR_PORT == 7496` fail-fast
+  guard — confirmed in `config/settings.py:20`). The proposal also cites a **"G5"** that has no location in the tree
+  (dangling reference — see DG52). Plan/Build must not proceed on an unconfirmed live-order-safety decision.
+- **Affected requirement section:** D26 (`requirements.md:2757`); Assumption/Risk entries R55/R57; footer DEC-4.
+- **Answer (owner, 2026-10-14):** **Retire the "gated in TWS" planning gate.** The old per-run "gated in TWS, don't worry" assumption is retired so **D26 may be planned/decomposed against the live-order path**. DEC-4 is resolved and recorded in `requirements.md`; the retained safety behaviour (`IBKR_PORT != 7496` fail-fast, explicit user action per order, confirm dialogs, no test transmits) is unchanged. The dangling "**G5**" reference is recorded as resolved (no such item exists).
+
+## Q43 — Pop-outs: always-on-top by default, or standard windows?
+- **Status:** **answered 2026-10-14** — resolved (owner-confirmed default: OFF).
+- **Why it matters:** it is a user-visible window-manager behaviour recorded only as "Open:" in the footer prose
+  (`requirements.md:3131`) with no AC. The draft default (off, standard windows) can stand until the owner rules.
+- **Affected requirement section:** D24 (`requirements.md:2583`); footer "Open:" line; DG52.
+- **Answer (owner, 2026-10-14):** **Always-on-top default OFF** (standard windows) — confirmed to match the code (`ui/popout_window.py:56` `self._always_on_top = False`; user toggle at `:289`). Recorded as requirement **AC-D24.10** and assumption **A66**.
+
+## Q44 — D37 depth heatmap: default ON or OFF?
+- **Status:** **answered 2026-10-14** — resolved (owner-confirmed default: ON).
+- **Why it matters:** Journey 32 (`requirements.md:687`) records the depth heatmap as default **ON** "pending owner
+  confirmation", while the reviewer recommends **OFF** "consistent with D36" (footprint is OFF by default, owner
+  decision 2026-10-13). The code currently adds the item unconditionally (`ui/chart_panel.py:368-369`). See DG51.
+- **Affected requirement section:** D37 (Journey 32, `requirements.md:663`/`:687`).
+- **Answer (owner, 2026-10-14):** **Depth heatmap default ON** — confirmed to match the code (`ui/chart_panel.py:368` adds `DepthHeatmapItem` unconditionally; `:370` `_depth_enabled_ui = True`). The "default ON (owner decision pending)" wording is removed from Journey 32; the default is recorded as owner-confirmed ON (assumption **A67**). DG51 resolved.
+
+## Q45 — Who authors the missing D36–D40 acceptance criteria, and is the as-built behaviour the requirement?
+- **Status:** **answered 2026-10-14** — resolved (Analyst authored the ACs from the as-built behaviour).
+- **Why it's blocking:** `AC-D36.*`–`AC-D40.*` are cited as "verified" in Journeys 31–35 and by
+  `docs/architecture.md`/`docs/plan.md`, but no Given/When/Then text exists in `requirements.md` (DG46). The
+  Quality Bar requires every AC to be independently testable; the owner must confirm the shipped behaviour is the
+  intended requirement before the ACs are written from it.
+- **Affected requirement section:** D36–D40 (Journeys 31–35, `requirements.md:640`–`:806`); DG46; FI-D24-1.
+- **Answer (owner, 2026-10-14):** **The Requirements Analyst authors the missing D36–D40 acceptance criteria from the as-built behaviour.** Written as `AC-D36.1`–`.5`, `AC-D37.1`–`.5`, `AC-D38.1`–`.6`, `AC-D39.1`–`.5`, `AC-D40.1`–`.5` (the IDs Journeys 31–35 cite), sourced from the shipped behaviour and its backing tests (`tests/test_d36_footprint.py` … `tests/test_d40_tws_lifecycle.py`). Where a backing test is narrower than the cited ID it is marked with an **AMBIGUITY** note (AC-D39.5, AC-D40.5). DG46/FI-D24-1 resolved.

@@ -537,3 +537,116 @@
 - **Status:** addressed — captured as the D23.1 requirement (2026-10-07); the correction record directs the Task
   Manager (`AC-D22.2.3`), Build (guard + comment + test), and Plan/Validator (`S3` reconciliation) to apply it.
   No blocking user question was required (evidence-derived; user approved the fix).
+
+---
+
+## DG46 — D36–D40 acceptance criteria are cited everywhere but never defined
+- **Where it shows up:** `requirements.md` Journeys 31–35 (`:640`, `:663`, `:691`, `:732`, `:773`) each carry an
+  "As-built note" naming `AC-D36.1`–`AC-D36.5`, `AC-D37.1`–`AC-D37.5`, `AC-D38.1`–`AC-D38.6`, `AC-D39.1`–`AC-D39.5`,
+  `AC-D40.1`–`AC-D40.5` as "verified", and downstream `docs/architecture.md` cites `AC-D36.3`/`AC-D38.4` while
+  `docs/plan.md` cites `AC-D38.4`/`AC-D40.1`–`AC-D40.4`. **No `### D36 —`…`### D40 —` feature sections exist**,
+  and no Given/When/Then text for these IDs exists anywhere in `requirements.md`.
+- **Why it matters:** the Quality Bar requires every acceptance criterion to be independently testable, and the
+  Task Manager / Code Reviewer trace work to AC IDs. As written, these IDs are **dangling references** — the IDs
+  are asserted "verified" but have no normative statement to verify against. The tests that back them do exist
+  (`tests/test_d36_footprint.py` `test_ac_d36_1..3`, `tests/test_d37_microstructure.py` `test_ac_d37_1..3`,
+  `tests/test_d38_events_news.py` `test_ac_d38_1..5`, `tests/test_d39_burst_search.py` `test_ac_d39_1..4`,
+  `tests/test_d40_tws_lifecycle.py`), so the criteria are implicitly testable but not written down.
+- **Suggested resolution:** author `### D36`–`### D40` feature sections whose numbered ACs mirror the shipped
+  tests, copying the behavioural assertions out of the Journey "As-built note"s. Not a silent fix — requires the
+  owner's sign-off that the as-built behaviour is the intended requirement.
+- **Status:** resolved 2026-10-14 (Q45) — D36–D40 feature sections and `AC-D36.*`–`AC-D40.*` authored from the shipped behaviour and its backing tests (`tests/test_d36_footprint.py` … `tests/test_d40_tws_lifecycle.py`).
+
+## DG47 — D24–D28 are marked "DRAFT, owner review required" in the body while the code is built and merged
+- **Where it shows up:** `requirements.md` `:2583` (D24), `:2698` (D25), `:2757` (D26), `:2809` (D27), `:2869` (D28)
+  each read "DRAFT … owner review required"; but the code ships on `main` (`ui/ticker_session.py`,
+  `ui/popout_window.py`, `data/popout_store.py`, `services/alarm_monitor.py`, order-path fixes) and
+  `docs/architecture.md` records Phase 1–4 as-built and merged at `b366b19` (855→898 tests green). The branch's
+  former footer asserted "Status: READY_FOR_PLAN — owner-approved 2026-10-12 (batches D24–D28)".
+- **Why it matters:** the two statements contradict. Either the batches are owner-approved (so the DRAFT markers
+  are stale and should be flipped) or they still await owner review (so no footer may claim `READY_FOR_PLAN`).
+  This merge keeps the DRAFT markers and makes the footer `Status: DRAFT` accordingly; a clean READY_FOR_PLAN
+  cannot be asserted until the owner confirms.
+- **Suggested resolution:** owner confirms D24–D28 → flip the five section headers and the footer.
+- **Status:** resolved 2026-10-14 (Q41) — the owner approved D24–D28 as already-developed/coded; the five sections are re-statused as-built/APPROVED and the footer reads `Status: READY_FOR_PLAN`. The owner also asked for a section-by-section code cross-check (below).
+
+## DG48 — D24.9 is stated twice (`D24.9` and `AC-D24.9`)
+- **Where it shows up:** `requirements.md` `:2680` (`**D24.9 (pop-out restore across restarts) [NEW v1.2,
+  owner-confirmed 2026-10-12]**`) is immediately followed at `:2685` by `**AC-D24.9 (restore)**`. The first
+  statement omits the `AC-` prefix; the second restates the same criterion in slightly different words.
+  `docs/architecture.md` and `docs/plan.md` both cite the bare `D24.9`.
+- **Why it matters:** an AC number must map to exactly one testable statement. Two paragraphs share the number,
+  with different wording ("approximate geometry" vs "identical symbol/timeframe/mode/ext-hours and approximate
+  geometry; no duplicate subscriptions"), so a reader cannot tell which is normative.
+- **Suggested resolution:** merge into one numbered `AC-D24.9 (restore)` block; keep the "no duplicate
+  subscriptions" clause (it is the stronger, more testable form).
+- **Status:** resolved 2026-10-14 (Q41) — the two D24.9 statements are merged into a single normative `AC-D24.9 (restore)` block (keeping the stronger "no duplicate subscriptions" clause).
+
+## DG49 — the D24–D28 intro note cross-references identifiers that do not exist
+- **Where it shows up:** `requirements.md` `:56` — "See D24–D28, **Journeys 29–30**, `AC-D24.*`–`AC-D28.*`,
+  **A56–A66**, R51–R60, **DG46–DG52**."
+- **Why it matters:** `A66` does **not** exist (the Assumptions Log ends at `A65`); `DG46–DG52` did not exist
+  before this merge (design_gaps.md ended at `DG45` — this run adds DG46–DG52); and "Journeys 29–30" is stale
+  (the file now carries Journeys 29–35). Dangling identifiers make downstream tracing unreliable.
+- **Suggested resolution:** correct the list to "Journeys 29–35, `AC-D24.*`–`AC-D40.*`, A56–A65, R51–R60,
+  DG46–DG52" (or add the missing `A66` if an assumption is intended). Partially resolved here: DG46–DG52 now exist.
+- **Status:** resolved 2026-10-14 (Q41) — the intro cross-references are corrected to "Journeys 29–35, `AC-D24.*`–`AC-D40.*`, A56–A67, R51–R60, DG46–DG52"; A66/A67 now exist (added for the Q43/Q44 defaults).
+
+## DG50 — Batches D29–D35 have no requirement text anywhere
+- **Where it shows up:** the batch numbering jumps from `D28` (`requirements.md:2869`) straight to `D36`
+  (Journey 31, `:640`). There is no `### D29`–`### D35` section, no journey, and no reference to them in
+  `docs/architecture.md` or `docs/plan.md`.
+- **Why it matters:** readers and the Validator cannot tell whether D29–D35 were folded, renumbered, or simply
+  never written. Not blocking (nothing downstream cites them), but it leaves an unexplained hole in the audit
+  trail and invites a future mis-numbering.
+- **Suggested resolution:** record an explicit note (e.g. "D29–D35 intentionally unassigned / folded") or
+  backfill the batches if they exist.
+- **Status:** resolved 2026-10-14 (Q41) — the D29–D35 gap is now recorded explicitly in the `requirements.md` Status block as an intentional numbering gap (not missing content).
+
+## DG51 — D37 depth-heatmap default ON is unconfirmed and conflicts with the D36 OFF precedent
+- **Where it shows up:** `requirements.md` Journey 32 `:687` — "**Pending owner confirmation:** depth heatmap
+  default ON (reviewer recommends OFF, consistent with D36)". Code: `ui/chart_panel.py:368-369` unconditionally
+  constructs `DepthHeatmapItem()` and adds it to `price_plot`; D36 footprint, by contrast, is **OFF by default**
+  (owner decision 2026-10-13).
+- **Why it matters:** a default-visible panel is user-visible behaviour shipped without the owner's confirmation,
+  and it is inconsistent with the adjacent D36 default. The reviewer's recommendation (OFF) contradicts the
+  as-built state.
+- **Suggested resolution:** owner confirms the default; if OFF, gate the item's creation/visibility on an explicit
+  enable (matching D36).
+- **Status:** resolved 2026-10-14 (Q44) — the owner confirmed the depth heatmap defaults **ON**, matching the shipped code (`ui/chart_panel.py:368`/`:370`); assumption A67 added and the "pending owner confirmation" wording removed from Journey 32.
+
+## DG52 — D24–D40 owner-open items live only in footer prose, with no AC or test
+- **Where it shows up:** `requirements.md:3131` — "**DEC-4 (pending owner nod)**" and "**Open:** always-on-top
+  default for pop-outs …"; DEC-4 references a "G5" that has no location in this file.
+- **Why it matters:** two owner decisions remain genuinely unresolved, yet they appear only as prose in the status
+  block — there is no acceptance criterion, edge case, or test tied to them, so neither Plan nor Build can act on
+  them, and nothing will fail if they are ignored. The "G5" reference is itself dangling.
+- **Suggested resolution:** promote each to an explicit open question / assumption with an owner decision, then
+  either add an AC or drop the item.
+- **Status:** resolved 2026-10-14 — DEC-4 is resolved (Q42: the "gated in TWS" planning gate is retired) and the always-on-top default is resolved (Q43: OFF, `AC-D24.10`); both are now carried as requirements, not footer prose, and the dangling "G5" is recorded as resolved.
+
+---
+
+## DG53 — D24–D28 requirement-vs-code verification (owner-directed 2026-10-14, Q41)
+- **Where it shows up:** D24–D28 (`requirements.md`) cross-checked against the merged code.
+- **Result:** all shipped behaviours are captured as requirements/ACs, with three findings flagged (none silently
+  deleted):
+  - **D24 signal list corrected** — the requirement named a single `bars_updated` signal; the shipped
+    `ui/ticker_session.py:65–73` emits `bar_updated` (incremental tick) **and** `bars_refreshed` (full series
+    replace). The text now names both.
+  - **D24 "connecting" indicator corrected** — the requirement asserted a per-pop-out "connecting" indicator
+    when opened while disconnected; the shipped code renders cached bars but has **no** per-pop-out indicator
+    (only the main window's `conn_badge`, `ui/main_window.py:290`). The requirement text is corrected rather than
+    asserting behaviour the code lacks; a per-window indicator would be a new request.
+  - **D24 cap "disabled" clause flagged (AC-D24.5)** — the requirement says the pop-out action is **disabled** at
+    the 10-cap; the shipped code refuses the 11th with a status-bar message (`ui/main_window.py:840–846`) but does
+    **not** `setEnabled(False)` the affordance. Recorded as a narrower shipped behaviour (AC-D24.5 carries the note);
+    a literal disable would be a small follow-up if wanted.
+  - **No silently-deleted requirements.** Verified shipped and matching: `MAX_POPOUTS = 10`
+    (`config/settings.py:42`); `check_live_port` fail-fast + `LIVE_PORT = 7496` (`config/settings.py:11–24`);
+    D26.1 bracket children opposite-side (`ibkr/orders.py:91`); D26.2 `id_manager.reserve(3)`
+    (`ui/main_window.py:3176`); D26.7 `validate_order` gate (`ibkr/validation.py`, wired at
+    `ui/main_window.py:3107`); D26.8 kill switch `reqGlobalCancel` (`ui/main_window.py:3223`); D28.1
+    `PacingExceeded`/`historical_wait_seconds` never sleeps (`ibkr/pacing.py`); D28.2 `TickerSession` extraction;
+    D28.4 `SESSION_BAR_CAP = 5000` (`config/settings.py:45`); D24.9 `popouts` persistence (`data/popout_store.py`).
+- **Status:** resolved 2026-10-14.

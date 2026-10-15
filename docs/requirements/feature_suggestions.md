@@ -72,3 +72,29 @@
 - **Why not in the original ask:** The user asked about adding; reordering is a separate interaction.
 - **Status (2026-10-07):** B14 answered **add + remove** — reorder is **out of scope**, so this remains a valid future suggestion (not part of D22).
 - **Suggested priority:** medium
+
+## FS11 — Show the company name in symbol-search results
+- **Gap/opportunity:** D39's search box returns `symbol·secType·exchange` only; the Journey 34 as-built note
+  records a reviewer-verified API limitation — `symbolSamples` (ibapi 10.51.1) carries `ContractDescription`
+  with `contract` + `derivativeSecTypes` only, **no company name**. A short name would make the pick list far
+  easier to scan.
+- **Why not in the original ask:** the user asked for a symbol search; the missing company name is an API
+  limitation, not a requested field.
+- **Suggested priority:** low
+
+## FS12 — A true per-bar historical volume profile (alternative to per-session tick fetches)
+- **Gap/opportunity:** D36 removed the planned `reqHistogramData` path because the method takes **no date
+  parameter** and cannot address individual bars (see `docs/architecture.md:218`), so footprint history is built
+  from per-session TRADES tick pages. An alternative source (e.g. `reqHistoricalTicks` or a dedicated
+  volume-profile endpoint, if ever offered) could fill prior bars more cheaply and reduce IBKR request pressure.
+- **Why not in the original ask:** the user asked for footprint charts as they render today; the sourcing strategy
+  is an implementation choice the analyst flagged, not a user requirement.
+- **Suggested priority:** low
+
+## FS13 — Label delayed (non-real-time) depth distinctly in the heatmap
+- **Gap/opportunity:** D37's Journey 32 as-built note records a known limitation — if a delayed-depth feed is
+  used **instead of** error 354, the heatmap would render **unlabelled** as if real-time. A small "delayed"
+  badge/tint would prevent a user mistaking stale depth for live depth.
+- **Why not in the original ask:** the user asked for the heatmap; the 354-vs-delayed distinction is an edge the
+  reviewer recorded in code, not a requested surface.
+- **Suggested priority:** low
