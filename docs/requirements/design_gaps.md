@@ -54,14 +54,14 @@
   **TR-12** in the router transition table (`ZOOMING` + symbol/timeframe change → `IDLE`). The
   transition-specification part was already resolved (see above), so nothing remains.
 
-## DG4 — No GUI-level regression tests exist despite the `test_gui.md` spec
+## DG4 — No GUI-level regression tests exist beyond import smoke tests
 - **Where it shows up:** Test coverage for all D1–D3 UI changes.
-- **Why it matters:** The spec describes 11 `tests/test_gui*.py` files; none exist.
+- **Why it matters:** The eleven `tests/test_gui*.py` files that suite specified were never written; none exist.
   UI-only fixes risk having no GUI-level regression guard beyond import smoke tests.
 - **Suggested resolution:** Add targeted `pytest-qt` offscreen checks per defect
   (e.g. overlay band geometry, chip bounds, zoom button signals). A full GUI suite
   remains out of scope for this run.
-- **Status:** resolved 2026-10-14 — the `test_gui.md` 11-file suite is still absent, but GUI-level offscreen pytest-qt coverage now exists extensively (e.g. `tests/test_toolbar_d20.py`, `tests/test_dock_widths_d17.py`, `tests/test_d24_popouts.py`, `tests/test_d37_microstructure.py`), so the "no GUI-level regression guard" concern no longer holds.
+- **Status:** resolved 2026-10-14 — the eleven-file GUI suite was never written, but GUI-level offscreen pytest-qt coverage now exists extensively (e.g. `tests/test_toolbar_d20.py`, `tests/test_dock_widths_d17.py`, `tests/test_d24_popouts.py`, `tests/test_d37_microstructure.py`), so the "no GUI-level regression guard" concern no longer holds.
 
 ## DG5 — D4 zoom cluster position depends on dynamic price-axis width
 - **Where it shows up:** D4 / AC-D4.2.

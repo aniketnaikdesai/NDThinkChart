@@ -220,7 +220,7 @@ disconnected**. See D22, Journey 27, `AC-D22.1`–`AC-D22.9`, A48–A52, R45–R
 - Net-new feature development (this is bug-fix/UI repair only, unless a fix
   inherently requires small supporting work).
 - Visual redesign / restyling beyond correcting the reported UI defects.
-- The GUI test suite spec in `test_gui.md` as a standalone deliverable, and
+- A standalone GUI test-suite spec (the documents describing one were deleted 2026-10-16 — the suite was never implemented), and
   "Phase 12" combo/BAG multi-leg order placement — both explicitly out of scope
   for this run (from Q2).
 - Introducing a paper/simulated trading mode, or changing the live-only port 7496
