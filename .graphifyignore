@@ -1,0 +1,44 @@
+# .graphifyignore — what the graphify knowledge graph should NOT index.
+#
+# Syntax: identical to .gitignore (gitignore spec, last-match-wins, `!` negates).
+# Scope:  read from this directory (the scan root) and its ancestors, and live
+#         during the walk; honoured alongside .gitignore, not instead of it.
+#
+# Policy for this repo: index the APPLICATION (code + the technical documents
+# that describe how it behaves), and exclude the build process's own paperwork.
+# The process artifacts are ~245K words — 82% of the document corpus on the last
+# extraction — and they describe how the app was built, not how it works.
+
+# ── build / dependency / tooling noise ──────────────────────────────────────
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+graphify-out/
+.DS_Store
+*.sqlite3
+*.db
+
+# ── the pipeline's process artifacts (large, and not app knowledge) ─────────
+# Requirements → Plan → Validation → Review transcripts and ledgers.
+docs/requirements/
+docs/tasks/
+docs/plan*.md
+docs/architecture*.md
+docs/phase-changelog.md
+docs/code_review/review_log.md
+docs/code_review/precheck.md
+docs/code_review/escalations.md
+
+# ── deliberately KEPT (technical knowledge about this application) ──────────
+#   docs/code_review/*_investigation.md        root-cause analyses with file:line
+#   docs/code_review/*_permissions.md          IBKR entitlement findings
+#   docs/code_review/portfolio_held_rows.md    the leaked-fixture diagnosis
+#   docs/memory.md                             accumulated technical gotchas
+#   docs/ibkr-api-data-inventory.md            the IBKR API surface inventory
+#   docs/thinkorswim-feature-gap-analysis.md   feature-gap analysis
+#   USAGE.txt, usage.md, requirements.txt
