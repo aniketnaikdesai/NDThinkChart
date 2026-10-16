@@ -1074,8 +1074,15 @@
 - **Suggested resolution (optional):** keep the investigation **open** until it concludes; if it names the
   footprint overlay, record the symptom as **resolved-by-D41** on `AC-D41.1`/`AC-D41.5`; if it names shared
   candle/volume code, D41 does **not** resolve it and it must be filed as its own defect (separate from D41).
-- **Status:** **open** — outcome depends on the running investigation; flagged so D41 is not credited with a fix
-  it may not deliver.
+- **Status:** **resolved (2026-10-15) — NOT the footprint overlay; the cause is the `AC-D6.4`/`AC-D7.1`
+  contradiction, and the bug SURVIVES D41.** The investigation concluded (ESC-041/ESC-042, 2026-10-15): the
+  candle **and** volume overlap at high density comes from the **unconditional 4-device-pixel body floor**
+  (`ui/candlestick_item.py::CandlestickItem._draw_candles`; volume via
+  `ui/chart_panel.py::ChartPanel._clamp_half_width`), **not** the removed `FootprintItem` layer — measured
+  3.83 px pitch / 4.00 px body on a 192-bar SPY 5-min Ext-Hours view. So D41 does **not** resolve the symptom; it
+  is filed as its own defect and resolved at the requirements level by **D42.1 / ESC-042** (the body is capped at
+  the pitch; the 4-px floor is density-aware), which is the root-cause fix that unblocks BUILD **ESC-041**.
+  (This corroborates `AC-D41.1`'s "no D36/D37 control renders" but does **not** credit D41 with the overlap fix.)
 
 ---
 
@@ -1151,3 +1158,11 @@
   the mechanism is Plan/Build's call.
 - **Status:** **open (non-blocking)** — a Plan-level detail recorded so neither re-derivation is silently lost;
   the owner confirmed the *shape* (Q50) and left the mechanism to Plan.
+
+## DG72 — D42/ESC-038+ESC-037: the RTH/ETH day-presence pass and the bar cache are mode-blind, so a present-but-RTH-empty trading day is silently "filled" — **RESOLVED (D42, 2026-10-15)**
+
+- **Where it shows up:** D16 / Journey 17 / `AC-D16.8`/`AC-D16.9`; `services/backfill_service.py::find_missing_spans` (the day-presence pass decides per-day presence without the current `ext_hours` mode); `data/bar_cache.py` / `data/db.py` (a `useRTH`-blind cache key).
+- **Why it matters:** under **RTH** (`ext_hours=False`) a trading day whose cached bars are **all outside RTH** (e.g. `04:00–09:25` + `16:05–19:55`) yields **no** span, so the day-presence pass treats it as **filled** and the RTH hole is never requested (reproduced: `find_missing_spans(pre_and_post_bars(today), now, '5 mins', ext_hours=False) -> []`). Compounded by the mode-blind cache key, a mode switch can also read the other mode's bars as coverage. This violates the D16 edge case "the backfill must respect the current setting and not leave a hole because of a mode switch", and it silently under-counts the `AC-D16.8` RTH-session floor. It is the **same code path** as the ESC-038 symptom from the other side (BUILD escalation **ESC-037**).
+- **Suggested resolution (adopted):** make day presence **mode-aware** (decide presence against the **same session window the load uses**, `ext_hours`) and make the bar cache/key **mode-aware**, so a present-but-RTH-empty day is reported as a **missing RTH span** rather than assumed filled — recorded as **`AC-D16.9`** in `requirements.md`. The fix is **BUILD** (ESC-037); the requirement is the normative target.
+- **Status:** **RESOLVED (2026-10-15, D42)** — `AC-D16.9` states the mode-aware day-presence + mode-aware-cache requirement; BUILD escalation **ESC-037** implements it (RED pre-fix: the `ext_hours=False` case returns `[]`).
+  **Scope widened (Q52, owner-confirmed 2026-10-15):** the rule now covers **both** modes — `AC-D16.9` states it for `ext_hours=False` (RTH) **and** `ext_hours=True` (ETH, extended window `04:00–20:00 ET`), and `AC-D16.8`'s 30-session floor likewise applies to both; the two modes share one floor and must not cross-contaminate.

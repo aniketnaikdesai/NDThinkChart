@@ -88,6 +88,30 @@
 > remains; the owner did not pick options (a)/(b)/(c)). See A68–A71 and `open_questions.md` Q48–Q50
 > (answered).
 
+> **2026-10-15 (later) — Batch 18b (D42): two REQUIREMENTS-routed Code Reviewer escalations resolved (ESC-042, ESC-038).**
+> **D41 is built/reviewed/committed and is NOT reopened.** **ESC-042 (the important one)** resolves a genuine
+> **contradiction between `AC-D6.4` (unconditional body >= 4 device px at DPR 2) and `AC-D7.1` / the D7 dense-view
+> edge case (inter-bar gap stays positive)** — at high bar density (measured 3.83 device px pitch) the 4-px floor makes
+> adjacent bodies overlap and the gap negative, which is the **root cause of the still-open BUILD escalation
+> ESC-041** (candle **and** volume overlap on a 5-min chart with Extended Hours ON). The resolution makes the
+> **no-overlap guarantee win**: the body width is capped at the inter-bar pitch and the 4-px legibility floor
+> becomes **density-aware** (it yields to the pitch when they collide); the hard guarantee is `gap >= 0` and the gap
+> is **positive whenever the pitch exceeds the floor**. This **supersedes the unconditional wording of `AC-D6.4`**
+> and the **"gap remains positive" wording of `AC-D7.1`** + the D7 dense-view edge case (recorded, not silent).
+> **ESC-038** (RTH intraday chart shows only the current session) is a **fetch-window** defect, not `useRTH`;
+> the owner's floor is recorded as **`AC-D16.8`** (>= 30 trading sessions before the current session), which
+> **every intraday timeframe currently violates** (all `TIMEFRAME_CONFIG` durations are calendar-day windows
+> yielding fewer than 30 sessions). A **present-but-empty trading day** — cached bars all outside the current
+> mode's session window — MUST be treated as a **missing span**, not as filled: **`AC-D16.9`** (the requirement
+> side of the same code path as BUILD escalation **ESC-037**). **Owner answers (2026-10-15):** **Q51** confirmed
+> the zero-gap-at-the-limit default (no criteria change); **Q52** **widened the depth floor and the
+> present-but-empty rule to Ext-Hours (ETH) charts too** — `AC-D16.8`/`AC-D16.9` now cover **both**
+> `ext_hours=False` and `ext_hours=True`, with a **mode-aware** bar cache/key in both directions (this
+> **supersedes the RTH-only default**, recorded not silent). See **D42**, `AC-D6.4` (revised), `AC-D7.1`
+> (revised), `AC-D16.8` (extended), **`AC-D16.9`** (extended), A72-A73, R63-R64, `design_gaps.md` DG68
+> (resolved) + DG72, and `open_questions.md` Q51-Q52 (answered 2026-10-15). `requirements.md` carries
+> `Status: READY_FOR_PLAN`.
+
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
 official `ibapi`, live TWS port 7496) built through Phases 1–10. (That roadmap,
@@ -276,6 +300,8 @@ B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
 
 - **D41 — remove the D36 footprint + D37 depth heatmap / imbalance / auction + the ENTIRE Active Trader panel (DOM ladder + order-entry UI) (NEW, 2026-10-15, USER-REQUESTED; scope FINALISED 2026-10-15 — Q48/Q49/Q50 answered):** the four chart-panel cluster controls (`Footprint` + `Classic`/`Tick count`, `Depth`, `IMB —`, `AUC —`) and **all of `ui/active_trader_panel.py`** (`ActiveTraderPanel` shell, the DOM ladder/book, and the in-app **order-entry widget** MKT/LMT/STP/Bracket) are removed, along with the **`DOM` toolbar button**; the persisted D36 footprint data (`footprint_cache` table + rows) is **deleted**; the **right dock becomes Portfolio-only**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) stays and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**; the kept order path's `ref_price` takes a **retained source**. The shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is preserved. See D41, Journey 36, `AC-D41.1`–`AC-D41.7`, A68–A71, R61–R62, and `open_questions.md` Q48–Q50 (answered).
 
+- **D42 — REQUIREMENTS resolutions for the two REQUIREMENTS-routed Code Reviewer escalations (ESC-042 candle/volume overlap precedence; ESC-038 intraday history depth + present-but-empty trading day) (NEW, 2026-10-15; Q51/Q52 answered 2026-10-15):** a **requirements-decision** batch (no code of its own). **ESC-042:** `AC-D6.4`'s unconditional 4-device-pixel body floor **contradicts** `AC-D7.1`'s "gap remains positive" at high density; the resolution caps the rendered body width at the **inter-bar device-pixel pitch** and makes the 4-px floor **density-aware** (it yields to the pitch when they collide), so **`gap >= 0` always** (no overlap) and **`gap > 0` whenever the pitch exceeds the floor** — this **supersedes the unconditional `AC-D6.4` wording** and the **`AC-D7.1` "positive gap" wording** + the D7 dense-view edge case, and is what unblocks BUILD **ESC-041**. **ESC-038:** the one-session symptom is a **fetch-window** defect (not `useRTH`); the owner's floor **`AC-D16.8`** (>= 30 trading sessions before the current session, each intraday timeframe) is **extended/clarified** (sessions are counted by bars **inside the current mode's session window**, not calendar-day presence; all current `TIMEFRAME_CONFIG` windows fall short and must extend history backwards), and a **present-but-empty trading day** (cached bars all outside the current mode's session window) is required to be treated as a **missing span** (**`AC-D16.9`**, the requirements side of BUILD **ESC-037**). **Owner answers (2026-10-15):** **Q51** confirmed the zero-gap default (no criteria change); **Q52** **widened `AC-D16.8`/`AC-D16.9` to Ext-Hours (ETH) charts too** (`ext_hours=True` shares the one floor with RTH and must not cross-contaminate — the bar cache/key is mode-aware in both directions), **superseding the RTH-only default** (recorded, not silent). See D42, `AC-D6.4`/`AC-D7.1` (revised), `AC-D16.8` (extended), `AC-D16.9` (extended), A72–A73, R63–R64, and `open_questions.md` Q51–Q52 (answered 2026-10-15).
+
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
 Editor & Validator, Task Manager, Build/Build Worker, and Code Reviewer — **may use the
@@ -445,8 +471,10 @@ repository files, which remain authoritative if the two disagree.
 - **Steps:** 1) Observe the gap between adjacent candle bodies at default zoom.
 - **Postconditions:** The gap is visibly larger than the current 20% of spacing
   (about 35% of spacing), so individual candles are distinct.
-- **Edge Cases:** Dense 1-min view keeps a positive gap even when the 4px body
-  minimum applies; single-bar fallback unchanged; studies and session bands
+- **Edge Cases:** Dense intraday view keeps a **non-negative** gap (bodies never
+  overlap) even when the 4px body minimum applies — the 4px floor is **density-aware**
+  and yields to the inter-bar pitch when they collide (D42/ESC-042; see `AC-D7.1`
+  revised); single-bar fallback unchanged; studies and session bands
   continue to frame correctly.
 
 ### Journey 9 — D8: read volume at a glance
@@ -461,7 +489,9 @@ repository files, which remain authoritative if the two disagree.
 - **Preconditions:** A symbol is loaded on an intraday timeframe with both price and volume visible.
 - **Steps:** 1) Observe the gap between price bodies. 2) Observe the gap between volume bars at the same x positions.
 - **Postconditions:** The inter-bar gaps are identical (volume width `w*2` matches price body width, 35% gap), so price and volume bars are vertically aligned.
-- **Edge Cases:** Dense 1-min view keeps gaps aligned even when the 4px minimum applies; single-bar fallback aligns; Line/Area modes still align volume.
+- **Edge Cases:** Dense intraday view keeps gaps aligned even when the 4px minimum
+  applies (volume inherits the same **density-aware** cap as price — `width = body`,
+  `AC-D9.1`/`AC-D9.2` unchanged); single-bar fallback aligns; Line/Area modes still align volume.
 
 ### Journey 11 — D10: show/hide volume to reclaim space
 - **Preconditions:** App is running with a loaded chart; the volume panel is visible.
@@ -1255,12 +1285,12 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
   beyond the body’s top/bottom by at least 1px and is fully visible.
 - **AC-D6.3** Given up vs down candles, When rendered, Then body and wick share the
   candle’s direction colour.
-- **AC-D6.4 (ESC-009 — high-DPI coverage)** Given the app renders at a device pixel
-  ratio of `2` (`QT_SCALE_FACTOR=2` / `devicePixelRatio == 2`), When the candles
-  render, Then the wick stays a cosmetic 1-device-pixel line and the body remains
-  `>= 4` device pixels wide, so wick and body do not merge. Measurable: at DPR 2, the
-  body’s device-pixel width is `>= 4` and strictly greater than the wick’s, with no
-  rounding collapse to a single line.
+- **AC-D6.4 (ESC-009 — high-DPI coverage; REVISED 2026-10-15 by D42/ESC-042 — the floor is density-aware, superseding the former *unconditional* form)** Given the app renders candles at any bar density, When the candles render, Then the body's rendered width is `min( max(0.65 × pitch, F), pitch )`, where `pitch` is the inter-bar centre-to-centre distance and `F` is the D6 legibility floor (`4` device pixels at DPR `2`; the wick stays a cosmetic 1-device-pixel line), with `body`, `pitch` and `F` measured in the **same pixel unit**. Consequences, all required:
+  - **(i) No overlap, at any density:** `body <= pitch` always — adjacent bodies never overlap and the inter-bar gap is never negative. This is the **winning guarantee** when the floor and the pitch collide (see `AC-D7.1`).
+  - **(ii) Legibility floor holds in the non-dense regime:** when `pitch >= F`, `body = max(0.65 × pitch, F) >= F`, so the D6 intent (wick 1 device px; body `>= 4` device px at DPR 2, strictly wider than the wick, no rounding collapse to one line) is **unchanged**.
+  - **(iii) The floor yields at extreme density:** when `pitch < F`, `body = pitch` (the 4-px floor **relaxes to the pitch**; bodies may abut, `gap == 0`, but never overlap).
+  - Measurable (offscreen, no live TWS): render the real `CandlestickItem` at DPR 2 for a dense view (e.g. SPY 5 mins, 192 bars, Ext Hours ON, 900 px pane — the ESC-041/ESC-042 repro, pitch ~ 3.83 device px) and measure the **rendered** body from the `QPicture` bounding box (never re-derive the formula); assert `body <= pitch` (and `body == pitch` in this dense case), i.e. a pixel scan shows at least one non-body device pixel between adjacent bodies' centres — a contiguous run with zero gap is the failure ESC-041 reports. In the non-dense regime (e.g. 78 bars, pitch ~ 8.86 px) assert `body == max(0.65 × pitch, F) > F`.
+  - **Supersession (recorded, not silent):** the former clause "the body remains `>= 4` device pixels wide" was **unconditional** and is **superseded** by the density-aware rule above. The wick clause (cosmetic 1 device px) is **unchanged**.
 
 **Edge Cases:**
 - Very dense bars (e.g., 1-min over multiple days, hundreds of candles) keep the
@@ -1286,21 +1316,27 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
   spacing, gap 35% — ~75% more gap in relative terms, but still compact). No change
   to `xRange` padding (`-2*bar_w / +8*bar_w`); if a larger framing change is
   preferred it can be added as an alternative.
-- The existing device-pixel minimum for the body (from D6, ≥4px) continues to apply
-  so the slightly narrower body never collapses below legibility.
+- The existing device-pixel minimum for the body (from D6, >=4px) continues to apply
+  **as a density-aware floor** (revised 2026-10-15 by D42/ESC-042): it holds whenever
+  the inter-bar pitch is `>= 4` device px, and **yields to the pitch** (body capped at
+  the pitch) when the pitch is smaller, so bodies never overlap. See `AC-D6.4` (revised)
+  and `AC-D7.1` (revised).
 
 **Acceptance Criteria (Given/When/Then):**
-- **AC-D7.1** Given a loaded chart at default zoom, When candles render, Then the
-  gap between adjacent bodies is ~35% of bar spacing (body half-width is 0.325×
-  `median_diff`), visibly larger than the current 20% gap.
+- **AC-D7.1 (REVISED 2026-10-15 by D42/ESC-042 — precedence when the gap and the 4-px floor collide)** Given a loaded chart at any bar density, When candles render, Then the gap between adjacent bodies is `pitch - body >= 0` (a **hard no-overlap guarantee**; the gap is **never negative**) and:
+  - in the **normal regime** (`pitch >= F`, `F` = the D6 4-device-pixel floor) the gap is `~35%` of bar spacing (body half-width `0.325 × median_diff`, `body = max(0.65 × pitch, F)`), visibly larger than the current 20% gap;
+  - the gap is **positive (`> 0`) whenever `pitch > F`**;
+  - in the **extreme-density regime** (`pitch <= F`) the gap may reach **`0`** (bodies abut) because the D6 floor has yielded to the pitch — a **zero** gap is acceptable there, a **negative** gap (overlap) is **never** acceptable.
+  - **Supersession (recorded, not silent):** the former "the gap remains positive" wording in this criterion and in the D7 dense-view edge case is **relaxed to `gap >= 0`** by D42/ESC-042 (see `AC-D6.4` revised). The 35%-gap intent in the non-dense regime is **unchanged**.
 - **AC-D7.2** Given the same data, When compared to the current rendering, Then the
   on-screen distance between bodies is larger by ~15–18% of bar spacing (the gap
   grows from 0.20 to 0.35 of spacing).
 
 **Edge Cases:**
-- Very dense 1-min view (hundreds of candles) keeps the gap proportional (35% of
-  spacing) but the 4px body minimum may override — the gap remains positive and the
-  chart does not become empty.
+- Very dense intraday view (hundreds of candles) keeps the gap proportional (35% of
+  spacing) while the pitch allows, but the density-aware 4px body floor may bind — the
+  gap is **never negative** (`>= 0`) and the chart does not become empty; at extreme
+  density (pitch `<= 4` device px) the floor yields and bodies may abut (D42/ESC-042).
 - Single-bar chart (`w = 0.25` fallback) is unchanged.
 - All chart modes (Candles, Hollow, Heikin) use the same `w` factor; Line/Area are
   unaffected.
@@ -1437,6 +1473,7 @@ Defects D1–D3 (Batch 1, built), D4–D8 (Batches 2–4, all confirmed 2026-09-
 - **AC-D9.2** Given a dense 1-min view where the 4px body minimum applies, When
   rendered, Then volume bars follow the same clamped `w` so gaps stay aligned with
   price gaps.
+  - **Note (2026-10-15, D42/ESC-042):** the "4px body minimum" here is the **density-aware** floor of `AC-D6.4` (revised) — the clamped `w` is capped at the inter-bar pitch, so volume bars never overlap either; volume width stays **equal** to the price body width (`AC-D9.1`).
 
 **Edge Cases:**
 - Single-bar fallback (`w=0.25`) is used for both price and volume; single volume
@@ -1861,20 +1898,78 @@ Chart; Q29 no-op semantics):**
     **missing trading session**, so it must be backfilled (`AC-D16.1`) or its shortfall surfaced
     explicitly (`AC-D16.4`) — **never** classified as a genuine closure and left as a silent hole.
 
-- **AC-D16.8 (minimum intraday history depth under RTH — 30 trading sessions; Q47/ESC-038, answered 2026-10-15)**
-  Given an intraday timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`) under **RTH**
-  (`extended_hours=False` → `useRTH=1`), When the symbol is loaded and all historical request(s) complete, Then
-  the displayed bar series covers **at least 30 trading sessions before the current session** — 30 **trading
-  sessions** (not 30 calendar days) — so the fetch/backfill must exceed one IBKR request window and extend
-  history **backwards**, not merely carry the current session. (`1 day` is not covered by this floor.)
+- **AC-D16.8 (minimum intraday history depth — 30 trading sessions, RTH **and** Ext-Hours; Q47/ESC-038, answered 2026-10-15; EXTENDED 2026-10-15 by D42/ESC-038; EXTENDED TO ETH 2026-10-15 by Q52)**
+  Given an intraday timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`) in **either** session mode —
+  **RTH** (`extended_hours=False` → `useRTH=1`, session window `09:30–16:00 ET`) **or** **Ext-Hours (ETH)**
+  (`extended_hours=True`, extended window `04:00–20:00 ET`) — When the symbol is loaded and all historical
+  request(s) complete, Then the displayed bar series covers **at least 30 trading sessions before the current
+  session** — 30 **trading sessions** (not 30 calendar days) — so the fetch/backfill must exceed one IBKR request
+  window and extend history **backwards**, not merely carry the current session. (`1 day` is not covered by this
+  floor.) The floor is **one** floor shared by both modes; the mode selects only **which session window** a bar
+  must fall inside to count (below). The RTH-only scoping that the D42 default assumed is **superseded by Q52**
+  (owner-confirmed 2026-10-15: "Extend it to Ext-Hours charts too.").
+  - **Clarification (ESC-038) — a "session" is counted by bars inside the current mode's session window, not by
+    calendar-day presence.** A trading day contributes to the 30-session floor **only if the series holds at
+    least one bar inside the current mode's session window for that day** — `09:30–16:00 ET` under RTH
+    (`ext_hours=False`), `04:00–20:00 ET` under ETH (`ext_hours=True`). A day present in the cache with bars only
+    **outside** that window does **not** count and must be treated as a **missing span** (`AC-D16.9`). This is what
+    makes "shows only the current session" a measurable shortfall rather than an unfiled behaviour.
+  - **Clarification (ESC-038) — every intraday timeframe currently falls short.** `TIMEFRAME_CONFIG` windows are
+    **calendar-day** durations (`1 min → 1 D`, `5 mins → 5 D`, `15 mins → 5 D`, `1 hour → 10 D`,
+    `4 hours → 30 D`); under `useRTH=1` these yield roughly **1 / 3–4 / 3–4 / 7 / ~21** RTH sessions respectively
+    — all **fewer than 30** — so the floor requires **chained, paced, backwards-extending fetches** on
+    **all five** intraday timeframes, not only `1 min`. Under ETH the same calendar-day windows still fall short
+    of 30 **extended-session** days for the shorter timeframes, so the backwards-extending fetch is required in
+    both modes.
+  - **Mode isolation (Q52).** The two modes **share one floor** but must **not cross-contaminate**: a session
+    counted under RTH (>= 1 RTH bar) is **not** automatically satisfied under ETH, and vice versa. Because the
+    session window differs, the **bar cache/key must be mode-aware** in **both** directions so a mode switch
+    (Ext Hours ON ↔ OFF) neither leaves a hole nor reads the other mode's bars as the current mode's coverage
+    (`AC-D16.9`).
   - Measurable (offscreen, no live TWS): drive the real load path with a stubbed historical feed and assert the
     resulting bar series spans **>= 30 distinct trading sessions before the current one** for each intraday
-    timeframe under RTH.
+    timeframe in **both** modes, where a session is counted only when it has **>= 1 bar inside that mode's
+    session window**. The ESC-038 repro (`1 min` RTH → a single `1 D` request, 601 cached bars over one day) must
+    be **RED** pre-fix; the same assertion under `ext_hours=True` must also hold.
   - **Practical consequence (implementation matter — Plan/Build, not a requirements gap):** IBKR caps `1 min`
     at `1 D` per request, so the floor requires **chained, paced, backwards-extending fetches** — the D16
     backfill today anchors at `min(present_days)` and heals only holes *inside* `[earliest_cached_day, now]`,
     never backwards (DG65). If Plan judges this a **request-window strategy** change rather than a constant, the
     downstream route is **Plan**; the requirement itself is settled here.
+
+- **AC-D16.9 (mode-aware day presence + mode-aware cache — a present-but-empty day is a missing span, for **both** RTH and ETH; ESC-038/ESC-037, NEW 2026-10-15 by D42; EXTENDED TO ETH 2026-10-15 by Q52)**
+  Given the D16 backfill's day-presence pass (`services/backfill_service.py::find_missing_spans`) and the current
+  RTH/ETH mode, When the cache holds bars for a **trading day** but **none of them fall inside the current mode's
+  session window**, Then that day **MUST be reported as a missing span** for the current mode — it is **not**
+  "present"/filled — so the load issues the request that fills it. What "empty" means is **mode-specific**:
+  - **Under RTH (`ext_hours=False`, window `09:30–16:00 ET`):** a day whose cached bars are **all outside RTH**
+    (e.g. only pre-market `04:00–09:30` and/or post-market `16:00–20:00` ET bars) is a **missing RTH span** — the
+    RTH request that fills it must be issued.
+  - **Under ETH (`ext_hours=True`, extended window `04:00–20:00 ET`):** a trading day with **no bar inside the
+    extended session window** for that day — i.e. no cached bar whose timestamp falls in `04:00–20:00 ET` on that
+    day — is a **missing ETH span** (the trading day has no bars at all, or none inside the extended window).
+    Note bar timestamps are period **starts** (`data/bar_aggregator.py`), so the window test applies to a bar's
+    start timestamp, not its end.
+  Equivalently:
+  - Day presence is decided against the **same session window the load uses** (`ext_hours`), not against the
+    calendar day's mere presence in the cache; a mode switch (Ext Hours ON ↔ OFF) must **not** leave a hole and
+    must **not** present the other mode's bars as satisfying the current mode.
+  - The bar cache/key is **mode-aware** (RTH vs ETH) so a mode switch cannot read the other mode's bars as the
+    current mode's coverage (the `useRTH`-blind cache key is the compounding defect ESC-037 names). This applies
+    **in both directions**: a day filled only with extended-window (pre/post) bars is not RTH-covered, and a day
+    filled only with RTH bars is still ETH-covered (RTH lies inside `04:00–20:00 ET`).
+  - The **no-fill/no-silent-hole** rules (`AC-D16.1`/`AC-D16.4`) and the **genuine-closure** rule (`AC-D16.3`)
+    are **unchanged**; this criterion only fixes how **presence** is decided.
+  - Measurable (offscreen, no live TWS): (a) seed a trading day with only pre/post (ETH) bars, call
+    `find_missing_spans(cached_ts, now, timeframe, ext_hours=False)` and assert it returns a **non-empty** span
+    covering that day's **RTH** window (today it returns `[]` — the ESC-037 RED); (b) with the **same** seed, call
+    `find_missing_spans(cached_ts, now, timeframe, ext_hours=True)` and assert it returns **no** missing span for
+    that day (its bars lie inside the ETH window — the ETH day is present); (c) seed a trading day with **only RTH
+    bars** and assert **both** the RTH call and the ETH call report it present (RTH bars lie inside
+    `04:00–20:00 ET`), i.e. the two modes do not cross-contaminate.
+  - **Scope note:** this is the **requirements** side of BUILD escalation **ESC-037** (same code path from the
+    other side) — the fix is BUILD; the criterion above is its normative target. It also protects `AC-D16.8`'s
+    30-session count (a present-but-empty day must not be counted as a session, in **either** mode).
 
 **Correction record (ESC-023, 2026-10-02) — artifacts that must change:**
 - **Task Manager:** the `T37-T03` acceptance criterion in `docs/tasks/task-graph.json` currently
@@ -1910,14 +2005,20 @@ Chart; Q29 no-op semantics):**
 - All timeframes and any symbol must behave identically (Q39), including `1 day` (which has a much
   wider configured duration).
 
-**Resolved (2026-10-15 — ESC-038 / Q47 answered):** the minimum intraday history depth under **RTH** is now
-specified — **a minimum of 30 trading sessions before the current session** for each intraday timeframe
-(`1 min`…`4 hours`) — recorded as **`AC-D16.8`**. `ibkr/market_data.py::TIMEFRAME_CONFIG` gives `1 min` a
+**Resolved (2026-10-15 — ESC-038 / Q47 answered; EXTENDED 2026-10-15 by D42/ESC-038; ETH scope added by Q52):** the
+minimum intraday history depth — **a minimum of 30 trading sessions before the current session** for each
+intraday timeframe (`1 min`…`4 hours`) — is now specified and recorded as **`AC-D16.8`**, for **both RTH and
+Ext-Hours (ETH)** (`ext_hours=False` and `ext_hours=True`). `ibkr/market_data.py::TIMEFRAME_CONFIG` gives `1 min` a
 `"1 D"` window (exactly one RTH session under `useRTH=1`) and `services/backfill_service.py::find_missing_spans`
 anchors at the earliest cached day (never backwards), so a fresh `1 min` RTH chart shows one session — now a
 **shortfall against `AC-D16.8`**, no longer an unfiled behaviour. Delivering the floor needs chained, paced,
 backwards-extending fetches (IBKR caps `1 min` at `1 D` per request) — an implementation matter for
-**Plan/Build** (window strategy), not a requirements gap. See `design_gaps.md` **DG65** (resolved).
+**Plan/Build** (window strategy), not a requirements gap. See `design_gaps.md` **DG65** (resolved) and **DG72**.
+**D42/ESC-038 extension (2026-10-15):** `AC-D16.8` now also states that a **session is counted by bars inside
+the current mode's session window** (a present-but-empty day does not count) and that **all five** intraday
+windows fall short; the present-but-empty treatment is recorded as the new **`AC-D16.9`** (the requirements side
+of BUILD **ESC-037**). **Q52 (owner-confirmed 2026-10-15)** extended the floor and the present-but-empty rule to
+**ETH** (`ext_hours=True`), superseding the RTH-only default.
 
 
 ### D17 — Watchlist dock will not extend/reduce in full screen (D13 resize not effective)
@@ -3425,6 +3526,96 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
   `tests/test_toolbar_scroll_d19.py` / `tests/test_toolbar_d20.py` geometry fixtures are re-checked;
   `services/volume_baseline.py` docstring references to the D36 key rule are comment-only.
 
+### D42 — REQUIREMENTS resolutions: candle/volume overlap precedence (ESC-042) + RTH intraday history depth / RTH-empty trading day (ESC-038) — 2026-10-15
+- **Area:** `ui/candlestick_item.py::CandlestickItem._draw_candles` (body half-width + 4-px clamp),
+  `ui/chart_panel.py::ChartPanel._clamp_half_width` / `::ChartPanel._refresh_candles` (volume width);
+  `ibkr/market_data.py::TIMEFRAME_CONFIG`, `services/backfill_service.py::find_missing_spans`,
+  `data/bar_cache.py` / `data/db.py` (cache key).
+- **Status:** **NEW 2026-10-15 — two REQUIREMENTS-routed Code Reviewer escalations resolved by a requirements
+  decision** (this section carries no code of its own). **D41 is built/reviewed/committed (`b48133d`) and is NOT
+  reopened.** The resolutions **supersede** the *unconditional* wording of `AC-D6.4` and the *"gap remains
+  positive"* wording of `AC-D7.1` + the D7 dense-view edge case, and **extend** `AC-D16.8`/`AC-D16.9` to **both**
+  session modes. **Both owner confirmations are ANSWERED (2026-10-15): Q51 = confirmed** (a **zero** gap is
+  acceptable at the limit — no criteria change) and **Q52 = ETH included** (the floor and the present-but-empty
+  rule now cover `ext_hours=True` too — a recorded **supersession** of the RTH-only default). D1–D41 are otherwise
+  unchanged; the D6/D7/D9/D16 criteria are revised **only** as stated, with every supersession recorded (never
+  silent).
+- **Rationale — why these are requirements, not build fixes:**
+  - **ESC-042** is a genuine **contradiction inside `requirements.md`**: `AC-D6.4` required an **unconditional**
+    "candle body `>= 4` device px at DPR 2", while `AC-D7.1` and the D7 dense-view edge case required the
+    inter-bar gap to remain **positive**. Once the pitch falls below the 4-px floor (measured **3.83 device px**
+    on a 192-bar SPY 5-min Ext-Hours view) both cannot hold, and the shipped code applies the floor
+    **unconditionally** (`ui/candlestick_item.py::CandlestickItem._draw_candles`; volume reuses it via
+    `ui/chart_panel.py::ChartPanel._clamp_half_width`), so bodies overlap and the gap goes negative. This is the
+    **root cause of the still-open BUILD escalation ESC-041** (candle **and** volume overlap on a 5-min chart
+    with Extended Hours ON). The overlap is **not** the removed footprint overlay and **survives D41** — it is a
+    live defect independent of the D36/D37 removal.
+  - **ESC-038** is an **unfiled behaviour**: with RTH selected an intraday chart shows only the current session.
+    The cause is the **historical fetch window**, not `useRTH` (correctly `1` under RTH): `TIMEFRAME_CONFIG`
+    gives `1 min` a `1 D` window and with `useRTH=1` one `D` is exactly **one** RTH session, while
+    `services/backfill_service.py::find_missing_spans` anchors at the earliest cached day and never extends
+    history **backwards**. Nothing written pinned the expected depth (now `AC-D16.8`), and the day-presence pass
+    decides per-day presence **without** the current RTH/ETH mode, so a present-but-RTH-empty trading day is
+    silently treated as filled (the same code path from the other side — BUILD escalation **ESC-037**).
+- **Resolution D42.1 — candle/volume overlap precedence (ESC-042): the no-overlap guarantee wins.**
+  The rendered candle body width is **capped at the inter-bar device-pixel pitch**; the D6 4-device-pixel
+  legibility floor becomes **density-aware** (a *soft* floor that yields to the pitch when they collide).
+  Precisely: `body = min( max(0.65 × pitch, F), pitch )`, where `pitch` is the inter-bar centre-to-centre
+  distance and `F` is the D6 floor (`4` device px at DPR 2) — all measured in the **same pixel unit**. The
+  **hard guarantee is `gap = pitch − body >= 0`** (bodies never overlap, at any density / timeframe / pane
+  width / Ext-Hours setting); the gap is **positive whenever `pitch > F`**; at extreme density (`pitch <= F`)
+  the floor has already yielded and the gap may be **`0`** (abutting bodies) — a **zero** gap is acceptable
+  there, a **negative** gap is never. "Positive gap" at the limit therefore means `> 0` where the pitch admits
+  it, with `>= 0` as the inviolable floor. **Volume width == price body width** (`AC-D9.1`/`AC-D9.2` unchanged;
+  volume inherits the same capped `w`). See `AC-D6.4` (revised), `AC-D7.1` (revised), the D7 dense-view edge
+  case, and the `AC-D9.2` note.
+- **Resolution D42.2 — intraday history depth + present-but-empty day, for RTH **and** Ext-Hours (ESC-038 /
+  ESC-037; ETH scope widened by Q52).** In **either** session mode — **RTH** (`extended_hours=False` →
+  `useRTH=1`, window `09:30–16:00 ET`) or **ETH** (`extended_hours=True`, window `04:00–20:00 ET`) — each
+  intraday timeframe (`1 min`…`4 hours`) must load **>= 30 trading sessions before the current session**
+  (`AC-D16.8`, owner-required via Q47; **extended to ETH by Q52**), where a **session is counted only if the
+  series holds >= 1 bar inside the current mode's session window** for that day — so **all five** intraday windows
+  (calendar-day durations that yield ~1 / 3–4 / 3–4 / 7 / ~21 sessions) fall short and must extend history
+  **backwards** (chained, paced). A trading day present in the cache with **no bar inside the current mode's
+  window** is a **missing span**, not a filled day, and is reported by a **mode-aware** day-presence pass with a
+  **mode-aware cache** (`AC-D16.9`) — the requirements side of BUILD **ESC-037**. **Mode isolation:** the two
+  modes share one floor but must not cross-contaminate (a day with only pre/post ETH bars is RTH-missing but
+  ETH-present; a day with only RTH bars is ETH-present). This **reconciles ESC-038 with `AC-D16.8`**: the "one
+  session" symptom is a **shortfall against `AC-D16.8`** (not an unfiled behaviour), and the fetch-window
+  strategy that delivers the floor is a **Plan/Build** matter (DG65/DG72). **Supersession (Q52, 2026-10-15):**
+  the RTH-only scoping in the earlier D42 default is **superseded** — ETH is now in scope (recorded, not
+  silent).
+- **Correction record (artifacts that must change — Task Manager / Build / Code Reviewer):**
+  - **Task Manager:** the D42 work items are (a) the **density-aware body/volume cap** (ESC-042 → unblocks
+    ESC-041) and (b) the **intraday history-depth + mode-aware day-presence** change **for both RTH and ETH**
+    (ESC-038/ESC-037, ETH scope per Q52). Write them against `AC-D6.4`/`AC-D7.1`/`AC-D9.2` (revised) and
+    `AC-D16.8`/`AC-D16.9` (both modes).
+  - **Build:** apply the cap in `ui/candlestick_item.py::CandlestickItem._draw_candles` **and** in the volume
+    width path (`ui/chart_panel.py::ChartPanel._clamp_half_width` / `::ChartPanel._refresh_candles` /
+    `::ChartPanel._refresh_live_bar`); make `services/backfill_service.py::find_missing_spans` (and the bar-level
+    pass) **mode-aware** — the day-presence pass must decide presence against the **current mode's session
+    window** (`ext_hours`), not the calendar day's mere presence (`present_days = {_et_date(ts)}` is currently
+    mode-blind); make the bar cache/key **mode-aware** (`data/bar_cache.py` / `data/db.py`, keyed on
+    symbol+timeframe+mode) so RTH and ETH do not cross-contaminate; **correct (do not merely weaken)** the tests
+    that enshrine the old rule — `tests/test_candle_spacing.py` (a string-presence check that never renders) and
+    `tests/test_volume_width.py` (asserts body==volume and ~4 px but never relates width to pitch) — and add a
+    rendered-geometry guard (`body <= pitch`, measured from the `QPicture` bbox) plus
+    `find_missing_spans(..., ext_hours=False)` **and** `find_missing_spans(..., ext_hours=True)` RED→GREEN cases
+    (the ETH case: a day with no bar inside `04:00–20:00 ET` is a missing ETH span; a day with only pre/post ETH
+    bars is RTH-missing but ETH-present).
+  - **Code Reviewer:** on the ESC-041 re-check, verify against the **revised** `AC-D6.4`/`AC-D7.1` (a contiguous
+    zero-gap pixel run at pitch ~ 3.83 px is the failure); on **ESC-037**, verify `AC-D16.9` **in both modes**
+    (the RTH-missing / ETH-present split and the reverse); **ESC-038** is resolved by `AC-D16.8`/`AC-D16.9`
+    (requirements side) for both modes.
+- **Edge Cases:** extreme density (`pitch <= F`) → bodies abut, gap `0`, **never** overlap (a **zero** gap is
+  not a defect at this density; a **negative** gap always is); `1 day` is **not** covered by the 30-session
+  floor (`AC-D16.8`); genuine closures stay empty (`AC-D16.3` unchanged); a **trading halt / no-bar day**
+  that IBKR genuinely has no bars for is re-probed and its shortfall surfaced (`AC-D16.4`) — never fabricated;
+  a mode switch (Ext Hours ON ↔ OFF) must not leave a hole and must not read the other mode's bars as coverage
+  (`AC-D16.9`) — **in either direction** (RTH-only bars are not ETH coverage; pre/post-only bars are not RTH
+  coverage); under **ETH** the present-but-empty rule uses the `04:00–20:00 ET` window, not the RTH window
+  (`AC-D16.9`, Q52).
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -3500,6 +3691,8 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | A69 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q49 = "delete"]** | **D41 — persisted D36 footprint data is DELETED.** The `footprint_cache` DB table's DDL is removed from `data/db.py` (so fresh DBs never create it) **and** an existing user DB's `footprint_cache` table + rows are **dropped/deleted** by a small migration. | Owner answered **Q49 = "delete"** on 2026-10-15; the feature that owns the data is removed, so the table + rows go with it. Interpretation recorded; the one-line alternative ("delete rows only, keep the empty table") is noted as **DG70**, but the chosen default is the full drop. | y | 2026-10-15 |
 | A70 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q50 = YES/YES]** | **D41 scope widened to the ENTIRE Active Trader panel: the in-app order-entry UI is removed with it (no in-app order ticket), and the right dock becomes Portfolio-only.** All of `ui/active_trader_panel.py` (panel shell, ladder/book, `OrderEntryWidget`, `header_bar`/`header_button`, `set_symbol`/`set_last_price`/`last_price`) is **removed**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, `validate_order()`, `bracket_order`, order-ID reservation, the kill switch, the fail-fast port check) is **kept** and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**. **D18** (right-dock model) and **D21.13** (dock title bar / collapse) clauses that assumed the two-section Active-Trader+Portfolio region are **superseded by D41**; the single Portfolio dock's width cap and header are re-derived. | Owner answered **Q50 = YES / YES** on 2026-10-15 (whole panel removed incl. order entry; right dock Portfolio-only). Supersedes A68's ladder-scoped composition clause and DG69's conservative default. | y | 2026-10-15 |
 | A71 **[NEW 2026-10-15; Plan-level detail (non-blocking)]** | **D41 — retained order-path `ref_price` source and the Portfolio-only dock's re-derived cap/header.** The kept order path's `ref_price` (previously `active_trader.last_price`, fed by the DOM depth feed) **MUST** come from a **retained** source — the session's last price (live RT-bar / aggregator last) or the `symbol → last_price` watchlist price map (as D27.5 mandates for position market prices) — and must keep resolving. The right dock's width cap (was `floor(0.40 × chart_area)` for the two-section region) and its dock header / collapse affordance are **re-derived for the single Portfolio section**. | Owner confirmed the outcomes (Q50); the exact source/cap/header are implementation choices → **Plan-level details** (DG71), not blocking questions. Logged per the Quality Bar rather than silently baked in. | n | 2026-10-15 |
+| A72 **[NEW 2026-10-15 — D42/ESC-042; requirement decision (owner-confirmed via Q51)]** | **The no-overlap guarantee wins over the 4-px body floor at high density.** The candle body width is capped at the inter-bar device-pixel pitch and the D6 4-device-pixel legibility floor becomes **density-aware** (`body = min(max(0.65×pitch, F), pitch)`, `F` = 4 device px at DPR 2); the hard guarantee is `gap >= 0` (never overlap), the gap is `> 0` whenever `pitch > F`, and `0` is acceptable at extreme density (`pitch <= F`). This **supersedes the unconditional `AC-D6.4` wording** and the **`AC-D7.1` "positive gap" wording**. | The escalation is a genuine in-document contradiction and the owner-visible defect (ESC-041: candle/volume overlap on a 5-min Ext-Hours chart) is caused by the unconditional floor; a zero gap (abutting bodies) is not "overlap" and preserves legibility where it can, while a negative gap is never acceptable. Evidence-derived (measured 3.83 px pitch / 4.00 px body); the zero-gap-at-the-limit default was **confirmed by the owner 2026-10-15 (Q51, verbatim: "Zero gap acceptable at the limit.")** — no criteria change. | y (owner-confirmed 2026-10-15, Q51) | 2026-10-15 |
+| A73 **[NEW 2026-10-15 — D42/ESC-038; owner-required floor (Q47) + ETH scope owner-confirmed (Q52) + evidence-derived clarifications]** | **Intraday depth (RTH and ETH) = >= 30 trading sessions before the current session, counted by bars inside the current mode's session window; a present-but-empty trading day is a missing span (not filled).** The floor is `AC-D16.8` (owner-required, Q47); the "session = >= 1 bar inside the current mode's window" and "all five intraday windows fall short" clarifications and the new `AC-D16.9` (mode-aware day presence + mode-aware cache) are evidence-derived from the ESC-038/ESC-037 diagnosis. **Q52 (owner-confirmed 2026-10-15: "Extend it to Ext-Hours charts too.") widened the floor and the present-but-empty rule to ETH (`ext_hours=True`)** — one floor, two modes, no cross-contamination. The fetch-window strategy that delivers the floor is a **Plan/Build** matter. | The owner already required the 30-session floor (Q47) and then extended it to ETH (Q52); the present-but-empty rule is the only consistent reading of "a day with no bars in the session window is not a session" and is required for the floor to be measurable. ETH scope owner-confirmed; the remaining clarifications evidence-derived. | y (floor + ETH scope owner-confirmed, Q47/Q52; clarifications evidence-derived) | 2026-10-15 |
 ## Documentation Maintenance Requirements
 
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
@@ -3616,7 +3809,9 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | R59 **[NEW v1.2]** | D27.7/D28.3: backfill and pacing changes alter IBKR request patterns; error-162 storms are timing-dependent and hard to reproduce offscreen | M | M | Pacing math unit-tested with monkeypatched time (AC-D28.6); chunk-cap + retry-once keeps worst case bounded |
 | R60 **[NEW v1.2]** | D24–D28 are specified from a read-only review; behaviour on live TWS (real reconnects, real pacing errors) cannot be fully verified offscreen | M | H | Manual live-TWS verification checklist per batch before merge; no batch ships on offscreen-green alone |
 | R61 **[NEW 2026-10-15; updated for Q50]** | Removing D36/D37, the DOM ladder (Q48), **and the whole Active Trader panel incl. the order-entry UI** (Q50) could silently break a feature the owner did **not** remove: (a) D38 (S0 ticks `"292"`/`"456"`, `md_line_guard`) and D39 (`INDEX_PROXY`, `footprint_cache_key`, `volume_baseline`); (b) the **retained order machinery** (validation, bracket construction, kill switch, `ibkr/orders.py`, `ibkr/validation.py`) that Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs** still use; (c) the order path's `ref_price` (was fed by the DOM depth feed) losing its source; (d) accidentally deleting the retained order machinery **with** the order-entry UI | H | M | `AC-D41.4` + the D41 "Scope — KEEP" list pin every shared symbol and the order machinery; the order-entry **UI** is removed but the **safety machinery is explicitly KEPT** (DG69); `AC-D41.4` requires retained order paths to still validate with a **resolving `ref_price`** (new retained source — A71); `AC-D41.5` requires the full suite green; the D38/D39/order/D27–D28 suites stay green as the regression guard |
-| R62 **[NEW 2026-10-15]** | The Portfolio-only right dock's **re-derived width cap and header/collapse** could be left unspecified, so the single-section dock might inherit the old two-section assumptions (equal-width clause in `AC-D18.3`, Active-Trader title-bar widget) | M | M | `AC-D41.7` requires the right dock to be Portfolio-only with a re-derived cap/header; `D18`/`D21.13` carry explicit **superseded-by-D41** notes; `DG71` records the re-derivation as the Plan/Build detail |
+| R62 **[NEW 2026-10-15]** | The Portfolio-only right dock's **re-derived width cap and header/collapse** could be left unspecified, so the single-section dock might inherit the old two-section assumptions (equal-width clause in `AC-D18.3`, Active-Trader title-bar widget) | M | M | `AC-D41.7` requires the right dock to be Portfolio-only with a re-derived cap/header; `D18`/`D21.13` carry explicit **superseded-by-D41** notes; DG71 records the re-derivation as the Plan/Build detail |
+| R63 **[NEW 2026-10-15 — D42/ESC-042]** | The density-aware cap could be implemented inconsistently between the candle body and the volume width, or the tests that encode the old unconditional rule (`tests/test_candle_spacing.py`, `tests/test_volume_width.py`) could be left asserting the defect, so candles and volume diverge or the suite stays green on the bug | M | H | `AC-D6.4`/`AC-D7.1` (revised) + `AC-D9.1`/`AC-D9.2` pin one shared capped `w`; D42's correction record requires the two enshrining tests be **corrected** (not weakened) and a rendered-geometry guard (`body <= pitch`, from the `QPicture` bbox) added; ESC-041's re-check measures the rendered pixel run |
+| R64 **[NEW 2026-10-15 — D42/ESC-038; ETH scope added by Q52]** | Delivering the 30-session floor **in both RTH and ETH** needs backwards-extending chained fetches across all five intraday timeframes; a partial implementation could meet `1 min` but leave `5 mins`…`4 hours` short, could cover RTH but not ETH (or vice versa), or the mode-aware day-presence change could regress the D16 no-silent-hole behaviour | M | M | `AC-D16.8` states the floor for **all five** timeframes **in both modes** and `AC-D16.9` scopes the change to **presence** only (no-fill/no-silent-hole `AC-D16.1`/`AC-D16.4` unchanged); D42's correction record adds `find_missing_spans(..., ext_hours=False)` **and** `find_missing_spans(..., ext_hours=True)` RED→GREEN cases plus a per-timeframe, per-mode session-count guard and a no-cross-contamination check; the D16 suite stays green |
 
 
 ---
@@ -3707,11 +3902,20 @@ the test/code-side items are Build's to fix. **No new blocking question; no requ
   there is no depth feed to degrade. No option (a)/(b)/(c) was chosen — the correct resolution is supersession.
   The related **ESC-040** (footprint stuck in `loading`) is likewise **moot** (footprint removed wholesale), and
   **ESC-039** (DOM ladder `SMART` + `isSmartDepth=False`) is **moot** (ladder removed).
-- **ESC-038 / Q47 / DG65 — RESOLVED (Q47 answered 2026-10-15).** The minimum intraday history depth under RTH is
-  **30 trading sessions** before the current session, recorded as **`AC-D16.8`**. Delivering it (chained, paced,
-  backwards-extending fetches, since IBKR caps `1 min` at `1 D`) is a **Plan/BUILD** window-strategy concern.
-The silent-RTH-hole item **ESC-037** remains routed to **BUILD**.
+- **ESC-038 / Q47 / DG65 — RESOLVED (Q47 answered 2026-10-15; EXTENDED 2026-10-15 by D42/ESC-038; ETH scope added by Q52).** The minimum
+  intraday history depth — **30 trading sessions** before the current session — is recorded as
+  **`AC-D16.8`** (clarified: a session is counted by bars inside the **current mode's** session window; **all
+  five** intraday windows fall short and must extend history backwards) and applies to **both RTH and Ext-Hours
+  (ETH)** (`ext_hours=False` and `ext_hours=True`), per **Q52**. Delivering it (chained, paced,
+  backwards-extending fetches, since IBKR caps `1 min` at `1 D`) is a **Plan/BUILD** window-strategy concern. The
+  **present-but-empty trading day** treatment is recorded as the new **`AC-D16.9`** (mode-aware day presence +
+  mode-aware cache, both directions).
+- **ESC-042 (NEW 2026-10-15) — RESOLVED by requirements decision (D42.1).** The `AC-D6.4` (unconditional 4-px
+  body floor) vs `AC-D7.1` ("gap remains positive") contradiction is decided: the **no-overlap guarantee wins**,
+  the body is **capped at the inter-bar pitch**, and the 4-px floor is **density-aware**. This **supersedes** the
+  unconditional `AC-D6.4` / "positive gap" `AC-D7.1` wording and is what unblocks BUILD **ESC-041**.
+The silent-hole item **ESC-037** remains routed to **BUILD** (its normative target is now **`AC-D16.9`**, for **both** RTH and ETH).
 
 **[NEW 2026-10-15] Batch 18 (D41)** — the owner requested removal of the **D36 footprint**, the **D37 depth heatmap / imbalance / auction** features and "all associated code"; **scope FINALISED 2026-10-15 (Q48/Q49/Q50 answered)**: the **Active Trader DOM ladder** is **also removed** (Q48 = YES), the persisted **`footprint_cache` table + rows are deleted** (Q49 = "delete"), and the **entire Active Trader panel — including the in-app order-entry UI — is removed with the right dock becoming Portfolio-only** (Q50 = YES/YES). D41 carries acceptance criteria `AC-D41.1`–`AC-D41.7`; `AC-D36.*`/`AC-D37.*` are **SUPERSEDED BY D41** (retained for history, DOC-4), and the affected **D18**/**D21.13** clauses are **superseded by D41** with reasons. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) is **kept** for the Portfolio close/flatten/SL-TP paths, and the kept order path's `ref_price` takes a **retained source** (Plan-level detail); the shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is **explicitly preserved** (see D41 "Scope — KEEP"); **ESC-039 / ESC-035 / ESC-040** are moot. No **blocking** question remains; **Q47** is answered as **`AC-D16.8`** (30 trading sessions). This document carries `Status: READY_FOR_PLAN`.
 
-Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14; D36–D40 as-built with acceptance criteria authored, **D36/D37 now SUPERSEDED BY D41**); **D41 (Batch 18)** — the D36/D37 **+ the entire Active Trader panel (DOM ladder + order-entry UI)** removal is specified with `AC-D41.1`–`AC-D41.7` (Q48/Q49/Q50 answered 2026-10-15), the **right dock is Portfolio-only** (D18/D21.13 clauses superseded by D41), the **retained order machinery** is kept for Portfolio's close/flatten/SL-TP paths, and the shared substrate is preserved; **`AC-D16.8`** records the 30-trading-session RTH depth floor (Q47); D1–D23 unchanged. No blocking question remains.
+Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14; D36–D40 as-built with acceptance criteria authored, **D36/D37 now SUPERSEDED BY D41**); **D41 (Batch 18)** — the D36/D37 **+ the entire Active Trader panel (DOM ladder + order-entry UI)** removal is specified with `AC-D41.1`–`AC-D41.7` (Q48/Q49/Q50 answered 2026-10-15), the **right dock is Portfolio-only** (D18/D21.13 clauses superseded by D41), the **retained order machinery** is kept for Portfolio's close/flatten/SL-TP paths, and the shared substrate is preserved; **`AC-D16.8`** records the 30-trading-session intraday depth floor (Q47), now covering **both RTH and Ext-Hours (ETH)** per **Q52**; **Batch 18b (D42)** resolves the two REQUIREMENTS-routed Code Reviewer escalations — **ESC-042** (the `AC-D6.4` vs `AC-D7.1` contradiction: the **no-overlap guarantee wins**, the body is capped at the inter-bar pitch and the 4-px floor is **density-aware**, superseding the unconditional `AC-D6.4` / "positive gap" `AC-D7.1` wording — unblocks BUILD **ESC-041**) and **ESC-038** (intraday depth floor `AC-D16.8` clarified — sessions counted by bars inside the **current mode's** session window, all five intraday windows fall short — plus the new **`AC-D16.9`** for a present-but-empty trading day; the requirements side of BUILD **ESC-037**) — with A72–A73, R63–R64, DG68 resolved + DG72, and **Q51/Q52 answered 2026-10-15 (Q51 confirmed the zero-gap default; Q52 widened `AC-D16.8`/`AC-D16.9` to Ext-Hours, superseding the RTH-only default)**; D1–D41 otherwise unchanged. No blocking question remains.

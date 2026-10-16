@@ -246,13 +246,16 @@ def test_t43_t03_disconnect_surfaces_shortfall_once(monkeypatch, qapp, caplog):
 
         msg = win.status_bar.currentMessage()
         assert "incomplete" in msg
-        # At least one still-missing trading day is named in the message.
-        assert any(date(y, m, d).isoformat() in msg for y, m, d in MISSING_DAYS)
-
-        assert any(
-            "historical backfill shortfall" in rec.getMessage().lower()
-            for rec in caplog.records
-        )
+        # D42/S17: the floor span reaches back beyond this fixture's seeded hole,
+        # and the status bar previews only the FIRST few missing days -- so the
+        # seeded days may not be in the preview. The FULL missing list is in the
+        # log warning, and the seeded hole must still be in it.
+        shortfalls = [r.getMessage() for r in caplog.records
+                      if "historical backfill shortfall" in r.getMessage().lower()]
+        assert shortfalls, "the AC-D16.4 shortfall must be logged"
+        for y, m, d in MISSING_DAYS:
+            assert date(y, m, d).isoformat() in shortfalls[0], (
+                f"seeded missing day {date(y, m, d)} absent from the shortfall log")
     finally:
         win.close()
 
@@ -357,15 +360,18 @@ def test_t43_t06_disconnect_after_wave_finalised_no_double_finalise(
     win = _make_window(monkeypatch, qapp)
     try:
         stub = _ReqStub()
-        # Empty cache -> a single-request wave (set of one).
+        # Empty cache -> D42/S17's floor span drives the wave, so it is no longer
+        # a single-request set. The intent here is that it finalises ONCE and a
+        # later disconnect is a no-op.
         _load(win, symbol, tf, stub, NOW)
-        assert len(stub.calls) == 1
-        rid = stub.calls[0]["reqId"]
-        assert win._history_req_ids == {rid}
+        rids = [c["reqId"] for c in stub.calls]
+        assert rids, "the floor span must issue at least one request"
+        assert win._history_req_ids == set(rids)
 
         # Drive the normal wave to completion: set empties, already finalised.
-        win._on_historical_bar(rid, _FakeIbBar(_et_ts(2026, 11, 5)))
-        win._on_historical_data_end(rid)
+        for rid in rids:
+            win._on_historical_bar(rid, _FakeIbBar(_et_ts(2026, 11, 5)))
+            win._on_historical_data_end(rid)
         assert win._history_req_ids == set()
 
         finalise_calls: list[int] = []
@@ -478,11 +484,17 @@ def test_t44_t03_reason_distinguishes_timeout_and_disconnect(
     caplog.clear()
     disconnect_msg, disconnect_warns = _strand("disconnect", "T44C2")
 
-    # AC-D16.4 wording preserved in both.
-    for msg in (timeout_msg, disconnect_msg):
+    # AC-D16.4 wording preserved in both. The status preview shows only the FIRST
+    # missing days (now the D42 floor span), so the seeded days are asserted in
+    # the LOG, which carries the full missing list.
+    for msg, warns in ((timeout_msg, timeout_warns),
+                       (disconnect_msg, disconnect_warns)):
         assert "incomplete" in msg
-        assert any(date(y, m, d).isoformat() in msg for y, m, d in MISSING_DAYS)
-    assert timeout_warns and disconnect_warns
+        assert warns, "the AC-D16.4 shortfall must be logged"
+        joined = " ".join(warns)
+        for y, m, d in MISSING_DAYS:
+            assert date(y, m, d).isoformat() in joined, (
+                f"seeded missing day {date(y, m, d)} absent from the shortfall log")
     for warn in (*timeout_warns, *disconnect_warns):
         assert "historical backfill shortfall" in warn.lower()
 

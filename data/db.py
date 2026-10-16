@@ -13,12 +13,17 @@ class DB:
 
     def _init_schema(self):
         schema = """
+        -- D42 / S16: mode-aware bars key. ext_hours (0/1) is part of the
+        -- primary key so an RTH load can never read ETH bars as coverage
+        -- (AC-D16.9 / AC-D16.8's mode-isolation clause). Default 1 matches
+        -- the app default (Ext Hours ON).
         CREATE TABLE IF NOT EXISTS bars (
             symbol TEXT NOT NULL,
             timeframe TEXT NOT NULL,
+            ext_hours INTEGER NOT NULL DEFAULT 1,
             ts INTEGER NOT NULL,
             open REAL, high REAL, low REAL, close REAL, volume REAL,
-            PRIMARY KEY (symbol, timeframe, ts)
+            PRIMARY KEY (symbol, timeframe, ext_hours, ts)
         );
         CREATE TABLE IF NOT EXISTS watchlist (
             symbol TEXT PRIMARY KEY,
@@ -167,6 +172,49 @@ class DB:
             "CREATE UNIQUE INDEX IF NOT EXISTS "
             "idx_positions_symbol_con_id ON positions(symbol, con_id)"
         )
+        # D42 / S16 (AR-D42-5): mode-aware bars key. SQLite cannot alter a
+        # primary key, so a legacy `bars` table (symbol, timeframe, ts) is
+        # rebuilt once with the new key (symbol, timeframe, ext_hours, ts).
+        # Guarded by PRAGMA table_info(bars): a fresh DB — already created
+        # with the new key above — and every subsequent open are no-ops
+        # (idempotent). INSERT OR IGNORE copies every legacy row tagged
+        # ext_hours = 1 (ETH, the app's default mode); no row is deleted.
+        _tables = {
+            row[0]
+            for row in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if "bars_new" in _tables:
+            # A prior open was interrupted mid-rebuild: Python's sqlite3 runs
+            # the CREATE outside the implicit DML transaction, so a leftover
+            # `bars_new` can survive while the INSERT/DROP/RENAME roll back
+            # together. Salvage any rows it holds, then drop it so the
+            # rebuild below starts from a clean slate. When `bars` is still
+            # legacy the leftover is necessarily empty, so nothing is lost.
+            if "ext_hours" in self._table_columns("bars"):
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO bars SELECT * FROM bars_new"
+                )
+            self.conn.execute("DROP TABLE bars_new")
+        if "ext_hours" not in self._table_columns("bars"):
+            self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS bars_new ("
+                "symbol TEXT NOT NULL, "
+                "timeframe TEXT NOT NULL, "
+                "ext_hours INTEGER NOT NULL DEFAULT 1, "
+                "ts INTEGER NOT NULL, "
+                "open REAL, high REAL, low REAL, close REAL, volume REAL, "
+                "PRIMARY KEY (symbol, timeframe, ext_hours, ts))"
+            )
+            self.conn.execute(
+                "INSERT OR IGNORE INTO bars_new "
+                "(symbol, timeframe, ext_hours, ts, open, high, low, close, volume) "
+                "SELECT symbol, timeframe, 1, ts, open, high, low, close, volume "
+                "FROM bars"
+            )
+            self.conn.execute("DROP TABLE bars")
+            self.conn.execute("ALTER TABLE bars_new RENAME TO bars")
         # D41 / S7 (Q49/A69/DG70): the D36 footprint cache feature is removed;
         # drop its table and rows on every open. _migrate_schema() already runs
         # unconditionally here, and IF EXISTS keeps this an idempotent,

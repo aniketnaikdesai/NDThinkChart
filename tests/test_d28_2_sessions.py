@@ -7,6 +7,8 @@ works with explicit parameters (no toolbar reads).
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from config import settings
@@ -36,8 +38,10 @@ def _make_window(monkeypatch, qapp):
     # Deterministic RT reqIds: first subscribe -> 7001, second -> 7002.
     ids = iter([7001, 7002, 7003, 7004])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
-    # Never hit the network for historical requests in these tests.
-    hids = iter([8001, 8002, 8003, 8004, 8005, 8006])
+    # Never hit the network for historical requests in these tests. The D42
+    # floor span (S17) can issue many chunks from one load, so hand out ids
+    # unbounded rather than exhausting a fixed list.
+    hids = itertools.count(8001)
     win.md_manager.req_historical_data = lambda *a, **k: next(hids)
     win.show()
     qapp.processEvents()
@@ -153,17 +157,28 @@ def test_load_chart_explicit_params_no_toolbar_read(monkeypatch, qapp):
 
 
 def test_session_bar_cap(monkeypatch, qapp):
-    """D28.4 front-load: per-session bars are capped at SESSION_BAR_CAP."""
+    """D28.4/D42-S18: per-session bars are capped at the floor-aware budget.
+
+    The cap is the DERIVED budget for this session's ``(timeframe, ext_hours)``
+    — ``floor_bar_budget`` — not the flat ``settings.SESSION_BAR_CAP``. In ETH
+    mode the ``5 mins`` floor exceeds the flat 5000, so the derivation binds and
+    the assertion is a discriminating guard (a revert to the flat cap fails).
+    """
+    from services.backfill_service import floor_bar_budget
+
     win = _make_window(monkeypatch, qapp)
     try:
         sess = win.get_or_create_session("CAPT")
+        sess._wave_extended_hours = True  # ETH — the app's default mode
+        budget = floor_bar_budget(TF, sess._wave_extended_hours)
+        assert budget > settings.SESSION_BAR_CAP  # the correction is observable
         bars = [
             Bar("CAPT", TF, BASE_TS + i * 300, 1.0, 1.0, 1.0, 1.0, 10.0)
-            for i in range(settings.SESSION_BAR_CAP + 500)
+            for i in range(budget + 500)
         ]
         sess.set_bars(TF, bars)
         kept = sess.get_bars(TF)
-        assert len(kept) == settings.SESSION_BAR_CAP
+        assert len(kept) == budget
         # Oldest dropped, newest kept.
         assert kept[0].ts == BASE_TS + 500 * 300
         assert kept[-1].ts == BASE_TS + (len(bars) - 1) * 300

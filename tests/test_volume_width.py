@@ -2,7 +2,9 @@
 
 ``AC-D9.1`` / ``AC-D9.2`` require that the volume ``BarGraphItem`` width equals
 the price candle body width (``w*2``, 35% gap) at every zoom, including the
-dense-view 4 device-pixel body minimum.
+dense view where the D42 density cap yields the body to the inter-bar pitch
+(``body == pitch``, non-negative gap) rather than the old unconditional
+4-device-pixel minimum that overran the pitch.
 
 ESC-021: an earlier version of this file re-derived the expected body width in a
 test helper that duplicated the production candle formula
@@ -39,6 +41,19 @@ def _measured_body_width(panel, bars):
     xs = [c[0] for c in panel.candlestick._raw_data]
     data_span = (max(xs) - min(xs)) if xs else 0
     return pic.width() - data_span
+
+
+def _measured_pitch(panel):
+    """Median display-x spacing between adjacent rendered bars (data units).
+
+    Measured from the static layer's own display-x data (``_raw_data``), so it
+    reflects the series as rendered at the FINAL view range — the same series
+    ``_measured_body_width`` reads.  This is the inter-bar pitch the D42 density
+    cap compares the body against.
+    """
+    xs = sorted(c[0] for c in panel.candlestick._raw_data)
+    diffs = [b - a for a, b in zip(xs, xs[1:])]
+    return diffs[len(diffs) // 2] if diffs else 0.0
 
 
 def _px_per_sec(panel):
@@ -90,18 +105,23 @@ def test_volume_width_dense_clamped(qapp):
 
     vol_width = panel.volume_bars.opts['width']
 
-    # AC-D9.2 / ESC-020 / ESC-021: in this dense 1-min view the 4px body minimum
-    # fires, and the volume bar must follow the *same clamped* w as the rendered
-    # price body.  The expected value is measured from the candle QPicture at the
-    # FINAL view range — computing w_vol before `setRange` (the pre-fix ordering)
-    # yields the unclamped 39 data units instead and fails the equality below.
+    # AC-D9.2 / ESC-020 / ESC-021: in this dense 1-min view the D42 density cap
+    # yields the body to the inter-bar pitch, and the volume bar must follow the
+    # *same capped* w as the rendered price body.  The expected value is measured
+    # from the candle QPicture at the FINAL view range — computing w_vol before
+    # `setRange` (the pre-fix ordering) yields the unclamped 39 data units
+    # instead and fails the equality below.
     measured_body = _measured_body_width(panel, bars)
-    px_per_sec = _px_per_sec(panel)
-    assert vol_width == pytest.approx(measured_body, rel=0.02)
+    pitch = _measured_pitch(panel)
 
-    # The dense-view minimum genuinely binds at ~4 device px for both body and bar.
-    assert measured_body * px_per_sec == pytest.approx(4.0, rel=0.05)
-    assert vol_width * px_per_sec == pytest.approx(4.0, rel=0.05)
+    # AC-D6.4 / D42: body == pitch (the cap yields to the pitch below the 4-px
+    # floor), so the inter-bar gap is non-negative — not the old ~4 px body that
+    # overran this ~0.8-px pitch into a negative gap.
+    assert measured_body == pytest.approx(pitch, rel=0.02)
+    assert pitch - vol_width >= 0
+
+    # AC-D9.1: the volume bar width is the same capped width as the price body.
+    assert vol_width == pytest.approx(measured_body, rel=0.02)
 
     # Regress against the old fixed width and the unclamped (pre-fix) value 39.
     assert vol_width != pytest.approx(0.6, rel=0.01)

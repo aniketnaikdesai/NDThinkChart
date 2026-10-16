@@ -3113,3 +3113,274 @@ the only remaining open items are the pre-existing ESC-032…ESC-045 (not D41's 
 offscreen suite is deterministically green (967 passed, EXIT=0, 2/2 of my runs). No D41 blocker remains.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Batch D42 (Batch 18b) — Code Review
+
+Scope: all 23 tasks (fresh batch; `precheck.json` scoped 23, 0 fail_fast, 0 precheck escalations). 22 `done`,
+1 `blocked` (P2-T23). Method: diff-first on each task's `files_changed`; failures reproduced with the task's own
+command; every production claim I relied on spot-probed offscreen (`DB_PATH`=tempfile per the ESC-043 rule).
+
+## A. THE CENTRAL FINDING — 19 D42-induced regressions + P2-T23's own guard → BUILD (blocking) + PLAN (should-fix)
+
+**Reproduced independently (my own runs):**
+
+- D42 tree: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q` → **exit 1, 20 failed** — exactly the 19 the
+  P2-T23 report names plus `tests/test_d42_nonregression.py::test_full_offscreen_suite_is_green`. No other failure.
+- Pre-D42 tree (`git worktree` at HEAD `b48133d`): the same six suites → **exit 0, 18 passed**.
+- Mechanism confirmed: each suite stubs `req_historical_data` with a **fixed-size** id iterator —
+  `test_d24_popouts.py:22-23` (`iter([6101,6102,6103])`), `test_d24_9_popout_persistence.py:54-55` (`iter([7101])`),
+  `test_d24_alarm_full_chain.py:39-40` (`iter([8101,8102])`), `test_d24_smoke_gate.py:37-38` (`iter([9601,9602])`),
+  `test_d28_tick_burst_baseline.py:31-32` (`iter([9101,9102])`), `test_phase3_fixpass.py:33-34`
+  (`iter([7101,7102,7103])`) — all `lambda *a, **k: next(hids)`. D42's `ui/main_window.py:1649-1672` now always
+  consults the planner with `min_sessions=settings.MIN_INTRADAY_SESSIONS`, so an intraday load issues many chunks
+  (my probe: an empty-cache 5-min load plans 9 requests), and the second `next(hids)` raises `StopIteration`.
+  Trimmed traceback reproduced: `tests/test_d24_9_popout_persistence.py:55` ← `ui/main_window.py:1670` →
+  `ui/ticker_session.py:876`.
+
+**Judgement / routing:**
+
+- The production behaviour is requirements-mandated (AC-D16.8/AC-D16.9; chained requests per `S17`) — **not** a code
+  bug. The correct fix is the suites' stubs widened to an unbounded id source (`itertools.count`), exactly the
+  P2-T19 precedent (`tests/test_d28_2_sessions.py:41`). The affected tests must not be weakened/skipped/xfailed.
+  → **ESC-048, BUILD, blocking** (one escalation for the whole invariant, not 19 per-case patches).
+- The reason 19 suites were missed is the plan's impact analysis: `S21`/`RC-D42-2`/`AR-D42-6` and the Phase-2 file
+  map for `ui/main_window.py` enumerated only the D16 load-path suites and implicitly treated every other
+  load-path-driving suite as unaffected. `AR-D42-6`'s mitigation claims *every* changed load-path assertion is
+  enumerated — it is not (and `RC-D42-2`'s own table under-counted 4 further sites inside the files it named:
+  `t40_t03`, `t40_t05`, `t43_t03`, `t44_t03`). → **ESC-050, PLAN, should-fix**.
+- ESC-048's six files are outside P2-T23's `touches_files`; the Task Manager must widen the footprint (or a task
+  must own them) before a re-dispatched worker can edit them — stated in the escalation.
+
+## B. Production code — one gap found → BUILD (should-fix)
+
+**The session's mode is only established by `queue_wave_plans`, so a load that issues no wave caps an ETH series
+at the RTH budget (in-memory depth falls below the AC-D16.8 floor).**
+
+- `ui/ticker_session.py:131` initialises `_wave_extended_hours = False`; it is assigned **only** at `:866` inside
+  `queue_wave_plans`. `set_bars`/`_append_bar` (`:309`, `:323`) and the D39 baseline preload (`:695`) all derive
+  their cap/mode from it (repo-wide grep: no other assignment).
+- `ui/main_window.py::load_chart` calls `new_session.set_bars(timeframe, cached)` at `:1634` **before**
+  `queue_wave_plans` (`:1670`), and calls `queue_wave_plans` only when `plans` is non-empty (`:1666`). So a load
+  whose cache already satisfies the floor (the common re-load, or a mode toggle on a cached symbol) never sets the
+  mode, and the initial cap uses RTH.
+- Offscreen probes: with 40 ETH sessions / 7,680 cached 5-min bars and a fully satisfied floor (**0** requests
+  issued), `load_chart` in ETH mode leaves `session._wave_extended_hours == False` and the in-memory series holds
+  **5,000** bars (the RTH budget) while the ETH budget is **6,624**. Control: pre-setting the session's mode to ETH
+  gives **6,624** (and confirms it is the same session object).
+- Impact: breaches AC-D16.8's in-memory depth on the no-wave path — worst for `1 min` ETH (RTH budget 13,455 vs ETH
+  33,120 → ~14 sessions instead of ~34). No D42 guard covers it: P2-T22 asserts the **post-wave** path only, where
+  `queue_wave_plans` has already set the mode. Not a regression (pre-D42 was flat 5,000) but an incomplete
+  implementation of `S18`/`S19`. → **ESC-049, BUILD, should-fix**.
+
+## C. Quality review — verified sound (no findings)
+
+- **WS1 helper** `capped_body_half_width` (`ui/candlestick_item.py:47-64`) is pure/Qt-free, implements
+  `w = min(max(base, floor_px/2/px_per_sec), median_diff/2)` ≡ `body = min(max(0.65·pitch, F), pitch)`. Both
+  `_draw_candles` (`:190`) and `ChartPanel._clamp_half_width` (`ui/chart_panel.py:1261-1273`) call it, so candle and
+  volume widths cannot diverge (AC-D9.1). `_median_time_diff` extracted and reused; `set_data` gained the `pitch`
+  keyword threaded to the renderer.
+- **Corrected suites remain discriminating** (re-read + run green):
+  - `test_volume_width.py` dense legs: `measured_body ≈ pitch`, `pitch - vol_width >= 0`, `vol_width ≈ measured_body`
+    — a revert to the old unconditional 4-px clamp fails `≈ pitch`.
+  - `test_chart_dpi.py`: `>= 4.0` / `> wick` moved to the non-dense dataset; dense asserts `body <= pitch` and
+    `body == pitch` (rel 0.05) — a revert fails.
+  - `test_d28_2_sessions.py::test_session_bar_cap`: derives `floor_bar_budget(TF, True)` and asserts
+    `budget > SESSION_BAR_CAP` — discriminating.
+  - `test_d28_4f_panel_bar_cap.py`: asserts the derived budget (6,624) with oldest-dropped/newest-kept — a flat-5000
+    revert fails.
+  - `test_candle_spacing.py`: now regime/geometry assertions on the helper (three regimes + the 35 % gap), no longer
+    a source-string check.
+  - `test_d42_candle_width.py::test_guard_discriminates_against_pre_fix_flat_floor` asserts `FLOOR_PX (4.0) >`
+    measured pitch as a precondition, so the repro genuinely discriminates.
+- **New guards are real**: `test_d42_depth_floor.py` drives the real load path (unbounded stub) and asserts ≥30
+  mode-valid sessions in cache **and** memory, per timeframe × mode; its T21 case asserts
+  `floor_bar_budget > RETENTION_BARS` **and** `len(timestamps) > RETENTION_BARS` (a flat keep would prune the floor).
+  `test_d42_day_presence.py` asserts the AC-D16.9 (a)/(b)/(c) measurables. `test_d42_mode_cache.py` exercises the
+  real `DB()` migration (verbatim row preservation, `ext_hours=1` tag, idempotent reopen) and per-mode isolation
+  both directions.
+- **`test_d42_nonregression.py` T11/T21 are real**: T11 asserts the four Friday year-ends preceding Saturday New
+  Years are trading days (Rule 7.2 exception); T21 asserts a genuine closure stays empty + a present-but-mode-empty
+  day is reported missing under RTH and present under ETH, and that `_missing_backfill_trading_days` agrees with the
+  planner. Both pass.
+- **Mock-endpoint containment** (standing invariant): grep of the production diff (`ui services data ibkr config`)
+  for `mock|fake|stub|simulat` × `endpoint|client|service|server|api|harness` → **0 hits**. No mock in production.
+- **`data/db.py`** S16 migration is PRAGMA-guarded, idempotent, salvages a leftover `bars_new` from an interrupted
+  rebuild, copies every legacy row as `ext_hours=1`, deletes nothing. **`data/bar_cache.py`** threads `ext_hours`
+  through save/get/prune with the flat default preserved.
+
+## D. P2-T15 corrections — intent-preserving (one unnecessary relaxation → nice-to-have)
+
+Re-read all three diffs. All seven corrections keep the guarantee: `t40_t01` (`>= 1` + delivered-set), `t40_t03`
+(closure days never named missing), `t40_t04` (`>=` + delivered-set + answered days not reported missing),
+`t40_t06` (all `endDateTime` non-empty + tracked ids), `t43_t03`/`t44_t03` (seeded days asserted against the log's
+full list; `"incomplete"` still required), `t43_t06` (all ids driven; finalises once). The loadpath file's
+corrections are net-**stronger** (both modes parametrised, `len(spans) == 1`, `len(stub.calls) == len(plans) > 1`).
+
+- **One unnecessary relaxation**: `tests/test_history_backfill.py:285` changed `assert len(plans) == 1` →
+  `assert plans`. `plans` is the test's **own** planner call (`find_missing_spans(cached_ts, _AC_NOW, tf)`, no
+  `min_sessions`) — unchanged by D42; my probe confirms it still returns exactly **1**. The delivered-set assertion
+  preserves the AC-D16.5 guarantee, so this is cosmetic. → **ESC-051, BUILD, nice-to-have**.
+
+## E. Usage-doc coverage
+
+Identified the project's user docs: `USAGE.txt` (238 lines, "NDThinkChart Usage") and `usage.md` (221 lines,
+"NDThinkChart — Usage Guide"); both untouched by D42 (`precheck.json` `doc_candidates`, all `touched: false`).
+D42 changes user-visible behaviour (intraday history depth now ≥30 sessions; candle/volume width at high density),
+but neither doc describes the affected behaviour at all (no mention of load depth or candle body width), so no doc
+statement became wrong and **no update is required for D42**. **Observation (out of D42 scope, not escalated):**
+`USAGE.txt` still documents the D36 footprint and D37 depth-heatmap features that D41 removed (lines 130-169) — a
+pre-D41-batch staleness worth a follow-up outside this review's scope.
+
+## F. Provenance (5 orchestrator handoff-writes + 1 mid-task finish)
+
+`P2-T01`, `P2-T02`, `P2-T09`, `P2-T14`, `P2-T19` had their handoffs written by the orchestrator after a worker death
+with the work complete; `P2-T15` was finished mid-task. The `footprint_flags` state the verification performed:
+P2-T22's mutation check (zeroing `MIN_INTRADAY_SESSIONS` → rc 1) shows its guard is discriminating; P2-T01's AC2 is a
+render-level `QPicture` measurement. `P2-T06`/`P2-T22` were blocked on thin packs, repaired by the Task Manager
+(`MAP_OK`), re-dispatched, and are green. I independently re-verified the two load-bearing claims (the 19-suite
+regression, and the WS1/WS2 fixes) rather than trusting the handoffs.
+
+## G. Escalation close-out (all four re-verified on the live tree)
+
+- **ESC-042 → `addressed`**: `requirements.md` records the precedence decision (AC-D6.4 revised to
+  `body = min(max(0.65·pitch, F), pitch)`, AC-D7.1 revised to `gap >= 0`, supersession recorded, Q51 answered).
+  Code + guard match (`test_d42_candle_width.py`).
+- **ESC-038 → `addressed`**: `requirements.md` records AC-D16.8 (≥30 sessions; extended to ETH by Q52) and AC-D16.9
+  (present-but-mode-empty = missing span); implemented by P2-T07–T14, guarded by `test_d42_depth_floor.py` /
+  `test_d42_day_presence.py`.
+- **ESC-041 → `addressed` (BUILD)**: render-level re-measure at the ESC-041 repro — pre-D42 `body 4.014 > pitch
+  3.835` (overlap); post-D42 `body 3.835 == pitch 3.835` (gap 0). Fix real; guard real.
+- **ESC-037 → `addressed` (BUILD)**: pure re-check of the ESC-037 repro — pre-D42
+  `find_missing_spans(pre/post-only day, now, '5 mins', ext_hours=False)` span starts 2024-05-07 (the seed day was
+  treated as present = the bug); post-D42 starts 2024-05-06 (the day is reported missing). Fix real.
+- **ESC-032/033/034/036/043/044/045 remain `open`** — not D42's work; the D42 diff touches none of their cited code
+  paths (D42 edits the `bars` cache/db, the backfill planner, the load path and candle/volume width — not
+  positions/account/watchlist/aggregator-priming). Not re-diagnosed.
+- **ESC-039/040/046/047 remain `addressed`** (D41 batch) — untouched.
+
+## H. Pipeline state for the Orchestrator
+
+One blocking escalation (ESC-048) and one should-fix production finding (ESC-049), plus the PLAN enumeration finding
+(ESC-050). The full offscreen suite is red solely via the 19 stubs + P2-T23's own T31 guard; once ESC-048 is applied
+P2-T23-T31 must be re-run to confirm green.
+
+Status: REVIEW_COMPLETE
+
+---
+
+# Batch D42 (Batch 18b) — Code Review, rework verification (ESC-048 / ESC-049 / ESC-050 / ESC-051), 2026-10-16
+
+**Scope (incremental):** only the tasks whose `docs/build/results/<id>.json` is newer than the last
+`REVIEW_COMPLETE` — **P2-T23, P2-T24, P2-T25, P2-T26** (the Stage-A rework; `precheck.json` also scopes
+`P2-T14`/`P2-T15`, whose re-runs are the same work) — plus the **Plan amendment** (not a task). Consumed
+`precheck.json` as ground truth (scope, `files_verified`, overlaps, `escalation_updates`); did not re-run
+git-diff/footprint/doc-discovery. Method: diff-first on each task's `files_changed`; failures/guards reproduced
+with my own runs; the one discrimination claim I could not read off the diff was reproduced in a temp copy of the
+tree (no repo file edited). All runs `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (`.venv/bin/pytest`
+has a stale shebang), `DB_PATH` pinned by `tests/conftest.py`.
+
+## A. ESC-048 (BUILD, blocking) — the 19 regressions → P2-T24 — **VERIFIED, CLOSED**
+
+- **Fix is exactly the invariant-preserving one.** `git diff` over the six suites shows only: `+import itertools`,
+  a 2-line "D42's depth floor (S17) can issue many chunks" comment, and `hids = iter([...])` →
+  `hids = itertools.count(<first>)`. The lambda `lambda *a, **k: next(hids)` and **every assertion** are
+  byte-identical; `grep` of added `skip`/`xfail` lines in the diff → **0**. No assertion weakened, skipped or
+  xfailed — the failure was fixture exhaustion, as the escalation said.
+- **Six suites green:** `pytest <the six files>` → **22 passed, exit 0** (the 19 formerly-red cases + 3 that were
+  always green).
+- **Full suite green ×3:** `pytest -o addopts="" -q` → **1009 passed, exit 0** on three consecutive runs
+  (55.0s / 54.3s / 54.4s); the T31 inner run (excluding the 3 nonregression tests) is **1006 passed, exit 0**.
+  No run hit the documented pre-existing `tests/test_session_overlay.py::panel` SIGSEGV (all `EXIT=0`, 0
+  failures) — consistent with it being pre-existing and **not** a D42 defect.
+
+## B. ESC-049 (BUILD, should-fix) — the no-wave mode gap → P2-T25 — **VERIFIED, CLOSED**
+
+- **Fix present and correctly placed.** `ui/main_window.py:1610` sets `new_session._wave_extended_hours =
+  extended_hours` immediately after `_wave_timeframe`, i.e. **before** `prepare_load`/`attach_view` and the
+  initial `BarCache.get_bars`/`set_bars` (`:1641`/`:1643`). Repo-wide grep: the only other setter is
+  `ui/ticker_session.py:866` (queue_wave_plans), and `prepare_load` does **not** reset the field — so the cap is
+  the current load's mode.
+- **The guard discriminates (my own experiment).** In a **temp copy** of the tree with only that one line
+  deleted, `pytest tests/test_d42_depth_floor.py -k p2_t25` → **3 failed / exit 1**, including
+  `AssertionError: 5 mins ETH no-wave: in-memory series is 5000, expected the ETH budget 6624 (the RTH budget
+  5000 is the pre-fix value)` — i.e. the exact 5,000-vs-6,624 mechanism the escalation reported, so the guard is
+  not vacuous.
+- **Green on the live tree:** `tests/test_d42_depth_floor.py` → **16 passed, exit 0** (T11 + T21[1 min,5 mins]).
+- **No stale-mode leak:** T11 part 2 asserts a subsequent RTH no-wave load sets `_wave_extended_hours is False`;
+  the assignment is unconditional per load. `load_chart`'s `extended_hours` is always a bool (resolved from
+  `ext_hours_btn`; the only call sites are 0/1-arg — verified by grep).
+
+## C. ESC-051 (BUILD, nice-to-have) — over-relaxation → P2-T26 — **VERIFIED, CLOSED**
+
+- `tests/test_history_backfill.py:285` (`t40_t01`) again reads `assert len(plans) == 1` (diff: `-assert plans` →
+  `+assert len(plans) == 1`); the app-side `assert len(stub.calls) >= 1` stays. `plans` is the test's **own**
+  planner call (no `min_sessions`), unchanged by D42. `pytest tests/test_history_backfill.py -k t40_t01` →
+  **1 passed, exit 0**.
+
+## D. ESC-050 (PLAN, should-fix) — the enumeration defect — **VERIFIED, CLOSED**
+
+Re-verified the amendment myself against `docs/plan.md` / `docs/architecture.md` (not the Validator's word):
+
+- **(1) The six load-path-*driving* suites are enumerated with their cause and counts** — `test_d24_popouts.py`
+  (7), `test_phase3_fixpass.py` (7), `test_d24_alarm_full_chain.py` (2), `test_d24_smoke_gate.py` (1),
+  `test_d24_9_popout_persistence.py` (1), `test_d28_tick_burst_baseline.py` (1) = **19** (`plan.md:1010-1012` and
+  the `1249-1256` table; `architecture.md` S21 row; the Phase-2 file map's `ui/main_window.py` row now names all
+  six, `plan.md:1169`).
+- **(2) The D16 sites are completed to all 14 changed test functions.** Independent count from `git diff -U0`
+  hunk headers: **7** (loadpath: `t39_t01`..`t39_t07`) + **4** (history_backfill: `t40_t01`/`t40_t03`/`t40_t04`/
+  `t40_t06`) + **3** (disconnect: `t43_t03`/`t43_t06`/`t44_t03`) = **14** — matches the plan.
+- **(3) `t40_t05` has no hunk** (grep: the function exists but the diff touches it nowhere); the "no shortfall" →
+  "no **answered** day reported missing" correction is in **`test_t40_t04`'s tail** (`b48133d:484-485`), exactly
+  as the plan's verification note records — so ESC-050's own naming of `t40_t05` is **relocated** (the plan keeps
+  the site listed for the defect class but locates the correction in `t40_t04`). Canonical wording is "**cases**"
+  (the six suites' counts sum to 19 failing test cases).
+- **(4) The invariant and the generalisable rule are stated** (`plan.md:1262-1290`): *any test that drives
+  `MainWindow.load_chart` with a stubbed `req_historical_data` must use an unbounded reqId source*; and *enumerate
+  by call site of the changed entry point, not by the suites the design names; a fixed-size stub of a changed feed
+  is a defect class.* `AR-D42-6` is rewritten and a **Frozen Interfaces** checklist added
+  (`architecture.md:4010`). The invariant's code-side truth is now demonstrated by the green P2-T24 stubs.
+  `docs/plan.md` ends `Status: READY_FOR_TASK_MANAGER`.
+
+## E. P2-T23 — the reconciliation node
+
+- `tests/test_d42_nonregression.py` → **3 passed, exit 0**, including **T31** (`test_full_offscreen_suite_is_green`,
+  which runs the whole suite in a hermetic subprocess and asserts rc 0) — i.e. the task's own guard, which
+  **correctly** reported `blocked` before P2-T24, now passes. T11 (AC-D16.7 New-Year year-ends) and T21
+  (AC-D16.1/3/4 genuine closure + present-but-mode-empty) are real assertions, not tautologies.
+
+## F. Quality review of the incremental changes — no new findings
+
+- The incremental diffs are **test-only stub widening** (P2-T24), **one production assignment** (P2-T25), **one
+  assertion restored** (P2-T26) and a **docs amendment** (ESC-050). No deviation from `architecture.md`/`plan.md`;
+  no production behaviour changed beyond the S19 mode-set that the plan mandates.
+- **Mock-endpoint containment** (standing invariant): grep of the reviewed diff (`ui/main_window.py`, the six
+  suites, `tests/test_history_backfill.py`) for `mock|fake|stub|simulat` ×
+  `endpoint|client|service|server|api|harness` → **0 hits**. No mock in production code; no production module
+  imports a test fake.
+- **Observation (not escalated):** the six suites' `rt_manager.subscribe` stubs remain fixed-size
+  (`iter([...])`), unlike the now-unbounded historical stubs. They are sufficient today (the suites are green) and
+  are outside the invariant ESC-050 states; noted for awareness only — widening them is not warranted by any
+  current failure.
+- **Usage-doc coverage:** the project's user docs are `USAGE.txt` and `usage.md` (`precheck.json`
+  `doc_candidates`, all `touched: false`). The rework changes no user-visible behaviour (it widens test stubs and
+  sets an internal session flag), so **no doc update is required** for this rework. (The pre-existing `USAGE.txt`
+  D36/D37 staleness noted in the previous D42 pass remains out of scope.)
+
+## G. Escalation close-out
+
+Flipped in place, each only after the re-verification above:
+**ESC-048 → addressed · ESC-049 → addressed · ESC-050 → addressed · ESC-051 → addressed.**
+`ESC-032/033/034/036/043/044/045` remain **open** — pre-D42 live-run defects, not this batch's work; the rework
+diff touches none of their cited code paths, so they are not re-diagnosed. `ESC-047`/`ESC-046`/`ESC-037`–`ESC-042`
+remain `addressed` (untouched). `docs/codebase-map.md` does not exist — expected (convention applies from the next
+batch); not escalated.
+
+## H. Pipeline state for the Orchestrator
+
+**No open D42 escalations remain.** The full offscreen suite is green (1009 passed, exit 0, ×3). All four D42
+escalations are closed. Remaining open items are the seven pre-D42 live-run BUILD escalations
+(ESC-032/033/034/036/043/044/045), which are outside this batch's scope and were not re-diagnosed.
+
+Status: REVIEW_COMPLETE

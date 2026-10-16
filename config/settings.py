@@ -43,3 +43,11 @@ MAX_POPOUTS = 10
 
 # D28.2/D28.4: per-session in-memory bar cap (front-loaded from D28.4).
 SESSION_BAR_CAP = 5000
+
+# D42/S20 (AC-D16.8): the owner-required intraday depth floor — each intraday
+# timeframe in each mode loads >= this many trading sessions before the current
+# session. This is the floor's single tunable: both the backfill planner's floor
+# span and floor_bar_budget() derive from it. ibkr/market_data.py::TIMEFRAME_CONFIG
+# durations are deliberately NOT changed — those are the per-request IBKR caps,
+# and the depth comes from chaining requests (S17).
+MIN_INTRADAY_SESSIONS = 30

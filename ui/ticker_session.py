@@ -26,7 +26,6 @@ import logging
 
 from PyQt6.QtCore import QObject, pyqtSignal as Signal, QTimer
 
-from config import settings
 from data.bar_aggregator import BarAggregator, TIMEFRAME_SECONDS
 from data.bar_cache import BarCache
 from data.alarm_store import AlarmStore
@@ -38,6 +37,7 @@ from ibkr.stream_health import StreamHealth
 from ibkr.subscription_manager import RT_BARS, S0_TICKS
 from ibkr.utils import parse_ibkr_date
 from services.alarm_service import evaluate_alarms, evaluate_volume_burst
+from services.backfill_service import floor_bar_budget  # D42/S18 cap budget
 from services.volume_baseline import (
     VolumeBaselineService,
     minutes_for_timeframe,
@@ -124,6 +124,10 @@ class TickerSession(QObject):
         self._wave_plan_queue: list = []
         self._req_to_plan: dict[int, object] = {}
         self._wave_contract = None
+        # D28.3/D42: the wave's mode — also the session's mode (S19). Every
+        # mode-scoped cache read/write and floor-aware cap for this session
+        # uses it, so an RTH and an ETH chart (primary vs pop-out) cannot
+        # cross-contaminate.
         self._wave_extended_hours: bool = False
         self._retried_plans: set = set()  # error-162 retry-once tracking
         self._wave_continue_timer = QTimer(self)
@@ -296,8 +300,13 @@ class TickerSession(QObject):
         return self._bars.get(timeframe, [])
 
     def set_bars(self, timeframe: str, bars: list[Bar]) -> None:
-        """Replace the in-memory series (capped). Emits bars_refreshed."""
-        cap = settings.SESSION_BAR_CAP
+        """Replace the in-memory series (capped). Emits bars_refreshed.
+
+        D42/S18: the cap is the floor-aware :func:`floor_bar_budget` for the
+        session's mode, not the flat ``SESSION_BAR_CAP`` — otherwise the
+        ``AC-D16.8`` 30-session floor would be trimmed back out of memory.
+        """
+        cap = floor_bar_budget(timeframe, self._wave_extended_hours)
         if len(bars) > cap:
             bars = bars[-cap:]
         self._bars[timeframe] = list(bars)
@@ -310,7 +319,8 @@ class TickerSession(QObject):
             series.append(bar)
         else:
             series[-1] = bar
-        cap = settings.SESSION_BAR_CAP
+        # D42/S18: floor-aware, mode-scoped cap (see set_bars).
+        cap = floor_bar_budget(timeframe, self._wave_extended_hours)
         if len(series) > cap:
             del series[: len(series) - cap]
 
@@ -681,7 +691,9 @@ class TickerSession(QObject):
         if vb.is_primed(resolved_key):
             return
         for timeframe in ("1 min", "5 mins", "15 mins", "1 hour"):
-            bars = BarCache.get_bars(self.symbol, timeframe)
+            bars = BarCache.get_bars(
+                self.symbol, timeframe, ext_hours=self._wave_extended_hours
+            )
             if bars:
                 vb.prime_from_bars(resolved_key, bars)
                 return

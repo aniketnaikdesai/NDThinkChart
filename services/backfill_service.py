@@ -4,15 +4,17 @@ This module is the decision layer behind historical-bar backfill. It answers two
 questions without any UI, TWS or Qt dependency:
 
 1. *Which trading sessions are missing?* — :func:`find_missing_spans` compares
-   the cached bar timestamps against *now* at **trading-day presence** granularity
-   (a trading day with zero cached bars is missing) **plus bar-period
+   the cached bar timestamps against *now* at **mode-aware trading-day presence**
+   granularity (a trading day with no cached bar inside the current mode's
+   session window is missing — see :func:`present_days`) **plus bar-period
    granularity for the trailing ``TRAILING_BAR_GRANULARITY_DAYS`` trading days**
    (D27.7): a day with *some* bars but an intraday hole (e.g. a stranded wave's
    partial day) yields spans covering the hole, so a later load repairs it.
    Adjacent missing trading days merge into one :class:`MissingSpan`. Weekends
    and US-equity holidays are genuine closures and are never reported as
-   missing. An empty cache returns ``[]`` so the caller falls back to the
-   configured fetch window.
+   missing. An empty cache returns ``[]`` (unless the ``min_sessions`` depth floor
+   is requested, in which case it returns the single backwards floor span) so the
+   caller falls back to the configured fetch window.
 
 2. *How do we request them?* — :func:`plan_requests` turns each missing span into
    one or more :class:`RequestPlan` objects, chunking by the timeframe's
@@ -21,6 +23,7 @@ questions without any UI, TWS or Qt dependency:
 
 Public API:
     bar_period_seconds(timeframe)                    -> int
+    floor_bar_budget(timeframe, ext_hours)           -> int
     find_missing_spans(cached_ts, now_ts, timeframe) -> list[MissingSpan]
     plan_requests(missing_spans, timeframe)          -> list[RequestPlan]
 
@@ -30,20 +33,28 @@ no ``QApplication`` and opens no IBKR connection.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable, List
+from typing import Iterable, List, Set
 
 try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover - Python < 3.9 fallback
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
+from config.settings import MIN_INTRADAY_SESSIONS, SESSION_BAR_CAP
 from data.bar_aggregator import TIMEFRAME_SECONDS
 from ibkr.market_data import TIMEFRAME_CONFIG
 from services.market_calendar import is_trading_day, session_windows
 
 _EASTERN = ZoneInfo("America/New_York")
+
+# D42/S18: current-mode session length used by :func:`floor_bar_budget` —
+# 6.5 h (RTH, 09:30-16:00 ET) or 16 h (ETH, 04:00-20:00 ET). The daily-or-larger
+# timeframes are not covered by the floor and return the flat cap.
+_RTH_WINDOW_SECONDS = 6 * 3600 + 30 * 60
+_ETH_WINDOW_SECONDS = 16 * 3600
 
 # Fallback timeframe mirroring BarAggregator / req_historical_data defaults.
 _FALLBACK_TIMEFRAME = "5 mins"
@@ -70,7 +81,9 @@ __all__ = [
     "RequestPlan",
     "bar_period_seconds",
     "find_missing_spans",
+    "floor_bar_budget",
     "plan_requests",
+    "present_days",
 ]
 
 
@@ -110,6 +123,30 @@ def bar_period_seconds(timeframe: str) -> int:
     return TIMEFRAME_SECONDS.get(timeframe, TIMEFRAME_SECONDS[_FALLBACK_TIMEFRAME])
 
 
+def floor_bar_budget(timeframe: str, ext_hours: bool) -> int:
+    """Return the floor-aware bar budget for ``timeframe`` in the current mode (S18).
+
+    ``max(SESSION_BAR_CAP, ceil(MIN_INTRADAY_SESSIONS * window_seconds /
+    bar_period) * 1.15)``, where ``window_seconds`` is the current mode's session
+    length — 6.5 h (RTH, 09:30-16:00 ET) or 16 h (ETH, 04:00-20:00 ET) — and
+    ``bar_period`` is :func:`bar_period_seconds`. The ``1.15`` factor is headroom
+    so the ``AC-D16.8`` depth floor survives the load path's retention/trim
+    (``BarCache.prune``'s ``keep``, the session caps and the panel's ``_bars``
+    trim); the flat :data:`SESSION_BAR_CAP` stays the default and the lower bound.
+
+    ``1 day`` (and any daily-or-larger timeframe) is **not** covered by the floor
+    and returns the flat cap. The helper is pure and Qt-free.
+    """
+    period = bar_period_seconds(timeframe)
+    if period >= 86_400:
+        return SESSION_BAR_CAP
+    window_seconds = _ETH_WINDOW_SECONDS if ext_hours else _RTH_WINDOW_SECONDS
+    derived = math.ceil(MIN_INTRADAY_SESSIONS * window_seconds / period) * 1.15
+    # ``ceil`` on the final value: ``ceil(...) * 1.15`` can land a hair under the
+    # intended integer (e.g. 11700 * 1.15 == 13454.999999999998).
+    return int(math.ceil(max(SESSION_BAR_CAP, derived)))
+
+
 def _duration_to_seconds(duration: str) -> int:
     """Convert an IBKR ``durationStr`` (e.g. ``"5 D"``, ``"1 Y"``) to seconds."""
     token = (duration or "").strip().upper()
@@ -144,6 +181,59 @@ def _et_day_start_ts(day: date) -> int:
     return int(datetime(day.year, day.month, day.day, tzinfo=_EASTERN).timestamp())
 
 
+def _day_session_window(day: date, ext_hours: bool) -> tuple[int, int] | None:
+    """Return ``day``'s current-mode session window as ``(start_ts, end_ts)``.
+
+    The window is ``09:30-16:00 ET`` when ``ext_hours`` is False (RTH) and
+    ``04:00-20:00 ET`` when True (ETH), via
+    :func:`market_calendar.session_windows`. ``None`` is returned for a genuine
+    closure (weekend / US-equity holiday), which has no session window and so can
+    never be *present*.
+    """
+    day_start = _et_day_start_ts(day)
+    day_end = _et_day_start_ts(day + timedelta(days=1))
+    windows = session_windows(day_start, day_end, ext_hours)
+    if not windows:
+        return None
+    return windows[0]["start_ts"], windows[0]["end_ts"]
+
+
+def present_days(cached_ts: Iterable[int], ext_hours: bool = False) -> Set[date]:
+    """Return the ET dates the cached series covers **in the current mode** (S15).
+
+    The exported mode-aware presence predicate (AC-D16.9): a day is *present* iff
+    at least one cached bar's timestamp falls inside **that day's current-mode
+    session window** — ``09:30-16:00 ET`` when ``ext_hours`` is False (RTH) and
+    ``04:00-20:00 ET`` when True (ETH) — computed via
+    :func:`market_calendar.session_windows`. Bar timestamps are period **starts**
+    (``data/bar_aggregator.py``), so the membership test applies to a bar's start
+    timestamp, not its end.
+
+    This replaces the mode-blind ``{_et_date(ts)}`` set: a day whose cached bars
+    are all *outside* the current mode's window (e.g. only pre/post bars under
+    RTH) is **not** present, so the RTH hole is reported rather than silently
+    treated as filled; conversely RTH bars lie inside the extended window, so an
+    RTH-only day is present under **both** modes. Genuine closures (weekend /
+    holiday) have no window and are never present. The predicate is pure and
+    Qt-free, and is reused verbatim by
+    ``MainWindow._missing_backfill_trading_days`` (the AC-D16.4 shortfall report)
+    so the planner and the report cannot disagree about presence.
+    """
+    by_day: dict[date, List[int]] = {}
+    for ts in cached_ts:
+        by_day.setdefault(_et_date(ts), []).append(ts)
+
+    present: Set[date] = set()
+    for day, day_ts in by_day.items():
+        window = _day_session_window(day, ext_hours)
+        if window is None:
+            continue
+        window_start, window_end = window
+        if any(window_start <= ts <= window_end for ts in day_ts):
+            present.add(day)
+    return present
+
+
 def _trading_days(start_day: date, end_day: date) -> List[date]:
     """Return trading days in ``[start_day, end_day]`` ascending."""
     days: List[date] = []
@@ -163,6 +253,51 @@ def _build_span(first_day: date, last_day: date, now_ts: int) -> MissingSpan:
     return MissingSpan(start_ts=start_ts, end_ts=end_ts)
 
 
+def _floor_day(now_day: date, min_sessions: int) -> date:
+    """The ``min_sessions``-th trading day before the current session (S17).
+
+    The current session is *now*'s ET day when it is a trading day, otherwise the
+    most recent trading day at or before it (a weekend/holiday *now* still has a
+    current session). The returned day is that many trading days earlier, so the
+    caller can request the floor **backwards**.
+    """
+    day = now_day
+    while not is_trading_day(day):
+        day -= timedelta(days=1)
+    floor = day
+    remaining = min_sessions
+    while remaining > 0:
+        day -= timedelta(days=1)
+        if is_trading_day(day):
+            remaining -= 1
+            floor = day
+    return floor
+
+
+def _floor_missing_span(
+    now_day: date,
+    min_sessions: int,
+    present: Set[date],
+    now_ts: int,
+) -> MissingSpan | None:
+    """The single backwards floor span, or ``None`` once the floor is filled (S17).
+
+    Covers ``[floor_day_start, earliest_present_day_start)`` — so the floor is
+    fetched backwards and **collapses to empty** once the earliest present day
+    reaches the floor day — or ``[floor_day_start, now]`` when nothing is present
+    (including the empty-cache case). Returns ``None`` when the span would be
+    empty.
+    """
+    start_ts = _et_day_start_ts(_floor_day(now_day, min_sessions))
+    if present:
+        end_ts = min(_et_day_start_ts(min(present)), now_ts)
+    else:
+        end_ts = now_ts
+    if end_ts <= start_ts:
+        return None
+    return MissingSpan(start_ts=start_ts, end_ts=end_ts)
+
+
 # ---------------------------------------------------------------------------
 # Missing-span detection
 # ---------------------------------------------------------------------------
@@ -172,17 +307,29 @@ def find_missing_spans(
     timeframe: str,
     trailing_days: int = TRAILING_BAR_GRANULARITY_DAYS,
     ext_hours: bool = False,
+    min_sessions: int = 0,
 ) -> List[MissingSpan]:
     """Return the trading sessions missing between the cached series and *now*.
 
-    Detection is **trading-day presence** — any trading day from the earliest
-    cached day through *now*'s ET day with no cached bar is missing, and adjacent
-    missing trading days merge into a single span (a weekend or holiday between
-    two missing trading days does not split the span) — **plus bar-period
-    granularity for the trailing ``trailing_days`` trading days** (D27.7): a
-    day with *some* cached bars but an intraday hole (a stranded wave's partial
-    day) yields spans covering the hole, so a later load repairs it. Genuine
-    closures are never reported. An empty cache returns ``[]``.
+    Detection is **mode-aware trading-day presence** — any trading day from the
+    earliest cached day through *now*'s ET day with no cached bar inside the
+    current mode's session window (``ext_hours``; see :func:`present_days`) is
+    missing, and adjacent missing trading days merge into a single span (a weekend
+    or holiday between two missing trading days does not split the span) — **plus
+    bar-period granularity for the trailing ``trailing_days`` trading days**
+    (D27.7): a day with *some* cached bars but an intraday hole (a stranded
+    wave's partial day) yields spans covering the hole, so a later load repairs
+    it. Genuine closures are never reported. An empty cache returns ``[]``.
+
+    ``min_sessions`` (S17, default ``0``) adds the **backwards depth floor**: when
+    it is ``> 0`` and the timeframe is intraday, the planner emits **at most one**
+    additional :class:`MissingSpan` covering ``[floor_day_start,
+    earliest_present_day_start)`` — where the floor day is the
+    ``min_sessions``-th trading day before the current session — or
+    ``[floor_day_start, now]`` when nothing is present (so an empty cache returns
+    that floor span rather than ``[]``). The span is fetched backwards and
+    collapses to empty once the earliest present day reaches the floor day. The
+    default ``0`` keeps every existing caller's semantics exactly (``AP-D42-2``).
 
     Bar-level detection is gap-based (it uses the cached timestamps, never
     assumed slot positions, so it is agnostic to bar anchoring): within each
@@ -202,37 +349,50 @@ def find_missing_spans(
     dedups whatever returns.
     """
     ts_values = list(cached_ts)
-    if not ts_values:
-        return []
-
-    present_days = {_et_date(ts) for ts in ts_values}
-    first_day = min(present_days)
     now_day = _et_date(now_ts)
-    if now_day < first_day:
+    # S17: the floor is opt-in (``min_sessions > 0``) and intraday-only — a daily
+    # (or larger) timeframe is already at the granularity the floor measures.
+    floor_enabled = min_sessions > 0 and bar_period_seconds(timeframe) < 86_400
+
+    if not ts_values:
+        # S17: bypass the empty-cache early return when the floor is requested —
+        # an empty cache becomes one span from the floor day to *now*.
+        if floor_enabled:
+            floor_span = _floor_missing_span(now_day, min_sessions, set(), now_ts)
+            return [floor_span] if floor_span is not None else []
         return []
 
-    trading = _trading_days(first_day, now_day)
-    missing = [day for day in trading if day not in present_days]
+    present = present_days(ts_values, ext_hours)
+    first_day = min(_et_date(ts) for ts in ts_values)
 
-    # Merge runs of consecutive *trading* days (holidays/weekends between them do
-    # not break a run because they are absent from ``trading``).
-    index = {day: i for i, day in enumerate(trading)}
     spans: List[MissingSpan] = []
-    if missing:
-        run_start = run_end = missing[0]
-        for day in missing[1:]:
-            if index[day] == index[run_end] + 1:
-                run_end = day
-            else:
-                spans.append(_build_span(run_start, run_end, now_ts))
-                run_start = run_end = day
-        spans.append(_build_span(run_start, run_end, now_ts))
+    if floor_enabled:
+        floor_span = _floor_missing_span(now_day, min_sessions, present, now_ts)
+        if floor_span is not None:
+            spans.append(floor_span)
 
-    spans.extend(
-        _bar_level_missing_spans(
-            ts_values, now_ts, timeframe, trailing_days, ext_hours
+    if now_day >= first_day:
+        trading = _trading_days(first_day, now_day)
+        missing = [day for day in trading if day not in present]
+
+        # Merge runs of consecutive *trading* days (holidays/weekends between them
+        # do not break a run because they are absent from ``trading``).
+        index = {day: i for i, day in enumerate(trading)}
+        if missing:
+            run_start = run_end = missing[0]
+            for day in missing[1:]:
+                if index[day] == index[run_end] + 1:
+                    run_end = day
+                else:
+                    spans.append(_build_span(run_start, run_end, now_ts))
+                    run_start = run_end = day
+            spans.append(_build_span(run_start, run_end, now_ts))
+
+        spans.extend(
+            _bar_level_missing_spans(
+                ts_values, now_ts, timeframe, trailing_days, ext_hours
+            )
         )
-    )
     return spans
 
 

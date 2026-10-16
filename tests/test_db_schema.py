@@ -130,3 +130,148 @@ def test_retained_d41_tables_survive(tmp_path, monkeypatch):
     assert {"volume_baseline", "yfinance_events_cache"} <= tables
     # The pre-existing subset assertion still holds.
     assert EXPECTED_TABLES <= tables
+
+
+def _bars_primary_key(conn):
+    """Return ``bars``' primary-key columns in key order (via PRAGMA)."""
+    info = conn.execute("PRAGMA table_info(bars)").fetchall()
+    # PRAGMA row shape: (cid, name, type, notnull, dflt_value, pk). pk is a
+    # 1-based position within the key, 0 for non-key columns.
+    return [row[1] for row in sorted((r for r in info if r[5]), key=lambda r: r[5])]
+
+
+def _bars_column(conn, name):
+    """Return the PRAGMA table_info row for ``name``, or None when absent."""
+    for row in conn.execute("PRAGMA table_info(bars)").fetchall():
+        if row[1] == name:
+            return row
+    return None
+
+
+def test_bars_ext_hours_column_and_key(tmp_path, monkeypatch):
+    """P2-T17-T11 / AC1 (D42 / S16): a fresh DB's ``bars`` carries the
+    ``ext_hours INTEGER NOT NULL DEFAULT 1`` column and the mode-aware key
+    ``(symbol, timeframe, ext_hours, ts)``.
+    """
+    db_file = tmp_path / "fresh_bars_key.sqlite3"
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(db_file))
+
+    from data.db import DB
+
+    fresh = DB()
+    try:
+        col = _bars_column(fresh.conn, "ext_hours")
+        assert col is not None, "bars must gain the ext_hours column"
+        # (cid, name, type, notnull, dflt_value, pk)
+        assert col[2].upper() == "INTEGER", col
+        assert col[3] == 1, "ext_hours must be NOT NULL"
+        assert str(col[4]) == "1", "ext_hours must default to 1 (ETH)"
+
+        assert _bars_primary_key(fresh.conn) == [
+            "symbol",
+            "timeframe",
+            "ext_hours",
+            "ts",
+        ], "the bars key must be (symbol, timeframe, ext_hours, ts)"
+    finally:
+        fresh.conn.close()
+
+
+def test_legacy_bars_migration_preserves_rows(tmp_path, monkeypatch):
+    """P2-T17-T11 / AC1 (D42 / S16): a legacy ``bars`` table (old key
+    ``(symbol, timeframe, ts)``) is rebuilt once with the new key, every row
+    preserved and tagged ``ext_hours = 1``.
+    """
+    import sqlite3
+
+    # (a) legacy DB: pre-seed the OLD DDL + rows, as a pre-D42 install has it.
+    legacy_file = tmp_path / "legacy_bars.sqlite3"
+    legacy = sqlite3.connect(str(legacy_file))
+    legacy.execute(
+        "CREATE TABLE bars ("
+        "symbol TEXT NOT NULL, timeframe TEXT NOT NULL, ts INTEGER NOT NULL, "
+        "open REAL, high REAL, low REAL, close REAL, volume REAL, "
+        "PRIMARY KEY (symbol, timeframe, ts))"
+    )
+    seeded = [
+        ("AAPL", "5 mins", 1_760_000_000, 1.0, 2.0, 0.5, 1.5, 100.0),
+        ("AAPL", "5 mins", 1_760_000_300, 1.5, 2.5, 1.0, 2.0, 110.0),
+        ("SPY", "1 day", 1_760_000_000, 10.0, 11.0, 9.5, 10.5, 200.0),
+    ]
+    legacy.executemany(
+        "INSERT INTO bars (symbol, timeframe, ts, open, high, low, close, volume) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        seeded,
+    )
+    legacy.commit()
+    legacy.close()
+
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(legacy_file))
+    from data.db import DB
+
+    upgraded = DB()
+    try:
+        # The rebuilt key is the mode-aware one.
+        assert _bars_primary_key(upgraded.conn) == [
+            "symbol",
+            "timeframe",
+            "ext_hours",
+            "ts",
+        ]
+        assert _bars_column(upgraded.conn, "ext_hours") is not None
+
+        # Every legacy row survived, tagged ext_hours = 1 (ETH default), with
+        # its price/volume payload intact.
+        rows = upgraded.conn.execute(
+            "SELECT symbol, timeframe, ext_hours, ts, open, high, low, close,"
+            " volume FROM bars ORDER BY symbol, ts"
+        ).fetchall()
+        assert len(rows) == len(seeded), "no legacy bar row may be dropped"
+        assert all(row[2] == 1 for row in rows), "legacy rows must be ETH (1)"
+        assert {row[:4] for row in rows} == {
+            (s, tf, 1, ts) for (s, tf, ts, *_rest) in seeded
+        }
+        # Payload columns round-trip unchanged.
+        assert {
+            (row[0], row[1], row[3], row[4], row[5], row[6], row[7], row[8])
+            for row in rows
+        } == set(seeded)
+    finally:
+        upgraded.conn.close()
+
+
+def test_legacy_bars_migration_is_idempotent(tmp_path, monkeypatch):
+    """P2-T17-T11 / AC1 (D42 / S16): reopening an already-migrated DB is a
+    no-op — no rows dropped, no duplicate rows.
+    """
+    import sqlite3
+
+    legacy_file = tmp_path / "legacy_bars_reopen.sqlite3"
+    legacy = sqlite3.connect(str(legacy_file))
+    legacy.execute(
+        "CREATE TABLE bars ("
+        "symbol TEXT NOT NULL, timeframe TEXT NOT NULL, ts INTEGER NOT NULL, "
+        "open REAL, high REAL, low REAL, close REAL, volume REAL, "
+        "PRIMARY KEY (symbol, timeframe, ts))"
+    )
+    legacy.execute(
+        "INSERT INTO bars (symbol, timeframe, ts, open, high, low, close, volume)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        ("AAPL", "5 mins", 1_760_000_000, 1.0, 2.0, 0.5, 1.5, 100.0),
+    )
+    legacy.commit()
+    legacy.close()
+
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(legacy_file))
+    from data.db import DB
+
+    first = DB()
+    first.conn.close()
+    second = DB()
+    try:
+        rows = second.conn.execute(
+            "SELECT symbol, timeframe, ext_hours, ts FROM bars"
+        ).fetchall()
+        assert rows == [("AAPL", "5 mins", 1, 1_760_000_000)]
+    finally:
+        second.conn.close()

@@ -9,6 +9,7 @@ This is a measurement, not a gate — it records the number for the report.
 
 from __future__ import annotations
 
+import itertools
 import time
 
 from data.models import Bar
@@ -28,7 +29,9 @@ def _make_window(monkeypatch, qapp):
     win = MainWindow()
     ids = iter([9001, 9002, 9003])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
-    hids = iter([9101, 9102])
+    # D42's depth floor (S17) can issue many chunks from one load, so hand out
+    # historical reqIds unbounded rather than exhausting a fixed list.
+    hids = itertools.count(9101)
     win.md_manager.req_historical_data = lambda *a, **k: next(hids)
     win.show()
     qapp.processEvents()

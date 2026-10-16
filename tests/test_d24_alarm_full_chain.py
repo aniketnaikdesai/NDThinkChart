@@ -8,6 +8,8 @@ asserting the badge updates.
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from data.alarm_store import AlarmStore
@@ -36,7 +38,9 @@ def _make_window(monkeypatch, qapp):
     win = MainWindow()
     ids = iter([8001, 8002, 8003, 8004])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
-    hids = iter([8101, 8102])
+    # D42's depth floor (S17) can issue many chunks from one load, so hand out
+    # historical reqIds unbounded rather than exhausting a fixed list.
+    hids = itertools.count(8101)
     win.md_manager.req_historical_data = lambda *a, **k: next(hids)
     win.show()
     qapp.processEvents()

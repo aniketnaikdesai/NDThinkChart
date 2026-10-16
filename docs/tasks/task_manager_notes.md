@@ -1156,3 +1156,560 @@ OK: 65 tasks validated, execution_graph.json written.
 ```
 
 `docs/tasks/execution_graph.json` regenerated: **65 nodes / 1039 edges** (identical to the prior revision — no edge moved). Task-manager escalation state: **none** (`ESC-PLAN-*` not open; no requirements ambiguity — this revision is purely descriptive).
+
+---
+
+# Task Manager Notes — D42 (Batch 18b), `fresh_graph`
+
+Revision date: 2026-10-15. Source of truth: `docs/plan.md` § *D42 — Batch 18b* (`Status: READY_FOR_TASK_MANAGER`)
+and `docs/architecture.md` § *D42 increment* (`S13`–`S21`, `AR-D42-1`–`AR-D42-11`). D41 is built/reviewed/committed
+(`b48133d`) and its 65-task graph is history — this graph **replaces** it.
+
+## 1. Id convention
+
+`P<n>-T<m>`, **single phase per graph**, as `check_tasks.py` requires. **D42 uses `P2-T<m>`.**
+
+- D41's delivered graph used `P1-T<m>` (recorded in git at `b48133d`). D42 continues the phase counter as **`P2`**:
+  it satisfies the `P<n>-T<m>` requirement, keeps one phase per graph, and **cannot collide** with the D41 `P1-T*` ids.
+- The plan's **three internal phases** (Phase 1 WS1 / Phase 2 WS2 / Phase 3 reconciliation) are encoded as
+  **dependency edges inside the one `P2` prefix**, not as separate prefixes (the pipeline derives the build phase from
+  the id prefix; `pipeline_state.py` treats this repo as a legacy single-scope doc — no `## Phase P<n>` headers — so
+  `build_phase` becomes `P2` once this graph lands).
+- `P2-T01`–`P2-T06` = plan Phase 1 (WS1); `P2-T07`–`P2-T22` = plan Phase 2 (WS2); `P2-T23` = plan Phase 3.
+
+## 2. Wave sequencing (the review's central finding, encoded as edges)
+
+**The one shared file across Phase 1 and Phase 2 is `ui/chart_panel.py`.**
+- Phase 1's **width** path = **`P2-T02`**; Phase 2's `update_last_bar` **`_bars` trim** (the third
+  `SESSION_BAR_CAP` site, `RC-D42-1`) = **`P2-T13`**.
+- Edge **`P2-T13 → P2-T02`** forces the two into **different waves** (Phase 2's trim after Phase 1's width edit).
+  `build_wave.py`'s overlapping-`touches_files` rule would also serialize them, but the edge makes the order
+  deterministic and explicit.
+- **Phase 2's other files are NOT barriered against Phase 1** (plan `AP-D42-1`): the wave frontier confirms
+  `P2-T07`/`P2-T08`/`P2-T10` co-schedule with `P2-T01` in wave 1.
+
+**Phase 2 internal ordering (plan):**
+- `floor_bar_budget` (in **`P2-T09`**) lands **before its four consumers**: the two session cap sites (**`P2-T12`**),
+  the panel trim (**`P2-T13`**) and `prune`'s `keep` (**`P2-T14`**) — each depends on `P2-T09`.
+- The mode-aware **presence predicate** (**`P2-T08`**) and the mode-aware **cache key** (**`P2-T10`→`P2-T11`**) land
+  **before the floor span is wired** (**`P2-T14`** depends on `P2-T08`/`P2-T09`/`P2-T11`/`P2-T12`).
+- `services/backfill_service.py` is **split** into `P2-T08` (presence predicate) and `P2-T09` (floor span +
+  `floor_bar_budget`), sequenced `P2-T09 → P2-T08`, to keep each within the Build Worker step budget (one file, so
+  they serialize regardless).
+- **Phase 3** (`P2-T23`) is a **full barrier** over every Phase 1 + Phase 2 task (`P2-T01`..`P2-T22`).
+
+Simulated frontier (no-overlap + deps): **W1** T01,T07,T08,T10 · **W2** T02,T03,T09,T11,T17,T20 ·
+**W3** T04,T05,T06,T12,T13,T16,T21 · **W4** T14,T18,T19 · **W5** T15,T22 · **W6** T23.
+
+## 3. Corrected suites and KEEP protections
+
+**The five suites that enshrine the old unconditional floor are CORRECTED, not weakened** (plan correction record /
+`FI-D42-2` / `AR-D42-2`):
+- `tests/test_candle_spacing.py` → **`P2-T03`** (string-presence → regime/geometry on the shared helper; 35% intent kept).
+- `tests/test_volume_width.py` → **`P2-T04`** (dense `≈4.0 px` legs → `body == pitch`, `gap >= 0`, `volume == body`).
+- `tests/test_chart_dpi.py` → **`P2-T05`** (its dense `body_dev >= 4.0` leg **will fail post-fix**; the `>= F`/`> wick`
+  claims move to the non-dense dataset, the dense dataset asserts `body <= pitch`).
+- `tests/test_d28_2_sessions.py::test_session_bar_cap` → **`P2-T19`** (flat cap → derived budget; oldest/newest kept).
+- `tests/test_d28_4f_panel_bar_cap.py` → **`P2-T18`** (flat cap → derived budget; oldest/newest kept).
+
+**The nine D16 load-path corrections (`RC-D42-2`) are owned by `P2-T15`**, each **intent-preserving with its cause
+named**: `test_t39_t02` (floor span), `test_t39_t03` (removed empty-cache branch), `test_t39_t01` (the test's own
+planner call passes `min_sessions`), `test_t39_t06`/`test_t39_t07` (floor-aware `keep`), `test_t40_t01` (floor span),
+`test_t40_t04` (planner `min_sessions`), `test_t40_t06` (removed branch), `test_t43_t06` (removed branch).
+
+**Extensions:** `tests/test_backfill_service.py` + `tests/test_d27_backfill_granularity.py` → **`P2-T16`**;
+`tests/test_db_schema.py` → **`P2-T17`**.
+
+**The four new suites:** `tests/test_d42_candle_width.py` → **`P2-T06`** (measures the repro pitch, **no** hard-coded
+`3.83`, **no** `F == 4.0` device-px assertion — `F` is in the ViewBox logical-px unit `px_per_sec` yields);
+`tests/test_d42_day_presence.py` → **`P2-T20`**; `tests/test_d42_mode_cache.py` → **`P2-T21`**;
+`tests/test_d42_depth_floor.py` → **`P2-T22`**.
+
+**RED→GREEN evidence for BOTH `ext_hours=False` and `ext_hours=True`:** WS2 carries it in `P2-T20` (presence (a)/(b)/(c))
+and `P2-T22` (the per-timeframe/per-mode session count), plus `P2-T15` (the load path) and `P2-T21` (mode isolation).
+WS1's RED→GREEN is carried by `P2-T06` (pre-fix body 4.0 > the measured ≈3.83 pitch).
+
+**KEEP / non-regression protections:** `tests/test_d28_4e_bar_cache_retention.py` (flat default preserved, `S18`),
+`tests/test_d28_4a_render_layers.py` / `tests/test_volume_ceiling.py` / `tests/test_volume_d21.py` /
+`tests/test_candlestick_wick.py` (width-formula-free, must stay green), `tests/test_d39_burst_search.py` (the baseline
+preload now passes the mode — re-verified), and the `AC-D16.7` / `AC-D16.1`/`AC-D16.3`/`AC-D16.4` guards in `P2-T23`.
+
+## 4. Assumptions / ambiguities (flagged, not resolved)
+
+- **No `ESC-PLAN-*` escalation and no requirements ambiguity.** Every architectural choice D42 needs is already settled
+  in `architecture.md` (`S13`–`S21`) and `plan.md`; nothing was invented.
+- **Phase 3 artifact (Task-Manager encoding, recorded for the record).** The plan's Phase 3 "adds no production edit
+  (reconciliation + docs only)" and its deliverable is "the full-suite green run + the correction-record entries". Since
+  Build does not own `requirements.md`/`plan.md`/`architecture.md`, `P2-T23` encodes Phase 3 as a **new non-regression
+  guard suite** (`tests/test_d42_nonregression.py`) for `AC-D16.7` and `AC-D16.1`/`AC-D16.3`/`AC-D16.4` under
+  mode-aware presence, plus the full offscreen-suite green run. This is a faithful reading of the plan's stated
+  coverage, not new scope.
+- **`AP-D42-3` (the floor is scoped to chart loads)** and **`AP-D42-4` (legacy cache rows tagged ETH)** are plan-level
+  assumptions already ratified by the Validator; the tasks encode them (the floor is requested only by
+  `MainWindow.load_chart`; the migration tags legacy rows `ext_hours = 1`).
+- **Out of scope (no tasks):** ESC-032, ESC-033, ESC-034, ESC-036, ESC-043, ESC-044, ESC-045, and the **BUILD halves**
+  of ESC-041/ESC-037 (D42 supplies their normative target only; the Code Reviewer flips them after re-verification,
+  along with ESC-038/ESC-042).
+
+## 5. Graph state and exact verification result
+
+**23 tasks**, **52 dependency edges**, all `status: "not_started"` (Task Manager never advances a status). Top-level
+`status` and `metadata.status` both `READY_FOR_BUILD`.
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P2-T06: touches_files 'tests/test_d42_candle_width.py' not in context read_files (ok if pure-output file)
+WARN: P2-T20: touches_files 'tests/test_d42_day_presence.py' not in context read_files (ok if pure-output file)
+WARN: P2-T21: touches_files 'tests/test_d42_mode_cache.py' not in context read_files (ok if pure-output file)
+WARN: P2-T22: touches_files 'tests/test_d42_depth_floor.py' not in context read_files (ok if pure-output file)
+WARN: P2-T23: touches_files 'tests/test_d42_nonregression.py' not in context read_files (ok if pure-output file)
+OK: 23 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+The five warnings are the expected, benign "pure-output file" warnings for the **new** suites (they do not exist yet,
+so they cannot be `read_files` — `check_tasks.py` fails on a non-existent `read_files` path and warns on a
+`touches_files` path that is not a `read_files` path). `docs/tasks/execution_graph.json` regenerated: **23 nodes /
+52 edges**.
+
+---
+
+## D42 `fresh_graph` repair — circular `test_command` (P2-T02) + sibling sweep (2026-10-15)
+
+**Trigger.** The Orchestrator confirmed one defect on the live tree: **`P2-T02`'s declared `context.test_command` was
+circular.** Its command named `tests/test_volume_width.py`, which is owned by **`P2-T04`** — and `P2-T04.dependencies`
+is `['P2-T01', 'P2-T02']`, i.e. **`P2-T04` DEPENDS ON `P2-T02`**. So T02's command could only go green *after* a task
+that depends on it had already run: unsatisfiable at T02's own dispatch point, by construction. The concrete red leg
+is exactly the superseded criterion (`assert measured_body * px_per_sec == pytest.approx(4.0)`; obtained
+`0.7954125046232603`): D42's revised `AC-D6.4` makes the floor **density-aware**, so at high density `body == pitch`
+and the body is deliberately ~0.8 logical px, not 4. `P2-T04` exists precisely to correct that assertion. Same defect
+class as D41's `P1-T27` (section 4 of the `P1-T27`-split revision above); same remedy.
+
+**Scope of this run: repair only.** No new task, no status change, no dependency change, no `touches_files` change, no
+`title` / `agent` / `task_type` / `size` change, no acceptance criterion or `test_id` added or removed. The graph
+carries `"status": "READY_FOR_BUILD"` at the top level and under `metadata`.
+
+### 1. What was true of the work (so the replacement commands reflect reality)
+
+`P2-T02`'s implementation is complete and its three ACs verify independently on the live tree
+(`ui/chart_panel.py`, +66/−32, inside its `touches_files`):
+
+- **AC1** — `_clamp_half_width(w)` is **bit-identical** to `capped_body_half_width(median_diff, w, px_per_sec)` for
+  w = 97.5, 5.0, 100.0, 0.1;
+- **AC2** — in the dense case the rendered body width **equals** the volume width (60.0 == 60.0);
+- **AC3** — on a 960-bar dense load `_candle_pitch / px_per_sec == 60.0`, `_candle_half_width == 19.5 == 0.325 × 60`,
+  and the volume width is 60.0 — i.e. pitch and width are derived from the **post-`setRange`** range.
+
+Those three **direct probes** are now named as the AC evidence in the task itself, so the Code Reviewer does not read
+the deferred downstream red as a defect here.
+
+### 2. `P2-T02` — the repair
+
+- **`context.test_command`** was
+  `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_volume_width.py tests/test_d28_4a_render_layers.py -q`
+  and is now
+  **`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d28_4a_render_layers.py tests/test_candlestick_wick.py -q`**.
+  Both named files exist and are green at T02's dispatch point: `tests/test_d28_4a_render_layers.py` is the D28.4
+  render-layer suite that exercises `_candle_half_width`'s cache/reuse (T02's own AC1/AC3 surface) and is touched by
+  **no** task; `tests/test_candlestick_wick.py` is untouched by every task and stays green (its dense-view leg asserts
+  only the cosmetic-wick source strings plus a non-null picture). `tests/test_volume_width.py` and
+  `tests/test_chart_dpi.py` are named nowhere in it.
+- **Deferral recorded in the ACs and tests** (documentation only; every existing AC and `test_id` is intact):
+  - **AC1** gains the delegation-probe evidence and states that `tests/test_volume_width.py` (owned by `P2-T04`) and
+    `tests/test_chart_dpi.py` (owned by `P2-T05`) are **deliberately RED until those tasks land** — they enshrine the
+    superseded dense `measured_body * px_per_sec == 4.0` / `body_device_px >= 4.0` criterion — and that a red
+    downstream command is **NOT** an implementation defect here.
+  - **AC2** gains the dense `body == volume == 60.0` probe evidence + the `P2-T04` deferral.
+  - **AC3** gains the 960-bar probe evidence (`_candle_pitch / px_per_sec == 60.0`, `_candle_half_width == 19.5`).
+  - `P2-T02-T11` / `P2-T02-T21` / `P2-T02-T31` descriptions and `expected_result`s now name the direct probe and the
+    `P2-T04` deferral.
+  - `context.read_files`'s `tests/test_volume_width.py` entry is kept (the worker should read the suite its change
+    reddens) with its `why` marked **context only — deliberately RED until `P2-T04`, not this task's command**.
+
+### 3. Sibling sweep — method
+
+Every one of the 23 tasks' `context.test_command` was checked programmatically for the two mechanical signatures of
+the defect: (a) a named `tests/*.py` **owned by a task that depends on this one**, directly or transitively; (b) a
+named `tests/*.py` that does not exist yet and is **created by a downstream task**. Transitive dependents were
+computed from the `dependencies` edges; file ownership from `touches_files`. Each mechanical match was then verified
+against the live tree (does the named file actually go red because of *this* task's own change?), because the defect is
+**unsatisfiability**, not merely shared ownership — a suite that is green at dispatch is not a defect.
+
+**Three offenders were found and repaired** (T02 plus two siblings). Two tasks are **self-created output files** (not
+the defect: the task itself creates the file, which is the standard "pure-output file" pattern `check_tasks.py`
+already tolerates). Five are **mechanical matches verified green at dispatch** and were deliberately left unchanged.
+
+| Task | Named file(s) | Owner (downstream?) | Verdict | Action |
+|---|---|---|---|---|
+| `P2-T02` | `tests/test_volume_width.py` | `P2-T04` (depends on T02) | **DEFECT** — T02's cap reddens its `≈4.0` dense leg | **re-pointed** |
+| `P2-T13` | `tests/test_d28_4f_panel_bar_cap.py` | `P2-T18` (depends on T13) | **DEFECT** — T13's floor-aware trim reddens `len(panel._bars) == settings.SESSION_BAR_CAP` | **re-pointed** |
+| `P2-T14` | `tests/test_history_backfill_loadpath.py`, `tests/test_history_backfill.py`, `tests/test_history_backfill_disconnect.py` | `P2-T15` (depends on T14) | **DEFECT** — T14's `min_sessions` floor reddens nine assertions (e.g. `test_t39_t02`'s `stub.calls == []` with 5 present days < 30) | **re-pointed** |
+| `P2-T01` | `tests/test_candle_spacing.py` | `P2-T03` (depends on T01) | mechanical match, **verified GREEN** — the pre-correction suite was a source-string check (`"median_diff * 0.325"`), and that literal survives T01's edit at `ui/candlestick_item.py:153`; `test_candlestick_wick.py`'s `min_w` check also survives (docstring `:57`) | **unchanged** |
+| `P2-T08` | `tests/test_backfill_service.py`, `tests/test_d27_backfill_granularity.py` | `P2-T16` (depends on T08) | mechanical match, **verified GREEN** — T16 **extends** both suites (`git diff --numstat` vs `b48133d`: `+69 −0` and `+49 −0`), so no pre-existing assertion was corrected; T08's edits change only the presence predicate behind `min_sessions=0` defaults | **unchanged** |
+| `P2-T09` | same two files | `P2-T16` (depends on T09) | mechanical match, **verified GREEN** — same pure-addition evidence; T09's `min_sessions` defaults to 0, so the existing cases keep their exact semantics | **unchanged** |
+| `P2-T10` | `tests/test_db_schema.py` | `P2-T17` (depends on T10) | mechanical match, **verified GREEN** — T17 is a pure addition (`+145 −0`); the pre-T10 assertions are table-set membership, `_init_schema` defined once, and the D41 `footprint_cache` drop — none is touched by adding the `ext_hours` column/key | **unchanged** |
+| `P2-T12` | `tests/test_d28_2_sessions.py` | `P2-T19` (depends on T12) | mechanical match, **verified GREEN** — `TickerSession._wave_extended_hours` defaults to `False`, and `floor_bar_budget("5 mins", False) == 5000 == SESSION_BAR_CAP` (RTH 23400 s ÷ 300 s × 30 × 1.15 = 2691, floored by the flat cap), so `test_session_bar_cap`'s `len(kept) == settings.SESSION_BAR_CAP` still holds after T12's edit **and** after T19's correction | **unchanged** |
+| `P2-T06`, `P2-T22` | `tests/test_d42_candle_width.py`, `tests/test_d42_depth_floor.py` | self (`touches_files`) | not the defect — the file does not exist yet because **this task creates it** (the pure-output-file pattern; `check_tasks.py` warns benignly) | **unchanged** |
+| `P2-T23` | (whole suite, `pytest -q`) | — | depends on every Phase-1/2 task, so it runs last and is green by construction | **unchanged** |
+
+### 4. `P2-T13` — the repair
+
+- **`context.test_command`** was
+  `... -m pytest tests/test_d28_4f_panel_bar_cap.py tests/test_d28_4a_render_layers.py -q`
+  and is now **`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d28_4a_render_layers.py -q`**
+  (`tests/test_d28_4a_render_layers.py` is touched by no task and its 50-bar panels never reach the trim's budget, so
+  it is green at T13's dispatch; it exercises `update_last_bar`'s tick/regen/cache paths directly).
+- **Why T13's old command was unsatisfiable:** `tests/test_d28_4f_panel_bar_cap.py::test_panel_bars_pruned_at_session_cap`
+  seeds 100 bars (with `settings.SESSION_BAR_CAP` monkeypatched to 100) and asserts
+  `len(panel._bars) == settings.SESSION_BAR_CAP` plus `panel._bars[0].ts == BASE + 5*300`. After T13's floor-aware trim
+  the budget is `floor_bar_budget("5 mins", ext_hours)` (≥ 2691), so **no** prune occurs and both assertions fail. The
+  file is owned by `P2-T18`, whose whole scope is that correction.
+- **Deferral recorded:** AC1 gains the direct-probe evidence (seed >5000 bars, push past `floor_bar_budget`) and the
+  explicit statement that `tests/test_d28_4f_panel_bar_cap.py` (owned by `P2-T18`) is deliberately RED until `P2-T18`
+  lands; AC2 gains the dispatch-point evidence note; `P2-T13-T11`'s and `P2-T13-T21`'s `expected_result`s carry the
+  deferral; the `read_files` `why` for that suite is marked context-only.
+
+### 5. `P2-T14` — the repair
+
+- **`context.test_command`** was the three `tests/test_history_backfill*.py` suites and is now
+  **`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d28_2_sessions.py tests/test_d39_burst_search.py -q`**.
+  Both are green at T14's dispatch point: they exercise `MainWindow.load_chart` against an **empty** cache, and T14's
+  change preserves "one request" there (the removed empty-cache branch also issued one), while the suites stub the
+  historical feed; neither file is owned by a task downstream of T14 (`P2-T19` owns the first but does not depend on
+  T14, and its correction leaves the file green per §3).
+- **Why T14's old command was unsatisfiable:** T14 passes `min_sessions=MIN_INTRADAY_SESSIONS` (30), so
+  `tests/test_history_backfill_loadpath.py::test_t39_t02_cache_current_issues_no_request` — 5 seeded present days, all
+  trading days — now yields the floor span and therefore a request, failing its `stub.calls == []` assertion. That is
+  one of the **nine** D16 load-path assertions enumerated in `P2-T15`'s AC1, all three files of which are owned by
+  `P2-T15` (which DEPENDS ON T14).
+- **Deferral recorded:** AC1 names the direct probe and states the three suites (owned by `P2-T15`) are deliberately
+  RED until `P2-T15` lands; AC2 and AC3 carry the same deferral for the retention and shortfall cases;
+  `P2-T14-T11`/`T21`/`T31` `expected_result`s name the downstream correction; the `read_files` `why` for
+  `tests/test_history_backfill_loadpath.py` is marked context-only.
+
+### 6. What was deliberately NOT touched
+
+- **`P2-T04` and `P2-T05` keep their own commands** (`tests/test_volume_width.py -q`, `tests/test_chart_dpi.py -q`):
+  they own those suites and run at the right time.
+- **`P2-T12`'s command is unchanged** despite being a mechanical match (§3) — it is provably green at dispatch and
+  stays green after `P2-T19`'s correction; re-pointing it would have dropped the only existing suite that exercises
+  the `set_bars`/`_append_bar` cap sites.
+- **No `status`, `dependencies`, `touches_files`, `title`, `agent`, `task_type` or `size` value changed on any task**
+  (mechanically verified against the pre-repair values: 23/23 tasks identical). No acceptance criterion and no
+  `test_id` was added, removed or renumbered; AC and test counts per task are unchanged.
+- `metadata.revision` records this repair and one `notes[]` entry describes the defect class, so a later reader can
+  audit it.
+
+### 7. Exact verification result
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+/Users/aniket-desai/.pyenv/.../python3: can't open file
+  '/Users/aniket-desai/.config/opencode/scripts/check_tasks.py': [Errno 2] No such file or directory
+```
+
+**Tooling flag (not a D42 defect): `~/.config/opencode/scripts/check_tasks.py` does not exist on this host** — the
+live scripts directory contains only `build_wave.py` and `review_precheck.py`. The validator was therefore run from
+its archived identical copy, `~/.config/opencode/Archive/opencode_v6/scripts/check_tasks.py` (same schema checks:
+dependency existence, acyclicity, AC↔test, `touches_files`, context-pack well-formedness, the `P<n>-T<m>` phase rule,
+and `execution_graph.json` generation):
+
+```
+$ python3 ~/.config/opencode/Archive/opencode_v6/scripts/check_tasks.py
+WARN: P2-T06: touches_files 'tests/test_d42_candle_width.py' not in context read_files (ok if pure-output file)
+WARN: P2-T20: touches_files 'tests/test_d42_day_presence.py' not in context read_files (ok if pure-output file)
+WARN: P2-T21: touches_files 'tests/test_d42_mode_cache.py' not in context read_files (ok if pure-output file)
+WARN: P2-T22: touches_files 'tests/test_d42_depth_floor.py' not in context read_files (ok if pure-output file)
+WARN: P2-T23: touches_files 'tests/test_d42_nonregression.py' not in context read_files (ok if pure-output file)
+OK: 23 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+`docs/tasks/execution_graph.json` was regenerated by the validator and is **byte-identical** to the pre-repair file
+(**23 nodes / 52 edges**) — independent confirmation that no dependency edge changed. The five warnings are the
+pre-existing benign "pure-output file" warnings for the new suites. `task-graph.json` carries
+`"status": "READY_FOR_BUILD"` both at the top level and under `metadata`. Task-manager escalation state: **none**
+(`ESC-PLAN-*` is not open; no requirements ambiguity found — this run needed no architectural decision).
+
+---
+
+## D42 `pack_fix` — `P2-T22` context pack repaired after a worker `pack_deficiency` block (2026-10-15)
+
+**Trigger.** The Build Worker for **`P2-T22`** (`tests/test_d42_depth_floor.py`, the per-timeframe/per-mode
+depth-floor + budget guard) returned `status: blocked` with `pack_deficiency`, naming four files the pack
+did not list: `tests/test_history_backfill_loadpath.py`, `tests/conftest.py`, `data/bar_cache.py`,
+`config/settings.py`. It had read every `read_file` the pack *did* list and still could not write the suite
+faithfully. This is a **pack repair, not a re-scope** — the pack was thin, the map was fine.
+
+### 1. Why the pack was thin
+
+`P2-T22` is the **only** new suite in the batch that drives the *real* load path (`MainWindow.load_chart` →
+`_finalize_history_wave`) with a stubbed historical feed, so — unlike `P2-T20`/`P2-T21` (pure predicate / cache
+tests) — it must copy the existing load-path harness. The pack listed the *implementation* surfaces
+(`ui/main_window.py`, `ui/ticker_session.py`, `services/backfill_service.py`) and the two prose docs, but **not
+the harness it must model on** (`tests/test_history_backfill_loadpath.py`), **not the fixture/DB plumbing** it
+depends on (`tests/conftest.py`), and **not the cache API** it asserts against (`data/bar_cache.py`), nor the
+settings constants (`config/settings.py`). It also carried no contract for the symbols it must call
+(`floor_bar_budget`, `MIN_INTRADAY_SESSIONS`, `SESSION_BAR_CAP`, the mode-aware cache API, `present_days`) and
+no note for the **`P2-T14` cross-suite hazard** (a load now issues many historical requests).
+
+`docs/codebase-map.md` **does not exist** — expected and deliberate for D42 (the new codebase-map convention
+postdates this batch's Plan run; it applies from the NEXT batch). The pack therefore could not be built from a
+map; it was built from the live tree. **This is not a map defect** (`MAP_CAUSED` does not apply — there is no
+map to misdirect) and **not a non-pack issue** (all four named files exist).
+
+### 2. What was added to `P2-T22.context` (only the `context` object changed)
+
+**`read_files` (8 — at the ~8-file budget):**
+
+| path | lines | why |
+|---|---|---|
+| `tests/test_history_backfill_loadpath.py` | 40-190 | the load-path harness to model on: `PRESENT_DAYS`/`NOW`, `_seed` (complete 04:00-20:00 ET days), `_FakeIbBar`, the **unbounded** `_ReqStub`, `_make_window`, `_load` |
+| `tests/conftest.py` | 1-146 | hermetic `DB_PATH` temp setup, the session `qapp` fixture, the autouse `_isolate_test_db` / `_reset_pacing_state` fixtures |
+| `services/backfill_service.py` | 117-148, 256-398 | `floor_bar_budget` + `bar_period_seconds`; `find_missing_spans`/`_floor_missing_span` (the `min_sessions` floor span) |
+| `ui/main_window.py` | 1560-1670, 1955-1976 | `load_chart` passes mode + `min_sessions`; `_finalize_history_wave` saves/gets/prunes with `ext_hours=mode` and `keep=floor_bar_budget(...)` |
+| `ui/ticker_session.py` | 288-326 | `set_bars`/`_append_bar` — two of the three floor-aware cap sites, using `self._wave_extended_hours` |
+| `ui/chart_panel.py` | 1143-1185 | `update_last_bar` — the third floor-aware `SESSION_BAR_CAP` site (the `_bars` head-trim) |
+| `data/bar_cache.py` | 1-83 | the mode-aware cache API (`save_bars`/`get_bars`/`prune` `ext_hours` keyword) + `RETENTION_BARS` |
+| `config/settings.py` | 44-53 | `MIN_INTRADAY_SESSIONS=30` (the floor's tunable) and `SESSION_BAR_CAP=5000` (the lower bound) |
+
+**Dropped (to hold the ~8-file budget):** the two existing prose entries `docs/plan.md` (1081-1165) and
+`docs/architecture.md` (4041-4055). Their content is carried verbatim in `context.plan_excerpt` /
+`context.architecture_excerpt`, so nothing was lost — the `plan_excerpt` was **extended** to include the WS2
+RED→GREEN evidence **(c)/(d)/(e)** verbatim (`docs/plan.md:1226-1235`), which the dropped `docs/plan.md`
+`read_files` entry had pointed at.
+
+**`contracts` (13, all `[existing]`, signatures copied verbatim from the tree):** `MIN_INTRADAY_SESSIONS = 30`;
+`SESSION_BAR_CAP = 5000`; `floor_bar_budget(timeframe, ext_hours) -> int` (formula, 6.5h RTH / 16h ETH windows,
+`1 day` → flat cap); `bar_period_seconds` (the five intraday timeframes `1 min`/`5 mins`/`15 mins`/`1 hour`/
+`4 hours`, `1 day` excluded); `find_missing_spans(..., min_sessions=0)`; `present_days(cached_ts, ext_hours)`;
+`BarCache.save_bars`/`get_bars`/`prune` + `RETENTION_BARS`; the two `TickerSession` cap sites;
+`MainWindow._finalize_history_wave`'s mode-scoped prune/keep; the **unbounded-reqId stub rule**; and the
+sibling-suite convention anchors (`tests/test_d42_mode_cache.py` / `tests/test_d42_day_presence.py`).
+
+**`memory_notes` (5):** kept ESC-043 (`DB_PATH` temp rule), the D21 "bar timestamps are period starts" note and
+the stale-shebang note; **added** (a) the **`P2-T14` cross-suite hazard** — a load now issues MANY historical
+requests, so a stub with a small FIXED reqId iterator raises `StopIteration` and must draw ids from
+`itertools.count`; and (b) the harness subtlety that `_seed` writes complete 04:00-20:00 ET days, so a session
+is RTH-valid only if it holds a bar inside 09:30-16:00 ET — count mode-valid sessions with
+`present_days(cached_ts, ext_hours=<mode>)`, not by calendar day.
+
+### 3. What was NOT changed (pack repair only)
+
+Mechanically asserted before writing the file: `P2-T22`'s `acceptance_criteria`, `tests`, `touches_files`,
+`dependencies`, `status` and `size` are **byte-identical** to their pre-repair values. **No other task was
+touched** (only `metadata.revision` was bumped, to `2026-10-15e`, recording this repair). `P2-T22` remains
+`dependencies: [P2-T12, P2-T14]`, `status: blocked`, `size: M`, `touches_files: [tests/test_d42_depth_floor.py]`.
+
+### 4. Exact verification result
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P2-T06: touches_files 'tests/test_d42_candle_width.py' not in context read_files (ok if pure-output file)
+WARN: P2-T20: touches_files 'tests/test_d42_day_presence.py' not in context read_files (ok if pure-output file)
+WARN: P2-T21: touches_files 'tests/test_d42_mode_cache.py' not in context read_files (ok if pure-output file)
+WARN: P2-T22: touches_files 'tests/test_d42_depth_floor.py' not in context read_files (ok if pure-output file)
+WARN: P2-T23: touches_files 'tests/test_d42_nonregression.py' not in context read_files (ok if pure-output file)
+OK: 23 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+The five warnings are the pre-existing benign "pure-output file" warnings for the new suites (they do not exist
+yet). `execution_graph.json` regenerated: **23 nodes / 52 edges** (no edge moved). Task-manager escalation
+state: **none**. Classification: **`MAP_OK`** — the pack was thin, not misdirected; no codebase map exists for
+this batch by design.
+
+---
+
+## D42 `pack_fix` — `P2-T06` context pack repaired after a worker `pack_deficiency` block (2026-10-15)
+
+**Trigger.** The Build Worker for **`P2-T06`** (`tests/test_d42_candle_width.py`, the ESC-041 density-aware
+candle/volume geometry guard) returned `status: blocked` with `pack_deficiency`, naming four files the pack did
+not list — `tests/conftest.py`, `tests/test_chart_dpi.py`, `tests/test_candle_spacing.py`,
+`tests/test_volume_width.py` — plus the `ChartPanel` **constructor / chart-load range** it needed in order to
+render a real panel in the test. It had read every `read_file` the pack *did* list and still could not write the
+suite faithfully. This is a **pack repair, not a re-scope** — the pack was thin, the map was fine.
+
+### 1. Why the pack was thin
+
+`P2-T06` is the **only** new suite in the batch that must **render a real `CandlestickItem` at DPR 2 and measure
+the body from the recorded `QPicture` bbox**. Unlike the corrected siblings it is meant to match, its pack listed
+the *implementation* under test (`ui/candlestick_item.py`, `ui/chart_panel.py`) and three prose docs, but **not**:
+
+- the file that owns the measurement conventions it must follow — `tests/test_chart_dpi.py` (the `body_geometry`
+  QPicture-bbox helper, `px_per_sec` from the ViewBox, `dpr`, and the isolated `QT_SCALE_FACTOR=2` `_probe`
+  subprocess the DPR-2 repro has to run in);
+- the two **corrected** suites whose regime/geometry assertion style and measured-body convention it must match —
+  `tests/test_candle_spacing.py` and `tests/test_volume_width.py` (the AC4 volume-equality leg is literally the
+  `test_volume_width.py` pattern);
+- the fixture/DB plumbing — `tests/conftest.py`;
+- the `ChartPanel` constructor + chart-load range (`__init__`, `set_symbol`, `set_extended_hours`,
+  `update_chart`) needed to render a panel at all.
+
+It also carried **no contract** for the symbols it must call (`capped_body_half_width`, `set_data(..., pitch=)`,
+`_pitch`, `_clamp_half_width`, `_compute_candle_half_width`, `_view_px_per_sec`, `volume_bars.opts['width']`) and
+no statement of the **unit rule** (the floor `F` is in ViewBox logical px, not device px).
+
+`docs/codebase-map.md` **does not exist** — expected and deliberate for D42 (the codebase-map convention
+postdates this batch's Plan run; the user decided it applies from the NEXT batch). The pack therefore could not
+be built from a map; it was built from the live tree. **This is not a map defect** (`MAP_CAUSED` does not apply —
+there is no map to misdirect) and **not a non-pack issue** (all four named files exist and were read this round).
+
+### 2. What was added to `P2-T06.context` (only the `context` object changed)
+
+**`read_files` (8 — at the ~8-file budget):**
+
+| path | lines | why |
+|---|---|---|
+| `tests/test_chart_dpi.py` | 56-98, 139-173, 213-236 | the DPR-2 measurement conventions to copy verbatim: `make_panel`, the `body_geometry` QPicture-bbox helper (`pic.width() - data_span`; `px_per_sec = vb.width()/x_span`; `dpr = panel.devicePixelRatioF()`; `median_diff` from `_raw_data`), the dense/sparse datasets in `main()`, and the isolated `QT_SCALE_FACTOR=2` `_probe` subprocess harness |
+| `tests/test_candle_spacing.py` | 1-94 | the corrected regime/geometry assertion style to match: `FLOOR_PX = 4.0` stated in ViewBox logical px, `_body_width` via `capped_body_half_width`, the `pitch > F` / `== F` / `< F` regime tests, the preserved 0.325 / 35 % gap intent |
+| `tests/test_volume_width.py` | 1-131 | the corrected measured-body convention + the AC4 volume-width equality: `_measured_body_width` from `boundingRect()`, `_measured_pitch` from `_raw_data`, `_px_per_sec`, `vol_width == pytest.approx(measured_body, rel=0.02)`, dense `body == pitch` / `gap >= 0` |
+| `tests/conftest.py` | 1-146 | the hermetic `DB_PATH` temp setup, the session `qapp` fixture, the autouse `_isolate_test_db` / `_reset_pacing_state` fixtures |
+| `ui/chart_panel.py` | 249-304, 380, 971-985, 1029-1031, 1112-1141 | the `ChartPanel(tz_offset=0, editable=True)` constructor, `self._ext_hours = True` (:380 — Ext Hours ON is the **default**), `set_symbol`, `set_extended_hours`, `update_chart` (the chart-load entry point) |
+| `ui/chart_panel.py` | 1230-1355 | the volume width path: `_view_px_per_sec`, `_compute_candle_half_width` (the `_candle_pitch` cache), `_clamp_half_width`, `_refresh_candles` (`width=w_vol*2`) |
+| `ui/candlestick_item.py` | 47-105, 135-214 | the renderer under test: `capped_body_half_width`, `_median_time_diff`, the `_pitch` cache + `set_data(..., pitch=)`, `_draw_candles`'s cap application |
+| `docs/requirements/requirements.md` | 1288-1293 | `AC-D6.4` (revised) and its measurable paragraph — the repro, consequences (i)/(ii)/(iii), the supersession |
+
+**Dropped (to hold the ~8-file budget):** the two existing prose entries `docs/plan.md` (1063-1141) and
+`docs/architecture.md` (3920-3940). Their content is carried verbatim in `context.plan_excerpt` /
+`context.architecture_excerpt`, so nothing was lost — the `plan_excerpt` was **extended** to include the **WS1
+RED→GREEN evidence verbatim** (`docs/plan.md:1209-1225`), which the dropped `docs/plan.md` entry had pointed at,
+and the `architecture_excerpt` was **extended** with the `S13`/non-functional **unit paragraph**
+(`docs/architecture.md:3999-4006`). Same move as the `P2-T22` repair.
+
+**`contracts` (16, all `[existing]`, signatures copied verbatim from the tree):**
+`capped_body_half_width(median_diff, base_half_width, px_per_sec, floor_px=4.0)` with its exact body;
+`CandlestickItem.set_data(data, mode=None, width=None, pitch=None)` + the `_pitch` / `_raw_data` fields +
+`boundingRect()`; the D28.4 static-vs-live render split (measure `candlestick._raw_data`, not the input list);
+`ChartPanel.__init__` / `set_symbol` / `update_chart` / `set_extended_hours` (+ the `_ext_hours = True` default);
+`_view_px_per_sec` / `_compute_candle_half_width` / `_clamp_half_width` / `volume_bars.opts['width']`; the
+**unit rule** (floor `F = 4.0` is in **ViewBox logical px** — the unit `px_per_sec` yields, i.e.
+`min_w = 2.0 / px_per_sec` — **not** device px; 4 logical px = 8 device px at DPR 2; never assert `F == 4.0`
+device px); the unit-free relations (`body <= pitch`, `body == pitch`, `gap > 0` when `pitch > F`); the repro
+figures (192 bars → pitch ≈ 3.83 logical px; 78 bars → ≈ 8.86) marked **indicative, measure don't hard-code**;
+and the two corrected sibling suites as the convention anchors.
+
+**`memory_notes` (5):** kept ESC-043 (`DB_PATH` temp rule — sharpened for this task: the DPR-2 probe is a
+`python -c` child process and must set `DB_PATH` itself), the stale-shebang note and the test-DB-contention note;
+**added** (a) the **D19/D20 masking lesson** — a harness that hides or stubs a widget to make geometry settle
+measures a window the app never renders; the guard must measure a **genuinely rendered** panel, and a regression
+guard is only credible if it fails pre-fix and passes post-fix; and (b) the D21 note that **bar timestamps are
+period starts**.
+
+### 3. What was NOT changed (pack repair only)
+
+Mechanically asserted before writing the file: `P2-T06`'s `acceptance_criteria`, `tests`, `touches_files`,
+`dependencies`, `status` and `size` are **byte-identical** to their pre-repair values; every **other** task is
+byte-identical (deep JSON comparison of the whole task list minus `P2-T06`); the top-level `notes` and
+`metadata.status` are unchanged. Only `metadata.revision` was bumped, to `2026-10-15f`, recording this repair.
+`P2-T06` remains `dependencies: [P2-T01, P2-T02]`, `status: blocked`, `size: M`,
+`touches_files: [tests/test_d42_candle_width.py]`.
+
+### 4. Exact verification result
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P2-T06: touches_files 'tests/test_d42_candle_width.py' not in context read_files (ok if pure-output file)
+WARN: P2-T20: touches_files 'tests/test_d42_day_presence.py' not in context read_files (ok if pure-output file)
+WARN: P2-T21: touches_files 'tests/test_d42_mode_cache.py' not in context read_files (ok if pure-output file)
+WARN: P2-T22: touches_files 'tests/test_d42_depth_floor.py' not in context read_files (ok if pure-output file)
+WARN: P2-T23: touches_files 'tests/test_d42_nonregression.py' not in context read_files (ok if pure-output file)
+OK: 23 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+The five warnings are the pre-existing benign "pure-output file" warnings for the new suites (they do not exist
+yet). `execution_graph.json` regenerated: **23 nodes / 52 edges** (no edge moved). Task-manager escalation
+state: **none**. Classification: **`MAP_OK`** — the pack was thin, not misdirected; no codebase map exists for
+this batch by design.
+
+---
+
+## D42 `reviewer_escalation` — three BUILD-routed escalations from batch D42 review (2026-10-16)
+
+**Trigger.** The Code Reviewer finished reviewing batch **D42** and left three **BUILD-routed**, `open`
+escalations belonging to this batch: **ESC-048** (blocking), **ESC-049** (should-fix), **ESC-051**
+(nice-to-have). The seven pre-existing BUILD escalations (**ESC-032/033/034/036/043/044/045**) are a later
+stage and were **not** tasked here; **ESC-050** is PLAN-routed and was **not** touched. This run is an
+**additive repair**: it appends three tasks and changes no existing task.
+
+### 1. The three tasks added
+
+| id | Escalation | One-line scope |
+|---|---|---|
+| **`P2-T24`** | **ESC-048** (blocking) | Widen the six D42-broken suites' fixed-size `req_historical_data` stubs to unbounded sources (the 19 `StopIteration` regressions) + prove the full offscreen suite green. |
+| **`P2-T25`** | **ESC-049** (should-fix) | Set the session's `_wave_extended_hours` from the load's `extended_hours` **before** the initial `set_bars` (no-wave ETH path capped at the RTH budget), + a no-wave depth-floor guard. |
+| **`P2-T26`** | **ESC-051** (nice-to-have) | Restore the exact `assert len(plans) == 1` in `tests/test_history_backfill.py` (`t40_t01`, `:285`). |
+
+### 2. `touches_files` (and the deliberate scope widening)
+
+- **`P2-T24`** — `tests/test_d24_popouts.py`, `tests/test_phase3_fixpass.py`, `tests/test_d24_alarm_full_chain.py`,
+  `tests/test_d24_smoke_gate.py`, `tests/test_d24_9_popout_persistence.py`, `tests/test_d28_tick_burst_baseline.py`.
+  **These six files lie OUTSIDE `P2-T23`'s footprint** (which is `tests/test_d42_nonregression.py` only) — the
+  scope is widened deliberately here, and the six files overlap **no** other task's `touches_files` (verified
+  against all 26 tasks).
+- **`P2-T25`** — `ui/main_window.py` + `ui/ticker_session.py` + `tests/test_d42_depth_floor.py`. The fix is one line
+  (`new_session._wave_extended_hours = extended_hours` in `load_chart`, `ui/main_window.py`); the escalation leaves the
+  location open, so the equivalent `set_bars` route (`ui/ticker_session.py`) is declared too rather than risk the worker
+  editing a file outside its footprint. The guard extends `P2-T22`'s suite and its harness. `P2-T12`, `P2-T14` and
+  `P2-T22` are `done`, so the file overlaps are not races.
+- **`P2-T26`** — `tests/test_history_backfill.py` (one assertion, restored).
+
+### 3. How the two required ACs are encoded
+
+- **`P2-T24`'s suite-green AC (`AC3`):** the full offscreen suite exits **0 with zero failures** —
+  `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q` — **including**
+  `tests/test_d42_nonregression.py::test_full_offscreen_suite_is_green`; with no assertion weakened, skipped or
+  deleted. `AC2` additionally requires **each of the six suites green ON ITS OWN**, and `AC1` pins the correction
+  (each stub → `itertools.count(<first>)` + `import itertools`, the `lambda *a, **k: next(hids)` form unchanged) —
+  the **P2-T19** precedent. Tests `P2-T24-T11`/`T21`/`T31` map 1:1 to `AC1`/`AC2`/`AC3`.
+- **`P2-T25`'s guard AC (`AC2`):** a guard that **fails on the no-wave ETH path pre-fix** — seed a cache that
+  satisfies the floor, load in **ETH with no wave issued**, and assert the in-memory series length
+  `== floor_bar_budget(timeframe, True)` (RED pre-fix: **5,000** = the RTH budget, vs **6,624** = the ETH budget).
+  `AC1` covers the fix (mode set before the initial `set_bars`; no stale mode across loads). Tests
+  `P2-T25-T11`/`T21` map 1:1.
+
+### 4. Sequencing / dependency shape
+
+- **`P2-T24`** `dependencies: [P2-T14]` — the suites broke because `P2-T14`'s load path always consults the depth
+  floor (many historical chunks); the edge expresses "the correction assumes the D42 load path". All deps are `done`.
+- **`P2-T25`** `dependencies: [P2-T12, P2-T14, P2-T22]` — it builds on `P2-T12` (`ui/ticker_session.py` mode +
+  floor-aware caps), `P2-T14` (`load_chart`), and `P2-T22` (the depth-floor suite whose harness the guard reuses).
+  Sequenced **after** the D42 tasks it builds on.
+- **`P2-T26`** `dependencies: [P2-T15]` — the relaxation it reverses was made by `P2-T15`.
+- `P2-T24` and `P2-T26` are mutually independent and file-disjoint (no shared `touches_files`); `P2-T25` shares
+  `tests/test_d42_depth_floor.py` only with the **done** `P2-T22`.
+
+### 5. `P2-T23` reset note (for the Orchestrator — not acted on here)
+
+**`P2-T23` is `blocked`** and its status was **left unchanged** (Task Manager only ever initializes `not_started`;
+`build_wave.py` is the sole writer of `status`). `P2-T23`'s `T31` guard runs the whole suite. Once **`P2-T24`**
+lands the six stub widenings, that full-suite guard should pass — but **a blocked task is not re-run
+automatically**. **Action for the Orchestrator: reset `P2-T23`** (e.g. `build_wave.py packfix` / a status reset to
+`not_started`) so its full-suite guard re-runs after `P2-T24` is `done`.
+
+### 6. What was NOT changed
+
+No existing task's `acceptance_criteria`, `tests`, `touches_files`, `dependencies`, `status` or `size` changed
+(verified: the 23 original tasks are byte-identical). `P2-T23` stays `blocked`. Only `metadata.revision`, one
+`metadata.escalations` sentence, one top-level `notes[]` entry, and three appended tasks were added. Top-level
+`status` and `metadata.status` both remain `READY_FOR_BUILD`. Task-manager escalation state: **none** (no
+`ESC-PLAN-*` open; no requirements ambiguity — the three fixes are code/test corrections with the production
+behaviour already requirements-mandated by `AC-D16.8`).
+
+### 7. Exact verification result
+
+```
+$ python3 ~/.config/opencode/scripts/check_tasks.py
+WARN: P2-T06: touches_files 'tests/test_d42_candle_width.py' not in context read_files (ok if pure-output file)
+WARN: P2-T20: touches_files 'tests/test_d42_day_presence.py' not in context read_files (ok if pure-output file)
+WARN: P2-T21: touches_files 'tests/test_d42_mode_cache.py' not in context read_files (ok if pure-output file)
+WARN: P2-T22: touches_files 'tests/test_d42_depth_floor.py' not in context read_files (ok if pure-output file)
+WARN: P2-T23: touches_files 'tests/test_d42_nonregression.py' not in context read_files (ok if pure-output file)
+OK: 26 tasks validated, execution_graph.json written.
+(exit 0)
+```
+
+The five warnings are the pre-existing benign "pure-output file" warnings for the D42 new suites; the three new
+tasks produce **no** warnings. `docs/tasks/execution_graph.json` regenerated: **26 nodes / 57 edges** (52 + the five
+new edges: `P2-T14 → P2-T24`; `P2-T12`, `P2-T14`, `P2-T22 → P2-T25`; `P2-T15 → P2-T26`).

@@ -1,298 +1,356 @@
-# Architecture Proposal — NDThinkChart Batch 18 (**D41**: remove D36 footprint + D37 depth/imbalance/auction + the **entire Active Trader panel**, and make the right dock Portfolio-only)
+# Architecture Proposal — NDThinkChart Batch 18b (**D42**): density-aware candle/volume width + mode-aware intraday history depth
 
 > **Status of this document:** a **proposal** by the Plan agent. It is **not** the canonical
 > architecture — `docs/architecture.md` is written by Plan Artifact Editor & Validator after
-> validation. Companion: `docs/plan_proposal.md` (phases, per-file `touches_files` map,
-> sequencing, test surface, assumptions, flagged issues).
+> validation. Companion: `docs/plan_proposal.md` (phases, per-file `touches_files` map, tests,
+> assumptions, flagged issues, correction record).
 >
-> Requirements of record: `docs/requirements/requirements.md` (**`Status: READY_FOR_PLAN`**),
-> `### D41` (`:3263`–`:3426`, `AC-D41.1`–`AC-D41.7`), Journey 36 (`:855`–`:882`), assumptions
-> `A68`–`A71` (`:3499`–`:3502`), gaps `DG66`–`DG71` (`design_gaps.md:1012`–`:1153`).
+> **Run shape:** this is a **legacy single-scope run** — the invocation preamble carries **no
+> `phase: P<n>`**, so the proposal files are the unsuffixed `docs/architecture_proposal.md` /
+> `docs/plan_proposal.md` (the D42 increment merges into the cumulative canonical docs as a
+> `## D42 increment` section, exactly as D16–D41 did). Every decision below therefore carries an
+> explicit **relationship label** (`[new in D42]` / `[extends D16: …]` / `[revises D6/D7: …]`)
+> rather than a phase-relative one.
 >
-> Relationship to prior decisions: every decision below carries `[existing]` / `[new]` /
-> `[new/changed]`, and where it **changes or supersedes** an earlier decision the superseded
-> item is named in the row (D18/**B2**, `AC-D18.3`, D21.13, D26's order-entry surface, D36, D37).
-> Unlabelled = `[new]`.
+> **Scope: D42 only.** `requirements.md` carries `Status: READY_FOR_PLAN` (revised 2026-10-15
+> 19:06), with `### D42` (`:3529`–`:3617`), `AC-D6.4` (revised `:1288`–`:1293`), `AC-D7.1`
+> (revised `:1326`–`:1330`), the `AC-D9.2` note (`:1476`), `AC-D16.8` (extended `:1901`–`:1938`),
+> **`AC-D16.9`** (new `:1940`–`:1972`), `A72`–`A73` (`:3694`–`:3695`), `R63`–`R64`
+> (`:3813`–`:3814`), `DG68` (resolved) + `DG72`, and `open_questions.md` **Q51/Q52 answered**
+> 2026-10-15. **D41 is built, reviewed and committed (`b48133d`) and is NOT reopened**; D1–D41 are
+> otherwise unchanged.
 >
-> **Revision 2 (2026-10-15) — round-1 `CHANGES_REQUIRED` response.** The Validator **verified all
-> three architecture decisions (`S4` `ref_price` source, `S6` Portfolio-only dock, `S7`
-> `footprint_cache` drop) and the order-path finding (verified fact 1 / `FI-1`) against source**;
-> **none of them is changed by this revision.** What changed: the dock-title consumer count and its
-> full enumeration (verified fact 4), the `S19`→`S5` cross-reference, the FI/severity attributions
-> (`OrderBookLevel` = **FI-2**; the wide-candle defect = **FI-3**; ESC-041 = **blocking**), a
-> softened `S4` rationale sentence, the two KEEP-coverage re-homes for `footprint_cache_key` and
-> `md_line_guard.assess` (plan proposal **R2**), and the phase-1 file list in the sequencing
-> summary. The per-file/test maps and the R1–R6 record live in `docs/plan_proposal.md`.
+> **What D42 is.** A **requirements-decision batch with no new feature**. It resolves the two
+> **REQUIREMENTS-routed** Code Reviewer escalations, and the fixes for the two corresponding
+> **BUILD** escalations fall out of it:
+>
+> 1. **ESC-042 → the candle/volume overlap** (unblocks BUILD **ESC-041**): the unconditional
+>    `AC-D6.4` body floor contradicted `AC-D7.1`'s positive-gap clause; the resolution makes the
+>    **no-overlap guarantee win** and the 4-px legibility floor **density-aware**.
+> 2. **ESC-038 → RTH/ETH intraday history depth** (unblocks BUILD **ESC-037**): the "one session"
+>    symptom is a **fetch-window** defect, not `useRTH`; the ≥ 30-trading-session floor and the
+>    **present-but-empty trading day** rule apply to **both** session modes, with a mode-aware
+>    day-presence pass and a mode-aware bar cache.
+>
+> **Out of scope (not planned here):** the other open BUILD escalations — ESC-032 (Position `id`),
+> ESC-033 (Load Chart button), ESC-034 (watchlist flash timer), ESC-036 (priming `5 secs`),
+> ESC-043 (`HELD`/`H` rows), ESC-044 (option contract fields), ESC-045 (Account Summary). They are
+> separate work with no task yet. ESC-041/ESC-037 stay **BUILD-owned**; D42 does not absorb them —
+> it supplies the normative target they are re-checked against. No `PLAN`-routed escalation is open
+> (`escalations.json`: ESC-038/042 are `routed_to: REQUIREMENTS`), and `docs/plan_review.md` is the
+> **APPROVED** D23 cycle (not `CHANGES_REQUIRED`), so this is a normal forward cycle.
+>
+> **Frozen baseline:** `main` after D41 (`b48133d`), full offscreen suite green. Suite invocation
+> `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the `pytest` entry point has a stale
+> shebang).
+>
+> **Revision 2 (2026-10-15) — round 1 of 3, `CHANGES_REQUIRED` addressed.** The Validator ratified
+> the substance (`FI-D42-1`–`FI-D42-4` accepted, `S18` ratified, `S13`/`S14` and `S15`–`S19` verified
+> sound against source), so **no decision below is re-litigated**. Three required changes are folded
+> in: **RC-D42-1** — the **third** `SESSION_BAR_CAP` site (`ui/chart_panel.py::ChartPanel.update_last_bar`'s
+> `_bars` trim, `:1150`–`:1157`) is now named as a first-class `S18` consumer in the System
+> Components / Data Model / traceability tables **and owned by a phase** in the plan (the one shared
+> file between the two workstreams); **RC-D42-2** — the D16 **load-path** assertions that `S17`/`S18`
+> legitimately change are now enumerated with their cause and stated to be **intent-preserving**
+> corrections (`S21`, `AR-D42-6`); **RC-D42-3** — the pixel **unit** of `F` is stated explicitly in
+> `S13` and in the plan's WS1 evidence. `FI-D42-2` is extended to the **five** enshrining suites,
+> `FI-D42-1`'s cost is stated as **~8–16 MB**, and `FI-D42-3`/`FI-D42-4` keep their ratified readings
+> (with the two `requirements.md` lines cited in the plan).
+>
+> **Revision 3 (2026-10-16) — reviewer escalation `ESC-050` (PLAN-routed, `open`) addressed.** An
+> **enumeration/accuracy fix to this proposal and its companion only** — **no decision below is
+> changed, added or re-litigated**, no `AC`, no phase boundary, no task and no canonical file. D42 is
+> built, green and complete (26/26 tasks; full offscreen suite 1009 passed, exit 0) and its design was
+> verified sound by the Validator and the Code Reviewer. `ESC-050` found that the D42 impact analysis
+> **under-enumerated the suites changed by design**, in two independent places:
+>
+> - **`S21` / `RC-D42-2` / `AR-D42-6` named only the D16 load-path suites.** **19 assertions in six
+>   further suites** also change by design — they **drive** `MainWindow.load_chart` with a
+>   **fixed-size** `req_historical_data` reqId iterator while the floor span makes a load issue **many**
+>   chunks (`ESC-048`'s defect class) — and **4 further sites** inside the D16 files were likewise
+>   unnamed (2 more found by Plan re-verification).
+> - **`AR-D42-6`'s mitigation asserted** that *"every load-path assertion that changes is enumerated in
+>   `S21` and in the plan's correction record"* — an assertion that was **false as written**. It is now
+>   **true** (the enumeration is complete) **and** replaced in form by the **invariant** + the
+>   generalisable **enumeration rule** (`S21`, AR-D42-6), so completeness is checkable by a rule rather
+>   than by a claim.
+> - **One disclosure (checklist, not a decision):** a **Frozen Interfaces** section is added below,
+>   restating **verbatim** the contracts this increment leaves read-only (`session_windows`,
+>   `plan_requests`, `MissingSpan`, `RequestPlan`, `bar_period_seconds`, `Bar`, `TIMEFRAME_CONFIG`,
+>   `popouts.ext_hours`), and explicitly **not** freezing the surfaces under construction. It adds no
+>   decision — every contract is copied from the tree at `b48133d` and already reflected in the
+>   `[existing]` rows of System Components / Data Model / Integration Points.
 
 ---
 
-## Codebase Summary (existing repository — the D41 removal surface)
+## Relationship to prior increments
 
-Factual inventory, source-validated 2026-10-15 (graphify discovery, then verified against the
-working tree). The repo is **not** greenfield: it is a PyQt6 + pyqtgraph desktop charting/order
-terminal with ~4,900 graph nodes and a 1,028-test offscreen suite at `29067af`.
+| Prior decision / component | Relationship | Note |
+|---|---|---|
+| `AC-D6.4` unconditional 4-device-px body floor; `ui/candlestick_item.py::CandlestickItem._draw_candles` clamp (`:122`–`:140`); `AC-D7.1` "gap remains positive" | **`[revises D6/D7: the body-width clamp]`** | `S13`+`S14`: the floor becomes density-aware and the body is capped at the inter-bar pitch. Supersession is **recorded** (never silent) per the D42 correction record. |
+| `AC-D9.1`/`AC-D9.2` volume width == price body width; `ui/chart_panel.py::ChartPanel._clamp_half_width` (`:1229`) / `::_refresh_candles` (`:1303`/`:1305`) / `::_refresh_live_bar` (`:1352`) | **`[extends D9: the volume width path]`** | Intent unchanged; the volume path consumes the **same** capped `w` from the one shared helper (`S13`). |
+| D16 backfill planner (`services/backfill_service.py::find_missing_spans`), `data/bar_cache.py`, `services/market_calendar.py`, `ui/main_window.py::MainWindow.load_chart`/`_finalize_history_wave` | **`[extends D16: the missing-span / day-presence / cache path]`** | `S15`–`S19`. `AC-D16.1`/`AC-D16.3`/`AC-D16.4` (no-fill / genuine-closure / shortfall-report) are **unchanged**. |
+| D27.7 bar-level trailing pass (`_bar_level_missing_spans`, `:239`–`:297`) | **`[extends D27: the bar-level pass]`** | Already `ext_hours`-aware; unchanged in shape, now fed by the mode-aware presence predicate for consistency (`S15`). |
+| D28.3 pacing-aware waves (`TickerSession._issue_wave_chunks`, `:858`; `MAX_HISTORICAL_PER_600S = 60`) | **`[extends D28: the wave pump]`** | Unchanged. The depth floor is delivered as **more plans** through the existing wave cap + continuation timer — no new transport mechanism (`S17`). |
+| D28.4 caps (`config/settings.py::SESSION_BAR_CAP = 5000`, `data/bar_cache.py::RETENTION_BARS = 5000`) and the D28.4 render split | **`[revises D28.4: the two 5000-bar caps]`** | `S18`: the caps become **floor-aware** (≥ the flat 5000, derived per timeframe × mode) at **all three** `SESSION_BAR_CAP` sites — `ui/ticker_session.py::TickerSession.set_bars` (`:300`), `::TickerSession._append_bar` (`:313`) and `ui/chart_panel.py::ChartPanel.update_last_bar` (`:1150`–`:1157`) — plus `BarCache.prune`'s `keep`. Recorded as a deliberate revision of a D28.4 bound, forced by `AC-D16.8`. |
+| D24.9 pop-out `ext_hours` persistence (`popouts.ext_hours`) | **`[extends D24: pop-out mode]`** | The pop-out already knows its mode; it now passes it to the cache/planner (`S19`). |
+| D41 removals | **no relationship** | D42 touches neither the removed surface nor its retained substrate. |
 
-### Data models / schema
+---
+
+## Codebase Summary (existing repository — D42 surface, source-validated 2026-10-15)
+
+The repo is **not** greenfield: a PyQt6 + pyqtgraph + official `ibapi` desktop trading terminal
+(~4,920 graph nodes; full offscreen suite green after D41 @ `b48133d`). This section is a factual
+inventory of the surface D42 touches; every item below was read in the tree during planning.
+
+### Data models / schema `[existing]`
 
 - **`data/db.py::DB`** — SQLite, one connection, `_init_schema()` (DDL script) + `_migrate_schema()`
-  (additive `ALTER TABLE`, `CREATE UNIQUE INDEX`, idempotent). Tables: `bars`, `watchlist`,
-  `alarms`, `zones`, `drawing_groups`, `drawings`, `studies`, `popouts`, `positions`,
-  `trade_groups`, `position_group_map`, **`footprint_cache`** (`:121`–`:127`, D36: one compressed
-  JSON blob per `(resolved_contract, date, timeframe)`), `yfinance_events_cache` (D38, `:132`),
-  `volume_baseline` (D39, `:144`). `config/paths.py::get_db_path()` returns the **user-space
-  production DB** when `DB_PATH` is unset (`tests/conftest.py` sets it to a temp file).
-- **`data/models.py`** — dataclasses `Bar`, `Position`, `TradeGroup`, `UserOrder`,
-  **`OrderBookLevel`** (`:105`–`:110`; verified referenced by **nothing** in the tree), drawing/study models.
-- **`data/footprint_cache.py`** — `FootprintCache` + `is_cacheable` (D36 persistence).
-- **In-memory models that matter to D41:** `MainWindow._symbol_last_prices: dict[str, float]`
-  (D27.5 central `symbol → last_price` map, `main_window.py:727`), `TickerSession._s0_needs`
-  (refcounted generic-tick need registry), `SubscriptionManager` entries keyed by `req_type`.
-- **DB access:** `data/footprint_cache.py` takes `_app_db.conn`; `positions` rows are the
-  Portfolio panel's source (`_on_position_end` selects the whole table).
+  (additive `ALTER TABLE`, `CREATE UNIQUE INDEX`, one idempotent `DROP TABLE IF EXISTS
+  footprint_cache` from D41). Tables: `bars`, `watchlist`, `alarms`, `zones`, `drawing_groups`,
+  `drawings`, `studies`, `popouts`, `positions`, `trade_groups`, `position_group_map`,
+  `yfinance_events_cache` (D38), `volume_baseline` (D39).
+  - **`bars`** (`:16`–`:22`) — `(symbol TEXT, timeframe TEXT, ts INTEGER, open, high, low, close,
+    volume)`, **`PRIMARY KEY (symbol, timeframe, ts)`**. **No `useRTH`/mode component** — this is
+    the `useRTH`-blind cache key `AC-D16.9` names.
+  - `popouts` (`:76`–`:84`) already persists `ext_hours INTEGER NOT NULL DEFAULT 1` per pop-out.
+  - `config/paths.py::get_db_path()` returns the **user-space production DB** when `DB_PATH` is
+    unset (`tests/conftest.py` sets it to a temp file).
+- **`data/models.py::Bar`** — `@dataclass` with `symbol, timeframe, ts, open, high, low, close,
+  volume` (no mode field; plain dataclass, no `__slots__`).
+- **`data/bar_cache.py::BarCache`** — `RETENTION_BARS = 5000` (`:8`); `save_bars(bars)` (`:13`,
+  `INSERT OR REPLACE`), `get_bars(symbol, timeframe)` (`:27`), `prune(symbol, timeframe,
+  keep=RETENTION_BARS)` (`:39`), `get_last_timestamp` (`:55`, unused by the load path).
+- **`services/backfill_service.py`** — pure, Qt-free planner: `MissingSpan`, `RequestPlan`,
+  `bar_period_seconds` (`:104`), `_duration_to_seconds` (`:113`), `_et_date`/`_et_day_start_ts`/
+  `_trading_days`/`_build_span` (`:139`–`:163`), **`find_missing_spans(cached_ts, now_ts, timeframe,
+  trailing_days=TRAILING_BAR_GRANULARITY_DAYS, ext_hours=False)`** (`:169`), `_bar_level_missing_spans`
+  (`:239`), `plan_requests(missing_spans, timeframe)` (`:299`).
+- **`services/market_calendar.py`** — pure ET calendar: `is_trading_day`, `trading_days`,
+  **`session_windows(start_ts, end_ts, ext_hours)`** (`:195`–`:216`) with `_EXT_OPEN/_EXT_CLOSE =
+  04:00/20:00` and `_RTH_OPEN/_RTH_CLOSE = 09:30/16:00` ET (`:37`–`:40`), and the ESC-023 NYSE
+  Rule 7.2 New-Year exception (`:117`–`:121`).
+- **`services/time_collapse_service.py::TimeCollapseMap`** — the D21.4 display-only x-transform
+  (`_to_display`), which the candle/volume width math is expressed in.
+- **In-memory caps:** `config/settings.py::SESSION_BAR_CAP = 5000` (`:45`), applied in
+  `TickerSession.set_bars` (`:300`), `TickerSession._append_bar` (`:313`) and
+  `ChartPanel` (`:1150`/`:1157`); `config/settings.py::MAX_HISTORICAL_PER_600S = 60` (`:35`) and
+  `ibkr/pacing.py::pacing_manager`.
 
-### Major components and responsibilities
+### Major components and responsibilities (as-built)
 
-| Component | Responsibility (as-built) |
+| Component | Responsibility (D42-relevant) |
 |---|---|
-| `ui/main_window.py` (~3,700 lines) | toolbar, watchlist + **single right dock region**, session lifecycle, historical/backfill orchestration, RT/DOM/depth wiring, `_md_line_count`/`_guard_md_lines`/`_guard_depth_budget`, order placement + portfolio close/flatten, dock-width clamp |
-| `ui/chart_panel.py` (~1,800 lines) | candle + volume plots, crosshair, drawing overlay, **D36 footprint render layers + floating control cluster**, **D37 depth/IMB/AUC controls + 500 ms depth repaint timer**, D38 event markers |
-| `ui/ticker_session.py` (~1,800 lines) | per-symbol session: RT bar subscription, BarAggregator, alarms, **S0 generic-tick substrate (D37 substrate, reused by D38)**, **D36 footprint service/wave/cache**, **D37 depth refcount + auction**, historical backfill waves |
-| `ui/active_trader_panel.py` (658 lines) | `LadderTable`, `BookTable`, **`OrderEntryWidget`** (Buy/Sell MKT/LMT/STP/Bracket + confirm + status), `ActiveTraderPanel` shell + `header_bar`/`header_button` |
-| `ui/active_portfolio_panel.py` | `ActivePortfolioPanel`: `summary_label` (`DiagonalStrikeButton("Account Summary")`, its hide/show toggle), `body`, `is_collapsed()`, positions table + Close/Close Group/Flatten All + SL/TP dialogs |
-| `ui/dock_layout.py` | **pure, Qt-free** single source of truth for dock widths: `CHART_MIN_WIDTH=400`, `WATCHLIST_MIN_WIDTH=150`, `RIGHT_DOCK_MIN_WIDTH=200`, `WATCHLIST_CAP_FRACTION=0.50`, `RIGHT_DOCK_CAP_FRACTION=0.40`, `watchlist_max_width`, `right_dock_max_width`, `plan_dock_widths` (B3 cross-clamp) |
-| `ibkr/market_depth.py` | `MarketDepthManager`: DOM `subscribe/cancel/cancel_all/on_update/snapshot` **and** the D37 refcounted `subscribe_shared/release_shared/resubscribe_shared` |
-| `ibkr/order_book.py` | `Level`, `OrderBook`, `apply_operation`, `SIDE_ASK/SIDE_BID` |
-| `ibkr/tick_history.py` | `TickHistoryManager.req_historical_ticks` (D36); never uses `reqTickByTickData` |
-| `ibkr/bridge.py` / `ibkr/client.py` | Qt signals ↔ `ibapi.EClient` overrides (`historicalTicksBidAsk/Last`, `updateMktDepth`, `updateMktDepthL2`, `tickGeneric/tickString/tickNews`) |
-| `ibkr/subscription_manager.py` | replay/rebind registry; tags `RT_BARS`, `MARKET_DATA`, **`DEPTH`**, **`DEPTH_HEATMAP`**, `S0_TICKS` |
-| `services/` | `footprint_service.py`, `depth_heatmap.py` (features being removed); `md_line_guard.py::assess`, `volume_baseline.py`, `market_calendar.py`, `backfill_service.py`, `alarm_monitor.py` (kept) |
-| `ibkr/orders.py`, `ibkr/validation.py`, `ibkr/id_manager.py`, `ibkr/pacing.py`, `config/settings.py::check_live_port` | **retained** order machinery (builders incl. `bracket_order`, `validate_order()`, id reservation, token buckets, fail-fast live-port check) |
+| `ui/candlestick_item.py` (~200 lines) | `CandlestickItem` 5 render modes; `_draw_candles` (`:100`–`:163`) computes the half-width (`median_diff * 0.325`, `:111`), reads the ViewBox range and applies the **unconditional 4-px floor** (`min_w = 2.0 / px_per_sec`, `:136`–`:138`), draws the cosmetic 1-px wick + body into a `QPicture`; `set_data(..., width=...)` carries the D28.4 cached half-width override (`:63`–`:71`). |
+| `ui/chart_panel.py` (~1,800 lines) | `_compute_candle_half_width` (`:1215`, median of **display-x** diffs × 0.325, cached as `_candle_half_width`), `_clamp_half_width` (`:1229`, the volume-side mirror of the same 4-px floor), `_refresh_candles` (`:1249`; volume `w_vol` at `:1303`, `volume_bars.setOpts(width=w_vol*2)` `:1305`, live volume `:1310`/`:1314`, `candlestick.set_data(..., width=...)` `:1318`/`:1326`), `_refresh_live_bar` (`:1333`), `_bars` trim at `SESSION_BAR_CAP` (`:1150`–`:1157`). |
+| `ui/ticker_session.py` (~1,800 lines) | Per-symbol session: `get_bars` (`:295`), `set_bars` (`:298`, capped), `_append_bar` (`:306`, capped), `_wave_extended_hours` (`:127`), `queue_wave_plans` (`:843`), `_issue_wave_chunks` (`:858`, `useRTH=1` + `extended_hours=` passed to `md_manager.req_historical_data`), `_schedule_wave_continuation` (`:886`), `_wave_may_complete` (`:900`). |
+| `ui/main_window.py` (~3,700 lines) | `load_chart` (`:1560`–`:1705`): cached read (`:1630`), `find_missing_spans(..., ext_hours=extended_hours)` (`:1647`–`:1652`), `plan_requests` (`:1653`), wave queue (`:1662`), **empty-cache single-window branch** (`:1668`–`:1684`); `_finalize_history_wave` (`:1950`–`:2044`): `save_bars` (`:1970`), `prune` (`:1973`), `get_bars` (`:1974`), AC-D16.4 shortfall via `_missing_backfill_trading_days` (`:2046`–`:2060`); `_on_ext_hours_toggled` (`:2777`–`:2784`, relabels and re-loads). |
+| `ibkr/market_data.py` | `TIMEFRAME_CONFIG` (`:7`–`:13`) — the **per-request** duration/bar-size caps (`1 min → 1 D`, `5 mins/15 mins → 5 D`, `1 hour → 10 D`, `4 hours → 30 D`, `1 day → 1 Y`); `req_historical_data(..., extended_hours=)` maps to `useRTH` (`:26`–`:58`). |
+| `tests/` | pytest + pytest-qt offscreen; the **five** suites that enshrine the old rule are `test_candle_spacing.py` (`:4`–`:10`, a source-string check that never renders), `test_volume_width.py` (`:103`–`:104`), `test_chart_dpi.py` (`:245`–`:250`, `assert body_dev >= 4.0` on the dense 960-bar DPR-2 dataset), `test_d28_2_sessions.py` (`:166`) and `test_d28_4f_panel_bar_cap.py` (`:53`); the D16/D27 planner suites are `test_backfill_service.py`, `test_d27_backfill_granularity.py`, `test_history_backfill*.py`, `test_market_calendar.py`; the cap suites are `test_d28_2_sessions.py`, `test_d28_4e_bar_cache_retention.py`, `test_d28_4f_panel_bar_cap.py`; and the D16 **load-path** suites whose expectations `S17`/`S18` legitimately change are `test_history_backfill_loadpath.py` (`:202`/`:206`, `:238`, `:255`–`:257`, `:431`, `:477`), `test_history_backfill.py` (`:285`, `:451`–`:457`, `:590`) and `test_history_backfill_disconnect.py` (`:362`). **Load-path-*coupled* by stubbing the feed (`ESC-050` — every one of these boots a `MainWindow`, stubs `md_manager.req_historical_data` with a fixed-size reqId iterator and asserts downstream):** `test_d24_popouts.py`, `test_phase3_fixpass.py`, `test_d24_alarm_full_chain.py`, `test_d24_smoke_gate.py`, `test_d24_9_popout_persistence.py`, `test_d28_tick_burst_baseline.py` — they are **not** D16 suites, which is exactly why the D42 impact analysis missed them. |
 
-### Key entry points
+### Key entry points / data flow (unchanged shape)
 
-`main.py` (imports pyqtgraph **before** `QApplication`, installs a non-abort `sys.excepthook`) →
-`MainWindow.__init__` → `load_chart(symbol, timeframe, extended_hours)`; toolbar controls
-(`dom_btn` → `_on_dom_toggled` → `_subscribe_dom`; `load_btn` → `load_chart`); the right dock
-(`self.right_dock`, `QDockWidget("Active Trader", self)` + `setObjectName("Active Trader")`,
-`setTitleBarWidget(self.active_trader.header_bar)`); order entry via
-`active_trader.order_place_requested` → `MainWindow._on_order_place_requested` → `_place_order`;
-portfolio closes via `portfolio_panel.group_close_requested`/`flatten_all_requested` →
-`_on_portfolio_close_group`/`_on_portfolio_flatten_all` → `_close_position_by_id`.
+`MainWindow.load_chart` → `BarCache.get_bars` → `find_missing_spans` → `plan_requests` →
+`TickerSession.queue_wave_plans`/`_issue_wave_chunks` → `MarketDataManager.req_historical_data`
+(`useRTH`, `endDateTime`, `duration`, `bar_size`) → `IBApiClient.historicalData` →
+`_on_historical_bar`/`_on_historical_data_end` → `_finalize_history_wave` → `BarCache.save_bars` →
+`session.set_bars` → `ChartPanel.update_chart` → `_refresh_candles` (price **and** volume).
 
-### External integrations already in use
+### External integrations already in use `[existing]`
 
-IBKR TWS via official `ibapi` (pinned `9.81.1.post1`), **live port 7496 only** (fail-fast):
-`reqRealTimeBars`, `reqMktData` (incl. S0 generic ticks `"292"` news / `"456"` dividends / **`"225"` auction**),
-`reqHistoricalData`, **`reqMktDepth`/`cancelMktDepth`**, **`reqHistoricalTicks`**,
-`reqPositions`/`reqAccountSummary`, `reqMatchingSymbols` (D39), `reqNewsProviders`/article fetch (D38),
-`placeOrder`/`cancelOrder`/`reqGlobalCancel`, `reqContractDetails`. Secondary approved source:
-yfinance (D38 corporate events, cached). Persistence: SQLite via `config/paths.get_db_path()`.
-Packaging: PyInstaller `.app` (not exercised here). Tests: pytest + pytest-qt, offscreen only.
+IBKR TWS over `ibapi` (historical + realtime bars, market data, contract details, orders) on
+**live port 7496 only**; SQLite persistence; `yfinance` (D38, unrelated); no message queue, no
+cache server, no auth provider.
 
-### Verified facts that shape D41 (source-validated 2026-10-15)
+### What D42 changes, in one line
 
-1. **The retained order paths never call `validate_order()`.** `validate_order(...)` has exactly
-   **one** production call site — `ui/main_window.py:3112`, inside `_place_order` — and
-   `_place_order`'s only caller is `_on_order_place_requested` (`:3092`), which exists only for
-   the **`OrderEntryWidget` ticket** (`active_trader.order_place_requested`, `:693`).
-   `_close_position_by_id` (`:3446`) builds the order itself and calls `placeOrder` directly, with
-   **no** validation and **no** connection guard; the D26.9 "never transmit while disconnected"
-   guard also lives only in `_place_order` (`:3105`). `ui/stop_loss_target_dialog.py` places **no**
-   orders at all (`tests/test_sltp_honesty.py` asserts non-transmission). ⇒ After D41 the
-   in-app ticket is gone, so both the validate gate and the disconnected guard would go with it
-   unless they are **re-homed onto the surviving emitter** (decision `S5`).
-2. **`ref_price`'s only consumer is the ticket path.** `ref_price=self.active_trader.last_price`
-   (`:3116`); `last_price` was populated from the DOM depth feed (`_on_mkt_depth` →
-   `active_trader.set_last_price`, `:3033`). Both ends are being removed.
-3. **A retained, symbol-keyed price source already exists and is fed twice.** `_symbol_last_prices`
-   (D27.5) is written by `_record_symbol_price` from (a) the watchlist price sink
-   (`watchlist_panel.set_price_sink`, `:609`) and (b) **every aggregated chart bar**
-   (`ticker_session.py:863 → _host._record_symbol_price(self.symbol, bar.close)`), and is already
-   the D27.5-mandated source for position market prices (`:3313`).
-4. **The right dock is one `QDockWidget` titled *and* `objectName`d `"Active Trader"`** containing
-   a `RightDockContainer` with `ActiveTraderPanel` stacked over `ActivePortfolioPanel`; its
-   **title bar is the Active Trader header**, and the "both panels collapsed" state
-   (`_sync_right_dock_collapse`, `:2494`) is the D21.13 region-collapse. **Title/`objectName`-keyed
-   lookups exist in 15 test files** — `test_dock_widths_d17.py:37`/`:73`,
-   `test_watchlist_d14_midrag.py:35`/`:82`, `test_crosshair_axis_lane.py:101`–`:106`/`:123`,
-   `test_d27_position_prices.py:30`, `test_history_backfill.py:199`,
-   `test_history_backfill_disconnect.py:136`, `test_dock_widths_d18.py:177`,
-   `test_d10_d13_integration.py:35`/`:53`, `test_d27_account_subs.py:27`,
-   `test_watchlist_columns_d21.py:308`/`:322`, `test_d27_phantom_alarms.py:56`,
-   `test_d27_stream_health.py:67`, `test_history_backfill_loadpath.py:165`,
-   `test_dock_d18_region.py:107`/`:110`, `test_d27_reconnect.py:163` — **plus 2 files asserting the
-   dock's title-bar *text*** (`test_right_dock_d21.py:64`, `test_watchlist_nonregression_d22.py:142`)
-   — **17 files total**, every one of them enumerated in the plan's Phase-2 map with the edit it
-   needs. This is the repo's known "stable title/`objectName`" trap (the D19 masking trap), and the
-   under-count of it was one of the round-1 blockers: a title-keyed consumer left out of the map
-   silently stops hiding/renaming anything, so its suite passes while exercising a window the app no
-   longer has.
-5. **Dock-width guards are pure and reusable unchanged:** `ui/dock_layout.py` imports no Qt symbol;
-   `plan_dock_widths` owns the per-dock caps, the combined chart-minimum cross-clamp, and the
-   never-below-dock-minimum guarantee (ESC-026 corrected). D41 changes **how many sections** the
-   right dock hosts, not the geometry rules.
-6. **`_md_line_count` (`:790`) sums RT + S0 + `depth_manager.active_feed_count()` + watchlist rows**;
-   `_guard_depth_budget`/`DEPTH_FEED_CAP = 60` gate depth feeds only. `md_line_guard.assess` +
-   `_guard_md_lines` are shared with **D38's S0 lines** (`ticker_session.py:485`).
-7. **The S0 substrate is shared:** `s0_register_many`/`_s0_needs`/`S0_TICKS`/`tick_generic`/
-   `tick_string`/`tick_news` serve D38's `"292"`/`"456"`; only `attach_view`'s `{"auction": {"225"}}`
-   registration and the auction ingress (`on_tick_price`/`on_tick_size`, `_auction`,
-   `auction_state`) are D37.
-8. **`ibkr/contracts.py::footprint_cache_key` + `INDEX_PROXY` are D39 load-bearing**
-   (`ticker_session.py:35`, `:922`; `services/alarm_monitor.py`, `ui/alarm_dialog.py`) — only
-   `resolve_footprint_contract` is D36-exclusive.
-9. **Toolbar geometry fixtures pin the control set** (`dom_btn` in `_CONTROL_NAMES` of
-   `test_toolbar_scroll_d19.py:42` / `test_toolbar_d20.py:44`, and in `_CHECKABLE_TOGGLES` of
-   `test_toolbar_d21.py:152`), and the toolbar's intrinsic width is font-dependent
-   (1965 px @9 pt vs 1921 px with Inter 11 px) — the D19/D20 hidden-toolbar **masking** trap applies.
-10. **`tests/test_db_schema.py` subset-asserts** `EXPECTED_TABLES` (never listed `footprint_cache`),
-    so removing the DDL alone is silent — an explicit absence/drop assertion is needed.
+`AC-D16.9`'s two defects are **real and both mode-blind in the same code path**: `present_days =
+{_et_date(ts) for ts in ts_values}` (`services/backfill_service.py:208`) decides day presence with
+**no** session window, and `BarCache.get_bars/save_bars` key on `(symbol, timeframe)` with **no**
+mode (`data/bar_cache.py:13`/`:27`, `data/db.py:21`). The width defect is the same shape:
+`ui/candlestick_item.py:136`–`:138` applies `min_w` **unconditionally**, and
+`ui/chart_panel.py:1242`–`:1244` mirrors it for volume — at a 3.83-px pitch the floor makes the gap
+negative (ESC-041).
 
 ---
 
 ## Summary
 
-D41 is a **removal**, not a feature. Three coupled changes: (1) delete the D36 footprint and D37
-depth/imbalance/auction feature trees (modules, bridge/client surface, subscription tags,
-chart controls, session state, DB table); (2) delete the **entire** Active Trader panel — DOM
-ladder *and* the in-app order-entry ticket — together with the market-depth machinery and the
-`DOM` toolbar button, and re-shape the single right dock into a **Portfolio-only** section
-reusing D21.13's header/collapse mechanism and the unchanged pure `ui/dock_layout.py` clamp;
-(3) **re-home** the D26 safety gates that the deleted ticket was their only caller of
-(the disconnected guard and the `validate_order()` gate, now fed by a retained `ref_price`
-source) onto the one surviving order emitter, Portfolio's close/flatten path. Everything else —
-D1–D35, D38 news/events, D39 bursts/search, D27/D28 correctness/pacing, the chart, the kill
-switch, the fail-fast port check — is untouched and is the non-regression contract.
+D42 is a **two-workstream correctness increment** on existing paths, with **no new feature and no
+stack change**. **(1)** The rendered candle body becomes `body = min( max(0.65 × pitch, F), pitch )`
+computed by **one shared, pure helper** that both the candle `QPicture` and the volume
+`BarGraphItem` width path call, so the **no-overlap guarantee (`gap >= 0`) wins** over the D6 4-px
+legibility floor at extreme density while the floor still binds in the non-dense regime (the wick
+stays a cosmetic 1-px line). **(2)** The intraday fetch gains a **backwards-extending depth floor**
+(≥ 30 trading sessions before the current session, in **both** RTH and ETH) delivered through the
+**existing** D28.3 wave pump as ordinary `RequestPlan`s, driven by a **mode-aware** day-presence
+predicate and a **mode-aware** bar cache (`bars.ext_hours`), with **all three `SESSION_BAR_CAP` cap
+sites plus `BarCache.prune`'s `keep`** made floor-aware so the floor survives pruning **and is not
+trimmed out of the displayed series on the next live candle**. Every supersession
+(`AC-D6.4` unconditional floor, `AC-D7.1` positive-gap wording, the RTH-only depth default) is
+**recorded**, and the **five** suites that enshrine the old rule are **corrected, not weakened**.
 
 ---
 
 ## Tech Stack Decisions
 
-Constrained (existing) choices first, then the D41 additions/changes.
+Constrained (existing) choices first, then the D42 additions/changes. Every row carries a rationale
+and the alternatives considered.
 
 | # | Decision | Choice | Rationale | Alternatives considered |
 |---|---|---|---|---|
-| S1 | Language / UI stack `[existing]` | Unchanged: Python 3.11+ (`.venv`), PyQt6 (`>=6.6`), pyqtgraph (`>=0.13`) | Existing-repo hard constraint; changing the stack is an explicit non-goal | Any new UI/charting framework — rejected |
-| S2 | Broker / numerics / persistence / packaging / tests `[existing]` | Unchanged: official `ibapi` (`9.81.1.post1`), **live TWS 7496 only** (`check_live_port` fail-fast), numpy, SQLite via `config/paths.get_db_path()`, PyInstaller `.app`, pytest + pytest-qt offscreen (no live TWS, no order transmission) | Existing-repo hard constraint; Q9 forbids automated TWS/order traffic | Paper mode / new broker / new DB / new test framework — rejected |
-| S3 | **Removal mechanism** `[new]` | **Whole-file deletion** for the 9 feature-exclusive production modules (`ui/footprint_item.py`, `ui/depth_heatmap_item.py`, `ui/active_trader_panel.py`, `services/footprint_service.py`, `services/depth_heatmap.py`, `data/footprint_cache.py`, `ibkr/tick_history.py`, `ibkr/market_depth.py`, `ibkr/order_book.py`) and the 5 feature/widget-scoped test suites (S11); **surgical in-file deletion** for the shared files (bridge/client/subscription/contracts/db/chart_panel/ticker_session/main_window/watchlist_panel/models). **No shim modules, no deprecation stubs, no commented-out code, no `# removed` placeholders** | `AC-D41.3` requires those paths to **no longer exist** and nothing to import or reference them; feature-exclusive modules have a zero-consumer blast radius once the call sites go. Stubs/comments would violate the "no dangling reference" clause and re-invite accidental re-wiring | (i) keep modules, drop call sites — fails `AC-D41.3`; (ii) keep modules with deprecation warnings — same, plus dead code; (iii) leave commented-out blocks as a record — reviewable-history belongs to git/docs (DOC-4), not source |
-| S4 | **`ref_price` retained source** `[new]` — closes **DG71(1)** | `ref_price` comes from the **D27.5 central `symbol → last_price` map** (`MainWindow._symbol_last_prices`, `:727`), read through one small accessor `MainWindow._ref_price_for(symbol) -> float | None` (normalises to upper-case; returns `None` when a symbol has no recorded price). No other source is consulted. Rationale: the map is **already the D27.5-mandated price source for position market prices** and is fed by **both** the watchlist tick sink and **every aggregated chart bar** (`ticker_session.py:863`), so it resolves for any symbol that is on the **watchlist** or has a **live chart session** — the map is symbol-keyed, not reqId-keyed or session-scoped, which is what the retained close path needs. `None` on an unknown symbol (one that is in neither) is safe: `validate_order` already skips the notional check when no positive price basis exists, so an unknown price can never fabricate a rejection | (i) session `last_chart_price` — single-symbol, primary-chart-only, and semantically "the chart's price", not the position's own symbol (this is precisely why D27.5 introduced the map) — rejected; (ii) `WatchlistPanel._last_price` — keyed by `reqId` inside panel internals, not symbol-keyed — rejected; (iii) re-derive from the removed DOM feed — impossible; (iv) `positions.market_price` from the DB — a stale persisted value, not a live reference — rejected |
-| S5 | **Retained order path carries the surviving D26 gates** `[new/changed]` — **revises the D26/`_place_order`-scoped arrangement** (its ticket surface is removed by D41) | `MainWindow._close_position_by_id` (the **only** production order emitter after D41) becomes, in order: (1) the **D26.9 disconnected guard** (refuse + status-bar message, never transmit), (2) `validate_order(action=…, order_type="MKT", qty=close_qty, symbol=symbol, ref_price=self._ref_price_for(symbol), risk_reducing=True)`, (3) the existing `order_limiter` pacing/deferral, (4) `placeOrder`. `ibkr/validation.py::validate_order` gains one **additive** keyword `risk_reducing: bool = False`; when `True` the **notional-cap check is skipped** and **every structural check still applies**. `_place_order` and `_on_order_place_requested` (ticket-only) are deleted with the ticket, and `ibkr/validation.py`'s **module docstring `:5`** (which today says the gate is "Wired at the top of `MainWindow._place_order`") is **re-pointed at the retained emitter** `MainWindow._close_position_by_id` — the symbol it names must still exist after D41 (R6) | `AC-D41.4` requires the retained machinery to be "exercised" and the retained paths to "build and validate orders with a **resolving `ref_price`**", and D41's KEEP list says **D26's safety requirements stand**. Today the gate and the disconnected guard are reachable *only* from the deleted ticket, so leaving them in place would make `validate_order`/`ref_price` dead on the retained path while the app's only order emitter ran ungated — the D26.9 defect class (order "Submitted" against a dead socket) reopened. The `risk_reducing` carve-out is required because the cap exists to bound **new** exposure: without it, a position above USD 25,000 could never be flattened from the UI (a real availability regression, not a hypothetical) | (i) **no gate** — `validate_order` becomes production-dead, `ref_price` consumerless, `AC-D41.4`'s ref_price clause unmet — rejected; (ii) **gate without the carve-out** — blocks legitimate >25 k flattens — rejected; (iii) **gate with `ref_price=None`** — the notional check is skipped only *incidentally*, `ref_price` stays meaningless, and a future cap change would silently start blocking closes — rejected; (iv) a separate `validate_close_order()` — duplicates the gate (two divergent implementations; the ESC-026 anti-pattern) — rejected; (v) keep `_place_order` alive as a helper — it is ticket-only by construction (`AC-D41.3` forbids the ticket) — rejected |
-| S6 | **Portfolio-only right dock** `[new/changed]` — **supersedes D18/B2's two-section region**, `AC-D18.3`, and D21.13's Active-Trader-title-bar clauses | **One** `QDockWidget`, `windowTitle()` **and** `objectName()` = **`"Portfolio"`**, whose widget is the existing `ActivePortfolioPanel` **directly** (the `RightDockContainer`, `_right_dock_layout` and the two-panel stretch juggling are deleted). Its **title-bar widget IS the Portfolio panel's `summary_label`** (`DiagonalStrikeButton("Account Summary")`) — so there is still exactly one visible label and it is the hide/show toggle — native title hidden (`Movable`/`Floatable` features unchanged). Collapse = that single section's body hidden; the collapsed state is the region-collapse state. `RIGHT_DOCK_MIN_WIDTH` stays **200**; the collapsed floor stays `max(RIGHT_DOCK_COLLAPSED_MIN_WIDTH=150, summary_label.sizeHint().width() + 2×RIGHT_DOCK_COLLAPSED_MARGIN)` (the existing formula, now over **one** button); **`RIGHT_DOCK_CAP_FRACTION` stays 0.40** and **`ui/dock_layout.py` + `plan_dock_widths` are unchanged** | `AC-D41.7` fixes the *outcome* (single Portfolio section, non-zero width, fully visible in full screen, clamped against the chart minimum) and leaves the *mechanism* to Plan (DG71). Reusing D21.13's affordance + the untouched pure clamp means the surviving D18 guarantees (incl. the original D17/D18 full-screen symptom and the ESC-026 floor fix) hold **by construction** rather than by re-derivation. The 40 % cap is an **upper bound** — keeping it removes no user capability, is DG71's explicitly blessed default, and is the only non-regressive choice; the 200 px minimum is what `plan_dock_widths` already enforces. The **rename** is deliberate: a Portfolio-only dock titled/`objectName`d `"Active Trader"` would keep a live "Active Trader" identifier in the UI and code after `AC-D41.1` forbids every Active-Trader affordance; the repo's title-keyed-lookup trap is handled by enumerating **all 17** title/`objectName`/title-bar-text consumer files, one by one, with the edit each needs (see S11, the plan's Phase-2 map, and AR-D41-3) | (i) **keep title/`objectName` `"Active Trader"`** to avoid touching the 17 consumer files — rejected: dishonest identifier, and it keeps the removed feature's name as a live UI/server string (a naming lie of exactly the kind DG67 already flags for `footprint_cache_key`); (ii) a **new bespoke title-bar widget** — rejected: duplicates D21.13's tested affordance and splits one convention into two; (iii) **narrow the cap to ~0.30** — rejected: removes user capability with no requirement behind it (DG71 blesses 0.40 as the safe default); (iv) **keep the container widget with one child** — rejected: dead structure, and `_right_dock_layout`/stretch factors exist only for two sections; (v) **merge Portfolio into the watchlist dock** — rejected: changes the left dock's D13/D17 model for no reason |
-| S7 | **`footprint_cache` deletion** `[new/changed]` — closes **DG70** / A69 (Q49 = "delete") | Remove the `footprint_cache` **DDL** from `data/db.py::_init_schema` (fresh DBs never create it) **and** add an idempotent **`DROP TABLE IF EXISTS footprint_cache`** to `data/db.py::_migrate_schema()` (which already runs on every `DB()` open, alongside the existing additive `ALTER TABLE`s and the `idx_positions_symbol_con_id` index). Delete `data/footprint_cache.py`. Net effect on an existing user DB: table + rows gone at the next app start | The requirement asks for a "small migration" (A69/Q49 "delete"), and `_migrate_schema()` **is** this repo's migration mechanism: it already runs unconditionally at open, needs no version table, and `IF EXISTS` makes it a one-time, idempotent, crash-safe no-op afterwards. `DROP TABLE` (not `DELETE FROM`) is the recorded default (DG70 (b)) since the owning feature is removed | (i) **delete rows, keep the empty table** — DG70 (a); rejected per A69/DG70's recorded default (orphan schema for a removed feature); (ii) **standalone one-off script / manual `sqlite3` step** — rejected: there is no migration runner in this repo and an owner-run step would simply never happen for existing installs; (iii) **a versioned migration framework** — over-engineering for one drop — rejected; (iv) **keep the DDL, empty the table** — fresh DBs would recreate dead schema, contradicting A69's DDL-removal clause — rejected |
-| S8 | **Subscription/registry surface** `[new/changed]` | Delete `DEPTH` and `DEPTH_HEATMAP` from `ibkr/subscription_manager.py`; keep `RT_BARS`, `MARKET_DATA`, `S0_TICKS`. Delete `MainWindow._guard_depth_budget` and `DEPTH_FEED_CAP`; **remove only the `depth` term** from `_md_line_count` (RT + S0 + watchlist terms stay). `services/md_line_guard.py::assess` and `MainWindow._guard_md_lines` are **unchanged** (D38's S0 lines use them) | Nothing subscribes with those tags once the depth feed and the ladder are gone; `S0_TICKS` is D38's (`"292"`/`"456"`). Keeping unused tags/caps would leave dead constants that invite a future mis-subscribe, and the depth term in the line count would reserve budget for a feed that cannot exist | (i) keep the tags/constants — dead surface, no benefit — rejected; (ii) keep the `depth` term in `_md_line_count` — inflates the count against no consumer — rejected; (iii) also drop `md_line_guard` — breaks D38 — rejected |
-| S9 | **Bridge / client surface** `[new/changed]` | Delete exactly: `Bridge.historical_ticks_bid_ask`, `Bridge.historical_ticks_last`, `Bridge.update_mkt_depth`, and the overrides `IBApiClient.historicalTicksBidAsk`, `historicalTicksLast`, `updateMktDepth`, `updateMktDepthL2`. **Keep** the S0 overrides (`tickGeneric`, `tickString`, `tickNews`) and their signals (D38) | `AC-D41.2` demands **zero** `reqMktDepth`/`cancelMktDepth` of any kind and zero historical-ticks requests. Removing the overrides also makes a stray `updateMktDepth` callback from `ibapi` a **no-op** at the client boundary instead of a routed DOM update — the removal is enforced at the integration edge, not only at the call sites | (i) keep the overrides but ignore their payloads — silent dead path, still routes nothing but keeps the D37 signal surface — rejected; (ii) keep the signals for symmetry — dead signal — rejected |
-| S10 | **Contract resolver surface** `[new/changed]` | Delete `ibkr/contracts.py::resolve_footprint_contract` (D36-only). **Keep `footprint_cache_key` and `INDEX_PROXY`** verbatim — D39's burst baseline key (`ui/ticker_session.py:922`) and D39's `alarm_monitor`/`alarm_dialog` proxy resolution depend on them | `AC-D41.4` names both as required survivors. The D36-derived **name** of `footprint_cache_key` is a recorded naming smell (DG67 → FS17) and a **non-requested refactor**: renaming it is out of D41's scope | (i) rename `footprint_cache_key` to a neutral name as part of D41 — rejected (unrequested refactor, touches D39's tested surface); (ii) inline the key rule into `ticker_session` and delete it — rejected (breaks `AC-D41.4`, duplicates the rule) |
-| S11 | **Test surface** `[new/changed]` | **Delete** `tests/test_d36_footprint.py`, `tests/test_d37_microstructure.py`, `tests/test_market_depth.py`, `tests/test_order_entry_mkt.py`, `tests/test_order_entry_side.py` (all five are feature/widget-scoped). **Re-point** (not delete): `test_order_validation.py` (drop the two `_place_order` wiring tests, keep the pure gate tables), `test_order_rejections.py` (keep the registry assertions; re-point the surfaced message from the removed ticket to `status_bar`), `test_dock_d18_region.py`, `test_right_dock_d21.py`, `test_dock_widths_d18.py`, `test_dock_widths_d18_impl.py`, `test_dock_widths_d17.py`, `test_watchlist_nonregression_d22.py` (title-bar/collapse assertions → the Portfolio header), `test_d27_reconnect.py` (Phase 1: drop the D37 session-depth assertions and re-derive the replayed `mkt_data` count, keep RT/S0/watchlist replay **and** the DOM-depth assertions; Phase 2: the dock-title tuple → `"Portfolio"` only), **the 15 title/`objectName`-keyed dock consumers** (`test_dock_widths_d17.py`, `test_watchlist_d14_midrag.py`, `test_crosshair_axis_lane.py`, `test_d27_position_prices.py`, `test_history_backfill.py`, `test_history_backfill_disconnect.py`, `test_dock_widths_d18.py`, `test_d10_d13_integration.py`, `test_d27_account_subs.py`, `test_watchlist_columns_d21.py`, `test_d27_phantom_alarms.py`, `test_d27_stream_health.py`, `test_history_backfill_loadpath.py`, `test_dock_d18_region.py`, `test_d27_reconnect.py` → `"Portfolio"`), **`test_d28_pacing.py`** (the D28.1 order-path deferral re-pointed at the retained close emitter), **`test_kill_switch.py`** (D26.8's all-three-bracket-legs assertion re-pointed at the retained builders — never deleted), and the toolbar control lists (`test_toolbar_scroll_d19.py`, `test_toolbar_d20.py`, `test_toolbar_d21.py` → drop `dom_btn`). **Add** `tests/test_d41_removal.py`, `tests/test_d41_portfolio_dock.py`, `tests/test_d41_retained_order_path.py`; **extend** `tests/test_db_schema.py`; and **re-home the two KEEP symbols' only tests** (R2) — `footprint_cache_key`'s roll-over rule into `tests/test_d39_burst_search.py` and `md_line_guard.assess`'s thresholds into `tests/test_d38_events_news.py` — so that `AC-D41.4`'s "remain and remain exercised by their tests" holds for every KEEP-listed symbol | `AC-D41.3`/`4`/`5` cannot be evidenced by suites that test the removed widgets, and the requirements explicitly require the order-entry tests to be "re-pointed at the retained machinery or removed with the widget" and the toolbar geometry fixtures to be "re-checked". The dock/toolbar suites are **re-pointed rather than deleted** because their surviving assertions are `AC-D41.7`'s acceptance evidence. The title-keyed tuples must be updated in lockstep with the rename or those helpers silently stop hiding the right dock — the D19 "hidden widget masks the real constraint" trap (memory 2026-10-05) | (i) delete the D18/D21.13/dock-width suites wholesale — rejected: loses `AC-D41.7`'s evidence; (ii) keep `"Active Trader"` as the dock title to avoid the churn — rejected (see S6); (iii) leave the toolbar `_CONTROL_NAMES` unchanged — they would assert a control that no longer exists — rejected |
-| S12 | Testing `[existing]` | pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), **no live TWS, no transmitted orders**; run as `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the `pytest` entry point has a stale shebang); any non-pytest probe that can reach a DB-writing path **must** export `DB_PATH` to a temp file (ESC-043: an unset `DB_PATH` writes the owner's production DB) | Repo standard (Q8/Q9) + the repo's own recorded gotchas | Manual-only / live-TWS verification — rejected (`AC-G` and Q9) |
+| S1 | Language / UI stack `[existing]` | Unchanged: Python 3.11+ (`.venv`), PyQt6 (`>=6.6`), pyqtgraph (`>=0.13`), numpy (`>=1.26`) | Existing-repo hard constraint; "changing the tech stack" is an explicit non-goal in `requirements.md` | Any new UI/charting/numeric framework — rejected |
+| S2 | Broker / persistence / packaging / tests `[existing]` | Unchanged: official `ibapi` (`ibapi-latest==10.51.1`), **live TWS 7496 only** (`check_live_port` fail-fast), SQLite via `config/paths.get_db_path()`, PyInstaller `.app`, pytest + pytest-qt offscreen, no live TWS and no transmitted orders | Existing-repo hard constraint; Q8/Q9 | Paper mode / new broker / new DB / new test framework — rejected |
+| S3 | **Testing** `[existing]` | pytest + pytest-qt, `QT_QPA_PLATFORM=offscreen`, run as `.venv/bin/python -m pytest`; any **non-pytest** probe that can reach a DB-writing path exports `DB_PATH` to a temp file (ESC-043) | Repo standard + the repo's own recorded gotchas | Manual / live-TWS verification — rejected |
+| S13 | **One shared capped-width helper** `[new in D42]` — **revises the D6/D7 clamp** | Add a **pure** module-level function in `ui/candlestick_item.py` (the module that owns the D6 formula): `capped_body_half_width(median_diff, base_half_width, px_per_sec, floor_px=4.0) -> float` implementing `w = min( max(base_half_width, floor_px / 2 / px_per_sec), median_diff / 2 )`, i.e. `body = min(max(0.65×pitch, F), pitch)` with `base_half_width = 0.325 × median_diff` and `F` the existing 4-px constant. **Unit of `F` (`FI-D42-4` / `AP-D42-5`, stated explicitly per RC-D42-3):** `floor_px = 4.0` is **4 ViewBox logical px** — the unit `px_per_sec` yields (`vb.width() / x_span`) and the unit the shipped `min_w = 2.0 / px_per_sec` already uses (`ui/candlestick_item.py:136`), i.e. **8 device px at DPR 2**; it is **not** the `AC-D6.4` literal's "4 device pixels at DPR 2". `AC-D6.4`'s operative clause is "measured in the **same** pixel unit" and the shipped constant is kept, so the criterion's outcomes hold unchanged — and the WS1 test evidence applies `F` in **this** unit and asserts the unit-free relations `body <= pitch` / `body == pitch` **Three call sites, one implementation:** `CandlestickItem._draw_candles` (`:136`–`:138`), `ChartPanel._clamp_half_width` (`:1229`, imported, so the volume path cannot drift), and therefore `_refresh_candles` (`:1303`) / `_refresh_live_bar` (`:1352`) automatically | `AC-D6.4`/`AC-D7.1` (revised) + `AC-D9.1`/`AC-D9.2`'s note require **one shared capped `w`** for candle and volume; **R63** names exactly the risk of the two paths diverging. A single pure function is directly unit-testable (three regimes: `pitch > F`, `pitch == F`, `pitch < F`) without a QApplication, and it keeps the 0.325 / 35 % intent visible in one place | (i) patch the two clamp sites independently — duplicates the rule, R63's failure mode — rejected; (ii) put the cap in `ChartPanel` and pass the capped `w` down to `CandlestickItem` — inverts the D28.4 ownership (`CandlestickItem` clamps at generation time using the ViewBox range; ESC-013 depends on that ordering) — rejected; (iii) a new `ui/candle_width.py` module — an extra module for one 3-line rule — rejected |
+| S14 | **Pitch plumbing for the D28.4 width override** `[new in D42]` | `ChartPanel` caches the **pitch** alongside the half-width: `_compute_candle_half_width` (`:1215`) already computes `median_diff` over **display-x**; it returns/stores both (`_candle_pitch`). `CandlestickItem.set_data(..., width=…, pitch=…)` gains the optional `pitch`; `_draw_candles` uses the supplied pitch when `_width_override` is set, otherwise computes `median_diff` from `data` exactly as today. `ChartPanel` passes `pitch=self._candle_pitch` at `:1318`/`:1326`/`:1347` | The cap **needs the pitch**, and the D28.4 override exists precisely to skip the O(n log n) median sort on regeneration — recomputing it inside `_draw_candles` would undo D28.4's perf fix. Both the pitch and the width come from the same **display-x** series, so `median_diff`, `px_per_sec` (ViewBox units) and `F` are in the **same pixel unit** (`AC-D6.4`'s "same pixel unit" clause) | (i) always recompute the median inside `_draw_candles` — reintroduces the sort D28.4 removed — rejected; (ii) drop the override and let `CandlestickItem` own the width entirely — a D28.4 perf regression — rejected; (iii) cap in data units only (ignore the ViewBox) — the floor is a **device**-pixel rule and needs `px_per_sec` — rejected |
+| S15 | **Mode-aware day presence** `[new in D42]` — **extends D16** | A pure predicate in `services/backfill_service.py`: a day is **present** iff ≥ 1 cached bar's timestamp falls inside that day's **current mode's** session window, via `market_calendar.session_windows(day_start, day_end, ext_hours)`. `find_missing_spans`'s `present_days = {_et_date(ts)}` (`:208`) is replaced by the window-membership set; `MainWindow._missing_backfill_trading_days` (`:2052`–`:2054`) — the **AC-D16.4 shortfall report** — calls the **same** exported predicate instead of its own mode-blind `present_days` | `AC-D16.9`'s normative rule and its measurable (a)/(b)/(c); the bar-level pass (`:276`) already uses `session_windows(..., ext_hours)`, so today **one** planner decides presence two different ways. Bar timestamps are period **starts** (recorded gotcha), so the window test applies to the bar's start timestamp — which is exactly why an RTH-empty day can look covered | (i) keep the mode-blind presence set and only fix the bar-level pass — leaves ESC-037's silent RTH hole — rejected; (ii) decide presence per day from the *first/last* bar only — wrong for a day whose bars straddle the window — rejected; (iii) filter the cached series by mode before the planner sees it — conflates cache scoping with presence and would break `AC-D16.9(c)`'s "RTH bars are ETH-present" — rejected |
+| S16 | **Mode-aware cache key + migration** `[new in D42]` — **extends D16** | `bars` gains **`ext_hours INTEGER NOT NULL DEFAULT 1`** and its key becomes **`(symbol, timeframe, ext_hours, ts)`**; `BarCache.save_bars(bars, ext_hours=True)` / `get_bars(symbol, timeframe, ext_hours=True)` / `prune(symbol, timeframe, ext_hours=True, keep=…)` (the mode is a **keyword with the app's default**, so existing call sites and suites stay valid). SQLite cannot alter a primary key, so `data/db.py::_migrate_schema` **rebuilds** the table once, guarded by `PRAGMA table_info(bars)` (idempotent, crash-safe, the same mechanism D41 used for its drop): create `bars_new` with the new key, `INSERT OR IGNORE … SELECT symbol, timeframe, 1, ts, …`, drop `bars`, rename | `AC-D16.9` and `AC-D16.8`'s mode-isolation clause **explicitly require** a mode-aware cache/key ("keyed on symbol+timeframe+mode") so a mode switch cannot read the other mode's bars as coverage — `requirements.md:1957`–`:1958` ("The bar cache/key is **mode-aware** (RTH vs ETH) … This applies **in both directions**") together with `AC-D16.9`'s measurable (c) at `:1967`–`:1969` (a **presence predicate** on a given bar set: RTH bars lie inside `04:00–20:00 ET`, so the ETH call reports the day present), which is the ratified reading of `FI-D42-3`. `ext_hours` (0/1) is the vocabulary the whole pipeline already speaks (`useRTH`, `find_missing_spans(ext_hours=)`, `popouts.ext_hours`), so no new enum is introduced. Legacy rows are tagged **`ext_hours = 1` (ETH)**: the app's default is **Ext Hours ON** (`ext_hours_btn.setChecked(True)`, `:244`), so pre-existing rows were fetched with `useRTH=0`; an RTH load after the migration finds its own (empty) key and fetches the required floor — **no hole, and that fetch is required by `AC-D16.8` anyway** | (i) **no schema change** — keep one `(symbol, timeframe, ts)` cache and make only the *presence* predicate window-based. Passed over: it satisfies every measurable of `AC-D16.9` but fails its explicit "the bar cache/key is mode-aware" clause and `AC-D16.8`'s "in both directions" wording, and it cannot distinguish "the user never loaded ETH for this symbol" from "ETH is covered" — rejected; (ii) wipe the cache on migration — cheapest, but discards a valid cache and forces a full refetch of every symbol/timeframe/mode for no correctness gain (legacy rows are ETH-fetched, i.e. already the widest window) — rejected; (iii) a third `'LEGACY'` mode visible to both — more correct in principle, but adds a tri-state to every read/write/prune for one migration's benefit — rejected; (iv) store mode in a side table keyed by `(symbol, timeframe)` — loses per-bar truth after a mode switch — rejected |
+| S17 | **Backwards depth floor through the existing planner** `[new in D42]` | `find_missing_spans(cached_ts, now_ts, timeframe, trailing_days=…, ext_hours=False, min_sessions=0)` gains **`min_sessions`** (default `0`). When `min_sessions > 0` **and** the timeframe is intraday, the planner computes the **floor day** = the `min_sessions`-th trading day before the current session and emits **at most one** `MissingSpan` covering `[floor_day_start, earliest_present_day_start)` (or `[floor_day_start, now]` when nothing is present), so the floor is fetched **backwards** and **collapses to empty once filled**. `MainWindow.load_chart` passes `min_sessions=MIN_INTRADAY_SESSIONS` for intraday timeframes in **both** the cached path (`:1647`) and the empty-cache path — the `elif not cached` single-window branch (`:1668`–`:1684`) is **removed** because the floor span already yields plans (the empty-cache case becomes "one span from the floor to now") — which requires that the `find_missing_spans(...) if cached else []` guard at `ui/main_window.py:1647`–`:1652` **and** the empty-cache early return at `services/backfill_service.py:205`–`:206` are both bypassed when `min_sessions > 0` | `AC-D16.8` requires the floor for **all five** intraday timeframes in **both** modes; IBKR caps `1 min` at `1 D` per request, so the depth must come from **chained** requests. Reusing `plan_requests` (`:299`, which already chunks a span newest-first by the configured duration) means the floor needs **no new transport path** and rides D28.3's wave cap + continuation timer unchanged. `min_sessions=0` is the default, so **every existing D16/D27 planner suite keeps its exact semantics**; R64's "the D16 suite stays green" is met by **intent-preserving correction** of the D16 **load-path** suites (enumerated with their cause in `S21` / the plan's correction record) — **and, per `ESC-050`, of every suite that merely *drives* that load path with a stubbed historical feed** (19 assertions in six suites; the **invariant** in `S21`) — never by weakening an assertion | (i) raise `TIMEFRAME_CONFIG` durations — `1 min` is hard-capped at `1 D` and the chaining is required regardless, so one mechanism serves all five timeframes — rejected; (ii) a separate `depth_service.py` — duplicates `plan_requests`/`_trading_days` — rejected; (iii) a new "floor" request kind in the session — bypasses the pacing accounting — rejected; (iv) keep the empty-cache special branch and add the floor only to the cached path — leaves the ESC-038 repro (fresh `1 min` RTH) at one session — rejected |
+| S18 | **Floor-aware bar budget (all three `SESSION_BAR_CAP` sites + `prune`'s `keep`)** `[new in D42]` — **revises D28.4** | Add a pure helper (in `services/backfill_service.py`, next to `bar_period_seconds`/`session_windows`): `floor_bar_budget(timeframe, ext_hours) -> int` = `max(SESSION_BAR_CAP, ceil(min_sessions × window_seconds(timeframe, ext_hours) / bar_period) × 1.15)`, where `window_seconds` is 6.5 h (RTH) or 16 h (ETH); `1 day` returns the flat cap (not covered by the floor). The **three** cap sites use it — `TickerSession.set_bars` (`:300`), `TickerSession._append_bar` (`:313`), and **`ChartPanel.update_last_bar`'s `_bars` trim (`:1150`–`:1157`)** — and the load path passes `keep=floor_bar_budget(...)` to `BarCache.prune` (`:1973`). The panel trim is the site that matters most: `update_chart` seeds `ChartPanel._bars` from the session's (now up to 33,120-bar) series and `update_last_bar` would otherwise re-trim it to the flat 5,000 on the **next new-candle tick**, i.e. the `AC-D16.8` floor would be discarded from the **displayed** series after one live bar (`FI-D42-1`'s failure mode one layer up). **Ownership (RC-D42-1):** this edit is owned by the **same phase as `floor_bar_budget`** (Phase 2) and is **sequenced after** the `ui/chart_panel.py` width edit of the other workstream — `ui/chart_panel.py` is the **one** file shared by the two workstreams, so the two `ui/chart_panel.py` tasks must never be `in_progress` in the same wave (`build_wave.py`'s overlapping-`touches_files` rule); see the plan's per-file map. The **flat constants stay** as the default/floor (`RETENTION_BARS = 5000`, `SESSION_BAR_CAP = 5000`) | **`AC-D16.8` is otherwise unsatisfiable on this build.** A `1 min` RTH session is 390 bars, so 30 sessions = **11,700 bars** > the 5000 cap; `1 min` ETH is 960/session → **28,800**; `5 mins` ETH → **5,760**. Both the SQLite `prune` (`RETENTION_BARS`) and the in-memory caps would **delete the floor after fetching it**, so the displayed series could never cover 30 sessions. Keeping the flat constants as the default preserves `prune(sym, tf)`'s existing behaviour and `test_d28_4e_bar_cache_retention.py` unchanged | (i) leave the caps and accept a shortfall — directly contradicts `AC-D16.8`'s "the displayed bar series covers at least 30 trading sessions" — rejected; (ii) lower the floor for dense timeframes — `AC-D16.8` states 30 sessions for **all five** — rejected; (iii) raise the two constants unconditionally to 33,120 — inflates memory for `1 day`/`4 hours` charts that need 5,000 at most, and breaks the flat-cap suites for no reason — rejected; (iv) make the floor count **sessions** rather than bars and fetch lazily per viewport — the chart auto-frames the whole cached series, so the series itself must hold the floor — rejected |
+| S19 | **Mode threading through the load path** `[new in D42]` | `TickerSession` already owns `_wave_extended_hours` (`:127`); it gains the same value as the **session's mode** for its own cache reads (`get_bars` `:295`, the D39 baseline preload `:684`) and writes (`_finalize_history_wave`'s `save_bars`). `MainWindow.load_chart` passes the mode explicitly at `:1630` (`get_bars`), `:1648` (`find_missing_spans`), `:1662`/`:1672` (wave queue) and `:1970`/`:1973`/`:1974` (finalize). `services/alarm_monitor.py:287`'s `BarCache.get_bars(symbol, "1m")` keeps the default (its prev-price seed is mode-neutral) | One place per hop, no globals, and the mode travels with the session that already owns the wave — so a pop-out (whose `ext_hours` is persisted in `popouts`) and the primary chart cannot cross-contaminate. `get_bars`'s existing `timeframe`-keyed session map is untouched | (i) a module-level "current mode" global — two charts with different modes would corrupt each other — rejected; (ii) re-key the session's `_bars` map by `(timeframe, mode)` — unnecessary: a session is loaded in one mode at a time and `load_chart` resets it — rejected; (iii) make `ext_hours` a required positional argument — forces every legacy test/caller to change for no benefit — rejected |
+| S20 | **Config surface** `[new in D42]` | **One new constant:** `config/settings.py::MIN_INTRADAY_SESSIONS = 30` (the owner-required floor, `AC-D16.8`, A73). **`ibkr/market_data.py::TIMEFRAME_CONFIG` is NOT changed** — its durations are the **per-request** IBKR caps, and the depth comes from chaining (`S17`). `MAX_HISTORICAL_PER_600S = 60` and the pacing model are unchanged | The floor is an owner-required number that both the planner and the budget derive from, so it belongs in the settings module the pacing/cap constants already live in; changing `TIMEFRAME_CONFIG` would either be a no-op for `1 min` (hard cap) or a redundant second mechanism | (i) hard-code 30 in the planner — a magic number split from its rationale — rejected; (ii) change `TIMEFRAME_CONFIG` durations as the task brief anticipated — rejected for the reason above (recorded as an explicit non-change so the Validator sees the decision) |
+| S21 | **Test surface** `[new in D42]` — **corrects five enshrining suites + the D16 load-path suites + the six load-path-*driving* suites (`ESC-050`), extends five, adds four** | **Corrected (never weakened, never deleted):** `tests/test_candle_spacing.py` (string-presence → regime/geometry assertions on the shared helper), `tests/test_volume_width.py` (the dense `≈ 4.0 px` legs → `body == pitch`, `gap >= 0`, volume == body), `tests/test_chart_dpi.py` (the dense `body_device_px >= 4.0` leg → the **non-dense** dataset carries the `>= F` claim; the dense dataset carries `body <= pitch`). **Corrected for the floor-aware caps:** `tests/test_d28_2_sessions.py::test_session_bar_cap` and `tests/test_d28_4f_panel_bar_cap.py` (assert the derived budget, keep the oldest-dropped/newest-kept invariant). **Corrected — D16 load-path (RC-D42-2; every correction intent-preserving, the cause named in the plan's correction record):** `tests/test_history_backfill_loadpath.py::test_t39_t02` (`:238` — the **floor span**: 5 seeded ETH sessions < 30), `::test_t39_t03` (`:255`–`:257` — the empty-cache branch `S17` **removes**), `::test_t39_t01` (`:202`/`:206` — the test's own planner call must pass the floor), `::test_t39_t06`/`::test_t39_t07` (`:431`/`:477` — the **floor-aware `keep`**), `tests/test_history_backfill.py` (`:285`, `:451`–`:457`, `:590` — the floor span and the removed empty-cache single-window branch) and `tests/test_history_backfill_disconnect.py` (`:362` — the same removed branch). Each keeps its guarantee: "no **redundant** request once the floor is satisfied and the cache reaches *now*"; an empty cache is covered **by the planner** as one floor span rather than by a special branch; the retention invariant becomes the **derived** budget with oldest-dropped/newest-kept. **`ESC-050` completes this enumeration (the `RC-D42-2` table named 9 sites; the D42 diff changes 14 test functions in these three files):** the **4** `ESC-050` records — `test_history_backfill.py::test_t40_t03` (`:362`, the "no shortfall message" form → the closure days are never **named** missing), `::test_t40_t05` (the same class; its correction is in fact `test_t40_t04`'s **second** assertion at `b48133d:484`–`:485` — `t40_t05` carries no shortfall assertion in either revision), `test_history_backfill_disconnect.py::test_t43_t03` (`:227`) and `::test_t44_t03` (`:459`) (the status bar previews only the **first five** missing days, now the floor days, while the log carries the full list → asserted against the **log**) — **plus 2** found by Plan re-verification: `test_history_backfill_loadpath.py::test_t39_t04` (`:269`, the `save_bars`/`get_bars` spies must forward `ext_hours` — `S19` mode threading) and `::test_t39_t05` (`:336`, the new session's **own** floor span means its in-flight id set is not empty → "the cancelled ids never leak"). **Corrected — load-path-*driving* suites (`ESC-050`; not D16 suites, enumerated nowhere before):** **19 assertions in six suites** that merely **drive** `MainWindow.load_chart` while stubbing `md_manager.req_historical_data` with a **fixed-size** reqId iterator — `tests/test_d24_popouts.py` (7), `tests/test_phase3_fixpass.py` (7), `tests/test_d24_alarm_full_chain.py` (2), `tests/test_d24_smoke_gate.py` (1), `tests/test_d24_9_popout_persistence.py` (1), `tests/test_d28_tick_burst_baseline.py` (1). **Cause:** the floor span makes one intraday load issue **many** chunks (an empty-cache `5 mins` load plans **9**), so the second `next(hids)` raises `StopIteration` — **fixture exhaustion, not a product defect**. **Correction:** test-only — widen each stub to an **unbounded** source (`itertools.count(<first>)`, the `P2-T19` precedent at `tests/test_d28_2_sessions.py:41`), the `lambda *a, **k: next(hids)` form unchanged, **no assertion weakened, skipped or xfailed**. **The invariant (`ESC-050`), stated so it is checkable before dispatch:** *any test that drives `MainWindow.load_chart` with a stubbed `req_historical_data` must use an **unbounded** reqId source (the floor span issues many requests); any test asserting the **exact number** of historical requests, **one** request/chunk per load, or the **empty-cache single-window branch** changes by design.* **The generalisable rule (`ESC-050`; the second under-count in this batch):** *enumerate the assertions an increment changes by **call site of the changed entry point**, not by the suites the design names* — including tests that only **drive** the changed path; a **fixed-size stub of a changed feed is a defect class** (grep the suite for `iter([...])` feeding `next(...)` and correct all of them in one scoped task); and an enumeration asserted to be complete must **be** complete or be **replaced by the invariant that generates it**. **Extended:** `tests/test_backfill_service.py` / `tests/test_d27_backfill_granularity.py` (mode-aware presence cases — their **existing** cases keep **exact** semantics because `min_sessions` defaults to `0`, `AP-D42-2`), `tests/test_history_backfill_loadpath.py` (the per-timeframe, per-mode session-count guard driving the real load path with a stubbed feed). **Added:** a mode-aware presence suite (`AC-D16.9` (a)/(b)/(c)), a mode-aware cache/migration suite, a **rendered candle-width geometry guard** and a depth-floor/budget suite. `tests/test_d28_4e_bar_cache_retention.py` stays **unchanged** (the flat default is preserved, `S18`) | The D42 correction record names two suites that enshrine the old **width** rule; **five** enshrine the old behaviour in total (`test_candle_spacing.py:4`–`:10`, `test_volume_width.py:103`–`:104`, `test_chart_dpi.py:245`–`:250`, `test_d28_2_sessions.py:166`, `test_d28_4f_panel_bar_cap.py:53`) and the D16 **load-path** suites change by design through `S17`/`S18`. Every change is a **correction to the new normative target**, with the intent of the original test preserved. **`ESC-050` corrected this row's *scope*, not its principle:** the row named 9 D16 sites where the diff changes **14 test functions**, and named no load-path-**driving** suite where **19 assertions in six** change — so the enumeration is now complete **and** generated by the **invariant** + the **call-site enumeration rule** (above), which is what `AR-D42-6`'s mitigation now rests on | (i) delete the enshrining tests — forbidden by the correction record — rejected; (ii) relax the assertions to "no exception raised" — that is exactly the "weakened" failure mode — rejected; (iii) leave `test_chart_dpi.py` alone and let it fail — the suite must be green — rejected |
 
 ---
 
 ## System Components
 
-### Removed `[existing → deleted]`
+**Existing, unchanged** `[existing]`
 
-| Component | Files | Notes |
-|---|---|---|
-| Footprint render layer + controls | `ui/footprint_item.py`; the `Footprint`/`Classic`/`Tick count` cluster + `footprint_static`/`footprint_live`/`_fp_*`/`refresh_footprint`/`_fp_status_text` and the `footprint_toggled`/`footprint_viewport_changed` signals in `ui/chart_panel.py` | `AC-D41.1` |
-| Footprint service / cache / tick history | `services/footprint_service.py`, `data/footprint_cache.py`, `ibkr/tick_history.py`; the `filename`/wave/forming/cache state in `ui/ticker_session.py`; the `historical_ticks_*` signals in `ibkr/bridge.py` + the `historicalTicks*` overrides in `ibkr/client.py`; `resolve_footprint_contract` | `AC-D41.3` |
-| Depth heatmap / IMB / AUC | `ui/depth_heatmap_item.py`, `services/depth_heatmap.py`; the `Depth`/`IMB —`/`AUC —` cluster, heatmap strip, state text, 500 ms repaint timer and `bind_d37_session`/`unbind_d37_session`/`set_depth_state`/`update_auction_chip` in `ui/chart_panel.py`; `_depth`/`_depth_req_id`/`_depth_holders`/`_depth_state`/`ensure_depth_subscribed`/`release_depth`/`_cancel_depth`/`_reissue_depth`/`_rebind_depth_req_id`/`on_depth_update`/`on_depth_error`/`_set_depth_state`/`depth_imbalance`/`_depth_roll_timer` and the `depth_state_changed`/`auction_updated` signals in `ui/ticker_session.py`; the `"225"` auction need + auction ingress; `subscription_manager.DEPTH_HEATMAP` | `AC-D41.1`/`AC-D41.2` |
-| Active Trader panel (whole) + DOM ladder | `ui/active_trader_panel.py` (ladder/book **and** `OrderEntryWidget` ticket **and** the panel shell/`header_bar`); `ibkr/market_depth.py`; `ibkr/order_book.py`; the `DOM` toolbar button + `_on_dom_toggled`/`_subscribe_dom`/`_on_mkt_depth`/`_depth_req_id`/`_rebind_depth_req_id`/the depth error branch/`closeEvent`'s depth cancels in `ui/main_window.py`; `ui/watchlist_panel.py::set_depth_manager`/`on_depth_update`/`_depth_manager`; `subscription_manager.DEPTH`; `Bridge.update_mkt_depth` + the `updateMktDepth*` overrides | `AC-D41.1`/`AC-D41.3`; makes ESC-039/ESC-035 moot (DG66) |
-| Depth feature's model | `data/models.py::OrderBookLevel` (`:105`–`:110`) | **Dead today** — zero references in the tree (verified); it is the depth feature's model, so D41 takes it (`AC-D41.3`'s no-dangling intent). Inert removal; **FI-2, accepted by the Validator as within "all associated code"** and recorded here as an **explicit scope close-out** (a deliberate, named inclusion — not an undeclared extra), machine-checked by the removal guard's token set |
-| Persisted footprint data | `footprint_cache` DDL in `data/db.py` + `DROP TABLE IF EXISTS` in `_migrate_schema()` (S7) | Q49/A69/DG70 |
+`services/market_calendar.py` (windows + the ESC-023 New-Year exception), `services/time_collapse_service.py`,
+`ibkr/market_data.py::TIMEFRAME_CONFIG` (`S20`), `ibkr/pacing.py`, `ui/candlestick_item.py`'s wick/body
+drawing and the D28.4 render split, the D16 no-fill/no-silent-hole rules (`AC-D16.1`/`AC-D16.3`/
+`AC-D16.4`), the D27.7 bar-level pass shape, the D28.3 wave pump, `services/session_service.py`, the
+drawing/study/alarm overlays — i.e. **nothing D1–D41 depends on is redesigned**.
 
-### Retained, unchanged `[existing]`
-
-`ibkr/orders.py` (incl. `bracket_order`), `ibkr/validation.py` (**function body unchanged** — one additive keyword, S5), `ibkr/id_manager.py`, the kill switch (`reqGlobalCancel` + per-ID cancels), the order registry / order-error routing, `config/settings.py::check_live_port` + `MAX_ORDER_NOTIONAL`; the D38 S0 substrate (`s0_register_many`/`S0_TICKS`/`tick_generic`/`tick_string`/`tick_news` + overrides), `services/volume_baseline.py` + the `volume_baseline` table, `ibkr/contracts.py::footprint_cache_key`/`INDEX_PROXY`, `services/md_line_guard.py`, `data/db.py`'s other tables, and the yfinance event source (D38) — i.e. **nothing D1–D35 or D38–D40 depends on is redesigned**.
-
-**KEEP-list coverage is preserved, not just the symbols (R2).** Every `AC-D41.4` survivor keeps a
-test in the post-D41 tree: `footprint_cache_key` (its only test, `tests/test_d36_footprint.py::test_rollover_key_change_isolates_tape`, moves to `tests/test_d39_burst_search.py`) and
-`md_line_guard.assess` (its only test, `tests/test_d37_microstructure.py::test_md_line_guard_thresholds`, moves to `tests/test_d38_events_news.py`) — both re-homed in the same phase that deletes the
-suite they lived in. `INDEX_PROXY`/`S0_TICKS`/`volume_baseline` keep their existing D38/D39 suites;
-`bracket_order` keeps `tests/test_order_builders.py`; the kill switch keeps `tests/test_kill_switch.py`
-with its all-three-legs assertion re-pointed at the retained builders.
-
-### New / changed `[new/changed]`
+**New / changed** `[new/changed]`
 
 | Component | Change |
 |---|---|
-| `MainWindow._ref_price_for(symbol)` | New tiny accessor over `_symbol_last_prices` (S4) |
-| `MainWindow._close_position_by_id` | Gains the disconnected guard + `validate_order(..., risk_reducing=True, ref_price=…)` before the existing pacing + `placeOrder` (S5) |
-| `ibkr/validation.py::validate_order` | One additive keyword `risk_reducing: bool = False` (default preserves all existing behaviour and tests) (S5) |
-| `MainWindow` right dock | Portfolio-only single-section dock (S6); `_compute_right_dock_collapsed_min_width` now reads one button; `_sync_right_dock_collapse` loses the two-panel stretch juggling |
-| `data/db.py::_migrate_schema` | Adds `DROP TABLE IF EXISTS footprint_cache` (S7) |
-| `ui/chart_panel.py`, `ui/ticker_session.py`, `ui/main_window.py`, `ibkr/bridge.py`, `ibkr/client.py`, `ibkr/subscription_manager.py`, `ibkr/contracts.py`, `ui/watchlist_panel.py` | Deletions only (no new behaviour) |
-| `ui/active_portfolio_panel.py` | **Not modified.** Its `summary_label`/`body`/`is_collapsed()` are reused as-is by the new dock. (Deliberate: ESC-043/ESC-045 live in this file's render path and are **not** D41's to fix.) |
+| `ui/candlestick_item.py::capped_body_half_width` | **New pure helper** — the single source of the density-aware cap (`S13`) |
+| `ui/candlestick_item.py::CandlestickItem._draw_candles` | Calls the helper (was the unconditional `min_w` clamp, `:136`–`:138`); reads the pitch from the override when present (`S14`) |
+| `ui/candlestick_item.py::CandlestickItem.set_data` | Gains the optional `pitch` (`S14`) |
+| `ui/chart_panel.py::ChartPanel._compute_candle_half_width` | Also returns/stores the **display-x pitch** (`S14`) |
+| `ui/chart_panel.py::ChartPanel._clamp_half_width` | Delegates to the shared helper (was the mirrored 4-px floor, `:1242`–`:1244`) (`S13`) |
+| `ui/chart_panel.py::ChartPanel._refresh_candles` / `::_refresh_live_bar` | Pass the pitch (`S14`); the volume width path delegates through `_clamp_half_width` (`S13`) |
+| `ui/chart_panel.py::ChartPanel.update_last_bar` | The `_bars` trim (`:1150`–`:1157`) uses the floor-aware budget (`S18`) — the **third** `SESSION_BAR_CAP` site, without which the floor is re-trimmed out of the displayed series on the next new-candle tick. Owned by the same phase as `floor_bar_budget` and **sequenced after** the `ui/chart_panel.py` width edit of the other workstream (`ui/chart_panel.py` is the one shared file; RC-D42-1) |
+| `services/backfill_service.py` | **New** mode-aware presence predicate + `floor_bar_budget` + `min_sessions` floor span in `find_missing_spans` (`S15`, `S17`, `S18`) |
+| `data/bar_cache.py` | `save_bars`/`get_bars`/`prune` take `ext_hours` (default `True`) (`S16`, `S19`) |
+| `data/db.py` | `bars` DDL gains `ext_hours`; `_migrate_schema` gains the guarded table rebuild (`S16`) |
+| `ui/ticker_session.py` | Session mode for its own cache reads/writes; the two cap sites use the floor-aware budget (`S18`, `S19`) |
+| `ui/main_window.py` | `load_chart` passes the mode + `min_sessions`, the empty-cache branch is removed; `_finalize_history_wave` passes the mode + the derived `keep`; `_missing_backfill_trading_days` uses the shared presence predicate (`S15`, `S17`, `S18`, `S19`) |
+| `config/settings.py` | `MIN_INTRADAY_SESSIONS = 30` (`S20`) |
 
 ---
 
 ## Data Model
 
-| Entity | Status | Key fields / notes |
+| Entity | Status | Key fields / change |
 |---|---|---|
-| `footprint_cache` (SQLite) | `[existing → removed]` | `resolved_contract`, `date`, `timeframe`, `blob` (PK on the first three). DDL leaves `data/db.py`; an existing DB's table is dropped by the idempotent `_migrate_schema()` step (S7) |
-| `data/models.py::OrderBookLevel` | `[existing → removed]` | `position`, `side`, `price`, `size`, `market_maker`; zero references (S3; **FI-2**, accepted scope close-out) |
-| `data/footprint_cache.py::FootprintCache` / `is_cacheable` | `[existing → removed]` | Module deleted with the DDL |
-| `volume_baseline` (SQLite) | `[existing]` | D39; untouched — `AC-D41.4` |
-| `yfinance_events_cache` (SQLite) | `[existing]` | D38; untouched |
-| `positions`, `trade_groups`, `position_group_map` | `[existing]` | Untouched (D27.5/Phase 7). `positions.id` remains the SL/TP + close key |
-| `bars`, `watchlist`, `alarms`, `zones`, `drawing_groups`, `drawings`, `studies`, `popouts` | `[existing]` | Untouched |
-| `MainWindow._symbol_last_prices` (in-memory) | `[existing]`, **newly consumed** `[new/changed]` | Becomes the retained `ref_price` source (S4); already fed by the watchlist sink and every aggregated chart bar |
-| `MarketDepthManager._feeds` / `_shared` (in-memory) | `[existing → removed]` | Whole manager deleted |
-| `OrderBook` / `Level` (in-memory) | `[existing → removed]` | `ibkr/order_book.py` deleted |
-| `levels`/state dicts in `ui/active_trader_panel.py` | `[existing → removed]` | Module deleted |
+| `bars` (SQLite) | **`[new/changed]`** | `+ ext_hours INTEGER NOT NULL DEFAULT 1`; key `(symbol, timeframe, ext_hours, ts)` (was `(symbol, timeframe, ts)`). One guarded table rebuild in `_migrate_schema`; legacy rows → `ext_hours = 1` (`S16`) |
+| `Bar` (`data/models.py`) | `[existing]` | **Unchanged** — the mode travels as a parameter, not a field, so the aggregator/overlay/study consumers are untouched (`S19`) |
+| `MissingSpan` / `RequestPlan` (`services/backfill_service.py`) | `[existing]` | **Unchanged shape** — the floor is expressed as one more `MissingSpan`, so `plan_requests` needs no change (`S17`) |
+| `TickerSession._bars[timeframe]` | **`[new/changed]`** | Cap becomes `floor_bar_budget(timeframe, ext_hours)` (`S18`); the map stays timeframe-keyed because a session loads one mode at a time (`S19`) |
+| `ChartPanel._bars` | **`[new/changed]`** | Same floor-aware cap at `ChartPanel.update_last_bar`'s `:1150`–`:1157` trim (`S18`) — the **third** `SESSION_BAR_CAP` site, so the floor survives the next live candle |
+| `popouts.ext_hours` | `[existing]` | Already persists the pop-out's mode; now consumed by the cache/planner (`S19`) |
+| `footprint_cache` / other tables | `[existing]` | Untouched (D41's drop stands) |
 
-**No new entity, no new column, no field-level change.** The only schema delta is a **drop**.
+**Migration semantics (recorded):** on an existing user DB the rebuild runs once at the next
+`DB()` open; rows are preserved and tagged `ext_hours = 1`. A subsequent **RTH** load therefore
+starts from an empty RTH key and issues its own floor fetch — which `AC-D16.8` requires anyway — and
+a subsequent **ETH** load reads the legacy rows and re-derives presence by the ETH window. No row is
+lost, no hole is created, and no silent re-classification occurs (`AC-D16.9`).
 
 ---
 
 ## Integration Points
 
-| Integration | Status | Why |
+| Integration | Status | Why needed / what changes |
 |---|---|---|
-| IBKR `reqMktDepth` / `cancelMktDepth` | `[existing → removed]` | Both the heatmap's refcounted SMART feed and the ladder's direct feed go; `AC-D41.2` requires **zero** of any kind |
-| IBKR `reqHistoricalTicks` | `[existing → removed]` | D36 footprint pages |
-| IBKR `reqTickByTickData` | `[existing]` — **never used** (asserted by the D36 docs/tests) and still not used | `AC-D41.2` requires zero; removal makes it structurally impossible |
-| IBKR generic ticks `"225"` (auction) via `reqMktData` | `[existing → removed]` | `AC-D41.2` |
-| IBKR S0 generic ticks `"292"` (news) / `"456"` (dividends) via `reqMktData` | `[existing]` | D38 still needs them (`AC-D41.4`); the S0 substrate stays |
-| IBKR `reqRealTimeBars`, `reqHistoricalData`, `reqContractDetails`, `reqPositions`, `reqAccountSummary`, `reqMatchingSymbols` (D39), `reqNewsProviders` (D38) | `[existing]` | Untouched |
-| IBKR `placeOrder` / `cancelOrder` / `reqGlobalCancel` | `[existing]` | Retained; after D41 the **only** emitter is Portfolio Close / Close Group / Flatten All (+ the kill switch). `bracket_order` survives as retained machinery, exercised by its own tests |
-| yfinance (D38 corporate events) | `[existing]` | Untouched |
-| SQLite (`config/paths.get_db_path()`) | `[existing]` | One fewer table; `DB_PATH` hermeticity rules apply to every new test (S12) |
-| **New integrations** | — | **None.** D41 adds no external dependency |
+| IBKR historical data — `MarketDataManager.req_historical_data(..., useRTH=1, extended_hours=…)` → `IBApiClient.historicalData` | `[existing]` | **Unchanged surface.** The depth floor is delivered as more requests with the **existing** `endDateTime`/`duration`/`bar_size` parameters (`S17`); `extended_hours` already selects the session window, so `AC-D16.8`'s two modes need no new API |
+| IBKR pacing (`ibkr/pacing.py::pacing_manager`, `MAX_HISTORICAL_PER_600S = 60`) | `[existing]` | **Unchanged.** A 30-session `1 min` floor is ≤ ~42 `1 D` chunks, within one wave; the remainder defers through `_schedule_wave_continuation`. No new budget accounting (`S17`) |
+| SQLite (`config/paths.get_db_path()`, `data/db.py`) | `[existing]` | One new column + one guarded rebuild (`S16`); no new table, no new store, no settings key |
+| `services/market_calendar.py::session_windows` | `[existing]` | Now the **single** window authority for presence, the bar-level pass, and the floor arithmetic (`S15`, `S18`) |
+| Live TWS / orders / news / burst baseline | `[existing]` | **Untouched** — no D42 path reaches the order machinery or the S0/yfinance surfaces |
+
+---
+
+## Frozen Interfaces
+
+Interfaces this increment treats as **read-only**: already settled and unmodified by any D42 phase.
+Contracts are **verbatim** from the tree at `b48133d` (never paraphrased), with the owning module, so
+Task Manager can hand a worker the contract instead of the implementation. (D42's revised/new surfaces
+— `find_missing_spans`, `BarCache.save_bars`/`get_bars`/`prune`, `ChartPanel.update_last_bar`,
+`CandlestickItem.set_data`/`_draw_candles`, `TickerSession.set_bars`/`_append_bar`, `bars` — are
+deliberately **not** listed: they are under construction this increment, and freezing them would
+freeze a contract `S13`–`S19` change.)
+
+| Interface | Verbatim contract | Owning module |
+|---|---|---|
+| `session_windows` `[existing]` | `def session_windows(start_ts: int, end_ts: int, ext_hours: bool) -> List[Dict[str, int]]` | `services/market_calendar.py` |
+| `plan_requests` `[existing]` | `def plan_requests(missing_spans: Iterable[MissingSpan], timeframe: str) -> List[RequestPlan]` | `services/backfill_service.py` |
+| `MissingSpan` `[existing]` | `@dataclass(frozen=True) class MissingSpan: start_ts: int` / `end_ts: int` | `services/backfill_service.py` |
+| `RequestPlan` `[existing]` | `@dataclass(frozen=True) class RequestPlan: endDateTime: str` / `duration: str` / `bar_size: str` / `span_start_ts: int` / `span_end_ts: int` | `services/backfill_service.py` |
+| `bar_period_seconds` `[existing]` | `def bar_period_seconds(timeframe: str) -> int` | `services/backfill_service.py` |
+| `Bar` `[existing]` | `@dataclass class Bar: symbol: str` / `timeframe: str` / `ts: int` / `open: float` / `high: float` / `low: float` / `close: float` / `volume: float` | `data/models.py` |
+| `TIMEFRAME_CONFIG` `[existing]` | `{"1 min": {"duration": "1 D", "bar_size": "1 min"}, "5 mins": {"duration": "5 D", "bar_size": "5 mins"}, "15 mins": {"duration": "5 D", "bar_size": "15 mins"}, "1 hour": {"duration": "10 D", "bar_size": "1 hour"}, "4 hours": {"duration": "30 D", "bar_size": "4 hours"}, "1 day": {"duration": "1 Y", "bar_size": "1 day"}}` | `ibkr/market_data.py` (`S20` explicit non-change) |
+| `popouts.ext_hours` `[existing]` | `ext_hours INTEGER NOT NULL DEFAULT 1` on the `popouts` table | `data/db.py` |
 
 ---
 
 ## Non-Functional Approach
 
-- **Performance / work per tick (driven by `AC-D41.1`/`AC-D41.2`).** Removing the 500 ms
-  `_depth_refresh_timer` repaint, the depth-op ingress, the two `FootprintItem` render layers and
-  the footprint backfill wave removes per-tick and per-op work from the chart and the session.
-  The §7 market-data line count loses its `depth` term and `DEPTH_FEED_CAP` disappears, so a
-  removed feed can no longer consume budget. **No** change to the candle/volume rendering math
-  (`ui/candlestick_item.py`, the volume width path) — deliberately, because ESC-041/ESC-042 own
-  that defect (FI-3).
-- **Pacing (D28.3/D28.4 guarantees preserved).** The footprint wave's `reqHistoricalTicks` pages
-  and the depth subscriptions leave the historical/market-data budget; `ibkr/pacing.py`, the
-  order token bucket (`order_limiter`) and the RT-bar budget are untouched. The retained close
-  path keeps using `order_limiter` and its `singleShot` deferral (S5 step 3).
-- **Safety / security (driven by D26 standing + `AC-D41.4`).** The in-app order ticket goes, so
-  no UI path can compose an arbitrary order; the surviving close/flatten path is *gated* rather
-  than ungated (S5): disconnected ⇒ refuse; structural validation always; notional cap for
-  risk-increasing orders only. The kill switch, order-ID reservation, order-error routing and the
-  fail-fast live-port check are untouched. No test transmits an order or connects to TWS (S12).
-- **Scalability / session hygiene.** Depth refcounting per symbol disappears, so
-  `SubscriptionManager` carries fewer entries per session and the post-reconnect replay set shrinks
-  (`test_d27_reconnect.py` counts are re-derived, not weakened — AR-D41-5). Session teardown loses
-  the depth/footprint branches, shrinking the teardown surface.
-- **Observability.** The removed user-visible states (`Footprint loading…`, `No tick data for …`,
-  `Depth unavailable`/`Depth subscription required`, the ladder/book tabs) disappear with their
-  features. The **retained** path's feedback is the status bar (rejections, pacing deferral,
-  close confirmations) — `_on_order_error`/`_update_order_status` keep the registry update and
-  drop their ticket line (AR-D41-1).
-- **Maintainability / docs.** 9 production modules and 5 suites leave the tree. AC-D41.6's markdown-history
-  markers (`SUPERSEDED BY D41` on `### D36`/`### D37` + the D18/D21.13 notes) are already present in
-  `requirements.md` and are **Requirements-owned** — Build must not edit that file (AP-5). The
-  `footprint_cache_key` naming smell stays recorded as FS17 (S10).
+- **Correctness over legibility at the limit (from `AC-D6.4`/`AC-D7.1`).** The hard invariant is
+  `gap >= 0`; `F` yields to the pitch. The guarantee is unit-consistent by construction because
+  `median_diff`, `px_per_sec` and `F` all come from the same display-x series and the same ViewBox
+  (`S13`, `S14`) — the property `AC-D6.4`'s "same pixel unit" clause demands. **That shared unit is
+  the ViewBox logical px `px_per_sec` yields** (`floor_px = 4.0` logical px = **8 device px at DPR
+  2**), so `F` is applied and measured in one unit throughout; the WS1 evidence asserts the unit-free
+  relations `body <= pitch` / `body == pitch` and **measures** the repro pitch rather than
+  hard-coding the requirement's indicative `3.83` (`RC-D42-3`).
+- **Performance (from D28.4 / ESC-013 / ESC-020).** The cap is O(1) per regeneration and adds **no**
+  sort: the pitch is cached beside the width (`S14`). The `generate-before-setRange` ordering that
+  ESC-013/ESC-020 fixed is **preserved** — the candle picture is still generated *after* the real
+  x-range is applied, so the cap reads a real `px_per_sec`. The volume width is still computed from
+  the **final** view range (`:1303`), i.e. the same unit as the candle picture.
+- **Performance / memory (from `AC-D16.8`).** The floor-aware budget (`S18`) is the **only** new
+  memory consumer: ~33,120 bars for a `1 min` ETH chart (**~8–16 MB** — 33,120 `Bar` dataclasses
+  without `__slots__` plus the two plot arrays), reached only for `1 min` (both modes) and
+  `5 mins` (ETH); `1 day`/`4 hours` keep the flat 5,000. Mitigations: the budget is **per `(symbol, timeframe, ext_hours)`**, only **chart** sessions
+  backfill (the D25 headless alarm sessions never request history), the D28.4 static-layer discipline
+  (one `QPicture` per full rebuild, forming-bar ticks in the live layer only) is unchanged, and the
+  single tunable is `MIN_INTRADAY_SESSIONS`.
+- **Pacing (from D28.3, R64).** The floor is emitted **only when short** and collapses to empty once
+  filled, so the steady-state cost is zero extra requests; the first load of each
+  `(symbol, timeframe, mode)` costs one floor's worth of chained requests, and everything above the
+  per-wave cap defers through the existing continuation timer. No new request kind, no sleep, no
+  storm.
+- **No-silent-hole (from `AC-D16.1`/`AC-D16.4`, unchanged).** A day that is present-but-empty for the
+  mode is now a **missing span**, so the AC-D16.4 shortfall line and the WARNING record get *more*
+  accurate (a genuine halt / IPO morning that IBKR has no bars for is re-probed and surfaced, never
+  fabricated). This is a **user-visible** change to the status text and is recorded as such.
+- **Test-suite fidelity (from `R64`; `RC-D42-2`, completed by `ESC-050`).** **Green** is required, but
+  count parity is not, and no assertion may be **weakened or deleted**. The D16 **pure-planner** suites
+  keep their **exact** semantics (`min_sessions` defaults to `0`). The D16 **load-path** suites change
+  **by design** — because the default load mode is **ETH**
+  (`ui/main_window.py::MainWindow.ext_hours_btn` checked at `:244`, with the `:1570` fallback) and
+  because `S17` removes the empty-cache single-window branch while `S18` changes `prune`'s `keep` — and
+  each such assertion is **corrected, intent-preserving**, with its cause named in the plan's correction
+  record (`S21`, `AR-D42-6`). **`ESC-050`:** the set is not only the D16 suites — **19 assertions in six
+  suites that merely *drive* `MainWindow.load_chart`** change by design too (a fixed-size
+  `req_historical_data` stub cannot cover the floor span's many chunks), and they are enumerated in the
+  same record. **The invariant** (an **unbounded** reqId source for any test that drives the load path
+  with a stubbed feed; exact-request-count and empty-cache-branch assertions change by design) is stated
+  so the set is checkable **by rule**, and the generalisable **enumeration rule** — *by call site of the
+  changed entry point, not by the suites the design names* — is recorded for future increments.
+- **Security / live-order safety.** No D42 path transmits an order, connects to TWS in a test, or
+  touches the retained order machinery; `check_live_port` and the confirm dialogs are untouched. No
+  new credential, endpoint or dependency.
+- **Scalability.** The DB grows by one integer per bar and one floor's worth of rows per
+  `(symbol, timeframe, mode)`; `prune` remains per-key and bounded. The graph of loaded chart
+  sessions — not the watchlist — bounds the memory cost.
 
 ---
 
@@ -300,53 +358,59 @@ with its all-three-legs assertion re-pointed at the retained builders.
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| AR-D41-1 | A **retained** path silently depends on something deleted — e.g. `_update_order_status`/`_on_order_error` calling `active_trader.set_order_status`, `closeEvent`'s depth cancels, `_rebind_depth_req_id` in the reconnect replay, or the `depth` term in `_md_line_count` | **H** | Every `active_trader.*`/`depth_manager.*`/`_depth_req_id` reference is enumerated by file in the plan's `touches_files` map; the ticket-line calls become status-bar-only; the new `tests/test_d41_removal.py` scans the whole production+test tree for the removed identifiers and the reconnect suite re-verifies replay after the edits |
-| AR-D41-2 | **Dead imports** left in `ui/main_window.py` (`TickHistoryManager`, `FootprintCache`, `MarketDepthManager`, `DEPTH`/`DEPTH_HEATMAP`, `ActiveTraderPanel`, `on_depth_callback`, `FootprintItem`, `DepthHeatmapItem`, `resolve_footprint_contract`) — the tree imports fine today and would fail only at run time for some, at import for others | **H** | The import guard asserts `importlib.util.find_spec(...) is None` for each deleted module **and** greps `ui/`, `ibkr/`, `services/`, `data/`, `config/`, `tests/`, `main.py` for the identifiers; the UI smoke path (`MainWindow()` construction) runs in the same suite |
-| AR-D41-3 | The dock **rename** quietly defuses the title-keyed dock-hiding helpers, so geometry tests keep passing while exercising a window the app does not have (exactly the D19 masking trap) | **M** | The plan enumerates **all 17** consumer files — 15 `windowTitle()`/`objectName()` lookups + 2 title-bar-text assertions — one by one with the edit each needs (S11; `docs/plan_proposal.md` Phase 2). The round-1 proposal under-counted these as "8"/"9" and omitted five of them, three of which fail **deterministically**; the corrected list is the mitigation. The new dock suite asserts **exactly one** right dock, titled/`objectName`d `"Portfolio"`, that it is the Portfolio panel, and that **no** dock/widget titled `"Active Trader"` exists anywhere — a stale tuple is then detectable, not silent |
-| AR-D41-4 | Toolbar geometry fixtures pin `dom_btn` **and** a font-dependent intrinsic width (1965 px @9 pt vs 1921 px with Inter 11 px); removing the button changes the fixture baseline | **M** | Drop `dom_btn` from `_CONTROL_NAMES`/`_CHECKABLE_TOGGLES`; re-run the D19/D20/D21 geometry suites; the toolbar only gets **narrower**, so overflow assertions stay satisfiable — never lower an assertion below a measured width |
-| AR-D41-5 | `tests/test_d27_reconnect.py` asserts replayed subscription **counts** (`len(fake.mkt_depth)`, `len(fake.mkt_data) == 4`, per-reqId rebinding) that the removal changes | **H** | The D37 session-depth assertions are dropped **and** the replayed `mkt_data` count re-derived from the surviving watchlist row + S0 line **in Phase 1** (where their subjects go); the DOM-depth assertions (`:200`–`:203`, `:228`–`:229`) are kept until **Phase 2** (where `_subscribe_dom`/`_depth_req_id` go) and its one dock-title line (`:163`) moves in Phase 2 with the rename; the RT/S0/watchlist replay + rebinding assertions (the real D27.3 guarantee) are preserved verbatim throughout as a deliberate **two-phase, disjoint-line** edit (AP-11) |
-| AR-D41-6 | Deleting `_place_order` takes the D26.9 disconnected guard and the validate gate with it, leaving the surviving close/flatten path ungated (**reopens the defect class the ticket path had fixed**) | **H** | S5 re-homes both gates onto `_close_position_by_id`, with new tests: disconnected close refuses + no `placeOrder`; invalid close refuses; valid close transmits exactly once with a resolved `ref_price`. The two existing suites that drove the **deleted** `_place_order` are **re-pointed at the retained path**, not left red (R1): the D28.1 order-path deferral (`tests/test_d28_pacing.py`) and D26.8's all-three-bracket-legs transmit-time registration (`tests/test_kill_switch.py`, the only test of that property) |
-| AR-D41-7 | The notional cap blocking a legitimate large flatten if the `risk_reducing` carve-out is implemented wrong (or applied where it should not be) | **M** | Carve-out is a single new keyword **defaulting to False** (no existing caller's behaviour changes); asserted both ways: a >USD 25 000 close transmits, and a risk-increasing `validate_order` call above the cap is still rejected (`test_order_validation.py`'s existing notional tests stay untouched) |
-| AR-D41-8 | `AC-D41.1`'s ban on any `footprint_*`/`depth_*`/`auction_*` signal or attribute is a **broad** surface — a stray leftover (`_fp_queue_viewport_sync`, `_depth_state_text`, `depth_enabled`, `bind_d37_session`, `auction_state`, `_auction`, `set_depth_state`) fails it | **M** | The guard enumerates the token set (including `hasattr` probes on a real `ChartPanel`/`MainWindow`) and is **red before** the change; the removal tasks are scoped per file so nothing is half-removed |
-| AR-D41-9 | D41 is credited with fixing the wide-candle / volume-overlap defect (DG68 still **open**), while the concluded investigation proves the cause is the D6 4-px floor vs inter-bar pitch in `ui/candlestick_item.py:122`–`:138` + the chart volume width path (`ui/chart_panel.py:1688`–`:1690`) and rules the footprint overlay **out** | **M** | Explicitly out of D41's blast radius: `ui/candlestick_item.py` and the volume-width math are **untouched**; **ESC-041 stays open and BUILD-owned and is `blocking` in `escalations.json`** (not "should-fix" — corrected); DG68 is flagged (FI-3) so the removal is not sold as a fix. Evidence: `docs/code_review/candle_overlap_investigation.md` §1/§2 (lead 3)/§4 |
-| AR-D41-10 | A removal pass touches shared files three times (chart_panel / ticker_session / main_window / bridge / client / subscription_manager), and `main_window.py` line numbers are cited across the docs — churn invalidates citations and invites merge conflicts | **M** | Phases are **strictly ordered** (one phase's wave consolidated before the next opens) and each phase's `touches_files` is **disjoint**, so no two workers edit the same file in a wave; the file map is published per phase; docs citations in `architecture.md`/`plan.md` are the Validator's/Code Reviewer's to re-anchor, not Build's to chase |
-| AR-D41-11 | Junk/foreign rows or a non-hermetic probe DB (ESC-043) surfacing as false failures while validating the dock/portfolio geometry | **M** | Every new test constructs its window like the existing suites (monkeypatched `connect`, `tests/conftest.py` sets `DB_PATH` to a temp file); no probe writes to the user-space DB (S12) |
-| AR-D41-12 | Orphaned `__pycache__` for the deleted modules (the DOC-3/ESC-001 precedent) making an import guard pass or fail confusingly | **L** | The guard asserts on `find_spec`/source paths, not on cached artefacts; the verification phase runs from a clean tree |
+| AR-D42-1 | **The cap is applied to one path only** (candle or volume), so the two diverge — exactly **R63** | H | One shared helper (`S13`) with three call sites, and `AC-D9.1`/`AC-D9.2`-driven tests that measure the **rendered** candle body from the `QPicture` bbox and compare the volume `BarOpts.width` against it (`tests/test_volume_width.py`, corrected) |
+| AR-D42-2 | **The enshrining tests are weakened instead of corrected**, so the suite stays green on the bug | H | The correction record (plan proposal) names **each** of the five enshrining suites — and the D16 **load-path** suites — with the intent to preserve; the new geometry guard is **RED pre-fix** (body 4.00 px > 3.83 px pitch) and GREEN post-fix, asserts the unit-free relations (`body <= pitch`, `body == pitch`) and **measures** the repro pitch rather than hard-coding it (`RC-D42-3`); the DPR-2 probe's dense/non-dense split keeps both the `>= F` and the `<= pitch` claims |
+| AR-D42-3 | **Floor-aware caps are missed**, so `prune`/the in-memory trim silently deletes the floor after fetching it (`AC-D16.8` unachievable) | H | `S18` + a per-timeframe, per-mode budget guard; **all three** `SESSION_BAR_CAP` sites are converted — including `ChartPanel.update_last_bar`'s `_bars` trim (`:1150`–`:1157`), the site that would re-trim the **displayed** series on the next live candle — plus `BarCache.prune`'s `keep`; the D28.4 cap suites are corrected to assert the derived budget; the retention suite (flat default) stays green |
+| AR-D42-4 | **Chained floor fetches vs pacing** — a `1 min` floor is ~42 `1 D` chunks, consuming most of the 600 s budget; a second symbol/pop-out load defers | M | The floor collapses to empty once filled; the wave cap + continuation timer already handle deferral non-blockingly; the D25 headless sessions are out of the floor's scope; **R64**'s per-mode guard proves the floor is reached without starving the current-session path |
+| AR-D42-5 | **Mode-aware cache migration of existing rows** — a wrong tag re-classifies real bars | M | One guarded, idempotent rebuild; legacy rows → `ext_hours = 1` (the app's default fetch mode) with the rationale recorded; **no row deleted**; presence stays window-based, so a mis-tagged row cannot manufacture coverage; a migration test asserts row preservation and per-mode reads |
+| AR-D42-6 | **Mode-aware presence changes the AC-D16.4 shortfall text** (more days reported missing), and the D16 **load-path** assertions change **by design** (the floor span, the removed empty-cache branch, the floor-aware prune), so a legitimate correction can read as a regression. **`ESC-050`:** the impact analysis **under-enumerated** the affected set **twice** — the suites that merely **drive** the load path (**19 assertions in six suites**) and **4 further sites** inside the D16 files — and both under-counts surfaced only at reconciliation time, **after** the batch had been dispatched | M | `AC-D16.9` is the normative target; the D16 **pure-planner** suites seed complete days and keep their **exact** expectations (`min_sessions = 0`). **The enumeration is now complete *and* generated by a rule rather than asserted:** `S21` + the plan's correction record name **all 14 changed test functions** in the three D16 files **and the 19 assertions in the six load-path-*driving* suites**, each **with its cause**, and every correction is **intent-preserving** — the guarantee survives, only the expected value/branch changes — never weakened. **The former completeness assertion is replaced by the rule (and is now true as well):** enumerate **by call site of the changed entry point, not by the suites the design names**; treat a **fixed-size stub of a changed feed as a defect class** (grep the suite and correct **all** of them in one scoped task — the `ESC-048`/`ESC-050` pair); and state the **invariant** (`ESC-050`) so completeness is checkable **before dispatch**, not discovered by a reconciliation task. Any residual site not named is covered by the invariant, so the mitigation no longer rests on the enumeration being exhaustive by inspection |
+| AR-D42-7 | **The D6 floor interacting with the volume pane / D9 volume math** — a capped `w` shrinks volume bars too, and a zero-volume bar's 1-unit tick could vanish at sub-pixel width | M | `AC-D9.1`/`AC-D9.2`'s note says volume inherits the **same** capped `w`; the zero-volume 1-unit tick and the D21.1/D21.2 ceiling rules are untouched; the dense volume test asserts `volume_width == body_width` and `gap >= 0` |
+| AR-D42-8 | **`px_per_sec` is read before the real x-range is applied** (the ESC-013/ESC-020 ordering defect) — the cap would see a default range and mis-yield | M | The cap runs inside the **existing** post-`setRange` generation (`:1291` then `:1318`/`:1326`) and inside `_clamp_half_width` (called at `:1303`, after the auto-range branch); the ordering is explicitly preserved, not re-derived |
+| AR-D42-9 | **`TIMEFRAME_CONFIG` is left unchanged** while the brief expected `config/` window edits, so the floor is believed to be "just a constant change" | L | `S20` records the non-change **with its reason** (per-request caps + required chaining); `MIN_INTRADAY_SESSIONS` is the one new constant and the floor's single tunable |
+| AR-D42-10 | **Offscreen flakiness / DB contention** (recorded gotcha) masks a real regression | L | Full-suite clean run before declaring green; every non-pytest probe exports `DB_PATH` (ESC-043); the DPR-2 probe stays in its isolated `QT_SCALE_FACTOR=2` subprocess |
+| AR-D42-11 | **Scope creep into ESC-041/ESC-037** (BUILD-owned) or into the other open BUILD escalations | M | D42 supplies the normative target only; the Code Reviewer flips ESC-041/ESC-037 after re-verification; ESC-032/033/034/036/043/044/045 are explicitly out of scope |
 
 ---
 
-## Implementation sequencing (summary — the authoritative phase/per-file map is in `docs/plan_proposal.md`)
+## Requirements → architecture traceability
 
-Three phases, strictly ordered, each partitioned by file so concurrent tasks never share a
-`touches_file`:
+| Requirement / journey | Architecture section | Phase (plan proposal) |
+|---|---|---|
+| `AC-D6.4` (revised: `body = min(max(0.65×pitch, F), pitch)`, `body <= pitch`, floor yields at `pitch < F`, wick stays 1 device px; the unit of `F` is the ViewBox logical px `px_per_sec` yields — 4 logical px = 8 device px at DPR 2, `S13`/`AP-D42-5`/`FI-D42-4`) | `S13`, `S14`, `S21`; components `ui/candlestick_item.py`, `ui/chart_panel.py`; AR-D42-1/2/8 | **Phase 1** |
+| `AC-D7.1` (revised: `gap >= 0` hard, `> 0` whenever `pitch > F`, `0` acceptable at the limit, 35 % intent unchanged) | `S13`; Journey 8 edge case | **Phase 1** |
+| `AC-D9.1` / `AC-D9.2` + note (volume == price body width, same capped `w`) | `S13`; component `ChartPanel._clamp_half_width`/`_refresh_candles`/`_refresh_live_bar`; AR-D42-7 | **Phase 1** |
+| `AC-D16.8` (≥ 30 trading sessions, RTH **and** ETH; sessions counted by bars inside the mode's window; all five intraday windows fall short; mode isolation) | `S15`, `S17`, `S18`, `S19`, `S20`; components `services/backfill_service.py` (`floor_bar_budget`), `data/bar_cache.py`, `ui/ticker_session.py`, `ui/main_window.py`, and **`ui/chart_panel.py::ChartPanel.update_last_bar`** (the third `SESSION_BAR_CAP` site, `RC-D42-1`); AR-D42-3/4/9 | **Phase 2** — with the `ui/chart_panel.py` trim **sequenced after** Phase 1's `ui/chart_panel.py` width task (one shared file) |
+| `AC-D16.9` (mode-aware day presence + mode-aware cache; present-but-empty = missing span; both directions; measurables (a)/(b)/(c)) | `S15`, `S16`, `S19`; Data Model `bars`; AR-D42-5 | **Phase 2** |
+| Journey 7 / Journey 8 edge cases (dense view, high-DPI, doji, single-bar fallback) | `S13`, `S14` | **Phase 1** |
+| Journey 17 edge cases (internal hole, no-fill, genuine closures, Ext Hours mode switch, empty cache, all timeframes/any symbol) | `S15`–`S19`; Non-Functional "No-silent-hole" | **Phase 2** |
+| `AC-D16.1` / `AC-D16.3` / `AC-D16.4` (unchanged: no fill, genuine closures stay empty, shortfall surfaced) | `S15` (presence only), `S17` (`min_sessions=0` default), Non-Functional | **Phase 2** (non-regression) + **Phase 3** |
+| `AC-D16.7` (ESC-023 New-Year exception) | `[existing]` `market_calendar._holidays_for_year`; untouched | **Phase 3** (non-regression) |
+| `A72`, `R63`, `R64` | `S13`, `S21`, `S18`, `S17`; risks AR-D42-1/2/3/4/6 | Phases 1–2 |
+| D42 correction record (Task Manager / Build / Code Reviewer) | `S21` + the plan proposal's correction record | Phases 1–3 |
+| `ESC-050` — the load-path-**driving** suites (19 assertions in six suites) + the **enumeration invariant** and the generalisable **rule** (impact-analysis completeness) | `S21` (invariant + rule), `AR-D42-6`, Non-Functional test-fidelity bullet; the plan proposal's *Corrected — load-path-**driving** suites* table and *Impact-analysis enumeration rule* | Phase 2 (the suites) + Phase 3 (reconciliation) — and **every future increment** |
+| D41 (built/committed) — not reopened | Relationship table (no relationship) | — |
 
-1. **Phase 1 — remove the D36 footprint *and* D37 depth/heatmap/imbalance/auction feature trees.**
-   **20 file entries.** Deletes 6 production modules + 2 suites; surgical deletions in
-   `ui/chart_panel.py`, `ui/ticker_session.py`, `ui/main_window.py`, `ibkr/bridge.py`,
-   `ibkr/client.py`, `ibkr/subscription_manager.py`, `ibkr/contracts.py`, `data/db.py`; one
-   docstring de-reference (`services/md_line_guard.py`); the `footprint_cache` drop; three test
-   edits — `tests/test_d27_reconnect.py` (the D37 session-depth assertions + the replayed-count
-   re-derivation) and the **two KEEP-coverage re-homes** (`tests/test_d39_burst_search.py`,
-   `tests/test_d38_events_news.py`). Depends on: nothing.
-2. **Phase 2 — remove the Active Trader panel + DOM ladder + market-depth machinery, re-shape the
-   right dock Portfolio-only, and re-home the retained order gates.** **39 file entries.** Deletes 3
-   production modules + 3 suites; edits `ui/main_window.py`, `ui/watchlist_panel.py`, `data/models.py`,
-   `ui/dock_layout.py`, `ibkr/bridge.py`, `ibkr/client.py`, `ibkr/subscription_manager.py`,
-   `ibkr/validation.py`; re-points the dock/toolbar/order suites **and all 17 title/title-bar
-   consumers**, plus `tests/test_d28_pacing.py`, `tests/test_kill_switch.py`,
-   `tests/test_crosshair_axis_lane.py`, the four dock-hide helpers, and the one dock-title line in
-   `tests/test_d27_reconnect.py` (S11; plan-proposal R1). Depends on: Phase 1 (shared files).
-3. **Phase 3 — non-regression verification.** **4 file entries.** Adds `tests/test_d41_removal.py`
-   (with the widened token set + documented allow-list), `tests/test_d41_portfolio_dock.py`,
-   `tests/test_d41_retained_order_path.py`; extends `tests/test_db_schema.py`; full offscreen suite
-   green (`AC-D41.5`); D38/D39/D26 spot checks (`AC-D41.4`). Depends on: Phases 1–2.
+---
 
-**Not in D41 (must not be touched):** `ibkr/orders.py`, `ibkr/id_manager.py`,
-`ibkr/error_codes.py` (outside the S5 keyword), `config/settings.py`'s `check_live_port`/
-`MAX_ORDER_NOTIONAL`/pacing constants, `services/volume_baseline.py`, `services/md_line_guard.py`
-(function), `data/events/*`, `ibkr/news.py`, `ui/news_digest_dock.py`, the D39 search path,
-`ui/candlestick_item.py`, `services/backfill_service.py`, `services/market_calendar.py`,
-`ui/active_portfolio_panel.py`, and **every** escalation that D41 does not moot
-(ESC-032/033/034/036/037/**038**/041/042/043/044/045 — **11** `open` entries; ESC-035/039/040 are
-mooted by the removal per DG66 and are the **Code Reviewer's** to close after re-verification, not
-Build's — AP-7).
+## Supersessions and non-changes (recorded, never silent)
+
+1. **`AC-D6.4`'s *unconditional* "body remains ≥ 4 device pixels wide"** → superseded by the
+   **density-aware** rule (`S13`). The wick clause (cosmetic 1 device px) is **unchanged**.
+2. **`AC-D7.1`'s "the gap remains positive"** (and the D7 dense-view edge case) → relaxed to
+   **`gap >= 0`** with `gap > 0` whenever `pitch > F`; a **zero** gap at `pitch <= F` is acceptable
+   (owner-confirmed **Q51**). The 35 %-gap intent in the non-dense regime is **unchanged**.
+3. **The RTH-only default of the depth floor** → superseded: `AC-D16.8`/`AC-D16.9` cover
+   `ext_hours=False` **and** `ext_hours=True` (owner-confirmed **Q52**), one floor, two modes, no
+   cross-contamination.
+4. **D28.4's flat `SESSION_BAR_CAP`/`RETENTION_BARS = 5000` as the universal bound** → revised to a
+   **floor-aware budget** (`S18`), the flat values retained as the default/minimum, applied at **all
+   three** `SESSION_BAR_CAP` sites (`TickerSession.set_bars` `:300`, `TickerSession._append_bar`
+   `:313`, `ChartPanel.update_last_bar` `:1150`–`:1157`) plus `BarCache.prune`'s `keep` (`:1973`).
+5. **Explicit non-changes (recorded so they are not read as omissions):**
+   `ibkr/market_data.py::TIMEFRAME_CONFIG` durations, `MAX_HISTORICAL_PER_600S`, the D28.3 wave
+   pump, `services/market_calendar.py`, `AC-D16.1`/`AC-D16.3`/`AC-D16.4`, the `Bar` dataclass, the
+   order machinery, and the D41 removals.
+
+Handoff: this proposal is checked by Plan Artifact Editor & Validator against
+`docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`). Companion:
+`docs/plan_proposal.md` (`Status: READY_FOR_VALIDATION`).

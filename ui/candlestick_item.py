@@ -44,6 +44,34 @@ def _compute_heikin(data: List[Tuple]) -> List[Tuple]:
     return result
 
 
+def capped_body_half_width(median_diff: float, base_half_width: float,
+                           px_per_sec: float, floor_px: float = 4.0) -> float:
+    """D42/S13: the one density-aware candle-body half-width rule.
+
+    ``w = min(max(base_half_width, floor_px / 2 / px_per_sec), median_diff / 2)``
+
+    With ``base_half_width = 0.325 * median_diff`` (the D6 formula: full body
+    65 % of the spacing, 35 % gap) and ``pitch = median_diff * px_per_sec`` this
+    is ``body = min(max(0.65 * pitch, floor_px), pitch)``.  ``floor_px`` is the
+    legibility floor in ViewBox logical pixels — the unit ``px_per_sec`` yields
+    and the unit the shipped ``min_w`` clamp already used.  The floor binds
+    whenever the pitch allows it and yields to the pitch at higher density, so
+    ``body <= pitch`` — a non-negative inter-bar gap — in every regime.  Pure:
+    no Qt and no QApplication required.
+    """
+    if px_per_sec <= 0:
+        return base_half_width
+    floor_half_width = floor_px / 2.0 / px_per_sec
+    return min(max(base_half_width, floor_half_width), median_diff / 2.0)
+
+
+def _median_time_diff(data: List[Tuple]) -> float:
+    """Median spacing between adjacent bar timestamps (display-x units)."""
+    time_diffs = [data[i][0] - data[i - 1][0] for i in range(1, len(data))]
+    time_diffs.sort()
+    return time_diffs[len(time_diffs) // 2]
+
+
 class CandlestickItem(pg.GraphicsObject):
     def __init__(self, data: List[Tuple], mode: ChartMode = ChartMode.CANDLES):
         super().__init__()
@@ -56,17 +84,24 @@ class CandlestickItem(pg.GraphicsObject):
         # Optional precomputed candle half-width (D28.4): when set, skips the
         # O(n log n) median-spacing computation in _draw_candles.
         self._width_override: Optional[float] = None
+        # D42/S14: the display-x pitch cached alongside the D28.4 width override
+        # by the host, so the density cap does not have to re-run the sort.
+        self._pitch: Optional[float] = None
         self._generate()
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def set_data(self, data: List[Tuple], mode: Optional[ChartMode] = None,
-                 width: Optional[float] = None):
+                 width: Optional[float] = None, pitch: Optional[float] = None):
         self._raw_data = data
         if mode is not None:
             self._mode = mode
         if width is not None:
             self._width_override = width
+            # D42/S14: the display-x pitch travels with the D28.4 width override.
+            # It is used only when an override is set; absent, _draw_candles
+            # recomputes median_diff from data exactly as before.
+            self._pitch = pitch
         self._generate()
         self.update()
 
@@ -101,16 +136,25 @@ class CandlestickItem(pg.GraphicsObject):
         data = data or self._raw_data
         # D28.4: the host may supply a precomputed half-width (cached at full
         # rebuild); otherwise compute from median bar spacing as before.
+        # D42/S14: alongside that override the host may supply the display-x
+        # pitch, so the cap recovers median_diff from pitch = median_diff *
+        # px_per_sec without re-running the O(n log n) sort D28.4 removed.
+        median_diff: Optional[float] = None
         if self._width_override is not None:
             w = self._width_override
+            pitch = self._pitch
+            if pitch is None and len(data) > 1:
+                # Override without a pitch: still derive the spacing from the
+                # data so the density cap can bind.
+                median_diff = _median_time_diff(data)
         elif len(data) > 1:
             # Use median time diff between bars to set width (e.g., 32.5% of spacing, gap 35%)
-            time_diffs = [data[i][0] - data[i-1][0] for i in range(1, len(data))]
-            time_diffs.sort()
-            median_diff = time_diffs[len(time_diffs)//2]
+            median_diff = _median_time_diff(data)
             w = median_diff * 0.325  # half-width = 32.5% of spacing (gap 35%)
+            pitch = None
         else:
             w = 0.25  # fallback for single bar
+            pitch = None
 
         # Body pens — cosmetic 1px so border stays device-pixel stable
         green_pen   = QPen(GREEN); green_pen.setWidthF(1.0); green_pen.setCosmetic(True)
@@ -119,8 +163,10 @@ class CandlestickItem(pg.GraphicsObject):
         wick_green = QPen(GREEN); wick_green.setWidthF(1.0); wick_green.setCosmetic(True); wick_green.setCapStyle(Qt.PenCapStyle.FlatCap)
         wick_red   = QPen(RED);   wick_red.setWidthF(1.0);   wick_red.setCosmetic(True); wick_red.setCapStyle(Qt.PenCapStyle.FlatCap)
 
-        # Clamp body half-width to at least 4 device pixels when ViewBox is available
-        # so wick (1px) stays thinner than body even at high density
+        # D42/S13: apply the 4-px legibility floor through the one shared capped
+        # helper instead of an unconditional min-width clamp, so the rendered body
+        # never exceeds the inter-bar pitch (the floor yields at higher density and
+        # the inter-bar gap is never negative).
         try:
             vb = self.getViewBox() if hasattr(self, "getViewBox") else None
             if vb is None:
@@ -133,9 +179,14 @@ class CandlestickItem(pg.GraphicsObject):
                 x_span = x_range[1] - x_range[0]
                 if x_span > 0:
                     px_per_sec = vb.width() / x_span
-                    min_w = 2.0 / px_per_sec  # half-width for 4px total
-                    if w < min_w:
-                        w = min_w
+                    if median_diff is None:
+                        if pitch is not None:
+                            # D42/S14: pitch = median_diff * px_per_sec.
+                            median_diff = pitch / px_per_sec
+                        elif len(data) > 1:
+                            median_diff = _median_time_diff(data)
+                    if median_diff is not None:
+                        w = capped_body_half_width(median_diff, w, px_per_sec)
         except Exception:
             pass
 

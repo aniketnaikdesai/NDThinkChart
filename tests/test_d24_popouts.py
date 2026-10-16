@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 from config import settings
 
 SYMBOL = "POPA"
@@ -19,7 +21,9 @@ def _make_window(monkeypatch, qapp):
     win = MainWindow()
     ids = iter([6001, 6002, 6003, 6004, 6005])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
-    hids = iter([6101, 6102, 6103])
+    # D42's depth floor (S17) can issue many chunks from one load, so hand out
+    # historical reqIds unbounded rather than exhausting a fixed list.
+    hids = itertools.count(6101)
     win.md_manager.req_historical_data = lambda *a, **k: next(hids)
     win.show()
     qapp.processEvents()

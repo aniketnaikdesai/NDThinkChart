@@ -11,7 +11,7 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter, QPushButton
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 
-from ui.candlestick_item import CandlestickItem, ChartMode
+from ui.candlestick_item import CandlestickItem, ChartMode, capped_body_half_width
 from ui.drawing_overlay import DrawingViewBox, DrawingOverlay, TOOL_CURSOR
 from ui.alarm_overlay import AlarmOverlay
 from ui.event_marker_overlay import EventMarkerOverlay
@@ -26,6 +26,7 @@ from datetime import timezone, timedelta
 from data.bar_aggregator import TIMEFRAME_SECONDS
 from config import settings
 from services.market_calendar import session_windows
+from services.backfill_service import floor_bar_budget
 from services.time_collapse_service import TimeCollapseMap, build_collapse_map
 
 
@@ -343,6 +344,10 @@ class ChartPanel(QWidget):
         # D28.4: cached candle half-width, recomputed only at full rebuild
         # (bar-count or spacing change), reused by forming-bar ticks.
         self._candle_half_width: float = 0.0
+        # D42/S14: the display-x pitch (ViewBox logical px) cached alongside the
+        # half-width, so the shared density cap recovers ``median_diff`` without
+        # re-running the O(n log n) median-spacing sort D28.4 removed.
+        self._candle_pitch: float | None = None
         self.drawing_overlay = DrawingOverlay(self.price_plot,
                                             editable=editable)
         self.alarm_overlay = AlarmOverlay(self.price_plot,
@@ -1147,14 +1152,24 @@ class ChartPanel(QWidget):
         new_period = is_new_candle or self._bars[-1].ts != bar.ts
         if new_period:
             self._bars.append(bar)
-            if len(self._bars) > settings.SESSION_BAR_CAP:
+            # D42/S18 (RC-D42-1): the panel's series cap is floor-aware — the
+            # third SESSION_BAR_CAP site. It uses the same derived budget the
+            # session caps and BarCache.prune's `keep` use, so the AC-D16.8
+            # depth floor is not re-trimmed out of the DISPLAYED series on the
+            # next new-candle tick (update_chart seeds this series from the
+            # session's now-up-to-33,120-bar series). The flat
+            # settings.SESSION_BAR_CAP stays the default/minimum (a daily
+            # timeframe returns it).
+            budget = floor_bar_budget(
+                self._current_timeframe or "", self._ext_hours)
+            if len(self._bars) > budget:
                 # D28.4: mirror the session's series cap so panels don't grow
                 # unbounded in steady-state live (sessions prune their heads;
                 # panels never re-sync via update_chart). Head-pruning changes
                 # the span, so rebuild the collapse map (NOT extend) and
                 # invalidate the study cache — the incremental paths assume a
                 # pure tail extension of a batch-computed series.
-                del self._bars[: len(self._bars) - settings.SESSION_BAR_CAP]
+                del self._bars[: len(self._bars) - budget]
                 self._rebuild_collapse_map()
                 self._study_cache.invalidate(
                     self._symbol, self._current_timeframe)
@@ -1212,26 +1227,12 @@ class ChartPanel(QWidget):
             self._apply_studies()
         self._render_sessions()
 
-    def _compute_candle_half_width(self, bars) -> float:
-        """D28.4: candle half-width from median bar spacing.
+    def _view_px_per_sec(self):
+        """D42: ViewBox logical pixels per display-x unit for the current range.
 
-        Computed once per full rebuild and cached (``_candle_half_width``);
-        forming-bar ticks reuse the cache instead of the O(n log n) sort.
-        """
-        if len(bars) > 1:
-            diffs = sorted(
-                self._to_display(bars[i].ts) - self._to_display(bars[i - 1].ts)
-                for i in range(1, len(bars))
-            )
-            return diffs[len(diffs) // 2] * 0.325
-        return 0.25  # fallback for a single bar (matches CandlestickItem)
-
-    def _clamp_half_width(self, w: float) -> float:
-        """D28.4: apply the dense-view 4px minimum to a cached half-width.
-
-        Mirrors the ViewBox clamp in CandlestickItem._draw_candles (which the
-        candle layers get at generation time); the volume BarGraphItems need
-        it applied explicitly since they take a plain width.
+        The unit ``capped_body_half_width``'s ``px_per_sec`` argument expects
+        (``vb.width() / x_span``) — the same scale ``_draw_candles`` reads.
+        Returns ``None`` when the view is too small or the span is degenerate.
         """
         try:
             vb = self.price_plot.getViewBox()
@@ -1239,11 +1240,49 @@ class ChartPanel(QWidget):
                 x_range = vb.viewRange()[0]
                 x_span = x_range[1] - x_range[0]
                 if x_span > 0:
-                    min_w = 2.0 / (vb.width() / x_span)
-                    if w < min_w:
-                        return min_w
+                    return vb.width() / x_span
         except Exception:
             pass
+        return None
+
+    def _compute_candle_half_width(self, bars) -> float:
+        """D28.4/D42: candle half-width and display-x pitch from median spacing.
+
+        Computed once per full rebuild and cached (``_candle_half_width``);
+        forming-bar ticks reuse the cache instead of the O(n log n) sort.  The
+        display-x pitch is cached alongside it (``_candle_pitch``, in ViewBox
+        logical pixels) so the D42/S14 density cap recovers
+        ``median_diff = pitch / px_per_sec`` without re-running that sort.
+        """
+        if len(bars) > 1:
+            diffs = sorted(
+                self._to_display(bars[i].ts) - self._to_display(bars[i - 1].ts)
+                for i in range(1, len(bars))
+            )
+            median_diff = diffs[len(diffs) // 2]
+            px_per_sec = self._view_px_per_sec()
+            self._candle_pitch = (
+                median_diff * px_per_sec if px_per_sec else None
+            )
+            return median_diff * 0.325
+        self._candle_pitch = None
+        return 0.25  # fallback for a single bar (matches CandlestickItem)
+
+    def _clamp_half_width(self, w: float) -> float:
+        """D42/S13: apply the shared density-aware cap to a cached half-width.
+
+        Delegates to ``capped_body_half_width`` — the one implementation the
+        candle layers also use — so the volume width cannot drift from the
+        candle body (R63).  ``median_diff`` is recovered from the cached
+        display-x pitch and the final view scale, matching ``_draw_candles``.
+        """
+        px_per_sec = self._view_px_per_sec()
+        if px_per_sec:
+            pitch = self._candle_pitch
+            median_diff = (
+                pitch / px_per_sec if pitch is not None else w / 0.325
+            )
+            return capped_body_half_width(median_diff, w, px_per_sec)
         return w
 
     def _refresh_candles(self, auto_range: bool = False):
@@ -1254,7 +1293,6 @@ class ChartPanel(QWidget):
         # the forming bar, so per-tick updates never regenerate the history
         # QPicture.
         bars = self._plotted_bars
-        self._candle_half_width = self._compute_candle_half_width(bars)
         history, live = bars[:-1], bars[-1:]
         candle_data, vol_x, vol_h, vol_colors = [], [], [], []
         for bar in history:
@@ -1291,15 +1329,17 @@ class ChartPanel(QWidget):
             vb.setRange(xRange=(t0 - 2 * bar_w, t1 + 8 * bar_w),
                         yRange=(lows, highs), padding=0.03)
 
-        # AC-D9.1 / ESC-020: derive the volume half-width from the *final* view
-        # range, after the auto-range branch above has applied it.  This is the
-        # same generate-before-setRange ordering defect T32/ESC-013 fixed for the
-        # candle picture: if w_vol is computed before `vb.setRange(...)`, the
-        # min_w_vol clamp sees the untouched default range on a first load, never
-        # binds, and the volume bars come out far narrower than the price bodies.
+        # AC-D9.1 / ESC-020 / D42: derive the candle half-width AND the display-x
+        # pitch from the *final* view range, after the auto-range branch above
+        # has applied it.  This is the same generate-before-setRange ordering
+        # defect T32/ESC-013 fixed for the candle picture: if the width/pitch are
+        # computed before `vb.setRange(...)`, the cap sees the untouched default
+        # range on a first load and the dense-view bodies/bars never bind.
         # D28.4: reuse the cached candle half-width for volume (same 65% of
-        # median_diff, 35% gap formula); the dense-view 4px minimum is applied
-        # explicitly (the candle layers get it at generation time instead).
+        # median_diff, 35% gap formula); the D42/S13 density cap is applied
+        # through the one shared helper (the candle layers get it at generation
+        # time from the same pitch instead).
+        self._candle_half_width = self._compute_candle_half_width(bars)
         w_vol = self._clamp_half_width(self._candle_half_width) if bars else 0.25
 
         self.volume_bars.setOpts(x=vol_x, height=vol_h, width=w_vol*2, brushes=vol_colors)
@@ -1315,16 +1355,20 @@ class ChartPanel(QWidget):
 
         if auto_range and bars:
             # Generate the candle pictures now that the real range is known.
-            self.candlestick.set_data(candle_data, width=self._candle_half_width)
-            self.live_candle.set_data(live_data, width=self._candle_half_width)
+            self.candlestick.set_data(candle_data, width=self._candle_half_width,
+                                      pitch=self._candle_pitch)
+            self.live_candle.set_data(live_data, width=self._candle_half_width,
+                                      pitch=self._candle_pitch)
             # Full load: derive the ceiling from the bars now visible.
             self._recompute_visible_volume_range(force=True)
         else:
             # Non-auto-range refresh (intra-bar redraw / set_timezone / empty
             # load): the ViewBox range is already the real one, so the ceiling
             # computes against it.  Still regenerate to clear/refresh the picture.
-            self.candlestick.set_data(candle_data, width=self._candle_half_width)
-            self.live_candle.set_data(live_data, width=self._candle_half_width)
+            self.candlestick.set_data(candle_data, width=self._candle_half_width,
+                                      pitch=self._candle_pitch)
+            self.live_candle.set_data(live_data, width=self._candle_half_width,
+                                      pitch=self._candle_pitch)
             if bars:
                 # auto_range=False refresh: re-apply the visible ceiling so the
                 # range tracks the bars currently in view.
@@ -1345,6 +1389,7 @@ class ChartPanel(QWidget):
         self.live_candle.set_data(
             [(dx, bar.open, bar.high, bar.low, bar.close)],
             width=self._candle_half_width,
+            pitch=self._candle_pitch,
         )
         color = '#34d399' if bar.close >= bar.open else '#f87171'
         self.live_volume.setOpts(

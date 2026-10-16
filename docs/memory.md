@@ -123,3 +123,13 @@
 **Category:** Known Gotcha
 **Finding:** A `build_worker` invocation has a **hard step budget**, and an **L-size delete-only task** (removing ~150–500 lines spread across many members, plus import cleanup, call sites and probes) can exceed it. Three D41 workers died this way (`P1-T09`, `P1-T10`, `P1-T11`): two left their file **non-importable** mid-edit (`chart_panel.py` lost `QTimer`/`QMenu` while code still referenced them; `ticker_session.py` kept a call to the just-deleted `on_fp_error`), and one finished every edit and test but never wrote its result/log. The task file's `size` hint is a poor predictor for deletions — **lines removed** is what matters. Mitigations: (a) expect the orchestrator to finish such a task in place when a worker dies (record provenance in `footprint_flags` so the reviewer sees it); (b) after **any** worker death, run a syntax/import check **and** a residue grep for the removed tokens on the touched file before trusting it; (c) split future delete-only tasks by **member group**, not by file.
 **Source:** D41 waves 10/11/14 (P1-T09, P1-T10, P1-T11)
+
+### 2026-10-16 — discovered during Build (D42; `load_chart` symbol normalisation)
+**Category:** Known Gotcha
+**Finding:** `MainWindow.load_chart` **upper-cases** the symbol, so any test or probe that drives the load path with a lowercase symbol never matches the rows the app actually stored (the cache/DB is keyed on the upper-cased form). A D42 worker lost time to exactly this and had to add `.upper()` in its `_symbol_for` helper. Rule: when driving `load_chart` from a test, either use an already-upper-case symbol or normalise before comparing against stored rows.
+**Source:** Task P2-T22 (D42 wave 58)
+
+### 2026-10-16 — discovered during Build (D42; the depth floor issues MANY requests)
+**Category:** Known Gotcha
+**Finding:** D42's `min_sessions` depth floor means a single `load_chart` now issues **many** historical requests instead of one. Any test that stubs `req_historical_data` with a **small fixed reqId iterator** will raise `StopIteration` (it hit `tests/test_d28_2_sessions.py`, fixed by widening the stub to `itertools.count(...)`). Rule: stubs for the historical-request path must use an **unbounded** id source.
+**Source:** Tasks P2-T14 / P2-T19 (D42 waves 53/58)

@@ -5,6 +5,8 @@ Each test was written red-first against the pre-fix code.
 
 from __future__ import annotations
 
+import itertools
+
 from data.alarm_store import AlarmStore
 from data.models import Alarm
 
@@ -30,7 +32,9 @@ def _make_window(monkeypatch, qapp):
     win = MainWindow()
     ids = iter([7001, 7002, 7003, 7004, 7005, 7006, 7007, 7008])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
-    hids = iter([7101, 7102, 7103])
+    # D42's depth floor (S17) can issue many chunks from one load, so hand out
+    # historical reqIds unbounded rather than exhausting a fixed list.
+    hids = itertools.count(7101)
     win.md_manager.req_historical_data = lambda *a, **k: next(hids)
     win.show()
     qapp.processEvents()

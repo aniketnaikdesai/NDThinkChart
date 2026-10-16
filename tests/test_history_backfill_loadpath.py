@@ -31,9 +31,14 @@ try:
 except ImportError:  # pragma: no cover
     from backports.zoneinfo import ZoneInfo  # type: ignore
 
+from config import settings
 from data.bar_cache import BarCache
 from data.models import Bar
-from services.backfill_service import find_missing_spans, plan_requests
+from services.backfill_service import (
+    find_missing_spans,
+    floor_bar_budget,
+    plan_requests,
+)
 
 EASTERN = ZoneInfo("America/New_York")
 
@@ -198,8 +203,19 @@ def test_t39_t01_issues_one_request_per_planned_chunk(monkeypatch, qapp):
         stub = _ReqStub()
         _load(win, symbol, tf, stub, NOW)
 
-        cached_ts = [b.ts for b in BarCache.get_bars(symbol, tf)]
-        plans = plan_requests(find_missing_spans(cached_ts, NOW, tf), tf)
+        # RC-D42-2: the load path passes the depth floor (and the load's mode);
+        # the test's own planner call must pass them too, or its plan count no
+        # longer matches what the window issues.
+        mode = win.ext_hours_btn.isChecked()
+        cached_ts = [b.ts for b in BarCache.get_bars(symbol, tf, ext_hours=mode)]
+        plans = plan_requests(
+            find_missing_spans(
+                cached_ts, NOW, tf,
+                ext_hours=mode,
+                min_sessions=settings.MIN_INTRADAY_SESSIONS,
+            ),
+            tf,
+        )
 
         # The seeded hole needs more than one configured (5 D) fetch window.
         assert len(plans) > 1
@@ -222,7 +238,8 @@ def test_t39_t01_issues_one_request_per_planned_chunk(monkeypatch, qapp):
 
 
 # ---------------------------------------------------------------------------
-# T39-T02 — no redundant request when the cache reaches now
+# T39-T02 — no redundant request once the floor is satisfied and the cache
+# reaches now (the depth floor is separate work)
 # ---------------------------------------------------------------------------
 def test_t39_t02_cache_current_issues_no_request(monkeypatch, qapp):
     win = _make_window(monkeypatch, qapp)
@@ -235,29 +252,61 @@ def test_t39_t02_cache_current_issues_no_request(monkeypatch, qapp):
         stub = _ReqStub()
         _load(win, symbol, tf, stub, NOW)
 
-        assert stub.calls == []
-        assert win._history_req_ids == set()
+        # RC-D42-2 / the depth floor: 5 seeded ETH sessions < 30, so the floor
+        # span issues requests — but they are exactly the planner's, and no
+        # *redundant* request re-fetches the present current region as a hole.
+        mode = win.ext_hours_btn.isChecked()
+        cached_ts = [b.ts for b in BarCache.get_bars(symbol, tf, ext_hours=mode)]
+        spans = find_missing_spans(
+            cached_ts, NOW, tf,
+            ext_hours=mode,
+            min_sessions=settings.MIN_INTRADAY_SESSIONS,
+        )
+        assert len(spans) == 1  # only the backwards floor span — no hole
+        plans = plan_requests(spans, tf)
+        assert len(stub.calls) == len(plans)
+        assert win._history_req_ids == {c["reqId"] for c in stub.calls}
     finally:
         win.close()
 
 
 # ---------------------------------------------------------------------------
-# T39-T03 — empty cache falls back to the configured window as a set of one
+# T39-T03 — empty cache is covered by the planner as one floor span (S17);
+# both modes exercised (RC-D42-2)
 # ---------------------------------------------------------------------------
-def test_t39_t03_empty_cache_fallback_single_request(monkeypatch, qapp):
+@pytest.mark.parametrize("ext_hours", [True, False])
+def test_t39_t03_empty_cache_fallback_single_request(monkeypatch, qapp, ext_hours):
     win = _make_window(monkeypatch, qapp)
     symbol, tf = "T39C", "5 mins"
     try:
+        win.ext_hours_btn.blockSignals(True)
+        win.ext_hours_btn.setChecked(ext_hours)
+        win.ext_hours_btn.blockSignals(False)
         _clear(symbol, tf)  # no cached bars at all
         stub = _ReqStub()
         _load(win, symbol, tf, stub, NOW)
 
-        assert len(stub.calls) == 1
-        assert stub.calls[0]["endDateTime"] == ""
-        assert win._history_req_ids == {stub.calls[0]["reqId"]}
+        # RC-D42-2 / S17: the empty-cache single-window branch is removed; the
+        # planner covers an empty cache as one floor span from the floor day to
+        # now, planned into anchored chunks (never a special endDateTime="").
+        spans = find_missing_spans(
+            [], NOW, tf,
+            ext_hours=ext_hours,
+            min_sessions=settings.MIN_INTRADAY_SESSIONS,
+        )
+        assert len(spans) == 1
+        plans = plan_requests(spans, tf)
+        assert len(stub.calls) == len(plans) > 1
+        assert all(c["endDateTime"] for c in stub.calls)
+        assert win._history_req_ids == {c["reqId"] for c in stub.calls}
 
-        # "Set of one": ending the single member finalises immediately.
-        win._on_historical_data_end(stub.calls[0]["reqId"])
+        # The floor span is a multi-member wave: the set empties only when the
+        # last member ends (there is no "set of one" branch any more).
+        req_ids = [c["reqId"] for c in stub.calls]
+        for rid in req_ids[:-1]:
+            win._on_historical_data_end(rid)
+        assert win._history_req_ids == {req_ids[-1]}
+        win._on_historical_data_end(req_ids[-1])
         assert win._history_req_ids == set()
     finally:
         win.close()
@@ -283,13 +332,15 @@ def test_t39_t04_multi_request_wave_finalises_once(monkeypatch, qapp):
         save_calls: list[int] = []
         get_calls: list[tuple] = []
 
-        def spy_save(bars):
+        # D42/S18: the load path scopes save/get by the wave's mode (an
+        # ``ext_hours`` keyword), so the spies must forward it.
+        def spy_save(bars, **kwargs):
             save_calls.append(len(bars))
-            return real_save(bars)
+            return real_save(bars, **kwargs)
 
-        def spy_get(s, t):
+        def spy_get(s, t, **kwargs):
             get_calls.append((s, t))
-            return real_get(s, t)
+            return real_get(s, t, **kwargs)
 
         monkeypatch.setattr(BarCache, "save_bars", staticmethod(spy_save))
         monkeypatch.setattr(BarCache, "get_bars", staticmethod(spy_get))
@@ -360,14 +411,17 @@ def test_t39_t05_switch_and_close_cancel_all(monkeypatch, qapp):
         # invalidated (reqIds unregistered from the routing table); the new
         # session starts its own generation.
         assert win._history_generation == 1
-        assert win._history_req_ids == set()
+        # The new session starts its own wave: with the depth floor even a
+        # current 5-session cache issues its floor span, so the old ids must not
+        # leak into the new wave (they were cancelled above).
+        assert win._history_req_ids.isdisjoint(old_ids)
 
         # Late responses from the previous generation never reach the render path.
         stale = next(iter(old_ids))
         win._on_historical_bar(stale, _FakeIbBar(_et_ts(2026, 10, 19)))
         win._on_historical_data_end(stale)
         assert win._pending_bars == []
-        assert win._history_req_ids == set()
+        assert stale not in win._history_req_ids
 
         # Re-open a wave on the hole symbol, then close the window.
         win.symbol_input.setText(sym_hole)
@@ -425,10 +479,14 @@ def test_t39_t06_failed_member_finalises_with_shortfall(monkeypatch, qapp, caplo
 
         bars = BarCache.get_bars(symbol, tf)
         # D27.7: seeds are complete 1-min days now (see _seed).
-        # D28.4: the cache keeps the newest RETENTION_BARS rows per
-        # (symbol, timeframe) — the 9601 seeded/fetched rows are pruned.
+        # RC-D42-2 / D28.4+S18: the retention keep is the floor-aware budget
+        # (5 mins/ETH derives 6,624 > the flat RETENTION_BARS), so the floor
+        # survives retention — oldest dropped, newest kept.
         from data.bar_cache import RETENTION_BARS
-        assert len(bars) == RETENTION_BARS
+        mode = win.ext_hours_btn.isChecked()
+        budget = floor_bar_budget(tf, mode)
+        assert budget > RETENTION_BARS
+        assert len(bars) == budget
         assert date(2026, 10, 28) not in {_et_date(b.ts) for b in bars}
     finally:
         win.close()
@@ -461,20 +519,27 @@ def test_t39_t07_completed_wave_surfaces_missing_day_no_fabrication(
 
         msg = win.status_bar.currentMessage()
         assert "incomplete" in msg
-        assert omitted.isoformat() in msg
+        # The omitted day is surfaced in the (untruncated) shortfall record: the
+        # status preview names only the first five missing days, and with the
+        # depth floor those are the backwards floor days, not the omitted day.
+        shortfall = next(
+            rec.getMessage() for rec in caplog.records
+            if "shortfall" in rec.getMessage().lower()
+        )
+        assert omitted.isoformat() in shortfall
         assert any("shortfall" in rec.getMessage().lower() for rec in caplog.records)
 
-        bars = BarCache.get_bars(symbol, tf)
+        bars = BarCache.get_bars(symbol, tf, ext_hours=win.ext_hours_btn.isChecked())
         present_days = {_et_date(b.ts) for b in bars}
         assert omitted not in present_days
 
         # No fabricated/interpolated bar: every kept bar is a seed or a
         # genuine wave return.
-        # D28.4: the cache keeps the newest RETENTION_BARS rows — the
-        # oldest seeded days are pruned, so assert the retention invariant
-        # rather than the exact pre-retention day set.
-        from data.bar_cache import RETENTION_BARS
-        assert len(bars) == RETENTION_BARS
+        # RC-D42-2 / D28.4+S18: the cache keeps the newest floor-aware budget
+        # rows — the oldest seeded days are pruned, so assert the retention
+        # invariant at the derived budget rather than the flat RETENTION_BARS.
+        budget = floor_bar_budget(tf, win.ext_hours_btn.isChecked())
+        assert len(bars) == budget
         allowed_days = {date(*d) for d in PRESENT_DAYS}
         allowed_days |= {date(*d) for d in MISSING_DAYS}
         assert present_days <= allowed_days

@@ -33,6 +33,7 @@ from services.backfill_service import (
     bar_period_seconds,
     find_missing_spans,
     plan_requests,
+    present_days,
 )
 from services.market_calendar import is_trading_day
 
@@ -351,3 +352,71 @@ def test_t38_t08_source_imports_no_qt() -> None:
 
     forbidden = {"PyQt6", "PyQt5", "PySide6", "PySide2", "pyqtgraph"}
     assert imported_roots.isdisjoint(forbidden), imported_roots & forbidden
+
+
+# ---------------------------------------------------------------------------
+# D42 / S15 (AC-D16.9) — mode-aware day presence: RTH vs ETH
+# ---------------------------------------------------------------------------
+def _pre_post_bars(y: int, m: int, d: int) -> list[int]:
+    """Bars strictly *outside* the RTH window but *inside* the ETH window.
+
+    A 05:00 pre-market bar and a 19:00 post-market bar both fall inside the ETH
+    window (04:00-20:00 ET) and outside the RTH window (09:30-16:00 ET), so the
+    day they belong to is present under ETH and absent under RTH.
+    """
+    return [_et_ts(y, m, d, 5, 0), _et_ts(y, m, d, 19, 0)]
+
+
+def test_d42_day_presence_pre_post_only_day_rth_missing_eth_present() -> None:
+    """AC-D16.9: a pre/post-only day -> RTH span non-empty, ETH no span."""
+    cached = (
+        _seed([(2026, 10, 12), (2026, 10, 13), (2026, 10, 14), (2026, 10, 16)])
+        + _pre_post_bars(2026, 10, 15)
+    )
+    now = _et_ts(2026, 10, 16, 20, 0)
+
+    # The exported mode-aware predicate: the pre/post-only day is present only
+    # under ETH (its bars lie outside the RTH window but inside the ETH window).
+    assert present_days(_pre_post_bars(2026, 10, 15), ext_hours=False) == set()
+    assert present_days(_pre_post_bars(2026, 10, 15), ext_hours=True) == {
+        date(2026, 10, 15)
+    }
+
+    # RTH: the day is not present -> a span covers it. ``trailing_days=0``
+    # isolates the presence pass from the D27.7 bar-period pass so this asserts
+    # presence, not intraday granularity.
+    rth_spans = find_missing_spans(
+        cached, now, "5 mins", trailing_days=0, ext_hours=False
+    )
+    assert any(
+        s.start_ts <= _day_start(2026, 10, 15)
+        and s.end_ts >= _day_start(2026, 10, 16)
+        for s in rth_spans
+    ), f"pre/post-only day not reported missing under RTH: {rth_spans}"
+
+    # ETH: the same day is present -> no span at all.
+    eth_spans = find_missing_spans(
+        cached, now, "5 mins", trailing_days=0, ext_hours=True
+    )
+    assert eth_spans == [], f"pre/post-only day wrongly missing under ETH: {eth_spans}"
+
+
+def test_d42_day_presence_rth_only_day_present_in_both_modes() -> None:
+    """AC-D16.9: an RTH-only day -> present in both modes (no span either way)."""
+    days = [
+        (2026, 10, 12), (2026, 10, 13), (2026, 10, 14), (2026, 10, 15), (2026, 10, 16),
+    ]
+    cached = _seed(days)
+    now = _et_ts(2026, 10, 16, 20, 0)
+
+    # An RTH-only day's bars lie inside *both* windows, so it is present in both.
+    assert present_days(_seed([(2026, 10, 15)]), ext_hours=False) == {date(2026, 10, 15)}
+    assert present_days(_seed([(2026, 10, 15)]), ext_hours=True) == {date(2026, 10, 15)}
+
+    for ext_hours in (False, True):
+        spans = find_missing_spans(
+            cached, now, "5 mins", trailing_days=0, ext_hours=ext_hours
+        )
+        assert spans == [], (
+            f"RTH-only day wrongly missing (ext_hours={ext_hours}): {spans}"
+        )

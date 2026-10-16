@@ -110,3 +110,52 @@ def test_d27_7_empty_day_still_detected_by_day_presence():
         and s.end_ts >= _et_ts(2026, 10, 15, 16, 0)
         for s in spans
     ), f"empty day not covered: {spans}"
+
+
+# ---------------------------------------------------------------------------
+# D42 / S15 (AC-D16.9) — mode-aware day presence: RTH vs ETH
+# ---------------------------------------------------------------------------
+def _pre_post_bars_5min(y: int, m: int, d: int) -> list[int]:
+    """Bars outside the RTH window but inside the ETH window (pre 05:00, post 19:00)."""
+    return [_et_ts(y, m, d, 5, 0), _et_ts(y, m, d, 19, 0)]
+
+
+def test_d27_7_pre_post_only_day_rth_missing_eth_present():
+    """AC-D16.9: a pre/post-only day -> RTH span non-empty, ETH no span.
+
+    ``trailing_days=0`` isolates the mode-aware presence pass from the D27.7
+    bar-period pass, so the assertions speak only to presence.
+    """
+    cached = []
+    for day in (12, 13, 14, 16):
+        cached += _full_day_bars_5min(2026, 10, day)
+    cached += _pre_post_bars_5min(2026, 10, 15)
+
+    rth = find_missing_spans(
+        cached, NOW_TS, "5 mins", trailing_days=0, ext_hours=False
+    )
+    assert any(
+        s.start_ts <= _et_ts(2026, 10, 15, 0, 0)
+        and s.end_ts >= _et_ts(2026, 10, 16, 0, 0)
+        for s in rth
+    ), f"pre/post-only day not reported missing under RTH: {rth}"
+
+    eth = find_missing_spans(
+        cached, NOW_TS, "5 mins", trailing_days=0, ext_hours=True
+    )
+    assert eth == [], f"pre/post-only day wrongly missing under ETH: {eth}"
+
+
+def test_d27_7_rth_only_day_present_in_both_modes():
+    """AC-D16.9: an RTH-only day -> present in both modes (no span either way)."""
+    cached = []
+    for day in (12, 13, 14, 15, 16):
+        cached += _full_day_bars_5min(2026, 10, day)
+
+    for ext_hours in (False, True):
+        spans = find_missing_spans(
+            cached, NOW_TS, "5 mins", trailing_days=0, ext_hours=ext_hours
+        )
+        assert spans == [], (
+            f"RTH-only day wrongly missing (ext_hours={ext_hours}): {spans}"
+        )

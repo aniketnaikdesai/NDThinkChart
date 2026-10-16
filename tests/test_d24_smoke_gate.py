@@ -13,6 +13,7 @@ owns the full 10-chart optimization.
 
 from __future__ import annotations
 
+import itertools
 import time
 
 SYMBOL = "SMOKE"
@@ -34,7 +35,9 @@ def _make_window(monkeypatch, qapp):
     win = MainWindow()
     ids = iter([9501, 9502, 9503, 9504, 9505])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
-    hids = iter([9601, 9602])
+    # D42's depth floor (S17) can issue many chunks from one load, so hand out
+    # historical reqIds unbounded rather than exhausting a fixed list.
+    hids = itertools.count(9601)
     win.md_manager.req_historical_data = lambda *a, **k: next(hids)
     win.show()
     qapp.processEvents()

@@ -81,13 +81,20 @@ _PROBE_SRC = textwrap.dedent(
         # The QPicture bounding rect is [t0 - w, t_last + w] (wicks sit at x == t),
         # so the recorded body width is the bbox width minus the timestamp span.
         body_data_w = pic.width() - data_span
+        # D42: the cap measures the body against the inter-bar pitch, i.e. the
+        # display-x median spacing: pitch = median_diff * px_per_sec.
+        diffs = sorted(static_ts[i + 1] - static_ts[i]
+                       for i in range(len(static_ts) - 1))
+        median_diff = diffs[len(diffs) // 2] if diffs else 0.0
         return {
             "picture_width": pic.width(),
             "data_span": data_span,
             "body_data_width": body_data_w,
+            "median_diff": median_diff,
             "px_per_sec": px_per_sec,
             "dpr": dpr,
             "body_device_px": body_data_w * px_per_sec * dpr,
+            "pitch_device_px": median_diff * px_per_sec * dpr,
         }
 
 
@@ -147,8 +154,9 @@ _PROBE_SRC = textwrap.dedent(
         app.processEvents()
         result["dense_after_regen"] = body_geometry(panel, dense)
 
-        # (B) Sparse view: measure the wick width in device pixels by pixel scan
-        # where wicks are separable (so the cosmetic width can be observed).
+        # (B) Non-dense (sparse) view: measure the wick width in device pixels by
+        # pixel scan where wicks are separable (so the cosmetic width can be
+        # observed) and record the body/pitch geometry for the floor claim.
         sparse = [bar(i, 60, 100, 110, 90, 101) for i in range(30)]
         panel_s = make_panel(app, sparse)
         vb_s = panel_s.price_plot.getViewBox()
@@ -161,6 +169,7 @@ _PROBE_SRC = textwrap.dedent(
             "wick_max_run": max(wick_runs) if wick_runs else None,
             "body_runs": body_runs,
             "body_median_run": sorted(body_runs)[len(body_runs) // 2] if body_runs else None,
+            "geometry": body_geometry(panel_s, sparse),
         }
 
         # (C) D11 drawing labels: right-edge containment inside view_rect.
@@ -229,7 +238,8 @@ def _probe(scale_factor):
 
 @pytest.mark.parametrize("scale_factor", [1, 2], ids=["dpr1", "dpr2"])
 def test_wick_stays_1_device_px_and_body_clamped_at_dpr(scale_factor):
-    """T29-T01 / AC-D6.4 — wick 1 device px; body >= 4 device px and > wick."""
+    """T29-T01 / AC-D6.4 (revised) — wick 1 device px at every DPR; dense body
+    <= pitch (== at the repro); non-dense body >= 4 device px and > wick."""
     run = _probe(scale_factor)
     result = run["result"]
     assert result["dpr"] == pytest.approx(float(scale_factor)), run["stderr"]
@@ -241,16 +251,37 @@ def test_wick_stays_1_device_px_and_body_clamped_at_dpr(scale_factor):
         f"(expected 1); runs={result['sparse']['wick_runs']}"
     )
 
-    # The body must stay >= 4 device pixels and strictly wider than the wick.
-    body_dev = result["dense"]["body_device_px"]
-    assert body_dev >= 4.0, (
+    # D42/AC-D6.4 (revised): at the dense repro the cap yields to the pitch, so
+    # the rendered body never exceeds the inter-bar pitch (== at the repro).  The
+    # unconditional ">= 4 device px" floor is deliberately NOT asserted here —
+    # AC-D6.4 (revised) supersedes it and the floor lives on the non-dense case.
+    dense = result["dense"]
+    body_dev = dense["body_device_px"]
+    pitch_dev = dense["pitch_device_px"]
+    assert body_dev <= pitch_dev + 1e-6, (
         f"AC-D6.4: at DPR {scale_factor} the dense-view candle body renders "
-        f"{body_dev:.2f} device px wide (expected >= 4 == no collapse); "
-        f"dense={result['dense']}"
+        f"{body_dev:.2f} device px wide, exceeding the inter-bar pitch "
+        f"{pitch_dev:.2f} device px; dense={dense}"
     )
-    assert body_dev > wick_max, (
-        f"AC-D6.4: body ({body_dev:.2f} device px) is not wider than the wick "
-        f"({wick_max} device px) at DPR {scale_factor}"
+    assert body_dev == pytest.approx(pitch_dev, rel=0.05), (
+        f"AC-D6.4: at the dense repro the body ({body_dev:.2f} device px) should "
+        f"equal the pitch ({pitch_dev:.2f} device px) at DPR {scale_factor}; "
+        f"dense={dense}"
+    )
+
+    # D42/AC-D6.4 (revised): the "body >= 4 device px and > wick" claims now live
+    # on the NON-dense dataset, where the pitch is wide enough for the body to be
+    # comfortably above the floor (so the claim no longer enshrines the floor).
+    non_dense = result["sparse"]["geometry"]
+    nd_body_dev = non_dense["body_device_px"]
+    assert nd_body_dev >= 4.0, (
+        f"AC-D6.4: at DPR {scale_factor} the non-dense candle body renders "
+        f"{nd_body_dev:.2f} device px wide (expected >= 4 == no collapse); "
+        f"non_dense={non_dense}"
+    )
+    assert nd_body_dev > wick_max, (
+        f"AC-D6.4: non-dense body ({nd_body_dev:.2f} device px) is not wider "
+        f"than the wick ({wick_max} device px) at DPR {scale_factor}"
     )
 
 

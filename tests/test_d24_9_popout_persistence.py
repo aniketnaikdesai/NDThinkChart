@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 from data.popout_store import PopoutStore
 
 
@@ -51,7 +53,9 @@ def test_popout_window_persists_on_open_close(monkeypatch, qapp):
     win = MainWindow()
     ids = iter([7001, 7002])
     win.rt_manager.subscribe = lambda *a, **k: next(ids)
-    hids = iter([7101])
+    # D42's depth floor (S17) can issue many chunks from one load, so hand out
+    # historical reqIds unbounded rather than exhausting a fixed list.
+    hids = itertools.count(7101)
     win.md_manager.req_historical_data = lambda *a, **k: next(hids)
     win.show()
     qapp.processEvents()

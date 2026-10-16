@@ -82,7 +82,7 @@ from services.alarm_service import evaluate_alarms
 from services.drawing_service import DEFAULT_DRAWING_COLOR
 from services.sound_service import SoundService
 from services.backfill_service import (
-    RequestPlan, find_missing_spans, plan_requests,
+    find_missing_spans, floor_bar_budget, plan_requests, present_days,
 )
 from services.market_calendar import trading_days
 from services.contract_lookup_service import ContractLookupService
@@ -1599,6 +1599,15 @@ class MainWindow(QMainWindow):
         new_session._backfill_failed_req_ids = set()
         new_session._backfill_missing_spans = []
         new_session._wave_timeframe = timeframe
+        # D42/S19 (ESC-049): establish the session's mode from THIS load before
+        # the initial cached ``set_bars`` below. ``queue_wave_plans`` was the
+        # only setter, so a load that issues NO wave left the mode at its
+        # default (RTH) and capped an ETH series at the RTH budget — breaching
+        # AC-D16.8's in-memory depth on the no-wave path, and carrying a stale
+        # mode across loads. Setting it here makes ``set_bars``/``_append_bar``
+        # (and the D39 baseline preload) derive their cap from the CURRENT
+        # load's mode; ``queue_wave_plans`` may keep setting it.
+        new_session._wave_extended_hours = extended_hours
 
         # Wire the primary view to the session (idempotent on same session).
         self._set_primary_session(new_session)
@@ -1627,7 +1636,9 @@ class MainWindow(QMainWindow):
         new_session.attach_view(self.chart_panel, timeframe, sync=False)
 
         # Step 1: Show cached bars immediately (session-owned, capped).
-        cached = BarCache.get_bars(symbol, timeframe)
+        # D42/S19: the read is scoped to the load's mode (AC-D16.9), so an
+        # RTH load never sees ETH rows and vice versa.
+        cached = BarCache.get_bars(symbol, timeframe, ext_hours=extended_hours)
         new_session.last_chart_price = cached[-1].close if cached else None
         new_session.set_bars(timeframe, cached)  # emits bars_refreshed → renders
         if cached:
@@ -1644,11 +1655,17 @@ class MainWindow(QMainWindow):
         cached_ts = [b.ts for b in cached]
         # D27.7: bar-level gap detection uses the load's ext-hours toggle so
         # the session window matches what the wave fetches.
-        missing_spans = (
-            find_missing_spans(
-                cached_ts, now_ts, timeframe,
-                ext_hours=extended_hours,
-            ) if cached else []
+        # D42/S17+S19: the planner is always consulted (the `if cached else []`
+        # guard is bypassed) and is asked for the backwards depth floor
+        # (`min_sessions`), in the load's mode. The planner gates the floor on
+        # intraday timeframes, and covers an empty cache as one floor span — so
+        # the former empty-cache single-window branch is removed (it would
+        # otherwise duplicate/override the floor span).
+        min_sessions = settings.MIN_INTRADAY_SESSIONS
+        missing_spans = find_missing_spans(
+            cached_ts, now_ts, timeframe,
+            ext_hours=extended_hours,
+            min_sessions=min_sessions,
         )
         plans = plan_requests(missing_spans, timeframe)
         new_session._backfill_missing_spans = list(missing_spans)
@@ -1665,25 +1682,9 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(
                 f"{symbol} — backfilling {len(plans)} historical chunk(s)…"
             )
-        elif not cached:
-            # Empty cache: preserve the configured-window single-request path
-            # (endDateTime="" = up to now) as a one-plan wave.
-            cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["5 mins"])
-            new_session.queue_wave_plans(
-                [RequestPlan(
-                    endDateTime="",
-                    duration=cfg["duration"],
-                    bar_size=cfg["bar_size"],
-                    span_start_ts=0,
-                    span_end_ts=now_ts,
-                )],
-                contract, timeframe, extended_hours,
-            )
-            self.status_bar.showMessage(
-                f"Requesting {symbol} [{timeframe}]…"
-            )
         else:
-            # The cache already reaches now: no redundant request is issued.
+            # The cache already reaches now (and the floor is filled):
+            # no redundant request is issued.
             self.status_bar.showMessage(
                 f"{symbol} — {len(cached)} cached bars. Cache current."
             )
@@ -1966,12 +1967,20 @@ class MainWindow(QMainWindow):
                 return
         session._disarm_history_wave_watchdog()
         new_count = len(session._pending_bars)
+        # D42/S18+S19: the wave's mode scopes the save/get/prune, and the
+        # retention keep is the floor-aware budget so the fetched depth floor
+        # survives retention (a flat RETENTION_BARS would prune it away).
+        mode = session._wave_extended_hours
         if session._pending_bars:
-            BarCache.save_bars(session._pending_bars)
+            BarCache.save_bars(session._pending_bars, ext_hours=mode)
         timeframe = session._wave_timeframe or self._current_tf
-        # D28.4: keep the on-disk cache bounded per (symbol, timeframe).
-        BarCache.prune(session.symbol, timeframe)
-        all_bars = BarCache.get_bars(session.symbol, timeframe)
+        # D28.4: keep the on-disk cache bounded per (symbol, timeframe, mode).
+        BarCache.prune(
+            session.symbol, timeframe,
+            ext_hours=mode,
+            keep=floor_bar_budget(timeframe, mode),
+        )
+        all_bars = BarCache.get_bars(session.symbol, timeframe, ext_hours=mode)
         # D28.2: session-owned bars; the emit drives the view render.
         session.set_bars(timeframe, all_bars)
         # D27.1: _last_chart_price must never move backward. If realtime bars
@@ -2046,16 +2055,22 @@ class MainWindow(QMainWindow):
     def _missing_backfill_trading_days(
         self, session: TickerSession, bars
     ) -> list:
-        """Trading days the completed wave left empty (no bar fabricated)."""
+        """Trading days the completed wave left empty (no bar fabricated).
+
+        D42 / AC-D16.9: presence is the SAME exported mode-aware predicate the
+        planner uses (``services.backfill_service.present_days``) — a day whose
+        cached bars all lie outside the current mode's session window (a
+        present-but-mode-empty day) is reported as missing, so the planner and
+        the AC-D16.4 shortfall report cannot disagree about presence.
+        """
         if not session._backfill_missing_spans:
             return []
-        present_days = {
-            datetime.fromtimestamp(b.ts, tz=_EASTERN).date() for b in bars
-        }
+        mode = session._wave_extended_hours
+        present = present_days((b.ts for b in bars), mode)
         missing = []
         for span in session._backfill_missing_spans:
             for day in trading_days(span.start_ts, span.end_ts):
-                if day not in present_days:
+                if day not in present:
                     missing.append(day)
         return missing
 

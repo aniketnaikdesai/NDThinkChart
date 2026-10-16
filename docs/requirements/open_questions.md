@@ -1040,3 +1040,51 @@
 > scope (the DOM ladder), Q49 set the persisted-data disposition, and Q50 **widened it again** to the **entire
 > Active Trader panel (order-entry UI included)** with the **right dock Portfolio-only**. **Q46 was resolved as
 > moot** (superseded by D41), not by picking an option.
+
+
+# Open Questions — 2026-10-15 (Batch 18b / D42 — ESC-042 + ESC-038 resolutions) — 2 non-blocking confirmations
+
+> Two **REQUIREMENTS-routed** Code Reviewer escalations were resolved by a requirements decision on 2026-10-15
+> (**D42** in `requirements.md`): **ESC-042** (the `AC-D6.4` vs `AC-D7.1` contradiction — the no-overlap
+> guarantee wins, the body is capped at the inter-bar pitch, the 4-px floor is density-aware; supersedes the
+> unconditional `AC-D6.4` / "positive gap" `AC-D7.1` wording and unblocks BUILD **ESC-041**) and **ESC-038**
+> (RTH depth floor `AC-D16.8` clarified — sessions counted by RTH bars, all five intraday windows fall short —
+> plus the new **`AC-D16.9`** for a present-but-RTH-empty trading day, the requirements side of BUILD
+> **ESC-037**). Both are **evidence-derived**; the owner already required the 30-session floor (Q47). **No
+> blocking question remains.** Both **non-blocking confirmations (Q51, Q52) were answered by the owner on
+> 2026-10-15**: **Q51** confirmed the default (a **zero** gap is acceptable at the limit), and **Q52** **widened
+> the scope** — the floor now applies to **Ext-Hours (ETH)** charts too, not RTH only (a recorded
+> **supersession** of the RTH-only default). `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## Q51 — ESC-042: at extreme density, is a **zero** gap (abutting bodies, no overlap) acceptable, or must the gap stay **strictly positive**?
+
+- **Status:** **answered 2026-10-15 (owner-confirmed — default upheld).**
+- **Answer (owner-confirmed 2026-10-15, verbatim: "Zero gap acceptable at the limit."):** a **zero** gap
+  (bodies abutting, **no overlap**) **is** acceptable at the limit (`pitch <= F`, the D6 floor). The default
+  adopted below is **upheld unchanged** — no criteria change: `AC-D6.4` (revised) / `AC-D7.1` (revised) already
+  encode `gap >= 0` always, with `gap > 0` whenever the pitch exceeds the floor. The strictly-positive-gap
+  alternative is **not adopted**.
+- **Default adopted (D42.1):** the hard guarantee is **`gap >= 0`** (bodies never overlap). The gap is
+  **positive whenever the inter-bar pitch exceeds the D6 floor** (`4` device px); at extreme density
+  (`pitch <= F`) the floor yields to the pitch and the gap may be **`0`** (bodies abut) — a zero gap is
+  acceptable there, a **negative** gap is never. This is the minimal change that removes the overlap the owner
+  reported (ESC-041) while keeping bodies as legible as the density allows.
+- **Alternative (not adopted):** require a **strictly positive** gap at all densities (body `< pitch`), which at
+  extreme density makes bodies sub-pixel and effectively invisible — traded away because it removes legibility
+  without adding information.
+- **Affected requirement section:** `AC-D6.4` (revised), `AC-D7.1` (revised), D7 dense-view edge case; D42.1; A72.
+
+## Q52 — ESC-038: does the **>= 30 trading sessions** floor apply to **Ext-Hours (ETH)** charts too, or only to **RTH**?
+
+- **Status:** **answered 2026-10-15 (owner-confirmed: ETH included).**
+- **Answer (owner-confirmed 2026-10-15, verbatim: "Extend it to Ext-Hours charts too."):** the **>= 30
+  trading-session** floor **applies to Ext-Hours (ETH) charts too**, not RTH only. `AC-D16.8`/`AC-D16.9` are
+  **extended** so the floor and the mode-aware present-but-empty-day rule hold for **both** `ext_hours=False`
+  (RTH) and `ext_hours=True` (ETH); the two modes share **one** floor and must **not** cross-contaminate (the
+  bar cache/key is **mode-aware** in both directions). This **supersedes the RTH-only default** recorded below
+  (recorded, not silent).
+- **Default adopted (D42.2 — SUPERSEDED 2026-10-15 by the answer above):** the floor was originally recorded
+  **RTH-scoped**, exactly as the owner first required it (Q47 / `AC-D16.8`: "under RTH"); an ETH chart uses the
+  same calendar-day windows and showed the same one-session symptom, but widening the floor to ETH was **not
+  assumed**. **Q52 now supersedes this scoping — ETH is in scope.**
+- **Affected requirement section:** `AC-D16.8` (both modes), `AC-D16.9` (both modes); D42.2; A73.
