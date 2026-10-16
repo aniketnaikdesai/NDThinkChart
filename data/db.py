@@ -4,6 +4,23 @@ from config import paths
 
 class DB:
     def __init__(self):
+        # ESC-043 limb 2: refuse to open the owner's user-space production DB
+        # from a process that has not opted in as the real application. With
+        # DB_PATH unset, paths.get_db_path() resolves to the user-space
+        # production DB (~/Library/Application Support/NDThinkChart/...); only
+        # main.py opts in. A forgotten DB_PATH in an offscreen/REPL probe fails
+        # loudly here -- before sqlite3.connect -- instead of writing the
+        # owner's real database (architecture S12).
+        if paths.uses_production_db() and not paths.is_production_db_opted_in():
+            raise RuntimeError(
+                "Refusing to open the user-space production database "
+                f"({paths.production_db_path()}) because DB_PATH is unset and "
+                "this process has not opted in as the real application. "
+                "Non-app processes (offscreen probes, REPL, scripts) must "
+                "export DB_PATH to a temp file before importing the app; the "
+                "real app opts in via config.paths.opt_in_production_db() "
+                "(called from main.py)."
+            )
         # Use paths.get_db_path() for production (user-space) and dev (local)
         self.db_path = paths.get_db_path()
         # Ensure parent directory exists

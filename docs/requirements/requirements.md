@@ -112,6 +112,9 @@
 > (resolved) + DG72, and `open_questions.md` Q51-Q52 (answered 2026-10-15). `requirements.md` carries
 > `Status: READY_FOR_PLAN`.
 
+> **2026-10-16 — Batch 18c (D43): the ESC-036 second clause (a REQUIREMENTS question) is DECIDED — D27.9's "trailing 5-second history" is unsatisfiable for the coarse intraday timeframes and is SUPERSEDED.**
+> **D41/D42 are delivered, reviewed and committed and are NOT reopened.** **ESC-036** (recorded `routed_to: BUILD`) has **two clauses**: its **first clause** (the priming request asks IBKR for `bar_size='5 secs'` with `duration='7200 S'` → TWS **error 321**) is being built (**P2-T30**, in flight: clamp the 5-sec priming span into `[60 S, 3600 S]`); its **second clause** is a **requirements question** the owner directed here — `requirements.md`'s **D27.9** mandated priming with **"trailing 5-second history"**, but **5-second bars cannot span a 4-hour (14400 s) or 1-day (86400 s) forming period at all** (IBKR caps `5 secs` at `3600 S`), so D27.9 was **unsatisfiable** for `4 hours`/`1 day`. **Decision (D43, owner-confirmed-by-default — the escalation's stated expectation is "`AC-D27.9` met on every timeframe the user can select, including 4h/1d"):** the priming bar size is chosen **per the elapsed forming-period span** — **`5 secs`** for the timeframes whose span fits IBKR's `3600 S` ceiling (`1 min`, `5 mins`, `15 mins`, `1 hour`) and **`1 min`** for **`4 hours`** and **`1 day`** (valid up to `1 D`) — with `duration` = the elapsed span clamped into the selected bar size's IBKR-accepted range. This **SUPERSEDES D27.9's "trailing 5-second history" wording** (recorded, never silent) and **revises `AC-D27.9`**. **P2-T30's first-clause clamp remains correct and required for the fine timeframes**, but it does **not** deliver the coarse-timeframe bar-size switch — that is an explicit **FOLLOW-UP** (see D43), and P2-T30's `AC1`/`P2-T30-T11` (which assert a `5 secs`/`3600 S` request for 4h/1d) become **stale once the follow-up lands** and must be revised by the Task Manager. See D43, `AC-D27.9` (revised), A74, R65, `design_gaps.md` **DG73**, and `open_questions.md` **Q53** (answered, owner-confirmed-by-default). `requirements.md` carries `Status: READY_FOR_PLAN`.
+
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
 official `ibapi`, live TWS port 7496) built through Phases 1–10. (That roadmap,
@@ -3095,8 +3098,20 @@ of BUILD **ESC-037**). **Q52 (owner-confirmed 2026-10-15)** extended the floor a
     SHALL be repairable by a later load.
   - **D27.8 (B-1.8):** `"1 day"` (and `"4 hours"`) aggregation **SHALL** anchor to `America/New_York` wall time,
     not UTC midnight; session-anchored VWAP **SHALL** reset on ET date change (verify IBKR's 4h anchor first).
-  - **D27.9 (B-1.9):** on chart load the aggregator **SHALL** be primed with trailing 5-second history before
-    the live feed attaches, so the forming candle's OHLCV is not fabricated.
+  - **D27.9 (B-1.9; REVISED 2026-10-16 by D43/ESC-036 — the former "trailing 5-second history" wording is
+    SUPERSEDED):** on chart load the aggregator **SHALL** be primed with trailing history covering the
+    **elapsed portion of the forming period** before the live feed attaches, so the forming candle's OHLCV is
+    not fabricated. The priming request **SHALL** use a bar size valid for that elapsed span and a `duration`
+    inside that bar size's IBKR-accepted range:
+    - **elapsed span <= 3600 S** — the **`1 min`**, **`5 mins`**, **`15 mins`** and **`1 hour`** timeframes →
+      `bar_size='5 secs'`, `duration` = the elapsed span clamped into **`[60 S, 3600 S]`**;
+    - **elapsed span > 3600 S** — the **`4 hours`** (span up to 14400 S) and **`1 day`** (span up to 86400 S)
+      timeframes → `bar_size='1 min'`, `duration` = the elapsed span clamped into **`[60 S, 1 D]`**.
+    Bars returned whose `ts` precedes the current period's start **SHALL NOT** fabricate a completed
+    previous-period candle. *(Rationale: 5-second bars cannot span a 4-hour or 1-day forming period at all —
+    IBKR caps `5 secs` at `3600 S`, so the former request `bar_size='5 secs'`/`duration='7200 S'` returned TWS
+    error 321 and left `4 hours`/`1 day` unprimed. `1 min` bars cover the whole elapsed span in one request and
+    reuse the existing priming/aggregator path. See D43.)*
   - **D27.10 (B-1.10):** drawing style edits (colour, label, group) **SHALL** persist via the store and survive
     reload.
 - **Acceptance Criteria (Given/When/Then):**
@@ -3116,8 +3131,12 @@ of BUILD **ESC-037**). **Q52 (owner-confirmed 2026-10-15)** extended the floor a
     completes it.
   - **AC-D27.8** Given a daily chart, Then the live forming daily bar ts-matches the historical daily series
     (ET session days); VWAP resets at the ET session boundary with ext-hours on.
-  - **AC-D27.9** Given a fresh chart load mid-period, Then the forming candle's open/volume reflect the
-    primed 5-sec history, not just the first live tick.
+  - **AC-D27.9 (REVISED 2026-10-16 by D43/ESC-036)** Given a fresh chart load mid-period on **any selectable
+    timeframe**, Then a priming request is issued whose `bar_size` is valid for the elapsed forming-period span
+    (`5 secs` for `1 min`/`5 mins`/`15 mins`/`1 hour`; `1 min` for `4 hours`/`1 day`) with a `duration` inside
+    that bar size's IBKR-accepted range (`[60 S, 3600 S]` for `5 secs`; `[60 S, 1 D]` for `1 min`) — never
+    `5 secs` with a `duration` outside `[60 S, 3600 S]` — and the forming candle's open/high/low/close/volume
+    reflect the primed history over the elapsed period, not just the first live tick.
   - **AC-D27.10** Given a drawing colour edit, Then reload shows the edited colour.
   - **AC-D27.11 (regression)** Given the fixes, Then the full offscreen suite is green; no D1–D23 criterion
     regresses.
@@ -3616,6 +3635,76 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
   coverage); under **ETH** the present-but-empty rule uses the `04:00–20:00 ET` window, not the RTH window
   (`AC-D16.9`, Q52).
 
+### D43 — REQUIREMENTS resolution: D27.9 aggregator priming for the coarse intraday timeframes (ESC-036 second clause) — 2026-10-16
+- **Area:** `ui/ticker_session.py::TickerSession.prime_aggregator` (the priming request shape);
+  `data/bar_aggregator.py::BarAggregator.period_start` / `::TIMEFRAME_SECONDS`; `ibkr/market_data.py::TIMEFRAME_CONFIG`;
+  `tests/test_d27_aggregator_priming.py`.
+- **Status:** **NEW 2026-10-16 — a REQUIREMENTS-routed decision** (this section carries no code of its own).
+  **D41/D42 are delivered, reviewed and committed and are NOT reopened.** **ESC-036** has two clauses: the
+  **first** (an IBKR request shape — `bar_size='5 secs'` + `duration='7200 S'` → TWS error 321) is **BUILD**
+  work already in flight (**P2-T30**: clamp the 5-sec priming span into `[60 S, 3600 S]`); the **second** is
+  the **requirements question decided here** — **D27.9 mandated priming with "trailing 5-second history"**, which
+  is **unsatisfiable** for the coarse timeframes. This section **supersedes D27.9's "trailing 5-second history"
+  wording** and **revises `AC-D27.9`** (recorded, never silent).
+- **Rationale — why this is a requirements decision, not a build fix:**
+  - The priming's purpose is to seed the **forming** candle's OHLCV over the **elapsed portion of the current
+    period** so it is not fabricated from the first live tick (`D27.1` re-applies the aggregator's forming bar
+    over the historical series, so the forming bar's OHLCV comes from the aggregator). For **`4 hours`**
+    (period 14400 s) and **`1 day`** (period 86400 s) the elapsed span exceeds IBKR's **`3600 S` ceiling for
+    `5 secs` bars**, so **no 5-second request can cover the period** — the request the code built
+    (`bar_size='5 secs'`, `duration='7200 S'`) is exactly the one IBKR rejects with **error 321**
+    (`Aggregator priming request 144 failed [321]`). D27.9's wording therefore cannot be met as written.
+  - The consequence today is that `4 hours`/`1 day` loads are **unprimed** (`on_historical_error` fails open),
+    so the forming 4h/daily candle's open/high/low/volume are built **only from live ticks** — the fabricated
+    bar D27.9 exists to prevent — and the warning is emitted on **every** load.
+- **Resolution D43.1 — prime with a bar size chosen for the elapsed forming-period span (the affected
+  timeframe set is `4 hours` and `1 day`).** The priming request's bar size is selected from the elapsed span:
+  - **`5 secs`** when the elapsed span is **<= 3600 S** — the **`1 min`**, **`5 mins`**, **`15 mins`** and
+    **`1 hour`** timeframes (their spans are up to 60 / 300 / 900 / 3600 S, all within IBKR's `5 secs` ceiling);
+    `duration` = the elapsed span clamped into **`[60 S, 3600 S]`**.
+  - **`1 min`** when the elapsed span **exceeds 3600 S** — the **`4 hours`** and **`1 day`** timeframes;
+    `duration` = the elapsed span clamped into **`[60 S, 1 D]`** (`1 min` is IBKR-valid up to a `1 D` duration;
+    a 4h span is up to 14400 S and a daily span is up to 86399 S, both within `1 D`).
+  This keeps a **partial current-period seed** (the whole elapsed period is covered by the `1 min` bars) and
+  therefore **meets `AC-D27.9` on every selectable timeframe**, including `4 hours`/`1 day`. Bars returned whose
+  `ts` precedes the current period's start must **not** fabricate a completed previous-period candle (the same
+  replay guard the first-clause clamp needs).
+  - **Alternative considered and NOT adopted — "seed from the historical partial bar".** The normal historical
+    load could in principle seed the aggregator's forming state instead of a separate priming request (zero
+    extra requests). It is **rejected as the normative target** because it depends on IBKR returning a
+    **partial current-period bar** as the last bar of the `4 hours`/`1 day` historical request — a behaviour
+    that is **unverified** here (no live TWS in the test environment) and would silently degrade to a fabricated
+    bar if IBKR returns only completed bars. The explicit `1 min` priming request does not depend on that.
+  - **Alternative considered and NOT adopted — "drop priming for the coarse timeframes".** It would stop the
+    error-321 warning but leave the forming 4h/daily candle **fabricated from live ticks** (the very defect
+    D27.9 addresses), so it does **not** meet the escalation's stated expectation that `AC-D27.9` hold on
+    every timeframe.
+- **Correction record (artifacts that must change — Task Manager / Build / Code Reviewer):**
+  - **Task Manager:** the priming **bar-size selection** (the coarse-timeframe branch) is **NOT delivered by
+    P2-T30** (which only clamps the `5 secs` span into `[60 S, 3600 S]` and keeps `bar_size='5 secs'` for
+    **all** timeframes) — write a **FOLLOW-UP** task against **D27.9 (revised)** / **`AC-D27.9` (revised)**
+    covering `4 hours`/`1 day`. **P2-T30's `AC1` and `P2-T30-T11`** currently assert a **`5 secs`/`3600 S**
+    request for the 4h/1d loads and become **stale once the follow-up lands** — revise them (or let the
+    follow-up's tests supersede them) so the suite does not encode the superseded behaviour.
+  - **Build:** in `ui/ticker_session.py::TickerSession.prime_aggregator`, select `bar_size` from the elapsed
+    span (`5 secs` when `span_s <= 3600`, else `1 min`) and clamp `duration` into the selected bar size's
+    range (`[60 S, 3600 S]` / `[60 S, 1 D]`); keep the existing fail-open / 15 s-backstop / replay-guard
+    behaviour. **Correct (do not merely weaken)** the priming tests — `tests/test_d27_aggregator_priming.py`
+    (its module docstring still says "trailing 5-sec history"; `test_d27_9_prime_span_bounded` must assert the
+    accepted `1 min`/`1 D`-bounded combination for `1 day`, not the enshrined `5 secs`/`7200 S`) — and add a
+    RED→GREEN case proving the `4 hours`/`1 day` loads issue a **`1 min`** request whose duration is inside
+    `[60 S, 1 D]`.
+  - **Code Reviewer:** on the ESC-036 re-check, verify **both** clauses — the fine timeframes issue a
+    `5 secs` request with `duration` in `[60 S, 3600 S]` **and** `4 hours`/`1 day` issue a `1 min` request
+    with `duration` in `[60 S, 1 D]` — and that the forming 4h/daily candle reflects the primed history
+    (not the first live tick) once priming completes.
+- **Edge Cases:** a load **at a period boundary** (`span_s < 5`) primes nothing (unchanged); a load in the
+  **first minute** of a coarse period floors the duration to `60 S` (the `[60 S, 1 D]` minimum) — the replay
+  guard must keep such a bar from fabricating the previous period; a **pacing-exhausted** prime still
+  **fails open** (attaches the live feed unprimed — `D28.3`, unchanged); a priming request that never answers
+  still trips the **15 s backstop** (unchanged); `1 day` uses the **ET-anchored** period grid (`D27.8`), so a
+  `1 min` bar at the ET-midnight boundary belongs to the new daily period.
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -3693,6 +3782,7 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | A71 **[NEW 2026-10-15; Plan-level detail (non-blocking)]** | **D41 — retained order-path `ref_price` source and the Portfolio-only dock's re-derived cap/header.** The kept order path's `ref_price` (previously `active_trader.last_price`, fed by the DOM depth feed) **MUST** come from a **retained** source — the session's last price (live RT-bar / aggregator last) or the `symbol → last_price` watchlist price map (as D27.5 mandates for position market prices) — and must keep resolving. The right dock's width cap (was `floor(0.40 × chart_area)` for the two-section region) and its dock header / collapse affordance are **re-derived for the single Portfolio section**. | Owner confirmed the outcomes (Q50); the exact source/cap/header are implementation choices → **Plan-level details** (DG71), not blocking questions. Logged per the Quality Bar rather than silently baked in. | n | 2026-10-15 |
 | A72 **[NEW 2026-10-15 — D42/ESC-042; requirement decision (owner-confirmed via Q51)]** | **The no-overlap guarantee wins over the 4-px body floor at high density.** The candle body width is capped at the inter-bar device-pixel pitch and the D6 4-device-pixel legibility floor becomes **density-aware** (`body = min(max(0.65×pitch, F), pitch)`, `F` = 4 device px at DPR 2); the hard guarantee is `gap >= 0` (never overlap), the gap is `> 0` whenever `pitch > F`, and `0` is acceptable at extreme density (`pitch <= F`). This **supersedes the unconditional `AC-D6.4` wording** and the **`AC-D7.1` "positive gap" wording**. | The escalation is a genuine in-document contradiction and the owner-visible defect (ESC-041: candle/volume overlap on a 5-min Ext-Hours chart) is caused by the unconditional floor; a zero gap (abutting bodies) is not "overlap" and preserves legibility where it can, while a negative gap is never acceptable. Evidence-derived (measured 3.83 px pitch / 4.00 px body); the zero-gap-at-the-limit default was **confirmed by the owner 2026-10-15 (Q51, verbatim: "Zero gap acceptable at the limit.")** — no criteria change. | y (owner-confirmed 2026-10-15, Q51) | 2026-10-15 |
 | A73 **[NEW 2026-10-15 — D42/ESC-038; owner-required floor (Q47) + ETH scope owner-confirmed (Q52) + evidence-derived clarifications]** | **Intraday depth (RTH and ETH) = >= 30 trading sessions before the current session, counted by bars inside the current mode's session window; a present-but-empty trading day is a missing span (not filled).** The floor is `AC-D16.8` (owner-required, Q47); the "session = >= 1 bar inside the current mode's window" and "all five intraday windows fall short" clarifications and the new `AC-D16.9` (mode-aware day presence + mode-aware cache) are evidence-derived from the ESC-038/ESC-037 diagnosis. **Q52 (owner-confirmed 2026-10-15: "Extend it to Ext-Hours charts too.") widened the floor and the present-but-empty rule to ETH (`ext_hours=True`)** — one floor, two modes, no cross-contamination. The fetch-window strategy that delivers the floor is a **Plan/Build** matter. | The owner already required the 30-session floor (Q47) and then extended it to ETH (Q52); the present-but-empty rule is the only consistent reading of "a day with no bars in the session window is not a session" and is required for the floor to be measurable. ETH scope owner-confirmed; the remaining clarifications evidence-derived. | y (floor + ETH scope owner-confirmed, Q47/Q52; clarifications evidence-derived) | 2026-10-15 |
+| A74 **[NEW 2026-10-16 — D43/ESC-036; requirement decision (owner-confirmed-by-default)]** | **Aggregator priming selects its bar size from the elapsed forming-period span: `5 secs` when the span is <= 3600 S (`1 min`/`5 mins`/`15 mins`/`1 hour`), `1 min` when it exceeds 3600 S (`4 hours`/`1 day`), with `duration` clamped into the selected bar size's IBKR range (`[60 S, 3600 S]` / `[60 S, 1 D]`).** This **supersedes D27.9's "trailing 5-second history" wording** and **revises `AC-D27.9`**. | 5-second bars cannot span a 4h/1d forming period at all (IBKR caps `5 secs` at `3600 S`; the built `5 secs`/`7200 S` request returns TWS error 321), so D27.9 was unsatisfiable for those timeframes; `1 min` covers the whole elapsed span in one request and reuses the existing priming/aggregator path, while the "seed from the historical partial bar" alternative depends on unverified IBKR partial-bar behaviour. The escalation's stated expectation ("`AC-D27.9` met on every timeframe the user can select, including 4h/1d") is the owner-directed intent — **owner-confirmed-by-default** (no owner question required; recorded as Q53). | y (owner-confirmed-by-default 2026-10-16) | 2026-10-16 |
 ## Documentation Maintenance Requirements
 
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
@@ -3812,6 +3902,7 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | R62 **[NEW 2026-10-15]** | The Portfolio-only right dock's **re-derived width cap and header/collapse** could be left unspecified, so the single-section dock might inherit the old two-section assumptions (equal-width clause in `AC-D18.3`, Active-Trader title-bar widget) | M | M | `AC-D41.7` requires the right dock to be Portfolio-only with a re-derived cap/header; `D18`/`D21.13` carry explicit **superseded-by-D41** notes; DG71 records the re-derivation as the Plan/Build detail |
 | R63 **[NEW 2026-10-15 — D42/ESC-042]** | The density-aware cap could be implemented inconsistently between the candle body and the volume width, or the tests that encode the old unconditional rule (`tests/test_candle_spacing.py`, `tests/test_volume_width.py`) could be left asserting the defect, so candles and volume diverge or the suite stays green on the bug | M | H | `AC-D6.4`/`AC-D7.1` (revised) + `AC-D9.1`/`AC-D9.2` pin one shared capped `w`; D42's correction record requires the two enshrining tests be **corrected** (not weakened) and a rendered-geometry guard (`body <= pitch`, from the `QPicture` bbox) added; ESC-041's re-check measures the rendered pixel run |
 | R64 **[NEW 2026-10-15 — D42/ESC-038; ETH scope added by Q52]** | Delivering the 30-session floor **in both RTH and ETH** needs backwards-extending chained fetches across all five intraday timeframes; a partial implementation could meet `1 min` but leave `5 mins`…`4 hours` short, could cover RTH but not ETH (or vice versa), or the mode-aware day-presence change could regress the D16 no-silent-hole behaviour | M | M | `AC-D16.8` states the floor for **all five** timeframes **in both modes** and `AC-D16.9` scopes the change to **presence** only (no-fill/no-silent-hole `AC-D16.1`/`AC-D16.4` unchanged); D42's correction record adds `find_missing_spans(..., ext_hours=False)` **and** `find_missing_spans(..., ext_hours=True)` RED→GREEN cases plus a per-timeframe, per-mode session-count guard and a no-cross-contamination check; the D16 suite stays green |
+| R65 **[NEW 2026-10-16 — D43/ESC-036]** | The `1 min` priming request for `4 hours`/`1 day` could be built inconsistently (e.g. the bar size switched but the duration left at the `5 secs` ceiling, or the switch applied to the wrong timeframe set), leaving the coarse timeframes still rejected by IBKR or over-fetching; the priming tests could also be left asserting the superseded `5 secs`/`7200 S` shape, so the suite stays green on the defect | M | M | `AC-D27.9` (revised) pins the per-span bar size **and** the per-bar-size duration range; D43's correction record requires the priming tests be **corrected** (not weakened) with a RED→GREEN `4 hours`/`1 day` case (a `1 min` request whose duration is inside `[60 S, 1 D]`); P2-T30's stale `AC1`/`P2-T30-T11` are flagged for revision |
 
 
 ---
@@ -3917,5 +4008,7 @@ the test/code-side items are Build's to fix. **No new blocking question; no requ
 The silent-hole item **ESC-037** remains routed to **BUILD** (its normative target is now **`AC-D16.9`**, for **both** RTH and ETH).
 
 **[NEW 2026-10-15] Batch 18 (D41)** — the owner requested removal of the **D36 footprint**, the **D37 depth heatmap / imbalance / auction** features and "all associated code"; **scope FINALISED 2026-10-15 (Q48/Q49/Q50 answered)**: the **Active Trader DOM ladder** is **also removed** (Q48 = YES), the persisted **`footprint_cache` table + rows are deleted** (Q49 = "delete"), and the **entire Active Trader panel — including the in-app order-entry UI — is removed with the right dock becoming Portfolio-only** (Q50 = YES/YES). D41 carries acceptance criteria `AC-D41.1`–`AC-D41.7`; `AC-D36.*`/`AC-D37.*` are **SUPERSEDED BY D41** (retained for history, DOC-4), and the affected **D18**/**D21.13** clauses are **superseded by D41** with reasons. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) is **kept** for the Portfolio close/flatten/SL-TP paths, and the kept order path's `ref_price` takes a **retained source** (Plan-level detail); the shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is **explicitly preserved** (see D41 "Scope — KEEP"); **ESC-039 / ESC-035 / ESC-040** are moot. No **blocking** question remains; **Q47** is answered as **`AC-D16.8`** (30 trading sessions). This document carries `Status: READY_FOR_PLAN`.
+
+**[NEW 2026-10-16] Batch 18c (D43)** — the **ESC-036 second clause** (a **REQUIREMENTS** question the owner directed here) is **DECIDED**: D27.9's **"trailing 5-second history"** is **unsatisfiable** for the coarse intraday timeframes (`4 hours` = 14400 s, `1 day` = 86400 s — 5-sec bars cannot span them; IBKR caps `5 secs` at `3600 S`, so the built request `bar_size='5 secs'`/`duration='7200 S'` returns TWS **error 321**). **Resolution (D43.1):** prime with a bar size chosen for the elapsed forming-period span — **`5 secs`** for `1 min`/`5 mins`/`15 mins`/`1 hour`, **`1 min`** (valid up to `1 D`) for **`4 hours`**/`1 day` — with `duration` = the elapsed span clamped into the selected bar size's IBKR-accepted range (`[60 S, 3600 S]` for `5 secs`; `[60 S, 1 D]` for `1 min`). This **SUPERSEDES D27.9's "trailing 5-second history" wording** and **revises `AC-D27.9`**. **P2-T30's first-clause clamp remains correct/required for the fine timeframes**; the **coarse-timeframe bar-size switch is an explicit FOLLOW-UP** (P2-T30 does not deliver it), and P2-T30's `AC1`/`P2-T30-T11` (asserting a `5 secs`/`3600 S` request for 4h/1d) become **stale once the follow-up lands**. See D43, `AC-D27.9` (revised), A74, R65, **DG73**, **Q53** (answered, owner-confirmed-by-default). No blocking question remains.
 
 Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14; D36–D40 as-built with acceptance criteria authored, **D36/D37 now SUPERSEDED BY D41**); **D41 (Batch 18)** — the D36/D37 **+ the entire Active Trader panel (DOM ladder + order-entry UI)** removal is specified with `AC-D41.1`–`AC-D41.7` (Q48/Q49/Q50 answered 2026-10-15), the **right dock is Portfolio-only** (D18/D21.13 clauses superseded by D41), the **retained order machinery** is kept for Portfolio's close/flatten/SL-TP paths, and the shared substrate is preserved; **`AC-D16.8`** records the 30-trading-session intraday depth floor (Q47), now covering **both RTH and Ext-Hours (ETH)** per **Q52**; **Batch 18b (D42)** resolves the two REQUIREMENTS-routed Code Reviewer escalations — **ESC-042** (the `AC-D6.4` vs `AC-D7.1` contradiction: the **no-overlap guarantee wins**, the body is capped at the inter-bar pitch and the 4-px floor is **density-aware**, superseding the unconditional `AC-D6.4` / "positive gap" `AC-D7.1` wording — unblocks BUILD **ESC-041**) and **ESC-038** (intraday depth floor `AC-D16.8` clarified — sessions counted by bars inside the **current mode's** session window, all five intraday windows fall short — plus the new **`AC-D16.9`** for a present-but-empty trading day; the requirements side of BUILD **ESC-037**) — with A72–A73, R63–R64, DG68 resolved + DG72, and **Q51/Q52 answered 2026-10-15 (Q51 confirmed the zero-gap default; Q52 widened `AC-D16.8`/`AC-D16.9` to Ext-Hours, superseding the RTH-only default)**; D1–D41 otherwise unchanged. No blocking question remains.

@@ -3,7 +3,7 @@
   "metadata": {
     "status": "READY_FOR_BUILD",
     "generated": "2026-10-15",
-    "revision": "2026-10-15f \u2014 pack_fix repair: P2-T06 (tests/test_d42_candle_width.py) context pack repaired after a worker `pack_deficiency` block. Added read_files for tests/conftest.py, tests/test_chart_dpi.py (the DPR-2 QPicture-bbox measurement conventions + the isolated QT_SCALE_FACTOR=2 subprocess harness), tests/test_candle_spacing.py and tests/test_volume_width.py (the corrected sibling assertion styles), and the ChartPanel constructor / chart-load range (249-304, 380, 971-985, 1029-1031, 1112-1141) alongside the existing width-path entry; added 16 contracts (capped_body_half_width, set_data(..., pitch=)/_pitch, the ChartPanel width helpers, volume_bars.opts['width'], and the ViewBox-logical-px unit rule for F); added the D21 period-starts note and the D19/D20 'do not mask the rendered widget' note; dropped the docs/plan.md and docs/architecture.md read entries (their content is carried verbatim in the plan_excerpt/architecture_excerpt, the plan_excerpt extended with the WS1 RED->GREEN evidence). No acceptance_criteria/tests/touches_files/dependencies/status/size change. Previous: 2026-10-15e \u2014 pack_fix repair: P2-T22 (tests/test_d42_depth_floor.py) context pack repaired after a worker `pack_deficiency` block. | 2026-10-16 \u2014 reviewer-escalation repair (D42 batch, 3 new tasks): P2-T24 (ESC-048 \u2014 widen the six D42-broken suites' historical-reqId stubs to unbounded sources; the 19 StopIteration regressions + full-suite green), P2-T25 (ESC-049 \u2014 set the session's mode before the initial set_bars so the no-wave ETH path keeps the ETH budget, plus a no-wave depth-floor guard), P2-T26 (ESC-051 \u2014 restore the exact `assert len(plans) == 1` in tests/test_history_backfill.py t40_t01). No existing task's acceptance_criteria/tests/touches_files/dependencies/status changed; P2-T23 remains blocked and needs an orchestrator reset so its full-suite guard re-runs (see docs/tasks/task_manager_notes.md).",
+    "revision": "2026-10-16f \u2014 reviewer-escalation batch (ESC-054, the single open TASK_MANAGER-routed entry): (1) P2-T31's AC2 wording corrected so a PARTIAL live-account set scopes the render only and never prunes (the prune runs only after `_on_account_summary_end`) \u2014 wording only; AC1/AC3, all three test_ids, the description, dependencies, touches_files and status are untouched. (2) New P2-T38 (bugfix, depends on P2-T31) for the behavioural half: `_on_position_update`'s foreign-account early-return must also be gated on `_account_summary_complete` so a real second account's pre-summary position update is persisted and recoverable rather than silently dropped. 36 -> 37 tasks. Previous: 2026-10-16e \u2014 fresh_graph removal: P2-T36 (the ESC-052 decomposition) DELETED as redundant. ESC-052 is a BUILD escalation whose task_id names P2-T31, so build_wave.py already reset and re-dispatched P2-T31 as the rework carrying ESC-052's full diagnosis (observed/expected/suggested_direction) \u2014 the same fix was scheduled twice. P2-T36 had no dependents; its only dependency was P2-T31 (unaffected). No remaining task's acceptance_criteria/tests/touches_files/dependencies/status changed; 34 done + P2-T31/P2-T37 in_progress remain exactly as they were. See docs/tasks/task_manager_notes.md. Previous: 2026-10-16d \u2014 reviewer-escalation batch (ESC-052/ESC-053): the two open escalations decomposed into P2-T36 (ESC-052 \u2014 gate the portfolio foreign-row prune on a COMPLETE live-account set; RED guard: a partial live set must delete no rows) and P2-T37 (ESC-053 \u2014 hide qty == 0 positions from the portfolio panel render; owner decision verbatim \"Hide qty==0 positions\", supersedes the P2-T31 'product call' note). P2-T36 dependencies [P2-T31]; P2-T37 dependencies []. touches_files are disjoint (P2-T36: ui/main_window.py + tests/test_d27_account_scoping.py; P2-T37: ui/active_portfolio_panel.py + tests/test_d27_flat_rows.py), so both run in the same wave with no dependency edge. No existing task's acceptance_criteria/tests/touches_files/dependencies/status changed; all 35 pre-existing tasks remain `done`. See docs/tasks/task_manager_notes.md. | 2026-10-16c \u2014 D43/ESC-036 second-clause revision (fresh_graph): P2-T30's AC1/T11 revised to the FINE-timeframe branch only (1 min/5 mins/15 mins/1 hour -> bar_size='5 secs', duration in [60 S, 3600 S]); its AC3/T31 retargeted so test_d27_9_prime_span_bounded no longer asserts a 4h/1d shape; NEW follow-up task P2-T35 (coarse-timeframe branch: 4 hours/1 day -> bar_size='1 min', duration in [60 S, 1 D]), dependencies [P2-T30], touches_files ui/ticker_session.py + tests/test_d27_aggregator_priming.py. No other task's acceptance_criteria/tests/touches_files/dependencies/status changed. | 2026-10-16b \u2014 reviewer-escalation batch: the SEVEN open BUILD escalations decomposed into 8 new tasks P2-T27..P2-T34 (ESC-032 \u2192 P2-T27; ESC-033 \u2192 P2-T28; ESC-034 \u2192 P2-T29; ESC-036 \u2192 P2-T30; ESC-043 core (account-scoped portfolio + junk-row prune) \u2192 P2-T31 and ESC-043 limb 2 (user-space-DB isolation) \u2192 P2-T32; ESC-044 \u2192 P2-T33; ESC-045 \u2192 P2-T34). Hot-file sequencing of ui/main_window.py is encoded as dependency edges P2-T28 \u2192 P2-T27 \u2192 P2-T33 \u2192 P2-T31 \u2192 P2-T34. No existing task's acceptance_criteria/tests/touches_files/dependencies/status changed; all 26 D42 tasks remain `done`. See docs/tasks/task_manager_notes.md. Previous: 2026-10-15f \u2014 pack_fix repair: P2-T06 (tests/test_d42_candle_width.py) context pack repaired after a worker `pack_deficiency` block. Added read_files for tests/conftest.py, tests/test_chart_dpi.py (the DPR-2 QPicture-bbox measurement conventions + the isolated QT_SCALE_FACTOR=2 subprocess harness), tests/test_candle_spacing.py and tests/test_volume_width.py (the corrected sibling assertion styles), and the ChartPanel constructor / chart-load range (249-304, 380, 971-985, 1029-1031, 1112-1141) alongside the existing width-path entry; added 16 contracts (capped_body_half_width, set_data(..., pitch=)/_pitch, the ChartPanel width helpers, volume_bars.opts['width'], and the ViewBox-logical-px unit rule for F); added the D21 period-starts note and the D19/D20 'do not mask the rendered widget' note; dropped the docs/plan.md and docs/architecture.md read entries (their content is carried verbatim in the plan_excerpt/architecture_excerpt, the plan_excerpt extended with the WS1 RED->GREEN evidence). No acceptance_criteria/tests/touches_files/dependencies/status/size change. Previous: 2026-10-15e \u2014 pack_fix repair: P2-T22 (tests/test_d42_depth_floor.py) context pack repaired after a worker `pack_deficiency` block. | 2026-10-16 \u2014 reviewer-escalation repair (D42 batch, 3 new tasks): P2-T24 (ESC-048 \u2014 widen the six D42-broken suites' historical-reqId stubs to unbounded sources; the 19 StopIteration regressions + full-suite green), P2-T25 (ESC-049 \u2014 set the session's mode before the initial set_bars so the no-wave ETH path keeps the ETH budget, plus a no-wave depth-floor guard), P2-T26 (ESC-051 \u2014 restore the exact `assert len(plans) == 1` in tests/test_history_backfill.py t40_t01). No existing task's acceptance_criteria/tests/touches_files/dependencies/status changed; P2-T23 remains blocked and needs an orchestrator reset so its full-suite guard re-runs (see docs/tasks/task_manager_notes.md).",
     "batch": "Batch 18b \u2014 D42: density-aware candle/volume body width (WS1, unblocks ESC-041) + mode-aware intraday depth and day presence (WS2, unblocks ESC-037)",
     "phase_prefix": "P2",
     "id_convention": "P<n>-T<m> per phase, single phase per graph (check_tasks.py enforces this). D41 (built/reviewed/committed at b48133d) used the P1-T<m> prefix; D42 continues the phase counter as P2-T<m> \u2014 it satisfies the P<n>-T<m> requirement, keeps one phase per graph, and cannot collide with the D41 P1-T* ids recorded in git. The plan's three internal phases (WS1 / WS2 / reconciliation) are encoded as dependency edges within the one P2 prefix, not as separate prefixes.",
@@ -21,7 +21,8 @@
     "Out of scope (no tasks): ESC-032, ESC-033, ESC-034, ESC-036, ESC-043, ESC-044, ESC-045, and the BUILD halves of ESC-041/ESC-037. ESC-035/ESC-039/ESC-040 were made moot by D41.",
     "Test-harness rules honoured by every task: QT_QPA_PLATFORM=offscreen, .venv/bin/python -m pytest (the pytest shebang is stale), and every non-pytest offscreen probe exports DB_PATH=<tempfile> (ESC-043).",
     "fresh_graph repair (2026-10-15d): three tasks carried a CIRCULAR `context.test_command` \u2014 P2-T02 named `tests/test_volume_width.py` (owned by P2-T04, which depends on P2-T02), P2-T13 named `tests/test_d28_4f_panel_bar_cap.py` (owned by P2-T18, which depends on P2-T13), and P2-T14 named the three `tests/test_history_backfill*.py` (owned by P2-T15, which depends on P2-T14). Each of those suites enshrines a criterion its own task supersedes, so the command could only go green after a DOWNSTREAM task had run \u2014 unsatisfiable at the task\u2019s own dispatch point. Each command is re-pointed at files that exist and are green at dispatch, and the deferral is recorded in the task\u2019s acceptance criteria and tests. `dependencies`, `touches_files`, `status`, `title`, `agent`, `task_type` and `size` are unchanged on every task.",
-    "Reviewer-escalation repair (2026-10-16, D42 batch): three tasks added on top of the 23 \u2014 P2-T24 (ESC-048, the six D42-broken suites' fixed-size reqId stubs widened to itertools.count, ACs = six suites green individually + the full offscreen suite green; touches tests/test_d24_popouts.py, tests/test_phase3_fixpass.py, tests/test_d24_alarm_full_chain.py, tests/test_d24_smoke_gate.py, tests/test_d24_9_popout_persistence.py, tests/test_d28_tick_burst_baseline.py \u2014 these six lie OUTSIDE P2-T23's footprint and must not overlap any other task's touches_files), P2-T25 (ESC-049, the session's _wave_extended_hours set from the load's extended_hours before the initial set_bars + a no-wave ETH depth-floor guard; touches ui/main_window.py + tests/test_d42_depth_floor.py; deps P2-T12, P2-T14, P2-T22) and P2-T26 (ESC-051, restore the exact assert len(plans) == 1 in tests/test_history_backfill.py t40_t01; deps P2-T15). P2-T23 stays `blocked` \u2014 once P2-T24 lands its full-suite guard should pass, but a blocked task is not re-run automatically: the orchestrator should reset P2-T23 so its T31 guard re-runs."
+    "Reviewer-escalation repair (2026-10-16, D42 batch): three tasks added on top of the 23 \u2014 P2-T24 (ESC-048, the six D42-broken suites' fixed-size reqId stubs widened to itertools.count, ACs = six suites green individually + the full offscreen suite green; touches tests/test_d24_popouts.py, tests/test_phase3_fixpass.py, tests/test_d24_alarm_full_chain.py, tests/test_d24_smoke_gate.py, tests/test_d24_9_popout_persistence.py, tests/test_d28_tick_burst_baseline.py \u2014 these six lie OUTSIDE P2-T23's footprint and must not overlap any other task's touches_files), P2-T25 (ESC-049, the session's _wave_extended_hours set from the load's extended_hours before the initial set_bars + a no-wave ETH depth-floor guard; touches ui/main_window.py + tests/test_d42_depth_floor.py; deps P2-T12, P2-T14, P2-T22) and P2-T26 (ESC-051, restore the exact assert len(plans) == 1 in tests/test_history_backfill.py t40_t01; deps P2-T15). P2-T23 stays `blocked` \u2014 once P2-T24 lands its full-suite guard should pass, but a blocked task is not re-run automatically: the orchestrator should reset P2-T23 so its T31 guard re-runs.",
+    "2026-10-16 \u2014 reviewer-escalation batch (8 tasks, P2-T27..P2-T34; ids continue the P2 sequence because check_tasks.py enforces ONE phase prefix per graph and the D42 tasks already occupy P2-T01..P2-T26). ui/main_window.py is the hot file: it is edited by P2-T28 (load_btn wiring), P2-T27 (position id), P2-T33 (contract mapping), P2-T31 (account scoping) and P2-T34 (Account field), so those five are chained as dependency edges in that order. File-disjoint in the first wave: P2-T28 (ui/main_window.py), P2-T29 (ui/watchlist_panel.py), P2-T30 (ui/ticker_session.py), P2-T32 (data/db.py, config/paths.py, main.py). ESC-043 is deliberately split in two: the account-scoping/prune fix (P2-T31) and the user-space-DB isolation guard (P2-T32) touch disjoint files and would not fit one worker's step budget. ESC-036's deeper question (4h/1d cannot be covered by 5-sec bars at all) is flagged in docs/tasks/task_manager_notes.md, not decided here."
   ],
   "tasks": [
     {
@@ -2596,6 +2597,1259 @@
         ],
         "needs_graphify": false,
         "size": "S"
+      }
+    },
+    {
+      "id": "P2-T27",
+      "title": "ESC-032 (blocking) \u2014 the live position path hands the panel an `ibkr.account.Position` with no `id`; converge it on a populated `positions.id`",
+      "description": "ESC-032: every TWS position update raises `AttributeError: 'Position' object has no attribute 'id'` in `ui/active_portfolio_panel.py::_render_table` (`strategy_by_id.get(pos.id, '\u2014')`), because the live caller builds the object with `ibkr.account.build_position_from_ib` -> `ibkr.account.Position` (no `id` field) while the panel is written against `data.models.Position` (`id: Optional[int] = None`). Fix by converging the two models on ONE object that carries the DB row key: give `ibkr.account.Position` an `id` field, make `_upsert_position` resolve and return the `positions.id` row key (SQLite >= 3.35 `INSERT ... ON CONFLICT(symbol, con_id) DO UPDATE ... RETURNING id`, or a follow-up SELECT), set `position.id` on the live path, and add `id` to the `_on_position_end` SELECT so the bulk path is not degraded (without it the Strategy/Group columns render '\u2014' and the SL/TP dialog early-returns). Do NOT paper over this with `getattr(pos, 'id', None)`: the panel needs a REAL id for strategy-group keys and for `UPDATE positions ... WHERE id=?` SL/TP persistence, so the defensive form would stop the crash while leaving grouping and SL/TP silently broken.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "P2-T28"
+      ],
+      "acceptance_criteria": [
+        "AC1 \u2014 AC-D27.6 / ESC-032 (live path) \u2014 Given IBKR connected and a stock position update emitted on `ib_client.bridge.position_update`, When `MainWindow._on_position_update` runs, Then the position is persisted and the object handed to `ActivePortfolioPanel.add_position` carries a POPULATED `id` (the `positions.id` row key, non-None), and the panel's `_group_and_render`/`_render_table` complete without raising (no `AttributeError`) with `positions_table.rowCount() == 1` and populated cells \u2014 for EVERY position update, not just the first.",
+        "AC2 \u2014 AC-D27.6 / ESC-032 (bulk path) \u2014 Given persisted `positions` rows, When `_on_position_end` loads them after the IBKR position stream ends, Then every loaded Position carries its own `positions.id` (non-None), so the Strategy/Group columns can be keyed and the SL/TP dialog (`if pos.id is None: return`) can resolve a position.",
+        "AC3 \u2014 ESC-032 (the `id` is the real DB row key) \u2014 Given a rendered position with a populated id, When the SL/TP dialog confirms for it, Then `ActivePortfolioPanel.update_position_sltp(position_id, ...)` matches that position and `MainWindow._on_portfolio_sltp_changed` updates exactly that `positions` row via `WHERE id=?` (that row's `stop_loss`/`take_profit` change and no other row changes) \u2014 i.e. the id is the row key, not a placeholder."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T27-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Drive the real chain offscreen (monkeypatched `IBApiClient.connect` + `_on_connected()`), emit `ib_client.bridge.position_update` with a real `ibapi.contract.Contract` (secType='STK') for the live account, with a temporary `sys.excepthook` recording unhandled exceptions; assert no exception was recorded, `portfolio_panel.positions_table.rowCount() == 1`, the rendered Symbol/Type cells are populated, and `portfolio_panel._positions[0].id` is non-None.",
+          "expected_result": "No `AttributeError`; one rendered row with populated cells; the position's `id` equals its `positions.id` row key. Pre-fix: the render raises (recorded) / `id` is absent -> RED."
+        },
+        {
+          "test_id": "P2-T27-T12",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Strengthen `tests/test_d27_account_subs.py::test_d27_6_positions_populate_panel` so it no longer passes on `_positions` membership alone: after the `position_update.emit`, assert the row is actually rendered (`positions_table.rowCount() == 1`) and the position carries a non-None `id`.",
+          "expected_result": "The strengthened test is RED on the pre-fix tree (the render throws / `id` is missing) and GREEN after the fix \u2014 the escalation's coverage note (membership alone is insufficient) is satisfied."
+        },
+        {
+          "test_id": "P2-T27-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Seed one `positions` row for the live account (known `id`), then call `MainWindow._on_position_end()`; assert the loaded Position's `id` is that row's id and the panel renders it with the Strategy/Group cells present (not a table built from id-less objects).",
+          "expected_result": "`id` non-None and equal to the seeded row id; the bulk path is no longer degraded. Pre-fix: `id` is None -> RED."
+        },
+        {
+          "test_id": "P2-T27-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "After the live path has populated a real id, call `portfolio_panel.update_position_sltp(pos_id, 1.5, 3.5)` with the app's `position_sltp_changed -> MainWindow._on_portfolio_sltp_changed` connection in place; assert the seeded row's `stop_loss`/`take_profit` changed and no other row changed.",
+          "expected_result": "Exactly the addressed row updates (the id is the DB row key). Pre-fix: no id -> the dialog early-returns and nothing is updated -> RED."
+        }
+      ],
+      "expected_artifacts": [
+        "ibkr/account.py (`Position` gains `id`)",
+        "ui/main_window.py (`_upsert_position` returns the row key; `_on_position_update` sets it; `_on_position_end` SELECTs `id`)",
+        "tests/test_d27_account_subs.py (strengthened)",
+        "tests/test_d27_position_id.py (new)"
+      ],
+      "touches_files": [
+        "ibkr/account.py",
+        "ui/main_window.py",
+        "tests/test_d27_account_subs.py",
+        "tests/test_d27_position_id.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-032",
+        "docs/requirements/requirements.md#AC-D27.6",
+        "docs/requirements/requirements.md#AC-D27.5",
+        "docs/architecture.md#D27 as-built \u2014 Positions/account row"
+      ],
+      "outputs": [
+        "ibkr/account.py",
+        "ui/main_window.py",
+        "tests/test_d27_account_subs.py",
+        "tests/test_d27_position_id.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "2925-3027",
+            "why": "the three edited sites: `_on_position_update` (live), `_on_position_end` (bulk SELECT), `_upsert_position` (row key)"
+          },
+          {
+            "path": "ibkr/account.py",
+            "lines": "20-79",
+            "why": "`ibkr.account.Position` (gains `id`) and `build_position_from_ib`"
+          },
+          {
+            "path": "ui/active_portfolio_panel.py",
+            "lines": "200-315",
+            "why": "the consumer: `add_position`/`set_positions`/`_group_and_render`/`_render_table` dereference `pos.id` (the crash site)"
+          },
+          {
+            "path": "data/models.py",
+            "lines": "73-90",
+            "why": "`data.models.Position` \u2014 the model the panel's annotation claims; `id` is the DB row key"
+          },
+          {
+            "path": "data/db.py",
+            "lines": "86-107",
+            "why": "the `positions` table (`id INTEGER PRIMARY KEY AUTOINCREMENT`) the fix must populate from"
+          },
+          {
+            "path": "tests/test_d27_account_subs.py",
+            "lines": "55-95",
+            "why": "the suite to strengthen + the window/emit harness to reuse"
+          },
+          {
+            "path": "tests/test_d27_position_prices.py",
+            "lines": "20-55",
+            "why": "sibling harness for the same chain (read-only here; ESC-044 owns the `_held_contract` correction)"
+          }
+        ],
+        "contracts": [
+          "data.models.Position(symbol, qty, avg_cost, contract_type, con_id=None, account='', local_symbol='', multiplier=1.0, expiry=None, strike=None, right=None, stop_loss=None, take_profit=None, trade_group_id=None, id=None)  [existing \u2014 the panel is written against THIS model]",
+          "ibkr.account.Position(symbol, account, con_id, contract_type, local_symbol='', multiplier=1.0, expiry=None, strike=None, right=None, stop_loss=None, take_profit=None, trade_group_id=None, avg_cost=0.0, qty=0.0, market_price=0.0, unrealized_pnl=0.0, realized_pnl=0.0)  [existing \u2014 gains `id: Optional[int] = None`]",
+          "build_position_from_ib(symbol, account, con_id, contract_type, local_symbol, multiplier, expiry, strike, right, avg_cost, qty, stop_loss, take_profit, trade_group_id=None) -> ibkr.account.Position  [existing]",
+          "MainWindow._upsert_position(position: Position) -> int  [existing, extended: returns the `positions.id` row key]",
+          "MainWindow._on_position_update(account: str, contract, pos: float, avg_cost: float) -> None  [existing, edited: sets position.id before add_position]",
+          "MainWindow._on_position_end() -> None  [existing, edited: the SELECT must include `id`]",
+          "MainWindow._on_portfolio_sltp_changed(position_id: int, stop_loss: float, take_profit: float) -> None  [existing \u2014 `UPDATE positions SET stop_loss=?, take_profit=?, updated_at=? WHERE id=?`]",
+          "ActivePortfolioPanel.add_position(position) / set_positions(list) / update_position_sltp(position_id, stop_loss, take_profit) / position_sltp_changed(int, float, float)  [existing]",
+          "positions table: id INTEGER PRIMARY KEY AUTOINCREMENT, symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, multiplier, expiry, strike, right, stop_loss, take_profit, trade_group_id, updated_at; UNIQUE INDEX (symbol, con_id)  [existing]",
+          "sqlite3 in this env is 3.53.1 \u2014 `INSERT ... ON CONFLICT(symbol, con_id) DO UPDATE ... RETURNING id` is available (RETURNING requires >= 3.35)"
+        ],
+        "architecture_excerpt": "| Positions/account | **[P1/P2 2026-10-12]** D27.5/D27.6: central `_symbol_last_prices` map fed by chart bars + watchlist ticks; positions use their own symbol's price, 0.0 = honest unknown (no fabricated P&L); `reqPositions` + `reqAccountSummary` issued on connect, with an \"unavailable\" panel state on disconnect; `positions` table gained `CREATE UNIQUE INDEX IF NOT EXISTS (symbol, con_id)` via additive `_migrate_schema`. | `symbol \u2192 last_price` map; subscribe on connect; \"unavailable\" state | D27.5, D27.6 |\n| `positions`, `trade_groups`, `position_group_map` | `[existing]` | Untouched (D27.5 / Phase 7). `positions.id` remains the SL/TP + close key |",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.\n| **D27** P1 correctness | ... positions priced from a `symbol \u2192 last_price` map; `reqPositions`/`reqAccountSummary` on connect ... | `AC-D27.1`\u2013`AC-D27.11` |",
+        "requirement_ids": [
+          "AC-D27.6",
+          "AC-D27.5"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_account_subs.py tests/test_d27_position_id.py -q",
+        "memory_notes": [
+          "2026-10-15 \u2014 discovered during Code Review (offscreen probe isolation): `config/paths.py::get_db_path()` returns the **user-space** production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever the `DB_PATH` env var is **unset**. `tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic \u2014 but a **non-pytest offscreen/REPL probe** that drives `MainWindow._on_position_update` (or any DB-writing path) will write into the owner's REAL database. This is exactly how two junk rows (`HELD` from the `test_d27_account_subs.py` fixture, `conId=999`, account `DU123`; and a probe-written `H`, `conId=1`, `DU1`) ended up in the production `positions` table and were then rendered by the portfolio panel, whose `_on_position_end` `SELECT`s the whole table with no account/qty filter. **Rule: every offscreen probe MUST export `DB_PATH=<tempfile>` before importing the app** (tracked as ESC-043, which also covers scoping the render to the live account).",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "pyqtgraph (imported by `main.py` before `QApplication`) installs a non-abort `sys.excepthook`, so a slot exception is printed and SWALLOWED: a guard for a slot-path defect must assert observable state (or install a temporary `sys.excepthook` that records), never rely on the exception propagating out of `click()`/`processEvents()`."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T28",
+      "title": "ESC-033 (blocking) \u2014 the toolbar 'Load Chart' button is dead: Qt's `clicked(bool)` is bound to `load_chart`'s first parameter (`symbol`)",
+      "description": "ESC-033: clicking the toolbar 'Load Chart' button loads nothing and raises `AttributeError: 'bool' object has no attribute 'strip'` at `ui/main_window.py:1717` (`symbol = symbol.strip().upper()`). `ui/main_window.py:213` wires `self.load_btn.clicked.connect(self.load_chart)`; Qt's `QPushButton.clicked` emits `clicked(bool checked=False)`, so PyQt binds the emitted `False` to `symbol` and the else-branch runs `False.strip()`. Before D28.2 the method took zero parameters so PyQt dropped the bool. Fix by decoupling the bool-emitting signal from the parameterised method (`self.load_btn.clicked.connect(lambda: self.load_chart())` or `functools.partial`) \u2014 keeping `load_chart`'s D28.2 signature EXACTLY as specified for the callers that pass explicit values (pop-outs, the alarm monitor, tests). Do not narrow the signature and do not rely on a `try/except` around the body.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC1 \u2014 Journey 21 / AC-D14.1 (toolbar Load Chart path) / ESC-033 \u2014 Given the app is connected and `symbol_input` holds a symbol, When the real `load_btn.click()` fires (i.e. the `clicked(bool)` signal, not a direct `load_chart()` call), Then `load_chart` runs the widget path (symbol read from `symbol_input`, upper-cased) and the chart loads for that symbol \u2014 no `AttributeError: 'bool' object has no attribute 'strip'` and no exception swallowed by pyqtgraph's excepthook.",
+        "AC2 \u2014 ESC-033 (the widget path, empty field) \u2014 Given `symbol_input` is empty, When the button is clicked, Then the app takes the widget path and shows 'Enter a symbol first.' in the status bar \u2014 never a traceback from `.strip()` on the emitted bool.",
+        "AC3 \u2014 the D28.2 parameterised contract (requirements.md:2880-2881 / :3140-3141) \u2014 Given `load_chart(symbol=None, timeframe=None, extended_hours=None)`, When called with explicit values, Then the signature is unchanged (still exactly those three optional parameters) and the explicit values are used without reading the toolbar widgets; the toolbar path remains the `symbol is None` branch."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T28-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Offscreen MainWindow with `IBApiClient.connect` monkeypatched, `_on_connected()` called, a stubbed `req_historical_data` (unbounded reqId source) and a stubbed RT subscribe; set `symbol_input` to an upper-case symbol, install a temporary `sys.excepthook` recording unhandled exceptions, call `win.load_btn.click()`, spin the event loop, and assert the chart loaded for that symbol.",
+          "expected_result": "`win._current_symbol == 'AAPL'` (and the session/requests issued) with no recorded exception. Pre-fix: `AttributeError` (recorded) and nothing loads -> RED."
+        },
+        {
+          "test_id": "P2-T28-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Same harness with `symbol_input` empty; install the recording excepthook, call `win.load_btn.click()`, spin the event loop, and assert the status bar shows the 'Enter a symbol first.' message and no exception was recorded.",
+          "expected_result": "The widget path runs and the message is shown; no `bool.strip()` traceback. Pre-fix: RED (the exception fires instead)."
+        },
+        {
+          "test_id": "P2-T28-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "unit",
+          "description": "Assert `inspect.signature(MainWindow.load_chart)` is exactly `(self, symbol=None, timeframe=None, extended_hours=None)`; then call `load_chart('EXPL', '15 mins')` with the toolbar widgets deliberately set to different values and assert the explicit values win and the widgets are untouched.",
+          "expected_result": "Signature unchanged; explicit callers unaffected (the D28.2 contract intact) while the click path is fixed."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py (the `load_btn.clicked` wiring)",
+        "tests/test_d28_2_load_chart_button.py (new)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_d28_2_load_chart_button.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-033",
+        "docs/requirements/requirements.md#Journey 21 (toolbar Load Chart)",
+        "docs/requirements/requirements.md#AC-D14.1",
+        "docs/requirements/requirements.md#D28.2 parameterised load_chart"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_d28_2_load_chart_button.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "205-295",
+            "why": "the toolbar construction and the `load_btn.clicked.connect(self.load_chart)` wiring (line ~213)"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1560-1615",
+            "why": "`load_chart` \u2014 the D28.2 parameterised signature and the `symbol is None` widget branch"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1045-1065",
+            "why": "`_on_connected` enables `load_btn` and issues the account subscriptions (the harness must connect first)"
+          },
+          {
+            "path": "tests/test_d28_2_sessions.py",
+            "lines": "1-60",
+            "why": "the window harness + stubs this suite should follow"
+          },
+          {
+            "path": "tests/test_d28_2_sessions.py",
+            "lines": "141-160",
+            "why": "the existing explicit-params assertion (AC3's non-regression sibling)"
+          },
+          {
+            "path": "tests/test_d27_aggregator_priming.py",
+            "lines": "16-60",
+            "why": "a load-driving harness with an unbounded reqId stub (the D42 depth floor issues many requests)"
+          }
+        ],
+        "contracts": [
+          "MainWindow.load_chart(symbol=None, timeframe=None, extended_hours=None) -> None  [existing \u2014 signature FROZEN by D28.2; do not change]",
+          "MainWindow.symbol_input: QLineEdit / tf_combo: QComboBox / ext_hours_btn: QPushButton(checkable) / load_btn: QPushButton  [existing]",
+          "QPushButton.clicked emits `clicked(bool checked=False)` \u2014 PyQt binds that bool to the slot's first positional parameter if the slot accepts arguments",
+          "MainWindow._on_connected() enables `load_btn` (`setEnabled(True)`) and calls `_subscribe_account_data()`  [existing]"
+        ],
+        "architecture_excerpt": "| **Broker / persistence / packaging / tests** `[existing]` (`S2`) | Unchanged: official `ibapi` (`ibapi-latest==10.51.1`), **live TWS 7496 only** (`check_live_port` fail-fast), SQLite via `config/paths.get_db_path()`, PyInstaller `.app`, pytest + pytest-qt offscreen, no live TWS and no transmitted orders | Existing-repo hard constraint; Q8/Q9 | Paper mode / new broker / new DB / new test framework \u2014 rejected |\n`load_chart(symbol, timeframe, extended_hours)` is parameterised. **[blocks D24/D25]**.",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.\n| **D28** P2 robustness & scale | ... the single-symbol data plane extracted into `TickerSession` (D28.2 \u2014 the keystone for D24/D25) ... | `AC-D28.1`\u2013`AC-D28.7` |",
+        "requirement_ids": [
+          "AC-D14.1",
+          "AC-D28.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d28_2_load_chart_button.py tests/test_d28_2_sessions.py -q",
+        "memory_notes": [
+          "2026-10-16 \u2014 discovered during Build (D42; `load_chart` symbol normalisation): `MainWindow.load_chart` **upper-cases** the symbol, so any test or probe that drives the load path with a lowercase symbol never matches the rows the app actually stored (the cache/DB is keyed on the upper-cased form). Rule: when driving `load_chart` from a test, either use an already-upper-case symbol or normalise before comparing against stored rows.",
+          "2026-10-16 \u2014 discovered during Build (D42; the depth floor issues MANY requests): D42's `min_sessions` depth floor means a single `load_chart` now issues **many** historical requests instead of one. Any test that stubs `req_historical_data` with a **small fixed reqId iterator** will raise `StopIteration` (it hit `tests/test_d28_2_sessions.py`, fixed by widening the stub to `itertools.count(...)`). Rule: stubs for the historical-request path must use an **unbounded** id source.",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "pyqtgraph (imported by `main.py` before `QApplication`) installs a non-abort `sys.excepthook`, so a slot exception is printed and SWALLOWED: a guard for a slot-path defect must assert observable state (or install a temporary `sys.excepthook` that records), never rely on the exception propagating out of `click()`/`processEvents()`."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T29",
+      "title": "ESC-034 \u2014 the watchlist flash timer closes over a QTableWidgetItem that a column-layout rebuild has deleted",
+      "description": "ESC-034: `RuntimeError: wrapped C/C++ object of type QTableWidgetItem has been deleted` at `ui/watchlist_panel.py:992`, inside the timeout lambda `timer.timeout.connect(lambda: item.setBackground(QBrush(QColor('#101218'))))`. `_flash` resolves the current item, highlights it, creates a single-shot QTimer parented to the PANEL and captures that item BY CLOSURE; `_rebuild_table` (reached via `_apply_columns` from the watchlist header menu \u2014 `_on_field_toggled`/`_move_field`) replaces EVERY cell item without touching `_flash_timers`, so an in-flight 400 ms timer fires against the freed C++ object. Fix by resolving the cell lazily at fire time (`_unflash(row, key)` doing `item = self._item(row, key); if item: item.setBackground(...)`) or by invalidating the pending flashes in `_rebuild_table` (as `clear()` already does) \u2014 NOT by swallowing the RuntimeError or by `shiboken6.isValid`, which silence the traceback while keeping a dangling intent. `remove_symbol` and `clear` are already timer-safe (verified) \u2014 `_rebuild_table` is the sole unsafe path; the fix must be robust to any item replacement.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC1 \u2014 ESC-034 (lifetime invariant) \u2014 Given a pending flash timer for a cell, When the cell's item is replaced by a column-layout rebuild (`_apply_columns`/`_on_field_toggled`/`_move_field`) or the row/table is cleared, Then the timer firing must not touch a deleted QTableWidgetItem: no unhandled exception is raised, and the live cell ends at the default background `#101218` (or the cell is gone and the reset is a no-op).",
+        "AC2 \u2014 ESC-034 (not a mask) \u2014 Given the fix, Then the pending flash is either invalidated when the items are replaced or resolved against the CURRENT cell at fire time, and no exception-swallowing shim is introduced around the flash callback (no `try/except RuntimeError`, no `shiboken6.isValid` guard) \u2014 the reset must not depend on catching a deleted-object error.",
+        "AC3 \u2014 ESC-034 (the already-safe paths stay safe) \u2014 Given the fix, When `remove_symbol` (first/middle/last row) or `clear()` runs, Then the removed row's timers are still stopped/re-indexed (`_flash_timers` keys remain exactly the live `(row, key)` set) and an uninterrupted flash still resets its cell to the default background after ~400 ms."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T29-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Real `WatchlistPanel` with a fake md manager: add a symbol, start a flash (`panel._flash(0, 'last', GREEN)` or two `on_tick_price` ticks so `old is not None`), then `panel._apply_columns()` (or `_on_field_toggled(<inactive field>, True)`), install a temporary `sys.excepthook` recording unhandled exceptions, spin the event loop past 400 ms, and assert the record is empty AND the current cell's background is the default `#101218`.",
+          "expected_result": "No recorded exception and the live cell is default-coloured. Pre-fix: the recorded `RuntimeError: wrapped C/C++ object ... has been deleted` -> RED (the assertion cannot rely on propagation \u2014 pyqtgraph's hook swallows slot exceptions)."
+        },
+        {
+          "test_id": "P2-T29-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "Source-shape assertion over `ui/watchlist_panel.py`: the flash timeout path resolves the cell at fire time (a lookup of the current item) and neither masking form is present (`shiboken6.isValid` absent; the callback is not wrapped in `try/except RuntimeError`).",
+          "expected_result": "The reset is lazy-resolved (or the pending flashes are invalidated at rebuild); no exception-swallowing shim. Pre-fix: the closure captures `item` and the masking forms are absent-but-not-needed -> the lazy-resolution clause fails -> RED."
+        },
+        {
+          "test_id": "P2-T29-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Non-regression: with fake timers in `_flash_timers`, `remove_symbol` on the first, middle and last row leaves `set(_flash_timers.keys())` == the live `(row, key)` set; `clear()` stops every timer; and a flash that is NOT interrupted resets its cell to `#101218` after the 400 ms wait.",
+          "expected_result": "No stale timer, no stale key, no exception; the uninterrupted flash still resets. (These paths are already safe \u2014 the guard keeps them so.)"
+        }
+      ],
+      "expected_artifacts": [
+        "ui/watchlist_panel.py (`_flash` / a new `_unflash` / `_rebuild_table`)",
+        "tests/test_d21_flash_lifetime.py (new)"
+      ],
+      "touches_files": [
+        "ui/watchlist_panel.py",
+        "tests/test_d21_flash_lifetime.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-034",
+        "docs/requirements/requirements.md#AC-D21.5.1..4 (column layout changes apply immediately)"
+      ],
+      "outputs": [
+        "ui/watchlist_panel.py",
+        "tests/test_d21_flash_lifetime.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "955-985",
+            "why": "`_flash` (the closure), `_set_cell`/`_set_foreground` (the lazy pattern to mirror), `_item`"
+          },
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "673-755",
+            "why": "`_rebuild_table`/`_apply_columns` (the item-replacing path) and `_on_field_toggled`/`_move_field`"
+          },
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "860-905",
+            "why": "`remove_symbol` + `clear` \u2014 the already timer-safe paths AC3 must keep safe"
+          },
+          {
+            "path": "tests/test_watchlist_columns_d21.py",
+            "lines": "40-90",
+            "why": "the `FakeMdManager` + panel harness to reuse (and the `_apply_columns` usage)"
+          },
+          {
+            "path": "tests/test_watchlist_add_remove_d22.py",
+            "lines": "270-320",
+            "why": "the existing `_flash_timers` re-index assertions (AC3's sibling style)"
+          }
+        ],
+        "contracts": [
+          "WatchlistPanel._flash(row: int, key: str, color: QColor) -> None  [existing, edited]",
+          "WatchlistPanel._item(row: int, key: str) -> QTableWidgetItem | None  [existing \u2014 the lazy lookup]",
+          "WatchlistPanel._rebuild_table() / _apply_columns() / _on_field_toggled(key, checked) / _move_field(key, delta)  [existing]",
+          "WatchlistPanel._flash_timers: dict[tuple[int, str], QTimer]  [existing]",
+          "default cell background is `#101218`  [existing]",
+          "QTimer(self) parented to the panel is intentional and stays (the bug is the captured item, not the timer's parent)"
+        ],
+        "architecture_excerpt": "| `ui/watchlist_panel.py` | Watchlist table + column layout persistence (`watchlist/columns` QSettings), per-row field-keyed `_row_data`, flash timers, tick handlers | `_apply_columns` persists the layout; a column change re-renders every cell |\n`tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic.",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.",
+        "requirement_ids": [
+          "AC-D21.5.4"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d21_flash_lifetime.py tests/test_watchlist_columns_d21.py tests/test_watchlist_add_remove_d22.py -q",
+        "memory_notes": [
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "pyqtgraph (imported by `main.py` before `QApplication`) installs a non-abort `sys.excepthook`, so a slot exception is printed and SWALLOWED: a guard for a slot-path defect must assert observable state (or install a temporary `sys.excepthook` that records), never rely on the exception propagating out of `click()`/`processEvents()`.",
+          "2026-10-02 \u2014 discovered during Code Review (D16, environment): The offscreen pytest suite intermittently reports spurious failures ... because `tests/conftest.py` seeds a single shared on-disk SQLite DB ... Treat non-reproducible ibapi-mock / module-not-found failures in this suite as test-DB contention, not regressions \u2014 but always re-run the full suite to confirm before declaring green."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T30",
+      "title": "ESC-036 \u2014 D27.9 aggregator priming asks IBKR for `bar_size='5 secs'` with `duration='7200 S'` (error 321: invalid duration)",
+      "description": "ESC-036: `ui/ticker_session.py::prime_aggregator` hardcodes `bar_size='5 secs'` and builds `duration=f'{prime_s} S'` with `prime_s = min(span_s, _PRIME_MAX_SPAN_S)` where `_PRIME_MAX_SPAN_S = 7200`. IBKR caps the duration for '5 secs' bars at 3600 S, so the '4 hours'/'1 day' timeframes (span_s > 7200) request exactly `duration='7200 S'` -> TWS error 321 'Historical data requested duration is invalid' (verbatim log: 'Aggregator priming request 144 failed [321]'), and `on_historical_error` fails open, leaving the aggregator UNPRIMED and the warning emitted on every load. Fix the request to a combination IBKR accepts: clamp the 5-sec priming span into `[60 S, 3600 S]`. Because the clamp can return 5-sec bars from BEFORE the current period's start, the replay must not fabricate a partial previous-period candle. `tests/test_d27_aggregator_priming.py::test_d27_9_prime_span_bounded` currently ASSERTS `duration == '7200 S'` \u2014 it enshrines the bug and must be CORRECTED (not weakened). NOTE (flagged, not decided here): 5-sec bars cannot cover a 4h (14400 s) or daily (86400 s) forming period at all, so whether those timeframes should prime with a coarser bar size (e.g. '1 min') or seed from the historical partial bar is a separate requirements question \u2014 see `docs/tasks/task_manager_notes.md`. D43/ESC-036 (second clause, decided 2026-10-16): this task delivers the FINE-timeframe branch only (`1 min`/`5 mins`/`15 mins`/`1 hour` -> `bar_size='5 secs'`, duration in `[60 S, 3600 S]`). The COARSE-timeframe branch (`4 hours`/`1 day` -> `bar_size='1 min'`, duration in `[60 S, 1 D]`) is delivered by the FOLLOW-UP task `P2-T35`, which supersedes D27.9's 'trailing 5-second history' wording; this task's AC1/AC3/T11/T31 no longer assert any 4h/1d request shape.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC1 \u2014 AC-D27.9 (revised 2026-10-16 by D43/ESC-036) \u2014 fine-timeframe branch \u2014 Given a fresh chart load mid-period on a fine intraday timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`), When `prime_aggregator` issues its priming request, Then the request uses `bar_size='5 secs'` with a `duration` inside IBKR's accepted range `[60 S, 3600 S]` (the elapsed forming-period span clamped into that range: a span below the 60 S floor is padded up to `60 S`, a span above the ceiling is trimmed to `3600 S`), so no fine-timeframe load ever issues a `5 secs` request whose duration falls outside `[60 S, 3600 S]`. The `4 hours`/`1 day` coarse-timeframe branch (`bar_size='1 min'`, duration in `[60 S, 1 D]`) is NOT delivered by this task \u2014 it is the follow-up task `P2-T35`.",
+        "AC2 \u2014 AC-D27.9 (no fabricated candle from the clamp) \u2014 Given the clamped request can return 5-sec bars whose ts precedes the current period's start, When they are replayed into the aggregator, Then the aggregator's forming candle is the CURRENT period's and no completed previous-period candle is emitted from the primed bars; the existing prime-complete / fail-open-on-error / 15 s-backstop / live-feed-attaches-after-prime behaviour is unchanged.",
+        "AC3 \u2014 ESC-036 (the enshrining test is corrected, not weakened) \u2014 Given `tests/test_d27_aggregator_priming.py::test_d27_9_prime_span_bounded` asserted the invalid `duration == '7200 S'` for a '1 day' load, When this task lands, Then the test no longer enshrines the superseded `5 secs`/`7200 S` shape: its bounded-fetch assertion is retargeted to the fine-timeframe branch (a fine load's issued `5 secs` priming duration is asserted inside `[60 S, 3600 S]`), and no 4h/1d request assertion remains in this task's criteria or tests. Per D43 the `1 day` case's final shape (`bar_size='1 min'`, duration in `[60 S, 1 D]`) is asserted by the follow-up task `P2-T35`, which supersedes the coarse assertion this task removes."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T30-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "unit",
+          "description": "Drive `load_chart` for each fine intraday timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`) with a stubbed `req_historical_data` capturing its kwargs (unbounded reqId source) and a monkeypatched `_now_ts`; extract every request whose `bar_size == '5 secs'` and parse its duration, including a first-minute case (span < 60 s) that exercises the floor.",
+          "expected_result": "Every 5-sec priming request's duration is in [60, 3600] seconds for all four fine timeframes, including the first-minute case ('60 S', the floor). Pre-fix (before the clamp): the first-minute fine case requested a sub-60 s duration -> RED. The 4h/1d coarse cases are out of scope here (follow-up P2-T35)."
+        },
+        {
+          "test_id": "P2-T30-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "Start a mid-period load so a prime is issued, then feed the priming reqId a 5-sec bar whose ts is BEFORE `agg.period_start(now)` followed by in-period bars, and end the request; assert the forming candle is the current period's (`forming.ts == period_start`) and that no completed bar for the earlier period was emitted.",
+          "expected_result": "No previous-period candle is fabricated from primed bars; the forming candle still reflects the in-period primed history (open/high/low/close/volume) and the live feed attaches."
+        },
+        {
+          "test_id": "P2-T30-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "unit",
+          "description": "Corrected `test_d27_9_prime_span_bounded`: retargeted to the fine-timeframe branch \u2014 drives a fine load and asserts the issued 5-sec priming request's duration is inside `[60 S, 3600 S]` (the 60 S floor), replacing the assertion that enshrined the invalid `'7200 S'` for a '1 day' load.",
+          "expected_result": "The corrected assertion fails on the pre-fix tree (a fine load in the first minute of a period requested < 60 S) and passes after the fix \u2014 corrected, not weakened. The `4 hours`/`1 day` coarse case (`1 min`, duration in `[60 S, 1 D]`) is asserted by `P2-T35`."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/ticker_session.py (the 5-sec priming span clamp + the replay guard)",
+        "tests/test_d27_aggregator_priming.py (corrected)"
+      ],
+      "touches_files": [
+        "ui/ticker_session.py",
+        "tests/test_d27_aggregator_priming.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-036",
+        "docs/requirements/requirements.md#AC-D27.9",
+        "docs/requirements/requirements.md#D27.9 (B-1.9)",
+        "docs/requirements/requirements.md#D43 (ESC-036 second clause, decided 2026-10-16)",
+        "docs/requirements/requirements.md#AC-D27.9 (revised 2026-10-16)"
+      ],
+      "outputs": [
+        "ui/ticker_session.py",
+        "tests/test_d27_aggregator_priming.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "1015-1062",
+            "why": "`prime_aggregator` \u2014 the edited request construction"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "44-52",
+            "why": "`_PRIME_MAX_SPAN_S = 7_200` \u2014 the ceiling constant to re-scope for '5 secs'"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "920-980",
+            "why": "`on_historical_bar` (the priming replay into the aggregator) and the prime-complete/error routing"
+          },
+          {
+            "path": "data/bar_aggregator.py",
+            "lines": "100-140",
+            "why": "`BarAggregator.push` \u2014 a bar before the current period start opens a NEW period (the fabrication hazard AC2 guards)"
+          },
+          {
+            "path": "tests/test_d27_aggregator_priming.py",
+            "lines": "1-60",
+            "why": "the harness (fake hist bar, stubs, `_now_ts`) to reuse"
+          },
+          {
+            "path": "tests/test_d27_aggregator_priming.py",
+            "lines": "150-178",
+            "why": "`test_d27_9_prime_span_bounded` \u2014 the assertion that enshrines '7200 S' and must be corrected"
+          }
+        ],
+        "contracts": [
+          "TickerSession.prime_aggregator(contract, timeframe: str, now_ts: int, extended_hours: bool) -> bool  [existing \u2014 True when a priming request was issued]",
+          "_PRIME_MAX_SPAN_S = 7_200  [existing \u2014 must become an accepted ceiling for bar_size='5 secs' (<= 3600 S)]",
+          "IBKR Historical Data Limitations: bar_size '5 secs' accepts duration in [60 S, 3600 S]; '7200 S' -> error 321 'Historical data requested duration is invalid'",
+          "BarAggregator.push(ts, o, h, l, c, vol) / BarAggregator.period_start(now_ts) / current_bar()  [existing]",
+          "TickerSession.on_historical_bar(req_id, bar) routes priming bars into the aggregator; on_historical_data_end / on_historical_error fail open and attach the live feed  [existing]",
+          "TIMEFRAME_SECONDS[timeframe] gives the period length (4 hours = 14400 s, 1 day = 86400 s)"
+        ],
+        "architecture_excerpt": "| Backfill gaps | **[P1/P2 2026-10-12]** D27.7: gap-based bar-period-granularity detection for the trailing 5 trading days (`TRAILING_BAR_GRANULARITY_DAYS`); `load_chart` passes the ext-hours toggle. D27.9: aggregator priming \u2014 trailing 5-sec history (bounded 7200s) replayed through the fresh `BarAggregator` before live attach, fail-open + 15s backstop. | Bar-period granularity for trailing N days / per-chunk completion | D27.7 |",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.\n**D27.9 (B-1.9):** on chart load the aggregator **SHALL** be primed with trailing 5-second history before the live feed attaches, so the forming candle's OHLCV is not fabricated.",
+        "requirement_ids": [
+          "AC-D27.9"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_aggregator_priming.py -q",
+        "memory_notes": [
+          "2026-10-16 \u2014 discovered during Build (D42; the depth floor issues MANY requests): D42's `min_sessions` depth floor means a single `load_chart` now issues **many** historical requests instead of one. Any test that stubs `req_historical_data` with a **small fixed reqId iterator** will raise `StopIteration` (it hit `tests/test_d28_2_sessions.py`, fixed by widening the stub to `itertools.count(...)`). Rule: stubs for the historical-request path must use an **unbounded** id source.",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "2026-10-16 \u2014 discovered during Build (D42; `load_chart` symbol normalisation): `MainWindow.load_chart` **upper-cases** the symbol, so any test or probe that drives the load path with a lowercase symbol never matches the rows the app actually stored (the cache/DB is keyed on the upper-cased form). Rule: when driving `load_chart` from a test, either use an already-upper-case symbol or normalise before comparing against stored rows."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T31",
+      "title": "ESC-043 \u2014 scope the portfolio render to the live account and converge the `positions` table on the live session (the `HELD`/`H` rows)",
+      "description": "ESC-043: the portfolio panel shows `HELD` and `H` rows. A read-only dump of the production DB (`config/paths.py::get_db_path()`) proves both are PERSISTED rows, not live updates (row 7 = HELD|DU123|999|stock|10.0|40.0 matches `tests/test_d27_account_subs.py::test_d27_6_positions_populate_panel` arg-for-arg; row 13 = H|DU1|1|stock is an ad-hoc probe write). They reached the DB because `tests/conftest.py` is hermetic for pytest but a NON-pytest offscreen probe with `DB_PATH` unset writes the user-space DB, and they were then RENDERED because `MainWindow._on_position_end` loads the WHOLE `positions` table with no account or qty filter (`ActivePortfolioPanel.set_positions` -> `_render_table`). Fix by scoping to the LIVE account: `_on_position_end` renders only rows whose `account` is one of the accounts of the current account-summary subscription, removes foreign-account rows from the `positions` table so the owner's existing junk rows (and any future ones) are addressed rather than ignored, and skips the prune when the live account set is not yet known. The live `position_update` path must likewise not persist/render a foreign-account update. The parallel task P2-T32 closes the isolation hole so a non-hermetic process cannot open the user-space DB at all. NOT IN SCOPE (a product call, flagged for the owner, not decided here): whether flat (`qty == 0`) live rows such as the six SPXW legs should also be hidden.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "P2-T27",
+        "P2-T33"
+      ],
+      "acceptance_criteria": [
+        "AC1 \u2014 AC-D27.6 / ESC-043 (the panel renders only the live account's holdings) \u2014 Given the account-summary subscription has established the live account(s) for this connection, When `_on_position_end` bulk-loads the persisted positions after the IBKR position stream ends, Then only positions whose `account` is one of those live accounts are rendered: `positions_table.rowCount()` equals the number of live-account rows and no foreign-account row (e.g. the persisted `HELD` for `DU123` or `H` for `DU1`) appears.",
+        "AC2 \u2014 ESC-043 / ESC-052 (the production `positions` table holds only real broker positions) \u2014 Given persisted `positions` rows whose `account` is not one of the live accounts, When `_on_position_end` runs AFTER the account-summary stream has COMPLETED (`_on_account_summary_end` has set `_account_summary_complete`), Then those rows are removed from the `positions` table (so the owner's existing junk rows are addressed by the fix, not merely hidden) while live-account rows are untouched; and Given the account-summary stream has NOT COMPLETED \u2014 whether no callback has arrived yet OR only a PARTIAL set of accounts has, because the live-account set is authoritative ONLY once the stream completes \u2014 Then the prune is a no-op: no row is deleted, and the partial set scopes the render only (it must never prune).",
+        "AC3 \u2014 ESC-043 (the live path cannot re-leak a foreign account) \u2014 Given the live account(s) are known, When a `position_update` arrives for an account outside that set, Then it is neither persisted nor rendered (no new `positions` row for that account and no new panel row)."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T31-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Seed the temp DB's `positions` table with a foreign-account row (`DU123`/`HELD`/con_id 999) and a live-account row (`U13148604`/`AAPL`/con_id 1); offscreen MainWindow with `connect` monkeypatched; emit `bridge.account_summary.emit(req_id, 'U13148604', 'NetLiquidation', '100000')` then `bridge.position_end.emit()`; assert `portfolio_panel.positions_table.rowCount() == 1` and the rendered Symbol cell is 'AAPL'.",
+          "expected_result": "Only the live-account row is rendered; the `DU123` row is not. Pre-fix: both rows render -> RED."
+        },
+        {
+          "test_id": "P2-T31-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Same seed; after the account summary + `position_end` drive, assert `SELECT COUNT(*) FROM positions WHERE account='DU123'` is 0 (pruned) and the `U13148604` row still exists; then seed a foreign row again and call `_on_position_end()` with NO account summary received and assert both rows remain (the prune is a no-op when the live set is unknown).",
+          "expected_result": "Foreign rows are deleted only when the live account set is known; live rows are never touched. Pre-fix: nothing is pruned -> RED."
+        },
+        {
+          "test_id": "P2-T31-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "With the live account established, emit `bridge.position_update.emit('DU123', contract, 5.0, 3.0)`; assert no `positions` row exists for that account and no panel row was added.",
+          "expected_result": "A foreign-account update is neither persisted nor rendered. Pre-fix: the row is upserted and rendered -> RED."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py (`_on_position_end` account scoping + foreign-row prune; `_on_position_update` account gate)",
+        "tests/test_d27_account_scoping.py (new)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_d27_account_scoping.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-043",
+        "docs/requirements/requirements.md#AC-D27.6",
+        "docs/memory.md#2026-10-15 (offscreen probe isolation)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_d27_account_scoping.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "2907-3030",
+            "why": "`_on_account_summary` (the live account), `_on_position_update` (the gate) and `_on_position_end` (the unscoped SELECT) \u2014 all edited"
+          },
+          {
+            "path": "ui/active_portfolio_panel.py",
+            "lines": "193-215",
+            "why": "`set_account_summary`/`set_positions`/`add_position` \u2014 what the render is fed"
+          },
+          {
+            "path": "ui/active_portfolio_panel.py",
+            "lines": "295-315",
+            "why": "`_render_table` \u2014 renders exactly the list it is given (the panel has no account knowledge)"
+          },
+          {
+            "path": "data/db.py",
+            "lines": "86-180",
+            "why": "the `positions` table + `_migrate_schema` (the unique index) the prune must respect"
+          },
+          {
+            "path": "tests/test_d27_account_subs.py",
+            "lines": "1-60",
+            "why": "the window/emit harness + the HELD fixture this defect came from"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "1-30",
+            "why": "the per-process temp `DB_PATH` that keeps pytest hermetic"
+          }
+        ],
+        "contracts": [
+          "MainWindow._on_account_summary(reqId: int, account: str, tag: str, value: str) -> None  [existing \u2014 sets `self._account_id`; group 'All' means several accounts can stream, so track the set]",
+          "MainWindow._on_position_end() -> None  [existing, edited: account-scoped SELECT + foreign-row prune]",
+          "MainWindow._on_position_update(account: str, contract, pos: float, avg_cost: float) -> None  [existing, edited: account gate]",
+          "MainWindow._upsert_position(position) -> int  [existing (extended by P2-T27): returns the `positions.id` row key]",
+          "ActivePortfolioPanel.set_positions(positions: list[Position]) / add_position(position) -> None  [existing]",
+          "positions table: id INTEGER PRIMARY KEY AUTOINCREMENT, symbol, account, con_id, contract_type, qty, avg_cost, ...; UNIQUE INDEX (symbol, con_id)  [existing]",
+          "reqAccountSummary(req_id, 'All', 'AccountType,AvailableFunds,BuyingPower,TotalCashValue,NetLiquidation') \u2014 'All' can return several accounts  [existing]"
+        ],
+        "architecture_excerpt": "| Positions/account | **[P1/P2 2026-10-12]** D27.5/D27.6: central `_symbol_last_prices` map fed by chart bars + watchlist ticks; positions use their own symbol's price, 0.0 = honest unknown (no fabricated P&L); `reqPositions` + `reqAccountSummary` issued on connect, with an \"unavailable\" panel state on disconnect; `positions` table gained `CREATE UNIQUE INDEX IF NOT EXISTS (symbol, con_id)` via additive `_migrate_schema`. | `symbol \u2192 last_price` map; subscribe on connect; \"unavailable\" state | D27.5, D27.6 |\n- **DB access:** `data/footprint_cache.py::FootprintCache` takes `_app_db.conn`; `positions` rows are read by `_on_position_end`.",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.\n- **ESC-043** (offscreen probes must set `DB_PATH`) is a *test-harness* rule D42's new suites must honour, not a D42 work item.",
+        "requirement_ids": [
+          "AC-D27.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_account_scoping.py tests/test_d27_account_subs.py -q",
+        "memory_notes": [
+          "2026-10-15 \u2014 discovered during Code Review (offscreen probe isolation): `config/paths.py::get_db_path()` returns the **user-space** production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever the `DB_PATH` env var is **unset**. `tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic \u2014 but a **non-pytest offscreen/REPL probe** that drives `MainWindow._on_position_update` (or any DB-writing path) will write into the owner's REAL database. This is exactly how two junk rows (`HELD` from the `test_d27_account_subs.py` fixture, `conId=999`, account `DU123`; and a probe-written `H`, `conId=1`, `DU1`) ended up in the production `positions` table and were then rendered by the portfolio panel, whose `_on_position_end` `SELECT`s the whole table with no account/qty filter. **Rule: every offscreen probe MUST export `DB_PATH=<tempfile>` before importing the app** (tracked as ESC-043, which also covers scoping the render to the live account).",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "pyqtgraph (imported by `main.py` before `QApplication`) installs a non-abort `sys.excepthook`, so a slot exception is printed and SWALLOWED: a guard for a slot-path defect must assert observable state (or install a temporary `sys.excepthook` that records), never rely on the exception propagating out of `click()`/`processEvents()`."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T32",
+      "title": "ESC-043 (isolation) \u2014 a non-app process must not open the owner's user-space production DB when `DB_PATH` is unset",
+      "description": "ESC-043 limb 2: the junk rows reached the owner's real database because `config/paths.py::get_db_path()` returns the user-space production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever `DB_PATH` is unset, and only `tests/conftest.py` sets `DB_PATH` \u2014 so any NON-pytest offscreen/REPL probe that touches a DB-writing path writes the owner's DB (memory.md records the rule; architecture S12 records it as a testing discipline). Close the hole in code at the escalation's prescribed shape: `data/db.py::DB.__init__` refuses the user-space production path unless the real app opts in (the app entry point `main.py` sets the opt-in), so a probe that forgets `DB_PATH` fails loudly instead of writing the owner's database. The guard must not change the shipped app's behaviour and must be inert under pytest (`DB_PATH` set to a temp file).",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC1 \u2014 ESC-043 limb 2 (a non-app process must not open the owner's DB) \u2014 Given `DB_PATH` is unset and the process has not opted in as the real app, When `data.db.DB()` is constructed, Then it fails loudly with a clear error naming the opt-in instead of opening/creating the user-space production DB \u2014 no connection is opened and no write can reach the owner's database.",
+        "AC2 \u2014 ESC-043 limb 2 (the shipped app is unaffected) \u2014 Given the real app starts through `main.py`, Then the entry point opts in and the user-space DB is opened exactly as before (no behavioural change for the owner's normal run from source, and none for the bundled build).",
+        "AC3 \u2014 architecture S12 / ESC-043 limb 2 (pytest stays hermetic) \u2014 Given `DB_PATH` is set (as `tests/conftest.py` does, to a per-process temp file), Then `DB()` opens that file and the guard is inert \u2014 the existing suite path and every other test-visible DB behaviour is unchanged."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T32-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "In a subprocess with `DB_PATH` unset and no opt-in (and HOME redirected to a temp dir so the user-space path cannot exist), construct `data.db.DB()`; assert it raises the guard's clear error / exits non-zero, and that the user-space DB file was NOT created. Additionally, with `config.paths.get_db_path` monkeypatched to a sentinel path, assert the error is raised before `sqlite3.connect` is reached (no connection attempt).",
+          "expected_result": "A loud, actionable error; the user-space DB is never created/opened. Pre-fix: `DB()` opens/creates the production path -> RED."
+        },
+        {
+          "test_id": "P2-T32-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "With the documented app opt-in applied the way `main.py` applies it (and HOME monkeypatched to a temp dir), construct `DB()` and assert it resolves and opens the user-space path under the temp HOME \u2014 proving the real-app path still works end to end.",
+          "expected_result": "The real app's DB resolution is unchanged (opt-in present -> user-space path opens)."
+        },
+        {
+          "test_id": "P2-T32-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "unit",
+          "description": "With `DB_PATH` set to a temp file (the conftest pattern), construct `DB()` and assert it opens that file and that the guard did not fire.",
+          "expected_result": "Hermetic pytest behaviour unchanged; the guard is inert when `DB_PATH` is set."
+        }
+      ],
+      "expected_artifacts": [
+        "data/db.py (the production-path guard + the opt-in)",
+        "config/paths.py (the path resolution the guard keys on)",
+        "main.py (the app opt-in)",
+        "tests/test_db_path_isolation.py (new)"
+      ],
+      "touches_files": [
+        "data/db.py",
+        "config/paths.py",
+        "main.py",
+        "tests/test_db_path_isolation.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-043 (limb 2)",
+        "docs/memory.md#2026-10-15 (offscreen probe isolation)",
+        "docs/architecture.md#S12 (testing)"
+      ],
+      "outputs": [
+        "data/db.py",
+        "config/paths.py",
+        "main.py",
+        "tests/test_db_path_isolation.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "config/paths.py",
+            "lines": "40-82",
+            "why": "`_DB_FILENAME`/`get_db_path()`/`get_user_data_path()`/`is_bundled()` \u2014 the resolution the guard keys on"
+          },
+          {
+            "path": "data/db.py",
+            "lines": "1-30",
+            "why": "`DB.__init__` \u2014 where the guard belongs (before `sqlite3.connect`); note `db = DB()` at :301 is built at import time"
+          },
+          {
+            "path": "data/db.py",
+            "lines": "145-185",
+            "why": "`_migrate_schema` (runs from `__init__`) and the `positions` unique index"
+          },
+          {
+            "path": "main.py",
+            "lines": "1-45",
+            "why": "the app entry point that must carry the opt-in BEFORE `from ui.main_window import MainWindow` (the DB singleton is constructed at import time); `check_live_port` is the startup-guard precedent"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "1-30",
+            "why": "the per-process temp `DB_PATH` that makes pytest hermetic (the guard must be inert here)"
+          },
+          {
+            "path": "tests/test_db_schema.py",
+            "lines": "1-40",
+            "why": "the existing DB-test conventions this new suite should follow"
+          }
+        ],
+        "contracts": [
+          "config.paths.get_db_path() -> Path  [existing \u2014 user-space production path when DB_PATH is unset]",
+          "config.paths.get_user_data_path(filename: str | None = None) -> Path  [existing]",
+          "config.paths.is_bundled() -> bool  [existing \u2014 `getattr(sys, 'frozen', False)`]",
+          "_DB_FILENAME = os.getenv('DB_PATH', 'charting_app.sqlite3')  [existing]",
+          "data.db.DB.__init__() -> None  [existing \u2014 opens `paths.get_db_path()` and runs `_init_schema()`; gains the guard]",
+          "architecture S12: 'any non-pytest probe that can reach a DB-writing path **must** export `DB_PATH` to a temp file' \u2014 this task enforces that rule in code at the escalation's prescribed shape",
+          "data/db.py:301 `db = DB()` is a MODULE-LEVEL singleton constructed at IMPORT time, and `ui/main_window.py:32` does `from data.db import db as _app_db` \u2014 so the app opt-in must be applied at the very top of `main.py`, BEFORE `from ui.main_window import MainWindow`. `main.py` is the ONLY production entry point that reaches `data.db` (no script/CLI imports it); every other importer is the app itself or a test (tests set DB_PATH in `tests/conftest.py` before importing)."
+        ],
+        "architecture_excerpt": "| S12 | Testing `[existing]` | pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), **no live TWS, no transmitted orders**; run as `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the `pytest` entry point has a stale shebang); any non-pytest probe that can reach a DB-writing path **must** export `DB_PATH` to a temp file (ESC-043: an unset `DB_PATH` writes the owner's production DB) | Repo standard (Q8/Q9) + the repo's own recorded gotchas | Manual-only / live-TWS verification \u2014 rejected (`AC-G` and Q9) |",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.\n- **ESC-043** (offscreen probes must set `DB_PATH`) is a *test-harness* rule D42's new suites must honour, not a D42 work item.",
+        "requirement_ids": [
+          "AC-D27.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_db_path_isolation.py tests/test_db_schema.py -q",
+        "memory_notes": [
+          "2026-10-15 \u2014 discovered during Code Review (offscreen probe isolation): `config/paths.py::get_db_path()` returns the **user-space** production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever the `DB_PATH` env var is **unset**. `tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic \u2014 but a **non-pytest offscreen/REPL probe** that drives `MainWindow._on_position_update` (or any DB-writing path) will write into the owner's REAL database. This is exactly how two junk rows (`HELD` from the `test_d27_account_subs.py` fixture, `conId=999`, account `DU123`; and a probe-written `H`, `conId=1`, `DU1`) ended up in the production `positions` table and were then rendered by the portfolio panel, whose `_on_position_end` `SELECT`s the whole table with no account/qty filter. **Rule: every offscreen probe MUST export `DB_PATH=<tempfile>` before importing the app** (tracked as ESC-043, which also covers scoping the render to the live account).",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "2026-10-02 \u2014 discovered during Code Review (D16, environment): The offscreen pytest suite intermittently reports spurious failures ... because `tests/conftest.py` seeds a single shared on-disk SQLite DB ... Treat non-reproducible ibapi-mock / module-not-found failures in this suite as test-DB contention, not regressions \u2014 but always re-run the full suite to confirm before declaring green."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T33",
+      "title": "ESC-044 \u2014 `_on_position_update` reads ibapi Contract attribute names that do not exist, so every option/future renders as STOCK with a blank expiry and a sentinel strike",
+      "description": "ESC-044: the six SPXW option rows render `Type=STOCK` with a blank expiry. Proven against the installed ibapi 9.81.1.post1: `ui/main_window.py::_on_position_update` reads `class_` / `lastDateOrMonth` / `putCall`, none of which exist on `ibapi.Contract` \u2014 it has `secType`, `lastTradeDateOrContractMonth`, `right`, `strike`. So `getattr(contract,'class_','stock')` always yields 'stock' (every option/future is persisted `contract_type='stock'`), the expiry and right are always None, and `strike` returns ibapi's UNSET_DOUBLE sentinel (1.7976931348623157e+308 == sys.float_info.max) which is stored raw. Downstream, `ActivePortfolioPanel._group_and_render` filters `p.contract_type == 'option'`, so option legs never group and the Strategy/Group columns stay empty. Make it ONE coherent mapping from the real Contract attributes (`secType` -> stock/option/future, `lastTradeDateOrContractMonth` -> expiry, `right` -> right, `strike` -> None when it is the sentinel), mirroring the D28.6 inverse mapping already used by the close-order path (`ui/main_window.py:3144`). `tests/test_d27_position_prices.py::_held_contract()` builds `SimpleNamespace(..., lastDateOrMonth='', putCall='')`, mirroring the WRONG attribute names \u2014 it must be replaced with a REAL `ibapi.contract.Contract` so it can actually fail on a regression.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "P2-T27"
+      ],
+      "acceptance_criteria": [
+        "AC1 \u2014 AC-D27.6 / ESC-044 (real Contract attributes) \u2014 Given a position update whose ibapi `Contract` is an option (`secType='OPT'`, `lastTradeDateOrContractMonth`, `right`, `strike`), When `_on_position_update` runs, Then the handed/persisted Position has `contract_type == 'option'`, the contract's expiry, its right and its strike \u2014 derived from the REAL ibapi attributes (`secType`/`lastTradeDateOrContractMonth`/`right`/`strike`), never from `class_`/`lastDateOrMonth`/`putCall`.",
+        "AC2 \u2014 ESC-044 (no sentinel, correct vocabulary) \u2014 Given a Contract whose `strike` is the UNSET_DOUBLE sentinel (`sys.float_info.max`), When the position is built/persisted, Then the stored strike is None (never 1.7976931348623157e+308); and Given a stock Contract (`secType='STK'`), Then `contract_type == 'stock'` (with FUT -> 'future'), i.e. the position path speaks the panel's vocabulary.",
+        "AC3 \u2014 ESC-044 (options render as OPTION and group) \u2014 Given two option legs of the same underlying and expiry, When the panel renders, Then the Type column reads `OPTION` and the Strategy/Group columns are populated for those legs (`_group_and_render` sees `contract_type == 'option'`)."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T33-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Build a REAL `ibapi.contract.Contract` (`secType='OPT'`, `localSymbol='SPXW  261016P05900000'`, `conId`, `multiplier='100'`, `lastTradeDateOrContractMonth='261016'`, `right='P'`, `strike=5900.0`), emit `bridge.position_update` through the connected window, and assert the persisted `positions` row AND the Position handed to the panel carry contract_type 'option', expiry '261016', right 'P', strike 5900.0.",
+          "expected_result": "All four fields correct. Pre-fix: 'stock'/None/None/sentinel -> RED."
+        },
+        {
+          "test_id": "P2-T33-T12",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Replace `tests/test_d27_position_prices.py::_held_contract()`'s `SimpleNamespace(..., lastDateOrMonth='', putCall='')` with a REAL `ibapi.contract.Contract` (secType 'STK'), and keep the three D27.5 price assertions intact.",
+          "expected_result": "The D27.5 tests still pass and now genuinely discriminate: with the fake attribute names they could not fail on an attribute-name regression."
+        },
+        {
+          "test_id": "P2-T33-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "Drive `_on_position_update` with (a) a Contract whose strike is `sys.float_info.max` and (b) a `secType='STK'` Contract and (c) `secType='FUT'`; assert the strike is None in (a) and the contract_type is 'stock'/'future' in (b)/(c).",
+          "expected_result": "No sentinel ever reaches the model/DB; the vocabulary matches the panel's ('stock'|'option'|'future'). Pre-fix: (a) stores the sentinel -> RED."
+        },
+        {
+          "test_id": "P2-T33-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Emit two option legs of the same underlying and expiry (e.g. a short put + long put credit spread) and assert the panel's Type cells read 'OPTION' and the Strategy/Group cells are populated (not '\u2014').",
+          "expected_result": "Option rows render OPTION and the strategy grouping populates. Pre-fix: Type reads STOCK and Strategy/Group stay '\u2014' -> RED."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py (`_on_position_update` contract mapping)",
+        "tests/test_d27_position_prices.py (real `Contract` fixture)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_d27_position_prices.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-044",
+        "docs/requirements/requirements.md#AC-D27.6",
+        "docs/architecture.md#D28.6 (the existing secType inverse mapping)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_d27_position_prices.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "2925-2965",
+            "why": "`_on_position_update` \u2014 the wrong attribute names and the `build_position_from_ib` call"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "3138-3150",
+            "why": "the D28.6 inverse mapping (`{'option':'OPT','future':'FUT'}`) the new mapping must mirror"
+          },
+          {
+            "path": "ibkr/account.py",
+            "lines": "20-45",
+            "why": "`Position` / `_parse_contract_type` \u2014 what the model expects"
+          },
+          {
+            "path": "ui/active_portfolio_panel.py",
+            "lines": "269-315",
+            "why": "`_group_and_render` (filters `contract_type == 'option'`) and the Type column render"
+          },
+          {
+            "path": "tests/test_d27_position_prices.py",
+            "lines": "1-55",
+            "why": "the suite whose `_held_contract` fake attribute names must be corrected"
+          }
+        ],
+        "contracts": [
+          "ibapi.contract.Contract has: secType, symbol, localSymbol, conId, multiplier, lastTradeDateOrContractMonth, strike, right  [existing \u2014 the ONLY attribute names to read]",
+          "ibapi.contract.Contract has NO `class_`, NO `lastDateOrMonth`, NO `putCall`  [verified fact \u2014 reading them always yields the getattr default]",
+          "secType -> contract_type mapping to add: STK -> 'stock', OPT -> 'option', FUT -> 'future'  [new; mirror of the D28.6 inverse at ui/main_window.py:3144]",
+          "UNSET_DOUBLE == sys.float_info.max == 1.7976931348623157e+308  [existing \u2014 normalise to None before persisting]",
+          "MainWindow._on_position_update(account, contract, pos, avg_cost) -> None  [existing, edited]",
+          "ActivePortfolioPanel._group_and_render filters `p.contract_type == 'option'`; Type column renders `pos.contract_type.upper()`  [existing]"
+        ],
+        "architecture_excerpt": "| **D27** P1 correctness | `_last_chart_price` never moves backward; MACD/ICT/gaps/VIX overlays plot in display-x; reconnect works; per-session stream-health state + backoff retry; positions priced from a `symbol \u2192 last_price` map; `reqPositions`/`reqAccountSummary` on connect; ... | `AC-D27.1`\u2013`AC-D27.11` |\nThe `class_` half is already recorded as an open follow-up in docs/phase-changelog.md:176 and docs/architecture.md ('_on_position_update always stores \"stock\" ... fix = derive from contract.secType, own commit') but has NO escalation and NO task.",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.\nNothing in D42 touches ESC-032/033/034/036/044/045 or the D41 removals.",
+        "requirement_ids": [
+          "AC-D27.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_position_prices.py -q",
+        "memory_notes": [
+          "2026-10-15 \u2014 discovered during Code Review (offscreen probe isolation): `config/paths.py::get_db_path()` returns the **user-space** production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever the `DB_PATH` env var is **unset**. `tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic \u2014 but a **non-pytest offscreen/REPL probe** that drives `MainWindow._on_position_update` (or any DB-writing path) will write into the owner's REAL database. This is exactly how two junk rows (`HELD` from the `test_d27_account_subs.py` fixture, `conId=999`, account `DU123`; and a probe-written `H`, `conId=1`, `DU1`) ended up in the production `positions` table and were then rendered by the portfolio panel, whose `_on_position_end` `SELECT`s the whole table with no account/qty filter. **Rule: every offscreen probe MUST export `DB_PATH=<tempfile>` before importing the app** (tracked as ESC-043, which also covers scoping the render to the live account).",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "pyqtgraph (imported by `main.py` before `QApplication`) installs a non-abort `sys.excepthook`, so a slot exception is printed and SWALLOWED: a guard for a slot-path defect must assert observable state (or install a temporary `sys.excepthook` that records), never rely on the exception propagating out of `click()`/`processEvents()`."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T34",
+      "title": "ESC-045 \u2014 Account Summary shows `Account: \u2014`: `_render_summary` reads a summary key IBKR never sends",
+      "description": "ESC-045: the portfolio panel's Account Summary shows `Account: \u2014`. `ui/active_portfolio_panel.py::_render_summary` reads `self._summary.get('Account', '\u2014')`, but `_summary` only ever holds the tags requested in `MainWindow._subscribe_account_data` ('AccountType,AvailableFunds,BuyingPower,TotalCashValue,NetLiquidation') \u2014 there is no 'Account' tag in IBKR's reqAccountSummary, and the account id arrives as the CALLBACK's `account` argument, which `_on_account_summary` stores in `self._account_id` (the connection badge) and NOT in `_summary`. So the key is never present and the field is always the fallback. Fix by making the subscribed account id available to the summary render (store the callback's `account` into the summary and/or have `_render_summary` fall back to the panel's known account id) so the field shows the same id the connection badge uses. No test currently asserts the 'Account:' field text.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "P2-T31"
+      ],
+      "acceptance_criteria": [
+        "AC1 \u2014 AC-D27.6 / ESC-045 \u2014 Given an account-summary update arrives for the subscribed account, When the panel renders the summary, Then the Account field shows that account id (`Account: U13148604` \u2014 the same id the connection badge uses), not the `\u2014` fallback, alongside the Net Liq / Cash values.",
+        "AC2 \u2014 ESC-045 (no fabrication, no regression) \u2014 Given no account-summary update has arrived, Then the Account field still shows the existing `\u2014` / disconnected text and no account id is fabricated; and Given the D27.6 unavailable state (`set_account_unavailable(True)`), Then the 'Account data unavailable \u2014 not subscribed' text is unchanged."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T34-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Offscreen MainWindow with `connect` monkeypatched; emit `bridge.account_summary.emit(req_id, 'U13148604', 'NetLiquidation', '100000')` (and a Cash tag); assert `'Account: U13148604'` is in `portfolio_panel.account_detail.text()` and that the badge (`conn_badge`) uses the same id.",
+          "expected_result": "The Account field shows the subscribed id. Pre-fix: `Account: \u2014` -> RED."
+        },
+        {
+          "test_id": "P2-T34-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Assert the untouched paths: before any summary the text is 'Account summary \u2014 disconnected'; after `_on_disconnected()` (D27.6) it contains 'unavailable'; and the `\u2014` fallback still renders when a summary arrives with values but the account id is genuinely unknown.",
+          "expected_result": "No fabricated account id; the D27.6 disconnected/unavailable states are preserved."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py (`_on_account_summary` \u2014 the account id reaches the summary)",
+        "ui/active_portfolio_panel.py (`_render_summary` fallback, if used)",
+        "tests/test_d27_account_subs.py (the Account-field assertion added)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_d27_account_subs.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-045",
+        "docs/requirements/requirements.md#AC-D27.6",
+        "docs/requirements/requirements.md#AC-D26.5 (the badge's account id)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_d27_account_subs.py"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/active_portfolio_panel.py",
+            "lines": "193-270",
+            "why": "`set_account_summary` / `set_account_unavailable` / `_render_summary` \u2014 the `'Account'` lookup"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2907-2925",
+            "why": "`_on_account_summary` \u2014 where the callback's `account` arrives (and `_subscribe_account_data`'s tag list)"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "130-145",
+            "why": "`conn_badge_text(account_id, account_type, ...)` \u2014 the id the field must match"
+          },
+          {
+            "path": "tests/test_d27_account_subs.py",
+            "lines": "55-107",
+            "why": "the panel test that asserts the summary text (the assertion to extend) + the disconnect test"
+          }
+        ],
+        "contracts": [
+          "ActivePortfolioPanel.set_account_summary(summary: dict[str, str]) / _render_summary() -> None  [existing \u2014 `self._summary.get('Account', '\u2014')`]",
+          "ActivePortfolioPanel.set_account_unavailable(unavailable: bool) -> None  [existing \u2014 D27.6 state, must stay first]",
+          "MainWindow._on_account_summary(reqId: int, account: str, tag: str, value: str) -> None  [existing, edited \u2014 `self._account_id = account`]",
+          "MainWindow._subscribe_account_data() requests tags 'AccountType,AvailableFunds,BuyingPower,TotalCashValue,NetLiquidation' \u2014 IBKR has NO 'Account' tag  [existing fact]",
+          "conn_badge_text(account_id, account_type, monitoring_paused=...) -> tuple[str, str]  [existing, ui/main_window.py:131]"
+        ],
+        "architecture_excerpt": "| `ui/active_portfolio_panel.py` | `ActivePortfolioPanel`: `summary_label` (`DiagonalStrikeButton(\"Account Summary\")`, its hide/show toggle), `body`, `is_collapsed()`, positions table + Close / Close Group / Flatten All + SL/TP dialogs |\n| Positions/account | **[P1/P2 2026-10-12]** D27.5/D27.6: ... `reqPositions` + `reqAccountSummary` issued on connect, with an \"unavailable\" panel state on disconnect | D27.5, D27.6 |",
+        "plan_excerpt": "**Out of scope \u2014 do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`), **ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming `5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.",
+        "requirement_ids": [
+          "AC-D27.6",
+          "AC-D26.5"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_account_subs.py -q",
+        "memory_notes": [
+          "2026-10-15 \u2014 discovered during Code Review (offscreen probe isolation): `config/paths.py::get_db_path()` returns the **user-space** production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever the `DB_PATH` env var is **unset**. `tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic \u2014 but a **non-pytest offscreen/REPL probe** that drives `MainWindow._on_position_update` (or any DB-writing path) will write into the owner's REAL database. This is exactly how two junk rows (`HELD` from the `test_d27_account_subs.py` fixture, `conId=999`, account `DU123`; and a probe-written `H`, `conId=1`, `DU1`) ended up in the production `positions` table and were then rendered by the portfolio panel, whose `_on_position_end` `SELECT`s the whole table with no account/qty filter. **Rule: every offscreen probe MUST export `DB_PATH=<tempfile>` before importing the app** (tracked as ESC-043, which also covers scoping the render to the live account).",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`."
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P2-T35",
+      "title": "D43/ESC-036 \u2014 coarse-timeframe aggregator priming: `4 hours`/`1 day` must prime with `bar_size='1 min'` and a duration in `[60 S, 1 D]`",
+      "description": "D43.1 (ESC-036 second clause, decided 2026-10-16): D27.9's 'trailing 5-second history' is unsatisfiable for the coarse timeframes \u2014 `4 hours` (period 14400 s) and `1 day` (86400 s) exceed IBKR's `3600 S` ceiling for `5 secs` bars, so `prime_aggregator` currently issues a `5 secs` request (clamped to `3600 S` by P2-T30), covering only the last hour of the forming period. Fix: select `bar_size` from the elapsed forming-period span \u2014 `5 secs` when the span <= 3600 S (the fine timeframes, P2-T30's branch, unchanged) and `1 min` when the span exceeds 3600 S (`4 hours`/`1 day`) \u2014 and clamp `duration` into the selected bar size's IBKR-accepted range (`[60 S, 1 D]` for `1 min`). This keeps a partial current-period seed and meets the revised `AC-D27.9` on every selectable timeframe.",
+      "agent": "Build",
+      "task_type": "implementation",
+      "dependencies": [
+        "P2-T30"
+      ],
+      "acceptance_criteria": [
+        "AC1 \u2014 AC-D27.9 (revised 2026-10-16 by D43/ESC-036) \u2014 coarse-timeframe branch \u2014 Given a fresh chart load mid-period on `4 hours` or `1 day`, When `prime_aggregator` issues its priming request, Then the request uses `bar_size='1 min'` (never `5 secs`) with a `duration` equal to the elapsed forming-period span clamped into `[60 S, 1 D]` (a 4h span is up to 14400 S and a daily span up to 86399 S, both inside `1 D`); and the fine timeframes (`1 min`/`5 mins`/`15 mins`/`1 hour`) continue to issue `bar_size='5 secs'` with a duration in `[60 S, 3600 S]` (P2-T30's branch, unchanged). No load issues a bar-size/duration combination IBKR rejects.",
+        "AC2 \u2014 D43 correction record (the enshrining test is corrected, not weakened) \u2014 Given `tests/test_d27_aggregator_priming.py` still carries the superseded wording (its module docstring says 'trailing 5-sec history'), When the coarse branch lands, Then `test_d27_9_prime_span_bounded` asserts the accepted coarse combination for a '1 day' load (`bar_size='1 min'`, duration inside `[60 S, 1 D]`) and the module docstring no longer states the superseded 'trailing 5-sec history'; the whole file is green.",
+        "AC3 \u2014 AC-D27.9 (no fabricated candle from the 1-min prime) \u2014 Given the `1 min` priming bars can include a bar whose ts precedes the current period's start (the `[60 S, 1 D]` floor at a coarse period boundary), When they are replayed into the aggregator, Then the aggregator's forming candle is the CURRENT period's and no completed previous-period candle is emitted from the primed bars; the existing fail-open-on-error / 15 s-backstop / replay-guard / live-feed-attaches-after-prime behaviour is unchanged."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T35-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "unit",
+          "description": "Drive `load_chart` for '4 hours' and '1 day' with a stubbed `req_historical_data` capturing its kwargs (unbounded reqId source) and a monkeypatched `_now_ts`; extract the priming requests and assert each coarse load issues exactly one `bar_size == '1 min'` request whose parsed duration is inside [60, 86400] seconds, and issues no `5 secs` priming request.",
+          "expected_result": "Both coarse loads issue a `1 min` priming request with duration in [60, 86400] s (e.g. '14400 S' for 4h, up to '86399 S' for 1 day). Pre-fix: the coarse loads issue `5 secs` (P2-T30's clamped branch) -> no `1 min` request -> RED."
+        },
+        {
+          "test_id": "P2-T35-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "Corrected `test_d27_9_prime_span_bounded`: a '1 day' load asserts the issued priming request is `bar_size='1 min'` with duration inside `[60 S, 1 D]` (not the superseded `5 secs`/`7200 S`), and the module docstring no longer says 'trailing 5-sec history'.",
+          "expected_result": "The corrected assertion fails on the pre-fix tree (the '1 day' load issues a `5 secs` request) and passes after the fix \u2014 corrected, not weakened."
+        },
+        {
+          "test_id": "P2-T35-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "unit",
+          "description": "Start a mid-period '4 hours' load so a `1 min` prime is issued, then feed the priming reqId a `1 min` bar whose ts is BEFORE `agg.period_start(now)` followed by in-period bars, and end the request; assert the forming candle is the current period's (`forming.ts == period_start`) and no completed bar for the earlier period was emitted.",
+          "expected_result": "No previous-period candle is fabricated from the `1 min` primed bars; the forming candle still reflects the in-period primed history and the live feed attaches."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/ticker_session.py (per-span bar-size selection + the `[60 S, 1 D]` coarse clamp)",
+        "tests/test_d27_aggregator_priming.py (corrected)"
+      ],
+      "touches_files": [
+        "ui/ticker_session.py",
+        "tests/test_d27_aggregator_priming.py"
+      ],
+      "inputs": [
+        "docs/requirements/requirements.md#D43",
+        "docs/requirements/requirements.md#AC-D27.9 (revised 2026-10-16)",
+        "docs/code_review/escalations.json#ESC-036"
+      ],
+      "outputs": [
+        "ui/ticker_session.py",
+        "tests/test_d27_aggregator_priming.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "44-55",
+            "why": "`_PRIME_MIN_SPAN_S`/`_PRIME_MAX_SPAN_S` \u2014 the constants the per-span selection extends"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "1037-1105",
+            "why": "`prime_aggregator` \u2014 the bar-size/duration construction to change"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "930-1000",
+            "why": "`on_historical_bar` priming replay + prime-complete/error routing"
+          },
+          {
+            "path": "data/bar_aggregator.py",
+            "lines": "100-140",
+            "why": "`BarAggregator.push`/`period_start` \u2014 a pre-period bar opens a NEW period (the fabrication hazard AC3 guards)"
+          },
+          {
+            "path": "tests/test_d27_aggregator_priming.py",
+            "lines": "1-60",
+            "why": "the harness (fake hist bar, stubs, `_now_ts`) to reuse"
+          },
+          {
+            "path": "tests/test_d27_aggregator_priming.py",
+            "lines": "150-185",
+            "why": "`test_d27_9_prime_span_bounded` \u2014 the assertion to correct to the coarse `1 min`/`1 D` shape"
+          },
+          {
+            "path": "ibkr/market_data.py",
+            "lines": "7-30",
+            "why": "`TIMEFRAME_CONFIG` \u2014 the IBKR bar_size/duration surface the selection must match"
+          }
+        ],
+        "contracts": [
+          "TickerSession.prime_aggregator(contract, timeframe: str, now_ts: int, extended_hours: bool) -> bool  [existing \u2014 True when a priming request was issued]",
+          "_PRIME_MIN_SPAN_S = 60 / _PRIME_MAX_SPAN_S = 3_600  [existing \u2014 the accepted duration window for bar_size='5 secs']",
+          "IBKR Historical Data Limitations: bar_size '1 min' accepts a duration up to '1 D'; '5 secs' accepts duration in [60 S, 3600 S] ('5 secs' + '7200 S' -> error 321 'Historical data requested duration is invalid')",
+          "BarAggregator.push(ts, o, h, l, c, vol) / BarAggregator.period_start(now_ts) / current_bar()  [existing]",
+          "TickerSession.on_historical_bar(req_id, bar) routes priming bars into the aggregator; on_historical_data_end / on_historical_error fail open and attach the live feed  [existing]",
+          "TIMEFRAME_SECONDS[timeframe] gives the period length (4 hours = 14400 s, 1 day = 86400 s); TIMEFRAME_CONFIG maps a timeframe to its IBKR (bar_size, duration) request shape  [existing]"
+        ],
+        "architecture_excerpt": "| Backfill gaps | **[P1/P2 2026-10-12]** D27.7: gap-based bar-period-granularity detection for the trailing 5 trading days (`TRAILING_BAR_GRANULARITY_DAYS`); `load_chart` passes the ext-hours toggle. D27.9: aggregator priming \u2014 trailing 5-sec history (bounded 7200s) replayed through the fresh `BarAggregator` before live attach, fail-open + 15s backstop. | Bar-period granularity for trailing N days / per-chunk completion | D27.7 |",
+        "plan_excerpt": "**D27.9 (B-1.9):** on chart load the aggregator **SHALL** be primed with trailing 5-second history before the live feed attaches, so the forming candle's OHLCV is not fabricated. [SUPERSEDED for the coarse timeframes by D43: `4 hours`/`1 day` prime with `1 min` bars and a duration in `[60 S, 1 D]`.]",
+        "requirement_ids": [
+          "AC-D27.9"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_aggregator_priming.py -q",
+        "memory_notes": [
+          "2026-10-16 \u2014 discovered during Build (D42; the depth floor issues MANY requests): D42's `min_sessions` depth floor means a single `load_chart` now issues **many** historical requests instead of one. Any test that stubs `req_historical_data` with a **small fixed reqId iterator** will raise `StopIteration` (it hit `tests/test_d28_2_sessions.py`, fixed by widening the stub to `itertools.count(...)`). Rule: stubs for the historical-request path must use an **unbounded** id source.",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "2026-10-16 \u2014 discovered during Build (D42; `load_chart` symbol normalisation): `MainWindow.load_chart` **upper-cases** the symbol, so any test or probe that drives the load path with a lowercase symbol never matches the rows the app actually stored (the cache/DB is keyed on the upper-cased form). Rule: when driving `load_chart` from a test, either use an already-upper-case symbol or normalise before comparing against stored rows."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T37",
+      "title": "ESC-053 \u2014 hide qty == 0 (flat) positions from the portfolio panel render (owner decision, supersedes the P2-T31 \u201cproduct call\u201d note)",
+      "description": "ESC-053 (routed to REQUIREMENTS; the owner decision is now recorded here and in docs/tasks/task_manager_notes.md). PROVENANCE: the batch brief claimed P2-T31 'hides qty == 0 rows (the owner's decision)', but the repository did not support that \u2014 docs/tasks/task-graph.json's P2-T31 description records 'NOT IN SCOPE (a product call, flagged for the owner, not decided here): whether flat (qty == 0) live rows such as the six SPXW legs should also be hidden', and docs/tasks/task_manager_notes.md repeated it. That discrepancy was an ORCHESTRATOR HANDOFF ERROR: the owner's answer was given but never relayed to Task Manager, so the call was recorded as undecided. The owner has now answered EXPLICITLY and VERBATIM: \"Hide qty==0 positions\". The earlier 'NOT IN SCOPE (a product call)' note on P2-T31 is therefore SUPERSEDED, and the portfolio panel must hide zero-quantity positions from the render. Pre-fix, ui/active_portfolio_panel.py::_render_table renders every position in `self._positions` (fed by `set_positions` bulk and `add_position` single), so a `qty == 0` row currently renders. SCOPE IS THE PANEL RENDER PATH ONLY (ui/active_portfolio_panel.py): the flat rows STAY in the `positions` table (they are real broker holdings at flat size \u2014 only the render hides them) and ui/main_window.py is NOT touched. The panel's position list and its rendered rows must remain index-aligned so the existing selection contract (`_on_selection_changed` -> `self._positions[row]` -> `_selected_position`) is preserved. The Requirements Analyst should record this decision as a requirement/AC \u2014 it is not yet present in docs/requirements/requirements.md (flagged in task_manager_notes.md); the task is decomposed now because the owner has decided.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC1 \u2014 ESC-053 / owner decision (\"Hide qty==0 positions\") \u2014 Given the panel is fed positions by either entry point (`set_positions` bulk or `add_position` single), When any fed position has `qty == 0`, Then no flat position appears as a rendered row: `positions_table.rowCount()` excludes it and its symbol is absent from the table.",
+        "AC2 \u2014 ESC-053 (no over-filtering) \u2014 Given positions whose `qty != 0` (positive long or negative short), When the panel renders, Then every non-flat position still appears as a row.",
+        "AC3 \u2014 existing panel contract preserved (row/list alignment) \u2014 Given flat rows are hidden, When the panel renders, Then its position list and its rendered rows stay index-aligned: `positions_table.rowCount()` equals the number of positions the panel holds and each rendered Symbol cell matches that list's entry, so `_on_selection_changed`'s `self._positions[row]` lookup still resolves to the row the user selected."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T37-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Construct an offscreen ActivePortfolioPanel (see tests/test_d27_account_subs.py for the panel harness); `set_positions([flat qty=0.0 symbol='SPXW0', long qty=10.0 symbol='AAPL'])`; assert `positions_table.rowCount() == 1` and the rendered Symbol cells contain 'AAPL' and not 'SPXW0'.",
+          "expected_result": "The qty == 0 position is not rendered. Pre-fix: `_render_table` renders every entry -> rowCount 2 with 'SPXW0' present -> RED."
+        },
+        {
+          "test_id": "P2-T37-T21",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Panel with one long position via `set_positions`; then `add_position(flat qty=0.0 symbol='SPXW0')`; assert `positions_table.rowCount()` is unchanged and 'SPXW0' is not rendered; then `add_position(long qty=4.0 symbol='MSFT')` and assert the row appears.",
+          "expected_result": "The live `add_position` feed also hides flat rows while non-flat adds still render. Pre-fix: the flat add renders a row -> RED."
+        },
+        {
+          "test_id": "P2-T37-T31",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "`set_positions([long qty=10.0 symbol='AAPL', short qty=-3.0 symbol='TSLA', flat qty=0.0 symbol='SPXW0'])`; assert `positions_table.rowCount() == 2` and both 'AAPL' and 'TSLA' are rendered (the short is not mistaken for flat).",
+          "expected_result": "Only qty == 0 is hidden; positive and negative non-zero quantities both render. Pre-fix: rowCount 3 -> RED on the count."
+        },
+        {
+          "test_id": "P2-T37-T41",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Same mix as T31; assert `positions_table.rowCount() == len(panel._positions)` and, for every row r, `panel._positions[r].symbol == positions_table.item(r, 0).text()`; then `positions_table.selectRow(0)` + `qapp.processEvents()` and assert `panel._selected_position.symbol == positions_table.item(0, 0).text()`.",
+          "expected_result": "The panel's position list and its rendered rows stay index-aligned, so selecting row 0 selects the position shown in row 0. A render-only filter that leaves flat rows in `self._positions` desyncs the indices -> RED."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/active_portfolio_panel.py (the qty == 0 filter applied so flat positions are not rendered, on both the `set_positions` and `add_position` feeds, with row/list alignment preserved)",
+        "tests/test_d27_flat_rows.py (new: set_positions hide, add_position hide, non-flat incl. short still renders, row/list alignment)"
+      ],
+      "touches_files": [
+        "ui/active_portfolio_panel.py",
+        "tests/test_d27_flat_rows.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-053",
+        "docs/tasks/task_manager_notes.md#ESC-053 (the owner decision + provenance correction)",
+        "ui/active_portfolio_panel.py (set_positions / add_position / _group_and_render / _render_table / _on_selection_changed)",
+        "data/models.py (Position.qty)"
+      ],
+      "outputs": [
+        "ui/active_portfolio_panel.py",
+        "tests/test_d27_flat_rows.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/active_portfolio_panel.py",
+            "lines": "220-333",
+            "why": "`set_positions`/`add_position`/`_group_and_render`/`_render_table` \u2014 the render path the qty == 0 filter lands in"
+          },
+          {
+            "path": "ui/active_portfolio_panel.py",
+            "lines": "335-352",
+            "why": "`_on_selection_changed` \u2014 indexes `self._positions[row]`; the row/list alignment the filter must preserve"
+          },
+          {
+            "path": "data/models.py",
+            "lines": "70-95",
+            "why": "`Position.qty: float  # signed: positive long, negative short` \u2014 the field the filter keys on"
+          },
+          {
+            "path": "tests/test_d27_account_subs.py",
+            "lines": "1-80",
+            "why": "panel-construction + `set_positions`/`positions_table` conventions for the new panel-level test"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "1-30",
+            "why": "the `qapp` fixture and the offscreen `QT_QPA_PLATFORM` setting"
+          }
+        ],
+        "contracts": [
+          "ActivePortfolioPanel.set_positions(positions: list[Position]) -> None  [existing, edited: flat (qty == 0) positions are not rendered]",
+          "ActivePortfolioPanel.add_position(position: Position) -> None  [existing, edited: a flat position is not rendered]",
+          "ActivePortfolioPanel._render_table(strategy_by_id: dict[int, str]) -> None  [existing, edited]",
+          "ActivePortfolioPanel._on_selection_changed() -> None  [existing, unchanged: resolves `self._positions[row]` \u2014 the alignment AC3 pins]",
+          "Position.qty: float  # signed: positive long, negative short  [existing]",
+          "Owner decision (2026-10-16, verbatim): \"Hide qty==0 positions\"  [new \u2014 supersedes the P2-T31 'product call' note]"
+        ],
+        "architecture_excerpt": "| Positions/account | **[P1/P2 2026-10-12]** D27.5/D27.6: central `_symbol_last_prices` map fed by chart bars + watchlist ticks; positions use their own symbol's price, 0.0 = honest unknown (no fabricated P&L); `reqPositions` + `reqAccountSummary` issued on connect, with an \"unavailable\" panel state on disconnect; `positions` table gained `CREATE UNIQUE INDEX IF NOT EXISTS (symbol, con_id)` via additive `_migrate_schema`. | `symbol \u2192 last_price` map; subscribe on connect; \"unavailable\" state | D27.5, D27.6 |\n- **DB access:** `data/footprint_cache.py::FootprintCache` takes `_app_db.conn`; `positions` rows are read by `_on_position_end`.",
+        "plan_excerpt": "**ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account Summary). They are separate work with no task yet.",
+        "requirement_ids": [
+          "AC-D27.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_flat_rows.py -q",
+        "memory_notes": [
+          "2026-10-15 \u2014 discovered during Code Review (offscreen probe isolation): `config/paths.py::get_db_path()` returns the **user-space** production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever the `DB_PATH` env var is **unset**. `tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic \u2014 but a **non-pytest offscreen/REPL probe** that drives `MainWindow._on_position_update` (or any DB-writing path) will write into the owner's REAL database. This is exactly how two junk rows (`HELD` from the `test_d27_account_subs.py` fixture, `conId=999`, account `DU123`; and a probe-written `H`, `conId=1`, `DU1`) ended up in the production `positions` table and were then rendered by the portfolio panel, whose `_on_position_end` `SELECT`s the whole table with no account/qty filter. **Rule: every offscreen probe MUST export `DB_PATH=<tempfile>` before importing the app** (tracked as ESC-043, which also covers scoping the render to the live account).",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "2026-10-02 \u2014 environment note: the offscreen pytest suite intermittently reports spurious failures because `tests/conftest.py` seeds a **single shared on-disk SQLite DB**, so concurrent/interleaved runs contend on it. Such failures pass in isolation and in a clean full-suite run \u2014 always re-run the full suite to confirm before declaring green."
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P2-T38",
+      "title": "ESC-054 \u2014 a real account's `position_update` arriving before its own `account_summary` callback must not be silently dropped (and must be recoverable once the summary completes)",
+      "description": "ESC-054: `_on_position_update`'s foreign-account early-return is gated on `_live_accounts` being non-empty, but that set is AUTHORITATIVE only once the account-summary stream has COMPLETED (`_on_account_summary_end`). In the window between the first `account_summary` callback and `accountSummaryEnd`, a REAL second account's `position_update` is dropped \u2014 neither persisted nor rendered \u2014 and is unrecoverable for the session, because `_on_position_end` loads only from the `positions` table (reviewer probe: the row is absent before AND after the summary completes). Gate the early-return on completion as well (`self._live_accounts and self._account_summary_complete and account not in self._live_accounts`) so a pre-summary update is persisted (and rendered, still scoped to the accounts known so far) rather than discarded, and the panel converges on the complete live set once the stream completes. The completed-set gate ESC-043/ESC-052 established must remain intact (a foreign update AFTER completion is still dropped). Impact is nil for the single-account owner; real for multi-account users.",
+      "agent": "Build",
+      "task_type": "bugfix",
+      "dependencies": [
+        "P2-T31"
+      ],
+      "acceptance_criteria": [
+        "AC1 \u2014 ESC-054 (a pre-completion update for a not-yet-summarised real account is not discarded) \u2014 Given the account-summary subscription is IN PROGRESS (at least one `account_summary` callback has arrived for account A, but `accountSummaryEnd` has NOT), When a `position_update` arrives for a real account B that is not yet in the partial live-account set, Then it IS persisted to the `positions` table (a row exists for B) and rendered, rather than silently dropped \u2014 a partial set scopes the render only, it never discards a real account's data.",
+        "AC2 \u2014 ESC-054 (the outcome is recoverable once the summary completes) \u2014 Given such a pre-completion update for account B, When the account-summary stream subsequently completes with the full set {A, B} (`_on_account_summary_end`) and `_on_position_end` runs, Then B's persisted row still exists in the `positions` table and is rendered \u2014 the panel converges on the complete live set and no real account's holding is missing for the session.",
+        "AC3 \u2014 ESC-043/ESC-052 preserved (the completed-set gate is not reverted) \u2014 Given the account-summary stream has COMPLETED and the live set is {A}, When a `position_update` arrives for an account outside that completed set, Then it is still neither persisted nor rendered (no `positions` row and no panel row) \u2014 the safety gate a reworker could otherwise revert remains in force."
+      ],
+      "tests": [
+        {
+          "test_id": "P2-T38-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Offscreen MainWindow on the temp DB; `_on_connected`; emit `bridge.account_summary.emit(req_id, 'U13148604', 'NetLiquidation', '100000')` ONLY (NO `account_summary_end`); then emit `bridge.position_update.emit('U99999999', <MSFT stock contract>, 10.0, 5.0)`; `processEvents()`. Assert `SELECT COUNT(*) FROM positions WHERE account='U99999999'` == 1 and the portfolio table renders 'MSFT'.",
+          "expected_result": "The pre-summary update for a real second account is persisted AND rendered. Pre-fix: `_live_accounts == {'U13148604'}` is non-empty, so the early-return drops it \u2014 row count 0 and no rendered row -> RED."
+        },
+        {
+          "test_id": "P2-T38-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Continue the T11 sequence: emit `bridge.account_summary.emit(req_id, 'U99999999', 'NetLiquidation', '50000')`, then `bridge.account_summary_end.emit(req_id)`, then `bridge.position_end.emit()`; `processEvents()`. Assert the `U99999999` row still exists in the `positions` table and is rendered alongside the live account's rows.",
+          "expected_result": "The pre-summary update survives completion and the panel converges on the complete set. Pre-fix: B was never persisted, so after completion the table has no B row -> RED."
+        },
+        {
+          "test_id": "P2-T38-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Offscreen MainWindow; `_on_connected`; emit `bridge.account_summary.emit(req_id, 'U13148604', 'NetLiquidation', '100000')` then `bridge.account_summary_end.emit(req_id)` (stream COMPLETE, live set {U13148604}); then emit `bridge.position_update.emit('DU123', <FOREIGN stock contract>, 5.0, 3.0)`; `processEvents()`. Assert `COUNT(*) FROM positions WHERE account='DU123'` == 0 and no rendered row named 'FOREIGN'.",
+          "expected_result": "A foreign-account update AFTER the summary stream completes is still neither persisted nor rendered. Green pre- and post-fix (non-regression guard pinning ESC-043/ESC-052's completed-set gate against this task's own reworking of the same early-return)."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py (`_on_position_update` foreign-account early-return additionally gated on `self._account_summary_complete`)",
+        "tests/test_d27_account_partial_window.py (new)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_d27_account_partial_window.py"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-054",
+        "docs/requirements/requirements.md#AC-D27.6",
+        "docs/memory.md#2026-10-15 (offscreen probe isolation)"
+      ],
+      "outputs": [
+        "ui/main_window.py",
+        "tests/test_d27_account_partial_window.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "2941-3020",
+            "why": "`_on_account_summary` (fills the PARTIAL set), `_on_account_summary_end` (sets `_account_summary_complete`) and `_on_position_update`'s early-return at :3018 \u2014 the exact line this task edits"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "3069-3130",
+            "why": "`_on_position_end` \u2014 the completion-gated prune + scoped SELECT the edit must stay consistent with"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1110-1135",
+            "why": "`_subscribe_account_data` \u2014 resets `_live_accounts`/`_account_summary_complete`/`_positions_rendered` per (re)subscription, i.e. where the partial window opens"
+          },
+          {
+            "path": "tests/test_d27_account_scoping.py",
+            "lines": "1-95",
+            "why": "the offscreen window/emit harness + `_seed_position`/`_count_account`/`_stock_contract` helpers to reuse"
+          },
+          {
+            "path": "tests/test_d27_account_scoping.py",
+            "lines": "155-199",
+            "why": "`test_p2_t31_t41_partial_live_set_does_not_prune` \u2014 the partial-set PRUNE case this task complements on the UPDATE path"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "1-30",
+            "why": "the per-process temp `DB_PATH` that keeps pytest hermetic (ESC-043 rule)"
+          },
+          {
+            "path": "data/db.py",
+            "lines": "86-180",
+            "why": "the `positions` table + `_migrate_schema` unique index the upsert/prune must respect"
+          }
+        ],
+        "contracts": [
+          "MainWindow._on_position_update(account: str, contract, pos: float, avg_cost: float) -> None  [existing, EDITED: the foreign-account early-return gains `and self._account_summary_complete`]",
+          "MainWindow._on_account_summary(reqId: int, account: str, tag: str, value: str) -> None  [existing \u2014 adds `account` to `self._live_accounts`; group 'All' streams several accounts, so the set may be PARTIAL until the end marker]",
+          "MainWindow._on_account_summary_end(reqId: int) -> None  [existing \u2014 sets `self._account_summary_complete = True` (only when `reqId` matches `_account_summary_req_id`), then prunes + re-renders]",
+          "MainWindow._prune_foreign_positions() -> None  [existing \u2014 destructive DELETE; callers MUST gate on `_account_summary_complete`]",
+          "MainWindow._on_position_end() -> None  [existing \u2014 prune runs only when `live and complete`; SELECT scoped to `live` whenever `live` is non-empty]",
+          "MainWindow._upsert_position(position) -> int  [existing \u2014 INSERT ... ON CONFLICT(symbol, con_id) DO UPDATE ... RETURNING id]",
+          "positions table: id INTEGER PRIMARY KEY AUTOINCREMENT, symbol, account, con_id, contract_type, qty, avg_cost, ...; UNIQUE INDEX (symbol, con_id)  [existing]",
+          "Account streams: reqPositions() -> position_update/position_end; reqAccountSummary(req_id,'All',...) -> account_summary(account,tag,value)/account_summary_end(req_id)  [existing \u2014 INDEPENDENT streams with NO ordering guarantee, which is why the partial window exists]"
+        ],
+        "architecture_excerpt": "| Positions/account | **[P1/P2 2026-10-12]** D27.5/D27.6: central `_symbol_last_prices` map fed by chart bars + watchlist ticks; positions use their own symbol's price, 0.0 = honest unknown (no fabricated P&L); `reqPositions` + `reqAccountSummary` issued on connect, with an \"unavailable\" panel state on disconnect; `positions` table gained `CREATE UNIQUE INDEX IF NOT EXISTS (symbol, con_id)` via additive `_migrate_schema`. | `symbol \u2192 last_price` map; subscribe on connect; \"unavailable\" state | D27.5, D27.6 |",
+        "plan_excerpt": "| **D27** P1 correctness | `_last_chart_price` never moves backward; MACD/ICT/gaps/VIX overlays plot in display-x; reconnect works (`connect()` not `eConnect`; subs type-tagged and replayed with rebound reqIds); per-session stream-health state + backoff retry; positions priced from a `symbol \u2192 last_price` map; `reqPositions`/`reqAccountSummary` on connect; bar-period backfill-gap detection; ET-anchored daily/4h aggregation; aggregator primed from trailing 5-sec history; drawing style edits persist | `AC-D27.1`\u2013`AC-D27.11` |",
+        "requirement_ids": [
+          "AC-D27.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_account_partial_window.py -q",
+        "memory_notes": [
+          "2026-10-15 \u2014 discovered during Code Review (offscreen probe isolation): `config/paths.py::get_db_path()` returns the **user-space** production DB (`~/Library/Application Support/NDThinkChart/charting_app.sqlite3`) whenever the `DB_PATH` env var is **unset**. `tests/conftest.py` sets `DB_PATH` to a temp file, so pytest runs are hermetic \u2014 but a **non-pytest offscreen/REPL probe** that drives `MainWindow._on_position_update` (or any DB-writing path) will write into the owner's REAL database. This is exactly how two junk rows (`HELD` from the `test_d27_account_subs.py` fixture, `conId=999`, account `DU123`; and a probe-written `H`, `conId=1`, `DU1`) ended up in the production `positions` table and were then rendered by the portfolio panel, whose `_on_position_end` `SELECT`s the whole table with no account/qty filter. **Rule: every offscreen probe MUST export `DB_PATH=<tempfile>` before importing the app** (tracked as ESC-043, which also covers scoping the render to the live account).",
+          "2026-10-05 \u2014 host/environment note: In this repo `.venv/bin/pytest` has a **stale shebang** pointing at the pre-rename `TOS_Charting` path, so the `pytest` entry point fails; always run the suite as `.venv/bin/python -m pytest`.",
+          "pyqtgraph (imported by `main.py` before `QApplication`) installs a non-abort `sys.excepthook`, so a slot exception is printed and SWALLOWED: a guard for a slot-path defect must assert observable state (or install a temporary `sys.excepthook` that records), never rely on the exception propagating out of `emit()`/`processEvents()`."
+        ],
+        "needs_graphify": false,
+        "size": "M"
       }
     }
   ]

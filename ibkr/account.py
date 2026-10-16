@@ -37,6 +37,11 @@ class Position:
     market_price: float = 0.0
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
+    # ESC-032 / P2-T27: the `positions.id` DB row key. The panel
+    # (`ActivePortfolioPanel._render_table`) dereferences `pos.id` for strategy
+    # grouping and the SL/TP dialog keys `UPDATE positions ... WHERE id=?` on it,
+    # so the live path must carry the REAL row key — not a defensive None.
+    id: Optional[int] = None
 
 
 def _parse_contract_type(s: str) -> str:

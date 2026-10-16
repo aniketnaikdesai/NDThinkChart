@@ -1088,3 +1088,48 @@
   same calendar-day windows and showed the same one-session symptom, but widening the floor to ETH was **not
   assumed**. **Q52 now supersedes this scoping — ETH is in scope.**
 - **Affected requirement section:** `AC-D16.8` (both modes), `AC-D16.9` (both modes); D42.2; A73.
+
+---
+
+# Open Questions — 2026-10-16 (Batch 18c / D43 — ESC-036 second clause) — 1 decision (owner-confirmed-by-default)
+
+> The **ESC-036 second clause** (a **REQUIREMENTS** question the owner directed here) is **DECIDED** on
+> 2026-10-16 as **D43** in `requirements.md`. **D41/D42 are not reopened.** `D27.9`'s **"trailing 5-second
+> history"** is **unsatisfiable** for the coarse intraday timeframes (`4 hours` = 14400 s, `1 day` = 86400 s —
+> 5-sec bars cannot span them; IBKR caps `5 secs` at `3600 S`, so the built request `bar_size='5 secs'`/
+> `duration='7200 S'` returns TWS **error 321**). **Decision (D43.1):** prime with a bar size chosen for the
+> elapsed forming-period span — **`5 secs`** for `1 min`/`5 mins`/`15 mins`/`1 hour`, **`1 min`** (valid up to
+> `1 D`) for **`4 hours`**/`1 day` — with `duration` = the elapsed span clamped into the selected bar size's
+> IBKR-accepted range (`[60 S, 3600 S]` for `5 secs`; `[60 S, 1 D]` for `1 min`). This **supersedes D27.9's
+> wording** and **revises `AC-D27.9`**. **No blocking question remains** (the decision follows the escalation's
+> stated expectation — **owner-confirmed-by-default**); the **coarse-timeframe bar-size switch is a FOLLOW-UP**
+> (P2-T30 does not deliver it). `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## Q53 — ESC-036 (second clause): how should the aggregator be primed for `4 hours`/`1 day`, where 5-second bars cannot cover the forming period at all?
+
+- **Status:** **answered 2026-10-16 (owner-confirmed-by-default — decided from the escalation's stated intent; no owner question required).**
+- **Answer (adopted, D43.1):** the priming request's **bar size is selected from the elapsed forming-period span**:
+  - **`5 secs`** when the elapsed span is **<= 3600 S** — the **`1 min`**, **`5 mins`**, **`15 mins`** and
+    **`1 hour`** timeframes; `duration` = the elapsed span clamped into **`[60 S, 3600 S]`**.
+  - **`1 min`** when the elapsed span **exceeds 3600 S** — the **`4 hours`** and **`1 day`** timeframes;
+    `duration` = the elapsed span clamped into **`[60 S, 1 D]`** (`1 min` is IBKR-valid up to `1 D`).
+  This keeps a **partial current-period seed** and meets `AC-D27.9` on **every** selectable timeframe. It
+  **supersedes `D27.9`'s "trailing 5-second history" wording** and **revises `AC-D27.9`**.
+- **Why no owner question:** the escalation was **owner-directed** and its stated expectation is explicit —
+  "`AC-D27.9` ('forming candle reflect primed history') must be met on every timeframe the user can select,
+  including 4h/1d". The decision follows that intent and is recorded as **owner-confirmed-by-default**; the
+  alternative ("drop priming for the coarse timeframes") was rejected because it leaves the forming 4h/daily
+  candle fabricated from live ticks.
+- **Alternatives considered and NOT adopted:**
+  1. **Drop priming for `4 hours`/`1 day`** — stops the error-321 warning but leaves the forming candle
+     fabricated from live ticks; does not meet the escalation's expectation.
+  2. **Seed from the historical partial bar** (zero extra requests) — depends on IBKR returning a **partial
+     current-period bar** as the last bar of the `4 hours`/`1 day` historical request, which is **unverified**
+     in this environment and would silently degrade to a fabricated bar if IBKR returns only completed bars.
+  3. **Prime a shorter `5 secs` span and accept a partial seed** (what P2-T30's clamp does) — the forming
+     candle's open/high/low/volume would still be wrong for the coarse periods.
+- **Follow-up (not a question):** the **coarse-timeframe bar-size switch is NOT delivered by P2-T30** (which
+  only clamps the `5 secs` span into `[60 S, 3600 S]`); a **FOLLOW-UP BUILD task** is needed, and **P2-T30's
+  `AC1`/`P2-T30-T11`** (asserting a `5 secs`/`3600 S` request for 4h/1d) become **stale once it lands** and
+  must be revised by the Task Manager.
+- **Affected requirement section:** D27.9 (revised), `AC-D27.9` (revised), D43.1; A74; R65; DG73.

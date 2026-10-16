@@ -967,6 +967,24 @@ class WatchlistPanel(QWidget):
         if item:
             item.setForeground(QBrush(color))
 
+    def _unflash(self, row: int, key: str):
+        """Reset a flashed cell to the default background.
+
+        The cell item is resolved lazily by ``(row, key)`` at fire time rather
+        than captured by the timer closure. A column-layout rebuild
+        (``_rebuild_table`` via ``_apply_columns`` / ``_on_field_toggled`` /
+        ``_move_field``) replaces every cell item without touching
+        ``_flash_timers``, so a captured item could already be a freed C++
+        object when the pending timer fires
+        (``RuntimeError: wrapped C/C++ object of type QTableWidgetItem has been
+        deleted``, ESC-034). Resolving the *current* item is what makes the
+        reset robust to any item replacement; it is deliberately not an
+        exception-swallowing shim.
+        """
+        item = self._item(row, key)
+        if item:
+            item.setBackground(QBrush(QColor('#101218')))
+
     def _flash(self, row: int, key: str, color: QColor):
         """Briefly highlight a cell then fade back to default."""
         item = self._item(row, key)
@@ -978,6 +996,8 @@ class WatchlistPanel(QWidget):
             self._flash_timers[timer_key].stop()
         timer = QTimer(self)
         timer.setSingleShot(True)
-        timer.timeout.connect(lambda: item.setBackground(QBrush(QColor('#101218'))))
+        # ESC-034: resolve the cell at fire time (``_unflash``) instead of
+        # closing over the item, which a rebuild may have deleted by then.
+        timer.timeout.connect(lambda: self._unflash(row, key))
         timer.start(400)  # flash for 400 ms
         self._flash_timers[timer_key] = timer

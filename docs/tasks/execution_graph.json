@@ -103,6 +103,50 @@
     {
       "id": "P2-T26",
       "type": "Task"
+    },
+    {
+      "id": "P2-T27",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T28",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T29",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T30",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T31",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T32",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T33",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T34",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T35",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T37",
+      "type": "Task"
+    },
+    {
+      "id": "P2-T38",
+      "type": "Task"
     }
   ],
   "edges": [
@@ -389,6 +433,41 @@
     {
       "from": "P2-T15",
       "to": "P2-T26",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P2-T28",
+      "to": "P2-T27",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P2-T27",
+      "to": "P2-T31",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P2-T33",
+      "to": "P2-T31",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P2-T27",
+      "to": "P2-T33",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P2-T31",
+      "to": "P2-T34",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P2-T30",
+      "to": "P2-T35",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P2-T31",
+      "to": "P2-T38",
       "type": "DEPENDS_ON"
     }
   ]

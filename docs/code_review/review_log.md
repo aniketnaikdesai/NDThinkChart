@@ -3383,4 +3383,411 @@ batch); not escalated.
 escalations are closed. Remaining open items are the seven pre-D42 live-run BUILD escalations
 (ESC-032/033/034/036/043/044/045), which are outside this batch's scope and were not re-diagnosed.
 
+# Backlog batch review — P2-T27…P2-T35 (seven live-run defects), 2026-10-16
+
+**Scope (incremental):** the nine tasks whose `docs/build/results/<id>.json` are newer than the previous
+`REVIEW_COMPLETE` — `P2-T27`–`P2-T35` (the precheck's 9-task scope; the brief said "eight", the actual set is
+nine). `docs/build/build_log.md` ends `Status: READY_FOR_REVIEW`; all 35 tasks `done`. `docs/code_review/precheck.json`
+reports **0 fail_fast, 0 escalation entries, 0 unattributed working-tree changes, 4 overlap(info) only, no footprint
+violations**. Repo working tree (uncommitted batch on top of `5d518ad`). No live TWS used — every run offscreen.
+
+**Method:** diff-first over each task's `files_verified`; guards re-run RED→GREEN in a **temp copy** of the tree
+(`/…/T/opencode/cr_redcheck`) — no repo file was edited. `docs/codebase-map.md` does not exist — expected
+(convention applies from the next batch); not escalated.
+
+## A. Independent test evidence
+
+`docs/code_review/test_verification.json` (+ `.log`) is **absent** — the Orchestrator's independent run was not
+present for me to consume, so I ran the suite myself (this is the one deviation from "don't re-run the suite"):
+`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts="" -q` → **1034 passed, 0 failed, exit 0** on
+**two consecutive runs** (66.4 s / 66.0 s). No skips/xfails collected. Targeted re-runs of the nine touched
+modules in the temp copy: **36 passed**. This independently confirms the brief's "exits 0 with zero failures on
+two consecutive runs".
+
+## B. Guard RED→GREEN verification (every task spot-checked, not a sample)
+
+For each task I reverted the fix to its **genuine pre-fix shape** in the temp copy, ran the task's own tests,
+observed RED, then restored and confirmed GREEN.
+
+| Task | Reverted to pre-fix | RED evidence | GREEN |
+|---|---|---|---|
+| P2-T27 | drop `ibkr.account.Position.id` **and** the `position.id = _upsert_position(...)` assignment | 3 failed incl. the exact `AttributeError: 'Position' object has no attribute 'id'` at `strategy_by_id.get(pos.id, "—")` | 3+6 passed |
+| P2-T28 | `load_btn.clicked.connect(self.load_chart)` | 2 failed (`test_toolbar_click_loads_widget_symbol`, `…empty_symbol…`) | 3 passed |
+| P2-T29 | `timer.timeout.connect(lambda: item.setBackground(...))` | 2 failed (lifetime + source-shape) | 3 passed |
+| P2-T30 | make the replay guard unconditional (always push) | 2 failed (both fabricated-candle guards) | 8 passed (file) |
+| P2-T31 | neutralise the live-account scoping + prune | 2 failed (scoped render, foreign-row prune) | 3 passed |
+| P2-T32 | disable the production-DB refusal guard | 2 failed (block + fires-before-connect) | 4 passed |
+| P2-T33 | restore `class_`/`lastDateOrMonth`/`putCall` reads | 3 failed | 6 passed (file) |
+| P2-T34 | remove `summary['Account']` write **and** the `_account_id` fallback | 1 failed (`test_p2_t34_t11`) | 6 passed (file) |
+| P2-T35 | remove the coarse `1 min` bar-size branch | 3 failed | 8 passed (file) |
+
+**P2-T28 specifically** (the brief's emphasis): the guard drives the **real `win.load_btn.click()`** — never
+`load_chart()` directly — with a recording `sys.excepthook` (pyqtgraph's non-abort hook swallows slot exceptions)
+and asserts `hook.errors == []` plus `_current_symbol == "AAPL"`; it went RED when the old wiring was restored.
+That is exactly the path the defect escaped.
+
+**Two "field-only" caveats (minor, no escalation):** reverting **only** `ibkr.account.Position.id` (P2-T27) or
+**only** the `_render_summary` line (P2-T34) leaves the tests green, because the live path sets `position.id`
+dynamically and the `summary['Account']` write already satisfies `.get('Account', '—')`. In both cases the
+**behavioural** change is what the guard pins and it is genuinely discriminating; the dataclass field /
+`_render_summary` fallback are belt-and-braces.
+
+## C. Test-integrity checks
+
+- **No skips/xfails** added anywhere in the reviewed diff (grep over the added lines: none); the new files contain
+  none either (the one `skip`-substring hit is the word "skipped" in a comment).
+- **No assertion weakened.** The only removed assertion lines are: (i) `assert any(p.symbol == "HELD" …)` in
+  `test_d27_6_positions_populate_panel`, replaced by a **stronger** block (rowCount==1 + rendered cell text +
+  `held.id is not None`); (ii) the four superseded `test_d27_9_prime_span_bounded` lines (`bar_size=='5 secs'` /
+  `duration=='7200 S'`), replaced by the D43-correct coarse shape — the escalation's own "correct, do not merely
+  weaken" instruction. No test was deleted.
+- **`test_d27_9_prime_span_bounded` corrected, not weakened** — verified against requirements.md:3101-3114 /
+  :3134-3139 and D43.1 (:3660-3667): the fine `5 secs`/[60 S, 3600 S] and coarse `1 min`/[60 S, 1 D] split the code
+  implements matches AC-D27.9 (revised) exactly.
+- **Sequencing (shared files):** P2-T30 (wave78) landed before P2-T35 (wave80); both touch
+  `ui/ticker_session.py` + `tests/test_d27_aggregator_priming.py` and are serialized across waves — no same-wave
+  overlap (precheck flags are `info` only).
+
+## D. Standing checks
+
+- **Mock-endpoint containment:** grep of the production diff (`ui/ data/ ibkr/ config/ main.py services/`) for
+  `mock|fake|stub|simulat` crossed with `endpoint|client|service|server|api|harness` → **0 hits**. The only
+  "fakes" are test doubles inside `tests/`.
+- **P2-T30 provenance (the brief's item 3):** the worker died twice; run 2 left a `# RED-CHECK temp revert` line
+  and described a replay guard that was **absent from the tree**; the orchestrator restored the clamp and
+  implemented the guard. I verified the guard is **now real and discriminating** (row P2-T30 above: removing it
+  fails both fabricated-candle tests) and that no `# RED-CHECK`/`temp revert` marker remains anywhere in
+  `ui/ tests/ services/ data/ ibkr/`. `footprint_flags` on `wave78_P2-T30.json` record the provenance — read and
+  consistent. I looked for the same "report describes work not in the tree" pattern elsewhere and found none:
+  every other task's described guard is present and RED-discriminating.
+- **ESC-043 (the brief's item 4):** the fix **addresses the owner's existing production rows**, not just hides
+  them — `_on_position_end` `DELETE`s rows whose `account` is not in the live set (the persisted `DU123`/`HELD`
+  and `DU1`/`H` junk rows), verified by `test_p2_t31_t21` asserting `_count_account('DU123') == 0` while the live
+  row survives. **P2-T32's refusal cannot break the real app or pytest:** `main.py` (the PyInstaller spec's entry)
+  opts in before importing `ui.main_window`, `config/settings.py` imports only `os` (so nothing pulls `data.db`
+  before the opt-in), and the pytest suite sets `DB_PATH` in `tests/conftest.py` (guard keys on `DB_PATH` unset) —
+  confirmed by the two green full-suite runs.
+
+## E. Quality review of what passed
+
+- **Consistency with architecture/requirements:** all seven fixes match the recorded decisions (ESC-032 additive
+  `id`; ESC-033 lambda decoupling with the D28.2 signature frozen; ESC-034 lazy resolution mirroring the existing
+  `_set_cell` pattern; ESC-036 = D43/AC-D27.9 revised; ESC-043 account-scoping + DB-isolation rule S12; ESC-044
+  real `Contract` attributes with the UNSET_DOUBLE → None normalisation; ESC-045 callback-argument account id).
+  No deviation from `architecture.md`/`plan.md` found.
+- **User-doc coverage:** `precheck.json` `doc_candidates` are `USAGE.txt` and `usage.md` (all `touched: false`).
+  This batch fixes defects in existing behaviour (a dead button, a crash, wrong Type/Account fields, an
+  unprimed aggregator, leaked rows) and adds no new user-facing surface, CLI/API, or config option — so **no doc
+  update is required**. (The pre-existing `USAGE.txt` D36/D37 staleness remains a separate, already-recorded
+  owner/Requirements dependency.)
+- **New findings:** see ESC-052 and ESC-053 below.
+
+### ESC-052 (BUILD, quality, should-fix) — the P2-T31 prune is not gated on the account-summary stream completing
+
+`_on_position_end` runs `DELETE FROM positions WHERE account NOT IN (<live>)` as soon as `_live_accounts` is
+non-empty; `_on_account_summary_end` (:2941) is never consulted. `position_end` and `accountSummaryEnd` are
+independent streams with no ordering guarantee, so a `position_end` arriving while `_live_accounts` holds only
+**some** of the user's accounts deletes the remaining (real) accounts' persisted rows, and `_on_position_update`'s
+foreign-account early-return drops their live updates too (so the rows are not necessarily re-persisted). Edge
+case (single-account users, the owner's case, are unaffected) but a **destructive write to the real DB on an
+unguarded ordering assumption**, and untested (only full-set and empty-set are covered). Routed to BUILD with a
+minimal direction (gate the prune on `_on_account_summary_end`, or scope the DELETE to accounts known non-live
+after completion; add a partial-live-set test).
+
+### ESC-053 (REQUIREMENTS, gap, nice-to-have) — the brief's "qty == 0 hidden (owner's decision)" is not supported by the repo
+
+The brief states P2-T31 "hides `qty == 0` rows (the owner's decision)". The artifacts say otherwise:
+`docs/tasks/task-graph.json`'s P2-T31 description marks flat-row hiding **"NOT IN SCOPE (a product call, flagged
+for the owner, not decided here)"**, and `docs/tasks/task_manager_notes.md:1819` repeats it as "a product call, not
+decided here … left to the owner". The code correctly does **not** hide flat rows, and no requirement/open question
+on file decides it — so the owner's six flat SPXW rows (which ARE in the live account) still render after
+ESC-043. This is a **premise discrepancy in the brief**, surfaced here rather than treated as a P2-T31 defect;
+ESC-053 routes the product call to the Requirements Analyst / owner so it is not lost when ESC-043 closes.
+
+## F. Escalation close-out
+
+All seven open entries were re-verified against the live tree (not the workers' word) and flipped to `addressed`
+**in place** with a `verified` note — each backed by the RED→GREEN row above:
+
+**ESC-032 → addressed · ESC-033 → addressed · ESC-034 → addressed · ESC-036 → addressed · ESC-043 → addressed ·
+ESC-044 → addressed · ESC-045 → addressed.**
+
+Two **new** entries opened this pass: **ESC-052** (BUILD) and **ESC-053** (REQUIREMENTS). `ESC-030/031/035/037`–
+`ESC-042/046`–`ESC-051` were already `addressed` and were not re-diagnosed.
+
+## G. Pipeline state for the Orchestrator
+
+The batch's own work is sound: **every guard is RED before its fix and GREEN after**, no assertion was weakened
+or skipped, no test deleted, no mock endpoint in production, and the full offscreen suite is deterministically
+green (1034 passed ×2). The seven targeted escalations are **closed**. **Two open escalations remain** —
+ESC-052 (should-fix, destructive-prune gating) and ESC-053 (nice-to-have, the `qty == 0` product call) — so the
+Orchestrator should pause and summarize before re-invoking any agent. `docs/codebase-map.md` absence is expected,
+not escalated.
+
+Status: REVIEW_COMPLETE
+
+# ESC-052 / ESC-053 rework verification — P2-T31 (rework) + P2-T37, 2026-10-16
+
+**Scope (incremental):** only the tasks whose `docs/build/results/<id>.json` are newer than the previous
+`REVIEW_COMPLETE` (03:26:06Z) — **P2-T31** (the ESC-052 rework; newest result
+`_archive/wave86_P2-T31.json`, 03:40:34Z) and **P2-T37** (the ESC-053 fix; `_archive/wave84_P2-T37.json`,
+03:35:27Z). `docs/build/build_log.md` ends `Status: READY_FOR_REVIEW`; `docs/build/failures.json` is `{}`.
+**No live TWS** — every run offscreen.
+
+**Verification inputs.** `docs/code_review/test_verification.json` is present and fresh (03:42:23Z — after the
+last build result): **`VERIFY: pass`, exit 0, 68.35 s**, no skips/xfails. Consumed as ground truth for "did the
+suite actually pass"; I did not re-run the full suite. `docs/code_review/precheck.json` was **stale**
+(generated 03:17:18Z, before the 03:33–03:40Z results, and it scoped only the previous batch, P2-T27…P2-T35),
+so per the standalone provision I re-ran `review_precheck.py` (03:42:59Z): **1 task scoped (P2-T37), 0
+fail_fast, 0 escalation entries, no footprint violations, 3 doc candidates all `touched: false`.** Its 15
+"unattributed working-tree changes" are the whole uncommitted batch (nothing in this batch is committed yet),
+not a footprint breach.
+
+**Method.** Read both diffs and the surrounding call paths; re-ran every guard **RED→GREEN in a temp copy of
+the tree** (`…/T/opencode/cr_redcheck2`, rsync + a `.venv` symlink) — **no repo file was edited**. Two probes
+of my own (never Build's tests) live only in that temp tree.
+
+## A. ESC-052 / P2-T31 — the destructive prune is gated on the account-summary stream completing — **VERIFIED, CLOSED**
+
+**Gating is real and correctly placed.** `ui/main_window.py::_on_position_end` prunes **only** when
+`live and complete`, where `complete` is `_account_summary_complete`; a non-empty-but-**partial** `_live_accounts`
+still **scopes the render** (`WHERE account IN (live)`) but never deletes. `_on_account_summary_end` is the only
+setter: it first rejects a stale end (`reqId != self._account_summary_req_id`), then sets the flag, prunes, and
+re-renders when `_positions_rendered` is set so a `position_end` that beat the end marker converges.
+
+**Discriminating RED (temp copy, pre-fix shape restored).** Reverting to the genuine pre-ESC-052 shape
+(`if live:` prune + no ESC-052 handling in `_on_account_summary_end`) → **exactly 1 failed**:
+`tests/test_d27_account_scoping.py::test_p2_t31_t41_partial_live_set_does_not_prune` —
+`AssertionError: a real account's rows were pruned on a partial live set` / `assert 0 == 1 where
+0 = _count_account('U99999999')`. Live tree: **4 passed**. So the new partial-live-set test is the ESC-052
+discriminator and it genuinely fails pre-fix.
+
+**Both arrival orders prune on a complete set (my own probe, not Build's tests).**
+(i) `position_end` **before** `account_summary_end`: the partial set leaves both the foreign `DU123` row and the
+un-summarised real row intact (`FOREIGN=1`), then the **end-driven** prune deletes `DU123` (`FOREIGN=0`,
+`LIVE=1`) and the render converges to `['AAPL']` — i.e. the prune really does run from
+`_on_account_summary_end`. (ii) `account_summary_end` **before** `position_end`: the `position_end` prune fires
+(`FOREIGN=0`, `LIVE=1`). Both directions covered by the shipped T21/T41 pair plus my probe.
+
+**Completeness flag cannot survive a reconnect.** `_on_disconnected` and `_subscribe_account_data` each clear
+`_account_summary_complete`, `_live_accounts` **and** `_positions_rendered`. Probe: after a complete cycle,
+either call leaves `_account_summary_complete is False` / `_live_accounts == set()`, and a partial set after the
+reset does **not** prune (a freshly seeded `DU1` row survives). A stale `account_summary_end` carrying a
+superseded reqId leaves the flag `False`.
+
+**The earlier T11/T21 foreign-row-removal assertions were NOT weakened.** T21 still asserts
+`_count_account('DU123') == 0` — the **DELETE**, not a hide — *and* that the live row is kept *and* the
+unknown-live-set no-op path leaves both rows. The only test-content change is the added
+`account_summary_end.emit(win._account_summary_req_id)` precondition, which the new gate **requires** (without
+it the prune would legitimately not run). No assertion removed, narrowed or skipped; no `skip`/`xfail` anywhere
+in the two files.
+
+## B. ESC-053 / P2-T37 — flat (`qty == 0`) rows hidden from the render — **VERIFIED, CLOSED**
+
+**Owner decision recorded.** `docs/tasks/task_manager_notes.md:1965-1983` records the owner's verbatim
+answer *"Hide qty==0 positions"* and supersedes the earlier "NOT IN SCOPE (a product call … not decided here)"
+note; P2-T37's AC1/AC2/AC3 define the behaviour. (The P2-T31 task-graph description still carries the superseded
+sentence — folded into ESC-054.)
+
+**Hidden at both feed points, at the list level.** `set_positions` does
+`self._positions = [p for p in positions if p.qty != 0]`; `add_position` removes an existing entry with the same
+`con_id` and appends only when `qty != 0` (so a flattening update drops the row too). Because the filter is on
+`self._positions` rather than at paint time, `_render_table` and `_on_selection_changed`'s
+`self._positions[row]` keep indexing the same list.
+
+**Discriminating RED.** Restoring `self._positions = list(positions)` plus the unconditional append → **3
+failed** (T11 bulk-hide, T21 single-add, T31 non-flat-render); live tree **4 passed**.
+
+**The alignment guard is real (and is a structural invariant guard, not the flat-hiding discriminator).**
+Applying a *paint-time-only* filter variant (keep `_positions` unfiltered, filter inside `_render_table`) makes
+**T41 fail** at `assert table.rowCount() == len(panel._positions)` — exactly the desync a render-only filter
+would cause. Note T41 passes pre-fix (there is no filtering then), so it is not the pre-fix RED for hiding; T11
+is.
+
+**It is a render filter, not a delete (my own probe).** A `position_update` with `qty == 0` persists
+`('SPXW0', 0.0)` in the `positions` table while rendering no row; re-flattening a held position leaves the DB
+row at `qty 0` and removes the rendered row; the bulk `position_end` path keeps a flat option row in the DB
+(`('SPXW1', 0.0)`) and hides it. The panel has no DB access at all (grep: no `execute`/`DELETE`/`INSERT`).
+
+## C. Test integrity / standing checks
+
+- **No assertion weakened, no test deleted, no skip/xfail** in either task's diff; production diffs are
+  comment/docstring-heavy and behaviour-scoped.
+- **Mock-endpoint containment:** grep of the reviewed production diff (`ui/main_window.py`,
+  `ui/active_portfolio_panel.py`) for `mock|fake|stub|simulat` crossed with
+  `endpoint|client|service|server|api|harness` → **0 hits**. No test double in production code.
+- **No worker-residue markers** (`RED-CHECK` / `temp revert`) in the four reviewed files.
+- **Footprint:** P2-T31 → `ui/main_window.py` + `tests/test_d27_account_scoping.py`; P2-T37 →
+  `ui/active_portfolio_panel.py` + `tests/test_d27_flat_rows.py`. Both match `files_changed` and
+  `touches_files`; `footprint_flags: []` on both results.
+- **User-doc coverage:** the precheck's `doc_candidates` are `USAGE.txt`, `usage.md`, `docs/` — all
+  `touched: false`. Judged **no doc update required**: `usage.md` describes the Portfolio dock only generically
+  ("Account summary, positions, P&L, SL/TP, group actions") and documents no other row-level filtering rule
+  (not the account scoping from ESC-043 either), so a flat-row note would be out of keeping with its
+  granularity. Recorded explicitly rather than skipped.
+- **Second-order effect of ESC-053 (observation, no escalation):** hiding flat legs also removes them from
+  `_group_and_render`'s detection input. `services/strategy_detection.py::_normalize_legs` keeps a `qty == 0`
+  leg and `_detect_vertical_spread` requires `l1.qty * l2.qty < 0` (and the IC path requires `[-1, 1]`), so a
+  flat leg previously **poisoned** detection to `CUSTOM`. Removing flat legs can therefore only *enable*
+  grouping, never break an existing group label — benign, and no test covers it.
+
+## D. Escalation close-out
+
+- **ESC-052 → `addressed`** (edited in place, `verified` added) — see A. Independently re-verified; the gating
+  is real, discriminating, correct in both arrival orders, and reset on reconnect/disconnect. Its `expected`
+  (the prune) is fully met.
+- **ESC-053 → `addressed`** (edited in place, `verified` added) — see B. The owner's decision is recorded and
+  implemented; flat rows are hidden at both feed points while staying in the DB, and the alignment guard holds.
+- **ESC-054 opened** (`TASK_MANAGER`, `gap`, `should-fix`) — see E. One invariant, one escalation.
+- **`opened` timestamp bug corrected.** ESC-052 and ESC-053 were both stamped
+  `2026-10-16T03:50:00+00:00` — ~9 minutes **in the future** (the real write time was ~03:41Z). Both are now
+  `2026-10-16T03:41:00+00:00`; a scan of all 25 entries finds **no other future-dated `opened`**.
+
+## E. ESC-054 — the invariant behind ESC-052 was fixed only for its destructive case (TASK_MANAGER)
+
+The ESC-052 rework corrected the **prune** path, but the task's acceptance criteria still describe the
+**partial** live-account set as authoritative, and one code path still acts on it:
+
+1. **`_on_position_update` still drops a real account's update during the partial window.** AC3 ("the live
+   account(s) are known" → a foreign update "is neither persisted nor rendered") is implemented with
+   `_live_accounts` non-empty, so between the first `account_summary` callback and `accountSummaryEnd` a real
+   second account's update is silently discarded. Probe (temp copy): partial set `{U13148604}`;
+   `position_update.emit('U99999999', MSFT, 10.0, 5.0)` → **no** `positions` row; after the summary completes
+   with `{U13148604, U99999999}` + `position_end`, the DB is **still empty** and the panel renders nothing for
+   that account — `_on_position_end` loads from the `positions` table, so the dropped update is unrecoverable
+   for the session.
+2. **AC2 as worded now contradicts the shipped (correct) behaviour** — it says the prune runs "When
+   `_on_position_end` runs" given foreign rows and no-ops only when "the live account set is not yet known (no
+   account-summary callback has arrived)", i.e. it asserts a **partial** set prunes, which is exactly what the
+   ESC-052 fix forbids. A reworker reading AC2 literally could revert the safety gate to satisfy it.
+
+Impact today: **nil for the single-account owner** (their one account is the only member of the live set);
+real for multi-account users. Routed to TASK_MANAGER with the invariant stated (the live set is authoritative
+only once the summary stream has **completed**; before that, no real account's data may be destroyed or
+silently discarded) so the ACs are rewritten to the rule rather than accumulating another per-case BUILD patch.
+This is deliberately **one** escalation: the prune case (ESC-052, BUILD) and the update case are two cases of
+one invariant.
+
+## F. The `opened`-timestamp tooling interaction (recorded; global-tool note, not a repo defect)
+
+ESC-052's future-dated `opened` (03:50Z) meant no result mtime could ever be "newer than the escalation", so
+`build_wave.py` reset and re-dispatched **P2-T31 on every `advance`**: the build log shows waves **82, 83, 84,
+85, 86, 87** all publishing P2-T31, with four archived results (`wave78` 03:10:22Z, `wave82` 03:33:17Z,
+`wave85` 03:37:47Z, `wave86` 03:40:34Z). `wave85` and `wave86` have **identical summaries and the same
+`files_changed`**, and `ui/main_window.py` / `tests/test_d27_account_scoping.py` still carry their **03:37**
+mtime — i.e. the wave-86 run produced no new edit: the repeat dispatch was pure churn caused by the future
+timestamp, exactly as reported. Rule for my own output: always stamp `opened` with the **real current UTC
+time**. (Global tool `build_wave.py` — not edited from inside the repo; recorded here for the tool author, in
+the same spirit as the existing `build_wave.py` entry in `docs/memory.md`.)
+
+## G. Pipeline state for the Orchestrator
+
+Both requested fixes are **independently verified and sound** — ESC-052's gating is real, discriminating and
+correct in both arrival orders, with the completeness flag reset on (re)subscribe and disconnect; ESC-053 hides
+flat rows at both feed points as a render filter while preserving row/list alignment and DB persistence. No
+assertion was weakened, no skip/xfail added, no mock endpoint in production code, and the full offscreen suite
+is green per the Orchestrator's own run (`pass`, exit 0).
+
+**Open escalations remaining: one — ESC-054** (TASK_MANAGER, `should-fix`: pin the "live set is authoritative
+only when the account-summary stream has completed" invariant in P2-T31's ACs and decide the
+`_on_position_update` partial-window behaviour). It does not block the suite. ESC-001…ESC-053 are all
+`addressed`; **no `opened` value is in the future**.
+
+Status: REVIEW_COMPLETE
+
+# ESC-054 verification + P2-T31 test-correction review — P2-T38 + P2-T31 (rework), 2026-10-16
+
+**Scope (incremental):** only the tasks whose `docs/build/results/<id>.json` are newer than the previous
+`REVIEW_COMPLETE` — **P2-T38** (`_archive/wave90_P2-T38.json`, the ESC-054 fix) and **P2-T31**
+(`_archive/wave88_P2-T31.json`, the ESC-052 rework). `docs/build/build_log.md` ends `Status: READY_FOR_REVIEW`;
+`docs/build/failures.json` is `{}`. **No live TWS** — every run offscreen
+(`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`).
+
+**Verification inputs (ground truth, consumed not re-derived).** `docs/code_review/test_verification.json` —
+`VERIFY: pass`, exit 0, 66.13 s, no skips/xfails — taken as "did the suite actually pass"; the full suite was not
+re-run. `docs/code_review/precheck.json` — scope `[P2-T31, P2-T38]`, 0 fail_fast, 0 `PRE-*` entries, footprint
+verified, `escalation_updates` = ESC-054 changed. Consumed, not re-run.
+
+**Method.** Read both diffs and the surrounding call paths; re-ran the guards **RED→GREEN in a temp copy of the
+tree** (`…/T/opencode/esc054_red`) — **no repo file was edited**.
+
+## A. ESC-054 / P2-T38 — the pre-summary update is no longer dropped — **VERIFIED, CLOSED**
+
+**The gate is real and correctly placed.** `ui/main_window.py::_on_position_update` (lines 3027-3032) now
+early-returns only when `self._live_accounts and self._account_summary_complete and account not in
+self._live_accounts`; a non-empty-but-partial set no longer discards a real account's update, and the
+completed-set gate ESC-043/ESC-052 established stays in force.
+
+**Discriminating RED (temp copy; genuine pre-fix shape = the one clause removed).** Removing ONLY
+`and self._account_summary_complete` → **2 failed**: `test_p2_t38_t11_pre_completion_update_persisted_and_rendered`
+and `::test_p2_t38_t21_pre_completion_update_survives_completion`, both `assert 0 == 1 where
+0 = _count_account('U99999999')` — the reviewer's original probe (row absent before AND after completion). The
+other 5 (T31×2, T41, and P2-T31's T11/T21) stayed green. Live tree: **7 passed**.
+
+**AC3 holds both ways.** Removing the WHOLE early-return (no scoping at all) → **2 failed**:
+`test_p2_t38_t31_foreign_update_after_completion_still_dropped` and
+`test_p2_t31_t31_foreign_position_update_not_persisted_or_rendered` (foreign `DU123` persisted). So a foreign
+update AFTER completion is still dropped, and the guards genuinely discriminate the gate.
+
+**ESC-052 gating untouched.** `_on_position_end` still prunes only when `live and complete`; `_prune_foreign_positions`
+and `_on_account_summary_end` are unchanged; `test_p2_t31_t41_partial_live_set_does_not_prune` passes in both the
+temp RED copy and on the live tree.
+
+## B. The Orchestrator's P2-T31 test correction — **INTENT-PRESERVING, not a weakening**
+
+`tests/test_d27_account_scoping.py::test_p2_t31_t31` used to emit the foreign update with **no** `accountSummaryEnd`,
+pinning the very drop ESC-054 fixes. The correction inserts `bridge.account_summary_end.emit(win._account_summary_req_id)`
+before the foreign emit (the same form the file's other tests use). The assertion is **unchanged**
+(`_count_account('DU123') == 0` and no rendered `FOREIGN` row) and it still **fails** when the scoping early-return is
+removed (section A), so the guarantee is asserted — now under the condition the code requires. This is a legitimate
+correction, not a loosening: the guarantee is still falsifiable, only the emission point moved to where it holds.
+
+## C. Test integrity / standing checks
+
+- **No assertion weakened / deleted / skipped:** `grep -E "pytest\.mark\.(skip|xfail)|pytest\.skip|deselect|--ignore"`
+  over both reviewed test files → 0 hits.
+- **Mock-endpoint containment:** `grep -iE "mock|fake|stub|simulat"` over the changed production file
+  `ui/main_window.py` → 0 hits; no test double in production code.
+- **Footprint:** P2-T38 → `ui/main_window.py` + `tests/test_d27_account_partial_window.py`; P2-T31 →
+  `ui/main_window.py` + `tests/test_d27_account_scoping.py`; both match `files_changed` / `touches_files`,
+  `footprint_flags: []`. (P2-T31's precheck `unknown_test_ids` warning — result cites `P2-T31-T41` not in the task
+  spec — is the ESC-052 regression test added by escalation, not a defect.)
+- **User-doc coverage:** precheck `doc_candidates` (`USAGE.txt`, `usage.md`, `docs/`) are all `touched: false`;
+  judged no doc update required (internal account-scoping/ordering behaviour, no CLI/API/config/workflow surface
+  change), consistent with the previous pass's explicit judgement.
+
+## D. Escalation close-out
+
+- **ESC-054 → `addressed`** (edited in place, `verified` added) — see A + B. The invariant is pinned (P2-T31 AC2
+  rewritten; P2-T38's AC1/AC2/AC3 record the partial-window behaviour and the completed-set gate), the update path
+  is fixed and guarded, and the code fix is verified RED→GREEN. Two **Task-Manager-owned wording residuals** are
+  recorded in the `verified` note (P2-T31 AC3 still reads "the live account(s) are known"; the P2-T31 description
+  still carries the superseded flat-row sentence) — no code or guard depends on them, the same disposition ESC-053
+  left the description sentence in.
+- **ESC-055 opened** (`TASK_MANAGER`, `gap`, `nice-to-have`) — the structural recurrence, section E.
+- **ESC-030…ESC-053 remain `addressed`, unchanged** — nothing relevant changed for them this cycle; only ESC-054
+  was open and it is now closed.
+
+## E. New finding — ESC-055: the D42/ESC-050 defect class recurred at breakdown time
+
+P2-T38 changed a production entry point's behaviour (`_on_position_update`) and invalidated an assertion in
+`tests/test_d27_account_scoping.py::test_p2_t31_t31` — a file **outside** P2-T38's `touches_files`, so the task could
+not correct it and only the whole-suite gate saw it (every per-task command had passed), leaving the Orchestrator to
+hand-edit the test. ESC-050's recorded rule ("enumerate by call site of the changed entry point") already generalises
+the enumeration but was framed for D42's changed **feed/stub** (fixture exhaustion); it does not state the ownership
+remedy for a changed production **entry point** invalidating a **semantic** assertion in another task's file.
+**Suggested:** extend the rule with the ownership half — a behaviour-changing task's `touches_files` must include (or
+a sibling task must own) every test file asserting that entry point's behaviour. Task-Manager breakdown practice; no
+code change.
+
+## F. Pipeline state for the Orchestrator
+
+P2-T38's fix is **independently verified and sound**: the pre-summary update is persisted and rendered, the
+completed-set gate is intact (AC3 both ways), ESC-052's partial-set gating is untouched, and the Orchestrator's
+P2-T31 test correction is intent-preserving (assertion unchanged, still falsifiable). No assertion weakened, no
+skip/xfail, no mock endpoint in production code, footprint clean; the full offscreen suite is green per the
+Orchestrator's own run (`pass`, exit 0). **ESC-054 is closed.** One open escalation remains: **ESC-055**
+(TASK_MANAGER, `nice-to-have`: apply the enumeration rule's ownership half at breakdown) — it does not block the
+suite. ESC-001…ESC-053 are all `addressed`.
+
 Status: REVIEW_COMPLETE

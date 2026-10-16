@@ -53,6 +53,10 @@ class ActivePortfolioPanel(QWidget):
     def __init__(self):
         super().__init__()
         self._summary: dict[str, str] = {}
+        # ESC-045: the account id IBKR delivers as the reqAccountSummary
+        # CALLBACK argument (never a summary tag), kept so the Account field
+        # can show it even when no 'Account' key is present in the summary.
+        self._account_id: str | None = None
         # D27.6: True when no account subscription is live — the panel then
         # shows the "unavailable" state instead of stale/empty values.
         self._account_unavailable: bool = False
@@ -196,23 +200,49 @@ class ActivePortfolioPanel(QWidget):
         self._render_summary()
         self.account_summary_changed.emit(self._summary)
 
+    def set_account_id(self, account_id: str | None) -> None:
+        """ESC-045: record the subscribed account id for the Account field.
+
+        IBKR delivers the account id as the ``reqAccountSummary`` callback
+        argument, not as a summary tag, so ``_summary`` never carries an
+        ``'Account'`` key. Storing it here lets ``_render_summary`` show the
+        same id the connection badge uses; ``None``/empty means genuinely
+        unknown and keeps the ``—`` fallback (no fabrication).
+        """
+        self._account_id = account_id or None
+        self._render_summary()
+
     def set_account_unavailable(self, unavailable: bool) -> None:
         """D27.6: show/hide the 'account data unavailable' state."""
         self._account_unavailable = bool(unavailable)
         self._render_summary()
 
     def set_positions(self, positions: list[Position]) -> None:
-        """Replace positions and re-render."""
-        self._positions = list(positions)
+        """Replace positions and re-render.
+
+        ESC-053 (owner decision: "Hide qty==0 positions"): a flat position
+        (``qty == 0``) is a real broker holding at flat size, but it must not be
+        rendered. It is dropped from the panel's held list here — rather than
+        filtered only at paint time — so the rendered rows stay index-aligned
+        with ``self._positions`` and ``_on_selection_changed``'s
+        ``self._positions[row]`` lookup still resolves to the selected row.
+        """
+        self._positions = [p for p in positions if p.qty != 0]
         self._group_and_render()
         self.positions_changed.emit(self._positions)
 
     def add_position(self, position: Position) -> None:
-        """Upsert a single position."""
+        """Upsert a single position.
+
+        ESC-053: a flat (``qty == 0``) add is not rendered, and an update that
+        flattens an existing holding removes it from the panel's list, keeping
+        the same row/list alignment ``set_positions`` maintains.
+        """
         existing = next((p for p in self._positions if p.con_id == position.con_id), None)
         if existing is not None:
             self._positions.remove(existing)
-        self._positions.append(position)
+        if position.qty != 0:
+            self._positions.append(position)
         self._group_and_render()
         self.positions_changed.emit(self._positions)
 
@@ -259,7 +289,10 @@ class ActivePortfolioPanel(QWidget):
         if not self._summary:
             self.account_detail.setText("Account summary — disconnected")
             return
-        account = self._summary.get("Account", "—")
+        # ESC-045: prefer an explicit 'Account' summary key when one is ever
+        # present, then the subscribed id from the callback argument, and only
+        # fall back to '—' when the account is genuinely unknown.
+        account = self._summary.get("Account") or self._account_id or "—"
         net_liq = self._summary.get("NetLiquidation", "—")
         cash = self._summary.get("TotalCashValue", "—")
         self.account_detail.setText(
@@ -293,6 +326,9 @@ class ActivePortfolioPanel(QWidget):
         self._render_table(strategy_by_id)
 
     def _render_table(self, strategy_by_id: dict[int, str]) -> None:
+        # ESC-053: ``self._positions`` already excludes flat (qty == 0) rows
+        # (see ``set_positions``/``add_position``), so the rendered rows remain
+        # one-to-one with the list ``_on_selection_changed`` indexes.
         self.positions_table.setRowCount(len(self._positions))
         for row, pos in enumerate(self._positions):
             pnl = self._unrealized_pnl(pos)

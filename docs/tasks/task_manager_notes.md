@@ -1713,3 +1713,425 @@ OK: 26 tasks validated, execution_graph.json written.
 The five warnings are the pre-existing benign "pure-output file" warnings for the D42 new suites; the three new
 tasks produce **no** warnings. `docs/tasks/execution_graph.json` regenerated: **26 nodes / 57 edges** (52 + the five
 new edges: `P2-T14 → P2-T24`; `P2-T12`, `P2-T14`, `P2-T22 → P2-T25`; `P2-T15 → P2-T26`).
+
+## Reviewer-escalation batch — the seven open BUILD escalations (8 new tasks, P2-T27..P2-T34)
+
+Revision date: 2026-10-16. Source: `docs/code_review/escalations.json` (the entries with `"routed_to": "BUILD"` and
+`"status": "open"` — ESC-032, ESC-033, ESC-034, ESC-036, ESC-043, ESC-044, ESC-045). All other escalations are
+`addressed` and were not touched. Requirements source: the `AC-D26.*` / `AC-D27.*` / `AC-D28.*` / `AC-D14.1` /
+`AC-D21.5.*` clauses and the D24–D28 as-built record in `docs/plan.md` / `docs/architecture.md` (the plan's
+D42 section lists these seven as explicitly out of scope: "separate work with no task yet").
+
+### Scope added / id convention
+Eight new tasks, `P2-T27` … `P2-T34`, all `not_started`. **Ids continue the `P2` sequence** because
+`check_tasks.py` enforces **one phase prefix per graph** (`P2-T01`…`P2-T26` are D42's, all `done`); a fresh `P3-`
+prefix would fail validation. No id collides. The four stale `task_id`s in the escalation records (`D27-06`,
+`D28-02`, `D21-05`, `D27-09`) refer to tasks that no longer exist, so fresh tasks were created rather than
+reopened.
+
+| Escalation | Sev | Task | Files |
+|---|---|---|---|
+| ESC-032 Position `id` | blocking | **P2-T27** | `ibkr/account.py`, `ui/main_window.py`, `tests/test_d27_account_subs.py`, `tests/test_d27_position_id.py` (new) |
+| ESC-033 Load Chart button | blocking | **P2-T28** | `ui/main_window.py`, `tests/test_d28_2_load_chart_button.py` (new) |
+| ESC-034 watchlist flash timer | should-fix | **P2-T29** | `ui/watchlist_panel.py`, `tests/test_d21_flash_lifetime.py` (new) |
+| ESC-036 priming `5 secs` | should-fix | **P2-T30** | `ui/ticker_session.py`, `tests/test_d27_aggregator_priming.py` |
+| ESC-043 (core: account-scoped render + junk-row prune) | should-fix | **P2-T31** | `ui/main_window.py`, `tests/test_d27_account_scoping.py` (new) |
+| ESC-043 (limb 2: user-space-DB isolation) | should-fix | **P2-T32** | `data/db.py`, `config/paths.py`, `main.py`, `tests/test_db_path_isolation.py` (new) |
+| ESC-044 option contract fields | should-fix | **P2-T33** | `ui/main_window.py`, `tests/test_d27_position_prices.py` |
+| ESC-045 Account field | should-fix | **P2-T34** | `ui/main_window.py`, `ui/active_portfolio_panel.py`, `tests/test_d27_account_subs.py` |
+
+**ESC-043 is split into two tasks** (the only split; the other six are one task per escalation). The
+account-scoping/prune fix (P2-T31) and the DB-path isolation guard (P2-T32) touch disjoint files, and together
+they would exceed a Build Worker's ~20-step budget (3 limbs, 4 files, 3+ guards). They are independent, so the
+split also widens the first wave instead of lengthening it.
+
+### Sequencing / `touches_files`
+`ui/main_window.py` is the hot file — edited by **P2-T28, P2-T27, P2-T33, P2-T31, P2-T34**. The sequencing is
+encoded as dependency edges (not prose), in this order:
+
+```
+P2-T28 → P2-T27 → P2-T33 → P2-T31 → P2-T34
+```
+
+- `P2-T28 → P2-T27`: hot-file sequencing only (the `load_btn` wiring at `:213` vs the position paths at
+  `:2925-3027`). No logical dependency.
+- `P2-T27 → P2-T33`: **logical** — ESC-044's guard drives the real chain (`_on_position_update` →
+  `_upsert_position` → the panel render), which requires ESC-032's populated `id`; both also edit
+  `_on_position_update`.
+- `P2-T33 → P2-T31`: hot-file sequencing (`_on_position_update` is edited by both) plus the ordering that
+  keeps P2-T31's prune guard running against correctly mapped contracts.
+- `P2-T27 → P2-T31`: **logical** — `_on_position_end`'s SELECT must carry `id` (ESC-032) before the
+  account-scoping rewrite of that same query (ESC-043).
+- `P2-T31 → P2-T34`: hot-file sequencing (`_on_account_summary` / the account-id handling region).
+
+First wave (depth 0) is **file-disjoint**: P2-T28 (`ui/main_window.py`), P2-T29 (`ui/watchlist_panel.py`),
+P2-T30 (`ui/ticker_session.py`), P2-T32 (`data/db.py`, `config/paths.py`, `main.py`) — 4 tasks, under the
+`max_parallel_tasks` default of 6. Waves: 4 → 1 → 1 → 1 → 1 (5 waves, 8 tasks).
+
+`tests/test_d27_account_subs.py` is written by both P2-T27 and P2-T34; the chain already serializes them.
+`tests/test_d27_position_prices.py` (P2-T33) and `tests/test_d27_aggregator_priming.py` (P2-T30) are owned by
+exactly one task each.
+
+### Regression guards — how each AC is encoded
+Every AC carries a guard that is **RED on the pre-fix tree**; none is a "passes either way" guard.
+
+- **P2-T27 (ESC-032):** drives the real signal chain (`bridge.position_update`) and asserts the *rendered*
+  result (`positions_table.rowCount() == 1` + populated cells) **and** a non-None `id`, plus an SL/TP-by-id
+  persistence assertion (the id must be the real DB row key). The existing
+  `test_d27_6_positions_populate_panel` is strengthened, because the escalation records that its
+  `_positions`-membership assertion is insufficient (it passes while the render throws).
+- **P2-T28 (ESC-033):** the guard calls the **real `load_btn.click()`** (the `clicked(bool)` signal), never
+  `load_chart()` directly — the existing suite's direct calls are exactly why this was never caught. A third
+  test pins `load_chart`'s D28.2 signature so the fix cannot narrow it.
+- **P2-T29 (ESC-034):** flash → `_apply_columns()` → event loop past 400 ms, with a **temporary
+  `sys.excepthook` recording unhandled exceptions** (pyqtgraph's hook swallows slot exceptions, so the test
+  must not rely on propagation) plus an observable background assertion. AC2 is a **source-shape** criterion
+  (no `try/except RuntimeError`, no `shiboken6.isValid`) because no observable distinguishes a lazy reset from
+  an exception-swallowing mask — precedent: the D23-01/D23-03 AST source-shape guards.
+- **P2-T30 (ESC-036):** parses the issued request's duration for every timeframe (4h/1d must be `3600 S`, not
+  `7200 S`), guards the clamp's own side effect (a pre-period bar must not fabricate a previous-period candle),
+  and **corrects** `test_d27_9_prime_span_bounded` (it currently asserts `duration == '7200 S'`, i.e. it
+  enshrines the bug) rather than weakening it.
+- **P2-T31 (ESC-043):** seeds a foreign-account row (`DU123`/`HELD`) + a live-account row, drives
+  `account_summary` then `position_end`, and asserts the foreign row is neither rendered **nor left in the
+  `positions` table** (the owner's existing junk rows must be addressed by the fix, not hidden), with a no-op
+  guard when the live account set is unknown.
+- **P2-T32 (ESC-043 limb 2):** a subprocess with `DB_PATH` unset must fail loudly instead of creating/opening
+  the user-space DB; separate guards prove the real-app path still works and that pytest (which sets `DB_PATH`)
+  is unaffected.
+- **P2-T33 (ESC-044):** builds a **real `ibapi.contract.Contract`** (the existing `_held_contract` fake mirrors
+  the production code's wrong attribute names, so it cannot fail), asserts option/stock/future mapping, the
+  UNSET_DOUBLE → `None` normalisation, and that option legs render `OPTION` and group.
+- **P2-T34 (ESC-045):** asserts `'Account: <id>'` renders after an `account_summary` callback (no test covered
+  the field), plus the untouched disconnected/unavailable states.
+
+### Flagged items (nothing decided here that belongs upstream)
+1. **ESC-036 — the deeper mismatch is a REQUIREMENTS question, flagged for the Requirements Analyst (no
+   escalation status; the user relays).** The clamp task (P2-T30) delivers the escalation's first `expected`
+   clause — a `(durationStr, barSizeSetting)` combination IBKR accepts. The second clause ("`AC-D27.9` met on
+   every timeframe, including 4h/1d") is **not** deliverable by clamping: 5-sec bars cannot cover a 4 h
+   (14 400 s) or daily (86 400 s) forming period at all, and `requirements.md`'s D27.9 mandates "trailing
+   5-second history". The escalation's own `suggested_direction` calls the choice ("prime with a coarser bar
+   size, e.g. `1 min`" vs "seed from the historical partial bar") *a requirements decision*, and no such
+   escalation is on file. **Judged not a Plan escalation:** it does not gate the blocking work, and the
+   delivered scope is fully specified by the escalation. A requirements decision is needed before 4h/1d can be
+   called primed.
+2. **ESC-043 — `qty == 0` (flat) live rows: a product call, not decided here.** The escalation records that
+   account-scoping removes `HELD`/`H` but **not** the six flat SPXW rows, and that hiding flat rows is "a small
+   product call". P2-T31's ACs therefore scope by account only; whether flat live holdings should be hidden is
+   left to the owner.
+3. **ESC-032 — judged a code fix, not an architecture decision.** The escalation's `expected` is behavioural
+   ("one position object on the wire, carrying a POPULATED `id`"), and its concrete direction is additive (give
+   `ibkr.account.Position` an `id`, populate it from the DB, add `id` to the bulk SELECT). The ACs assert the
+   behaviour and do **not** require converging the two dataclasses into one canonical model — so no architecture
+   is invented; the additive path the escalation names is sufficient to satisfy every AC.
+4. **ESC-043 limb 2 (P2-T32) — enforcement, not a new decision.** Architecture `S12` and `docs/memory.md`
+   already record the rule ("any non-pytest probe that can reach a DB-writing path must export `DB_PATH`");
+   P2-T32 moves that rule into code at the shape the escalation prescribes (`DB.__init__` refuses the
+   user-space production path unless the real app opts in). Recorded here for Plan/Validator visibility: if the
+   enforcement change is judged an architecture change rather than the implementation of a decided rule, this
+   task alone is the one to re-scope — it is file-disjoint, so the other seven tasks are unaffected.
+5. **ESC-033 — the same latent class was checked, not assumed.** The escalation notes that any
+   `clicked(bool)`/`toggled(bool)`/`triggered(bool)` signal wired to a slot whose first positional parameter is
+   a value has this defect. No other such wiring exists in the toolbar today; P2-T28's AC3 pins the parameterised
+   signature so a future narrowing cannot silently reintroduce it.
+
+### Verification of this revision
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → `OK: 34 tasks validated, execution_graph.json written.`
+  (warnings are only the expected "new test file not in read_files" ones, the same class as the pre-existing
+  P2-T06/P2-T20–P2-T23 warnings).
+- Pre-existing tasks: the 26 D42 tasks' `status`, `dependencies` and `touches_files` were snapshotted **before**
+  the write and re-read from the file **after** it — **all 26 are byte-identical on those three fields and all
+  26 remain `done`**. No existing task's `acceptance_criteria`/`tests` was edited either. Top-level and
+  `metadata` `"status"` remain `READY_FOR_BUILD`.
+- `docs/plan.md`, `docs/architecture.md`, `docs/requirements/**` and `docs/code_review/**` were read only.
+
+---
+
+## D43 / ESC-036 (second clause) — P2-T30 AC/test revision + new follow-up task P2-T35 (`fresh_graph`)
+
+Revision date: 2026-10-16. Source of truth: `docs/requirements/requirements.md` **`### D43`** (ESC-036 second
+clause, decided 2026-10-16, `~:3638`) and the **revised `AC-D27.9`** (`~:3134`), plus A74 / R65 / DG73 / Q53.
+Input: the Requirements Analyst's D43 resolution. No architecture assumption was invented and no requirements
+ambiguity was found — D43 fully specifies the priming bar-size selection and both duration windows.
+
+### What D43 changes (recorded, not silent)
+D27.9's "trailing 5-second history" is **superseded** (the wording is unsatisfiable for the coarse timeframes:
+`4 hours` = 14400 s and `1 day` = 86400 s exceed IBKR's `3600 S` ceiling for `5 secs` bars, so the built
+`bar_size='5 secs'` / `duration='7200 S'` request returns TWS **error 321**). D43.1 replaces it with a
+**per-elapsed-span bar-size selection**:
+
+- **`5 secs`** when the elapsed span is **<= 3600 S** — the **`1 min`/`5 mins`/`15 mins`/`1 hour`** timeframes;
+  `duration` = the span clamped into **`[60 S, 3600 S]`**.
+- **`1 min`** when the elapsed span **> 3600 S** — the **`4 hours`/`1 day`** timeframes; `duration` = the span
+  clamped into **`[60 S, 1 D]`**.
+
+### 1. `P2-T30` revised (fine-timeframe branch only) — status left untouched
+`P2-T30` (ESC-036 first clause; `ui/ticker_session.py` + `tests/test_d27_aggregator_priming.py`) is
+`in_progress` with a dead worker; its `status` was **not** changed (the orchestrator resets it). Only its
+AC/test wording was revised:
+
+- **`AC1`** now asserts the **fine-timeframe branch only**: for `1 min`/`5 mins`/`15 mins`/`1 hour` the priming
+  request uses `bar_size='5 secs'` with a `duration` inside `[60 S, 3600 S]`. The **4h/1d assertions were
+  removed** (they belong to the follow-up), and the task states that the coarse-timeframe behaviour is
+  delivered by `P2-T35`.
+- **`P2-T30-T11`** now drives only the four fine timeframes (plus a first-minute case exercising the 60 S floor).
+  The pre-fix RED is the **fine-branch floor** (pre-fix `min(span, 7200)` left a first-minute span at a sub-60 s
+  duration, which IBKR rejects); the 4h/1d cases are explicitly out of scope here.
+- **`AC3` / `P2-T30-T31` revised — this is the "D43 requires otherwise" case.** The invocation said to keep
+  `AC3` (correcting `test_d27_9_prime_span_bounded` rather than weakening it) *unless D43 requires otherwise*.
+  **D43 does require otherwise**: its Build correction record states `test_d27_9_prime_span_bounded` "must assert
+  the accepted **`1 min`/`1 D`**-bounded combination for `1 day`, not the enshrined `5 secs`/`7200 S`" — i.e.
+  the **coarse** branch, which `P2-T30` does not implement. So `AC3`/`T31` were **retargeted to the fine
+  branch** (the corrected test asserts a fine load's `5 secs` duration is inside `[60 S, 3600 S]`), no 4h/1d
+  assertion remains in `P2-T30`, and the `1 day` case's final shape is explicitly assigned to `P2-T35`. This is
+  a **translation of D43**, not a re-diagnosis: keeping the old `3600 S`-for-`1 day` assertion would have
+  encoded the superseded behaviour that D43 exists to remove.
+- **`AC2` / `P2-T30-T21`** (the no-fabrication replay guard for a pre-period priming bar) are **unchanged**, as
+  instructed — D43 requires no change to them.
+- `P2-T30.description` gained a D43 note; `inputs` gained the D43 and revised-`AC-D27.9` references.
+
+### 2. New task `P2-T35` (coarse-timeframe branch) — `not_started`
+- **Title:** "D43/ESC-036 — coarse-timeframe aggregator priming: `4 hours`/`1 day` must prime with
+  `bar_size='1 min'` and a duration in `[60 S, 1 D]`".
+- **`touches_files`:** `ui/ticker_session.py`, `tests/test_d27_aggregator_priming.py`.
+- **`dependencies`: `["P2-T30"]`.** Both tasks write `ui/ticker_session.py::prime_aggregator` **and**
+  `tests/test_d27_aggregator_priming.py`, so they must not share a wave. The edge is also **logical**, not just
+  file-overlap: `P2-T30` runs **first** because it establishes the accepted-window clamp and retargets
+  `test_d27_9_prime_span_bounded` to the fine branch; `P2-T35` then adds the per-span bar-size selection and
+  **supersedes** the coarse assertion, re-correcting that test to the `1 min`/`[60 S, 1 D]` shape. Reversing the
+  order would leave the test asserting a shape neither task produces.
+- **ACs (trace to the revised `AC-D27.9` / D43):**
+  - `AC1` (→ `P2-T35-T11`): `4 hours`/`1 day` issue `bar_size='1 min'` with `duration` in `[60 S, 1 D]`; the fine
+    timeframes keep `5 secs`/`[60 S, 3600 S]` (`P2-T30`'s branch, unchanged).
+  - `AC2` (→ `P2-T35-T21`): the D43 correction record — `test_d27_9_prime_span_bounded` asserts the accepted
+    coarse combination for a `1 day` load and the module docstring no longer says "trailing 5-sec history".
+  - `AC3` (→ `P2-T35-T31`): the no-fabrication replay guard for the `1 min` bars at a coarse period boundary.
+- **RED-before-fix guard:** `P2-T35-T11` asserts each coarse load issues exactly **one `bar_size == '1 min'`**
+  priming request with duration in `[60, 86400]` s and **no `5 secs`** priming request. Against the current tree
+  (and after `P2-T30`) the coarse loads issue `5 secs`/`3600 S`, so there is **no `1 min` request → RED**;
+  `P2-T35-T21` is RED for the same reason (the `1 day` load is not a `1 min` request).
+
+### Verification of this revision
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → `OK: 35 tasks validated, execution_graph.json written.`
+  (exit 0; the 10 `WARN`s are the pre-existing "new test file not in read_files" class).
+- **Status fidelity:** all **34** pre-existing tasks' `status`, `dependencies` and `touches_files` were
+  snapshotted **before** the write and re-read from the file **after** it — **zero mismatches**; `P2-T30`
+  remains `in_progress` (unchanged), the 26 D42 tasks remain `done`, and `P2-T27`/`P2-T31`/`P2-T33`/`P2-T34`
+  keep their prior states. No other task's `acceptance_criteria`/`tests`/`touches_files`/`dependencies`/`status`
+  was edited. Top-level and `metadata` `"status"` remain `READY_FOR_BUILD`.
+- `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md` and `docs/architecture.md` were **read only**.
+
+---
+
+## ESC-052 + ESC-053 — reviewer-escalation batch (P2-T36, P2-T37)
+
+Revision date: 2026-10-16. Input: `docs/code_review/escalations.json` — the two entries the Code Reviewer
+opened on the Stage-C backlog batch (`P2-T27`–`P2-T35`): **ESC-052** (BUILD, should-fix, DATA-LOSS) and
+**ESC-053** (routed to REQUIREMENTS). Source of truth for decomposition: the escalation entries themselves
+plus the live tree (`ui/main_window.py`, `ui/active_portfolio_panel.py`); `docs/plan.md` remains
+`Status: READY_FOR_TASK_MANAGER`. No `ESCALATED_TO_PLAN` entry exists — neither task needs an undecided
+architectural choice (ESC-052's fix is a gating change on code P2-T31 already built; ESC-053 is a render
+filter with the owner's decision supplied).
+
+### P2-T36 — ESC-052: gate the foreign-row prune on a COMPLETE live-account set
+- **Diagnosis (from the escalation, not re-derived):** `ui/main_window.py::_on_position_end` runs
+  `DELETE FROM positions WHERE account NOT IN (<live>)` (+ commit) at `:3040` as soon as
+  `self._live_accounts` is non-empty, without consulting `_on_account_summary_end` (`:2941`).
+  `_live_accounts` is filled one callback at a time in `_on_account_summary`, and `position_end`
+  (`reqPositions`) and `accountSummaryEnd` (`reqAccountSummary`) are **independent streams with no ordering
+  guarantee**, so a `position_end` arriving on a **partial** live set deletes a real second account's
+  persisted rows.
+- **Scope of the fix:** keep the `DELETE`-rather-than-hide behaviour exactly as P2-T31 built it; only the
+  **gating** changes — mark the live-account set complete in `_on_account_summary_end` and gate the prune on
+  that, resetting the completion flag on (re)subscribe (`:1102`) and on disconnect (`:1437`), and ensuring
+  the prune still runs once the set is complete regardless of the two streams' arrival order.
+- **Task:** `P2-T36`, `task_type: bugfix`, `dependencies: ["P2-T31"]` (P2-T31 is the code this task revises;
+  the edge is a logical assumed-contract edge, not a file-overlap shortcut).
+  `touches_files`: `ui/main_window.py`, `tests/test_d27_account_scoping.py` (P2-T31's own test file, extended
+  with the partial-set and order-independence cases; P2-T31's T11/T21/T31 are kept and unweakened).
+- **RED-before-fix guard:** `P2-T36-T11` seeds two REAL live accounts, delivers an `account_summary` callback
+  for only one, fires `position_end`, and asserts **both** rows survive. Pre-fix the
+  `DELETE ... WHERE account NOT IN ({U13148604})` removes the second account's row → **RED**. This is the
+  whole point of the task. `P2-T36-T31` additionally discriminates an *incomplete* fix (gating only
+  `_on_position_end` on completeness, without driving the prune from the end marker, leaves the junk row
+  unpruned when `position_end` precedes `account_summary_end` → RED).
+- **Out of this task's ACs (recorded, not silently dropped):** the escalation also notes that the same
+  partial-state window makes `_on_position_update`'s foreign-account early-return drop real updates. ESC-052's
+  `expected` scopes the required change to the **destructive prune**, so this task does not re-scope the
+  update path; the observation is carried in P2-T36's description for the reviewer.
+
+### ESC-053 — provenance correction (recorded for the reviewer)
+**The batch brief's claim that P2-T31 "hides qty == 0 rows (the owner's decision)" was not supported by the
+repository, and that discrepancy was an ORCHESTRATOR HANDOFF ERROR — not a Task Manager invention and not a
+product call left open.** The owner's answer had been given but was never relayed to Task Manager, so the
+decision was recorded as undecided: `docs/tasks/task-graph.json`'s `P2-T31` description carries
+*"NOT IN SCOPE (a product call, flagged for the owner, not decided here): whether flat (`qty == 0`) live rows
+such as the six SPXW legs should also be hidden"*, and this file repeated it under the ESC-043 entry. The Code
+Reviewer correctly flagged the mismatch (ESC-053). **The owner has now answered explicitly and verbatim:
+"Hide qty==0 positions".** Consequences recorded here:
+1. The decision is **made** — the earlier "NOT IN SCOPE (a product call)" note on `P2-T31` is **superseded**
+   (the P2-T31 task record itself is left byte-for-byte unchanged, per the do-not-edit instruction; this note
+   is the supersession record).
+2. The portfolio panel must **hide zero-quantity positions from the render** — task `P2-T37` below.
+3. **Flag for Requirements Analyst:** the decision is **not yet recorded in
+   `docs/requirements/requirements.md`** (no `qty == 0` / flat-holding AC exists there). ESC-053 was routed to
+   REQUIREMENTS; the analyst should record the decision as a requirement/AC so the panel's expected content is
+   defined rather than implicit. This is a record-keeping gap, not a blocking ambiguity — the owner's decision
+   is unambiguous, so the task is decomposed now.
+
+### P2-T37 — ESC-053: hide `qty == 0` (flat) positions from the portfolio render
+- **Task:** `P2-T37`, `task_type: bugfix`, `dependencies: []`.
+  `touches_files`: `ui/active_portfolio_panel.py`, `tests/test_d27_flat_rows.py` (new).
+- **Scope decision (documented):** the filter is applied in the **panel render path only**. The flat rows
+  **stay in the `positions` table** (they are real broker holdings at flat size — only the render hides them),
+  so `ui/main_window.py` is **not** touched and P2-T37's footprint stays disjoint from P2-T36's.
+- **RED-before-fix guards:** `P2-T37-T11` (`set_positions([flat, long])` → `rowCount() == 1`, flat symbol
+  absent) and `P2-T37-T21` (`add_position(flat)` renders no row) are both **RED** pre-fix, because
+  `_render_table` currently renders every entry in `self._positions`. `P2-T37-T41` pins the row/list alignment
+  so a render-only filter (which would desync `_on_selection_changed`'s `self._positions[row]`) is caught.
+
+### Sequencing / `touches_files` (no shared file → no dependency edge)
+- `P2-T36` writes `ui/main_window.py` + `tests/test_d27_account_scoping.py`; `P2-T37` writes
+  `ui/active_portfolio_panel.py` + `tests/test_d27_flat_rows.py`. The two footprints are **disjoint**, and
+  neither task assumes a contract the other establishes (P2-T36 changes *when* the DB prune runs; P2-T37
+  changes *what the panel renders* — independent of each other), so **no dependency edge is added** and both
+  are ready in the **same wave**. The only edge in this batch is `P2-T36 → P2-T31`.
+- Every pre-existing task is `done`, so neither new task shares a wave with a live writer of its files.
+
+### Verification of this revision
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → `OK: 37 tasks validated, execution_graph.json written.`
+  (exit 0; the 11 `WARN`s are the pre-existing "new test file not in read_files" class, incl. the new
+  `tests/test_d27_flat_rows.py`).
+- **Status fidelity:** all **35** pre-existing tasks' `status`, `dependencies` and `touches_files` were
+  snapshotted **before** the write and re-read from the file **after** it — **zero mismatches**; all 35 remain
+  `done`. No other task's `acceptance_criteria`/`tests`/`touches_files`/`dependencies`/`status` was edited.
+  Top-level and `metadata` `"status"` remain `READY_FOR_BUILD`.
+- `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md` and `docs/architecture.md` were **read only**.
+
+---
+
+## 2026-10-16e — `fresh_graph` removal: `P2-T36` (ESC-052) DELETED as redundant
+
+**Trigger:** dispatch collision. `P2-T36` was created to carry the `ESC-052` fix, but `ESC-052` is a **BUILD**
+escalation whose `task_id` names `P2-T31` — the task whose code the escalation revises. `build_wave.py` routes a
+BUILD escalation to the task its `task_id` names, so it had **already reset `P2-T31` and re-dispatched it as a
+rework**, and `P2-T31`'s wave file already carries `ESC-052`'s full diagnosis (`observed` / `expected` /
+`suggested_direction`, incl. *"cover a partial-live-set case with a test"*). The same fix was therefore
+scheduled **twice**: once as `P2-T31`'s in-flight rework, and once as `P2-T36`.
+
+**Action taken (exactly one task removed):**
+- `P2-T36` deleted from `docs/tasks/task-graph.json` (37 → 36 tasks).
+- No dependency edge named it: verified programmatically that **no task's `dependencies` contains `P2-T36`**
+  (its own sole dependency, `P2-T31`, is unaffected and left in flight).
+- Metadata `revision` prepended with a removal note; top-level and `metadata` `"status"` kept `READY_FOR_BUILD`.
+- Nothing else changed — `P2-T31` (`in_progress`), `P2-T37` (`in_progress`) and all 34 `done` tasks are
+  byte-identical in `status` / `dependencies` / `touches_files` (see status-fidelity check below).
+
+**Genaralisable lesson (record this):** *a `BUILD` escalation's `task_id` determines the script's rework
+target.* Creating a **new** task for an escalation that **already names a task** produces a **duplicate** — the
+script will independently reset and re-dispatch the named task. When decomposing an escalation, first check
+whether it already names a task (`task_id`): if so, **prefer reusing the named task** (let the script's rework
+carry it), or at minimum **expect the script's rework and do not add a second task** for the same fix. Only
+escalations with **no** named task (or ones explicitly routed to TASK_MANAGER / PLAN / REQUIREMENTS, which the
+script does not rework) warrant a new task.
+
+### Verification of this revision
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → see result recorded at the end of this run (36 tasks
+  validated; `execution_graph.json` regenerated).
+- **Status fidelity:** every remaining task's `status` / `dependencies` / `touches_files` was snapshotted
+  **before** the write and re-read from the file **after** it — **zero mismatches**; the only difference is the
+  absence of `P2-T36`. `P2-T31` and `P2-T37` remain `in_progress`; all 34 others remain `done`.
+- `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md` and `docs/architecture.md` were **read only**.
+
+---
+
+## 2026-10-16f — ESC-054 reviewer escalation (`P2-T31` AC2 wording correction + `P2-T38`)
+
+**Trigger:** `docs/code_review/escalations.json#ESC-054` — the **single open** entry and the only one routed to
+`TASK_MANAGER` (the other 24 are `addressed`). Input: the escalation entry itself plus a bounded read of the live
+tree (`ui/main_window.py` :2941–:3130, `tests/test_d27_account_scoping.py`); `docs/plan.md` remains
+`Status: READY_FOR_TASK_MANAGER`. **No `ESCALATED_TO_PLAN` entry** — the fix is a gating change on code `P2-T31`
+already shipped (the reviewer names the exact condition), not an undecided architectural choice. No
+`ESC-052`-style duplication risk either: `ESC-054` names `P2-T31` but is routed to **TASK_MANAGER**, so
+`build_wave.py` does **not** rework it (per the 2026-10-16e lesson, only a **BUILD** escalation's `task_id` drives
+the script's rework) — a new task is the correct vehicle for the behavioural half.
+
+### 1. `P2-T31` `AC2` — wording correction (the trap; fixed FIRST)
+`AC2`'s second clause read the live-account set as **known** the moment any `account_summary` callback arrived, so
+it asserted a **PARTIAL** set prunes. The shipped (correct, `ESC-052`-reworked) behaviour is the opposite: a
+partial set **scopes the render only and must never prune** — the prune runs only once `_on_account_summary_end`
+sets `_account_summary_complete`. Read literally, the old wording invited a reworker to **revert the safety gate**.
+
+- **Before (verbatim):** `AC2 — ESC-043 (the production positions table holds only real broker positions) —
+  Given persisted positions rows whose account is not one of the live accounts, When _on_position_end runs, Then
+  those rows are removed … while live-account rows are untouched; and Given the live account set is not yet known
+  (no account-summary callback has arrived), Then the prune is a no-op — no row is deleted.`
+- **After (verbatim):** `AC2 — ESC-043 / ESC-052 (the production positions table holds only real broker
+  positions) — Given persisted positions rows whose account is not one of the live accounts, When
+  _on_position_end runs AFTER the account-summary stream has COMPLETED (_on_account_summary_end has set
+  _account_summary_complete), Then those rows are removed … while live-account rows are untouched; and Given the
+  account-summary stream has NOT COMPLETED — whether no callback has arrived yet OR only a PARTIAL set of accounts
+  has, because the live-account set is authoritative ONLY once the stream completes — Then the prune is a no-op:
+  no row is deleted, and the partial set scopes the render only (it must never prune).`
+- **Wording only.** `P2-T31`'s `AC1`, `AC3`, its three `test_id`s (`P2-T31-T11/T21/T31`), its `tests`,
+  `description`, `expected_artifacts`, `touches_files`, `dependencies`, `status` and `size` are **untouched**
+  (verified programmatically). This is not a re-scope: the AC now describes what `P2-T31` actually shipped.
+
+### 2. `P2-T38` — ESC-054 behavioural half: a pre-summary real-account update must not be silently dropped
+- **Diagnosis (from the escalation, not re-derived):** `ui/main_window.py::_on_position_update`'s foreign-account
+  early-return (`:3018`, `if self._live_accounts and account not in self._live_accounts: return`) is gated on the
+  set being **non-empty**, not on the stream being **complete**. `_live_accounts` fills one callback at a time
+  (`_on_account_summary` :2947), and `position_update`/`position_end` (`reqPositions`) and
+  `account_summary`/`accountSummaryEnd` (`reqAccountSummary`) are **independent streams with no ordering
+  guarantee**. So in the partial window a REAL second account's update is dropped — not persisted, not rendered —
+  and is **unrecoverable for the session**, because `_on_position_end` loads only from the `positions` table
+  (reviewer probe: the row is absent before **and** after the summary completes).
+- **Scope of the fix:** the reviewer's minimal consistent option — gate the early-return on completion too
+  (`self._live_accounts and self._account_summary_complete and account not in self._live_accounts`), so a
+  pre-summary update is persisted and rendered (still scoped to the accounts known so far) rather than discarded.
+  The **completed-set** gate `ESC-043`/`ESC-052` established stays intact (a foreign update *after* completion is
+  still dropped) — pinned by `P2-T38-T31` so this task's reworking of the same early-return cannot revert it.
+- **Task:** `P2-T38`, `task_type: bugfix`, `size: M`, `dependencies: ["P2-T31"]`.
+  `touches_files`: `ui/main_window.py`, `tests/test_d27_account_partial_window.py` (new).
+- **RED-before-fix guard (the evidence, encoded):** `P2-T38-T11` — partial set `{U13148604}` (one
+  `account_summary` callback, **no** `accountSummaryEnd`), then
+  `bridge.position_update.emit('U99999999', MSFT stock, 10.0, 5.0)` — asserts the `U99999999` row **exists** and
+  renders. Pre-fix the early-return drops it (`_live_accounts` non-empty) → row count 0 → **RED**.
+  `P2-T38-T21` continues to completion (`account_summary` for `U99999999` + `account_summary_end` + `position_end`)
+  and asserts the row **still** exists and renders — pre-fix it was never persisted, so the completed set cannot
+  recover it → **RED**. `P2-T38-T31` is a green-both-ways non-regression guard pinning the completed-set gate.
+
+### 3. Sequencing / `touches_files`
+- `P2-T38` shares `ui/main_window.py` with `P2-T31` (the account-scoping region). Every other task touching
+  `ui/main_window.py` (`P2-T14/T25/T27/T28/T33/T34`) is `done`, so there is no live wave conflict. The shared file
+  is encoded as a **dependency edge**: `P2-T38 → P2-T31`, i.e. **`P2-T31` runs first** (it is already `done`, so
+  `P2-T38` is immediately ready) — and the edge is *also* logically real: `P2-T38`'s gate **assumes** the
+  `_account_summary_complete` flag and `_on_account_summary_end` semantics `P2-T31` shipped. `P2-T38`'s new test
+  file does not overlap any other task's `touches_files`.
+
+### 4. Recorded, not silently dropped
+- **Not re-scoped:** `ESC-054` also notes that `P2-T31`'s **`AC3`** phrasing ("Given the live account(s) are
+  known") carries the same "known" ambiguity, and that `P2-T31`'s **description** still carries the superseded
+  "NOT IN SCOPE (a product call …)" flat-row sentence (superseded by `ESC-053`/the owner decision, recorded in the
+  2026-10-16d section). This invocation scoped the wording correction to **`AC2` only** (per the dispatch
+  instruction, "keep the AC's other clauses intact"), so `AC3` and the description were **left byte-for-byte
+  unchanged**; `P2-T38` pins the partial-window invariant that makes `AC3`'s "known" reading moot for the update
+  path. If the reviewer wants `AC3`/the description reworded too, that is a further, explicitly-requested wording
+  pass.
+- **Flag for Requirements Analyst (record-keeping, not blocking):** `docs/requirements/requirements.md` carries
+  no AC for the **account-summary partial window** (no "the live-account set is authoritative only once the stream
+  completes" clause; `AC-D27.6` is generic). The invariant is now pinned in the task graph and the code, but the
+  analyst may wish to record it as an AC. Not a blocking ambiguity — the reviewer's `expected` is unambiguous.
+
+### 5. Verification of this revision
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → `OK: 37 tasks validated, execution_graph.json written.`
+  (exit 0; the 12 `WARN`s are the pre-existing "new test file not in read_files" class, incl. the new
+  `tests/test_d27_account_partial_window.py`). `docs/tasks/execution_graph.json` regenerated (37 nodes).
+- **Status fidelity (36 → 37):** all **36** pre-existing tasks' `status`, `dependencies` and `touches_files` were
+  snapshotted **before** the write (`/tmp/tm_snapshot_before.json`) and re-read from the file **after** it —
+  **zero mismatches**; all 36 remain `done`. No other task's `acceptance_criteria` / `tests` / `description` /
+  `touches_files` / `dependencies` / `status` / `size` was edited; the only changes to the file are `P2-T31`'s
+  `AC2` string, the appended `P2-T38`, and the metadata `revision` note. Top-level and `metadata` `"status"`
+  remain `READY_FOR_BUILD`.
+- `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md` and `docs/architecture.md` were **read only**.

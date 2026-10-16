@@ -40,7 +40,41 @@ else:
 _USER_APP_SUPPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Database filename: allow environment override, default to "charting_app.sqlite3"
-_DB_FILENAME = os.getenv("DB_PATH", "charting_app.sqlite3")
+_DEFAULT_DB_FILENAME = "charting_app.sqlite3"
+_DB_FILENAME = os.getenv("DB_PATH", _DEFAULT_DB_FILENAME)
+
+# ESC-043 limb 2: the real application opts in to opening the user-space
+# production database. Any other process (offscreen probe, REPL, script) that
+# leaves DB_PATH unset must NOT open it -- data.db.DB enforces this.
+_app_db_opt_in = False
+
+
+def opt_in_production_db() -> None:
+    """Opt in to opening the user-space production database.
+
+    The real application calls this from its entry point (``main.py``) before
+    importing anything that constructs ``data.db.DB`` (whose module-level
+    singleton opens the DB at import time). Non-app processes must instead
+    export ``DB_PATH`` to a temp file (architecture S12).
+    """
+    global _app_db_opt_in
+    _app_db_opt_in = True
+
+
+def is_production_db_opted_in() -> bool:
+    """True when the real application has opted in to the user-space DB."""
+    return _app_db_opt_in
+
+
+def uses_production_db() -> bool:
+    """True when ``DB_PATH`` is unset, so ``get_db_path()`` resolves to the
+    owner's user-space production database."""
+    return _DB_FILENAME == _DEFAULT_DB_FILENAME
+
+
+def production_db_path() -> Path:
+    """Return the canonical user-space production database path."""
+    return get_user_data_path(_DEFAULT_DB_FILENAME)
 
 
 def get_resource_path(filename: str) -> Path:

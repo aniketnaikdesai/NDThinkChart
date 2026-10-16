@@ -43,9 +43,20 @@ from services.volume_baseline import (
     minutes_for_timeframe,
 )
 
-# D27.9: cap the priming span — a full day of 5-sec bars on every daily-chart
-# load would burn pacing for little gain.
-_PRIME_MAX_SPAN_S = 7_200
+# D27.9 / ESC-036: IBKR accepts `bar_size='5 secs'` historical requests only
+# for a duration in [60 S, 3600 S]. The old ceiling of 7200 S asked for a
+# combination IBKR rejects (TWS error 321 "Historical data requested duration
+# is invalid"), which failed open and left the aggregator UNPRIMED on the
+# '4 hours'/'1 day' timeframes. Clamp the priming span into the accepted
+# window instead.
+_PRIME_MIN_SPAN_S = 60
+_PRIME_MAX_SPAN_S = 3_600
+# D43/ESC-036 (second clause): the coarse timeframes ('4 hours' = 14400 s,
+# '1 day' = 86400 s) have forming-period spans past the 3600 S ceiling that
+# `'5 secs'` bars accept, so they cannot be primed with 5-second bars at all.
+# They prime with `'1 min'` bars instead — IBKR accepts a `'1 min'` duration up
+# to `'1 D'` — with the duration clamped into [60 S, 1 D].
+_PRIME_MAX_SPAN_1MIN_S = 86_400
 
 _LOG = logging.getLogger(__name__)
 
@@ -139,6 +150,9 @@ class TickerSession(QObject):
         self._prime_req_id: int | None = None
         self._prime_symbol: str = ""
         self._prime_timeframe: str | None = None
+        # ESC-036: the current period's start, so priming bars returned from
+        # before it (the clamp can over-reach) are not replayed.
+        self._prime_period_start: int | None = None
         self._prime_timer = QTimer(self)
         self._prime_timer.setSingleShot(True)
         self._prime_timer.timeout.connect(self._on_prime_timeout)
@@ -278,6 +292,7 @@ class TickerSession(QObject):
         self._wave_continue_timer.stop()  # D28.5: no deferred wave chunks
         self._prime_timer.stop()
         self._prime_req_id = None
+        self._prime_period_start = None
         # Cancel the S0 generic-tick subscription (D38 substrate).
         self._s0_needs.clear()
         self._s0_cancel()
@@ -924,14 +939,21 @@ class TickerSession(QObject):
         if self._prime_req_id is not None and req_id == self._prime_req_id:
             agg = self._aggregators.get(self._prime_timeframe)
             if agg is not None:
-                agg.push(
-                    parse_ibkr_date(bar.date),
-                    bar.open,
-                    bar.high,
-                    bar.low,
-                    bar.close,
-                    float(bar.volume),
-                )
+                ts = parse_ibkr_date(bar.date)
+                # ESC-036: the clamp can over-reach — the 60 S floor pads a
+                # short span up, so IBKR may return bars from BEFORE the current
+                # period's start. Dropping them prevents ``BarAggregator.push``
+                # from opening a fabricated previous-period candle (AC2).
+                if (self._prime_period_start is None
+                        or ts >= self._prime_period_start):
+                    agg.push(
+                        ts,
+                        bar.open,
+                        bar.high,
+                        bar.low,
+                        bar.close,
+                        float(bar.volume),
+                    )
             return
         if not self._history_event_accepted(req_id):
             return
@@ -952,6 +974,7 @@ class TickerSession(QObject):
         the last wave member triggers host finalization."""
         if self._prime_req_id is not None and req_id == self._prime_req_id:
             self._prime_req_id = None
+            self._prime_period_start = None
             self._prime_timer.stop()
             self._host._on_session_prime_complete(self)
             return
@@ -973,6 +996,7 @@ class TickerSession(QObject):
                 req_id, code, msg,
             )
             self._prime_req_id = None
+            self._prime_period_start = None
             self._prime_timer.stop()
             # Fail open: attach the live feed rather than strand the chart.
             self._host._on_session_prime_complete(self)
@@ -1017,7 +1041,13 @@ class TickerSession(QObject):
 
     def prime_aggregator(self, contract, timeframe: str, now_ts: int,
                          extended_hours: bool) -> bool:
-        """D27.9: fetch trailing 5-sec bars for the current partial period.
+        """D27.9: fetch recent bars for the current partial period.
+
+        The priming bar size follows the elapsed forming-period span
+        (D43/ESC-036): the fine timeframes prime with `'5 secs'` bars (duration
+        clamped into [60 S, 3600 S]) and the coarse timeframes ('4 hours'/
+        '1 day'), whose spans exceed that ceiling, prime with `'1 min'` bars
+        (duration clamped into [60 S, 1 D]).
 
         Returns True when a priming request was issued — the caller must NOT
         attach the live feed yet; it attaches from on_historical_data_end,
@@ -1030,10 +1060,23 @@ class TickerSession(QObject):
         period_s = TIMEFRAME_SECONDS.get(timeframe, 300)
         if period_s <= 5:
             return False
-        span_s = now_ts - agg.period_start(now_ts)
+        period_start = agg.period_start(now_ts)
+        span_s = now_ts - period_start
         if span_s < 5:
             return False  # at a period boundary: nothing to prime
-        prime_s = min(span_s, _PRIME_MAX_SPAN_S)
+        # D43/ESC-036: pick the bar size from the span. A span up to the
+        # '5 secs' ceiling stays on the fine branch (clamped into
+        # [60 S, 3600 S]); a longer span (the coarse timeframes) uses
+        # '1 min' bars clamped into [60 S, 1 D]. Either way the duration is
+        # inside the accepted window for the chosen bar size, so IBKR never
+        # rejects the request (error 321). A span below the floor is padded
+        # up; the replay guard drops any resulting pre-period bars.
+        if span_s <= _PRIME_MAX_SPAN_S:
+            bar_size = "5 secs"
+            prime_s = max(_PRIME_MIN_SPAN_S, min(span_s, _PRIME_MAX_SPAN_S))
+        else:
+            bar_size = "1 min"
+            prime_s = max(_PRIME_MIN_SPAN_S, min(span_s, _PRIME_MAX_SPAN_1MIN_S))
         try:
             req_id = self._host.md_manager.req_historical_data(
                 contract=contract,
@@ -1042,7 +1085,7 @@ class TickerSession(QObject):
                 whatToShow="TRADES",
                 useRTH=1,
                 extended_hours=extended_hours,
-                bar_size="5 secs",
+                bar_size=bar_size,
                 duration=f"{prime_s} S",
             )
         except PacingExceeded:
@@ -1055,6 +1098,7 @@ class TickerSession(QObject):
         self._prime_req_id = req_id
         self._prime_timeframe = timeframe
         self._prime_symbol = self.symbol
+        self._prime_period_start = period_start
         self._host._register_req_id(req_id, self)
         # Backstop: a priming request that never answers must not strand the
         # chart without a live feed.

@@ -210,7 +210,12 @@ class MainWindow(QMainWindow):
 
         self.load_btn = QPushButton("Load Chart")
         self.load_btn.setEnabled(False)
-        self.load_btn.clicked.connect(self.load_chart)
+        # ESC-033: QPushButton.clicked emits clicked(bool checked=False); binding
+        # that bool to load_chart's first parameter (``symbol``) made the button
+        # call ``False.strip()``. Decouple the bool-emitting signal from the
+        # D28.2 parameterised method (whose signature stays frozen for the
+        # explicit-value callers: pop-outs, the alarm monitor, tests).
+        self.load_btn.clicked.connect(lambda: self.load_chart())
 
         # Chart-mode selector
         self.mode_combo = QComboBox()
@@ -670,6 +675,23 @@ class MainWindow(QMainWindow):
         # D27.6: account-data subscription state (positions + summary).
         self._account_subscribed: bool = False
         self._account_summary_req_id: int | None = None
+        # ESC-043: the account(s) the current account-summary subscription has
+        # reported. `reqAccountSummary(..., "All", ...)` can stream several
+        # accounts, so this is a set, not a single id. Empty means "not yet
+        # known" — the position render/prune must not act on a guess.
+        self._live_accounts: set[str] = set()
+        # ESC-052: `_live_accounts` is only AUTHORITATIVE once the
+        # account-summary stream has completed (`_on_account_summary_end`).
+        # `position_end` (from reqPositions) and `accountSummaryEnd` (from
+        # reqAccountSummary) are independent streams with no ordering
+        # guarantee, so a non-empty-but-incomplete set must never drive the
+        # destructive foreign-row prune — it may hold only SOME of the user's
+        # accounts, and deleting the rest would destroy real rows.
+        self._account_summary_complete: bool = False
+        # ESC-052: whether `_on_position_end` has already loaded/rendered the
+        # persisted rows this session — lets the summary completion re-render
+        # so the panel converges on the now-complete live set.
+        self._positions_rendered: bool = False
         # D27.4: RT retry timer. The StreamHealth object itself lives on the
         # TickerSession now (self._stream_health delegates to the primary
         # session); this timer stays window-level.
@@ -1087,6 +1109,13 @@ class MainWindow(QMainWindow):
         only the subscription calls were missing, leaving the portfolio
         panel permanently empty.
         """
+        # ESC-043: a fresh subscription invalidates the previous live-account
+        # set — it is unknown again until the first account-summary callback.
+        self._live_accounts = set()
+        # ESC-052: ... and it is not COMPLETE until this subscription's
+        # `accountSummaryEnd` arrives. Never prune on a partial set.
+        self._account_summary_complete = False
+        self._positions_rendered = False
         try:
             self.ib_client.reqPositions()
         except Exception as exc:  # pragma: no cover - transport-level
@@ -1420,6 +1449,11 @@ class MainWindow(QMainWindow):
         self._ibkr_connected = False
         # D27.6: the transport drop kills the server-side account subs.
         self._account_subscribed = False
+        # ESC-043: the live-account set is no longer known after a drop.
+        self._live_accounts = set()
+        # ESC-052: nor is the summary stream complete.
+        self._account_summary_complete = False
+        self._positions_rendered = False
         self.portfolio_panel.set_account_unavailable(True)
         self.watchlist_panel.set_add_enabled(False)
         # D39.1: search disabled while disconnected (box greys out).
@@ -2907,9 +2941,19 @@ class MainWindow(QMainWindow):
     def _on_account_summary(self, reqId: int, account: str, tag: str, value: str):
         """Collect account summary key/values."""
         self._account_id = account  # D26.5: feeds the connection badge
+        # ESC-043: "All" can stream several accounts — accumulate the set so
+        # the position render/prune knows exactly which accounts are live.
+        if account:
+            self._live_accounts.add(account)
         summary = dict(getattr(self, "_account_summary", {}))
         summary[tag] = value
+        # ESC-045: IBKR sends no 'Account' tag — the account id is the callback
+        # argument. Persist it so the panel's Account field shows the same id
+        # the connection badge uses (only when known; never fabricated).
+        if account:
+            summary["Account"] = account
         self._account_summary = summary
+        self.portfolio_panel.set_account_id(account or None)
         self.portfolio_panel.set_account_summary(summary)
         self._update_conn_badge()
 
@@ -2921,17 +2965,88 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(
                 f"Account summary received for {self._current_symbol or '—'}", 4000
             )
+        # ESC-052: the end marker is the ONLY signal that the live account set
+        # is complete. Before it, `_live_accounts` may hold only SOME of the
+        # user's accounts, so the destructive foreign-row prune must not have
+        # run and must not run now until we are sure this is the CURRENT
+        # subscription's end (ignore a stale end from a superseded one).
+        expected = getattr(self, "_account_summary_req_id", None)
+        if expected is not None and reqId != expected:
+            return
+        self._account_summary_complete = True
+        self._prune_foreign_positions()
+        # ESC-052: `position_end` can beat `accountSummaryEnd`, in which case
+        # the panel rendered only the accounts known at that moment. Re-render
+        # so it converges on every live account now that the set is complete.
+        if getattr(self, "_positions_rendered", False):
+            self._on_position_end()
+
+    def _prune_foreign_positions(self) -> None:
+        """Delete persisted rows whose ``account`` is not in the live set.
+
+        ESC-052: this is a DESTRUCTIVE write to the real ``positions`` table.
+        Callers MUST only invoke it once the account-summary stream has
+        completed (``self._account_summary_complete``) — a non-empty but
+        partial ``_live_accounts`` would otherwise delete a real account's
+        persisted rows merely because its summary callback has not arrived
+        yet. No-ops when the live set is empty (nothing is known).
+        """
+        from data.db import db
+
+        live = getattr(self, "_live_accounts", set())
+        if not live:
+            return
+        placeholders = ",".join("?" for _ in live)
+        db.conn.execute(
+            f"DELETE FROM positions WHERE account NOT IN ({placeholders})",
+            tuple(live),
+        )
+        db.conn.commit()
 
     def _on_position_update(self, account: str, contract, pos: float, avg_cost: float):
         """Persist and render a single position update."""
+        import sys
+
         from ibkr.account import build_position_from_ib
         from data.db import db
 
-        contract_type = getattr(contract, "class_", "stock") or "stock"
+        # ESC-043: once the live account(s) are known, an update for any other
+        # account is not a real broker position — it must be neither persisted
+        # nor rendered (otherwise a stray probe write re-leaks a foreign row).
+        # While the live set is still unknown (no account-summary callback yet)
+        # the update is accepted, exactly as before.
+        # ESC-054: `_live_accounts` is AUTHORITATIVE only once the
+        # account-summary stream has COMPLETED. In the window between the first
+        # `account_summary` callback and `accountSummaryEnd` the set may hold
+        # only SOME of the user's accounts, so gating the early-return on a
+        # non-empty-but-PARTIAL set would silently discard a real second
+        # account's update (neither persisted nor rendered, unrecoverable for
+        # the session). A partial set scopes the render only — it never
+        # discards a real account's data. The completed-set gate ESC-043/ESC-052
+        # established still drops a foreign update AFTER completion.
+        if (
+            self._live_accounts
+            and self._account_summary_complete
+            and account not in self._live_accounts
+        ):
+            return
+
+        # ESC-044 / AC-D27.6: read the REAL `ibapi.Contract` attribute names.
+        # `class_` / `lastDateOrMonth` / `putCall` do NOT exist on the contract
+        # (it has `secType` / `lastTradeDateOrContractMonth` / `right`), so every
+        # option/future used to be persisted as 'stock' with a blank expiry and
+        # ibapi's UNSET_DOUBLE sentinel strike. This forward mapping is the exact
+        # mirror of the D28.6 inverse on the close-order path (see below).
+        sec_type = (getattr(contract, "secType", "") or "").upper()
+        contract_type = {"OPT": "option", "FUT": "future"}.get(sec_type, "stock")
         multiplier = float(getattr(contract, "multiplier", 1.0) or 1.0)
-        expiry = getattr(contract, "lastDateOrMonth", None)
+        expiry = getattr(contract, "lastTradeDateOrContractMonth", None) or None
         strike = getattr(contract, "strike", None)
-        right = getattr(contract, "putCall", None)
+        # ibapi's UNSET_DOUBLE (sys.float_info.max) means "no strike" — never
+        # persist the sentinel; the model/panel vocabulary is None.
+        if strike is not None and strike == sys.float_info.max:
+            strike = None
+        right = getattr(contract, "right", None)
         right = "P" if right == "P" else ("C" if right == "C" else None)
 
         position = build_position_from_ib(
@@ -2957,29 +3072,83 @@ class MainWindow(QMainWindow):
         position.market_price = self._symbol_last_prices.get(
             (position.symbol or "").upper(), 0.0
         )
-        self._upsert_position(position)
+        # ESC-032 / P2-T27: stamp the REAL `positions.id` row key on the object
+        # before it reaches the panel. The panel keys strategy grouping on
+        # `pos.id` and the SL/TP dialog persists via `WHERE id=?`, so the live
+        # path must carry the row key, not an absent/None placeholder.
+        position.id = self._upsert_position(position)
         self.portfolio_panel.add_position(position)
 
     def _on_position_end(self):
-        """Load the full persisted position set after IBKR finishes streaming."""
+        """Load the persisted positions for the LIVE account(s) after streaming.
+
+        ESC-043: the whole ``positions`` table used to be loaded and rendered
+        with no account filter, so junk rows persisted by non-hermetic probes
+        (e.g. ``HELD``/``DU123``, ``H``/``DU1``) showed up in the portfolio
+        panel. Now only rows whose ``account`` is one of the live accounts are
+        rendered. When the live account set is not yet known every row is
+        rendered (unchanged).
+
+        ESC-052: the destructive foreign-row prune runs ONLY once the
+        account-summary stream has completed (``_account_summary_complete``).
+        A non-empty-but-partial ``_live_accounts`` (a ``position_end`` that
+        fired before every ``account_summary`` callback arrived) still scopes
+        the render — foreign rows stay hidden — but must never delete, or it
+        would destroy the persisted rows of a real account whose own summary
+        callback has not arrived yet.
+        """
         from data.db import db
 
-        rows = db.conn.execute(
-            "SELECT symbol, account, con_id, contract_type, qty, avg_cost, "
+        # ESC-032 / P2-T27: `id` MUST be selected too — without it every loaded
+        # Position is id-less, so the Strategy/Group columns render '—' and the
+        # SL/TP dialog early-returns (the bulk path is degraded, not fixed).
+        columns = (
+            "id, symbol, account, con_id, contract_type, qty, avg_cost, "
             "local_symbol, multiplier, expiry, strike, right, stop_loss, "
-            "take_profit, trade_group_id FROM positions"
-        ).fetchall()
+            "take_profit, trade_group_id"
+        )
+        live = getattr(self, "_live_accounts", set())
+        complete = getattr(self, "_account_summary_complete", False)
+        if live and complete:
+            # AC2: address the foreign rows in the table itself, not just hide
+            # them in the render — safe ONLY now that the summary stream has
+            # completed and `live` is the full account set. Live-account rows
+            # are untouched.
+            self._prune_foreign_positions()
+        if live:
+            # AC1: render only the accounts the summary has reported. A partial
+            # set still scopes the render (hiding foreign rows); it just must
+            # not delete (see ESC-052 above).
+            placeholders = ",".join("?" for _ in live)
+            rows = db.conn.execute(
+                f"SELECT {columns} FROM positions "
+                f"WHERE account IN ({placeholders})",
+                tuple(live),
+            ).fetchall()
+        else:
+            # AC2: live set unknown -> prune is a no-op; render unchanged.
+            rows = db.conn.execute(
+                f"SELECT {columns} FROM positions"
+            ).fetchall()
         positions = [Position(
-            symbol=row[0], account=row[1], con_id=row[2],
-            contract_type=row[3], qty=row[4], avg_cost=row[5],
-            local_symbol=row[6], multiplier=row[7], expiry=row[8],
-            strike=row[9], right=row[10], stop_loss=row[11],
-            take_profit=row[12], trade_group_id=row[13],
+            id=row[0],
+            symbol=row[1], account=row[2], con_id=row[3],
+            contract_type=row[4], qty=row[5], avg_cost=row[6],
+            local_symbol=row[7], multiplier=row[8], expiry=row[9],
+            strike=row[10], right=row[11], stop_loss=row[12],
+            take_profit=row[13], trade_group_id=row[14],
         ) for row in rows]
         self.portfolio_panel.set_positions(positions)
+        self._positions_rendered = True
 
-    def _upsert_position(self, position: Position) -> None:
-        """Persist a position update (upsert by symbol + con_id)."""
+    def _upsert_position(self, position: Position) -> int:
+        """Persist a position update (upsert by symbol + con_id).
+
+        ESC-032 / P2-T27: returns the ``positions.id`` DB row key so the caller
+        can stamp it on the object it hands the panel. ``RETURNING id`` yields
+        the existing row's id on the DO UPDATE branch and the new rowid on the
+        insert branch (SQLite >= 3.35; this env is 3.53.1).
+        """
         from data.db import db
 
         cursor = db.conn.cursor()
@@ -3004,6 +3173,7 @@ class MainWindow(QMainWindow):
                 take_profit=excluded.take_profit,
                 trade_group_id=excluded.trade_group_id,
                 updated_at=excluded.updated_at
+            RETURNING id
             """,
             (
                 position.symbol,
@@ -3023,7 +3193,9 @@ class MainWindow(QMainWindow):
                 int(__import__("time").time()),
             ),
         )
+        row = cursor.fetchone()
         db.conn.commit()
+        return int(row[0]) if row is not None else None
 
     def _update_order_status(self, orderId: int, status: str):
         order = order_registry.get(orderId)

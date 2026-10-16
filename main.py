@@ -2,6 +2,14 @@ import sys
 import os
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QApplication, QMessageBox
+from config import paths
+
+# ESC-043 limb 2: this is the real application entry point, so opt in to the
+# user-space production DB BEFORE anything imports data.db -- data/db.py builds
+# its module-level `db = DB()` singleton at import time, and ui.main_window
+# imports it. Without this, a normal run from source would trip the guard.
+paths.opt_in_production_db()
+
 from config import settings
 from ui.main_window import MainWindow
 
