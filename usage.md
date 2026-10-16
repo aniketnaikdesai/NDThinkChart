@@ -96,11 +96,10 @@ IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 
 | Area | Purpose |
 |------|---------|
-| **Toolbar** | Symbol input, timeframe, chart mode, studies, alarms, DOM toggle, drawing tools |
+| **Toolbar** | Symbol input, timeframe, chart mode, studies, alarms, drawing tools |
 | **Chart Panel** | Candlestick/Hollow/Heikin-Ashi/Line/Area charts with studies, drawings, alarms |
 | **Watchlist (Left Dock)** | Symbol list with live ticks; double-click to load chart |
-| **Active Trader / DOM (Right Dock)** | Level II depth, order entry (MKT/LMT/STP/Bracket) |
-| **Portfolio (Right Dock)** | Account summary, positions, P&L, SL/TP, group actions |
+| **Portfolio (Right Dock)** | Account summary, positions, P&L, SL/TP, close/flatten actions |
 
 ---
 
@@ -128,19 +127,13 @@ IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 3. Right-click drawing → **Delete** or drag handles to edit
 4. Use **Sets…** to create named groups with color/lock/visibility
 
-### Active Trader (DOM)
-1. Toggle **DOM** button in toolbar
-2. View Level II ladder (bids/asks with sizes)
-3. Place orders: MKT / LMT / STP / Bracket (parent + stop + target)
-4. Orders transmit immediately — **live account**
-
 ### Portfolio & SL/TP
 1. Open **Portfolio** dock
 2. Right-click a position → **Set Stop/Target**
    - Long: `stop < market < target`
    - Short: `stop > market > target`
    - Min-tick validation enforced
-3. Right-click → **Close Position** / **Close Group** / **Flatten All**
+3. Right-click → **Close Position** / **Close Group** / **Close All Positions**
 4. Group positions auto-detected by option strategy (PCS, PDS, CCS, CDS, IC)
 
 ---
@@ -200,7 +193,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
   `EClient.connect` with the stored host/port/clientId on exponential backoff
   (the poll timer does not re-arm while a reconnect is pending); live
   subscriptions are type-tagged in `SubscriptionManager` and replayed with
-  rebound reqIds — chart RT bars and DOM depth via the registry replay,
+  rebound reqIds — chart RT bars via the registry replay,
   watchlist market-data via `_restore_watchlist`'s clear+re-add
 
 ---
