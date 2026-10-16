@@ -48,3 +48,9 @@ htmlcov/
 
 # Graphify
 graphify-out/
+
+# Review-time transient inputs (regenerated on every Code Review pass)
+docs/code_review/precheck.json
+docs/code_review/precheck.md
+docs/code_review/test_verification.json
+docs/code_review/test_verification.log
