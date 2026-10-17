@@ -15,8 +15,6 @@
   "tooling_defect_2026_10_16": "Task Manager graph rewrites can SILENTLY RESET task statuses: after adding P2-T24/T25/T26 the graph showed P2-T14 done->in_progress, P2-T15 done->in_progress and P2-T23 blocked->not_started, even though the TM's report claimed all existing tasks were byte-identical. Recovery used: copy the task's archived result back from docs/build/results/_archive/waveNN_<id>.json into docs/build/results/<id>.json, then advance (consolidates it back to done). NOTE the cp sets a fresh mtime, which makes build_wave treat the task as 'already re-run since escalation X opened' and stop re-dispatching it.",
   "current_stage": "code_reviewer",
   "pending": null,
-  "working_on": {},
-  "last_status": "PIPELINE_COMPLETE",
   "accepted_observations": {
     "ESC-055": "Owner decision 2026-10-16: RECORD, TAKE NO ACTION. The D42/ESC-050 defect class (a behaviour change invalidating an assertion outside the changing task's touches_files) recurred at P2-T38; the reviewer suggested extending the enumeration rule with an ownership half. The owner judged the whole-suite gate (verify_tests.py) sufficient machinery. Do NOT re-pause on this escalation; ask the reviewer to flip it to addressed as 'accepted - no action' at its next run."
   },
@@ -42,12 +40,10 @@
     "at": "2026-10-16T02:30:00Z",
     "task": "D42 build review (background)"
   },
-  "last_status": "D42_BUILD_COMPLETE_NEEDS_CODE_REVIEW_REVIEW_LAUNCHED",
+  "last_status": "PIPELINE_COMPLETE - D44 delivered (bb903a1), the follow-up batch closed (a78fbfc), 29/29 escalations addressed, zero open",
   "user_decision": "Close D41's loose ends first (ESC-046 + ESC-047) before the requirements escalations or the live-run bugs. The remaining 11 open escalations stay queued and will be re-surfaced after the reviewer re-runs.",
   "build_phase": "P3",
-  "working_on": {
-    "code_reviewer": "P3-followup"
-  },
+  "working_on": {},
   "user_directive": {
     "rule": "As orchestrator, do NOT edit application code. On a worker death: record the half-applied state, notify the user, and WAIT for an explicit decision.",
     "scoped_override": "2026-10-15: for this stuck build the user instructed the orchestrator to take charge and complete the work directly rather than keep dispatching workers."
