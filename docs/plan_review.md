@@ -2333,3 +2333,68 @@ existing stack is respected with no replacement, the frozen contracts are verbat
 the codebase map validates. Four non-blocking observations recorded, three normalized editorially in
 the canonical artifacts. **Task Manager may proceed; `docs/plan.md` ends
 `Status: READY_FOR_TASK_MANAGER`.**
+
+---
+
+## Addendum — canonical materialization: ESC-057 `AC-D44.2` wording sync (2026-10-16)
+
+**Invocation reason:** `canonical_materialization` (post-approval). D44 is **delivered** — committed
+and pushed at `bb903a1`, the follow-up batch at `a78fbfc` (which carries the ESC-057 restatement),
+reviewed (`Status: REVIEW_COMPLETE`), **zero open escalations** (29/29 addressed), full suite green.
+This pass makes **no new architectural decision**, re-plans nothing, and does not reopen D1–D43.
+
+**The freshness gap (not a defect).** The Requirements Analyst restated `AC-D44.2` for **ESC-057**
+*after* this plan was written, so `docs/requirements/requirements.md` is now newer than
+`docs/plan.md` and `pipeline_state.py` reports `plan proposal not current`. ESC-057 changed the
+criterion's **measurable** only: it no longer demands an exact **rendered**-width echo
+(`watchlist_dock.width() == clamp(W)`); it now names the **tracked** width
+(`win._watchlist_width == clamp(W)`, exact **by construction**) **plus** a **tolerant** check on the
+**rendered** width (`>= WATCHLIST_MIN_WIDTH`, `<= watchlist_max_width(...)`, `> WATCHLIST_COLLAPSED_WIDTH`),
+because the rendered width is a Qt layout result the app does not guarantee. The analyst propagated the
+restatement to the D44 register, Journey 37, `R67`, `design_gaps.md` **DG74**, and `open_questions.md`
+**Q55**. The orchestrator's recorded 300→314 residual is **not reproducible and is explicitly recorded
+as not evidence** (not cited here). The shipped guard
+(`tests/test_dock_widths_collapsed_d44.py::test_P3_T05_T21_expand_restores_the_tracked_width`) already
+asserts exactly this form, so the restated criterion is **satisfied by the delivered implementation**.
+
+**Delta check (final-pass form — no full re-validation).**
+- **Requirements drift:** confirmed — `requirements.md` restated `AC-D44.2` (and Journey 37 / `R67` /
+  DG74 / Q55) per ESC-057. Only this one measurable changed; no other D44 criterion, journey, risk or
+  architecture decision is affected.
+- **Review invalidations:** `docs/code_review/escalations.json` holds **no open `PLAN`-routed entry**
+  (ESC-057 is `routed_to: REQUIREMENTS`, now `addressed`); no addressed review finding invalidates an
+  assumption this proposal rests on.
+- **Result:** the affected wording is now synced; no architectural substance changed.
+
+**Sites synced (wording only; the tracked-width form is now the contract).**
+1. `docs/plan.md` — D44 coverage table, `AC-D44.2` row: the guard's rendered-width echo
+   (`dock.width() == clamp(W)`) → the **tracked** `win._watchlist_width == clamp(W)` exactly **plus** the
+   **tolerant** rendered-width check (floor / cap / `> collapsed width`); tagged *restated 2026-10-16 per
+   ESC-057*.
+2. `docs/plan.md` — Phase 1 file-group C row (`ui/main_window.py`, the transition wiring): the guard's
+   `expand → clamp(W)` shorthand → *the tracked `_watchlist_width == clamp(W)` with the rendered width
+   checked tolerantly*.
+3. `docs/plan.md` — the `tests/test_dock_widths_collapsed_d44.py` test-surface row: `expand →
+   dock.width() == clamp(W)` → the **tracked** `win._watchlist_width == clamp(W)` exactly **plus** the
+   tolerant rendered-width check.
+4. `docs/plan.md` — the RED→GREEN **GREEN-after-Phase-1** evidence bullet: `expand → dock.width() ==
+   clamp(W)` → the **tracked** `win._watchlist_width == clamp(W)` exactly with the rendered width
+   asserted **tolerantly**.
+5. `docs/architecture.md` — `AR-D44-6` mitigation: the guard's `dock.width() == clamp(W)` → the
+   **tracked** `win._watchlist_width == clamp(W)` (by construction) on expand, with the tolerant
+   rendered-width check; tagged *restated 2026-10-16 per ESC-057*.
+
+**Deliberately left alone (already consistent with the restated criterion).**
+- `docs/plan.md` (the "previous width `AC-D44.2` restores" bullet, the `AP-D44-2` bullet, the Code
+  Reviewer step (d)) and `docs/architecture.md` (`S24`, `S25`, `S28`, the `MainWindow._watchlist_width`
+  data-model row, the coverage row) all already frame `AC-D44.2` around the **tracked** `_watchlist_width`
+  / "the width held immediately before collapsing" — the restated criterion's own wording. No change
+  needed.
+- `docs/plan_notes.md` — `FI-D44-1` concerns `AC-D44.1`/`AC-D44.5`'s exact-equality measurable for the
+  **collapsed** width (a different clause, unchanged); `FI-D44-2`/`FI-D44-3` are unaffected. No change
+  needed.
+- No task, no code, no test, and no `docs/tasks/*` artifact touched; `docs/codebase-map.md` untouched.
+
+**Status markers:** unchanged. `docs/plan_review.md` remains `Status: APPROVED`; `docs/plan.md` still
+ends `Status: READY_FOR_TASK_MANAGER`. The sync restores plan freshness (plan ≥ requirements) without
+altering the decision. Task Manager may proceed.

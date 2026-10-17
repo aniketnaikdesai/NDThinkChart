@@ -13,7 +13,7 @@
   "pack_fix_count": {"P2-T22": 1, "P2-T06": 1},
   "map_repair_count": {},
   "tooling_defect_2026_10_16": "Task Manager graph rewrites can SILENTLY RESET task statuses: after adding P2-T24/T25/T26 the graph showed P2-T14 done->in_progress, P2-T15 done->in_progress and P2-T23 blocked->not_started, even though the TM's report claimed all existing tasks were byte-identical. Recovery used: copy the task's archived result back from docs/build/results/_archive/waveNN_<id>.json into docs/build/results/<id>.json, then advance (consolidates it back to done). NOTE the cp sets a fresh mtime, which makes build_wave treat the task as 'already re-run since escalation X opened' and stop re-dispatching it.",
-  "current_stage": "code_reviewer",
+  "current_stage": "plan_artifact_editor_validator",
   "pending": null,
   "accepted_observations": {
     "ESC-055": "Owner decision 2026-10-16: RECORD, TAKE NO ACTION. The D42/ESC-050 defect class (a behaviour change invalidating an assertion outside the changing task's touches_files) recurred at P2-T38; the reviewer suggested extending the enumeration rule with an ownership half. The owner judged the whole-suite gate (verify_tests.py) sufficient machinery. Do NOT re-pause on this escalation; ask the reviewer to flip it to addressed as 'accepted - no action' at its next run."
@@ -32,6 +32,14 @@
     "evidence": "The collapsed dock's width is pinned at 128px by header_bar still occupying the title-bar slot. The Plan's probe: '128px with the strip in the title-bar slot, exactly 30 with the plan's wiring'. Verified independently by the orchestrator in both clamp branches (plan(left_collapsed=True) == 30, applied dock == 128, _watchlist_width preserved, re-expand >= 150).",
     "action_at_P3_T05": "P3-T05's task file predates this discovery and does NOT carry the exact-width assertion, so APPEND an invariant line to its worker prompt when dispatching: after the title-bar swap, a collapsed watchlist dock must settle at exactly WATCHLIST_COLLAPSED_WIDTH (+/-1), and test_D21_10_T03's collapsed leg must be tightened from '< WATCHLIST_MIN_WIDTH' to the exact collapsed width. test_D21_10_T03 also still asserts panel.header_bar.isVisible() while collapsed - D44 hides the strip while collapsed, so that leg is P3-T05's too.",
     "recorded_in": "docs/build/results/P3-T02.json (footprint_flags) and docs/build/logs/P3-T02.md (Notes) - the Code Reviewer reads the result and may raise a TASK_MANAGER escalation."
+  },
+  "freshness_flag_2026_10_16": {
+    "flag": "pipeline_state.py reports next=INVOKE agent=plan reason='plan proposal not current'.",
+    "true_target": "docs/plan_proposal.md (mtime 17:47) is older than docs/requirements/requirements.md (21:30, the ESC-057 AC-D44.2 restatement). The freshness rule compares the PROPOSAL, not plan.md - so syncing plan.md does not clear it. docs/plan_proposal.md is Plan-owned (AGENTS.md:44), not Validator-owned.",
+    "mis_diagnosis": "The orchestrator told the user this was 'the Validator pass on plan.md'. That pass WAS worth doing and is done (plan.md x4 sites, architecture.md x1, a plan_review.md addendum - the canonical artifacts no longer contradict the restated AC-D44.2), but it does not clear this flag.",
+    "why_not_cleared": "Clearing it needs the Plan agent to refresh plan_proposal.md, whose handoff appends Status: READY_FOR_VALIDATION - which re-enters the full validate cycle and cascades (Plan -> Validator -> Task Manager -> Build -> Review) for a wording-only change. The orchestrator judged that disproportionate and left the flag.",
+    "assessment": "BENIGN for a batch-based legacy run: docs/plan_proposal.md is a superseded per-batch draft, and the canonical docs/plan.md + docs/architecture.md are correct and now synced. The freshness model assumes one linear proposal, which does not fit a batch-based run.",
+    "owner_decision": "PENDING - the owner was asked whether to run the Plan refresh (accepting the cascade) or leave the flag recorded as benign."
   },
   "invocation_reason": "normal_progression",
   "plan_validator_retries": 0,
