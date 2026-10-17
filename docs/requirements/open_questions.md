@@ -1156,3 +1156,32 @@
   3. **`+` reachability while collapsed (A77):** the horizontal header strip, the `+` add button (D22.1) and the column-header row are **hidden while collapsed** and **return on expand**; the thin bar's only interactive element is the expand affordance (a ~30px bar cannot hold a horizontal `+` plus a rotated label legibly).
 - **Owner action (optional):** confirm the three defaults, or name an override — e.g. "persist the collapsed state", "show the `+` on the bar", or a specific width. An override revises `AC-D44.1`/`AC-D44.4`/`AC-D44.7` and the matching assumption.
 - **Affected requirement section:** D44 / Journey 37 / `AC-D44.1`, `AC-D44.4`, `AC-D44.7`; A75–A77.
+
+---
+
+# Open Questions — 2026-10-16 (ESC-057, D44 — `AC-D44.2` measurable restated) — resolved, no blocking item
+
+> **ESC-057** (Code Reviewer, `routed_to: REQUIREMENTS`, **nice-to-have**) found `AC-D44.2`'s measurable and its shipped
+> guard disagreeing about what the expand path asserts. It is resolved **from evidence** (the reviewer's independent
+> offscreen probe), so **no owner question is required**; recorded here as **Q55** for traceability. **No blocking item
+> remains**; `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## Q55 — ESC-057: what is the measurable for `AC-D44.2`'s expand-restore — the tracked width or the rendered dock width?
+
+- **Status:** **answered 2026-10-16 (evidence-derived from ESC-057's independent probe; no owner question required — nice-to-have).** Not blocking.
+- **Answer (adopted — the reviewer's recommended direction):** the measurable is **two-part**:
+  1. the **tracked** width is restored **exactly** — `win._watchlist_width == clamp(W)` — which holds **by construction**
+     (`_watchlist_width` is never assigned while collapsed, and `_apply_dock_widths` always stores the clamped value); and
+  2. the **rendered** dock width is checked **tolerantly** — `watchlist_dock.width() >= WATCHLIST_MIN_WIDTH`,
+     `<= watchlist_max_width(...)`, and `> WATCHLIST_COLLAPSED_WIDTH` — because the rendered width is a **Qt layout
+     result**, not a value the app can guarantee to echo exactly.
+- **Why no owner question:** the reviewer's independent offscreen probe reproduced an **exact** rendered restore for
+  every in-range `W` in both clamp branches (150→150, 300→300, cap→cap), and the shipped guard already asserts the
+  tolerant rendered bounds; the disagreement was purely about **wording**. The former exact-equality-on-rendered-width
+  wording is **superseded** (recorded, not silent).
+- **Not evidence:** the orchestrator's earlier residual note in `docs/build/logs/P3-T05.md` (a non-exact 300→314
+  restore) was **not reproducible** and is **not treated as evidence** (the orchestrator has owned it as its own error).
+- **Alternatives considered and NOT adopted:** **tighten the guard** to assert the exact **rendered** width — rejected as
+  the more expensive fix: the guard is a **Build-stage artifact** and a rendered-width echo is a Qt layout result the app
+  does not guarantee, so a requirements-side restatement is the correct and cheaper resolution.
+- **Affected requirement section:** D44 / `AC-D44.2` (restated); Journey 37; R67; `design_gaps.md` DG74; ESC-057.

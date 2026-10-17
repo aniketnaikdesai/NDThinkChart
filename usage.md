@@ -98,7 +98,7 @@ IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 |------|---------|
 | **Toolbar** | Symbol input, timeframe, chart mode, studies, alarms, drawing tools |
 | **Chart Panel** | Candlestick/Hollow/Heikin-Ashi/Line/Area charts with studies, drawings, alarms |
-| **Watchlist (Left Dock)** | Symbol list with live ticks; double-click to load chart |
+| **Watchlist (Left Dock)** | Symbol list with live ticks; double-click to load chart; collapse to a thin vertical bar via the **Watchlist** header button, click the bar to expand |
 | **Portfolio (Right Dock)** | Account summary, positions, P&L, SL/TP, close/flatten actions |
 
 ---
@@ -109,6 +109,11 @@ IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 1. Type symbol (e.g., `AAPL`) in toolbar
 2. Select timeframe (1 min – 1 day)
 3. Click **Load Chart** or press Enter
+
+### Collapse / Expand the Watchlist (Phase D44)
+1. Click the **Watchlist** header button to collapse the dock — it shrinks to a thin vertical bar showing the rotated `WATCHLIST` label
+2. Click the bar (or its handle) to expand it back to the width it held before collapsing
+3. The collapse state is not persisted — the app always starts with the watchlist expanded
 
 ### Add Studies
 1. Click **Studies…** button

@@ -3907,3 +3907,80 @@ production code, no assertion weakened, no skip/xfail. Three escalations are ope
 **ESC-058** (TASK_MANAGER — a D44 `USAGE.txt` entry).
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Code Review — D44 follow-up batch (P3-T06 docs + ESC-056/057/058 close-out), 2026-10-17
+
+**Reviewer:** Code Reviewer agent · **Phase:** P3 (D44 follow-up)
+**Scope (incremental):** only `P3-T06` — the sole task whose `docs/build/results/<id>.json`
+(`_archive/wave98_P3-T06.json`, `done`) is newer than the previous `REVIEW_COMPLETE`. Documentation-only
+(`USAGE.txt` + `usage.md`). `docs/build/build_log.md` ends `Status: READY_FOR_REVIEW`.
+
+**Verification inputs (ground truth, consumed not re-derived):**
+- `test_verification.json` — `VERIFY: pass`, exit 0, 67.67 s, no skips/xfails → the suite genuinely passed; not re-run.
+- `precheck.json` — scope `[P3-T06]`, `fail_fast: []`, `escalation_entries: []` (no `PRE-*`),
+  `files_verified: [USAGE.txt, usage.md]`, tests 3/3 pass; `escalation_updates` = ESC-056/057/058 changed. Consumed, not re-run.
+
+## A. Failure diagnosis — none
+
+No task was `blocked`; the precheck reports 0 fail_fast. P3-T06's three manual checks (T11/T21/T31) pass.
+
+## B. Quality review of P3-T06 (documentation-only) — sound, no new finding
+
+- **Content matches the as-built D44 feature, clause by clause** (verified against the code, not the worker's word):
+  a ~30px thin bar (`WATCHLIST_COLLAPSED_WIDTH = 30`; `CollapsedWatchlistBar.setFixedWidth(30)`); the label
+  `WATCHLIST` rotated 90° CCW (`painter.rotate(-90)`, `COLLAPSED_BAR_LABEL`); the app's own dark palette
+  (`#141822` bg / `#232938` border / `#cbd5e1` text); click the bar **or its handle** to expand
+  (`collapsed_bar.expand_requested` → `_on_collapsed_bar_expand`; the handle's `eventFilter`
+  `MouseButtonRelease` path) restoring the tracked pre-collapse width (`self._watchlist_width`); the header
+  strip / `+` / column-header row hidden while collapsed (`_apply_collapsed_visual()` hides `header_bar` +
+  `table`) and restored on expand; collapse state not persisted (no collapse-state QSettings key; `closeEvent`
+  persists only `_watchlist_width`). No contradicting claim.
+- **Convention honoured:** the USAGE.txt section follows the neighbours' `<Feature> (Phase D<n>)` + matching
+  dashed-underline style, placed after the D40 section; usage.md carries the UI-Overview row + Key-Workflows entry.
+- **Footprint:** `git diff` is `USAGE.txt` + `usage.md` only; matches `files_changed`/`touches_files`. No
+  production code or test touched.
+- **Mock-endpoint containment (standing check):** the reviewed diff is documentation-only — no production file
+  changed, so the `mock|fake|stub|simulat` × `endpoint|client|service|server|api|harness` check is vacuous here; nothing to flag.
+- **Usage-doc coverage:** P3-T06 **is** the usage-doc update for the user-visible D44 feature — the coverage gap
+  ESC-058 named is now filled (see D).
+- **Test integrity:** no test changed; nothing weakened/skipped.
+
+## C. Test integrity / standing checks — clean
+
+- No production code changed; no assertion weakened, deleted, or skipped (docs-only diff).
+- Cross-task overlaps: none (single-task batch).
+
+## D. Escalation close-out — all three flipped to `addressed`
+
+- **ESC-056 (TASK_MANAGER) → `addressed`.** Re-verified against `docs/tasks/task-graph.json`: P3-T01's
+  `touches_files` (line 67) and `expected_artifacts` (line 61) now include `ui/watchlist_panel.py`; the `outputs`
+  entry is re-attributed to `ui/watchlist_panel.py::clamp_watchlist_width` (line 78); `context.read_files` gained
+  `ui/watchlist_panel.py` 98-125 with the matching `why` (lines 100-104). **No delivered task clobbered** —
+  P3-T01's `status` is still `done` (line 81) and the revision header/notes record the correction as
+  metadata-only ("no rewrite of the delivered record"). Code unchanged and correct.
+- **ESC-057 (REQUIREMENTS) → `addressed`.** `AC-D44.2`'s measurable (`requirements.md:3880-3890`) now names the
+  **tracked** `win._watchlist_width == clamp(W)` (exact by construction) **plus** a tolerant rendered-width check,
+  with the former rendered-echo wording marked superseded. Propagated to the D44 register bullet (`:3847-3852`),
+  Journey 37 (`:996-1000`), R67 (`:4156`), `design_gaps.md` DG74 (`:1182-1186`) and `open_questions.md` Q55
+  (`:1169-1187`, explicitly recording the orchestrator's 300→314 residual as **not evidence**). Matches the
+  shipped guard `test_P3_T05_T21_expand_restores_the_tracked_width` (tolerant bounds). Wording-only; no code change.
+- **ESC-058 (TASK_MANAGER) → `addressed`.** The D44 `USAGE.txt` section + usage.md entries exist and describe the
+  as-built behaviour (verified clause-by-clause against the code, section B). Footprint clean.
+
+## E. New findings
+
+| New id | Linked task | Route | Category / severity | One-line |
+|---|---|---|---|---|
+| — | — | — | — | None. The D44 documentation matches the as-built feature and all three escalations' fixes hold. |
+
+## F. Pipeline state for the Orchestrator
+
+The D44 follow-up batch is **sound**: P3-T06 documents the user-visible feature accurately and only in
+`USAGE.txt` + `usage.md`; ESC-056's graph-footprint correction, ESC-057's requirements restatement and ESC-058's
+doc entry are all independently verified. No mock endpoint in production code, no assertion weakened, footprint
+clean; the full offscreen suite is green per the Orchestrator's own run (`pass`, exit 0). **No open escalations
+remain** — ESC-001…ESC-058 are all `addressed`.
+
+Status: REVIEW_COMPLETE

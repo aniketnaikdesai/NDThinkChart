@@ -2272,3 +2272,93 @@ entry; the Code Reviewer flips it to `addressed` at its next run. Not treated as
   `needs_graphify: false`, `size`); every acceptance criterion has ≥1 linked test; `touches_files` is
   non-empty on every code-writing task.
 - Top-level and `metadata` `"status"` are `READY_FOR_BUILD`.
+
+---
+
+## 2026-10-17 — post-D44 review: ESC-056 metadata correction + ESC-058 documentation task (`P3-T06`)
+
+**Trigger:** `docs/code_review/escalations.json` — the two entries routed to `TASK_MANAGER` with
+`"status": "open"` after the D44 review: **ESC-056** (consistency, should-fix) and **ESC-058** (gap,
+should-fix). All other entries are `addressed` and were not touched. **No `ESC-PLAN-*` entry** — neither
+escalation needs an undecided architectural choice (ESC-056 is a footprint-accuracy correction to a
+delivered task; ESC-058 documents a feature that is already built and green). `docs/plan.md` § *D44 —
+Batch 19* remains `Status: READY_FOR_TASK_MANAGER`. Read only:
+`docs/requirements/**`, `docs/architecture.md`, `docs/plan.md`, `docs/code_review/**`,
+`docs/phase-changelog.md`, `USAGE.txt`, `usage.md`.
+
+**Delivered-record preservation (the 2026-10-16 rewrite warning).** This is a **follow-up**, not a
+re-decomposition: `P3-T01`..`P3-T05` are all `done`/delivered (committed and pushed at `bb903a1`) and
+were **kept intact**. The graph was edited in place (read-modify-write of the JSON, no fresh build), and
+all five statuses were re-read from the file after the write and confirmed `done`.
+
+### 1. ESC-056 — `P3-T01` footprint correction (metadata only, NOT a re-open)
+
+`P3-T01`'s own `AC4` / `AP-D44-5` mandate that `ui/watchlist_panel.py::clamp_watchlist_width` delegate to
+the new `dock_layout.plan_watchlist_width(..., collapsed=False)`, but the task's declared footprint
+omitted `ui/watchlist_panel.py` and its `outputs` attributed `clamp_watchlist_width` to
+`ui/dock_layout.py`. The dispatched worker made the contract-required edit correctly, so the precheck
+raised a spurious blocking `fail_fast` (PRE-001) that the Orchestrator rightly declined to rework. The
+**code is correct and unchanged**; only the graph record was wrong. Corrections applied:
+
+- `touches_files`: `+ "ui/watchlist_panel.py"` (now `["ui/dock_layout.py", "tests/test_dock_layout.py",
+  "tests/test_watchlist.py", "ui/watchlist_panel.py"]`).
+- `expected_artifacts`: `+ "ui/watchlist_panel.py"` (same fact as the footprint — left inconsistent would
+  repeat the defect class).
+- `outputs`: the entry now reads ``ui/watchlist_panel.py::clamp_watchlist_width`` (delegating to
+  `dock_layout.plan_watchlist_width(..., collapsed=False)`) — was `ui/dock_layout.py::...`.
+- `context.read_files`: `+ ui/watchlist_panel.py` (`lines: "98-125"` — the `clamp_watchlist_width` delegate
+  and the `CHART_MIN_WIDTH` / `WATCHLIST_COLLAPSED_WIDTH` aliases). This removes the validator's
+  "touches_files not in read_files" warning the footprint fix would otherwise have introduced, and keeps
+  the pack coherent for any future re-dispatch.
+- **Unchanged:** `status` stays `done`; no re-open, no re-dispatch; `AC4`, `tests`, `dependencies` and the
+  rest of `context` are untouched.
+
+**Note for the record:** adding `ui/watchlist_panel.py` to `P3-T01` also means `P3-T01` and `P3-T03` now
+formally share that file. All P3 tasks are `done`, so no wave will ever co-schedule them — this is a
+historical-record correction, not a live collision. (Had it been declared originally, `P3-T03` would
+already have been serialized after `P3-T01`, which the delivered wave order did anyway.)
+
+### 2. ESC-058 — `P3-T06` (documentation-only): the D44 collapsed Watchlist bar in `USAGE.txt` + `usage.md`
+
+D44 is user-visible and owner-requested, but neither `USAGE.txt` (the canonical user-facing doc, one
+section per user-visible batch, ending at the D40 section) nor `usage.md` mentions it. This is the same
+drift class corrected once already in `b8e81b8` (USAGE.txt documenting D41-removed features). One new
+task, `P3-T06` — **one task, not two**: both docs are edited with the same content and context, each is
+minutes of work, and they share no file with any other live task, so splitting would only pay worker
+startup twice.
+
+- **`touches_files`:** `["USAGE.txt", "usage.md"]` (docs only — no production code, no test file, no
+  `docs/requirements/**`, `docs/architecture.md` or `docs/plan.md`).
+- **`dependencies`: `["P3-T05"]`** — the docs describe the **as-built** feature (the thin bar, the
+  click-to-expand restore, the non-persistence, the hidden header/`+`/column-header row), whose final
+  shape `P3-T05` established; `P3-T05` is `done`, so `P3-T06` is immediately ready. The edge is a
+  **logical** assumed-behaviour edge, not a file-overlap one (the footprints are disjoint).
+- **ACs → tests (1:1):**
+  - `AC1` → `P3-T06-T11` (manual): `USAGE.txt` gains a `Collapsed Watchlist bar (Phase D44)` section in the
+    neighbours' `<Feature> (Phase D<n>)` + dashed-underline convention, stating (a) thin vertical bar with
+    rotated `WATCHLIST` text in the app palette; (b) click the bar/handle to expand to the previous width;
+    (c) collapse not persisted (starts expanded); (d) header strip / `+` / column-header row hidden while
+    collapsed and back on expand.
+  - `AC2` → `P3-T06-T21` (manual): `usage.md`'s `## UI Overview` Watchlist row and/or `## Key Workflows`
+    describe the collapse/expand consistently with the as-built behaviour.
+  - `AC3` → `P3-T06-T31` (manual): only `USAGE.txt` + `usage.md` appear in the diff; no added claim
+    contradicts the as-built behaviour (no "collapse is persisted"; no "header stays visible while
+    collapsed").
+- **Test type is `manual` by design.** Docs are verified by reading them; the repo's Phase-4 record shows
+  doc-asserting tests were deliberately **deleted** as an anti-pattern, so no automated doc-content test is
+  added. `context.test_command` is the runnable presence check `grep -n "Phase D44" USAGE.txt usage.md`.
+- **`size: S`**, `needs_graphify: false`.
+
+### 3. Verification of this revision
+
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → `OK: 6 tasks validated, execution_graph.json
+  written.` (exit 0). The 2 `WARN`s are the pre-existing "new test file not in read_files" class
+  (`P3-T03`'s and `P3-T05`'s new D44 suites — pure-output files); the `P3-T01` warning the footprint fix
+  would have introduced was cleared by adding `ui/watchlist_panel.py` to its `read_files`.
+- **Status fidelity:** all five delivered tasks (`P3-T01`..`P3-T05`) were re-read from the file after the
+  write and are `done`, byte-identical on `status` / `dependencies` / `touches_files` apart from the
+  intended `P3-T01` footprint addition. `P3-T06` is `not_started`. Top-level and `metadata` `"status"` are
+  `READY_FOR_BUILD`.
+- `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md` and `docs/architecture.md` were **read
+  only** (ESC-058's `/USAGE.txt`-and-`usage.md` scope is honoured; `docs/phase-changelog.md` was read for
+  the section convention but is **not** edited — it is not in scope for this task).

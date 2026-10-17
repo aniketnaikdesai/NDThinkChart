@@ -19,6 +19,10 @@
     {
       "id": "P3-T05",
       "type": "Task"
+    },
+    {
+      "id": "P3-T06",
+      "type": "Task"
     }
   ],
   "edges": [
@@ -60,6 +64,11 @@
     {
       "from": "P3-T04",
       "to": "P3-T05",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P3-T05",
+      "to": "P3-T06",
       "type": "DEPENDS_ON"
     }
   ]

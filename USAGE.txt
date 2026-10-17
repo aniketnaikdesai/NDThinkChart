@@ -189,3 +189,16 @@ TWS daily lifecycle (Phase D40)
   design (check the gap report).
 - Brief drops during the day are different: they reconnect fast in the
   background with no pause badge and no gap report.
+
+
+Collapsible Watchlist bar (Phase D44)
+-------------------------------------
+- Collapse the watchlist with the "Watchlist" header button: the dock shrinks
+  to a thin vertical bar (about 30px wide) that shows the word WATCHLIST
+  rotated on its side, drawn in the app's own dark palette.
+- Click the bar (or its handle) to expand the panel again - it comes back to
+  the width it held just before you collapsed it.
+- While collapsed the header strip, the "+" button and the column-header row
+  are hidden; all three return when you expand.
+- The collapse state is not remembered: the app always starts with the
+  watchlist expanded.

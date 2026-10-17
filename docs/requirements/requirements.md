@@ -135,6 +135,21 @@
 > confirmation requested; non-blocking defaults recorded). **D1–D43 are NOT reopened.** `requirements.md`
 > carries `Status: READY_FOR_PLAN`.
 
+> **2026-10-16 (later) — ESC-057 (D44 `AC-D44.2` measurable restated — WORDING-ONLY, nice-to-have; no criteria substance changed).**
+> The Code Reviewer's **ESC-057** found `AC-D44.2`'s measurable ("assert `watchlist_dock.width() == clamp(W)`") demanded
+> an exact echo on the **rendered** dock width, which the shipped guard
+> (`tests/test_dock_widths_collapsed_d44.py::test_P3_T05_T21_expand_restores_the_tracked_width`) does not assert (it
+> checks tolerant bounds) — while the reviewer's **independent offscreen probe reproduced an EXACT restore**
+> (150→150, 300→300, cap→cap in both clamp branches). The AC and the guard therefore disagreed about **what is asserted**.
+> **Resolution (the reviewer's recommended direction, adopted):** `AC-D44.2`'s measurable now names the **tracked**
+> `win._watchlist_width == clamp(W)` (**exactly satisfiable by construction**) **plus** a **tolerant** check on the
+> **rendered** dock width (floor / cap / `> collapsed width`). The **orchestrator's earlier residual note** in
+> `docs/build/logs/P3-T05.md` (a non-exact 300→314 restore) is **NOT reproducible and is NOT treated as evidence** (the
+> orchestrator has owned it as its own error); **no requirement depends on a rendered-width echo**. **No code change is
+> required** — the shipped guard already satisfies the restated measurable. The D44 register's "Expand on click" bullet,
+> Journey 37's postcondition, R67's mitigation and `design_gaps.md` **DG74** carry the same clarification. **D1–D43 are
+> NOT reopened**; `requirements.md` carries `Status: READY_FOR_PLAN` (unchanged).
+
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
 official `ibapi`, live TWS port 7496) built through Phases 1–10. (That roadmap,
@@ -980,7 +995,9 @@ repository files, which remain authoritative if the two disagree.
   4) Resize the window / drag the dock splitter while collapsed. 5) Restart the app.
 - **Postconditions:** Collapsing replaces the full panel with a **thin vertical bar** (~30px) on the left showing
   the **rotated** text `WATCHLIST` in the **app palette**; clicking the bar **expands** the watchlist to its
-  **previous** width with the full panel (header strip, table, `+`) restored; the collapsed width **survives** a
+  **previous** width with the full panel (header strip, table, `+`) restored (the restored value is the **tracked**
+  `MainWindow._watchlist_width` — exactly `clamp(W)` — while the rendered dock width is a Qt layout result
+  checked tolerantly; see `AC-D44.2`); the collapsed width **survives** a
   window resize and a dock drag (it is not snapped back to 150px); after a **restart** the watchlist is
   **expanded** (collapse is not persisted).
 - **Edge Cases:** collapse from the 150px minimum → expand restores 150px; collapse from the cap → expand
@@ -3830,6 +3847,9 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
   - **Expand on click:** clicking **anywhere on the thin bar** (or its rotated label) expands the watchlist to
     its **previous** width — the width the dock held immediately before it was collapsed (the layout already
     tracks `MainWindow._watchlist_width`), re-clamped to the current cap/min rules for the expanded state.
+    The restored value is the **tracked** `MainWindow._watchlist_width`, which equals `clamp(W)` **exactly** (it
+    is never assigned while collapsed); the **rendered** dock width is a Qt layout result checked **tolerantly**
+    (floor/cap/collapsed bounds) — see `AC-D44.2` (restated 2026-10-16 per ESC-057).
   - **Collapse from the header button (as today):** in the expanded state the retained "Watchlist" header button
     collapses the panel (unchanged behaviour); collapsing switches the dock to the thin bar.
   - **Header strip, `+` (D22.1) and column-header row while collapsed (owner-flagged #3 — decided A77):** the
@@ -3861,7 +3881,13 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
     When the user clicks the bar, Then the watchlist expands to the **width it held immediately before
     collapsing** (the tracked previous width), re-clamped to the current expanded cap/min rules, and the full
     panel (header strip, table, `+`) is visible again. (Measurable: collapse from a known width W, expand, and
-    assert `watchlist_dock.width() == clamp(W)`.)
+    assert the **tracked** width is restored exactly — `win._watchlist_width == clamp(W)`, which holds **by
+    construction** (`_watchlist_width` is never assigned while collapsed, and `_apply_dock_widths` always stores
+    the clamped value) — **plus** a **tolerant** check on the **rendered** dock width (`watchlist_dock.width()`
+    is `>= WATCHLIST_MIN_WIDTH`, `<= watchlist_max_width(...)`, and `> WATCHLIST_COLLAPSED_WIDTH`), because the
+    rendered width is a Qt layout result and is **not** required to echo `clamp(W)` exactly.) *(Restated
+    2026-10-16 per ESC-057 — the former rendered-width exact-equality wording is superseded: the recorded
+    300→314 non-exact restore was not reproducible, and no requirement depends on a rendered-width echo.)*
   - **AC-D44.3 (click to collapse from the header button — unchanged)** Given the watchlist is expanded, When
     the user clicks the retained "Watchlist" header button, Then the panel collapses to the thin bar (the
     existing D21.11 toggle path). (Measurable: `is_collapsed()` is True and the dock width is the collapsed
@@ -4127,7 +4153,7 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | R64 **[NEW 2026-10-15 — D42/ESC-038; ETH scope added by Q52]** | Delivering the 30-session floor **in both RTH and ETH** needs backwards-extending chained fetches across all five intraday timeframes; a partial implementation could meet `1 min` but leave `5 mins`…`4 hours` short, could cover RTH but not ETH (or vice versa), or the mode-aware day-presence change could regress the D16 no-silent-hole behaviour | M | M | `AC-D16.8` states the floor for **all five** timeframes **in both modes** and `AC-D16.9` scopes the change to **presence** only (no-fill/no-silent-hole `AC-D16.1`/`AC-D16.4` unchanged); D42's correction record adds `find_missing_spans(..., ext_hours=False)` **and** `find_missing_spans(..., ext_hours=True)` RED→GREEN cases plus a per-timeframe, per-mode session-count guard and a no-cross-contamination check; the D16 suite stays green |
 | R65 **[NEW 2026-10-16 — D43/ESC-036]** | The `1 min` priming request for `4 hours`/`1 day` could be built inconsistently (e.g. the bar size switched but the duration left at the `5 secs` ceiling, or the switch applied to the wrong timeframe set), leaving the coarse timeframes still rejected by IBKR or over-fetching; the priming tests could also be left asserting the superseded `5 secs`/`7200 S` shape, so the suite stays green on the defect | M | M | `AC-D27.9` (revised) pins the per-span bar size **and** the per-bar-size duration range; D43's correction record requires the priming tests be **corrected** (not weakened) with a RED→GREEN `4 hours`/`1 day` case (a `1 min` request whose duration is inside `[60 S, 1 D]`); P2-T30's stale `AC1`/`P2-T30-T11` are flagged for revision |
 | R66 **[NEW 2026-10-16 — D44]** | The collapsed width could be **snapped back to `WATCHLIST_MIN_WIDTH` (150px)** by `plan_dock_widths`/`_apply_dock_widths` on the next `resizeEvent` or dock drag, so the thin bar never sticks (the same clamp-during-drag defect class as D17/D19) | M | H | `AC-D44.5` requires the layout to honour the collapsed width; `AC-D44.8` requires a **pre-fix-RED** guard that the collapsed width survives a resize/drag; `plan_dock_widths`/`_apply_dock_widths` are the single apply entry points and must learn the collapsed state |
-| R67 **[NEW 2026-10-16 — D44]** | D44's change to the collapsed appearance could **regress** the D21.11 collapse behaviour, the `VIS-D21.1` strike-through convention, or the **expanded-state** D13/D17 width criteria and their suites (`tests/test_dock_widths_d17.py`, `tests/test_dock_widths_d18.py`, `tests/test_dock_layout.py`, `tests/test_watchlist_columns_d21.py`) | M | M | D44 **revises** only the collapsed-appearance clauses (`AC-D21.11.2`/`.3`) and the 150px-minimum clause (`AC-D13.1`/`AC-D17.2`, now expanded-only); the expanded-state width suites must stay green or be updated in lockstep (never left contradicting D44); `AC-D44.8` names the non-regression requirement |
+| R67 **[NEW 2026-10-16 — D44]** | D44's change to the collapsed appearance could **regress** the D21.11 collapse behaviour, the `VIS-D21.1` strike-through convention, or the **expanded-state** D13/D17 width criteria and their suites (`tests/test_dock_widths_d17.py`, `tests/test_dock_widths_d18.py`, `tests/test_dock_layout.py`, `tests/test_watchlist_columns_d21.py`) | M | M | D44 **revises** only the collapsed-appearance clauses (`AC-D21.11.2`/`.3`) and the 150px-minimum clause (`AC-D13.1`/`AC-D17.2`, now expanded-only); the expanded-state width suites must stay green or be updated in lockstep (never left contradicting D44); `AC-D44.8` names the non-regression requirement; the `AC-D44.2` expand-restore measurable is the **tracked** `_watchlist_width` (exactly `clamp(W)`), with a **tolerant** rendered-width check — restated 2026-10-16 per ESC-057, so no suite asserts a rendered-width echo |
 
 
 ---

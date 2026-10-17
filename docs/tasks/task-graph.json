@@ -6,10 +6,10 @@
     "phase": "P3",
     "batch": "D44 (Batch 19)",
     "baseline": "main @ 0c4d478 (D43 + the D42/Stage-C follow-ups; full offscreen suite green)",
-    "revision": "2026-10-16g \u2014 fresh_graph for D44 (Batch 19), phase P3. This is a legacy (non-suffixed) planning run; batches map to phases by convention (D41\u2192P1, D42\u2192P2, D44\u2192P3), so the ids are P3-T01..P3-T05. The file REPLACES the D42/P2 graph (37 tasks, all done and delivered) \u2014 the task graph is per phase. 5 tasks: P3-T01 the pure collapsed-width model; P3-T02 the collapsed-aware apply path; P3-T03 the collapsed bar widget + collapsed visual + the new bar suite; P3-T04 the corrected D21.10-T02 + D22 collapsed-appearance assertions; P3-T05 the transition wiring + the AC-D44.5 guard + the corrected D21.10-T03 legs. See docs/tasks/task_manager_notes.md for the wave-ordering rationale and the two documented deviations from the plan\u2019s per-file map.",
+    "revision": "2026-10-16g \u2014 fresh_graph for D44 (Batch 19), phase P3. This is a legacy (non-suffixed) planning run; batches map to phases by convention (D41\u2192P1, D42\u2192P2, D44\u2192P3), so the ids are P3-T01..P3-T05. The file REPLACES the D42/P2 graph (37 tasks, all done and delivered) \u2014 the task graph is per phase. 5 tasks: P3-T01 the pure collapsed-width model; P3-T02 the collapsed-aware apply path; P3-T03 the collapsed bar widget + collapsed visual + the new bar suite; P3-T04 the corrected D21.10-T02 + D22 collapsed-appearance assertions; P3-T05 the transition wiring + the AC-D44.5 guard + the corrected D21.10-T03 legs. See docs/tasks/task_manager_notes.md for the wave-ordering rationale and the two documented deviations from the plan\u2019s per-file map.  ||  2026-10-17 follow-up (post-D44 review): ESC-056 metadata correction to P3-T01 (footprint now includes ui/watchlist_panel.py); ESC-058 adds P3-T06 (documentation-only: USAGE.txt + usage.md D44 section). P3-T01..P3-T05 preserved as `done` (delivered at bb903a1) \u2014 no rewrite of the delivered record.",
     "task_count": 5
   },
-  "notes": "D44 (Batch 19) \u2014 the collapsed Watchlist becomes a thin ~30px vertical bar that expands to the full panel. The collapse mechanism already exists (D21.11); D44 changes the collapsed APPEARANCE and adds the missing collapsed WIDTH. Wave ordering (all four plan file-groups share files, so the phase is serialized): W1 P3-T01 \u2192 W2 P3-T02 \u2192 W3 P3-T03 \u2192 W4 P3-T04 \u2192 W5 P3-T05. Rationale: D before its consumers (T01); the apply path before the wiring and the width-leg correction before the appearance-leg correction (T02 before T03); the bar widget before the wiring (T03 before T05); each corrected suite after the production change that invalidates it (T04 after T03, T05 after T04). `ui/main_window.py` is touched by P3-T02 and P3-T05 and `tests/test_watchlist_columns_d21.py` by P3-T02, P3-T04 and P3-T05 \u2014 no two of them may be in_progress in one wave. `tests/test_dock_widths_collapsed_d44.py` (P3-T05) must be RED at 0c4d478 on the width and GREEN after.",
+  "notes": "D44 (Batch 19) \u2014 the collapsed Watchlist becomes a thin ~30px vertical bar that expands to the full panel. The collapse mechanism already exists (D21.11); D44 changes the collapsed APPEARANCE and adds the missing collapsed WIDTH. Wave ordering (all four plan file-groups share files, so the phase is serialized): W1 P3-T01 \u2192 W2 P3-T02 \u2192 W3 P3-T03 \u2192 W4 P3-T04 \u2192 W5 P3-T05. Rationale: D before its consumers (T01); the apply path before the wiring and the width-leg correction before the appearance-leg correction (T02 before T03); the bar widget before the wiring (T03 before T05); each corrected suite after the production change that invalidates it (T04 after T03, T05 after T04). `ui/main_window.py` is touched by P3-T02 and P3-T05 and `tests/test_watchlist_columns_d21.py` by P3-T02, P3-T04 and P3-T05 \u2014 no two of them may be in_progress in one wave. `tests/test_dock_widths_collapsed_d44.py` (P3-T05) must be RED at 0c4d478 on the width and GREEN after.  |  FOLLOW-UP (2026-10-17, post-D44 review): ESC-056 \u2014 P3-T01's footprint corrected (touches_files + expected_artifacts gained `ui/watchlist_panel.py`; the `clamp_watchlist_width` output is re-attributed from `ui/dock_layout.py` to `ui/watchlist_panel.py`); P3-T01..P3-T05 remain `done`/delivered (bb903a1), no re-open. ESC-058 \u2014 P3-T06 added (documentation-only): a D44 section in USAGE.txt + a collapsed-Watchlist note in usage.md. P3-T06 depends on P3-T05 (the docs describe the as-built feature).",
   "tasks": [
     {
       "id": "P3-T01",
@@ -57,12 +57,14 @@
       "expected_artifacts": [
         "ui/dock_layout.py",
         "tests/test_dock_layout.py",
-        "tests/test_watchlist.py"
+        "tests/test_watchlist.py",
+        "ui/watchlist_panel.py"
       ],
       "touches_files": [
         "ui/dock_layout.py",
         "tests/test_dock_layout.py",
-        "tests/test_watchlist.py"
+        "tests/test_watchlist.py",
+        "ui/watchlist_panel.py"
       ],
       "inputs": [
         "docs/plan.md#D44 \u2014 Batch 19 (the `ui/dock_layout.py` per-file row)",
@@ -73,7 +75,7 @@
         "`ui/dock_layout.py::WATCHLIST_COLLAPSED_WIDTH`",
         "`ui/dock_layout.py::plan_watchlist_width`",
         "`ui/dock_layout.py::plan_dock_widths(..., left_collapsed=False)`",
-        "`ui/dock_layout.py::clamp_watchlist_width` (delegating)",
+        "`ui/watchlist_panel.py::clamp_watchlist_width` (delegating to `dock_layout.plan_watchlist_width(..., collapsed=False)`)",
         "the extended `tests/test_dock_layout.py` + `tests/test_watchlist.py`"
       ],
       "status": "done",
@@ -94,6 +96,11 @@
             "path": "tests/test_watchlist.py",
             "lines": "1-120",
             "why": "the panel-importing suite to extend with the collapsed delegate case"
+          },
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "98-125",
+            "why": "`clamp_watchlist_width` (the delegate AC4/AP-D44-5 mandates) + the `CHART_MIN_WIDTH` / `WATCHLIST_COLLAPSED_WIDTH` aliases this task re-points"
           }
         ],
         "contracts": [
@@ -700,6 +707,104 @@
         "graph_excerpt": "",
         "needs_graphify": false,
         "size": "L"
+      }
+    },
+    {
+      "id": "P3-T06",
+      "title": "USAGE.txt + usage.md \u2014 document the D44 collapsed Watchlist bar (thin vertical bar, click to expand)",
+      "description": "D44 is user-visible and owner-requested: collapsing the Watchlist now renders a thin ~30px vertical bar (rotated `WATCHLIST` label, app palette) that the user clicks to expand back to the previous width; the collapse state is not persisted and the header strip / `+` / column-header row are hidden while collapsed. Neither USAGE.txt (the canonical user-facing doc, one section per user-visible batch, currently ending at the D40 section) nor usage.md mentions it. Add a D44 section to USAGE.txt following the neighbours' `<Feature> (Phase D<n>)` section convention, and note the collapse/expand behaviour in usage.md's UI Overview and/or Key Workflows. Documentation-only: no production code, no test changes.",
+      "agent": "Build",
+      "task_type": "documentation",
+      "dependencies": [
+        "P3-T05"
+      ],
+      "acceptance_criteria": [
+        "AC1 \u2014 AC-D44.1/.2/.3/.4/.6/.7 + ESC-058 (USAGE.txt gains the D44 section, in the established convention) \u2014 Given USAGE.txt carries one section per user-visible batch and currently ends at the D40 section, When the D44 section is added, Then it is titled in the neighbours' convention (`<Feature name> (Phase D44)`, with the same dashed-underline style) and states all of: (a) collapsing via the retained \u201cWatchlist\u201d header button turns the dock into a thin vertical bar showing rotated `WATCHLIST` text in the app palette; (b) clicking the bar (or its handle) expands the panel back to the width it held before collapsing; (c) the collapse state is not persisted \u2014 the app starts expanded; (d) the header strip, the `+` button and the column-header row are hidden while collapsed and return on expand.",
+        "AC2 \u2014 AC-D44.1/.2 (usage.md mentions the collapsed Watchlist) \u2014 Given usage.md's `## UI Overview` Watchlist row and/or a `## Key Workflows` entry, When updated, Then the collapsed Watchlist bar and its click-to-expand behaviour are described consistently with the as-built D44 behaviour (a thin vertical bar; click to expand back to the previous width).",
+        "AC3 \u2014 ESC-058 + the D41 drift lesson (no drift, no out-of-scope edits) \u2014 Given the documentation-only footprint, Then the task modifies only `USAGE.txt` and `usage.md` (no production code, no test file, and no `docs/requirements/`, `docs/architecture.md` or `docs/plan.md`), and the added text contains no claim contradicting the as-built D44 behaviour \u2014 in particular no statement that the collapse state is persisted, and no statement that the header strip stays visible while collapsed."
+      ],
+      "tests": [
+        {
+          "test_id": "P3-T06-T11",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Read USAGE.txt and confirm a D44 section exists after the D40 section, titled in the neighbours' `<Feature> (Phase D44)` convention with the matching dashed underline, and covering the four behaviours (a)\u2013(d) of AC1.",
+          "expected_result": "The D44 section is present, follows the neighbour convention, and states all four clauses: thin vertical bar with rotated WATCHLIST text in the app palette; click the bar to expand to the previous width; the collapse state is not persisted; the header strip / `+` / column-header row are hidden while collapsed and return on expand."
+        },
+        {
+          "test_id": "P3-T06-T21",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Read usage.md's `## UI Overview` Watchlist row and the `## Key Workflows` block and confirm the Watchlist collapse/expand behaviour is described.",
+          "expected_result": "usage.md describes the collapsed Watchlist bar (thin vertical bar) and that clicking it expands the panel, consistent with the as-built D44 behaviour."
+        },
+        {
+          "test_id": "P3-T06-T31",
+          "linked_acceptance_criterion": "AC3",
+          "type": "manual",
+          "description": "Run `git diff --name-only` for the task's change set and grep the added text for contradicting claims (persistence of the collapse state; the header strip staying visible while collapsed).",
+          "expected_result": "Only `USAGE.txt` and `usage.md` appear in the diff; no added sentence claims the collapse state is persisted or that the header strip stays visible while collapsed."
+        }
+      ],
+      "expected_artifacts": [
+        "USAGE.txt",
+        "usage.md"
+      ],
+      "touches_files": [
+        "USAGE.txt",
+        "usage.md"
+      ],
+      "inputs": [
+        "docs/code_review/escalations.json#ESC-058",
+        "USAGE.txt#the D38/D39/D40 section-title + underline convention and the closing placement",
+        "usage.md#UI Overview + Key Workflows"
+      ],
+      "outputs": [
+        "a `Collapsed Watchlist bar (Phase D44)` section in `USAGE.txt`",
+        "the collapsed-Watchlist note in `usage.md` (UI Overview / Key Workflows)"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "USAGE.txt",
+            "lines": "129-191",
+            "why": "the D38/D39/D40 sections \u2014 the exact section-title + dashed-underline convention and the closing placement to append after"
+          },
+          {
+            "path": "usage.md",
+            "lines": "95-139",
+            "why": "the `## UI Overview` Watchlist row + the `## Key Workflows` block to update"
+          },
+          {
+            "path": "docs/phase-changelog.md",
+            "lines": "1-24",
+            "why": "the owner's documentation gate and the `USAGE.txt` one-section-per-batch convention"
+          }
+        ],
+        "contracts": [
+          "USAGE.txt section convention (from its D38/D39/D40 neighbours): a title line `<Feature name> (Phase D<n>)` followed by a dashed underline of matching length; one blank line between sections.  [existing convention]",
+          "USAGE.txt is the canonical user-facing usage doc; it currently ends at the D40 section (`TWS daily lifecycle (Phase D40)`, USAGE.txt:176).  [existing]",
+          "As-built D44 behaviour to document (from ESC-058 / AC-D44.1\u2013AC-D44.7): collapsing via the retained 'Watchlist' header button turns the dock into a thin vertical bar (~30px) showing rotated WATCHLIST text in the app palette (`#141822` bg / `#cbd5e1` text / `#232938` border); clicking the bar (or its handle) expands it back to the width it held before collapsing; the collapse state is NOT persisted (the app starts expanded); the header strip / '+' / column-header row are hidden while collapsed and return on expand.  [as-built]",
+          "WATCHLIST_COLLAPSED_WIDTH = 30 (ui/dock_layout.py); expanded minimum stays 150px.  [existing in D44]"
+        ],
+        "architecture_excerpt": "| S26 | The collapsed visual state (A77) + the transition signal + the palette [new in D44] \u2014 extends D21.11 | `WatchlistPanel._apply_collapsed_visual()` runs inside `_on_header_toggled` and **explicitly** `hide()`/`show()`s the strip and the body: while collapsed `header_bar.hide()` (which also hides the D22.1 `+` and the D39.1 search box, its children) and `table.hide()` (whose `horizontalHeader()` is the column-header row), and `collapsed_bar.show()` with the collapsed panel styling ... on expand the reverse. Palette: background `#141822`, border `#232938`, text `#cbd5e1` (D44's own palette list \u2014 **not** the mockup's white pill).",
+        "plan_excerpt": "- **Goal:** collapsing the watchlist renders a **30px vertical bar** with the rotated `WATCHLIST` label in the app palette, the header strip / `+` (D22.1) / column-header row hidden; the collapsed width is **honoured by the layout** \u2014 a window `resizeEvent` or a dock drag does **not** snap it back to the 150px minimum; clicking the bar **expands** the panel to the width it held immediately before collapsing (re-clamped to the current expanded cap/min); the dock stays **movable/floatable** while collapsed; the collapse state is **not** persisted.",
+        "requirement_ids": [
+          "AC-D44.1",
+          "AC-D44.2",
+          "AC-D44.3",
+          "AC-D44.4",
+          "AC-D44.6",
+          "AC-D44.7",
+          "Journey 37"
+        ],
+        "test_command": "grep -n \"Phase D44\" USAGE.txt usage.md",
+        "memory_notes": [],
+        "graph_excerpt": "",
+        "needs_graphify": false,
+        "size": "S"
       }
     }
   ]
