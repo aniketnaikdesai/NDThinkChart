@@ -17,11 +17,13 @@ from ui.dock_layout import (
     CHART_MIN_WIDTH,
     WATCHLIST_MIN_WIDTH,
     DEFAULT_WATCHLIST_WIDTH,
+    WATCHLIST_COLLAPSED_WIDTH,
     RIGHT_DOCK_MIN_WIDTH,
     WATCHLIST_CAP_FRACTION,
     RIGHT_DOCK_CAP_FRACTION,
     watchlist_max_width,
     right_dock_max_width,
+    plan_watchlist_width,
     plan_dock_widths,
 )
 
@@ -374,3 +376,145 @@ def test_T52_T04_mainwindow_apply_path_without_t49_repair(monkeypatch, qapp):
         assert win.right_dock.width() <= right_before
     finally:
         win.close()
+
+
+# ── D44: the collapsed-width rule (WATCHLIST_COLLAPSED_WIDTH, S23) ────────────
+
+# (chart_area_w, requested_left) pairs: below the 150 floor, mid-range, at/over
+# the 50% cap, and the narrow cases where the chart-minimum term binds.
+_COLLAPSED_WIDTH_PAIRS = [
+    (1400, 10),       # below the 150 floor
+    (1400, 150),      # exactly the floor
+    (1400, 300),      # mid-range
+    (1400, 700),      # at the 50% cap
+    (1400, 999999),   # over the cap
+    (900, 450),       # at the 50% cap for a 900 chart area
+    (600, 200),       # chart-minimum term binds (600 - 400 = 200)
+    (100, 50),        # tiny: flat cap below the floor
+]
+
+
+@pytest.mark.parametrize("collapsed", [False, True])
+@pytest.mark.parametrize("chart_area_w,requested_left", _COLLAPSED_WIDTH_PAIRS)
+def test_P3_T01_T11_plan_watchlist_width_collapsed_and_expanded(
+        chart_area_w, requested_left, collapsed):
+    """P3-T01-T11 (AC-D44.1/AC-D44.5): the single collapsed/expanded rule.
+
+    ``collapsed=True`` returns ``WATCHLIST_COLLAPSED_WIDTH`` for every pair;
+    ``collapsed=False`` is exactly the previous ``clamp_watchlist_width``
+    formula.
+    """
+    got = plan_watchlist_width(chart_area_w, requested_left, collapsed=collapsed)
+    assert isinstance(got, int)
+    if collapsed:
+        assert got == WATCHLIST_COLLAPSED_WIDTH
+    else:
+        expected = max(WATCHLIST_MIN_WIDTH,
+                       min(int(requested_left),
+                           watchlist_max_width(chart_area_w)))
+        assert got == expected
+    # The default (2-argument) call is the expanded rule.
+    assert plan_watchlist_width(chart_area_w, requested_left) == \
+        plan_watchlist_width(chart_area_w, requested_left, collapsed=False)
+
+
+def test_P3_T01_T21_plan_dock_widths_collapsed_grid_never_raises():
+    """P3-T01-T21 (AC-D44.5/DG74): over the T52 grid with ``left_collapsed=True``
+    the left is always the collapsed width, the right stays within its own cap,
+    the chart minimum holds wherever feasible, and every return is a stable int.
+    """
+    chart_areas = list(range(100, 3001, 50))
+    requests = (0, 200, 400, 700, 100000)
+    for chart_area_w in chart_areas:
+        for req_l in requests:
+            for req_r in requests:
+                left, right = plan_dock_widths(
+                    chart_area_w, req_l, req_r, left_collapsed=True)
+                assert isinstance(left, int) and isinstance(right, int)
+                assert left == WATCHLIST_COLLAPSED_WIDTH, (
+                    chart_area_w, req_l, req_r, left, right)
+                # The left never rises above the collapsed width.
+                assert left <= WATCHLIST_COLLAPSED_WIDTH
+                assert right >= RIGHT_DOCK_MIN_WIDTH, (
+                    chart_area_w, req_l, req_r, left, right)
+                assert right <= right_dock_max_width(chart_area_w), (
+                    chart_area_w, req_l, req_r, left, right)
+                feasible = (chart_area_w - CHART_MIN_WIDTH
+                            >= WATCHLIST_COLLAPSED_WIDTH + RIGHT_DOCK_MIN_WIDTH)
+                if feasible:
+                    assert chart_area_w - left - right >= CHART_MIN_WIDTH, (
+                        chart_area_w, req_l, req_r, left, right)
+                # Repeatable.
+                assert plan_dock_widths(
+                    chart_area_w, req_l, req_r, left_collapsed=True) == (left, right)
+
+
+def test_P3_T01_T21_collapsed_infeasible_window_returns_collapsed_and_right_min():
+    """P3-T01-T21 (AC-D44.5): the infeasible branch returns
+    ``(WATCHLIST_COLLAPSED_WIDTH, RIGHT_DOCK_MIN_WIDTH)``."""
+    # 400 - 400 = 0 < 30 + 200 -> infeasible.
+    assert plan_dock_widths(400, 500, 500, left_collapsed=True) == \
+        (WATCHLIST_COLLAPSED_WIDTH, RIGHT_DOCK_MIN_WIDTH)
+    # A deliberately infeasible narrow window, huge requests.
+    assert plan_dock_widths(100, 999999, 999999, left_collapsed=True) == \
+        (WATCHLIST_COLLAPSED_WIDTH, RIGHT_DOCK_MIN_WIDTH)
+
+
+def test_P3_T01_T21_collapsed_left_never_grows_only_right_shrinks():
+    """P3-T01-T21 (AC-D44.5): the cross-clamp may shrink only the right; the
+    collapsed left is fixed regardless of the requested left."""
+    chart_area_w = 1000
+    left, right = plan_dock_widths(chart_area_w, 100000, 100000,
+                                   left_collapsed=True)
+    assert left == WATCHLIST_COLLAPSED_WIDTH
+    assert right >= RIGHT_DOCK_MIN_WIDTH
+    assert right <= right_dock_max_width(chart_area_w)
+    assert chart_area_w - left - right >= CHART_MIN_WIDTH
+    # A different (huge) left request must not move the collapsed left.
+    left_b, _right_b = plan_dock_widths(chart_area_w, 999999, 100000,
+                                        left_collapsed=True)
+    assert left_b == WATCHLIST_COLLAPSED_WIDTH
+
+
+def test_P3_T01_T31_expanded_positional_call_unchanged():
+    """P3-T01-T31 (AC-D44.8): the 3-argument positional call is unchanged —
+    the new parameter defaults to ``False``."""
+    # Pre-fix expectations, re-run through the positional 3-argument call.
+    assert plan_dock_widths(1400, 220, 250) == (220, 250)
+    assert plan_dock_widths(400, 500, 500) == (WATCHLIST_MIN_WIDTH,
+                                               RIGHT_DOCK_MIN_WIDTH)  # (150, 200)
+    assert plan_dock_widths(100, 999999, 999999) == (WATCHLIST_MIN_WIDTH,
+                                                     RIGHT_DOCK_MIN_WIDTH)
+    # The positional call is identical to the explicit expanded keyword call.
+    for chart_area_w in (100, 400, 600, 1000, 1400, 3000):
+        for req_l in (0, 200, 700, 100000):
+            for req_r in (0, 200, 400, 100000):
+                assert plan_dock_widths(chart_area_w, req_l, req_r) == \
+                    plan_dock_widths(chart_area_w, req_l, req_r,
+                                     left_collapsed=False)
+
+
+def test_P3_T01_T41_constants_and_expanded_delegate():
+    """P3-T01-T41 (AP-D44-5): the constants (incl. the collapsed width), the
+    documented ``CHART_MIN_WIDTH`` cross-module invariant, and that
+    ``clamp_watchlist_width`` remains the expanded rule."""
+    assert WATCHLIST_COLLAPSED_WIDTH == 30
+    assert WATCHLIST_MIN_WIDTH == 150
+    assert DEFAULT_WATCHLIST_WIDTH == 220
+    assert RIGHT_DOCK_MIN_WIDTH == 200
+    assert CHART_MIN_WIDTH == 400
+    assert WATCHLIST_CAP_FRACTION == 0.50
+    assert RIGHT_DOCK_CAP_FRACTION == 0.40
+
+    # Documented cross-module invariant: CHART_MIN_WIDTH must equal the panel's.
+    from ui.watchlist_panel import CHART_MIN_WIDTH as panel_chart_min
+    assert CHART_MIN_WIDTH == panel_chart_min
+
+    # clamp_watchlist_width is the expanded rule — never the collapsed width.
+    from ui.watchlist_panel import clamp_watchlist_width
+    assert clamp_watchlist_width(10, 1138) == WATCHLIST_MIN_WIDTH
+    assert clamp_watchlist_width(10, 1138) != WATCHLIST_COLLAPSED_WIDTH
+    for chart_area_w in (100, 400, 600, 1000, 1400):
+        for width in (0, 10, 30, 150, 220, 100000):
+            assert clamp_watchlist_width(width, chart_area_w) == \
+                plan_watchlist_width(chart_area_w, width, collapsed=False)

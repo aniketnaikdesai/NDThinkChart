@@ -115,6 +115,26 @@
 > **2026-10-16 — Batch 18c (D43): the ESC-036 second clause (a REQUIREMENTS question) is DECIDED — D27.9's "trailing 5-second history" is unsatisfiable for the coarse intraday timeframes and is SUPERSEDED.**
 > **D41/D42 are delivered, reviewed and committed and are NOT reopened.** **ESC-036** (recorded `routed_to: BUILD`) has **two clauses**: its **first clause** (the priming request asks IBKR for `bar_size='5 secs'` with `duration='7200 S'` → TWS **error 321**) is being built (**P2-T30**, in flight: clamp the 5-sec priming span into `[60 S, 3600 S]`); its **second clause** is a **requirements question** the owner directed here — `requirements.md`'s **D27.9** mandated priming with **"trailing 5-second history"**, but **5-second bars cannot span a 4-hour (14400 s) or 1-day (86400 s) forming period at all** (IBKR caps `5 secs` at `3600 S`), so D27.9 was **unsatisfiable** for `4 hours`/`1 day`. **Decision (D43, owner-confirmed-by-default — the escalation's stated expectation is "`AC-D27.9` met on every timeframe the user can select, including 4h/1d"):** the priming bar size is chosen **per the elapsed forming-period span** — **`5 secs`** for the timeframes whose span fits IBKR's `3600 S` ceiling (`1 min`, `5 mins`, `15 mins`, `1 hour`) and **`1 min`** for **`4 hours`** and **`1 day`** (valid up to `1 D`) — with `duration` = the elapsed span clamped into the selected bar size's IBKR-accepted range. This **SUPERSEDES D27.9's "trailing 5-second history" wording** (recorded, never silent) and **revises `AC-D27.9`**. **P2-T30's first-clause clamp remains correct and required for the fine timeframes**, but it does **not** deliver the coarse-timeframe bar-size switch — that is an explicit **FOLLOW-UP** (see D43), and P2-T30's `AC1`/`P2-T30-T11` (which assert a `5 secs`/`3600 S` request for 4h/1d) become **stale once the follow-up lands** and must be revised by the Task Manager. See D43, `AC-D27.9` (revised), A74, R65, `design_gaps.md` **DG73**, and `open_questions.md` **Q53** (answered, owner-confirmed-by-default). `requirements.md` carries `Status: READY_FOR_PLAN`.
 
+> **2026-10-16 — Batch 19 (D44): the collapsed Watchlist becomes a thin vertical bar — OWNER-REQUESTED; the `## Non-Goals` are explicitly revised (dated 2026-10-16).**
+> A NEW owner request arrives after the D41/D42/Stage-C run completed (all 37 tasks done, review `REVIEW_COMPLETE`,
+> tree clean at `0c4d478`); **nothing is blocking**. The owner asked (verbatim intent): *"When the watchlist is
+> collapsed by clicking on the Watchlist button, it should become a thin bar on the left side. When the user
+> clicks on the thin panel, it should open up into a full panel like before. Keep the colour scheme consistent
+> with the app and make it look like a panel."* Repo-validated, the collapse mechanism **already exists**
+> (D21.11 — the `WatchlistPanel.header_bar` + `header_button` toggle hides the table via `_on_header_toggled`;
+> `set_collapsed`/`toggle_collapsed`/`is_collapsed` are the public API), so **D44 changes the collapsed
+> *appearance*, not the collapse mechanism**. The owner explicitly clarified that the mockup's **white rounded
+> pill is mockup-tool styling only, NOT a colour choice** — the bar must use the **app palette** (`#141822`
+> background, `#cbd5e1` text, `#232938` border). D44 requires a thin vertical bar (~**30px**) with rotated
+> `WATCHLIST` text, click-the-bar to expand to the **previous** width, click the header button to collapse (as
+> today), and layout rules (`WATCHLIST_MIN_WIDTH` / `plan_dock_widths` / `_apply_dock_widths`) that **honour a
+> collapsed width** rather than snapping back to 150px. This **revises the `## Non-Goals`** (recorded above,
+> dated) and **supersedes/revises** `AC-D21.11.2`/`AC-D21.11.3` (collapsed appearance) and the 150px-minimum
+> clause of `AC-D13.1`/`AC-D17.2` (the minimum now applies to the **expanded** state only). See D44, Journey 37,
+> `AC-D44.1`–`AC-D44.8`, A75–A78, R66–R67, `design_gaps.md` **DG74**, and `open_questions.md` **Q54** (owner
+> confirmation requested; non-blocking defaults recorded). **D1–D43 are NOT reopened.** `requirements.md`
+> carries `Status: READY_FOR_PLAN`.
+
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
 official `ibapi`, live TWS port 7496) built through Phases 1–10. (That roadmap,
@@ -207,6 +227,22 @@ be resolved** and surfacing an error (today `ibkr/contracts.get_contract_for_sym
 string with no IBKR lookup — this changes the add flow); **(B16b)** adding is **disallowed while IBKR is
 disconnected**. See D22, Journey 27, `AC-D22.1`–`AC-D22.9`, A48–A52, R45–R48, and `open_questions.md` B14–B16.
 
+**New work item — 2026-10-16 (Batch 19, feature D44) — OWNER-REQUESTED; scope recorded 2026-10-16 (no blocking question).**
+The owner requested (verbatim): *"When the watchlist is collapsed by clicking on the Watchlist button, it should
+become a thin bar on the left side. When the user clicks on the thin panel, it should open up into a full panel
+like before. Keep the colour scheme consistent with the app and make it look like a panel."* Repo-validated, the
+**collapse already exists** (D21.11 — `ui/watchlist_panel.py::WatchlistPanel` has a 28px `header_bar` holding
+`header_button = DiagonalStrikeButton("Watchlist")`; `_on_header_toggled()` does `self.body.setVisible(visible)`;
+`set_collapsed()`/`toggle_collapsed()`/`is_collapsed()` are the public API), and today the collapsed state keeps
+the **horizontal header strip** while the table hides — the dock retains its ~220px width. **D44 is therefore a
+change to the collapsed *appearance***, not a new collapse mechanism: the collapsed watchlist becomes a **thin
+vertical bar** (~30px, rotated `WATCHLIST` text, app palette) that expands back to the **previous** width on
+click. D44 is an **owner-authorized net-new UI feature**, so the `## Non-Goals` bullets that excluded net-new
+feature work and restyling are **explicitly revised (dated 2026-10-16)** rather than left standing. D1–D43 are
+**not reopened**; D44 **revises** the collapsed-state clauses of D21.11 and the 150px-minimum clause of D13/D17
+(the minimum applies to the **expanded** state). See D44, Journey 37, `AC-D44.1`–`AC-D44.8`, A75–A78, R66–R67,
+`design_gaps.md` DG74, and `open_questions.md` Q54 (owner confirmation requested; non-blocking).
+
 ## Goals
 - Collect and triage the user's reported functional issues and UI bugs.
 - Fix each reported defect such that its per-task **test condition** passes.
@@ -217,9 +253,18 @@ disconnected**. See D22, Journey 27, `AC-D22.1`–`AC-D22.9`, A48–A52, R45–R
   automated test transmits an order.
 
 ## Non-Goals
-- Net-new feature development (this is bug-fix/UI repair only, unless a fix
-  inherently requires small supporting work).
-- Visual redesign / restyling beyond correcting the reported UI defects.
+- **Net-new feature development — OWNER-DIRECTED REVISION 2026-10-16.** As originally written this
+  Non-Goal excluded net-new feature work ("bug-fix/UI repair only"). The owner has since directed a
+  net-new UI feature — **D44** (the collapsed Watchlist becomes a thin vertical bar that expands to the
+  full panel) — so this Non-Goal is **revised, not silently dropped**: net-new feature work remains out of
+  scope **except** for the explicitly owner-authorized **D44** (Batch 19, 2026-10-16). Every other
+  unrequested feature stays out of scope and, if noticed, goes to `feature_suggestions.md`.
+- **Visual redesign / restyling beyond correcting the reported UI defects — OWNER-DIRECTED REVISION
+  2026-10-16.** As originally written this Non-Goal excluded restyling. The owner's **D44** request is
+  itself a deliberate change to the collapsed watchlist's appearance (a thin vertical panel bar in the
+  app's own palette), so this Non-Goal is **revised** to permit **only** the D44 collapsed-bar
+  presentation; no other restyling is authorized. The mockup's white rounded pill is explicitly **NOT**
+  the target colour — the bar uses the app palette (see D44).
 - A standalone GUI test-suite spec (the documents describing one were deleted 2026-10-16 — the suite was never implemented), and
   "Phase 12" combo/BAG multi-leg order placement — both explicitly out of scope
   for this run (from Q2).
@@ -304,6 +349,20 @@ B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
 - **D41 — remove the D36 footprint + D37 depth heatmap / imbalance / auction + the ENTIRE Active Trader panel (DOM ladder + order-entry UI) (NEW, 2026-10-15, USER-REQUESTED; scope FINALISED 2026-10-15 — Q48/Q49/Q50 answered):** the four chart-panel cluster controls (`Footprint` + `Classic`/`Tick count`, `Depth`, `IMB —`, `AUC —`) and **all of `ui/active_trader_panel.py`** (`ActiveTraderPanel` shell, the DOM ladder/book, and the in-app **order-entry widget** MKT/LMT/STP/Bracket) are removed, along with the **`DOM` toolbar button**; the persisted D36 footprint data (`footprint_cache` table + rows) is **deleted**; the **right dock becomes Portfolio-only**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) stays and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**; the kept order path's `ref_price` takes a **retained source**. The shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is preserved. See D41, Journey 36, `AC-D41.1`–`AC-D41.7`, A68–A71, R61–R62, and `open_questions.md` Q48–Q50 (answered).
 
 - **D42 — REQUIREMENTS resolutions for the two REQUIREMENTS-routed Code Reviewer escalations (ESC-042 candle/volume overlap precedence; ESC-038 intraday history depth + present-but-empty trading day) (NEW, 2026-10-15; Q51/Q52 answered 2026-10-15):** a **requirements-decision** batch (no code of its own). **ESC-042:** `AC-D6.4`'s unconditional 4-device-pixel body floor **contradicts** `AC-D7.1`'s "gap remains positive" at high density; the resolution caps the rendered body width at the **inter-bar device-pixel pitch** and makes the 4-px floor **density-aware** (it yields to the pitch when they collide), so **`gap >= 0` always** (no overlap) and **`gap > 0` whenever the pitch exceeds the floor** — this **supersedes the unconditional `AC-D6.4` wording** and the **`AC-D7.1` "positive gap" wording** + the D7 dense-view edge case, and is what unblocks BUILD **ESC-041**. **ESC-038:** the one-session symptom is a **fetch-window** defect (not `useRTH`); the owner's floor **`AC-D16.8`** (>= 30 trading sessions before the current session, each intraday timeframe) is **extended/clarified** (sessions are counted by bars **inside the current mode's session window**, not calendar-day presence; all current `TIMEFRAME_CONFIG` windows fall short and must extend history backwards), and a **present-but-empty trading day** (cached bars all outside the current mode's session window) is required to be treated as a **missing span** (**`AC-D16.9`**, the requirements side of BUILD **ESC-037**). **Owner answers (2026-10-15):** **Q51** confirmed the zero-gap default (no criteria change); **Q52** **widened `AC-D16.8`/`AC-D16.9` to Ext-Hours (ETH) charts too** (`ext_hours=True` shares the one floor with RTH and must not cross-contaminate — the bar cache/key is mode-aware in both directions), **superseding the RTH-only default** (recorded, not silent). See D42, `AC-D6.4`/`AC-D7.1` (revised), `AC-D16.8` (extended), `AC-D16.9` (extended), A72–A73, R63–R64, and `open_questions.md` Q51–Q52 (answered 2026-10-15).
+
+- **D44 — the collapsed Watchlist becomes a thin vertical bar (NEW FEATURE, 2026-10-16, OWNER-REQUESTED; no
+  blocking question — non-blocking defaults recorded A75–A77):** the D21.11 collapse already exists, so D44
+  changes the **collapsed appearance**: while collapsed the watchlist dock shrinks to a **thin vertical bar**
+  (~30px) on the left, rendering the **rotated** text `WATCHLIST` in the **app palette** (`#141822` /
+  `#cbd5e1` / `#232938`), and **clicking the bar expands** the panel to its **previous** width; clicking the
+  retained "Watchlist" header button collapses it (as today). Qt cannot rotate a `QPushButton`'s text, so the
+  bar needs a small custom widget with a `paintEvent` drawing rotated text (Plan-level mechanism). The layout
+  rules (`ui/dock_layout.py::plan_dock_widths` — currently `left = max(WATCHLIST_MIN_WIDTH, min(int(requested_left),
+  left_max))` — plus `MainWindow._apply_dock_widths`, wired to `resizeEvent` and the dock-drag hook) must learn a
+  **collapsed width** so a ~30px bar is not snapped back to `WATCHLIST_MIN_WIDTH` (150) on the next resize/drag.
+  Expected to live in `ui/watchlist_panel.py` (the collapsed bar widget + collapse/expand state) and
+  `ui/dock_layout.py` + `ui/main_window.py` (collapsed-aware width clamp). See D44, Journey 37,
+  `AC-D44.1`–`AC-D44.8`, A75–A78, R66–R67, `design_gaps.md` DG74.
 
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
@@ -913,6 +972,21 @@ repository files, which remain authoritative if the two disagree.
   `footprint_cache_key` / `volume_baseline`); the persisted `footprint_cache` table + rows are **removed** (Q49,
   A69, DG70); the **order-entry tests** are re-pointed at the retained machinery or removed with the widget; the
   `DOM` button's deletion changes the D19/D20 toolbar control set, so those geometry fixtures are re-checked.
+
+### Journey 37 — D44: collapse the watchlist to a thin vertical bar and click it to expand
+- **Preconditions:** IBKR connected (or not — collapse/expand is pure UI state); the Watchlist dock is visible
+  and expanded on the left; a symbol may or may not be loaded.
+- **Steps:** 1) Click the retained "Watchlist" header button. 2) Observe the left edge. 3) Click the thin bar.
+  4) Resize the window / drag the dock splitter while collapsed. 5) Restart the app.
+- **Postconditions:** Collapsing replaces the full panel with a **thin vertical bar** (~30px) on the left showing
+  the **rotated** text `WATCHLIST` in the **app palette**; clicking the bar **expands** the watchlist to its
+  **previous** width with the full panel (header strip, table, `+`) restored; the collapsed width **survives** a
+  window resize and a dock drag (it is not snapped back to 150px); after a **restart** the watchlist is
+  **expanded** (collapse is not persisted).
+- **Edge Cases:** collapse from the 150px minimum → expand restores 150px; collapse from the cap → expand
+  restores the cap (re-clamped); resize/drag while collapsed does not expand it; floating watchlist (D13) still
+  clickable to expand; disconnected/empty watchlist still collapses/expands; first launch starts expanded;
+  `CHART_MIN_WIDTH` invariant holds in both states.
 
 ## Acceptance Criteria (feature-level)
 
@@ -3705,6 +3779,151 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
   still trips the **15 s backstop** (unchanged); `1 day` uses the **ET-anchored** period grid (`D27.8`), so a
   `1 min` bar at the ET-midnight boundary belongs to the new daily period.
 
+### D44 — Collapsed Watchlist becomes a thin vertical bar that expands to the full panel (NEW FEATURE) — OWNER-REQUESTED 2026-10-16
+
+- **Area:** `ui/watchlist_panel.py` (`WatchlistPanel.header_bar` / `header_button` / `_on_header_toggled` /
+  `set_collapsed` / `toggle_collapsed` / `is_collapsed`; the new collapsed-bar widget), `ui/dock_layout.py`
+  (`WATCHLIST_MIN_WIDTH`, `plan_dock_widths`), `ui/main_window.py` (`setTitleBarWidget(self.watchlist_panel.header_bar)`,
+  `LeftDockWidgetArea`, `_apply_dock_widths`), `ui/visual_conventions.py` (`set_button_active`).
+- **Status:** **NEW 2026-10-16 — OWNER-REQUESTED; scope recorded and the `## Non-Goals` explicitly revised
+  (dated 2026-10-16). No blocking question: the three owner-flagged choices (bar width, persistence, `+`
+  reachability) are decided with recorded defaults (A75–A77) and surfaced to the owner as **Q54** (confirmation
+  requested; non-blocking).** **D1–D43 are NOT reopened.** D44 **revises** the collapsed-appearance clauses of
+  D21.11 (`AC-D21.11.2`/`AC-D21.11.3`) and the 150px-minimum clause of D13/D17 (`AC-D13.1`/`AC-D17.2`).
+- **Reported (verbatim intent):** "When the watchlist is collapsed by clicking on the Watchlist button, it
+  should become a thin bar on the left side. When the user clicks on the thin panel, it should open up into a
+  full panel like before. Keep the colour scheme consistent with the app and make it look like a panel."
+- **Owner clarification (explicit):** the mockup showed the bar as a **white rounded pill** — that was
+  **mockup-tool styling only, NOT a colour choice**. The bar must use the **app's own palette**.
+- **Observed in repository (validated 2026-10-16 against source; graphify used for the initial map, source is
+  authoritative):**
+  - **The collapse already exists (D21.11).** `ui/watchlist_panel.py::WatchlistPanel` builds a 28px `header_bar`
+    (`setObjectName("WatchlistHeader")`, `background: #141822; border-bottom: 1px solid #232938`) holding
+    `header_button = DiagonalStrikeButton("Watchlist")` (`setObjectName("WatchlistHeaderButton")`, checkable,
+    checked by default). `header_button.toggled` → `_on_header_toggled(checked)` sets `self._collapsed = not
+    visible` and does `self.body.setVisible(visible)`. The public API is `set_collapsed()` / `toggle_collapsed()`
+    / `is_collapsed()`. **Today collapsed = the horizontal header strip stays, the table hides, and the dock
+    keeps its ~220px width.**
+  - **The header bar IS the dock's title bar.** `ui/main_window.py` calls
+    `self.watchlist_dock.setTitleBarWidget(self.watchlist_panel.header_bar)` and the dock lives in
+    `Qt.DockWidgetArea.LeftDockWidgetArea`.
+  - **The blocker to a thin bar is the width clamp.** `ui/dock_layout.py` sets `WATCHLIST_MIN_WIDTH = 150` and
+    `plan_dock_widths()` clamps **unconditionally** — `left = max(WATCHLIST_MIN_WIDTH, min(int(requested_left),
+    left_max))`. `MainWindow._apply_dock_widths` is the single apply entry point and is wired to **both**
+    `resizeEvent` and the dock-drag hook, so a ~30px bar is snapped back to 150px on the next resize or drag
+    unless the layout rules learn about a collapsed width.
+  - **Cross-module invariant:** `CHART_MIN_WIDTH` is duplicated between `ui/dock_layout.py` and
+    `ui/watchlist_panel.py` (`ui/watchlist_panel.py` binds `CHART_MIN_WIDTH = dock_layout.CHART_MIN_WIDTH`) and
+    must stay equal (`ui/dock_layout.py` documents this).
+  - **Palette to use:** background `#141822`, text `#cbd5e1`, border `#232938` — the same family as the existing
+    `WatchlistHeader` strip and the portfolio's `AccountSummaryHeaderButton`. Hover/pressed use the established
+    `set_button_active()` convention in `ui/visual_conventions.py`, not a hand-rolled highlight.
+  - **Qt cannot rotate a `QPushButton`'s text**, so the vertical bar needs a small **custom widget with a
+    `paintEvent`** drawing rotated text.
+- **Requirements (final):**
+  - **Collapsed form (owner-flagged #1 — decided A75):** while collapsed, the watchlist dock renders a **thin
+    vertical bar** of width `WATCHLIST_COLLAPSED_WIDTH = 30px` (within the owner's ~28–32px range; 30px is
+    ≥ the 28px header height and leaves room for the rotated label + 1px borders without clipping). The bar shows
+    the **rotated** text `WATCHLIST` (reading bottom-to-top, i.e. rotated 90° counter-clockwise) in the **app
+    palette** (`#141822` background, `#cbd5e1` text, `#232938` border); it must **look like a panel** (a bounded,
+    filled bar), **not** a white pill.
+  - **Expand on click:** clicking **anywhere on the thin bar** (or its rotated label) expands the watchlist to
+    its **previous** width — the width the dock held immediately before it was collapsed (the layout already
+    tracks `MainWindow._watchlist_width`), re-clamped to the current cap/min rules for the expanded state.
+  - **Collapse from the header button (as today):** in the expanded state the retained "Watchlist" header button
+    collapses the panel (unchanged behaviour); collapsing switches the dock to the thin bar.
+  - **Header strip, `+` (D22.1) and column-header row while collapsed (owner-flagged #3 — decided A77):** the
+    **horizontal header strip, the `+` add button (D22.1) and the table's column-header row are all hidden** while
+    collapsed — they belong to the expanded panel and **return on expand**. The thin bar's **only** interactive
+    element is the expand affordance. (The `+` remains reachable the instant the user expands, so no affordance is
+    lost; a ~30px bar cannot hold a horizontal `+` plus a rotated label legibly.)
+  - **Persistence across restarts (owner-flagged #2 — decided A76):** the collapsed/expanded state is **NOT
+    persisted** — the app starts **expanded** every launch, consistent with the existing D21.11 collapse (which
+    is not persisted) and the D10/A36 precedent that UI show/hide toggles are not persisted. The `WatchlistPanel`
+    `QSettings` is **not** used for collapse state.
+  - **Layout must honour the collapsed width (the core new requirement):** while collapsed, the watchlist dock's
+    width is governed by `WATCHLIST_COLLAPSED_WIDTH`, **not** by `WATCHLIST_MIN_WIDTH`; `plan_dock_widths` (or
+    `_apply_dock_widths`) must treat a collapsed watchlist as **fixed at the collapsed width** so a `resizeEvent`
+    or a dock drag does **not** snap it back to 150px. The expanded-state minimum stays **150px**
+    (`AC-D13.1`/`AC-D17.2` revised to say the 150px minimum applies to the **expanded** state). The
+    `CHART_MIN_WIDTH` invariant is preserved in both states.
+  - **Non-regression:** expanding restores the previous width; D14 double-click row-to-load, D21.5 column popup,
+    D22 add/remove, the D13/D17 width model in the **expanded** state, and the D18/D41 right-dock model are
+    unchanged.
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D44.1 (collapsed form — thin vertical bar)** Given a docked Watchlist is expanded, When the user
+    collapses it (via the header button), Then the watchlist dock renders a **thin vertical bar** of width
+    `WATCHLIST_COLLAPSED_WIDTH` (~30px, within 28–32px) in `LeftDockWidgetArea` showing the **rotated** text
+    `WATCHLIST`, and the bar's background/border/text use the app palette (`#141822` / `#232938` / `#cbd5e1`),
+    **not** white. (Measurable: `watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH`; a rotated-label widget
+    exists; its rendered background/border colours match the app palette.)
+  - **AC-D44.2 (click to expand — previous width restored)** Given the watchlist is collapsed to the thin bar,
+    When the user clicks the bar, Then the watchlist expands to the **width it held immediately before
+    collapsing** (the tracked previous width), re-clamped to the current expanded cap/min rules, and the full
+    panel (header strip, table, `+`) is visible again. (Measurable: collapse from a known width W, expand, and
+    assert `watchlist_dock.width() == clamp(W)`.)
+  - **AC-D44.3 (click to collapse from the header button — unchanged)** Given the watchlist is expanded, When
+    the user clicks the retained "Watchlist" header button, Then the panel collapses to the thin bar (the
+    existing D21.11 toggle path). (Measurable: `is_collapsed()` is True and the dock width is the collapsed
+    width.)
+  - **AC-D44.4 (header strip / `+` / column-header row hidden while collapsed)** Given the watchlist is
+    collapsed, Then the **horizontal header strip, the `+` add button (D22.1) and the table's column-header row
+    are not visible**; When the user expands, Then they are visible again. (Measurable: their `isVisible()` is
+    False while collapsed and True while expanded.)
+  - **AC-D44.5 (layout honours the collapsed width — the core fix)** Given the watchlist is collapsed, When a
+    window `resizeEvent` fires **or** the dock splitter is dragged, Then the watchlist dock **stays at the
+    collapsed width** and is **not** snapped back to `WATCHLIST_MIN_WIDTH` (150px). (Measurable: after driving a
+    resize/drag with the watchlist collapsed, `watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH`.)
+  - **AC-D44.6 (palette + hover/pressed convention)** Given the thin bar, Then its colours come from the app
+    palette (`#141822` / `#232938` / `#cbd5e1`) and its hover/pressed feedback uses the established
+    `ui/visual_conventions.py::set_button_active` convention (no hand-rolled highlight). (Measurable: the
+    hover/active style differs from the idle style and is applied via the shared helper.)
+  - **AC-D44.7 (collapse state not persisted)** Given the user leaves the app with the watchlist collapsed, When
+    the app is restarted, Then the watchlist is **expanded** (the collapsed state is not persisted); no
+    `QSettings` key is written for collapse state. (Measurable: after a restart the dock is expanded; no
+    collapse-state key exists in `QSettings`.)
+  - **AC-D44.8 (regression guard — pre-fix RED)** Given the fix, Then a regression check exists that **fails on
+    the pre-fix tree** and passes after: collapsing the watchlist must yield the **collapsed width** (not the
+    pre-fix ~220px dock width / 150px minimum) and that width must **survive a simulated resize/drag**; and the
+    existing D13/D17 width suites and the D21.11 collapse behaviour remain green (or are updated in lockstep
+    where the 150px-minimum clause now applies to the expanded state only — never left contradicting D44).
+    (Measurable: the new guard is RED at the pre-fix commit and GREEN after; the expanded-state width suites
+    pass unchanged.)
+- **Supersession / revision record (recorded, not silent):**
+  - **`AC-D21.11.2` / `AC-D21.11.3` — REVISED by D44.** Their collapsed-appearance clause ("the collapsed state
+    still shows the button", with the `VIS-D21.1` diagonal strike-through on the retained button) is
+    **superseded for the collapsed state**: the collapsed watchlist now shows a **thin vertical bar with rotated
+    text**, not a struck-through horizontal header button. `VIS-D21.1` still applies to any genuinely
+    hidden/off **button** state elsewhere (D21.12 volume, D21.13 portfolio); it is **not** the collapsed
+    watchlist indicator. `AC-D21.11.1` (single "Watchlist" label, duplicate dock title deleted) is unchanged.
+  - **`AC-D21.11` edge case "collapsed-width geometry" — now specified** by `AC-D44.1`/`AC-D44.5`.
+  - **`AC-D13.1` / `AC-D17.2` — REVISED by D44.** Their **150px minimum** applies to the **expanded** watchlist
+    only; while collapsed the width is `WATCHLIST_COLLAPSED_WIDTH` (~30px). `AC-D13.2`/`AC-D13.3`/
+    `AC-D17.1`/`AC-D17.3`–`AC-D17.6` (cap, persistence, drag-enforcement, re-clamp) are unchanged **for the
+    expanded state**.
+  - **`AC-D22.1` (the `+` on the header strip) — unchanged in the expanded state**; `AC-D44.4` records that the
+    `+` (and the column-header row) are hidden while collapsed.
+- **Edge Cases:** collapse from the **minimum** width (150px) → expand restores 150px; collapse from the **cap**
+  → expand restores the cap (re-clamped); a **window resize while collapsed** must not change the collapsed
+  width (`AC-D44.5`); a **dock drag while collapsed** must not expand it; **floating** watchlist (D13) —
+  collapse behaviour in a floating dock is a Plan-level detail but the bar must still be clickable to expand;
+  **IBKR disconnected** — collapse/expand is a pure UI state and works disconnected; **empty watchlist** —
+  collapse/expand still works; **`1 day`/any symbol** — the bar is symbol-independent; **first launch** — the
+  watchlist starts **expanded** (A76); the `CHART_MIN_WIDTH` invariant holds in both states; a very narrow
+  window where `WATCHLIST_COLLAPSED_WIDTH` still fits.
+- **Correction record (artifacts that must change — Plan / Task Manager / Build / Code Reviewer):**
+  - **Plan:** choose the collapsed-bar **mechanism** — a small custom widget with a `paintEvent` drawing rotated
+    text, and how the dock's **title-bar widget** presents the bar while collapsed (`setTitleBarWidget` swaps to
+    the bar, or the header widget reorients) — keeping the dock movable (DG37). Re-derive the collapsed-aware
+    width path in `plan_dock_widths` / `_apply_dock_widths`.
+  - **Build:** add `WATCHLIST_COLLAPSED_WIDTH` to `ui/dock_layout.py` (and keep `CHART_MIN_WIDTH` in lockstep
+    with `ui/watchlist_panel.py`); make the collapsed width honoured by the single apply entry point; add the
+    rotated-text bar widget in the app palette; wire click-to-expand to restore the tracked previous width; hide
+    the header strip / `+` / column-header row while collapsed.
+  - **Code Reviewer:** independently verify the collapsed width **survives** a resize/drag (the core defect
+    class), that the palette matches the app (no white pill), and that the **expanded** D13/D17 width criteria
+    are unaffected.
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -3783,6 +4002,10 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | A72 **[NEW 2026-10-15 — D42/ESC-042; requirement decision (owner-confirmed via Q51)]** | **The no-overlap guarantee wins over the 4-px body floor at high density.** The candle body width is capped at the inter-bar device-pixel pitch and the D6 4-device-pixel legibility floor becomes **density-aware** (`body = min(max(0.65×pitch, F), pitch)`, `F` = 4 device px at DPR 2); the hard guarantee is `gap >= 0` (never overlap), the gap is `> 0` whenever `pitch > F`, and `0` is acceptable at extreme density (`pitch <= F`). This **supersedes the unconditional `AC-D6.4` wording** and the **`AC-D7.1` "positive gap" wording**. | The escalation is a genuine in-document contradiction and the owner-visible defect (ESC-041: candle/volume overlap on a 5-min Ext-Hours chart) is caused by the unconditional floor; a zero gap (abutting bodies) is not "overlap" and preserves legibility where it can, while a negative gap is never acceptable. Evidence-derived (measured 3.83 px pitch / 4.00 px body); the zero-gap-at-the-limit default was **confirmed by the owner 2026-10-15 (Q51, verbatim: "Zero gap acceptable at the limit.")** — no criteria change. | y (owner-confirmed 2026-10-15, Q51) | 2026-10-15 |
 | A73 **[NEW 2026-10-15 — D42/ESC-038; owner-required floor (Q47) + ETH scope owner-confirmed (Q52) + evidence-derived clarifications]** | **Intraday depth (RTH and ETH) = >= 30 trading sessions before the current session, counted by bars inside the current mode's session window; a present-but-empty trading day is a missing span (not filled).** The floor is `AC-D16.8` (owner-required, Q47); the "session = >= 1 bar inside the current mode's window" and "all five intraday windows fall short" clarifications and the new `AC-D16.9` (mode-aware day presence + mode-aware cache) are evidence-derived from the ESC-038/ESC-037 diagnosis. **Q52 (owner-confirmed 2026-10-15: "Extend it to Ext-Hours charts too.") widened the floor and the present-but-empty rule to ETH (`ext_hours=True`)** — one floor, two modes, no cross-contamination. The fetch-window strategy that delivers the floor is a **Plan/Build** matter. | The owner already required the 30-session floor (Q47) and then extended it to ETH (Q52); the present-but-empty rule is the only consistent reading of "a day with no bars in the session window is not a session" and is required for the floor to be measurable. ETH scope owner-confirmed; the remaining clarifications evidence-derived. | y (floor + ETH scope owner-confirmed, Q47/Q52; clarifications evidence-derived) | 2026-10-15 |
 | A74 **[NEW 2026-10-16 — D43/ESC-036; requirement decision (owner-confirmed-by-default)]** | **Aggregator priming selects its bar size from the elapsed forming-period span: `5 secs` when the span is <= 3600 S (`1 min`/`5 mins`/`15 mins`/`1 hour`), `1 min` when it exceeds 3600 S (`4 hours`/`1 day`), with `duration` clamped into the selected bar size's IBKR range (`[60 S, 3600 S]` / `[60 S, 1 D]`).** This **supersedes D27.9's "trailing 5-second history" wording** and **revises `AC-D27.9`**. | 5-second bars cannot span a 4h/1d forming period at all (IBKR caps `5 secs` at `3600 S`; the built `5 secs`/`7200 S` request returns TWS error 321), so D27.9 was unsatisfiable for those timeframes; `1 min` covers the whole elapsed span in one request and reuses the existing priming/aggregator path, while the "seed from the historical partial bar" alternative depends on unverified IBKR partial-bar behaviour. The escalation's stated expectation ("`AC-D27.9` met on every timeframe the user can select, including 4h/1d") is the owner-directed intent — **owner-confirmed-by-default** (no owner question required; recorded as Q53). | y (owner-confirmed-by-default 2026-10-16) | 2026-10-16 |
+| A75 | **D44 — collapsed bar width is `WATCHLIST_COLLAPSED_WIDTH = 30px`.** The owner bounded the bar to ~28–32px and delegated the exact value; 30px is ≥ the 28px header height, leaves room for the rotated label plus 1px borders, and reads as "a thin bar" while staying clickable. | Owner described "a thin bar"; a numeric geometry (like D17's B1/B4) needs no screenshot; 30px sits mid-range and is implementation-tunable. Logged per the Quality Bar rather than silently baked in. | n | 2026-10-16 |
+| A76 | **D44 — the collapsed/expanded state is NOT persisted; the app starts expanded.** Consistent with the existing D21.11 collapse (not persisted) and the D10/A36 precedent that UI show/hide toggles are not persisted; no `QSettings` collapse key. | Owner gave no persistence signal; the consistent default mirrors the existing collapse behaviour. Surfaced to the owner as Q54 (an override would add persistence). | n | 2026-10-16 |
+| A77 | **D44 — while collapsed, the horizontal header strip, the `+` add button (D22.1) and the table's column-header row are hidden; the thin bar's only interactive element is the expand affordance.** They return on expand, so no affordance is lost. | A ~30px bar cannot hold a horizontal `+` plus a rotated label legibly; the `+` belongs to the expanded panel (D22.1). Surfaced to the owner as Q54. | n | 2026-10-16 |
+| A78 | **D44 — the collapsed-bar mechanism is a Plan-level detail:** a small custom widget with a `paintEvent` drawing rotated text (Qt cannot rotate a `QPushButton`'s text), and the dock's title-bar widget presents the bar while collapsed while keeping the dock movable (DG37). | The outcome (a thin, clickable, app-palette bar) is fixed by `AC-D44.1`/`AC-D44.6`; the widget/title-bar mechanism is an implementation choice, logged per the Quality Bar. | n | 2026-10-16 |
 ## Documentation Maintenance Requirements
 
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
@@ -3903,6 +4126,8 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | R63 **[NEW 2026-10-15 — D42/ESC-042]** | The density-aware cap could be implemented inconsistently between the candle body and the volume width, or the tests that encode the old unconditional rule (`tests/test_candle_spacing.py`, `tests/test_volume_width.py`) could be left asserting the defect, so candles and volume diverge or the suite stays green on the bug | M | H | `AC-D6.4`/`AC-D7.1` (revised) + `AC-D9.1`/`AC-D9.2` pin one shared capped `w`; D42's correction record requires the two enshrining tests be **corrected** (not weakened) and a rendered-geometry guard (`body <= pitch`, from the `QPicture` bbox) added; ESC-041's re-check measures the rendered pixel run |
 | R64 **[NEW 2026-10-15 — D42/ESC-038; ETH scope added by Q52]** | Delivering the 30-session floor **in both RTH and ETH** needs backwards-extending chained fetches across all five intraday timeframes; a partial implementation could meet `1 min` but leave `5 mins`…`4 hours` short, could cover RTH but not ETH (or vice versa), or the mode-aware day-presence change could regress the D16 no-silent-hole behaviour | M | M | `AC-D16.8` states the floor for **all five** timeframes **in both modes** and `AC-D16.9` scopes the change to **presence** only (no-fill/no-silent-hole `AC-D16.1`/`AC-D16.4` unchanged); D42's correction record adds `find_missing_spans(..., ext_hours=False)` **and** `find_missing_spans(..., ext_hours=True)` RED→GREEN cases plus a per-timeframe, per-mode session-count guard and a no-cross-contamination check; the D16 suite stays green |
 | R65 **[NEW 2026-10-16 — D43/ESC-036]** | The `1 min` priming request for `4 hours`/`1 day` could be built inconsistently (e.g. the bar size switched but the duration left at the `5 secs` ceiling, or the switch applied to the wrong timeframe set), leaving the coarse timeframes still rejected by IBKR or over-fetching; the priming tests could also be left asserting the superseded `5 secs`/`7200 S` shape, so the suite stays green on the defect | M | M | `AC-D27.9` (revised) pins the per-span bar size **and** the per-bar-size duration range; D43's correction record requires the priming tests be **corrected** (not weakened) with a RED→GREEN `4 hours`/`1 day` case (a `1 min` request whose duration is inside `[60 S, 1 D]`); P2-T30's stale `AC1`/`P2-T30-T11` are flagged for revision |
+| R66 **[NEW 2026-10-16 — D44]** | The collapsed width could be **snapped back to `WATCHLIST_MIN_WIDTH` (150px)** by `plan_dock_widths`/`_apply_dock_widths` on the next `resizeEvent` or dock drag, so the thin bar never sticks (the same clamp-during-drag defect class as D17/D19) | M | H | `AC-D44.5` requires the layout to honour the collapsed width; `AC-D44.8` requires a **pre-fix-RED** guard that the collapsed width survives a resize/drag; `plan_dock_widths`/`_apply_dock_widths` are the single apply entry points and must learn the collapsed state |
+| R67 **[NEW 2026-10-16 — D44]** | D44's change to the collapsed appearance could **regress** the D21.11 collapse behaviour, the `VIS-D21.1` strike-through convention, or the **expanded-state** D13/D17 width criteria and their suites (`tests/test_dock_widths_d17.py`, `tests/test_dock_widths_d18.py`, `tests/test_dock_layout.py`, `tests/test_watchlist_columns_d21.py`) | M | M | D44 **revises** only the collapsed-appearance clauses (`AC-D21.11.2`/`.3`) and the 150px-minimum clause (`AC-D13.1`/`AC-D17.2`, now expanded-only); the expanded-state width suites must stay green or be updated in lockstep (never left contradicting D44); `AC-D44.8` names the non-regression requirement |
 
 
 ---
@@ -4010,5 +4235,15 @@ The silent-hole item **ESC-037** remains routed to **BUILD** (its normative targ
 **[NEW 2026-10-15] Batch 18 (D41)** — the owner requested removal of the **D36 footprint**, the **D37 depth heatmap / imbalance / auction** features and "all associated code"; **scope FINALISED 2026-10-15 (Q48/Q49/Q50 answered)**: the **Active Trader DOM ladder** is **also removed** (Q48 = YES), the persisted **`footprint_cache` table + rows are deleted** (Q49 = "delete"), and the **entire Active Trader panel — including the in-app order-entry UI — is removed with the right dock becoming Portfolio-only** (Q50 = YES/YES). D41 carries acceptance criteria `AC-D41.1`–`AC-D41.7`; `AC-D36.*`/`AC-D37.*` are **SUPERSEDED BY D41** (retained for history, DOC-4), and the affected **D18**/**D21.13** clauses are **superseded by D41** with reasons. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) is **kept** for the Portfolio close/flatten/SL-TP paths, and the kept order path's `ref_price` takes a **retained source** (Plan-level detail); the shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is **explicitly preserved** (see D41 "Scope — KEEP"); **ESC-039 / ESC-035 / ESC-040** are moot. No **blocking** question remains; **Q47** is answered as **`AC-D16.8`** (30 trading sessions). This document carries `Status: READY_FOR_PLAN`.
 
 **[NEW 2026-10-16] Batch 18c (D43)** — the **ESC-036 second clause** (a **REQUIREMENTS** question the owner directed here) is **DECIDED**: D27.9's **"trailing 5-second history"** is **unsatisfiable** for the coarse intraday timeframes (`4 hours` = 14400 s, `1 day` = 86400 s — 5-sec bars cannot span them; IBKR caps `5 secs` at `3600 S`, so the built request `bar_size='5 secs'`/`duration='7200 S'` returns TWS **error 321**). **Resolution (D43.1):** prime with a bar size chosen for the elapsed forming-period span — **`5 secs`** for `1 min`/`5 mins`/`15 mins`/`1 hour`, **`1 min`** (valid up to `1 D`) for **`4 hours`**/`1 day` — with `duration` = the elapsed span clamped into the selected bar size's IBKR-accepted range (`[60 S, 3600 S]` for `5 secs`; `[60 S, 1 D]` for `1 min`). This **SUPERSEDES D27.9's "trailing 5-second history" wording** and **revises `AC-D27.9`**. **P2-T30's first-clause clamp remains correct/required for the fine timeframes**; the **coarse-timeframe bar-size switch is an explicit FOLLOW-UP** (P2-T30 does not deliver it), and P2-T30's `AC1`/`P2-T30-T11` (asserting a `5 secs`/`3600 S` request for 4h/1d) become **stale once the follow-up lands**. See D43, `AC-D27.9` (revised), A74, R65, **DG73**, **Q53** (answered, owner-confirmed-by-default). No blocking question remains.
+
+**[NEW 2026-10-16] Batch 19 (D44) — the collapsed Watchlist becomes a thin vertical bar (OWNER-REQUESTED).** The owner asked that the collapsed
+watchlist become a **thin bar** on the left that **expands to the full panel** on click, in the **app's own colour scheme** (the mockup's white rounded pill is
+mockup-tool styling only, not a colour choice). The D21.11 collapse already exists, so **D44 changes the collapsed *appearance***: a **thin vertical bar**
+(~30px) with **rotated** `WATCHLIST` text in the **app palette** (`#141822`/`#cbd5e1`/`#232938`), click-to-expand restoring the **previous** width, and
+click-to-collapse from the retained header button (as today). The layout rules (`WATCHLIST_MIN_WIDTH` / `plan_dock_widths` / `_apply_dock_widths`) must
+**honour a collapsed width** instead of snapping back to 150px. D44 **revises** `AC-D21.11.2`/`AC-D21.11.3` (collapsed appearance) and the 150px-minimum
+clause of `AC-D13.1`/`AC-D17.2` (now **expanded-state only**), and **revises the `## Non-Goals`** (dated 2026-10-16) rather than leaving a Non-Goal standing
+that the feature contradicts. `AC-D44.1`–`AC-D44.8`, A75–A78, R66–R67, `design_gaps.md` **DG74**, and `open_questions.md` **Q54** (owner confirmation
+requested; non-blocking defaults recorded). **D1–D43 are NOT reopened.** No blocking question remains.
 
 Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14; D36–D40 as-built with acceptance criteria authored, **D36/D37 now SUPERSEDED BY D41**); **D41 (Batch 18)** — the D36/D37 **+ the entire Active Trader panel (DOM ladder + order-entry UI)** removal is specified with `AC-D41.1`–`AC-D41.7` (Q48/Q49/Q50 answered 2026-10-15), the **right dock is Portfolio-only** (D18/D21.13 clauses superseded by D41), the **retained order machinery** is kept for Portfolio's close/flatten/SL-TP paths, and the shared substrate is preserved; **`AC-D16.8`** records the 30-trading-session intraday depth floor (Q47), now covering **both RTH and Ext-Hours (ETH)** per **Q52**; **Batch 18b (D42)** resolves the two REQUIREMENTS-routed Code Reviewer escalations — **ESC-042** (the `AC-D6.4` vs `AC-D7.1` contradiction: the **no-overlap guarantee wins**, the body is capped at the inter-bar pitch and the 4-px floor is **density-aware**, superseding the unconditional `AC-D6.4` / "positive gap" `AC-D7.1` wording — unblocks BUILD **ESC-041**) and **ESC-038** (intraday depth floor `AC-D16.8` clarified — sessions counted by bars inside the **current mode's** session window, all five intraday windows fall short — plus the new **`AC-D16.9`** for a present-but-empty trading day; the requirements side of BUILD **ESC-037**) — with A72–A73, R63–R64, DG68 resolved + DG72, and **Q51/Q52 answered 2026-10-15 (Q51 confirmed the zero-gap default; Q52 widened `AC-D16.8`/`AC-D16.9` to Ext-Hours, superseding the RTH-only default)**; D1–D41 otherwise unchanged. No blocking question remains.

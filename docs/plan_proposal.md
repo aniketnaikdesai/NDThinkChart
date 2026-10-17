@@ -1,583 +1,406 @@
-# Implementation Plan Proposal — NDThinkChart Batch 18b (**D42**)
+# Implementation Plan Proposal — NDThinkChart Batch 19 (**D44**): the collapsed Watchlist becomes a thin vertical bar that expands back to the full panel
 
 > **Status of this document:** a **proposal** by the Plan agent. It is **not** the canonical plan —
 > `docs/plan.md` is written by Plan Artifact Editor & Validator after validation. Companion:
-> `docs/architecture_proposal.md` (Codebase Summary first, then decisions `S1`–`S21`, components,
-> data model, integrations, non-functional approach, risks `AR-D42-1`–`AR-D42-11`, and the
-> requirements→architecture traceability table).
+> `docs/architecture_proposal.md` (relationship table, Codebase Summary, decisions `S22`–`S28`, components,
+> data model, integrations, frozen interfaces, non-functional approach, risks `AR-D44-1`–`AR-D44-10`, and the
+> requirements→architecture traceability table). Module index: `docs/codebase-map.md` (refreshed for this
+> batch).
 >
-> **Run shape:** **legacy single-scope** — the invocation preamble carries no `phase: P<n>`, so these
-> are the unsuffixed proposal files and the D42 increment merges into the cumulative canonical
-> `docs/architecture.md` / `docs/plan.md` as a `## D42 increment` section (the D16–D41 precedent).
+> **Run shape:** **legacy single-scope** — the invocation preamble carries **no `phase: P<n>`**, so these are
+> the unsuffixed proposal files and the D44 increment merges into the cumulative canonical
+> `docs/architecture.md` / `docs/plan.md` as a `## D44 increment` section (the D16–D42 precedent).
 >
-> **Scope: D42 only** — a **requirements-decision batch with no new feature**. It resolves the two
-> **REQUIREMENTS-routed** Code Reviewer escalations (**ESC-042**, **ESC-038**) and the fixes for the
-> two corresponding **BUILD** escalations fall out of it (**ESC-041**, **ESC-037**). `D41` is built,
-> reviewed and committed (`b48133d`) and is **not reopened**; `docs/plan_proposal.md`'s stale D41
-> draft is **replaced** by this file. Requirements of record: `requirements.md`
-> (`Status: READY_FOR_PLAN`, revised 2026-10-15 19:06) — `### D42` (`:3529`–`:3617`),
-> `AC-D6.4` (revised), `AC-D7.1` (revised), the `AC-D9.2` note, `AC-D16.8` (extended),
-> **`AC-D16.9`** (new), `A72`–`A73`, `R63`–`R64`, `DG68` (resolved) + `DG72`,
-> `open_questions.md` **Q51/Q52** (answered 2026-10-15). Baseline: `main` @ `b48133d`, full offscreen
-> suite green.
+> **This file replaces the stale D42 draft** (the previous contents of `docs/plan_proposal.md`). **D42 is
+> delivered** — 26/26 tasks, full offscreen suite green, review `REVIEW_COMPLETE`, committed — and its
+> Validator cycle ended `Status: APPROVED` (`docs/plan_review.md`, D42 cycle 3 of 3, `ESC-050` amendment
+> verified). **D1–D43 are settled and are NOT re-planned or reopened here**; per the repo's per-batch
+> convention the previous batch's draft is **superseded**, not extended. This is **Revision 1** of the D44
+> draft — no `CHANGES_REQUIRED` cycle precedes it, because the requirements were extended with D44 after the
+> D42 review had already approved.
 >
-> **Revision 2 (2026-10-15) — round 1 of 3, `CHANGES_REQUIRED` addressed.** The Validator ratified
-> the substance (`FI-D42-1`–`FI-D42-4` accepted, `S18` ratified, `S13`/`S14` and `S15`–`S19` verified
-> sound against source), so **nothing below is re-litigated** — only the three required changes are
-> folded in, plus the Validator's own additions:
+> **Scope: D44 only** — an **owner-requested net-new UI feature** (Batch 19, recorded 2026-10-16). Requirements
+> of record: `requirements.md` (`Status: READY_FOR_PLAN`, revised 2026-10-16 17:28) — the D44 status/audit
+> block (`:118`–`:136`), the revised `## Non-Goals` (`:258`–`:267`), the D44 work item (`:353`–`:365`),
+> **Journey 37** (`:976`–`:989`), **`### D44`** (`:3782`–`:3925`), **`AC-D44.1`–`AC-D44.8`**
+> (`:3854`–`:3891`), the supersession/revision record (`:3892`–`:3905`), the edge cases (`:3906`–`:3913`),
+> the correction record (`:3914`–`:3925`), **A75–A78** (`:4005`–`:4008`), **R66–R67** (`:4129`–`:4130`), the
+> Batch-19 summary (`:4239`–`:4246`); `design_gaps.md` **DG74** (`:1177`–`:1182`); `open_questions.md` **Q54**
+> (answered 2026-10-16; owner confirmation requested, non-blocking defaults recorded).
+> **Baseline:** `main` @ **`0c4d478`**, full offscreen suite green.
 >
-> - **RC-D42-1** — `ui/chart_panel.py::ChartPanel.update_last_bar`'s `_bars` trim (`:1150`–`:1157`,
->   the **third** `SESSION_BAR_CAP` site) is now **owned by Phase 2**, added to Phase 2's goal /
->   deliverable / file map, and the "**Phase 1 and Phase 2 are file-disjoint / shared files: none**"
->   claim is **replaced** by the correct statement: `ui/chart_panel.py` is the **one shared file**, so
->   the two `ui/chart_panel.py` tasks are sequenced into **different waves** (see *Phases* and the
->   per-file map). `AP-D42-1` is rewritten accordingly.
-> - **RC-D42-2** — the D16 **load-path** assertions that `S17`/`S18` legitimately change are now
->   enumerated **with their cause** and stated to be **intent-preserving corrections** (new
->   *Corrected — D16 load-path* table); Phase 3's goal and `R64`'s mitigation wording are re-stated so
->   they are consistent with those changes.
-> - **RC-D42-3** — the WS1 RED→GREEN evidence now **states the pixel unit** of `F` (ViewBox logical
->   px, the unit `px_per_sec` yields — 4 logical px = 8 device px at DPR 2), applies `F` in that unit,
->   and **measures** the repro pitch instead of hard-coding `3.83`.
-> - Folded in: `FI-D42-2` extended to **five** enshrining suites; `FI-D42-1`'s cost stated as
->   **~8–16 MB**; `FI-D42-3` keeps its ratified reading **with** the `requirements.md:1957`–`:1958`
->   and `:1967`–`:1969` citations; `FI-D42-4`/`AP-D42-5` keep the shipped unit with the unit now
->   **stated** in the evidence; `AP-D42-3`'s "and pop-out charts" corrected.
+> **Supersessions this plan keeps consistent (already recorded by the Requirements Analyst — never silent):**
+> `AC-D21.11.2`/`AC-D21.11.3` (the collapsed **appearance**) are **revised**; the **150px-minimum clause** of
+> `AC-D13.1`/`AC-D17.2` becomes **expanded-state only**; `AC-D21.11.1` (single "Watchlist" label, duplicate
+> dock title deleted), `AC-D22.1` (**expanded**), and the D13/D17 **cap / persistence / drag / re-clamp**
+> clauses are **unchanged**; the `## Non-Goals` restyling bullet is revised **only** for the D44 bar, in the
+> app palette.
 >
-> **Revision 3 (2026-10-16) — reviewer escalation `ESC-050` (PLAN-routed, `open`) addressed.** An
-> **enumeration/accuracy fix to the two proposal documents only** — **no architectural decision
-> (`S13`–`S21`), no `AC`, no phase boundary, no task and no canonical file changes.** The D42 impact
-> analysis **under-enumerated** the suites changed by design in **two independent places**, and both
-> under-counts surfaced only at reconciliation time (after the whole batch had been dispatched):
->
-> - **(1) the load-path-*driving* suites.** `RC-D42-2`, `S21` and `AR-D42-6` named only the D16
->   **load-path** suites. **19 assertions in six further suites** also change by design —
->   `tests/test_d24_popouts.py` (7), `tests/test_phase3_fixpass.py` (7),
->   `tests/test_d24_alarm_full_chain.py` (2), `tests/test_d24_smoke_gate.py` (1),
->   `tests/test_d24_9_popout_persistence.py` (1), `tests/test_d28_tick_burst_baseline.py` (1) — all
->   because they **drive** `MainWindow.load_chart` with a **fixed-size** `req_historical_data` id
->   iterator while the floor span makes a load issue **many** chunks (the `ESC-048` defect class).
->   New table: *Corrected — load-path-**driving** suites (`ESC-050`)*.
-> - **(2) four further sites inside the D16 files** (`t40_t03`, `t40_t05`, `t43_t03`, `t44_t03` —
->   the `P2-T15` footprint flag), plus **two more found by Plan re-verification** against the D42 diff
->   (`t39_t04`, `t39_t05`). The `RC-D42-2` table now names **all 14 changed test functions** in the
->   three D16 files.
-> - **(3) the invariant + the generalisable rule.** A new section states the **invariant** (an
->   unbounded reqId stub for any test that drives the load path; exact-count and empty-cache-branch
->   assertions change by design) and the checkable **impact-analysis enumeration rule** — *enumerate by
->   call site of the changed entry point, not by the suites the design names* — which is why the two
->   under-counts happened and how the next increment avoids them.
+> **Escalation state at planning time.** **No escalation is open against this increment's decisions** — no
+> `PLAN`-routed entry is open (`ESC-050` is `addressed`), and none is `BUILD`- or `REQUIREMENTS`-routed. The
+> only open entry in `docs/code_review/escalations.json` is **ESC-055** (`routed_to: TASK_MANAGER`,
+> `severity: nice-to-have`) — the D42/ESC-050 enumeration rule's *ownership remedy* for a production-entry-point
+> change invalidating an assertion **outside** the changing task's `touches_files`. D44 **applies** that rule
+> (`AP-D44-8`, the per-file map, the *Verified unchanged* table) but does **not** absorb the escalation, which
+> is Task Manager's. `docs/plan_review.md` is the **APPROVED** D42 cycle, so this is a normal forward cycle.
 
-**The two workstreams.**
+**The one workstream.** The collapse mechanism already exists (D21.11); D44 changes the collapsed
+**appearance** and adds the missing **collapsed width**. Two halves that must land together for the feature to
+be true:
 
-- **WS1 — the candle/volume overlap (ESC-042 → unblocks ESC-041).** Rendered body width becomes
-  `body = min( max(0.65 × pitch, F), pitch )` (one shared pure helper; `pitch` = inter-bar
-  centre-to-centre distance, `F` = the existing 4-px legibility floor, all in the **same** unit);
-  **`gap = pitch − body ≥ 0` always**; **`gap > 0` whenever `pitch > F`**; at `pitch ≤ F` bodies may
-  **abut** (gap `0`, owner-confirmed Q51); the **wick stays a cosmetic 1-device-px line**; **volume
-  inherits the same capped `w`** (`AC-D9.1`/`AC-D9.2` intent unchanged). Sites:
-  `ui/candlestick_item.py::CandlestickItem._draw_candles` (the clamp, `:136`–`:138`) and the volume
-  width math in `ui/chart_panel.py` (`::_clamp_half_width` `:1229`, `::_refresh_candles` `:1303`,
-  `::_refresh_live_bar` `:1352`).
-- **WS2 — the RTH/ETH intraday depth + present-but-empty day (ESC-038/ESC-037).** A **≥ 30 trading
-  session** floor before the current session for each intraday timeframe in **both**
-  `ext_hours=False` (RTH 09:30–16:00 ET) and `ext_hours=True` (ETH 04:00–20:00 ET), delivered as
-  **backwards-extending chained fetches** through the existing wave pump; a **session counts only
-  with a bar inside the current mode's window**; a **present-but-empty** trading day is a **missing
-  span**; the bar cache/key is **mode-aware** in both directions. Sites:
-  `services/backfill_service.py`, `data/bar_cache.py`, `data/db.py`, `config/settings.py`,
-  `ui/ticker_session.py`, `ui/main_window.py`, and `ui/chart_panel.py` (the floor-aware `_bars` trim
-  **only** — the third `SESSION_BAR_CAP` site, `RC-D42-1`).
+1. **The width (the core fix — `AC-D44.5`, R66/DG74).** A **pure** collapsed-width rule in
+   `ui/dock_layout.py` (`WATCHLIST_COLLAPSED_WIDTH = 30`; the 150px minimum becomes **expanded-state only**),
+   consumed by **both** clamp branches of the single apply entry point
+   `MainWindow._apply_dock_widths` (`ui/main_window.py:2459` — the right-dock-visible branch via
+   `plan_dock_widths`, and the right-dock-hidden branch's direct clamp at `:2527`), plus the **D21.13-style
+   minimum-width relaxation** (`panel` + `dock` → 30 while collapsed, back to 150 on expand) and the deferred
+   re-apply, so a `resizeEvent` **or** a dock drag cannot snap the bar back to 150px. `MainWindow._watchlist_width`
+   is **never overwritten while collapsed** — it *is* the "previous width" `AC-D44.2` restores.
+2. **The visual + the expand affordance (`AC-D44.1`/`.2`/`.3`/`.4`/`.6`, A77).** A small custom widget with a
+   `paintEvent` drawing the rotated `WATCHLIST` label (Qt cannot rotate a `QPushButton`'s text) as the panel's
+   **full-height** collapsed body, in the app palette (`#141822` / `#232938` / `#cbd5e1`), with hover/pressed
+   feedback through `ui/visual_conventions.py::set_button_active`; a 30×28 handle in the dock's **title-bar
+   slot** while collapsed (so the dock stays movable — DG37); the header strip, the D22.1 `+` and the
+   column-header row hidden while collapsed and restored on expand; clicking the bar expands to the tracked
+   previous width, re-clamped. **No persistence** (A76) — no new `QSettings` key; the app starts expanded.
 
-**Out of scope — do NOT plan these.** The other open BUILD escalations: **ESC-032** (Position `id`),
-**ESC-033** (Load Chart button), **ESC-034** (watchlist flash timer), **ESC-036** (priming
-`5 secs`), **ESC-043** (`HELD`/`H` rows), **ESC-044** (option contract fields), **ESC-045** (Account
-Summary), and — the D42-review follow-ups — **ESC-048** (the six fixed-size stub widenings; blocking),
-**ESC-049** (the no-wave ETH session mode) and **ESC-051** (`t40_t01`'s exact-count restore). They are
-separate work with no task yet. **ESC-050** is this proposal's own PLAN-routed enumeration fix
-(Revision 3). **ESC-041** and **ESC-037** stay BUILD-owned —
-D42 supplies the normative target they are re-checked against; D42 does not absorb them (the Code
-Reviewer flips them after re-verification, and flips **ESC-038/ESC-042** from `open` on the same
-pass). No D42 path reaches the order machinery, the D38/D39 substrate, or the D41 removals.
+**Out of scope — do NOT plan these.** Every earlier defect/feature (D1–D43) and their delivered artifacts. No
+D44 path reaches the chart renderer (**pyqtgraph is a locked decision** — `docs/memory.md`, 2026-10-16), the
+load path, the planner, the bar cache, the alarms, the drawings/studies, the orders machinery, the right dock,
+or the D42/D43 data paths. **No new dependency and no stack change.** **ESC-055** stays TASK_MANAGER-owned.
 
 ---
 
 ## Phases
 
-Three phases. **Phase 1 and Phase 2 share exactly one file** — `ui/chart_panel.py` — so they are
-**not** file-disjoint: Phase 1 edits its **width** path, Phase 2 edits
-`ChartPanel.update_last_bar`'s **`_bars` trim** (`:1150`–`:1157`, the **third** `SESSION_BAR_CAP`
-site, `RC-D42-1`). The two `ui/chart_panel.py` tasks are therefore **sequenced into different
-waves** — Phase 2's trim runs **after** Phase 1's width edit (`build_wave.py` forbids two
-`in_progress` tasks with overlapping `touches_files`). Phase 2's **other** files are disjoint from
-Phase 1, so those tasks may still co-schedule with Phase 1. **Phase 3 depends on both.**
+Two phases. Phase 1 is the whole feature (production change + the suites it invalidates + the new guards) —
+a single milestone, because the width rule and the bar are two halves of one user-visible behaviour and
+because each corrected suite must ride **with** the production change that invalidates it (the `ESC-055`
+lesson). Phase 2 is the batch-level reconciliation the repo always runs (the D19/D20/D42 precedent) and adds
+**no production edit**.
 
-### Phase 1 — Density-aware candle/volume body width (WS1)
+### Phase 1 — The collapsed watchlist thin bar: the width model, the apply path, the bar, the expand path, and the corrected + added suites
 
-- **Goal:** at any bar density the rendered candle body never exceeds the inter-bar pitch, the
-  inter-bar gap is never negative, the 4-px legibility floor still binds whenever the pitch allows
-  it, and the volume bar width is the **same** capped width as the price body — while the wick stays
-  a cosmetic 1-px line and the D28.4 render split / ESC-013 / ESC-020 ordering is preserved.
-- **Covers:** `AC-D6.4` (revised), `AC-D7.1` (revised), the `AC-D9.2` note, Journey 7 and Journey 8
-  edge cases; `A72`, `R63`.
-- **Requirements/journeys:** Journey 7 (steps 1–2, edge cases "dense 1-min", "doji", "high-DPI"),
-  Journey 8 (steps 1, edge case "dense intraday view keeps a **non-negative** gap"), `AC-D6.4`
-  (i)/(ii)/(iii) + its measurable paragraph (the repro at ≈ 3.83 **ViewBox logical px** — **measured**,
-  not hard-coded — and the ≈ 8.86 logical-px non-dense case; `F = 4.0` in that same unit),
-  `AC-D7.1`'s three regimes, `AC-D9.1`/`AC-D9.2`.
-- **Dependencies:** none on Phase 2 — but Phase 1's `ui/chart_panel.py` **width** task must complete
-  before Phase 2's `ui/chart_panel.py` **trim** task (the one shared file; different waves).
-- **Deliverable:** one pure helper + its three call sites (**the `ui/chart_panel.py` width path
-  only** — the floor-aware `_bars` trim belongs to Phase 2) + the corrected/added suites (below).
+- **Goal:** collapsing the watchlist renders a **30px vertical bar** with the rotated `WATCHLIST` label in the
+  app palette, the header strip / `+` (D22.1) / column-header row hidden; the collapsed width is **honoured by
+  the layout** — a window `resizeEvent` or a dock drag does **not** snap it back to the 150px minimum; clicking
+  the bar **expands** the panel to the width it held immediately before collapsing (re-clamped to the current
+  expanded cap/min); the dock stays **movable/floatable** while collapsed; the collapse state is **not
+  persisted**; and the **expanded** D13/D17/D18/D21.13 criteria and their suites are unaffected.
+- **Covers:** `AC-D44.1`, `AC-D44.2`, `AC-D44.3`, `AC-D44.4`, **`AC-D44.5`** (the core fix), `AC-D44.6`,
+  `AC-D44.7`, `AC-D44.8`; Journey 37 (steps 1–5 + the edge cases); the revised `AC-D21.11.2`/`.3` and the
+  revised 150px-minimum clause of `AC-D13.1`/`AC-D17.2`; `A75`–`A78`; `R66`, `R67`; `DG74`. Non-regression
+  contract: `AC-D21.11.1`, `AC-D22.1` (expanded), `AC-D13.2`/`.3`, `AC-D17.1`/`.3`–`.6`, `AC-D18.*`, D21.13,
+  D14, D21.5, D39.
+- **Requirements/journeys:** Journey 37 steps 1–5 and its edge cases (collapse from the 150px minimum → expand
+  restores 150; collapse from the cap → expand restores the cap; resize/drag while collapsed does not expand
+  it; a floating watchlist is still clickable to expand; disconnected/empty watchlist still collapses/expands;
+  first launch starts expanded; the `CHART_MIN_WIDTH` invariant holds in both states; a very narrow window
+  where 30px still fits).
+- **Dependencies:** none on any other phase. **Internally ordered** (see the per-file map): the pure rule
+  (`ui/dock_layout.py`) **before** its consumers; the bar widget **before** the `MainWindow` wiring that swaps
+  the title bar; each corrected suite in the **same phase** as the production change that invalidates it. The
+  two file-groups that touch `ui/main_window.py`, and the two that touch
+  `tests/test_watchlist_columns_d21.py`, must sit in **different waves** (`build_wave.py` forbids two
+  `in_progress` tasks with overlapping `touches_files`).
+- **Deliverable:** `ui/dock_layout.py` (the collapsed constant + the pure rule + the `left_collapsed` mode),
+  `ui/watchlist_panel.py` (the bar widget + the handle + the visual sync + the transition signal),
+  `ui/main_window.py` (the collapsed-aware apply path + the minimum-width pin + the wiring), the **two new
+  suites**, the **two extended** suites, and the **corrected** sites — full offscreen suite green, with the new
+  width guard **RED at `0c4d478`** for the right reason.
 
-### Phase 2 — Mode-aware intraday depth floor and day presence (WS2)
+### Phase 2 — Reconciliation, non-regression and the correction record
 
-- **Goal:** each intraday timeframe in each mode loads **≥ 30 trading sessions before the current
-  session**; a session counts only when it holds a bar inside the current mode's session window; a
-  present-but-empty trading day is reported as a **missing span** (not filled); RTH and ETH never
-  cross-contaminate, in the presence pass or in the cache; the floor is actually **retained and
-  displayed** (all **three** `SESSION_BAR_CAP` sites become floor-aware — `TickerSession.set_bars`
-  `:300`, `TickerSession._append_bar` `:313`, and **`ChartPanel.update_last_bar`'s `_bars` trim
-  `:1150`–`:1157`** — plus `BarCache.prune`'s `keep`); and the D16 no-fill / genuine-closure /
-  shortfall-report rules are unchanged.
-- **Covers:** `AC-D16.8` (extended, both modes), `AC-D16.9` (new, both modes), Journey 17 edge cases
-  (internal hole, no-fill, genuine closures, Ext Hours mode switch, empty cache, all timeframes/any
-  symbol), `A73`, `R64`, `DG72`; `AC-D16.1`/`AC-D16.3`/`AC-D16.4` as the **non-regression contract**.
-- **Dependencies:** **one ordering dependency on Phase 1** — the `ui/chart_panel.py` floor-aware
-  `_bars` trim must land **after** Phase 1's `ui/chart_panel.py` width edit (the single shared file,
-  so the two tasks sit in different waves). Phase 2's **other** files are disjoint from Phase 1.
-  Internally ordered: `floor_bar_budget` must land **before** its consumers (the two session cap
-  sites, the panel trim, and `prune`'s `keep`); the presence predicate and the cache key must land
-  **before** the floor span is wired (the floor is measured against mode-aware presence).
-- **Deliverable:** the mode-aware presence predicate + mode-aware `bars` key/migration + the
-  `min_sessions` floor span + the floor-aware caps (**three cap sites + `prune`'s `keep`**) + the mode
-  threading + the corrected/added suites.
-
-### Phase 3 — Reconciliation, non-regression and the correction record
-
-- **Goal:** the whole offscreen suite is green, with **every** existing D16/D27/D28/D41 assertion
-  either keeping its **exact** expectation or **corrected intent-preserving** to the new normative
-  target — **none weakened, none deleted** — and every such correction recorded **with its cause**
-  (the floor span, the removed empty-cache branch, the floor-aware prune/budget), the enumeration being
-  **complete by rule** rather than by the suites the design happened to name (the `ESC-050` invariant:
-  every suite that merely **drives** the changed load path is in scope); the two superseded
-  criteria and the three additional artifacts are recorded for Task Manager / Build / Code Reviewer;
-  the D42 increment is ready to merge into the canonical docs.
-- **Covers:** the D42 correction record; `AC-D16.7` (ESC-023) and `AC-D16.1`/`AC-D16.3`/`AC-D16.4` as
-  regression guards; the four escalations' disposition (ESC-041/ESC-037 stay BUILD-owned and are
-  re-checked against the revised criteria; ESC-038/ESC-042 are resolved on the requirements side).
-- **Dependencies:** **both** Phase 1 and Phase 2 consolidated.
-- **Deliverable:** the full-suite green run + the correction-record entries, including the enumerated
-  D16 **load-path** corrections and the `ESC-050` load-path-**driving** suite corrections
-  (intent-preserving; no new behaviour).
+- **Goal:** the whole offscreen suite is green with **every** existing assertion either keeping its **exact**
+  expectation or **corrected intent-preserving** to the revised criteria — **none weakened, none deleted** —
+  and every such correction recorded **with its cause**; the enumeration of the affected suites is **complete
+  by rule** (by call site of the changed entry points, not by the suites the design names — the `ESC-050`
+  rule and `ESC-055`'s ownership remedy), so the *Verified unchanged* set is evidence rather than assumption;
+  the RED-at-`0c4d478` → GREEN evidence is recorded for the guard; and the D44 increment is ready to merge
+  into the canonical docs.
+- **Covers:** `AC-D44.8` (the guard's RED→GREEN evidence and the expanded-state suites); `R67`; the D44
+  correction record; the non-regression re-check of `AC-D13.2`/`.3`, `AC-D17.1`/`.3`–`.6`, `AC-D18.*`,
+  `AC-D21.11.1`, `AC-D22.1` (expanded), D14/D21.5/D39.
+- **Dependencies:** Phase 1 complete.
+- **Deliverable:** the full-suite green run + the corrected/added/verified-unchanged enumeration with causes +
+  the guard's RED→GREEN evidence + the correction-record entries for Task Manager / Build / Code Reviewer.
+  **No production edit.**
 
 ---
 
-## Per-file `touches_files` map and sequencing constraint
+## Per-file `touches_files` map and sequencing constraints
 
-**Sequencing constraint (binding).** Build runs a wave frontier: two tasks with overlapping
-`touches_files` must never be `in_progress` in the same wave. The partition below **is** the
-parallelism plan (one task per file). **The two workstreams share exactly one file —
-`ui/chart_panel.py`** (Phase 1: the **width** path; Phase 2: `ChartPanel.update_last_bar`'s `_bars`
-trim `:1150`–`:1157`, the third `SESSION_BAR_CAP` site). The two `ui/chart_panel.py` tasks therefore
-**must sit in different waves**: Phase 2's trim is **sequenced after** Phase 1's width edit. Every
-**other** Phase 2 file (`services/backfill_service.py`, `data/bar_cache.py`, `data/db.py`,
-`config/settings.py`, `ui/ticker_session.py`, `ui/main_window.py`) is disjoint from Phase 1, so those
-tasks may be co-scheduled with Phase 1's. `ui/main_window.py` stays a **single** Phase-2 task (hot
-file); Phase 3 adds no production edit.
+**Sequencing constraint (binding).** Build runs a wave frontier: two tasks with overlapping `touches_files`
+must never be `in_progress` in the same wave. Two files are shared by more than one file-group:
+**`ui/main_window.py`** (the apply path **and** the transition wiring) and
+**`tests/test_watchlist_columns_d21.py`** (the collapsed-width leg **and** the collapsed-appearance legs).
+Those pairs **must sit in different waves**, and the wiring must follow the apply path (it calls it).
+`ui/watchlist_panel.py` is a **single** file-group (the widget and the visual sync belong to one worker: the
+widget's geometry and the panel's layout are the same change).
 
-### Phase 1 — WS1 file map
+### Phase 1 — file map
 
-| File | Change | Existing tests touching it |
+| File | Change | Tests in the same task / touched by the change |
 |---|---|---|
-| `ui/candlestick_item.py` | New pure `capped_body_half_width(...)`; `_draw_candles` calls it (replacing the unconditional `min_w` clamp, `:136`–`:138`); `set_data(..., pitch=…)` | `tests/test_candlestick_wick.py` (stays green — wick/cosmetic assertions only), `tests/test_candle_spacing.py` (**correct**), `tests/test_chart_dpi.py` (**correct**) |
-| `ui/chart_panel.py` | **Width path only** (`RC-D42-1`; the `_bars` trim is Phase 2): `_compute_candle_half_width` also returns/stores the display-x pitch; `_clamp_half_width` delegates to the shared helper; `_refresh_candles`/`_refresh_live_bar` pass the pitch | `tests/test_volume_width.py` (**correct**), `tests/test_chart_dpi.py` (**correct**), `tests/test_d28_4a_render_layers.py`, `tests/test_volume_ceiling.py`, `tests/test_volume_d21.py` (stay green — no width-formula assertions) |
-| `tests/test_candle_spacing.py` | **Correct**: string-presence → regime/geometry assertions on the shared helper (`pitch > F`, `pitch == F`, `pitch < F`) while preserving the 0.325 / 35 % intent | — |
-| `tests/test_volume_width.py` | **Correct**: the dense `≈ 4.0 px` legs → `body == pitch`, `gap >= 0`, `volume_width == body_width`; the non-dense equality test unchanged | — |
-| `tests/test_chart_dpi.py` | **Correct**: the dense `body_device_px >= 4.0` leg moves to the **non-dense** dataset; the dense dataset asserts `body_device_px <= pitch_device_px` (and `== pitch` at the repro) | — |
-| `tests/test_d42_candle_width.py` **(new)** | **Add**: the ESC-041 repro geometry guard (192-bar SPY 5-min Ext-Hours, 900 px pane, DPR 2; the pitch is **measured** from the rendered series — ≈ 3.83 **ViewBox logical px**, `F = 4.0` in the **same** unit, i.e. 8 device px at DPR 2) asserting `body <= pitch` and `body == pitch`; and the non-dense case (78 bars, measured pitch ≈ 8.86 logical px → `body == max(0.65×pitch, F) > F`), measuring the body from the `QPicture` bbox. No assertion on `F` in device px (`RC-D42-3`) | — |
+| `ui/dock_layout.py` | `+ WATCHLIST_COLLAPSED_WIDTH = 30`; `+ plan_watchlist_width(chart_area_w, requested_left, collapsed=False)` (the **single** collapsed/expanded width rule); `plan_dock_widths(..., left_collapsed=False)` — a collapsed left is **fixed** at the collapsed width, its own floor becomes 30, the cross-clamp loop may shrink **only** the right, the `chart_area_w - left - right >= CHART_MIN_WIDTH` budget is unchanged, and the infeasible branch returns `(left_min, RIGHT_DOCK_MIN_WIDTH)` so today's expanded `(150, 200)` is preserved exactly; `clamp_watchlist_width(width, chart_area_w)` delegates to the new helper with `collapsed=False` (`S23`) | `tests/test_dock_layout.py` (**extend** — the collapsed pure cases + the constants/agreement test, incl. the new constant's cross-module agreement), `tests/test_watchlist.py` (**extend** — the collapsed delegate case); `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py`, `tests/test_right_dock_d21.py`, `tests/test_d10_d13_integration.py`, `tests/test_dock_layout.py::test_T52_T04`, `tests/test_toolbar_scroll_d19.py` (**verified unchanged** — 3-argument/expanded call sites) |
+| `ui/main_window.py` **(file-group A — the collapsed-aware apply path)** | `_apply_dock_widths`: read `collapsed = bool(self.watchlist_panel.is_collapsed())`; the right-dock-visible branch forwards `left_collapsed=collapsed` to `_plan_dock_widths`; the right-dock-hidden branch computes `desired = plan_watchlist_width(chart_area, base_left, collapsed=collapsed)`; **`self._watchlist_width` is not assigned while collapsed**; `_plan_dock_widths` forwards the flag; `_dock_widths_consistent` becomes collapsed-aware (`S24`) | `tests/test_watchlist_columns_d21.py::test_D21_10_T03` (**correct** — the **collapsed-width** leg only: the `>= WATCHLIST_MIN_WIDTH` assertion after `_apply_dock_widths(10**6)` becomes the collapsed-width assertion, and the `>= WATCHLIST_MIN_WIDTH` leg moves to the **expanded** state); `tests/test_dock_widths_d17.py`, `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py`, `tests/test_right_dock_d21.py`, `tests/test_d10_d13_integration.py`, `tests/test_dock_d18_region.py` (**verified unchanged** — all drive it with the watchlist expanded) |
+| `ui/watchlist_panel.py` **(file-group B)** | `CollapsedWatchlistBar(QWidget)` (fixed width, `WA_StyledBackground`, the object-name stylesheet in the app palette, a `paintEvent` drawing `WATCHLIST` rotated 90° counter-clockwise and centred, `expand_requested`, `set_button_active` hover/pressed); `WatchlistPanel.collapsed_bar` (the **full-height** collapsed body) + `::collapsed_handle` (the 30×28 collapsed title-bar handle); `::_apply_collapsed_visual()` (explicit `hide()`/`show()` of `header_bar` — which carries the `+` and the search box — and `table`, plus the bar and the collapsed panel styling); `collapsed_changed = pyqtSignal(bool)`; `WATCHLIST_COLLAPSED_WIDTH` **aliased** from `dock_layout`; the collapse API preserved (`S25`, `S26`) | `tests/test_watchlist_columns_d21.py::test_D21_10_T02` (**correct** — the collapsed **appearance**) and `::test_D21_10_T03` (**correct** — the appearance + the title-bar/drag legs; a **different wave** from file-group A's edit of the same file), `tests/test_watchlist_nonregression_d22.py` (**correct** — the D21.11 block + the module docstring), `tests/test_watchlist_add_remove_d22.py::test_D22_04_T01` (**correct** — `hb.isVisible()` while collapsed); `tests/test_watchlist_columns_d21.py::test_D21_10_T01` (**verified unchanged** — expanded only); **`tests/test_watchlist_collapsed_bar_d44.py` is owned here** |
+| `ui/main_window.py` **(file-group C — the transition wiring)** | connect `panel.collapsed_changed` → `_on_watchlist_collapsed_changed`: swap the dock's title-bar widget (`collapsed_handle` while collapsed, `header_bar` on expand), relax/restore the minimum widths (`panel` + `dock` → 30 / 150), then `_resize_docks_guarded` + `QTimer.singleShot(0, self._apply_dock_widths)` — the `_sync_right_dock_collapse` sequence (`S24`, `S25`) | **`tests/test_dock_widths_collapsed_d44.py` is owned here** (it asserts the end-to-end transition: collapse → 30px, survive a resize/drag, expand → `clamp(W)`, the min-width flip, no key) — a **different wave** from file-group A (the same production file) |
+| `tests/test_dock_widths_collapsed_d44.py` **(new — file-group C)** | `AC-D44.5`/`AC-D44.2`/`AC-D44.7` + `AC-D44.1`'s width measurable: collapse at a known `W` → `watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH`; still the collapsed width after a window `resizeEvent` **and** after the drag-event path (`_on_dock_drag_event`); expand → `dock.width() == clamp(W)` (incl. the collapse-from-150 and collapse-from-cap edge cases); the dock's min width is 30 while collapsed and 150 after; **no** collapse key in `QSettings`; the `CHART_MIN_WIDTH` invariant in both states. **Must be RED at `0c4d478` for the right reason** | — |
+| `tests/test_watchlist_collapsed_bar_d44.py` **(new — file-group B)** | `AC-D44.1`/`.3`/`.4`/`.6`: the collapsed bar exists with the rotated-label widget and the app palette; the header strip / `+` / column-header row are **not** visible while collapsed and are visible on expand; `set_button_active` drives the hover/pressed feedback (the `active` property + a differing stylesheet); `is_collapsed()`/`set_collapsed()`/`toggle_collapsed()` semantics; clicking the bar expands | — |
 
-### Phase 2 — WS2 file map
+**Shared-file waves (Phase 1).** The file partition has four single-file groups — **A** the collapsed-aware
+apply path (`ui/main_window.py` + `tests/test_watchlist_columns_d21.py`'s **width leg**); **B** the bar widget +
+the collapsed visual (`ui/watchlist_panel.py` + `tests/test_watchlist_columns_d21.py`'s **appearance legs** + the
+two D22 suites + `tests/test_watchlist_collapsed_bar_d44.py`); **C** the transition wiring (`ui/main_window.py`
++ `tests/test_dock_widths_collapsed_d44.py`); **D** the pure width model (`ui/dock_layout.py` +
+`tests/test_dock_layout.py` + `tests/test_watchlist.py`). (These groups are the `touches_files` partition Task
+Manager decomposes into tasks — not tasks themselves.) **Ordering:** **D before A and C** (the pure rule
+precedes its consumers); **A and B in different waves** (both edit `tests/test_watchlist_columns_d21.py`);
+**A and C in different waves** (both edit `ui/main_window.py`); **C after A and B** (it wires the transition and
+its guard asserts the end-to-end outcome). B may co-schedule with A and D (disjoint files). Every other file is
+single-group.
 
-| File | Change | Existing tests touching it |
-|---|---|---|
-| `services/backfill_service.py` | Mode-aware presence predicate (window membership) used by `find_missing_spans` **and** exported for `MainWindow`; `min_sessions` floor span (backwards, collapses when filled); `floor_bar_budget(timeframe, ext_hours)`; empty-cache case returns the floor span when `min_sessions > 0` | `tests/test_backfill_service.py` (**extend** — existing cases keep exact semantics, `min_sessions=0`), `tests/test_d27_backfill_granularity.py` (**extend**), `tests/test_history_backfill*.py` (**correct** — load path) |
-| `data/bar_cache.py` | `save_bars`/`get_bars`/`prune` take `ext_hours` (keyword, default `True`); the flat `RETENTION_BARS` stays the default | `tests/test_d28_4e_bar_cache_retention.py` (stays green — flat default preserved), `tests/test_d25_alarm_monitor.py`, `tests/test_d27_phantom_alarms.py`, `tests/test_watchlist_d14_midrag.py` (stays green — default mode) |
-| `data/db.py` | `bars` DDL gains `ext_hours`; `_migrate_schema` gains the guarded, idempotent table rebuild (legacy rows → `ext_hours = 1`) | `tests/test_db_schema.py` (**extend**), `tests/test_d42_mode_cache.py` (**new**) |
-| `config/settings.py` | `MIN_INTRADAY_SESSIONS = 30` (the floor's single tunable) | — |
-| `ui/ticker_session.py` | Session mode for its own cache reads/writes (`get_bars` `:295`, D39 preload `:684`); the two cap sites use `floor_bar_budget(...)` (`:300`, `:313`) | `tests/test_d28_2_sessions.py::test_session_bar_cap` (**correct**), `tests/test_d28_2_sessions.py` (rest green), `tests/test_d39_burst_search.py` (re-verify — the baseline preload path) |
-| `ui/chart_panel.py` | **The third `SESSION_BAR_CAP` site (`RC-D42-1`):** `ChartPanel.update_last_bar`'s `_bars` trim (`:1150`–`:1157`) uses `floor_bar_budget(timeframe, ext_hours)` instead of the flat `settings.SESSION_BAR_CAP`; the head-prune still rebuilds the collapse map + invalidates the study cache. **This task must sit in a different wave from Phase 1's `ui/chart_panel.py` task** (one shared file) and lands **after** `floor_bar_budget` exists | `tests/test_d28_4f_panel_bar_cap.py` (**correct**), `tests/test_d28_4a_render_layers.py` / `tests/test_volume_ceiling.py` (stay green) |
-| `ui/main_window.py` | `load_chart`: pass the mode + `min_sessions` at `:1630`/`:1648`/`:1662`; **remove** the empty-cache single-window branch (`:1668`–`:1684`) — which requires bypassing the `find_missing_spans(...) if cached else []` guard at `:1647`–`:1652` and the empty-cache early return at `services/backfill_service.py:205`–`:206` when `min_sessions > 0`; `_finalize_history_wave`: mode at `:1970`/`:1973`/`:1974` + `keep=floor_bar_budget(...)`; `_missing_backfill_trading_days` uses the shared presence predicate (`:2052`–`:2054`) | `tests/test_history_backfill_loadpath.py` (**correct** — the floor span, the removed branch, the floor-aware `keep`), `tests/test_history_backfill.py` (**correct**), `tests/test_history_backfill_disconnect.py` (**correct**), **and — `ESC-050` — the six suites that merely *drive* this load path with a stubbed feed:** `tests/test_d24_popouts.py`, `tests/test_phase3_fixpass.py`, `tests/test_d24_alarm_full_chain.py`, `tests/test_d24_smoke_gate.py`, `tests/test_d24_9_popout_persistence.py`, `tests/test_d28_tick_burst_baseline.py` (**correct** — widen each fixed-size reqId stub to an unbounded `itertools.count`; the invariant below), `tests/test_dock_widths_d17.py` etc. (unaffected — no dock/geometry change) |
-| `tests/test_d28_4f_panel_bar_cap.py` | **Correct**: assert the derived budget (monkeypatch/assert against the helper) while keeping the "cap is enforced / oldest dropped" invariant | — |
-| `tests/test_d42_day_presence.py` **(new)** | **Add**: `AC-D16.9` measurables (a)/(b)/(c) — pre/post-only day → non-empty **RTH** span and **no** ETH span; RTH-only day → present in **both** modes | — |
-| `tests/test_d42_mode_cache.py` **(new)** | **Add**: the migration (rows preserved, tagged, per-mode reads) and no-cross-contamination (write ETH, read RTH → empty, and the reverse) | — |
-| `tests/test_d42_depth_floor.py` **(new)** | **Add**: the per-timeframe, per-mode session-count guard — drive the real load path with a stubbed historical feed and assert `≥ 30` distinct mode-valid sessions **before** the current one, for each intraday timeframe in **both** modes; plus the budget guard (the floor survives `prune`/the in-memory trim) | — |
-
-**Shared files across phases: exactly one — `ui/chart_panel.py`.** Phase 1 owns its **width** path;
-Phase 2 owns `ChartPanel.update_last_bar`'s floor-aware `_bars` trim (`:1150`–`:1157`, the third
-`SESSION_BAR_CAP` site). Those two tasks must be in **different waves** — Phase 2's trim is
-**sequenced after** Phase 1's width edit (`RC-D42-1`). Every other file is single-phase:
-`ui/candlestick_item.py` is Phase 1 only; `services/backfill_service.py`, `data/bar_cache.py`,
-`data/db.py`, `config/settings.py`, `ui/ticker_session.py` and `ui/main_window.py` are Phase 2 only.
-Phase 3 adds no production edit (reconciliation + docs only).
+**Phase 2 adds no production edit** — reconciliation + docs only.
 
 ---
 
-## Tests: corrected vs added, and the RED→GREEN evidence
+## Tests: corrected vs added, verified unchanged, and the RED→GREEN evidence
 
-**Corrected (never weakened, never deleted — the D42 correction record's mandate).**
-
-| Suite | What is corrected | Why it must change |
-|---|---|---|
-| `tests/test_candle_spacing.py` | The string-presence check (`"median_diff * 0.325"` / `"gap 35%"` in the source) → **regime/geometry assertions** on the shared helper | It "never renders" (the correction record's words) and cannot distinguish the old unconditional floor from the capped rule |
-| `tests/test_volume_width.py` | The dense legs `measured_body * px_per_sec ≈ 4.0` and `vol_width * px_per_sec ≈ 4.0` → `body == pitch`, `gap >= 0`, `vol_width == body_width` | It "asserts body == volume and ~4 px but never relates width to pitch" (the correction record's words); at the revised criterion the dense body is the pitch, not 4 px |
-| `tests/test_chart_dpi.py` | The dense `body_device_px >= 4.0` leg → the **non-dense** dataset carries the `>= F` and `> wick` claims; the dense dataset asserts `body_device_px <= pitch_device_px` | **Added by Plan** — the D42 correction record names only the two width suites, but this DPR-2 probe asserts the same **unconditional** floor in device pixels and would fail against the revised criterion |
-| `tests/test_d28_2_sessions.py::test_session_bar_cap` | `len(kept) == SESSION_BAR_CAP` → the derived budget for `(timeframe, ext_hours)`, invariant "oldest dropped / newest kept" preserved | **Added by Plan** — `AC-D16.8`'s floor exceeds the flat 5000 for `1 min` (both modes) and `5 mins` (ETH), so the session cap must be floor-aware |
-| `tests/test_d28_4f_panel_bar_cap.py` | `len(panel._bars) == settings.SESSION_BAR_CAP` → the derived budget for `(timeframe, ext_hours)`, invariant "oldest dropped / newest kept" preserved | **Added by Plan** — same reason as the session cap, for the **third** `SESSION_BAR_CAP` site (`ChartPanel.update_last_bar`'s `_bars` trim, `:1150`–`:1157`). Its **production subject is Phase 2**, so this correction sits in **Phase 2** too (`RC-D42-1`) |
-
-**Corrected — D16 load-path (`RC-D42-2`).** These change **by design**, because the default load mode
-is **ETH** (`ui/main_window.py::MainWindow.ext_hours_btn` checked at `:244`; the `:1570` fallback)
-and because `S17` removes the empty-cache single-window branch while `S18` changes `prune`'s `keep`.
-Every one is **intent-preserving**: the assertion's guarantee survives, only its expected
-value/branch changes — **none weakened, none deleted**.
-
-**`ESC-050` (2026-10-16, PLAN-routed) corrected this table's *scope*, not its principle.** The table
-originally named **9** sites; the D42 diff against `b48133d` changes **14 test functions** in the three
-D16 files — the **9** named, the **4** `ESC-050` records (`t40_t03`, `t40_t05`, `t43_t03`, `t44_t03`)
-and **2** found by Plan re-verification (`t39_t04`, `t39_t05`) — **plus 19 assertions in six further
-suites that merely *drive* the load path** (next table). No correction changes; only the enumeration is
-now complete, and the **invariant** and the generalisable **impact-analysis enumeration rule** (both
-below) replace "the named suites are the whole set".
+**Corrected (never weakened, never deleted — R67 and the D44 correction record).** Every correction below
+moves an assertion to the **state in which it is still true**; none is deleted, skipped or relaxed to "no
+exception raised".
 
 | Suite / case | Assertion today | Cause of the correction | Intent preserved |
 |---|---|---|---|
-| `tests/test_history_backfill_loadpath.py::test_t39_t02` (`:238`) | `assert stub.calls == []` | **The floor span** — 5 seeded ETH sessions < 30, so the floor issues requests | "A cache that **satisfies the floor** and reaches *now* issues no **redundant** request" |
-| `::test_t39_t03` (`:255`–`:257`) | `len(stub.calls) == 1`, `endDateTime == ""` | **The empty-cache branch `S17` removes** (`ui/main_window.py:1668`–`:1684`) | "An empty cache is covered by the **planner**" — now one floor span from the floor day to *now*, not a special branch |
-| `::test_t39_t01` (`:202`/`:206`) | `len(stub.calls) == len(plans)` where `plans` come from the test's own `find_missing_spans(cached_ts, NOW, tf)` (no `min_sessions`) | The load path now passes the floor; the test's own planner call must pass it too | "One request per planned chunk, `endDateTime` non-empty, reqIds tracked" |
-| `::test_t39_t06` (`:431`) / `::test_t39_t07` (`:477`) | `assert len(bars) == RETENTION_BARS` | **The floor-aware `keep`** — `5 mins`/ETH derives 6,624 (> 5,000) | The retention invariant at the **derived** budget: oldest dropped, newest kept, no fabricated bar |
-| **Added by Plan (re-verification)** — `tests/test_history_backfill_loadpath.py::test_t39_t04` (`:269`) | the `save_bars`/`get_bars` spies declared `def spy_save(bars)` / `def spy_get(s, t)` | **`S19` mode threading** — the load path now passes `ext_hours` to `BarCache.save_bars`/`get_bars`, so the spies must forward it (`**kwargs`) or the forwarded call raises | The spies still count the save/get calls and the bar counts they carry |
-| **Added by Plan (re-verification)** — `tests/test_history_backfill_loadpath.py::test_t39_t05` (`:336`) | `assert win._history_req_ids == set()` | **The floor span** — the new session starts its **own** wave (its floor span), so its in-flight id set is not empty | "The cancelled session's ids never leak into the new wave" — `isdisjoint(old_ids)` / `stale not in …` |
-| `tests/test_history_backfill.py::test_t40_t01` (`:285`) | `assert len(stub.calls) == 1` | **The floor span** (the seed covers one internal hole only) | The AC-D16.5 hole is filled by its own chunk; the floor is separate work |
-| **`ESC-050`** — `tests/test_history_backfill.py::test_t40_t03` (`:362`) | `assert "incomplete" not in msg and "missing" not in msg and "failed" not in msg` | **The floor span** — a floor shortfall **is** now legitimately reported, so "no shortfall message" is wrong | "A genuine closure is never a shortfall" — asserted precisely: the closure days (**2026-09-05/06/07**) are never **named** missing |
-| **`ESC-050`** — `tests/test_history_backfill.py::test_t40_t04` (`:451`–`:457` **and** `:480`–`:485`) | `len(wave_calls) == len(plans)` **and** the same "no shortfall message" form | Same as `t39_t01` — **plus** the floor shortfall (`t40_t04` carries **two** corrected assertions) | Multiple requests, continuous result, no silent hole; and "no **answered** day is reported as missing" (the floor's own further-back days may be) |
-| **`ESC-050`** — `tests/test_history_backfill.py::test_t40_t05` (`:511`) | the same "no shortfall message" class (see the verification note below) | Same (the floor span) — the correction landed in **`t40_t04`'s tail assertion** | "No **answered** day is reported as missing" |
-| `tests/test_history_backfill.py::test_t40_t06` (`:590`) | `len(stub.calls) == 1`, `endDateTime == ""` | **The removed empty-cache branch** | An empty cache renders cleanly from the planner's floor span |
-| **`ESC-050`** — `tests/test_history_backfill_disconnect.py::test_t43_t03` (`:227`) | `assert any(date(y, m, d).isoformat() in msg for y, m, d in MISSING_DAYS)` | **The floor span** — the status bar previews only the **first five** missing days (now the floor days), while `_LOG.warning` carries the full list | "Every seeded missing day is surfaced" — asserted against the **log**, and `"incomplete"` is still required |
-| **`ESC-050`** — `tests/test_history_backfill_disconnect.py::test_t44_t03` (`:459`) | the same status-message form | Same as `t43_t03` | Same — asserted against the **log**; the timeout/disconnect distinction is kept |
-| `tests/test_history_backfill_disconnect.py::test_t43_t06` (`:362`) | `len(stub.calls) == 1` | **The removed empty-cache branch** | The wave finalises once and a later disconnect is a no-op |
-| `tests/test_d28_4f_panel_bar_cap.py` (`:53`) | `len(panel._bars) == settings.SESSION_BAR_CAP` | **`S18`**, not the presence predicate — the panel trim is floor-aware | "The cap is enforced / the oldest bars are pruned", asserted against the **derived** budget |
+| `tests/test_watchlist_columns_d21.py::test_D21_10_T02` (`:386`–`:412`) | while collapsed: `panel.header_bar.isVisible()` (`:398`), `button.isVisible()` (`:399`), `button.is_struck()` (`:400`), `not button.isChecked()` (`:401`) | **The revised collapsed appearance** — `AC-D21.11.2`/`.3` are superseded for the collapsed state by D44 (`S26`): the strip is hidden while collapsed and the thin bar is shown | "Collapsing is reversible and the retained affordance is visible in the state where it is shown; the toggle's checked/struck state tracks the body": while collapsed assert the **bar** is visible + the strip/`+`/column-header row are **not**; on expand assert the strip + button return **checked and unstruck** |
+| `::test_D21_10_T03` (`:417`–`:471`) — **the width leg** (Phase-1 file-group A) | `assert win.watchlist_dock.width() >= WATCHLIST_MIN_WIDTH` (`:465`) after `win._apply_dock_widths(10 ** 6)` (`:459`) **while collapsed** | **The collapsed width** (`S23`/`S24`): while collapsed the width is 30, not ≥150 — the 150px minimum is expanded-state only | "The width model holds in the state under test": while collapsed assert the **collapsed** width; the `>= WATCHLIST_MIN_WIDTH` leg **moves to the expanded state** (expand, then clamp, then assert) |
+| `::test_D21_10_T03` — **the appearance + drag legs** (Phase-1 file-group B) | `button.isVisible()` (`:431`), `panel.header_bar.isVisible()` (`:433`), `dock.titleBarWidget() is panel.header_bar` (`:440`), the double-click-floats-the-dock on `panel.header_bar` (`:445`–`:453`) | **The revised collapsed appearance** + **the title-bar swap** (`S25`): while collapsed the title-bar widget is `collapsed_handle` | "The dock stays movable/floatable while collapsed (DG37) and the header strip is its title bar **when shown**": re-point the drag/float assertion at `collapsed_handle` and assert `dock.titleBarWidget() is panel.header_bar` **on expand** |
+| `tests/test_watchlist_nonregression_d22.py` (`:104`–`:124` + the module docstring `:10`) | `panel.header_bar.isVisible()` (`:114`), `button.isVisible()` (`:115`), `button.is_struck()` (`:116`), `not button.isChecked()` (`:117`) while collapsed | **The revised collapsed appearance** (`S26`) — the same cause as `test_D21_10_T02` | "The D21.11 toggle still collapses/restores and the checked state tracks the body": the visibility assertions move to the **bar**; the expand-side assertions (`:121`–`:124`) are unchanged. The docstring's "the collapsed button stays visible + struck (VIS-D21.1)" is re-worded to the D44 collapsed form |
+| `tests/test_watchlist_add_remove_d22.py::test_D22_04_T01` (`:79`) | `assert hb.isVisible()` while collapsed | **A77** (`S26`): the header strip is hidden while collapsed and returns on expand | "The `+` and the toggle remain in the strip's layout and are reachable": `:63`–`:71` (parent/layout/placement) and the post-expand legs (`:80`–`:83`) are unchanged; the collapsed leg asserts the strip (and therefore the `+`) is hidden |
 
-**Verification note on `t40_t05` (`ESC-050` / the `P2-T15` footprint flag).** `ESC-050` names
-`t40_t05` among the four extra sites. Re-verified against `git diff b48133d` on the live tree: the
-"no shortfall message" → "no **answered** day reported as missing" correction lands in
-**`test_t40_t04`'s tail assertion** (`b48133d:484`–`:485`, inside `test_t40_t04`, which spans
-`:438`–`:492`) — the very assertion `P2-T15`'s log splits into its `t40_t04`/`t40_t05` rows.
-`test_t40_t05` carries **no** shortfall-message assertion in either revision and is green unchanged.
-The site is kept in the list (same defect class, and `ESC-050` names it) with the correction located
-precisely; `test_t40_t04` therefore carries **two** corrected assertions, and the three D16 files
-carry **14** changed test functions in total.
+**Extended (additions to existing suites).**
 
-**Corrected — load-path-**driving** suites (`ESC-050`).** These suites are **not** D16 suites and were
-enumerated nowhere. They change **by design** for one reason only: each **drives
-`MainWindow.load_chart`** (directly or through a pop-out / reconnect / smoke-gate path) while stubbing
-`md_manager.req_historical_data` with a **fixed-size** reqId iterator. `S17`'s floor span makes one
-intraday load issue **many** chunks (an empty-cache `5 mins` load plans **9**), so the **second**
-`next(hids)` raises `StopIteration` — a **fixture-exhaustion** failure, **not** a product defect. The
-correction is **test-only** and mechanical: widen each stub to an **unbounded** id source
-(`itertools.count(<first>)`, the `P2-T19` precedent at `tests/test_d28_2_sessions.py:41`), leaving
-`lambda *a, **k: next(hids)` unchanged so the ids stay deterministic and distinct. **No assertion is
-weakened, skipped or xfailed.** (Build-side fix: **`ESC-048`**, BUILD, blocking.)
+| Suite | What is added |
+|---|---|
+| `tests/test_dock_layout.py` | The collapsed pure cases (`plan_watchlist_width(..., collapsed=True) == 30`; `plan_dock_widths(..., left_collapsed=True)` fixes the left at 30, keeps `chart_area_w - left - right >= CHART_MIN_WIDTH` where feasible, keeps the right within its own cap/min, returns `(30, RIGHT_DOCK_MIN_WIDTH)` on an infeasible window, and never raises / stays int-stable over the T52 grid with `left_collapsed=True`); the constants test gains `WATCHLIST_COLLAPSED_WIDTH == 30`; the cross-module agreement test gains the new constant (the `CHART_MIN_WIDTH` invariant's sibling). The **expanded** cases stay **exactly** as they are |
+| `tests/test_watchlist.py` | The collapsed delegate case (`clamp_watchlist_width` remains the **expanded** rule; the panel aliases `WATCHLIST_COLLAPSED_WIDTH` from `dock_layout`) |
 
-| Suite | Assertions that change | Cause of the correction | Intent preserved |
-|---|---|---|---|
-| `tests/test_d24_popouts.py` | **7** | the floor span — the stub was `hids = iter([6101, 6102, 6103])` | Every pop-out/reconnect assertion is untouched; the stub only has to cover **every** request the load path makes |
-| `tests/test_phase3_fixpass.py` | **7** | the floor span — `hids = iter([7101, 7102, 7103])` | Same — the `_restore_popouts` no-duplicate behaviour is asserted unchanged |
-| `tests/test_d24_alarm_full_chain.py` | **2** | the floor span — `hids = iter([8101, 8102])` | Same — the alarm full chain is asserted unchanged |
-| `tests/test_d24_smoke_gate.py` | **1** | the floor span — `hids = iter([9601, 9602])` | Same — the smoke gate is asserted unchanged |
-| `tests/test_d24_9_popout_persistence.py` | **1** | the floor span — `hids = iter([7101])` (a **single** id: the first `next` already exhausts it) | Same — the pop-out persistence assertions are unchanged |
-| `tests/test_d28_tick_burst_baseline.py` | **1** | the floor span — `hids = iter([9101, 9102])` | Same — the ≤2×/≤5× tick-burst baseline ratio is asserted unchanged |
+**Added (new suites).** `tests/test_dock_widths_collapsed_d44.py` (`AC-D44.5`'s pinning guard, `AC-D44.2`'s
+previous-width restore, `AC-D44.7`'s no-key assertion, `AC-D44.1`'s width measurable) and
+`tests/test_watchlist_collapsed_bar_d44.py` (`AC-D44.1`/`.3`/`.4`/`.6`). Both use the repo's offscreen harness
+conventions: `IBApiClient.connect` monkeypatched to a no-op, a throwaway SQLite DB, and a **per-test
+`QSettings` ini** (the D22 harness pattern) so no width/collapse state leaks between tests.
 
-**Total changed by design: 19 assertions in these six suites + 14 changed test functions in the three
-D16 files.** All six suites pass at `b48133d` (pre-D42) and are red post-D42 **only** on the stub
-exhaustion — the same mechanism `ESC-048` reports.
+**Verified unchanged — enumerated by call site of the changed entry points (the `ESC-050` rule; `ESC-055`'s
+ownership remedy).** The changed production entry points are
+`ui/dock_layout.py::plan_dock_widths` / `::clamp_watchlist_width`,
+`ui/main_window.py::MainWindow._apply_dock_widths` / `::_plan_dock_widths` / `::_dock_widths_consistent`, and
+`ui/watchlist_panel.py::WatchlistPanel._on_header_toggled` / `::set_collapsed` / `::is_collapsed`. Every test
+file that reaches any of them was found by grep and classified:
 
-**The invariant (`ESC-050`).** Stated so it can be checked **before** dispatch, not discovered by a
-reconciliation task:
+| Suite | How it reaches the change | Why it is unchanged |
+|---|---|---|
+| `tests/test_dock_layout.py` (21 tests) | `plan_dock_widths` (3 positional args), the constants | The new parameter defaults to the expanded rule; the expanded branch (incl. the infeasible `(150, 200)` result) is preserved bit-for-bit; the constants' **values** are unchanged (`WATCHLIST_COLLAPSED_WIDTH` is purely additive) |
+| `tests/test_watchlist.py` | `watchlist_max_width`, `clamp_watchlist_width` | The delegation preserves the expanded formula exactly |
+| `tests/test_dock_widths_d17.py` | `_apply_dock_widths`, the drag hook, `resizeEvent`, the persistence re-clamp | Drives it with the watchlist **expanded**; the 150px minimum, the drag enforcement and the persistence legs are the **expanded** state |
+| `tests/test_dock_widths_d18.py`, `tests/test_dock_widths_d18_impl.py` | `_plan_dock_widths` / `plan_dock_widths`, `_apply_dock_widths` | Expanded; the B3 cross-clamp arithmetic is unchanged for a non-collapsed left |
+| `tests/test_right_dock_d21.py` | `plan_dock_widths`, `_apply_dock_widths`, `watchlist_dock.width() >= WATCHLIST_MIN_WIDTH` | Expanded; the right dock's own model is untouched |
+| `tests/test_dock_d18_region.py` | the **right** region's collapse (`portfolio_panel.is_collapsed`) | The right dock, not the watchlist |
+| `tests/test_d10_d13_integration.py` | `_apply_dock_widths`, `clamp_watchlist_width`, `watchlist_max_width`, `WATCHLIST_MIN_WIDTH` | Expanded; the persistence clamp is expanded-only by definition |
+| `tests/test_toolbar_scroll_d19.py` | the `CHART_MIN_WIDTH + WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH` sum | A constants sum used for D19 harness sizing; **no constant's value changes** |
+| `tests/test_watchlist_columns_d21.py::test_D21_10_T01` | the panel's title-bar/label assertions | Boots **expanded** — exactly the state those assertions describe |
+| `tests/test_d41_portfolio_dock.py`, `tests/test_d41_removal.py` | `dock_layout` constants, the right dock | Untouched surfaces |
+| `tests/test_d24_popouts.py`, `tests/test_phase3_fixpass.py`, `tests/test_d24_alarm_full_chain.py`, `tests/test_d24_smoke_gate.py`, `tests/test_d24_9_popout_persistence.py`, `tests/test_d28_tick_burst_baseline.py` | boot a `MainWindow` (so `resizeEvent` → `_apply_dock_widths`, expanded) and drive the **load path** | D44 does not touch the load path, so the `ESC-050` fixed-size-stub defect class is **not** re-triggered |
+| `tests/test_watchlist_d14_midrag.py`, `tests/test_d39_*`, `tests/test_d22*` (other cases) | the panel's data/search APIs | No D44 path changes them |
 
-> **Any test that drives `MainWindow.load_chart` with a stubbed `req_historical_data` must use an
-> unbounded reqId source** — `itertools.count(...)`, never a fixed-size `iter([...])` — **because the
-> floor span makes a load issue many requests.** Any test asserting the **exact number** of historical
-> requests, **one** request/chunk per load, or the **empty-cache single-window branch** changes **by
-> design** and belongs in this correction record **with its cause**.
+**RED→GREEN evidence Phase 1 must produce (runnable offscreen, no live TWS).**
 
-### Impact-analysis enumeration rule (generalisable — `ESC-050`, applies to every future increment)
+- **The guard (`tests/test_dock_widths_collapsed_d44.py`) is RED at `0c4d478` for the right reason.** The
+  guard drives the **existing** `set_collapsed(True)` API and asserts the **observable outcome**, referencing
+  the new constant defensively (so an `ImportError` can never be mistaken for a behavioural RED). Pre-fix the
+  collapsed dock stays at its expanded width (~220px, and ≥150 after the clamp) and the assertions fail on the
+  **width** — the repo's own credibility rule (`docs/memory.md` 2026-10-05: "a regression guard is only
+  credible if it fails on the pre-fix tree and passes post-fix").
+- **GREEN after Phase 1:** collapse at a known `W` → `watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH`;
+  after `win.resize(...)` + `qapp.processEvents()` → still the collapsed width; after
+  `win._on_dock_drag_event()` + `qapp.processEvents()` → still the collapsed width; expand →
+  `dock.width() == clamp(W)`; collapse-from-150 → expand restores 150; collapse-from-cap → expand restores the
+  cap; `QSettings` holds **no** collapse key; `chart_area_w >= CHART_MIN_WIDTH` in both states; the dock is
+  still `DockWidgetMovable | DockWidgetFloatable` while collapsed.
+- **The bar suite:** the bar and its rotated-label widget exist and are visible while collapsed; the strip,
+  the `+` and the column-header row are not; the bar's stylesheet carries the app palette; hovering/pressing
+  flips the `active` property (via `set_button_active`) and the `[active="true"]` style differs from the idle
+  style; clicking the bar expands.
+- **Commands:** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_dock_widths_collapsed_d44.py
+  tests/test_watchlist_collapsed_bar_d44.py -v` for the focused run, then the **full** offscreen suite
+  (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`) — the whole-suite gate is what catches an
+  assertion invalidated in a file outside a task's `touches_files` (`ESC-055`'s own lesson).
 
-This is the **second** under-count in this batch (the first was round 1's `FI-D42-2`: the D42
-correction record named two enshrining suites where **five** exist). Both had the same cause, so the
-rule is recorded rather than the incident:
+**The invariant (restated so the enumeration is checkable by rule, not by inspection).**
 
-1. **Enumerate by call site of the changed entry point — not by the suites the design names.** For each
-   production symbol the increment changes (here: `MainWindow.load_chart`, `TickerSession.set_bars` /
-   `_append_bar`, `BarCache.save_bars` / `get_bars` / `prune`, `ChartPanel.update_last_bar`,
-   `find_missing_spans`), find **every** test that reaches it — **including tests that only *drive* it**
-   (stub the feed, boot a `MainWindow`, click a toolbar button, restore a pop-out, run a smoke gate)
-   and assert something downstream.
-2. **The suites the design names are a *seed*, never the answer.** In D42 the seed was the three D16
-   suites; the real set was **14 changed test functions in those three files** *plus* **19 assertions
-   in six further suites** that merely drive the load path.
-3. **A fixed-size stub of a changed feed is a defect *class*, not a one-off.** Grep the whole suite for
-   fixed-size stubs of the changed call (`iter([...])` feeding `next(hids)` / `lambda *a, **k: next(...)`)
-   and correct **all** of them in one scoped task, before dispatch — the `ESC-048`/`ESC-050` pair.
-4. **State the invariant in the correction record** so the enumeration is verifiable by a rule, not by
-   re-reading the diff: an enumeration that is asserted to be complete must either **be** complete or be
-   replaced by the rule that generates it.
-
-
-**Re-verified — exact semantics kept:** `tests/test_d39_burst_search.py` (the D39 baseline preload now
-passes the mode), `tests/test_backfill_service.py` + `tests/test_d27_backfill_granularity.py` (their
-seeds are complete days and `min_sessions` defaults to `0`, so their exact expectations hold; the new
-mode-aware cases are additions), `tests/test_d28_4e_bar_cache_retention.py` (flat default preserved).
-
-**Added (new suites).** `tests/test_d42_candle_width.py` (WS1 geometry guard),
-`tests/test_d42_day_presence.py` (`AC-D16.9` (a)/(b)/(c)), `tests/test_d42_mode_cache.py`
-(migration + no cross-contamination), `tests/test_d42_depth_floor.py` (the per-timeframe, per-mode
-session-count guard + the budget guard).
-
-**RED→GREEN evidence each workstream must produce (both runnable offscreen, no live TWS).**
-
-- **WS1 (Phase 1).** **Unit, stated explicitly (`RC-D42-3`):** every width below is in the **ViewBox
-  logical-pixel unit that `px_per_sec` yields** (`vb.width() / x_span` — the unit
-  `ui/candlestick_item.py:136`'s `min_w = 2.0 / px_per_sec` already uses). `F = 4.0` in that unit is
-  **8 device px at DPR 2**; the requirement's literal "4 device pixels at DPR 2" is the same
-  legibility intent and `AC-D6.4`'s operative clause is "measured in the **same** pixel unit"
-  (`FI-D42-4`/`AP-D42-5`). The requirement's `3.83` / `8.86` figures are **indicative only** (they
-  depend on the ViewBox width the probe actually gets), so the test **measures** the repro pitch from
-  the rendered series instead of hard-coding it, and the load-bearing assertions are the unit-free
-  relations `body <= pitch` and `body == pitch` — **not** `F == 4.0` device px.
-  Render the **real** `CandlestickItem` at **DPR 2** for the ESC-041 repro (192 bars, 5-min, Ext
-  Hours ON, 900 px pane; pitch ≈ 3.83 logical px, **measured**) and measure the **rendered** body
-  from the `QPicture` bounding box (never re-derive the formula): **RED pre-fix** — the body is the
-  flat 4.0-logical-px floor, which **exceeds the measured pitch**, i.e. a contiguous zero-gap pixel
-  run between adjacent body centres; **GREEN post-fix** — `body <= pitch` (and `body == pitch` at
-  this density). Non-dense case (78 bars; pitch **measured**, ≈ 8.86 logical px):
-  `body == max(0.65 × pitch, F) > F`, wick still 1 device px. Volume: the rendered candle body and
-  `volume_bars.opts['width']` are equal within `rel=0.02` at **both** densities.
-- **WS2 (Phase 2).** (a) Seed a trading day with only pre/post bars → `find_missing_spans(cached,
-  now, tf, ext_hours=False)` returns a **non-empty** span covering that day's RTH window (**RED
-  pre-fix**: returns `[]`), and `ext_hours=True` returns **no** span for that day. (b) Seed a day with
-  only RTH bars → **both** the `ext_hours=False` and the `ext_hours=True` calls report it present.
-  (c) Drive the real load path with a **stubbed** historical feed and assert the resulting series
-  spans **≥ 30** distinct sessions before the current one for each of the five intraday timeframes in
-  **both** modes (**RED pre-fix**: `1 min` RTH yields one session — the ESC-038 repro). (d) The floor
-  survives retention: after the wave, the cached and in-memory series still hold ≥ 30 mode-valid
-  sessions. (e) Mode isolation: a bar set written under `ext_hours=True` is not read as
-  `ext_hours=False` coverage and vice versa.
+> **Enumerate by call site of the changed entry point — not by the suites the design names.** For every
+> production symbol this increment changes (`plan_dock_widths`, `plan_watchlist_width`,
+> `clamp_watchlist_width`, `MainWindow._apply_dock_widths` / `::_plan_dock_widths` / `::_dock_widths_consistent`,
+> `WatchlistPanel._on_header_toggled` / `::set_collapsed` / `::is_collapsed`), find **every** test that reaches
+> it — **including tests that only *drive* it** (boot a `MainWindow`, trigger a `resizeEvent`, drag a dock,
+> click the header button) — and classify each as **corrected with its cause** or **verified unchanged**.
+> Every corrected suite rides in the **same phase** as the production change that invalidates it, and any test
+> file whose assertions a change can invalidate belongs to that change's `touches_files` (or to a sibling
+> task's) — the `ESC-055` ownership remedy.
 
 ---
 
 ## Assumptions
 
-Plan-level assumptions **not** already in `requirements.md`'s Assumptions Log (`A1`–`A73`).
+Plan-level assumptions **not** already in `requirements.md`'s Assumptions Log (`A1`–`A78`).
 
-- **AP-D42-1 (Phase 1 and Phase 2 overlap in exactly one file, so they are sequenced there).** The two
-  workstreams share **one** file — `ui/chart_panel.py` (Phase 1: the width path; Phase 2:
-  `ChartPanel.update_last_bar`'s `_bars` trim, `:1150`–`:1157`). Their two `ui/chart_panel.py` tasks
-  therefore sit in **different waves** — Phase 2's trim runs **after** Phase 1's width edit — because
-  `build_wave.py` forbids two `in_progress` tasks with overlapping `touches_files`. Every **other**
-  file is single-phase, so the remaining Phase 1 / Phase 2 tasks **may** be co-scheduled. The phase
-  split is kept because each phase's wave must be individually green. Phase 3 waits for both.
-- **AP-D42-2 (`min_sessions` defaults to 0).** The floor is **opt-in per call**, so every existing
-  planner suite keeps its exact semantics and the D16 no-fill/no-silent-hole behaviour is unchanged
-  when the floor is not requested. `R64`'s "the D16 suite stays green" is met by **exact** semantics in
-  the pure-planner suites plus **intent-preserving** corrections in the D16 **load-path** suites
-  (enumerated with their cause below) — never by weakening an assertion.
-- **AP-D42-3 (the floor is scoped to chart loads).** `AC-D16.8` speaks of the **displayed** series of
-  a loaded chart, so the floor is requested by `MainWindow.load_chart` — the primary chart's load
-  path (pop-outs **attach a view** to the shared session and issue **no history** of their own,
-  `ui/popout_window.py:131`; the pop-out's persisted `ext_hours` reaches the cache only through the
-  session it attaches to) — and **not** by the D25 headless alarm-monitor sessions
-  (`services/alarm_monitor.py:287`), which never request history. This is a faithful reading, not a
-  narrowing — but it is a decision, recorded for the Validator.
-- **AP-D42-4 (legacy cache rows are tagged ETH).** Justified by the app's default
-  (`ext_hours_btn.setChecked(True)`); no row is deleted; presence stays window-based, so a tag can
-  never manufacture coverage; an RTH load after the migration simply performs the floor fetch
-  `AC-D16.8` requires anyway.
-- **AP-D42-5 (the unit of `F`/`pitch`/`body`).** The requirement says "all in the same pixel unit";
-  the shipped clamp's unit is the ViewBox logical-pixel unit that `px_per_sec` yields (which scales
-  with DPR at render). The cap keeps **that** unit and the existing `F` constant, so the requirement's
-  outcomes hold (`body ≤ pitch` at the repro; `body ≥ F` in the non-dense regime). No requirements
-  change is implied. Per `RC-D42-3` the WS1 evidence **states** this unit, applies `F` in it, and
-  asserts no `F == 4.0` device-px equality at DPR 2.
-- **AP-D42-6 (`TIMEFRAME_CONFIG` is not changed).** Its durations are the **per-request** IBKR caps;
-  the depth comes from chaining (`AC-D16.8` itself calls the window strategy a Plan/Build matter).
-  `MIN_INTRADAY_SESSIONS = 30` is the one new constant.
-- **AP-D42-7 (test invocation + probe isolation).** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m
-  pytest` (the `pytest` entry point has a stale shebang); the DPR-2 probe stays in its isolated
-  `QT_SCALE_FACTOR=2` subprocess; every non-pytest probe exports `DB_PATH` to a temp file (ESC-043).
-- **AP-D42-8 (D41 is not reopened).** No Phase-1/2 file is a D41-removed file, and no D42 path
-  touches the retained order machinery or the D38/D39 substrate.
-- **AP-D42-9 (the suite total moves).** **Five** enshrining suites, the D16 **load-path** suites and —
-  `ESC-050` — the **six load-path-*driving* suites** (19 assertions) are corrected, five are extended
-  and four added, so the count changes; the requirement is **green** with every assertion either
-  **exact** or corrected **intent-preserving** — not count parity (any docs figure quoting a total must
-  be re-measured). The corrected set is **complete by rule** (the `ESC-050` invariant), not by the
-  suites the design named.
+- **AP-D44-1 (the collapsed width is enforced by relaxing the minimum + a collapsed-aware clamp — not by
+  `setMaximumWidth`/`setFixedWidth`).** A left dock's reachable width is decided by its **widget minimums**,
+  not by `resizeDocks` alone: a Plan-verified offscreen probe (2026-10-16) held a dock at 78px when asked for
+  30 because the title-bar widget's minimum was 40 and the content label's was 78; with every visible widget at
+  30 the same call yielded exactly 30. The collapsed state therefore relaxes the panel's **and** the dock's
+  minimum to `WATCHLIST_COLLAPSED_WIDTH` and restores `WATCHLIST_MIN_WIDTH` on expand — the D21.13 pattern.
+- **AP-D44-2 (`_watchlist_width` keeps meaning "the expanded/requested width").** It is never assigned while
+  collapsed, so it *is* the "width held immediately before collapsing" that `AC-D44.2` restores, and
+  `closeEvent`'s `save_watchlist_width(self._settings, self._watchlist_width, …)` is unchanged. **Consequence
+  (recorded, since A76 is silent on it):** a session that ends **collapsed** still persists the user's
+  **expanded** width, so the next launch starts expanded at that width — the only choice consistent with "the
+  app starts expanded" (see `FI-D44-3`).
+- **AP-D44-3 (`AC-D44.5`'s measurable is scoped to the docked watchlist).** Journey 37's own precondition is
+  "the Watchlist dock is visible and expanded on the left", and Qt does not lay a **floating** dock out in the
+  dock area, so `resizeDocks`/the clamp govern the docked state. While floating, the collapse still swaps the
+  visual and the bar remains clickable to expand (D44's edge-case wording: "the bar must still be clickable to
+  expand"); the 30px pin is best-effort there. This is a faithful reading of the criterion's scope, recorded
+  rather than assumed silently.
+- **AP-D44-4 (the ±1px tolerance convention applies to inner measurements; the dock equality is asserted
+  exactly).** `_apply_dock_widths` re-issues `resizeDocks` only when the delta exceeds 1px, and the D17 suite
+  records that "a residual of at most 1px is expected and asserted with `+1`"
+  (`tests/test_dock_widths_d17.py:17`–`:21`). The probe shows `resizeDocks([dock], [30])` yields exactly 30
+  offscreen, so the guard asserts the **dock** equality directly and keeps `+1` for derived/inner values.
+- **AP-D44-5 (`WATCHLIST_COLLAPSED_WIDTH` lives in `ui/dock_layout.py` and is aliased in
+  `ui/watchlist_panel.py`).** The D44 correction record names `ui/dock_layout.py`; the alias follows the
+  existing pattern for `WATCHLIST_MIN_WIDTH`/`CHART_MIN_WIDTH`/`DEFAULT_WATCHLIST_WIDTH` (`:93`–`:95`), and the
+  cross-module agreement test is extended to cover it — so the duplicated-constant invariant stays honest.
+- **AP-D44-6 (no new dependency, no new Qt module, no rendering-stack change).** The only new Qt touch is a
+  `QWidget.paintEvent` + `QPainter.rotate`; `QPainter` and a custom `paintEvent` are already in the repo
+  (`ui/visual_conventions.py:190`, `ui/candlestick_item.py:121`) and `rotate` is a standard painter transform
+  on the already-imported `QtGui` module. The pyqtgraph chart stack is a **locked** decision (`docs/memory.md`,
+  2026-10-16) and D44 does not touch it.
+- **AP-D44-7 (test invocation and isolation).** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the
+  `pytest` entry point has a stale shebang); any **non-pytest** probe that can reach a DB-writing path exports
+  `DB_PATH` to a temp file; the new suites use a **per-test `QSettings` ini** (the D22 harness pattern) so the
+  persisted width and the collapse state cannot leak between tests.
+- **AP-D44-8 (the enumeration rule is applied, and each corrected suite rides with its cause).** The changed
+  entry points are enumerated by call site (the *Verified unchanged* table above), every correction names its
+  cause, and no correction is left to the reconciliation phase alone — this is the `ESC-050` rule plus
+  `ESC-055`'s ownership remedy, which stays TASK_MANAGER-owned and is **not** absorbed here.
+- **AP-D44-9 (the suite total moves).** Two suites are added, two extended and three corrected (four sites +
+  one docstring), so any doc figure quoting a suite total must be **re-measured** (the `DOC-1` follow-up) —
+  the requirement is *green with every assertion exact or corrected intent-preserving*, not count parity.
 
 ---
 
 ## Flagged Issues
 
-Requirements I could not satisfy with the architecture **as written**, or decisions a Task Manager
-could not have made without inventing architecture. Each is surfaced here (not filed): the Validator
-turns these into the official `docs/plan_notes.md` escalation.
+Requirements I could not satisfy with the architecture **as written**, or decisions a Task Manager could not
+have made without inventing architecture. Each is surfaced here (not filed): the Validator turns these into the
+official `docs/plan_notes.md` escalation.
 
-- **FI-D42-1 — `AC-D16.8`'s floor is unsatisfiable while the D28.4 caps stay at 5000 (decided, needs
-  ratification; no Requirements escalation).** A `1 min` RTH session is 390 bars, so 30 sessions =
-  **11,700 bars**; `1 min` ETH = **28,800**; `5 mins` ETH = **5,760** — all above
-  `config/settings.py::SESSION_BAR_CAP = 5000` and `data/bar_cache.py::RETENTION_BARS = 5000`, which
-  would **delete the floor after fetching it**. The requirement is satisfiable, but only by revising
-  a D28.4-blessed bound: `S18` makes the caps **floor-aware** (the flat values stay the
-  default/minimum) at a memory cost of **~8–16 MB** per loaded `1 min` ETH chart (33,120 `Bar`
-  dataclasses without `__slots__`, plus the two plot arrays). This is an architecture
-  decision the requirements do not make, so it is recorded rather than assumed. **Disposition
-  proposed:** ratified as `S18` (**the Validator ratified it in round 1, independently re-deriving the
-  arithmetic and the prune/trim behaviour**); no Requirements escalation (the requirement's *outcome*
-  is achievable and unchanged).
-- **FI-D42-2 — the D42 correction record's artifact list is incomplete (Plan addition; no escalation).
-  **CONFIRMED and EXTENDED by the Validator (round 1): five suites enshrine the old behaviour, not
-  two.** The record names `tests/test_candle_spacing.py` (`:4`–`:10`, a source-string check that never
-  renders) and `tests/test_volume_width.py` (`:103`–`:104`). **`tests/test_chart_dpi.py:245`–`:250`**
-  (`assert body_dev >= 4.0` on the dense 960-bar DPR-2 dataset — **this one will FAIL post-fix**, since
-  the capped body ≈ the pitch), **`tests/test_d28_2_sessions.py:166`** and
-  **`tests/test_d28_4f_panel_bar_cap.py:53`** enshrine the same old rule. All five are **corrections**
-  (the intent preserved), not weakenings; the D16 **load-path** suites (see the *Corrected — D16
-  load-path* table) are the same kind of intent-preserving correction. **Disposition proposed:** the
-  correction record now names **all five** suites plus the load-path set.
-- **FI-D42-3 — `AC-D16.9`'s "RTH bars are ETH coverage" vs the mode-aware cache key (reading
-  recorded).** With a strictly mode-keyed cache, an ETH load cannot **see** bars stored under the RTH
-  key, so a day covered only by an RTH-mode fetch is **re-fetched** under ETH rather than read as
-  present. I read `AC-D16.9`'s measurable (c) as a statement about the **presence predicate** on a
-  given bar set (satisfied: RTH bars lie inside the ETH window, so the ETH call reports the day
-  present) and **not** a requirement that an RTH-keyed row satisfy an ETH load. The cost is one extra
-  fetch per mode switch; there is **no** hole and **no** cross-contamination. **Disposition
-  proposed:** ratified as read (**the Validator ratified this reading in round 1**); if a later reader
-  takes it otherwise, the alternative (a `'LEGACY'` mode visible to both) is the recorded fallback.
-  **Citations:** `AC-D16.9`'s measurable (c) is phrased as a **presence predicate** on a given bar set
-  (`requirements.md:1967`–`:1969`: "seed a trading day with **only RTH bars** and assert **both** the
-  RTH call and the ETH call report it present (RTH bars lie inside `04:00–20:00 ET`)"), while
-  `requirements.md:1957`–`:1958` separately requires the mode-aware key ("The bar cache/key is
-  **mode-aware** (RTH vs ETH) … This applies **in both directions**") — the two are satisfied together
-  by this reading, which is exactly why the strict mode-keyed cache (`S16`) is consistent with the
-  measurable.
-- **FI-D42-4 — the `F` unit wording (observation; no escalation).** `AC-D6.4` says "`4` device pixels
-  at DPR `2`" while the shipped clamp's constant is 4 px in the ViewBox unit (8 device px at DPR 2).
-  The requirement's operative clause is "measured in the **same** pixel unit", so keeping the shipped
-  constant and capping in that same unit satisfies the criterion's outcomes. Recorded as `AP-D42-5`
-  so the discrepancy is not read as a silent reinterpretation. **RATIFIED in round 1** with `AP-D42-5`
-  (the shipped unit is kept; `AC-D6.4`'s "same pixel unit" clause resolves it) — and, per **RC-D42-3**,
-  the WS1 evidence now **states** the unit (ViewBox logical px = `px_per_sec`'s unit; 4 logical px = 8
-  device px at DPR 2), applies `F` in it, and asserts no `F == 4.0` device-px equality.
+- **FI-D44-1 — the exact-equality measurables vs the repo's ±1px tolerance convention (reading proposed; no
+  escalation needed if ratified).** `AC-D44.1` and `AC-D44.5` both phrase the outcome as exact equality
+  (`watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH`), while the repo's established convention tolerates a
+  1px residual because `_apply_dock_widths` only re-issues a resize when the delta exceeds 1px
+  (`tests/test_dock_widths_d17.py:17`–`:21`; the D17/D18 suites assert `<= cap + 1`). **Reading proposed:**
+  assert the **dock** width exactly (Plan's offscreen probe yields exactly 30 once the widget minimums allow
+  it) and keep the `+1` tolerance only for inner/derived measurements (`AP-D44-4`). The alternative — a strict
+  `==` on every measurement — risks a **false RED** from a platform's 1px dock separator, which would make the
+  guard untrustworthy. **Disposition proposed:** ratified as a measurement convention; no Requirements change
+  (the *outcome* — "the bar is 30px and stays 30px" — is unchanged).
+- **FI-D44-2 — `A78`'s "the dock's title-bar widget presents the bar" cannot be literal for a *full-height*
+  bar (decision + evidence, not a reinterpretation).** Qt lays a left dock's title-bar widget out at the
+  **top** of the dock, at the dock's full width and the widget's own `sizeHint` height — even when the dock has
+  no content widget (Plan-verified offscreen probe, 2026-10-16: a `QSize(30, 120)` title bar occupied
+  `QRect(0, 0, 30, 120)` with the content at `QRect(0, 120, 30, 780)`). A full-height vertical bar is
+  therefore impossible **in the title-bar slot**. D44 splits the affordance (`S25`): the full-height bar is the
+  dock's **content** (`panel.collapsed_bar`) and the title-bar slot carries a 30×28 handle
+  (`panel.collapsed_handle`) that keeps the dock movable (DG37) and clickable to expand. The **outcome** fixed
+  by `AC-D44.1`/`AC-D44.6` (a thin, clickable, app-palette bar that reads as a panel) is unchanged, and A78
+  itself delegates the mechanism ("the widget/title-bar mechanism is an implementation choice"). Recorded so
+  the split is not read as a silent narrowing; the recorded **fallback** is the bar-as-title-bar variant if the
+  handle proves problematic in build.
+- **FI-D44-3 — A76 does not say what width is persisted when the app is closed *while collapsed*
+  (decision, recorded).** A76 fixes "not persisted; the app starts expanded" but is silent on the persisted
+  **width** in that case. **Decided (`S27`, `AP-D44-2`):** the tracked **expanded** width is persisted (the
+  `watchlist/width` key is unchanged and `_watchlist_width` is never overwritten while collapsed), so a restart
+  starts expanded at the user's last expanded width. Persisting the applied 30px instead would make the next
+  launch's **expanded** dock clamp to the 150px minimum — a silent loss of the user's width. An owner override
+  would revise A76 and `S27`; the requirement's own outcome ("no collapse key exists; the app starts
+  expanded") is satisfied either way.
 
 ---
 
 ## Correction record — for Task Manager / Build / Code Reviewer
 
-The two **superseded** criteria and the artifacts that must change (mirrors `### D42`'s correction
-record, plus Plan's three additions):
+The supersessions and the artifacts that must change (mirrors `### D44`'s correction record, `:3914`–`:3925`):
 
-1. **`AC-D6.4`'s *unconditional* "the body remains `>= 4` device pixels wide"** is **superseded** by
-   the density-aware rule `body = min( max(0.65 × pitch, F), pitch )`; the wick clause (cosmetic
-   1 device px) is **unchanged**. (`F = 4.0` is in the **ViewBox logical-px** unit `px_per_sec`
-   yields — 8 device px at DPR 2 — and `AC-D6.4`'s operative clause is "measured in the **same** pixel
-   unit"; the shipped constant and unit are kept, `FI-D42-4`/`AP-D42-5`.)
-2. **`AC-D7.1`'s "the gap remains positive"** (and the D7 dense-view edge case) is **relaxed to
-   `gap >= 0`** — `> 0` whenever `pitch > F`, `0` acceptable at `pitch <= F` (owner-confirmed
-   **Q51**); the 35 %-gap intent in the non-dense regime is **unchanged**.
-3. **The RTH-only default of the depth floor** is **superseded** — `AC-D16.8`/`AC-D16.9` cover both
-   `ext_hours=False` and `ext_hours=True` (owner-confirmed **Q52**), one floor, two modes.
-4. **Task Manager:** write the two work items against `AC-D6.4`/`AC-D7.1`/`AC-D9.2` (revised) and
-   `AC-D16.8`/`AC-D16.9` (both modes); the phase/file map above is the `touches_files` partition —
-   **note the one shared file, `ui/chart_panel.py`**: Phase 1 owns its width path, Phase 2 owns
-   `ChartPanel.update_last_bar`'s floor-aware `_bars` trim (`:1150`–`:1157`), and those two tasks must
-   sit in **different waves** (Phase 2's trim sequenced after Phase 1's width edit).
-5. **Build:** apply the cap in `ui/candlestick_item.py::CandlestickItem._draw_candles` **and** the
-   volume width path (`::_clamp_half_width` / `::_refresh_candles` / `::_refresh_live_bar`); make
-   `find_missing_spans` (and the exported presence predicate) **mode-aware**; make the bar cache/key
-   **mode-aware** (`data/bar_cache.py` / `data/db.py`, keyed `symbol+timeframe+ext_hours`); deliver
-   the floor as chained backwards requests and make the floor-aware budget apply at **all three**
-   `SESSION_BAR_CAP` sites — `ui/ticker_session.py::TickerSession.set_bars` (`:300`),
-   `::TickerSession._append_bar` (`:313`) **and** `ui/chart_panel.py::ChartPanel.update_last_bar`
-   (`:1150`–`:1157`, the third site, `RC-D42-1`) — plus `BarCache.prune`'s `keep`; **correct (do not
-   merely weaken)** the five enshrining suites named in `S21`/FI-D42-2, the D16 **load-path** suites
-   enumerated in the *Corrected — D16 load-path* table (each intent-preserving, its cause named), **and
-   — `ESC-050` — the six load-path-*driving* suites** enumerated in the *Corrected — load-path-**driving**
-   suites* table (test-only: widen each fixed-size `req_historical_data` reqId stub to an unbounded
-   `itertools.count` source; **no assertion weakened, skipped or xfailed** — the production multi-request
-   behaviour is requirements-mandated, so do **not** reduce the request count), and add the four new ones.
-6. **Code Reviewer:** on the **ESC-041** re-check, verify against the **revised** `AC-D6.4`/`AC-D7.1`
-   (a contiguous zero-gap pixel run at pitch ≈ 3.83 px is the failure); on **ESC-037**, verify
-   `AC-D16.9` **in both modes** (the RTH-missing / ETH-present split **and** the reverse); **ESC-038**
-   and **ESC-042** are resolved on the requirements side by `AC-D16.8`/`AC-D16.9` and
-   `AC-D6.4`/`AC-D7.1` and may be flipped from `open` after re-verification. **ESC-041/ESC-037 stay
-   BUILD-owned** — D42 does not close them. **`ESC-050`** is this proposal's own enumeration fix (no
-   code); the code/test fix it points at is **`ESC-048`** (BUILD, blocking) — the six stub widenings.
-7. **Every future increment (`ESC-050` — the enumeration rule, generalisable).** The impact analysis
-   must enumerate the assertions an increment changes **by call site of the changed entry point, not by
-   the suites the design names** — including the suites that merely **drive** the changed path — and must
-   state the **invariant** that generates the enumeration, so the set is checkable by a rule before
-   dispatch instead of discovered by a reconciliation task afterwards. D42's two under-counts (round 1's
-   `FI-D42-2`: two suites named where five exist; `ESC-050`: the D16 suites named where 14 changed test
-   functions **plus 19 assertions in six load-path-driving suites** exist) are the recorded precedents.
+1. **`AC-D21.11.2` / `AC-D21.11.3`** — their collapsed-appearance clause ("the collapsed state still shows the
+   button", struck per `VIS-D21.1`) is **superseded for the collapsed watchlist state**: the collapsed form is
+   the **thin bar with rotated text**. `VIS-D21.1` still applies to genuinely hidden/off **buttons** elsewhere
+   (D21.12 volume, D21.13 portfolio) and to the header button whenever it is shown. **`AC-D21.11.1`** is
+   unchanged (one "Watchlist" label; duplicate dock title deleted); the **title-bar widget identity** is
+   `header_bar` while **expanded** and `collapsed_handle` while **collapsed** — the swap A78 authorises.
+2. **`AC-D13.1` / `AC-D17.2`'s 150px minimum** — now applies to the **expanded** watchlist only; while
+   collapsed the width is `WATCHLIST_COLLAPSED_WIDTH` (~30px). `AC-D13.2`/`.3` and `AC-D17.1`/`.3`–`.6` (cap,
+   persistence, drag enforcement, re-clamp) are **unchanged for the expanded state**. `AC-D21.11`'s
+   "collapsed-width geometry" edge case is **now specified** by `AC-D44.1`/`AC-D44.5`.
+3. **The `## Non-Goals` restyling bullet** — revised by the owner (2026-10-16) to permit **only** the D44
+   collapsed-bar styling, in the **app palette** (`#141822` / `#232938` / `#cbd5e1`). The mockup's white
+   rounded pill is explicitly **not** the target.
+4. **Task Manager:** write the Phase-1 work items against `AC-D44.1`–`AC-D44.8` and the revised
+   `AC-D21.11.2`/`.3` + the revised 150px-minimum scope; the per-file map above **is** the `touches_files`
+   partition, and the two shared files (`ui/main_window.py`, `tests/test_watchlist_columns_d21.py`) force the
+   two file-group pairs into **different waves** (the apply path before the wiring; the width-leg correction
+   before the appearance-leg correction). The pure rule (`ui/dock_layout.py`) must land **before** its
+   consumers, and the bar widget **before** the `MainWindow` wiring. Each corrected suite must be owned by the
+   file-group that changes the behaviour it asserts (the `ESC-055` remedy) — do **not** defer the corrections to
+   the reconciliation phase. Phase 2 adds no production edit.
+5. **Build:** add `WATCHLIST_COLLAPSED_WIDTH` to `ui/dock_layout.py` and keep `CHART_MIN_WIDTH` in lockstep
+   with `ui/watchlist_panel.py` (the documented invariant); make the collapsed width honoured by the **single**
+   apply entry point in **both** branches, with the minimum-width relaxation + deferred re-apply; add the
+   rotated-text bar widget in the app palette (with the title-bar handle) and wire click-to-expand to restore
+   the tracked previous width; hide the header strip / `+` / column-header row while collapsed. **Correct (do
+   not merely weaken)** the four named sites + the docstring, and add the two new suites. **Demonstrate the
+   guard is RED at `0c4d478`** — the collapsed dock staying at ~220px / the 150px minimum, **not** an
+   `ImportError` — and GREEN after, with the **full** offscreen suite green.
+6. **Code Reviewer:** independently verify (a) the collapsed width **survives** a real `resizeEvent` **and** a
+   drag-event path (the R66 defect class, the batch's core claim); (b) the palette matches the app and is
+   **not** a white pill; (c) the **expanded** D13/D17/D18/D21.13 criteria and their suites are unaffected
+   (run them, don't read them); (d) the dock is still **movable/floatable** while collapsed (DG37) and
+   click-to-expand restores the **previous** width, re-clamped; (e) **no** collapse-state key is written
+   (A76); (f) no corrected assertion was weakened, skipped or xfailed. Re-check `R66`/`R67`.
+7. **Every future increment:** the **enumeration rule** — enumerate the assertions a change invalidates **by
+   call site of the changed entry point, not by the suites the design names**, including suites that merely
+   *drive* the changed path, and give the invalidated test files a home in `touches_files` (the `ESC-050` rule
+   + `ESC-055`'s ownership remedy; D42's two under-counts and `ESC-055`'s recurrence are the recorded
+   precedents).
 
 ---
 
 ## Incidentally affected (noted, not absorbed)
 
-- **ESC-041** (candle **and** volume overlap on a 5-min Ext-Hours chart) and **ESC-037** (the
-  mode-blind day-presence pass) are the BUILD escalations D42 unblocks; their fixes are Phase 1 and
-  Phase 2 respectively, but closing the escalations is the Code Reviewer's action after
-  re-verification.
-- **ESC-043** (offscreen probes must set `DB_PATH`) is a *test-harness* rule D42's new suites must
-  honour, not a D42 work item.
-- **DOC-1** (any doc figure quoting a suite total) goes stale again because four suites are added;
-  the owner/Analyst follow-up, not a Build task.
-- Nothing in D42 touches ESC-032/033/034/036/044/045 or the D41 removals.
-
----
-
-## Revision 2 — disposition of the round-1 Required Changes (checkable without re-deriving)
-
-| Required change | Disposition | Where to check |
-|---|---|---|
-| **RC-D42-1** (blocking) — the partition claim is false; an owned edit is missing | **Fixed.** `ui/chart_panel.py::ChartPanel.update_last_bar`'s `_bars` trim (`:1150`–`:1157`) — the **third** `SESSION_BAR_CAP` site — is now **owned by Phase 2** and appears in Phase 2's goal, dependencies, deliverable and file map, and in `S18`, the System Components / Data Model tables and the traceability row. The "file-disjoint / parallel-safe / shared files: none" claim is **replaced**: `ui/chart_panel.py` is the **one shared file**, and the two `ui/chart_panel.py` tasks are **sequenced into different waves** (Phase 2's trim after Phase 1's width edit). `AP-D42-1` rewritten. The `tests/test_d28_4f_panel_bar_cap.py` correction now sits in the **same phase** as its production subject (`ui/chart_panel.py`, Phase 2) | *Phases* (intro, Phase 1 & Phase 2 blocks), *Per-file `touches_files` map* (both tables + the shared-file paragraph), *Assumptions* `AP-D42-1`, *Correction record* items 4–5; `architecture_proposal.md` `S18`, System Components, Data Model, traceability, AR-D42-3 |
-| **RC-D42-2** (blocking) — the "no existing assertion weakened" framing contradicts the plan's own edits | **Fixed.** A *Corrected — D16 load-path* table now names **each** changed assertion with its **cause** (the floor span, the removed empty-cache branch, the floor-aware prune/budget) and states the correction is **intent-preserving** (guarantee survives; only the expected value/branch changes). Phase 3's goal and `R64`'s mitigation are re-worded; the pure-planner suites keep **exact** semantics (`min_sessions = 0`, `AP-D42-2`). `FI-D42-2` records the **five** enshrining suites | *Tests* (the load-path table + the re-verified paragraph), *Phases* Phase 3 goal, *Assumptions* `AP-D42-2`, *Flagged Issues* `FI-D42-2`; `architecture_proposal.md` `S21`, `S17`'s rationale, AR-D42-6, the Non-Functional test-fidelity bullet |
-| **RC-D42-3** (required) — the WS1 evidence must not hard-code the unit or the repro | **Fixed.** The WS1 evidence **states the pixel unit** (ViewBox logical px — `px_per_sec`'s unit; `F = 4.0` = 8 device px at DPR 2), applies `F` in that unit, **measures** the repro pitch instead of hard-coding `3.83`, and asserts the unit-free relations `body <= pitch` / `body == pitch` — with an explicit "no `F == 4.0` device px" note. `S13` states the unit; `AC-D6.4`'s traceability row carries it | *Tests* → WS1 evidence; Phase 1's `tests/test_d42_candle_width.py` row; *Assumptions* `AP-D42-5`; `architecture_proposal.md` `S13`, the Non-Functional correctness bullet, AR-D42-2 |
-| Fold-in — `FI-D42-2` extended to **five** suites | **Applied** (`test_candle_spacing.py:4`–`:10`, `test_volume_width.py:103`–`:104`, `test_chart_dpi.py:245`–`:250`, `test_d28_2_sessions.py:166`, `test_d28_4f_panel_bar_cap.py:53`) | *Flagged Issues* `FI-D42-2`, *Correction record* item 5; `architecture_proposal.md` Codebase Summary, `S21`, AR-D42-2 |
-| Fold-in — `FI-D42-1` cost **~8–16 MB** | **Applied** | *Flagged Issues* `FI-D42-1`; `architecture_proposal.md` Non-Functional memory bullet |
-| Fold-in — `FI-D42-3` ratified reading **with** the `requirements.md:1957`–`:1958` and `:1967`–`:1969` citations | **Applied** | *Flagged Issues* `FI-D42-3`; `architecture_proposal.md` `S16`'s rationale |
-| Fold-in — `FI-D42-4` ratified; the evidence must **state** the unit | **Applied** | *Flagged Issues* `FI-D42-4`, *Assumptions* `AP-D42-5`, WS1 evidence; `architecture_proposal.md` `S13` |
-| Fold-in — `AP-D42-3`'s "and pop-out charts" overstated the callers | **Corrected** — pop-outs attach a view to the shared session and issue no history (`ui/popout_window.py:131`) | *Assumptions* `AP-D42-3` |
-| Fold-in — `S17`'s "empty-cache branch is removed" should also name the guards | **Applied** — the `find_missing_spans(...) if cached else []` guard (`ui/main_window.py:1647`–`:1652`) and the empty-cache early return (`services/backfill_service.py:205`–`:206`) are both named | Phase 2's `ui/main_window.py` row; `architecture_proposal.md` `S17` |
-
-**Not re-litigated (the Validator ratified these in round 1):** `S13`/`S14`, `S15`–`S19`, `S18`, and
-`FI-D42-1`/`FI-D42-3`/`FI-D42-4`. **No Requirements escalation** was raised then and none is added
-now; `docs/plan_notes.md` and `docs/code_review/escalations.json` were not touched.
-
----
-
-## Revision 3 — disposition of `ESC-050` (checkable without re-deriving)
-
-An **accuracy fix to the two proposal documents**: no architectural decision (`S13`–`S21`), no `AC`, no
-phase boundary, no task and no canonical file changed. D42 is built, green and complete (26/26 tasks;
-full offscreen suite 1009 passed, exit 0), and its design was verified sound — nothing below re-opens it.
-
-| `ESC-050` item | Disposition | Where to check |
-|---|---|---|
-| **(1) the six load-path-*driving* suites** (`test_d24_popouts.py` 7, `test_phase3_fixpass.py` 7, `test_d24_alarm_full_chain.py` 2, `test_d24_smoke_gate.py` 1, `test_d24_9_popout_persistence.py` 1, `test_d28_tick_burst_baseline.py` 1 = **19 assertions**) were enumerated nowhere | **Fixed.** New table *Corrected — load-path-**driving** suites (`ESC-050`)* names each suite, its assertion count, the cause (a **fixed-size** `req_historical_data` reqId stub + the floor span's many chunks → `StopIteration`) and the preserved intent; Phase 2's `ui/main_window.py` file-map row and the correction record (item 5) carry the same set | *Tests* → the new table; *Per-file `touches_files` map* → Phase 2 `ui/main_window.py` row; *Phases* → Phase 3 goal + deliverable; *Assumptions* `AP-D42-9`; *Correction record* items 5 and 7; `architecture_proposal.md` Codebase Summary, `S21`, AR-D42-6, Non-Functional test-fidelity bullet |
-| **(2) `RC-D42-2`'s own table under-counted the D16 files** — 4 named, 4 more needed correcting (`t40_t03`, `t40_t05`, `t43_t03`, `t44_t03`) | **Fixed, and re-verified.** The table now names **all 14 changed test functions** in the three D16 files: the 9 originally named, the 4 `ESC-050` records, and 2 Plan re-verification adds (`t39_t04`, `t39_t05`). A **verification note** records that `t40_t05`'s correction is in fact `t40_t04`'s **second** corrected assertion (`b48133d:484`–`:485`; `test_t40_t05` carries no shortfall assertion in either revision) — so the enumeration is exact, not merely longer | *Tests* → the *Corrected — D16 load-path* table + the verification note; *Correction record* item 5 |
-| **(3) state the invariant** | **Fixed.** Stated verbatim-in-substance (tightened, meaning unchanged) in a dedicated block: *any test that drives `MainWindow.load_chart` with a stubbed `req_historical_data` must use an **unbounded** reqId source; any test asserting the **exact number** of historical requests, **one** request/chunk per load, or the **empty-cache single-window branch** changes by design* | *Tests* → **The invariant (`ESC-050`)**; *Correction record* item 5; `architecture_proposal.md` `S21` |
-| **(4) `AR-D42-6`'s mitigation asserts complete enumeration — make it true or replace it by the rule** | **Fixed (both).** The enumeration **is** now complete (14 + 19), **and** the mitigation is re-worded so completeness is a **rule**, not a claim: *enumerate by call site of the changed entry point; the invariant generates the set* — with the two D42 under-counts named as precedents | `architecture_proposal.md` AR-D42-6; *Tests* → **Impact-analysis enumeration rule**; *Correction record* item 7 |
-| **(5) generalisable lesson** (the second under-count in this batch) | **Added.** A checkable **impact-analysis enumeration rule** (4 numbered steps) applies to every future increment, and is cross-referenced from Phase 3's goal and the correction record | *Tests* → **Impact-analysis enumeration rule (generalisable …)**; *Correction record* item 7; `architecture_proposal.md` `S21`, AR-D42-6 |
-| **Out of scope (not absorbed)** | **`ESC-048`** is the BUILD-side fix (widen the six stubs; blocking) and stays BUILD-owned; **`ESC-049`**, **`ESC-051`** and the seven pre-existing BUILD escalations are untouched. `docs/code_review/escalations.json` was **not** edited (Code Reviewer owns it) | — |
+- **`ESC-055`** (`routed_to: TASK_MANAGER`, open, `nice-to-have`) — the D42/ESC-050 enumeration rule's
+  ownership remedy. D44 **applies** the rule (`AP-D44-8`) but does not absorb or close the escalation; it
+  belongs to Task Manager.
+- **`Q54`** (D44's owner-confirmation item) — **answered 2026-10-16** with recorded defaults A75–A77 and
+  surfaced to the owner as a non-blocking confirmation; no blocking question exists, so this run proceeds. An
+  owner override would revise `AC-D44.1`/`.4`/`.7` + `A75`–`A77` + `S23`/`S26`/`S27`.
+- **`DOC-1`** (any doc figure quoting a suite total) goes stale again because two suites are added and two
+  extended; the owner/Analyst follow-up, not a Build task (`AP-D44-9`).
+- **Line-number drift:** `docs/requirements/requirements.md` and this pair cite line numbers that a
+  `ui/main_window.py` edit invalidates (the file is edited often — `docs/memory.md`). Symbols are the primary
+  pointer; every line reference in these proposals is **indicative only**.
+- Nothing in D44 touches the chart renderer, the load path, the planner, the bar cache, the alarms, the
+  drawings/studies, the orders machinery, the D41 removals, or the D42/D43 data paths.
 
 Status: READY_FOR_VALIDATION

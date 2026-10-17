@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ui.dock_layout import WATCHLIST_COLLAPSED_WIDTH
 from ui.visual_conventions import DiagonalStrikeButton
 from ui.watchlist_panel import (
     ALL_FIELDS,
@@ -384,30 +385,35 @@ def test_D21_10_T01_single_watchlist_label_and_header_is_titlebar(monkeypatch, q
 # ── D21-10-T02 / AC-D21.11.2 — toggle hides body, struck button stays ────────
 
 def test_D21_10_T02_toggle_hides_body_and_keeps_struck_button(monkeypatch, qapp):
-    """D21-10-T02: clicking hides the body; the struck button stays visible."""
+    """D21-10-T02: clicking hides the body; D44 shows the thin bar in its place."""
     win = _boot_main_window(monkeypatch, qapp)
     try:
         panel = win.watchlist_panel
         button = panel.header_button
 
-        # Click -> collapse: body hidden, header/button stays visible + struck.
+        # Click -> collapse: body hidden and the D44 thin bar shown as the body;
+        # the expanded strip (its D22.1 '+' and the D39.1 search box) and the
+        # table (whose horizontalHeader() is the column-header row) are hidden.
         button.click()
         qapp.processEvents()
         assert panel.is_collapsed()
         assert not panel.body.isVisible(), "the panel body should be hidden"
-        assert panel.header_bar.isVisible(), "the header/title bar must stay visible"
-        assert button.isVisible(), "the retained button must not disappear"
+        assert panel.collapsed_bar.isVisible(), "the D44 thin bar must be shown"
+        assert not panel.header_bar.isVisible(), "the expanded strip must be hidden"
+        assert not panel.add_button.isVisible(), "the '+' hides with the strip"
+        assert not panel.table.isVisible(), "the column-header row must be hidden"
         assert button.is_struck(), "the collapsed button must be struck (VIS-D21.1)"
         assert not button.isChecked()
 
-        # Click again -> restore: body shown, strike removed.
+        # Click again -> restore: body + strip shown; the retained button returns
+        # checked and unstruck (its checked/struck state tracks the body).
         button.click()
         qapp.processEvents()
         assert not panel.is_collapsed()
         assert panel.body.isVisible(), "the body should be shown again"
-        assert button.isVisible()
+        assert panel.header_bar.isVisible(), "the strip returns on expand"
+        assert button.isChecked(), "the retained header button returns checked"
         assert not button.is_struck(), "the strike must be removed when shown"
-        assert button.isChecked()
     finally:
         win.close()
 
@@ -417,34 +423,75 @@ def test_D21_10_T02_toggle_hides_body_and_keeps_struck_button(monkeypatch, qapp)
 def test_D21_10_T03_collapsed_button_reachable_drag_and_width_model(
     monkeypatch, qapp
 ):
-    """D21-10-T03: collapsed still shows the button; dock drag; width model holds."""
+    """D21-10-T03: collapsed shows the D44 collapsed form; dock drag; width model."""
     win = _boot_main_window(monkeypatch, qapp)
     try:
         dock = win.watchlist_dock
         panel = win.watchlist_panel
         button = panel.header_button
 
-        # Collapse, then confirm the button is still visible and reachable.
+        # Collapse. D44 (AC-D44.4) hides the expanded affordances — the header
+        # strip and the button inside it — and shows the thin collapsed bar.
         button.click()
         qapp.processEvents()
         assert panel.is_collapsed()
-        assert button.isVisible()
-        assert button.isEnabled()
-        assert panel.header_bar.isVisible()
+        assert not panel.header_bar.isVisible()
+        assert panel.collapsed_bar.isVisible()
 
-        # The dock stays movable/floatable and the header strip is its title bar,
-        # so a title-bar drag/float is still available.
+        # The dock stays movable/floatable and the collapsed thin handle is its
+        # title bar, so a title-bar drag/float is still available (A78).
         features = dock.features()
         assert features & QDockWidget.DockWidgetFeature.DockWidgetMovable
         assert features & QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        assert dock.titleBarWidget() is panel.collapsed_handle
+
+        # D44's collapsed bar is CLICK-TO-EXPAND, so a synthetic double-click on
+        # the handle expands the panel (the expanding release fires before Qt's
+        # title-bar double-click handling) rather than floating the dock. The
+        # drag/float affordance is asserted structurally above — the handle IS the
+        # title bar and the dock keeps both features — and the float path itself is
+        # exercised for real on the EXPANDED header strip below (re-pointed, not
+        # deleted).
+
+        # The D17/D18 width model still holds while the body is hidden — but the
+        # 150px EXPANDED floor is NOT applied to a collapsed dock (D44 revises
+        # AC-D13.1/AC-D17.2): the collapsed dock settles at its exact thin-bar
+        # width now that the collapsed handle is the title bar (P3-T05).
+        for _ in range(12):
+            win._apply_dock_widths(10 ** 6)
+            qapp.processEvents()
+        ca = win._chart_area_width()
+        cap = watchlist_max_width(ca)
+        assert isinstance(win._watchlist_width, int)
+        assert win.watchlist_dock.width() <= cap + 1
+        assert win.watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH, (
+            "a collapsed dock settles at its exact thin-bar width (D44)"
+        )
+        assert ca >= CHART_MIN_WIDTH
+        # Still collapsible/restorable after the clamp cycle.
+        assert panel.is_collapsed()
+        assert panel.collapsed_bar.isVisible()
+
+        # The >= WATCHLIST_MIN_WIDTH leg belongs to the EXPANDED state (D44 moved
+        # the 150px minimum there — revised, not deleted).
+        panel.set_collapsed(False)
+        qapp.processEvents()
+        for _ in range(12):
+            win._apply_dock_widths(10 ** 6)
+            qapp.processEvents()
+        assert not panel.is_collapsed()
+        assert panel.header_bar.isVisible()
+        assert button.isVisible()
         assert dock.titleBarWidget() is panel.header_bar
 
-        # Qt forwards title-bar events to the dock: a double-click on the
-        # header strip floats the dock (the same path a title-bar drag uses).
+        # The float path itself still works: on the EXPANDED dock the header strip
+        # is the title bar, and a double-click on it floats the dock (the same path
+        # a title-bar drag uses). This is the drag/float leg D44 re-points rather
+        # than deletes.
         before_float = dock.isFloating()
-        start = QPointF(panel.header_bar.width() / 2, panel.header_bar.height() / 2)
         _send_mouse(
-            panel.header_bar, QEvent.Type.MouseButtonDblClick, start,
+            panel.header_bar, QEvent.Type.MouseButtonDblClick,
+            QPointF(panel.header_bar.width() / 2, panel.header_bar.height() / 2),
             Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
         )
         qapp.processEvents()
@@ -453,19 +500,100 @@ def test_D21_10_T03_collapsed_button_reachable_drag_and_width_model(
         )
         dock.setFloating(False)
         qapp.processEvents()
-
-        # The D17/D18 width model still holds while the body is hidden.
         for _ in range(12):
             win._apply_dock_widths(10 ** 6)
             qapp.processEvents()
-        ca = win._chart_area_width()
-        cap = watchlist_max_width(ca)
-        assert isinstance(win._watchlist_width, int)
+
+        cap = watchlist_max_width(win._chart_area_width())
+        assert win.watchlist_dock.width() >= WATCHLIST_MIN_WIDTH, (
+            "the EXPANDED watchlist dock must honour the 150px floor"
+        )
         assert win.watchlist_dock.width() <= cap + 1
-        assert win.watchlist_dock.width() >= WATCHLIST_MIN_WIDTH
-        assert ca >= CHART_MIN_WIDTH
-        # Still collapsible/restorable after the clamp cycle.
-        assert panel.is_collapsed()
-        assert button.isVisible()
+    finally:
+        win.close()
+
+
+# ── P3-T02 (D44) — the collapsed-aware dock-width apply path ─────────────────
+#
+# RESIDUE recorded for P3-T05: a collapsed dock cannot settle at its exact
+# thin-bar width (WATCHLIST_COLLAPSED_WIDTH) until the header strip stops
+# occupying the title-bar slot — i.e. until P3-T05 swaps in the 30x28 handle and
+# the thin bar becomes the dock's content. Until then the dock is bounded by the
+# strip (128px), so the tests below assert the D44 behaviour that IS observable
+# at this stage: the collapsed width is PLANNED, and the 150px expanded floor is
+# not applied. The exact-width assertion lands in P3-T05.
+
+
+def _drive_apply(win, qapp, times: int = 12) -> None:
+    """Drive the single dock-width apply entry point until it settles."""
+    for _ in range(times):
+        win._apply_dock_widths(10 ** 6)
+        qapp.processEvents()
+
+
+def test_P3_T02_T11_collapsed_width_planned_floor_not_applied(monkeypatch, qapp):
+    """AC1 — the right-dock-VISIBLE branch plans the collapsed width (D44)."""
+    win = _boot_main_window(monkeypatch, qapp)
+    try:
+        panel = win.watchlist_panel
+        right = getattr(win, "right_dock", None)
+        if right is not None:
+            right.show()
+        qapp.processEvents()
+        assert win._right_dock_available()
+        ca = win._chart_area_width()
+
+        panel.set_collapsed(True)
+        qapp.processEvents()
+        _drive_apply(win, qapp)
+
+        plan_left, _ = win._plan_dock_widths(ca, 10 ** 6, 10 ** 6, left_collapsed=True)
+        assert plan_left == WATCHLIST_COLLAPSED_WIDTH
+        assert win.watchlist_dock.width() < WATCHLIST_MIN_WIDTH, (
+            "a collapsed dock must not be forced up to the 150px expanded floor"
+        )
+    finally:
+        win.close()
+
+
+def test_P3_T02_T21_collapsed_width_hidden_branch_floor_not_applied(monkeypatch, qapp):
+    """AC2 — the right-dock-HIDDEN direct-clamp branch plans the collapsed width."""
+    win = _boot_main_window(monkeypatch, qapp)  # this harness hides the right dock
+    try:
+        panel = win.watchlist_panel
+        assert not win._right_dock_available()
+        ca = win._chart_area_width()
+
+        panel.set_collapsed(True)
+        qapp.processEvents()
+        _drive_apply(win, qapp)
+
+        desired = win._plan_dock_widths(ca, 10 ** 6, 10 ** 6, left_collapsed=True)[0]
+        assert desired == WATCHLIST_COLLAPSED_WIDTH
+        assert win.watchlist_dock.width() < WATCHLIST_MIN_WIDTH
+    finally:
+        win.close()
+
+
+def test_P3_T02_T31_tracked_width_survives_the_collapse(monkeypatch, qapp):
+    """AC3 — `_watchlist_width` tracks the EXPANDED width and is never overwritten."""
+    win = _boot_main_window(monkeypatch, qapp)
+    try:
+        panel = win.watchlist_panel
+        _drive_apply(win, qapp)
+        expanded = win._watchlist_width
+        assert isinstance(expanded, int) and expanded >= WATCHLIST_MIN_WIDTH
+
+        panel.set_collapsed(True)
+        qapp.processEvents()
+        _drive_apply(win, qapp)
+        assert win._watchlist_width == expanded, (
+            "_watchlist_width must not be overwritten with the collapsed width"
+        )
+
+        panel.set_collapsed(False)
+        qapp.processEvents()
+        _drive_apply(win, qapp)
+        assert win._watchlist_width >= WATCHLIST_MIN_WIDTH
     finally:
         win.close()

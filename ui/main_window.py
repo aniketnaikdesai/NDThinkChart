@@ -61,8 +61,10 @@ from ui.watchlist_panel import (
 from ui.dock_layout import (
     CHART_MIN_WIDTH,
     RIGHT_DOCK_MIN_WIDTH,
+    WATCHLIST_COLLAPSED_WIDTH,
     right_dock_max_width,
     plan_dock_widths,
+    plan_watchlist_width,
 )
 from ui.studies_dialog import StudiesDialog, DEFAULT_STUDIES
 from ui.alarm_dialog import AlarmDialog
@@ -439,6 +441,14 @@ class MainWindow(QMainWindow):
         )
         self.watchlist_panel.symbol_remove_requested.connect(
             self._on_watchlist_symbol_remove_requested
+        )
+        # D44: the collapse transition. When the body collapses/expands the
+        # window swaps the dock's title-bar widget, relaxes/restores the
+        # minimum widths and re-applies the dock widths — the
+        # ``_sync_right_dock_collapse`` sequence. See
+        # ``_on_watchlist_collapsed_changed``.
+        self.watchlist_panel.collapsed_changed.connect(
+            self._on_watchlist_collapsed_changed
         )
 
         # ── Single right dock: Portfolio-only (D41 / S6) ────────────────────
@@ -2410,8 +2420,15 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _plan_dock_widths(self, chart_area: int, requested_left, requested_right):
+    def _plan_dock_widths(self, chart_area: int, requested_left, requested_right,
+                          left_collapsed: bool = False):
         """Resolve ``(left, right)`` for the chart area, never below a dock minimum.
+
+        ``left_collapsed`` (D44) is forwarded verbatim to the pure helper: when
+        the watchlist body is collapsed the left dock is fixed at
+        :data:`ui.dock_layout.WATCHLIST_COLLAPSED_WIDTH` and the 150px expanded
+        minimum does not apply. The default ``False`` keeps the expanded call
+        bit-for-bit unchanged.
 
         Delegates to the pure :func:`ui.dock_layout.plan_dock_widths` (B3
         cross-clamp, single source of truth). The pure helper owns *all* of the
@@ -2444,7 +2461,8 @@ class MainWindow(QMainWindow):
         previous = None
         for _ in range(24):
             left, right = plan_dock_widths(
-                ca, int(requested_left), int(requested_right)
+                ca, int(requested_left), int(requested_right),
+                left_collapsed=left_collapsed,
             )
 
             if (left, right) == previous:
@@ -2456,6 +2474,78 @@ class MainWindow(QMainWindow):
             ca = next_ca
         return int(left), int(right)
 
+    def _sync_watchlist_min_width(self, collapsed: bool) -> None:
+        """D44: relax/restore the watchlist dock minimum for the collapse state.
+
+        The panel carries ``WATCHLIST_MIN_WIDTH`` (150px) as its minimum, which
+        would otherwise pin the dock at 150 and defeat the collapsed thin bar.
+        Mirrors the D21.13 right-region pin (:meth:`_sync_right_dock_collapse`):
+        the minimum is relaxed to
+        :data:`ui.dock_layout.WATCHLIST_COLLAPSED_WIDTH` while collapsed and
+        restored to ``WATCHLIST_MIN_WIDTH`` when expanded. Idempotent and never
+        raises.
+        """
+        target = WATCHLIST_COLLAPSED_WIDTH if collapsed else WATCHLIST_MIN_WIDTH
+        for widget in (
+            getattr(self, "watchlist_dock", None),
+            getattr(self, "watchlist_panel", None),
+        ):
+            if widget is None:
+                continue
+            try:
+                if widget.minimumWidth() != target:
+                    widget.setMinimumWidth(target)
+            except Exception:
+                pass
+
+    def _on_watchlist_collapsed_changed(self, collapsed: bool) -> None:
+        """D44: the watchlist collapse transition (title-bar swap + width pin).
+
+        Mirrors :meth:`_sync_right_dock_collapse`:
+
+        * swap the dock's title-bar widget — the thin
+          ``panel.collapsed_handle`` while collapsed, the header strip on
+          expand (un-hidden as it is restored, so the title bar is never a
+          hidden widget) — so the dock stays movable/floatable (A78);
+        * relax/restore the minimum widths (panel + dock) via
+          :meth:`_sync_watchlist_min_width`;
+        * pin the dock to the collapsed width — or, on expand, back to the
+          tracked expanded width ``self._watchlist_width`` (the width held
+          immediately before collapsing, AC-D44.2) — then re-apply on the next
+          event-loop turn, because the dock's layout minimum is only recomputed
+          on the next layout pass, so the immediate resize can be clamped back
+          to the pre-collapse minimum.
+
+        Never raises.
+        """
+        try:
+            dock = getattr(self, "watchlist_dock", None)
+            panel = getattr(self, "watchlist_panel", None)
+            if dock is None or panel is None:
+                return
+            collapsed = bool(collapsed)
+
+            # 1. The title-bar-widget swap (A78).
+            if collapsed:
+                dock.setTitleBarWidget(panel.collapsed_handle)
+            else:
+                panel.header_bar.setVisible(True)
+                dock.setTitleBarWidget(panel.header_bar)
+
+            # 2. The minimum-width flip (panel + dock -> 30 / 150).
+            self._sync_watchlist_min_width(collapsed)
+
+            # 3. Pin the width now, then re-apply on the next event-loop turn.
+            target = (
+                WATCHLIST_COLLAPSED_WIDTH
+                if collapsed
+                else int(getattr(self, "_watchlist_width", WATCHLIST_MIN_WIDTH))
+            )
+            self._resize_docks_guarded([dock], [target])
+            QTimer.singleShot(0, self._apply_dock_widths)
+        except Exception:
+            pass
+
     def _apply_dock_widths(self, requested_left: int | None = None,
                            requested_right: int | None = None) -> int:
         """Shared, idempotent dock-width clamp (D17 watchlist + D18 right region).
@@ -2465,6 +2555,11 @@ class MainWindow(QMainWindow):
         B3 cross-clamp :meth:`_plan_dock_widths` is used so ``chart_area`` keeps
         its ~400px minimum and enlarging one dock forces the other to shrink
         (AC-D18.5); when it is hidden, only the watchlist rule applies (D17).
+
+        D44: the watchlist body's collapse state is read into a dedicated local
+        (``watchlist_collapsed``) and honoured in both branches — a collapsed
+        dock sits at its thin bar and the 150px expanded minimum does not apply;
+        ``self._watchlist_width`` keeps tracking the expanded width.
 
         ``requested_left`` / ``requested_right`` are the widths the user is
         dragging toward; ``None`` means "clamp whatever the dock currently is"
@@ -2486,6 +2581,16 @@ class MainWindow(QMainWindow):
             current_left = dock.width()
             base_left = current_left if requested_left is None else int(requested_left)
 
+            # D44: the watchlist body's own collapse state — a *new* local, never
+            # the ``collapsed`` below (that one is the RIGHT REGION's state). While
+            # collapsed the left dock is fixed at its thin bar and the 150px
+            # expanded minimum does not apply.
+            try:
+                watchlist_collapsed = bool(self.watchlist_panel.is_collapsed())
+            except Exception:
+                watchlist_collapsed = False
+            self._sync_watchlist_min_width(watchlist_collapsed)
+
             right_dock = getattr(self, "right_dock", None)
             collapsed = bool(getattr(self, "_right_region_collapsed", False))
             # D21.13: a fully-collapsed region (both panels hidden) is treated as
@@ -2506,9 +2611,14 @@ class MainWindow(QMainWindow):
                     else int(requested_right)
                 )
                 plan_left, plan_right = self._plan_dock_widths(
-                    chart_area, base_left, base_right
+                    chart_area, base_left, base_right,
+                    left_collapsed=watchlist_collapsed,
                 )
-                self._watchlist_width = plan_left
+                # D44/AC-D44.2: ``_watchlist_width`` tracks the *expanded* width
+                # (the one restored on un-collapse), so it is never overwritten
+                # with the collapsed width.
+                if not watchlist_collapsed:
+                    self._watchlist_width = plan_left
                 self._right_dock_width = plan_right
                 # Both docks are passed together whenever anything changes:
                 # ``resizeDocks`` distributes slack among the *listed* docks, so
@@ -2523,9 +2633,14 @@ class MainWindow(QMainWindow):
                         [dock, right_dock], [plan_left, plan_right]
                     )
             else:
-                cap = watchlist_max_width(chart_area)
-                desired = max(WATCHLIST_MIN_WIDTH, min(base_left, cap))
-                self._watchlist_width = desired
+                # D44: the collapsed/expanded width rule is the pure helper's
+                # (single source of truth) — collapsed fixes the thin bar,
+                # expanded applies today's max(WATCHLIST_MIN_WIDTH, min(base, cap)).
+                desired = plan_watchlist_width(
+                    chart_area, base_left, collapsed=watchlist_collapsed
+                )
+                if not watchlist_collapsed:
+                    self._watchlist_width = desired
                 if collapsed and right_dock is not None:
                     # D21.13: pin the collapsed region to its button strip in the
                     # same resize so the chart keeps the reclaimed width.
@@ -2703,17 +2818,37 @@ class MainWindow(QMainWindow):
         the width is settled when it equals its own cap for the chart area it
         would produce. This avoids reading a chart area that Qt has not yet
         re-laid-out after the previous ``resizeDocks``.
+
+        D44: the check is collapsed-aware — a collapsed watchlist is settled when
+        its width equals the collapsed width (``plan_left`` /
+        :data:`ui.dock_layout.WATCHLIST_COLLAPSED_WIDTH`), so the deferred clamp
+        does not spin against the 150px expanded rule.
         """
         try:
             ca = self._chart_area_width()
+            try:
+                watchlist_collapsed = bool(self.watchlist_panel.is_collapsed())
+            except Exception:
+                watchlist_collapsed = False
             if self._right_dock_available() and not getattr(
                 self, "_right_region_collapsed", False
             ):
                 plan_left, plan_right = self._plan_dock_widths(
-                    ca, self.watchlist_dock.width(), self.right_dock.width()
+                    ca, self.watchlist_dock.width(), self.right_dock.width(),
+                    left_collapsed=watchlist_collapsed,
                 )
+                if watchlist_collapsed:
+                    return (
+                        abs(self.watchlist_dock.width() - plan_left) <= 1
+                        and self.right_dock.width() == plan_right
+                    )
                 return self.right_dock.width() == plan_right and (
                     ca - plan_left - plan_right >= CHART_MIN_WIDTH - 1
+                )
+            if watchlist_collapsed:
+                return (
+                    abs(self.watchlist_dock.width() - WATCHLIST_COLLAPSED_WIDTH)
+                    <= 1
                 )
             invariant = ca + self.watchlist_dock.width()
             return self._watchlist_width == watchlist_max_width(

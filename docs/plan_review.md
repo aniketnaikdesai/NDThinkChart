@@ -1998,3 +1998,338 @@ changed.** The amendment was **merged into** the existing canonical sections (§
 editorially and recorded above. `docs/plan_notes.md` unmodified; `docs/code_review/escalations.json`
 untouched (`ESC-050` remains the Code Reviewer's to flip after its own re-verification). **Task Manager
 may proceed; `docs/plan.md` ends `Status: READY_FOR_TASK_MANAGER`.**)
+
+---
+
+# Plan Review — Batch 19 (**D44**: the collapsed Watchlist becomes a thin vertical bar that expands to the full panel) — 2026-10-16 (initial validation)
+
+> **Run shape.** Legacy single-scope (the invocation preamble carries **no** `phase: P<n>`), so the
+> inputs are the unsuffixed `docs/plan_proposal.md` + `docs/architecture_proposal.md`, this review file
+> is `docs/plan_review.md` (not `plan_review_P<n>.md`), and **no phase gate applies** — the approval is
+> direct, merging the D44 increment into the cumulative canonical artifacts.
+>
+> **Freshness.** Proposal pair 17:47/17:48 ≥ `requirements.md` 17:28 ✓; `docs/codebase-map.md` 17:40
+> (written this batch) ✓. The prior contents of this review file were the D42 cycle-3 `APPROVED`
+> record; the D42 draft proposals they validated had already been replaced.
+
+## Review Status
+`Status: APPROVED` — the D44 increment is validated in full (no provisional pass exists, and the
+prior phase/batch review completed before this invocation), and the canonical artifacts were written
+from this cycle.
+
+## Validation Summary
+
+**Inputs read.** `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`, revised 2026-10-16
+17:28) — the D44 status/audit block (`:118`–`:136`), the revised `## Non-Goals` (`:258`–`:267`), the
+D44 work item (`:353`–`:365`), **Journey 37** (`:976`–`:989`), **`### D44`** (`:3782`–`:3925`),
+`AC-D44.1`–`AC-D44.8` (`:3854`–`:3891`), the supersession/revision record (`:3892`–`:3905`), the edge
+cases (`:3906`–`:3913`), the correction record (`:3914`–`:3925`), `A75`–`A78` (`:4005`–`:4008`),
+`R66`–`R67` (`:4129`–`:4130`), the Batch-19 summary (`:4239`–`:4246`), the Current Tech Stack
+(`:374`–`:391`) — all present and Requirements-owned ✓. `docs/requirements/design_gaps.md` **DG74**
+(`:1177`–`:1182`, open/non-blocking). `docs/requirements/open_questions.md` **Q54** (answered
+2026-10-16; non-blocking defaults A75–A77). `docs/code_review/escalations.json` — **26 entries, exactly
+one `open` (ESC-055, `routed_to: TASK_MANAGER`, `nice-to-have`); zero `PLAN`-routed entries** ⇒ the
+escalation-validation path does not apply and the file was **not** edited. `docs/memory.md` (140
+lines) — incl. the 2026-10-16 **pyqtgraph locked decision**, the D17/D18 chart-area cap + single-apply
+rule, the ESC-026 re-flooring lesson, the ESC-043 `DB_PATH` probe rule and the guard-credibility rule
+(2026-10-05). The proposal pair (`Status: READY_FOR_VALIDATION`). `docs/codebase-map.md`.
+`docs/plan.md`, `docs/architecture.md`, `docs/plan_notes.md` as context.
+
+**Source verification (independent, this cycle).** Every load-bearing claim was re-checked against the
+working tree at **`0c4d478` (= HEAD)** rather than accepted: `ui/dock_layout.py` (the constants,
+`plan_dock_widths`'s unconditional `max(WATCHLIST_MIN_WIDTH, …)` at `:89` and its infeasible
+`return WATCHLIST_MIN_WIDTH, RIGHT_DOCK_MIN_WIDTH` at `:98`, the `CHART_MIN_WIDTH` invariant note at
+`:12`–`:14`), `ui/main_window.py` (the dock wiring `:369`–`:431`, `_apply_dock_widths` `:2459` incl. the
+right-dock-hidden clamp `desired = max(WATCHLIST_MIN_WIDTH, min(base_left, cap))` at `:2527`,
+`_plan_dock_widths` `:2413`, `_dock_widths_consistent` `:2698`, `closeEvent` `:3349`/`:3363`),
+`ui/watchlist_panel.py` (the constants/aliases `:93`–`:96`, `header_bar` `:294`, `_on_header_toggled`
+`:435`, `is_collapsed`/`set_collapsed`/`toggle_collapsed` `:447`–`:461`, the data/pure helpers),
+`ui/visual_conventions.py` (`set_button_active` `:80`, `ACTIVE_PROPERTY` `:39`,
+`DiagonalStrikeButton` `:109`), `tests/test_dock_widths_d17.py:17`–`:21` (the ±1px convention),
+`tests/test_watchlist_columns_d21.py` (`test_D21_10_T01` `:352`, `_T02` `:386`, `_T03` `:417` and every
+cited line inside them), `tests/test_watchlist_nonregression_d22.py` (`:10`, `:104`–`:124`),
+`tests/test_watchlist_add_remove_d22.py::test_D22_04_T01` (`:56`, `:79`), the MainWindow-booting
+suites, and `docs/codebase-map.md`'s module index (every named module exists; no D41-deleted module
+appears). `graphify-out/graph.json` = **4,859 nodes**, `built_at_commit 7b98bb9` — matching the
+proposals' figure. **No graphify query was needed**: the surface is three files and their suites, and
+every claim was read directly in source (the graph is discovery only).
+
+**Independent technical verification (offscreen probes, Qt 6.11.0, `DB_PATH` exported per ESC-043).**
+Rather than accept the proposal's three probe claims, the Validator re-ran them:
+1. **Pre-fix RED is achievable for the right reason.** Collapsing through the existing
+   `set_collapsed(True)` leaves the dock at its **expanded** width (256px with a 1138px chart area) and
+   `resizeDocks([dock], [30])` clamps to **150** — so a guard asserting the collapsed width fails on
+   the **width**, not on an `ImportError`.
+2. **`AP-D44-1` verified.** The dock's reachable floor is set by **widget minimums**, not
+   `resizeDocks`: with the strip in the title-bar slot the dock's `minimumSizeHint()` is 128px
+   (`resizeDocks([dock],[30])` → 128); with the plan's collapsed wiring (strip + table hidden, a 30px
+   bar as content, a 30×28 handle as the title-bar widget, panel **and** dock minimum relaxed to 30)
+   `dock.minimumSizeHint() == QSize(30, -1)` and `resizeDocks([dock], [30])` yields **exactly 30**,
+   stable across a window resize, with the expand path restoring the previous width. (`resizeDocks`
+   rejects a 0 size, so the collapsed width must stay a positive constant — 30 is.)
+3. **`FI-D44-2`'s evidence corroborated and the swap proven safe.** The title-bar widget occupies the
+   **top** of the dock at its own `sizeHint` height (a 28px widget → `QRect(0, 0, 63, 28)`), so a
+   full-height bar is impossible there; and `setTitleBarWidget` does **not** destroy the outgoing
+   widget on this Qt — both the strip and the handle survive a collapse → expand round trip (including
+   a real event-loop turn and a `DeferredDelete` flush). S25's swap is therefore safe.
+   A fourth probe confirmed the expanded state is **not** disturbed by merely adding the hidden bar +
+   handle (floor still 150, 220 honoured, the strip still visible) — the premise of `AC-D44.8`'s
+   "expanded suites unaffected".
+
+## Requirements Coverage (one line per step)
+- **Coverage — PASS.** Every `AC-D44.1`–`AC-D44.8`, Journey 37's five steps and its nine edge cases,
+  `A75`–`A78`, `R66`/`R67`, `DG74` and the revised `AC-D21.11.2`/`.3` + 150px-minimum clause of
+  `AC-D13.1`/`AC-D17.2` map to a phase with a verdict, and the traceability table is complete; nothing
+  is weakened, reinterpreted or silently removed. The `## Non-Goals` revision is reflected in both
+  artifacts. **No requirement is left without architectural treatment.**
+- **Completeness — PASS.** Tech Stack (`S22` existing-first, then `S23`–`S28`, each with rationale +
+  rejected alternatives), Codebase Summary, Summary, System Components, Data Model, Integration
+  Points, Frozen Interfaces, Non-Functional Approach and `AR-D44-1`–`AR-D44-10` are all present and
+  source-verified.
+- **Consistency — PASS.** No contradiction found: the collapsed rule is applied at **both** clamp
+  branches of the single apply entry point; the expanded branch (incl. the infeasible `(150, 200)`
+  result) is preserved bit-for-bit by the defaulted parameter; `_watchlist_width`'s tightened meaning
+  is consistent across the apply path, the persistence path and `_dock_widths_consistent`; the
+  supersessions match the requirements' own record exactly (`AC-D21.11.2`/`.3` revised;
+  `AC-D13.1`/`AC-D17.2`'s minimum expanded-only; `AC-D21.11.1`, `AC-D22.1` expanded and the D13/D17
+  cap/persistence/drag/re-clamp clauses unchanged); no phase depends on architecture defined nowhere.
+- **Plan quality — PASS.** Two ordered phases with goal / coverage / dependencies / deliverable; Phase
+  1 is one meaningful body of work ("the collapsed watchlist thin bar"), Phase 2 is the repo's
+  batch-level reconciliation with **no production edit**; no per-task acceptance criteria, no task
+  graph, no per-task test spec. The per-file `touches_files` map + wave constraints are the repo's
+  established sequencing/partition support (accepted at this level in the D41/D42 cycles), not a task
+  breakdown.
+- **Task Manager readiness — YES.** No architectural decision is left open: the technology (no new
+  dependency; `paintEvent` + `QPainter.rotate` on the existing `QtGui` import), the component
+  boundaries (pure rule → panel widget → window wiring), the data model (no new key; the width key's
+  meaning), the interfaces (frozen list + the two new suites' homes), and the sequencing (D before
+  A/C, A and C in different waves, C after A and B) are all fixed. Task Manager can build a valid task
+  graph — including meaningful `touches_files` sets for wave scheduling — without inventing anything.
+- **Scope integrity — PASS.** D44 is the owner-requested exception the `## Non-Goals` edit records;
+  no product scope is added beyond it, none removed, no requirement meaning changed. `ESC-055` is
+  applied but not absorbed.
+- **Existing-repo compliance (step 7) — PASS.** See below.
+- **Frozen Interfaces (step 8) — PASS.** See below.
+- **Codebase Map (step 9) — PASS.** See below.
+
+## Architecture Findings
+- The **core decision is right and independently verified**: the collapsed-width rule belongs in the
+  pure, Qt-free `ui/dock_layout.py` (three consumers — `plan_dock_widths`, the right-dock-hidden
+  branch that never calls it, and the persistence clamp), which is exactly the ESC-026 lesson
+  (`docs/memory.md` 2026-10-03) and DG74's suggested resolution. The defaulted `left_collapsed=False`
+  is what makes "expanded suites unaffected" verifiable rather than hopeful.
+- The **minimum-width relaxation + deferred re-apply** is the proven D21.13 sequence, not an invention
+  — and the probe evidence shows it is **necessary**, not decorative (without it the dock's floor is
+  128px, not 30).
+- The **split affordance** (full-height bar as content; 30×28 handle in the title-bar slot) is the only
+  shape that satisfies `AC-D44.1`'s "full-height bar" and `DG37`'s movability simultaneously; the
+  Validator's probe confirms both halves.
+- **No new dependency, no new Qt module, no stack change**; the pyqtgraph chart stack (**locked**,
+  `docs/memory.md` 2026-10-16) is untouched, and no D44 path reaches the renderer, the load path, the
+  planner, the bar cache, the orders machinery or the right dock.
+
+## Plan Findings
+- **Phases ✓.** Phase 1 carries the production change **and** every suite it invalidates (the
+  `ESC-055` lesson); Phase 2 reconciles and produces the RED→GREEN evidence with no production edit.
+- **The corrections are intent-preserving, not weakened ✓** — each of the four sites + the docstring
+  moves an assertion to the state in which it is still true (verified line-by-line against the tree:
+  `test_D21_10_T02` `:398`–`:401`, `test_D21_10_T03` `:431`/`:433`/`:440`/`:444`–`:452`/`:458`/`:465`,
+  `test_watchlist_nonregression_d22.py` `:10`/`:114`–`:117`/`:121`–`:124`,
+  `test_watchlist_add_remove_d22.py::test_D22_04_T01` `:79`), and none is deleted, skipped or relaxed
+  to "no exception raised".
+- **The guard is credible ✓** — it drives the existing `set_collapsed` API, references the new constant
+  defensively, and fails pre-fix on the width (probe-measured: collapsed dock stays at its expanded
+  width; `resizeDocks(30)` → 150).
+- **`touches_files`/wave constraints ✓** — the two shared files (`ui/main_window.py`,
+  `tests/test_watchlist_columns_d21.py`) are called out with the required cross-wave split, and the
+  ordering (pure rule → consumers; widget → wiring; wiring after the apply path) is explicit.
+- **Assumptions `AP-D44-1`–`AP-D44-9`** are plan-level, encode no requirements decision, and are
+  consistent with `A75`–`A78`/`DG74`/`Q54`.
+
+## Existing Repo Compliance
+Run against an existing repository (`requirements.md` carries the marker sentence and a
+placeholder-free **Current Tech Stack**). Per check:
+- **Codebase Summary present and substantive — PASS.** The D44 increment carries its own Codebase
+  Summary: the persisted/in-memory data surface (`watchlist/width`, `watchlist/columns`, no collapse
+  key, `_watchlist_width`/`_persisted_watchlist_width`/`_applying_dock_widths`), a components table
+  with responsibilities and line anchors, the key entry points/data flow, the existing integrations,
+  and the "what D44 changes in one line" statement — every item re-verified in source this cycle.
+- **Existing stack respected — PASS.** `S22` lists the constrained choices **first** (Python 3.11+
+  `.venv` on macOS arm64, PyQt6 ≥6.6, pyqtgraph ≥0.13, numpy, official `ibapi` pinned
+  `ibapi-latest==10.51.1` with live-7496-only, `yfinance==1.7.0`, SQLite via
+  `config/paths.get_db_path()`, `QSettings`, PyInstaller `.app`, pytest + pytest-qt offscreen) before
+  any D44 row; **nothing existing is replaced or deprecated** and no new dependency/integration is
+  added. *(Editorial completion applied by the Validator: the proposal's `S22` omitted
+  `yfinance==1.7.0` from its enumeration of the Current Tech Stack — the canonical `S22` now names it,
+  so every Current Tech Stack item appears as an existing/constrained choice. Bookkeeping only: the
+  dependency is unchanged, untouched by D44, and already named as `[existing]` in the D44 Codebase
+  Summary and Integration Points. Recorded below as a non-blocking observation.)*
+- **Labels present — PASS.** Tech Stack: `[existing]` `S22`, `[new in D44]` `S23`–`S28`. System
+  Components: `[existing]` / `[new/changed]` on every entry. Data Model and Integration Points label
+  every entry (`[existing]` / `[new/changed]`).
+- **Additive-only — PASS.** The only behaviour changes are the collapsed-state rule, the collapsed
+  visual and the transition wiring that `AC-D44.1`–`AC-D44.8` require; nothing D1–D43 depends on is
+  redesigned; `ui/visual_conventions.py` is consumed and explicitly never modified; the D13/D17
+  expanded-state model, the D14/D21.5/D22/D39 behaviour and the D18/D21.13/D41 right dock are
+  untouched.
+- **Codebase Summary consistent with the proposal — PASS.** Every `[existing]` item the proposal names
+  exists as described (verified: `header_bar`/`header_button`/`add_button`/`search_box`/`table`/`body`,
+  the three aliased constants, `plan_dock_widths`/`watchlist_max_width`/`right_dock_max_width`, the
+  dock wiring and `setFeatures`, `set_button_active`/`ACTIVE_PROPERTY`/`DiagonalStrikeButton`), and
+  every `[new/changed]` item is exactly the D44 set.
+
+## Frozen Interfaces
+- **Verbatim contracts — PASS.** Every entry carries the actual signature/shape; the Validator
+  re-read each in source: `set_button_active(button: QWidget, active: bool) -> None`
+  (`ui/visual_conventions.py:80`), `ACTIVE_PROPERTY = "active"` (`:39`), the `DiagonalStrikeButton`
+  members (`:133`/`:138`/`:144`/`:148`/`:175`/`:180`/`:186`), the five `WatchlistPanel` signals
+  (`:248`–`:257`), `is_collapsed`/`set_collapsed`/`toggle_collapsed` (`:447`–`:461`), the data API
+  (`:490`/`:505`/`:766`/`:770`/`:774`/`:780`/`:784`/`:830`/`:888`), the width/persistence helpers
+  (`:99`/`:116`/`:126`/`:96`), the pure helpers (`:135`/`:150`/`:179`/`:188`/`:195`/`:218`/`:227`), the
+  `ui/dock_layout` constants and helpers, `plan_dock_widths`'s 3-argument expanded contract (incl. the
+  infeasible `(150, 200)`), the `CHART_MIN_WIDTH` invariant note (`ui/dock_layout.py:12`–`:14`),
+  `MainWindow._chart_area_width`/`::_read_persisted_width`/`::_resize_docks_guarded`, and the watchlist
+  dock identity (`objectName "Watchlist"`, empty window title, `Movable | Floatable`). No prose
+  description stands in for a signature.
+- **Nothing under construction is frozen — PASS.** `plan_watchlist_width`, `plan_dock_widths`'s
+  collapsed mode, `clamp_watchlist_width`, `_apply_dock_widths`/`_plan_dock_widths`/
+  `_dock_widths_consistent`, `_on_header_toggled`/`_apply_collapsed_visual` and the two new widgets are
+  explicitly **excluded**; the two entries whose *scope* narrows while their contract does not
+  (`WATCHLIST_MIN_WIDTH`'s value; `plan_dock_widths`'s 3-argument behaviour) are annotated so no
+  reader mistakes them for unmodified-by-omission.
+- **Nothing frozen is missing — PASS.** Every `[existing]` interface the phase consumes but does not
+  modify appears (`set_button_active`, the width/persistence helpers, `watchlist_max_width`,
+  `_resize_docks_guarded`, `_chart_area_width`, the dock identity, the collapse API); the widgets D44
+  *does* change (the strip, the table, the `+`, the search box) are correctly **not** frozen.
+- **Owning module resolves — PASS.** All owning modules (`ui/visual_conventions.py`,
+  `ui/watchlist_panel.py`, `ui/dock_layout.py`, `ui/main_window.py`) exist and are listed in
+  `docs/codebase-map.md`. **No duplicates.**
+
+## Codebase Map
+- **Every module section resolves — PASS.** All named modules exist in the tree (`main.py`; the `ui/`,
+  `services/`, `data/`, `ibkr/`, `config/` entries incl. `ui/overlays/*`; the `ui/*_dialog.py` group;
+  `pytest.ini`/`requirements*.txt`).
+- **Key files/symbols exist — PASS.** Spot-checked well beyond three: the module line counts
+  (`ui/main_window.py` 3,399; `ui/watchlist_panel.py` 1,003; `ui/dock_layout.py` 139;
+  `ui/visual_conventions.py` 203; `ui/chart_panel.py` 1,683; `ui/candlestick_item.py` 251;
+  `ui/ticker_session.py` 1,106; `ui/active_portfolio_panel.py` 423) and the named entry points
+  (`BarCache.save_bars/get_bars/prune` + `RETENTION_BARS`, `session_windows`/`is_trading_day`/
+  `trading_days`, `find_missing_spans`/`plan_requests`/`floor_bar_budget`/`bar_period_seconds`/
+  `MissingSpan`/`RequestPlan`, `DB._init_schema`/`_migrate_schema`, `PortfolioPanel.summary_label`,
+  `TickerSession.get_bars/set_bars/_append_bar/queue_wave_plans`,
+  `ChartPanel.update_chart/update_last_bar/set_symbol/set_timeframe/_refresh_candles`,
+  `CandlestickItem.set_data/_draw_candles/capped_body_half_width`, `TimeCollapseMap._to_display`,
+  `IBApiClient.connect/connected`, `TIMEFRAME_CONFIG`, `EventProvider`) all resolve. The
+  `graphify-out/graph.json` provenance claim (**4,859 nodes**, `built_at_commit 7b98bb9`) is accurate,
+  and the tests figure ("128 files") matches the 128 test modules (plus `conftest.py`).
+- **No stale entries — PASS.** None of the modules D41 removed (`ui/active_trader_panel.py`,
+  `ui/footprint_item.py`, `ui/depth_heatmap_item.py`, `data/footprint_cache.py`,
+  `services/footprint_service.py`, `services/depth_heatmap.py`, `ibkr/market_depth.py`, …) appears in
+  the map; the D41/D42 status labels are consistent with the merged tree.
+- **Status labels current — PASS.** `[changed in D44]` on exactly the three production modules and the
+  two test groups this batch touches; `[new in D44]` on the two new suites; every other entry stays
+  `[existing]`; the legend states the batch-relative convention (non-suffixed legacy run) explicitly.
+- **Index-sized — PASS (one borderline row).** Entries are symbol lists, not prose. The
+  `ui/main_window.py` and `ui/watchlist_panel.py` rows run to ~5–6 wrapped lines because they enumerate
+  key entry points — at the size limit for an index, but they are pointers (symbol names), which is the
+  file's stated purpose. Recorded as a non-blocking observation; no entry is doing documentation's job.
+
+## Required Changes
+**None.** No architectural decision is missing or wrong, no requirement is uncovered, and Task Manager
+would not have to invent anything. The four items below are **non-blocking observations**; three were
+normalized **editorially** in the canonical artifacts the Validator owns (no `S`-decision, `AC`, phase,
+task or test outcome changed) and one is an implementation note now carried in the plan's file map.
+
+## Non-blocking observations (recorded; no decision required)
+1. **`S22` completed with `yfinance==1.7.0` (editorial).** The proposal's existing-stack row omitted
+   the D38 secondary source from its enumeration, so "every Current Tech Stack item appears as an
+   existing/constrained choice" did not hold literally. The canonical `S22` now names it. No
+   replacement or deprecation anywhere — the check's substance (no silent stack change) was already
+   satisfied.
+2. **Local-name collision normalized in the plan (editorial, real bug risk).** `_apply_dock_widths`
+   already binds `collapsed` at `ui/main_window.py:2490` for the **right region's** state. The
+   proposal's S24 wrote the new watchlist read as `collapsed = bool(self.watchlist_panel.is_collapsed())`
+   in the same method, which would shadow it. The canonical plan's file-group A row now says to use a
+   **new local (`watchlist_collapsed`)**. Mechanical; no decision.
+3. **Expand-order precision recorded (editorial).** S26 now states that the expand path un-hides
+   `header_bar` **as** it is restored to the title-bar slot, so the dock's title bar is never a hidden
+   widget. Implementation ordering inside one method; no decision.
+4. **The "verified unchanged" claim is stated by rule, not by inspection (normalized).** The proposal
+   asserted that every test file reaching the changed entry points "was found by grep and classified",
+   but ~45 further modules boot a `MainWindow` (and therefore *drive* `_apply_dock_widths` through
+   `resizeEvent`) without appearing row-by-row. The canonical plan now states the **gate rule** — the
+   changed behaviour is collapsed-gated, every one of those suites runs expanded, so no expanded-path
+   assertion can be invalidated — with the full-suite run as the backstop. This is the D42/`ESC-050`
+   lesson applied (an enumeration claim must be generated by a rule, not asserted by inspection); the
+   enumerated direct call sites are unchanged and independently confirmed against the tree.
+
+## Requirements Escalations
+**None.** The three flagged issues were **ruled on this cycle** and all three are requirements-neutral;
+they are recorded in `docs/plan_notes.md` as `FI-D44-1`, `FI-D44-2`, `FI-D44-3` — each
+`Status: addressed`, `Escalation: none`. No `ESCALATED_TO_REQUIREMENTS`, no Requirements Analyst
+action, and `docs/code_review/escalations.json` was not edited.
+
+- **`FI-D44-1` — the exact-equality measurables vs the repo's ±1px tolerance → RATIFIED as a
+  measurement convention.** `AC-D44.1`/`AC-D44.5` demand `watchlist_dock.width() ==
+  WATCHLIST_COLLAPSED_WIDTH`; the repo's convention tolerates a 1px residual because
+  `_apply_dock_widths` only re-issues a resize when the delta exceeds 1px
+  (`tests/test_dock_widths_d17.py:17`–`:21`). **Ruling:** the reading is faithful — assert the **dock**
+  width exactly, as the criteria write it (probe-verified deterministic: `resizeDocks([dock],[30])` →
+  exactly 30), and keep `+1` only for inner/derived values the criteria do not name. The requirement's
+  *outcome* ("the bar is 30px and stays 30px") is unchanged, so the ACs need **no** requirement-side
+  clarification; the 1px dead-band is itself unchanged behaviour and the guard asserts after the apply
+  path has run.
+- **`FI-D44-2` — `A78`'s "the title-bar widget presents the bar" cannot be literal for a *full-height*
+  bar → CONFIRMED SATISFIED (intent met); no wording escalation.** A Qt title-bar widget is laid out at
+  the **top** of the dock at its own `sizeHint` height (probe-verified by Plan and re-verified here),
+  so the full-height bar cannot live there. D44's split — the full-height bar as the dock's **content**,
+  a 30×28 handle in the **title-bar slot** (movable/floatable, DG37, clickable to expand) — preserves
+  everything `A78` fixes; `A78` explicitly delegates the mechanism, and the requirement's own correction
+  record sanctions exactly this swap. The bar-as-title-bar variant stays recorded as the fallback.
+- **`FI-D44-3` — A76's silence on the width persisted when closing *while collapsed* → CONFIRMED
+  (persist the tracked expanded width).** `_watchlist_width` is never assigned while collapsed, so
+  `closeEvent`'s unchanged `save_watchlist_width(...)` writes the user's **expanded** width; persisting
+  the applied 30px would be re-clamped to 150 by `clamp_watchlist_width` on the way out — a silent loss
+  of the user's width. Consistent with A76's own outcome ("no collapse key; the app starts expanded").
+
+## Task Manager Readiness
+**Ready.** The architecture is decision-complete (no stack, boundary, integration, data-model,
+interface or dependency decision is left open), the two phases are coarse, ordered and partitioned by
+file with the shared-file wave constraints stated, every requirement and journey has a phase and a
+verdict, the frozen contracts are verbatim and complete, and the corrections ride with the production
+change that invalidates them. Task Manager can build a valid task graph without making any
+architectural decision.
+
+## Artifacts written this cycle
+- `docs/architecture.md` — `## D44 increment` appended (Summary; Codebase Summary incl. the Validator's
+  independent probe evidence; the relationship table with `[new in D44]`/`[revises …]`/`[extends …]`
+  labels; `S22`–`S28`; System Components; Data Model; Integration Points; the **Frozen Interfaces**
+  checklist; Non-Functional Approach; `AR-D44-1`–`AR-D44-10`; the requirements→architecture traceability
+  table; the supersessions; the three ruled flagged issues; handoff), and a D44 clause added to the
+  title line. The D1–D43 record is preserved unchanged.
+- `docs/plan.md` — `## D44 — Batch 19 …` appended (coverage table, the two phases, the per-file
+  `touches_files` map + wave constraints, the corrected/extended/added/verified-unchanged test tables
+  and the RED→GREEN evidence, the enumeration invariant, `AP-D44-1`–`AP-D44-9`, the three rulings, the
+  correction record, the incidentally-affected list, the handoff); the document-state block updated and
+  the consumed D42 terminal status marked superseded. Ends `Status: READY_FOR_TASK_MANAGER`.
+- `docs/plan_notes.md` — `FI-D44-1`, `FI-D44-2`, `FI-D44-3` appended (all `addressed`,
+  `Escalation: none`).
+- `docs/plan_review.md` — this review.
+- **Not touched:** `docs/requirements/*`, `docs/codebase-map.md` (Plan-owned), `docs/code_review/*`,
+  `docs/memory.md`, `docs/tasks/*`.
+
+## Final Decision
+Status: APPROVED (2026-10-16, D44 initial validation — the only cycle; no `CHANGES_REQUIRED` preceded
+it). The three architecture decisions (`S23` the pure collapsed-width rule, `S24` the collapsed-aware
+apply path + the D21.13 min-width pin, `S25`/`S26` the bar widget + the collapsed visual + the
+transition signal) all **verify against source**, and the plan's three load-bearing technical claims
+were **independently re-verified by offscreen probe** (pre-fix RED for the right reason; the collapsed
+width reachable exactly at 30 with the plan's wiring and 128px without it; the title-bar slot unable to
+hold a full-height bar and the title-bar swap non-destructive). All three flagged issues are **ruled**
+(`FI-D44-1` ratified as a measurement convention, `FI-D44-2` confirmed as intent-satisfying, `FI-D44-3`
+confirmed as the expanded-width persistence), with **no requirements escalation**. Requirements are
+covered, the architecture is internally consistent, the phases are coarse and correctly ordered, the
+existing stack is respected with no replacement, the frozen contracts are verbatim and complete, and
+the codebase map validates. Four non-blocking observations recorded, three normalized editorially in
+the canonical artifacts. **Task Manager may proceed; `docs/plan.md` ends
+`Status: READY_FOR_TASK_MANAGER`.**

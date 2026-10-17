@@ -70,13 +70,16 @@ def test_D22_04_T01_add_affordance_and_placement(panel, qapp):
     assert lay.indexOf(add_btn) != -1
     assert lay.indexOf(panel.header_button) != -1
 
-    # The D21.11 toggle still collapses/restores the body while the strip stays.
+    # The D21.11 toggle still collapses/restores the body; D44 hides the strip
+    # (and therefore the '+' it carries) while collapsed and shows the thin bar.
     assert panel.body.isVisible()
     panel.header_button.click()
     qapp.processEvents()
     assert panel.is_collapsed()
     assert not panel.body.isVisible()
-    assert hb.isVisible()
+    assert not hb.isVisible()
+    assert not add_btn.isVisible()
+    assert panel.collapsed_bar.isVisible()
     panel.header_button.click()
     qapp.processEvents()
     assert not panel.is_collapsed()

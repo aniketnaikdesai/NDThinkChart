@@ -6,8 +6,9 @@ prior D1-D21 watchlist / dock behaviours are unchanged alongside them:
 
   * D21.5  — the right-click column-header popup still opens with the 7
              checkable fields and a non-removable Symbol;
-  * D21.11 — the in-panel "Watchlist" toggle still hides/shows the body and the
-             collapsed button stays visible + struck (VIS-D21.1);
+  * D21.11 — the in-panel "Watchlist" toggle still hides/shows the body; while
+             collapsed the D44 thin bar is shown and the header strip is hidden,
+             and the toggle's checked/struck state tracks the body (VIS-D21.1);
   * D14    — a double-click still emits the row's symbol, resolved by field key;
   * D21.13 — the retained Portfolio header (the single right dock's title-bar
              toggle) still collapses + restores its panel and stays struck iff
@@ -111,8 +112,8 @@ def test_D22_09_T01_watchlist_nonregression(window, qapp):
     qapp.processEvents()
     assert panel.is_collapsed()
     assert not panel.body.isVisible()
-    assert panel.header_bar.isVisible()
-    assert button.isVisible()
+    assert panel.collapsed_bar.isVisible()
+    assert not panel.header_bar.isVisible()
     assert button.is_struck()
     assert not button.isChecked()
 

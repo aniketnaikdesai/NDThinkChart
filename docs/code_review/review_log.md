@@ -3791,3 +3791,119 @@ Orchestrator's own run (`pass`, exit 0). **ESC-054 is closed.** One open escalat
 suite. ESC-001…ESC-053 are all `addressed`.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Code Review — D44 / Batch 19 (collapsed Watchlist → thin vertical bar)
+
+**Reviewer:** Code Reviewer agent · **Date:** 2026-10-17 · **Phase:** P3 (D44, Batch 19)
+**Scope (incremental):** `P3-T01`…`P3-T05` — the only tasks with results newer than the last
+`REVIEW_COMPLETE` (03:xxZ). `docs/build/build_log.md` ends `Status: READY_FOR_REVIEW`; the batch is
+COMPLETE (all 5 tasks `done`).
+**Verification inputs (ground truth, consumed not re-derived):**
+- `test_verification.json` — `VERIFY: pass`, exit 0, 68.16 s, no skips/xfails → the suite genuinely passed; not re-run.
+- `precheck.json` — scope `[P3-T01..P3-T05]`, `fail_fast: [P3-T01]` (footprint), 1 `PRE-*` entry (`PRE-001`),
+  `escalation_updates`: ESC-055 changed. Consumed, not re-run.
+**Method:** read the diffs of every reviewed `files_changed` (`ui/dock_layout.py`, `ui/watchlist_panel.py`,
+`ui/main_window.py`, the 5 test files, the 2 new suites) and the surrounding call paths; ran three **inline**
+offscreen probes (`python -` heredoc, `DB_PATH` redirected to the temp dir — **no repo file was written**) to
+adjudicate the AC-D44.2 expand-restore residual and the collapsed-handle eventFilter.
+
+## A. Failure diagnosis — none
+
+No task was `blocked`; `failures.json` is empty; the precheck reports no fail_fast beyond the P3-T01 footprint
+item (below). All 5 tasks' own tests pass (P3-T01 4/4, P3-T02 5/5, P3-T03 7/7, P3-T04 4/4, P3-T05 7/7).
+
+## B. Quality review — findings
+
+| id | task | category | class | severity | route |
+|----|------|----------|-------|----------|-------|
+| ESC-056 | P3-T01 | consistency | bad_task_breakdown | should-fix | TASK_MANAGER |
+| ESC-057 | P3-T05 | consistency | requirements_gap (wording) | nice-to-have | REQUIREMENTS |
+| ESC-058 | — | gap | requirements_gap (doc coverage) | should-fix | TASK_MANAGER |
+
+### B1. PRE-001 adjudication — P3-T01's out-of-footprint `ui/watchlist_panel.py` edit — **LEGITIMATE, code correct**
+
+**Verdict: NOT a defect in the code; the graph's `touches_files` is what is wrong.** P3-T01's own **AC4**
+mandates that `clamp_watchlist_width(width, chart_area_w)` "delegates to `plan_watchlist_width(...,
+collapsed=False)` and never returns the collapsed width". That function is a module-level def in
+`ui/watchlist_panel.py`, not `ui/dock_layout.py` (the task's `outputs` list mis-attributes it to
+`dock_layout`). The diff confirms exactly the mandated edit — `ui/watchlist_panel.py::clamp_watchlist_width`
+now `return dock_layout.plan_watchlist_width(chart_area_w, width, collapsed=False)` — and
+`tests/test_dock_layout.py::test_P3_T01_T41` + `tests/test_watchlist.py::test_clamp_watchlist_width_stays_expanded_never_collapsed`
+pin the expanded delegate. The orchestrator correctly declined the fail-fast rework (re-dispatching could only
+have reverted a contract-required edit). The deviation is **legitimate**; the graph's footprint is incomplete →
+**ESC-056** (TASK_MANAGER). `PRE-001` is not present in `escalations.json` (the orchestrator never appended it),
+so there is nothing to flip; this entry is its adjudication.
+
+### B2. P3-T05's three footprint flags — judged
+
+**(a) Float leg re-pointed — ACCEPTED BEHAVIOUR.** D44's collapsed bar is owner-mandated click-to-expand
+(`AC-D44.1`/`AC-D44.2`: "clicking **anywhere** on the thin bar ... expands"). A synthetic double-click on the
+30px handle necessarily delivers a click first, so the expanding release fires before Qt's title-bar
+double-click-to-float. Re-pointing the leg — collapsed asserts the drag/float **affordance** structurally
+(`dock.titleBarWidget() is panel.collapsed_handle`; `DockWidgetMovable|DockWidgetFloatable`), expanded
+exercises a **real** float on the header strip (`test_D21_10_T03`) — is correct and preserves coverage. No
+action.
+
+**(b) `WatchlistPanel.eventFilter` consumes `MouseButtonRelease` on the collapsed handle — ACCEPTED.** The
+consumption is the mechanism that makes click-to-expand work; its consequence (the collapsed handle cannot be
+double-click-to-floated) is desirable, not a defect: a 30px handle that both expands *and* floats on a
+double-click would be ambiguous. Float remains available on the expanded strip and via a title-bar drag. The
+real-drag path on the collapsed handle is asserted only structurally, but the owner accepted the float leg as
+intended behaviour (2026-10-16), so this is **accepted**, not escalated — recorded for awareness only.
+
+**(c) AC-D44.2 exactness residual — WORDING ISSUE (→ ESC-057).** The AC's measurable says assert
+`watchlist_dock.width() == clamp(W)`; the guard asserts only tolerant invariants; the build log records a
+residual (300→314, 531→263). My independent probe **did not reproduce** the residual: with the guard's own
+round-trip, the expanded dock restored **exactly** W for every in-range W in **both** clamp branches
+(hidden: 150→150, 300→300, 361→361, cap 722→722; visible: 150→150, 300→300, 259→259, cap 518→518), and the
+tracked `win._watchlist_width` is exactly `clamp(W)` by construction. So the exact echo the AC asks for holds;
+the AC, the guard and the residual note disagree about what is asserted. Disposition: a wording fix to
+AC-D44.2's measurable (target the tracked `_watchlist_width`, keep a tolerant rendered-width check) →
+**ESC-057** (REQUIREMENTS, nice-to-have).
+
+### B3. Documentation — D44 is user-visible and undocumented → **ESC-058**
+
+`USAGE.txt` is the canonical user-facing usage doc with one section per user-visible batch (Phases 1-2,
+Phase 3, D38, D39, D40); `docs/phase-changelog.md` records that convention ("### USAGE.txt — New 'Footprint
+charts (Phase D36)' section"). `USAGE.txt` currently ends at the D40 section and never mentions the watchlist
+collapse; `usage.md`'s UI Overview / Key Workflows likewise never mention it. D44 is an owner-requested
+user-visible feature (a new collapsed bar + click-to-expand) and **no** D44 task declared `USAGE.txt`/
+`usage.md`, so no task could update it. This is the same drift class the D41 correction (`b8e81b8`) fixed →
+**ESC-058** (TASK_MANAGER, should-fix: a small documentation task).
+
+## C. Test integrity / standing checks (all clean)
+
+- **No assertion weakened / deleted / skipped:** `grep -E "pytest.mark.(skip|xfail)|pytest.skip|deselect|--ignore"`
+  over the changed `tests/` diff → **0 hits**. The D44 corrections are intent-preserving (e.g. the
+  `>= WATCHLIST_MIN_WIDTH` leg **moved** to the expanded state; the float leg **re-pointed**; the D22 docstring
+  updated), consistent with `AC-D44.8`/`R67`.
+- **Mock-endpoint containment (B.6, blocking check):** `grep -iE "mock|fake|stub|simulat"` over the changed
+  production files (`ui/dock_layout.py`, `ui/watchlist_panel.py`, `ui/main_window.py`) → **0 hits**. The only
+  test doubles are the intentional `IBApiClient.connect` no-op stubs in the *test* files. Clean.
+- **Footprint:** P3-T02…P3-T05 match their declared `touches_files`; P3-T01's single deviation is B1 (legitimate).
+- **Cross-task overlaps** (`tests/test_watchlist_columns_d21.py` by T02/T04/T05; `ui/main_window.py` by T02/T05)
+  are `info`-severity and harmless — the waves were serialized (W1→W5), so no two overlap-tasks were
+  `in_progress` together; the final states of both files are consistent (verified by reading the diffs).
+
+## D. Escalation close-out
+
+- **ESC-055 → `addressed`** (edited in place, `verified` added) — **accepted — no action**, per the owner
+  decision on file (`docs/orchestrator_state.json` → `accepted_observations['ESC-055']`, line 19). The finding
+  stands as recorded; the owner judged the whole-suite gate sufficient, so no code/plan/graph change is required.
+- **ESC-030…ESC-054 remain `addressed`, unchanged** — nothing relevant changed for them this cycle.
+- **Opened:** ESC-056 (TASK_MANAGER), ESC-057 (REQUIREMENTS), ESC-058 (TASK_MANAGER).
+
+## E. Pipeline state for the Orchestrator
+
+The D44 implementation is **sound**: the collapsed width is honoured in both `_apply_dock_widths` branches and
+survives resize/drag (the core `AC-D44.5` fix); the thin bar is in the app palette with a rotated label; the
+header strip / `+` / column-header row hide while collapsed; the tracked expanded width survives the collapse
+(`_watchlist_width` never assigned while collapsed) and the collapse state is **not** persisted (no
+`watchlist/width` write of the collapsed value — `closeEvent` saves `_watchlist_width`). No mock endpoint in
+production code, no assertion weakened, no skip/xfail. Three escalations are open and none blocks the suite:
+**ESC-056** (TASK_MANAGER — correct P3-T01's `touches_files`), **ESC-057** (REQUIREMENTS — AC-D44.2 wording),
+**ESC-058** (TASK_MANAGER — a D44 `USAGE.txt` entry).
+
+Status: REVIEW_COMPLETE

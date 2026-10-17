@@ -3,11 +3,15 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QHeaderView, QMenu, QDialog, QLineEdit, QListWidget,
     QListWidgetItem, QFrame, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings
-from PyQt6.QtGui import QColor, QBrush, QPalette
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings, QEvent, QRectF
+from PyQt6.QtGui import QColor, QBrush, QPalette, QPainter
 
 import ui.dock_layout as dock_layout
-from ui.visual_conventions import DiagonalStrikeButton
+from ui.visual_conventions import (
+    DiagonalStrikeButton,
+    set_button_active,
+    ACTIVE_PROPERTY,
+)
 from ui.add_symbol_dialog import AddSymbolDialog
 from ibkr.subscription_manager import MARKET_DATA
 
@@ -93,6 +97,11 @@ DIM   = QColor('#a3a3a3')  # neutral-400
 WATCHLIST_MIN_WIDTH = dock_layout.WATCHLIST_MIN_WIDTH
 CHART_MIN_WIDTH = dock_layout.CHART_MIN_WIDTH
 DEFAULT_WATCHLIST_WIDTH = dock_layout.DEFAULT_WATCHLIST_WIDTH
+#: D44: width of the collapsed thin bar. Kept in agreement with the pure
+#: ``ui.dock_layout`` model (the single source of truth), exactly like the
+#: ``WATCHLIST_MIN_WIDTH`` / ``CHART_MIN_WIDTH`` / ``DEFAULT_WATCHLIST_WIDTH``
+#: aliases above.
+WATCHLIST_COLLAPSED_WIDTH = dock_layout.WATCHLIST_COLLAPSED_WIDTH
 WATCHLIST_WIDTH_KEY = "watchlist/width"
 
 
@@ -108,9 +117,13 @@ def watchlist_max_width(chart_area_w: int) -> int:
 
 
 def clamp_watchlist_width(width: int, chart_area_w: int) -> int:
-    """Clamp a requested watchlist width into [min, max] for the chart area."""
-    return max(WATCHLIST_MIN_WIDTH,
-               min(int(width), dock_layout.watchlist_max_width(chart_area_w)))
+    """Clamp a requested watchlist width into [min, max] for the chart area.
+
+    The **expanded** rule — delegates to the single pure helper
+    :func:`ui.dock_layout.plan_watchlist_width` with ``collapsed=False`` (D44),
+    so it never returns the collapsed thin-bar width.
+    """
+    return dock_layout.plan_watchlist_width(chart_area_w, width, collapsed=False)
 
 
 def load_watchlist_width(settings: QSettings, chart_area_w: int) -> int:
@@ -236,6 +249,102 @@ def symbol_in_list(symbol, symbols) -> bool:
     return any(normalise_symbol(s) == target for s in (symbols or []))
 
 
+# ── D44: collapsed watchlist bar ──────────────────────────────────────────────
+# The app palette (dark), shared with the header strip and the search box, so
+# the collapsed bar never renders on Qt's default white.
+COLLAPSED_BAR_OBJECT_NAME = "WatchlistCollapsedBar"
+COLLAPSED_BAR_BACKGROUND = "#141822"
+COLLAPSED_BAR_BORDER = "#232938"
+COLLAPSED_BAR_TEXT = "#cbd5e1"
+#: ``[active="true"]`` fill — a palette-consistent hover/pressed highlight that
+#: is visibly distinct from the idle background above.
+COLLAPSED_BAR_ACTIVE_BACKGROUND = "#232938"
+COLLAPSED_BAR_ACTIVE_TEXT = "#e5e7eb"
+
+#: The rotated label the collapsed bar paints.
+COLLAPSED_BAR_LABEL = "WATCHLIST"
+
+
+class CollapsedWatchlistBar(QWidget):
+    """D44: the thin, full-height collapsed body of the watchlist panel.
+
+    A fixed-width bar (``WATCHLIST_COLLAPSED_WIDTH``) in the app palette that
+    paints the label ``WATCHLIST`` rotated 90° counter-clockwise and centred —
+    a custom :meth:`paintEvent`, because Qt cannot rotate a ``QPushButton``'s
+    text. Clicking the bar emits :attr:`expand_requested` so the panel can
+    restore itself; hover/press feedback goes through the shared
+    :func:`ui.visual_conventions.set_button_active` helper (the ``active``
+    dynamic property + the ``[active="true"]`` stylesheet variant), never a
+    hand-rolled highlight.
+    """
+
+    expand_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName(COLLAPSED_BAR_OBJECT_NAME)
+        # Required for an object-name-keyed stylesheet to paint the background.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFixedWidth(WATCHLIST_COLLAPSED_WIDTH)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(
+            f"QWidget#{COLLAPSED_BAR_OBJECT_NAME} {{\n"
+            f"    background: {COLLAPSED_BAR_BACKGROUND};\n"
+            f"    border-right: 1px solid {COLLAPSED_BAR_BORDER};\n"
+            f"    color: {COLLAPSED_BAR_TEXT};\n"
+            "}\n"
+            f'QWidget#{COLLAPSED_BAR_OBJECT_NAME}[active="true"] {{\n'
+            f"    background: {COLLAPSED_BAR_ACTIVE_BACKGROUND};\n"
+            f"    border-right: 1px solid {COLLAPSED_BAR_BORDER};\n"
+            f"    color: {COLLAPSED_BAR_ACTIVE_TEXT};\n"
+            "}\n"
+        )
+
+    # ── painting ─────────────────────────────────────────────────────────────
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        """Fill the styled background, then paint ``WATCHLIST`` rotated 90° CCW.
+
+        The text is centred in the bar: translate to the bar's centre, rotate
+        the painter -90° (counter-clockwise) and draw the label centred in a
+        rect whose width/height are the bar's height/width (the rotated frame).
+        """
+        super().paintEvent(event)
+        painter = QPainter(self)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+            painter.setPen(QColor(COLLAPSED_BAR_TEXT))
+            painter.translate(self.width() / 2, self.height() / 2)
+            painter.rotate(-90)  # 90° counter-clockwise
+            rect = QRectF(-self.height() / 2, -self.width() / 2,
+                          self.height(), self.width())
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter,
+                             COLLAPSED_BAR_LABEL)
+        finally:
+            painter.end()
+
+    # ── interaction → shared active convention + expand intent ───────────────
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        set_button_active(self, True)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        set_button_active(self, False)
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.expand_requested.emit()
+
+    def enterEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        set_button_active(self, True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 (Qt name)
+        set_button_active(self, False)
+        super().leaveEvent(event)
+
+
 class WatchlistPanel(QWidget):
     """
     Dense watchlist table. Each row subscribes to IBKR reqMktData.
@@ -255,6 +364,9 @@ class WatchlistPanel(QWidget):
     # the chosen ContractDescription.
     search_text_changed = pyqtSignal(str)
     search_sample_selected = pyqtSignal(object)
+    # D44: the collapsed state changed; ``MainWindow`` does the dock-level work
+    # (the title-bar-widget swap / the collapsed dock width) in response.
+    collapsed_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None, settings: QSettings | None = None):
         super().__init__(parent)
@@ -430,6 +542,30 @@ class WatchlistPanel(QWidget):
         # D14: double-click anywhere on a row requests the chart load
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
 
+        # ── D44: the collapsed appearance ─────────────────────────────────────
+        # The full-height collapsed body. A layout child of the panel, shown
+        # only while collapsed; clicking it expands the panel.
+        self.collapsed_bar = CollapsedWatchlistBar(self)
+        self.collapsed_bar.expand_requested.connect(self._on_collapsed_bar_expand)
+        layout.addWidget(self.collapsed_bar)
+
+        # The 30×28 widget that takes the dock's title-bar slot while collapsed
+        # (the swap itself is wired in P3-T05). Clicking it also expands.
+        self.collapsed_handle = QWidget(self)
+        self.collapsed_handle.setObjectName("WatchlistCollapsedHandle")
+        self.collapsed_handle.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.collapsed_handle.setFixedSize(WATCHLIST_COLLAPSED_WIDTH, 28)
+        self.collapsed_handle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.collapsed_handle.setStyleSheet(
+            "QWidget#WatchlistCollapsedHandle {"
+            f" background: {COLLAPSED_BAR_BACKGROUND};"
+            f" border-right: 1px solid {COLLAPSED_BAR_BORDER}; }}"
+        )
+        self.collapsed_handle.installEventFilter(self)
+
+        # Initial visual state (expanded): the bar/handle stay hidden.
+        self._apply_collapsed_visual()
+
     # ── Header collapse toggle (D21.11) ─────────────────────────────────────────
 
     def _on_header_toggled(self, checked: bool) -> None:
@@ -439,10 +575,46 @@ class WatchlistPanel(QWidget):
         stays visible when the body is hidden. ``checked`` is the visible state:
         unchecked -> body hidden + VIS-D21.1 strike (auto-applied by
         :class:`DiagonalStrikeButton`); checked -> body shown + no strike.
+
+        D44: the visual transition is delegated to
+        :meth:`_apply_collapsed_visual`, and ``collapsed_changed`` is emitted
+        when the state actually flips so ``MainWindow`` can do the dock-level
+        work (the title-bar-widget swap / the collapsed dock width).
         """
         visible = bool(checked)
-        self._collapsed = not visible
-        self.body.setVisible(visible)
+        collapsed = not visible
+        changed = collapsed != self._collapsed
+        self._collapsed = collapsed
+        self._apply_collapsed_visual()
+        if changed:
+            self.collapsed_changed.emit(collapsed)
+
+    def _apply_collapsed_visual(self) -> None:
+        """D44: explicitly show/hide the collapsed vs expanded affordances.
+
+        While collapsed the expanded affordances are hidden outright —
+        ``header_bar`` (which carries the D22.1 ``+`` and the D39.1 search box)
+        and ``table`` (whose ``horizontalHeader()`` is the column-header row) —
+        and the thin ``collapsed_bar`` is shown as the panel's full-height body.
+        On expand the reverse. No masking: the widgets are really hidden/shown
+        (D19), not merely made geometry-invisible.
+        """
+        collapsed = self._collapsed
+        self.header_bar.setVisible(not collapsed)
+        self.table.setVisible(not collapsed)
+        self.collapsed_bar.setVisible(collapsed)
+
+    def _on_collapsed_bar_expand(self) -> None:
+        """D44: a click on the collapsed bar restores the panel."""
+        self.set_collapsed(False)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt name)
+        """D44: a click on the collapsed title-bar handle also expands."""
+        if obj is getattr(self, "collapsed_handle", None) and \
+                event.type() == QEvent.Type.MouseButtonRelease:
+            self.set_collapsed(False)
+            return True
+        return super().eventFilter(obj, event)
 
     def is_collapsed(self) -> bool:
         """True while the watchlist body is hidden behind the header button."""

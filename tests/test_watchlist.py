@@ -43,6 +43,20 @@ def test_clamp_watchlist_width_chart_area():
     assert clamp_watchlist_width(300, 1400) == 300
 
 
+def test_clamp_watchlist_width_stays_expanded_never_collapsed():
+    # D44: the collapsed/expanded width rule is the single pure helper
+    # ui.dock_layout.plan_watchlist_width. clamp_watchlist_width remains the
+    # *expanded* rule (collapsed=False) and must never return the collapsed
+    # thin-bar width.
+    from ui.dock_layout import WATCHLIST_COLLAPSED_WIDTH, plan_watchlist_width
+    assert WATCHLIST_COLLAPSED_WIDTH == 30
+    for chart_area_w in (1400, 900, 600, 400, 100):
+        for width in (0, 10, 30, 150, 220, 700, 100000):
+            got = clamp_watchlist_width(width, chart_area_w)
+            assert got == plan_watchlist_width(chart_area_w, width, collapsed=False)
+            assert got != WATCHLIST_COLLAPSED_WIDTH
+
+
 def test_watchlist_width_settings_roundtrip():
     path = os.path.join(tempfile.gettempdir(), "wl_width_test.ini")
     try:

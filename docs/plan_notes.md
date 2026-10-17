@@ -306,3 +306,92 @@ by the Requirements Analyst — not a plan-level assumption.
 as written, and the plan is approved for Task Manager.
 
 **Escalation:** none.
+
+---
+
+- Issue: **FI-D44-1**
+
+**Requirement/Journey:** `AC-D44.1` and `AC-D44.5` (Batch 19 / D44) — both phrase their measurable as
+**exact equality** (`watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH`); together with the repo's
+established ±1px convention (`tests/test_dock_widths_d17.py:17`–`:21`: "`_apply_dock_widths` only
+re-issues `resizeDocks` when the computed width differs from the current width by **more than 1px** …
+so a residual of at most 1px is expected and asserted with `+1`"). Raised by the Plan proposal as
+`FI-D44-1`.
+
+**Problem:** the criteria demand exact equality while the apply path has a deliberate 1px dead-band, so
+a strict `==` on **every** measurement could produce a false RED (a platform's 1px dock separator) and
+make the guard untrustworthy — and, conversely, a blanket `+1` tolerance everywhere would weaken the
+criterion's stated outcome.
+
+**Why it cannot be satisfied as currently written:** it can — the tension is a *measurement* question,
+not an outcome question. The criteria fix the outcome ("the bar is 30px and stays 30px"); they say
+nothing about which derived/inner values may carry a 1px residual.
+
+**Suggested Direction / ruling:** **ratified as a measurement convention — no Requirements change.**
+Assert the **dock** width exactly, as the criteria write it (Validator probe, offscreen, 2026-10-16:
+`resizeDocks([dock], [30])` yields **exactly 30** once the widget minimums allow it), and keep the
+`+1` convention only for inner/derived measurements the criteria do not name. Recorded as
+`AP-D44-4`. Two precisions carried into the canonical plan for Build: the guard asserts **after** the
+apply path has run (`processEvents`), and the 1px dead-band is itself unchanged behaviour, so the guard
+must not manufacture a 1px residual by its own driving sequence.
+
+**Status:** addressed — ratified this cycle; no `AC-D44.*` clause is weakened or reinterpreted.
+
+**Escalation:** none.
+
+---
+
+- Issue: **FI-D44-2**
+
+**Requirement/Journey:** `A78` (Batch 19 / D44) — "the dock's title-bar widget presents the bar while
+collapsed while keeping the dock movable (DG37)"; with `AC-D44.1`/`AC-D44.6` (the outcome: a thin,
+clickable, app-palette bar that reads as a panel). Raised by the Plan proposal as `FI-D44-2`.
+
+**Problem:** the literal reading ("the dock's title-bar widget **is** the full-height bar") is
+**impossible**: Qt lays a left dock's title-bar widget out at the **top** of the dock, at the dock's
+full width and the widget's own `sizeHint` height — verified by an offscreen probe by Plan and
+re-verified independently by the Validator (a 28px widget occupied `QRect(0, 0, 63, 28)`), so the
+title-bar slot can never hold a full-height vertical bar.
+
+**Why it cannot be satisfied as currently written:** the *mechanism* sentence cannot be literal; the
+*outcome* sentences can. `A78` itself delegates the mechanism ("the widget/title-bar mechanism is an
+implementation choice"), and the requirement's own correction record offers two mechanisms —
+"`setTitleBarWidget` swaps to the bar, **or** the header widget reorients".
+
+**Suggested Direction / ruling:** **confirmed satisfied as an intent — no wording escalation.** D44's
+split affordance (`S25`) puts the **full-height bar** in the dock's **content** (`panel.collapsed_bar`)
+and a 30×28 handle (`panel.collapsed_handle`) in the **title-bar slot**, which keeps the dock
+movable/floatable (DG37) and clickable to expand. Everything `A78` fixes is preserved; the recorded
+fallback (bar-as-title-bar) remains if the handle proves problematic in build.
+
+**Status:** addressed — ruled satisfied this cycle; recorded in `docs/architecture.md`
+§ *D44 increment* (`S25`, `FI-D44-2`).
+
+**Escalation:** none.
+
+---
+
+- Issue: **FI-D44-3**
+
+**Requirement/Journey:** `A76` (Batch 19 / D44) — "the collapsed/expanded state is **NOT** persisted;
+the app starts expanded" — which is **silent** on what **width** is persisted when the app is closed
+**while collapsed**. Raised by the Plan proposal as `FI-D44-3`.
+
+**Problem:** `closeEvent`'s unchanged `save_watchlist_width(self._settings, self._watchlist_width,
+self._chart_area_width())` writes whichever width `_watchlist_width` holds at close time. If the
+applied 30px were persisted while collapsed, the next launch's **expanded** dock would be re-clamped by
+`clamp_watchlist_width` to the 150px minimum — a silent loss of the user's width.
+
+**Why it cannot be satisfied as currently written:** it can — A76's own outcome ("no collapse key
+exists; the app starts expanded") is satisfied either way; only the persisted *width* needed a
+decision, and it is a Plan-level detail.
+
+**Suggested Direction / ruling:** **confirmed — persist the tracked *expanded* width.** Because
+`_watchlist_width` is never assigned while collapsed (`S24`), a session that ends collapsed still
+persists the user's expanded width, so the next launch starts expanded at that width — the only choice
+consistent with "the app starts expanded". Recorded as `S27`/`AP-D44-2`. An owner override would revise
+A76 and `S27`.
+
+**Status:** addressed — decided and recorded this cycle; no Requirements Analyst action required.
+
+**Escalation:** none.

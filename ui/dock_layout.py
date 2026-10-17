@@ -26,6 +26,10 @@ WATCHLIST_MIN_WIDTH = 150
 #: Default width restored for the left watchlist dock, in px.
 DEFAULT_WATCHLIST_WIDTH = 220
 
+#: Width of the left watchlist dock when collapsed to its thin bar, in px
+#: (D44). Consumed by :func:`plan_watchlist_width` and :func:`plan_dock_widths`.
+WATCHLIST_COLLAPSED_WIDTH = 30
+
 #: Minimum width of the right (Portfolio) dock, in px.
 RIGHT_DOCK_MIN_WIDTH = 200
 
@@ -59,10 +63,35 @@ def right_dock_max_width(chart_area_w: int) -> int:
     return max(RIGHT_DOCK_MIN_WIDTH, min(cap, chart_area_w - CHART_MIN_WIDTH))
 
 
+# ── The single collapsed/expanded left-width rule (D44) ──────────────────────
+
+def plan_watchlist_width(chart_area_w: int, requested_left: int,
+                         collapsed: bool = False) -> int:
+    """Plan the left watchlist dock width for a chart area (D44).
+
+    The single collapsed/expanded width rule, shared by
+    :func:`plan_dock_widths` and ``ui/watchlist_panel.clamp_watchlist_width``.
+
+    * ``collapsed=True`` fixes the dock at :data:`WATCHLIST_COLLAPSED_WIDTH`
+      (its thin bar) for **every** ``chart_area_w`` and ``requested_left``.
+    * ``collapsed=False`` (the default) applies the expanded rule — exactly
+      today's ``clamp_watchlist_width`` formula:
+      ``max(WATCHLIST_MIN_WIDTH, min(int(requested_left),
+      watchlist_max_width(chart_area_w)))``.
+
+    Always returns a stable ``int`` and never raises.
+    """
+    if collapsed:
+        return WATCHLIST_COLLAPSED_WIDTH
+    return max(WATCHLIST_MIN_WIDTH,
+               min(int(requested_left), watchlist_max_width(chart_area_w)))
+
+
 # ── B3 combined cross-clamp ──────────────────────────────────────────────────
 
 def plan_dock_widths(chart_area_w: int, requested_left: int,
-                     requested_right: int) -> tuple:
+                     requested_right: int,
+                     left_collapsed: bool = False) -> tuple:
     """Plan the left/right dock widths for a chart area (B3 cross-clamp).
 
     Applies each dock's independent cap first, then enforces the combined rule
@@ -72,13 +101,23 @@ def plan_dock_widths(chart_area_w: int, requested_left: int,
     "enlarging one forces the other to shrink" (AC-D18.5) a deterministic, pure
     rule rather than emergent Qt behaviour.
 
+    ``left_collapsed`` (D44) fixes the left dock at
+    :data:`WATCHLIST_COLLAPSED_WIDTH`: its own floor becomes the collapsed
+    width, the cross-clamp loop may shrink **only** the right (the left never
+    rises above the collapsed width), and the infeasible branch returns
+    ``(WATCHLIST_COLLAPSED_WIDTH, RIGHT_DOCK_MIN_WIDTH)``. The 3-argument
+    (expanded) call is unchanged bit-for-bit, because the parameter defaults to
+    ``False`` — in particular the infeasible ``(150, 200)`` result is preserved.
+
     Guarantees:
 
     * each returned width is within its own ``[min, max]`` cap;
     * the chart minimum is preserved **where feasible**;
-    * neither width ever drops below its dock minimum — on an infeasible window
-      (where ``2 * min`` alone exceeds ``chart_area_w - CHART_MIN_WIDTH``) the
-      chart minimum yields and the dock minimums win;
+    * neither width ever drops below its dock minimum (the left's minimum is the
+      collapsed width when ``left_collapsed``) — on an infeasible window (where
+      ``left_min + RIGHT_DOCK_MIN_WIDTH`` alone exceeds
+      ``chart_area_w - CHART_MIN_WIDTH``) the chart minimum yields and the dock
+      minimums win;
     * returns stable ``int`` widths and never raises.
 
     Returns ``(left, right)``.
@@ -86,16 +125,18 @@ def plan_dock_widths(chart_area_w: int, requested_left: int,
     left_max = watchlist_max_width(chart_area_w)
     right_max = right_dock_max_width(chart_area_w)
 
-    left = max(WATCHLIST_MIN_WIDTH, min(int(requested_left), left_max))
+    left_min = WATCHLIST_COLLAPSED_WIDTH if left_collapsed else WATCHLIST_MIN_WIDTH
+    left = plan_watchlist_width(chart_area_w, requested_left,
+                                collapsed=left_collapsed)
     right = max(RIGHT_DOCK_MIN_WIDTH, min(int(requested_right), right_max))
 
     # Combined budget: how much the two docks may consume while preserving the
     # chart minimum. If it is already below the sum of the dock minimums the
     # window is infeasible — dock minimums win and the chart minimum yields.
     budget = chart_area_w - CHART_MIN_WIDTH
-    min_total = WATCHLIST_MIN_WIDTH + RIGHT_DOCK_MIN_WIDTH
+    min_total = left_min + RIGHT_DOCK_MIN_WIDTH
     if budget < min_total:
-        return WATCHLIST_MIN_WIDTH, RIGHT_DOCK_MIN_WIDTH
+        return left_min, RIGHT_DOCK_MIN_WIDTH
 
     while left + right > budget:
         # Prefer shrinking whichever dock is below its cap (i.e. the one that was
@@ -109,7 +150,10 @@ def plan_dock_widths(chart_area_w: int, requested_left: int,
         # feasible window (``budget >= min_total``, checked above) always has
         # enough room to satisfy the chart minimum without crossing a dock
         # minimum, so at least one dock can absorb every decrement.
-        left_can_shrink = left > WATCHLIST_MIN_WIDTH
+        #
+        # A collapsed left is fixed at its (collapsed) minimum, so
+        # ``left_can_shrink`` is False and every decrement lands on the right.
+        left_can_shrink = left > left_min
         right_can_shrink = right > RIGHT_DOCK_MIN_WIDTH
         if not left_can_shrink and not right_can_shrink:
             break

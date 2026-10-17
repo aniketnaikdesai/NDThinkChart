@@ -2135,3 +2135,140 @@ sets `_account_summary_complete`. Read literally, the old wording invited a rewo
   `AC2` string, the appended `P2-T38`, and the metadata `revision` note. Top-level and `metadata` `"status"`
   remain `READY_FOR_BUILD`.
 - `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md` and `docs/architecture.md` were **read only**.
+
+---
+
+## D44 / P3 (Batch 19) — `fresh_graph` decomposition (`P3-T01`..`P3-T05`) — 2026-10-16
+
+### 0. What this run replaced, and the status-fidelity note
+
+- **Per-phase replacement, not a status reset.** `docs/tasks/task-graph.json` held the **D42/P2** graph
+  (37 tasks, all `done` and delivered at `0c4d478`). This run is the third batch, so the ids are
+  `P3-T*` (convention recorded by the Orchestrator: D41→P1, D42→P2, D44→P3; legacy non-suffixed
+  planning artifacts). The file is **replaced** with the P3 tasks only — the documented per-phase
+  convention (`AGENTS.md`: "each run replaces `docs/tasks/task-graph.json` with the current phase's
+  tasks only"). There are **no** P3 `done` tasks, so nothing could be clobbered; the 2026-10-16
+  tooling note about silently resetting statuses applied to rewrites **within** a phase, which this
+  is not. The D42 tasks' record remains in `docs/build/` + `docs/code_review/`.
+- **Read only:** `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md`,
+  `docs/architecture.md`, `docs/plan_notes.md`, `docs/memory.md`, `docs/orchestrator_state.json`.
+  No implementation file was read (the plan's per-file map + line ranges + the frozen interfaces were
+  sufficient to write every context pack).
+
+### 1. What D44 decomposes into
+
+The plan's four file-groups (**A** apply path, **B** bar widget + collapsed visual, **C** transition
+wiring, **D** pure width model) are the `touches_files` partition, **not** tasks. Group **B** was split
+in two because its honest step count (production widget + 2 new-suite cases + 3 corrected test files)
+exceeded the ~20-step target, giving **5 tasks**:
+
+| Task | Plan group | Production change | Test change |
+|---|---|---|---|
+| `P3-T01` | D | `ui/dock_layout.py`: `WATCHLIST_COLLAPSED_WIDTH`, `plan_watchlist_width`, `plan_dock_widths(..., left_collapsed)`, `clamp_watchlist_width` delegate | extend `test_dock_layout.py` + `test_watchlist.py` |
+| `P3-T02` | A | `ui/main_window.py`: collapsed-aware `_apply_dock_widths` (both branches), `_plan_dock_widths`, `_dock_widths_consistent` | correct `test_watchlist_columns_d21.py::test_D21_10_T03` **width leg** |
+| `P3-T03` | B (production) | `ui/watchlist_panel.py`: `CollapsedWatchlistBar`, `collapsed_bar`/`collapsed_handle`, `_apply_collapsed_visual`, `collapsed_changed`, the constant alias | **new** `tests/test_watchlist_collapsed_bar_d44.py` |
+| `P3-T04` | B (corrections) | — (test-only) | correct `test_watchlist_columns_d21.py::test_D21_10_T02`, `test_watchlist_nonregression_d22.py` (block + docstring), `test_watchlist_add_remove_d22.py::test_D22_04_T01` |
+| `P3-T05` | C | `ui/main_window.py`: `_on_watchlist_collapsed_changed` (title-bar swap + min-width pin + deferred re-apply) | **new** `tests/test_dock_widths_collapsed_d44.py` (the guard) + correct `test_D21_10_T03` **appearance + title-bar/drag legs** |
+
+### 2. Wave ordering (the binding constraint)
+
+Every plan file-group shares at least one file with another, so the phase is **serialized**:
+
+```
+W1: P3-T01
+W2: P3-T02            (deps P3-T01)
+W3: P3-T03            (deps P3-T01, P3-T02)
+W4: P3-T04            (deps P3-T03)
+W5: P3-T05            (deps P3-T01, P3-T02, P3-T03, P3-T04)
+```
+
+- **`ui/main_window.py`** is touched by `P3-T02` and `P3-T05` → they can never be `in_progress` in the
+  same wave.
+- **`tests/test_watchlist_columns_d21.py`** is touched by `P3-T02`, `P3-T04` and `P3-T05` → three
+  distinct waves.
+- **D before its consumers** (`P3-T01` before `P3-T02`/`P3-T03`/`P3-T05`); **the apply path before the
+  wiring** and **the width-leg correction before the appearance-leg correction** (`P3-T02` before
+  `P3-T03`); **the bar widget before the wiring** (`P3-T03` before `P3-T05`); each corrected suite
+  **after** the production change that invalidates it (`P3-T04` after `P3-T03`; `P3-T05` after
+  `P3-T04`).
+- **Why `P3-T03` depends on `P3-T02` (and not just on `P3-T01`):** `P3-T03`'s panel change *hides the
+  header strip while collapsed*, which invalidates the appearance assertions in
+  `tests/test_watchlist_columns_d21.py` — the file `P3-T02` edits and runs. If the two co-scheduled
+  (the plan's "B may co-schedule with A" reading), `P3-T02`'s test run would see the hidden strip and
+  go red on assertions it does not own. The edge serializes them; it is a **semantic** ordering
+  constraint, not a file-overlap one. (The plan's stricter, binding statements — "A and B in different
+  waves" and "the width-leg correction before the appearance-leg correction" — are honoured.)
+- **Why `P3-T05` depends on `P3-T04`:** `P3-T05`'s corrected `test_D21_10_T03` lives in the same file
+  `P3-T04` edits, and `P3-T05`'s run of that suite needs `P3-T04`'s corrections in place.
+
+### 3. Two documented deviations from the plan's per-file map (translation, not re-diagnosis)
+
+The plan's map is the `touches_files` partition; the two points below are task-assignment details where
+the map and the plan's own "each corrected suite rides with the production change that invalidates it"
+rule conflict. Both are resolved **in favour of the rule**, because the alternative leaves a task's own
+declared tests red when the task completes (a real build failure, the `ESC-050` class):
+
+1. **`test_D21_10_T03`'s title-bar/drag leg is owned by `P3-T05`, not group B.** The plan's B row
+   assigns that leg to B, but the assertion it corrects (`dock.titleBarWidget() is panel.header_bar`
+   while collapsed; the double-click-float on the strip) is invalidated by the **title-bar swap**, which
+   the plan assigns to **C** (`S25`/`S26` + the C row: "swap the dock's title-bar widget"). Only the
+   task that performs the swap can make that leg green, so it rides with `P3-T05`. `P3-T04` therefore
+   owns the D21.10-T02 + D22 appearance corrections (all green after `P3-T03`), and `P3-T05` owns the
+   remaining `test_D21_10_T03` legs (green only after the swap).
+2. **The new constant's cross-module agreement assertion is in `P3-T03`, not group D.** The plan's D row
+   says `test_dock_layout.py`'s agreement test gains `WATCHLIST_COLLAPSED_WIDTH`. But the alias lives in
+   `ui/watchlist_panel.py`, which only `P3-T03` adds — asserting the agreement in `P3-T01` would be red
+   until `P3-T03` lands (and a *pure* suite must not import the Qt panel). `P3-T01`'s AC4 therefore
+   asserts the constant's **value** + the existing `CHART_MIN_WIDTH` invariant; `P3-T03` asserts the new
+   alias agreement in its own suite.
+
+Neither deviation changes a requirement, a criterion, a mechanism, or the file partition — only which
+task owns a correction.
+
+### 4. Enumerated invalidated assertions (the D42/`ESC-050` lesson, `ESC-055`'s ownership remedy)
+
+Each invalidated site has a home in a task's `touches_files` **before** the whole-suite gate:
+
+| Invalidated assertion (file) | Invalidated by | Corrected in |
+|---|---|---|
+| `test_watchlist_columns_d21.py::test_D21_10_T03` (collapsed-width leg) | `P3-T02` (the collapsed width) | `P3-T02` |
+| `test_watchlist_columns_d21.py::test_D21_10_T02` | `P3-T03` (strip hidden, bar shown) | `P3-T04` |
+| `test_watchlist_columns_d21.py::test_D21_10_T03` (appearance + title-bar/drag legs) | `P3-T03` (strip hidden) + `P3-T05` (the swap) | `P3-T05` |
+| `test_watchlist_nonregression_d22.py` (D21.11 block + docstring) | `P3-T03` | `P3-T04` |
+| `test_watchlist_add_remove_d22.py::test_D22_04_T01` (`hb.isVisible()`) | `P3-T03` | `P3-T04` |
+
+The *Verified unchanged* set (the expanded-state suites: `test_dock_widths_d17/d18/d18_impl`,
+`test_right_dock_d21`, `test_dock_d18_region`, `test_d10_d13_integration`, `test_toolbar_scroll_d19`,
+`test_watchlist_columns_d21.py::test_D21_10_T01`) is **not** in any task's `touches_files` — it is
+evidence produced by `P3-T02`'s and `P3-T05`'s runs, not a file to edit.
+
+### 5. `ESC-055` — recorded, not acted on
+
+`ESC-055` (`routed_to: TASK_MANAGER`, `status: open`, `nice-to-have`) is **ACCEPTED-NO-ACTION by the
+owner** (2026-10-16; `docs/orchestrator_state.json` → `accepted_observations`). This run **applies** its
+rule (every invalidated assertion has a home — §4 above) but does **not** absorb, close or edit the
+entry; the Code Reviewer flips it to `addressed` at its next run. Not treated as a blocker.
+
+### 6. Requirements / architecture escalations
+
+- **No `ESC-PLAN-*` entry.** No architectural choice was needed: `docs/architecture.md` § *D44 increment*
+  settles every mechanism (`S23`–`S28`), and `docs/plan.md` § *D44 — Batch 19* is
+  `Status: READY_FOR_TASK_MANAGER` and newer than the previous graph.
+- **No requirements ambiguity flagged.** `FI-D44-1`–`FI-D44-3` are all `Status: addressed`,
+  `Escalation: none` (`docs/plan_notes.md`); `DG74` is open/**non-blocking** with its resolution in the
+  plan; `Q54` is a non-blocking owner-confirmation item with recorded defaults `A75`–`A77`.
+- The `CHART_MIN_WIDTH` duplicated-constant invariant is preserved (a named constraint, not an
+  escalation) — `P3-T03`'s AC6 asserts it.
+
+### 7. Verification of this revision
+
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → `OK: 5 tasks validated, execution_graph.json
+  written.` (exit 0). The 2 `WARN`s are the expected "new test file not in `read_files`" class — the two
+  **new** suites (`tests/test_watchlist_collapsed_bar_d44.py`, `tests/test_dock_widths_collapsed_d44.py`)
+  are pure-output files created by `P3-T03`/`P3-T05`. `docs/tasks/execution_graph.json` regenerated
+  (5 nodes / 8 `DEPENDS_ON` edges).
+- Every task carries a full context pack (`read_files` with line ranges + `why`, verbatim `contracts`,
+  `architecture_excerpt`/`plan_excerpt`, `requirement_ids`, a runnable `test_command`, `memory_notes`,
+  `needs_graphify: false`, `size`); every acceptance criterion has ≥1 linked test; `touches_files` is
+  non-empty on every code-writing task.
+- Top-level and `metadata` `"status"` are `READY_FOR_BUILD`.

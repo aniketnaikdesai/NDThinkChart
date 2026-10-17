@@ -1,85 +1,51 @@
-# Architecture Proposal — NDThinkChart Batch 18b (**D42**): density-aware candle/volume width + mode-aware intraday history depth
+# Architecture Proposal — NDThinkChart Batch 19 (**D44**): the collapsed Watchlist becomes a thin vertical bar that expands back to the full panel
 
-> **Status of this document:** a **proposal** by the Plan agent. It is **not** the canonical
-> architecture — `docs/architecture.md` is written by Plan Artifact Editor & Validator after
-> validation. Companion: `docs/plan_proposal.md` (phases, per-file `touches_files` map, tests,
-> assumptions, flagged issues, correction record).
+> **Status of this document:** a **proposal** by the Plan agent. It is **not** the canonical architecture —
+> `docs/architecture.md` is written by Plan Artifact Editor & Validator after validation. Companion:
+> `docs/plan_proposal.md` (phases, per-file `touches_files` map, tests, assumptions, flagged issues, the
+> correction record). Module index: `docs/codebase-map.md` (refreshed for this batch).
 >
-> **Run shape:** this is a **legacy single-scope run** — the invocation preamble carries **no
-> `phase: P<n>`**, so the proposal files are the unsuffixed `docs/architecture_proposal.md` /
-> `docs/plan_proposal.md` (the D42 increment merges into the cumulative canonical docs as a
-> `## D42 increment` section, exactly as D16–D41 did). Every decision below therefore carries an
-> explicit **relationship label** (`[new in D42]` / `[extends D16: …]` / `[revises D6/D7: …]`)
-> rather than a phase-relative one.
+> **Run shape:** **legacy single-scope** — the invocation preamble carries **no `phase: P<n>`**, so the
+> proposal files are the unsuffixed `docs/architecture_proposal.md` / `docs/plan_proposal.md`, and the D44
+> increment merges into the cumulative canonical docs as a `## D44 increment` section (the D16–D42 precedent).
+> Every decision below therefore carries an explicit **relationship label** (`[new in D44]` /
+> `[extends D21.11: …]` / `[revises D13/D17: …]`) rather than a phase-relative one.
 >
-> **Scope: D42 only.** `requirements.md` carries `Status: READY_FOR_PLAN` (revised 2026-10-15
-> 19:06), with `### D42` (`:3529`–`:3617`), `AC-D6.4` (revised `:1288`–`:1293`), `AC-D7.1`
-> (revised `:1326`–`:1330`), the `AC-D9.2` note (`:1476`), `AC-D16.8` (extended `:1901`–`:1938`),
-> **`AC-D16.9`** (new `:1940`–`:1972`), `A72`–`A73` (`:3694`–`:3695`), `R63`–`R64`
-> (`:3813`–`:3814`), `DG68` (resolved) + `DG72`, and `open_questions.md` **Q51/Q52 answered**
-> 2026-10-15. **D41 is built, reviewed and committed (`b48133d`) and is NOT reopened**; D1–D41 are
-> otherwise unchanged.
+> **This file replaces the stale D42 draft** (the previous contents of `docs/architecture_proposal.md`). The
+> D42 batch is **delivered** — 26/26 tasks, full offscreen suite green, review `REVIEW_COMPLETE`, committed —
+> and its Validator cycle ended `Status: APPROVED` (`docs/plan_review.md`, D42 cycle 3 of 3). **D1–D43 are
+> settled and are NOT re-planned or reopened here**; this is a new increment on the same repository.
 >
-> **What D42 is.** A **requirements-decision batch with no new feature**. It resolves the two
-> **REQUIREMENTS-routed** Code Reviewer escalations, and the fixes for the two corresponding
-> **BUILD** escalations fall out of it:
+> **Scope: D44 only** — an **owner-requested net-new UI feature** (recorded 2026-10-16, Batch 19). Requirements
+> of record: `requirements.md` (`Status: READY_FOR_PLAN`, revised 2026-10-16 17:28) — the D44 status/audit
+> block (`:118`–`:136`), the revised `## Non-Goals` (`:258`–`:267`), the D44 work item (`:353`–`:365`),
+> **Journey 37** (`:976`–`:989`), **`### D44`** (`:3782`–`:3925`), **`AC-D44.1`–`AC-D44.8`**
+> (`:3854`–`:3891`), the supersession/revision record (`:3892`–`:3905`), the edge cases (`:3906`–`:3913`),
+> the correction record (`:3914`–`:3925`), **A75–A78** (`:4005`–`:4008`), **R66–R67**
+> (`:4129`–`:4130`), the Batch-19 summary (`:4239`–`:4246`); `design_gaps.md` **DG74**; `open_questions.md`
+> **Q54** (answered 2026-10-16 — owner confirmation requested, non-blocking defaults recorded).
 >
-> 1. **ESC-042 → the candle/volume overlap** (unblocks BUILD **ESC-041**): the unconditional
->    `AC-D6.4` body floor contradicted `AC-D7.1`'s positive-gap clause; the resolution makes the
->    **no-overlap guarantee win** and the 4-px legibility floor **density-aware**.
-> 2. **ESC-038 → RTH/ETH intraday history depth** (unblocks BUILD **ESC-037**): the "one session"
->    symptom is a **fetch-window** defect, not `useRTH`; the ≥ 30-trading-session floor and the
->    **present-but-empty trading day** rule apply to **both** session modes, with a mode-aware
->    day-presence pass and a mode-aware bar cache.
+> **Frozen baseline:** `main` @ **`0c4d478`** (D43 + the D42/Stage-C follow-ups complete; full offscreen suite
+> green). Suite invocation: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the `pytest` entry point
+> has a stale shebang).
 >
-> **Out of scope (not planned here):** the other open BUILD escalations — ESC-032 (Position `id`),
-> ESC-033 (Load Chart button), ESC-034 (watchlist flash timer), ESC-036 (priming `5 secs`),
-> ESC-043 (`HELD`/`H` rows), ESC-044 (option contract fields), ESC-045 (Account Summary). They are
-> separate work with no task yet. ESC-041/ESC-037 stay **BUILD-owned**; D42 does not absorb them —
-> it supplies the normative target they are re-checked against. No `PLAN`-routed escalation is open
-> (`escalations.json`: ESC-038/042 are `routed_to: REQUIREMENTS`), and `docs/plan_review.md` is the
-> **APPROVED** D23 cycle (not `CHANGES_REQUIRED`), so this is a normal forward cycle.
+> **Escalation state at planning time:** **no escalation is open against this increment's decisions** — no
+> `PLAN`-, `BUILD`- or `REQUIREMENTS`-routed entry is open (`ESC-050` is `addressed`). The single open entry in
+> `docs/code_review/escalations.json` is **ESC-055** (`routed_to: TASK_MANAGER`, the D42/ESC-050 enumeration
+> rule's *ownership remedy*), which D44 **applies** (`AP-D44-8`) without absorbing it.
+> `docs/plan_review.md` is the **APPROVED** D42 cycle (not `CHANGES_REQUIRED`), so this is a normal forward
+> cycle.
 >
-> **Frozen baseline:** `main` after D41 (`b48133d`), full offscreen suite green. Suite invocation
-> `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the `pytest` entry point has a stale
-> shebang).
+> **Revision record.** **Revision 1 (2026-10-16) — the D44 draft.** No `CHANGES_REQUIRED` cycle precedes it:
+> the D42 review ended APPROVED and the requirements were then extended with D44 (Batch 19), so this is a
+> fresh increment rather than a revision of a rejected one.
 >
-> **Revision 2 (2026-10-15) — round 1 of 3, `CHANGES_REQUIRED` addressed.** The Validator ratified
-> the substance (`FI-D42-1`–`FI-D42-4` accepted, `S18` ratified, `S13`/`S14` and `S15`–`S19` verified
-> sound against source), so **no decision below is re-litigated**. Three required changes are folded
-> in: **RC-D42-1** — the **third** `SESSION_BAR_CAP` site (`ui/chart_panel.py::ChartPanel.update_last_bar`'s
-> `_bars` trim, `:1150`–`:1157`) is now named as a first-class `S18` consumer in the System
-> Components / Data Model / traceability tables **and owned by a phase** in the plan (the one shared
-> file between the two workstreams); **RC-D42-2** — the D16 **load-path** assertions that `S17`/`S18`
-> legitimately change are now enumerated with their cause and stated to be **intent-preserving**
-> corrections (`S21`, `AR-D42-6`); **RC-D42-3** — the pixel **unit** of `F` is stated explicitly in
-> `S13` and in the plan's WS1 evidence. `FI-D42-2` is extended to the **five** enshrining suites,
-> `FI-D42-1`'s cost is stated as **~8–16 MB**, and `FI-D42-3`/`FI-D42-4` keep their ratified readings
-> (with the two `requirements.md` lines cited in the plan).
->
-> **Revision 3 (2026-10-16) — reviewer escalation `ESC-050` (PLAN-routed, `open`) addressed.** An
-> **enumeration/accuracy fix to this proposal and its companion only** — **no decision below is
-> changed, added or re-litigated**, no `AC`, no phase boundary, no task and no canonical file. D42 is
-> built, green and complete (26/26 tasks; full offscreen suite 1009 passed, exit 0) and its design was
-> verified sound by the Validator and the Code Reviewer. `ESC-050` found that the D42 impact analysis
-> **under-enumerated the suites changed by design**, in two independent places:
->
-> - **`S21` / `RC-D42-2` / `AR-D42-6` named only the D16 load-path suites.** **19 assertions in six
->   further suites** also change by design — they **drive** `MainWindow.load_chart` with a
->   **fixed-size** `req_historical_data` reqId iterator while the floor span makes a load issue **many**
->   chunks (`ESC-048`'s defect class) — and **4 further sites** inside the D16 files were likewise
->   unnamed (2 more found by Plan re-verification).
-> - **`AR-D42-6`'s mitigation asserted** that *"every load-path assertion that changes is enumerated in
->   `S21` and in the plan's correction record"* — an assertion that was **false as written**. It is now
->   **true** (the enumeration is complete) **and** replaced in form by the **invariant** + the
->   generalisable **enumeration rule** (`S21`, AR-D42-6), so completeness is checkable by a rule rather
->   than by a claim.
-> - **One disclosure (checklist, not a decision):** a **Frozen Interfaces** section is added below,
->   restating **verbatim** the contracts this increment leaves read-only (`session_windows`,
->   `plan_requests`, `MissingSpan`, `RequestPlan`, `bar_period_seconds`, `Bar`, `TIMEFRAME_CONFIG`,
->   `popouts.ext_hours`), and explicitly **not** freezing the surfaces under construction. It adds no
->   decision — every contract is copied from the tree at `b48133d` and already reflected in the
->   `[existing]` rows of System Components / Data Model / Integration Points.
+> **Out of scope (not planned here):** every earlier defect/feature (D1–D43) and their delivered artifacts.
+> No D44 path reaches the chart renderer, the load path, the backfill/planner, the bar cache, the alarms, the
+> drawings/studies, the orders machinery, the right dock, or the D42/D43 data paths. **No new dependency, no
+> stack change** — in particular the **pyqtgraph chart stack is a locked decision** (`docs/memory.md`
+> Orchestrator Log, 2026-10-16: the Lightweight Charts migration was evaluated and **declined**; do not
+> re-propose it) and D44 does not touch the rendering stack at all.
 
 ---
 
@@ -87,131 +53,111 @@
 
 | Prior decision / component | Relationship | Note |
 |---|---|---|
-| `AC-D6.4` unconditional 4-device-px body floor; `ui/candlestick_item.py::CandlestickItem._draw_candles` clamp (`:122`–`:140`); `AC-D7.1` "gap remains positive" | **`[revises D6/D7: the body-width clamp]`** | `S13`+`S14`: the floor becomes density-aware and the body is capped at the inter-bar pitch. Supersession is **recorded** (never silent) per the D42 correction record. |
-| `AC-D9.1`/`AC-D9.2` volume width == price body width; `ui/chart_panel.py::ChartPanel._clamp_half_width` (`:1229`) / `::_refresh_candles` (`:1303`/`:1305`) / `::_refresh_live_bar` (`:1352`) | **`[extends D9: the volume width path]`** | Intent unchanged; the volume path consumes the **same** capped `w` from the one shared helper (`S13`). |
-| D16 backfill planner (`services/backfill_service.py::find_missing_spans`), `data/bar_cache.py`, `services/market_calendar.py`, `ui/main_window.py::MainWindow.load_chart`/`_finalize_history_wave` | **`[extends D16: the missing-span / day-presence / cache path]`** | `S15`–`S19`. `AC-D16.1`/`AC-D16.3`/`AC-D16.4` (no-fill / genuine-closure / shortfall-report) are **unchanged**. |
-| D27.7 bar-level trailing pass (`_bar_level_missing_spans`, `:239`–`:297`) | **`[extends D27: the bar-level pass]`** | Already `ext_hours`-aware; unchanged in shape, now fed by the mode-aware presence predicate for consistency (`S15`). |
-| D28.3 pacing-aware waves (`TickerSession._issue_wave_chunks`, `:858`; `MAX_HISTORICAL_PER_600S = 60`) | **`[extends D28: the wave pump]`** | Unchanged. The depth floor is delivered as **more plans** through the existing wave cap + continuation timer — no new transport mechanism (`S17`). |
-| D28.4 caps (`config/settings.py::SESSION_BAR_CAP = 5000`, `data/bar_cache.py::RETENTION_BARS = 5000`) and the D28.4 render split | **`[revises D28.4: the two 5000-bar caps]`** | `S18`: the caps become **floor-aware** (≥ the flat 5000, derived per timeframe × mode) at **all three** `SESSION_BAR_CAP` sites — `ui/ticker_session.py::TickerSession.set_bars` (`:300`), `::TickerSession._append_bar` (`:313`) and `ui/chart_panel.py::ChartPanel.update_last_bar` (`:1150`–`:1157`) — plus `BarCache.prune`'s `keep`. Recorded as a deliberate revision of a D28.4 bound, forced by `AC-D16.8`. |
-| D24.9 pop-out `ext_hours` persistence (`popouts.ext_hours`) | **`[extends D24: pop-out mode]`** | The pop-out already knows its mode; it now passes it to the cache/planner (`S19`). |
-| D41 removals | **no relationship** | D42 touches neither the removed surface nor its retained substrate. |
+| **D21.11 collapse** — `WatchlistPanel.header_bar` + `header_button` + `_on_header_toggled` (`ui/watchlist_panel.py:294`–`:317`, `:435`–`:445`), the public `set_collapsed`/`toggle_collapsed`/`is_collapsed` (`:447`–`:461`), `setTitleBarWidget(self.watchlist_panel.header_bar)` (`ui/main_window.py:381`), `AC-D21.11.2`/`AC-D21.11.3` (collapsed = the struck header button stays visible) | **`[revises D21.11: the collapsed appearance]`** | D44 **changes the collapsed *appearance*, not the collapse mechanism**: the collapsed state renders the thin bar instead of the struck header button. `AC-D21.11.2`/`.3` are **superseded for the collapsed state** (recorded, never silent); `AC-D21.11.1` (single "Watchlist" label; the header strip is the title bar) is **unchanged**, and the `set_collapsed`/`toggle_collapsed`/`is_collapsed` API is **preserved**. |
+| **D13/D17 width model** — `WATCHLIST_MIN_WIDTH = 150` (`ui/dock_layout.py:24`), `plan_dock_widths`'s unconditional clamp (`:89`), `_apply_dock_widths`'s direct clamp in the right-dock-hidden branch (`ui/main_window.py:2527`), `AC-D13.1`/`AC-D17.2`'s 150px minimum, `AC-D13.2`/`.3`/`AC-D17.1`/`.3`–`.6` (cap, persistence, drag enforcement, re-clamp) | **`[revises D13/D17: the 150px minimum's scope]`** | The **150px minimum becomes expanded-state only**; while collapsed the width is `WATCHLIST_COLLAPSED_WIDTH`. The cap (`floor(0.50 × chart_area)`), the `CHART_MIN_WIDTH` cross-clamp, the persistence (`watchlist/width`), the drag enforcement and the re-clamp are **unchanged for the expanded state**. |
+| **D21.13 collapsed-region pin** — `_sync_right_dock_collapse` (`ui/main_window.py:2374`–`:2411`): relax the dock's **and** the panel's minimum width, `_resize_docks_guarded`, then re-apply on the next event-loop turn because "the dock's layout minimum is recomputed on the next layout pass, so the immediate resize above can be clamped back to the pre-collapse minimum" | **`[extends D21.13: the collapsed-min-width pin pattern]`** | D44's collapsed watchlist reuses **that proven mechanism** (`S24`) instead of inventing a second one — the same defect class (a stale Qt layout minimum re-imposing the expanded minimum) with the same remedy. |
+| **D17/D18/B3 pure dock model** — `ui/dock_layout.py` (`plan_dock_widths`, `watchlist_max_width`, `right_dock_max_width`), `MainWindow._plan_dock_widths`'s fixed-point iteration, the `CHART_MIN_WIDTH` cross-module invariant | **`[extends D17/D18: the pure width model]`** | The collapsed rule lives **in the pure model** (`S23`), for the repo's recorded reason (`docs/memory.md` 2026-10-03: the pure helper is the single source of truth; a consumer-side workaround masks helper defects — the ESC-026 lesson). The new parameter defaults to today's expanded behaviour, so every existing caller and suite is untouched. |
+| **D21.11's dock title bar (DG37)** — the header strip **is** the dock's title bar; deleting the duplicate title would otherwise leave the dock un-draggable; `DockWidgetMovable | DockWidgetFloatable` are retained | **`[extends D21.11: the title-bar/drag affordance]`** | While collapsed the title-bar slot must still hold a draggable widget, so D44 keeps a 30px handle there (`S25`); the dock's `objectName`/window title and features are unchanged (title-keyed dock lookups stay valid — `docs/memory.md` 2026-10-03). |
+| **D21.5 columns / D22.1 `+` / D39.1 search** — all live inside `header_bar`; the table's `horizontalHeader()` is the column-header row | **`[extends D21.5/D22/D39: the header strip's contents]`** | A77: while collapsed the strip, the `+` and the column-header row are hidden and return on expand. **No D22/D39/D21.5 behaviour changes** — they are reachable the instant the user expands. |
+| **VIS-D21 conventions** — `ui/visual_conventions.py::set_button_active` (VIS-D21.2), `DiagonalStrikeButton` (VIS-D21.1), `ACTIVE_PROPERTY = "active"` | **`[extends D21.7/D21.8: the shared highlight convention]`** | The bar's hover/pressed feedback goes through **`set_button_active`** (`AC-D44.6`) — no hand-rolled highlight; `set_button_active` itself is **unchanged** (frozen, below). VIS-D21.1 keeps applying to genuinely hidden/off **buttons** elsewhere (D21.12 volume, D21.13 portfolio). |
+| **D14 double-click / D21.5 popup / D22 add-remove / D39 search** | **`[no relationship]`** | Untouched; the frozen-interface list pins their contracts. |
+| **D42 (width/cache/depth) and D43 (priming bar size)** | **`[no relationship]`** | D44 touches neither the chart renderer, the load path, the planner, the bar cache nor the priming path. |
+| **D41 (right dock = Portfolio-only) / D40 (TWS lifecycle)** | **`[no relationship]`** | The right dock's cap/header/collapse model is unchanged; D44 only feeds a **fixed** collapsed left width into the existing cross-clamp. |
 
 ---
 
-## Codebase Summary (existing repository — D42 surface, source-validated 2026-10-15)
+## Codebase Summary (existing repository — the D44 surface, source-validated 2026-10-16 @ `0c4d478`)
 
-The repo is **not** greenfield: a PyQt6 + pyqtgraph + official `ibapi` desktop trading terminal
-(~4,920 graph nodes; full offscreen suite green after D41 @ `b48133d`). This section is a factual
-inventory of the surface D42 touches; every item below was read in the tree during planning.
+The repo is **not** greenfield: a PyQt6 + pyqtgraph + official `ibapi` desktop trading terminal (live TWS
+7496, SQLite persistence, PyInstaller `.app`; ~4,859 graphify nodes). This section is a factual inventory of
+the surface D44 touches — every line below was read in the tree during planning (`graphify-out/graph.json`
+was used for the initial map; **the source is authoritative**).
 
-### Data models / schema `[existing]`
+### Data models / persisted state `[existing]`
 
-- **`data/db.py::DB`** — SQLite, one connection, `_init_schema()` (DDL script) + `_migrate_schema()`
-  (additive `ALTER TABLE`, `CREATE UNIQUE INDEX`, one idempotent `DROP TABLE IF EXISTS
-  footprint_cache` from D41). Tables: `bars`, `watchlist`, `alarms`, `zones`, `drawing_groups`,
-  `drawings`, `studies`, `popouts`, `positions`, `trade_groups`, `position_group_map`,
-  `yfinance_events_cache` (D38), `volume_baseline` (D39).
-  - **`bars`** (`:16`–`:22`) — `(symbol TEXT, timeframe TEXT, ts INTEGER, open, high, low, close,
-    volume)`, **`PRIMARY KEY (symbol, timeframe, ts)`**. **No `useRTH`/mode component** — this is
-    the `useRTH`-blind cache key `AC-D16.9` names.
-  - `popouts` (`:76`–`:84`) already persists `ext_hours INTEGER NOT NULL DEFAULT 1` per pop-out.
-  - `config/paths.py::get_db_path()` returns the **user-space production DB** when `DB_PATH` is
-    unset (`tests/conftest.py` sets it to a temp file).
-- **`data/models.py::Bar`** — `@dataclass` with `symbol, timeframe, ts, open, high, low, close,
-  volume` (no mode field; plain dataclass, no `__slots__`).
-- **`data/bar_cache.py::BarCache`** — `RETENTION_BARS = 5000` (`:8`); `save_bars(bars)` (`:13`,
-  `INSERT OR REPLACE`), `get_bars(symbol, timeframe)` (`:27`), `prune(symbol, timeframe,
-  keep=RETENTION_BARS)` (`:39`), `get_last_timestamp` (`:55`, unused by the load path).
-- **`services/backfill_service.py`** — pure, Qt-free planner: `MissingSpan`, `RequestPlan`,
-  `bar_period_seconds` (`:104`), `_duration_to_seconds` (`:113`), `_et_date`/`_et_day_start_ts`/
-  `_trading_days`/`_build_span` (`:139`–`:163`), **`find_missing_spans(cached_ts, now_ts, timeframe,
-  trailing_days=TRAILING_BAR_GRANULARITY_DAYS, ext_hours=False)`** (`:169`), `_bar_level_missing_spans`
-  (`:239`), `plan_requests(missing_spans, timeframe)` (`:299`).
-- **`services/market_calendar.py`** — pure ET calendar: `is_trading_day`, `trading_days`,
-  **`session_windows(start_ts, end_ts, ext_hours)`** (`:195`–`:216`) with `_EXT_OPEN/_EXT_CLOSE =
-  04:00/20:00` and `_RTH_OPEN/_RTH_CLOSE = 09:30/16:00` ET (`:37`–`:40`), and the ESC-023 NYSE
-  Rule 7.2 New-Year exception (`:117`–`:121`).
-- **`services/time_collapse_service.py::TimeCollapseMap`** — the D21.4 display-only x-transform
-  (`_to_display`), which the candle/volume width math is expressed in.
-- **In-memory caps:** `config/settings.py::SESSION_BAR_CAP = 5000` (`:45`), applied in
-  `TickerSession.set_bars` (`:300`), `TickerSession._append_bar` (`:313`) and
-  `ChartPanel` (`:1150`/`:1157`); `config/settings.py::MAX_HISTORICAL_PER_600S = 60` (`:35`) and
-  `ibkr/pacing.py::pacing_manager`.
+- **No SQLite change.** D44 touches **no table, no column, no migration**. The persisted surface it reads is
+  `QSettings("NDThinkChart", "NDThinkChart")` only:
+  - `ui/watchlist_panel.py::WATCHLIST_WIDTH_KEY = "watchlist/width"` (`:96`) — the **expanded** dock width,
+    written by `save_watchlist_width` (`:126`) from `MainWindow.closeEvent` (`ui/main_window.py:3363`) and read
+    by `load_watchlist_width` (`:116`) / `MainWindow._read_persisted_width` (`:2300`).
+  - `ui/watchlist_panel.py::WATCHLIST_COLUMNS_KEY = "watchlist/columns"` (`:77`) — the D21.5 column layout
+    (`load_watchlist_columns` `:179` / `save_watchlist_columns` `:188`, sanitised by
+    `sanitise_watchlist_columns` `:150`).
+  - **There is no collapse key** — D21.11's collapse is in-memory only (`WatchlistPanel._collapsed`, `:280`),
+    and A76 keeps it that way.
+- **In-memory state D44 touches:** `WatchlistPanel._collapsed` (`:280`), `MainWindow._watchlist_width`
+  (`:421`, the "current/requested" dock width), `MainWindow._persisted_watchlist_width` (`:420`),
+  `MainWindow._applying_dock_widths` (`:412`, the re-entrancy guard), `MainWindow._dock_clamp_scheduled`
+  (`:413`), `MainWindow._dock_splitter` (`:414`, the defensively acquired dock-area splitter).
 
 ### Major components and responsibilities (as-built)
 
-| Component | Responsibility (D42-relevant) |
+| Component | Responsibility (D44-relevant) |
 |---|---|
-| `ui/candlestick_item.py` (~200 lines) | `CandlestickItem` 5 render modes; `_draw_candles` (`:100`–`:163`) computes the half-width (`median_diff * 0.325`, `:111`), reads the ViewBox range and applies the **unconditional 4-px floor** (`min_w = 2.0 / px_per_sec`, `:136`–`:138`), draws the cosmetic 1-px wick + body into a `QPicture`; `set_data(..., width=...)` carries the D28.4 cached half-width override (`:63`–`:71`). |
-| `ui/chart_panel.py` (~1,800 lines) | `_compute_candle_half_width` (`:1215`, median of **display-x** diffs × 0.325, cached as `_candle_half_width`), `_clamp_half_width` (`:1229`, the volume-side mirror of the same 4-px floor), `_refresh_candles` (`:1249`; volume `w_vol` at `:1303`, `volume_bars.setOpts(width=w_vol*2)` `:1305`, live volume `:1310`/`:1314`, `candlestick.set_data(..., width=...)` `:1318`/`:1326`), `_refresh_live_bar` (`:1333`), `_bars` trim at `SESSION_BAR_CAP` (`:1150`–`:1157`). |
-| `ui/ticker_session.py` (~1,800 lines) | Per-symbol session: `get_bars` (`:295`), `set_bars` (`:298`, capped), `_append_bar` (`:306`, capped), `_wave_extended_hours` (`:127`), `queue_wave_plans` (`:843`), `_issue_wave_chunks` (`:858`, `useRTH=1` + `extended_hours=` passed to `md_manager.req_historical_data`), `_schedule_wave_continuation` (`:886`), `_wave_may_complete` (`:900`). |
-| `ui/main_window.py` (~3,700 lines) | `load_chart` (`:1560`–`:1705`): cached read (`:1630`), `find_missing_spans(..., ext_hours=extended_hours)` (`:1647`–`:1652`), `plan_requests` (`:1653`), wave queue (`:1662`), **empty-cache single-window branch** (`:1668`–`:1684`); `_finalize_history_wave` (`:1950`–`:2044`): `save_bars` (`:1970`), `prune` (`:1973`), `get_bars` (`:1974`), AC-D16.4 shortfall via `_missing_backfill_trading_days` (`:2046`–`:2060`); `_on_ext_hours_toggled` (`:2777`–`:2784`, relabels and re-loads). |
-| `ibkr/market_data.py` | `TIMEFRAME_CONFIG` (`:7`–`:13`) — the **per-request** duration/bar-size caps (`1 min → 1 D`, `5 mins/15 mins → 5 D`, `1 hour → 10 D`, `4 hours → 30 D`, `1 day → 1 Y`); `req_historical_data(..., extended_hours=)` maps to `useRTH` (`:26`–`:58`). |
-| `tests/` | pytest + pytest-qt offscreen; the **five** suites that enshrine the old rule are `test_candle_spacing.py` (`:4`–`:10`, a source-string check that never renders), `test_volume_width.py` (`:103`–`:104`), `test_chart_dpi.py` (`:245`–`:250`, `assert body_dev >= 4.0` on the dense 960-bar DPR-2 dataset), `test_d28_2_sessions.py` (`:166`) and `test_d28_4f_panel_bar_cap.py` (`:53`); the D16/D27 planner suites are `test_backfill_service.py`, `test_d27_backfill_granularity.py`, `test_history_backfill*.py`, `test_market_calendar.py`; the cap suites are `test_d28_2_sessions.py`, `test_d28_4e_bar_cache_retention.py`, `test_d28_4f_panel_bar_cap.py`; and the D16 **load-path** suites whose expectations `S17`/`S18` legitimately change are `test_history_backfill_loadpath.py` (`:202`/`:206`, `:238`, `:255`–`:257`, `:431`, `:477`), `test_history_backfill.py` (`:285`, `:451`–`:457`, `:590`) and `test_history_backfill_disconnect.py` (`:362`). **Load-path-*coupled* by stubbing the feed (`ESC-050` — every one of these boots a `MainWindow`, stubs `md_manager.req_historical_data` with a fixed-size reqId iterator and asserts downstream):** `test_d24_popouts.py`, `test_phase3_fixpass.py`, `test_d24_alarm_full_chain.py`, `test_d24_smoke_gate.py`, `test_d24_9_popout_persistence.py`, `test_d28_tick_burst_baseline.py` — they are **not** D16 suites, which is exactly why the D42 impact analysis missed them. |
+| `ui/watchlist_panel.py::WatchlistPanel` (`:239`) | `header_bar` — a 28px `QWidget`, `objectName "WatchlistHeader"`, `background: #141822; border-bottom: 1px solid #232938` (`:294`–`:297`), holding `header_button = DiagonalStrikeButton("Watchlist")` (checkable, checked by default, `:301`–`:318`), `add_button` = the D22.1 `+` (`:323`–`:336`) and `search_box` = the D39.1 search field (`:340`–`:361`); `table` (7 configurable columns, `:402`–`:414`) with `body = self.table` (`:417`) and its `horizontalHeader()` = the column-header row; `_on_header_toggled` (`:435`–`:445`) sets `self._collapsed = not visible` and `self.body.setVisible(visible)`; `is_collapsed` / `set_collapsed` / `toggle_collapsed` (`:447`–`:461`). **Today: collapsed = the horizontal header strip stays (struck), the table hides, the dock keeps its ~220px width.** |
+| `ui/main_window.py` dock wiring (`:369`–`:431`) | `self.watchlist_panel = WatchlistPanel()`; `self.watchlist_dock.setObjectName("Watchlist")`, `setWindowTitle("")` (the duplicate title is deleted, AC-D21.11.1), `setWidget(self.watchlist_panel)`, **`setTitleBarWidget(self.watchlist_panel.header_bar)`**, `setFeatures(DockWidgetMovable \| DockWidgetFloatable)`, **`self.watchlist_panel.setMinimumWidth(WATCHLIST_MIN_WIDTH)`**, `addDockWidget(LeftDockWidgetArea, …)`, `installEventFilter(self)`, the persisted-width restore (`:420`–`:424`), `QTimer.singleShot(0, self._deferred_dock_setup)` (`:431`). |
+| `ui/main_window.py::MainWindow._apply_dock_widths` (`:2459`) | **The single apply entry point** (`D17/D18`), wired to `resizeEvent` (`:2787`–`:2796`), the acquired splitter's `splitterMoved` (`_on_dock_splitter_moved`, `:2725`), the event-filter fallback (`eventFilter` `:2756`–`:2769` → `_on_dock_drag_event` `:2729` → `_schedule_dock_clamp` `:2741`), `changeEvent(WindowStateChange)` (`:2771`), the deferred normalizes (`_deferred_dock_setup` `:2619`, `_deferred_dock_clamp` `:2677`), `_on_right_dock_visibility_changed` (`:2663`) and `closeEvent` (`:3349`). **Two clamp branches:** the right-dock-visible branch calls `_plan_dock_widths` (`:2413`) → the pure `plan_dock_widths`; the right-dock-hidden branch clamps directly — `desired = max(WATCHLIST_MIN_WIDTH, min(base_left, cap))` (`:2527`). **Both clamp to 150 unconditionally today** (DG74). |
+| `ui/dock_layout.py` | The pure, Qt-free width model: `CHART_MIN_WIDTH = 400` (`:21`), `WATCHLIST_MIN_WIDTH = 150` (`:24`), `DEFAULT_WATCHLIST_WIDTH = 220` (`:27`), `RIGHT_DOCK_MIN_WIDTH = 200` (`:30`), the cap fractions (`:33`/`:36`), `watchlist_max_width` (`:41`), `right_dock_max_width` (`:52`), `plan_dock_widths` (`:64`, the B3 cross-clamp: `left = max(WATCHLIST_MIN_WIDTH, min(int(requested_left), left_max))` at `:89`, the combined-budget loop at `:100`–`:137`). |
+| `ui/watchlist_panel.py` width helpers (`:93`–`:130`) | `WATCHLIST_MIN_WIDTH` / `CHART_MIN_WIDTH` / `DEFAULT_WATCHLIST_WIDTH` **aliased** from `dock_layout` (`:93`–`:95`); `watchlist_max_width` (`:99`, delegates), `clamp_watchlist_width` (`:110`, `max(WATCHLIST_MIN_WIDTH, min(width, cap))`), `load_watchlist_width` (`:116`), `save_watchlist_width` (`:126`). The `CHART_MIN_WIDTH` duplication is documented as an invariant (`ui/dock_layout.py:12`–`:14`). |
+| `ui/visual_conventions.py` | `set_button_active(button, active)` (`:80`) — sets the `active` dynamic property and repolishes; `ACTIVE_PROPERTY = "active"` (`:39`); `DiagonalStrikeButton` (`:109`) with `struck` / `set_struck` / `is_struck` / `strike_line` / `text_area_rect` / `strike_color` and the auto-strike for checkable buttons. |
+| `tests/` | The suites that reach this surface are enumerated **by call site** in the plan proposal (`AP-D44-8`, the `ESC-050`/`ESC-055` rule): 7 suites drive `_apply_dock_widths`/`plan_dock_widths` (all **expanded**), 3 suites assert the collapsed appearance, 4 suites read `dock_layout` constants. |
 
 ### Key entry points / data flow (unchanged shape)
 
-`MainWindow.load_chart` → `BarCache.get_bars` → `find_missing_spans` → `plan_requests` →
-`TickerSession.queue_wave_plans`/`_issue_wave_chunks` → `MarketDataManager.req_historical_data`
-(`useRTH`, `endDateTime`, `duration`, `bar_size`) → `IBApiClient.historicalData` →
-`_on_historical_bar`/`_on_historical_data_end` → `_finalize_history_wave` → `BarCache.save_bars` →
-`session.set_bars` → `ChartPanel.update_chart` → `_refresh_candles` (price **and** volume).
+Collapse: `header_button.toggled` → `WatchlistPanel._on_header_toggled` → `body.setVisible(False)` (D21.11) —
+**D44 adds**: the collapsed visual sync → `collapsed_changed` → `MainWindow` (title-bar swap + min-width pin) →
+`_apply_dock_widths()` → `plan_dock_widths`/the direct clamp → `resizeDocks`. Resize/drag:
+`resizeEvent` / the splitter hook / the event-filter fallback → `_apply_dock_widths` → the same clamp.
 
 ### External integrations already in use `[existing]`
 
-IBKR TWS over `ibapi` (historical + realtime bars, market data, contract details, orders) on
-**live port 7496 only**; SQLite persistence; `yfinance` (D38, unrelated); no message queue, no
-cache server, no auth provider.
+IBKR TWS over `ibapi` (live port 7496 only), SQLite (`config/paths.get_db_path()`, `DB_PATH`-overridable),
+`QSettings` (INI/registry), `yfinance` (D38). **D44 adds no integration and no dependency** — it is a
+dock-layout + widget-paint change using Qt APIs the repo already uses (`QDockWidget.setTitleBarWidget`,
+`resizeDocks`, the event filter, a `QWidget.paintEvent`).
 
-### What D42 changes, in one line
+### What D44 changes, in one line
 
-`AC-D16.9`'s two defects are **real and both mode-blind in the same code path**: `present_days =
-{_et_date(ts) for ts in ts_values}` (`services/backfill_service.py:208`) decides day presence with
-**no** session window, and `BarCache.get_bars/save_bars` key on `(symbol, timeframe)` with **no**
-mode (`data/bar_cache.py:13`/`:27`, `data/db.py:21`). The width defect is the same shape:
-`ui/candlestick_item.py:136`–`:138` applies `min_w` **unconditionally**, and
-`ui/chart_panel.py:1242`–`:1244` mirrors it for volume — at a 3.83-px pitch the floor makes the gap
-negative (ESC-041).
+The collapse mechanism already exists; **what is missing is (a) a collapsed *width* the layout model will
+honour and (b) a collapsed *appearance***. Today the width is clamped unconditionally to 150px at **two**
+sites inside the single apply entry point (`ui/dock_layout.py:89` via `plan_dock_widths`, and
+`ui/main_window.py:2527` in the right-dock-hidden branch) and the panel's minimum width is pinned to 150
+(`ui/main_window.py:386`), so a 30px bar is snapped back on the next `resizeEvent` or drag (R66/DG74); and the
+collapsed state renders the struck horizontal header button instead of a thin bar (`AC-D21.11.2`/`.3`).
 
 ---
 
 ## Summary
 
-D42 is a **two-workstream correctness increment** on existing paths, with **no new feature and no
-stack change**. **(1)** The rendered candle body becomes `body = min( max(0.65 × pitch, F), pitch )`
-computed by **one shared, pure helper** that both the candle `QPicture` and the volume
-`BarGraphItem` width path call, so the **no-overlap guarantee (`gap >= 0`) wins** over the D6 4-px
-legibility floor at extreme density while the floor still binds in the non-dense regime (the wick
-stays a cosmetic 1-px line). **(2)** The intraday fetch gains a **backwards-extending depth floor**
-(≥ 30 trading sessions before the current session, in **both** RTH and ETH) delivered through the
-**existing** D28.3 wave pump as ordinary `RequestPlan`s, driven by a **mode-aware** day-presence
-predicate and a **mode-aware** bar cache (`bars.ext_hours`), with **all three `SESSION_BAR_CAP` cap
-sites plus `BarCache.prune`'s `keep`** made floor-aware so the floor survives pruning **and is not
-trimmed out of the displayed series on the next live candle**. Every supersession
-(`AC-D6.4` unconditional floor, `AC-D7.1` positive-gap wording, the RTH-only depth default) is
-**recorded**, and the **five** suites that enshrine the old rule are **corrected, not weakened**.
+D44 turns the **already-existing** watchlist collapse (D21.11) into a **thin vertical bar**: the dock is pinned
+to `WATCHLIST_COLLAPSED_WIDTH = 30px`, renders a rotated `WATCHLIST` label in the app palette (`#141822` /
+`#232938` / `#cbd5e1`), and expands back to the **previous** width when the bar is clicked. The core fix is a
+**collapsed-aware width rule in the pure `ui/dock_layout.py` model** (the 150px minimum becomes
+expanded-state only) consumed by **both** clamp branches of the single apply entry point
+`MainWindow._apply_dock_widths`, plus the **D21.13-style minimum-width relaxation** so Qt's own layout minimum
+cannot re-impose 150px on the next resize or drag. The visual is a small custom `QWidget` with a `paintEvent`
+drawing the rotated label (Qt cannot rotate a `QPushButton`'s text), carried as the panel's full-height
+collapsed body while the dock's **title-bar slot** keeps a 30px handle so the dock stays movable (DG37). The
+collapse state is **not persisted** (A76), the header strip / `+` (D22.1) / column-header row are hidden while
+collapsed (A77), and every supersession (`AC-D21.11.2`/`.3`, the 150px minimum's scope, the `## Non-Goals`
+restyling bullet) is **recorded** — the affected suites are **corrected, never weakened** (R67).
 
 ---
 
 ## Tech Stack Decisions
 
-Constrained (existing) choices first, then the D42 additions/changes. Every row carries a rationale
-and the alternatives considered.
+Constrained (existing) choices first, then the D44 decisions. Every row carries a rationale and the
+alternatives considered.
 
 | # | Decision | Choice | Rationale | Alternatives considered |
 |---|---|---|---|---|
-| S1 | Language / UI stack `[existing]` | Unchanged: Python 3.11+ (`.venv`), PyQt6 (`>=6.6`), pyqtgraph (`>=0.13`), numpy (`>=1.26`) | Existing-repo hard constraint; "changing the tech stack" is an explicit non-goal in `requirements.md` | Any new UI/charting/numeric framework — rejected |
-| S2 | Broker / persistence / packaging / tests `[existing]` | Unchanged: official `ibapi` (`ibapi-latest==10.51.1`), **live TWS 7496 only** (`check_live_port` fail-fast), SQLite via `config/paths.get_db_path()`, PyInstaller `.app`, pytest + pytest-qt offscreen, no live TWS and no transmitted orders | Existing-repo hard constraint; Q8/Q9 | Paper mode / new broker / new DB / new test framework — rejected |
-| S3 | **Testing** `[existing]` | pytest + pytest-qt, `QT_QPA_PLATFORM=offscreen`, run as `.venv/bin/python -m pytest`; any **non-pytest** probe that can reach a DB-writing path exports `DB_PATH` to a temp file (ESC-043) | Repo standard + the repo's own recorded gotchas | Manual / live-TWS verification — rejected |
-| S13 | **One shared capped-width helper** `[new in D42]` — **revises the D6/D7 clamp** | Add a **pure** module-level function in `ui/candlestick_item.py` (the module that owns the D6 formula): `capped_body_half_width(median_diff, base_half_width, px_per_sec, floor_px=4.0) -> float` implementing `w = min( max(base_half_width, floor_px / 2 / px_per_sec), median_diff / 2 )`, i.e. `body = min(max(0.65×pitch, F), pitch)` with `base_half_width = 0.325 × median_diff` and `F` the existing 4-px constant. **Unit of `F` (`FI-D42-4` / `AP-D42-5`, stated explicitly per RC-D42-3):** `floor_px = 4.0` is **4 ViewBox logical px** — the unit `px_per_sec` yields (`vb.width() / x_span`) and the unit the shipped `min_w = 2.0 / px_per_sec` already uses (`ui/candlestick_item.py:136`), i.e. **8 device px at DPR 2**; it is **not** the `AC-D6.4` literal's "4 device pixels at DPR 2". `AC-D6.4`'s operative clause is "measured in the **same** pixel unit" and the shipped constant is kept, so the criterion's outcomes hold unchanged — and the WS1 test evidence applies `F` in **this** unit and asserts the unit-free relations `body <= pitch` / `body == pitch` **Three call sites, one implementation:** `CandlestickItem._draw_candles` (`:136`–`:138`), `ChartPanel._clamp_half_width` (`:1229`, imported, so the volume path cannot drift), and therefore `_refresh_candles` (`:1303`) / `_refresh_live_bar` (`:1352`) automatically | `AC-D6.4`/`AC-D7.1` (revised) + `AC-D9.1`/`AC-D9.2`'s note require **one shared capped `w`** for candle and volume; **R63** names exactly the risk of the two paths diverging. A single pure function is directly unit-testable (three regimes: `pitch > F`, `pitch == F`, `pitch < F`) without a QApplication, and it keeps the 0.325 / 35 % intent visible in one place | (i) patch the two clamp sites independently — duplicates the rule, R63's failure mode — rejected; (ii) put the cap in `ChartPanel` and pass the capped `w` down to `CandlestickItem` — inverts the D28.4 ownership (`CandlestickItem` clamps at generation time using the ViewBox range; ESC-013 depends on that ordering) — rejected; (iii) a new `ui/candle_width.py` module — an extra module for one 3-line rule — rejected |
-| S14 | **Pitch plumbing for the D28.4 width override** `[new in D42]` | `ChartPanel` caches the **pitch** alongside the half-width: `_compute_candle_half_width` (`:1215`) already computes `median_diff` over **display-x**; it returns/stores both (`_candle_pitch`). `CandlestickItem.set_data(..., width=…, pitch=…)` gains the optional `pitch`; `_draw_candles` uses the supplied pitch when `_width_override` is set, otherwise computes `median_diff` from `data` exactly as today. `ChartPanel` passes `pitch=self._candle_pitch` at `:1318`/`:1326`/`:1347` | The cap **needs the pitch**, and the D28.4 override exists precisely to skip the O(n log n) median sort on regeneration — recomputing it inside `_draw_candles` would undo D28.4's perf fix. Both the pitch and the width come from the same **display-x** series, so `median_diff`, `px_per_sec` (ViewBox units) and `F` are in the **same pixel unit** (`AC-D6.4`'s "same pixel unit" clause) | (i) always recompute the median inside `_draw_candles` — reintroduces the sort D28.4 removed — rejected; (ii) drop the override and let `CandlestickItem` own the width entirely — a D28.4 perf regression — rejected; (iii) cap in data units only (ignore the ViewBox) — the floor is a **device**-pixel rule and needs `px_per_sec` — rejected |
-| S15 | **Mode-aware day presence** `[new in D42]` — **extends D16** | A pure predicate in `services/backfill_service.py`: a day is **present** iff ≥ 1 cached bar's timestamp falls inside that day's **current mode's** session window, via `market_calendar.session_windows(day_start, day_end, ext_hours)`. `find_missing_spans`'s `present_days = {_et_date(ts)}` (`:208`) is replaced by the window-membership set; `MainWindow._missing_backfill_trading_days` (`:2052`–`:2054`) — the **AC-D16.4 shortfall report** — calls the **same** exported predicate instead of its own mode-blind `present_days` | `AC-D16.9`'s normative rule and its measurable (a)/(b)/(c); the bar-level pass (`:276`) already uses `session_windows(..., ext_hours)`, so today **one** planner decides presence two different ways. Bar timestamps are period **starts** (recorded gotcha), so the window test applies to the bar's start timestamp — which is exactly why an RTH-empty day can look covered | (i) keep the mode-blind presence set and only fix the bar-level pass — leaves ESC-037's silent RTH hole — rejected; (ii) decide presence per day from the *first/last* bar only — wrong for a day whose bars straddle the window — rejected; (iii) filter the cached series by mode before the planner sees it — conflates cache scoping with presence and would break `AC-D16.9(c)`'s "RTH bars are ETH-present" — rejected |
-| S16 | **Mode-aware cache key + migration** `[new in D42]` — **extends D16** | `bars` gains **`ext_hours INTEGER NOT NULL DEFAULT 1`** and its key becomes **`(symbol, timeframe, ext_hours, ts)`**; `BarCache.save_bars(bars, ext_hours=True)` / `get_bars(symbol, timeframe, ext_hours=True)` / `prune(symbol, timeframe, ext_hours=True, keep=…)` (the mode is a **keyword with the app's default**, so existing call sites and suites stay valid). SQLite cannot alter a primary key, so `data/db.py::_migrate_schema` **rebuilds** the table once, guarded by `PRAGMA table_info(bars)` (idempotent, crash-safe, the same mechanism D41 used for its drop): create `bars_new` with the new key, `INSERT OR IGNORE … SELECT symbol, timeframe, 1, ts, …`, drop `bars`, rename | `AC-D16.9` and `AC-D16.8`'s mode-isolation clause **explicitly require** a mode-aware cache/key ("keyed on symbol+timeframe+mode") so a mode switch cannot read the other mode's bars as coverage — `requirements.md:1957`–`:1958` ("The bar cache/key is **mode-aware** (RTH vs ETH) … This applies **in both directions**") together with `AC-D16.9`'s measurable (c) at `:1967`–`:1969` (a **presence predicate** on a given bar set: RTH bars lie inside `04:00–20:00 ET`, so the ETH call reports the day present), which is the ratified reading of `FI-D42-3`. `ext_hours` (0/1) is the vocabulary the whole pipeline already speaks (`useRTH`, `find_missing_spans(ext_hours=)`, `popouts.ext_hours`), so no new enum is introduced. Legacy rows are tagged **`ext_hours = 1` (ETH)**: the app's default is **Ext Hours ON** (`ext_hours_btn.setChecked(True)`, `:244`), so pre-existing rows were fetched with `useRTH=0`; an RTH load after the migration finds its own (empty) key and fetches the required floor — **no hole, and that fetch is required by `AC-D16.8` anyway** | (i) **no schema change** — keep one `(symbol, timeframe, ts)` cache and make only the *presence* predicate window-based. Passed over: it satisfies every measurable of `AC-D16.9` but fails its explicit "the bar cache/key is mode-aware" clause and `AC-D16.8`'s "in both directions" wording, and it cannot distinguish "the user never loaded ETH for this symbol" from "ETH is covered" — rejected; (ii) wipe the cache on migration — cheapest, but discards a valid cache and forces a full refetch of every symbol/timeframe/mode for no correctness gain (legacy rows are ETH-fetched, i.e. already the widest window) — rejected; (iii) a third `'LEGACY'` mode visible to both — more correct in principle, but adds a tri-state to every read/write/prune for one migration's benefit — rejected; (iv) store mode in a side table keyed by `(symbol, timeframe)` — loses per-bar truth after a mode switch — rejected |
-| S17 | **Backwards depth floor through the existing planner** `[new in D42]` | `find_missing_spans(cached_ts, now_ts, timeframe, trailing_days=…, ext_hours=False, min_sessions=0)` gains **`min_sessions`** (default `0`). When `min_sessions > 0` **and** the timeframe is intraday, the planner computes the **floor day** = the `min_sessions`-th trading day before the current session and emits **at most one** `MissingSpan` covering `[floor_day_start, earliest_present_day_start)` (or `[floor_day_start, now]` when nothing is present), so the floor is fetched **backwards** and **collapses to empty once filled**. `MainWindow.load_chart` passes `min_sessions=MIN_INTRADAY_SESSIONS` for intraday timeframes in **both** the cached path (`:1647`) and the empty-cache path — the `elif not cached` single-window branch (`:1668`–`:1684`) is **removed** because the floor span already yields plans (the empty-cache case becomes "one span from the floor to now") — which requires that the `find_missing_spans(...) if cached else []` guard at `ui/main_window.py:1647`–`:1652` **and** the empty-cache early return at `services/backfill_service.py:205`–`:206` are both bypassed when `min_sessions > 0` | `AC-D16.8` requires the floor for **all five** intraday timeframes in **both** modes; IBKR caps `1 min` at `1 D` per request, so the depth must come from **chained** requests. Reusing `plan_requests` (`:299`, which already chunks a span newest-first by the configured duration) means the floor needs **no new transport path** and rides D28.3's wave cap + continuation timer unchanged. `min_sessions=0` is the default, so **every existing D16/D27 planner suite keeps its exact semantics**; R64's "the D16 suite stays green" is met by **intent-preserving correction** of the D16 **load-path** suites (enumerated with their cause in `S21` / the plan's correction record) — **and, per `ESC-050`, of every suite that merely *drives* that load path with a stubbed historical feed** (19 assertions in six suites; the **invariant** in `S21`) — never by weakening an assertion | (i) raise `TIMEFRAME_CONFIG` durations — `1 min` is hard-capped at `1 D` and the chaining is required regardless, so one mechanism serves all five timeframes — rejected; (ii) a separate `depth_service.py` — duplicates `plan_requests`/`_trading_days` — rejected; (iii) a new "floor" request kind in the session — bypasses the pacing accounting — rejected; (iv) keep the empty-cache special branch and add the floor only to the cached path — leaves the ESC-038 repro (fresh `1 min` RTH) at one session — rejected |
-| S18 | **Floor-aware bar budget (all three `SESSION_BAR_CAP` sites + `prune`'s `keep`)** `[new in D42]` — **revises D28.4** | Add a pure helper (in `services/backfill_service.py`, next to `bar_period_seconds`/`session_windows`): `floor_bar_budget(timeframe, ext_hours) -> int` = `max(SESSION_BAR_CAP, ceil(min_sessions × window_seconds(timeframe, ext_hours) / bar_period) × 1.15)`, where `window_seconds` is 6.5 h (RTH) or 16 h (ETH); `1 day` returns the flat cap (not covered by the floor). The **three** cap sites use it — `TickerSession.set_bars` (`:300`), `TickerSession._append_bar` (`:313`), and **`ChartPanel.update_last_bar`'s `_bars` trim (`:1150`–`:1157`)** — and the load path passes `keep=floor_bar_budget(...)` to `BarCache.prune` (`:1973`). The panel trim is the site that matters most: `update_chart` seeds `ChartPanel._bars` from the session's (now up to 33,120-bar) series and `update_last_bar` would otherwise re-trim it to the flat 5,000 on the **next new-candle tick**, i.e. the `AC-D16.8` floor would be discarded from the **displayed** series after one live bar (`FI-D42-1`'s failure mode one layer up). **Ownership (RC-D42-1):** this edit is owned by the **same phase as `floor_bar_budget`** (Phase 2) and is **sequenced after** the `ui/chart_panel.py` width edit of the other workstream — `ui/chart_panel.py` is the **one** file shared by the two workstreams, so the two `ui/chart_panel.py` tasks must never be `in_progress` in the same wave (`build_wave.py`'s overlapping-`touches_files` rule); see the plan's per-file map. The **flat constants stay** as the default/floor (`RETENTION_BARS = 5000`, `SESSION_BAR_CAP = 5000`) | **`AC-D16.8` is otherwise unsatisfiable on this build.** A `1 min` RTH session is 390 bars, so 30 sessions = **11,700 bars** > the 5000 cap; `1 min` ETH is 960/session → **28,800**; `5 mins` ETH → **5,760**. Both the SQLite `prune` (`RETENTION_BARS`) and the in-memory caps would **delete the floor after fetching it**, so the displayed series could never cover 30 sessions. Keeping the flat constants as the default preserves `prune(sym, tf)`'s existing behaviour and `test_d28_4e_bar_cache_retention.py` unchanged | (i) leave the caps and accept a shortfall — directly contradicts `AC-D16.8`'s "the displayed bar series covers at least 30 trading sessions" — rejected; (ii) lower the floor for dense timeframes — `AC-D16.8` states 30 sessions for **all five** — rejected; (iii) raise the two constants unconditionally to 33,120 — inflates memory for `1 day`/`4 hours` charts that need 5,000 at most, and breaks the flat-cap suites for no reason — rejected; (iv) make the floor count **sessions** rather than bars and fetch lazily per viewport — the chart auto-frames the whole cached series, so the series itself must hold the floor — rejected |
-| S19 | **Mode threading through the load path** `[new in D42]` | `TickerSession` already owns `_wave_extended_hours` (`:127`); it gains the same value as the **session's mode** for its own cache reads (`get_bars` `:295`, the D39 baseline preload `:684`) and writes (`_finalize_history_wave`'s `save_bars`). `MainWindow.load_chart` passes the mode explicitly at `:1630` (`get_bars`), `:1648` (`find_missing_spans`), `:1662`/`:1672` (wave queue) and `:1970`/`:1973`/`:1974` (finalize). `services/alarm_monitor.py:287`'s `BarCache.get_bars(symbol, "1m")` keeps the default (its prev-price seed is mode-neutral) | One place per hop, no globals, and the mode travels with the session that already owns the wave — so a pop-out (whose `ext_hours` is persisted in `popouts`) and the primary chart cannot cross-contaminate. `get_bars`'s existing `timeframe`-keyed session map is untouched | (i) a module-level "current mode" global — two charts with different modes would corrupt each other — rejected; (ii) re-key the session's `_bars` map by `(timeframe, mode)` — unnecessary: a session is loaded in one mode at a time and `load_chart` resets it — rejected; (iii) make `ext_hours` a required positional argument — forces every legacy test/caller to change for no benefit — rejected |
-| S20 | **Config surface** `[new in D42]` | **One new constant:** `config/settings.py::MIN_INTRADAY_SESSIONS = 30` (the owner-required floor, `AC-D16.8`, A73). **`ibkr/market_data.py::TIMEFRAME_CONFIG` is NOT changed** — its durations are the **per-request** IBKR caps, and the depth comes from chaining (`S17`). `MAX_HISTORICAL_PER_600S = 60` and the pacing model are unchanged | The floor is an owner-required number that both the planner and the budget derive from, so it belongs in the settings module the pacing/cap constants already live in; changing `TIMEFRAME_CONFIG` would either be a no-op for `1 min` (hard cap) or a redundant second mechanism | (i) hard-code 30 in the planner — a magic number split from its rationale — rejected; (ii) change `TIMEFRAME_CONFIG` durations as the task brief anticipated — rejected for the reason above (recorded as an explicit non-change so the Validator sees the decision) |
-| S21 | **Test surface** `[new in D42]` — **corrects five enshrining suites + the D16 load-path suites + the six load-path-*driving* suites (`ESC-050`), extends five, adds four** | **Corrected (never weakened, never deleted):** `tests/test_candle_spacing.py` (string-presence → regime/geometry assertions on the shared helper), `tests/test_volume_width.py` (the dense `≈ 4.0 px` legs → `body == pitch`, `gap >= 0`, volume == body), `tests/test_chart_dpi.py` (the dense `body_device_px >= 4.0` leg → the **non-dense** dataset carries the `>= F` claim; the dense dataset carries `body <= pitch`). **Corrected for the floor-aware caps:** `tests/test_d28_2_sessions.py::test_session_bar_cap` and `tests/test_d28_4f_panel_bar_cap.py` (assert the derived budget, keep the oldest-dropped/newest-kept invariant). **Corrected — D16 load-path (RC-D42-2; every correction intent-preserving, the cause named in the plan's correction record):** `tests/test_history_backfill_loadpath.py::test_t39_t02` (`:238` — the **floor span**: 5 seeded ETH sessions < 30), `::test_t39_t03` (`:255`–`:257` — the empty-cache branch `S17` **removes**), `::test_t39_t01` (`:202`/`:206` — the test's own planner call must pass the floor), `::test_t39_t06`/`::test_t39_t07` (`:431`/`:477` — the **floor-aware `keep`**), `tests/test_history_backfill.py` (`:285`, `:451`–`:457`, `:590` — the floor span and the removed empty-cache single-window branch) and `tests/test_history_backfill_disconnect.py` (`:362` — the same removed branch). Each keeps its guarantee: "no **redundant** request once the floor is satisfied and the cache reaches *now*"; an empty cache is covered **by the planner** as one floor span rather than by a special branch; the retention invariant becomes the **derived** budget with oldest-dropped/newest-kept. **`ESC-050` completes this enumeration (the `RC-D42-2` table named 9 sites; the D42 diff changes 14 test functions in these three files):** the **4** `ESC-050` records — `test_history_backfill.py::test_t40_t03` (`:362`, the "no shortfall message" form → the closure days are never **named** missing), `::test_t40_t05` (the same class; its correction is in fact `test_t40_t04`'s **second** assertion at `b48133d:484`–`:485` — `t40_t05` carries no shortfall assertion in either revision), `test_history_backfill_disconnect.py::test_t43_t03` (`:227`) and `::test_t44_t03` (`:459`) (the status bar previews only the **first five** missing days, now the floor days, while the log carries the full list → asserted against the **log**) — **plus 2** found by Plan re-verification: `test_history_backfill_loadpath.py::test_t39_t04` (`:269`, the `save_bars`/`get_bars` spies must forward `ext_hours` — `S19` mode threading) and `::test_t39_t05` (`:336`, the new session's **own** floor span means its in-flight id set is not empty → "the cancelled ids never leak"). **Corrected — load-path-*driving* suites (`ESC-050`; not D16 suites, enumerated nowhere before):** **19 assertions in six suites** that merely **drive** `MainWindow.load_chart` while stubbing `md_manager.req_historical_data` with a **fixed-size** reqId iterator — `tests/test_d24_popouts.py` (7), `tests/test_phase3_fixpass.py` (7), `tests/test_d24_alarm_full_chain.py` (2), `tests/test_d24_smoke_gate.py` (1), `tests/test_d24_9_popout_persistence.py` (1), `tests/test_d28_tick_burst_baseline.py` (1). **Cause:** the floor span makes one intraday load issue **many** chunks (an empty-cache `5 mins` load plans **9**), so the second `next(hids)` raises `StopIteration` — **fixture exhaustion, not a product defect**. **Correction:** test-only — widen each stub to an **unbounded** source (`itertools.count(<first>)`, the `P2-T19` precedent at `tests/test_d28_2_sessions.py:41`), the `lambda *a, **k: next(hids)` form unchanged, **no assertion weakened, skipped or xfailed**. **The invariant (`ESC-050`), stated so it is checkable before dispatch:** *any test that drives `MainWindow.load_chart` with a stubbed `req_historical_data` must use an **unbounded** reqId source (the floor span issues many requests); any test asserting the **exact number** of historical requests, **one** request/chunk per load, or the **empty-cache single-window branch** changes by design.* **The generalisable rule (`ESC-050`; the second under-count in this batch):** *enumerate the assertions an increment changes by **call site of the changed entry point**, not by the suites the design names* — including tests that only **drive** the changed path; a **fixed-size stub of a changed feed is a defect class** (grep the suite for `iter([...])` feeding `next(...)` and correct all of them in one scoped task); and an enumeration asserted to be complete must **be** complete or be **replaced by the invariant that generates it**. **Extended:** `tests/test_backfill_service.py` / `tests/test_d27_backfill_granularity.py` (mode-aware presence cases — their **existing** cases keep **exact** semantics because `min_sessions` defaults to `0`, `AP-D42-2`), `tests/test_history_backfill_loadpath.py` (the per-timeframe, per-mode session-count guard driving the real load path with a stubbed feed). **Added:** a mode-aware presence suite (`AC-D16.9` (a)/(b)/(c)), a mode-aware cache/migration suite, a **rendered candle-width geometry guard** and a depth-floor/budget suite. `tests/test_d28_4e_bar_cache_retention.py` stays **unchanged** (the flat default is preserved, `S18`) | The D42 correction record names two suites that enshrine the old **width** rule; **five** enshrine the old behaviour in total (`test_candle_spacing.py:4`–`:10`, `test_volume_width.py:103`–`:104`, `test_chart_dpi.py:245`–`:250`, `test_d28_2_sessions.py:166`, `test_d28_4f_panel_bar_cap.py:53`) and the D16 **load-path** suites change by design through `S17`/`S18`. Every change is a **correction to the new normative target**, with the intent of the original test preserved. **`ESC-050` corrected this row's *scope*, not its principle:** the row named 9 D16 sites where the diff changes **14 test functions**, and named no load-path-**driving** suite where **19 assertions in six** change — so the enumeration is now complete **and** generated by the **invariant** + the **call-site enumeration rule** (above), which is what `AR-D42-6`'s mitigation now rests on | (i) delete the enshrining tests — forbidden by the correction record — rejected; (ii) relax the assertions to "no exception raised" — that is exactly the "weakened" failure mode — rejected; (iii) leave `test_chart_dpi.py` alone and let it fail — the suite must be green — rejected |
+| S22 | **Language / UI stack / broker / persistence / packaging / tests** `[existing]` | Unchanged: Python 3.11+ (`.venv`), **PyQt6** (`>=6.6`), **pyqtgraph** (`>=0.13`), numpy, official `ibapi` (live TWS 7496 only), SQLite via `config/paths.get_db_path()`, `QSettings`, PyInstaller `.app`, pytest + pytest-qt offscreen (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`). **No new dependency, no new Qt module, no stack change.** | Existing-repo hard constraint (`requirements.md`'s Current Tech Stack; changing it is a Non-Goal). The **pyqtgraph chart stack is a locked decision** — the Lightweight Charts migration was evaluated and declined (`docs/memory.md`, 2026-10-16). D44 is a dock-layout + `paintEvent` change and needs **no** renderer work. | Any new UI/charting/dependency (e.g. a CSS-animated vertical label, a new widget library, the web-chart migration) — rejected. |
+| S23 | **The collapsed-width rule — one pure helper, `WATCHLIST_COLLAPSED_WIDTH = 30`** `[new in D44]` — **revises D13/D17's 150px minimum scope** | In **`ui/dock_layout.py`** (the pure, Qt-free model): add **`WATCHLIST_COLLAPSED_WIDTH = 30`**; add a pure **`plan_watchlist_width(chart_area_w: int, requested_left: int, collapsed: bool = False) -> int`** returning `WATCHLIST_COLLAPSED_WIDTH` when collapsed, else `max(WATCHLIST_MIN_WIDTH, min(int(requested_left), watchlist_max_width(chart_area_w)))`; extend **`plan_dock_widths(chart_area_w, requested_left, requested_right, left_collapsed: bool = False)`** so a collapsed left is **fixed at the collapsed width**: `left = plan_watchlist_width(..., collapsed=left_collapsed)`, the left's own floor becomes `WATCHLIST_COLLAPSED_WIDTH` (`left_min`), the cross-clamp loop may shrink **only** the right dock (`left_can_shrink = not left_collapsed and left > WATCHLIST_MIN_WIDTH`), the combined budget keeps `chart_area_w - left - right >= CHART_MIN_WIDTH`, and the infeasible branch returns `(left_min, RIGHT_DOCK_MIN_WIDTH)` — i.e. **today's `(150, 200)` is preserved exactly** for the expanded state. `clamp_watchlist_width(width, chart_area_w)` **delegates** to `plan_watchlist_width(..., collapsed=False)` (one formula, three consumers). | DG74 names this resolution; the repo's recorded lesson is that **the pure helper is the single source of truth and a consumer-side workaround masks helper defects** (`docs/memory.md` 2026-10-03; the ESC-026 round). The rule must serve **three** consumers — `plan_dock_widths`, `_apply_dock_widths`'s right-dock-hidden branch (which does **not** call `plan_dock_widths` at all), and the persistence clamp — so putting it in the model avoids a second divergent implementation. The default `False` keeps **every existing 3-argument call** and the whole D17/D18/T52 suite green, which is what makes the expanded-state criteria verifiably unaffected (`AC-D44.8`). | (i) Clamp only inside `_apply_dock_widths` — leaves `plan_dock_widths`'s own `max(WATCHLIST_MIN_WIDTH, …)` at `:89` to fight it and duplicates the rule in the two branches (ESC-026's failure mode) — rejected. (ii) Flip `WATCHLIST_MIN_WIDTH` to 30 while collapsed (a global constant mutation) — the cap arithmetic, `watchlist_max_width`, the persistence clamp and every imported alias would change meaning mid-flight; a state-dependent *constant* is a defect generator — rejected. (iii) `dock.setMaximumWidth(30)` while collapsed — Qt does not honour a maximum width for a dock-area splitter section consistently, and the max would have to be cleared exactly on expand or the dock could never grow again — rejected. (iv) A separate `ui/collapsed_layout.py` — a second model beside the one the whole dock system already imports — rejected. |
+| S24 | **The collapsed-aware apply path + the minimum-width relaxation + the tracked previous width** `[new in D44]` — **extends D17/D18 (the single apply entry point) and D21.13 (the pin pattern)** | **`ui/main_window.py`:** `_apply_dock_widths` reads `collapsed = bool(self.watchlist_panel.is_collapsed())` and (a) in the **right-dock-visible** branch forwards it to `_plan_dock_widths(chart_area, base_left, base_right, left_collapsed=collapsed)` (which forwards it to the pure helper and keeps its fixed-point iteration), (b) in the **right-dock-hidden** branch computes `desired = plan_watchlist_width(chart_area, base_left, collapsed=collapsed)`. **`self._watchlist_width` is never assigned while collapsed** — it is the **tracked previous width** that `AC-D44.2` restores (`MainWindow._watchlist_width` already carries it, `:421`). On the collapse transition (`panel.collapsed_changed`) the window **relaxes the minimum width** — `panel.setMinimumWidth(WATCHLIST_COLLAPSED_WIDTH)` and `dock.setMinimumWidth(WATCHLIST_COLLAPSED_WIDTH)`, restored to `WATCHLIST_MIN_WIDTH` on expand — then `_resize_docks_guarded` + **`QTimer.singleShot(0, self._apply_dock_widths)`**, exactly the `_sync_right_dock_collapse` sequence (`:2392`–`:2411`) whose comment records why ("the dock's layout minimum is recomputed on the next layout pass, so the immediate resize above can be clamped back to the pre-collapse minimum"). `_dock_widths_consistent` (`:2698`) becomes collapsed-aware (a collapsed dock is settled when its width equals the collapsed width) so the deferred clamp does not spin. | `_apply_dock_widths` **is** the single apply entry point, wired to both `resizeEvent` and the drag hook — so `AC-D44.5` ("the collapsed width survives a resize or a drag") is exactly a requirement on this path (R66/DG74). The minimum-width relaxation is **not optional**: Plan verified by offscreen probe (2026-10-16) that a left dock's width is pinned by its **widget minimums**, not by `resizeDocks` — a title-bar widget of minimum width 40 plus a content label of minimum width 78 held the dock at 78px when asked for 30; with every visible widget at 30 the same call yields exactly 30. `_watchlist_width`'s meaning is therefore *tightened, not changed*: it is the **expanded/requested** width, and keeping it is what makes the previous-width restore a one-liner instead of new state. | (i) A second "collapsed clamp" entry point beside `_apply_dock_widths` — two paths fighting on every resize/drag is the D17 defect class — rejected. (ii) A new `MainWindow._watchlist_expanded_width` and letting `_watchlist_width` mean "applied" — inverts a field the close-time persistence, the deferred-consistency check and existing tests already read, for no gain — rejected. (iii) `setMaximumWidth`/`setFixedWidth` on the panel while collapsed — a fixed width blocks the splitter entirely and must be undone exactly; the D21.13 minimum relaxation is the repo's proven equivalent — rejected. (iv) Skip the deferred re-apply — the probe/D21.13 evidence says the immediate resize can be clamped back by the next layout pass — rejected. |
+| S25 | **The collapsed bar widget + the collapsed title-bar handle** `[new in D44]` — **extends D21.11 (the collapse mechanism/API) and DG37 (dock movability)** | **`ui/watchlist_panel.py`** gains **`class CollapsedWatchlistBar(QWidget)`**: fixed width `WATCHLIST_COLLAPSED_WIDTH`, `Qt.WidgetAttribute.WA_StyledBackground` set, an object-name-keyed stylesheet (`#WatchlistCollapsedBar { background: #141822; border-right: 1px solid #232938; color: #cbd5e1; }` plus a `[active="true"]` variant), and a **`paintEvent`** that fills the styled background (via `super().paintEvent`) and then draws the text **`WATCHLIST` rotated 90° counter-clockwise** (bottom-to-top) centred, in the palette colour; `mousePressEvent`/`mouseReleaseEvent` drive `set_button_active(self, True/False)` and emit **`expand_requested`**; `enterEvent`/`leaveEvent` drive `set_button_active`. **Two instances of the family, two roles:** `panel.collapsed_bar` — the panel's **full-height** collapsed body (a layout child of the panel, shown only while collapsed); `panel.collapsed_handle` — a 30px-wide, 28px-tall styled `QWidget` that is the **dock's title-bar widget while collapsed** (`dock.setTitleBarWidget(panel.collapsed_handle)` on collapse, `dock.setTitleBarWidget(panel.header_bar)` on expand — the current, D21.11 wiring), so the dock stays movable/floatable (DG37). Clicking **either** expands (`AC-D44.2`). The collapse API (`set_collapsed`/`toggle_collapsed`/`is_collapsed`) keeps its signatures and semantics. | Qt cannot rotate a `QPushButton`'s text, so the label needs a custom `paintEvent` (the requirement records this). **Plan-verified offscreen probe (2026-10-16):** for a dock in `LeftDockWidgetArea`, `setTitleBarWidget(w)` lays `w` out at the **top of the dock, at the dock's full width and `w`'s own `sizeHint` height** — with `w.sizeHint() == QSize(30, 120)` the bar occupied `QRect(0, 0, 30, 120)` and the content widget sat at `QRect(0, 120, 30, 780)`, **even with `setWidget(None)`** (i.e. the title bar never fills the dock). A *full-height* vertical bar is therefore impossible in the title-bar slot, so the full-height bar is the dock's **content** and the title-bar slot keeps a small handle for the drag affordance — which is what `A78` means by "the dock's title-bar widget presents the bar **while keeping the dock movable (DG37)**". `WA_StyledBackground` is required for a custom `QWidget` subclass to honour a stylesheet background (the classic Qt gotcha) and keeps the palette in one declared place. | (i) **The bar as the title-bar widget only** (A78's option (i) read literally) — the rotated label would be confined to a ~90px box at the top of the column with bare panel below; recorded as the **fallback** if the handle proves problematic, but it makes the label's position depend on title-bar geometry — rejected as the primary. (ii) **Reorient the existing `header_bar` in place** (A78's option (ii)) — the same title-bar geometry limit applies, and `header_bar` is the widget whose `+`/search contents must hide (A77) — rejected. (iii) **`dock.setWidget(bar)` while collapsed, `setWidget(panel)` on expand** — reparents the live table (subscriptions, flash timers, persisted columns) on every toggle and risks a stray top-level window — rejected. (iv) Painting the label in the **panel's** own `paintEvent` instead of a child widget — spreads the visual across two widgets and makes the "rotated-label widget exists" measurable (`AC-D44.1`) vague — rejected. (v) `set_button_active` on hover/pressed — **chosen** (not an alternative): it is the repo's established convention (`AC-D44.6`). |
+| S26 | **The collapsed visual state (A77) + the transition signal + the palette** `[new in D44]` — **extends D21.11** | `WatchlistPanel._apply_collapsed_visual()` runs inside `_on_header_toggled` and **explicitly** `hide()`/`show()`s the strip and the body: while collapsed `header_bar.hide()` (which also hides the D22.1 `+` and the D39.1 search box, its children) and `table.hide()` (whose `horizontalHeader()` is the column-header row), and `collapsed_bar.show()` with the collapsed panel styling (`#141822` + a 1px `#232938` right border so the 30px column reads as one panel, not a bare widget); on expand the reverse. A new **`collapsed_changed = pyqtSignal(bool)`** is emitted from `_on_header_toggled` so `MainWindow` does the **dock-level** work (title-bar swap, minimum-width pin, width apply) — `S24`. Palette: background `#141822`, border `#232938`, text `#cbd5e1` (A75/D44's own palette list — **not** the mockup's white pill, which the owner explicitly clarified as mockup-tool styling). Hover/pressed via `set_button_active`. | `AC-D44.4`'s measurable is `isVisible()` on the strip, the `+` and the column-header row — which requires **explicit** hide/show (a title-bar swap alone does not hide `header_bar` deterministically, and a hidden widget is skipped by the layout so it cannot pin the minimum either — the probe's second half). The signal keeps the layering honest: the panel owns widget state, the window owns the dock. | (i) The panel reaching into its parent dock for `setTitleBarWidget` — a widget doing its owner's job, and it breaks the bare-panel harness (`tests/test_watchlist_add_remove_d22.py`) — rejected. (ii) `MainWindow` polling `is_collapsed()` in `resizeEvent` only — no transition hook, so the minimum pin and the title-bar swap would never happen — rejected. (iii) `QStackedLayout` swapping the strip for the bar — the strip is the *title bar*, not a stack page; the swap is still needed — rejected. (iv) Leaving the strip visible but empty while collapsed — contradicts A77/`AC-D44.4` — rejected. |
+| S27 | **No persistence of the collapse state (A76)** `[new in D44]` | **No new `QSettings` key.** `WatchlistPanel._collapsed` starts `False` (the app starts **expanded**). The D13/D17 key `watchlist/width` keeps holding the **expanded** width: `closeEvent`'s `save_watchlist_width(self._settings, self._watchlist_width, self._chart_area_width())` (`ui/main_window.py:3363`) is **unchanged**, and because `_watchlist_width` is never overwritten while collapsed (`S24`), a session that ends **collapsed** still persists the user's expanded width. | A76 (owner-flagged #2, decided) + the D10/A36 precedent that UI show/hide toggles are not persisted. Recording the **expanded** width is the only choice that keeps "the app starts expanded" meaningful: persisting 30 would make the next launch's expanded dock clamp to the 150px minimum, silently losing the user's width. A76 is silent on the close-while-collapsed case, so the decision is recorded as `AP-D44-2`/`FI-D44-3` rather than assumed silently. | (i) Persist a `watchlist/collapsed` key — contradicts A76 and needs a restore-time visual sync before the first layout pass — rejected. (ii) Persist the applied (30px) width while collapsed — the silent-width-loss failure above — rejected. (iii) Persist the collapse state in the existing width key as a sentinel (e.g. `0`) — overloads a documented numeric key and breaks `_read_persisted_width`'s `max(WATCHLIST_MIN_WIDTH, width)` — rejected. |
+| S28 | **Test surface** `[new in D44]` — **corrects 3 suites (4 sites + 1 docstring), extends 2, adds 2, verifies the rest unchanged by call site** | **Corrected (never weakened, never deleted — R67):** `tests/test_watchlist_columns_d21.py::test_D21_10_T02` (the collapsed appearance), `::test_D21_10_T03` (the collapsed appearance **and** the collapsed-width leg **and** the title-bar/drag leg), `tests/test_watchlist_nonregression_d22.py`'s D21.11 block **plus its module docstring** (`:10`), `tests/test_watchlist_add_remove_d22.py::test_D22_04_T01` (`hb.isVisible()` while collapsed). **Extended:** `tests/test_dock_layout.py` (the collapsed pure cases + the constants/agreement test) and `tests/test_watchlist.py` (the collapsed delegate case). **Added:** `tests/test_dock_widths_collapsed_d44.py` (`AC-D44.5`'s pinning guard, `AC-D44.2`'s previous-width restore, `AC-D44.7`'s no-key assertion, `AC-D44.1`'s width measurable) and `tests/test_watchlist_collapsed_bar_d44.py` (`AC-D44.1`/`.3`/`.4`/`.6` — the bar, the rotated label, the palette, the hidden strip/`+`/header row, `set_button_active`). **Verified unchanged (enumerated by call site):** `test_dock_widths_d17.py`, `test_dock_widths_d18.py`, `test_dock_widths_d18_impl.py`, `test_right_dock_d21.py`, `test_dock_d18_region.py`, `test_d10_d13_integration.py`, `test_dock_layout.py::test_T52_T04`, `test_toolbar_scroll_d19.py` — all drive the changed entry points with the watchlist **expanded**, and the new parameters default to the expanded rule. **The new guard must be RED at `0c4d478` for the right reason** — the collapsed dock staying at ~220px / the 150px minimum, **not** an `ImportError` on the new constant (so the guard asserts the observable outcome through the existing `set_collapsed` API, with the constant referenced defensively). | R67 names exactly this regression surface; `AC-D44.8` requires the guard to fail pre-fix and the expanded suites to stay green (or be updated in lockstep). The enumeration is by **call site of the changed entry point, not by the suites the design names** — the recorded `ESC-050` rule and `ESC-055`'s ownership remedy (`AP-D44-8`) — because this repo has twice been burned by an under-enumerated impact analysis (`FI-D42-2`, `ESC-050`) and once by an invalidated assertion outside the changing task's file (`ESC-055`). | (i) Delete the collapse-appearance assertions — forbidden (correct, do not weaken) — rejected. (ii) Relax them to "no exception raised" — the exact "weakened" failure mode — rejected. (iii) Leave `test_dock_widths_d17.py`/`d18*` alone *and unverified* — the plan enumerates them explicitly instead, so a green suite is evidence rather than luck — rejected. (iv) Put the new guard in an existing suite — a new file makes the RED-at-`0c4d478` demonstration clean and keeps the D44 evidence in one place — rejected. |
 
 ---
 
@@ -219,29 +165,31 @@ and the alternatives considered.
 
 **Existing, unchanged** `[existing]`
 
-`services/market_calendar.py` (windows + the ESC-023 New-Year exception), `services/time_collapse_service.py`,
-`ibkr/market_data.py::TIMEFRAME_CONFIG` (`S20`), `ibkr/pacing.py`, `ui/candlestick_item.py`'s wick/body
-drawing and the D28.4 render split, the D16 no-fill/no-silent-hole rules (`AC-D16.1`/`AC-D16.3`/
-`AC-D16.4`), the D27.7 bar-level pass shape, the D28.3 wave pump, `services/session_service.py`, the
-drawing/study/alarm overlays — i.e. **nothing D1–D41 depends on is redesigned**.
+`ui/chart_panel.py` and the whole pyqtgraph render stack (locked), `ui/candlestick_item.py`,
+`ui/ticker_session.py`, `services/*` (the planner, the calendar, the collapse map, the alarms, the search),
+`data/*` (no schema change), `ibkr/*`, `ui/active_portfolio_panel.py` and the D18/D21.13/D41 right-dock model,
+`ui/popout_window.py`, the D14/D21.5/D22/D39 watchlist behaviour, `ui/visual_conventions.py`'s conventions
+(consumed, not modified), `ui/dock_layout.py`'s existing constants and cap arithmetic — i.e. **nothing
+D1–D43 depends on is redesigned**.
 
 **New / changed** `[new/changed]`
 
 | Component | Change |
 |---|---|
-| `ui/candlestick_item.py::capped_body_half_width` | **New pure helper** — the single source of the density-aware cap (`S13`) |
-| `ui/candlestick_item.py::CandlestickItem._draw_candles` | Calls the helper (was the unconditional `min_w` clamp, `:136`–`:138`); reads the pitch from the override when present (`S14`) |
-| `ui/candlestick_item.py::CandlestickItem.set_data` | Gains the optional `pitch` (`S14`) |
-| `ui/chart_panel.py::ChartPanel._compute_candle_half_width` | Also returns/stores the **display-x pitch** (`S14`) |
-| `ui/chart_panel.py::ChartPanel._clamp_half_width` | Delegates to the shared helper (was the mirrored 4-px floor, `:1242`–`:1244`) (`S13`) |
-| `ui/chart_panel.py::ChartPanel._refresh_candles` / `::_refresh_live_bar` | Pass the pitch (`S14`); the volume width path delegates through `_clamp_half_width` (`S13`) |
-| `ui/chart_panel.py::ChartPanel.update_last_bar` | The `_bars` trim (`:1150`–`:1157`) uses the floor-aware budget (`S18`) — the **third** `SESSION_BAR_CAP` site, without which the floor is re-trimmed out of the displayed series on the next new-candle tick. Owned by the same phase as `floor_bar_budget` and **sequenced after** the `ui/chart_panel.py` width edit of the other workstream (`ui/chart_panel.py` is the one shared file; RC-D42-1) |
-| `services/backfill_service.py` | **New** mode-aware presence predicate + `floor_bar_budget` + `min_sessions` floor span in `find_missing_spans` (`S15`, `S17`, `S18`) |
-| `data/bar_cache.py` | `save_bars`/`get_bars`/`prune` take `ext_hours` (default `True`) (`S16`, `S19`) |
-| `data/db.py` | `bars` DDL gains `ext_hours`; `_migrate_schema` gains the guarded table rebuild (`S16`) |
-| `ui/ticker_session.py` | Session mode for its own cache reads/writes; the two cap sites use the floor-aware budget (`S18`, `S19`) |
-| `ui/main_window.py` | `load_chart` passes the mode + `min_sessions`, the empty-cache branch is removed; `_finalize_history_wave` passes the mode + the derived `keep`; `_missing_backfill_trading_days` uses the shared presence predicate (`S15`, `S17`, `S18`, `S19`) |
-| `config/settings.py` | `MIN_INTRADAY_SESSIONS = 30` (`S20`) |
+| `ui/dock_layout.py::WATCHLIST_COLLAPSED_WIDTH` | **New constant** `= 30` (the collapsed bar width, A75) (`S23`) |
+| `ui/dock_layout.py::plan_watchlist_width` | **New pure helper** — the single collapsed/expanded width rule; three consumers (`S23`) |
+| `ui/dock_layout.py::plan_dock_widths` | Gains `left_collapsed: bool = False`; a collapsed left is fixed at the collapsed width, its floor becomes 30, the cross-clamp shrinks only the right; the expanded behaviour (including the infeasible `(150, 200)` branch) is **bit-for-bit preserved** (`S23`) |
+| `ui/dock_layout.py::clamp_watchlist_width` | Now **delegates** to `plan_watchlist_width(..., collapsed=False)` — the same formula in one place (`S23`) |
+| `ui/watchlist_panel.py::CollapsedWatchlistBar` | **New widget** — rotated `WATCHLIST` label, app palette, `WA_StyledBackground`, `expand_requested`, `set_button_active` hover/pressed (`S25`) |
+| `ui/watchlist_panel.py::WatchlistPanel.collapsed_bar` / `::collapsed_handle` | **New widgets** — the full-height collapsed body and the 30×28 collapsed title-bar handle (`S25`) |
+| `ui/watchlist_panel.py::WatchlistPanel.collapsed_changed` | **New signal** `pyqtSignal(bool)` emitted from `_on_header_toggled` (`S26`) |
+| `ui/watchlist_panel.py::WatchlistPanel._apply_collapsed_visual` | **New** — explicit hide/show of `header_bar` + `table`, show/hide of the bar, the collapsed panel styling (`S26`) |
+| `ui/watchlist_panel.py::WATCHLIST_COLLAPSED_WIDTH` | **New alias** of `dock_layout.WATCHLIST_COLLAPSED_WIDTH` (the same pattern as the other width constants, `:93`–`:95`) (`S23`) |
+| `ui/main_window.py::MainWindow._apply_dock_widths` | Collapsed-aware in **both** branches; `_watchlist_width` never overwritten while collapsed (`S24`) |
+| `ui/main_window.py::MainWindow._plan_dock_widths` | Forwards `left_collapsed` to the pure helper (`S24`) |
+| `ui/main_window.py::MainWindow._dock_widths_consistent` | Collapsed-aware (settles in one pass) (`S24`) |
+| `ui/main_window.py::MainWindow._on_watchlist_collapsed_changed` | **New** — the title-bar swap + the minimum-width pin + the deferred re-apply; wired to `panel.collapsed_changed` (`S24`, `S25`) |
+| `tests/test_dock_widths_collapsed_d44.py`, `tests/test_watchlist_collapsed_bar_d44.py` | **New suites** (`S28`) |
 
 ---
 
@@ -249,19 +197,14 @@ drawing/study/alarm overlays — i.e. **nothing D1–D41 depends on is redesigne
 
 | Entity | Status | Key fields / change |
 |---|---|---|
-| `bars` (SQLite) | **`[new/changed]`** | `+ ext_hours INTEGER NOT NULL DEFAULT 1`; key `(symbol, timeframe, ext_hours, ts)` (was `(symbol, timeframe, ts)`). One guarded table rebuild in `_migrate_schema`; legacy rows → `ext_hours = 1` (`S16`) |
-| `Bar` (`data/models.py`) | `[existing]` | **Unchanged** — the mode travels as a parameter, not a field, so the aggregator/overlay/study consumers are untouched (`S19`) |
-| `MissingSpan` / `RequestPlan` (`services/backfill_service.py`) | `[existing]` | **Unchanged shape** — the floor is expressed as one more `MissingSpan`, so `plan_requests` needs no change (`S17`) |
-| `TickerSession._bars[timeframe]` | **`[new/changed]`** | Cap becomes `floor_bar_budget(timeframe, ext_hours)` (`S18`); the map stays timeframe-keyed because a session loads one mode at a time (`S19`) |
-| `ChartPanel._bars` | **`[new/changed]`** | Same floor-aware cap at `ChartPanel.update_last_bar`'s `:1150`–`:1157` trim (`S18`) — the **third** `SESSION_BAR_CAP` site, so the floor survives the next live candle |
-| `popouts.ext_hours` | `[existing]` | Already persists the pop-out's mode; now consumed by the cache/planner (`S19`) |
-| `footprint_cache` / other tables | `[existing]` | Untouched (D41's drop stands) |
-
-**Migration semantics (recorded):** on an existing user DB the rebuild runs once at the next
-`DB()` open; rows are preserved and tagged `ext_hours = 1`. A subsequent **RTH** load therefore
-starts from an empty RTH key and issues its own floor fetch — which `AC-D16.8` requires anyway — and
-a subsequent **ETH** load reads the legacy rows and re-derives presence by the ETH window. No row is
-lost, no hole is created, and no silent re-classification occurs (`AC-D16.9`).
+| `watchlist/width` (`QSettings`, `ui/watchlist_panel.py:96`) | `[existing]` | **Unchanged** — still the **expanded** width; written by `save_watchlist_width` from `closeEvent`; **never written while collapsed** (`S27`) |
+| Collapse state | `[existing]` | In-memory only — `WatchlistPanel._collapsed` (`:280`), starts `False` (the app starts expanded); **no new key** (A76/`S27`) |
+| `MainWindow._watchlist_width` | **`[new/changed]`** | **Semantics tightened, not changed:** it is the **expanded/requested** dock width and is **never assigned while collapsed** — it *is* the "width held immediately before collapsing" that `AC-D44.2` restores (`S24`) |
+| `MainWindow._persisted_watchlist_width` | `[existing]` | Unchanged — the raw persisted request re-applied post-`show()` (`:420`, `_deferred_dock_setup` `:2632`) |
+| `ui/dock_layout` constants | **`[new/changed]`** | `+ WATCHLIST_COLLAPSED_WIDTH = 30`; `WATCHLIST_MIN_WIDTH = 150` keeps its value but is now **expanded-state only**; `CHART_MIN_WIDTH` and its cross-module invariant are unchanged (`S23`) |
+| `WatchlistPanel.collapsed_bar` / `::collapsed_handle` | **`[new/changed]`** | Two new widgets with no persisted state (`S25`) |
+| `bars`, `watchlist`, `alarms`, `zones`, `drawings*`, `studies`, `popouts`, `positions`, `trade_groups`, `position_group_map`, `yfinance_events_cache`, `volume_baseline` (SQLite) | `[existing]` | **Untouched** — no DDL, no migration, no row change |
+| `Bar` / `MissingSpan` / `RequestPlan` (`data/models.py`, `services/backfill_service.py`) | `[existing]` | Untouched |
 
 ---
 
@@ -269,88 +212,83 @@ lost, no hole is created, and no silent re-classification occurs (`AC-D16.9`).
 
 | Integration | Status | Why needed / what changes |
 |---|---|---|
-| IBKR historical data — `MarketDataManager.req_historical_data(..., useRTH=1, extended_hours=…)` → `IBApiClient.historicalData` | `[existing]` | **Unchanged surface.** The depth floor is delivered as more requests with the **existing** `endDateTime`/`duration`/`bar_size` parameters (`S17`); `extended_hours` already selects the session window, so `AC-D16.8`'s two modes need no new API |
-| IBKR pacing (`ibkr/pacing.py::pacing_manager`, `MAX_HISTORICAL_PER_600S = 60`) | `[existing]` | **Unchanged.** A 30-session `1 min` floor is ≤ ~42 `1 D` chunks, within one wave; the remainder defers through `_schedule_wave_continuation`. No new budget accounting (`S17`) |
-| SQLite (`config/paths.get_db_path()`, `data/db.py`) | `[existing]` | One new column + one guarded rebuild (`S16`); no new table, no new store, no settings key |
-| `services/market_calendar.py::session_windows` | `[existing]` | Now the **single** window authority for presence, the bar-level pass, and the floor arithmetic (`S15`, `S18`) |
-| Live TWS / orders / news / burst baseline | `[existing]` | **Untouched** — no D42 path reaches the order machinery or the S0/yfinance surfaces |
+| IBKR TWS over `ibapi` (`ibkr/client.py`, `ibkr/market_data.py`) | `[existing]` | **Untouched.** Collapse/expand is **pure UI state** and works disconnected (Journey 37's precondition); no request, no subscription, no order is affected |
+| SQLite (`config/paths.get_db_path()`, `data/db.py`) | `[existing]` | **Untouched** — no schema, no migration, no write |
+| `QSettings("NDThinkChart", "NDThinkChart")` | `[existing]` | **Unchanged surface:** `watchlist/width` + `watchlist/columns` only. **No collapse key is added or written** (`AC-D44.7`/A76) |
+| Qt dock layout (`QDockWidget.setTitleBarWidget`, `resizeDocks`, `setMinimumWidth`, the dock-area splitter + event filter) | `[existing]` | The same APIs D17/D21.11/D21.13 already use; D44 introduces **no new dependency and no new module import**. `QWidget.paintEvent` + `QPainter` are already in the repo (`ui/visual_conventions.py::DiagonalStrikeButton.paintEvent` `:190`; `ui/candlestick_item.py::CandlestickItem._draw_candles` paints into a `QPicture`, `:121`); `QPainter.rotate` is **new to this codebase** but is a standard Qt painter transform (no import beyond `QtGui`, already imported) |
+| `yfinance` (D38), the D39 burst baseline, the D25 alarm monitor, the order machinery | `[existing]` | **Untouched** — no D44 path reaches them |
 
 ---
 
 ## Frozen Interfaces
 
-Interfaces this increment treats as **read-only**: already settled and unmodified by any D42 phase.
-Contracts are **verbatim** from the tree at `b48133d` (never paraphrased), with the owning module, so
-Task Manager can hand a worker the contract instead of the implementation. (D42's revised/new surfaces
-— `find_missing_spans`, `BarCache.save_bars`/`get_bars`/`prune`, `ChartPanel.update_last_bar`,
-`CandlestickItem.set_data`/`_draw_candles`, `TickerSession.set_bars`/`_append_bar`, `bars` — are
-deliberately **not** listed: they are under construction this increment, and freezing them would
-freeze a contract `S13`–`S19` change.)
+Interfaces this increment treats as **read-only**: already settled and modified by **no** D44 task. Contracts
+are **verbatim** from the tree at `0c4d478` (never paraphrased), with the owning module, so Task Manager can
+hand a worker the contract instead of the implementation. (D44's revised/new surfaces — `plan_dock_widths`,
+`plan_watchlist_width`, `clamp_watchlist_width`, `MainWindow._apply_dock_widths`/`::_plan_dock_widths`/
+`::_dock_widths_consistent`, `WatchlistPanel._on_header_toggled`/`::_apply_collapsed_visual` and the two new
+widgets — are deliberately **not** listed: they are under construction this increment, and freezing them would
+freeze a contract `S23`–`S26` change.)
 
 | Interface | Verbatim contract | Owning module |
 |---|---|---|
-| `session_windows` `[existing]` | `def session_windows(start_ts: int, end_ts: int, ext_hours: bool) -> List[Dict[str, int]]` | `services/market_calendar.py` |
-| `plan_requests` `[existing]` | `def plan_requests(missing_spans: Iterable[MissingSpan], timeframe: str) -> List[RequestPlan]` | `services/backfill_service.py` |
-| `MissingSpan` `[existing]` | `@dataclass(frozen=True) class MissingSpan: start_ts: int` / `end_ts: int` | `services/backfill_service.py` |
-| `RequestPlan` `[existing]` | `@dataclass(frozen=True) class RequestPlan: endDateTime: str` / `duration: str` / `bar_size: str` / `span_start_ts: int` / `span_end_ts: int` | `services/backfill_service.py` |
-| `bar_period_seconds` `[existing]` | `def bar_period_seconds(timeframe: str) -> int` | `services/backfill_service.py` |
-| `Bar` `[existing]` | `@dataclass class Bar: symbol: str` / `timeframe: str` / `ts: int` / `open: float` / `high: float` / `low: float` / `close: float` / `volume: float` | `data/models.py` |
-| `TIMEFRAME_CONFIG` `[existing]` | `{"1 min": {"duration": "1 D", "bar_size": "1 min"}, "5 mins": {"duration": "5 D", "bar_size": "5 mins"}, "15 mins": {"duration": "5 D", "bar_size": "15 mins"}, "1 hour": {"duration": "10 D", "bar_size": "1 hour"}, "4 hours": {"duration": "30 D", "bar_size": "4 hours"}, "1 day": {"duration": "1 Y", "bar_size": "1 day"}}` | `ibkr/market_data.py` (`S20` explicit non-change) |
-| `popouts.ext_hours` `[existing]` | `ext_hours INTEGER NOT NULL DEFAULT 1` on the `popouts` table | `data/db.py` |
+| `set_button_active` `[existing]` | `def set_button_active(button: QWidget, active: bool) -> None` | `ui/visual_conventions.py` |
+| `ACTIVE_PROPERTY` `[existing]` | `ACTIVE_PROPERTY = "active"` | `ui/visual_conventions.py` |
+| `DiagonalStrikeButton` (VIS-D21.1) `[existing]` | `class DiagonalStrikeButton(QPushButton)` with `struck` (property), `def set_struck(self, value: bool) -> None`, `def is_struck(self) -> bool`, `def strike_line(self) -> QLineF`, `def text_area_rect(self) -> QRectF`, `def strike_color(self) -> QColor` | `ui/visual_conventions.py` |
+| `WatchlistPanel` signals `[existing]` | `row_double_clicked = pyqtSignal(str)` · `symbol_add_requested = pyqtSignal(str)` · `symbol_remove_requested = pyqtSignal(str)` · `search_text_changed = pyqtSignal(str)` · `search_sample_selected = pyqtSignal(object)` | `ui/watchlist_panel.py` |
+| `WatchlistPanel` collapse API `[existing]` | `def is_collapsed(self) -> bool` · `def set_collapsed(self, collapsed: bool) -> None` · `def toggle_collapsed(self) -> None` — **signatures and semantics preserved**; the *collapsed appearance* they gate is revised by D44 (`AC-D21.11.2`/`.3`) | `ui/watchlist_panel.py` |
+| `WatchlistPanel` data API `[existing]` | `def active_row_count(self) -> int` · `def add_symbol(self, symbol: str, contract)` · `def remove_symbol(self, symbol: str) -> bool` · `def clear(self)` · `def set_market_data_manager(self, md_manager)` · `def set_subscription_manager(self, sub_manager)` · `def set_price_sink(self, sink)` · `def set_add_enabled(self, enabled: bool) -> None` · `def set_search_enabled(self, enabled: bool) -> None` | `ui/watchlist_panel.py` |
+| Panel width/persistence helpers `[existing]` | `def watchlist_max_width(chart_area_w: int) -> int` · `def load_watchlist_width(settings: QSettings, chart_area_w: int) -> int` · `def save_watchlist_width(settings: QSettings, width: int, chart_area_w: int) -> int` · `WATCHLIST_WIDTH_KEY = "watchlist/width"` | `ui/watchlist_panel.py` |
+| Panel pure helpers (D14/D21.5/D22) `[existing]` | `def should_load_on_double_click(current_symbol: str, requested_symbol: str, connected: bool) -> str` · `def normalise_symbol(text) -> str` · `def symbol_in_list(symbol, symbols) -> bool` · `def ensure_symbol_present(fields) -> list[str]` · `def sanitise_watchlist_columns(raw) -> list[str]` · `def load_watchlist_columns(settings: QSettings) -> list[str]` · `def save_watchlist_columns(settings: QSettings, fields) -> list[str]` · `WATCHLIST_COLUMNS_KEY = "watchlist/columns"` | `ui/watchlist_panel.py` |
+| Dock-width model constants `[existing]` | `CHART_MIN_WIDTH = 400` · `WATCHLIST_MIN_WIDTH = 150` · `DEFAULT_WATCHLIST_WIDTH = 220` · `RIGHT_DOCK_MIN_WIDTH = 200` · `WATCHLIST_CAP_FRACTION = 0.50` · `RIGHT_DOCK_CAP_FRACTION = 0.40` | `ui/dock_layout.py` |
+| Dock-width model helpers `[existing]` | `def watchlist_max_width(chart_area_w: int) -> int` · `def right_dock_max_width(chart_area_w: int) -> int` | `ui/dock_layout.py` |
+| `plan_dock_widths`'s **expanded contract** `[existing]` | `def plan_dock_widths(chart_area_w: int, requested_left: int, requested_right: int) -> tuple` — **the 3-argument positional call keeps today's behaviour exactly** (the new `left_collapsed` defaults to `False`); the guarantees it documents (`each returned width within its own [min, max] cap`, the chart minimum preserved where feasible, neither width below its dock minimum, stable ints, never raises) are unchanged | `ui/dock_layout.py` |
+| `CHART_MIN_WIDTH` invariant `[existing]` | `ui/dock_layout.py:12`–`:14`: "Constants here are kept in agreement with the pre-existing D13 constants in `ui/watchlist_panel` — in particular `CHART_MIN_WIDTH` must equal `ui/watchlist_panel.CHART_MIN_WIDTH`." | `ui/dock_layout.py` ↔ `ui/watchlist_panel.py` |
+| `MainWindow` dock helpers `[existing]` | `def _chart_area_width(self) -> int` · `def _read_persisted_width(self) -> int` · `def _resize_docks_guarded(self, docks, sizes) -> None` | `ui/main_window.py` |
+| Watchlist dock identity `[existing]` | `self.watchlist_dock.setObjectName("Watchlist")` · `self.watchlist_dock.setWindowTitle("")` · `setFeatures(DockWidgetMovable \| DockWidgetFloatable)` — title/objectName-keyed lookups and the dock's movability depend on these (`docs/memory.md` 2026-10-03; DG37) | `ui/main_window.py` |
 
 ---
 
 ## Non-Functional Approach
 
-- **Correctness over legibility at the limit (from `AC-D6.4`/`AC-D7.1`).** The hard invariant is
-  `gap >= 0`; `F` yields to the pitch. The guarantee is unit-consistent by construction because
-  `median_diff`, `px_per_sec` and `F` all come from the same display-x series and the same ViewBox
-  (`S13`, `S14`) — the property `AC-D6.4`'s "same pixel unit" clause demands. **That shared unit is
-  the ViewBox logical px `px_per_sec` yields** (`floor_px = 4.0` logical px = **8 device px at DPR
-  2**), so `F` is applied and measured in one unit throughout; the WS1 evidence asserts the unit-free
-  relations `body <= pitch` / `body == pitch` and **measures** the repro pitch rather than
-  hard-coding the requirement's indicative `3.83` (`RC-D42-3`).
-- **Performance (from D28.4 / ESC-013 / ESC-020).** The cap is O(1) per regeneration and adds **no**
-  sort: the pitch is cached beside the width (`S14`). The `generate-before-setRange` ordering that
-  ESC-013/ESC-020 fixed is **preserved** — the candle picture is still generated *after* the real
-  x-range is applied, so the cap reads a real `px_per_sec`. The volume width is still computed from
-  the **final** view range (`:1303`), i.e. the same unit as the candle picture.
-- **Performance / memory (from `AC-D16.8`).** The floor-aware budget (`S18`) is the **only** new
-  memory consumer: ~33,120 bars for a `1 min` ETH chart (**~8–16 MB** — 33,120 `Bar` dataclasses
-  without `__slots__` plus the two plot arrays), reached only for `1 min` (both modes) and
-  `5 mins` (ETH); `1 day`/`4 hours` keep the flat 5,000. Mitigations: the budget is **per `(symbol, timeframe, ext_hours)`**, only **chart** sessions
-  backfill (the D25 headless alarm sessions never request history), the D28.4 static-layer discipline
-  (one `QPicture` per full rebuild, forming-bar ticks in the live layer only) is unchanged, and the
-  single tunable is `MIN_INTRADAY_SESSIONS`.
-- **Pacing (from D28.3, R64).** The floor is emitted **only when short** and collapses to empty once
-  filled, so the steady-state cost is zero extra requests; the first load of each
-  `(symbol, timeframe, mode)` costs one floor's worth of chained requests, and everything above the
-  per-wave cap defers through the existing continuation timer. No new request kind, no sleep, no
-  storm.
-- **No-silent-hole (from `AC-D16.1`/`AC-D16.4`, unchanged).** A day that is present-but-empty for the
-  mode is now a **missing span**, so the AC-D16.4 shortfall line and the WARNING record get *more*
-  accurate (a genuine halt / IPO morning that IBKR has no bars for is re-probed and surfaced, never
-  fabricated). This is a **user-visible** change to the status text and is recorded as such.
-- **Test-suite fidelity (from `R64`; `RC-D42-2`, completed by `ESC-050`).** **Green** is required, but
-  count parity is not, and no assertion may be **weakened or deleted**. The D16 **pure-planner** suites
-  keep their **exact** semantics (`min_sessions` defaults to `0`). The D16 **load-path** suites change
-  **by design** — because the default load mode is **ETH**
-  (`ui/main_window.py::MainWindow.ext_hours_btn` checked at `:244`, with the `:1570` fallback) and
-  because `S17` removes the empty-cache single-window branch while `S18` changes `prune`'s `keep` — and
-  each such assertion is **corrected, intent-preserving**, with its cause named in the plan's correction
-  record (`S21`, `AR-D42-6`). **`ESC-050`:** the set is not only the D16 suites — **19 assertions in six
-  suites that merely *drive* `MainWindow.load_chart`** change by design too (a fixed-size
-  `req_historical_data` stub cannot cover the floor span's many chunks), and they are enumerated in the
-  same record. **The invariant** (an **unbounded** reqId source for any test that drives the load path
-  with a stubbed feed; exact-request-count and empty-cache-branch assertions change by design) is stated
-  so the set is checkable **by rule**, and the generalisable **enumeration rule** — *by call site of the
-  changed entry point, not by the suites the design names* — is recorded for future increments.
-- **Security / live-order safety.** No D42 path transmits an order, connects to TWS in a test, or
-  touches the retained order machinery; `check_live_port` and the confirm dialogs are untouched. No
-  new credential, endpoint or dependency.
-- **Scalability.** The DB grows by one integer per bar and one floor's worth of rows per
-  `(symbol, timeframe, mode)`; `prune` remains per-key and bounded. The graph of loaded chart
-  sessions — not the watchlist — bounds the memory cost.
+- **Correctness of the width invariant (from `AC-D44.5`, R66).** The hard requirement is that the collapsed
+  width **survives both drivers** — a window `resizeEvent` **and** a dock drag — because `_apply_dock_widths`
+  is the single apply point for both. The rule is pure and unit-testable (`S23`), and the minimum-width
+  relaxation + deferred re-apply (`S24`) is what stops Qt's own layout minimum from re-imposing 150px. The
+  `CHART_MIN_WIDTH` invariant holds in **both** states (the cross-clamp still guarantees
+  `chart_area_w - left - right >= CHART_MIN_WIDTH` where feasible, and on an infeasible window the dock
+  minimums still win — with the collapsed left's floor at 30, the window's own minimum drops by 120px, which
+  is a *gain*, not a regression).
+- **Measurement and tolerance (from the repo's own convention).** `_apply_dock_widths` re-issues `resizeDocks`
+  only when the delta exceeds 1px, and the D17 suite records that "a residual of at most 1px is expected and
+  asserted with `+1`" (`tests/test_dock_widths_d17.py:17`–`:21`). The new guard asserts the **dock** equality
+  directly (probe-verified exact: `resizeDocks([dock], [30])` yields 30 once the widget minimums allow it) and
+  keeps the `+1` convention for inner/derived measurements — recorded as `AP-D44-4`/`FI-D44-1`.
+- **Performance (no regression).** Collapse/expand is **O(1)**: no fetch, no re-render, no table rebuild, no
+  sort, no new timer beyond the existing single-shot coalescer; the bar's paint is one rotated `drawText` per
+  expose. The dock-width change triggers a Qt layout pass only — the D28.4 render discipline (one `QPicture`
+  per full rebuild; live ticks in the live layer) is untouched, and no chart data path is entered.
+- **Visual and accessibility (from `AC-D44.1`/`AC-D44.6`, A75).** 30px is ≥ the 28px header height, so the bar
+  is a comfortable click target; the label is rotated 90° **counter-clockwise** (bottom-to-top) and centred in
+  the column; the palette is the app's (`#141822` background, `#232938` border, `#cbd5e1` text) so the bar
+  reads as **a panel, not the mockup's white pill** (the owner's explicit clarification); hover/pressed
+  feedback goes through `set_button_active` so the affordance is discoverable and consistent with the D21
+  conventions; the whole column — not just the label — is the click target (`AC-D44.2`).
+- **No persistence, no state leakage (A76).** No new settings key; the collapse state is in-memory and starts
+  `False`; the persisted width stays the expanded one (`S27`).
+- **Test-suite fidelity (R67; the `ESC-050`/`ESC-055` enumeration rule).** **Green** is required; the
+  *collapsed-appearance* and collapsed-width assertions change **by design** and are **corrected with their
+  cause**, never weakened or deleted; every suite that merely *drives* a changed entry point is enumerated **by
+  call site** and verified unchanged (`S28`, `AP-D44-8`); and the new guard is **RED at `0c4d478` for the right
+  reason** (the collapsed dock at ~220px/150px, not an `ImportError`) — the repo's own credibility rule
+  (`docs/memory.md` 2026-10-05: "a regression guard is only credible if it fails on the pre-fix tree and
+  passes post-fix").
+- **Live-order safety / security.** No D44 path transmits an order, connects to TWS in a test, touches the DB,
+  or reaches the retained order machinery; `check_live_port` and the confirm dialogs are untouched; **no new
+  credential, endpoint, dependency or module import**.
+- **Scalability.** None to speak of: a single widget, two integers, one 30px-wide column. The dock model stays
+  O(1) per apply, and the fixed-point iteration in `_plan_dock_widths` converges exactly as before (the cap
+  contraction is unchanged).
 
 ---
 
@@ -358,17 +296,16 @@ freeze a contract `S13`–`S19` change.)
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| AR-D42-1 | **The cap is applied to one path only** (candle or volume), so the two diverge — exactly **R63** | H | One shared helper (`S13`) with three call sites, and `AC-D9.1`/`AC-D9.2`-driven tests that measure the **rendered** candle body from the `QPicture` bbox and compare the volume `BarOpts.width` against it (`tests/test_volume_width.py`, corrected) |
-| AR-D42-2 | **The enshrining tests are weakened instead of corrected**, so the suite stays green on the bug | H | The correction record (plan proposal) names **each** of the five enshrining suites — and the D16 **load-path** suites — with the intent to preserve; the new geometry guard is **RED pre-fix** (body 4.00 px > 3.83 px pitch) and GREEN post-fix, asserts the unit-free relations (`body <= pitch`, `body == pitch`) and **measures** the repro pitch rather than hard-coding it (`RC-D42-3`); the DPR-2 probe's dense/non-dense split keeps both the `>= F` and the `<= pitch` claims |
-| AR-D42-3 | **Floor-aware caps are missed**, so `prune`/the in-memory trim silently deletes the floor after fetching it (`AC-D16.8` unachievable) | H | `S18` + a per-timeframe, per-mode budget guard; **all three** `SESSION_BAR_CAP` sites are converted — including `ChartPanel.update_last_bar`'s `_bars` trim (`:1150`–`:1157`), the site that would re-trim the **displayed** series on the next live candle — plus `BarCache.prune`'s `keep`; the D28.4 cap suites are corrected to assert the derived budget; the retention suite (flat default) stays green |
-| AR-D42-4 | **Chained floor fetches vs pacing** — a `1 min` floor is ~42 `1 D` chunks, consuming most of the 600 s budget; a second symbol/pop-out load defers | M | The floor collapses to empty once filled; the wave cap + continuation timer already handle deferral non-blockingly; the D25 headless sessions are out of the floor's scope; **R64**'s per-mode guard proves the floor is reached without starving the current-session path |
-| AR-D42-5 | **Mode-aware cache migration of existing rows** — a wrong tag re-classifies real bars | M | One guarded, idempotent rebuild; legacy rows → `ext_hours = 1` (the app's default fetch mode) with the rationale recorded; **no row deleted**; presence stays window-based, so a mis-tagged row cannot manufacture coverage; a migration test asserts row preservation and per-mode reads |
-| AR-D42-6 | **Mode-aware presence changes the AC-D16.4 shortfall text** (more days reported missing), and the D16 **load-path** assertions change **by design** (the floor span, the removed empty-cache branch, the floor-aware prune), so a legitimate correction can read as a regression. **`ESC-050`:** the impact analysis **under-enumerated** the affected set **twice** — the suites that merely **drive** the load path (**19 assertions in six suites**) and **4 further sites** inside the D16 files — and both under-counts surfaced only at reconciliation time, **after** the batch had been dispatched | M | `AC-D16.9` is the normative target; the D16 **pure-planner** suites seed complete days and keep their **exact** expectations (`min_sessions = 0`). **The enumeration is now complete *and* generated by a rule rather than asserted:** `S21` + the plan's correction record name **all 14 changed test functions** in the three D16 files **and the 19 assertions in the six load-path-*driving* suites**, each **with its cause**, and every correction is **intent-preserving** — the guarantee survives, only the expected value/branch changes — never weakened. **The former completeness assertion is replaced by the rule (and is now true as well):** enumerate **by call site of the changed entry point, not by the suites the design names**; treat a **fixed-size stub of a changed feed as a defect class** (grep the suite and correct **all** of them in one scoped task — the `ESC-048`/`ESC-050` pair); and state the **invariant** (`ESC-050`) so completeness is checkable **before dispatch**, not discovered by a reconciliation task. Any residual site not named is covered by the invariant, so the mitigation no longer rests on the enumeration being exhaustive by inspection |
-| AR-D42-7 | **The D6 floor interacting with the volume pane / D9 volume math** — a capped `w` shrinks volume bars too, and a zero-volume bar's 1-unit tick could vanish at sub-pixel width | M | `AC-D9.1`/`AC-D9.2`'s note says volume inherits the **same** capped `w`; the zero-volume 1-unit tick and the D21.1/D21.2 ceiling rules are untouched; the dense volume test asserts `volume_width == body_width` and `gap >= 0` |
-| AR-D42-8 | **`px_per_sec` is read before the real x-range is applied** (the ESC-013/ESC-020 ordering defect) — the cap would see a default range and mis-yield | M | The cap runs inside the **existing** post-`setRange` generation (`:1291` then `:1318`/`:1326`) and inside `_clamp_half_width` (called at `:1303`, after the auto-range branch); the ordering is explicitly preserved, not re-derived |
-| AR-D42-9 | **`TIMEFRAME_CONFIG` is left unchanged** while the brief expected `config/` window edits, so the floor is believed to be "just a constant change" | L | `S20` records the non-change **with its reason** (per-request caps + required chaining); `MIN_INTRADAY_SESSIONS` is the one new constant and the floor's single tunable |
-| AR-D42-10 | **Offscreen flakiness / DB contention** (recorded gotcha) masks a real regression | L | Full-suite clean run before declaring green; every non-pytest probe exports `DB_PATH` (ESC-043); the DPR-2 probe stays in its isolated `QT_SCALE_FACTOR=2` subprocess |
-| AR-D42-11 | **Scope creep into ESC-041/ESC-037** (BUILD-owned) or into the other open BUILD escalations | M | D42 supplies the normative target only; the Code Reviewer flips ESC-041/ESC-037 after re-verification; ESC-032/033/034/036/043/044/045 are explicitly out of scope |
+| AR-D44-1 | **The collapsed width is snapped back to `WATCHLIST_MIN_WIDTH`** by the clamp on the next `resizeEvent`/drag, so the thin bar never sticks — the **R66** defect class (and the D17/D19 defect class: a clamp that is not wired to every driver) | H | The collapsed rule lives in the pure model and is consumed by **both** clamp branches of the single apply entry point (`S23`, `S24`); the minimum-width relaxation + deferred re-apply mirrors the proven D21.13 sequence; and `AC-D44.5`/`AC-D44.8` demand a **RED-at-`0c4d478`** guard that drives **both** a `resizeEvent` and the drag-event path |
+| AR-D44-2 | **A stale Qt layout minimum re-imposes 150px** on the layout pass after the transition (the D21.13 comment's exact failure) | M | Relax the panel's **and** the dock's minimum in the transition, then `QTimer.singleShot(0, self._apply_dock_widths)` (`S24`); the guard processes the event loop and re-asserts the collapsed width; the probe establishes that widget minimums (not `resizeDocks`) decide whether 30 is reachable |
+| AR-D44-3 | **The title-bar swap breaks the dock's drag/float affordance (DG37)** or the title/objectName-keyed dock lookups | M | The collapsed title-bar slot holds a real widget (`panel.collapsed_handle`), the same mechanism D21.11 proved works; `DockWidgetMovable \| DockWidgetFloatable`, the `objectName` and the empty window title are **unchanged** (frozen list); the corrected `test_D21_10_T03` re-points the double-click-to-float assertion at the handle instead of deleting it |
+| AR-D44-4 | **The enshrining suites are weakened instead of corrected**, so the suite stays green while the behaviour regresses (R67) | H | The correction record names **each** site with its **cause** and the intent it preserves; the collapsed-appearance assertions move to the collapsed state and the expanded-state width assertions move to the expanded state — none deleted; the VIS-D21.1 strike assertions are re-pointed to the buttons where the convention still applies (D21.12/D21.13) rather than dropped |
+| AR-D44-5 | **A real splitter drag on a 30px dock does not deliver the events the fallback watches** (the event filter is installed on the dock; the handle sits at the chart's left edge), so the drag-time clamp misses | M | The acquired splitter's `splitterMoved` hook (when reachable) + `MouseButtonRelease` + the `resizeEvent` path + the coalescing deferred clamp all route to the same collapsed-aware apply; the guard drives `resizeEvent` **and** `_on_dock_drag_event` explicitly (the `AC-D44.8` measurable's own words: "a simulated resize/drag") |
+| AR-D44-6 | **The expand path restores the wrong width** — `_watchlist_width` overwritten by the collapsed plan, so expanding lands on 30 (clamped to 150) instead of the previous width | M | `_watchlist_width` is never assigned while collapsed (`S24`, `S27`); the guard collapses from a known width `W` and asserts `dock.width() == clamp(W)` on expand, including the min-150 and at-cap edge cases (`AC-D44.2` + D44's edge cases) |
+| AR-D44-7 | **Scope creep** into the D21.11 API, the D22.1 `+`, the D39.1 search box, the D14 double-click, the D21.5 column popup, or the D18/D21.13/D41 right dock | M | The frozen-interface list pins those contracts; the relationship table records the explicit non-changes; the corrected suites keep asserting them |
+| AR-D44-8 | **Offscreen flakiness / `QSettings` leakage between tests** masks a regression (the recorded gotcha class) | L | Full offscreen suite run before declaring green; the D22 harness's per-test `QSettings` ini for the new suites; the palette/hover assertions read the widget's stylesheet and the `active` property rather than rendered pixels (DPI-independent) |
+| AR-D44-9 | **The 30px bar is not legible/clickable on a HiDPI display** (the 1px borders and the rotated text at 30px) | L | The width is a named constant (tunable), the whole column is the click target, the label is centred with a 1px right border (29px of fill), and the palette is asserted from the stylesheet rather than from pixels; a strict visual check is left to the Code Reviewer's independent verification |
+| AR-D44-10 | **D42's width/`_bars`-trim and D43's priming work are disturbed** by an edit above their cited lines in `ui/main_window.py` (the docs cite line numbers; the file is edited often — `docs/memory.md`) | L | D44 edits no data path; the plan cites **symbols** as the primary pointer (the repo's source-citation convention) and any doc line reference in this proposal is **indicative only** |
 
 ---
 
@@ -376,41 +313,58 @@ freeze a contract `S13`–`S19` change.)
 
 | Requirement / journey | Architecture section | Phase (plan proposal) |
 |---|---|---|
-| `AC-D6.4` (revised: `body = min(max(0.65×pitch, F), pitch)`, `body <= pitch`, floor yields at `pitch < F`, wick stays 1 device px; the unit of `F` is the ViewBox logical px `px_per_sec` yields — 4 logical px = 8 device px at DPR 2, `S13`/`AP-D42-5`/`FI-D42-4`) | `S13`, `S14`, `S21`; components `ui/candlestick_item.py`, `ui/chart_panel.py`; AR-D42-1/2/8 | **Phase 1** |
-| `AC-D7.1` (revised: `gap >= 0` hard, `> 0` whenever `pitch > F`, `0` acceptable at the limit, 35 % intent unchanged) | `S13`; Journey 8 edge case | **Phase 1** |
-| `AC-D9.1` / `AC-D9.2` + note (volume == price body width, same capped `w`) | `S13`; component `ChartPanel._clamp_half_width`/`_refresh_candles`/`_refresh_live_bar`; AR-D42-7 | **Phase 1** |
-| `AC-D16.8` (≥ 30 trading sessions, RTH **and** ETH; sessions counted by bars inside the mode's window; all five intraday windows fall short; mode isolation) | `S15`, `S17`, `S18`, `S19`, `S20`; components `services/backfill_service.py` (`floor_bar_budget`), `data/bar_cache.py`, `ui/ticker_session.py`, `ui/main_window.py`, and **`ui/chart_panel.py::ChartPanel.update_last_bar`** (the third `SESSION_BAR_CAP` site, `RC-D42-1`); AR-D42-3/4/9 | **Phase 2** — with the `ui/chart_panel.py` trim **sequenced after** Phase 1's `ui/chart_panel.py` width task (one shared file) |
-| `AC-D16.9` (mode-aware day presence + mode-aware cache; present-but-empty = missing span; both directions; measurables (a)/(b)/(c)) | `S15`, `S16`, `S19`; Data Model `bars`; AR-D42-5 | **Phase 2** |
-| Journey 7 / Journey 8 edge cases (dense view, high-DPI, doji, single-bar fallback) | `S13`, `S14` | **Phase 1** |
-| Journey 17 edge cases (internal hole, no-fill, genuine closures, Ext Hours mode switch, empty cache, all timeframes/any symbol) | `S15`–`S19`; Non-Functional "No-silent-hole" | **Phase 2** |
-| `AC-D16.1` / `AC-D16.3` / `AC-D16.4` (unchanged: no fill, genuine closures stay empty, shortfall surfaced) | `S15` (presence only), `S17` (`min_sessions=0` default), Non-Functional | **Phase 2** (non-regression) + **Phase 3** |
-| `AC-D16.7` (ESC-023 New-Year exception) | `[existing]` `market_calendar._holidays_for_year`; untouched | **Phase 3** (non-regression) |
-| `A72`, `R63`, `R64` | `S13`, `S21`, `S18`, `S17`; risks AR-D42-1/2/3/4/6 | Phases 1–2 |
-| D42 correction record (Task Manager / Build / Code Reviewer) | `S21` + the plan proposal's correction record | Phases 1–3 |
-| `ESC-050` — the load-path-**driving** suites (19 assertions in six suites) + the **enumeration invariant** and the generalisable **rule** (impact-analysis completeness) | `S21` (invariant + rule), `AR-D42-6`, Non-Functional test-fidelity bullet; the plan proposal's *Corrected — load-path-**driving** suites* table and *Impact-analysis enumeration rule* | Phase 2 (the suites) + Phase 3 (reconciliation) — and **every future increment** |
-| D41 (built/committed) — not reopened | Relationship table (no relationship) | — |
+| **`AC-D44.1`** (collapsed form — a thin vertical bar of `WATCHLIST_COLLAPSED_WIDTH` in `LeftDockWidgetArea` with the rotated `WATCHLIST` label and the app palette, not white) | `S23` (the width), `S25` (the bar widget), `S26` (the palette/visual state); components `ui/dock_layout.py`, `ui/watchlist_panel.py`; AR-D44-1/2/9 | **Phase 1** (width) + **Phase 1** (widget) — one phase, ordered tasks |
+| **`AC-D44.2`** (click the bar → expand to the **previous** width, re-clamped) | `S24` (`_watchlist_width` = the tracked previous width; the apply path), `S25` (`expand_requested`), `S26` (the transition); AR-D44-6 | **Phase 1** |
+| **`AC-D44.3`** (collapse from the retained header button — the existing D21.11 path) | `S26` (the preserved API + `_apply_collapsed_visual`), frozen `set_collapsed`/`toggle_collapsed`/`is_collapsed` | **Phase 1** |
+| **`AC-D44.4`** (header strip / `+` (D22.1) / column-header row hidden while collapsed, visible on expand) | `S26` (explicit `hide()`/`show()` of `header_bar` + `table`); AR-D44-7 | **Phase 1** |
+| **`AC-D44.5`** (**the core fix** — the collapsed width survives a `resizeEvent` **or** a dock drag) | `S23` (the pure rule), `S24` (both clamp branches + the minimum relaxation + the deferred re-apply); AR-D44-1/2/5 | **Phase 1** |
+| **`AC-D44.6`** (palette + hover/pressed via `ui/visual_conventions.py::set_button_active`) | `S25`, `S26`; frozen `set_button_active`/`ACTIVE_PROPERTY`; AR-D44-9 | **Phase 1** |
+| **`AC-D44.7`** (collapse state **not** persisted; no `QSettings` key) | `S27`; Data Model; `AC-D44.7`'s measurable in the new width guard | **Phase 1** |
+| **`AC-D44.8`** (regression guard **RED pre-fix**; the expanded-state width suites green or corrected in lockstep) | `S28`; AR-D44-4; the plan's *Corrected* / *Verified unchanged* / *RED→GREEN* sections | **Phase 1** (the guard + the corrections) + **Phase 2** (the reconciliation + the RED-at-`0c4d478` evidence) |
+| **Journey 37** (steps 1–5; postconditions; the edge cases: collapse from the min → restore 150; from the cap → restore the cap; resize/drag while collapsed does not expand; floating dock still clickable; disconnected/empty watchlist; first launch expanded; the `CHART_MIN_WIDTH` invariant in both states) | `S23`–`S28`; Non-Functional (the invariant, the tolerance, the visual); the plan's *Assumptions* `AP-D44-3`/`AP-D44-4` | **Phase 1** + **Phase 2** (the edge cases re-checked) |
+| **`AC-D21.11.2` / `AC-D21.11.3`** (REVISED — the collapsed appearance) | `S25`, `S26`; the *Supersessions* section; AR-D44-4 | **Phase 1** |
+| **`AC-D21.11.1`** (unchanged — one "Watchlist" label; the duplicate dock title deleted; the header strip is the title bar **while expanded**) | Frozen *Watchlist dock identity* + `S25` (the single label stays; the bar's painted text is not a label widget); `test_D21_10_T01` verified unchanged | **Phase 1** (non-regression) |
+| **`AC-D13.1` / `AC-D17.2`** (REVISED — the 150px minimum is **expanded-state only**) | `S23`; the *Supersessions* section | **Phase 1** |
+| **`AC-D13.2` / `AC-D13.3` / `AC-D17.1` / `AC-D17.3`–`AC-D17.6`** (cap, persistence, drag enforcement, re-clamp — unchanged for the expanded state) | `S23` (the default `False` keeps the expanded rule), `S24`, `S27`; the *Verified unchanged* suite table | **Phase 1** (non-regression) + **Phase 2** |
+| **`AC-D18.*` / D21.13 (right dock)** (unchanged — the cross-clamp with a fixed collapsed left) | `S23` (the collapsed left in the B3 cross-clamp); `[no relationship]` for the right dock's own model | **Phase 1** + **Phase 2** (non-regression) |
+| **`AC-D22.1`** (the `+` on the header strip — unchanged **expanded**) | `S26` (hidden while collapsed, restored on expand); AR-D44-7 | **Phase 1** |
+| **`AC-D14.*` / `AC-D21.5.*` / `AC-D39.*`** (double-click, columns, search — unchanged) | Frozen *WatchlistPanel data API* / *pure helpers*; the *Verified unchanged* suites | **Phase 2** (non-regression) |
+| **`A75`** (the 30px bar width) · **`A76`** (no persistence; starts expanded) · **`A77`** (strip/`+`/column-header hidden while collapsed) · **`A78`** (the mechanism is a Plan-level detail) | `S23` · `S27` · `S26` · `S25` (+ `FI-D44-2`) | **Phase 1** |
+| **`R66`** (the collapsed width snapped back) · **`R67`** (the collapsed-appearance change regresses D21.11/D13/D17) | AR-D44-1/2/5 · AR-D44-4 + `S28` | **Phase 1** + **Phase 2** |
+| **`DG74`** (the clamp fights the collapsed width) | `S23`, `S24` (the resolution DG74 suggests, with the pure model as the owner) | **Phase 1** |
+| **`Q54`** (owner confirmation of A75–A77; non-blocking) | A75–A77 are the recorded defaults; no blocking item; an owner override would revise `AC-D44.1`/`.4`/`.7` + `S23`/`S26`/`S27` | — (recorded) |
+| **The `## Non-Goals` revision (2026-10-16)** | The *Supersessions* section item 3 (permitted **only** for the D44 bar, in the app palette) | **Phase 1** |
+| **D42 / D43 / D41 / D40** | `[no relationship]` — not reopened | — |
 
 ---
 
 ## Supersessions and non-changes (recorded, never silent)
 
-1. **`AC-D6.4`'s *unconditional* "body remains ≥ 4 device pixels wide"** → superseded by the
-   **density-aware** rule (`S13`). The wick clause (cosmetic 1 device px) is **unchanged**.
-2. **`AC-D7.1`'s "the gap remains positive"** (and the D7 dense-view edge case) → relaxed to
-   **`gap >= 0`** with `gap > 0` whenever `pitch > F`; a **zero** gap at `pitch <= F` is acceptable
-   (owner-confirmed **Q51**). The 35 %-gap intent in the non-dense regime is **unchanged**.
-3. **The RTH-only default of the depth floor** → superseded: `AC-D16.8`/`AC-D16.9` cover
-   `ext_hours=False` **and** `ext_hours=True` (owner-confirmed **Q52**), one floor, two modes, no
-   cross-contamination.
-4. **D28.4's flat `SESSION_BAR_CAP`/`RETENTION_BARS = 5000` as the universal bound** → revised to a
-   **floor-aware budget** (`S18`), the flat values retained as the default/minimum, applied at **all
-   three** `SESSION_BAR_CAP` sites (`TickerSession.set_bars` `:300`, `TickerSession._append_bar`
-   `:313`, `ChartPanel.update_last_bar` `:1150`–`:1157`) plus `BarCache.prune`'s `keep` (`:1973`).
-5. **Explicit non-changes (recorded so they are not read as omissions):**
-   `ibkr/market_data.py::TIMEFRAME_CONFIG` durations, `MAX_HISTORICAL_PER_600S`, the D28.3 wave
-   pump, `services/market_calendar.py`, `AC-D16.1`/`AC-D16.3`/`AC-D16.4`, the `Bar` dataclass, the
-   order machinery, and the D41 removals.
+1. **`AC-D21.11.2` / `AC-D21.11.3`'s collapsed-appearance clause** ("the collapsed state still shows the
+   button", with the `VIS-D21.1` diagonal strike on the retained button) → **superseded for the collapsed
+   watchlist state**: the collapsed form is the **thin bar with rotated text**, not a struck-through
+   horizontal header button. `VIS-D21.1` **still applies** to any genuinely hidden/off **button** state
+   elsewhere (D21.12 volume, D21.13 portfolio) and to the header button whenever it is *shown* — it is simply
+   not the collapsed-watchlist indicator. **`AC-D21.11.1` is unchanged** (a single "Watchlist" label; the
+   duplicate dock title deleted). One **clarification** (not a supersession): the *title-bar widget identity*
+   is `panel.header_bar` in the **expanded** state (as today, and as `test_D21_10_T01` asserts) and
+   `panel.collapsed_handle` in the **collapsed** state — the swap D44's own correction record explicitly
+   authorises ("`setTitleBarWidget` swaps to the bar, or the header widget reorients", `A78`).
+2. **The 150px minimum of `AC-D13.1` / `AC-D17.2`** → scoped to the **expanded** watchlist only; while
+   collapsed the width is `WATCHLIST_COLLAPSED_WIDTH` (~30px). `AC-D13.2`/`AC-D13.3`/`AC-D17.1`/
+   `AC-D17.3`–`AC-D17.6` (cap, persistence, drag enforcement, re-clamp) are **unchanged for the expanded
+   state**; `AC-D21.11`'s "collapsed-width geometry" edge case is **now specified** by `AC-D44.1`/`AC-D44.5`.
+3. **The `## Non-Goals` "no restyling" bullet** → **revised by the owner** (D44, dated 2026-10-16) to permit
+   **only** the collapsed-bar styling, in the **app palette** (`#141822` / `#232938` / `#cbd5e1`) — the
+   mockup's white rounded pill is explicitly **not** the target (the owner's clarification).
+4. **Explicit non-changes (recorded so they are not read as omissions):** `WATCHLIST_MIN_WIDTH = 150` (value),
+   `DEFAULT_WATCHLIST_WIDTH`, the cap fractions, `CHART_MIN_WIDTH` and its cross-module invariant, the D21.11
+   collapse API, the D13/D17 persistence key and re-clamp rules, the D14/D21.5/D22/D39 watchlist behaviour,
+   the D18/D21.13/D41 right-dock model, the pyqtgraph rendering stack (a **locked** decision), the D42/D43
+   data paths, and `ui/visual_conventions.py` (consumed, never modified).
+
+---
 
 Handoff: this proposal is checked by Plan Artifact Editor & Validator against
-`docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`). Companion:
-`docs/plan_proposal.md` (`Status: READY_FOR_VALIDATION`).
+`docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`). Companion: `docs/plan_proposal.md`
+(`Status: READY_FOR_VALIDATION`). Module index: `docs/codebase-map.md`.

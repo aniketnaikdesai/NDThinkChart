@@ -13,19 +13,32 @@
   "pack_fix_count": {"P2-T22": 1, "P2-T06": 1},
   "map_repair_count": {},
   "tooling_defect_2026_10_16": "Task Manager graph rewrites can SILENTLY RESET task statuses: after adding P2-T24/T25/T26 the graph showed P2-T14 done->in_progress, P2-T15 done->in_progress and P2-T23 blocked->not_started, even though the TM's report claimed all existing tasks were byte-identical. Recovery used: copy the task's archived result back from docs/build/results/_archive/waveNN_<id>.json into docs/build/results/<id>.json, then advance (consolidates it back to done). NOTE the cp sets a fresh mtime, which makes build_wave treat the task as 'already re-run since escalation X opened' and stop re-dispatching it.",
-  "current_stage": "code_reviewer",
-  "pending": null,
+  "current_stage": "paused_user_input",
+  "pending": {
+    "kind": "code_review_escalations",
+    "targets": ["REQUIREMENTS", "TASK_MANAGER"],
+    "ids": ["ESC-057", "ESC-056", "ESC-058"],
+    "note": "D44 review complete (REVIEW_COMPLETE, suite green). Three follow-up escalations, none blocking: ESC-057 (REQUIREMENTS, nice-to-have) - AC-D44.2 / the P3-T05 guard / the orchestrator's AC2 residual note disagree about whether the expanded width restores EXACTLY; the reviewer's probe restored exactly W for every in-range W and did NOT reproduce the orchestrator's 300->314 residual, so the orchestrator's note is likely wrong. ESC-056 (TASK_MANAGER) - the graph's touches_files for P3-T01 mis-attributes clamp_watchlist_width to ui/dock_layout.py (it lives in ui/watchlist_panel.py). ESC-058 (TASK_MANAGER, should-fix) - USAGE.txt / usage.md do not document D44, which is user-visible. Upstream-most is ESC-057 (REQUIREMENTS)."
+  },
   "accepted_observations": {
     "ESC-055": "Owner decision 2026-10-16: RECORD, TAKE NO ACTION. The D42/ESC-050 defect class (a behaviour change invalidating an assertion outside the changing task's touches_files) recurred at P2-T38; the reviewer suggested extending the enumeration rule with an ownership half. The owner judged the whole-suite gate (verify_tests.py) sufficient machinery. Do NOT re-pause on this escalation; ask the reviewer to flip it to addressed as 'accepted - no action' at its next run."
   },
   "worker_death_policy_2026_10_16": "STANDING: a worker that dies with its WORK COMPLETE (edit applied, its tests green) but the handoff artifacts missing -> the orchestrator verifies the ACs itself (not on trust), writes docs/build/results/<id>.json + docs/build/logs/<id>.md with honest provenance, and notifies the user rather than blocking. A death MID-EDIT (file left broken) still stops and waits for an explicit decision. The orchestrator never edits source code. Recorded in the global memory file as a preference.",
-  "invocation_reason": "review",
-  "pending": {
-    "kind": "code_review_escalations",
-    "targets": ["BUILD", "PLAN"],
-    "ids": ["ESC-048", "ESC-049", "ESC-051", "ESC-050", "ESC-032", "ESC-033", "ESC-034", "ESC-036", "ESC-043", "ESC-044", "ESC-045"],
-    "note": "user approved 'sequence all 11'. Stage A = D42's own three (ESC-048 blocking, ESC-049, ESC-051) via Task Manager tasks; Stage B = ESC-050 (PLAN, the impact-enumeration defect); Stage C = the 7 pre-existing BUILD backlog. Clear when the sequence completes."
+  "worker_death_P3_T02_2026_10_16": {
+    "task": "P3-T02",
+    "mode": "MID-EDIT (incomplete) - NOT the 'work complete' case that permits the orchestrator to finish it",
+    "what_is_applied": "ui/main_window.py (+95/-8), all edits applied: imports WATCHLIST_COLLAPSED_WIDTH + plan_watchlist_width; _plan_dock_widths gained a left_collapsed parameter forwarded into the pure plan_dock_widths; new helper _sync_watchlist_min_width(collapsed) relaxes the dock/panel minimum to 30 while collapsed and restores 150 when expanded; _apply_dock_widths is collapsed-aware in BOTH branches and guards the two self._watchlist_width assignments so the tracked previous width survives (AC3); _dock_widths_consistent is collapsed-aware. Verified by the orchestrator: imports clean with DB_PATH set; plan_watchlist_width(1138, 500, collapsed=True) == 30 and collapsed=False == 500.",
+    "what_is_missing": "tests/test_watchlist_columns_d21.py still asserts the OLD expanded behaviour while collapsed - line 466 `assert win.watchlist_dock.width() >= WATCHLIST_MIN_WIDTH` fails because the dock is correctly 30 when collapsed. The intended correction (per the worker's own plan and AC5/R67) is: assert the collapsed width (~30, +/-1) while collapsed, then expand (panel.set_collapsed(False) + processEvents), re-drive _apply_dock_widths, and assert the >=150 floor in the EXPANDED state - moved, not deleted. No test run was completed and neither docs/build/results/P3-T02.json nor docs/build/logs/P3-T02.md was written.",
+    "current_tree": "RED by exactly one assertion: tests/test_watchlist_columns_d21.py::test_D21_10_T03_collapsed_button_reachable_drag_and_width_model. Every other test in the task command passes. P3-T02 is in_progress in the graph.",
+    "awaiting": "RESOLVED 2026-10-16 - the owner chose a scoped override and the orchestrator finished P3-T02: the test_D21_10_T03 collapsed leg corrected (the >= WATCHLIST_MIN_WIDTH leg moved to the expanded state) plus the new T11/T21/T31 tests, 56 passed, RED-before confirmed. P3-T02 is done and consolidated."
   },
+  "residue_for_P3_T05_2026_10_16": {
+    "why": "P3-T02's AC1 / test T11 require win.watchlist_dock.width() == WATCHLIST_COLLAPSED_WIDTH (30). That is UNSATISFIABLE at P3-T02 and becomes satisfiable only at P3-T05.",
+    "evidence": "The collapsed dock's width is pinned at 128px by header_bar still occupying the title-bar slot. The Plan's probe: '128px with the strip in the title-bar slot, exactly 30 with the plan's wiring'. Verified independently by the orchestrator in both clamp branches (plan(left_collapsed=True) == 30, applied dock == 128, _watchlist_width preserved, re-expand >= 150).",
+    "action_at_P3_T05": "P3-T05's task file predates this discovery and does NOT carry the exact-width assertion, so APPEND an invariant line to its worker prompt when dispatching: after the title-bar swap, a collapsed watchlist dock must settle at exactly WATCHLIST_COLLAPSED_WIDTH (+/-1), and test_D21_10_T03's collapsed leg must be tightened from '< WATCHLIST_MIN_WIDTH' to the exact collapsed width. test_D21_10_T03 also still asserts panel.header_bar.isVisible() while collapsed - D44 hides the strip while collapsed, so that leg is P3-T05's too.",
+    "recorded_in": "docs/build/results/P3-T02.json (footprint_flags) and docs/build/logs/P3-T02.md (Notes) - the Code Reviewer reads the result and may raise a TASK_MANAGER escalation."
+  },
+  "invocation_reason": "normal_progression",
   "plan_validator_retries": 0,
   "last_invoked": {
     "agent": "code_reviewer",
@@ -34,8 +47,10 @@
   },
   "last_status": "D42_BUILD_COMPLETE_NEEDS_CODE_REVIEW_REVIEW_LAUNCHED",
   "user_decision": "Close D41's loose ends first (ESC-046 + ESC-047) before the requirements escalations or the live-run bugs. The remaining 11 open escalations stay queued and will be re-surfaced after the reviewer re-runs.",
-  "build_phase": "P1",
-  "working_on": {},
+  "build_phase": "P3",
+  "working_on": {
+    "code_reviewer": "P3"
+  },
   "user_directive": {
     "rule": "As orchestrator, do NOT edit application code. On a worker death: record the half-applied state, notify the user, and WAIT for an explicit decision.",
     "scoped_override": "2026-10-15: for this stuck build the user instructed the orchestrator to take charge and complete the work directly rather than keep dispatching workers."
@@ -84,8 +99,8 @@
     "the other 11": "NONE has a usable task: 4 name ids MISSING from the current graph (D27-06, D28-02, D21-05, D27-09) and 7 have no task_id at all. Nothing for build_wave.py to reset - they need the Task Manager to create tasks first."
   },
   "git": {
-    "head": "29067af",
-    "tree": "ALL D41 work UNCOMMITTED. Nothing pushed."
+    "head": "0c4d478",
+    "tree": "clean; main == origin/main. D41, D42, Stage C, the usage-doc corrections, the test-plan deletions, the requirements reference cleanup and the graph rebuild are all committed and pushed."
   },
-  "last_updated": "2026-10-15T22:35:00Z"
+  "last_updated": "2026-10-16T21:20:10Z"
 }

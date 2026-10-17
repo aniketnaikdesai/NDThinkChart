@@ -825,7 +825,7 @@
 > They are captured as batch **D23** (sub-defects **D23.1 = ESC-030**, **D23.2 = ESC-031**) in
 > `requirements.md`. **Neither required a blocking question**, because the correct outcome is unambiguous
 > from the source evidence and the user's explicit approval — recorded here for traceability **without**
-> opening a `Status: open (blocking)` item. Consequently `requirements.md` carries `Status: READY_FOR_PLAN`.
+> opening a blocking item. Consequently `requirements.md` carries `Status: READY_FOR_PLAN`.
 
 ## D23-Q1 (ESC-030) — can a `reqContractDetails` request be cancelled on the pinned ibapi, and does `AC-D22.2.3` need correcting?
 - **Status:** **resolved without a user question** (evidence-derived; the user approved the fix 2026-10-07). Not blocking.
@@ -1133,3 +1133,26 @@
   `AC1`/`P2-T30-T11`** (asserting a `5 secs`/`3600 S` request for 4h/1d) become **stale once it lands** and
   must be revised by the Task Manager.
 - **Affected requirement section:** D27.9 (revised), `AC-D27.9` (revised), D43.1; A74; R65; DG73.
+
+---
+
+# Open Questions — 2026-10-16 (Batch 19 / D44 — the collapsed Watchlist thin bar) — 1 owner-confirmation item (non-blocking)
+
+> The owner requested (2026-10-16) that the collapsed Watchlist become a **thin vertical bar** that expands to
+> the full panel on click, in the **app's own palette** (the mockup's white rounded pill is mockup-tool styling
+> only, not a colour choice). **D44 changes the collapsed *appearance*** (the D21.11 collapse already exists) and
+> **revises the `## Non-Goals`** (dated 2026-10-16) rather than leaving a Non-Goal standing that the feature
+> contradicts. **Three owner-flagged choices are decided with recorded defaults (A75–A77)** and surfaced below
+> as **Q54** for owner confirmation — **no blocking item remains**, so `requirements.md` carries
+> `Status: READY_FOR_PLAN`. **D1–D43 are not reopened.**
+
+## Q54 — D44: confirm the three decided defaults (bar width, persistence, `+` reachability while collapsed)?
+
+- **Status:** **answered 2026-10-16 (owner-confirmation requested — non-blocking; defaults recorded A75–A77).** Not a blocking item: each default is justified and the pipeline is not halted; an owner override would revise D44 in place.
+- **Why it was raised (not a guess):** the owner explicitly said the three points must not be silently assumed. Each is therefore decided **with a stated rationale** and surfaced here so the owner can confirm or override.
+- **Decisions (defaults):**
+  1. **Bar width (A75):** `WATCHLIST_COLLAPSED_WIDTH = 30px` — within the owner's ~28–32px range; ≥ the 28px header height, room for the rotated label + borders, reads as "a thin bar" and stays clickable.
+  2. **Persistence (A76):** the collapsed/expanded state is **NOT persisted**; the app starts **expanded** — consistent with the existing D21.11 collapse (not persisted) and the D10/A36 precedent. No `QSettings` collapse key.
+  3. **`+` reachability while collapsed (A77):** the horizontal header strip, the `+` add button (D22.1) and the column-header row are **hidden while collapsed** and **return on expand**; the thin bar's only interactive element is the expand affordance (a ~30px bar cannot hold a horizontal `+` plus a rotated label legibly).
+- **Owner action (optional):** confirm the three defaults, or name an override — e.g. "persist the collapsed state", "show the `+` on the bar", or a specific width. An override revises `AC-D44.1`/`AC-D44.4`/`AC-D44.7` and the matching assumption.
+- **Affected requirement section:** D44 / Journey 37 / `AC-D44.1`, `AC-D44.4`, `AC-D44.7`; A75–A77.
