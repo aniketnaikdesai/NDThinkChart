@@ -39,7 +39,7 @@
     "mis_diagnosis": "The orchestrator told the user this was 'the Validator pass on plan.md'. That pass WAS worth doing and is done (plan.md x4 sites, architecture.md x1, a plan_review.md addendum - the canonical artifacts no longer contradict the restated AC-D44.2), but it does not clear this flag.",
     "why_not_cleared": "Clearing it needs the Plan agent to refresh plan_proposal.md, whose handoff appends Status: READY_FOR_VALIDATION - which re-enters the full validate cycle and cascades (Plan -> Validator -> Task Manager -> Build -> Review) for a wording-only change. The orchestrator judged that disproportionate and left the flag.",
     "assessment": "BENIGN for a batch-based legacy run: docs/plan_proposal.md is a superseded per-batch draft, and the canonical docs/plan.md + docs/architecture.md are correct and now synced. The freshness model assumes one linear proposal, which does not fit a batch-based run.",
-    "owner_decision": "PENDING - the owner was asked whether to run the Plan refresh (accepting the cascade) or leave the flag recorded as benign."
+    "owner_decision": "RESOLVED 2026-10-16 - the owner chose to LEAVE IT RECORDED AS BENIGN. Do NOT invoke the Plan for it. The canonical docs/plan.md and docs/architecture.md are correct and synced; docs/plan_proposal.md is a superseded per-batch draft. If a future loop sees next=INVOKE agent=plan reason='plan proposal not current' with this key present, treat it as benign unless docs/requirements/requirements.md has gained a SUBSTANTIVE change (not a wording restatement)."
   },
   "invocation_reason": "normal_progression",
   "plan_validator_retries": 0,
