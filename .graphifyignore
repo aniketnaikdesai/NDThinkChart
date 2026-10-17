@@ -32,7 +32,11 @@ docs/architecture*.md
 docs/phase-changelog.md
 docs/code_review/review_log.md
 docs/code_review/precheck.md
+# The escalation ledgers: the older markdown one AND the live JSON one.
 docs/code_review/escalations.md
+docs/code_review/escalations.json
+# The orchestrator's run state: transient pipeline bookkeeping, not app knowledge.
+docs/orchestrator_state.json
 
 # ── deliberately KEPT (technical knowledge about this application) ──────────
 #   docs/code_review/*_investigation.md        root-cause analyses with file:line
