@@ -54,3 +54,6 @@ docs/code_review/precheck.json
 docs/code_review/precheck.md
 docs/code_review/test_verification.json
 docs/code_review/test_verification.log
+
+# Orchestrator runtime state — rewritten every tick; local only
+docs/orchestrator_state.json
