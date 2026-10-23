@@ -10,7 +10,10 @@
     "DISPATCH COLLISION: a BUILD escalation's task_id determines build_wave.py's rework target. The reviewer linked ESC-052 to P2-T31 while the Task Manager created a new P2-T36 for the same fix, producing a duplicate (P2-T36 removed). When an escalation already names a task, reuse it - do not create a second one.",
     "ENUMERATION MISS RECURRED (P2-T38): a behaviour change (persist a real account's pre-summary update) INVALIDATED an assertion in a file outside its touches_files (tests/test_d27_account_scoping.py), which pinned the old behaviour. This is the D42/ESC-050 defect class recurring in a different batch. When scoping a task, enumerate the assertions the change INVALIDATES, not just the files it edits - and run the FULL suite, not only the task's command."
   ],
-  "pack_fix_count": {"P2-T22": 1, "P2-T06": 1},
+  "pack_fix_count": {
+    "P2-T22": 1,
+    "P2-T06": 1
+  },
   "map_repair_count": {},
   "tooling_defect_2026_10_16": "Task Manager graph rewrites can SILENTLY RESET task statuses: after adding P2-T24/T25/T26 the graph showed P2-T14 done->in_progress, P2-T15 done->in_progress and P2-T23 blocked->not_started, even though the TM's report claimed all existing tasks were byte-identical. Recovery used: copy the task's archived result back from docs/build/results/_archive/waveNN_<id>.json into docs/build/results/<id>.json, then advance (consolidates it back to done). NOTE the cp sets a fresh mtime, which makes build_wave treat the task as 'already re-run since escalation X opened' and stop re-dispatching it.",
   "current_stage": "plan_artifact_editor_validator",
@@ -66,8 +69,15 @@
       "conftest per-process DB correct (table list/wipe byte-identical, nothing removed); subscription_manager.py edit genuinely doc/constant-only",
       "the two new Phase-3 guards are non-tautological"
     ],
-    "closed": ["ESC-035", "ESC-039", "ESC-040 -> addressed (features removed; re-verified on the live tree)"],
-    "new_findings": ["ESC-046", "ESC-047"],
+    "closed": [
+      "ESC-035",
+      "ESC-039",
+      "ESC-040 -> addressed (features removed; re-verified on the live tree)"
+    ],
+    "new_findings": [
+      "ESC-046",
+      "ESC-047"
+    ],
     "non_escalations": [
       "bracket_order is dead-but-retained: ACCEPTED KEEP-list outcome (AC-D41.4 mandates retention); residual is a requirements-wording nuance only",
       "P1-T54/P1-T59 coverage moved rather than disappeared; P1-T60's doc-only edit legitimate"
@@ -103,5 +113,6 @@
     "head": "0c4d478",
     "tree": "clean; main == origin/main. D41, D42, Stage C, the usage-doc corrections, the test-plan deletions, the requirements reference cleanup and the graph rebuild are all committed and pushed."
   },
-  "last_updated": "2026-10-16T21:20:10Z"
+  "last_updated": "2026-10-16T21:20:10Z",
+  "loop_count": 4
 }
