@@ -25,8 +25,9 @@ from datetime import timezone, timedelta
 
 from data.bar_aggregator import TIMEFRAME_SECONDS
 from config import settings
+from services import chart_model
 from services.market_calendar import session_windows
-from services.backfill_service import floor_bar_budget
+from services.backfill_service import floor_bar_budget  # noqa: F401 — kept for backward-compat imports; the panel calls chart_model.floor_bar_budget
 from services.time_collapse_service import TimeCollapseMap, build_collapse_map
 
 
@@ -79,11 +80,13 @@ def _custom_date_axis(utc: bool = True, tz_offset: int = 0) -> "pg.DateAxisItem"
     return CollapsedDateAxis(utc=utc, tz_offset=tz_offset)
 
 
-# D8 / RG-002: the single pinned volume nice-number family. The old fixed list
-# [10k .. 10M] is retained ONLY as a regression fixture in
+# D8 / RG-002: the single pinned volume nice-number family, owned by
+# services/chart_model.py (P6-03 delegation). The names below stay importable
+# from this module for the pre-D47 suites; every value comes from the model.
+# The old fixed [10k .. 10M] list is retained ONLY as a regression fixture in
 # tests/test_volume_linear.py and is never a live code path.
-VOLUME_NICE_MANTISSAS = (1.0, 1.5, 2.0, 2.5, 5.0, 7.5)
-VOLUME_NICE_FLOOR = 100.0
+VOLUME_NICE_MANTISSAS = chart_model.VOLUME_NICE_MANTISSAS
+VOLUME_NICE_FLOOR = chart_model.VOLUME_NICE_FLOOR
 
 # D21.6 / AC-D21.6.1: the volume pane can grow to a real, usable height. The
 # former 120px cap was the same as the oscillator cap and left volume unusable;
@@ -101,61 +104,18 @@ CANDLE_WIDTH_RESYNC_MS = 80
 
 
 def _volume_nice_family(max_exponent: int = 12) -> tuple[float, ...]:
-    """Return the pinned volume family ``1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k`` (RG-002).
-
-    Values are generated from ``1 x 10^2`` — the required ``100`` floor
-    (AC-D8.4) — upward, so the sequence scales with ``k`` and has no fixed
-    ceiling. This is the only live volume nice-number family; the old fixed
-    ``[10k .. 10M]`` list is a test fixture only.
-    """
-    values: list[float] = []
-    for k in range(2, max_exponent + 1):
-        base = 10.0 ** k
-        for mantissa in VOLUME_NICE_MANTISSAS:
-            values.append(mantissa * base)
-    return tuple(values)
+    """Pinned volume family (RG-002) — delegated to services/chart_model.py."""
+    return chart_model.volume_nice_family(max_exponent)
 
 
 def _nice_volume_max(max_vol: float) -> float:
-    """Return the smallest pinned-family value ``>= max_vol * 1.1``.
-
-    Family (RG-002 / AC-D8.1): ``1 / 1.5 / 2 / 2.5 / 5 / 7.5 x 10^k``, floored at
-    ``100`` with no fixed ceiling. ``max_vol == 0`` (or any target at or below the
-    floor) returns ``100`` (AC-D8.4). This replaces the coarse fixed
-    ``[10k .. 10M]`` list whose ``10k`` floor and 5M fallback are the
-    ESC-003 / ESC-008 defects.
-
-    D21.2 / AC-D21.2.1 note: the *live* volume pane ceiling is no longer this
-    whole-list nice-max; it is ``1.10 x max(visible volume)`` computed by
-    ``ChartPanel._recompute_visible_volume_range``. This helper is retained for
-    the all-zero ``100`` floor and as the pinned-family fixture the volume test
-    modules exercise directly.
-    """
-    if max_vol <= 0:
-        return VOLUME_NICE_FLOOR
-    target = float(max_vol) * 1.1
-    if target <= VOLUME_NICE_FLOOR:
-        return VOLUME_NICE_FLOOR
-    k = 2
-    while True:
-        base = 10.0 ** k
-        for mantissa in VOLUME_NICE_MANTISSAS:
-            value = mantissa * base
-            if value >= target:
-                return value
-        k += 1
+    """Smallest pinned-family value ``>= max_vol * 1.1`` — delegated to the model."""
+    return chart_model.nice_volume_max(max_vol)
 
 
 def _format_volume_tick(value: float) -> str:
-    """Format a volume-axis tick as ``500.0K`` / ``1.0M`` (AC-D8.3)."""
-    v = float(value)
-    if v >= 1_000_000:
-        return f"{v / 1_000_000:.1f}M"
-    if v >= 1_000:
-        return f"{v / 1_000:.1f}K"
-    if v == int(v):
-        return str(int(v))
-    return f"{v:g}"
+    """Volume-axis tick (AC-D8.3) — delegated to services/chart_model.py."""
+    return chart_model.format_volume_tick(value)
 
 
 class _VolumeAxisItem(pg.AxisItem):
@@ -190,45 +150,9 @@ OSCILLATOR_TYPES = {"rsi", "macd"}
 ICT_TRAILING_BARS = 500
 
 
-class _StudyCache:
-    """Cache for computed study values keyed by (symbol, timeframe, studies_hash).
-
-    Stores computed arrays so that on intra-bar ticks or new candles,
-    only the latest values need recomputation for the new bar.
-    """
-
-    def __init__(self):
-        self._cache: dict[str, dict] = {}
-
-    def _studies_hash(self, studies: list) -> str:
-        """Compute a hash of the enabled study configurations."""
-        enabled = [(s["type"], s.get("params", {}))
-                   for s in studies if s.get("enabled")]
-        return hashlib.md5(str(enabled).encode()).hexdigest()[:16]
-
-    def _key(self, symbol: str, timeframe: str, studies_hash: str) -> str:
-        return f"{symbol}:{timeframe}:{studies_hash}"
-
-    def get(self, symbol: str, timeframe: str, studies: list) -> dict | None:
-        """Return cached study arrays if valid for current studies."""
-        h = self._studies_hash(studies)
-        k = self._key(symbol, timeframe, h)
-        return self._cache.get(k)
-
-    def set(self, symbol: str, timeframe: str, studies: list, data: dict):
-        h = self._studies_hash(studies)
-        k = self._key(symbol, timeframe, h)
-        self._cache[k] = data
-
-    def invalidate(self, symbol: str | None = None, timeframe: str | None = None):
-        """Invalidate cache entries. If symbol/timeframe is None, clear all."""
-        if symbol is None and timeframe is None:
-            self._cache.clear()
-        else:
-            prefix = f"{symbol or '*'}:{timeframe or '*'}"
-            to_del = [k for k in self._cache if k.startswith(prefix)]
-            for k in to_del:
-                self._cache.pop(k, None)
+# P6-03: the study cache is owned by services/chart_model.py; the panel keeps
+# the historic name as an alias so pre-D47 import sites keep working.
+_StudyCache = chart_model.StudyCache
 
 
 # D2 / Q33 crosshair price chip: the chip renders in the Y-axis lane (outside
@@ -804,54 +728,33 @@ class ChartPanel(QWidget):
         return [self._bars[i] for i in self._plotted_indices]
 
     def _compute_plotted_indices(self) -> list:
-        """Return indices into ``self._bars`` for the bars to plot.
-
-        With Ext Hours ON every bar is plotted. With Ext Hours OFF (RTH) only
-        RTH bars are plotted (``AC-D21.4.3``) — this is a *display* filter; the
-        underlying ``self._bars`` list (and every ``Bar.ts``) is untouched.
-        Indices (not objects) are stored so an in-place intra-bar update of the
-        forming bar is reflected in the plotted set.
-        """
-        if self._ext_hours or not self._bars:
-            return list(range(len(self._bars)))
-        tf = self._current_timeframe
-        if tf is None or tf not in TIMEFRAME_SECONDS:
-            return list(range(len(self._bars)))
-        period = TIMEFRAME_SECONDS[tf]
-        return [
-            i for i, b in enumerate(self._bars)
-            if session_windows(int(b.ts), int(b.ts) + period, False)
-        ]
+        """Indices into ``self._bars`` for the bars to plot — delegated to
+        ``services/chart_model.py`` (P6-03; display-only RTH filter)."""
+        return chart_model.plotted_index_rows(
+            self._bars, self._current_timeframe, self._ext_hours)
 
     def _rebuild_collapse_map(self) -> None:
         """Rebuild the display-x collapse map and push it to the date axes."""
         self._plotted_indices = self._compute_plotted_indices()
         tf = self._current_timeframe
-        if tf is None or tf not in TIMEFRAME_SECONDS:
-            self._collapse_map = None
-        else:
-            self._collapse_map = build_collapse_map(
-                self._plotted_bars, tf, self._ext_hours
-            )
+        # P6-03: the map itself is built by services/chart_model.py (which
+        # returns None for a timeframe-less/unknown timeframe, as before).
+        self._collapse_map = chart_model.collapse_for_bars(
+            self._plotted_bars, tf, self._ext_hours
+        )
         self._sync_plot_arrays()
         self._sync_collapsed_axes()
         self._sync_collapsed_consumers()
 
     def _sync_plot_arrays(self) -> None:
         """D28.4: refresh the cached display-x / volume arrays (bisection)."""
-        to_display = self._to_display
-        self._plot_xs = [to_display(b.ts) for b in self._plotted_bars]
-        self._plot_vols = [float(b.volume) for b in self._plotted_bars]
+        self._plot_xs, self._plot_vols = chart_model.plot_arrays(
+            self._plotted_bars, self._collapse_map)
 
     def _new_bar_is_plotted(self, bar) -> bool:
-        """D28.4: the _compute_plotted_indices predicate for a single bar."""
-        if self._ext_hours:
-            return True
-        tf = self._current_timeframe
-        if tf is None or tf not in TIMEFRAME_SECONDS:
-            return True
-        period = TIMEFRAME_SECONDS[tf]
-        return bool(session_windows(int(bar.ts), int(bar.ts) + period, False))
+        """D28.4: the plotted-index predicate for a single bar (model-owned)."""
+        return chart_model.is_bar_plotted(
+            bar, self._current_timeframe, self._ext_hours)
 
     def _extend_collapse_map(self) -> None:
         """D28.4: tail-extend the collapse map for an appended bar.
@@ -1193,7 +1096,7 @@ class ChartPanel(QWidget):
             # session's now-up-to-33,120-bar series). The flat
             # settings.SESSION_BAR_CAP stays the default/minimum (a daily
             # timeframe returns it).
-            budget = floor_bar_budget(
+            budget = chart_model.floor_bar_budget(
                 self._current_timeframe or "", self._ext_hours)
             if len(self._bars) > budget:
                 # D28.4: mirror the session's series cap so panels don't grow
@@ -1288,20 +1191,19 @@ class ChartPanel(QWidget):
         ``median_diff = pitch / px_per_sec`` without re-running that sort.
         """
         if len(bars) > 1:
-            diffs = sorted(
-                self._to_display(bars[i].ts) - self._to_display(bars[i - 1].ts)
-                for i in range(1, len(bars))
-            )
-            median_diff = diffs[len(diffs) // 2]
+            # P6-03: the median-spacing value comes from services/chart_model.py;
+            # the pitch caching (ViewBox pixels) stays view-side.
+            median_diff = chart_model.median_spacing(
+                [self._to_display(b.ts) for b in bars])
             px_per_sec = self._view_px_per_sec()
             self._candle_median_diff = median_diff
             self._candle_pitch = (
                 median_diff * px_per_sec if px_per_sec else None
             )
-            return median_diff * 0.325
+            return chart_model.base_candle_half_width(median_diff)
         self._candle_median_diff = None
         self._candle_pitch = None
-        return 0.25  # fallback for a single bar (matches CandlestickItem)
+        return chart_model.base_candle_half_width(None)
 
     def _clamp_half_width(self, w: float) -> float:
         """D42/S13: apply the shared density-aware cap to a cached half-width.
@@ -1357,17 +1259,11 @@ class ChartPanel(QWidget):
         # QPicture.
         bars = self._plotted_bars
         history, live = bars[:-1], bars[-1:]
-        candle_data, vol_x, vol_h, vol_colors = [], [], [], []
-        for bar in history:
-            dx = self._to_display(bar.ts)
-            candle_data.append((dx, bar.open, bar.high, bar.low, bar.close))
-            vol_x.append(dx)
-            vol_h.append(float(bar.volume))
-            vol_colors.append('#34d399' if bar.close >= bar.open else '#f87171')
-        live_data = []
-        for bar in live:
-            dx = self._to_display(bar.ts)
-            live_data.append((dx, bar.open, bar.high, bar.low, bar.close))
+        # P6-03: every plotted row/column value comes from services/chart_model.py.
+        candle_data = chart_model.candle_display_rows(history, self._collapse_map)
+        vol_x, vol_h, vol_colors = chart_model.volume_display_columns(
+            history, self._collapse_map)
+        live_data = chart_model.candle_display_rows(live, self._collapse_map)
 
         # Frame the view explicitly from the data: ViewBox.autoRange() mis-computes
         # childrenBounds for epoch-magnitude x-coordinates (anchors xMin at 0),
@@ -1511,9 +1407,7 @@ class ChartPanel(QWidget):
         # (D21.4): the visible x-range is display-x after collapse, so each
         # bar's *display-x* is compared against it — not the raw timestamp.)
         xs, vols = self._plot_xs, self._plot_vols
-        lo = bisect_left(xs, x0)
-        hi = bisect_right(xs, x1, lo=lo)
-        visible_max = max(vols[lo:hi], default=0.0)
+        visible_max = chart_model.visible_max_volume(xs, vols, x0, x1)
         # ESC-028 / AC-D21.2.1: the ``VOLUME_NICE_FLOOR`` (100) fallback applies
         # ONLY when there is no visible non-zero volume (no visible bar, or every
         # visible bar is zero). For any positive visible max the literal
@@ -1521,10 +1415,7 @@ class ChartPanel(QWidget):
         # ``0 < visible_max <= 90.9`` (e.g. 10 -> 11, 50 -> 55), which a second
         # unconditional ``< VOLUME_NICE_FLOOR`` clamp would incorrectly inflate
         # to 100. Do not reintroduce that clamp.
-        if visible_max > 0.0:
-            ceiling = visible_max * 1.1
-        else:
-            ceiling = VOLUME_NICE_FLOOR
+        ceiling = chart_model.visible_volume_ceiling(visible_max)
         if force or abs(ceiling - self._volume_nice_max) > 1e-9 * max(1.0, abs(ceiling)):
             self._volume_nice_max = ceiling
             self.volume_plot.getViewBox().setRange(yRange=(0, ceiling), padding=0)
@@ -1572,101 +1463,36 @@ class ChartPanel(QWidget):
 
     @staticmethod
     def _study_key(stype: str, idx: int) -> str:
-        """Per-study-instance cache key (two SMAs with different periods
-        must not collide)."""
-        return f"{stype}:{idx}"
+        """Per-study-instance cache key — delegated to services/chart_model.py."""
+        return chart_model.study_key(stype, idx)
 
     def _study_update_one(self, stype: str, params: dict, state: dict,
                           bar) -> dict[str, object]:
-        """Advance one study's incremental state with one bar.
+        """Advance one study's incremental state with one bar — delegated."""
+        return chart_model.study_update_one(stype, params, state, bar)
 
-        Returns {suffix: value}; the empty suffix is the study's primary
-        series (e.g. "bollinger:0" -> upper, "bollinger:0_mid" -> middle).
-        """
-        if stype == "sma":
-            return {"": sma_update(state, bar.close, params.get("period", 20))}
-        if stype in ("ema", "ema2"):
-            return {"": ema_update(state, bar.close, params.get("period", 9))}
-        if stype == "vwap":
-            return {"": vwap_update(state, bar.high, bar.low, bar.close,
-                                    bar.volume, bar.ts)}
-        if stype == "bollinger":
-            upper, mid, lower = bollinger_update(
-                state, bar.close,
-                params.get("period", 20), params.get("std_dev", 2.0))
-            return {"": upper, "_mid": mid, "_lower": lower}
-        if stype == "rsi":
-            return {"": rsi_update(state, bar.close, params.get("period", 14))}
-        if stype == "macd":
-            m, s = macd_update(
-                state, bar.close,
-                params.get("fast", 12), params.get("slow", 26),
-                params.get("signal", 9))
-            return {"": m, "_signal": s}
-        return {}
-
-    # Study types with incremental numeric computation (overlay studies —
-    # rth_gaps/vix_sd/ict — render directly and are never cached).
-    _INCREMENTAL_STUDIES = frozenset(
-        {"sma", "ema", "ema2", "vwap", "bollinger", "rsi", "macd"})
+    # P6-03: the incremental-study set is owned by services/chart_model.py.
+    _INCREMENTAL_STUDIES = chart_model.INCREMENTAL_STUDIES
 
     def _study_values_full(self, bars) -> tuple[dict, dict]:
-        """Compute every numeric study over all bars, building fresh states."""
-        all_vals: dict[str, list] = {}
-        states: dict[str, dict] = {}
-        for idx, study in enumerate(self._studies):
-            if not study.get("enabled"):
-                continue
-            stype = study["type"]
-            if stype not in self._INCREMENTAL_STUDIES:
-                continue  # overlay study — rendered, not cached
-            params = study.get("params", {})
-            key = self._study_key(stype, idx)
-            state: dict = {}
-            series: dict[str, list] = {}
-            for bar in bars:
-                for suffix, value in self._study_update_one(
-                        stype, params, state, bar).items():
-                    series.setdefault(suffix, []).append(value)
-            for suffix, vals in series.items():
-                all_vals[f"{key}{suffix}"] = vals
-            states[key] = state
-        return all_vals, states
+        """Compute every numeric study over all bars — delegated to the model."""
+        return chart_model.study_values_full(bars, self._studies)
 
     def _study_values_incremental(self, cached: dict, new_bar) -> tuple[dict, dict]:
-        """Shift cached arrays and compute only the new bar (D28.4)."""
-        all_vals = {k: list(v) for k, v in cached["values"].items()}
-        states = cached["states"]
-        for idx, study in enumerate(self._studies):
-            if not study.get("enabled"):
-                continue
-            stype = study["type"]
-            key = self._study_key(stype, idx)
-            state = states.get(key)
-            if state is None:
-                continue  # overlay study — rendered, not cached
-            for suffix, value in self._study_update_one(
-                    stype, study.get("params", {}), state, new_bar).items():
-                all_vals[f"{key}{suffix}"].append(value)
-        return all_vals, states
+        """Shift cached arrays and compute only the new bar — delegated."""
+        return chart_model.study_values_incremental(
+            cached, self._studies, new_bar)
 
     def _compute_study_values(self, bars) -> tuple[dict, dict]:
-        """Full or incremental study computation (D28.4).
+        """Full or incremental study computation (D28.4) — delegated.
 
         The incremental path applies when the cache holds this exact study
-        set for the series ending at the previous bar (n_bars == len-1 and
-        the second-to-last timestamp matches) — i.e. exactly one new candle
-        arrived. Anything else (fresh load, timeframe/study change, history
-        rewrite) takes the full path.
+        set for the series ending at the previous bar; anything else takes
+        the full path (rule owned by the model).
         """
-        n = len(bars)
-        cached = self._study_cache.get(
-            self._symbol, self._current_timeframe or "", self._studies)
-        if (cached is not None and n >= 2
-                and cached.get("n_bars") == n - 1
-                and cached.get("last_ts") == bars[-2].ts):
-            return self._study_values_incremental(cached, bars[-1])
-        return self._study_values_full(bars)
+        return chart_model.compute_study_values(
+            bars, self._studies, self._study_cache,
+            self._symbol, self._current_timeframe)
 
     def _render_study_values(self, all_vals: dict[str, list], xs: list) -> None:
         """Render precomputed study values (shared by both compute paths)."""
@@ -1724,7 +1550,7 @@ class ChartPanel(QWidget):
                 # overlay takes window-relative indices with the window's own
                 # bars, so indices stay consistent by construction.
                 ticker = infer_ticker_context(self._symbol, self._bars)
-                window = self._bars[-ICT_TRAILING_BARS:]
+                window = chart_model.trailing_bars(self._bars, ICT_TRAILING_BARS)
                 result = calculate_ict_concepts(window, ticker, params)
                 self._ict_overlay.render(result, window)
 

@@ -1428,3 +1428,92 @@ history of the choice.
 - **Suggested resolution (optional):** scope the residue scan and the Code Reviewer's grep to **tracked source**
   (`git ls-files`) and to `*.py`; treat `__pycache__` as untracked build residue, not evidence.
 - **Status:** **open (non-blocking) — scan-scoping note; no requirement change beyond D46.1's measurable.**
+
+## DG88 — D47: offscreen QtWebEngine viability is unproven (webengine tests vs manual checklist)
+
+- **Where it shows up:** D47.10 / `AC-D47.10`; the pyramid's `@pytest.mark.webengine` tier + manual checklist.
+- **Why it matters:** if QtWebEngine cannot initialise offscreen/in CI, every webengine case skips everywhere and the
+  migrated chart ships on manual-checklist confidence alone. A skipped case that silently means "never run" is worse
+  than a marked manual gate.
+- **Suggested resolution:** mark webengine cases `@pytest.mark.webengine` (skip, never red, where no engine exists —
+  A110) and pair each with its named manual-checklist counterpart; the Code Reviewer confirms the skip is an absent
+  engine, not a regression. Plan owns the viability probe in Phase 2.
+- **Status:** **open (non-blocking)** — Plan detail recorded so the pyramid's bottom tier is not silently hollow.
+
+## DG89 — D47: `.app` size budget + signing/notarisation plan (pending Q61)
+
+- **Where it shows up:** D47.8 / `AC-D47.8`; A109; R87; the "Current Tech Stack" D47 row.
+- **Why it matters:** Chromium + the vendored lightweight-charts tree grow the bundle by a measured delta, and the
+  new binaries must clear the existing signing/notarisation flow. Neither number is derivable by the analyst, so a
+  Build that assumes them ships a release surprise.
+- **Suggested resolution:** Plan states the measured size delta + budget and the signing mechanism in Phase 10;
+  the owner approves (Q61). No Build packaging work starts on an assumed budget.
+- **Status:** **open (blocking-adjacent — owned by Q61)** — recorded so packaging is not planned on an invented number.
+
+## DG90 — D47: per-pop-out memory cap (pending Q62)
+
+- **Where it shows up:** D47.8 / Journey 40; A107; the 10-pop-out D24 behaviour under the LWC engine.
+- **Why it matters:** each pop-out carries engine + bridge cost; the D24 cap of 10 was sized for pyqtgraph views.
+  Keeping 10 without measuring per-pop-out LWC memory risks OOM on the owner's multi-monitor layout; lowering it
+  without evidence regresses approved D24 behaviour.
+- **Suggested resolution:** account per-pop-out memory from Phase 9 and keep the D24 10 as the recommended default
+  (A107) unless measurement says otherwise; the owner confirms via Q62.
+- **Status:** **open (non-blocking)** — Plan/Build detail; the default preserves current behaviour.
+
+## DG91 — D47: bridge backpressure counters (queue-until-ready growth, replay storms)
+
+- **Where it shows up:** D47.4 / `AC-D47.4`; queue-until-ready + replay after `renderProcessTerminated`.
+- **Why it matters:** an unbounded ready-queue or a replay that re-emits the full op log on every crash can mask
+  growth until it hurts (memory, duplicate bars, UI freeze). "Self-healing" without counters is unobservable.
+- **Suggested resolution:** instrument from Phase 2 — queue depth/age counters, replay size + bar-identity
+  assertions — and assert them in `AC-D47.4`'s replay case. Never retrofit.
+- **Status:** **open (non-blocking)** — Plan/Build detail recorded before the bridge lands.
+
+## DG92 — D47: focus/keyboard forwarding (Qt shortcuts, chart keyboard, dialogs)
+
+- **Where it shows up:** D47.3/D47.7; `QWebEngineView` hosting in-HTML controls beside Qt dialogs and toolbar shortcuts.
+- **Why it matters:** keyboard focus now crosses the Qt/web boundary: toolbar accelerators, chart keyboard input,
+  and the retained Qt dialogs (zone/line/alarm settings) must all keep working when the web view has focus.
+  Unspecified, each side assumes the other handles keys.
+- **Suggested resolution:** Plan names the focus model (who owns which keys, how focus returns to Qt for dialogs)
+  in Phase 2/5; a focus round-trip case joins the matrix.
+- **Status:** **open (non-blocking)** — Plan detail; recorded so neither side silently drops keys.
+
+## DG93 — D47: timestamp edge cases (DST folds, session boundaries, fractional-index collisions)
+
+- **Where it shows up:** D47.5 / `AC-D47.5`; logical-index axis + ts-to-fractional-index in the primitives library.
+- **Why it matters:** logical-index parity is where silent divergence hides: a DST fold, a half-day session
+  boundary, or two bars colliding on one fractional index render "almost right" on one engine only.
+- **Suggested resolution:** verify both engines against the same DST/session-boundary/collision fixtures (A111);
+  `gap_is_non_trading` stays the authority in both. Plan owns the fixture list.
+- **Status:** **open (non-blocking)** — Plan/Build detail; the fixtures are the deliverable.
+
+## DG94 — D47: density-cap AC retirement mechanics (T10)
+
+- **Where it shows up:** D47.6 / `AC-D47.6`; `AC-D6.4`/`AC-D7.1`/`AC-D9.1`; A106; R89; Q60.
+- **Why it matters:** retiring the density-cap language without restating the no-overlap guarantee (the ESC-041
+  lesson) would reintroduce the exact overlap the owner reported — this time as an approved regression.
+- **Suggested resolution:** restate the guarantee in `barSpacing` terms (bodies never overlap; spacing is a library
+  function of pitch) and keep the rendered-geometry guard across the engine change; the retirement lands only with
+  the Q60 answer. Task Manager assigns T10 to that answer.
+- **Status:** **open (non-blocking — owned by Q60, answered-by-default)** — recorded so the guarantee survives the wording change.
+
+## DG95 — D47: unmeetable-AC escalation path (rule 10)
+
+- **Where it shows up:** D47.9 / `AC-D47.9`; the parity matrix update cadence.
+- **Why it matters:** rule 10 ("unmeetable ACs → escalations + parity row") needs an owner: who raises the
+  escalation, who appends the parity row, and when the matrix is re-read — otherwise an unmeetable AC is "handled"
+  by weakening it mid-build (R92).
+- **Suggested resolution:** each phase exit re-reads the matrix; the discovering agent raises the escalation and the
+  Analyst appends the parity row before Build continues. The Code Reviewer fails a phase whose row regresses
+  without an escalation.
+- **Status:** **open (non-blocking)** — process detail; `AC-D47.9` is the gate.
+
+## DG96 — D47: Phase 0 spike go/no-go criteria articulation
+
+- **Where it shows up:** D47.8 / `AC-D47.8`; `docs/lwc_spike_results.md`; the 9 API behaviours.
+- **Why it matters:** a spike without written go/no-go criteria drifts into a prototype that "mostly works" and
+  gets built upon — the exact outcome the single-exception grant is meant to prevent.
+- **Suggested resolution:** the spike results doc states per-behaviour pass/fail + the overall go/no-go before
+  Phase 1 starts; `spikes/lwc/` stays unimported by production/tests (Build enforces).
+- **Status:** **open (non-blocking)** — Phase 0 exit detail; recorded so the exception stays an exception.

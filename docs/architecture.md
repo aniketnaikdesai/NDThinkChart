@@ -5600,3 +5600,178 @@ second open is a no-op, and a fresh DB has no such columns; (f) the map no longe
 5/7/1 (D45) and the P5 book; (g) the guard's token set really migrated and its end state fails on the pre-P5 tree
 (**41 AST offences / 40 twin hits**, simulated post-P5 **0 / 0**); (h) **no** replacement order/cancel/protection
 surface was introduced.
+
+---
+
+## Phase P6 — D47 increment: the chart stack migrates to Lightweight Charts behind a `ChartView` seam (strangler; pyqtgraph retained until parity accepted) — drafted 2026-10-26
+
+> **Status: DRAFT — awaiting Plan Artifact Editor & Validator review.** This section is inert until the Validator
+> activates it. D1–D46 are built, reviewed and merged; P5 (D46) ended `READY_FOR_TASK_MANAGER` with Build
+> `REVIEW_COMPLETE` and zero open escalations. This phase plans **only** D47 (Batch 22, `Status: READY_FOR_PLAN`,
+> Q60 answered-by-default YES, Q61–Q63 ANSWERED 2026-10-26). No D1–D46 criterion is re-planned except by the
+> recorded supersessions below (density-cap language → `barSpacing`, pending the Q60 record).
+
+**Relationship to prior phases.** Every decision below carries exactly one relationship label. `[revises P<m>]` /
+`[revises D42:]` names the earlier decision it changes, `[extends P5:]` builds on one without changing it,
+`[new in P6]` has no prior-phase dependency (or is settled by D47 itself). P6 builds on the **P5 post-deletion
+baseline** (no order code anywhere; `ibkr/orders` absent; `ESC-061` moot) and changes **no** P5 decision. The single
+revision is the D42 density-cap mechanism (S13), superseded at the requirements level by D47.6/T10 (Q60
+answered-by-default YES) and restated here as S56. Components, data-model entities and integration points carry the
+existing-repo status labels `[existing]` / `[new]` / `[new/changed]` — no unlabeled items.
+
+### Codebase Summary (existing repository — delta pointer, not a re-inventory)
+
+The full module index is `docs/codebase-map.md` (skeleton regenerated 2026-10-26 for P6; annotations carried forward
+and extended below). What P6 touches, as found by graphify discovery (`graphify-out/graph.json`, 4,625 nodes —
+used for discovery only) and **validated against the current source files** (the repository is authoritative):
+
+- **Chart render surface (the migration area, ≈ 5,135 lines):** `ui/chart_panel.py` (1,785 L — `ChartPanel.update_chart`,
+  `::update_last_bar`, `::set_symbol`, `::set_timeframe`, `::_refresh_candles`, the volume `BarGraphItem`,
+  `::_clamp_half_width` via the shared D42 helper), `ui/candlestick_item.py` (274 L — `CandlestickItem.set_data`,
+  `capped_body_half_width`), `ui/drawing_overlay.py` (926 L), `ui/alarm_overlay.py` (263 L),
+  `ui/event_marker_overlay.py` (182 L), `ui/overlays/` (base/gap/ict/session/vix), `ui/chart_mouse_router.py`
+  (271 L — `RouterMode`, the total TR-1…TR-17 table), `ui/popout_window.py` (295 L — `PopoutChartWindow`,
+  `editable=False`). Bar path into the surface: `MainWindow::load_chart` → `BarCache` → `MarketDataManager` →
+  `ChartPanel.update_chart`. Collapse/time mapping: `services/time_collapse_service.py::TimeCollapseMap`
+  (display-only x-remap every overlay honours) + `gap_is_non_trading` as the non-trading source of truth; session
+  bands: `services/session_service.py`.
+- **Backend that stays untouched:** `ibkr/` (client/bridge/market_data/realtime_bars/pacing/id_manager/
+  subscription_manager/stream_health/error_codes — no order code remains after P5), `data/` (SQLite `bars`,
+  `watchlist`, `alarms`, `zones`, `drawings*`, `studies`, `popouts`, `positions`, `trade_groups`,
+  `position_group_map`, `yfinance_events_cache`, `volume_baseline`), most of `services/` (indicator, alarm,
+  drawing, strategy, gap/vix, ict, volume_baseline, market_calendar, backfill, contract_lookup, symbol_search,
+  sound), `data/events/provider.py` (`EventProvider` ABC), `ui/watchlist_panel.py`, `ui/dock_layout.py`,
+  `ui/main_window.py` dock/toolbar/session wiring, the retained Qt dialogs (zone/horizontal-line/alarm).
+- **What does not exist yet:** `ui/chart_view.py`, `services/chart_model.py`, `spikes/lwc/`,
+  `docs/lwc_parity_matrix.md`, `docs/lwc_spike_results.md` — all land in P6 waves (named without backticks in the
+  codebase map until they exist, per the map lint rule).
+- **External integrations in play:** IBKR historical/RT data (TWS 7496), SQLite, Qt signals, `pacing_manager`,
+  `id_manager`. **No new external service is introduced by P6** — the vendored lightweight-charts tree is a bundled
+  asset, not a service; there is no CDN/npm at runtime.
+
+### Summary
+
+The chart renderer migrates **via strangler behind a `ChartView` protocol**: a `create_chart_view` factory selects
+the pyqtgraph view (default through cutover) or the new LWC view on `NDT_CHART_ENGINE`/`QSettings`; a shared Qt-free
+`ChartModel` becomes the single value source both engines render from; and a vendored, offline `QWebEngineView` host
+with a batched, self-healing `QWebChannel` bridge carries Python → JS updates. pyqtgraph is **retained and default
+until parity is accepted**, and its deletion is a **separately gated Phase 11 wave** (explicit owner approval + one
+clean live trading session). Python stays the source of truth throughout — JS receives timestamps + prices only.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI stack (constrained) | `[existing]` Python 3.11+, PyQt6, **pyqtgraph retained and default** | Existing-repo hard constraint; D47 explicitly retains pyqtgraph until parity is accepted — the decline's sanctioned route | Removing pyqtgraph now (rejected: deletion is Phase 11-gated) |
+| Broker / numerics / secondary source (constrained) | `[existing]` `ibapi-latest==10.51.1`, numpy, `yfinance==1.7.0`, SQLite, PyInstaller `.app`, pytest + pytest-qt offscreen | Untouched backend; D47.12 out-of-scope list | None — not in migration scope |
+| LWC host (new) | `[new]` `QWebEngineView` + **vendored lightweight-charts v5.2.x** via a custom `ndt://` scheme handler registered **before** `QApplication`; an interceptor **blocks non-ndt traffic**; **no CDN/npm at runtime**; attribution kept | Offline determinism + version pin + auditability; the scheme handler + deny-default interceptor make "no network" structural, not a test assertion | CDN load (rejected: network dependency + version drift); npm build step at runtime (rejected: toolchain in the bundle) |
+| Python↔JS bridge (new) | `[new]` `QWebChannel` `LwBridge`, batched `{v:1,ops:[]}` ops, column arrays, queue-until-ready, ~33ms live coalesce, gestures local in JS, Python **replays the full op log after `renderProcessTerminated`** | Batching bounds the per-tick crossing cost; replay makes renderer crashes recoverable without state divergence | Per-call synchronous bridge (rejected: latency + fragility); unversioned payloads (rejected: silent schema drift) |
+| Shared value source (new) | `[new]` Qt-free `services/chart_model.py` — plotted-index filtering, `floor_bar_budget`, whitespace derivation, studies + `_StudyCache`, Heikin-Ashi, volume formatting; `ChartPanel` delegates with **no behaviour change** | One value source prevents the classic strangler leak (two engines, two mappings, parity declared on looks); Qt-free keeps it unit-testable offscreen | Parallel logic per engine (rejected: divergence); model inside the web host (rejected: untestable without an engine) |
+| Time axis (new) | `[new]` **Logical-index** time axis; within-session holes render as whitespace; `gap_is_non_trading` stays the authority in both engines; custom tz formatters (`local = t - offset`); per-mode series; `series.update` for the live bar | Matches the app model (collapsed between-session gaps, D21.4) instead of wall-clock time; one authority avoids mode divergence | Wall-clock axis (rejected: cannot represent collapsed gaps); per-engine gap rules (rejected: divergence) |
+| Controls / router / drawings (new) | `[new]` In-HTML controls with Python shims; Python `RouterMode` + JS mirror; drawings via a primitives library (ts-to-fractional-index); **Qt dialogs stay** (zone/horizontal-line/alarm settings, alarm edit) | Keeps the settled TR-1…TR-17 contract and the dialog UX untouched; only the render surface moves | Rebuilding dialogs in HTML (rejected: D12/D15/D21.9 UX churn); JS-owned router (rejected: contract fork) |
+| Density language (changed) | `[new/changed]` Library **`barSpacing`** replaces the pyqtgraph density-cap wording of `AC-D6.4`/`AC-D7.1`/`AC-D9.1`; the no-overlap guarantee is restated in `barSpacing` terms (DG94); retirement lands with the Q60 answered-by-default YES via T10 | The engine owns spacing now; keeping both wordings live forces every density case to pass on two contradictory spacings | Keeping the 4-px floor on LWC (rejected: unimplementable — the library controls spacing) |
+| JS test runner (new) | `[new]` `node --test` for the JS side; webengine cases are `@pytest.mark.webengine` and **skip (never red)** where no engine exists; the manual checklist is the gate there (A110/DG88) | A red webengine case must mean a real regression, not a missing Chromium | Forcing engine-present CI (rejected: offscreen viability unproven) |
+
+### System Components
+
+| Component | Responsibility | Status |
+|---|---|---|
+| `ui/main_window.py` load path + sessions + docks + toolbar | Orchestrator; bar path, session lifecycle, dock/toolbar wiring | `[existing]` — untouched (renderer-only migration) |
+| `ui/chart_panel.py` + `ui/candlestick_item.py` | pyqtgraph engine: panes, candles, volume, studies, overlays | `[existing]` until cutover; `[new/changed]` only via the ChartModel delegation (Phase 1, no behaviour change) |
+| `ui/drawing_overlay.py`, `ui/alarm_overlay.py`, `ui/event_marker_overlay.py`, `ui/overlays/*` | Drawings, alarms, event markers, session/gap/ICT/VIX overlays | `[existing]` (Qt side retained; LWC twins land per phase) |
+| `ui/chart_mouse_router.py` (`RouterMode`, TR-1…TR-17) | Single gesture state machine | `[existing]` — Python contract frozen; JS mirror added beside it |
+| `ui/popout_window.py` (`PopoutChartWindow`, `editable=False`) | Pop-out charts | `[existing]` (engine-agnostic; re-hosted in Phase 9) |
+| `ui/watchlist_panel.py`, `ui/dock_layout.py`, `ui/ticker_session.py` bar/session half, `ui/*_dialog.py`, toolbar | Watchlist, dock widths, sessions, dialogs | `[existing]` — untouched |
+| ChartView seam (protocol + `DrawingController`/`AlarmController` + `create_chart_view(tz_offset, editable)`) | Strangler boundary; engine selection on `NDT_CHART_ENGINE`/`QSettings` | `[new]` |
+| Shared chart model (plotted-index filtering, budgets, whitespace, studies, Heikin-Ashi, volume) | Single value source for both engines | `[new]` |
+| LWC host (web view, vendored v5.2.x tree, `ndt://` handler, interceptor) + `LwBridge` (batched, queue-until-ready, replay) | Offline render + self-healing transport | `[new]` |
+| LWC panes/time/drivers (logical-index axis, tz formatters, per-mode series), in-HTML controls + shims, JS router mirror, primitives library | Engine-side parity surface | `[new]` |
+| Spike (throwaway 9-API-behaviour proof + results doc) | Phase 0 go/no-go evidence only; never imported | `[new]` |
+| `ibkr/`, `data/` (+schemas), most of `services/`, packaging, `config/` | Backend, persistence, tunables | `[existing]` — untouched |
+
+### Data Model
+
+| Entity | Key fields / notes | Status |
+|---|---|---|
+| `Bar` / `bars` table `(symbol, timeframe, ts)` PK; `watchlist`, `alarms`, `zones`, `drawings*`, `studies`, `popouts`, `positions`, `trade_groups`, `position_group_map`, `yfinance_events_cache`, `volume_baseline` | Schemas, stores and persistence paths unchanged (D47.12) | `[existing]` |
+| `ChartModel` value objects (plotted-index rows, whitespace runs, study series, budget verdicts) | In-memory only; derived from cached bars; no table, no migration | `[new]` |
+| `{v:1,ops:[]}` bridge op log (column arrays; replay source after renderer crash) | In-memory on the Python side; versioned envelope | `[new]` |
+| Parity matrix (19 rows, disposition per row) + spike results doc | Docs, not runtime state; matrix kept updated every phase exit | `[new]` |
+
+### Integration Points
+
+| Integration | Why | Status |
+|---|---|---|
+| IBKR historical/RT data (TWS 7496), SQLite, Qt signals, `pacing_manager`, `id_manager` | Unchanged backend feeds | `[existing]` |
+| Vendored lightweight-charts v5.2.x tree (bundled asset) | Render library; resolved locally via `ndt://`, never fetched | `[new]` — asset, not a service; no new network/account/credential surface |
+| `QWebChannel` over the embedded view | Python→JS transport | `[new]` — in-process channel, no external endpoint |
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and **unmodified by every P6 wave** (pyqtgraph stays default through Phase 10; no
+pyqtgraph code is deleted before Phase 11). Task Manager gives workers the contract, never the implementation. The
+repository is authoritative on conflict.
+
+- **`ibkr/market_data.py::MarketDataManager.req_historical_data`** — contract:
+  `req_historical_data(self, contract: Contract, timeframe: str = "5 mins", endDateTime: str = "", whatToShow: str = "TRADES", useRTH: int = 1, extended_hours: bool = False, bar_size: str | None = None, duration: str | None = None) -> int`. Owner: `ibkr/market_data.py`. (TIMEFRAME_CONFIG durations/bar sizes, pacing + reqId allocation per request, and the single-caller `load_chart` shape are unchanged.)
+- **`services/backfill_service.py::find_missing_spans`** — contract:
+  `find_missing_spans(cached_ts: Iterable[int], now_ts: int, timeframe: str, trailing_days: int = TRAILING_BAR_GRANULARITY_DAYS, ext_hours: bool = False, min_sessions: int = 0) -> List[MissingSpan]`. Owner: `services/backfill_service.py`. (Mode-aware day presence + the 30-session floor stay exactly as D42 left them.)
+- **`config/settings.py::check_live_port` + tunables** — contract: `check_live_port() -> None` (fail-fast unless
+  `IBKR_PORT == 7496`); `LIVE_PORT = 7496`; `MAX_POPOUTS = 10`; `SESSION_BAR_CAP = 5000`;
+  `MIN_INTRADAY_SESSIONS = 30`. Owner: `config/settings.py`. (The pop-out cap stays 10 per Q62/A107; no budget is set per Q61/A109.)
+- **`services/time_collapse_service.py::gap_is_non_trading`** — contract:
+  `gap_is_non_trading(a: int, b: int, ext_hours: bool, bar_period: int) -> bool`. Owner: `services/time_collapse_service.py`. (The non-trading authority in both engines; D21.4 collapse semantics unchanged.)
+- **`ui/dock_layout.py::watchlist_max_width` + width constants** — contract:
+  `watchlist_max_width(chart_area_w: int) -> int`; `CHART_MIN_WIDTH = 400`; `WATCHLIST_MIN_WIDTH = 150`. Owner: `ui/dock_layout.py`. (Watchlist/dock geometry untouched — renderer-only migration.)
+- **`data/bar_cache.py::BarCache.save_bars` / `::get_bars`** — contract:
+  `save_bars(bars: List[Bar], ext_hours: bool = True)`; `get_bars(symbol: str, timeframe: str, ext_hours: bool = True) -> List[Bar]`. Owner: `data/bar_cache.py`. (Aggregation/backfill unchanged per D47.12.)
+- **`ui/chart_mouse_router.py::RouterMode` + TR-1…TR-17** — contract: the enum
+  (`IDLE`/`DRAWING`/`ZOOMING`/`ALARM_PLACING`) and the total transition table (`AC-D3.7`–`AC-D9` semantics, incl. the
+  `ALARM_PLACING + magnifier → ALARM_PLACING` refusal). Owner: `ui/chart_mouse_router.py`. (Python side frozen; the JS mirror must match it, never reinterpret it.)
+- **Order-code absence** — contract: `import ibkr.orders` raises `ModuleNotFoundError`; no `orderStatus`/`openOrder`/`execDetails` overrides, no order bridge signals, no order UI. Owner: the P5 end state. (Zero order interaction stands; nothing in P6 reintroduces it.)
+- **Drawing/alarm persistence + Qt dialogs** — contract: `data/drawing_store.py`, `data/alarm_store.py`,
+  `data/study_store.py` APIs and the zone/horizontal-line/alarm dialogs behave exactly as before. Owner: `data/` + `ui/*_dialog.py`. (D47.7 second half / D47.12.)
+
+### Non-Functional Approach
+
+- **Performance (driven by AC-D47.4/AC-D47.5, DG91, R88):** column-array batches (not per-object calls); ~33ms live
+  coalesce; gestures resolve locally in JS without a Python round-trip; `_StudyCache` reuse and the bounded
+  `_bars`/`SESSION_BAR_CAP` discipline carry over via the shared model. Bridge backpressure counters (queue depth/age,
+  replay size) are instrumented from Phase 2, never retrofitted (A112/DG91); per-pop-out memory is accounted from
+  Phase 9 against the D24 cap of 10 (A107/DG90). Phase 0 measures the `.app` size delta and the perf baseline the
+  cutover gate holds (`AC-D47.6`); no fixed budget is assumed (A109/DG89).
+- **Security (driven by AC-D47.3):** vendored-only assets; the `ndt://` handler is registered before `QApplication`
+  and the interceptor denies non-`ndt` traffic by default; no CDN/npm at runtime; attribution kept in-tree.
+- **Scalability (driven by Journey 40, Q62):** one `LwBridge` per view, refcounted sessions unchanged (D24/D25
+  semantics), pop-out cap stays 10; a higher cap needs the DG90 evidence first.
+- **Cutover without soak (driven by AC-D47.6/AC-D47.8, R91):** the triple gate (owner acceptance **and** parity all
+  Done/accepted **and** Phase-0 perf holds) replaces the calendar soak by explicit owner decision; Phase 11 additionally
+  needs explicit owner approval **and** one live trading session with no engine defect. pyqtgraph is the default through
+  Phase 10, so any cutover-candidate defect falls back by flipping the engine selector, not by a code revert.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| R86 — strangler seam leaks: engines diverge (bar mapping, study values, drawing coordinates), parity declared on looks | H / M | `AC-D47.2` (shared `ChartModel` — one value source) + `AC-D47.5` (logical-index parity incl. DST/session boundaries) + the kept-updated matrix (`AC-D47.9`) |
+| R87 — Chromium + vendored JS bloat the `.app` or break signing/notarisation (Q61) | M / M | Measure-first (A109/DG89); Phase 10 is a cutover *candidate*, never a silent ship; owner sets the budget from the measured delta |
+| R88 — bridge backpressure: unbounded ready-queue, replay duplicates bars, 10 pop-outs exhaust memory (Q62) | H / M | `AC-D47.4` (batch shape + replay identity) + DG91/DG90 counters and caps from Phase 2; per-pop-out memory accounted |
+| R89 — density-cap retirement silently drops the ESC-041 no-overlap guarantee | M / H | Retirement only via T10 with the Q60 record; DG94 restates the guarantee in `barSpacing` terms; the rendered-geometry guard survives the engine change (S56) |
+| R90 — offscreen QtWebEngine non-viable in CI; webengine cases skip everywhere | M / M | A110/DG88: skipped-never-red marking + the manual checklist as an explicit gate; a skipped case names its manual counterpart |
+| R91 — cutover without a soak ships a same-day defect to the live session | H / L | Owner-accepted: triple gate + one-clean-live-session delete gate (`AC-D47.8`); separate explicit approval for Phase 11 |
+| R92 — an unmeetable AC is "handled" by weakening it | M / H | Rule 10 (D47.9/`AC-D47.9`): escalate + record as a parity row; Code Reviewer fails any phase whose matrix row regresses without an escalation |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S51 | The `ChartView` seam: protocol + `DrawingController`/`AlarmController` exact signal signatures + `create_chart_view(tz_offset, editable)` on `NDT_CHART_ENGINE` (pyqtgraph default, lwc) or `QSettings`. Unknown/unset value falls back to pyqtgraph — never a blank chart. Rationale: the decline's own sanctioned route ("a second chart mode behind the existing interface"); the factory default keeps every existing suite meaningful through Phase 10. Alternative: flag-day swap (rejected: no fallback, no parity gate). | `[new in P6]` — D47.1/`AC-D47.1` |
+| S52 | The shared Qt-free `ChartModel`: plotted-index filtering, `floor_bar_budget`, whitespace derivation, studies + `_StudyCache`, Heikin-Ashi, volume formatting. `ChartPanel` delegates with no behaviour change — the full pre-D47 chart suites stay green unmodified. Rationale: one value source (R86); Qt-free keeps it offscreen-testable. Alternative: dual logic (rejected). | `[new in P6]` — D47.2/`AC-D47.2` |
+| S53 | The vendored offline host: `QWebEngineView` + lightweight-charts v5.2.x via `ndt://` (registered before `QApplication`) + deny-default interceptor + attribution. Rationale: determinism + auditability (AC-D47.3). Alternative: CDN (rejected). | `[new in P6]` — D47.3/`AC-D47.3` |
+| S54 | The batched self-healing bridge: `QWebChannel` `LwBridge`, `{v:1,ops:[]}`, queue-until-ready, ~33ms coalesce, local gestures, full-log replay after `renderProcessTerminated`, with backpressure counters from Phase 2. Rationale: bounded crossing cost + crash recovery without divergence (AC-D47.4, DG91). Alternative: sync per-call bridge (rejected). | `[new in P6]` — D47.4/`AC-D47.4` |
+| S55 | Time/panes/series mapping: panes (v5), logical-index axis, whitespace for within-session holes, `gap_is_non_trading` as the authority in both engines, custom tz formatters, per-mode series, `series.update` for the live bar. Rationale: parity on values, not looks (AC-D47.5, DG93). Alternative: wall-clock axis (rejected). | `[new in P6]` — D47.5/`AC-D47.5` |
+| S56 | Density language becomes `barSpacing`: the pyqtgraph density-cap wording of `AC-D6.4`/`AC-D7.1`/`AC-D9.1` is retired via T10 on the Q60 answered-by-default YES, with the no-overlap guarantee restated in `barSpacing` terms (DG94) and a rendered-geometry guard that survives the engine change. The pyqtgraph engine keeps satisfying the old ACs until cutover. Rationale: the engine owns spacing (D47.6, R89). Alternative: dual wording (rejected). | `[revises D42: S13]` — D47.6/`AC-D47.6`, recorded supersession, not silent |
+| S57 | Controls/router/drawings keep their contracts: in-HTML controls with Python shims, Python `RouterMode` + JS mirror (mirror never reinterprets TR-1…TR-17), drawings via a primitives library (ts-to-fractional-index), Qt dialogs stay. Crosshair drifts to the library-native crosshair + axis label (Q63/A108 — D2/Q33 stands only where still applicable). Rationale: settled UX untouched (AC-D47.7, DG92). Alternative: HTML dialogs / JS-owned router (rejected). | `[new in P6]` — D47.7/`AC-D47.7` |
+| S58 | Delivery in Phases 0–11 with the 19-row parity matrix kept updated and rule 10 governing the unmeetable: spike + go/no-go record before Phase 1; each phase exit updates the matrix (`docs/lwc_parity_matrix.md`); an unmeetable AC is escalated + recorded as a parity row, never silently dropped. Rationale: the gate is the product (D47.9, DG95). Alternative: phase exits without matrix updates (rejected). | `[new in P6]` — D47.8/`AC-D47.8`, D47.9/`AC-D47.9` |
+| S59 | Cutover and removal gates: cutover = owner accept **and** parity all Done/accepted **and** Phase-0 perf holds (no soak, by explicit owner decision); Phase 11 (pyqtgraph deletion) executes only on explicit owner approval after one live trading session with no engine defect. Out of scope stays out (`ibkr/`, schemas, persistence, watchlist, dock, order code, paid library, aggregation/backfill). History preserved (D41–D46 + reversals, marker sentence, Current Tech Stack extended not replaced, `ESC-061` moot). Rationale: D47.11–D47.13. Alternative: calendar soak (rejected by owner); bundled deletion (rejected). | `[extends P5: end state]` — D47.11–D47.13/`AC-D47.6`/`AC-D47.8`/`AC-D47.9`; builds on the P5 baseline without changing any P5 decision |
+| S60 | Pyramid tests + webengine discipline: pure-Python suites, `node --test` JS suites, a few `@pytest.mark.webengine` cases (skip-never-red), the manual checklist as the gate where no engine exists (DG88); the 66 chart-adjacent test files are classified keep/retarget/engine-specific by the Task Manager per the attached plan. Phase 0 additionally reports the measured `.app` size delta + signing-flow finding (A109/DG89). Rationale: D47.10, Q61–Q63. Alternative: engine-mandatory CI (rejected). | `[new in P6]` — D47.10/`AC-D47.10` |

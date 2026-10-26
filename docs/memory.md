@@ -193,3 +193,13 @@
 **Category:** Known Gotcha
 **Finding:** IBKR cancels historical data requests that are issued in a burst — error 162 "API historical data query cancelled" — and the chart then silently keeps whatever the cache holds (symptom: the 1-min chart stuck on an old date showing one day of bars). The cause was structural: `ibkr/market_data.py::req_historical_data` is the only request path that never called `pacing_manager.throttle()`, and `TickerSession._issue_wave_chunks(max_per_wave=60)` loops synchronously, so up to 60 `reqHistoricalData` calls for one contract hit TWS within microseconds. Fixed by `settings.HISTORICAL_MIN_INTERVAL_S = 1.0` feeding `PacingManager.historical_wait_seconds()` (so the existing `PacingExceeded` → `_schedule_wave_continuation` path spaces the wave at one request/second) and by lowering `MAX_HISTORICAL_PER_600S` from 60 to 50. Anything that issues historical requests must go through `req_historical_data`; do not add a second path that bypasses the interval.
 **Source:** Quick task Q-2
+
+### [2026-10-26] — owner decision (D47 / P6, chart stack)
+**Category:** Locked Decision
+**Finding:** Owner reversed the 2026-10-16 decision declining a Lightweight Charts migration. The chart stack migrates to QWebEngineView + Lightweight Charts v5 via a strangler behind a ChartView interface; pyqtgraph is retained until parity is accepted. No soak period: cutover happens on owner acceptance plus full parity, gated on one live trading session with no engine defect before any pyqtgraph deletion. Phase 0 spike in spikes/lwc/ allowed as the single exception to the no-prototype rule.
+**Source:** Owner answers 2026-10-26 (Q-reversal, no-soak, spike exception); D47 requirements
+
+### [2026-10-26] — worker-death recovery (owner directive, P6)
+**Category:** Technical Note
+**Finding:** Before re-dispatching a dead build worker, inspect what it left: `docs/build/results/<id>.json`, its `touches_files` for edits on disk, and whether the task's `test_command` passes. Then **resume the same worker session** with the `sessionID` and a short delta prompt (what landed, what is pending) instead of starting a fresh worker — a fresh dispatch discards its context and risks duplicating or contradicting work already written. A `state: error` handoff is not proof of failure: the platform can fail only the closing message (`only "auto" is supported for tool_choice`), so P6-T04 arrived "failed" with a complete, green result. Check the tree first, always.
+**Source:** Owner directive 2026-10-26; P6-T04/P6-T05 worker deaths

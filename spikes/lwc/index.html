@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<!-- Phase 0 throwaway spike: Lightweight Charts v5 API call shapes (B1-B9).
+     A minimal stub records the real v5-shaped calls; vendoring the real
+     standalone build is a P6-04 job. Open in any browser; no server needed. -->
+<html lang="en">
+<head><meta charset="utf-8"><title>LWC Phase-0 spike (throwaway)</title></head>
+<body>
+<div id="chart" style="width:800px;height:400px"></div>
+<div id="volume-pane" style="width:800px;height:120px"></div>
+<div id="osc-pane" style="width:800px;height:120px"></div>
+<script>
+// ---- call-shape stub (records; NOT the real library) ----
+window.__lwcCalls = [];
+function __rec(name, args) { window.__lwcCalls.push(name); }
+function makeSeries(kind) {
+  return {
+    setData: function (d) { __rec('series.setData:' + kind, d); },
+    update: function (b) { __rec('series.update:' + kind, b); },
+    createPriceLine: function (o) { __rec('series.createPriceLine', o); return {}; },
+    setMarkers: function (m) { __rec('series.setMarkers', m); },
+  };
+}
+var LightweightCharts = {
+  createChart: function (el, opts) { __rec('createChart', opts); return chartApi(opts); },
+};
+function chartApi(opts) {
+  return {
+    addCandlestickSeries: function (o) { __rec('addCandlestickSeries', o); return makeSeries('candles'); },
+    addHistogramSeries: function (o) { __rec('addHistogramSeries', o); return makeSeries('volume'); },
+    addLineSeries: function (o) { __rec('addLineSeries', o); return makeSeries('osc'); },
+    applyOptions: function (o) { __rec('chart.applyOptions', o); },
+    timeScale: function () {
+      return { applyOptions: function (o) { __rec('timeScale.applyOptions', o); } };
+    },
+    subscribeCrosshairMove: function (h) { __rec('subscribeCrosshairMove', {}); },
+    panes: function () { __rec('chart.panes', {}); return [{}, {}, {}]; },
+  };
+}
+</script>
+<script>
+// ================= B1: chart creation in an offline host =================
+// Real host: QWebEngineView pointed at this file (QtWebEngine, no network).
+// Deny-default network interceptor + ndt:// scheme land in P6-04.
+var chart = LightweightCharts.createChart(document.getElementById('chart'),
+  { layout: { attributionLogo: false }, rightPriceScale: { borderVisible: false } });
+
+// ================= B2: candlestick history via setData ===================
+var candles = chart.addCandlestickSeries({ priceFormat: { type: 'price', precision: 2 } });
+var history = [];
+for (var i = 0; i < 120; i++) {
+  var o = 100 + i * 0.1;
+  history.push({ time: 1700000000 + i * 60, open: o, high: o + 0.5, low: o - 0.5, close: o + 0.2 });
+}
+candles.setData(history);
+
+// ================= B3: live forming-bar tick via update ==================
+candles.update({ time: 1700000000 + 120 * 60, open: 112.0, high: 112.4, low: 111.8, close: 112.1 });
+
+// ============ B4: logical-index time scale + whitespace gaps =============
+chart.timeScale().applyOptions({ timeVisible: true, secondsVisible: false });
+chart.applyOptions({ timeScale: { rightOffset: 5, barSpacing: 9 } });
+// Non-trading time (nights/weekends) is simply absent from `history` above —
+// the collapsed display-x model maps to whitespace (gap_is_non_trading).
+
+// ============ B5: custom timezone tick formatting (ET) ==================
+// Mirrors ChartPanel tz_offset (seconds behind UTC, e.g. 18000 EST).
+var TZ_OFFSET_S = 18000;
+chart.applyOptions({
+  localization: {
+    timeFormatter: function (ts) {
+      var d = new Date((ts - TZ_OFFSET_S) * 1000);
+      return d.toISOString().slice(5, 16).replace('T', ' ');
+    },
+  },
+});
+
+// ================= B6: multi-pane layout (v5 panes) ======================
+var volume = chart.addHistogramSeries({ priceScaleId: 'vol' });
+volume.setData(history.map(function (b) { return { time: b.time, value: 1000 }; }));
+var osc = chart.addLineSeries({ priceScaleId: 'osc' });
+osc.setData(history.map(function (b, j) { return { time: b.time, value: (j % 20) - 10 }; }));
+chart.panes();
+
+// ============ B7: crosshair subscription + series markers ================
+chart.subscribeCrosshairMove(function (param) { /* P6-07: mirror to Python router */ });
+candles.setMarkers([{ time: history[100].time, position: 'belowBar', color: '#eab308', shape: 'arrowUp', text: 'DIV' }]);
+
+// ============ B8: price lines + drawing primitives ======================
+candles.createPriceLine({ price: 112.5, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'ALARM' });
+candles.createPriceLine({ price: 108.0, color: '#22c55e', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'ZONE-TOP' });
+
+// ============ B9: batched bridge protocol {v:1, ops:[]} ==================
+// Python side (P6-04 LwBridge): JSON-encode {v:1, ops:[...]}, queue until
+// `chartReady`, coalesce at ~33ms, replay after renderProcessTerminated,
+// instrument backpressure counters (queue depth, dropped/coalesced ops).
+var bridgeBatch = { v: 1, ops: [
+  { op: 'setData', series: 'candles', rows: history.length },
+  { op: 'update', series: 'candles', bar: { time: 1700000000 + 120 * 60 } },
+  { op: 'priceLine', series: 'candles', price: 112.5 },
+] };
+document.title = 'SPIKE-BATCH-OPS-' + bridgeBatch.ops.length;
+
+// ---- self-report: which of B1..B9 call shapes fired ----
+var need = ['createChart', 'addCandlestickSeries', 'series.setData:candles',
+  'series.update:candles', 'timeScale.applyOptions', 'chart.applyOptions',
+  'addHistogramSeries', 'addLineSeries', 'chart.panes',
+  'subscribeCrosshairMove', 'series.setMarkers', 'series.createPriceLine'];
+var missing = need.filter(function (n) { return window.__lwcCalls.indexOf(n) < 0; });
+document.title += missing.length ? (' MISSING:' + missing.join(',')) : ' ALL-9-OK';
+</script>
+</body>
+</html>

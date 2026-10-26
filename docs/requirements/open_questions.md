@@ -1283,3 +1283,62 @@
   **Consequence for the documents:** the statements corrected this morning under ESC-060 ("the columns are kept, but an
   update from TWS writes them empty") are **superseded** — the trail must read **kept → cleared → dropped** and must not
   stand as two live claims (`D46.13`, `design_gaps.md` **DG84**).
+
+# Open Questions — 2026-10-26 (Batch 22 / D47 — migration-plan section-8 questions Q1–Q4)
+
+> The attached migration plan (updated, no soak) left its **section-8 owner questions Q1–Q4** open (its Q5 was
+> answered by the 2026-10-26 approvals above). Per the scope-question rule they blocked Plan, so they were recorded
+> here as **Q60–Q63** — asked in this file **and** in the analyst's final reply with recommended defaults — and in
+> `requirements.md` (D47 / A106–A109). **Q60 is answered-by-default** (the plan already justifies it, so no owner
+> question was required); **Q61–Q63 were open (blocking) with a recommended default where one was safe (Q62, Q63)
+> and none where the fact was not derivable (Q61) — all three ANSWERED by the owner on 2026-10-26 (verbatim below).**
+> **No blocking question remains**; `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## Q60 — D47 (plan §8 Q1): retire the density-cap ACs (D6/D9/D42/Q-4) for library `barSpacing`?
+
+- **Status:** **answered-by-default 2026-10-26 — YES, retire the density-cap language for `barSpacing`** (no owner question required). Not blocking.
+- **Answer (adopted, D47.6 / A106):** the pyqtgraph density-cap wording of `AC-D6.4` / `AC-D7.1` / `AC-D9.1` is
+  **proposed for retirement** and the no-overlap guarantee is restated in `barSpacing` terms (DG94). The retirement
+  lands only with this answer recorded here — the pyqtgraph engine keeps satisfying the old ACs until cutover.
+- **Why no owner question:** the migration plan already states the replacement as an **owner-visible AC change**
+  ("per-mode series, `barSpacing` replaces density caps"), so the default is plan-justified, not invented.
+- **What a different answer would change:** keeping both wordings live forces every density case to pass on two
+  contradictory spacings; rejecting retirement blocks T10 and the Phase 3 exit.
+- **Affected requirement section:** D47.6 / `AC-D47.6`; A106 (proposed); T10; DG94; R89.
+
+## Q61 — D47 (plan §8 Q2): what are the `.app` size and signing/notarisation plans?
+
+- **Status:** **answered 2026-10-26** — owner-confirmed; no longer blocking.
+- **Question:** Chromium + vendored JS grow the bundled `.app` by a measured delta, and the new binaries must pass
+  through the existing signing/notarisation flow (or a stated change to it). What is the budgeted increase, and
+  does the current signing identity/procedure cover the `QWebEngineView` + vendored tree unchanged?
+- **Recommended direction:** none from the analyst — bundle size and signing identity are release facts, not
+  derivable defaults (A109). Plan measures the delta and names the mechanism (DG89); the owner confirms.
+- **What the answer changes:** `AC-D47.8`'s packaging phase, R87, and any Non-Goal/Constraints wording on bundle size.
+- **Affected requirement section:** D47.8 / `AC-D47.8`; A109; DG89; R87.
+- **Answer (owner, 2026-10-26, verbatim): "Measure first, no fixed budget"** — measure-first: Plan measures the Phase 0 size delta and reports; the owner sets the budget from the numbers. Note whether the current signing flow covers the Chromium/vendored tree as a Phase 0 finding.
+
+## Q62 — D47 (plan §8 Q3): how many pop-outs may realistically stay open?
+
+- **Status:** **answered 2026-10-26** — owner-confirmed; no longer blocking.
+- **Question:** each LWC pop-out carries engine + bridge cost; what is the realistic concurrent-pop-out ceiling?
+- **Recommended default (A107):** the cap **stays at the D24 10** unless the owner names another number. Rationale:
+  preserves the approved D24 behaviour; raising it needs the memory/bridge evidence in DG90.
+- **What a different answer would change:** a higher cap re-sizes DG90's per-pop-out memory accounting and the
+  bridge backpressure counters (DG91); a lower cap revises the D24 pop-out ACs.
+- **Affected requirement section:** D47.8 / Journey 40; A107; DG90/DG91.
+- **Answer (owner, 2026-10-26, verbatim): "Keep 10 (Recommended)"** — keep D24 10; Phase 9 verifies 1, 3, 6 against it.
+
+## Q63 — D47 (plan §8 Q4): crosshair style — accept drift, or reproduce the exact D2/Q33 pill via custom primitives?
+
+- **Status:** **answered 2026-10-26** — owner-confirmed; no longer blocking.
+- **Question:** the D2/Q33 crosshair chip (grey pill, white text, Y-axis lane) is an owner-confirmed visual
+  reference; the library-native crosshair + axis label will not be pixel-identical. Accept the drift, or build the
+  exact pill as a custom primitive driven per move?
+- **Recommended default (A108):** **accept drift** (library-native crosshair + axis label). Rationale:
+  pixel-exact reproduction needs a custom primitive driven on every cursor move; drift is the library-native
+  outcome. The D2/Q33 ACs stand unchanged until the owner decides.
+- **What a different answer would change:** exact-pill adds a custom-primitive work item to Phase 5 and a
+  pixel-parity case to the matrix; drift keeps the matrix row as behaviour-parity only.
+- **Affected requirement section:** D47.7 / `AC-D47.7`; A108; Journey 40.
+- **Answer (owner, 2026-10-26, verbatim): "Accept drift (Recommended)"** — accept drift to the library-native crosshair (no exact-pill custom primitives); D2/Q33 stands only where still applicable.

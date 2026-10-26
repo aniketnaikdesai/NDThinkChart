@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- LWC offline host page (P6-04, AC-D47.3). Loads ONLY vendored relative
+     assets below plus the Qt-provided qrc webchannel shim. No remote hosts,
+     no package fetches, no remote URL anywhere in this file — the airplane
+     case asserts it. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NDThinkChart LWC host</title>
+<script src="./lightweight-charts.standalone.production.js"></script>
+<script src="./envelope.js"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #0d0f14; height: 100%; }
+  #chart { width: 100%; height: 100%; }
+  #chart:focus { outline: 1px solid #4b5563; }
+</style>
+</head>
+<body>
+<!-- DG92 focus/keyboard model (lwc-focus-forward-v1): the canvas wrapper is
+     tab-focusable so keyboard users can enter the chart; Arrow keys pan,
+     +/- zoom, Esc releases focus back to the Qt focus chain. -->
+<div id="chart" tabindex="0" role="application"
+     aria-label="Price chart. Arrow keys pan, plus and minus zoom, Escape returns focus."></div>
+<script src="./chart.js"></script>
+</body>
+</html>

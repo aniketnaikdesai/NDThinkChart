@@ -3192,3 +3192,96 @@ Phase 3 (wave 10)**: consumer first, each emitter inside its signal's wave, the 
 schema **with** its readers, the instrument last among the removals, and the gate closing the batch.
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P6 — D47 (Batch 22): the chart stack migrates to Lightweight Charts behind a `ChartView` seam — drafted 2026-10-26
+
+> Companion: `docs/architecture.md` § *Phase P6 — D47 increment* (Codebase Summary, S51–S60, frozen interfaces,
+> non-functional approach, R86–R92). Requirements: `docs/requirements/requirements.md` (D47, Journey 40,
+> `AC-D47.1`–`AC-D47.9`, A105–A112, R86–R92, `design_gaps.md` DG88–DG96, `open_questions.md` Q60–Q63 —
+> Q60 answered-by-default YES; Q61–Q63 ANSWERED 2026-10-26, owner-confirmed). The attached migration plan (updated,
+> no soak) is the execution design — adopted whole (T1–T14, Phases 0–11, 19-row parity matrix, pyramid strategy,
+> 66-file classification); the material adjustments vs its first version are all owner-decided: **no soak** (triple
+> gate instead), **Phase 0 spike as the single no-prototype exception**, **owner-approval-only deletion**.
+> Existing-repo run: Current Tech Stack is a hard constraint (extended by the D47 row, never replaced); every
+> component/entity/integration below carries `[existing]` / `[new]` / `[new/changed]`; pyqtgraph stays **default
+> through Phase 10** and **no pyqtgraph code is deleted before Phase 11**. D1–D46 are NOT reopened beyond the
+> recorded Q60 density-cap supersession.
+
+### Phases (milestones — Task Manager decomposes each wave into tasks)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. The pyramid test strategy rides
+every wave (pure-Python suites + `node --test` JS suites + `@pytest.mark.webengine` skip-never-red cases + the manual
+checklist); each wave exit updates `docs/lwc_parity_matrix.md`.
+
+| Wave | D47 phase (effort) | Goal (which D47 items it delivers) | Gate |
+|---|---|---|---|
+| P6-01 | **Phase 0** spike (S) | Throwaway `spikes/lwc/` proves the 9 API behaviours; `docs/lwc_spike_results.md` lands with a **go/no-go record**; the measured `.app` size delta + signing-flow finding reported (A109/DG89); Phase-0 perf baseline captured for the cutover gate | Go/no-go recorded; spike unimported by production/tests (Build-enforced); no-go stops Phase 1 |
+| P6-02 | **Phase 1a** seam (M) | `ChartView` protocol + `DrawingController`/`AlarmController` (exact signal signatures) + `create_chart_view(tz_offset, editable)` on `NDT_CHART_ENGINE`/QSettings (pyqtgraph default; unknown → pyqtgraph) | Factory unit cases (unset/unknown/pyqtgraph/lwc) + per-controller signal-signature assertions (`AC-D47.1`) |
+| P6-03 | **Phase 1b** shared model (M) | Shared Qt-free chart model (plotted-index filtering, `floor_bar_budget`, whitespace, studies + cache, Heikin-Ashi, volume); `ChartPanel` delegates with **no behaviour change** — pre-D47 chart suites stay green unmodified | Delegation probe + named suites green (`AC-D47.2`) |
+| P6-04 | **Phase 2** runtime + bridge (L) | `QWebEngineView` host + vendored v5.2.x via `ndt://` (registered before `QApplication`) + deny-default interceptor; `QWebChannel` `LwBridge` batched `{v:1,ops:[]}`, queue-until-ready, ~33ms coalesce, replay after `renderProcessTerminated`; backpressure counters instrumented (DG91); focus/keyboard model named (DG92); webengine viability probe (DG88) | Offline/airplane case + interceptor case + replay identity case (`AC-D47.3`/`AC-D47.4`) |
+| P6-05 | **Phase 3** core chart (XL) | Panes (v5), logical-index time axis + whitespace, `gap_is_non_trading` authority, custom tz formatters, per-mode series, `series.update` live bar; **T10**: density-cap AC retirement for `barSpacing` (Q60 answered-by-default YES) + restated no-overlap guarantee (DG94) | Time parity cases (DST/session-boundary) + rendered-geometry guard (`AC-D47.5`/`AC-D47.6`) |
+| P6-06 | **Phase 4** studies (M) | Study overlays through the shared model + cache on the LWC engine | Study parity rows |
+| P6-07 | **Phase 5** interaction (XL) | In-HTML controls with Python shims; Python `RouterMode` + JS mirror (mirror never reinterprets TR-1…TR-17); crosshair drift to library-native (Q63/A108); focus round-trip | Router-mirror suites + dialog suites green (`AC-D47.7`) |
+| P6-08 | **Phase 6** alarms (M) | Alarm lines/overlays on LWC; Qt alarm dialogs stay | Alarm parity rows |
+| P6-09 | **Phase 7** drawings (XL, largest) | Primitives library (ts-to-fractional-index); zone/horizontal-line settings stay Qt | Drawing parity rows incl. timestamp edge fixtures (DG93) |
+| P6-10 | **Phase 8** overlays/markers (M) | Session/gap/ICT/VIX overlays + event markers on LWC | Overlay parity rows |
+| P6-11 | **Phase 9** pop-outs (L) | LWC views in pop-outs; cap stays 10 (Q62/A107); per-pop-out memory accounted (DG90) | 1/3/6 pop-out verification + memory accounting |
+| P6-12 | **Phase 10** packaging/CI/cutover candidate (M) | Bundle + signing disposition from the measured delta (Q61/A109); CI wiring; parity matrix all Done/accepted (or rule-10 entries); owner acceptance; Phase-0 perf holds — the triple gate, no soak | Cutover candidate declared (`AC-D47.6`/`AC-D47.8`); pyqtgraph **still present and default** |
+| P6-13 | **Phase 11** removal (S, separately gated) | pyqtgraph deletion **only on explicit owner approval after one live trading session with no engine defect**; never rides along with cutover | Approval + session sign-off on record (`AC-D47.8`); refused otherwise |
+
+The T1–T14 work items from the attached plan sequence into these waves in D47-phase order (T10 density-cap
+retirement lands in P6-05 with the Q60 record; deletion work is P6-13 only). Task Manager owns the final
+T→task mapping and the 66-file keep/retarget/engine-specific classification; no task deletes pyqtgraph code before
+P6-13.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement | Architecture section | Wave |
+|---|---|---|
+| D47.1 / `AC-D47.1` (seam selects; signatures unchanged) | S51; Frozen (RouterMode, stores) | P6-02 |
+| D47.2 / `AC-D47.2` (model delegates; no behaviour change) | S52 | P6-03 |
+| D47.3 / `AC-D47.3` (vendored and offline) | S53 | P6-04 |
+| D47.4 / `AC-D47.4` (batched bridge; replay after crash) | S54 | P6-04 |
+| D47.5 / `AC-D47.5` (time/panes/series parity) | S55; Frozen (`gap_is_non_trading`) | P6-05 |
+| D47.6 / `AC-D47.6` (cutover gate; density-cap retirement via Q60) | S56 `[revises D42: S13]`; Frozen (backfill, cache, tunables) | P6-05 (T10) + P6-12 (gate) |
+| D47.7 / `AC-D47.7` (contracts kept; out-of-scope untouched) | S57; all Frozen rows | P6-07 + every wave (residue scan) |
+| D47.8 / `AC-D47.8` (phased delivery; removal gated) | S58, S59 | P6-01 → P6-13 in order |
+| D47.9 / `AC-D47.9` (matrix current; history intact) | S58, S59; rule 10 | Every wave exit + P6-12 |
+| D47.10 / `AC-D47.10` (pyramid tests; 66 files) | S60 | Every wave |
+| D47.11 (cutover/removal gates) | S59 | P6-12, P6-13 |
+| D47.12 (out of scope stays out) | S59; Frozen rows | Every wave |
+| D47.13 (history preserved) | S59 | P6-12 |
+| Journey 40 (end-to-end migration journey) | S51–S60 | P6-02 → P6-12 |
+| A105–A112 | S51–S60 (A106→S56, A107→S59/wave P6-11, A108→S57, A109→S60/P6-01+P6-12, A110–A112→S60/S54/S55) | As noted |
+| R86–R92 | Architecture Risks table → S51–S60 mitigations | As noted |
+| DG88–DG96 | S60 (DG88), S59/S60 (DG89), S59 (DG90), S54 (DG91), S57 (DG92), S55 (DG93), S56 (DG94), S58 (DG95), S58 (DG96) | As noted |
+| Q60 (answered-by-default YES) / Q61–Q63 (owner-confirmed) | S56 (Q60), S60/S59 (Q61), S59 (Q62), S57 (Q63) | P6-05, P6-01/P6-12, P6-11, P6-07 |
+
+D1–D46 (all journeys/ACs) are frozen and re-affirmed, not re-planned — covered by the no-behaviour-change delegation
+(P6-03), the frozen interfaces, and the full-suite-green exit of every wave.
+
+### Assumptions (plan-level only — none restates `requirements.md` A105–A112)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P6-1 | The engine selector reads `NDT_CHART_ENGINE` first (`lwc` selects LWC; unset/unknown → pyqtgraph) with the `QSettings` equivalent as the persisted override; pyqtgraph remains the default through P6-12 | Cutover flips the default only when the triple gate holds; an unknown value must never blank the chart (Journey 40 edge case) |
+| AP-P6-2 | `spikes/lwc/` stays throwaway: nothing there is imported by production or tests, it ships no test of its own into the suite book, and it is excluded from packaging; a production import of the spike fails the build | The single no-prototype exception (owner approval 3) stays an exception (DG96) |
+| AP-P6-3 | T1–T14 map into waves P6-01→P6-13 in D47-phase order as tabulated; Task Manager owns the final assignment and the 66-file keep/retarget/engine-specific classification | The attached plan numbers the work; this plan sequences the waves — the file-by-file tasking is Task Manager's job |
+| AP-P6-4 | Webengine cases are marked `@pytest.mark.webengine` and skip (never red) where no engine exists from P6-04 on; each names its manual-checklist counterpart | Offscreen viability is unproven (DG88/A110) — a red case must mean a regression |
+| AP-P6-5 | Every wave exit re-reads `docs/lwc_parity_matrix.md` (19 rows); a row regressing without an escalation fails the wave (rule 10) | The matrix is the gate, not the suite alone (DG95/R92) |
+| AP-P6-6 | AC-G.1 (visual reference gate) does not apply beyond Q63: the only UI-visual decision (crosshair drift) is owner-decided verbatim ("Accept drift"), so no reference artifact is required | Q63 settled appearance-vs-drift explicitly; nothing else in P6 is a UI-visual choice |
+
+### Flagged Issues
+
+**None.** Every D47 requirement is satisfiable as written on the existing stack plus the explicitly authorized
+additions (vendored v5.2.x tree, `QWebChannel`, Qt-free model — all additive, none replacing a constrained choice):
+
+- D47.6's density-cap retirement is **decided, not silent**: Q60 is answered-by-default YES (the attached plan states
+  the replacement as an owner-visible AC change), the supersession of `AC-D6.4`/`AC-D7.1`/`AC-D9.1` density language is
+  recorded in `requirements.md` and restated as S56 `[revises D42: S13]`, and T10 lands only with that record (DG94/R89).
+- Q61–Q63 are owner-confirmed verbatim and change no scope (measure-first, keep 10, accept drift).
+- DG88–DG96 are recorded Plan/Build details with owners and waves assigned above — none blocks planning.
+
+Status: READY_FOR_TASK_MANAGER
