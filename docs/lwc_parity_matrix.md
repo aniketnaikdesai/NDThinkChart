@@ -1,9 +1,10 @@
 # LWC parity matrix — gate skeleton (P6-01)
 
-Rows 7, 8, 13 and 14 are **Done / accepted** as of P6-07 (row 8 as of
-P6-06). Every other row is **Open / pending**. A row moves to Done/accepted
-only with its gate evidence; **a row regressing without an escalation fails
-review (rule 10)**. Phase waves per `docs/plan.md` § Phases (P6-01→P6-13).
+Rows 7, 8, 12, 13 and 14 are **Done / accepted** as of P6-08 (row 8 as of
+P6-06, rows 7/13/14 as of P6-07). Every other row is **Open / pending**. A row
+moves to Done/accepted only with its gate evidence; **a row regressing without
+an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
+(P6-01→P6-13).
 
 | # | Row | pyqtgraph reference (today) | LWC target | Gate wave | Disposition |
 |---|---|---|---|---|---|
@@ -18,7 +19,7 @@ review (rule 10)**. Phase waves per `docs/plan.md` § Phases (P6-01→P6-13).
 | 9 | Gap / VIX / ICT overlays | `RthGapOverlay`, `VixOverlay`, `ICTStudyOverlay` | LWC overlay port | P6-10 | Open / pending |
 | 10 | Event markers (dividends/earnings/splits) | `EventMarkerOverlay` (D38) | `setMarkers` port | P6-10 | Open / pending |
 | 11 | Drawings (all tools + D11 labels + D12/D15 dialogs) | `DrawingOverlay` | primitives lib (ts-to-fractional-index); Qt dialogs stay | P6-09 | Open / pending |
-| 12 | Alarms (lines, placement, preview) | `AlarmOverlay` + preview line (D21.10) | alarm lines on LWC; Qt dialogs stay | P6-08 | Open / pending |
+| 12 | Alarms (lines, placement, preview) | `AlarmOverlay` + preview line (D21.10) | alarm lines on LWC; Qt dialogs stay | P6-08 | Done / accepted |
 | 13 | Mouse router TR-1…TR-17 + JS mirror | `ChartMouseRouter` (frozen contract) | Python router + JS mirror (mirror never reinterprets) | P6-07 | Done / accepted |
 | 14 | Zoom/magnifier + reset + volume toggle + controls | `ZoomOverlay`, `ChartControls` | in-HTML controls + Python shims | P6-07 | Done / accepted |
 | 15 | Pop-out charts (cap 10, per-pop-out memory) | `popout_window.py`, `MAX_POPOUTS` (Q62/A107, DG90) | LWC views in pop-outs; memory accounted | P6-11 | Open / pending |
@@ -27,9 +28,52 @@ review (rule 10)**. Phase waves per `docs/plan.md` § Phases (P6-01→P6-13).
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Open / pending |
 | 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Open / pending |
 
-Row count: 19. Dispositioned Open/pending: 15. Done/accepted: 4.
+Row count: 19. Dispositioned Open/pending: 14. Done/accepted: 5.
 
 ## Wave exit notes
+
+### P6-08 — Phase 6 alarms (2026-10-26)
+
+- **One alarm channel, values by reference.** `ui/lwc_view.py` publishes the
+  unchanged alarm records as raw state columns (`id`, `price`, `direction`,
+  `active`, `triggered`, `sound`, `note`) on `alarmOpsEmitted` — the same
+  separate-envelope pattern as studies/interaction, because the bar transport
+  pins its series set to candles/volume. `chart_assets/lwc/alarms.js` turns
+  those columns into price lines on the candle series. The colour precedence
+  (triggered → inactive → muted → armed), the direction glyph table, the
+  `▲ 101.2500 (hit) · note` label composition, the 1.4 px pen and the z-order
+  (line 6, label 7) are the reference `ui/alarm_overlay.py` values, asserted
+  against that overlay's own `_color_for` / `_label_text` / drawn items on
+  shared fixtures rather than restated here.
+- **Labels are composed engine-side.** No formatted string crosses: the wire
+  carries prices and state bits, and JS composes the same label string. The
+  label rides the library-native right-edge price-line axis label
+  (`axisLabelVisible` + `title`), the LWC equivalent of the D21.4 right-anchored
+  `TextItem`.
+- **One documented library concession.** LWC price lines accept an integer
+  `lineWidth` (1..4); the reference 1.4 px width crosses unchanged in the op
+  spec (`width: 1.4`) and the library call takes the nearest supported integer
+  (1). Colour, label text, price level and z-order are exact.
+- **Preview line (D21.10)** — `show_alarm_preview` / `update_alarm_preview` /
+  `hide_alarm_preview` mirror `ChartPanel`'s semantics (idempotent show, hide,
+  update-while-hidden is a no-op): yellow `#ffff00`, dashed, below the alarm
+  lines (`z` 5), no axis label.
+- **Placement stays in the frozen router.** `set_alarm_mode` routes through
+  `ChartMouseRouter` (TR-3/TR-6/TR-13) and is inert on a non-editable pop-out
+  (D24); TR-9 still refuses the magnifier while placing. The alarm Qt dialogs
+  (create/edit/rearm/mute/delete) and `AlarmStore` are untouched — the residue
+  scan proves no LWC vocabulary entered `alarm_overlay.py`, `chart_panel.py` or
+  `alarm_store.py`.
+- **Cutover wiring, as for studies/interaction.** Including `alarms.js` in
+  `chart.html` and forwarding `alarmOpsEmitted` are page/host wiring at
+  cutover; the parity itself is engine-agnostic (node + Python, no Chromium
+  needed), which is why row 12 carries green gate evidence now.
+- Gate evidence: `tests/test_lwc_alarms.py` (five-state colour/label/price/z
+  parity against the drawn reference items, empty-set clear, replay identity,
+  preview line, router placement, non-editable no-op, renderer-only residue +
+  AST import boundary + bar-transport isolation) + `node --test
+  chart_assets/lwc/`. Row 12 moves to **Done / accepted**; no Done row
+  regressed, 15/19 remain Open / pending.
 
 ### P6-07 — Phase 5 interaction (2026-10-26)
 

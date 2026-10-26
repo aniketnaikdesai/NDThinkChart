@@ -45,6 +45,16 @@ by parallel logic:
   labels are **library-native** (Q63 / A108 owner-confirmed accept-drift):
   no custom crosshair primitive exists here or in ``chart_assets/``; the
   zone / horizontal-line / alarm dialogs stay the same Qt dialogs.
+* **alarm lines/overlays** (P6-08 / Phase 6) — ``set_alarm_lines`` publishes
+  the unchanged alarm records as raw state columns (id, price, direction,
+  state bits, note) on their own alarm envelope
+  (``{"v": 1, "ops": [{"op": "set_alarms", …}]}``, plus the D21.10 preview
+  line ops). The colour precedence, glyph/label composition, pen width and
+  z-order mirror ``ui/alarm_overlay.py`` value-for-value, so identical alarm
+  state renders identically on both engines. JS composes the label text from
+  prices and state — no formatted strings cross. Alarm placement stays in
+  the frozen router (``set_alarm_mode``), and the Qt alarm dialogs (create /
+  edit / rearm / mute / delete) are untouched.
 
 Density-cap retirement (T10 / Q60 answered-by-default YES / A106): the
 density-cap wording of ``AC-D6.4`` / ``AC-D7.1`` / ``AC-D9.1`` is retired
@@ -381,6 +391,129 @@ def reset_router_for_symbol_change(router) -> "RouterMode":
     return router.active_mode
 
 
+# ── Phase 6 alarms: lines/overlays (P6-08 / D47.5) ──────────────────────────
+#
+# The renderer-only mirror of ``ui/alarm_overlay.py``: the same colour
+# precedence, glyph table, label composition, pen width, z-order and the
+# D21.10 preview line of ``ui/chart_panel.py``. Only the *state* crosses —
+# the engine composes the label text, exactly as it composes study labels.
+# The colours below are the reference constants; the parity suite asserts
+# they equal ``ui/alarm_overlay``'s own constants rather than trusting this
+# comment.
+
+#: Alarm channel id (its own envelope; the bar transport stays pinned).
+ALARM_CHANNEL = "alarms"
+
+#: Colour per alarm state — the reference ``AlarmOverlay._color_for`` order:
+#: triggered -> inactive (off) -> muted -> armed.
+ALARM_TRIGGERED_COLOR = "#f87171"
+ALARM_ARMED_COLOR = "#fbbf24"
+ALARM_MUTED_COLOR = "#94a3b8"
+ALARM_INACTIVE_COLOR = "#64748b"
+
+#: D21.10 preview line: yellow, dashed, 1.4 px, below the alarm lines.
+ALARM_PREVIEW_COLOR = "#ffff00"
+
+#: Pen width and z-order of the reference alarm items / preview line.
+ALARM_LINE_WIDTH = 1.4
+ALARM_LINE_Z = 6
+ALARM_LABEL_Z = 7
+ALARM_PREVIEW_Z = 5
+
+#: Direction glyphs — the reference ``DIRECTION_GLYPH`` table.
+ALARM_DIRECTION_GLYPH = {
+    "cross_above": "\u25b2",
+    "cross_below": "\u25bc",
+    "cross_either": "\u25c6",
+}
+
+#: The alarm envelope's column set (one column array per attribute).
+ALARM_COLS = ("id", "price", "direction", "active", "triggered", "sound",
+              "note")
+
+#: The state columns (booleans) — the rest are numbers / display strings.
+ALARM_BOOL_COLS = ("active", "triggered", "sound")
+
+
+def alarm_visible(alarm) -> bool:
+    """Whether an alarm draws a chart line on either engine.
+
+    Mirrors ``AlarmOverlay``: only ``kind == "price"`` alarms have a price
+    level (D39), and an alarm without an id has no line yet.
+    """
+    return (getattr(alarm, "kind", "price") == "price"
+            and getattr(alarm, "id", None) is not None)
+
+
+def alarm_color(alarm) -> str:
+    """Colour for one alarm — the reference ``AlarmOverlay._color_for``."""
+    if getattr(alarm, "triggered", False):
+        return ALARM_TRIGGERED_COLOR
+    if not getattr(alarm, "active", True):
+        return ALARM_INACTIVE_COLOR
+    if not getattr(alarm, "sound", True):
+        return ALARM_MUTED_COLOR
+    return ALARM_ARMED_COLOR
+
+
+def alarm_label(alarm) -> str:
+    """Label text for one alarm — the reference ``AlarmOverlay._label_text``.
+
+    Composed here only as the parity reference and for the wave record; the
+    wire carries the raw state and ``chart_assets/lwc/alarms.js`` composes
+    the same string engine-side (no formatted string crosses).
+    """
+    glyph = ALARM_DIRECTION_GLYPH.get(getattr(alarm, "direction", ""), "")
+    text = f"{glyph} {alarm.price:.4f}"
+    if getattr(alarm, "triggered", False):
+        text += " (hit)"
+    elif not getattr(alarm, "active", True):
+        text += " (off)"
+    elif not getattr(alarm, "sound", True):
+        text += " (muted)"
+    note = getattr(alarm, "note", "")
+    if note:
+        text += f" \u00b7 {note}"
+    return text
+
+
+def alarm_columns(alarms: Sequence) -> dict:
+    """The ``set_alarms`` column arrays for the visible alarms, in order."""
+    rows = [alarm for alarm in (alarms or []) if alarm_visible(alarm)]
+    return {
+        "id": [int(alarm.id) for alarm in rows],
+        "price": [float(alarm.price) for alarm in rows],
+        "direction": [str(getattr(alarm, "direction", "")) for alarm in rows],
+        "active": [bool(getattr(alarm, "active", True)) for alarm in rows],
+        "triggered": [bool(getattr(alarm, "triggered", False))
+                      for alarm in rows],
+        "sound": [bool(getattr(alarm, "sound", True)) for alarm in rows],
+        "note": [str(getattr(alarm, "note", "") or "") for alarm in rows],
+    }
+
+
+def alarm_op(alarms: Sequence) -> dict:
+    """Replace-all ``set_alarms`` op (replay idempotent, like ``set_bars``)."""
+    return {"op": "set_alarms", "series": ALARM_CHANNEL,
+            "cols": alarm_columns(alarms)}
+
+
+def clear_alarms_op() -> dict:
+    """Remove every alarm line on the engine."""
+    return {"op": "clear_alarms", "series": ALARM_CHANNEL}
+
+
+def alarm_preview_op(price: float) -> dict:
+    """The D21.10 preview line at ``price`` (yellow, dashed, below alarms)."""
+    return {"op": "set_alarm_preview", "series": ALARM_CHANNEL,
+            "price": float(price)}
+
+
+def clear_alarm_preview_op() -> dict:
+    """Remove the D21.10 preview line (AC-D21.10.4)."""
+    return {"op": "clear_alarm_preview", "series": ALARM_CHANNEL}
+
+
 def series_ops(mode: str, bars: Sequence, timeframe: str | None,
                ext_hours: bool) -> list:
     """Build the ``set_bars`` / ``set_volume`` ops for one full series.
@@ -448,8 +581,8 @@ class LwcChartView(QWidget):
     / ``set_symbol`` / ``set_timeframe``) plus the P6-05 contract
     (``set_series(mode, rows)`` / ``update_live_bar(bar)``), and emits
     through an owned ``LwBridge`` the host page drains. Standalone
-    drawing/alarm controllers are not carried here — overlays land in
-    later phases (P6-08/P6-09 own their surfaces).
+    drawing/alarm controllers are not carried here — alarm lines/overlays
+    are published on the alarm channel (P6-08); drawings land in P6-09.
     """
 
     ENGINE_NAME = "lwc"
@@ -463,6 +596,9 @@ class LwcChartView(QWidget):
     #: the study channel: the bar transport's series set is pinned, so
     #: router/control ops never ride it.
     interactionOpsEmitted = pyqtSignal(dict)
+
+    #: One alarm envelope per publish (set / preview) — the alarm channel.
+    alarmOpsEmitted = pyqtSignal(dict)
 
     #: DG92 focus round-trip: the page's Esc blur handed focus back to Qt.
     focusRoundTrip = pyqtSignal()
@@ -490,12 +626,18 @@ class LwcChartView(QWidget):
         self._study_envelopes: list = []
         self._study_sig: tuple | None = None
         # P6-07: the frozen router owns gesture precedence; the controls shim
-        # routes into it. No overlays are wired until P6-08/P6-09 own their
-        # surfaces, so the router carries the mode alone here.
+        # routes into it. Drawings are not wired until P6-09 owns their
+        # surface; alarm placement is armed through the same router (P6-08).
         self._router = ChartMouseRouter()
         self._interaction_log: list = []
         self._interaction_envelopes: list = []
         self._focus_released = 0
+        # P6-08: alarms render from the unchanged alarm records. The Qt
+        # dialogs (create/edit/rearm/mute/delete) stay exactly where they are.
+        self._alarms: list = []
+        self._alarm_log: list = []
+        self._alarm_envelopes: list = []
+        self._alarm_preview_price: float | None = None
 
     @property
     def tz_offset(self) -> float:
@@ -571,6 +713,27 @@ class LwcChartView(QWidget):
     def focus_releases(self) -> int:
         """DG92 focus round-trips recorded (page Esc blur → Qt focus)."""
         return self._focus_released
+
+    @property
+    def alarms(self) -> list:
+        """The alarm records currently rendered (visible price alarms)."""
+        return list(self._alarms)
+
+    @property
+    def alarm_ops(self) -> list:
+        """Every alarm op published so far, in order (the replay log)."""
+        return [dict(op) for op in self._alarm_log]
+
+    @property
+    def alarm_envelopes(self) -> list:
+        """Every alarm envelope emitted, in order."""
+        return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
+                for env in self._alarm_envelopes]
+
+    @property
+    def alarm_preview_price(self) -> float | None:
+        """The D21.10 preview line's price, or ``None`` when hidden."""
+        return self._alarm_preview_price
 
     # ── ChartView protocol ──────────────────────────────────────────
 
@@ -917,6 +1080,76 @@ class LwcChartView(QWidget):
         self._interaction_log.extend(env["ops"])
         self._interaction_envelopes.append(env)
         self.interactionOpsEmitted.emit(env)
+
+    # ── P6-08 alarm lines/overlays ─────────────────────────────────────
+
+    def set_alarm_lines(self, alarms: list) -> None:
+        """Render the unchanged alarm records as lines on the LWC engine.
+
+        The contracted Phase-6 surface: identical alarm state produces the
+        same colours, label text, price levels and z-order as the default
+        engine's ``AlarmOverlay``. The ``kind == "price"`` / id filtering
+        mirrors that overlay (D39), and the whole set crosses as one
+        replace-all op, so a replay never duplicates or orphans a line. An
+        empty set clears the engine.
+        """
+        rows = [alarm for alarm in (alarms or []) if alarm_visible(alarm)]
+        self._alarms = rows
+        self._publish_alarm_ops(
+            [alarm_op(rows)] if rows else [clear_alarms_op()])
+
+    def set_alarms(self, alarms) -> None:
+        """``ChartPanel.set_alarms`` under the view's own name (parity)."""
+        self.set_alarm_lines(alarms)
+
+    def set_alarm_mode(self, enabled: bool) -> str:
+        """Arm/disarm alarm placement through the frozen router.
+
+        TR-3/TR-6 arm it (exiting a zoom, discarding a drawing draft), TR-13
+        disarms it. D24: a pop-out (non-editable) view is read-only and the
+        call is inert, exactly as ``ChartPanel.set_alarm_mode`` is. Returns
+        the resulting mode name.
+        """
+        if not self._editable:
+            return self._router.active_mode.name
+        if enabled:
+            self._router.enter_alarm_placing()
+            intent = "enter_alarm_placing"
+        else:
+            if self._router.active_mode == RouterMode.ALARM_PLACING:
+                self._router.exit_to_idle()
+            intent = "exit_to_idle"
+        self._publish_interaction_op({
+            "op": "router_mode", "mode": self._router.active_mode.name,
+            "intent": intent, "refused": False,
+        })
+        return self._router.active_mode.name
+
+    def show_alarm_preview(self, price: float) -> None:
+        """Show the D21.10 preview line at ``price`` (idempotent, as on Qt)."""
+        self._alarm_preview_price = float(price)
+        self._publish_alarm_ops([alarm_preview_op(price)])
+
+    def update_alarm_preview(self, price: float) -> None:
+        """Move the preview line (no-op while it is hidden — AC-D21.10.3)."""
+        if self._alarm_preview_price is None:
+            return
+        self._alarm_preview_price = float(price)
+        self._publish_alarm_ops([alarm_preview_op(price)])
+
+    def hide_alarm_preview(self) -> None:
+        """Remove the preview line (idempotent — AC-D21.10.4)."""
+        if self._alarm_preview_price is None:
+            return
+        self._alarm_preview_price = None
+        self._publish_alarm_ops([clear_alarm_preview_op()])
+
+    def _publish_alarm_ops(self, ops: list) -> None:
+        """Log and emit one alarm envelope (``{"v": 1, "ops": [...]}``)."""
+        env = {"v": LB.ENVELOPE_VERSION, "ops": [dict(op) for op in ops]}
+        self._alarm_log.extend(env["ops"])
+        self._alarm_envelopes.append(env)
+        self.alarmOpsEmitted.emit(env)
 
     # ── host (cutover owns the wiring) ──────────────────────────────
 
