@@ -2,7 +2,13 @@ import pytest
 from PyQt6.QtTest import QTest
 from PyQt6.QtCore import Qt
 
+from data.models import Bar
 from ui.chart_panel import ChartPanel
+
+
+def _bar(ts, close, volume=1_000.0):
+    return Bar("TEST", "5 mins", ts, close, close + 0.5, close - 0.5,
+               close, volume)
 
 @pytest.fixture
 def panel(qapp):
@@ -70,3 +76,29 @@ def test_controls_emit_signals(panel, qapp):
     assert flags["mag"] is False
     QTest.mouseClick(ctrl.btn_reset, Qt.MouseButton.LeftButton)
     assert flags["reset"] == 1
+
+
+def test_update_last_bar_same_ts_replaces_not_appends(panel, qapp):
+    """Q-3 (defect A): a same-timestamp live bar must replace, not append.
+
+    The first live push after prepare_load() is flagged is_new_candle=True
+    (the aggregator starts with no state), but the historical load already
+    delivered the forming period — IBKR returns the partial current bar. The
+    timestamp is authoritative: appending would draw the live candle on top of
+    the last history candle at the same display-x and duplicate the ts.
+    """
+    panel.set_symbol("TEST")
+    panel.set_timeframe("5 mins")
+    bars = [_bar(1_700_000_000 + i * 300, 100.0 + i) for i in range(120)]
+    panel.update_chart(bars)
+    qapp.processEvents()
+    assert len(panel._bars) == 120
+    last = panel._bars[-1]
+    live = _bar(last.ts, last.close + 7.5, volume=9_999.0)
+    panel.update_last_bar(live, is_new_candle=True)
+    qapp.processEvents()
+    assert len(panel._bars) == 120, "same-ts live bar must not append"
+    assert len({b.ts for b in panel._bars}) == 120, "duplicate timestamp"
+    assert panel._bars[-1].ts == last.ts
+    assert panel._bars[-1].close == live.close, "live values must replace"
+    assert len(panel._plot_xs) == 120, "one display-x per bar"

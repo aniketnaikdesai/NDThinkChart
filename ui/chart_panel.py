@@ -1149,7 +1149,16 @@ class ChartPanel(QWidget):
             if is_new_candle:
                 self.update_chart([bar])
             return
-        new_period = is_new_candle or self._bars[-1].ts != bar.ts
+        # Q-3 (defect A): ``is_new_candle`` is only the feed's hint that its
+        # aggregator opened a period — it is not proof that the timestamp is
+        # new. The first live push after prepare_load() is flagged True because
+        # the aggregator starts with no state, but the historical load already
+        # delivered the forming period (IBKR returns the partial current bar),
+        # so the same timestamp is already the last bar. Appending there draws
+        # the live candle on top of the last history candle (and duplicates the
+        # ts). The timestamp is authoritative: a same-ts bar REPLACES, only a
+        # genuinely different ts appends.
+        new_period = self._bars[-1].ts != bar.ts
         if new_period:
             self._bars.append(bar)
             # D42/S18 (RC-D42-1): the panel's series cap is floor-aware — the

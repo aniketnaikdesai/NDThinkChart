@@ -69,6 +69,7 @@ class _StubHost:
         self.status_bar = _StubStatusBar()
         self._req_table: dict[int, object] = {}
         self.wave_completions: list[str] = []
+        self.prime_completions: list[str] = []
         self._id_manager = id_manager
 
     def _register_req_id(self, req_id, session):
@@ -79,6 +80,9 @@ class _StubHost:
 
     def _on_session_wave_complete(self, session):
         self.wave_completions.append(session.symbol)
+
+    def _on_session_prime_complete(self, session):
+        self.prime_completions.append(session.symbol)
 
 
 def _make_session(qapp, client, symbol="AAA"):
@@ -272,3 +276,90 @@ def test_rapid_symbol_switching_no_162_storm(monkeypatch, qapp):
     queued = sum(len(s._wave_plan_queue) for s in sessions)
     assert queued == 90 - len(fake.hist), \
         "every unissued plan must remain queued for continuation"
+
+
+# ── Q-3: deferred aggregator priming ─────────────────────────────────
+
+def _deferred_prime_setup(monkeypatch, qapp, waiter):
+    """Session + md stub whose priming requests are pacing-limited per ``waiter``.
+
+    Returns (host, session, contract, attempts, scheduled, fake_timer_cls).
+    ``waiter`` is called with the attempt count and may raise PacingExceeded.
+    """
+    from ibkr.contracts import get_contract_for_symbol
+    import ui.ticker_session as ts_mod
+
+    fake = _FakeHistClient()
+    host, session = _make_session(qapp, fake)
+    session.aggregator_for("5 mins")
+    contract = get_contract_for_symbol("AAA")
+
+    attempts: list[dict] = []
+
+    def _req_historical_data(**kwargs):
+        attempts.append(kwargs)
+        return waiter(len(attempts))
+
+    monkeypatch.setattr(
+        host.md_manager, "req_historical_data", _req_historical_data
+    )
+
+    scheduled: list[tuple[int, object]] = []
+
+    class _FakeQTimer:
+        @staticmethod
+        def singleShot(ms, fn):
+            scheduled.append((ms, fn))
+
+    monkeypatch.setattr(ts_mod, "QTimer", _FakeQTimer)
+    return host, session, contract, attempts, scheduled
+
+
+def test_prime_aggregator_defers_once_on_pacing(monkeypatch, qapp):
+    """Q-3 (defect B): a pacing-limited prime is DEFERRED, then retried once.
+
+    With HISTORICAL_MIN_INTERVAL_S the wait is non-zero after ANY historical
+    request, so a load following a backfill wave would previously skip priming
+    outright and lose the forming candle's partial-period bars.
+    """
+    def _waiter(attempt):
+        if attempt == 1:
+            raise PacingExceeded(1.0)
+        return 4_242
+
+    host, session, contract, attempts, scheduled = _deferred_prime_setup(
+        monkeypatch, qapp, _waiter
+    )
+    assert session.prime_aggregator(
+        contract, "5 mins", 1_700_000_000, False
+    ) is True, "a deferred prime must hold the live feed back"
+    assert len(attempts) == 1
+    assert session._prime_retry_pending is True
+    assert len(scheduled) == 1, "exactly one retry may be scheduled"
+    assert scheduled[0][0] == 1000, "retry delay is max(1000, wait*1000) ms"
+    assert session._prime_timer.isActive(), \
+        "the prime timeout must remain the backstop"
+    scheduled[0][1]()
+    assert len(attempts) == 2, "the retry must re-enter prime_aggregator"
+    assert session._prime_req_id == 4_242
+    assert session._prime_retry_pending is False
+    assert host.prime_completions == [], "a successful retry is not fail-open"
+
+
+def test_prime_aggregator_fails_open_when_retry_also_paced(monkeypatch, qapp):
+    """Q-3 (defect B): a second PacingExceeded fails open (no third attempt)."""
+    def _waiter(attempt):
+        raise PacingExceeded(1.0)
+
+    host, session, contract, attempts, scheduled = _deferred_prime_setup(
+        monkeypatch, qapp, _waiter
+    )
+    assert session.prime_aggregator(
+        contract, "5 mins", 1_700_000_000, False
+    ) is True
+    scheduled[0][1]()
+    assert len(attempts) == 2, "exactly one retry, never a busy loop"
+    assert scheduled and len(scheduled) == 1, "no second retry may be scheduled"
+    assert host.prime_completions == ["AAA"], \
+        "fail open must attach the live feed after the retry is also paced"
+    assert session._prime_retry_pending is False
