@@ -32,6 +32,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -552,6 +553,24 @@ def test_p6_t07_t12_the_dialogs_stay_qt():
 
 # ── AC3: renderer-only residue scan ─────────────────────────────────────────
 
+#: Top-level names the renderer may import *beyond* the stdlib: its Qt host and
+#: the project's own packages. Everything else is third-party or network — the
+#: boundary is "stdlib + renderer", not a literal snapshot of today's imports.
+#: A hardcoded list rots the moment a later wave legitimately adds a stdlib
+#: module, which is exactly how P6-T09's ``bisect`` broke this gate.
+_RENDERER_EXTRA_ALLOWED = frozenset({"PyQt6", "data", "services", "ui", "config"})
+
+#: Backend / persistence / network surfaces the renderer must never reach into,
+#: whatever the allowlist grows to. Checked before the allowlist, because some
+#: of these (``sqlite3``, ``socket``, ``urllib``) are stdlib names.
+_RENDERER_FORBIDDEN_IMPORTS = frozenset({
+    "ibkr", "stores", "persistence",
+    "sqlite3", "sqlalchemy", "psycopg2", "psycopg",
+    "socket", "ssl", "socketserver", "http", "urllib", "urllib3", "requests",
+    "httpx", "aiohttp", "websocket", "websockets", "ftplib", "smtplib",
+    "telnetlib", "xmlrpc",
+})
+
 _FORBIDDEN_SURFACE = (
     "import ibkr", "from ibkr", "sqlite3", "qsettings", "watchlist", "popout",
     "place_order", "send_order", "order_id", "nextvalidid",
@@ -581,10 +600,12 @@ def test_p6_t07_t13_no_out_of_scope_surface_in_the_interaction_diff():
 
 def test_p6_t07_t13_renderer_only_import_boundary():
     source = (ROOT / "ui" / "lwc_view.py").read_text(encoding="utf-8")
-    allowed = {"PyQt6", "data", "services", "ui", "datetime", "typing",
-               "__future__"}
     modules = re.findall(r"^(?:from|import)\s+([A-Za-z_][\w.]*)", source, re.M)
     assert modules, "no imports found — the scan is looking at the wrong file"
+    allowed = set(sys.stdlib_module_names) | _RENDERER_EXTRA_ALLOWED
     for module in modules:
-        assert module.split(".")[0] in allowed, (
+        top = module.split(".")[0]
+        assert top not in _RENDERER_FORBIDDEN_IMPORTS, (
+            f"lwc_view.py reached into the backend/network: {module}")
+        assert top in allowed, (
             f"lwc_view.py imports outside the renderer boundary: {module}")

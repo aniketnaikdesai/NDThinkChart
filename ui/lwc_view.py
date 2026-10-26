@@ -55,6 +55,21 @@ by parallel logic:
   prices and state — no formatted strings cross. Alarm placement stays in
   the frozen router (``set_alarm_mode``), and the Qt alarm dialogs (create /
   edit / rearm / mute / delete) are untouched.
+* **drawing primitives** (P6-09 / Phase 7, D47.5 + DG93) — ``set_drawings``
+  publishes the unchanged drawing records as validated primitives on their
+  own envelope (``{"v": 1, "ops": [{"op": "set_drawings", …}]}``). Every
+  anchor timestamp is mapped to a **fractional logical index** — the same
+  display-x axis the candles use, expressed in the axis' own unit — so a
+  drawing lands on the identical bar (and between bars at the identical
+  relative position) on both engines. ``fractional_index_from_display`` /
+  ``display_from_fractional_index`` are the single mapping pair, and
+  ``display_from_fractional_index(fractional_index_from_display(x))``
+  equals the reference overlay's ``_ts_to_x(ts)`` on the DG93 edge fixtures
+  (DST folds, session-boundary bars, display-x collisions). Geometry
+  (Fibonacci levels, measure delta, handles) is computed here from
+  ``services.drawing_service``; JS receives fractional indices and prices
+  only and composes the D11 inner-right labels itself. Zone /
+  horizontal-line settings stay the same Qt dialogs (no HTML dialog).
 
 Density-cap retirement (T10 / Q60 answered-by-default YES / A106): the
 density-cap wording of ``AC-D6.4`` / ``AC-D7.1`` / ``AC-D9.1`` is retired
@@ -75,6 +90,7 @@ stub keeps session wiring unbroken and this driver is composed directly.
 
 from __future__ import annotations
 
+import bisect
 from datetime import datetime, timezone
 from typing import Sequence
 
@@ -83,6 +99,12 @@ from PyQt6.QtWidgets import QWidget
 
 from data.bar_aggregator import TIMEFRAME_SECONDS
 from services import chart_model
+from services.drawing_service import (
+    DEFAULT_DRAWING_COLOR,
+    DRAWING_KINDS,
+    fib_levels,
+    normalize_payload,
+)
 from services.time_collapse_service import gap_is_non_trading
 from ui import lwc_bridge as LB
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
@@ -514,6 +536,404 @@ def clear_alarm_preview_op() -> dict:
     return {"op": "clear_alarm_preview", "series": ALARM_CHANNEL}
 
 
+# ── Phase 7 drawings: ts-to-fractional-index primitives (P6-09 / DG93) ──────
+#
+# The renderer-only mirror of ``ui/drawing_overlay.py``. Every drawing keeps
+# its persisted ts/price payload; this module maps each anchor timestamp to a
+# **fractional logical index** — the LWC time axis' own unit — and publishes
+# validated geometry. The default engine's x-model is display-x (the collapse map's
+# output); the fractional index is that same axis expressed in the candles'
+# time unit, so ``display_from_fractional_index`` round-trips to the
+# reference overlay's ``_ts_to_x`` exactly (the parity suite asserts it on
+# the DG93 edge fixtures: DST folds, session-boundary bars and display-x
+# collisions). JS never interprets a timestamp: it receives fractional
+# indices and prices only, and composes its labels from those numbers.
+#
+# The payload contract is the service's own: every payload is normalised by
+# ``services.drawing_service.normalize_payload`` before it crosses, so JS
+# receives validated keys only. Fibonacci levels and the measure delta are
+# computed here with ``services.drawing_service.fib_levels`` — the same
+# pure geometry the reference overlay calls.
+
+#: The drawing channel (its own envelope; the bar transport stays pinned).
+DRAWING_CHANNEL = "drawings"
+
+#: The z-value every reference drawing item ends up with. ``_build_items``
+#: sets the per-kind z (-4 zone, -3 fib) first and then overrides every item
+#: to 10 in its final loop; parity follows the shipped behaviour.
+DRAWING_Z = 10
+
+#: Zone fill alpha (``QColor.setAlpha(36)`` in the reference renderer).
+DRAWING_ZONE_ALPHA = 36
+
+#: Pen widths per kind — the reference ``pg.mkPen`` widths.
+DRAWING_LINE_WIDTHS = {
+    "trendline": 1.4,
+    "horizontal": 1.2,
+    "zone": 1.0,
+    "fibonacci": 1.0,
+    "measure": 1.4,
+}
+
+#: D11 inner-right labels: ``view_rect.right() - 4``, never stacked closer
+#: than the measured bbox (a 15 px floor), matching ``_update_inner_labels``.
+DRAWING_LABEL_INSET_PX = 4.0
+DRAWING_LABEL_MIN_HEIGHT_PX = 15.0
+
+#: Selection / handle primitives (the reference ``_refresh_handles`` values).
+DRAWING_HANDLE_SIZE = 10
+DRAWING_HANDLE_PEN = "#ffffff"
+DRAWING_HANDLE_BRUSH = "#0ea5e9"
+DRAWING_HANDLE_PEN_WIDTH = 1.5
+DRAWING_SELECTED_COLOR = "#ffffff"
+DRAWING_SELECTED_WIDTH = 2.0
+
+
+def _interp(x, x1, y1, x2, y2) -> float:
+    """Linear interpolation, degenerate-safe (``x2 == x1`` collapses)."""
+    if x2 == x1:
+        return float(y2)
+    return float(y1 + (x - x1) * (y2 - y1) / (x2 - x1))
+
+
+def _edge_pair(xs: Sequence, indices: Sequence, at_start: bool):
+    """First (or last) non-degenerate ``(x, index)`` pair for extrapolation.
+
+    A display-x collision at the edge of the series makes the adjacent pair
+    degenerate; extrapolating off it would lose the anchor's identity. Use
+    the nearest pair with a real slope instead, so an out-of-window anchor
+    still round-trips to its own display-x.
+    """
+    n = len(xs)
+    if at_start:
+        base = xs[0]
+        for j in range(1, n):
+            if xs[j] != base:
+                return float(base), float(indices[0]), float(xs[j]), float(indices[j])
+    else:
+        base = xs[-1]
+        for j in range(n - 2, -1, -1):
+            if xs[j] != base:
+                return float(xs[j]), float(indices[j]), float(base), float(indices[-1])
+    return None
+
+
+def drawing_axis(plotted: Sequence, timeframe: str | None,
+                 ext_hours: bool) -> tuple[list, list, object]:
+    """``(display_xs, logical_indices, collapse_map)`` for the plotted rows.
+
+    The same two arrays ``set_series`` builds for the candles, from the one
+    collapse authority and the one step rule (``logical_indices_from_display``).
+    The collapse map is returned with them because a drawing timestamp maps
+    through ``to_display`` exactly as the reference overlay's ``_ts_to_x``
+    does — including an out-of-window anchor, which the map clamps to the
+    loaded range rather than extrapolating.
+    """
+    rows = list(plotted or [])
+    cmap = chart_model.collapse_for_bars(rows, timeframe, ext_hours)
+    xs = chart_model.display_xs(rows, cmap)
+    period = TIMEFRAME_SECONDS.get(timeframe or "")
+    if cmap is None or not period:
+        return xs, list(range(len(rows))), cmap
+    return xs, logical_indices_from_display(xs, period), cmap
+
+
+def fractional_index_from_display(x, xs: Sequence, indices: Sequence) -> float:
+    """Map a display-x coordinate onto the fractional logical index axis.
+
+    The candles' logical indices are integers at the bar display-x values.
+    Between two bars the index interpolates linearly, which is the same
+    relative position the reference engine's linear x-axis renders. Before
+    the first / after the last bar the edge slope extrapolates. A display-x
+    collision (two bars sharing one x — DG93) resolves to the later bar's
+    index; the inverse then returns that same x for either.
+    """
+    xs = list(xs)
+    idx = list(indices)
+    n = len(xs)
+    if n == 0:
+        return 0.0
+    if n == 1:
+        return float(idx[0])
+    xf = float(x)
+    # A display-x collision resolves to the *last* index sharing that x,
+    # consistently at the series edges and in the interior (the interior
+    # path's bisect already lands on the run's last member).
+    if xf == xs[0]:
+        j = 0
+        while j + 1 < n and xs[j + 1] == xs[0]:
+            j += 1
+        return float(idx[j])
+    if xf == xs[-1]:
+        return float(idx[-1])
+    if xf <= xs[0]:
+        pair = _edge_pair(xs, idx, True)
+        if pair is None:
+            return float(idx[0])
+        return _interp(xf, *pair)
+    if xf >= xs[-1]:
+        pair = _edge_pair(xs, idx, False)
+        if pair is None:
+            return float(idx[-1])
+        return _interp(xf, *pair)
+    i = bisect.bisect_right(xs, xf) - 1
+    i = max(0, min(i, n - 2))
+    return _interp(xf, xs[i], idx[i], xs[i + 1], idx[i + 1])
+
+
+def display_from_fractional_index(frac, xs: Sequence,
+                                  indices: Sequence) -> float:
+    """Inverse of :func:`fractional_index_from_display`.
+
+    A bar's own index returns that bar's display-x exactly — including a
+    timestamp collision, where either colliding index returns the shared x.
+    This is the identity the parity suite asserts against the reference
+    overlay's ``_ts_to_x``.
+    """
+    xs = list(xs)
+    idx = list(indices)
+    n = len(idx)
+    if n == 0:
+        return 0.0
+    if n == 1:
+        return float(xs[0])
+    f = float(frac)
+    if f <= idx[0]:
+        pair = _edge_pair(xs, idx, True)
+        if pair is None:
+            return float(xs[0])
+        x1, i1, x2, i2 = pair
+        return _interp(f, i1, x1, i2, x2)
+    if f >= idx[-1]:
+        pair = _edge_pair(xs, idx, False)
+        if pair is None:
+            return float(xs[-1])
+        x1, i1, x2, i2 = pair
+        return _interp(f, i1, x1, i2, x2)
+    i = bisect.bisect_right(idx, f) - 1
+    i = max(0, min(i, n - 2))
+    return _interp(f, idx[i], xs[i], idx[i + 1], xs[i + 1])
+
+
+def _drawing_frac(xs: Sequence, indices: Sequence, ts, cmap=None) -> float:
+    """A timestamp's fractional index: ``ts -> display-x -> fractional``."""
+    if not xs:
+        return 0.0
+    # ``_ts_to_x`` on the reference engine: the collapse map's ``to_display``
+    # (identity without a map). An out-of-window anchor clamps with the map.
+    x = float(cmap.to_display(ts)) if cmap is not None else float(ts)
+    return fractional_index_from_display(x, xs, indices)
+
+
+def fractional_index_for_ts(ts, plotted: Sequence, timeframe: str | None,
+                            ext_hours: bool) -> float:
+    """Public one-shot mapping: a drawing timestamp's fractional index.
+
+    The pair ``fractional_index_for_ts`` + ``display_from_fractional_index``
+    is the whole contract the engine receives: a timestamp becomes one
+    fractional logical index and the inverse recovers the reference
+    overlay's display-x exactly.
+    """
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    return _drawing_frac(xs, indices, ts, cmap)
+
+
+def drawing_handle_points(kind: str, item: dict) -> list:
+    """Handle anchors in ``[frac_index, price]`` / ``[None, price]`` form.
+
+    Mirrors ``DrawingOverlay._handle_points``: a zone's two corner handles are
+    its normalised ``(x1, y1)`` / ``(x2, y2)`` pair; a horizontal line has one
+    price handle at the pane's left edge (``None`` x); the two-point kinds use
+    their endpoints.
+    """
+    if kind in ("trendline", "measure", "fibonacci"):
+        return [[float(p[0]), float(p[1])] for p in item.get("points", [])]
+    if kind == "horizontal":
+        return [[None, float(item["price"])]]
+    if kind == "zone":
+        return [[item["span"][0], float(item["y1"])],
+                [item["span"][1], float(item["y2"])]]
+    return []
+
+
+def drawing_item(drawing, xs: Sequence, indices: Sequence,
+                 group=None, selected: bool = False, cmap=None) -> dict:
+    """One validated wire item for a ``Drawing`` (geometry in frac/price).
+
+    Raises ``ValueError`` for an unknown kind or a malformed payload, exactly
+    as ``DrawingOverlay._build_items`` swallows those rows. The wire carries
+    numbers only: colours, fractional indices, prices, fib ratios and the
+    measure delta; the engine composes every label string.
+    """
+    kind = drawing.kind
+    if kind not in DRAWING_KINDS:
+        raise ValueError(f"Unknown drawing kind: {kind!r}")
+    payload = normalize_payload(kind, getattr(drawing, "payload", {}) or {})
+    color = str(getattr(drawing, "color", None) or DEFAULT_DRAWING_COLOR)
+    item = {
+        "id": (int(drawing.id) if getattr(drawing, "id", None) is not None
+               else None),
+        "kind": kind,
+        "color": color,
+        "group_id": (int(drawing.group_id)
+                     if getattr(drawing, "group_id", None) is not None
+                     else None),
+        "locked": bool(group is not None and getattr(group, "locked", False)),
+        "selected": bool(selected),
+        "z": DRAWING_Z,
+        "width": DRAWING_LINE_WIDTHS[kind],
+    }
+    if kind in ("trendline", "measure"):
+        p1, p2 = payload["p1"], payload["p2"]
+        item["points"] = [[_drawing_frac(xs, indices, p1["x"], cmap), p1["y"]],
+                          [_drawing_frac(xs, indices, p2["x"], cmap), p2["y"]]]
+        if kind == "measure":
+            dy = p2["y"] - p1["y"]
+            item["delta"] = {"dy": float(dy),
+                             "pct": float(dy / p1["y"] * 100.0) if p1["y"] else 0.0}
+    elif kind == "horizontal":
+        item["price"] = float(payload["y"])
+    elif kind == "zone":
+        item["span"] = [_drawing_frac(xs, indices, payload["x1"], cmap),
+                        _drawing_frac(xs, indices, payload["x2"], cmap)]
+        item["y1"] = float(payload["y1"])
+        item["y2"] = float(payload["y2"])
+        item["fillAlpha"] = DRAWING_ZONE_ALPHA
+    elif kind == "fibonacci":
+        p1, p2 = payload["p1"], payload["p2"]
+        item["type"] = payload["type"]
+        item["points"] = [[_drawing_frac(xs, indices, p1["x"], cmap), p1["y"]],
+                          [_drawing_frac(xs, indices, p2["x"], cmap), p2["y"]]]
+        item["levels"] = [[float(ratio), float(price)] for ratio, price in
+                          fib_levels(p1["y"], p2["y"], payload["type"])]
+    item["handles"] = drawing_handle_points(kind, item)
+    return item
+
+
+def drawing_op(drawings: Sequence, groups: Sequence, xs: Sequence,
+               indices: Sequence, selected_id=None, cmap=None) -> dict:
+    """Replace-all ``set_drawings`` op for the visible, valid drawings.
+
+    Group visibility mirrors ``DrawingOverlay._is_visible_group`` (a drawing
+    outside any group is visible; a group with ``visible=False`` hides its
+    members). A drawing in a locked group renders ``locked`` so the engine
+    never starts a drag. Replace-all keeps replay idempotent, like alarms.
+    """
+    gmap = {getattr(g, "id", None): g for g in (groups or [])
+            if getattr(g, "id", None) is not None}
+    items: list = []
+    for drawing in (drawings or []):
+        kind = getattr(drawing, "kind", None)
+        if kind not in DRAWING_KINDS:
+            continue
+        group = gmap.get(getattr(drawing, "group_id", None))
+        if group is not None and not getattr(group, "visible", True):
+            continue
+        try:
+            items.append(drawing_item(
+                drawing, xs, indices, group=group,
+                selected=(selected_id is not None
+                          and getattr(drawing, "id", None) == selected_id),
+                cmap=cmap))
+        except ValueError:
+            continue
+    return {"op": "set_drawings", "series": DRAWING_CHANNEL, "items": items}
+
+
+def clear_drawings_op() -> dict:
+    """Remove every drawing primitive on the engine."""
+    return {"op": "clear_drawings", "series": DRAWING_CHANNEL}
+
+
+def drawing_primitive_op(kind: str, frac_index_pts: Sequence) -> dict:
+    """The ``set_drawing_primitive`` op — validated fractional-index points.
+
+    ``frac_index_pts`` is a list of ``[frac_index, price]`` pairs. The kind
+    selects the primitive geometry (a horizontal line reads the first point's
+    price; a zone reads two y values; the rest are two-point primitives).
+    Every value must be a finite number, so the engine receives validated
+    payloads only.
+    """
+    if kind not in DRAWING_KINDS:
+        raise ValueError(f"Unknown drawing kind: {kind!r}")
+    points = []
+    for point in (frac_index_pts or []):
+        if not isinstance(point, (list, tuple)) or len(point) != 2:
+            raise ValueError(f"point must be [frac_index, price]: {point!r}")
+        frac, price = point
+        if isinstance(frac, bool) or not isinstance(frac, (int, float)):
+            raise ValueError(f"frac_index must be a number: {frac!r}")
+        if isinstance(price, bool) or not isinstance(price, (int, float)):
+            raise ValueError(f"price must be a number: {price!r}")
+        points.append([float(frac), float(price)])
+    if not points:
+        raise ValueError("frac_index_pts must carry at least one point")
+    if kind == "horizontal":
+        points = points[:1]
+    elif len(points) != 2:
+        raise ValueError(f"{kind} requires exactly two points")
+    return {"op": "set_drawing_primitive", "series": DRAWING_CHANNEL,
+            "kind": kind, "points": points}
+
+
+def drag_drawing_item(kind: str, item: dict, point_index: int,
+                      d_frac: float, d_price: float,
+                      body: bool = False) -> dict:
+    """Apply one drag delta to a wire item — the reference ``_apply_drag``.
+
+    Endpoint drags move the addressed point (``point_index`` 0/1); a body
+    drag translates the whole primitive. Both-point kinds translate both
+    anchors by ``(d_frac, d_price)``; a horizontal line follows the pointer's
+    price; a zone moves its bounds and re-normalises, exactly as
+    ``normalize_payload`` does after the reference drag. Returns a new item
+    (the input is not mutated) with Fibonacci levels / the measure delta
+    recomputed from the new geometry.
+    """
+    if kind not in DRAWING_KINDS:
+        raise ValueError(f"Unknown drawing kind: {kind!r}")
+    item = dict(item)
+    d_price = float(d_price)
+    if kind in ("trendline", "measure", "fibonacci"):
+        points = [list(point) for point in (item.get("points") or [])]
+        if len(points) != 2:
+            raise ValueError("item is missing its two points")
+        if body:
+            for point in points:
+                point[0] += float(d_frac)
+                point[1] += d_price
+        else:
+            index = 0 if point_index == 0 else 1
+            points[index][0] += float(d_frac)
+            points[index][1] += d_price
+        item["points"] = points
+        if kind == "fibonacci":
+            item["levels"] = [[float(ratio), float(price)] for ratio, price in
+                              fib_levels(points[0][1], points[1][1],
+                                         item.get("type", "retr"))]
+        elif kind == "measure":
+            dy = points[1][1] - points[0][1]
+            item["delta"] = {
+                "dy": float(dy),
+                "pct": float(dy / points[0][1] * 100.0)
+                if points[0][1] else 0.0,
+            }
+    elif kind == "horizontal":
+        item["price"] = float(item["price"]) + d_price
+    elif kind == "zone":
+        y1 = float(item["y1"])
+        y2 = float(item["y2"])
+        if body:
+            y1 += d_price
+            y2 += d_price
+        elif point_index == 0:
+            y1 += d_price
+        else:
+            y2 += d_price
+        item["y1"], item["y2"] = min(y1, y2), max(y1, y2)
+    item["handles"] = drawing_handle_points(kind, item)
+    return item
+
+
 def series_ops(mode: str, bars: Sequence, timeframe: str | None,
                ext_hours: bool) -> list:
     """Build the ``set_bars`` / ``set_volume`` ops for one full series.
@@ -600,6 +1020,9 @@ class LwcChartView(QWidget):
     #: One alarm envelope per publish (set / preview) — the alarm channel.
     alarmOpsEmitted = pyqtSignal(dict)
 
+    #: One drawing envelope per publish (drawings / selection / drag).
+    drawingOpsEmitted = pyqtSignal(dict)
+
     #: DG92 focus round-trip: the page's Esc blur handed focus back to Qt.
     focusRoundTrip = pyqtSignal()
 
@@ -638,6 +1061,14 @@ class LwcChartView(QWidget):
         self._alarm_log: list = []
         self._alarm_envelopes: list = []
         self._alarm_preview_price: float | None = None
+        # P6-09: drawings render as ts-to-fractional-index primitives from
+        # the validated payloads; the Qt drawing dialogs stay where they are.
+        self._drawings: list = []
+        self._drawing_groups: list = []
+        self._selected_drawing_id = None
+        self._drawing_items: list = []
+        self._drawing_log: list = []
+        self._drawing_envelopes: list = []
 
     @property
     def tz_offset(self) -> float:
@@ -735,6 +1166,32 @@ class LwcChartView(QWidget):
         """The D21.10 preview line's price, or ``None`` when hidden."""
         return self._alarm_preview_price
 
+    @property
+    def drawings(self) -> list:
+        """The drawing records currently rendered (visible, valid)."""
+        return list(self._drawings)
+
+    @property
+    def drawing_items(self) -> list:
+        """The wire items last published (fractional indices + prices)."""
+        return [dict(item) for item in self._drawing_items]
+
+    @property
+    def drawing_ops(self) -> list:
+        """Every drawing op published so far, in order (the replay log)."""
+        return [dict(op) for op in self._drawing_log]
+
+    @property
+    def drawing_envelopes(self) -> list:
+        """Every drawing envelope emitted, in order."""
+        return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
+                for env in self._drawing_envelopes]
+
+    @property
+    def selected_drawing(self):
+        """The id of the drawing last selected (or ``None``)."""
+        return self._selected_drawing_id
+
     # ── ChartView protocol ──────────────────────────────────────────
 
     def update_bars(self, bars: list) -> None:
@@ -807,6 +1264,11 @@ class LwcChartView(QWidget):
         self._study_cache.invalidate()
         self._study_sig = None
         self._render_studies()
+        # Drawings are time-anchored: a new axis re-maps every anchor to the
+        # candles' fractional logical index, exactly as the reference overlay
+        # re-renders at the new display-x (AC-D21.4.1).
+        if self._drawings:
+            self._render_drawings()
 
     def update_live_bar(self, bar) -> None:
         """Advance the forming bar via single-element ``update_bar`` ops.
@@ -1150,6 +1612,102 @@ class LwcChartView(QWidget):
         self._alarm_log.extend(env["ops"])
         self._alarm_envelopes.append(env)
         self.alarmOpsEmitted.emit(env)
+
+    # ── P6-09 drawing primitives (ts -> fractional index) ─────────────
+
+    def drawing_axis(self) -> tuple[list, list, object]:
+        """``(display_xs, logical_indices, collapse_map)`` for the plotted rows."""
+        return drawing_axis(self._plotted, self._timeframe, self._ext_hours)
+
+    def set_drawings(self, drawings: list, groups: list | None = None) -> None:
+        """Render the unchanged drawing records as LWC primitives.
+
+        The contracted Phase-7 surface. Every payload is normalised by the
+        pure drawing service first, then every anchor timestamp is mapped to
+        the fractional logical index of the *same* display-x axis the
+        reference overlay draws on. Group visibility and lock state mirror
+        ``DrawingOverlay``; the whole set crosses as one replace-all op, so a
+        replay never duplicates or orphans a primitive. An empty set clears
+        the engine.
+        """
+        self._drawings = list(drawings or [])
+        self._drawing_groups = list(groups or [])
+        self._render_drawings()
+
+    def set_drawing_groups(self, groups: list) -> None:
+        """Update group visibility/lock state (re-publishes the same rows)."""
+        self._drawing_groups = list(groups or [])
+        self._render_drawings()
+
+    def set_drawing_primitive(self, kind: str, frac_index_pts: list) -> None:
+        """Publish one validated primitive from fractional-index points.
+
+        The Phase-7 seam: JS receives fractional indices and prices only,
+        never a timestamp. Raises ``ValueError`` on an unknown kind or a
+        non-numeric point — validation happens here, at the engine boundary.
+        """
+        self._publish_drawing_ops(
+            [drawing_primitive_op(kind, frac_index_pts)])
+
+    def select_drawing(self, drawing_id) -> None:
+        """Select one drawing (white 2.0 px pen + handles) or clear with None."""
+        self._selected_drawing_id = (None if drawing_id is None
+                                     else int(drawing_id))
+        self._render_drawings()
+        self._publish_drawing_ops([{
+            "op": "select_drawing", "series": DRAWING_CHANNEL,
+            "id": self._selected_drawing_id,
+        }])
+
+    def drag_drawing(self, drawing_id, kind: str, point_index: int,
+                     d_frac: float, d_price: float,
+                     body: bool = False) -> dict:
+        """Apply a drag delta to one drawing and publish the validated result.
+
+        The geometry is computed here (``drag_drawing_item``), so the engine
+        only ever replaces a primitive with already-validated numbers. Returns
+        the new wire item (also reflected in the stored record's payload for
+        the engine's own state, never persisted — persistence stays with the
+        drawing store, which the LWC engine never touches).
+        """
+        item = next((item for item in self._drawing_items
+                     if item.get("id") == drawing_id), None)
+        if item is None:
+            raise ValueError(f"unknown drawing: {drawing_id!r}")
+        moved = drag_drawing_item(kind, item, point_index, d_frac, d_price,
+                                  body=body)
+        self._drawing_items = [dict(moved) if existing.get("id") == drawing_id
+                               else existing
+                               for existing in self._drawing_items]
+        self._publish_drawing_ops([{
+            "op": "drag_drawing", "series": DRAWING_CHANNEL,
+            "id": moved["id"], "kind": kind, "points": moved.get("points"),
+            "price": moved.get("price"), "y1": moved.get("y1"),
+            "y2": moved.get("y2"), "delta": moved.get("delta"),
+            "levels": moved.get("levels"), "handles": moved["handles"],
+            "body": bool(body), "point_index": int(point_index),
+        }])
+        return moved
+
+    def _render_drawings(self) -> None:
+        """Publish the replace-all drawing op from the current axis."""
+        if not self._drawings:
+            self._drawing_items = []
+            if self._drawing_log:
+                self._publish_drawing_ops([clear_drawings_op()])
+            return
+        xs, indices, cmap = self.drawing_axis()
+        op = drawing_op(self._drawings, self._drawing_groups, xs, indices,
+                        selected_id=self._selected_drawing_id, cmap=cmap)
+        self._drawing_items = [dict(item) for item in op["items"]]
+        self._publish_drawing_ops([op])
+
+    def _publish_drawing_ops(self, ops: list) -> None:
+        """Log and emit one drawing envelope (``{"v": 1, "ops": [...]}``)."""
+        env = {"v": LB.ENVELOPE_VERSION, "ops": [dict(op) for op in ops]}
+        self._drawing_log.extend(env["ops"])
+        self._drawing_envelopes.append(env)
+        self.drawingOpsEmitted.emit(env)
 
     # ── host (cutover owns the wiring) ──────────────────────────────
 

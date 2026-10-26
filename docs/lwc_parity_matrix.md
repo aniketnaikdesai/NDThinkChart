@@ -1,10 +1,10 @@
 # LWC parity matrix — gate skeleton (P6-01)
 
-Rows 7, 8, 12, 13 and 14 are **Done / accepted** as of P6-08 (row 8 as of
-P6-06, rows 7/13/14 as of P6-07). Every other row is **Open / pending**. A row
-moves to Done/accepted only with its gate evidence; **a row regressing without
-an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
-(P6-01→P6-13).
+Rows 7, 8, 11, 12, 13 and 14 are **Done / accepted** as of P6-09 (row 8 as of
+P6-06, rows 7/13/14 as of P6-07, row 12 as of P6-08). Every other row is
+**Open / pending**. A row moves to Done/accepted only with its gate evidence;
+**a row regressing without an escalation fails review (rule 10)**. Phase waves
+per `docs/plan.md` § Phases (P6-01→P6-13).
 
 | # | Row | pyqtgraph reference (today) | LWC target | Gate wave | Disposition |
 |---|---|---|---|---|---|
@@ -18,7 +18,7 @@ an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
 | 8 | Studies (SMA/EMA/VWAP/BB/RSI/MACD) + cache | `indicator_service` + `_StudyCache` | shared model + LWC overlays | P6-06 | Done / accepted |
 | 9 | Gap / VIX / ICT overlays | `RthGapOverlay`, `VixOverlay`, `ICTStudyOverlay` | LWC overlay port | P6-10 | Open / pending |
 | 10 | Event markers (dividends/earnings/splits) | `EventMarkerOverlay` (D38) | `setMarkers` port | P6-10 | Open / pending |
-| 11 | Drawings (all tools + D11 labels + D12/D15 dialogs) | `DrawingOverlay` | primitives lib (ts-to-fractional-index); Qt dialogs stay | P6-09 | Open / pending |
+| 11 | Drawings (all tools + D11 labels + D12/D15 dialogs) | `DrawingOverlay` | primitives lib (ts-to-fractional-index); Qt dialogs stay | P6-09 | Done / accepted |
 | 12 | Alarms (lines, placement, preview) | `AlarmOverlay` + preview line (D21.10) | alarm lines on LWC; Qt dialogs stay | P6-08 | Done / accepted |
 | 13 | Mouse router TR-1…TR-17 + JS mirror | `ChartMouseRouter` (frozen contract) | Python router + JS mirror (mirror never reinterprets) | P6-07 | Done / accepted |
 | 14 | Zoom/magnifier + reset + volume toggle + controls | `ZoomOverlay`, `ChartControls` | in-HTML controls + Python shims | P6-07 | Done / accepted |
@@ -28,9 +28,60 @@ an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Open / pending |
 | 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Open / pending |
 
-Row count: 19. Dispositioned Open/pending: 14. Done/accepted: 5.
+Row count: 19. Dispositioned Open/pending: 13. Done/accepted: 6.
 
 ## Wave exit notes
+
+### P6-09 — Phase 7 drawings (2026-10-26)
+
+- **One primitives library, one mapping pair.** `chart_assets/lwc/primitives.js`
+  renders the five drawing kinds (trendline, horizontal, zone, Fibonacci,
+  measure) from `ui/lwc_view.py`'s `set_drawings` / `set_drawing_primitive`
+  envelopes. Every anchor timestamp becomes a **fractional logical index** —
+  the candles' own axis unit: a bar's timestamp maps to that bar's integer
+  index, a between-bars point interpolates on the same display-x axis the
+  reference engine draws on, and a display-x collision (DG93: two bars sharing
+  one x) resolves to one deterministic index while the inverse returns the
+  shared x for either. `fractional_index_from_display` +
+  `display_from_fractional_index` are the whole contract; the inverse of a
+  mapped anchor equals `DrawingOverlay._ts_to_x(ts)` value-for-value.
+- **DG93 timestamp edge fixtures.** The parity suite parametrizes all five
+  kinds × four fixtures: the 2024-11-03 EDT→EST fold, the 2025-03-09
+  EST→EDT spring-forward, RTH/session boundaries with the overnight collapse
+  and out-of-window anchors, and two display-x collisions. Collisions keep
+  strictly rising indices (no bar is lost) and resolve identically on both
+  engines.
+- **Values cross; labels are composed engine-side.** Geometry is Python-owned
+  from `services.drawing_service.py` (`normalize_payload`, `fib_levels`); the
+  wire carries fractional indices, prices, colours, pen widths, Fibonacci
+  ratios, the measure delta and handle anchors — no timestamp and no formatted
+  string. JS composes the D11 inner-right labels (`100.50`,
+  `61.8%  101.58`) and the measure `Δ` label, and stacks them with the
+  reference measured-bbox rule (15 px floor, right inset 4 px). The reference
+  `_build_items` final z override (every item z = 10) is mirrored exactly.
+- **Groups, handles and drag-edit as primitives.** Group visibility/lock state
+  mirrors `DrawingOverlay` (hidden groups publish nothing; locked groups never
+  show handles); selection publishes the reference white 2.0 px pen plus the
+  `#0ea5e9` handles; a body/endpoint drag is computed in Python
+  (`drag_drawing_item`, the `_apply_drag` mirror) and published as validated
+  replacement geometry, with the JS `dragItem` mirror for live feedback.
+- **Zone / horizontal-line settings stay the same Qt dialogs.** No HTML dialog
+  exists under `chart_assets/` (absence probe); the Qt dialog suites
+  (`tests/test_zone_dialog.py`, `tests/test_horizontal_line_dialog.py`) are
+  green unmodified. Persistence (`DrawingStore`), `drawing_service` and the
+  reference overlay are untouched — the residue scan proves no LWC vocabulary
+  entered them.
+- **Cutover wiring, as for studies/interaction/alarms.** Including
+  `primitives.js` in `chart.html` and forwarding `drawingOpsEmitted` are
+  page/host wiring at cutover; the parity itself is engine-agnostic (node +
+  Python, no Chromium needed).
+- Gate evidence: `tests/test_lwc_drawings.py` (mapping round-trip per DG93
+  fixture, kind × fixture parity against the drawn reference items, fib
+  retr/ext levels, custom colour, replay/empty-clear, primitive validation,
+  groups/handles/selection, endpoint and body drag vs `_apply_drag`,
+  renderer-only residue + AST import boundary + bar-transport isolation, Qt
+  dialog absence/green) + `node --test chart_assets/lwc/`. Row 11 moves to
+  **Done / accepted**; no Done row regressed, 13/19 remain Open / pending.
 
 ### P6-08 — Phase 6 alarms (2026-10-26)
 
