@@ -14,6 +14,7 @@ row regressed.
 
 import importlib
 import os
+import re
 
 import pytest
 from PyQt6.QtCore import QObject, QMetaMethod, QSettings
@@ -287,10 +288,59 @@ class TestRendererOnlyBoundary:
 
 # ── T14: parity-matrix seam record (AC4) ──────────────────────────────────
 
+# Rows this project has completed so far. Later waves add to this set; a row
+# regressing to Open/pending still fails because every other row must be Open.
+DONE_PARITY_ROWS = {7, 8, 13, 14}
+
+DONE_DISPOSITION = "Done / accepted"
+OPEN_DISPOSITION = "Open / pending"
+
+
+def _parity_rows(text: str) -> dict:
+    """Map parity-row number -> disposition cell from the matrix table."""
+    rows = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or not stripped.endswith("|"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if not cells or not cells[0].isdigit():
+            continue
+        rows[int(cells[0])] = cells[-1]
+    return rows
+
+
 class TestParityMatrixSeamRecord:
     def test_seam_rows_reflect_this_wave_without_regression(self):
         path = os.path.join("docs", "lwc_parity_matrix.md")
         with open(path, encoding="utf-8") as handle:
             text = handle.read()
         assert "P6-02" in text
-        assert text.count("| Open / pending |") == 19
+
+        rows = _parity_rows(text)
+        # The matrix keeps the same 19 data rows no matter which waves landed.
+        assert set(rows) == set(range(1, 20)), sorted(rows)
+
+        done = {number for number, cell in rows.items() if cell == DONE_DISPOSITION}
+        open_rows = {number for number, cell in rows.items() if cell == OPEN_DISPOSITION}
+        # Every row carries one of the two dispositions, exactly.
+        assert done | open_rows == set(rows)
+        assert not done & open_rows
+        # Completed rows stay Done (later waves may complete more) ...
+        assert DONE_PARITY_ROWS <= done, sorted(DONE_PARITY_ROWS - done)
+        # ... and every other row is still Open, so a regression fails.
+        assert open_rows == set(rows) - done
+
+        # The summary line is derived from the table, not pinned to a count.
+        summary = re.search(
+            r"Row count:\s*(\d+)\.\s*"
+            r"Dispositioned Open/pending:\s*(\d+)\.\s*"
+            r"Done/accepted:\s*(\d+)\.",
+            text,
+        )
+        assert summary is not None, "parity matrix summary line missing"
+        total, open_count, done_count = (int(group) for group in summary.groups())
+        assert total == len(rows)
+        assert open_count == len(open_rows)
+        assert done_count == len(done)
+        assert open_count + done_count == total

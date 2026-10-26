@@ -1,9 +1,9 @@
 # LWC parity matrix — gate skeleton (P6-01)
 
-Row 8 (studies) is **Done / accepted** as of P6-06. Every other row is
-**Open / pending**. A row moves to Done/accepted only with its gate
-evidence; **a row regressing without an escalation fails review (rule 10)**.
-Phase waves per `docs/plan.md` § Phases (P6-01→P6-13).
+Rows 7, 8, 13 and 14 are **Done / accepted** as of P6-07 (row 8 as of
+P6-06). Every other row is **Open / pending**. A row moves to Done/accepted
+only with its gate evidence; **a row regressing without an escalation fails
+review (rule 10)**. Phase waves per `docs/plan.md` § Phases (P6-01→P6-13).
 
 | # | Row | pyqtgraph reference (today) | LWC target | Gate wave | Disposition |
 |---|---|---|---|---|---|
@@ -13,23 +13,76 @@ Phase waves per `docs/plan.md` § Phases (P6-01→P6-13).
 | 4 | Time axis + whitespace for non-trading time | `TimeCollapseMap` display-x (D21.4) | logical index + absent-data whitespace | P6-05 | Open / pending |
 | 5 | Timezone display (ET, DST-correct) | `tz_offset` axes (EST 18000 / EDT 14400) | custom `timeFormatter` | P6-05 | Open / pending |
 | 6 | Session shading bands (RTH/ETH) | `SessionOverlay` + `session_bands` | overlay/marker port | P6-10 | Open / pending |
-| 7 | Crosshair + price/time chips | `_update_crosshair`, D2/Q33 lane | library-native crosshair (Q63/A108) | P6-07 | Open / pending |
+| 7 | Crosshair + price/time chips | `_update_crosshair`, D2/Q33 lane | library-native crosshair (Q63/A108) | P6-07 | Done / accepted |
 | 8 | Studies (SMA/EMA/VWAP/BB/RSI/MACD) + cache | `indicator_service` + `_StudyCache` | shared model + LWC overlays | P6-06 | Done / accepted |
 | 9 | Gap / VIX / ICT overlays | `RthGapOverlay`, `VixOverlay`, `ICTStudyOverlay` | LWC overlay port | P6-10 | Open / pending |
 | 10 | Event markers (dividends/earnings/splits) | `EventMarkerOverlay` (D38) | `setMarkers` port | P6-10 | Open / pending |
 | 11 | Drawings (all tools + D11 labels + D12/D15 dialogs) | `DrawingOverlay` | primitives lib (ts-to-fractional-index); Qt dialogs stay | P6-09 | Open / pending |
 | 12 | Alarms (lines, placement, preview) | `AlarmOverlay` + preview line (D21.10) | alarm lines on LWC; Qt dialogs stay | P6-08 | Open / pending |
-| 13 | Mouse router TR-1…TR-17 + JS mirror | `ChartMouseRouter` (frozen contract) | Python router + JS mirror (mirror never reinterprets) | P6-07 | Open / pending |
-| 14 | Zoom/magnifier + reset + volume toggle + controls | `ZoomOverlay`, `ChartControls` | in-HTML controls + Python shims | P6-07 | Open / pending |
+| 13 | Mouse router TR-1…TR-17 + JS mirror | `ChartMouseRouter` (frozen contract) | Python router + JS mirror (mirror never reinterprets) | P6-07 | Done / accepted |
+| 14 | Zoom/magnifier + reset + volume toggle + controls | `ZoomOverlay`, `ChartControls` | in-HTML controls + Python shims | P6-07 | Done / accepted |
 | 15 | Pop-out charts (cap 10, per-pop-out memory) | `popout_window.py`, `MAX_POPOUTS` (Q62/A107, DG90) | LWC views in pop-outs; memory accounted | P6-11 | Open / pending |
 | 16 | Perf parity (Phase-0 baseline holds) | perf baseline in `docs/lwc_spike_results.md` | cutover evidence vs baseline (triple gate) | P6-12 | Open / pending |
 | 17 | Bundle size + signing disposition | measured delta in `docs/lwc_spike_results.md` (Q61/A109) | vendored tree in `datas`, signed; delta recorded | P6-12 | Open / pending |
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Open / pending |
 | 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Open / pending |
 
-Row count: 19. Dispositioned Open/pending: 18. Done/accepted: 1.
+Row count: 19. Dispositioned Open/pending: 15. Done/accepted: 4.
 
 ## Wave exit notes
+
+### P6-07 — Phase 5 interaction (2026-10-26)
+
+- **Router mirror, never a reimplementation.** `ui/lwc_view.py` carries
+  `ROUTER_TRANSITIONS` — the transcription of the frozen TR-1…TR-17 table
+  owned by `ui/chart_mouse_router.py` (one `RouterMode`, intent helpers,
+  guard-clause dispatch) — and `chart_assets/lwc/interaction.js` carries the
+  row-for-row mirror plus `resolveTransition()` (same precedence
+  DRAWING > ZOOMING > ALARM_PLACING > IDLE, same TR-9 refusal, same TR-17
+  reset) and `routeGesture()` (alarm first in IDLE, drawing-only click while
+  DRAWING). The mirror suites drive **both** engines over all 17 rows *and*
+  the full mode × gesture sweep: a mutated mirror row fails the suite.
+- **In-HTML controls with Python shims.** `CONTROL_IDS`
+  (`zoom-out`/`zoom-in`/`magnifier`/`reset`) mirrors `ui/chart_controls.py`'s
+  signal surface (same labels and tooltips) and
+  `LwcChartView.handle_control` is the shim: the magnifier and reset route
+  through the frozen router, so alarm placement **refuses** the magnifier
+  (TR-9) through the control path too, not only through the router API.
+  Zoom in/out are pure view intents (`ZOOM_FACTORS` 0.8/1.25 — the numbers
+  `chart.js`'s keyboard handler already uses). Interaction ops travel on
+  their own `{"v":1, ops:[…]}` envelope (`interactionOpsEmitted`), for the
+  same reason as the study channel: the bar transport pins its series set.
+- **Crosshair drift (Q63 / A108 owner-confirmed accept-drift).** The crosshair
+  and its price/time labels are the **library-native** crosshair + axis
+  labels: `crosshairOptions()` sets `vertLine.labelVisible` /
+  `horzLine.labelVisible` on `CrosshairMode.Normal`, applied through
+  `chart.applyOptions({crosshair: …})`. There is no custom crosshair-label
+  primitive in `chart_assets/` and none in the Python driver — the D2/Q33
+  lane stops at the engine boundary. The zone / horizontal-line / alarm
+  dialogs are untouched Qt dialogs (their suites are green in the same gate).
+- **Focus round-trip (DG92).** `lwc-focus-forward-v1` is named in
+  `interaction.js` (`releaseFocus` hands focus back through the bridge's
+  `focusReleased` slot); `LwcChartView.handle_focus_released` records the
+  round trip so the wave reports it.
+- **Symbol change (TR-17).** `set_symbol` resets the interaction through
+  `reset_router_for_symbol_change` — public router API only, so
+  `ui/chart_mouse_router.py` stays byte-for-byte the frozen contract (the
+  residue scan proves no LWC/mirror vocabulary entered it).
+- **Cutover wiring, as for studies.** Including `interaction.js` in
+  `chart.html`, mounting the buttons and forwarding `interactionOpsEmitted`
+  / `focusReleased` are page/host wiring at cutover, like the study channel;
+  the mirror itself is engine-agnostic (node + Python, no Chromium needed),
+  which is why rows 7/13/14 carry green gate evidence now. The rendered
+  control-surface confirmation on the engine box rides the P6-12 cutover
+  gate.
+- Gate evidence: `tests/test_lwc_router_mirror.py` (17/17 TR rows identical
+  across engines, refusal TR-9 explicit, TR-17 reset from every mode, the
+  mode × gesture dispatch sweep, control-id/signal mirror, the crosshair
+  config + absence scan, the untouched-router residue scan, the
+  renderer-only import boundary) + `tests/test_zone_dialog.py` +
+  `tests/test_horizontal_line_dialog.py` + `node --test chart_assets/lwc/`.
+  Rows 7/13/14 move to **Done / accepted**; row 8 unchanged; 15/19 remain
+  Open / pending and no Done row regressed.
 
 ### P6-06 — Phase 4 studies (2026-10-26)
 

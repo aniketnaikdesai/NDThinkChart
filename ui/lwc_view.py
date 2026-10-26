@@ -32,6 +32,19 @@ by parallel logic:
   (``{"v": 1, "ops": [{"op": "set_study", …}]}``). The bar transport
   pins its series set, so study ops never ride it; the values that cross
   are the model's own arrays — the engine formats, it never computes.
+* **interaction** (P6-07 / Phase 5) — the in-HTML control surface
+  (``CONTROL_IDS``, mirroring ``ui/chart_controls.py``'s signals) has its
+  Python shim in ``LwcChartView.handle_control``: every magnifier press
+  goes through the **frozen** ``ui/chart_mouse_router.py`` router, so
+  alarm placement refuses it (TR-9) exactly as on the default engine.
+  ``ROUTER_TRANSITIONS`` is the transcription of the frozen TR-1…TR-17
+  table that ``chart_assets/lwc/interaction.js`` mirrors row for row
+  (``tests/test_lwc_router_mirror.py`` drives both engines). Interaction
+  ops travel on their own envelope (``interactionOpsEmitted``) — the bar
+  transport pins its series set, as for studies. Crosshair and its axis
+  labels are **library-native** (Q63 / A108 owner-confirmed accept-drift):
+  no custom crosshair primitive exists here or in ``chart_assets/``; the
+  zone / horizontal-line / alarm dialogs stay the same Qt dialogs.
 
 Density-cap retirement (T10 / Q60 answered-by-default YES / A106): the
 density-cap wording of ``AC-D6.4`` / ``AC-D7.1`` / ``AC-D9.1`` is retired
@@ -62,6 +75,8 @@ from data.bar_aggregator import TIMEFRAME_SECONDS
 from services import chart_model
 from services.time_collapse_service import gap_is_non_trading
 from ui import lwc_bridge as LB
+from ui.chart_mouse_router import ChartMouseRouter, RouterMode
+from ui.drawing_overlay import TOOL_CURSOR
 
 #: The five render modes, mirroring the default engine's ``ChartMode``.
 MODES = ("candles", "hollow", "heikin", "line", "area")
@@ -279,6 +294,93 @@ def clear_study_op() -> dict:
     return {"op": "clear_study", "series": "studies"}
 
 
+# ── Phase 5 interaction: controls + router mirror (P6-07 / D47.7) ────────────
+#
+# The in-HTML control surface mirrors ``ui/chart_controls.py`` (zoom_out /
+# zoom_in / magnify_toggled / reset). The buttons live in the page; the
+# gesture precedence stays in exactly one place — the frozen
+# ``ui.chart_mouse_router`` router — and the shim below only routes the
+# control into it. ``chart_assets/lwc/interaction.js`` carries the JS mirror
+# of both halves: the control list (same ids, labels, tooltips) and
+# ``ROUTER_TRANSITIONS`` (the frozen TR-1…TR-17 table), which the mirror
+# resolves with the same precedence and never reinterprets.
+
+#: The ``RouterMode`` members, in the router's declaration order.
+ROUTER_MODES = ("IDLE", "DRAWING", "ZOOMING", "ALARM_PLACING")
+
+#: Router intent triggers — the router's own transition helpers.
+ROUTER_TRIGGERS = (
+    "draw_tool",
+    "draw_cursor",
+    "enter_zoom",
+    "enter_alarm_placing",
+    "exit_to_idle",
+    "symbol_change",
+)
+
+#: Gesture triggers — the guard-clause dispatch rows.
+ROUTER_GESTURES = ("press", "drag", "click")
+
+#: Transcription of the frozen TR-1…TR-17 table (``chart_mouse_router.py``).
+#: ``from`` is the mode the gesture starts in, ``to`` the mode it ends in;
+#: ``refused`` marks the one row the router declines without touching any
+#: overlay (TR-9, alarm placement refuses the magnifier). TR-13…TR-16 are
+#: dispatch rows — the mode is unchanged and the interesting result is which
+#: overlay receives the gesture. ``chart_assets/lwc/interaction.js`` holds
+#: the mirror of this list, row for row; the mirror suites prove both.
+ROUTER_TRANSITIONS = (
+    {"id": "TR-1", "from": "IDLE", "trigger": "draw_tool", "to": "DRAWING"},
+    {"id": "TR-2", "from": "IDLE", "trigger": "enter_zoom", "to": "ZOOMING"},
+    {"id": "TR-3", "from": "IDLE", "trigger": "enter_alarm_placing",
+     "to": "ALARM_PLACING"},
+    {"id": "TR-4", "from": "DRAWING", "trigger": "enter_zoom", "to": "ZOOMING"},
+    {"id": "TR-5", "from": "ZOOMING", "trigger": "draw_tool", "to": "DRAWING"},
+    {"id": "TR-6", "from": "ZOOMING", "trigger": "enter_alarm_placing",
+     "to": "ALARM_PLACING"},
+    {"id": "TR-7", "from": "DRAWING", "trigger": "enter_alarm_placing",
+     "to": "ALARM_PLACING"},
+    {"id": "TR-8", "from": "ALARM_PLACING", "trigger": "draw_tool",
+     "to": "DRAWING"},
+    {"id": "TR-9", "from": "ALARM_PLACING", "trigger": "enter_zoom",
+     "to": "ALARM_PLACING", "refused": True},
+    {"id": "TR-10", "from": "DRAWING", "trigger": "draw_cursor", "to": "IDLE"},
+    {"id": "TR-11", "from": "ZOOMING", "trigger": "exit_to_idle", "to": "IDLE"},
+    {"id": "TR-12", "from": "ALARM_PLACING", "trigger": "exit_to_idle",
+     "to": "IDLE"},
+    {"id": "TR-13", "from": "IDLE", "trigger": "press", "to": "IDLE"},
+    {"id": "TR-14", "from": "IDLE", "trigger": "drag", "to": "IDLE"},
+    {"id": "TR-15", "from": "IDLE", "trigger": "click", "to": "IDLE"},
+    {"id": "TR-16", "from": "DRAWING", "trigger": "click", "to": "DRAWING"},
+    {"id": "TR-17", "from": "DRAWING", "trigger": "symbol_change", "to": "IDLE"},
+)
+
+#: The in-HTML control ids, in the mirror of ``ChartControls``' button order.
+CONTROL_IDS = ("zoom-out", "zoom-in", "magnifier", "reset")
+
+#: Magnifier / zoom multipliers — the same numbers the page's keyboard
+#: handler uses (``chart.js::zoom``), mirrored by ``interaction.js``.
+ZOOM_FACTORS = {"in": 0.8, "out": 1.25}
+
+#: Library-native crosshair (Q63 / A108 accept-drift): the library's own
+#: crosshair with both axis labels visible. No custom primitive — the
+#: D2/Q33 lane stops at the engine boundary.
+CROSSHAIR_MODE_NAME = "normal"
+CROSSHAIR_MODE_ID = 0
+
+
+def reset_router_for_symbol_change(router) -> "RouterMode":
+    """TR-17: a symbol change mid-gesture resets the router to ``IDLE``.
+
+    The draft is discarded (tool back to ``TOOL_CURSOR``) and the magnifier
+    is deactivated, so a stale drag from the previous symbol can never land
+    on the new series. Public router API only — the frozen module is not
+    modified by this wave.
+    """
+    router.exit_to_idle()
+    router.enter_drawing(TOOL_CURSOR)
+    return router.active_mode
+
+
 def series_ops(mode: str, bars: Sequence, timeframe: str | None,
                ext_hours: bool) -> list:
     """Build the ``set_bars`` / ``set_volume`` ops for one full series.
@@ -357,6 +459,14 @@ class LwcChartView(QWidget):
     #: (candles/volume), so study ops travel on their own channel.
     studyOpsEmitted = pyqtSignal(dict)
 
+    #: One interaction envelope per control/router event — same reasoning as
+    #: the study channel: the bar transport's series set is pinned, so
+    #: router/control ops never ride it.
+    interactionOpsEmitted = pyqtSignal(dict)
+
+    #: DG92 focus round-trip: the page's Esc blur handed focus back to Qt.
+    focusRoundTrip = pyqtSignal()
+
     def __init__(self, tz_offset: float = 0.0, editable: bool = True,
                  parent=None):
         super().__init__(parent)
@@ -379,6 +489,13 @@ class LwcChartView(QWidget):
         self._study_log: list = []
         self._study_envelopes: list = []
         self._study_sig: tuple | None = None
+        # P6-07: the frozen router owns gesture precedence; the controls shim
+        # routes into it. No overlays are wired until P6-08/P6-09 own their
+        # surfaces, so the router carries the mode alone here.
+        self._router = ChartMouseRouter()
+        self._interaction_log: list = []
+        self._interaction_envelopes: list = []
+        self._focus_released = 0
 
     @property
     def tz_offset(self) -> float:
@@ -434,6 +551,27 @@ class LwcChartView(QWidget):
         return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
                 for env in self._study_envelopes]
 
+    @property
+    def router(self) -> ChartMouseRouter:
+        """The frozen router this view's interaction shims route through."""
+        return self._router
+
+    @property
+    def interaction_ops(self) -> list:
+        """Every interaction op emitted so far, in order (the replay log)."""
+        return [dict(op) for op in self._interaction_log]
+
+    @property
+    def interaction_envelopes(self) -> list:
+        """Every interaction envelope emitted, in order."""
+        return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
+                for env in self._interaction_envelopes]
+
+    @property
+    def focus_releases(self) -> int:
+        """DG92 focus round-trips recorded (page Esc blur → Qt focus)."""
+        return self._focus_released
+
     # ── ChartView protocol ──────────────────────────────────────────
 
     def update_bars(self, bars: list) -> None:
@@ -450,6 +588,8 @@ class LwcChartView(QWidget):
 
     def set_symbol(self, symbol: str) -> None:
         self._symbol = symbol
+        # TR-17: a symbol change mid-gesture resets the interaction state.
+        self.reset_interaction()
         # A different symbol is a different study series: never serve the
         # previous symbol's cached arrays.
         self._study_cache.invalidate()
@@ -705,6 +845,78 @@ class LwcChartView(QWidget):
         self._study_log.extend(env["ops"])
         self._study_envelopes.append(env)
         self.studyOpsEmitted.emit(env)
+
+    # ── P6-07 interaction: in-HTML controls + router shims ─────────────
+
+    def handle_control(self, control_id: str, value=None) -> dict:
+        """One in-HTML control event → router intent → interaction op.
+
+        ``control_id`` is one of ``CONTROL_IDS`` — the page's buttons mirror
+        ``ui/chart_controls.py``'s signals. The magnifier and reset go through
+        the frozen router (so alarm placement refuses the magnifier, TR-9);
+        zoom in/out are pure view intents the page applies to its own time
+        scale. Returns ``{"control", "op", "mode", "refused"}``.
+        """
+        if control_id not in CONTROL_IDS:
+            raise ValueError(f"unknown control: {control_id!r}")
+        if control_id in ("zoom-in", "zoom-out"):
+            step = 1 if control_id == "zoom-in" else -1
+            op = {"op": "zoom", "step": step}
+            refused = False
+        elif control_id == "magnifier":
+            # ``value`` is the toggle's checked state (ChartControls emits
+            # ``magnify_toggled(bool)``); ``None`` toggles from the router.
+            mode = self._router.active_mode
+            enabled = (mode != RouterMode.ZOOMING) if value is None else bool(value)
+            if enabled:
+                # TR-2 / TR-4 / TR-9 — the router decides, not this shim.
+                refused = not self._router.enter_zoom()
+                intent = "enter_zoom"
+            else:
+                self._router.exit_to_idle()
+                refused = False
+                intent = "exit_to_idle"
+            op = {"op": "router_mode", "mode": self._router.active_mode.name,
+                  "intent": intent, "refused": refused}
+        else:  # "reset"
+            self._router.exit_to_idle()
+            op = {"op": "reset_view", "mode": self._router.active_mode.name}
+            refused = False
+        self._publish_interaction_op(op)
+        return {"control": control_id, "op": dict(op),
+                "mode": self._router.active_mode.name, "refused": refused}
+
+    def reset_interaction(self) -> str:
+        """TR-17: reset the router (discard any draft) on a symbol change.
+
+        Emits one ``router_mode`` op when a gesture was in progress, so the
+        page drops its magnifier/draft state with the Python router.
+        """
+        before = self._router.active_mode
+        mode = reset_router_for_symbol_change(self._router)
+        if before != RouterMode.IDLE:
+            self._publish_interaction_op(
+                {"op": "router_mode", "mode": mode.name,
+                 "intent": "symbol_change", "refused": False})
+        return mode.name
+
+    def handle_focus_released(self) -> None:
+        """DG92 focus round-trip: the page's Esc blur hands focus back to Qt.
+
+        The page glue (``lwc-focus-forward-v1``) calls the bridge's
+        ``focusReleased`` slot; the host forwards it here so the view can
+        restore the Qt focus chain. The recorded count is the round-trip
+        evidence P6-07 reports.
+        """
+        self._focus_released += 1
+        self.focusRoundTrip.emit()
+
+    def _publish_interaction_op(self, op: dict) -> None:
+        """Log and emit one interaction envelope (``{"v": 1, "ops": [...]}``)."""
+        env = {"v": LB.ENVELOPE_VERSION, "ops": [dict(op)]}
+        self._interaction_log.extend(env["ops"])
+        self._interaction_envelopes.append(env)
+        self.interactionOpsEmitted.emit(env)
 
     # ── host (cutover owns the wiring) ──────────────────────────────
 
