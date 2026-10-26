@@ -168,3 +168,23 @@
 **Category:** Known Gotcha
 **Finding:** The retained `positions.stop_loss` / `positions.take_profit` values do NOT survive a live position update. `MainWindow._on_position_update` builds `Position(stop_loss=None, take_profit=None)` (`ui/main_window.py:3093-3094`) and `_upsert_position`'s `ON CONFLICT ... DO UPDATE` writes `stop_loss=excluded.stop_loss, take_profit=excluded.take_profit` (`:3198-3199`), so the first update of a row clears both columns. The bulk `_on_position_end` load does carry them (`row[12]`), which is why the loss is easy to miss. Since D45 removed every setter, the clear is permanent. Owner decided (ESC-060) to keep the behaviour and correct the docs rather than preserve the columns — do not re-introduce a "values stay in SQLite" claim anywhere.
 **Source:** Escalation ESC-060
+
+### [2026-10-26] — discovered during Build + Code Review (D46 / P5)
+**Category:** Technical Note
+**Finding:** D46 removed every order-related coding path. `ibkr/orders.py` is gone (builders, `Orders` registry, singleton), as are the three `EWrapper` order overrides, the three bridge signals and their window observers, `data/models.UserOrder`, `IdManager.reserve`, `OrderRateLimiter`/`order_limiter`, `MAX_ORDER_NOTIONAL` and the order-fill sound. `IdManager.get_id()` survives and serves **six** market-data reqId callers; `nextValidId` is the CONNECTED transition, not order plumbing. The residue instrument is `tests/test_d45_removal.py`: `_SURVIVORS` 16, `_FORBIDDEN` 80, `_EXACT_ONLY = {orders, Orders}`. It has exactly **one** authorised carve-out — `_ALLOWED_IN_FILE = {"stop_loss": {"data/db.py"}, "take_profit": {"data/db.py"}}` — because `_migrate_schema` must name the columns it drops; a persisted AST test enforces that those tokens appear only as the `DROP COLUMN` loop's subject tuple and never as a name/attribute/arg/keyword or other SQL.
+**Source:** Escalations ESC-059, ESC-060, ESC-064, ESC-065, ESC-066, ESC-067
+
+### [2026-10-26] — SUPERSEDES the ESC-060 note above (D46 / A99)
+**Category:** Known Gotcha
+**Finding:** The retained SL/TP storage is **dropped**, not kept. `_migrate_schema()` runs four guarded `ALTER TABLE … DROP COLUMN` statements (positions/trade_groups × stop_loss/take_profit) after the unique-index statement, and the `CREATE TABLE` DDL no longer declares them; the four model fields and `build_position_from_ib`'s two params are gone. A pre-D46 database keeps its rows, ids/`sqlite_sequence`, the unique index and the FK; a second open is a no-op. Any document claiming "columns kept / values cleared" is stale — say "dropped by a one-time migration".
+**Source:** Escalation ESC-060 → A99 / D46.12
+
+### [2026-10-26] — discovered during Build (D46 / P5)
+**Category:** Known Gotcha
+**Finding:** `tests/test_d42_nonregression.py::test_full_offscreen_suite_is_green` runs a **stable subset** of 1000/1022 tests (118/124 modules, ~28 s) through `_inner_pytest_args` / `_run_inner_suite`, excluding six modules by name: three wall-clock gates (`test_d24_smoke_gate`, `test_d28_4_gate`, `test_d28_tick_burst_baseline`) and three Qt-teardown crashers (`test_session_overlay`, `test_d28_5_teardown`, `test_watchlist_addflow_d22`). Do not "restore" the whole-suite child — that reintroduces a nondeterministic SIGSEGV and cost four gate runs across two batches. Do not add a temp cwd either: three suite modules read repo-relative paths.
+**Source:** Escalation ESC-065 / task P5-T11
+
+### [2026-10-26] — discovered during Build (D46 / P5)
+**Category:** Known Gotcha
+**Finding:** Pipeline-tooling edges that cost time: (1) `build_wave.py reset` only handles `in_progress` and `packfix` only accepts PACK_FIX-flagged tasks, so a **blocked-but-repaired** task has no script verb — it needs a manual `status: not_started` in `task-graph.json` plus clearing its `failures.json` entry. (2) A rework dispatch is skipped when the task's result is newer than the escalation's `opened`, which is what stops `advance` looping while the reviewer catches up. (3) `worker_selfcheck.py` reads only `touches_files`, so a verification-only task must declare its own result file or every build artifact counts as a footprint violation. (4) `gen_changelog.py` counts wave-log entries, not tasks: a re-dispatched task appears twice and a transient block still prints under "Blocked" — correct the entry by hand.
+**Source:** D46 build/review cycle
