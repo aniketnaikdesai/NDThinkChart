@@ -11,6 +11,13 @@ through a custom ``ndt://`` scheme:
   ``qrc`` webchannel shim and ``data``/``blob`` subresources) is allowed, so
   a non-``ndt`` (``https:``/``http:``) request is blocked and the airplane
   case stays green with no network;
+* the ``QWebChannel`` is created, ``lwBridge`` is registered on it and the
+  channel is attached with ``QWebEnginePage.setWebChannel`` **before** the
+  page load (Q-16). Qt only injects ``qt.webChannelTransport`` into a page
+  that already had a channel when the load started; attaching afterwards
+  leaves ``qt`` undefined and ``window.lwBridge`` forever absent. The host
+  keeps a strong reference (``self._channel``) and re-attaches the channel
+  before every reload, so a renderer restart keeps the handshake;
 * attribution for the vendored tree ships in
   ``chart_assets/lwc/ATTRIBUTION.md`` and is exposed via
   ``attribution_text()``.
@@ -62,6 +69,12 @@ ALLOWED_SCHEMES = ("ndt", "qrc", "data", "blob")
 #: when no ``QApplication`` existed yet (the required order), False/None
 #: otherwise. ``None`` until the first call.
 REGISTERED_BEFORE_QAPP: bool | None = None
+
+#: ``QWebChannel`` object name the page's JS looks up
+#: (``chart_assets/lwc/chart.js::bindChannel`` does
+#: ``channel.objects.lwBridge``). The Python registration and the JS lookup
+#: must stay the same string (Q-16).
+BRIDGE_OBJECT_NAME = "lwBridge"
 
 ASSET_DIR = Path(__file__).resolve().parent.parent / "chart_assets" / "lwc"
 ATTRIBUTION_FILE = ASSET_DIR / "ATTRIBUTION.md"
@@ -158,6 +171,10 @@ try:  # pragma: no cover — exercised on engine boxes, skipped elsewhere
         QWebEngineUrlRequestInterceptor,
     )
     from PyQt6.QtWebEngineWidgets import QWebEngineView
+    # Q-16: the page transport. Owned by ``PyQt6.QtWebChannel`` (it ships
+    # with QtWebEngine); imported with the engine guard so an engine-less
+    # box still imports this module (DG88/AP-P6-4).
+    from PyQt6.QtWebChannel import QWebChannel
 
     _HAS_WEBENGINE = True
 except Exception:  # offscreen CI without Chromium (DG88): import-safe
@@ -208,10 +225,37 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
         def __init__(self, bridge, parent=None):
             super().__init__(parent)
             self._bridge = bridge
+            # Q-16: the channel must exist and be attached to the page BEFORE
+            # the first ``load``. Qt injects ``qt.webChannelTransport`` only
+            # for a page that already had a channel when the load began, and
+            # the JS half (``chart.js::bindChannel``) needs it to publish
+            # ``channel.objects.lwBridge``. The strong reference keeps the
+            # QWebChannel alive for the page's lifetime (``setWebChannel``
+            # does not take ownership).
+            self._channel = None
+            self._attach_web_channel()
             self.setFocusPolicy(self.focusPolicy().__class__.StrongFocus)
             self.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Expanding)
             self.renderProcessTerminated.connect(self._on_render_terminated)
             self.loadFinished.connect(self._on_load_finished)
+
+        def _attach_web_channel(self):
+            """Register ``lwBridge`` and attach the channel to the page.
+
+            Idempotent: the first call creates the ``QWebChannel`` and
+            registers the bridge under ``BRIDGE_OBJECT_NAME``; every later
+            call re-applies the same channel to the page (the re-load path
+            after ``renderProcessTerminated``). Must run before ``load`` —
+            see the constructor note (Q-16).
+            """
+            page = self.page()
+            channel = self._channel
+            if channel is None:
+                channel = QWebChannel(self)
+                self._channel = channel
+                channel.registerObject(BRIDGE_OBJECT_NAME, self._bridge)
+            page.setWebChannel(channel)
+            return channel
 
         def host_url(self) -> str:
             return f"{NDT_SCHEME}://{NDT_HOST}/chart.html"
@@ -219,6 +263,10 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
         def load_chart(self) -> None:
             from PyQt6.QtCore import QUrl
 
+            # Re-attach first: a reload after a renderer restart gets the
+            # channel (and its injected transport) exactly as the first load
+            # did. Attaching after ``load`` would be too late (Q-16).
+            self._attach_web_channel()
             self.load(QUrl(self.host_url()))
 
         def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt naming)
@@ -232,6 +280,10 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
 
         def _on_render_terminated(self, *args) -> None:
             self._bridge.handle_render_terminated()
+            # The page object (and with it ``self._channel``) survives the
+            # renderer process; ``load_chart`` re-attaches the channel before
+            # reloading, so the fresh page gets ``qt.webChannelTransport`` and
+            # the bridge handshake again (Q-16).
             self.load_chart()  # reload into a fresh renderer
 
         def _on_load_finished(self, ok: bool) -> None:
