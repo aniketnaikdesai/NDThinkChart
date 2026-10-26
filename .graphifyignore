@@ -46,3 +46,17 @@ docs/orchestrator_state.json
 #   docs/ibkr-api-data-inventory.md            the IBKR API surface inventory
 #   docs/thinkorswim-feature-gap-analysis.md   feature-gap analysis
 #   USAGE.txt, usage.md, requirements.txt
+
+# ── operational / generated / already-summarised documents ──────────────────
+# These restate the code or record the process rather than describe behaviour the
+# graph could help navigate (owner call, 2026-10-26). The usage guides and the
+# changelog are generated/derived; the codebase map and memory file duplicate what
+# the AST already knows; the review logs and the order-code audit are review
+# transcripts of removals that no longer exist in the tree.
+USAGE.txt
+usage.md
+docs/CHANGELOG.md
+docs/codebase-map.md
+docs/memory.md
+docs/code_review/review_log_*.md
+docs/code_review/order_code_audit.md
