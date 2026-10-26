@@ -20,6 +20,13 @@ class PacingExceeded(Exception):
 
 
 class PacingManager:
+    # Q-17: a caller that sleeps exactly the reported interval wait must land
+    # PAST the gate, not on it. The value is sampled before the caller starts
+    # its timer, and a coarse Qt timer may fire a few percent early, so an
+    # exact wait can be rejected forever (PacingExceeded(0.0004) -> "in 0s").
+    # Pad the binding interval wait by this margin (never above one interval).
+    _INTERVAL_SAFETY_MARGIN_S = 0.05
+
     def __init__(self):
         self._lock = threading.Lock()
         self._last_req_time = 0.0
@@ -121,7 +128,22 @@ class PacingManager:
                 settings.HISTORICAL_MIN_INTERVAL_S
                 - (now - self._last_hist_time),
             )
-            return max(budget_wait, interval_wait)
+            reported = budget_wait
+            if interval_wait > 0.0:
+                # Q-17: when the interval is the binding gate, report the wait
+                # AUTHORITATIVELY rather than exactly — with a small margin so
+                # a caller that sleeps the returned duration is guaranteed past
+                # the gate even if its timer fires a few ms early. Capped at
+                # one interval so a freshly recorded request never reports
+                # more than its own interval.
+                reported = max(
+                    reported,
+                    min(
+                        interval_wait + self._INTERVAL_SAFETY_MARGIN_S,
+                        settings.HISTORICAL_MIN_INTERVAL_S,
+                    ),
+                )
+            return reported
 
     def record_historical_slot(self) -> None:
         """Record a reqHistoricalData request against the budget. Call only

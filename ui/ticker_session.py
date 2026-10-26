@@ -23,6 +23,7 @@ avoid a ui.main_window import cycle.
 from __future__ import annotations
 
 import logging
+import math
 import time
 
 from PyQt6.QtCore import QObject, pyqtSignal as Signal, QTimer
@@ -60,6 +61,17 @@ _PRIME_MAX_SPAN_S = 3_600
 _PRIME_MAX_SPAN_1MIN_S = 86_400
 
 _LOG = logging.getLogger(__name__)
+
+# Q-17: a pacing-limited backfill continuation must never fire exactly on the
+# pacing gate. The reported wait is authoritative (ibkr.pacing pads the binding
+# interval wait with a safety margin); the timer adds its own margin so an
+# early-firing Qt coarse timer still lands past the gate. A residual wait under
+# 0.2 s means this tick fired a hair early — re-tick in 50 ms instead of
+# rescheduling another full second, which a coarse timer would miss again,
+# leaving the wave permanently stalled ("continuing backfill in 0s…").
+_NEAR_ZERO_WAIT_S = 0.2
+_NEAR_ZERO_TICK_MS = 50
+_CONTINUATION_MARGIN_MS = 50
 
 
 class TickerSession(QObject):
@@ -897,13 +909,40 @@ class TickerSession(QObject):
             wait = pacing_manager.historical_wait_seconds()
             self._schedule_wave_continuation(max(wait, 1.0))
 
+    def _continuation_delay_ms(self, wait_s: float) -> int:
+        """Delay before re-issuing a deferred wave chunk (Q-17).
+
+        The reported wait is authoritative: ``ceil + 50 ms`` guarantees the
+        tick lands past the pacing gate even when the timer fires a few ms
+        early. A near-zero residual means the previous tick was a hair early —
+        retry on a short tick so the wave converges immediately instead of
+        spinning on another full second (which would be early again).
+        """
+        wait_s = max(0.0, float(wait_s or 0.0))
+        if wait_s < _NEAR_ZERO_WAIT_S:
+            return _NEAR_ZERO_TICK_MS
+        return int(math.ceil(wait_s * 1000.0)) + _CONTINUATION_MARGIN_MS
+
+    @staticmethod
+    def _format_wait(wait_s: float) -> str:
+        """Human-readable wait for the status line — never a misleading '0s'."""
+        if wait_s < 0.1:
+            return "<0.1s"
+        return f"{wait_s:.1f}s"
+
     def _schedule_wave_continuation(self, wait_s: float) -> None:
         """Defer the rest of the wave (D28.3): never sleeps, re-arms the
-        watchdog so the deferred chunks don't trip the strand bound."""
-        ms = max(1000, int(wait_s * 1000))
+        watchdog so the deferred chunks don't trip the strand bound.
+
+        Q-17: the wait is authoritative, not exact (see
+        :meth:`_continuation_delay_ms`); a tick that lands a hair early retries
+        on a short tick instead of rescheduling a full second forever.
+        """
+        wait_s = max(0.0, float(wait_s or 0.0))
+        ms = self._continuation_delay_ms(wait_s)
         self._status(
             f"{self.symbol} — pacing-limited, continuing backfill in "
-            f"{int(wait_s)}s…"
+            f"{self._format_wait(wait_s)}…"
         )
         self._arm_history_wave_watchdog()
         self._wave_continue_timer.start(ms)
@@ -1009,7 +1048,7 @@ class TickerSession(QObject):
                     )
                     wait = pacing_manager.historical_wait_seconds()
                     self._wave_continue_timer.start(
-                        max(1000, int(wait * 1000))
+                        self._continuation_delay_ms(wait)
                     )
                     self._arm_history_wave_watchdog()
                     return
