@@ -203,3 +203,8 @@
 **Category:** Technical Note
 **Finding:** Before re-dispatching a dead build worker, inspect what it left: `docs/build/results/<id>.json`, its `touches_files` for edits on disk, and whether the task's `test_command` passes. Then **resume the same worker session** with the `sessionID` and a short delta prompt (what landed, what is pending) instead of starting a fresh worker — a fresh dispatch discards its context and risks duplicating or contradicting work already written. A `state: error` handoff is not proof of failure: the platform can fail only the closing message (`only "auto" is supported for tool_choice`), so P6-T04 arrived "failed" with a complete, green result. Check the tree first, always.
 **Source:** Owner directive 2026-10-26; P6-T04/P6-T05 worker deaths
+
+### [2026-10-26] — discovered across P6 waves (D47)
+**Category:** Known Gotcha
+**Finding:** The LWC migration's residue/parity guards each wrote a *wave-local* expectation that a later wave must widen — five instances in one batch: a hardcoded "19 open parity rows" count (breaks on every completed row), a hardcoded stdlib allowlist in the import-boundary test (broke when P6-T09 added `bisect`), the renderer import boundary itself, a forbidden `session_service` token (P6-10 legitimately consumes it), and five `TestRendererBoundary` scans forbidding the raw word `pyqtgraph` anywhere in `ui/lwc_view.py`, which a docstring tripped. The durable shape is to assert the *invariant* (row set + per-row disposition; `sys.stdlib_module_names` + project packages; AST/import-level checks, not raw substrings) rather than the current instance count or a literal list.
+**Source:** D47 P6-02/P6-07/P6-09/P6-10/P6-11 review waves

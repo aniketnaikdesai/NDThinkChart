@@ -1,12 +1,16 @@
 # LWC parity matrix — gate skeleton (P6-01)
 
-Rows 6, 7, 8, 9, 10, 11, 12, 13, 14 and 15 are **Done / accepted** as of P6-11
-(row 8 as of P6-06, rows 7/13/14 as of P6-07, row 12 as of P6-08, row 11 as of
-P6-09, rows 6/9/10 as of P6-10, row 15 as of P6-11). Every other row is
-**Open / pending**. A row
+Rows 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 and 19 are **Done / accepted**
+as of P6-12 (row 8 as of P6-06, rows 7/13/14 as of P6-07, row 12 as of P6-08,
+row 11 as of P6-09, rows 6/9/10 as of P6-10, row 15 as of P6-11, rows 16/17/19
+as of P6-12 — the cutover candidate, **declared not shipped**). Rows 1, 2, 3, 4,
+5 and 18 are **Open / pending** for their one remaining piece of evidence — the
+engine-box (Chromium) confirmation — and each carries an explicit **rule-10
+entry** below. A row
 moves to Done/accepted only with its gate evidence; **a row regressing without
-an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
-(P6-01→P6-13).
+an escalation fails review (rule 10)**. No soak: the triple gate (owner
+acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
+`docs/plan.md` § Phases (P6-01→P6-13).
 
 | # | Row | pyqtgraph reference (today) | LWC target | Gate wave | Disposition |
 |---|---|---|---|---|---|
@@ -25,12 +29,115 @@ an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
 | 13 | Mouse router TR-1…TR-17 + JS mirror | `ChartMouseRouter` (frozen contract) | Python router + JS mirror (mirror never reinterprets) | P6-07 | Done / accepted |
 | 14 | Zoom/magnifier + reset + volume toggle + controls | `ZoomOverlay`, `ChartControls` | in-HTML controls + Python shims | P6-07 | Done / accepted |
 | 15 | Pop-out charts (cap 10, per-pop-out memory) | `popout_window.py`, `MAX_POPOUTS` (Q62/A107, DG90) | LWC views in pop-outs; memory accounted | P6-11 | Done / accepted |
-| 16 | Perf parity (Phase-0 baseline holds) | perf baseline in `docs/lwc_spike_results.md` | cutover evidence vs baseline (triple gate) | P6-12 | Open / pending |
-| 17 | Bundle size + signing disposition | measured delta in `docs/lwc_spike_results.md` (Q61/A109) | vendored tree in `datas`, signed; delta recorded | P6-12 | Open / pending |
+| 16 | Perf parity (Phase-0 baseline holds) | perf baseline in `docs/lwc_spike_results.md` | cutover evidence vs baseline (triple gate) | P6-12 | Done / accepted |
+| 17 | Bundle size + signing disposition | measured delta in `docs/lwc_spike_results.md` (Q61/A109) | vendored tree in `datas`; measured delta + signing disposition recorded | P6-12 | Done / accepted |
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Open / pending |
-| 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Open / pending |
+| 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Done / accepted |
 
-Row count: 19. Dispositioned Open/pending: 9. Done/accepted: 10.
+Row count: 19. Dispositioned Open/pending: 6. Done/accepted: 13.
+
+## Rule-10 entries — rows still Open / pending at the cutover candidate
+
+Rule 10: a row regressing without an escalation fails review. The six rows
+below are **not** regressions and **not** waivers: each one's remaining
+evidence is the same single item — the engine-box (Chromium) confirmation —
+which cannot run in this venv (`PyQt6-WebEngine` is not installed, so
+`@pytest.mark.webengine` cases skip per DG88/AP-P6-4 and each skip names its
+manual-checklist counterpart). Every one of these rows has green offscreen
+evidence and none was re-dispositioned, relaxed or skipped.
+
+- **Row 1 — Rule-10 entry:** offscreen history render parity is green
+  (`tests/test_lwc_time_parity.py`, `node --test chart_assets/lwc/`); pending
+  only the rendered candle chart on a Chromium engine box (manual checklist).
+- **Row 2 — Rule-10 entry:** live forming-bar `series.update` parity is green
+  offscreen; pending the rendered live tick on the engine box.
+- **Row 3 — Rule-10 entry:** volume pane family/ceiling parity is green
+  offscreen; pending the rendered volume pane on the engine box.
+- **Row 4 — Rule-10 entry:** logical-index axis + whitespace parity is green
+  offscreen; pending the rendered axis on the engine box.
+- **Row 5 — Rule-10 entry:** ET/DST formatter parity is green offscreen; pending
+  the rendered tz labels across the DST fixtures on the engine box.
+- **Row 18 — Rule-10 entry:** the offline/airplane + deny-default interceptor
+  cases are green offscreen; pending the host load, interceptor and
+  `renderProcessTerminated` recovery on Chromium (the webengine skips).
+
+### P6-12 — Phase 10 packaging + CI + cutover candidate (2026-10-26)
+
+- **The cutover candidate is declared, not shipped.** `NDT_CHART_ENGINE` unset
+  or unknown still resolves to pyqtgraph through
+  `ui/chart_view.create_chart_view`, so pyqtgraph remains present and the
+  **default** engine; the LWC view is still the opt-in value, and **no
+  pyqtgraph code was deleted** — the P6-13 deletion set is untouched
+  and every retained engine module still exists (`ui/chart_panel.py`,
+  `ui/candlestick_item.py`, the overlay/controls/router/pop-out modules). The
+  removal wave stays separately owner-gated: explicit approval after one live
+  trading session with no engine defect (AC-D47.8, S59), never riding along
+  with cutover. No soak: the triple gate (owner acceptance + full parity +
+  Phase-0 perf) replaces it, and the owner-acceptance leg is on record as
+  Q61/A109 (measure-first, no fixed budget) plus the no-soak decision.
+- **Bundle wiring, both specs.** `NDThinkChart.spec` and
+  `packaging/build.spec` now carry `('chart_assets/lwc', 'chart_assets/lwc')`
+  in `datas` — the whole vendored v5.2.1 tree (14 files) that the offline page
+  resolves through `ndt://lwc/` (`ui/lwc_host.ASSET_DIR` is the same tree),
+  including `chart.html`, the vendored
+  `lightweight-charts.standalone.production.js`, `chart.js`, `envelope.js`, the
+  channel modules, the `VERSION` pin and `ATTRIBUTION.md`. Both specs also
+  name `PyQt6.QtWebEngineCore` / `PyQt6.QtWebEngineWidgets` /
+  `PyQt6.QtWebChannel` in `hiddenimports`, so PyInstaller cannot prune the
+  host/bridge (or the Chromium runtime they pull) from the app; `pyqtgraph`
+  stays in the packaged spec's imports.
+- **Measured `.app` size delta (measure-first, Q61/A109/DG89) — the number the
+  owner's budget decision starts from.** Bundle baseline unchanged from P6-01:
+  `dist/NDThinkChart` = **378,400 KB** (`du -sk`, onedir PyInstaller build on
+  this machine, re-measured 2026-10-26). The vendored tree the `datas` entry
+  now absorbs = **338,928 bytes across 14 files (331.0 KB of file data; 428 KB
+  as allocated on disk)**, i.e. **+0.09 %** of the bundle (378,400 → 378,731 KB
+  by file bytes). The QtWebEngine/Chromium term is **not measured**: this venv
+  has no `PyQt6-WebEngine`, so no number is invented for it — it is the
+  dominant unknown and must be measured on a build host that has the wheel
+  before any size budget is set. **No fixed size budget is set** (the P6-01
+  record's "no fixed size budget" stands; this wave only adds measurement).
+- **Signing-flow disposition.** Today's flow is spec-driven PyInstaller with
+  `codesign_identity=None` and `entitlements=None` in both specs — an
+  ad-hoc/unsigned development bundle, with no notarization step anywhere in the
+  repo. The vendored tree changes nothing about that: it adds only text/web
+  assets (`.js`, `.html`, `.json`, `.md`, `VERSION`), which any signature over
+  the bundle covers. QtWebEngine's Chromium runtime is the change that matters:
+  it brings **nested Mach-O binaries**, so a signed distribution will need
+  nested-code signing plus hardened-runtime entitlements (JIT / unsigned
+  executable memory) that the spec does not set today. That obligation is
+  recorded, not guessed: no identity, entitlement set or budget is invented
+  here, and no signing step is added this wave.
+- **CI wiring (`.github/workflows/lwc_parity.yml`).** macOS runner, Python
+  3.11, Node 22, job-level `QT_QPA_PLATFORM=offscreen`. Steps: the cutover gate
+  suite (`tests/test_lwc_cutover_gate.py`), the offscreen suite
+  (`-m "not webengine"`), a dedicated `-m webengine` step that fails only if a
+  webengine case is red (skips stay skips, DG88/AP-P6-4), `node --test
+  chart_assets/lwc/`, and the parity-matrix row-count gate (19 rows, all
+  numbers 1–19 present).
+- **Phase-0 perf holds (re-measured 2026-10-26, host Python 3.11).** 5,000-bar
+  OHLC Python build **0.84 ms** against the 1.3 ms Phase-0 floor; the
+  column-array history envelope serializes in **3.1 ms** (248,880 bytes for
+  this fixture) against the 5.5 ms floor. The Phase-0 record itself is
+  unchanged (`docs/lwc_spike_results.md` still holds 1.3 ms / 533,265 bytes /
+  5.5 ms) — the floors are pinned by the gate suite, so relaxing them fails
+  review. The render-side fps half still rides the engine-box checklist
+  (rows 1–5/18 rule-10 entries).
+- **Renderer-only boundary held.** No file under `ibkr/`, no DB schema or
+  store API, no service signature, no watchlist/dock/persistence surface and
+  no order surface was created, modified or reintroduced by this wave: the
+  change set is the two PyInstaller specs, the CI workflow, this matrix and the
+  gate suite. JS still receives timestamps and prices only (no channel changed
+  in this wave), and the bundle change is asset shipping, not a wire contract.
+- Gate evidence: `tests/test_lwc_cutover_gate.py` (spec `datas`/`hiddenimports`
+  parsed from source, offline asset canary, measured-delta + signing
+  disposition, structurally validated CI workflow, 19-row matrix with rule-10
+  coverage and count-line agreement, candidate declared/not shipped, env
+  unset/unknown → pyqtgraph, pyqtgraph modules present, Phase-0 perf floor
+  pinned and met, deletion-set + backend residue scan) +
+  `.github/workflows/lwc_parity.yml` + `node --test chart_assets/lwc/`.
+  Rows 16/17/19 move to **Done / accepted**; no Done row regressed; 6/19 remain
+  Open / pending, each with its rule-10 entry.
 
 ## Wave exit notes
 

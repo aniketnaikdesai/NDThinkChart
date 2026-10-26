@@ -1,0 +1,87 @@
+# LWC parity + cutover gate (P6-T12 / AC-D47.6, AC-D47.8, AC-D47.9).
+#
+# This workflow is the CI half of the cutover gate: the offscreen Python gate
+# suite, the JS (`node --test`) parity suite, and the parity-matrix row count.
+# `@pytest.mark.webengine` cases are run as a separate step so Chromium-less
+# runners skip them cleanly — they are never red (DG88 / AP-P6-4); each skip
+# names its manual-checklist counterpart in the case itself.
+#
+# Nothing here flips the default engine: pyqtgraph stays present and default
+# through cutover (P6-13 is separately owner-gated).
+name: LWC parity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lwc-parity:
+    name: offscreen gate + JS parity
+    runs-on: macos-14
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+
+      - name: Cutover gate suite (offscreen)
+        run: |
+          python -m pytest tests/test_lwc_cutover_gate.py -q
+
+      - name: Offscreen Python suite (engine-gated cases excluded)
+        run: |
+          python -m pytest -q -m "not webengine"
+
+      - name: Webengine cases skip cleanly (never red)
+        run: |
+          python -m pytest -q -m webengine > webengine.log 2>&1
+          cat webengine.log
+          if grep -E "^(FAILED|ERROR)|[0-9]+ failed" webengine.log; then
+            echo "webengine cases must skip, never fail (DG88/AP-P6-4)" >&2
+            exit 1
+          fi
+
+      - name: JS parity suite (node --test)
+        run: |
+          node --test chart_assets/lwc/
+
+      - name: Parity matrix row count
+        run: |
+          python - <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          text = Path("docs/lwc_parity_matrix.md").read_text(encoding="utf-8")
+          rows = re.findall(r"^\|\s*(\d+)\s*\|", text, re.MULTILINE)
+          print(f"parity matrix row count: {len(rows)}")
+          if len(rows) != 19:
+              sys.exit(f"parity matrix must hold 19 rows, found {len(rows)}")
+          missing = [n for n in map(str, range(1, 20)) if n not in rows]
+          if missing:
+              sys.exit(f"parity matrix is missing rows: {', '.join(missing)}")
+          PY
+
+

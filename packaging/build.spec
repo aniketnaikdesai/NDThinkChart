@@ -24,6 +24,7 @@ _spec_dir = Path(os.getcwd()) / "packaging"
 _project_root = _spec_dir.parent
 _config_dir = _project_root / "config"
 _data_dir = _project_root / "data"
+_lwc_dir = _project_root / "chart_assets" / "lwc"
 _sound_dir = _project_root / "assets" / "sounds" if (_project_root / "assets" / "sounds").exists() else None
 
 # ── Analysis ───────────────────────────────────────────────────────────
@@ -34,12 +35,23 @@ a = Analysis(
     datas=[
         # Bundle QSS theme
         (str(_config_dir / "theme.qss"), "config"),
+        # Vendored Lightweight Charts v5.2.1 tree (P6-T12 / AC-D47.6, AC-D47.8):
+        # the whole directory ships as data so the offline ndt://lwc/ page and
+        # every relative asset it loads resolve inside the signed bundle. The
+        # version pin + attribution travel with it (VERSION, ATTRIBUTION.md).
+        (str(_lwc_dir), "chart_assets/lwc"),
     ],
     hiddenimports=[
         "PyQt6",
         "PyQt6.QtCore",
         "PyQt6.QtGui",
         "PyQt6.QtWidgets",
+        # QtWebEngine host + QWebChannel bridge (ui/lwc_host.py, ui/lwc_bridge.py).
+        # Import-guarded in code (DG88); listing them keeps PyInstaller from
+        # pruning the modules and the Chromium runtime they carry.
+        "PyQt6.QtWebEngineCore",
+        "PyQt6.QtWebEngineWidgets",
+        "PyQt6.QtWebChannel",
         "pyqtgraph",
         "ibapi",
         "ibapi.client",
@@ -111,6 +123,13 @@ if is_darwin:
         disable_windowed_traceback=False,
         argv_emulation=False,
         target_arch="arm64",
+        # Signing disposition (P6-T12 / Q61 / A109, measured in
+        # docs/lwc_spike_results.md): the flow stays ad-hoc/unsigned this wave —
+        # the vendored LWC tree is text assets only, covered by whatever signs
+        # the bundle. QtWebEngine's Chromium runtime adds nested Mach-O
+        # binaries, which will require nested-code signing + hardened-runtime
+        # entitlements before any signed distribution; that is the open
+        # obligation the owner budgets for (no identity is invented here).
         codesign_identity=None,
         entitlements=None,
     )

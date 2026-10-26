@@ -5,8 +5,22 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('config/theme.qss', 'config')],
-    hiddenimports=[],
+    datas=[
+        ('config/theme.qss', 'config'),
+        # Vendored Lightweight Charts v5.2.1 tree (P6-T12 / AC-D47.6, AC-D47.8):
+        # shipped whole so the offline page (chart.html) and every relative
+        # asset it loads resolve inside the bundle via ndt://lwc/. The version
+        # pin travels with it (chart_assets/lwc/VERSION + ATTRIBUTION.md).
+        ('chart_assets/lwc', 'chart_assets/lwc'),
+    ],
+    hiddenimports=[
+        # QtWebEngine host + QWebChannel bridge (ui/lwc_host.py, ui/lwc_bridge.py).
+        # Import-guarded in code (DG88); naming them here keeps PyInstaller from
+        # pruning the modules (and the Chromium runtime they pull) from the app.
+        'PyQt6.QtWebEngineCore',
+        'PyQt6.QtWebEngineWidgets',
+        'PyQt6.QtWebChannel',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
