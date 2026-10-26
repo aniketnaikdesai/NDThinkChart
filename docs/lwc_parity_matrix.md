@@ -1,8 +1,9 @@
 # LWC parity matrix — gate skeleton (P6-01)
 
-Rows 6, 7, 8, 9, 10, 11, 12, 13 and 14 are **Done / accepted** as of P6-10
+Rows 6, 7, 8, 9, 10, 11, 12, 13, 14 and 15 are **Done / accepted** as of P6-11
 (row 8 as of P6-06, rows 7/13/14 as of P6-07, row 12 as of P6-08, row 11 as of
-P6-09, rows 6/9/10 as of P6-10). Every other row is **Open / pending**. A row
+P6-09, rows 6/9/10 as of P6-10, row 15 as of P6-11). Every other row is
+**Open / pending**. A row
 moves to Done/accepted only with its gate evidence; **a row regressing without
 an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
 (P6-01→P6-13).
@@ -23,15 +24,61 @@ an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
 | 12 | Alarms (lines, placement, preview) | `AlarmOverlay` + preview line (D21.10) | alarm lines on LWC; Qt dialogs stay | P6-08 | Done / accepted |
 | 13 | Mouse router TR-1…TR-17 + JS mirror | `ChartMouseRouter` (frozen contract) | Python router + JS mirror (mirror never reinterprets) | P6-07 | Done / accepted |
 | 14 | Zoom/magnifier + reset + volume toggle + controls | `ZoomOverlay`, `ChartControls` | in-HTML controls + Python shims | P6-07 | Done / accepted |
-| 15 | Pop-out charts (cap 10, per-pop-out memory) | `popout_window.py`, `MAX_POPOUTS` (Q62/A107, DG90) | LWC views in pop-outs; memory accounted | P6-11 | Open / pending |
+| 15 | Pop-out charts (cap 10, per-pop-out memory) | `popout_window.py`, `MAX_POPOUTS` (Q62/A107, DG90) | LWC views in pop-outs; memory accounted | P6-11 | Done / accepted |
 | 16 | Perf parity (Phase-0 baseline holds) | perf baseline in `docs/lwc_spike_results.md` | cutover evidence vs baseline (triple gate) | P6-12 | Open / pending |
 | 17 | Bundle size + signing disposition | measured delta in `docs/lwc_spike_results.md` (Q61/A109) | vendored tree in `datas`, signed; delta recorded | P6-12 | Open / pending |
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Open / pending |
 | 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Open / pending |
 
-Row count: 19. Dispositioned Open/pending: 10. Done/accepted: 9.
+Row count: 19. Dispositioned Open/pending: 9. Done/accepted: 10.
 
 ## Wave exit notes
+
+### P6-11 — Phase 9 pop-outs (2026-10-26)
+
+- **Pop-outs re-host on the resolved engine.** `ui/popout_window.py` builds its
+  read-only view through `ui.chart_view.create_chart_view` (the single engine
+  selection authority: env, then the persisted override; anything but `"lwc"` →
+  pyqtgraph, still present and **default**). The factory's LWC branch is still
+  the Phase-1a seam stub, so on `"lwc"` the pop-out re-hosts the real driver
+  (`ui/lwc_view.py`) — the same composition the phase suites use. The pop-out
+  keeps D24's read-only contract on both engines: `editable=False`, no drawing
+  tool, alarm placement inert (`set_alarm_mode` → IDLE), router IDLE.
+- **One session fan-out, main chart the sole writer.** The LWC driver gained the
+  session-facing surface the fan-out already calls: `update_chart` (the
+  `ChartPanel` spelling of `update_bars`) and a `drawing_overlay` proxy whose
+  single entry point, `set_data(symbol, drawings, groups)`, maps onto
+  `set_drawings`. `ui/ticker_session.py` and `data/popout_store.py` are
+  **untouched** — bars, live ticks, studies, drawings and alarms reach 1/3/6
+  pop-outs through exactly the D24 path, and the RT subscription stays
+  refcounted to one reqId per symbol.
+- **Per-pop-out memory accounted (DG90).** Every window holds a ledger entry
+  (`POPOUT_MEMORY_LEDGER`, keyed by pop-out serial) with its own buckets —
+  private series copy, plotted/logical columns, study value arrays, drawing and
+  marker wire items, and the bridge replay log (the one structure that grows
+  with traffic). Totals are per window and aggregate
+  (`popout_memory_total()`), never a single opaque number. On close the entry is
+  dropped and the LWC view's arrays/logs are released
+  (`LwcChartView.release_resources`) — no pop-out's state outlives its window.
+- **Cap stays 10 (Q62/A107).** `MAX_POPOUTS = 10` unchanged; the refusal lives in
+  `MainWindow._open_popout` **before** the window (and therefore the engine
+  view) is constructed, so neither engine can bypass it — the 11th request gets
+  the same `Pop-out limit reached (10). Close one to open another.` status line
+  and constructs nothing.
+- **Persistence semantics unchanged.** `PopoutStore` keeps its four-entry API
+  and signature (save on open, delete on close, geometry on move/resize end,
+  restore on connect); only the view behind the header changed.
+- Renderer-only boundary held: no `ibkr/` file, DB schema/store API, service
+  signature, watchlist/dock surface or order-code path was created, modified or
+  reintroduced; JS still receives timestamps and prices only (none of the
+  P6-05…P6-10 channels changed).
+- Gate evidence: `tests/test_lwc_popouts.py` (1/3/6 LWC pop-outs open → sync
+  bars/studies/drawings/alarms → close with per-pop-out accounting and release;
+  cap 10 asserted and the 11th refused on **both** engines with no view
+  constructed; residue/AST scan of sessions, persistence, settings and the
+  renderer boundary) + `tests/test_d24_popouts.py` green unmodified. Row 15
+  moves to **Done / accepted**; no Done row regressed, 9/19 remain
+  Open / pending.
 
 ### P6-10 — Phase 8 overlays + event markers (2026-10-26)
 

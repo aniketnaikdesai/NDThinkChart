@@ -1,10 +1,22 @@
-"""ui/popout_window.py — per-ticker pop-out chart windows (D24).
+"""ui/popout_window.py — per-ticker pop-out chart windows (D24, P6-11).
 
 A PopoutChartWindow is a slim, chrome-free window parented to the main window:
 a ~28px header (``SYMBOL · timeframe · mode`` + close button) above a
-read-only ChartPanel. The panel renders bars, studies, drawings and alarms
+read-only chart view. The panel renders bars, studies, drawings and alarms
 live, but drawing / alarm-placement / studies / timeframe / mode interaction
 is disabled — the main chart is the sole writer.
+
+The view is created through ``ui.chart_view.create_chart_view``, so a pop-out
+re-hosts on whichever engine the seam resolves: pyqtgraph stays present and
+default (``NDT_CHART_ENGINE`` unset), and the ``"lwc"`` value gives the LWC
+driver. Both views satisfy the same session surface the fan-out needs
+(``update_chart`` / ``set_studies`` / ``drawing_overlay.set_data`` /
+``set_alarms``), so D24's single-writer invariant and the pop-out cap
+(``MAX_POPOUTS = 10``, Q62/A107) are engine-independent.
+
+Each pop-out accounts its own memory in ``POPOUT_MEMORY_LEDGER`` (DG90) and
+releases it on close, so 1/3/6 pop-outs are auditable per window rather than
+as one opaque total.
 
 The window attaches to the symbol's TickerSession (creating it if needed):
 bars, studies, drawings and alarms sync in real time via the session's view
@@ -16,6 +28,8 @@ context menu (owner decision 2026-10-12).
 """
 
 from __future__ import annotations
+
+import itertools
 
 from PyQt6.QtCore import Qt, QPoint, QTimer
 from PyQt6.QtWidgets import (
@@ -29,7 +43,83 @@ from PyQt6.QtWidgets import (
 
 from data.popout_store import PopoutStore
 from ibkr.pacing import PacingExceeded
-from ui.chart_panel import ChartPanel
+from ui.chart_view import create_chart_view
+
+#: Mode label (the header/host text) → the LWC driver's mode name.
+MODE_NAMES = {
+    "Candles": "candles",
+    "Hollow": "hollow",
+    "Heikin-Ashi": "heikin",
+    "Line": "line",
+    "Area": "area",
+}
+
+#: DG90: one ledger entry per open pop-out, keyed by its pop-out serial.
+POPOUT_MEMORY_LEDGER: dict[int, dict] = {}
+
+#: DG90: bytes budgeted per stored bar when a view reports no account itself
+#: (the pyqtgraph panel keeps a plain list of bars, nothing else per view).
+BAR_BYTES = 128
+
+_popout_serials = itertools.count(1)
+
+
+def popout_view(tz_offset: float = 0.0):
+    """The read-only chart view for one pop-out, on the resolved engine.
+
+    ``ui.chart_view.create_chart_view`` is the single engine-selection
+    authority (``NDT_CHART_ENGINE``, then the persisted override; anything
+    other than ``"lwc"`` → pyqtgraph, which stays present and default). Its
+    LWC branch is still the Phase-1a seam stub — the render driver's factory
+    wiring is cutover work — so when the factory resolves ``"lwc"`` a pop-out
+    re-hosts the real driver, composed directly exactly as the phase suites
+    compose it. No engine name is resolved here: the factory decides.
+    """
+    view = create_chart_view(tz_offset=tz_offset, editable=False)
+    if getattr(view, "ENGINE_NAME", None) != "lwc":
+        return view
+    from ui.lwc_view import LwcChartView as LwcDriverView
+
+    if isinstance(view, LwcDriverView):
+        return view
+    view.deleteLater()
+    return LwcDriverView(tz_offset=tz_offset, editable=False)
+
+
+def view_memory_estimate(view) -> dict:
+    """DG90 memory account for one pop-out's view.
+
+    Engine views that can account themselves (the LWC driver's
+    ``memory_bytes``) are asked; the pyqtgraph panel has no per-view transport
+    or overlay arrays of its own — its bars list is the pop-out's private copy
+    — so it is accounted from that list.
+    """
+    reporter = getattr(view, "memory_bytes", None)
+    if callable(reporter):
+        try:
+            return dict(reporter())
+        except Exception:
+            pass
+    bars = len(list(getattr(view, "_bars", None) or []))
+    return {
+        "engine": getattr(view, "ENGINE_NAME", type(view).__name__),
+        "popout": True,
+        "bars": bars,
+        "buckets": {"bars": bars * BAR_BYTES},
+        "total_bytes": bars * BAR_BYTES,
+        "bridge": {},
+    }
+
+
+def popout_memory_ledger() -> dict[int, dict]:
+    """Snapshot of the DG90 ledger — one entry per open pop-out window."""
+    return {key: dict(value) for key, value in POPOUT_MEMORY_LEDGER.items()}
+
+
+def popout_memory_total() -> int:
+    """Total bytes accounted across every open pop-out (DG90)."""
+    return sum(int(entry.get("total_bytes", 0))
+               for entry in POPOUT_MEMORY_LEDGER.values())
 
 
 class PopoutChartWindow(QWidget):
@@ -95,22 +185,13 @@ class PopoutChartWindow(QWidget):
         hl.addWidget(close_btn)
         layout.addWidget(header)
 
-        # Read-only chart panel.
-        self.chart = ChartPanel(editable=False)
+        # Read-only chart view, on whichever engine the seam resolves.
+        self.chart = popout_view(tz_offset=0.0)
         self.chart.set_symbol(self.symbol)
         self.chart.set_timeframe(timeframe)
         self.chart.set_extended_hours(extended_hours)
         # Mode is frozen at creation (display-only for pop-outs).
-        from ui.chart_panel import ChartMode
-
-        mode_by_label = {
-            "Candles": ChartMode.CANDLES,
-            "Hollow": ChartMode.HOLLOW,
-            "Heikin-Ashi": ChartMode.HEIKIN,
-            "Line": ChartMode.LINE,
-            "Area": ChartMode.AREA,
-        }
-        self.chart.set_chart_mode(mode_by_label.get(mode, ChartMode.CANDLES))
+        self._apply_mode(mode)
         layout.addWidget(self.chart, 1)
 
         self.resize(640, 420)
@@ -121,11 +202,89 @@ class PopoutChartWindow(QWidget):
         self._geo_timer.setInterval(500)
         self._geo_timer.timeout.connect(self._save_geometry)
         self._popout_id: int | None = None
+        # P6-11/DG90: per-pop-out memory account (ledger key + last report).
+        self.memory_id: int = next(_popout_serials)
+        self.memory: dict = {}
+        self._engine_host = None
+
+    # ── Engine-neutral view helpers ───────────────────────────────────
+
+    def _apply_mode(self, mode: str) -> None:
+        """Apply the snapshot's mode on either engine (frozen for pop-outs)."""
+        set_mode = getattr(self.chart, "set_mode", None)
+        if set_mode is not None:
+            set_mode(MODE_NAMES.get(mode, "candles"))
+            return
+        from ui.chart_panel import ChartMode
+
+        mode_by_label = {
+            "Candles": ChartMode.CANDLES,
+            "Hollow": ChartMode.HOLLOW,
+            "Heikin-Ashi": ChartMode.HEIKIN,
+            "Line": ChartMode.LINE,
+            "Area": ChartMode.AREA,
+        }
+        self.chart.set_chart_mode(mode_by_label.get(mode, ChartMode.CANDLES))
+
+    def _push_bars(self, bars: list) -> None:
+        """Full-series replace on either engine (``update_chart``/``update_bars``)."""
+        update = getattr(self.chart, "update_chart", None)
+        if update is None:
+            update = getattr(self.chart, "update_bars", None)
+        if update is not None:
+            update(list(bars or []))
+
+    def _ensure_engine_host(self) -> None:
+        """Give this pop-out its own offline host, when the engine is present.
+
+        The D47 host is per view (``ensure_host``); each pop-out therefore owns
+        one rather than sharing the main chart's. Engine-less CI (DG88) has no
+        Chromium: ``ensure_host`` raises, the view still syncs through its
+        bridge, and the pop-out never depends on the host existing.
+        """
+        ensure = getattr(self.chart, "ensure_host", None)
+        if not callable(ensure):
+            return
+        try:
+            self._engine_host = ensure()
+        except Exception:
+            self._engine_host = None
+
+    # ── DG90 memory accounting ────────────────────────────────────────
+
+    @property
+    def memory_bytes(self) -> int:
+        """This pop-out's accounted bytes (0 once released)."""
+        return int(self.memory.get("total_bytes", 0))
+
+    def _account_memory(self) -> None:
+        """Record (or refresh) this pop-out's DG90 ledger entry."""
+        self.memory = view_memory_estimate(self.chart)
+        self.memory.update({
+            "id": self.memory_id,
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "mode": self.mode,
+            "host": self._engine_host is not None,
+        })
+        POPOUT_MEMORY_LEDGER[self.memory_id] = self.memory
+
+    def _release_memory(self) -> None:
+        """Release the ledger entry and the view's arrays on close (DG90)."""
+        POPOUT_MEMORY_LEDGER.pop(self.memory_id, None)
+        self.memory = {}
+        release = getattr(self.chart, "release_resources", None)
+        if callable(release):
+            try:
+                release()
+            except Exception:
+                pass
 
     # ── Session wiring ────────────────────────────────────────────────
 
     def attach(self) -> None:
         """Attach to the symbol's session (initial full sync + RT refcount)."""
+        self._ensure_engine_host()
         session = self._host.get_or_create_session(self.symbol)
         self._session = session
         session.attach_view(self.chart, self.timeframe, sync=True)
@@ -156,6 +315,8 @@ class PopoutChartWindow(QWidget):
             pass
         # Track for the MAX_POPOUTS cap and persistence.
         self._host._register_popout(self)
+        # P6-11/DG90: account this pop-out's memory (per window).
+        self._account_memory()
         # D24.9: persist on open.
         self._popout_id = PopoutStore.save(
             self.symbol,
@@ -208,6 +369,8 @@ class PopoutChartWindow(QWidget):
                 session.detach_view(self.chart)
         finally:
             self._host._unregister_popout(self)
+            # P6-11/DG90: release this pop-out's accounted memory (no leak).
+            self._release_memory()
 
     # ── Session signal slots ──────────────────────────────────────────
 
@@ -219,7 +382,10 @@ class PopoutChartWindow(QWidget):
     def _on_bars_refreshed(self, timeframe: str, bars: list) -> None:
         if timeframe != self.timeframe:
             return
-        self.chart.update_chart(bars)
+        self._push_bars(bars)
+        # DG90: a full replace is the one sync that changes the view's
+        # accounted size materially (and the replay log always grows).
+        self._account_memory()
 
     def _on_alarms_changed(self) -> None:
         self.chart.set_alarms(self._session.alarms)

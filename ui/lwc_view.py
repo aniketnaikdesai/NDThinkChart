@@ -86,6 +86,19 @@ by parallel logic:
   modules by the parity suite, not restated here. JS receives fractional
   indices, prices and raw event fields; it composes every glyph, label and
   countdown itself.
+* **multi-window hosting** (P6-11 / Phase 9, Q62/A107 + DG90) — the
+  per-symbol pop-out window re-hosts on whichever engine
+  ``ui.chart_view.create_chart_view`` resolves (the default engine stays the
+  default through cutover) and attaches the view to the symbol's
+  ``TickerSession`` exactly as the
+  default engine's ``ChartPanel`` does (``update_chart`` / ``set_studies`` /
+  ``drawing_overlay.set_data`` / ``set_alarms``), so D24's single-writer
+  fan-out is unchanged and the D24 cap stays 10 on **both** engines
+  (Q62/A107). Each view accounts its own memory (``memory_bytes``: the
+  private series copy, the study arrays, the primitives and the replay log)
+  and releases it on close (``release_resources``), so no window's arrays
+  outlive it. Each window's offline host is its own (``ensure_host``),
+  never a shared one.
 
 Density-cap retirement (T10 / Q60 answered-by-default YES / A106): the
 density-cap wording of ``AC-D6.4`` / ``AC-D7.1`` / ``AC-D9.1`` is retired
@@ -1490,6 +1503,36 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
     return [candles_op, volume_op]
 
 
+class LwcDrawingSurface:
+    """``DrawingOverlay``-shaped read-only surface for the session fan-out.
+
+    ``TickerSession`` fans drawings out to every attached view through
+    ``view.drawing_overlay.set_data(symbol, drawings, groups)`` (the D24
+    contract the pop-out relies on). This view renders primitives instead of
+    the default engine's overlay, so it exposes the same single entry point
+    and maps it onto :meth:`LwcChartView.set_drawings`. Read-only by
+    construction:
+    there is no tool mode to query and no drag/edit surface — a pop-out is
+    never an editor (D24.6), and the main chart remains the sole writer.
+    """
+
+    def __init__(self, view: "LwcChartView"):
+        self._view = view
+
+    def set_data(self, symbol, drawings, groups=None) -> None:
+        """Session fan-out entry point (drawings + groups → primitives)."""
+        self._view.set_drawings(drawings, groups)
+
+    @property
+    def drawings(self) -> list:
+        """The drawing records currently rendered (read-only copy)."""
+        return self._view.drawings
+
+    def tool_active(self) -> bool:
+        """No tool can be active on the LWC engine's read-only surface."""
+        return False
+
+
 class LwcChartView(QWidget):
     """The LWC engine view: the Phase 3 core-chart driver.
 
@@ -1543,6 +1586,9 @@ class LwcChartView(QWidget):
         self._logical: list = []
         self._cmap = None
         self._host = None
+        # P6-11: the session fan-out reaches drawings through the same
+        # ``drawing_overlay.set_data`` entry point the default engine has.
+        self._drawing_surface = LwcDrawingSurface(self)
         # P6-06: studies come from the shared model through the one cache.
         self._studies: list = []
         self._study_cache = chart_model.StudyCache()
@@ -2418,6 +2464,116 @@ class LwcChartView(QWidget):
                 )
             self._host = LH.create_host(self._bridge, self)
         return self._host
+
+    # ── P6-11 pop-outs: session surfaces + per-pop-out memory (DG90) ──
+
+    @property
+    def drawing_overlay(self):
+        """The session's drawing fan-out surface (read-only primitives).
+
+        Exposes exactly the one method ``TickerSession`` calls on an attached
+        view — ``set_data(symbol, drawings, groups)`` — so a pop-out hosted on
+        this engine attaches to the same D24 fan-out as the default engine's
+        panel.
+        """
+        return self._drawing_surface
+
+    def update_chart(self, bars: list) -> None:
+        """``ChartPanel.update_chart`` under the view's own name (parity).
+
+        ``TickerSession._sync_view`` and the pop-out's ``bars_refreshed`` slot
+        call this name; the engine-neutral ``ChartView`` spelling is
+        ``update_bars``. Both replace the whole series, so a pop-out renders
+        the same bars it would on the default engine.
+        """
+        self.update_bars(bars)
+
+    #: DG90: bytes budgeted per stored bar in this view's private copy.
+    BAR_BYTES = 128
+    #: DG90: bytes budgeted per transport op / logical index / wire item.
+    OP_BYTES = 96
+
+    def memory_bytes(self) -> dict:
+        """DG90 account of this view's own memory, bucket by bucket.
+
+        A pop-out owns a private copy of the series (``_bars`` /
+        ``_plotted``), its logical index column, its study value arrays, its
+        drawing/marker wire items and — the one structure that grows with
+        traffic — the bridge replay log (the transport replays it after a
+        renderer restart). Reporting the buckets separately keeps a leak
+        attributable instead of collapsing into one opaque number; the
+        pop-out ledger aggregates ``total_bytes`` per window.
+        """
+        buckets = {
+            "bars": len(self._bars) * self.BAR_BYTES,
+            "plotted": len(self._plotted) * self.BAR_BYTES,
+            "logical": len(self._logical) * self.OP_BYTES,
+            "study_values": (sum(len(values) for values in
+                                 self._study_overlays.values()) * 8),
+            "drawing_items": len(self._drawing_items) * self.OP_BYTES,
+            "marker_items": len(self._marker_items) * self.OP_BYTES,
+            "op_log": 0,
+        }
+        counters: dict = {}
+        try:
+            buckets["op_log"] = len(self._bridge.replay_log()) * self.OP_BYTES
+            counters = dict(self._bridge.counters())
+        except Exception:
+            # A closed (C++-deleted) view still reports its Python buckets.
+            counters = {}
+        return {
+            "engine": self.ENGINE_NAME,
+            "read_only": not self._editable,
+            "bars": len(self._bars),
+            "buckets": buckets,
+            "total_bytes": sum(buckets.values()),
+            "bridge": counters,
+        }
+
+    def release_resources(self) -> None:
+        """Drop every per-view array on close (DG90: no pop-out leak).
+
+        Called by the pop-out window after it detaches from the session: the
+        private series copy, the study arrays and the per-channel replay logs
+        go, and the offline host (if one was created) is scheduled for
+        deletion. Idempotent — a second call is a no-op.
+        """
+        self._bars = []
+        self._plotted = []
+        self._logical = []
+        self._cmap = None
+        self._study_overlays = {}
+        self._study_cache.invalidate()
+        self._study_sig = None
+        self._study_log = []
+        self._study_envelopes = []
+        self._interaction_log = []
+        self._interaction_envelopes = []
+        self._alarm_log = []
+        self._alarm_envelopes = []
+        self._drawing_items = []
+        self._drawing_log = []
+        self._drawing_envelopes = []
+        self._overlay_log = []
+        self._overlay_envelopes = []
+        self._marker_items = []
+        self._marker_log = []
+        self._marker_envelopes = []
+        bridge = getattr(self, "_bridge", None)
+        for name in ("_op_log", "_queued", "_outbox", "_live_buf"):
+            bucket = getattr(bridge, name, None)
+            if bucket is not None:
+                try:
+                    bucket.clear()
+                except Exception:
+                    pass
+        host = self._host
+        if host is not None:
+            self._host = None
+            try:
+                host.deleteLater()
+            except Exception:
+                pass
 
     # ── private ─────────────────────────────────────────────────────
 
