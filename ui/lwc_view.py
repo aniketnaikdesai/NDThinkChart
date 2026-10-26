@@ -70,6 +70,22 @@ by parallel logic:
   ``services.drawing_service``; JS receives fractional indices and prices
   only and composes the D11 inner-right labels itself. Zone /
   horizontal-line settings stay the same Qt dialogs (no HTML dialog).
+* **overlays + event markers** (P6-10 / Phase 8, D47.5) — ``set_overlay`` /
+  ``set_event_markers`` publish the session bands, the RTH-gap staircase, the
+  VIX sigma lines and the ICT concepts, plus the D38 dividend/earnings/split
+  markers and their countdown, on two further envelopes
+  (``overlayOpsEmitted`` / ``markerOpsEmitted``). Every value comes from the
+  **unchanged** services the default engine calls (``session_bands``,
+  ``calculate_rth_gaps``, ``calculate_vix_standard_deviation``,
+  ``calculate_ict_concepts``) and every position from the same display-x
+  authority, so identical inputs render identical visuals on both engines.
+  The reference constants — the session orange/blue at 10 % alpha and z -10,
+  the gap green/red brushes at 0.55/0.32 with their dotted filled border, the
+  VIX right-edge sigma labels, the ICT per-concept alphas/z/widths, the D38
+  glyph/colour table and the z-10 countdown — are asserted against those
+  modules by the parity suite, not restated here. JS receives fractional
+  indices, prices and raw event fields; it composes every glyph, label and
+  countdown itself.
 
 Density-cap retirement (T10 / Q60 answered-by-default YES / A106): the
 density-cap wording of ``AC-D6.4`` / ``AC-D7.1`` / ``AC-D9.1`` is retired
@@ -105,6 +121,13 @@ from services.drawing_service import (
     fib_levels,
     normalize_payload,
 )
+from services.gap_vix_service import (
+    calculate_rth_gaps,
+    calculate_vix_standard_deviation,
+    infer_ticker_context,
+)
+from services.ict_service import calculate_ict_concepts
+from services.session_service import session_bands
 from services.time_collapse_service import gap_is_non_trading
 from ui import lwc_bridge as LB
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
@@ -934,6 +957,479 @@ def drag_drawing_item(kind: str, item: dict, point_index: int,
     return item
 
 
+# ── Phase 8 overlays + event markers (P6-10 / D47.5) ───────────────────────
+#
+# The renderer-only mirror of the four overlay surfaces and the D38 event
+# markers. Every value below comes from the **unchanged** services the default
+# engine itself calls — ``session_bands``, ``calculate_rth_gaps``,
+# ``calculate_vix_standard_deviation``, ``calculate_ict_concepts`` — mapped
+# through the one display-x axis (``drawing_axis``) into the candles'
+# fractional logical index. No service signature, no store, no ``ibkr`` module
+# and no order surface is touched: the same inputs render the same visuals on
+# both engines, and JS receives fractional indices, prices and raw event
+# fields only — it composes glyphs, labels and countdowns itself.
+#
+# The reference constants below are the shipped renderers' own values
+# (``ui/overlays/{session,gap,vix,ict}_overlay.py``,
+# ``ui/event_marker_overlay.py``); the parity suite asserts equality against
+# those modules rather than trusting this comment.
+
+#: The overlay channel (its own envelope; the bar transport stays pinned).
+OVERLAY_CHANNEL = "overlays"
+
+#: The marker channel (dividends / earnings / splits).
+MARKER_CHANNEL = "markers"
+
+#: The overlay names this driver publishes.
+OVERLAY_NAMES = ("session", "rth_gaps", "vix_sd", "ict")
+
+#: ``SessionOverlay``: orange pre-market, blue post-market, 10 % alpha, z -10.
+SESSION_COLORS = {"pre": "#f59e0b", "post": "#60a5fa"}
+SESSION_POST_COLOR = SESSION_COLORS["post"]
+SESSION_ALPHA = 0.10
+SESSION_Z = -10
+
+#: ``RthGapOverlay``: green up / red down, a darker brush per direction, the
+#: 0.55/0.32 alpha pair (open / fully filled), 0.8 px border, z -5.
+GAP_UP_COLOR = "#089981"
+GAP_UP_BRUSH = "#064e3b"
+GAP_DOWN_COLOR = "#f23645"
+GAP_DOWN_BRUSH = "#7f1d1d"
+GAP_OPEN_ALPHA = 0.55
+GAP_FILLED_ALPHA = 0.32
+GAP_BORDER_WIDTH = 0.8
+GAP_Z = -5
+
+#: ``VixOverlay``: the reference pen width default, the right-edge label
+#: anchor, and the item z (``add_hline`` adds without a z override).
+VIX_LABEL_ANCHOR = "right"
+VIX_Z = 0.0
+
+#: ``ICTStudyOverlay`` geometry: per-concept alpha / z / width. The values are
+#: the shipped ``add_band`` / ``add_segment`` / ``add`` arguments.
+ICT_TRAILING_BARS = 500
+ICT_STRUCTURE_WIDTH = 1.2
+ICT_STRUCTURE_STYLE = "dashed"
+ICT_STRUCTURE_Z = 3
+ICT_ORDER_BLOCK_ALPHA = 0.18
+ICT_ORDER_BLOCK_Z = -3
+ICT_FVG_ALPHA = 0.14
+ICT_FVG_MITIGATED_ALPHA = 0.06
+ICT_FVG_Z = -4
+ICT_POOL_ALPHA = 0.07
+ICT_POOL_Z = -6
+ICT_POOL_SEGMENT_WIDTH = 1.0
+ICT_POOL_SEGMENT_Z = -2
+ICT_VOLUME_IMBALANCE_COLOR = "#e879f9"
+ICT_VOLUME_IMBALANCE_ALPHA = 0.35
+ICT_VOLUME_IMBALANCE_Z = -4
+ICT_OPENING_GAP_ALPHA = 0.10
+ICT_OPENING_GAP_Z = -5
+ICT_OPENING_GAP_MID_WIDTH = 1.0
+ICT_OPENING_GAP_MID_Z = -2
+ICT_DISPLACEMENT_COLORS = {"up": "#34d399", "down": "#f87171"}
+ICT_DISPLACEMENT_SIZE = 10
+ICT_DISPLACEMENT_Z = 4
+ICT_KILLZONE_Z = -8
+
+#: D38 event markers — the reference ``EVENT_STYLE`` table (glyph, colour,
+#: label). ``chart_assets/lwc/overlays.js`` mirrors it row for row.
+EVENT_MARKERS = {
+    "earnings": {"glyph": "\u25c6 E", "color": "#fbbf24", "label": "Earnings"},
+    "dividend": {"glyph": "\u25cf D", "color": "#4ade80", "label": "Dividend"},
+    "split": {"glyph": "\u25b2 S", "color": "#60a5fa", "label": "Split"},
+}
+
+#: Marker text item: z 10, anchor (0.5, 1.0) — the reference ``TextItem``.
+MARKER_Z = 10
+MARKER_ANCHOR = (0.5, 1.0)
+
+#: Countdown label: anchor (0, 0), z 10, the reference fallback colour.
+COUNTDOWN_ANCHOR = (0.0, 0.0)
+COUNTDOWN_COLOR = "#e5e7eb"
+COUNTDOWN_UNAVAILABLE_COLOR = "#f87171"
+COUNTDOWN_UNAVAILABLE_TEXT = "Event data unavailable"
+
+
+def _date_to_ts(value) -> int:
+    """Midnight UTC of a ``date`` — the reference ``_date_to_ts``."""
+    if isinstance(value, datetime):
+        value = value.date()
+    return int(datetime(value.year, value.month, value.day,
+                        tzinfo=timezone.utc).timestamp())
+
+
+def overlay_op(name: str, regions: Sequence) -> dict:
+    """One ``set_overlay`` op: a named overlay's regions, replace-all."""
+    return {"op": "set_overlay", "series": OVERLAY_CHANNEL, "name": name,
+            "regions": [dict(region) for region in (regions or [])]}
+
+
+def clear_overlay_op(name: str) -> dict:
+    """Remove one overlay's primitives from the engine."""
+    return {"op": "clear_overlay", "series": OVERLAY_CHANNEL, "name": name}
+
+
+def session_regions(bars: Sequence, plotted: Sequence, timeframe: str | None,
+                    ext_hours: bool) -> list:
+    """Session pre/post bands as engine regions (fractional indices).
+
+    Mirrors ``ChartPanel._render_sessions``: nothing without extended hours,
+    nothing for ``1 day``, nothing for an empty load; the bands themselves
+    come from the unchanged ``session_bands`` and are mapped through the same
+    display-x axis the candles use (``AC-D21.4.3``), so a band lands on the
+    session actually shown and never covers a collapsed gap. A band whose
+    mapped end does not exceed its start draws nothing (the reference
+    ``SessionOverlay`` skips it).
+    """
+    if not ext_hours or not bars or timeframe == "1 day":
+        return []
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    regions: list = []
+    for band in session_bands(bars, timeframe or ""):
+        kind = band.get("kind")
+        start = _drawing_frac(xs, indices, band["start_ts"], cmap)
+        end = _drawing_frac(xs, indices, band["end_ts"], cmap)
+        if end <= start:
+            continue
+        regions.append({
+            "shape": "region", "kind": kind, "from": start, "to": end,
+            "color": SESSION_COLORS.get(kind, SESSION_POST_COLOR),
+            "alpha": SESSION_ALPHA, "z": SESSION_Z,
+        })
+    return regions
+
+
+def gap_regions(gaps: Sequence, bars: Sequence, plotted: Sequence,
+                timeframe: str | None, ext_hours: bool) -> list:
+    """RTH gap staircase steps as engine bands.
+
+    Mirrors ``RthGapOverlay.render``: one band per gap *step*, its x range
+    from the step's bar-index window mapped to display-x and then to the
+    fractional index axis, its brush the reference dark green/red at the
+    0.55 (open) / 0.32 (fully filled) alpha, its border dotted once the gap is
+    filled. A step whose top is not above its bottom draws nothing, and the
+    range clamps to the last bar exactly as ``_index_to_x`` does.
+    """
+    rows = list(bars or [])
+    if not rows:
+        return []
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    last = len(rows) - 1
+
+    def _bar_frac(index) -> float | None:
+        try:
+            i = int(index)
+        except (TypeError, ValueError):
+            return None
+        i = min(max(i, 0), last)
+        return _drawing_frac(xs, indices, rows[i].ts, cmap)
+
+    regions: list = []
+    for gap in gaps or []:
+        is_up = bool(gap.get("isUp"))
+        filled = bool(gap.get("isFullyFilled"))
+        for step in gap.get("steps") or []:
+            bottom = step.get("bottom", gap.get("currentBottom",
+                                                gap.get("initialBottom")))
+            top = step.get("top", gap.get("currentTop", gap.get("initialTop")))
+            x1 = _bar_frac(step.get("startBarIndex",
+                                    gap.get("startBarIndex", 0)))
+            x2 = _bar_frac(min(step.get("endBarIndex", last), last))
+            if x1 is None or x2 is None or top is None or bottom is None:
+                continue
+            if float(top) <= float(bottom) or x2 <= x1:
+                continue
+            regions.append({
+                "shape": "band", "kind": "gap", "id": str(gap.get("id", "")),
+                "isUp": is_up, "filled": filled,
+                "from": x1, "to": x2,
+                "bottom": float(bottom), "top": float(top),
+                "color": GAP_UP_COLOR if is_up else GAP_DOWN_COLOR,
+                "brush": GAP_UP_BRUSH if is_up else GAP_DOWN_BRUSH,
+                "alpha": GAP_FILLED_ALPHA if filled else GAP_OPEN_ALPHA,
+                "borderWidth": GAP_BORDER_WIDTH,
+                "borderStyle": "dotted" if filled else "solid",
+                "z": GAP_Z,
+            })
+    return regions
+
+
+def vix_label(sigma, price) -> str:
+    """Label text for one sigma level — the reference ``VixOverlay`` format.
+
+    ``0σ 4321.50`` for the anchor, ``+1σ 4340.12`` / ``-2σ 4260.00`` for a
+    sigma pair. Composed engine-side from these two numbers; this function is
+    the parity reference the wave records.
+    """
+    if sigma == 0:
+        return f"0\u03c3 {float(price):.2f}"
+    return f"{sigma:+.2g}\u03c3 {float(price):.2f}"
+
+
+def vix_levels(result, plotted: Sequence, timeframe: str | None,
+               ext_hours: bool) -> list:
+    """VIX sigma lines with right-edge labels (the reference ``add_hline``).
+
+    One horizontal line per level from the unchanged
+    ``calculate_vix_standard_deviation`` result: its price, colour, line style
+    and width cross unchanged; the label sits at the last bar's display-x
+    (``_index_to_x(bar_count - 1)``), right-anchored.
+    """
+    levels = (result or {}).get("levels") if isinstance(result, dict) else None
+    levels = list(levels or [])
+    if not levels:
+        return []
+    _xs, indices, _cmap = drawing_axis(plotted, timeframe, ext_hours)
+    label_from = float(indices[-1]) if indices else 0.0
+    rows: list = []
+    for level in levels:
+        sigma = level.get("sigma", 0)
+        rows.append({
+            "shape": "hline", "kind": "vix",
+            "sigma": sigma,
+            "price": float(level["price"]),
+            "color": str(level.get("color", "#94a3b8")),
+            "lineStyle": str(level.get("lineStyle", "solid")),
+            "width": float(level.get("lineWidth", 1)),
+            "z": VIX_Z,
+            "labelAnchor": VIX_LABEL_ANCHOR,
+            "labelFrom": label_from,
+        })
+    return rows
+
+
+def ict_regions(result, window: Sequence, plotted: Sequence,
+                timeframe: str | None, ext_hours: bool) -> list:
+    """ICT concepts as engine regions, in the reference draw order.
+
+    Mirrors ``ICTStudyOverlay.render`` one concept at a time — market
+    structures (dashed 1.2 px segments at z 3), order blocks (alpha 0.18, z
+    -3, breaker colour), fair value gaps (alpha 0.14 / 0.06 mitigated, dotted
+    once broken, z -4), liquidity pools (alpha 0.07, z -6, plus their level
+    segment at z -2), volume imbalances (±1 bar window in *index* space, alpha
+    0.35, z -4), opening gaps (alpha 0.10, z -5, dotted midpoint at z -2),
+    displacements (scatter points, z 4) and killzones (vertical regions, z
+    -8). ``window`` is the trailing bar list the concepts were computed over,
+    so its indices map through the same display-x authority as the candles.
+    """
+    rows = list(window or [])
+    if not rows:
+        return []
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    last_index = len(rows) - 1
+
+    def _x(index) -> float | None:
+        try:
+            i = int(index)
+        except (TypeError, ValueError):
+            return None
+        i = min(max(i, 0), last_index)
+        return _drawing_frac(xs, indices, rows[i].ts, cmap)
+
+    out: list = []
+    last = _x(last_index)
+    for structure in (result or {}).get("marketStructures", []) or []:
+        x1, x2 = _x(structure["startIndex"]), _x(structure["endIndex"])
+        if x1 is None or x2 is None:
+            continue
+        out.append({
+            "shape": "segment", "kind": "structure", "from": x1, "to": x2,
+            "price": float(structure["price"]),
+            "color": str(structure["color"]),
+            "lineStyle": ICT_STRUCTURE_STYLE, "width": ICT_STRUCTURE_WIDTH,
+            "label": str(structure.get("type", "")), "z": ICT_STRUCTURE_Z,
+        })
+    for block in (result or {}).get("orderBlocks", []) or []:
+        x1 = _x(block["barIndex"])
+        if x1 is None or last is None:
+            continue
+        color = (block.get("breakColor") if block.get("isBreaker")
+                 else block["color"])
+        out.append({
+            "shape": "band", "kind": "order_block", "from": x1, "to": last,
+            "bottom": float(block["bottom"]), "top": float(block["top"]),
+            "color": str(color), "alpha": ICT_ORDER_BLOCK_ALPHA,
+            "z": ICT_ORDER_BLOCK_Z,
+        })
+    for fvg in (result or {}).get("fairValueGaps", []) or []:
+        x1, x2 = _x(fvg["startIndex"]), _x(fvg["endIndex"])
+        if x1 is None or x2 is None:
+            continue
+        out.append({
+            "shape": "band", "kind": "fvg", "from": x1, "to": x2,
+            "bottom": float(fvg["bottom"]), "top": float(fvg["top"]),
+            "color": str(fvg["color"]),
+            "alpha": (ICT_FVG_MITIGATED_ALPHA if fvg.get("isMitigated")
+                      else ICT_FVG_ALPHA),
+            "borderStyle": "dotted" if fvg.get("isBroken") else "solid",
+            "z": ICT_FVG_Z,
+        })
+    for pool in (result or {}).get("liquidityPools", []) or []:
+        x1 = _x(pool["startIndex"])
+        if x1 is None or last is None:
+            continue
+        color = str(pool["color"])
+        out.append({
+            "shape": "band", "kind": "pool", "from": x1, "to": last,
+            "bottom": float(pool["bottom"]), "top": float(pool["top"]),
+            "color": color, "alpha": ICT_POOL_ALPHA, "z": ICT_POOL_Z,
+        })
+        out.append({
+            "shape": "segment", "kind": "pool_level", "from": x1, "to": last,
+            "price": float(pool["levelPrice"]), "color": color,
+            "lineStyle": "dotted" if pool.get("isSwept") else "dashed",
+            "width": ICT_POOL_SEGMENT_WIDTH,
+            "label": str(pool.get("type", "")), "z": ICT_POOL_SEGMENT_Z,
+        })
+    for imbalance in (result or {}).get("volumeImbalances", []) or []:
+        try:
+            raw = int(imbalance["barIndex"])
+        except (TypeError, ValueError, KeyError):
+            raw = 0
+        x1, x2 = _x(max(raw - 1, 0)), _x(raw + 1)
+        if x1 is None or x2 is None:
+            continue
+        if x1 > x2:
+            x1, x2 = x2, x1
+        out.append({
+            "shape": "band", "kind": "volume_imbalance", "from": x1, "to": x2,
+            "bottom": float(imbalance["bottom"]),
+            "top": float(imbalance["top"]),
+            "color": str(imbalance.get("color") or ICT_VOLUME_IMBALANCE_COLOR),
+            "alpha": ICT_VOLUME_IMBALANCE_ALPHA,
+            "z": ICT_VOLUME_IMBALANCE_Z,
+        })
+    for gap in (result or {}).get("openingGaps", []) or []:
+        x1 = _x(gap["startIndex"])
+        if x1 is None or last is None:
+            continue
+        color = str(gap["color"])
+        out.append({
+            "shape": "band", "kind": "opening_gap", "from": x1, "to": last,
+            "bottom": float(gap["bottom"]), "top": float(gap["top"]),
+            "color": color, "alpha": ICT_OPENING_GAP_ALPHA,
+            "z": ICT_OPENING_GAP_Z,
+        })
+        out.append({
+            "shape": "segment", "kind": "opening_gap_mid", "from": x1,
+            "to": last, "price": float(gap["midpoint"]), "color": color,
+            "lineStyle": "dotted", "width": ICT_OPENING_GAP_MID_WIDTH,
+            "z": ICT_OPENING_GAP_MID_Z,
+        })
+    for item in (result or {}).get("displacements", []) or []:
+        x = _x(item["barIndex"])
+        if x is None:
+            continue
+        up = item.get("direction") in ("up", "bullish")
+        out.append({
+            "shape": "point", "kind": "displacement", "from": x, "to": x,
+            "price": float(item["price"]),
+            "color": str(item.get("color") or
+                         ICT_DISPLACEMENT_COLORS["up" if up else "down"]),
+            "direction": "up" if up else "down",
+            "size": ICT_DISPLACEMENT_SIZE, "z": ICT_DISPLACEMENT_Z,
+        })
+    for zone in (result or {}).get("killzones", []) or []:
+        x1, x2 = _x(zone["startIndex"]), _x(zone["endIndex"])
+        if x1 is None or x2 is None:
+            continue
+        out.append({
+            "shape": "region", "kind": "killzone", "from": x1, "to": x2,
+            "color": str(zone["color"]), "z": ICT_KILLZONE_Z,
+        })
+    return out
+
+
+def event_marker_frac(event, rows: Sequence, xs: Sequence, indices: Sequence,
+                      cmap) -> float | None:
+    """Display-x rule of ``EventMarkerOverlay._x_for_event``, as a fraction.
+
+    The first bar on or after the event date; a future event (or one beyond
+    the loaded range) sits one bar-width past the last bar. ``None`` when the
+    axis is empty, which hides the marker on both engines.
+    """
+    bars = list(rows or [])
+    if not bars:
+        return None
+    try:
+        day_ts = _date_to_ts(event.date)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    for bar in bars:
+        try:
+            if int(bar.ts) >= day_ts:
+                return _drawing_frac(xs, indices, int(bar.ts), cmap)
+        except (AttributeError, TypeError, ValueError):
+            continue
+    # Future event (or beyond data): one step past the last bar. The reference
+    # adds 1.0 in the axis' own unit — display-x — so that is what is added
+    # here before mapping back onto the fractional logical index.
+    try:
+        last_ts = int(bars[-1].ts)
+    except (AttributeError, TypeError, ValueError, IndexError):
+        return None
+    try:
+        last_display = (float(cmap.to_display(last_ts)) if cmap is not None
+                        else float(last_ts))
+    except Exception:
+        return None
+    return fractional_index_from_display(last_display + 1.0, xs, indices)
+
+
+def marker_ops(events: Sequence, plotted: Sequence, timeframe: str | None,
+               ext_hours: bool, today=None, unavailable: bool = False) -> list:
+    """The marker channel's ops for one event set (markers + countdown).
+
+    Mirrors ``EventMarkerOverlay``: markers are keyed by event id (a date
+    correction moves the marker instead of duplicating it), unknown event
+    types draw nothing, and the countdown names the next upcoming event with
+    its day distance. Glyphs, colours and the countdown string are composed on
+    the engine side from ``EVENT_MARKERS`` and the numbers here — no formatted
+    string crosses.
+    """
+    rows = list(events or [])
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    items: list = []
+    for event in rows:
+        etype = getattr(event, "type", None)
+        if etype not in EVENT_MARKERS:
+            continue
+        x = event_marker_frac(event, plotted, xs, indices, cmap)
+        details = getattr(event, "details", {}) or {}
+        ev_date = getattr(event, "date", None)
+        items.append({
+            "id": str(getattr(event, "id", "")),
+            "type": str(etype),
+            "x": x,
+            "visible": x is not None,
+            "date": (ev_date.isoformat() if hasattr(ev_date, "isoformat")
+                     else str(ev_date)),
+            "source": str(getattr(event, "source", "")),
+            "details": {str(key): value for key, value in details.items()
+                        if isinstance(value, (int, float, str, bool))
+                        or value is None},
+        })
+    countdown = None
+    if unavailable and not rows:
+        countdown = {"kind": "unavailable"}
+    else:
+        today = today if today is not None else datetime.now().date()
+        upcoming = [event for event in rows
+                    if getattr(event, "date", None) is not None
+                    and event.date >= today]
+        if upcoming:
+            nxt = min(upcoming, key=lambda event: event.date)
+            countdown = {"kind": "upcoming", "type": str(nxt.type),
+                         "days": int((nxt.date - today).days)}
+    if not items and countdown is None:
+        return [{"op": "clear_markers", "series": MARKER_CHANNEL}]
+    return [{
+        "op": "set_markers", "series": MARKER_CHANNEL, "items": items,
+        "countdown": countdown, "unavailable": bool(unavailable),
+    }]
+
+
 def series_ops(mode: str, bars: Sequence, timeframe: str | None,
                ext_hours: bool) -> list:
     """Build the ``set_bars`` / ``set_volume`` ops for one full series.
@@ -1023,6 +1519,12 @@ class LwcChartView(QWidget):
     #: One drawing envelope per publish (drawings / selection / drag).
     drawingOpsEmitted = pyqtSignal(dict)
 
+    #: One overlay envelope per publish (session / gap / VIX / ICT regions).
+    overlayOpsEmitted = pyqtSignal(dict)
+
+    #: One marker envelope per publish (D38 event markers + countdown).
+    markerOpsEmitted = pyqtSignal(dict)
+
     #: DG92 focus round-trip: the page's Esc blur handed focus back to Qt.
     focusRoundTrip = pyqtSignal()
 
@@ -1069,6 +1571,17 @@ class LwcChartView(QWidget):
         self._drawing_items: list = []
         self._drawing_log: list = []
         self._drawing_envelopes: list = []
+        # P6-10: overlays render from the unchanged services; markers from the
+        # unchanged D38 event records (glyphs/labels composed engine-side).
+        self._overlays: dict = {}
+        self._overlay_log: list = []
+        self._overlay_envelopes: list = []
+        self._events: list = []
+        self._event_unavailable = False
+        self._marker_items: list = []
+        self._countdown: dict | None = None
+        self._marker_log: list = []
+        self._marker_envelopes: list = []
 
     @property
     def tz_offset(self) -> float:
@@ -1192,6 +1705,44 @@ class LwcChartView(QWidget):
         """The id of the drawing last selected (or ``None``)."""
         return self._selected_drawing_id
 
+    @property
+    def overlays(self) -> dict:
+        """Overlay name -> the regions last published to the engine."""
+        return {name: [dict(region) for region in regions]
+                for name, regions in self._overlays.items()}
+
+    @property
+    def overlay_ops(self) -> list:
+        """Every overlay op published so far, in order (the replay log)."""
+        return [dict(op) for op in self._overlay_log]
+
+    @property
+    def overlay_envelopes(self) -> list:
+        """Every overlay envelope emitted, in order."""
+        return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
+                for env in self._overlay_envelopes]
+
+    @property
+    def event_markers(self) -> list:
+        """The marker wire items last published (fractional indices + fields)."""
+        return [dict(item) for item in self._marker_items]
+
+    @property
+    def countdown(self) -> dict | None:
+        """The countdown state (next upcoming event, or the unavailable state)."""
+        return dict(self._countdown) if self._countdown else None
+
+    @property
+    def marker_ops(self) -> list:
+        """Every marker op published so far, in order (the replay log)."""
+        return [dict(op) for op in self._marker_log]
+
+    @property
+    def marker_envelopes(self) -> list:
+        """Every marker envelope emitted, in order."""
+        return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
+                for env in self._marker_envelopes]
+
     # ── ChartView protocol ──────────────────────────────────────────
 
     def update_bars(self, bars: list) -> None:
@@ -1216,6 +1767,7 @@ class LwcChartView(QWidget):
         self._study_sig = None
         if self._bars:
             self._render_studies()
+            self._render_overlays()
 
     def set_timeframe(self, timeframe: str) -> None:
         self._timeframe = timeframe
@@ -1269,6 +1821,10 @@ class LwcChartView(QWidget):
         # re-renders at the new display-x (AC-D21.4.1).
         if self._drawings:
             self._render_drawings()
+        # Overlays and event markers are time-anchored too: a new axis re-maps
+        # every region/marker through the same fractional logical index.
+        self._render_overlays()
+        self._render_markers()
 
     def update_live_bar(self, bar) -> None:
         """Advance the forming bar via single-element ``update_bar`` ops.
@@ -1329,6 +1885,10 @@ class LwcChartView(QWidget):
         # incremental path, an intra-bar tick takes the full path (the
         # forming bar's study value has no cache state to replay from).
         self._render_studies()
+        if new_period:
+            # A new period changes the axis' span: the session bands' clip,
+            # the gap staircase's extension and the VIX label anchor all move.
+            self._render_overlays()
 
     # ── P6-06 study overlays (shared model + one cache) ─────────────
 
@@ -1349,6 +1909,9 @@ class LwcChartView(QWidget):
             self._render_studies()
         elif self._study_overlays:
             self._publish_study_ops([clear_study_op()], {})
+        # rth_gaps / vix_sd / ict are overlay studies: their configuration
+        # drives the overlay channel, so a study change re-renders it.
+        self._render_overlays()
 
     def study_overlay_signature(self) -> tuple | None:
         """Fingerprint of the rendered study state (bars + configuration).
@@ -1708,6 +2271,135 @@ class LwcChartView(QWidget):
         self._drawing_log.extend(env["ops"])
         self._drawing_envelopes.append(env)
         self.drawingOpsEmitted.emit(env)
+
+    # ── P6-10 overlays + event markers ─────────────────────────────────
+
+    def set_overlay(self, name: str, regions: list) -> None:
+        """Publish one overlay's regions to the LWC engine.
+
+        ``name`` is one of ``OVERLAY_NAMES``: ``session`` (pre/post bands from
+        ``services.session_service.session_bands``), ``rth_gaps`` (staircase
+        steps from ``calculate_rth_gaps``), ``vix_sd`` (sigma lines from
+        ``calculate_vix_standard_deviation``) or ``ict`` (concepts from
+        ``calculate_ict_concepts``). The regions are the shapes
+        ``_render_overlays`` builds; passing an empty list clears that
+        overlay. Replace-all, so a replay never duplicates or orphans a
+        primitive.
+        """
+        if name not in OVERLAY_NAMES:
+            raise ValueError(f"unknown overlay: {name!r}")
+        rows = [dict(region) for region in (regions or [])]
+        if rows == self._overlays.get(name):
+            return
+        self._overlays[name] = rows
+        self._publish_overlay_ops(
+            [overlay_op(name, rows)] if rows else [clear_overlay_op(name)])
+
+    def overlay_regions(self, name: str) -> list:
+        """The regions last published for ``name`` (an empty list when none)."""
+        return [dict(region) for region in self._overlays.get(name, [])]
+
+    def set_event_markers(self, events: list, unavailable: bool = False) -> None:
+        """Render the unchanged D38 event records as markers on the LWC engine.
+
+        The contracted Phase-8 surface. Markers are keyed by event id (a date
+        correction moves the marker instead of duplicating it), positioned by
+        the reference rule — the first bar on/after the event date, one bar
+        past the last bar for a future event — and the countdown names the
+        next upcoming event. Glyphs, colours and the countdown text are
+        composed engine-side from ``EVENT_MARKERS``; only raw event fields and
+        a fractional index cross.
+        """
+        self._events = list(events or [])
+        self._event_unavailable = bool(unavailable)
+        self._render_markers()
+
+    def _render_overlays(self) -> None:
+        """Recompute every overlay from the unchanged services on this axis.
+
+        Composition mirrors ``ChartPanel``: ``session_bands`` over the loaded
+        bars (extended hours only, never on ``1 day``); the three overlay
+        studies — ``rth_gaps`` / ``vix_sd`` / ``ict`` — only when the study
+        configuration carries them and is enabled, each through the same
+        service call and the same ticker context the panel builds. Identical
+        regions are not republished (no traffic, like the study channel).
+        """
+        wanted: dict = {name: [] for name in OVERLAY_NAMES}
+        if self._bars and self._plotted:
+            wanted["session"] = session_regions(
+                self._bars, self._plotted, self._timeframe, self._ext_hours)
+            for study in self._studies:
+                if not study.get("enabled"):
+                    continue
+                stype = study.get("type")
+                params = study.get("params", {}) or {}
+                if stype == "rth_gaps":
+                    ticker = infer_ticker_context(self._symbol, self._bars)
+                    wanted["rth_gaps"] = gap_regions(
+                        calculate_rth_gaps(self._bars, ticker, params),
+                        self._bars, self._plotted, self._timeframe,
+                        self._ext_hours)
+                elif stype == "vix_sd":
+                    ticker = infer_ticker_context(self._symbol, self._bars)
+                    wanted["vix_sd"] = vix_levels(
+                        calculate_vix_standard_deviation(
+                            ticker, self._bars, params),
+                        self._plotted, self._timeframe, self._ext_hours)
+                elif stype == "ict":
+                    ticker = infer_ticker_context(self._symbol, self._bars)
+                    window = chart_model.trailing_bars(
+                        self._bars, ICT_TRAILING_BARS)
+                    wanted["ict"] = ict_regions(
+                        calculate_ict_concepts(window, ticker, params), window,
+                        self._plotted, self._timeframe, self._ext_hours)
+        ops: list = []
+        for name in OVERLAY_NAMES:
+            rows = wanted[name]
+            published = self._overlays.get(name)
+            if rows == published:
+                continue
+            self._overlays[name] = rows
+            if not rows and published is None:
+                # Nothing was ever drawn for this overlay and there is nothing
+                # to draw now: record the empty state, but send no traffic.
+                continue
+            ops.append(overlay_op(name, rows) if rows
+                       else clear_overlay_op(name))
+        if ops:
+            self._publish_overlay_ops(ops)
+
+    def _render_markers(self) -> None:
+        """Publish the marker channel from the current event set and axis."""
+        ops = marker_ops(self._events, self._plotted, self._timeframe,
+                         self._ext_hours, unavailable=self._event_unavailable)
+        op = ops[0]
+        if op["op"] == "set_markers":
+            items = [dict(item) for item in op["items"]]
+            countdown = dict(op["countdown"]) if op.get("countdown") else None
+            if items == self._marker_items and countdown == self._countdown:
+                return
+            self._marker_items = items
+            self._countdown = countdown
+        else:
+            if not self._marker_items and self._countdown is None:
+                return
+            self._marker_items = []
+            self._countdown = None
+        self._publish_marker_ops(ops)
+
+    def _publish_overlay_ops(self, ops: list) -> None:
+        """Log and emit one overlay envelope (``{"v": 1, "ops": [...]}``)."""
+        env = {"v": LB.ENVELOPE_VERSION, "ops": [dict(op) for op in ops]}
+        self._overlay_log.extend(env["ops"])
+        self._overlay_envelopes.append(env)
+        self.overlayOpsEmitted.emit(env)
+
+    def _publish_marker_ops(self, ops: list) -> None:
+        """Log and emit one marker envelope (``{"v": 1, "ops": [...]}``)."""
+        env = {"v": LB.ENVELOPE_VERSION, "ops": [dict(op) for op in ops]}
+        self._marker_log.extend(env["ops"])
+        self._marker_envelopes.append(env)
+        self.markerOpsEmitted.emit(env)
 
     # ── host (cutover owns the wiring) ──────────────────────────────
 

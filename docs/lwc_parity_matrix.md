@@ -1,10 +1,11 @@
 # LWC parity matrix — gate skeleton (P6-01)
 
-Rows 7, 8, 11, 12, 13 and 14 are **Done / accepted** as of P6-09 (row 8 as of
-P6-06, rows 7/13/14 as of P6-07, row 12 as of P6-08). Every other row is
-**Open / pending**. A row moves to Done/accepted only with its gate evidence;
-**a row regressing without an escalation fails review (rule 10)**. Phase waves
-per `docs/plan.md` § Phases (P6-01→P6-13).
+Rows 6, 7, 8, 9, 10, 11, 12, 13 and 14 are **Done / accepted** as of P6-10
+(row 8 as of P6-06, rows 7/13/14 as of P6-07, row 12 as of P6-08, row 11 as of
+P6-09, rows 6/9/10 as of P6-10). Every other row is **Open / pending**. A row
+moves to Done/accepted only with its gate evidence; **a row regressing without
+an escalation fails review (rule 10)**. Phase waves per `docs/plan.md` § Phases
+(P6-01→P6-13).
 
 | # | Row | pyqtgraph reference (today) | LWC target | Gate wave | Disposition |
 |---|---|---|---|---|---|
@@ -13,11 +14,11 @@ per `docs/plan.md` § Phases (P6-01→P6-13).
 | 3 | Volume pane (linear Y, nice ceiling, floor 100) | `_nice_volume_max` family (D8/RG-002) | histogram series + ceiling port | P6-05 | Open / pending |
 | 4 | Time axis + whitespace for non-trading time | `TimeCollapseMap` display-x (D21.4) | logical index + absent-data whitespace | P6-05 | Open / pending |
 | 5 | Timezone display (ET, DST-correct) | `tz_offset` axes (EST 18000 / EDT 14400) | custom `timeFormatter` | P6-05 | Open / pending |
-| 6 | Session shading bands (RTH/ETH) | `SessionOverlay` + `session_bands` | overlay/marker port | P6-10 | Open / pending |
+| 6 | Session shading bands (RTH/ETH) | `SessionOverlay` + `session_bands` | overlay/marker port | P6-10 | Done / accepted |
 | 7 | Crosshair + price/time chips | `_update_crosshair`, D2/Q33 lane | library-native crosshair (Q63/A108) | P6-07 | Done / accepted |
 | 8 | Studies (SMA/EMA/VWAP/BB/RSI/MACD) + cache | `indicator_service` + `_StudyCache` | shared model + LWC overlays | P6-06 | Done / accepted |
-| 9 | Gap / VIX / ICT overlays | `RthGapOverlay`, `VixOverlay`, `ICTStudyOverlay` | LWC overlay port | P6-10 | Open / pending |
-| 10 | Event markers (dividends/earnings/splits) | `EventMarkerOverlay` (D38) | `setMarkers` port | P6-10 | Open / pending |
+| 9 | Gap / VIX / ICT overlays | `RthGapOverlay`, `VixOverlay`, `ICTStudyOverlay` | LWC overlay port | P6-10 | Done / accepted |
+| 10 | Event markers (dividends/earnings/splits) | `EventMarkerOverlay` (D38) | `setMarkers` port | P6-10 | Done / accepted |
 | 11 | Drawings (all tools + D11 labels + D12/D15 dialogs) | `DrawingOverlay` | primitives lib (ts-to-fractional-index); Qt dialogs stay | P6-09 | Done / accepted |
 | 12 | Alarms (lines, placement, preview) | `AlarmOverlay` + preview line (D21.10) | alarm lines on LWC; Qt dialogs stay | P6-08 | Done / accepted |
 | 13 | Mouse router TR-1…TR-17 + JS mirror | `ChartMouseRouter` (frozen contract) | Python router + JS mirror (mirror never reinterprets) | P6-07 | Done / accepted |
@@ -28,9 +29,63 @@ per `docs/plan.md` § Phases (P6-01→P6-13).
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Open / pending |
 | 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Open / pending |
 
-Row count: 19. Dispositioned Open/pending: 13. Done/accepted: 6.
+Row count: 19. Dispositioned Open/pending: 10. Done/accepted: 9.
 
 ## Wave exit notes
+
+### P6-10 — Phase 8 overlays + event markers (2026-10-26)
+
+- **Four overlays, one axis, unchanged services.** `ui/lwc_view.py` gained
+  `set_overlay(name, regions)` for `session` / `rth_gaps` / `vix_sd` / `ict`
+  and `set_event_markers(events)`. Every value comes from the **unchanged**
+  service the default engine calls — `services.session_service.session_bands`,
+  `services.gap_vix_service.calculate_rth_gaps` /
+  `calculate_vix_standard_deviation` (+ `infer_ticker_context`) and
+  `services.ict_service.calculate_ict_concepts`, with the ICT trailing window
+  from `chart_model.trailing_bars` — and every position from the same
+  display-x authority, mapped into the candles' **fractional logical index**,
+  so a band lands on the identical bar on both engines
+  (`display_from_fractional_index` is the inverse of the reference overlays'
+  `_index_to_x` / `_ts_to_x`).
+- **The reference visuals, value-for-value.** Session: the orange pre / blue
+  post bands at 10 % alpha, z -10, gated exactly as `_render_sessions` (no
+  extended hours, no `1 day`, empty load). RTH gaps: one band per staircase
+  step, the `#089981` / `#f23645` borders, the darker `#064e3b` / `#7f1d1d`
+  brushes at the 0.55 (open) / 0.32 (fully filled) alpha, 0.8 px border dotted
+  once filled, z -5, clamped to the last bar. VIX: one line per sigma level
+  with its colour, style and width, right-edge labels at the last bar's
+  display-x, z 0. ICT: market structures (dashed 1.2 px, z 3), order blocks
+  (0.18, z -3, breaker colour), fair value gaps (0.14 / 0.06 mitigated, dotted
+  when broken, z -4), liquidity pools (0.07, z -6) with their level segments
+  (z -2), volume imbalances (±1 index window, 0.35, z -4), opening gaps (0.10,
+  z -5) with dotted midpoints (z -2), displacements (z 4) and killzones (z -8).
+- **Markers (D38 `setMarkers` port).** Dividends/earnings/splits render from
+  the unchanged event records, keyed by **event id** (a date correction moves
+  the marker instead of duplicating it), positioned by the reference rule (the
+  first bar on/after the event date; one bar past the last bar for a future
+  event), z 10, anchor `(0.5, 1.0)`, plus the countdown label naming the next
+  upcoming event (`Earnings in 3d`, `Split today`) and the explicit
+  `Event data unavailable` state.
+- **Numbers cross; glyphs and labels are composed engine-side.**
+  `chart_assets/lwc/overlays.js` mirrors every reference constant table
+  (`EVENT_STYLE`, the session/gap/VIX/ICT style tables) and composes the VIX
+  sigma labels, the D38 glyphs/tooltips and the countdown wording itself. The
+  wire carries fractional indices, prices and raw event fields — no timestamp,
+  no formatted label. Both channels travel on their own envelopes
+  (`overlayOpsEmitted` / `markerOpsEmitted`), never on the bar transport,
+  which stays pinned to candles/volume.
+- **Cutover wiring, as for studies/interaction/alarms/drawings.** Including
+  `overlays.js` in `chart.html` and forwarding the two signals are page/host
+  wiring at cutover; the parity itself is engine-agnostic (node + Python, no
+  Chromium needed), which is why rows 6/9/10 carry green gate evidence now.
+- Gate evidence: `tests/test_lwc_overlays.py` (constant parity against every
+  reference module, session/gap/VIX/ICT geometry compared value-for-value
+  against the shipped overlays on shared fixtures, marker positions + glyphs +
+  tooltips + countdown against `EventMarkerOverlay`, the reference gating
+  cases, replay/clear identity, the renderer-only residue + AST import
+  boundary + no-timestamp scan + bar-transport isolation) + `node --test
+  chart_assets/lwc/`. Rows 6/9/10 move to **Done / accepted**; no Done row
+  regressed, 10/19 remain Open / pending.
 
 ### P6-09 — Phase 7 drawings (2026-10-26)
 

@@ -260,6 +260,12 @@ class TestGeometryGuard:
 class TestRendererBoundary:
     SOURCES = ["ui/lwc_view.py", "chart_assets/lwc/chart.js"]
 
+    # P6-05's list predates P6-10 (Phase 8), which renders the session bands
+    # from the unchanged, pure ``services.session_service.session_bands`` — a
+    # renderer input the default engine uses too, not an out-of-scope surface.
+    # That one module is therefore off this list; ibkr, the stores, any
+    # persistence, any order surface, any network access and pyqtgraph itself
+    # still must never appear here.
     FORBIDDEN = [
         "from ibkr", "import ibkr", "ibkr.",
         "sqlite", "QSettings",
@@ -268,7 +274,7 @@ class TestRendererBoundary:
         "stop_loss", "take_profit",
         "unpkg", "jsdelivr", "cdnjs", "cdn.",
         "http://", "https://",
-        "orders", "BarCache", "get_bars", "save_bars", "session_service",
+        "orders", "BarCache", "get_bars", "save_bars",
     ]
 
     def test_P6_T05_T13_no_out_of_scope_surface(self):
