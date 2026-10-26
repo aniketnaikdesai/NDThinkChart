@@ -295,10 +295,35 @@ def test_interceptor_wired_blocks_non_ndt():
             seen.append((self._url.toString(), bool(on)))
 
     ic = LH.LwcRequestInterceptor()
-    ic.interceptRequest(_Info("ndt://lwc/chart.html"))
-    ic.interceptRequest(_Info("https://example.com/x.js"))
-    assert seen[0] == ("ndt://lwc/chart.html", False)
-    assert seen[1] == ("https://example.com/x.js", True)
+    chart_url = "ndt://lwc/chart.html"
+    non_ndt = [
+        "https://example.com/x.js",
+        "http://127.0.0.1/x.js",
+        "file:///etc/passwd",
+    ]
+    for url in [chart_url, *non_ndt]:
+        ic.interceptRequest(_Info(url))
+
+    # The real engine dispatches from its own IO thread, so arrival order is not
+    # part of the contract — the per-URL verdict is. The interceptor implements
+    # deny-default by calling ``block(True)`` only (Qt's default is allow), so
+    # an allowed URL may carry no verdict at all.
+    verdicts = dict(seen)
+    assert len(verdicts) == len(seen), f"a request was intercepted twice: {seen}"
+
+    assert verdicts.get(chart_url, False) is False, (
+        f"the offline ndt:// chart URL must be allowed (seen: {seen})"
+    )
+    allowed = {url for url, blocked in verdicts.items() if not blocked}
+    assert allowed <= {chart_url}, (
+        "deny-default violated — non-ndt URLs were allowed: "
+        f"{sorted(allowed - {chart_url})} (seen: {seen})"
+    )
+    not_blocked = sorted(set(non_ndt) - {url for url, on in verdicts.items() if on})
+    assert not_blocked == [], (
+        f"every non-ndt URL must be blocked, these were not: {not_blocked} "
+        f"(seen: {seen})"
+    )
 
 
 @pytest.mark.webengine

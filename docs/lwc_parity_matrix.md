@@ -92,11 +92,23 @@ evidence and none was re-dispositioned, relaxed or skipped.
   this machine, re-measured 2026-10-26). The vendored tree the `datas` entry
   now absorbs = **338,928 bytes across 14 files (331.0 KB of file data; 428 KB
   as allocated on disk)**, i.e. **+0.09 %** of the bundle (378,400 → 378,731 KB
-  by file bytes). The QtWebEngine/Chromium term is **not measured**: this venv
-  has no `PyQt6-WebEngine`, so no number is invented for it — it is the
-  dominant unknown and must be measured on a build host that has the wheel
-  before any size budget is set. **No fixed size budget is set** (the P6-01
-  record's "no fixed size budget" stands; this wave only adds measurement).
+  by file bytes). **The QtWebEngine/Chromium term is now measured:** on
+  2026-10-26 `PyQt6-WebEngine` **6.11.0** was installed (owner-approved; owed
+  by plan Phase 2.1), so `HAS_WEBENGINE` is True and the wheel's frameworks
+  exist on this machine. Method: `du -sk` over the frameworks the wheel installs
+  into `.venv/lib/python3.11/site-packages/PyQt6/Qt6/lib` —
+  `QtWebEngineCore.framework` **291,972 KB (285 MB)**, `QtQml.framework`
+  **4,688 KB (4.6 MB)**, `QtWebEngineQuick.framework` **724 KB**,
+  `QtPositioning.framework` **584 KB**, `QtPrintSupport.framework` **476 KB**,
+  `QtWebChannel.framework` **272 KB**, `QtWebEngineWidgets.framework`
+  **216 KB** = **298,932 KB ≈ 292 MB**. Against the 378,400 KB baseline that is
+  **+79 %** (369.5 MB → ~661 MB), before PyInstaller's own
+  compression/packing. That packed contribution is still **unmeasured** — no
+  build has been produced with the wheel present, so the shipped `.app` delta
+  will differ from this raw on-disk sum and must be re-measured from a build;
+  no number is invented for it. **No fixed size budget is set** (the P6-01
+  record's "no fixed size budget" stands; this wave only adds measurement, and
+  the owner sets the budget from this figure).
 - **Signing-flow disposition.** Today's flow is spec-driven PyInstaller with
   `codesign_identity=None` and `entitlements=None` in both specs — an
   ad-hoc/unsigned development bundle, with no notarization step anywhere in the
