@@ -14,6 +14,34 @@ from config import settings
 from ui.main_window import MainWindow
 
 
+def _register_lwc_scheme_before_qapp() -> None:
+    """Register the ``ndt://`` scheme at import time — the ORDER is required.
+
+    ``QWebEngineUrlScheme.registerScheme()`` is only honoured before a
+    ``QApplication`` exists, and QtWebEngine itself must be imported before
+    one too. ``ui/lwc_host`` is otherwise imported lazily by the engine
+    factory, *after* ``QApplication`` — where the QtWebEngine import fails,
+    ``HAS_WEBENGINE`` is False, ``LwcChartView.ensure_host()`` raises and the
+    chart area stays blank while bars still load. This call therefore lives
+    at module level (above ``main()``) and must never move below the
+    ``QApplication(sys.argv)`` line.
+
+    Silent no-op when the LWC engine (PyQt6-WebEngine) is not installed:
+    startup must never fail over the scheme.
+    """
+    try:
+        from ui.lwc_host import register_ndt_scheme
+    except Exception:  # pragma: no cover — engine-less box
+        return
+    try:
+        register_ndt_scheme()
+    except Exception:  # pragma: no cover — never break startup
+        pass
+
+
+_register_lwc_scheme_before_qapp()
+
+
 def main() -> int:
     # Configure pyqtgraph before any widgets are created
     pg.setConfigOption('background', '#0d0f14')

@@ -259,6 +259,29 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     return activeMode;
   }
 
+  /* v5 series API bridge (Q-14). The vendored tree is lightweight-charts
+   * 5.2.1, where `chart.addCandlestickSeries` / `addLineSeries` /
+   * `addAreaSeries` / `addHistogramSeries` no longer exist: a series is created
+   * with `chart.addSeries(LightweightCharts.<Ctor>, options)` (the pattern
+   * studies.js already uses). Without this, init() throws on the first series
+   * and the canvas never leaves the background colour — a blank chart even
+   * when the host itself is constructed. The v4 method names stay as a
+   * fallback so an older vendored tree still boots. */
+  function addSeries(ctorName, options, legacyMethod) {
+    var lib = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
+    if (lib && typeof chart.addSeries === "function" && lib[ctorName]) {
+      return chart.addSeries(lib[ctorName], options);
+    }
+    if (legacyMethod && typeof chart[legacyMethod] === "function") {
+      return chart[legacyMethod](options);
+    }
+    return null;
+  }
+
+  function addHistogramSeries(options) {
+    return addSeries("HistogramSeries", options, "addHistogramSeries");
+  }
+
   function init() {
     if (typeof LightweightCharts === "undefined") {
       document.title = "LWC runtime missing (vendored asset not served)";
@@ -285,15 +308,23 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       },
     });
     // Price pane (per-mode series) + volume pane (own scale).
-    candleSeries = chart.addCandlestickSeries({});
-    lineSeries = chart.addLineSeries({ color: "#60a5fa", lineWidth: 2 });
-    areaSeries = chart.addAreaSeries({
-      lineColor: "#60a5fa",
-      topColor: "rgba(96,165,250,0.4)",
-      bottomColor: "rgba(96,165,250,0.0)",
-    });
-    lineSeries.applyOptions({ visible: false });
-    areaSeries.applyOptions({ visible: false });
+    candleSeries = addSeries("CandlestickSeries", {}, "addCandlestickSeries");
+    lineSeries = addSeries(
+      "LineSeries",
+      { color: "#60a5fa", lineWidth: 2 },
+      "addLineSeries",
+    );
+    areaSeries = addSeries(
+      "AreaSeries",
+      {
+        lineColor: "#60a5fa",
+        topColor: "rgba(96,165,250,0.4)",
+        bottomColor: "rgba(96,165,250,0.0)",
+      },
+      "addAreaSeries",
+    );
+    if (lineSeries) lineSeries.applyOptions({ visible: false });
+    if (areaSeries) areaSeries.applyOptions({ visible: false });
     priceSeries = {
       candles: candleSeries,
       hollow: candleSeries,
@@ -301,16 +332,18 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       line: lineSeries,
       area: areaSeries,
     };
-    volumeSeries = chart.addHistogramSeries({ priceScaleId: "vol" });
+    volumeSeries = addHistogramSeries({ priceScaleId: "vol" });
     // Q-9 / AC-D21.2.1: the volume pane's ceiling follows the *visible*
     // range, re-priced by the library on every autoscale (load, pan, zoom)
     // from the snapshot the driver already sent — no per-gesture round-trip
     // to Python. The price pane's autoscale is untouched.
-    volumeSeries.applyOptions({
-      autoscaleInfoProvider: function () {
-        return { priceRange: currentVolumeRange() };
-      },
-    });
+    if (volumeSeries) {
+      volumeSeries.applyOptions({
+        autoscaleInfoProvider: function () {
+          return { priceRange: currentVolumeRange() };
+        },
+      });
+    }
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     bindKeyboard(el);
     bindChannel();

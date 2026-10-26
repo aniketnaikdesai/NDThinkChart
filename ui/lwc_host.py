@@ -141,9 +141,19 @@ def register_ndt_scheme() -> bool:
     return True
 
 
+# Engine symbol ownership (Q-14: a blank chart hid behind getting this wrong).
+# ``PyQt6.QtWebEngineCore`` owns QWebEngineUrlScheme,
+# QWebEngineUrlSchemeHandler, QWebEngineUrlRequestInterceptor,
+# QWebEngineProfile, QWebEnginePage, QWebEngineSettings, QWebEngineScript.
+# ``PyQt6.QtWebEngineWidgets`` owns exactly QWebEngineView.
+# Importing a Core class from the Widgets module raises ImportError at host
+# construction time — inside ``ensure_host``, where callers swallow it — so
+# the chart stays black with no test failure. Keep every import here on its
+# owning module; ``tests/test_lwc_render_smoke.py`` audits this statically.
 try:  # pragma: no cover — exercised on engine boxes, skipped elsewhere
     from PyQt6.QtCore import QBuffer, QIODevice, QByteArray  # noqa: F401
     from PyQt6.QtWebEngineCore import (
+        QWebEngineProfile,
         QWebEngineUrlSchemeHandler,
         QWebEngineUrlRequestInterceptor,
     )
@@ -230,9 +240,6 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
 
     def create_host(bridge, parent=None):
         """Register the scheme/profile wiring and return an ``LwcHost``."""
-        from PyQt6.QtWebEngineCore import QWebEngineUrlSchemeHandler  # noqa: F401
-        from PyQt6.QtWebEngineWidgets import QWebEngineProfile
-
         register_ndt_scheme()
         profile = QWebEngineProfile.defaultProfile()
         if profile.urlSchemeHandler(NDT_SCHEME.encode()) is None:
