@@ -582,11 +582,8 @@ class MainWindow(QMainWindow):
         b.historical_data_end.connect(self._on_historical_data_end)
         b.tick_price.connect(self.watchlist_panel.on_tick_price)
         b.tick_size.connect(self.watchlist_panel.on_tick_size)
-        # D37 S0: route price/size ticks to sessions too (auction 34/35/36/61
-        # arrive on the session's S0 reqMktData). The watchlist keeps its own
-        # table; both consumers filter by reqId.
-        b.tick_price.connect(self._on_session_tick_price)
-        b.tick_size.connect(self._on_session_tick_size)
+        # D41: TickerSession.on_tick_price/on_tick_size are gone, so price/size
+        # ticks reach the watchlist only — there is no session relay to wire.
         # D37 S0 substrate: generic/string/news ticks, routed by reqId.
         b.tick_generic.connect(self._on_s0_tick_generic)
         b.tick_string.connect(self._on_s0_tick_string)
@@ -1867,24 +1864,6 @@ class MainWindow(QMainWindow):
         session.on_historical_data_end(reqId)
 
     # ── D37 S0 routing ───────────────────────────────────────────────
-
-    def _on_session_tick_price(self, reqId: int, tickType: int,
-                               price: float) -> None:
-        if self._closing:
-            return
-        session = self._session_for_req_id(reqId)
-        if session is None:
-            return
-        session.on_tick_price(reqId, tickType, price)
-
-    def _on_session_tick_size(self, reqId: int, tickType: int,
-                              size: int) -> None:
-        if self._closing:
-            return
-        session = self._session_for_req_id(reqId)
-        if session is None:
-            return
-        session.on_tick_size(reqId, tickType, size)
 
     def _on_s0_tick_generic(self, reqId: int, tickType: int,
                             value: float) -> None:

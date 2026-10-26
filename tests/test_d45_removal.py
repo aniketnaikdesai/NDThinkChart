@@ -771,6 +771,57 @@ def test_removed_panel_members_absent(qapp):
 
 
 # ---------------------------------------------------------------------------
+# D41's half-removal — the session tick relays, asserted where the static
+# instruments cannot see them (tests/ is outside their scope either way, but
+# the failure mode here is behavioural: a disconnected-or-dead slot is only
+# visible when a tick is emitted)
+# ---------------------------------------------------------------------------
+
+#: D41 deleted ``TickerSession.on_tick_price``/``on_tick_size``; MainWindow's
+#: two relays and their ``bridge.tick_price``/``tick_size`` connects outlived
+#: them, so every market-data tick raised ``AttributeError`` and pyqtgraph's
+#: non-abort excepthook printed it. The watchlist's own handlers
+#: (``WatchlistPanel.on_tick_price``/``on_tick_size``) are a different object's
+#: and stay wired.
+_D41_REMOVED_SESSION_TICK_SLOTS = (
+    "_on_session_tick_price",
+    "_on_session_tick_size",
+)
+
+
+def test_no_dead_session_tick_relay(monkeypatch, qapp):
+    """D41: the two relays are gone and a tick no longer raises.
+
+    The static nets cannot see this: the slots are defined in ``ui/`` (so the
+    token scan finds nothing wrong) and their bodies only fail at *call* time.
+    ``hasattr`` is the right measure for the removal — no base class supplies
+    them — and a real offscreen window is the measure for the wiring: the
+    unknown reqId keeps the watchlist's own handler on its early-return path,
+    so any recorded exception is the dead relay's.
+    """
+    from ui.main_window import MainWindow
+
+    for name in _D41_REMOVED_SESSION_TICK_SLOTS:
+        assert not hasattr(MainWindow, name), (
+            f"MainWindow still has {name!r}; its TickerSession counterpart was "
+            "deleted (D41)")
+
+    win, _fake = _make_window(monkeypatch, qapp)
+    recorder = _RecordingExcepthook()
+    try:
+        with recorder:
+            win.ib_client.bridge.tick_price.emit(9999, 1, 123.45)
+            win.ib_client.bridge.tick_size.emit(9999, 8, 100)
+            qapp.processEvents()
+    finally:
+        win.close()
+
+    assert not recorder.records, (
+        "a market-data tick raised on a constructed window after D41 removed "
+        f"the session tick handlers: {recorder.records!r}")
+
+
+# ---------------------------------------------------------------------------
 # P5 / D46 end state asserted directly — the same scope rule as above, now for
 # every member the phase removed (AC-D46.1/.8/.9/.10/.11/.12)
 # ---------------------------------------------------------------------------
