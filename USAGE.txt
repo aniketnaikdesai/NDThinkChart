@@ -29,16 +29,21 @@ Requirements before running
    The virtual environment must have these packages installed:
 
    PyQt6
+   PyQt6-WebEngine
    pyqtgraph
-   ibapi
+   ibapi            (installed from the PyPI distribution named ibapi-latest)
+   numpy
+   yfinance
 
    Install them with:
 
-   .venv/bin/pip install PyQt6 pyqtgraph ibapi
+   .venv/bin/pip install -r requirements.txt
 
-   Note: For the most reliable IBKR compatibility, install ibapi from the TWS API
-   installer bundled by Interactive Brokers if the PyPI package does not match
-   your installed TWS version.
+   Note: PyQt6-WebEngine must match the installed PyQt6 version — both are
+   pinned together in requirements.txt. For the most reliable IBKR
+   compatibility, install ibapi from the TWS API installer bundled by
+   Interactive Brokers if the pinned package does not match your installed
+   TWS version.
 
 
 3. Interactive Brokers TWS Desktop
@@ -73,9 +78,30 @@ Requirements before running
 
 6. macOS notes
 
-   The current implementation targets macOS with PyQt6 and pyqtgraph. If macOS
-   blocks network/socket access on first launch, allow the Python process to
-   connect to localhost/TWS.
+   The current implementation targets macOS with PyQt6 and both chart engines
+   (pyqtgraph by default, Lightweight Charts through QtWebEngine when opted
+   in). If macOS blocks network/socket access on first launch, allow the Python
+   process to connect to localhost/TWS.
+
+
+Chart engines: pyqtgraph default, LWC opt-in
+--------------------------------------------
+
+- The app ships two chart renderers behind one selection seam. pyqtgraph is
+  the default and stays the default until the cutover is accepted; nothing
+  changes unless you opt in.
+- Set NDT_CHART_ENGINE=lwc to run the new Lightweight Charts (LWC) engine:
+
+    NDT_CHART_ENGINE=lwc .venv/bin/python main.py
+
+  Unset, blank or unknown values keep pyqtgraph, so a typo never blanks the
+  chart.
+- Feature parity is complete, but one live trading session is still owed
+  before pyqtgraph is removed. Both engines remain present until then.
+- Size: the LWC engine needs PyQt6-WebEngine, which adds about 292 MB of
+  QtWebEngine/Chromium frameworks and takes the packaged app from about
+  369 MB to about 661 MB (measured before PyInstaller packing).
+  PyQt6-WebEngine must match the installed PyQt6 version.
 
 
 Trading & safety notes (Phases 1-2)

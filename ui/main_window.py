@@ -41,7 +41,7 @@ from ibkr.subscription_manager import (
     SubscriptionManager,
 )
 from ibkr.stream_health import StreamHealth, StreamState
-from ui.chart_panel import ChartPanel
+from ui.chart_view import create_chart_view
 from ui.candlestick_item import ChartMode
 from ui.watchlist_panel import (
     WatchlistPanel,
@@ -161,6 +161,28 @@ def _ibkr_end_date(ts: int) -> str:
     treated as instrument local time zone.
     """
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d-%H:%M:%S")
+
+
+def build_main_chart_view(tz_offset: float, editable: bool = True):
+    """Create the main chart on the engine the seam resolves.
+
+    ``ui.chart_view.create_chart_view`` is the single engine-selection
+    authority: ``NDT_CHART_ENGINE`` first, then the persisted override, and
+    anything other than ``"lwc"`` keeps pyqtgraph (the default). Its LWC
+    branch is still the Phase-1a seam stub, so — exactly as
+    ``ui.popout_window.popout_view`` does for pop-outs — the real LWC driver
+    is re-hosted here when the factory resolves that engine. The pyqtgraph
+    path is returned untouched.
+    """
+    view = create_chart_view(tz_offset=tz_offset, editable=editable)
+    if getattr(view, "ENGINE_NAME", None) != "lwc":
+        return view
+    from ui.lwc_view import LwcChartView as LwcDriverView
+
+    if isinstance(view, LwcDriverView):
+        return view
+    view.deleteLater()
+    return LwcDriverView(tz_offset=tz_offset, editable=editable)
 
 
 class MainWindow(QMainWindow):
@@ -321,7 +343,20 @@ class MainWindow(QMainWindow):
         # ── Central chart area ────────────────────────────────────────────────
         # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000
         self._tz_offset = _eastern_offset()
-        self.chart_panel = ChartPanel(tz_offset=self._tz_offset)
+        self.chart_panel = build_main_chart_view(
+            tz_offset=self._tz_offset, editable=True
+        )
+        # The LWC driver renders through its own offline host, created lazily
+        # exactly as a pop-out does in ``attach``. Engine-less CI has no
+        # Chromium: ``ensure_host`` raises, the view still syncs through its
+        # bridge, and window start-up never depends on the host existing.
+        self._chart_engine_host = None
+        _ensure_host = getattr(self.chart_panel, "ensure_host", None)
+        if callable(_ensure_host):
+            try:
+                self._chart_engine_host = _ensure_host()
+            except Exception:
+                self._chart_engine_host = None
         # D19 Phase 1: keep the toolbar inside the central widget but stop its
         # ~1716px minimumSizeHint from pinning the central widget. A frameless
         # horizontal QScrollArea holds the full-natural-width toolbar so it stays
@@ -539,32 +574,45 @@ class MainWindow(QMainWindow):
         # D27.5: watchlist ticks feed the central symbol -> last_price map.
         self.watchlist_panel.set_price_sink(self._record_symbol_price)
 
-        # Drawing overlay wiring
-        self.chart_panel.drawing_overlay.created.connect(self._on_drawing_created)
-        self.chart_panel.drawing_overlay.updated.connect(self._on_drawing_updated)
-        self.chart_panel.drawing_overlay.deleted.connect(self._on_drawing_deleted)
-        self.chart_panel.drawing_overlay.selection_changed.connect(self._on_drawing_selection_changed)
-        # ESC-017: when the router clears the drawing tool (TR-4 zoom-cancels-draw,
-        # TR-17 symbol change) the overlay emits mode_changed("cursor"); mirror it
-        # back into the toolbar combo so it never goes stale.
-        self.chart_panel.drawing_overlay.mode_changed.connect(
-            self._on_drawing_tool_mode_changed
-        )
+        # Drawing overlay wiring — through the seam: the default engine's
+        # controller proxies wrap its Qt overlay, and the LWC driver exposes
+        # its session-facing surface (signals that engine does not carry are
+        # simply absent, so wiring degrades quietly instead of raising).
+        drawing = self._view_signal_source("drawing_controller", "drawing_overlay")
+        if drawing is not None:
+            for signal_name, slot in (
+                ("created", self._on_drawing_created),
+                ("updated", self._on_drawing_updated),
+                ("deleted", self._on_drawing_deleted),
+                ("selection_changed", self._on_drawing_selection_changed),
+                # ESC-017: when the router clears the drawing tool (TR-4
+                # zoom-cancels-draw, TR-17 symbol change) the overlay emits
+                # mode_changed("cursor"); mirror it into the toolbar combo so
+                # it never goes stale.
+                ("mode_changed", self._on_drawing_tool_mode_changed),
+            ):
+                self._connect_view_signal(drawing, signal_name, slot)
 
         # AC-D3.9: the magnifier is refused while alarm placement is armed.
-        self.chart_panel.zoom_refused.connect(
-            lambda: self.status_bar.showMessage(
-                "Finish or cancel alarm placement before zooming", 4000
+        zoom_refused = getattr(self.chart_panel, "zoom_refused", None)
+        if zoom_refused is not None:
+            zoom_refused.connect(
+                lambda: self.status_bar.showMessage(
+                    "Finish or cancel alarm placement before zooming", 4000
+                )
             )
-        )
 
-        # Alarm overlay wiring
-        aov = self.chart_panel.alarm_overlay
-        aov.create_requested.connect(self._on_alarm_create_requested)
-        aov.moved.connect(self._on_alarm_moved)
-        aov.mute_toggled.connect(self._on_alarm_mute_toggled)
-        aov.rearm_requested.connect(self._on_alarm_rearm_requested)
-        aov.delete_requested.connect(self._on_alarm_delete_requested)
+        # Alarm overlay wiring — same seam rule as drawings.
+        aov = self._view_signal_source("alarm_controller", "alarm_overlay")
+        if aov is not None:
+            for signal_name, slot in (
+                ("create_requested", self._on_alarm_create_requested),
+                ("moved", self._on_alarm_moved),
+                ("mute_toggled", self._on_alarm_mute_toggled),
+                ("rearm_requested", self._on_alarm_rearm_requested),
+                ("delete_requested", self._on_alarm_delete_requested),
+            ):
+                self._connect_view_signal(aov, signal_name, slot)
 
         # Alert sounds + transient toast
         self.sound_service = SoundService(enabled=True)
@@ -675,6 +723,56 @@ class MainWindow(QMainWindow):
         self._reader_thread = threading.Thread(
             target=self.ib_client.run, daemon=True, name="ibkr-reader")
         self._reader_thread.start()
+
+    # ── Engine seam helpers (D47 / Q-10) ─────────────────────────────────────
+
+    def _view_signal_source(self, controller_name: str, overlay_name: str):
+        """Signal source for one overlay: the seam controller, else the view.
+
+        The default engine exposes ``drawing_controller`` / ``alarm_controller``
+        proxies over its Qt overlays. The LWC driver exposes its session-facing
+        ``drawing_overlay`` surface instead and carries no alarm overlay; a
+        missing source returns ``None`` so start-up never raises on an engine
+        that does not have that surface.
+        """
+        controller = getattr(self.chart_panel, controller_name, None)
+        if controller is not None:
+            return controller
+        return getattr(self.chart_panel, overlay_name, None)
+
+    @staticmethod
+    def _connect_view_signal(source, name: str, slot) -> bool:
+        """Connect ``source.<name>`` when present; never raise on a missing one."""
+        signal = getattr(source, name, None)
+        if signal is None:
+            return False
+        try:
+            signal.connect(slot)
+        except (AttributeError, TypeError, RuntimeError):
+            return False
+        return True
+
+    def _chart_call(self, name: str, *args, **kwargs):
+        """Call a chart-view method when the resolved engine provides it."""
+        method = getattr(self.chart_panel, name, None)
+        if not callable(method):
+            return None
+        return method(*args, **kwargs)
+
+    def _drawing_actions(self):
+        """The object carrying the default engine's drawing *methods*.
+
+        Signals go through the seam controller; the imperative calls
+        (``set_active_group`` / ``delete_selected``) live on the wrapped Qt
+        overlay. The LWC driver's drawing surface is read-only fan-out, so
+        those calls become no-ops there rather than raising.
+        """
+        controller = getattr(self.chart_panel, "drawing_controller", None)
+        overlay = getattr(controller, "overlay", None)
+        if overlay is not None:
+            return overlay
+        surface = getattr(self.chart_panel, "drawing_overlay", None)
+        return surface if hasattr(surface, "set_active_group") else None
 
     # ── Session registry (D28.2) ──────────────────────────────────────────────
 
@@ -855,7 +953,7 @@ class MainWindow(QMainWindow):
                     pass
         self._primary_session = session
         if old is not None:
-            self.chart_panel.unbind_d38_session(old)
+            self._chart_call("unbind_d38_session", old)
         if session is not None:
             session.bar_updated.connect(self._on_primary_bar_updated)
             session.bars_refreshed.connect(self._on_primary_bars_refreshed)
@@ -864,7 +962,7 @@ class MainWindow(QMainWindow):
             )
             # D38: event markers bind to the primary session (38b.2). The
             # shared yfinance source feeds the async refresh.
-            self.chart_panel.bind_d38_session(session, self.yf_event_source)
+            self._chart_call("bind_d38_session", session, self.yf_event_source)
 
     def _on_primary_bar_updated(self, bar: Bar, is_new_candle: bool) -> None:
         if bar.timeframe != self._current_tf:
@@ -1748,7 +1846,9 @@ class MainWindow(QMainWindow):
         for group in groups:
             if group.id == self._active_draw_group_id and group.color:
                 color = group.color
-        self.chart_panel.drawing_overlay.set_active_group(self._active_draw_group_id, color)
+        drawing_actions = self._drawing_actions()
+        if drawing_actions is not None:
+            drawing_actions.set_active_group(self._active_draw_group_id, color)
 
     def _on_active_draw_group_changed(self, _index: int):
         self._active_draw_group_id = self.draw_set_combo.currentData()
@@ -1765,7 +1865,7 @@ class MainWindow(QMainWindow):
         }.get(label, "cursor")
         if tool != "cursor" and self.alarm_mode_btn.isChecked():
             self.alarm_mode_btn.setChecked(False)
-        self.chart_panel.set_drawing_tool(tool)
+        self._chart_call("set_drawing_tool", tool)
 
     def _reset_draw_combo_to_cursor(self):
         """Show "Cursor" in the drawing combo without re-arming the tool (ESC-017).
@@ -1824,7 +1924,9 @@ class MainWindow(QMainWindow):
         self.draw_delete_btn.setEnabled(drawing_id >= 0)
 
     def _delete_selected_drawing(self):
-        self.chart_panel.drawing_overlay.delete_selected()
+        drawing_actions = self._drawing_actions()
+        if drawing_actions is not None:
+            drawing_actions.delete_selected()
 
     def _open_drawing_groups_dialog(self):
         if not self._current_symbol:
@@ -2100,7 +2202,12 @@ class MainWindow(QMainWindow):
             "Line": ChartMode.LINE,
             "Area": ChartMode.AREA,
         }
-        self.chart_panel.set_chart_mode(mode_by_label.get(label, ChartMode.CANDLES))
+        mode = mode_by_label.get(label, ChartMode.CANDLES)
+        if getattr(self.chart_panel, "set_chart_mode", None) is not None:
+            self.chart_panel.set_chart_mode(mode)
+        else:
+            # LWC names modes with the shared lower-case strings.
+            self._chart_call("set_mode", getattr(mode, "value", str(mode)))
 
     def _open_studies_dialog(self):
         dialog = StudiesDialog(self._current_studies, self)
@@ -2856,7 +2963,7 @@ class MainWindow(QMainWindow):
             self._tz_offset = _eastern_offset()
         else:  # UTC
             self._tz_offset = 0
-        self.chart_panel.set_timezone(self._tz_offset)
+        self._chart_call("set_timezone", self._tz_offset)
         self.status_bar.showMessage(f"Timezone: {label}", 3000)
 
     # ── Alarm overlay slots ───────────────────────────────────────────────────

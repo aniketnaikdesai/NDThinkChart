@@ -344,3 +344,96 @@ class TestParityMatrixSeamRecord:
         assert open_count == len(open_rows)
         assert done_count == len(done)
         assert open_count + done_count == total
+
+
+# ── Q-10: MainWindow goes through the factory (AC1) ───────────────────────
+
+class TestMainWindowChartFactory:
+    """The main chart is engine-selected through ``create_chart_view``.
+
+    Before Q-10 ``MainWindow`` built ``ChartPanel`` directly, so the factory
+    only ever reached pop-outs: ``NDT_CHART_ENGINE=lwc`` could not select the
+    main chart and the live-session sign-off gate was unreachable. These
+    cases pin the factory path, the pyqtgraph fallback for an unknown value,
+    and the LWC driver re-host on the main-chart construction path.
+    """
+
+    @staticmethod
+    def _make_window(monkeypatch):
+        from ibkr.client import IBApiClient
+
+        monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
+        monkeypatch.setattr(IBApiClient, "run", lambda *a, **k: None)
+        from ui.main_window import MainWindow
+
+        win = MainWindow()
+        win.show()
+        return win
+
+    def test_main_window_chart_comes_from_the_factory(
+        self, qapp, clean_env, clean_settings, monkeypatch
+    ):
+        import ui.main_window as main_window
+
+        calls = []
+        real_create = main_window.create_chart_view
+
+        def spy(*args, **kwargs):
+            view = real_create(*args, **kwargs)
+            calls.append((view, dict(kwargs)))
+            return view
+
+        monkeypatch.setattr(main_window, "create_chart_view", spy)
+        win = self._make_window(monkeypatch)
+        try:
+            qapp.processEvents()
+            assert calls, "MainWindow built its chart without the engine factory"
+            view, kwargs = calls[0]
+            assert kwargs.get("editable") is True
+            assert kwargs.get("tz_offset") == win._tz_offset
+            assert win.chart_panel is view
+            assert isinstance(view, PyqtgraphChartView)
+        finally:
+            win.close()
+            qapp.processEvents()
+
+    def test_unknown_engine_value_falls_back_to_pyqtgraph(
+        self, qapp, clean_settings, monkeypatch
+    ):
+        monkeypatch.setenv(ENGINE_ENV_VAR, "definitely-not-an-engine")
+        win = self._make_window(monkeypatch)
+        try:
+            qapp.processEvents()
+            assert isinstance(win.chart_panel, PyqtgraphChartView)
+            assert win.chart_panel.ENGINE_NAME == "pyqtgraph"
+        finally:
+            win.close()
+            qapp.processEvents()
+
+    def test_lwc_engine_rehosts_the_real_driver(
+        self, qapp, clean_settings, monkeypatch
+    ):
+        from ui.lwc_view import LwcChartView as LwcDriverView
+
+        # DG88: no Chromium in offscreen CI. Record that MainWindow asks the
+        # driver for its host (the pop-out path does the same in attach),
+        # without depending on a WebEngine context existing here.
+        host_calls = []
+        monkeypatch.setattr(
+            LwcDriverView,
+            "ensure_host",
+            lambda self: host_calls.append(self) or None,
+        )
+        monkeypatch.setenv(ENGINE_ENV_VAR, "lwc")
+        win = self._make_window(monkeypatch)
+        try:
+            qapp.processEvents()
+            assert isinstance(win.chart_panel, LwcDriverView)
+            assert win.chart_panel.ENGINE_NAME == "lwc"
+            assert win.chart_panel.editable is True
+            # The session-facing surface the main-chart fan-out needs.
+            assert hasattr(win.chart_panel, "drawing_overlay")
+            assert host_calls == [win.chart_panel]
+        finally:
+            win.close()
+            qapp.processEvents()

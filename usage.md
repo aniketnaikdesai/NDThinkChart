@@ -1,6 +1,6 @@
 # NDThinkChart — Usage Guide
 
-A PyQt6 + pyqtgraph + official `ibapi` trading terminal for Interactive Brokers TWS.
+A PyQt6 trading terminal for Interactive Brokers TWS with two chart engines — **pyqtgraph** (the default) and **Lightweight Charts** (served through QtWebEngine) — and the official `ibapi`.
 
 ---
 
@@ -24,6 +24,8 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
+# requirements.txt pins PyQt6-WebEngine to the installed PyQt6 version.
+# Keep those two in step when you upgrade PyQt6.
 
 # 3. Ensure TWS is running on port 7496
 #    TWS → Edit → Global Configuration → API → Settings
@@ -70,11 +72,33 @@ The bundle is self-contained:
 | `IBKR_PORT` | `7496` | TWS socket port (Live only) |
 | `IBKR_CLIENT_ID` | `1` | Unique client ID per session |
 | `DB_PATH` | `charting_app.sqlite3` | SQLite path (dev); overridden in bundle |
+| `NDT_CHART_ENGINE` | unset (pyqtgraph) | Chart engine. Set to `lwc` for the Lightweight Charts engine; any other value — including unset — keeps pyqtgraph |
 
 ```bash
 # Example: custom port + client ID
 IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 ```
+
+---
+
+## Chart Engines
+
+The app ships two renderers behind one `create_chart_view` seam:
+
+- **pyqtgraph** — the default. Unchanged behaviour, and what every run uses unless you opt in.
+- **Lightweight Charts (LWC)** — the new renderer, served through an offline QtWebEngine page. Feature parity is complete, but it has not yet been through a live trading session, so pyqtgraph stays the default until that cutover is accepted and pyqtgraph is removed.
+
+Opt in per run:
+
+```bash
+NDT_CHART_ENGINE=lwc python main.py
+```
+
+An unset, blank or unknown `NDT_CHART_ENGINE` value keeps the pyqtgraph engine, so a typo never blanks the chart.
+
+**Size:** the LWC engine needs `PyQt6-WebEngine`, which adds about **292 MB** of QtWebEngine/Chromium frameworks to the packaged app — roughly **661 MB** versus **369 MB** without it (measured before PyInstaller packing). `PyQt6-WebEngine` must match the installed `PyQt6` version.
+
+One live trading session is still owed before pyqtgraph is removed. Until then both engines are present, and pyqtgraph remains the default.
 
 ---
 
@@ -180,7 +204,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 | Theme not loading | Ensure `config/theme.qss` bundled (`pyinstaller --add-data`) |
 | DB permission error | Check `~/Library/Application Support/NDThinkChart/` writable |
 | Duplicate bars after reconnect | Fixed in Phase 8 — `_last_pushed_ts` guard in `BarAggregator` |
-| `ModuleNotFoundError: ibapi` | `pip install ibapi` (official IBKR package) |
+| `ModuleNotFoundError: ibapi` | `pip install -r requirements.txt` (the dist is `ibapi-latest`, which provides the `ibapi` module) |
 
 ---
 
@@ -189,7 +213,8 @@ All tests run **offscreen** (no display required) and **without TWS**.
 - **Pure logic services** (`services/*.py`) — no Qt, no I/O, fully tested
 - **IBKR layer** (`ibkr/*.py`) — `IBApiClient` (EWrapper/EClient), pacing, subscriptions
 - **Data layer** (`data/*.py`) — SQLite, cache, models, aggregation
-- **UI layer** (`ui/*.py`) — PyQt6 widgets, chart panel, docks
+- **UI layer** (`ui/*.py`) — PyQt6 widgets, docks, and the chart behind the
+  `create_chart_view` seam (pyqtgraph default, Lightweight Charts opt-in)
 - **Reconnect hardening** (D27.3) — connection state machine (DISCONNECTED /
   CONNECTING / CONNECTED / RECONNECTING); `_do_reconnect` re-issues the real
   `EClient.connect` with the stored host/port/clientId on exponential backoff
