@@ -208,3 +208,8 @@
 **Category:** Known Gotcha
 **Finding:** The LWC migration's residue/parity guards each wrote a *wave-local* expectation that a later wave must widen — five instances in one batch: a hardcoded "19 open parity rows" count (breaks on every completed row), a hardcoded stdlib allowlist in the import-boundary test (broke when P6-T09 added `bisect`), the renderer import boundary itself, a forbidden `session_service` token (P6-10 legitimately consumes it), and five `TestRendererBoundary` scans forbidding the raw word `pyqtgraph` anywhere in `ui/lwc_view.py`, which a docstring tripped. The durable shape is to assert the *invariant* (row set + per-row disposition; `sys.stdlib_module_names` + project packages; AST/import-level checks, not raw substrings) rather than the current instance count or a literal list.
 **Source:** D47 P6-02/P6-07/P6-09/P6-10/P6-11 review waves
+
+### [2026-10-26] — owner decision (D47 / Q61, packaging)
+**Category:** Locked Decision
+**Finding:** Owner accepted the measured Lightweight Charts size cost: `PyQt6-WebEngine` adds **298,932 KB (~292 MB)** of frameworks, taking the `.app` from **378,400 KB (369.5 MB) to ~661 MB (+79%)** — measured with `du` on the installed frameworks, before PyInstaller packing. The vendored JS tree is only 0.34 MB, so the Chromium engine is the whole cost. Signing remains an obligation rather than a solved item: the spec builds with `codesign_identity=None`, and QtWebEngine's nested Mach-O binaries need nested signing plus hardened-runtime entitlements before any signed distribution.
+**Source:** Owner 2026-10-26 ("yes -- +292 MB acceptable"); Q61, A109, DG89, P6-T12/Q-7 measurements

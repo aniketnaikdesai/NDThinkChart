@@ -3,10 +3,14 @@
 Rows 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 and 19 are **Done / accepted**
 as of P6-12 (row 8 as of P6-06, rows 7/13/14 as of P6-07, row 12 as of P6-08,
 row 11 as of P6-09, rows 6/9/10 as of P6-10, row 15 as of P6-11, rows 16/17/19
-as of P6-12 — the cutover candidate, **declared not shipped**). Rows 1, 2, 3, 4,
-5 and 18 are **Open / pending** for their one remaining piece of evidence — the
-engine-box (Chromium) confirmation — and each carries an explicit **rule-10
-entry** below. A row
+as of P6-12 — the cutover candidate, **declared not shipped**). Rows 1, 2, 4, 5
+and 18 are **Done / accepted** as of Q-8, each on the named passing test
+recorded in the Q-8 reconciliation below; rows 1/2/4/5 on
+the same offscreen-parity standard rows 6–17 were accepted on, and row 18 with
+its real-engine interceptor cases executing instead of skipping. **Row 3 is
+Open / pending:** its histogram series is built, but the D8/RG-002 nice volume
+ceiling and the `100` floor have no LWC port and no named test, so it carries
+the **rule-10 entry** below. A row
 moves to Done/accepted only with its gate evidence; **a row regressing without
 an escalation fails review (rule 10)**. No soak: the triple gate (owner
 acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
@@ -14,11 +18,11 @@ acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
 
 | # | Row | pyqtgraph reference (today) | LWC target | Gate wave | Disposition |
 |---|---|---|---|---|---|
-| 1 | Candlestick history render (all 5 modes) | `CandlestickItem.set_data` | v5 candlestick series + `setData` | P6-05 | Open / pending |
-| 2 | Live forming-bar tick (no history rebuild) | live candle/volume layers (D28.4) | `series.update` per tick | P6-05 | Open / pending |
+| 1 | Candlestick history render (all 5 modes) | `CandlestickItem.set_data` | v5 candlestick series + `setData` | P6-05 | Done / accepted |
+| 2 | Live forming-bar tick (no history rebuild) | live candle/volume layers (D28.4) | `series.update` per tick | P6-05 | Done / accepted |
 | 3 | Volume pane (linear Y, nice ceiling, floor 100) | `_nice_volume_max` family (D8/RG-002) | histogram series + ceiling port | P6-05 | Open / pending |
-| 4 | Time axis + whitespace for non-trading time | `TimeCollapseMap` display-x (D21.4) | logical index + absent-data whitespace | P6-05 | Open / pending |
-| 5 | Timezone display (ET, DST-correct) | `tz_offset` axes (EST 18000 / EDT 14400) | custom `timeFormatter` | P6-05 | Open / pending |
+| 4 | Time axis + whitespace for non-trading time | `TimeCollapseMap` display-x (D21.4) | logical index + absent-data whitespace | P6-05 | Done / accepted |
+| 5 | Timezone display (ET, DST-correct) | `tz_offset` axes (EST 18000 / EDT 14400) | custom `timeFormatter` | P6-05 | Done / accepted |
 | 6 | Session shading bands (RTH/ETH) | `SessionOverlay` + `session_bands` | overlay/marker port | P6-10 | Done / accepted |
 | 7 | Crosshair + price/time chips | `_update_crosshair`, D2/Q33 lane | library-native crosshair (Q63/A108) | P6-07 | Done / accepted |
 | 8 | Studies (SMA/EMA/VWAP/BB/RSI/MACD) + cache | `indicator_service` + `_StudyCache` | shared model + LWC overlays | P6-06 | Done / accepted |
@@ -31,35 +35,28 @@ acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
 | 15 | Pop-out charts (cap 10, per-pop-out memory) | `popout_window.py`, `MAX_POPOUTS` (Q62/A107, DG90) | LWC views in pop-outs; memory accounted | P6-11 | Done / accepted |
 | 16 | Perf parity (Phase-0 baseline holds) | perf baseline in `docs/lwc_spike_results.md` | cutover evidence vs baseline (triple gate) | P6-12 | Done / accepted |
 | 17 | Bundle size + signing disposition | measured delta in `docs/lwc_spike_results.md` (Q61/A109) | vendored tree in `datas`; measured delta + signing disposition recorded | P6-12 | Done / accepted |
-| 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Open / pending |
+| 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Done / accepted |
 | 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Done / accepted |
 
-Row count: 19. Dispositioned Open/pending: 6. Done/accepted: 13.
+Row count: 19. Dispositioned Open/pending: 1. Done/accepted: 18.
 
 ## Rule-10 entries — rows still Open / pending at the cutover candidate
 
-Rule 10: a row regressing without an escalation fails review. The six rows
-below are **not** regressions and **not** waivers: each one's remaining
-evidence is the same single item — the engine-box (Chromium) confirmation —
-which cannot run in this venv (`PyQt6-WebEngine` is not installed, so
-`@pytest.mark.webengine` cases skip per DG88/AP-P6-4 and each skip names its
-manual-checklist counterpart). Every one of these rows has green offscreen
-evidence and none was re-dispositioned, relaxed or skipped.
+Rule 10: a row regressing without an escalation fails review. The single row
+below is **not** a regression and **not** a waiver: it is unproven on its own
+terms, so it stays Open rather than being flipped on adjacent evidence.
 
-- **Row 1 — Rule-10 entry:** offscreen history render parity is green
-  (`tests/test_lwc_time_parity.py`, `node --test chart_assets/lwc/`); pending
-  only the rendered candle chart on a Chromium engine box (manual checklist).
-- **Row 2 — Rule-10 entry:** live forming-bar `series.update` parity is green
-  offscreen; pending the rendered live tick on the engine box.
-- **Row 3 — Rule-10 entry:** volume pane family/ceiling parity is green
-  offscreen; pending the rendered volume pane on the engine box.
-- **Row 4 — Rule-10 entry:** logical-index axis + whitespace parity is green
-  offscreen; pending the rendered axis on the engine box.
-- **Row 5 — Rule-10 entry:** ET/DST formatter parity is green offscreen; pending
-  the rendered tz labels across the DST fixtures on the engine box.
-- **Row 18 — Rule-10 entry:** the offline/airplane + deny-default interceptor
-  cases are green offscreen; pending the host load, interceptor and
-  `renderProcessTerminated` recovery on Chromium (the webengine skips).
+- **Row 3 — Rule-10 entry:** the volume **histogram series** half is green
+  (`tests/test_lwc_time_parity.py::TestTimeParity::test_P6_T05_T11_all_modes_emit_valid_column_ops`
+  and `::TestGeometryGuard::test_P6_T05_T12_volume_shares_the_price_rule`), but
+  the row's target also includes the D8/RG-002 nice ceiling and the `100`
+  floor, and no LWC path or named test provides them: `ui/lwc_view.py::build_series_ops`
+  ships the raw `Bar.volume` values (`chart_model.volume_display_columns` applies
+  no ceiling) and `chart_assets/lwc/chart.js` configures only the histogram's
+  own price scale (`scaleMargins {top: 0.85, bottom: 0}`), leaving the library
+  to autoscale the visible data — no `1.10 × visible max` and no all-zero `100`
+  floor. The gap is the **port itself**, not the engine box; flipping this row
+  on the histogram-series evidence alone would be a blanket claim.
 
 ### P6-12 — Phase 10 packaging + CI + cutover candidate (2026-10-26)
 
@@ -149,7 +146,59 @@ evidence and none was re-dispositioned, relaxed or skipped.
   pinned and met, deletion-set + backend residue scan) +
   `.github/workflows/lwc_parity.yml` + `node --test chart_assets/lwc/`.
   Rows 16/17/19 move to **Done / accepted**; no Done row regressed; 6/19 remain
-  Open / pending, each with its rule-10 entry.
+  Open / pending, each with its rule-10 entry. (Superseded by the Q-8
+  reconciliation above: 18 Done / 1 Open, row 3 alone.)
+
+## Q-8 reconciliation — each disposition against a named passing test (2026-10-26)
+
+The stale six were reconciled one row at a time, never as a block. Evidence
+command per row: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest
+tests/test_lwc_time_parity.py -q` (15 passed) and `... tests/test_lwc_bridge.py
+-q` (21 passed), plus `node --test chart_assets/lwc/`.
+`PyQt6-WebEngine` is installed in this venv (Q-7), so the
+`@pytest.mark.webengine` cases **execute**: `pytest tests/test_lwc_bridge.py -m
+webengine -q` is 3 passed / 0 skipped.
+
+- **Row 1 — Done / accepted.** `test_lwc_time_parity.py::TestTimeParity::test_P6_T05_T11_all_modes_emit_valid_column_ops`
+  proves all five modes emit valid candle/volume column ops (the per-mode series
+  set), and `...::TestGeometryGuard::test_P6_T05_T12_node_chart_suite_is_green`
+  runs the node suite that pins the per-mode registry / `describeOp`.
+- **Row 2 — Done / accepted.** `...::TestTimeParity::test_P6_T05_T11_live_update_advances_the_forming_bar`
+  proves a same-`ts` tick crosses as one-element `update_bar` ops on candles +
+  volume (count unchanged, close/volume applied) and a new-`ts` bar grows the
+  series by exactly one — no history rebuild.
+- **Row 3 — Open / pending.** Only the histogram payload is proven by
+  `...::test_P6_T05_T11_all_modes_emit_valid_column_ops` and
+  `...::TestGeometryGuard::test_P6_T05_T12_volume_shares_the_price_rule`; no
+  named test and no code path proves the ceiling/floor. See its rule-10 entry
+  above — the missing half is the port itself.
+- **Row 4 — Done / accepted.** `...::test_P6_T05_T11_within_session_hole_is_whitespace`
+  proves the logical index + one 3-slot whitespace run for the midday hole (both
+  `ext_hours` modes) and `...::test_P6_T05_T11_session_boundary_collapses_both_modes`
+  proves the weekend collapse/keep split via `gap_is_non_trading` agreement.
+- **Row 5 — Done / accepted.** `...::test_P6_T05_T11_tz_labels_equal_t_minus_offset_per_mode`
+  proves the EDT/EST `t - offset` labels per mode and
+  `...::test_P6_T05_T11_dst_fold_stays_continuous` proves the 2026-11-01 fold
+  stays continuous rather than losing or duplicating a bar.
+- **Row 18 — Done / accepted.** `test_lwc_bridge.py::test_interceptor_wired_blocks_non_ndt`
+  now runs against the **real** engine (not a skip): `ndt://lwc/chart.html` is
+  allowed and every non-ndt URL is blocked (deny-default, zero non-ndt allow
+  verdicts); `::TestOfflineInterceptor::test_airplane_run_no_network_surface`
+  proves no remote/network surface; `::test_host_loads_ndt_chart_offline` and
+  `::test_render_terminated_recovery_wired` execute on Chromium; and
+  `::TestReplayIdentity::test_replay_identity_no_dup_no_loss` proves the full
+  op-log replay after `renderProcessTerminated` has no duplicate and no lost
+  bar.
+
+Rows 1, 2, 4 and 5 are accepted on the named offscreen parity tests — the same
+standard rows 6–17 were accepted on; their rendered-surface confirmation rides
+the cutover gate's manual checklist, not a row-specific blocker. Row 18's
+real-engine interceptor case is no longer a skip and passes against Chromium's
+own request dispatch. Row 3 is deliberately not flipped: its ceiling/floor half
+is a port that does not exist, and the count line above (19 / 1 / 18) is derived
+from the table. The P6-05 "Rows keep Open / pending" and P6-12 "6/19 remain
+Open / pending" statements describe those waves; after Q-8 the matrix state is
+**18 Done / 1 Open**.
 
 ## Wave exit notes
 
