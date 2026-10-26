@@ -9,7 +9,7 @@ import hashlib
 from bisect import bisect_left, bisect_right
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QVBoxLayout, QWidget, QSplitter, QPushButton
-from PyQt6.QtCore import Qt, QEvent, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QTimer
 
 from ui.candlestick_item import CandlestickItem, ChartMode, capped_body_half_width
 from ui.drawing_overlay import DrawingViewBox, DrawingOverlay, TOOL_CURSOR
@@ -93,6 +93,11 @@ VOLUME_NICE_FLOOR = 100.0
 # sliver. The oscillator pane cap is intentionally left unchanged at 120px.
 VOLUME_PANE_MAX_HEIGHT = 480
 PRICE_PANE_MIN_HEIGHT = 200
+
+# Q-4: a wheel-zoom storm emits one range change per step. The candle/volume
+# width re-apply is debounced so it regenerates at most once after the range
+# settles, instead of per step (and never for a pan, where it is a no-op).
+CANDLE_WIDTH_RESYNC_MS = 80
 
 
 def _volume_nice_family(max_exponent: int = 12) -> tuple[float, ...]:
@@ -348,6 +353,14 @@ class ChartPanel(QWidget):
         # half-width, so the shared density cap recovers ``median_diff`` without
         # re-running the O(n log n) median-spacing sort D28.4 removed.
         self._candle_pitch: float | None = None
+        # Q-4: the display-x median spacing (data units) — zoom-invariant, so the
+        # density cap survives a range change (``_candle_pitch`` does not: it is
+        # pixels at the zoom level it was measured at).
+        self._candle_median_diff: float | None = None
+        # Q-4: the half-width baked into the current candle/volume pictures. A
+        # range change regenerates only when the cap would produce a different
+        # value, so panning costs nothing (see ``_apply_candle_width_for_view``).
+        self._rendered_candle_half_width: float = 0.0
         self.drawing_overlay = DrawingOverlay(self.price_plot,
                                             editable=editable)
         self.alarm_overlay = AlarmOverlay(self.price_plot,
@@ -423,6 +436,17 @@ class ChartPanel(QWidget):
         # forming-bar no-clip intent via the bar-update recompute.
         self.price_plot.getViewBox().sigXRangeChanged.connect(
             self._on_price_x_range_changed
+        )
+        # Q-4: the candle/volume body width is a function of the CURRENT view.
+        # The QPicture bakes a data-unit width at generation time, so it must be
+        # regenerated when — and only when — the density cap would yield a
+        # different width. Debounced (CANDLE_WIDTH_RESYNC_MS) so a zoom storm
+        # regenerates once after the range settles, and a pure pan is a no-op.
+        self._candle_width_timer = QTimer(self)
+        self._candle_width_timer.setSingleShot(True)
+        self._candle_width_timer.setInterval(CANDLE_WIDTH_RESYNC_MS)
+        self._candle_width_timer.timeout.connect(
+            self._apply_candle_width_for_view
         )
 
         # ── Oscillator plot (RSI / MACD) ──────────────────────────────────────
@@ -1270,10 +1294,12 @@ class ChartPanel(QWidget):
             )
             median_diff = diffs[len(diffs) // 2]
             px_per_sec = self._view_px_per_sec()
+            self._candle_median_diff = median_diff
             self._candle_pitch = (
                 median_diff * px_per_sec if px_per_sec else None
             )
             return median_diff * 0.325
+        self._candle_median_diff = None
         self._candle_pitch = None
         return 0.25  # fallback for a single bar (matches CandlestickItem)
 
@@ -1282,17 +1308,45 @@ class ChartPanel(QWidget):
 
         Delegates to ``capped_body_half_width`` — the one implementation the
         candle layers also use — so the volume width cannot drift from the
-        candle body (R63).  ``median_diff`` is recovered from the cached
-        display-x pitch and the final view scale, matching ``_draw_candles``.
+        candle body (R63).  ``median_diff`` is the zoom-invariant display-x
+        spacing cached at rebuild time (Q-4); only ``px_per_sec`` changes with
+        the view, so the result is always the cap for the *current* zoom.
         """
         px_per_sec = self._view_px_per_sec()
         if px_per_sec:
-            pitch = self._candle_pitch
-            median_diff = (
-                pitch / px_per_sec if pitch is not None else w / 0.325
-            )
+            median_diff = self._candle_median_diff
+            if median_diff is None:
+                median_diff = w / 0.325 if w else 0.0
             return capped_body_half_width(median_diff, w, px_per_sec)
         return w
+
+    def _apply_candle_width_for_view(self) -> None:
+        """Q-4: re-apply the candle/volume width for the CURRENT view range.
+
+        The QPicture stores a data-unit body width generated from the zoom that
+        was active back then, so zooming in on a picture generated while the
+        4-px floor was binding leaves the body at 100 % of the (now larger)
+        pitch — the candles touch at every zoom level until the next data
+        refresh. This re-derives the capped half-width for the settled range
+        and regenerates only when it differs from what is baked in, so panning
+        (which does not change the pitch) never regenerates.
+        """
+        if not self._bars:
+            return
+        median_diff = self._candle_median_diff
+        px_per_sec = self._view_px_per_sec()
+        if not median_diff or not px_per_sec:
+            return
+        target = capped_body_half_width(
+            median_diff, self._candle_half_width, px_per_sec
+        )
+        current = self._rendered_candle_half_width
+        tolerance = 1e-9 * max(1.0, abs(median_diff))
+        if abs(target - current) <= tolerance:
+            return
+        # Regenerate the static + live pictures and the volume bars at the new
+        # width; the price range is untouched (auto_range=False).
+        self._refresh_candles()
 
     def _refresh_candles(self, auto_range: bool = False):
         # D21.4: candles/volume are plotted at *display-x* (non-trading time
@@ -1349,7 +1403,16 @@ class ChartPanel(QWidget):
         # through the one shared helper (the candle layers get it at generation
         # time from the same pitch instead).
         self._candle_half_width = self._compute_candle_half_width(bars)
-        w_vol = self._clamp_half_width(self._candle_half_width) if bars else 0.25
+        # Q-4: the width actually baked into the pictures is the cap for the
+        # view that is current *now* (after the auto-range branch above). It is
+        # cached so a later range change can tell whether re-applying would
+        # change anything (``_apply_candle_width_for_view``).
+        self._rendered_candle_half_width = (
+            self._clamp_half_width(self._candle_half_width)
+            if bars else self._candle_half_width
+        )
+        w_candle = self._rendered_candle_half_width
+        w_vol = w_candle
 
         self.volume_bars.setOpts(x=vol_x, height=vol_h, width=w_vol*2, brushes=vol_colors)
         if live:
@@ -1364,20 +1427,33 @@ class ChartPanel(QWidget):
 
         if auto_range and bars:
             # Generate the candle pictures now that the real range is known.
-            self.candlestick.set_data(candle_data, width=self._candle_half_width,
-                                      pitch=self._candle_pitch)
-            self.live_candle.set_data(live_data, width=self._candle_half_width,
-                                      pitch=self._candle_pitch)
+            self.candlestick.set_data(
+                candle_data, width=w_candle,
+                pitch=self._candle_pitch,
+                spacing=self._candle_median_diff,
+            )
+            self.live_candle.set_data(
+                live_data, width=w_candle,
+                pitch=self._candle_pitch,
+                spacing=self._candle_median_diff,
+            )
             # Full load: derive the ceiling from the bars now visible.
             self._recompute_visible_volume_range(force=True)
         else:
             # Non-auto-range refresh (intra-bar redraw / set_timezone / empty
-            # load): the ViewBox range is already the real one, so the ceiling
-            # computes against it.  Still regenerate to clear/refresh the picture.
-            self.candlestick.set_data(candle_data, width=self._candle_half_width,
-                                      pitch=self._candle_pitch)
-            self.live_candle.set_data(live_data, width=self._candle_half_width,
-                                      pitch=self._candle_pitch)
+            # load / Q-4 range-change re-apply): the ViewBox range is already
+            # the real one, so the ceiling computes against it.  Still
+            # regenerate to clear/refresh the picture.
+            self.candlestick.set_data(
+                candle_data, width=w_candle,
+                pitch=self._candle_pitch,
+                spacing=self._candle_median_diff,
+            )
+            self.live_candle.set_data(
+                live_data, width=w_candle,
+                pitch=self._candle_pitch,
+                spacing=self._candle_median_diff,
+            )
             if bars:
                 # auto_range=False refresh: re-apply the visible ceiling so the
                 # range tracks the bars currently in view.
@@ -1397,13 +1473,14 @@ class ChartPanel(QWidget):
         dx = self._to_display(bar.ts)
         self.live_candle.set_data(
             [(dx, bar.open, bar.high, bar.low, bar.close)],
-            width=self._candle_half_width,
+            width=self._rendered_candle_half_width,
             pitch=self._candle_pitch,
+            spacing=self._candle_median_diff,
         )
         color = '#34d399' if bar.close >= bar.open else '#f87171'
         self.live_volume.setOpts(
             x=[dx], height=[float(bar.volume)],
-            width=self._clamp_half_width(self._candle_half_width) * 2,
+            width=self._rendered_candle_half_width * 2,
             brushes=[color],
         )
         # D28.4: keep the cached volume array fresh for the ceiling bisect.
@@ -1454,8 +1531,24 @@ class ChartPanel(QWidget):
         return self._volume_nice_max
 
     def _on_price_x_range_changed(self, *_args) -> None:
-        """Recompute the visible volume ceiling on every visible-x change."""
+        """Recompute the visible volume ceiling on every visible-x change.
+
+        Q-4: also schedule the candle/volume width re-apply for the settled
+        range — the body width is a function of the current zoom, and the
+        picture was generated at the old one.
+        """
         self._recompute_visible_volume_range()
+        self._schedule_candle_width_resync()
+
+    def _schedule_candle_width_resync(self) -> None:
+        """Q-4: debounce the width re-apply so a zoom storm regenerates once."""
+        timer = getattr(self, "_candle_width_timer", None)
+        if timer is None:
+            return
+        # start() on an active single-shot timer restarts it — that is the
+        # debounce: the re-apply runs once, CANDLE_WIDTH_RESYNC_MS after the
+        # last range change of the gesture.
+        timer.start()
 
     def _clear_overlays(self):
         for item in self._overlay_items:

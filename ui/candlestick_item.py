@@ -87,12 +87,23 @@ class CandlestickItem(pg.GraphicsObject):
         # D42/S14: the display-x pitch cached alongside the D28.4 width override
         # by the host, so the density cap does not have to re-run the sort.
         self._pitch: Optional[float] = None
+        # Q-4: the display-x median bar spacing (data units) cached with the
+        # width override. Unlike ``_pitch`` (pixels, and therefore only valid
+        # for the zoom level it was computed at) this is zoom-invariant, so the
+        # density cap stays correct when the host regenerates the picture after
+        # a range change.
+        self._spacing: Optional[float] = None
+        # Q-4: the half-width actually baked into the last generated picture,
+        # in display-x data units. The host reads it to decide whether a range
+        # change actually changes the rendered body (skip when equal).
+        self.last_body_half_width: float = 0.0
         self._generate()
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def set_data(self, data: List[Tuple], mode: Optional[ChartMode] = None,
-                 width: Optional[float] = None, pitch: Optional[float] = None):
+                 width: Optional[float] = None, pitch: Optional[float] = None,
+                 spacing: Optional[float] = None):
         self._raw_data = data
         if mode is not None:
             self._mode = mode
@@ -102,6 +113,10 @@ class CandlestickItem(pg.GraphicsObject):
             # It is used only when an override is set; absent, _draw_candles
             # recomputes median_diff from data exactly as before.
             self._pitch = pitch
+            # Q-4: the zoom-invariant display-x spacing travels with the
+            # override too, so the density cap no longer depends on a pitch
+            # measured at the (possibly stale) generation-time zoom.
+            self._spacing = spacing
         self._generate()
         self.update()
 
@@ -143,7 +158,11 @@ class CandlestickItem(pg.GraphicsObject):
         if self._width_override is not None:
             w = self._width_override
             pitch = self._pitch
-            if pitch is None and len(data) > 1:
+            # Q-4: the zoom-invariant spacing wins when the host supplies it;
+            # ``pitch`` (px) is only a fallback for older callers because it is
+            # tied to the zoom level it was measured at.
+            median_diff = self._spacing
+            if median_diff is None and pitch is None and len(data) > 1:
                 # Override without a pitch: still derive the spacing from the
                 # data so the density cap can bind.
                 median_diff = _median_time_diff(data)
@@ -189,6 +208,10 @@ class CandlestickItem(pg.GraphicsObject):
                         w = capped_body_half_width(median_diff, w, px_per_sec)
         except Exception:
             pass
+
+        # Q-4: the width actually baked into this picture (data units), so the
+        # host can tell whether a range change would alter the rendered body.
+        self.last_body_half_width = w
 
         green_brush = QBrush(GREEN)
         red_brush   = QBrush(RED)
