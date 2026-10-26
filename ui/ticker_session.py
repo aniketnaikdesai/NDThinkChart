@@ -160,11 +160,12 @@ class TickerSession(QObject):
         # Q-3 (defect B): a pacing-limited priming request is deferred, not
         # skipped. The wait is non-zero for HISTORICAL_MIN_INTERVAL_S after ANY
         # historical request, so a load following a backfill wave almost always
-        # hits it. At most ONE retry is in flight (`_prime_retry_pending`);
-        # `_prime_retry_used` marks the retry re-entry so a second
-        # PacingExceeded fails open instead of rescheduling.
+        # hits it. At most ONE retry is in flight (`_prime_retry_pending`) and
+        # it identifies itself by the explicit ``retrying=True`` argument — not
+        # by instance state (Q-12: a mutable flag could be consumed by an
+        # unrelated call, turning the retry into a first-time attempt that
+        # logged the warning, restarted the backstop and re-armed itself).
         self._prime_retry_pending: bool = False
-        self._prime_retry_used: bool = False
         self._prime_retry_args: tuple | None = None
 
         # ── Studies + drawings (3b-3) ──────────────────────────────────
@@ -297,7 +298,7 @@ class TickerSession(QObject):
         self._prime_timer.stop()
         self._prime_req_id = None
         self._prime_period_start = None
-        # Q-3: an orphaned deferred retry must not re-enter after teardown.
+        # Q-3/Q-12: an orphaned deferred retry must not re-enter after teardown.
         self._prime_retry_pending = False
         self._prime_retry_args = None
         # Cancel the S0 generic-tick subscription (D38 substrate).
@@ -781,6 +782,16 @@ class TickerSession(QObject):
         """
         self.reset_aggregator(timeframe)
         self._rt_seen = False
+        # Q-12: a reload supersedes the previous load's priming state — its
+        # scheduled retry must be a no-op (never a second first-time attempt
+        # that re-arms the backstop: the pacing-limited loop) and its stale
+        # request/timeout must not push bars into the fresh aggregator or
+        # fail open against the new load.
+        self._prime_timer.stop()
+        self._prime_req_id = None
+        self._prime_period_start = None
+        self._prime_retry_pending = False
+        self._prime_retry_args = None
         self.reload_alarms()
 
     def reset_aggregator(self, timeframe: str) -> BarAggregator:
@@ -1016,7 +1027,8 @@ class TickerSession(QObject):
                 self._host._on_session_wave_complete(self)
 
     def prime_aggregator(self, contract, timeframe: str, now_ts: int,
-                         extended_hours: bool) -> bool:
+                         extended_hours: bool,
+                         retrying: bool = False) -> bool:
         """D27.9: fetch recent bars for the current partial period.
 
         The priming bar size follows the elapsed forming-period span
@@ -1025,16 +1037,19 @@ class TickerSession(QObject):
         '1 day'), whose spans exceed that ceiling, prime with `'1 min'` bars
         (duration clamped into [60 S, 1 D]).
 
+        ``retrying=True`` marks the single deferred re-entry (Q-3/Q-12). It is
+        an explicit argument, never inferred from instance state: a retry that
+        is still pacing-limited can therefore never fall back into the
+        first-time branch, reschedule itself or restart the backstop.
+
         Returns True when a priming request was issued (or a pacing-limited
         request was deferred with one scheduled retry) — the caller must NOT
         attach the live feed yet; it attaches from on_historical_data_end,
         on_historical_error (fail-open), the prime timeout backstop, or the
         failed deferred retry.
-        Returns False when there is nothing to prime.
+        Returns False when there is nothing to prime, or when the one allowed
+        retry could not issue (the caller fails open).
         """
-        # Q-3: distinguish the single deferred re-entry from the first call.
-        retrying = self._prime_retry_used
-        self._prime_retry_used = False
         if not retrying:
             # A fresh call supersedes any deferred retry an earlier load on
             # this session scheduled; its stale QTimer.singleShot no-ops.
@@ -1076,8 +1091,9 @@ class TickerSession(QObject):
             )
         except PacingExceeded as e:
             if retrying:
-                # Q-3: the one allowed retry was also pacing-limited — fail
-                # open. The retry handler attaches the live feed.
+                # Q-3/Q-12: the one allowed retry was also pacing-limited —
+                # no issue, no reschedule, no timer restart. The retry caller
+                # fails open (see :meth:`_on_prime_retry`).
                 return False
             # Q-3 (defect B): DEFER, don't skip. historical_wait_seconds() is
             # non-zero for HISTORICAL_MIN_INTERVAL_S after ANY historical
@@ -1093,7 +1109,6 @@ class TickerSession(QObject):
                 wait_s,
             )
             self._prime_retry_pending = True
-            self._prime_retry_used = True
             self._prime_retry_args = (contract, timeframe, extended_hours)
             self._prime_timer.start(15_000)
             QTimer.singleShot(
@@ -1110,11 +1125,30 @@ class TickerSession(QObject):
         self._prime_timer.start(15_000)
         return True
 
+    def _fail_open_prime(self) -> None:
+        """Q-12: attach the live feed when priming cannot issue.
+
+        Stops the 15 s backstop, drops every priming/retry marker (so neither
+        the scheduled callback nor the timeout can act again) and tells the
+        host the prime is over. Idempotent: state is cleared first.
+        """
+        self._prime_timer.stop()
+        self._prime_req_id = None
+        self._prime_period_start = None
+        self._prime_retry_pending = False
+        self._prime_retry_args = None
+        _LOG.warning(
+            "Aggregator priming retry did not issue; attaching live feed"
+        )
+        self._host._on_session_prime_complete(self)
+
     def _on_prime_retry(self) -> None:
         """Q-3 (defect B): the single deferred priming retry.
 
-        Re-enters :meth:`prime_aggregator` for the same contract/timeframe.
-        Only one retry is ever in flight; a teardown or the prime-timeout
+        Re-enters :meth:`prime_aggregator` with an EXPLICIT ``retrying=True``
+        (Q-12) — the call cannot schedule another retry, restart the backstop
+        or be mistaken for a first-time attempt. Only one retry is ever in
+        flight; a teardown, a reload (``prepare_load``) or the prime-timeout
         backstop clears the flag, so a stale scheduled call is a no-op. When
         the retry cannot issue (pacing still closed, period boundary) the live
         feed is attached fail-open, exactly like the old skip path.
@@ -1128,12 +1162,7 @@ class TickerSession(QObject):
             return
         contract, timeframe, extended_hours = args
         if not self.prime_aggregator(
-            contract, timeframe, int(time.time()), extended_hours
+            contract, timeframe, int(time.time()), extended_hours,
+            retrying=True,
         ):
-            _LOG.warning(
-                "Aggregator priming retry did not issue; attaching live feed"
-            )
-            self._prime_timer.stop()
-            self._prime_req_id = None
-            self._prime_period_start = None
-            self._host._on_session_prime_complete(self)
+            self._fail_open_prime()
