@@ -57,3 +57,6 @@ docs/code_review/test_verification.log
 
 # Orchestrator runtime state — rewritten every tick; local only
 docs/orchestrator_state.json
+
+# OpenChamber session directory — tool-owned, never part of the project
+.openchamber/
