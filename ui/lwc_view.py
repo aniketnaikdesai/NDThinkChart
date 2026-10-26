@@ -9,6 +9,15 @@ by parallel logic:
 
 * **v5 panes** — the price pane carries the per-mode series, the volume
   pane the histogram (the JS side keeps them on separate scales).
+* **volume ceiling** (Q-9 / AC-D21.2.1, the D21.2 port) — the volume
+  transport keeps shipping the raw ``Bar.volume`` values
+  (``chart_model.volume_display_columns`` applies no ceiling); the pane's Y
+  range is priced engine-side from the *visible* logical range by
+  ``chart_assets/lwc/chart.js``'s ``autoscaleInfoProvider``: ``1.10 x`` the
+  visible max, the ``100`` floor when no visible bar is non-zero, Y minimum
+  ``0`` — ``chart_model.visible_volume_ceiling`` ported verbatim (the
+  ESC-028 small-positive band included), recomputed on load/pan/zoom with no
+  per-gesture round-trip to Python.
 * **logical-index time axis** — the ``ts`` column carries logical-index
   times (collapse-map display-x: non-trading time removed,
   within-session holes kept at full span). Consecutive logical steps of 1
@@ -1495,6 +1504,11 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
         },
         "mode": mode,
     }
+    # Q-9 / AC-D21.2.1: the raw volumes cross unchanged — the D21.2 ceiling
+    # (1.10 x the visible max, the 100 floor, Y minimum 0) is a render-time
+    # decision `chart_assets/lwc/chart.js` makes from this snapshot and the
+    # visible logical range, so there is no ceiling on the wire and no
+    # per-gesture round-trip back here.
     volume_op = {
         "op": "set_volume",
         "series": "volume",

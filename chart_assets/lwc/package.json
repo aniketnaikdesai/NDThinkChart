@@ -3,5 +3,5 @@
   "version": "5.2.1",
   "private": true,
   "description": "Vendored offline runtime for the NDThinkChart LWC host (P6-04). Not published; no dependencies; never fetched at runtime.",
-  "main": "envelope.test.js"
+  "main": "all.js"
 }

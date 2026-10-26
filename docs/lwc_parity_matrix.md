@@ -8,9 +8,11 @@ and 18 are **Done / accepted** as of Q-8, each on the named passing test
 recorded in the Q-8 reconciliation below; rows 1/2/4/5 on
 the same offscreen-parity standard rows 6–17 were accepted on, and row 18 with
 its real-engine interceptor cases executing instead of skipping. **Row 3 is
-Open / pending:** its histogram series is built, but the D8/RG-002 nice volume
-ceiling and the `100` floor have no LWC port and no named test, so it carries
-the **rule-10 entry** below. A row
+Done / accepted as of Q-9**, on the named node suite
+`chart_assets/lwc/volume_scale.test.js` (run by `node --test
+chart_assets/lwc/`): the D21.2/AC-D21.2.1 ceiling — `1.10 ×` the visible max,
+the `100` floor, Y minimum `0` — is ported to the LWC volume pane through the
+series' `autoscaleInfoProvider`. **No row remains Open / pending.** A row
 moves to Done/accepted only with its gate evidence; **a row regressing without
 an escalation fails review (rule 10)**. No soak: the triple gate (owner
 acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
@@ -20,7 +22,7 @@ acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
 |---|---|---|---|---|---|
 | 1 | Candlestick history render (all 5 modes) | `CandlestickItem.set_data` | v5 candlestick series + `setData` | P6-05 | Done / accepted |
 | 2 | Live forming-bar tick (no history rebuild) | live candle/volume layers (D28.4) | `series.update` per tick | P6-05 | Done / accepted |
-| 3 | Volume pane (linear Y, nice ceiling, floor 100) | `_nice_volume_max` family (D8/RG-002) | histogram series + ceiling port | P6-05 | Open / pending |
+| 3 | Volume pane (linear Y, nice ceiling, floor 100) | `_nice_volume_max` family (D8/RG-002) | histogram series + ceiling port | P6-05 | Done / accepted |
 | 4 | Time axis + whitespace for non-trading time | `TimeCollapseMap` display-x (D21.4) | logical index + absent-data whitespace | P6-05 | Done / accepted |
 | 5 | Timezone display (ET, DST-correct) | `tz_offset` axes (EST 18000 / EDT 14400) | custom `timeFormatter` | P6-05 | Done / accepted |
 | 6 | Session shading bands (RTH/ETH) | `SessionOverlay` + `session_bands` | overlay/marker port | P6-10 | Done / accepted |
@@ -38,25 +40,78 @@ acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Done / accepted |
 | 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Done / accepted |
 
-Row count: 19. Dispositioned Open/pending: 1. Done/accepted: 18.
+Row count: 19. Dispositioned Open/pending: 0. Done/accepted: 19.
 
-## Rule-10 entries — rows still Open / pending at the cutover candidate
+## Rule-10 entries — none open after Q-9
 
-Rule 10: a row regressing without an escalation fails review. The single row
-below is **not** a regression and **not** a waiver: it is unproven on its own
-terms, so it stays Open rather than being flipped on adjacent evidence.
+Rule 10: a row regressing without an escalation fails review. **No row is
+Open / pending**, so no row needs an entry. Row 3's entry is kept below as a
+**closed record** rather than deleted, so the evidence that closed it stays
+next to the rule that demanded it.
 
-- **Row 3 — Rule-10 entry:** the volume **histogram series** half is green
-  (`tests/test_lwc_time_parity.py::TestTimeParity::test_P6_T05_T11_all_modes_emit_valid_column_ops`
-  and `::TestGeometryGuard::test_P6_T05_T12_volume_shares_the_price_rule`), but
-  the row's target also includes the D8/RG-002 nice ceiling and the `100`
-  floor, and no LWC path or named test provides them: `ui/lwc_view.py::build_series_ops`
-  ships the raw `Bar.volume` values (`chart_model.volume_display_columns` applies
-  no ceiling) and `chart_assets/lwc/chart.js` configures only the histogram's
-  own price scale (`scaleMargins {top: 0.85, bottom: 0}`), leaving the library
-  to autoscale the visible data — no `1.10 × visible max` and no all-zero `100`
-  floor. The gap is the **port itself**, not the engine box; flipping this row
-  on the histogram-series evidence alone would be a blanket claim.
+- **Row 3 — closed by Q-9 (was a Rule-10 entry).** The histogram-series half
+  was already green (`tests/test_lwc_time_parity.py::TestTimeParity::test_P6_T05_T11_all_modes_emit_valid_column_ops`
+  and `::TestGeometryGuard::test_P6_T05_T12_volume_shares_the_price_rule`); the
+  ceiling/floor half now has both a code path and a named test.
+  `chart_assets/lwc/chart.js` attaches an `autoscaleInfoProvider` to the volume
+  series which reads `chart.timeScale().getVisibleLogicalRange()` and prices
+  `1.10 × max(volume of the visible bars)` from the snapshot the driver already
+  sent (`VOLUME_NICE_FLOOR` 100 when no visible bar is non-zero, `minValue` 0 —
+  `chart_model.visible_volume_ceiling` ported verbatim, ESC-028 band included).
+  `chart_assets/lwc/volume_scale.test.js` proves the ceiling, the floor, the
+  `0` minimum, and that the ceiling **changes** when the visible range narrows
+  or pans — a static max-of-everything cannot pass. No value crosses the wire
+  differently and no per-gesture round-trip to Python exists.
+
+## Q-9 — the volume ceiling port, row 3 closed (2026-10-26)
+
+`AC-D21.2.1` was the last unported behaviour in the matrix: the pyqtgraph
+engine prices the volume pane from the *visible* x-range
+(`ChartPanel._recompute_visible_volume_range` →
+`chart_model.visible_volume_ceiling`), and the LWC pane had only the histogram
+series plus `scaleMargins {top: 0.85, bottom: 0}`, so the library autoscaled to
+whatever it decided and the `100` floor never applied.
+
+- **The rule, ported verbatim (not the shorthand).** The ceiling is
+  `1.10 × max(volume of the bars in the currently visible range)`; it falls back
+  to `VOLUME_NICE_FLOOR` (100) only when **no** visible bar is non-zero (none
+  visible, or every visible bar zero), and the Y minimum is always 0 (D21.1).
+  The small positive band `0 < visible_max ≤ 90.9` keeps the literal
+  `1.10 × max` (10 → 11, 50 → 55) per **ESC-028** — a second unconditional
+  `< 100` clamp would be a regression, and the suite asserts that band
+  explicitly.
+- **Engine-side, recomputed on every autoscale.** `chart_assets/lwc/chart.js`
+  attaches an `autoscaleInfoProvider` to the histogram series. It reads
+  `chart.timeScale().getVisibleLogicalRange()` and scans the volume snapshot the
+  driver already sent (the `ts` column is the logical index), so load, pan and
+  zoom re-price inside the page — no op, signal or bridge call to Python was
+  added, and the bar transport's series set is untouched. The price pane's
+  autoscale, the `scaleMargins` pane split and the library's `barSpacing`
+  behaviour are unchanged; the K/M tick formatting surface is untouched.
+- **`ui/lwc_view.py` unchanged on the wire.** `build_series_ops` keeps shipping
+  the raw `Bar.volume` values — the ceiling is a render-time decision made from
+  them, so nothing is reformatted or pre-clamped on the way in (JS still
+  receives numbers, per the renderer-only boundary).
+- **Gate evidence.** `chart_assets/lwc/volume_scale.test.js` — 18 cases:
+  `1.10 ×` the visible max per window, ceilings that **change** when the range
+  narrows *and* when a fixed-width window pans (a static max-of-everything
+  fails), the `100` floor for empty / all-zero / whitespace-only windows,
+  `minValue` 0 in every case, the ESC-028 small band, fractional and reversed
+  ranges, non-finite/negative rows ignored, plus a source assertion that exactly
+  one `autoscaleInfoProvider` exists and it is the volume series' reading the
+  live logical range. `node --test chart_assets/lwc/` = **43/43**.
+- **Gate-harness repair, recorded because it changed what the command runs.**
+  `node --test chart_assets/lwc/` resolves a directory through `package.json`'s
+  `main`; that entry pointed at `envelope.test.js`, so the documented command
+  ran **only the envelope suite (10 tests)** and the core-chart suite sat
+  outside it — the P6-05…P6-12 "node 10/10" lines record that envelope-only
+  run. `chart_assets/lwc/all.js` now loads every suite and is the `main`
+  entry: the same command runs 43 tests (15 core-chart + 10 envelope + 18
+  volume). Each suite remains runnable on its own file, and
+  `tests/test_lwc_time_parity.py`'s explicit `chart.test.js` invocation is
+  unaffected.
+- Row 3 moves to **Done / accepted**; no Done row regressed. **19 Done / 0
+  Open.**
 
 ### P6-12 — Phase 10 packaging + CI + cutover candidate (2026-10-26)
 

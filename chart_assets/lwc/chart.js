@@ -26,9 +26,17 @@
  * - `barSpacing` replaces the density caps (T10 / Q60 YES / A106): the
  *   no-overlap guarantee is restated in `barSpacing` terms (DG94) by
  *   `barGeometry` — gap >= 0 always, gap > 0 whenever the spacing allows.
+ * - volume pane ceiling (Q-9 / AC-D21.2.1, the D21.2 port): the histogram's
+ *   own price scale is priced from the *visible* range —
+ *   `maxValue = 1.10 x max(volume of the visible bars)`, the
+ *   `VOLUME_NICE_FLOOR` (100) when no bar is visible or every visible bar
+ *   is zero, `minValue` always 0 (D21.1). It rides an
+ *   `autoscaleInfoProvider` over
+ *   `chart.timeScale().getVisibleLogicalRange()`, so load/pan/zoom re-price
+ *   engine-side with no per-gesture round-trip to Python.
  *
  * Node note: the pure core below (MODES, tzLabel, barGeometry,
- * describeOp, volumeBarColor) has no DOM dependency and is exported for
+ * describeOp, volumeBarColor, volumeScaleRange) has no DOM dependency and is exported for
  * `node --test` when loaded as a module; the browser boot at the bottom
  * runs only where `document` exists.
  */
@@ -77,6 +85,65 @@ function barGeometry(barSpacingPx, floorPx) {
 
 function volumeBarColor(open, close) {
   return close >= open ? LW_UP_COLOR : LW_DOWN_COLOR;
+}
+
+/* ── volume ceiling (Q-9 / AC-D21.2.1, the D21.2 port) ─────────────
+ * The default engine's reference is `chart_model.visible_volume_ceiling`:
+ *   visible_max > 0  -> 1.10 x visible_max
+ *   otherwise        -> VOLUME_NICE_FLOOR (100)
+ * with Y minimum always 0 (D21.1). The small positive band
+ * `0 < visible_max <= 90.9` keeps the literal 1.10 x max — a second
+ * unconditional `< 100` clamp would wrongly inflate 10 -> 100 instead of
+ * 11 (ESC-028); never reintroduce it. */
+var VOLUME_CEILING_FACTOR = 1.1;
+var VOLUME_NICE_FLOOR = 100;
+
+/* Max volume of the bars whose slot intersects `[from, to]` in
+ * logical-index space (the `ts` column's own unit — see the header). A bar
+ * at logical position `time` owns the half-slot either side of it, so a
+ * bar centred on an endpoint is visible. Non-finite / negative volumes read
+ * as 0: a hole is not a volume spike. Returns 0 when nothing is visible. */
+function visibleVolumeMax(rows, from, to) {
+  // A missing range (before the chart has ever been laid out) is not the
+  // range [0, 0] — it is "nothing visible", which is the floor.
+  if (from === null || from === undefined || to === null || to === undefined) {
+    return 0;
+  }
+  var lo = Number(from);
+  var hi = Number(to);
+  if (!isFinite(lo) || !isFinite(hi)) return 0;
+  if (hi < lo) {
+    var swap = lo;
+    lo = hi;
+    hi = swap;
+  }
+  var rowsIn = rows || [];
+  var max = 0;
+  for (var i = 0; i < rowsIn.length; i++) {
+    var row = rowsIn[i];
+    if (!row || row.time === undefined || row.time === null) continue;
+    var t = Number(row.time);
+    if (!isFinite(t)) continue;
+    if (t + 0.5 <= lo || t - 0.5 >= hi) continue;
+    var value = Number(row.value);
+    if (isFinite(value) && value > max) max = value;
+  }
+  return max;
+}
+
+function volumeCeiling(visibleMax) {
+  var m = Number(visibleMax);
+  if (isFinite(m) && m > 0) return m * VOLUME_CEILING_FACTOR;
+  return VOLUME_NICE_FLOOR;
+}
+
+/* The price range the volume pane renders for one logical range: the
+ * ceiling from the visible bars, the Y minimum pinned at 0. */
+function volumeScaleRange(rows, from, to) {
+  return {
+    minValue: 0,
+    maxValue: volumeCeiling(visibleVolumeMax(rows, from, to)),
+  };
 }
 
 /* Classify one envelope op for the glue: replace (set_*), upsert
@@ -163,8 +230,16 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     });
   }
 
-  function applyMode(mode) {
-    if (!lwIsMode(mode)) return activeMode;
+  /* Q-9 / AC-D21.2.1: the range the volume pane should render right now.
+   * Read fresh on every autoscale, from the visible logical range and the
+   * raw volume snapshot — never a cached "max of everything". */
+  function currentVolumeRange() {
+    var range = chart ? chart.timeScale().getVisibleLogicalRange() : null;
+    if (!range) return { minValue: 0, maxValue: VOLUME_NICE_FLOOR };
+    return volumeScaleRange(snapshot.volume, range.from, range.to);
+  }
+
+  function applyMode(mode) {    if (!lwIsMode(mode)) return activeMode;
     activeMode = mode;
     var showCandles = mode === "candles" || mode === "hollow" || mode === "heikin";
     if (candleSeries) {
@@ -227,6 +302,15 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       area: areaSeries,
     };
     volumeSeries = chart.addHistogramSeries({ priceScaleId: "vol" });
+    // Q-9 / AC-D21.2.1: the volume pane's ceiling follows the *visible*
+    // range, re-priced by the library on every autoscale (load, pan, zoom)
+    // from the snapshot the driver already sent — no per-gesture round-trip
+    // to Python. The price pane's autoscale is untouched.
+    volumeSeries.applyOptions({
+      autoscaleInfoProvider: function () {
+        return { priceRange: currentVolumeRange() };
+      },
+    });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     bindKeyboard(el);
     bindChannel();
@@ -378,6 +462,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   window.lwApplyMode = applyMode;
   window.lwTzLabel = tzLabel;
   window.lwBarGeometry = barGeometry;
+  // Probe surface for the volume ceiling (Q-9): the range the pane prices
+  // for the current visible logical range, computed exactly as the
+  // autoscale provider computes it.
+  window.lwVolumeRange = currentVolumeRange;
   window.lwConfigure = function (cfg) {
     cfg = cfg || {};
     if (typeof cfg.tzOffset === "number") tzOffset = cfg.tzOffset;
@@ -411,5 +499,10 @@ if (typeof module !== "undefined" && module.exports) {
     barGeometry: barGeometry,
     describeOp: describeOp,
     volumeBarColor: volumeBarColor,
+    visibleVolumeMax: visibleVolumeMax,
+    volumeCeiling: volumeCeiling,
+    volumeScaleRange: volumeScaleRange,
+    VOLUME_CEILING_FACTOR: VOLUME_CEILING_FACTOR,
+    VOLUME_NICE_FLOOR: VOLUME_NICE_FLOOR,
   };
 }
