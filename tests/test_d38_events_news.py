@@ -4,17 +4,14 @@ Acceptance criteria:
 - AC-D38.1: synthetic provider events (1 earnings, 1 dividend, 1 split) →
   three distinctly-styled markers at the correct dates + countdown shows
   days to the next event.
-- AC-D38.2: 2 held symbols + synthetic headlines → digest groups headlines
-  under each holding; clicking a headline fetches its body.
-- AC-D38.3: no API news subscription → explicit no-entitlement state.
 - AC-D38.4: corporate-events-only — non-corporate types rejected at the
   provider boundary; yfinance layer only calls the 3 approved endpoints.
 - AC-D38.5: IBKR tick-59 dividend renders while yfinance is down →
   "event data unavailable" for earnings/splits (mocked outage).
 - AC-D38.6: full suite green (run separately), no D1–D37 regressions.
 
-Plus: tick-59 parsing, NewsManager sequential issuance, yfinance cache/TTL,
-and the no-mock-endpoint production tree rule (owner-mandated, D36 pattern).
+Plus: tick-59 parsing, yfinance cache/TTL, and the no-mock-endpoint
+production tree rule (owner-mandated, D36 pattern).
 """
 
 import os
@@ -32,37 +29,6 @@ from data.events.yfinance_source import YFinanceCache
 
 
 # ── Fakes (tests only — never production) ─────────────────────────────
-
-class _FakeBridge:
-    """Minimal signal bus for NewsManager tests."""
-    def __init__(self):
-        from PyQt6.QtCore import QObject, pyqtSignal
-
-        class _B(QObject):
-            news_providers = pyqtSignal(object)
-            historical_news = pyqtSignal(int, str, str, str, str)
-            historical_news_end = pyqtSignal(int, bool)
-            news_article = pyqtSignal(int, int, str)
-        self._b = _B()
-
-    def __getattr__(self, name):
-        return getattr(self._b, name)
-
-
-class _FakeIBClient:
-    def __init__(self):
-        self.calls: list[tuple] = []
-        self.bridge = _FakeBridge()
-
-    def reqNewsProviders(self):
-        self.calls.append(("reqNewsProviders",))
-
-    def reqHistoricalNews(self, req_id, con_id, codes, start, end, total, opts):
-        self.calls.append(("reqHistoricalNews", req_id, con_id, codes))
-
-    def reqNewsArticle(self, req_id, provider_code, article_id, opts):
-        self.calls.append(("reqNewsArticle", req_id, provider_code, article_id))
-
 
 class _StubSession:
     def __init__(self, symbol="AAPL", dividend_info=None):
@@ -140,63 +106,6 @@ def test_ibkr_source_no_data_no_events():
     src = IBKREventSource(lambda _s: _StubSession("AAPL", {}))
     assert src.get_events("AAPL", date(2026, 1, 1), date(2026, 12, 31)) == []
     assert src.unavailable("AAPL") is False
-
-
-# ── NewsManager: sequential issuance (38a.1) ──────────────────────────
-
-def test_news_manager_sequential_queue():
-    from datetime import datetime
-    from ibkr.news import NewsManager
-
-    client = _FakeIBClient()
-    nm = NewsManager(client)
-    start, end = datetime(2026, 10, 1), datetime(2026, 10, 13)
-    r1 = nm.request_headlines(111, "BRFG", start, end)
-    r2 = nm.request_headlines(222, "BRFG", start, end)
-    issued = [c for c in client.calls if c[0] == "reqHistoricalNews"]
-    assert len(issued) == 1 and issued[0][1] == r1  # only first in flight
-    assert nm.queue_depth == 2
-    # End the first → second issues.
-    client.bridge.historical_news_end.emit(r1, False)
-    issued = [c for c in client.calls if c[0] == "reqHistoricalNews"]
-    assert len(issued) == 2 and issued[1][1] == r2
-    assert issued[1][2] == 222
-    client.bridge.historical_news_end.emit(r2, False)
-    assert nm.queue_depth == 0
-
-
-def test_news_manager_headline_batch():
-    from datetime import datetime
-    from ibkr.news import NewsManager
-
-    client = _FakeIBClient()
-    nm = NewsManager(client)
-    got = []
-    nm.headlines_batch.connect(lambda rid, hs, more: got.append((rid, hs, more)))
-    r1 = nm.request_headlines(111, "BRFG", datetime(2026, 10, 1),
-                              datetime(2026, 10, 13))
-    client.bridge.historical_news.emit(r1, "20261013-10:00:00", "BRFG",
-                                       "a1", "Headline one")
-    client.bridge.historical_news.emit(r1, "20261013-11:00:00", "BRFG",
-                                       "a2", "Headline two")
-    client.bridge.historical_news_end.emit(r1, False)
-    assert len(got) == 1
-    _rid, headlines, more = got[0]
-    assert [h["headline"] for h in headlines] == ["Headline one", "Headline two"]
-    assert more is False
-
-
-def test_news_manager_article():
-    from ibkr.news import NewsManager
-
-    client = _FakeIBClient()
-    nm = NewsManager(client)
-    got = []
-    nm.article_received.connect(lambda rid, at, tx: got.append((rid, at, tx)))
-    r1 = nm.request_article("BRFG", "a1")
-    client.bridge.news_article.emit(r1, 0, "body text")
-    assert got == [(r1, 0, "body text")]
-    assert client.calls[-1][0] == "reqNewsArticle"
 
 
 # ── YFinanceCache: round-trip + TTL ───────────────────────────────────
@@ -416,138 +325,6 @@ def test_merge_drops_duplicate_yfinance_dividend(qapp):
                                               "yf:earnings:AAPL:2026-04-30"]
 
 
-# ── AC-D38.2/AC-D38.3: digest grouping + entitlement ──────────────────
-
-class _StubNewsManager:
-    """Test double with the real NewsManager signal surface."""
-
-    def __init__(self):
-        from PyQt6.QtCore import QObject, pyqtSignal
-
-        class _S(QObject):
-            providers_received = pyqtSignal(list)
-            headlines_batch = pyqtSignal(int, list, bool)
-            article_received = pyqtSignal(int, int, str)
-
-        self._s = _S()
-        self.calls: list[tuple] = []
-        self._req = 5000
-
-    def __getattr__(self, name):
-        # providers_received / headlines_batch / article_received
-        return getattr(self._s, name)
-
-    def request_providers(self):
-        self.calls.append(("request_providers",))
-
-    def request_headlines(self, con_id, codes, start, end, total=20):
-        self._req += 1
-        self.calls.append(("request_headlines", con_id, codes))
-        return self._req
-
-    def request_article(self, provider_code, article_id):
-        self._req += 1
-        self.calls.append(("request_article", provider_code, article_id))
-        return self._req
-
-    def cancel_all(self):
-        self.calls.append(("cancel_all",))
-
-
-class _StubHost:
-    def __init__(self, tmp_path):
-        import sqlite3
-        self.news_manager = _StubNewsManager()
-        self._db = tmp_path / "pos.sqlite3"
-        conn = sqlite3.connect(str(self._db))
-        conn.execute("CREATE TABLE positions (symbol TEXT, con_id INTEGER)")
-        conn.executemany("INSERT INTO positions VALUES (?, ?)",
-                         [("AAPL", 265598), ("MSFT", 272093)])
-        conn.commit()
-        conn.close()
-        self._sessions: dict = {}
-
-    def get_or_create_session(self, symbol):
-        from unittest.mock import MagicMock
-        s = self._sessions.get(symbol)
-        if s is None:
-            s = MagicMock()
-            s.views = []
-            s.monitored = False
-            self._sessions[symbol] = s
-        return s
-
-
-def _make_dock(host, qapp, monkeypatch):
-    from ui.news_digest_dock import NewsDigestDock
-    import data.db as dbmod
-    import sqlite3
-
-    class _DB:
-        def __init__(self, path):
-            self.conn = sqlite3.connect(str(path))
-
-    # The dock imports data.db.db lazily inside _holdings(); point it at
-    # the stub positions DB for the test.
-    monkeypatch.setattr(dbmod, "db", _DB(host._db))
-    dock = NewsDigestDock(host)
-    return dock
-
-
-def test_ac_d38_2_digest_groups_headlines(qapp, tmp_path, monkeypatch):
-    dock = _make_dock(_StubHost(tmp_path), qapp, monkeypatch)
-    from ibapi.common import NewsProvider
-
-    p = NewsProvider()
-    p.code, p.name = "BRFG", "Briefing"
-    dock._open = True
-    dock._on_providers([p])
-    # Two holdings → two sections, one headline batch each.
-    r1 = dock._host.news_manager._req  # last issued
-    syms = list(dock._req_to_symbol.values())
-    assert sorted(syms) == ["AAPL", "MSFT"]
-    for req_id, sym in dock._req_to_symbol.copy().items():
-        dock._on_headlines_batch(req_id, [{
-            "time": "20261013-10:00:00", "provider_code": "BRFG",
-            "article_id": f"id-{sym}", "headline": f"News for {sym}"}], False)
-    assert set(dock._sections) == {"AAPL", "MSFT"}
-    for sym in ("AAPL", "MSFT"):
-        lst = dock._sections[sym]["list"]
-        assert lst.count() == 1
-        assert f"News for {sym}" in lst.item(0).text()
-    dock.close()
-
-
-def test_ac_d38_3_no_entitlement_state(qapp, tmp_path, monkeypatch):
-    dock = _make_dock(_StubHost(tmp_path), qapp, monkeypatch)
-    dock._open = True
-    dock._on_providers([])
-    assert "No API news subscription" in dock._status.text()
-    dock.close()
-
-
-def test_ac_d38_2_click_fetches_article(qapp, tmp_path, monkeypatch):
-    dock = _make_dock(_StubHost(tmp_path), qapp, monkeypatch)
-    from ibapi.common import NewsProvider
-
-    p = NewsProvider()
-    p.code, p.name = "BRFG", "Briefing"
-    dock._open = True
-    dock._on_providers([p])
-    for req_id in list(dock._req_to_symbol):
-        dock._on_headlines_batch(req_id, [{
-            "time": "t", "provider_code": "BRFG",
-            "article_id": "a1", "headline": "H1"}], False)
-    lst = dock._sections["AAPL"]["list"]
-    dock._on_headline_clicked(lst.item(0))
-    calls = dock._host.news_manager.calls
-    assert ("request_article", "BRFG", "a1") in calls
-    # Article arrives → dialog would open; just verify the routing map.
-    req_id = max(dock._article_to_ctx)
-    assert dock._article_to_ctx[req_id][0] == "AAPL"
-    dock.close()
-
-
 # ── B.6: no mock endpoint in production code (owner-mandated) ─────────
 
 def test_ac_d38_production_tree_has_no_mock_endpoint():
@@ -577,10 +354,9 @@ def test_md_line_guard_thresholds():
 
     The assertions moved from the deleted
     ``tests/test_d37_microstructure.py::test_md_line_guard_thresholds``,
-    re-purposed to the surviving purpose: D38's S0 lines (``"292"``/
-    ``"456"``) are what ``MainWindow._guard_md_lines`` still gates, so the
-    thresholds are asserted against that caller rather than the removed
-    depth feed.
+    re-purposed to the surviving purpose: D38's dividend S0 line (``"456"``)
+    is what ``MainWindow._guard_md_lines`` still gates, so the thresholds are
+    asserted against that caller rather than the removed depth feed.
     """
     from services.md_line_guard import assess
 

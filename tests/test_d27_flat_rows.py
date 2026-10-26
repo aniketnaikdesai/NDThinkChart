@@ -8,9 +8,7 @@ table; only the panel render hides them. Scope is the panel render path only
 AC1: no flat position appears as a rendered row, for either feed
      (``set_positions`` bulk or ``add_position`` single).
 AC2: non-flat positions (positive long / negative short) all still render.
-AC3: the panel's position list and its rendered rows stay index-aligned, so
-     ``_on_selection_changed``'s ``self._positions[row]`` lookup still resolves
-     to the row the user selected.
+AC3: the panel's position list and its rendered rows stay index-aligned.
 """
 
 from __future__ import annotations
@@ -104,8 +102,3 @@ def test_p2_t37_rows_stay_index_aligned_with_position_list(qapp):
     assert table.rowCount() == len(panel._positions)
     for row in range(table.rowCount()):
         assert panel._positions[row].symbol == table.item(row, 0).text()
-
-    table.selectRow(0)
-    qapp.processEvents()
-    assert panel._selected_position is not None
-    assert panel._selected_position.symbol == table.item(0, 0).text()

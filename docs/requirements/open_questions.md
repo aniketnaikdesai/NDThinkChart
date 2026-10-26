@@ -1185,3 +1185,101 @@
   the more expensive fix: the guard is a **Build-stage artifact** and a rendered-width echo is a Qt layout result the app
   does not guarantee, so a requirements-side restatement is the correct and cheaper resolution.
 - **Affected requirement section:** D44 / `AC-D44.2` (restated); Journey 37; R67; `design_gaps.md` DG74; ESC-057.
+
+# Open Questions — 2026-10-25 (Batch 21 / D46 — `ibkr/orders.py` + the inert order-observation chain) — Q56–Q59 **ANSWERED 2026-10-25**; D46's scope EXPANDED
+
+> The owner asked *"I dont want anything to do with orders so why is there orders.py ?"* and then **confirmed opening a
+> batch** to delete it. D45-style lite lane: **no blocking question existed** (defaults recorded in `requirements.md`
+> A91–A98). The four items below were surfaced because each is a **user-visible or scope-shaping** choice the analyst
+> should not settle silently.
+>
+> **All four were answered by the owner on 2026-10-25 — verbatim:**
+> **Q56** *"why is there any order related code left"* · **Q57** *"there should not be any order related coding. i want
+> all of it deleted"* · **Q58** *"yes remove"* · **Q59** *"remove everything"*.
+>
+> **Q57/Q59 reject the premise of the questions rather than choose among the options offered.** The recorded defaults
+> were not wrong about what they described; they answered a narrower question than the owner was asking. The consequence
+> is a **scope EXPANSION of D46**, not a new batch: the whole order surface goes (module, observation chain, the three
+> zero-consumer order utilities, `IdManager.reserve`, and the stop/target **storage** — the first destructive schema step,
+> justified by ESC-060), **A87 / A97 are REVERSED IN PLACE**, and **A92 / A93 / A96 are confirmed**. `requirements.md` D46
+> now carries `AC-D46.1`–`AC-D46.13`, A91–A104, R76–R85, and a closed **symbol inventory** (`D46.9`) that makes "all of
+> it" auditable and protects the general code that merely carries an order name. **Q56 gets a recorded answer, not just
+> a deletion** (see below). **D1–D45 are not reopened**; `requirements.md` carries `Status: READY_FOR_PLAN`.
+> **No blocking question remains.**
+
+## Q56 — D46: do the three `EWrapper` order overrides and the three `Bridge` signals go with the module, or stay as inert plumbing?
+
+- **Status:** **ANSWERED 2026-10-25** — A92 is **confirmed**, and the answer widened the scope beyond the question.
+- **Question:** the chain is `IBApiClient.orderStatus/openOrder/execDetails` → `Bridge.order_status/open_order/exec_details` → `MainWindow._on_open_order/_on_order_status/_on_exec_details` → `_update_order_status` → the registry. It is **provably** a no-op (nothing ever calls `register()`, so every `get()` returns `None`). Delete the whole chain, or keep it wired as an observation seam for the future?
+- **Default:** **remove it all** (A92). With the registry deleted the observers have no target, so "keep them" would mean re-writing them against something that does not exist — and the owner's instruction is that the app should have nothing to do with orders.
+- **What a different answer would change:** keeping the signals would leave ~40 lines of order plumbing plus four survivor allow-list entries in `tests/test_d45_removal.py`, and `AC-D46.2`/`AC-D46.4` would be rewritten to require them present-but-inert.
+- **Affected requirement section:** D46 / `D46.2`, `AC-D46.2`, `AC-D46.4`; A92 (now owner-confirmed).
+- **Answer (owner, 2026-10-25, verbatim):** *"why is there any order related code left"* — followed by Q57's *"i want
+  all of it deleted"*. **What changed:** the question ("delete the chain, or keep it as an inert seam?") is **moot**;
+  there is no seam to keep. A92 is recorded as **owner-confirmed**, and the deletion set grew (see Q59).
+- **The recorded answer to Q56 itself — why any order code was left.** It was left because **D45's A80 and A90
+  retained it deliberately** on the premise that the inbound observers needed the registry and could only *observe*.
+  The premise was false in effect: `register()` is never called, so the registry is permanently empty, `_on_order_error`
+  (the only handler that phrased a rejection) was guarded by a lookup that always returned `None`, and every observer
+  wrote into that same empty dict. **The lesson:** a "retained and inert" decision was never audited for
+  **reachability** — "it only observes" was treated as evidence when it was an assertion. D46's symbol inventory
+  (`D46.9`) is the mechanism that makes the next such decision auditable.
+
+## Q57 — D46: is `Error [<code>]: <TWS message>` (8 seconds) enough for 201/103/202, or should the app's own "Rejected"/"Cancelled" wording and the order number be restored in a reachable place?
+
+- **Status:** **ANSWERED 2026-10-25** — the default (A93) stands **in substance**, but the owner **rejected the
+  premise** of the question rather than choosing an option.
+- **Question:** the richer message (`Order #<id> Rejected: …`, 12 s) exists only inside `_on_order_error`, which the always-empty registry made **unreachable** — so today the owner already sees the plain line: `Error [201]: Order rejected - reason: …`, `Error [103]: Duplicate order id`, `Error [202]: Order Canceled - reason: …`. Keep exactly that, or have the app add a verdict/order-id prefix so the line is easier to scan?
+- **Default:** **keep exactly what is shown today** (A93): no new formatting, no order identity, same 8000 ms. The app no longer knows which order an error belongs to, so an order-number prefix would be a guess dressed as fact.
+- **What a different answer would change:** it adds a small formatting requirement + a test per code; visibility itself is required either way (`AC-D46.3`), because the owner's constraint is *"TWS errors must still surface"*.
+- **Related, same answer:** `tests/test_order_rejections.py` survives **reduced** (A95) — the two registry cases removed, the "unrelated error" case repointed at the generic line, both `classify_error` cases kept.
+- **Affected requirement section:** D46 / `D46.3`, `AC-D46.3`, `AC-D46.5`; A93 (now owner-confirmed), A95.
+- **Answer (owner, 2026-10-25, verbatim):** *"there should not be any order related coding. i want all of it
+  deleted"*. **What changed:** the option set was wrong, not the choice within it. The owner does not want a **plainer
+  order line** or a **richer** one — they want **no order coding at all**, so no order verdict, order number or
+  order-specific formatting may be added anywhere. **A93's substance survives unchanged and is now owner-confirmed**:
+  201/103/202 keep surfacing on the existing generic line (`Error [<code>]: <TWS's own message>`, 8000 ms) because that
+  line is **not** order-specific — it is every TWS error's surface (`AC-D46.3`, A100). The question the owner actually
+  asked ("why is there any order related code left") is answered in **Q56**, and its consequence is the D46 scope
+  expansion recorded in Q59.
+
+## Q58 — D46: there is a **second**, unused `UserOrder` dataclass in `data/models.py` — remove it too?
+
+- **Status:** **ANSWERED 2026-10-25** — **"yes remove"**. A96 is **owner-confirmed**; `AC-D46.8` is no longer conditional.
+- **Question:** `data/models.py::UserOrder` (`order_id`, `symbol`, `action`, `total_qty`, `order_type`, `lmt_price`, `aux_price`, `status`, `parent_id`, `oca_group`, `transmit`) is a **different class** from `ibkr/orders.py::UserOrder` and has **zero** consumers — its only reference in the repo is `tests/test_ui_smoke.py:48`'s `hasattr`. Deleting `ibkr/orders.py` does not delete it. Remove it as well, or leave it?
+- **Default:** **remove it and the smoke assertion** (A96) — otherwise, after this batch, the app still contains an order-only data model with no purpose, which is precisely the question the owner asked.
+- **What a different answer would change:** `AC-D46.8` becomes vacuous and `tests/test_ui_smoke.py` is untouched.
+- **Affected requirement section:** D46 / `AC-D46.5`, `AC-D46.8`; A96 (now owner-confirmed); `design_gaps.md` DG79
+  (**resolved**).
+- **Answer (owner, 2026-10-25, verbatim):** *"yes remove"*. **What changed:** nothing narrow — the recorded default
+  stands, now as an owner decision; the same task removes `data/models.py::UserOrder` and the
+  `tests/test_ui_smoke.py:48` `hasattr` assertion together (R81).
+
+## Q59 — D46: is there anything else order-named you want swept in this batch?
+
+- **Status:** **ANSWERED 2026-10-25** — **"remove everything"**. This **REVERSES A97** and, with it, **A87**: both
+  leftovers named in the question go.
+- **Question:** two order-motivated leftovers are deliberately **out of scope** for D46: (a) `ibkr/id_manager.py::IdManager.reserve(n)` — the D26.2 contiguous-ID reservation for multi-leg orders, now with tests only (the rest of `id_manager` is shared with market-data reqId allocation and stays); (b) the retained `positions`/`trade_groups` `stop_loss`/`take_profit` **storage** (A87 — the UI columns and every setter are already gone, and per **ESC-060** a live position update still clears the values, so nothing may claim they persist). Name either if you want it removed now; otherwise both stay.
+- **Default:** **leave both** (A97) — neither is part of `ibkr/orders.py` or the observation chain, and widening a delete-only batch is the pattern that has cost workers before (memory 2026-10-15).
+- **What a different answer would change:** (a) would add `ibkr/id_manager.py::reserve` + the four pure `reserve` cases in `tests/test_id_manager.py` and force one mixed case to be rewritten; (b) would be a **destructive schema change** and needs its own migration requirement, not a deletion task.
+- **Affected requirement section:** D46 "Scope — KEEP"; the new **D46.10 / D46.11 / D46.12** and `AC-D46.10`–
+  `AC-D46.12`; **A87 (reversed → A99)**, **A97 (reversed in part → A100/A101)**, A102; `design_gaps.md` **DG80**
+  (resolved), **DG84**, **DG85**, **DG86**.
+- **Answer (owner, 2026-10-25, verbatim):** *"remove everything"* — having been shown A87's storage retention and
+  A97's two named leftovers. **What changed (both halves, verified in-repo before being written down):**
+  1. **`ibkr/id_manager.py` — the module is NOT order-only, so it stays; `reserve()` goes.** `get_id()` allocates
+     **market-data and realtime reqIds** (`ibkr/market_data.py:42,74,90,103`, `ibkr/realtime_bars.py:31`) and
+     `set_next_valid_id()` is called at `ibkr/client.py:184`, so deleting the module would take the chart's
+     subscription machinery with it. Only **`IdManager.reserve`** (`ibkr/id_manager.py:19-30`, the D26.2 multi-leg
+     allocation) is order-only: its callers are **tests only** (`tests/test_id_manager.py:12,23,34,41,62`). **Deleted**
+     — A101 / D46.10. (Also checked: `IBApiClient.nextValidId` is the **connection-established** hook, not order
+     plumbing, so it stays — A102 / DG82.)
+  2. **The retained `positions` / `trade_groups` `stop_loss` / `take_profit` columns and the `Position` / `TradeGroup`
+     (and `ibkr.account.Position`) fields are DROPPED.** This **reverses A87** (recorded in place, original wording
+     kept) and makes **the first destructive schema step in the project** — the end state is fixed, the mechanism is
+     Plan's (D46.12, DG86). **The honest justification is ESC-060, not preference:** the values were **already cleared
+     by the first live update** of any row, and no setter has existed since D45, so the columns could only ever hold
+     `NULL`. **The drop destroys nothing that survived** — but every **row** must be preserved (R82).
+  **Consequence for the documents:** the statements corrected this morning under ESC-060 ("the columns are kept, but an
+  update from TWS writes them empty") are **superseded** — the trail must read **kept → cleared → dropped** and must not
+  stand as two live claims (`D46.13`, `design_gaps.md` **DG84**).

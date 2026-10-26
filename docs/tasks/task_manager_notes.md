@@ -2362,3 +2362,153 @@ startup twice.
 - `docs/requirements/**`, `docs/code_review/**`, `docs/plan.md` and `docs/architecture.md` were **read
   only** (ESC-058's `/USAGE.txt`-and-`usage.md` scope is honoured; `docs/phase-changelog.md` was read for
   the section convention but is **not** edited — it is not in scope for this task).
+
+---
+
+# D45 / Batch 20 — P4 decomposition (2026-10-25)
+
+**Source of truth:** `docs/plan.md` § *D45 — Batch 20* (`Status: READY_FOR_TASK_MANAGER`, validated cycle 2 of 3) and
+`docs/architecture.md` § *D45 increment* (`S29`–`S38`, `AP-D45-1`–`AP-D45-13`, the Frozen Interfaces table).
+Six tasks, **one per approved wave** — the wave grouping was not re-derived. `P4-T01`…`P4-T06`.
+`plan_lint --phase P4` → PASS. **No `PLAN`-routed or `TASK_MANAGER`-routed escalation is open** in
+`docs/code_review/escalations.json` (every entry is `addressed`), so this run is a fresh graph, not a rework.
+
+**Notes-file choice.** This batch is a **legacy, non-suffixed** run (`docs/plan.md` D45 header: "legacy single-scope
+run (no `Phase: P<n>`…"), and every prior batch wrote the unsuffixed `docs/tasks/task_manager_notes.md`. The phase
+prefix exists only in the task ids / graph metadata (`P4`, per the D41→P1, D42→P2, D44→P3 convention), so this
+section is appended here rather than to a new `task_manager_notes_P4.md` — one notes file, so the D44
+size/deletion lessons stay beside the D45 ones.
+
+## 1. The six tasks and the edges encoded
+
+| Task | Wave | Group | Footprint |
+|---|---|---|---|
+| `P4-T01` | 1 | A — digest + `View` menubar + `"292"` | edit `ui/main_window.py`, `ui/ticker_session.py`; delete `ui/news_digest_dock.py`, `ibkr/news.py`; adjust `tests/test_d38_events_news.py`, `tests/test_dock_d18_region.py` (`:147`) |
+| `P4-T02` | 2 | B-main — the order path in the window | edit `ui/main_window.py`; delete `ibkr/validation.py`, `tests/test_d28_6_close_contracts.py`, `tests/test_d41_retained_order_path.py`, `tests/test_order_validation.py`; adjust `tests/test_order_rejections.py`, `tests/test_d28_pacing.py`, `tests/test_dock_d18_region.py` (`:174`–`:179`), `tests/test_d27_position_id.py` (AC-3 case only, `:170`–`:201`; `:164`–`:165` left at `8`/`9`) |
+| `P4-T03` | 3 | B-panel — menu + SL/TP chain + columns | edit `ui/active_portfolio_panel.py`; delete `ui/trade_context_menu.py`, `ui/stop_loss_target_dialog.py`, `tests/test_sltp_honesty.py`; adjust `tests/test_d27_position_id.py` (`8`/`9`→`6`/`7` only), `tests/test_d27_position_prices.py`, `tests/test_d27_flat_rows.py` (`:104`–`:106` kept, `:108`–`:111` out) |
+| `P4-T04` | 4 | C — the cancel path | edit `ui/main_window.py`; delete `tests/test_kill_switch.py` |
+| `P4-T05` | 5 | docs | edit `USAGE.txt`, `usage.md` |
+| `P4-T06` | 6 | instrument + gate | create `tests/test_d45_removal.py`; full-suite + residue + import/launch gate |
+
+Edges (exactly the chain the plan's correction record and `S37` prescribe):
+`P4-T01 → P4-T02 → P4-T03 → P4-T04 → P4-T05 → P4-T06` — 5 `DEPENDS_ON` edges, 6 waves, no parallel siblings.
+
+**Why every edge is a real logical edge, not a file-overlap edge**
+
+- `P4-T01 → P4-T02`: `P4-T02` edits the same file one wave later and its AC6 asserts the window still builds; it must
+  observe wave 1's `NewsManager`/menubar removal (the deleted `ibkr/news.py` is also what the wave-1 dock consumed).
+- `P4-T02 → P4-T03`: **mandatory, not stylistic** (`S37`/`AP-D45-5`). `MainWindow.__init__` connects the panel's five
+  signals (`ui/main_window.py:647`–`:651`). Removing them panel-first would raise `AttributeError` in every
+  window-building test — a wave that cannot pass its own tests. The window half goes first; five signals with zero
+  receivers are harmless.
+- `P4-T03 → P4-T04`: `P4-T02` deletes `_kill_switch`'s **second** caller (`_on_portfolio_flatten_all` calls it at
+  `ui/main_window.py:3385`), so `P4-T04` is logically blocked by `P4-T02`. It is chained to `P4-T03` as well because
+  the plan's record fixes the six waves in order and because `P4-T04`'s test command **drives window tests that import
+  `ui/active_portfolio_panel.py`** — running it concurrently with the panel rewrite would fail for a reason unrelated to
+  the work in flight. Cost is one serialized wave; the alternative buys parallelism by racing an untested end state.
+- `P4-T04 → P4-T05`: the docs must not describe a surface that still exists (`AC-D45.7`).
+- `P4-T05 → P4-T06`: the guard asserts the end state and the residue list must match the docs' final wording.
+
+**Shared-file constraint (§ *D45 sequencing constraints*, rules 1–3), encoded, not just stated:**
+`ui/main_window.py` in **1, 2, 4** (`P4-T01`, `P4-T02`, `P4-T04` — never two in one wave);
+`tests/test_dock_d18_region.py` in **1, 2** (`:147` filter; then the five-signal loop);
+`tests/test_d27_position_id.py` in **2, 3** — **disjoint line ranges** (`:170`–`:201` removed in wave 2; `:164`–`:165`
+index edit in wave 3). No two tasks in the graph share a `touches_files` entry *and* sit in one wave; with the chain
+above, the scheduler's own conflict check can never see a collision.
+
+**Rule 4 (wave-membership) instance — the one the validator's R1/R2 fixed:** the D27.1 AC-3 case's subject is the
+**window** connection (`position_sltp_changed` → `MainWindow._on_portfolio_sltp_changed`), not the panel setter, so the
+case is removed in **`P4-T02`** (the wave that deletes the connection) while the *same file's* column-index edit stays
+in **`P4-T03`** (the wave that shifts the columns). `tests/test_d27_flat_rows.py`'s AC-3 tail reads
+`panel._selected_position`, so it is adjusted in **`P4-T03`**, the wave that deletes the tracker — its last reader.
+`tests/test_sltp_honesty.py` and `tests/test_kill_switch.py` die in the waves that delete their subjects (`P4-T03`,
+`P4-T04`).
+
+## 2. Test book → task mapping (5 deleted / 7 adjusted / 1 added, `AC-D45.8`)
+
+- **Deleted (5 whole files):** `test_d28_6_close_contracts.py`, `test_order_validation.py`, `test_d41_retained_order_path.py`
+  → `P4-T02`; `test_sltp_honesty.py` → `P4-T03`; `test_kill_switch.py` → `P4-T04`.
+- **Adjusted (7):** `test_d38_events_news.py`, `test_dock_d18_region.py` (`:147`) → `P4-T01`; `test_order_rejections.py`,
+  `test_d28_pacing.py`, `test_dock_d18_region.py` (`:174`–`:179`), `test_d27_position_id.py` (AC-3 case) → `P4-T02`;
+  `test_d27_position_id.py` (`8`/`9`), `test_d27_position_prices.py`, `test_d27_flat_rows.py` → `P4-T03`.
+- **Added (1):** `tests/test_d45_removal.py` → `P4-T06` (plan items a–g, plus the RED-on-`c702be9` evidence).
+- **Kept unchanged, asserted green in the wave whose work touches them:** `tests/test_d41_removal.py` →
+  `P4-T01` AC5 and `P4-T02` AC6 (verified: its only news reference is the `queue_depth` allow-list string, and its scan
+  reads `ui/ services/ data/ ibkr/ config/` — `tests/` is in neither instrument); `tests/test_order_builders.py` and
+  `tests/test_stop_loss_target.py` → `P4-T02` AC6 and `P4-T03` AC6.
+
+**Enumerated assertions outside the edited files (memory 2026-10-23 item 4 / the `ESC-055` rule).** Each of these was
+located in the tree, not assumed: `tests/test_dock_d18_region.py:147` (wave 1) and `:174`–`:179` (wave 2);
+`tests/test_d38_events_news.py` NewsManager `:145`–`:201` + digest `:419`–end (wave 1);
+`tests/test_d27_position_id.py:164`–`:165` and `:170`–`:201` (waves 2/3); `tests/test_d27_position_prices.py:290`–`:291`
+(wave 3); `tests/test_d27_flat_rows.py:108`–`:111` (wave 3); `tests/test_d41_removal.py` (kept, verified).
+A `tests/`-wide grep on 2026-10-25 confirmed **no eighth file** references the removed surfaces (the only other hits are
+inside the five files this batch deletes) and **no `positions_table.columnCount()` assertion exists** outside the two
+named index files — so `AR-D45-4`'s "wrong cell / silent pass" risk has no unnamed witness.
+
+## 3. Sized for the worker, and the one size exception
+
+`S`: `P4-T05`. `M`: `P4-T04`. `L`: `P4-T01`, `P4-T02`, `P4-T03`, `P4-T06` — each is **one plan wave**, and the plan
+forbids splitting a wave (`docs/plan.md` § *Why not fewer waves?*). Step estimates: T01 ≈ 18 (8 edit sites, 2 deletes,
+2 test adjustments, 3 verification runs), T02 ≈ 20 (6 edit sites, 4 deletes, 4 test adjustments, 3 runs), T03 ≈ 19
+(4 edit sites, 3 deletes, 3 test adjustments, 2 runs), T04 ≈ 10.
+
+**Size exception, recorded per the step-fit rule:** `P4-T06` is **invariant-shaped** — one file, one instrument,
+whose seven probes must agree on a single end state (deleted modules, token scan, zero call sites, zero-transmit
+walkthrough, 8 columns, dividend path, direct `hasattr` probes). Splitting it would break the single-owner property of
+that invariant and let the static and behavioural halves drift, which is precisely what `S36` forbids. It is sized to
+the ~32 cap (≈20 steps: 7 read entries, one ~300-line module, 2–4 target-test iterations, 1 worktree RED run, 1 full-suite
+run), not above it, and it owns no production file.
+
+## 4. Deliberately NOT tasked (do not "clean up" in a later pass)
+
+- `ibkr/orders.py` — **retained** (`S29`/`AP-D45-1`): `ui/main_window.py:36` imports the `orders` singleton for the
+  inert observers, and `tests/test_order_builders.py` keeps its builders/registry coverage. The only permitted edit is a
+  module-docstring note, and **no task titles one** (it would be a no-op edit).
+- The `positions`/`trade_groups` `stop_loss`/`take_profit` storage, `data/models.py`'s fields and `_upsert_position` —
+  untouched (`A87`/`S33`); no migration.
+- `tests/test_d41_removal.py` and `tests/test_stop_loss_target.py` — byte-identical.
+- The fail-fast port check, the connection badge, `_symbol_last_prices`, the five inbound observers and
+  `config/settings.MAX_ORDER_NOTIONAL` / `ibkr/pacing.order_limiter` (`AP-D45-11`; the `config/settings.py` D26.7 comment
+  is out of scope for **every** instrument and no task may "fix" it).
+- The kill switch's **absence** is owner-accepted (`R73`, `AR-D45-9`) — no task may add a replacement cancel, and no
+  teardown/disconnect path may acquire one.
+
+## 5. Deviations from the brief (three, all minor, none re-deriving the grouping)
+
+1. **`tests/test_order_validation.py` is not in `P4-T02`'s `read_files`.** It is a whole-file deletion with nothing to
+   preserve, and adding its entry pushed the pack to 14 entries (pack-size warn). `check_tasks.py` reports the benign
+   "touches_files … not in context read_files (ok if pure-output file)" warn — same class the D44 graph shipped with.
+2. **`tests/test_d45_removal.py` is not in `P4-T06`'s `read_files`** — it does not exist yet (the same pure-output warn).
+   Its content contract is in the task's nine ACs, the `plan_ref` (the residue list + instrument scope) and the three
+   `tests/test_d41_removal.py` precedent reads.
+3. **`doc_required: true` on `P4-T05` only.** The three UI tasks are user-facing, but the plan collapses all doc work
+   into wave 5 (`S38`/`AP-D45-7`); flagging them would ask the Code Reviewer for a doc change that belongs to another
+   task. The reviewer's doc check therefore lands once, on the docs task, with `AC-D45.7`'s grep-checkable criteria.
+
+Also recorded: `context.size` is duplicated at both task and `context` level (the validator requires the latter);
+`memory_refs` is `[]` because `docs/memory.md` carries **no topic tags** (a tag would inline nothing), so the applicable
+lessons are quoted verbatim in each task's `context.memory_notes` instead.
+
+## 6. Verification and status fidelity
+
+- `python3 ~/.config/opencode/scripts/check_tasks.py` → **`OK: 6 tasks validated, execution_graph.json written.`**
+  The 2 `WARN`s are the pure-output class documented in §5. `execution_graph.json` was regenerated by the script (not
+  hand-written): 6 nodes, the 5-edge chain above.
+- **Delivered P3 record is not clobbered.** Immediately before the write, `docs/tasks/task-graph.json` held
+  `P3-T01`…`P3-T06`, **all six `status: done`** (delivered at `bb903a1`; metadata `READY_FOR_BUILD`). The task graph is
+  **per phase**, so this write replaces it by design — the delivered evidence lives in `docs/build/results/P3-T0*.json`
+  and `docs/build/results/_archive/waveNN_P3-T0*.json` (memory 2026-10-23 records that recovery path), and **no file
+  under `docs/build/` or `docs/code_review/` was touched** by this run. No P3 id, status or result was rewritten; the
+  new file contains no P3 task at all.
+- Read-only this run: `docs/requirements/**`, `docs/plan.md`, `docs/architecture.md`, `docs/plan_notes.md`,
+  `docs/codebase-map.md`, `docs/memory.md`, `docs/code_review/escalations.json`, and every source/test file inspected
+  to pin `read_files` ranges and the exact assertion lines.
+
+## 7. No escalations
+
+No architectural choice had to be invented: `S29`–`S38` settle every removal/retention boundary, `AP-D45-1`–`:13` settle
+the judgement calls (orders module, `_ref_price_for`, the three-site `_s0_headless` edit, the selection tracker, the
+window-first order, the doc collapse, `_persist_position`/`_upsert_position` naming drift), and `RG-D45-1` (loop deleted
+whole, not shrunk to three) + `RG-D45-2` (seven adjusted suites) are `addressed`. **No `ESCALATED_TO_PLAN`, no flag for
+Requirements Analyst** — `AP-D45-12`'s naming drift is already recorded by Plan and does not change intent.

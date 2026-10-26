@@ -45,7 +45,6 @@ def test_import_all_data_modules():
     import services.sound_service
     assert hasattr(data.models, "Position")
     assert hasattr(data.models, "Drawing")
-    assert hasattr(data.models, "UserOrder")
 
 
 def test_chart_modes_enum():

@@ -27,8 +27,6 @@ def _pos(**kwargs) -> Position:
         expiry=kwargs.get("expiry", "20240119"),
         strike=kwargs.get("strike", 100.0),
         right=kwargs.get("right", "C"),
-        stop_loss=kwargs.get("stop_loss"),
-        take_profit=kwargs.get("take_profit"),
         trade_group_id=kwargs.get("trade_group_id"),
     )
 

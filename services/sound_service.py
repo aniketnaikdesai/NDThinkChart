@@ -1,12 +1,11 @@
 """Synthesized alert tones.
 
-Ports the two Web Audio tones described in dev_docs/delta.md §3 to numpy
+Ports the Web Audio alarm chime described in dev_docs/delta.md §3 to numpy
 rendering + QSoundEffect playback:
 
   * Alarm chime  - three overlapping oscillators: an 880Hz sine gliding down to
                    875Hz over 0.35s, a 1318.5Hz triangle starting at +80ms, and
                    a 1760Hz sine "echo" starting at +220ms.
-  * Order-fill blip - a single sine sweep from 987.77Hz to 1318.51Hz over 190ms.
 
 The pure render_* helpers have no Qt dependency and are unit tested directly.
 """
@@ -19,7 +18,6 @@ import numpy as np
 
 SAMPLE_RATE = 44100
 ALARM_DURATION = 0.75
-BLIP_DURATION = 0.22
 
 try:
     from PyQt6.QtCore import QObject, QUrl
@@ -72,17 +70,6 @@ def render_alarm_chime() -> np.ndarray:
     return _normalize(samples, peak=0.85)
 
 
-def render_fill_blip() -> np.ndarray:
-    """Return the order-fill blip as a float array in [-1, 1]."""
-    t = _time_axis(BLIP_DURATION)
-    f0, f1 = 987.77, 1318.51
-    duration = t[-1] if len(t) else 1.0
-    freq = f0 + (f1 - f0) * (t / duration)
-    phase = 2.0 * np.pi * np.cumsum(freq) / SAMPLE_RATE
-    samples = _sine(phase) * _decay_envelope(t, 0.0, tau=0.06)
-    return _normalize(samples, peak=0.8)
-
-
 def _normalize(samples: np.ndarray, peak: float = 0.9) -> np.ndarray:
     max_abs = float(np.max(np.abs(samples))) if samples.size else 0.0
     if max_abs == 0.0:
@@ -115,12 +102,9 @@ def ensure_sound_files(directory: str | None = None) -> dict:
     directory = directory or default_sound_dir()
     os.makedirs(directory, exist_ok=True)
     alarm_path = os.path.join(directory, "alarm_chime.wav")
-    blip_path = os.path.join(directory, "order_fill.wav")
     if not os.path.exists(alarm_path):
         write_wav(alarm_path, render_alarm_chime())
-    if not os.path.exists(blip_path):
-        write_wav(blip_path, render_fill_blip())
-    return {"alarm": alarm_path, "fill": blip_path}
+    return {"alarm": alarm_path}
 
 
 class SoundService(QObject):
@@ -132,7 +116,6 @@ class SoundService(QObject):
         self._sound_dir = sound_dir
         self._paths: dict | None = None
         self._alarm_effect = None
-        self._fill_effect = None
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
@@ -145,16 +128,15 @@ class SoundService(QObject):
             self._paths = ensure_sound_files(self._sound_dir)
         return self._paths
 
-    def _effect(self, key: str):
+    def _effect(self):
         if QSoundEffect is None or QUrl is None:
             return None
-        attr = "_alarm_effect" if key == "alarm" else "_fill_effect"
-        effect = getattr(self, attr)
+        effect = self._alarm_effect
         if effect is None:
             effect = QSoundEffect()
-            effect.setSource(QUrl.fromLocalFile(self._paths_or_create()[key]))
+            effect.setSource(QUrl.fromLocalFile(self._paths_or_create()["alarm"]))
             effect.setVolume(1.0)
-            setattr(self, attr, effect)
+            self._alarm_effect = effect
         return effect
 
     def warm(self) -> None:
@@ -163,13 +145,6 @@ class SoundService(QObject):
     def play_alarm(self) -> None:
         if not self._enabled:
             return
-        effect = self._effect("alarm")
-        if effect is not None:
-            effect.play()
-
-    def play_fill(self) -> None:
-        if not self._enabled:
-            return
-        effect = self._effect("fill")
+        effect = self._effect()
         if effect is not None:
             effect.play()

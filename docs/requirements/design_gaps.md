@@ -1185,3 +1185,246 @@
   (floor / cap / collapsed bounds). The former rendered-width exact-equality wording was **restated** per ESC-057
   (a recorded 300→314 non-exact restore was not reproducible).
 - **Status:** **open (non-blocking)** — the outcome is fixed by `AC-D44.1`/`AC-D44.5` and the mechanism is Plan/Build's call; recorded so the collapsed width is not silently lost to the existing clamp.
+
+## DG75 — D45: the removal brief counts **four** deleted test files but names only **three**; the fourth is unnamed
+
+- **Where it shows up:** D45 / `AC-D45.8` / A81; the test book (`tests/test_d28_6_close_contracts.py`,
+  `tests/test_d41_retained_order_path.py`, `tests/test_order_validation.py` are named for **deletion**;
+  `tests/test_order_rejections.py`, `tests/test_d28_pacing.py`, `tests/test_kill_switch.py` (only
+  `test_flatten_all_kills_first`) and `tests/test_dock_d18_region.py` (`:147`, `:176`) are named for
+  **adjustment**; `tests/test_d38_events_news.py` is trimmed of its digest/`NewsManager` cases).
+- **Why it matters:** the owner-facing consequence line says "four test files are deleted, three of which were
+  the only coverage of order safety", while the inventory names **three** whole-file deletions plus one
+  case-level trim. If a fourth whole file was intended, it is not identified: Build could delete the wrong file
+  (destroying retained coverage) or leave one behind (a red or silently meaningless test). The only unlisted
+  files that reference the removed surfaces are `tests/test_d41_removal.py` (a `NewsManager` `queue_depth`
+  allow-list entry, string/comment only) and `tests/test_dock_d18_region.py` (already named for adjustment);
+  **no** `tests/test_trade_context_menu.py` exists.
+- **Suggested resolution (optional):** treat the inventory as authoritative — **three** whole-file deletions
+  plus the named case trims (the default recorded in A81). If a fourth whole-file deletion turns out to be
+  necessary, record it in the task result with the reason; do not delete an unnamed file on the strength of a
+  count.
+- **Status:** **resolved 2026-10-25 (by supersession — D45 extension).** The count question is moot: the test book
+  is now **five named whole-file deletions** — `tests/test_d28_6_close_contracts.py`,
+  `tests/test_d41_retained_order_path.py`, `tests/test_order_validation.py`, **`tests/test_kill_switch.py`** and
+  **`tests/test_sltp_honesty.py`** (A81, `AC-D45.8`) — plus the enumerated case-level trims
+  (`tests/test_d38_events_news.py`, `tests/test_d27_position_id.py`, `tests/test_dock_d18_region.py`). No deletion
+  rests on a count any more; every file to delete is named.
+
+## DG76 — D45: `ibkr/orders.py` (and the order registry) becomes **unreferenced** code that still looks live
+
+- **Where it shows up:** D45 / `AC-D45.4` / A80; `ibkr/orders.py` (`Orders`, `bracket_order`, `UserOrder`,
+  `id_manager` use), the order registry / order-error handling in `MainWindow`, and the now-deleted
+  `ibkr/validation.py`.
+- **Why it matters:** after the Trade Context Menu and the Portfolio close/flatten path are removed, nothing in
+  the UI builds an order, so `ibkr/orders.py` has **no production caller**. Leaving it is harmless for
+  **reachability** (and satisfies `AC-D45.4`), but ~150 lines of order-construction code that look live invite a
+  future reconnection and contradict a reader's expectation that "the app places no orders". Deleting it is
+  **outside the owner's named inventory** and may remove machinery other retained code still imports.
+- **Suggested resolution (optional):** Plan picks one: (a) **leave** `ibkr/orders.py` unreferenced with a
+  one-line module note that it is unreachable after D45 (A80's default), or (b) **delete** it once a residue grep
+  proves no importer. Either satisfies `AC-D45.4`; the criterion measures reachability and zero transmits, not
+  file existence.
+- **Status:** **resolved 2026-10-25 (by D46 — supersession, not a Plan choice).** The owner was asked why the module
+exists, was told it has **no production caller** and a registry nothing populates, and **confirmed a batch to delete it**:
+`ibkr/orders.py` and the inert order-observation chain are **removed** (D46 / A91–A92). Option (a) — leave it with a
+module note — is **superseded**, and the note **ESC-061** asked for is **moot**. The options above are kept as the
+history of the choice.
+
+## DG77 — D45 extension: the kill-switch/SL-TP removal invalidates assertions **inside files that stay** (registry, column indexes, retained-surface maps)
+
+- **Where it shows up:** D45 (Groups B/C, 2026-10-25 extension) / `AC-D45.6`, `AC-D45.8`, `AC-D45.10` / A88–A90;
+  the kill switch and the SL/TP dialog have call sites and test assertions **outside the files being deleted**.
+- **Why it matters:** the removal looks like "delete two files", but four kinds of residue are *not* in those files:
+  1. **Retained-surface documentation that still calls them live.** `docs/codebase-map.md` currently lists
+     "**Retained:** `::_kill_switch`" (main-window row, removal book, and the D45 summary) and
+     "`StopLossTargetDialog` (retained untouched by D45 …)" — after the extension **both statements are wrong**,
+     and a Build worker reading the map would preserve exactly what must go. (Plan-owned: refresh in this batch.)
+  2. **Column-index assertions in tests that stay.** `tests/test_d27_position_id.py:164-165` and
+     `tests/test_d27_position_prices.py:290-291` address Strategy/Group as columns `8`/`9`. Dropping Stop/Target
+     makes them `6`/`7`; unadjusted they either fail (item is `None`) or, worse, silently assert the wrong cell.
+  3. **A D27 case whose subject is the deleted path.** `test_p2_t27_t31_sltp_persists_to_exactly_the_addressed_row`
+     drives `update_position_sltp → MainWindow._on_portfolio_sltp_changed` and its `UPDATE positions … WHERE id=?`.
+     That method no longer exists, so the case must be removed — but the D27.1 **id-correctness** property it
+     partly covers stays covered by the AC2 case in the same file (keep that one).
+  4. **A receiver-count loop that hard-codes five signals.** `tests/test_dock_d18_region.py:174-179` asserts
+     ≥1 receiver for the three close signals **and** `position_sltp_changed`/`group_sltp_changed`; the loop must
+     shrink to three or the suite fails on a `hasattr`/attribute error.
+- **Also at risk (recorded, not a blocker):** the kill-switch file is the only coverage of `ibkr/orders.py`'s
+  `Orders` registry enumeration and `bracket_order`'s three-leg registration
+  (`test_bracket_builder_registers_all_three_legs`), so if Plan keeps `ibkr/orders.py` (A80/A90) that module is
+  left with **no tests at all**. That is acceptable **only** because nothing reaches it, and must be stated as
+  such in D45's consequences (it is, consequence 5) — not discovered later as "coverage we forgot".
+- **Suggested resolution:** the enumeration is already fixed by `AC-D45.8` / `AC-D45.10` and D45's correction
+  record (residue grep + the two column-index files named); Plan refreshes `docs/codebase-map.md`; the Code
+  Reviewer verifies the **8-column** table and the **zero** `placeOrder`/`cancelOrder`/`reqGlobalCancel` scans
+  independently rather than trusting the test book.
+- **Status:** **open (non-blocking)** — resolved by the named adjustments; recorded so a delete-only task list
+  does not miss the assertions that live in files nobody edits.
+
+## DG78 — D46: the "Rejected"/"Cancelled" wording for 201/103/202 lived in a handler that was already unreachable, and an orderId can collide with a live session reqId
+
+- **Where it shows up:** D46 / `AC-D46.3` / A93–A94; `ui/main_window.py::MainWindow._on_error` (the
+  `order_registry.get(reqId)` branch and the fall-through `showMessage`), `::_on_order_error` (unreachable),
+  `ibkr/client.py::IBApiClient.error` (`classify_error` gate), `ibkr/error_codes.py::classify_error`.
+- **Why it matters:** two different things were being confused. (1) **The wording.** `_on_order_error` mapped 201/103
+  → `"Rejected"`, 202 → `"Cancelled"`, and showed `Order #<id> <verdict>: <string>` for 12000 ms. Because the registry
+  was never populated, that branch never ran, so the owner has **already** been seeing the generic
+  `Error [<code>]: <TWS string>` line for 8000 ms. Deleting the handler therefore removes **no** visibility — but it
+  must be stated, not assumed, or the batch looks like it silently dropped error reporting. (2) **The collision.**
+  TWS reports order errors with the **orderId in the reqId field** (D26.9). `_on_error` checks the session-reqId table
+  **first**, so an orderId that numerically equals a live session's reqId is routed into the session's error handling
+  (and, for the RT reqId, into `_on_rt_stream_error`) instead of the plain status-bar line. The registry lookup was
+  **already** after that branch, so this predates D46 and is not caused by it.
+- **Suggested resolution (optional):** for (1), nothing to build — `AC-D46.3` pins the observed behaviour with a
+  positive per-code test. For (2), if it is ever worth hardening, test the three order-lifecycle codes **before** the
+  session lookup (they are unambiguous: no historical/RT request can carry 201/103/202). Deliberately **not** done in
+  D46 (A94): the batch is a removal and reordering the error path is a behaviour change nobody asked for.
+- **Status:** **(1) resolved 2026-10-25 (D46 — recorded and pinned by `AC-D46.3`). (2) open (non-blocking, pre-existing,
+  deliberately unchanged).**
+
+## DG79 — D46: a second, unused `UserOrder` dataclass lives in `data/models.py` with the same name as the module's
+
+- **Where it shows up:** D46 / A96 / `AC-D46.8`; `data/models.py::UserOrder` (:105) and `tests/test_ui_smoke.py:48`
+  (`assert hasattr(data.models, "UserOrder")`).
+- **Why it matters:** once `ibkr/orders.py` goes, this is the last order-named class in the data layer, and it has
+  **zero** consumers — its only reference in the whole tree is the smoke `hasattr`. It is a *different* class from the
+  module's `UserOrder` (no `contract` field), so removing the module does not remove it, and leaving it behind means
+  the answer to the owner's question ("why is there order code?") is only half true.
+- **Suggested resolution (optional):** remove the dataclass and the smoke assertion in the same task that deletes
+  `tests/test_order_builders.py`. If the owner prefers to keep it, it needs a stated owner (there is none today).
+- **Status:** **resolved 2026-10-25 — the owner answered Q58 verbatim *"yes remove"*** (the recorded default
+  stands as an owner decision; `D46.8` is no longer conditional).
+
+## DG80 — D46: `IdManager.reserve` is order-motivated (D26.2 bracket IDs) and now has tests only
+
+- **Where it shows up:** D46 / A97; `ibkr/id_manager.py::IdManager.reserve`, `tests/test_id_manager.py`, the D26.2
+  comment on the method.
+- **Why it matters:** with no order path, `reserve(n)` has no production caller; only `get_id()` /
+  `set_next_valid_id()` are still used (market data and `nextValidId`). It is a **generic** contiguous-ID allocator
+  though — not an order module — and it is covered by its own tests, so deleting it would widen a delete-only batch
+  for no user-visible gain and would edit a shared utility the market-data path depends on.
+- **Suggested resolution (optional):** leave it; if the owner ever wants a full order-name sweep, remove `reserve`
+  and its three cases in a dedicated utility batch, not inside a removal of `ibkr/orders.py`.
+- **Status:** **resolved 2026-10-25 by Q59 (*"remove everything"*) — the owner asked for the sweep.** `reserve()` and
+  the four pure `reserve` cases go (the mixed `set_next_valid_id` case is rewritten, not dropped); **the module stays**,
+  because `get_id()` allocates market-data/realtime reqIds
+  (`ibkr/market_data.py:42,74,90,103`, `ibkr/realtime_bars.py:31`) and `set_next_valid_id()` is called at
+  `ibkr/client.py:184` — verified before the deletion was written down (A101 / D46.10).
+- **Postscript (the Q56 lesson):** this item is the pattern that produced the batch. A "generic allocator, tested,
+  leave it" judgement was correct about the *code* and wrong about the *owner's question*; only a symbol-by-symbol
+  reachability audit (D46.9) settles either way.
+
+## DG81 — D46: Plan-owned docs state that `ibkr/orders.py` is retained and MUST NOT be deleted — the opposite of the owner's instruction
+
+- **Where it shows up:** D46 / A98 / `AC-D46.6`; `docs/codebase-map.md:97` ("**It is NOT orphaned and must NOT be
+  deleted.**"), `:177-179` ("**Retained by decision (A90 — deliberately inert, NOT leftovers; do not "clean up")**"),
+  `:193` ("`ibkr/orders.py` (docstring note only)"), `:204` (the module index), and `docs/architecture.md` `S29` /
+  `AR-D45-10` / `docs/plan.md`'s S29 + AP-D45-10 references.
+- **Why it matters:** the map is the first file a Build worker reads. Every one of those sentences tells it to
+  preserve exactly what this batch must delete, and `S29` even defines the **one permitted edit** as a module-docstring
+  note — which is **ESC-061**, now moot. A stale map here does not merely drift; it actively instructs the wrong
+  outcome, and the D45 static scan cannot catch prose.
+- **Suggested resolution (optional):** Plan supersedes `S29`/`AR-D45-10` and refreshes the map **in this batch**
+  (delete the four claims and record D46's book); the Validator gates the refresh; the Code Reviewer confirms no
+  "retained"/"must not be deleted" claim survives by grep.
+- **Status:** **open (non-blocking; Plan-owned action in this batch).**
+
+## DG82 — D46: `nextValidId` / `set_next_valid_id` are order-worded but load-bearing — they are the connection-established hook
+
+- **Where it shows up:** D46 / A102 / `AC-D46.9`, `AC-D46.10`; `ibkr/client.py:182-193` (`IBApiClient.nextValidId`),
+  `ibkr/id_manager.py:8-11` (`IdManager.set_next_valid_id`), the protocol comment at `ibkr/client.py:178`, and
+  `tests/test_d40_tws_lifecycle.py:239,311,368,407,450` + `tests/test_d25_alarm_monitor.py:397` which drive it as
+  "the connect event".
+- **Why it matters:** a symbol sweep for "order" finds `nextValidId(orderId)` and `set_next_valid_id(order_id)` and
+  concludes they are order plumbing. They are not, in this app: `nextValidId` is the **only** reconnect-success hook —
+  it sets `_connected = True`, resets `_reconnect_attempt`, clears `_last_disconnect_class` (D40/A1) and calls
+  `_set_state(ConnectionState.CONNECTED)`. Deleting it would break connection detection and take five D40 cases and
+  one D25 case red in a way that looks unrelated to an order deletion. The name cannot be changed either — it is the
+  `EWrapper` callback name.
+- **Suggested resolution (optional):** **retain both**, and de-order only what we own: the `order_id` parameter name and
+  the surrounding comments/docstrings (the `id_manager` docstring already describes the counter as generic). If a
+  future reader needs the provenance, it is this DG plus A102.
+- **Status:** **open (non-blocking) — resolved as RETAIN with the comment-level fix in D46.6; the reviewer's inventory
+  scan must match this entry before reporting it as residue.**
+
+## DG83 — D46: `advancedOrderRejectJson` is an IB callback parameter, not app order code
+
+- **Where it shows up:** D46 / `AC-D46.9` (RETAIN set); `ibkr/client.py:195-221` (`IBApiClient.error`'s 4/5-arg
+  normalisation) and its `advancedOrderRejectJson` default handling; the `IBBridge` comment blocks at `:42, :48, :52,
+  :55` (deleted with the signals).
+- **Why it matters:** the name contains "Order" and a naive residue grep flags it after the deletion. It is part of
+  IB's `error` callback signature (the 5-argument form) and is parsed only to keep old and new servers working; it
+  contains **no** app order state and removing it would break the general error path.
+- **Suggested resolution (optional):** retain the parameter and its default; the surrounding **comment** should stop
+  describing it as an order-reject channel if that wording implies app order handling (D46.6). No rename — it mirrors
+  the wire signature.
+- **Status:** **open (non-blocking) — resolved as RETAIN; listed in the inventory so the scan cannot report it.**
+
+## DG84 — D46: the stop/target documentation trail now has three stages and two of them are still on disk
+
+- **Where it shows up:** D46.13 / `AC-D46.13` / A99; `USAGE.txt:88`, `usage.md:154`, at least five
+  `docs/architecture.md` sites (`:4645`, `:4822`, `:4848`, `:4901`, and the P5 block `:5127-5129` / `:5331-5332`), at
+  least three `docs/plan.md` sites (`:2004`, `:2551-2552`, `:2916`, `:2954-2955`), `docs/codebase-map.md` (:250) and
+  eight `requirements.md` sites (D45's KEEP list, `AC-D45.6`, `AC-D45.10`, Journey 38's postcondition/edge cases,
+  D46's old KEEP list, Journey 39's edge case).
+- **Why it matters:** the docs were **corrected this morning** under ESC-060 to say *"the columns are kept (no
+  migration), but the values are cleared by the next live update"*. A99 now **drops** them. Three statements are
+  therefore in the tree — the original D45 claim ("retained, values survive"), the ESC-060 correction ("kept but
+  cleared"), and the new end state ("dropped"). Left as-is, a reader finds two **live** claims and a Build worker can
+  follow the wrong one; the second correction also looks like drift rather than a decision.
+- **Suggested resolution (optional):** every site either states the final end state or carries an explicit
+  **superseded by D46 / A99** note, so the readable trail is **kept → cleared → dropped**; historical D45 register text
+  stays verbatim behind its A87 reversal note (the A80/A90 pattern). Owned by Plan (`architecture.md` / `plan.md` /
+  `codebase-map.md`), Build (`USAGE.txt` / `usage.md` / code comments), Analyst (`requirements.md` — done).
+- **Status:** **open (non-blocking) — Plan/Build action in this batch; `AC-D46.13` is the grep-checkable gate.**
+
+## DG85 — D46: dropping two columns shifts the bulk-load row indices, and three test seeders name them in raw SQL
+
+- **Where it shows up:** D46.12 / `AC-D46.12`; `ui/main_window.py::_on_position_end`'s `columns` tuple and the
+  `Position(id=row[0] … right=row[11], stop_loss=row[12], take_profit=row[13], trade_group_id=row[14])` mapping;
+  `_upsert_position`'s explicit column list, 15 placeholders and `DO UPDATE SET` pair; `_persist_position`'s
+  `stop_loss=None, take_profit=None`; `tests/test_d27_position_id.py:99`,
+  `tests/test_d27_account_partial_window.py:68`, `tests/test_d27_account_scoping.py:68` (raw `INSERT` naming the
+  columns); `tests/test_account.py:36-109` (keyword args + two asserts); `tests/test_strategy_detection.py:30-31`
+  (`Position(...)` kwargs).
+- **Why it matters:** removing two names from a 15-column tuple is not a rename — **every index after `right` moves
+  left by two**, so `trade_group_id` becomes `row[12]`. If only the SQL is changed and the indices are not,
+  `trade_group_id` silently receives the `stop_loss` value (or `None`), which lands in the **Strategy/Group** columns
+  and looks like a strategy-detection regression. The three seeders fail loudly (`no such column`), the kwargs fail
+  loudly (`TypeError`), but the index shift fails **silently** unless a row with a real `trade_group_id` is asserted.
+- **Suggested resolution (optional):** land schema + model + `ibkr/account.py` + both `main_window` SQL/row sites in
+  **one task**; assert a seeded row with a non-null `trade_group_id` renders in the **Group** column; prefer naming
+  columns in the `SELECT` and indexing by name if the tuple is being reshaped anyway.
+- **Status:** **open (non-blocking) — build-time trap; recorded so the task that edits the schema owns the readers.**
+
+## DG86 — D46: the first destructive migration needs an explicit mechanism decision (drop vs rebuild) and must be idempotent
+
+- **Where it shows up:** D46.12; `data/db.py::_init_schema` / `_migrate_schema` (`CREATE TABLE IF NOT EXISTS` for a
+  fresh DB), `_table_columns()` (the existing guard helper), the additive `ALTER TABLE … ADD COLUMN` migrations, the
+  `DROP TABLE IF EXISTS footprint_cache` precedent, and the **`bars` rebuild** precedent (`data/db.py:203-236`) with
+  its interrupted-rebuild salvage branch.
+- **Why it matters:** the schema is created by `CREATE TABLE IF NOT EXISTS`, so a **fresh** DB never has the columns
+  and an unconditional `ALTER TABLE … DROP COLUMN` raises; a pre-D46 DB does have them. The step must therefore be
+  guarded, idempotent, and ordered before any read of `positions` / `trade_groups`. SQLite here is **3.54.0**, so
+  `ALTER TABLE … DROP COLUMN` is available, but `positions` carries `idx_positions_symbol_con_id` (created in the same
+  method) and a `trade_group_id` FK — the rebuild route must preserve both, and a crash mid-rebuild must not strand a
+  half-built table. This is the project's **first destructive** schema change; every prior step was additive or dropped
+  a whole unused table.
+- **Suggested resolution (optional):** Plan picks the mechanism and states it; `AC-D46.12` fixes only the end state and
+  the constraints (row preservation, index/FK, idempotence on fresh + re-opened DB, crash safety). Recommend the
+  `_table_columns()` guard regardless of mechanism, and copying the DB before a rebuild.
+- **Status:** **open (non-blocking) — Plan's decision; the requirements fix the end state, not the mechanism.**
+
+## DG87 — D46: stale `__pycache__` artifacts survive the deletion and can be mistaken for live modules
+
+- **Where it shows up:** D46.1 / `AC-D46.1`, the residue scan; `ibkr/__pycache__/orders.cpython-311.pyc`,
+  `ibkr/__pycache__/order_book.cpython-311.pyc` (from a module deleted in an earlier batch),
+  `tests/__pycache__/{test_order_builders,test_order_entry_mkt,test_order_entry_side,test_order_validation,test_d41_retained_order_path}.*.pyc`.
+- **Why it matters:** after the source goes, these files remain until something clears them, and a reviewer grepping
+  the tree for `order` gets hits that look like surviving modules. They cannot make an import succeed (CPython 3.11
+  does not import bare cache files as modules), so D46.1's `ModuleNotFoundError` measurable is unaffected — but a naive
+  scan produces false positives and, in the worst case, someone "fixes" them by restoring the source.
+- **Suggested resolution (optional):** scope the residue scan and the Code Reviewer's grep to **tracked source**
+  (`git ls-files`) and to `*.py`; treat `__pycache__` as untracked build residue, not evidence.
+- **Status:** **open (non-blocking) — scan-scoping note; no requirement change beyond D46.1's measurable.**

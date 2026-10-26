@@ -39,18 +39,9 @@ class IBBridge(QObject):
     realtime_bar = pyqtSignal(int, int, float, float, float, float, float, float, int)
     # reqId, time, open, high, low, close, volume, wap, count
 
-    # Account & Orders
+    # Account & positions
     account_summary = pyqtSignal(int, str, str, str)  # reqId, account, tag, value
     account_summary_end = pyqtSignal(int)             # reqId
     position_update = pyqtSignal(str, object, float, float)  # account, Contract, pos, avgCost
     position_end = pyqtSignal()                       # end of positions list
-    order_status = pyqtSignal(int, str, float, float, float, int, int, float, int, str, object)
-    # orderId, status, filled, remaining, avgFillPrice, permId, parentId, lastFillPrice, clientId, whyHeld, mktCapPrice
-    # (mktCapPrice is object-typed: None on pre-10.51 servers; 10.51.1 always passes 11 args)
-
-    open_order = pyqtSignal(int, object, object, object)
-    # orderId, Contract, Order, OrderState
-
-    exec_details = pyqtSignal(int, object, object)
-    # reqId, Contract, Execution
 

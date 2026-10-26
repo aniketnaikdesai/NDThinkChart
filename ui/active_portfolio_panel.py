@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QDockWidget,
     QHeaderView,
     QLabel,
-    QMenu,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -22,15 +21,13 @@ from PyQt6.QtWidgets import (
 
 from data.models import Position
 from services.strategy_detection import detect_and_group
-from ui.stop_loss_target_dialog import StopLossTargetDialog
-from ui.trade_context_menu import TradeContextMenu
 from ui.visual_conventions import DiagonalStrikeButton
 
 import ui.dock_layout as dock_layout
 
 #: Bounded minimum width of this panel (D18 Phase 4). Shared with the right
-#: region so the 10-column positions table can never demand more width than the
-#: region is allowed and push it off-screen (AC-D18.6).
+#: region so the positions table can never demand more width than the region is
+#: allowed and push it off-screen (AC-D18.6).
 RIGHT_DOCK_MIN_WIDTH = dock_layout.RIGHT_DOCK_MIN_WIDTH
 
 
@@ -39,16 +36,6 @@ class ActivePortfolioPanel(QWidget):
 
     account_summary_changed = pyqtSignal(dict)
     positions_changed = pyqtSignal(list)
-    # Emitted when SL/TP is set for a position: (position_id, stop_loss, take_profit)
-    position_sltp_changed = pyqtSignal(int, float, float)
-    # Emitted when SL/TP is set for a group: (group_id, stop_loss, take_profit)
-    group_sltp_changed = pyqtSignal(int, float, float)
-    # Emitted when position should be closed: (position_id,)
-    position_close_requested = pyqtSignal(int)
-    # Emitted when group should be closed: (group_id,)
-    group_close_requested = pyqtSignal(int)
-    # Emitted when all positions should be flattened
-    flatten_all_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -64,8 +51,8 @@ class ActivePortfolioPanel(QWidget):
         self._groups: dict[int, str] = {}
         self._collapsed = False
 
-        # D18 Phase 4: bound the panel so its 10-column positions table scrolls or
-        # clips internally rather than forcing the right region past the 40% cap
+        # D18 Phase 4: bound the panel so its positions table scrolls or clips
+        # internally rather than forcing the right region past the 40% cap
         # (AC-D18.6).
         self.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
         self.setSizePolicy(
@@ -111,8 +98,8 @@ class ActivePortfolioPanel(QWidget):
         self.account_detail.setStyleSheet("color: #cbd5e1; font-weight: 600;")
         layout.addWidget(self.account_detail)
 
-        # 10 columns: Symbol, Qty, Avg Price, Type, Multiplier, P/L, SL, TP, Strategy, Group
-        self.positions_table = QTableWidget(0, 10)
+        # 8 columns: Symbol, Qty, Avg Price, Type, Multiplier, P/L, Strategy, Group
+        self.positions_table = QTableWidget(0, 8)
         self.positions_table.setHorizontalHeaderLabels([
             "Symbol",
             "Qty",
@@ -120,8 +107,6 @@ class ActivePortfolioPanel(QWidget):
             "Type",
             "Multiplier",
             "P/L",
-            "Stop",
-            "Target",
             "Strategy",
             "Group",
         ])
@@ -141,8 +126,6 @@ class ActivePortfolioPanel(QWidget):
         self.positions_table.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        self.positions_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.positions_table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.positions_table)
 
         self.refresh_btn = QPushButton("Refresh")
@@ -150,22 +133,6 @@ class ActivePortfolioPanel(QWidget):
         layout.addWidget(self.refresh_btn)
 
         outer.addWidget(self.body, 1)
-
-        # Context menu
-        self._context_menu = TradeContextMenu(self)
-        self._context_menu.set_sltp_action.triggered.connect(self._on_set_sltp)
-        self._context_menu.close_position_action.triggered.connect(self._on_close_position)
-        self._context_menu.close_group_action.triggered.connect(self._on_close_group)
-        self._context_menu.ungroup_action.triggered.connect(self._on_ungroup)
-        self._context_menu.flatten_all_action.triggered.connect(self._on_flatten_all)
-
-        # Selected row tracking
-        self._selected_row = -1
-        self._selected_position: Position | None = None
-        self.positions_table.itemSelectionChanged.connect(self._on_selection_changed)
-
-        # SL/TP dialog
-        self._sltp_dialog = None
 
     # ── Header collapse toggle (D21.13) ──────────────────────────────────────
 
@@ -224,8 +191,7 @@ class ActivePortfolioPanel(QWidget):
         (``qty == 0``) is a real broker holding at flat size, but it must not be
         rendered. It is dropped from the panel's held list here — rather than
         filtered only at paint time — so the rendered rows stay index-aligned
-        with ``self._positions`` and ``_on_selection_changed``'s
-        ``self._positions[row]`` lookup still resolves to the selected row.
+        with ``self._positions``.
         """
         self._positions = [p for p in positions if p.qty != 0]
         self._group_and_render()
@@ -245,34 +211,6 @@ class ActivePortfolioPanel(QWidget):
             self._positions.append(position)
         self._group_and_render()
         self.positions_changed.emit(self._positions)
-
-    def update_position_sltp(self, position_id: int, stop_loss: float, take_profit: float) -> None:
-        """Update SL/TP for a position after dialog confirmation."""
-        for pos in self._positions:
-            if pos.id == position_id:
-                if stop_loss > 0:
-                    pos.stop_loss = stop_loss
-                if take_profit > 0:
-                    pos.take_profit = take_profit
-                self._group_and_render()
-                self.positions_changed.emit(self._positions)
-                self.position_sltp_changed.emit(position_id, pos.stop_loss or 0.0, pos.take_profit or 0.0)
-                break
-
-    def update_group_sltp(self, group_id: int, stop_loss: float, take_profit: float) -> None:
-        """Update SL/TP for all positions in a group."""
-        updated = False
-        for pos in self._positions:
-            if pos.trade_group_id == group_id:
-                if stop_loss > 0:
-                    pos.stop_loss = stop_loss
-                if take_profit > 0:
-                    pos.take_profit = take_profit
-                updated = True
-        if updated:
-            self._group_and_render()
-            self.positions_changed.emit(self._positions)
-            self.group_sltp_changed.emit(group_id, stop_loss, take_profit)
 
     def refresh(self) -> None:
         """Re-render current state (called after external changes)."""
@@ -328,7 +266,7 @@ class ActivePortfolioPanel(QWidget):
     def _render_table(self, strategy_by_id: dict[int, str]) -> None:
         # ESC-053: ``self._positions`` already excludes flat (qty == 0) rows
         # (see ``set_positions``/``add_position``), so the rendered rows remain
-        # one-to-one with the list ``_on_selection_changed`` indexes.
+        # one-to-one with the panel's position list.
         self.positions_table.setRowCount(len(self._positions))
         for row, pos in enumerate(self._positions):
             pnl = self._unrealized_pnl(pos)
@@ -339,82 +277,13 @@ class ActivePortfolioPanel(QWidget):
                 pos.contract_type.upper(),
                 f"{pos.multiplier:g}",
                 f"{pnl:,.2f}",
-                f"{pos.stop_loss:,.2f}" if pos.stop_loss is not None else "—",
-                f"{pos.take_profit:,.2f}" if pos.take_profit is not None else "—",
                 strategy_by_id.get(pos.id, "—"),
                 self._groups.get(pos.id, "—"),
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignmentFlag.AlignRight if col in (1, 2, 4, 5, 6, 7) else Qt.AlignmentFlag.AlignLeft)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight if col in (1, 2, 4, 5) else Qt.AlignmentFlag.AlignLeft)
                 self.positions_table.setItem(row, col, item)
-
-    def _on_selection_changed(self) -> None:
-        """Track selected row and update context menu availability."""
-        selected = self.positions_table.selectedItems()
-        if not selected:
-            self._selected_row = -1
-            self._selected_position = None
-            self._context_menu.set_actions_enabled(False)
-            return
-        row = selected[0].row()
-        if 0 <= row < len(self._positions):
-            self._selected_row = row
-            self._selected_position = self._positions[row]
-            self._context_menu.set_actions_enabled(True)
-        else:
-            self._selected_row = -1
-            self._selected_position = None
-            self._context_menu.set_actions_enabled(False)
-
-    def _show_context_menu(self, pos) -> None:
-        """Show context menu at cursor position if a valid row is selected."""
-        if self._selected_position is not None:
-            self._context_menu.exec(self.positions_table.mapToGlobal(pos))
-
-    def _on_set_sltp(self) -> None:
-        """Open SL/TP dialog for selected position."""
-        if self._selected_position is None:
-            return
-        pos = self._selected_position
-        if pos.id is None:
-            return
-        self._sltp_dialog = StopLossTargetDialog(
-            symbol=pos.symbol,
-            market_price=getattr(pos, "market_price", 0.0) or pos.avg_cost,
-            parent=self,
-        )
-        self._sltp_dialog.confirmed.connect(self._on_sltp_confirmed)
-        self._sltp_dialog.set_target_info("position", pos.id, pos.symbol)
-        self._sltp_dialog.exec()
-
-    def _on_sltp_confirmed(self, apply_type: str, target_id: int, stop_price: float, target_price: float) -> None:
-        """Handle SL/TP dialog confirmation."""
-        if apply_type == "position":
-            self.update_position_sltp(target_id, stop_price, target_price)
-        elif apply_type == "group":
-            self.update_group_sltp(target_id, stop_price, target_price)
-
-    def _on_close_position(self) -> None:
-        """Emit signal to close the selected position."""
-        if self._selected_position is not None and self._selected_position.id is not None:
-            self.position_close_requested.emit(self._selected_position.id)
-
-    def _on_close_group(self) -> None:
-        """Emit signal to close the selected position's group."""
-        if self._selected_position is not None and self._selected_position.trade_group_id is not None:
-            self.group_close_requested.emit(self._selected_position.trade_group_id)
-
-    def _on_ungroup(self) -> None:
-        """Remove the selected position from its trade group."""
-        if self._selected_position is not None:
-            self._selected_position.trade_group_id = None
-            self._group_and_render()
-            self.positions_changed.emit(self._positions)
-
-    def _on_flatten_all(self) -> None:
-        """Emit signal to close all positions."""
-        self.flatten_all_requested.emit()
 
     @staticmethod
     def _unrealized_pnl(position: Position) -> float:

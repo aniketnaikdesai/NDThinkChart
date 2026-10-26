@@ -99,7 +99,7 @@ IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 | **Toolbar** | Symbol input, timeframe, chart mode, studies, alarms, drawing tools |
 | **Chart Panel** | Candlestick/Hollow/Heikin-Ashi/Line/Area charts with studies, drawings, alarms |
 | **Watchlist (Left Dock)** | Symbol list with live ticks; double-click to load chart; collapse to a thin vertical bar via the **Watchlist** header button, click the bar to expand |
-| **Portfolio (Right Dock)** | Account summary, positions, P&L, SL/TP, close/flatten actions |
+| **Portfolio (Right Dock)** | View-only: account summary, positions and P&L from TWS; no order entry, close or cancel controls |
 
 ---
 
@@ -132,14 +132,11 @@ IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 3. Right-click drawing → **Delete** or drag handles to edit
 4. Use **Sets…** to create named groups with color/lock/visibility
 
-### Portfolio & SL/TP
-1. Open **Portfolio** dock
-2. Right-click a position → **Set Stop/Target**
-   - Long: `stop < market < target`
-   - Short: `stop > market > target`
-   - Min-tick validation enforced
-3. Right-click → **Close Position** / **Close Group** / **Close All Positions**
-4. Group positions auto-detected by option strategy (PCS, PDS, CCS, CDS, IC)
+### Portfolio (view-only)
+1. Open the **Portfolio** dock — it shows your account summary, positions and P&L
+2. The panel is a readout only — there is no right-click action, no close/flatten control and no stop/target dialog
+3. To close a position, cancel an order or close everything, do it in **TWS**: the app places, cancels and closes nothing
+4. Group positions are auto-detected by option strategy (PCS, PDS, CCS, CDS, IC) for display only
 
 ---
 
@@ -154,7 +151,7 @@ Tables:
 - `alarms` — price alerts
 - `drawings` / `drawing_groups` — chart annotations
 - `studies` — per-symbol study configs
-- `positions` / `trade_groups` — portfolio state with SL/TP
+- `positions` / `trade_groups` — portfolio state. The stop-loss / take-profit (SL/TP) columns are dropped by a one-time migration the first time this version opens the database: nothing is settable, displayed or stored, and a pre-D46 database survives with every row intact and only those two values lost
 
 ---
 
@@ -167,7 +164,7 @@ python -m pytest tests/ -v
 # Phase 10 core logic tests only (~0.2s)
 python -m pytest tests/test_indicator_service.py tests/test_gap_vix_service.py \
   tests/test_ict_service.py tests/test_alarm_service.py tests/test_bar_aggregator.py \
-  tests/test_strategy_detection.py tests/test_order_builders.py tests/test_ui_smoke.py -v
+  tests/test_strategy_detection.py tests/test_ui_smoke.py -v
 ```
 
 All tests run **offscreen** (no display required) and **without TWS**.
@@ -206,8 +203,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 ## Safety
 
 - **Live port only (7496)** — no paper/simulated mode
-- **No automated order logic** — every order requires explicit user action
-- **Confirm dialogs** on close/flatten actions
+- **No order entry in the app** — the app places, cancels and closes nothing; place, cancel and close orders in TWS
 - **Read-Only API** recommended in TWS for extra safety
 
 ---

@@ -165,16 +165,10 @@ class TickerSession(QObject):
 
         # ── S0 generic-tick substrate (D38) ───────────────────────────
         # One optional reqMktData per session; the generic list is the union
-        # of registered feature needs (news "292" / dividends "456").
+        # of registered feature needs (dividends "456").
         self._s0_req_id: int | None = None
         self._s0_needs: dict[str, set[str]] = {}
         self._s0_union: str = ""
-        # D38: headless S0 — the news digest keeps an S0 subscription on
-        # sessions with no views (headless digest sessions). Never set for
-        # charted/monitored sessions.
-        self._s0_headless: bool = False
-        # D38: live news-push (tick 292) fan-out for the digest dock.
-        self._news_push_listeners: list = []
 
         # ── D38 dividends (tick 59 via S0 generic "456") ───────────────
         self._dividend_info: dict = {}
@@ -433,8 +427,7 @@ class TickerSession(QObject):
         Re-subscribes only when the union changes; cancels when empty.
         Never silently drops: MD-budget refusal surfaces via the host.
         """
-        want = self._s0_union_str() if (self.view_count > 0
-                                       or self._s0_headless) else ""
+        want = self._s0_union_str() if self.view_count > 0 else ""
         if want == self._s0_union:
             return
         self._s0_cancel()
@@ -479,8 +472,7 @@ class TickerSession(QObject):
                 pass
             self._s0_req_id = None
         self._s0_union = ""
-        want = self._s0_union_str() if (self.view_count > 0
-                                       or self._s0_headless) else ""
+        want = self._s0_union_str() if self.view_count > 0 else ""
         if not want:
             return 0
         self._s0_union = want
@@ -520,44 +512,11 @@ class TickerSession(QObject):
         self.dividend_updated.emit()
         self._merge_ibkr_dividend_event()
 
-    def on_s0_tick_news(self, req_id: int, time_stamp: int,
-                        provider_code: str, article_id: str,
-                        headline: str) -> None:
-        """D38: live news push via generic "292". Forwarded to digest
-        listeners registered via ``add_news_push_listener``."""
-        if req_id != self._s0_req_id:
-            return
-        for cb in list(self._news_push_listeners):
-            try:
-                cb(self.symbol, time_stamp, provider_code, article_id, headline)
-            except Exception:
-                pass
-
     # ── D38 dividends + corporate events ─────────────────────────────
 
     def dividend_info(self) -> dict:
         """Latest parsed tick-59 dividend info ({} when none yet)."""
         return dict(self._dividend_info)
-
-    def set_s0_headless(self, enabled: bool) -> None:
-        """Digest sessions: keep the S0 subscription with no views attached.
-
-        Used by the news digest for holdings that are neither charted nor
-        monitored (plan 38a.2). Re-run the resync so the change takes effect.
-        """
-        self._s0_headless = bool(enabled)
-        self._s0_resync()
-
-    def add_news_push_listener(self, cb) -> None:
-        """Register a callable(symbol, ts, provider, article_id, headline)."""
-        if cb not in self._news_push_listeners:
-            self._news_push_listeners.append(cb)
-
-    def remove_news_push_listener(self, cb) -> None:
-        try:
-            self._news_push_listeners.remove(cb)
-        except ValueError:
-            pass
 
     def _merge_ibkr_dividend_event(self) -> None:
         """Fold the latest tick-59 dividend into the event list (IBKR-first

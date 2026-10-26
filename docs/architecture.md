@@ -4595,3 +4595,1008 @@ matching the app (no white pill), (c) the **expanded** D13/D17/D18/D21.13 criter
 unaffected, (d) the dock still movable/floatable while collapsed with click-to-expand restoring the
 previous width, (e) no collapse key written, and (f) no corrected assertion weakened, skipped or
 xfailed. **`ESC-055` stays TASK_MANAGER-owned** and is not absorbed here.
+
+---
+
+## D45 increment — Batch 20: the News Digest dock (+ the `View` menubar), the Trade Context Menu, the **Kill switch** and the **SL/TP dialog** are removed — the app has **zero order interaction** afterwards (validated 2026-10-25, **approved for build**)
+
+> **SUPERSEDED BY D46 / A99 (2026-10-25) — the stop/target *storage* half of this section.** D45 kept the columns
+> and the fields ("no migration"); P5 **drops** them with a guarded migration (`S47`). Every sentence below that says
+> the storage is kept / unchanged / retained / migration-free is the **D45 record**, not the current end state. The
+> trail is **kept (A87) → cleared (ESC-060) → dropped (A99/D46.12)**; the current end state is § *Phase P5*.
+>
+> **Status of this section.** The canonical D45 architecture. Validated by Plan Artifact Editor &
+> Validator (`Status: APPROVED`, 2026-10-25) on a **legacy single-scope run** (no `Phase: P<n>`; the
+> unsuffixed proposal pair; no phase gate). Companion plan: `docs/plan.md` § *D45 — Batch 20*;
+> module index: `docs/codebase-map.md` (refreshed for this batch). **Approved for build, not yet
+> as-built.** **D1–D44 are not reopened** beyond the supersessions recorded at the end of this section.
+>
+> **Validation history.** Round 1 returned `CHANGES_REQUIRED` on four documentation/test-book findings
+> (R1–R4). Round 2 fixed them: R1/R2 changed test-book **wave membership** only (`tests/test_d27_flat_rows.py`
+> joins wave 3 with the tracker deletion; the D27.1 AC-3 case's removal moved into wave 2), R3 made the
+> residue instrument's claim true (nine panel tokens added, scope stated, `AC-D45.3`'s measurables
+> asserted directly), R4 reconciled this section's `tests/test_dock_d18_region.py` row with the plan
+> (the loop is **deleted**, not shrunk to three — `RG-D45-1`). **No architectural decision changed**;
+> `S29`–`S38` stand as validated **except `S29` (the module is retained) and `S35`'s order half, both superseded
+> by P5/D46 on 2026-10-25 — see § *Phase P5*, `S39`/`S40`, and the `SUPERSEDED`/`VOID` markers on `S29`, `S35`,
+> `AR-D45-10` and the two frozen rows below.**
+>
+> **Scope: D45 only** (Batch 20, owner-requested 2026-10-25 **and its later extension the same day**).
+> The requirements were **substantively** revised by the extension (kill switch + SL/TP dialog move from
+> *retained* to *removed*, `AC-D45.6` inverted, `AC-D45.10` added, A82/A83 reversed) — so the standing
+> proposal-staleness flag is **not** benign here (memory 2026-10-23); both proposal documents were
+> rewritten, not amended.
+>
+> **Sources of record** (`docs/requirements/requirements.md`, `Status: READY_FOR_PLAN`, 0 open
+> questions): **`### D45`** `:4100`–`:4481` (three removal groups, "Scope — KEEP", six owner-accepted
+> consequences, requirements `D45.1`–`D45.6`, `AC-D45.1`–`AC-D45.10` `:4282`–`:4370`, the
+> supersession/revision record `:4371`–`:4416`, assumptions A79–A90 `:4417`–`:4560`, correction record
+> `:4461`–`:4481`); **Journey 38** `:1086`–`:1119`; **R68–R75** `:4699`–`:4706`; `design_gaps.md`
+> **DG75** `:1189`–`:1212`, **DG76** `:1214`–`:1229`, **DG77** `:1231`–`:1260`.
+> **Baseline:** `main` @ **`c702be9`** (2026-10-23).
+>
+> **Escalation state at validation time.** **No `PLAN`-routed escalation is open** —
+> `docs/code_review/escalations.json` holds **no `status: "open"` entry at all**; the only `routed_to:
+> PLAN` entry ever recorded (`ESC-050`) is `addressed`. `docs/tasks/task_manager_notes.md` carries no
+> `ESCALATED_TO_PLAN`. **DG76** is the one open Plan-level question and this section decides it (§ `S29`);
+> DG77 is resolved by the named adjustments in `docs/plan.md`.
+
+**The one workstream — subtractive, three groups, one invariant.** D45 removes **all** order
+*interaction* from a read-only observation terminal: the news half of D38 (Group A), the whole in-app
+close/order path plus the SL/TP setter chain (Group B), and the cancel path (Group C, the owner's later
+extension). The invariant that binds them is **reachability, not file count** (`D45.2`, `AC-D45.4`,
+`AC-D45.6`): after D45 **no `ui/` module can call `placeOrder`, `cancelOrder` or `reqGlobalCancel`**, and
+no `ui/` module imports the three deleted feature modules or the deleted validation module. Two owner
+decisions must survive the deletion and are the main risk in the change: the **dividend S0 `"456"`
+substrate** (R68 — it shares the `s0_register` mechanism with the news `"292"` line) and the
+**stop/target storage** (A87 — the DB columns, model fields and the position upsert are **not** touched;
+only the two display columns and every setter go). Nothing is added: no replacement close UI, no
+replacement cancel control, no read-only SL/TP fallback, no schema migration. **[SUPERSEDED BY D46 / A99: the
+stop/target storage is DROPPED by the P5 guarded migration (§ P5 `S47`); "no schema migration" above is the D45 record.]**
+
+### Relationship to prior increments (D45)
+
+Every decision below carries exactly one relationship label. `[revises …]` names the earlier decision it
+changes; an unlabelled decision would be read as new.
+
+| # | Decision | Relationship |
+|---|---|---|
+| **S29** | **`ibkr/orders.py` is retained, unreferenced by any transmit path, with a module-docstring note.** The `AC-D45.4` measure is **reachability and zero transmits**, not file existence; and the module is **not** in fact orphaned (see § Codebase Summary) — `ui/main_window.py` imports its `orders` singleton as `order_registry` for the **retained, inert inbound observers** (`A90`). Deleting it would force those observers to be rewritten (registry-safe) for **zero** reachability gain and would delete the only unit coverage the builders keep (`tests/test_order_builders.py`). **SUPERSEDED by P5 `S39` (2026-10-25) — the module is DELETED in full, not retained (A91); this row is kept verbatim as the record of the decision that was reversed.** | **`[new in D45]`** — settles DG76 option (a). Supersedes the D41 "Scope — KEEP / retained order machinery" bullet's *intent* (the machinery is no longer retained **for a purpose**) without reversing A80's default. |
+| **S30** | **Sever the transmit path at its single call site.** `MainWindow._close_position_by_id` is the **only** `placeOrder` call site in the tree; it goes with `_on_portfolio_close_position`, `_on_portfolio_close_group`, `_on_portfolio_flatten_all`, `_ref_price_for` and the `validate_order` import, and `ibkr/validation.py` is deleted. `placeOrder` itself is **ibapi's inherited `EClient.placeOrder`** — it is not defined in this repo at all, so "removing the transmit" means *removing every written caller*, never editing `ibkr/client.py`. | **`[revises D41: the retained close/flatten order path]`** — D41 kept this path (`validate_order` gate, order-path pacing token, `ref_price`, the D28.6 contract rebuild) for Portfolio closes; D45 deletes it whole. `ref_price`/`_ref_price_for` become source-less and go (`AC-D41.4`'s `ref_price` clause is **moot**). |
+| **S31** | **Delete the cancel capability completely, and add none back.** `kill_btn` (+ the `QLabel("|")` separator before it), `_on_kill_switch_clicked`, `_kill_switch` (the `reqGlobalCancel()` call, the per-ID `cancelOrder()` loop, the pre/post status-bar counts and the local `order_registry.update_status(…, "Cancelled")` marking) are deleted. `reqGlobalCancel`/`cancelOrder` then have **no call site anywhere in the app**, and **no** teardown / `closeEvent` / disconnect / reconnect path may acquire one. Cancel surface after D45 = **TWS**. | **`[revises D26.8: the kill switch / AC-D26.8]`** — superseded in full (A88). Reverses A82 (recorded as a reversal, not silently dropped). |
+| **S32** | **Delete the SL/TP setter chain end-to-end.** The dialog module, its `confirmed` signal, the panel's `position_sltp_changed`/`group_sltp_changed`, `_on_set_sltp`, `_on_sltp_confirmed`, `update_position_sltp`, `update_group_sltp`, `_sltp_dialog`, and `MainWindow._on_portfolio_sltp_changed` / `_on_portfolio_group_sltp_changed` (with their `UPDATE positions SET stop_loss=…` / `UPDATE trade_groups SET stop_loss=…` statements) are deleted. **No** read-only fallback dialog (the owner declined replacement UI twice). | **`[revises D26.3: the SL/TP dialog]`** — `AC-D26.3`'s labelling branch has no dialog, so it is **moot** (A89). Reverses A83. |
+| **S33** | **Portfolio becomes a view-only 8-column render.** `Symbol, Qty, Avg Price, Type, Multiplier, P/L, Strategy, Group`; the `Stop`/`Target` header, value and alignment slots go; the right-aligned index set becomes `(1, 2, 4, 5)`; the `RIGHT_DOCK_MIN_WIDTH` docstring's "10-column" wording is corrected. Storage is **untouched**: the `positions`/`trade_groups` `stop_loss`/`take_profit` columns, the `Position`/`TradeGroup` fields and the `_upsert_position` round-trip stay; **no migration, no destructive schema change**; legacy values are not settable and not displayed — and **not preserved**: `_on_position_update` builds `Position(stop_loss=None, take_profit=None)` and the upsert's `DO UPDATE` writes both columns, so a live update clears them (ESC-060). | **`[revises D41: the Portfolio section's close/flatten/SL-TP controls]`** — `AC-D41.1`'s Portfolio clause becomes "renders view-only"; the D18 width model (`AC-D18.6`, `RIGHT_DOCK_MIN_WIDTH = 200`) is **re-derived, not superseded** — the table only demands *less* width. Storage retention is `[extends D27: position/trade-group SL/TP persistence]` unchanged. **SUPERSEDED BY D46 / A99: the columns and the fields are DROPPED (§ P5 `S47`).** |
+| **S34** | **Remove the digest half of D38 and nothing more.** Delete `ui/news_digest_dock`, `ibkr/news`, the `View` menubar (`menuBar()`/`view_menu`/`_on_news_digest_visibility`/`self.news_digest_dock`/the `Ctrl+Shift+N` action), the `NewsManager` use, the `b.tick_news` connection and `_on_s0_tick_news`, and the digest-only session plumbing: the news `"292"` S0 registration, `on_s0_tick_news`, `add_news_push_listener` / `remove_news_push_listener`, and the digest-only `set_s0_headless` / `_s0_headless` flag **including the two `or self._s0_headless` clauses in the S0 line-build paths**. **No menubar replaces the `View` menu** (A86). The dividend substrate (`"456"`, tick 59, `_dividend_info`, `dividend_updated`, `_merge_ibkr_dividend_event`, `_merge_events`, the marker overlay, the yfinance provider) is **untouched**. | **`[revises D38: the news digest]`** — `AC-D38.2`/`AC-D38.3` **superseded**, `AC-D38.6` revised to the surviving half (A79). `[extends D38]` for the dividend half, which stays byte-for-byte. A86's "no menubar" is new and follows from the section (the app returns to no menubar). |
+| **S35** | **Keep the broker-boundary plumbing inert rather than deleting it.** In `ui/main_window.py` the inbound observers (`_on_open_order`, `_on_order_status`, `_on_exec_details`, `_on_order_error`, `_update_order_status`) and the `order_registry` import stay wired; the registry is never populated by the app any more, so they observe and surface TWS state only. In `ibkr/bridge.py` / `ibkr/client.py` the news signals (`tick_news`, `news_providers`, `historical_news`, `historical_news_end`, `news_article`) and the ibapi callback overrides stay as API-boundary mirrors — they are now **unconnected** (`NewsManager`, their only consumer, is gone). The fail-fast port check, the connection badge and the global no-test-transmits rule are retained. **P5 `S40` reverses the ORDER half of this decision (A92, 2026-10-25): the observers and the `order_registry` import are deleted, not kept inert; the news half and the retained port check/badge/no-test-transmits rule stand untouched.** | **`[extends D26: the connection/error path]`** — `AC-D26.5` (badge + port check) is unchanged and depends on this path; `[extends D38: the ibapi news boundary]` retained unconnected. A90 records the inertness so it is not mistaken for a leftover (R74). |
+| **S36** | **The acceptance instrument is a source-scan invariant plus a mocked-client walkthrough, not a convention.** A new `tests/test_d45_removal` asserts: deleted modules are unresolvable and deleted files absent; the removed tokens listed in the plan's residue-verification step appear nowhere in the scanned tree — the **AST** pass reads identifiers **and** string constants over `ui/ services/ data/ ibkr/ config/` (comments are invisible to it, which is why `config/settings.py`'s `validate_order()` *comment* is out of scope in a file no task may edit), and a **`ui/`-only grep** is the prose net — both under an explicit survivor allow-list; `tests/` is covered by neither, so `AC-D45.3`'s `hasattr(...) is False` measurables are asserted **directly** in the module; `ibkr/validation` and `ibkr/news` do not exist; and driving a real offscreen `MainWindow` through every remaining affordance issues **zero** `placeOrder`, **zero** `cancelOrder`, **zero** `reqGlobalCancel`. It replaces the **intent** of the five deleted suites (`AC-D45.4`, R70) with a static + behavioural invariant and must be **proven discriminating** against the pre-D45 tree. | **`[new in D45]`** — the mechanism exists (`tests/test_d41_removal.py` is its precedent: AST token scan + allow-list + real offscreen window); the D45 variant is new. Supersedes the *coverage claim* of the deleted order-safety suites (consequence 5 of D45 states the loss plainly). |
+| **S37** | **Ordering is forced by three shared files, not chosen for taste.** `ui/main_window.py` is touched by three groups (A, B-main, C) and `ui/active_portfolio_panel.py` by one (B-panel); `tests/test_dock_d18_region.py` and `tests/test_d27_position_id.py` by two each (A `:147` / B `:174`–`:179`; B-main's AC-3 case / B-panel's `8`/`9` index edit). Therefore: **one task per wave on `ui/main_window.py`** (waves 1, 2, 4), **Group B's window half lands before its panel half** (panel-first would leave `MainWindow.__init__` connecting signals that no longer exist → `AttributeError` in every window test, i.e. a wave that cannot pass its own tests), and **both owner-facing docs go in one terminal task** (wave 5, `USAGE.txt` + `usage.md`) instead of three conflicting edits — the map is Plan-owned and already refreshed, so it is not a Build task. The **wave-membership rule** completes the constraint: an assertion whose subject dies in wave *N* is removed or adjusted **in wave *N***. | **`[new in D45]`** — the sequencing constraint, recorded in `docs/plan.md` § *D45 sequencing constraints* (rules 1–4). (The `ESC-055` rule — enumerate assertions invalidated **outside** the edited files — is applied, not restated.) |
+| **S38** | **Docs are one batch-scoped step, and the map's skeleton is not hand-edited.** `USAGE.txt`, `usage.md` are cleaned in one task with the three owner-named items removed (`A85`); `docs/codebase-map.md` is refreshed by Plan (this batch) — the generated skeleton is rebuilt from the tree by `update_codebase_map.py`, so it keeps listing the deleted files until the **next** refresh, and the annotation tables describe the **post-D45 target state** (stated in the map's header). | **`[new in D45]`** — `AC-D45.7` makes doc freshness checkable; A85 scopes the files. `[extends the per-batch map convention: memory 2026-10-23 item 5]`. |
+
+---
+
+### Codebase Summary (existing repository — the D45 surface, source-validated 2026-10-25 @ `c702be9`) (D45)
+
+**This is the pointer to `docs/codebase-map.md`, not a second inventory.** The map carries the module
+index, the status legend and the test-impact rows; this section records only what D45's decisions rest
+on, and every fact below was re-derived from source (graphify `graph.json` (4,947 nodes) used for
+discovery; **the source is authoritative** where they disagree).
+
+#### Facts D45's decisions rest on
+
+| Fact | Verified evidence | Consequence |
+|---|---|---|
+| `placeOrder` has **exactly one** production call site | `ui/main_window.py:3476` inside `_close_position_by_id`; **no `placeOrder` definition exists in `ibkr/`** — it is ibapi's inherited `EClient.placeOrder` (`ibkr/client.py:39 class IBApiClient(EWrapper, EClient)`) | `S30`: deleting that one method makes `placeOrder` uncalled tree-wide. The map's earlier "`IBApiClient.placeOrder` (the only transmit)" was **wrong** and is corrected this batch. |
+| `reqGlobalCancel`/`cancelOrder` have **exactly one** call site pair | `ui/main_window.py:3042`, `:3048`, inside `_kill_switch`; no `ibkr/` wrapper; no `closeEvent`/disconnect caller (`closeEvent` teardown order re-read) | `S31`: the cancel capability is removed outright; nothing needs re-homing. |
+| `_kill_switch` has exactly **two** callers | the toolbar button (`:3061`) and `_on_portfolio_flatten_all` (`:3385`, deleted by `S30`) | Both callers go inside one batch; neither survives. |
+| `_ref_price_for` has **exactly one** caller | definition `:2154`; caller `:3435` (inside `_close_position_by_id`); the `_symbol_last_prices` map it reads **stays** (the Portfolio P/L path reads it directly at `:3207`) | `S30`: delete the accessor, keep the map. R74 names a leftover `_ref_price_for` as residue — this is the removal that prevents it. |
+| The SL/TP dialog's **only** entry point is the context menu | `ui/active_portfolio_panel.py:156 self._context_menu.set_sltp_action.triggered.connect(self._on_set_sltp)`; `_on_set_sltp` is the only constructor call of `StopLossTargetDialog` | A89: Groups B and the extension agree — the setter was already unreachable once the menu went; the extension completes the removal. |
+| `order_registry` is **not** orphaned by the removal | `ui/main_window.py:36` imports it; consumers: `_update_order_status` (`:3335`), `_on_order_error` (`:1598`), and `_close_position_by_id` (`:3400`, deleted) | `S29`/`S35`: keep the module; the registry stays read/written by the **inert** observers, so it is neither unreferenced code nor a transmit path **[REVERSED BY D46/P5 `S39`: the module and every consumer are deleted — the registry was never populated, so nothing read or wrote it in production]**. |
+| `ibkr/orders.py` keeps **real** unit coverage | `tests/test_order_builders.py` covers `market_order`/`limit_order`/`stop_order`/`bracket_order` (structure, OCA groups, `transmit` flags) and the registry (`register`/`get`/`update_status`/`clear_filled`/`all`) | DG77's "left with **no tests at all**" is **wrong for this module**; what the five deleted suites took was the *integration* driver (`_kill_switch` reading the registry, `_close_position_by_id` transmitting), not the builders' unit coverage. Recorded so it is not "discovered" later. **[SUPERSEDED BY D46/P5 `S39`: `tests/test_order_builders.py` and the module are deleted; that unit coverage goes with them, which is the cost the owner accepted]** |
+| `tests/test_d41_removal.py` stays green after `ibkr/news` is deleted | its only news reference is `_ALLOWED_ANYWHERE` = `{"footprint_cache_key", "queue_depth"}` (a frozenset **string**, `:105`); its token scan reads `ui/ services/ data/ ibkr/ config/` only and `queue_depth` lives in the allow-list, so no assertion reads `NewsManager` behaviour; its request-absence case still issues its S0/RT lines because `"456"` survives | `AC-D45.8`: **keep unchanged** (verified, not assumed). |
+| `tests/test_stop_loss_target.py` survives on its own merits | 3 cases, imports only `data.models.Position`/`TradeGroup`, asserts the four model fields (defaults + explicit values) and no UI | A87: the fields stay → the file stays **unchanged** and still means something. **SUPERSEDED BY D46 / A99: the suite is DELETED (§ P5 wave 7).** |
+| The digest test block is contiguous and separable | `tests/test_d38_events_news.py`: NewsManager block `:145`–`:201`; digest block `:419`–`:549` (`_StubNewsManager`, `_StubHost`, `_make_dock`, `test_ac_d38_2_digest_groups_headlines`, `test_ac_d38_3_no_entitlement_state`, `test_ac_d38_2_click_fetches_article`); surviving blocks `:83`–`:143` (tick 59), `:202`–`:417` (yfinance, markers, AC-D38.5), `:551`–`:593` (no-mock-endpoint, md-line guard) | Group A trims by symbol: two whole sections go, the file stays. The md-line guard docstring's `"292"` reference is the "one docstring" the correction record names. |
+| The 8-column shift invalidates **exactly two** external files | `tests/test_d27_position_id.py:164-165` and `tests/test_d27_position_prices.py:290-291` address Strategy/Group as `8`/`9`; a scan of `tests/` for `positions_table` shows no other column-index assertion (`test_d27_account_subs.py:102` uses column `0`; the D18 width suites iterate `range(table.columnCount())` and are index-agnostic) | R75/DG77: `6`/`7`, named in the plan's test book. No third file needs touching. |
+| `_s0_headless` is digest-only but is read in **two** S0 line-build paths | set only by `ui/news_digest_dock.py:209/:221`; read at `ui/ticker_session.py:437` and `:483` (`want = self._s0_union_str() if (self.view_count > 0 or self._s0_headless) else ""`) | `S34`: deleting the flag is a **three-site** edit, not one — the residue risk a worker would miss. |
+| The selection tracker's readers all die with the menu | `ui/active_portfolio_panel.py` — `_selected_position` is read only by `_show_context_menu` (:372), `_on_set_sltp` (:377–379), `_on_close_position` (:400–401), `_on_close_group` (:405–406) and `_on_ungroup` (:410–411); `_on_selection_changed` (:352–368) only assigns it and calls `self._context_menu.set_actions_enabled(...)`; `_selected_row` has no reader at all; the **only** reader outside the panel is `tests/test_d27_flat_rows.py:110`–`:111` | `S33`/`AP-D45-4`: the tracker goes with the menu; the one test reader is adjusted in the **same wave** (R1), so it does not outlive its last reader |
+
+#### Data models / persisted state `[existing]`
+
+- **`positions`** — `id, symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, multiplier,
+  expiry, strike, right, stop_loss, take_profit, trade_group_id, updated_at` (`data/db.py:117`–`:124`).
+  **Unchanged by D45** (A87) — no DDL edit, no migration. **SUPERSEDED BY D46 / A99: both columns are DROPPED by the
+  P5 guarded migration (§ P5 `S47`); a row that never updates again keeps its legacy bytes and loses them there.**
+- **`trade_groups`** — `id, name, strategy_type, underlying, stop_loss, take_profit, collapsed, created_at`
+  (`data/db.py:127`–`:134`). **Unchanged** — **SUPERSEDED BY D46 / A99: both columns DROPPED (§ P5 `S47`).**
+- **`data/models.py`** — `Position.stop_loss/take_profit: Optional[float] = None`, `TradeGroup.stop_loss/
+  take_profit: Optional[float] = None`. **Unchanged** — **SUPERSEDED BY D46 / A99: both dataclasses' fields DROPPED (§ P5 `S47`).**
+- **Not persisted:** dock layout / toolbar state are `QSettings`-free for the right region (A36) and the
+  digest dock relies on Qt's restored dock state — a saved state naming a removed dock must be **ignored**
+  (Journey 38 edge case), which Qt does when the objectName no longer exists. **No new key, no migration.**
+
+#### Major components and responsibilities (post-D45 target; deltas in the next tables)
+
+`ui/main_window.py` (window, docks, toolbar, load path, sessions, teardown) · `ui/ticker_session.py`
+(per-symbol session: bars, waves, pacing, live bars, S0 generic-tick substrate) · `ui/active_portfolio_panel.py`
+(the right dock's Portfolio panel, **view-only**) · `ui/chart_panel.py` + `ui/candlestick_item.py` +
+`ui/overlays/*` + `ui/event_marker_overlay.py` (render stack, **untouched**) · `ui/watchlist_panel.py` +
+`ui/dock_layout.py` (**untouched**) · `services/*` (calendar, backfill, collapse, alarms, search, drawings,
+studies, md-line guard — **untouched**) · `data/*` (SQLite, cache, aggregator, stores, event provider —
+**untouched**) · `ibkr/*` (client wrapper, bridge, market data, RT bars, pacing, id managers, subscriptions,
+stream health, account, contracts, **orders (DELETED by D46/P5 `S39`)**, **news (deleted)**,
+**validation (deleted)**).
+
+#### Key entry points / data flow (unchanged shape)
+
+`main.py` → `MainWindow()` → `IBApiClient.connect` (fail-fast port check) → bridge signals → sessions/chart;
+account-summary + position callbacks → `_upsert_position` → `ActivePortfolioPanel.set_positions/add_position` →
+`_group_and_render` → `_render_table`. **D45 removes three inbound UI paths that branched off this flow** —
+the digest dock (news callbacks), the Portfolio context menu/close handlers, and the toolbar kill switch — and
+changes nothing on the retained path.
+
+#### External integrations already in use `[existing]`
+
+IBKR TWS via the official `ibapi` (`10.51.1`): historical + realtime bars, market data with S0 generic ticks,
+account summary/positions, news API + tick `"292"` (**removed**), dividends tick `"456"`/59 (**retained**),
+order transmit (`placeOrder`, inherited `EClient`) + cancel (`cancelOrder`, `reqGlobalCancel`) — **no longer
+reachable**; yfinance as the sole approved secondary event source (**retained**); SQLite (**retained**).
+
+#### What D45 changes, in one line
+
+Five modules deleted (`ui/news_digest_dock`, `ibkr/news`, `ui/trade_context_menu`,
+`ui/stop_loss_target_dialog`, `ibkr/validation`); **three** production modules edited (`ui/main_window.py`,
+`ui/ticker_session.py`, `ui/active_portfolio_panel.py`); five test files deleted and **seven** adjusted; two
+docs cleaned; **no file added** to production (one new test module, `S36`).
+
+---
+
+### Summary (D45)
+
+D45 is a **subtractive** increment whose requirement is **unreachability**: after it, no UI path in
+NDThinkChart can place, cancel or close an order, and no UI path can set a stop/target — the app observes
+TWS and renders. The architecture therefore does not add a component or a seam; it **severs three inbound
+UI branches at their single call sites** (`_close_position_by_id` for the transmit; `_kill_switch` for the
+cancel; the panel's SL/TP chain for the setter), deletes the four feature modules plus the now-unused
+validation module, and leaves the broker boundary, the dividend substrate, and the stop/target storage
+untouched and inert. The guarantee is then **structural, not conventional**: a static source-scan
+invariant plus a mocked-client zero-transmit walkthrough, both proven discriminating against the pre-D45
+tree.
+
+### Tech Stack Decisions (D45)
+
+**Constrained choices first** — these are the existing stack; D45 changes none of them (no requirement
+asks for a stack change, and the pyqtgraph decision is **locked**, `docs/memory.md` 2026-10-16).
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| UI toolkit `[existing]` | **PyQt6** (widgets, signals, docks, QSettings) | Entire app is PyQt6; D45 only deletes widgets | — (no change proposed) |
+| Chart renderer `[existing]` | **pyqtgraph**, locked | Locked decision (2026-10-16); D45 does not touch the render stack | `QWebEngineView` + Lightweight Charts — **declined by the owner**, do not re-propose |
+| Broker client `[existing]` | official **`ibapi`** (`10.51.1.post1`) via `IBApiClient(EWrapper, EClient)` | Order/cancel methods are **inherited** from `EClient`; removing callers needs no client edit | Writing an in-repo transmit wrapper — rejected: adds surface for a path that must not exist |
+| Persistence `[existing]` | **SQLite** (`data/db.py`), additive migrations only | A87 keeps the SL/TP columns → **no migration at all** in this batch | Dropping the two column pairs (rejected by the owner: destructive, zero user-visible gain) |
+| Secondary data source `[existing]` | **yfinance** (`data/events/`) | The sole approved secondary event source; D45 does not touch the event path (`AC-D38.4`/`.5` stand) | — (no change proposed) |
+| Removal mechanism `[new in D45]` | **Delete** the modules + **sever** the three call sites; keep the broker boundary inert | `AC-D45.4`/`.6` measure absence + zero calls; deletion is what makes a future re-wire impossible by accident | Keep modules + runtime guards (rejected: reachability by convention; a stray `.connect` would resurrect the path unnoticed) |
+| Verification mechanism `[new in D45]` | **AST/token source scan** (`ui/ services/ data/ ibkr/ config/`) + `ui/`-only grep + **mocked-client offscreen walkthrough** in one new test module | Precedent exists and works (`tests/test_d41_removal.py`); no new dependency; catches string-constant leftovers, not just live lookups | Grep-only in CI (rejected: prose false positives, no behavioural half); mypy/type-level «unreachable» (rejected: new dependency, and `placeOrder` is inherited/duck-typed) |
+| `ibkr/orders.py` `[new in D45]` | **Retain**, add a module-docstring note that it is unreachable after D45; keep `tests/test_order_builders.py` | DG76(a) + A80/A90: the registry is *used* by the retained observers; deleting it forces registry-safe rewrites of the error path for zero reachability gain | Delete it (DG76(b)) — rejected: outside the owner's named inventory, breaks `A90`'s retained observers, and discards real unit coverage. **[REVERSED BY D46/P5 `S39`, 2026-10-25: the owner named it in scope — module, `tests/test_order_builders.py` and `data.models.UserOrder` are all deleted; the observers were never fed, so nothing depended on the registry]** |
+| Test runner `[existing]` | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` | Repo convention (the `pytest` entry point has a stale shebang) | — |
+| New dependencies `[new in D45]` | **None** | Constraint; nothing in D45 needs one | — |
+
+### System Components (D45)
+
+Status is relative to the codebase (`[existing]` = present and **unmodified** by this batch;
+`[new/changed]` = present and modified).
+
+**Changed by this batch**
+
+| Component | Status | What changes |
+|---|---|---|
+| `ui/main_window.py` | **`[new/changed]`** | **Group A:** the digest dock block (`:479`–`:493`), `_on_news_digest_visibility` (`:2757`–`:2763`), the `NewsManager` construction (`:529`–`:530`), `b.tick_news.connect` (`:628`), `_on_s0_tick_news` (`:1968`–`:1976`). **Group B:** the two SL/TP + three close `.connect` lines (`:647`–`:651`), `_on_portfolio_close_position` / `_on_portfolio_close_group` / `_on_portfolio_flatten_all` / `_on_portfolio_sltp_changed` / `_on_portfolio_group_sltp_changed`, `_close_position_by_id`, `_ref_price_for`, the `validate_order` import, and the `order_limiter` (and now-unused `pacing_manager`, `UserOrder`) import names — `PacingExceeded` and `orders as order_registry` stay. **Group C:** `kill_btn` + its `QLabel("|")` separator + tooltip/style/connect (`:319`–`:330`), `_kill_switch` (`:3028`–`:3057`), `_on_kill_switch_clicked` (`:3059`–`:3061`). **Retained in the same file (A90):** `order_registry`, `_on_open_order`, `_on_order_status`, `_on_exec_details`, `_on_order_error`, `_update_order_status`, `_symbol_last_prices`, the fail-fast connect path, the badges, `closeEvent` teardown. **[SUPERSEDED BY D46/P5 `S40`: `order_registry`, `_on_open_order`, `_on_order_status`, `_on_exec_details`, `_on_order_error` and `_update_order_status` are deleted — `_symbol_last_prices`, the connect path, the badges and `closeEvent` stand]** |
+| `ui/ticker_session.py` | **`[new/changed]`** | The news `"292"` register line + its comments, `on_s0_tick_news`, `add_news_push_listener`, `remove_news_push_listener`, `set_s0_headless`, `_s0_headless` (`:175`) **and the two `or self._s0_headless` clauses** (`:437`, `:483`). **Retained verbatim:** `_needs["dividends"] = {"456"}` (`:232`), `on_s0_tick_string` tick-59 branch, `_dividend_info`, `dividend_updated`, `dividend_info()`, `_merge_ibkr_dividend_event`, `_merge_events`, `events`, the S0 union/resync/cancel machinery. |
+| `ui/active_portfolio_panel.py` | **`[new/changed]`** | The `TradeContextMenu` + `StopLossTargetDialog` imports and members, the `CustomContextMenu` policy and its connection, `_show_context_menu`, `_on_close_position`, `_on_close_group`, `_on_ungroup`, `_on_flatten_all`, `_on_set_sltp`, `_on_sltp_confirmed`, `update_position_sltp`, `update_group_sltp`, `_sltp_dialog`, the five signals, the now-dead selection tracking (`_selected_row`, `_selected_position`, `_on_selection_changed`, its `itemSelectionChanged` connection and the two stale comments that name it), and the `Stop`/`Target` columns (**10 → 8**; values list and alignment set `(1,2,4,5)`; the `RIGHT_DOCK_MIN_WIDTH` docstring's "10-column" wording). **Retained:** `summary_label`/`_on_header_toggled`/`is_collapsed`/`set_collapsed`/`toggle_collapsed`, `set_account_summary`/`set_account_id`/`set_account_unavailable`, `set_positions`/`add_position`, `refresh`/`_render_summary`/`_group_and_render`, `account_summary_changed`, `positions_changed`, `_unrealized_pnl`. |
+| `tests/test_d38_events_news.py` | **`[new/changed]`** | Two sections removed (NewsManager `:145`–`:201`, digest `:419`–`:549`); module docstring trimmed; the md-line-guard docstring's `"292"` reference corrected to the surviving `"456"` line. **Event-marker/dividend blocks kept byte-for-byte** (R68's regression guard). |
+| `tests/test_dock_d18_region.py` | **`[new/changed]`** | `:147` drops the `objectName() != "NewsDigest"` filter (Group A); `:174`–`:179` **deletes the five-signal receiver loop outright** (Group B-main). All five signals go, so **no signal survives** — the loop is removed, not narrowed; the surrounding assertions stay (the panel is still the dock's widget, `account_summary_changed` / `positions_changed` are still present, and the `positions_changed` zero-receiver probe still proves the probe is not vacuous), and the wiring comment is restated as the post-D45 truth. This is a **deviation from the register's suggested "three-signal loop"** (`requirements.md:4178`–`:4179`, `DG77` item 4) — recorded in `docs/plan_notes.md` `RG-D45-1` and in the plan's § Exactness note; the deviation **does not weaken `AC-D45.8`**, which requires the file to be *adjusted*. |
+| `tests/test_d27_position_id.py` | **`[new/changed]`** | `test_p2_t27_t31_sltp_persists_to_exactly_the_addressed_row` removed **in wave 2** — its passing path is the window's `position_sltp_changed` connection, removed there (the panel setter it also drives goes in wave 3, so the case cannot outlive either half); `:164`–`:165` `8`/`9` → `6`/`7` **in wave 3** (the columns shift there). **Kept:** the AC1 live-update case and the AC2 bulk-id case (the D27.1 id-correctness property survives there). |
+| `tests/test_d27_flat_rows.py` | **`[new/changed]`** | The AC-3 tail only: `:108`–`:111` (the `selectRow` drive plus the two `panel._selected_position` assertions) go with the deleted selection tracker; `:104`–`:106` (**the index-alignment assertions — the property AC3 exists for**) stay verbatim, and the AC3 docstring sentence is restated without naming the removed members. AC1/AC2 untouched. `S37`'s wave-membership rule puts this edit in **wave 3**, the wave that deletes the tracker. |
+| `tests/test_d27_position_prices.py` | **`[new/changed]`** | `:290`–`:291` Strategy/Group `8`/`9` → `6`/`7`. Nothing else. |
+| `tests/test_order_rejections.py` | **`[new/changed]`** | `test_close_blocked_while_disconnected` deleted (its subject, `_close_position_by_id`, is gone — `AC-D26.9`'s disconnected branch has no order path left to block); the `_fresh_registry`/`_register` helpers and the `_on_order_error`/`classify_error` cases **stay** (they cover the retained observer path, A90). **[SUPERSEDED BY D46/P5 `S40`: the `_fresh_registry`/`_register` helpers and the `_on_order_error` cases are deleted with the observer path; the `classify_error` cases stay (three of five survive)**] |
+| `tests/test_d28_pacing.py` | **`[new/changed]`** | `test_close_position_defers_when_limiter_empty` deleted whole (it drives `_close_position_by_id` and pins the gate-before-pacing order). The historical-pacing cases **stay** — they are D28.3, unrelated to the order bucket. |
+| `tests/test_d45_removal` (new) | **`[new]`** | The `S36` instrument — the one file this batch adds. |
+| `USAGE.txt`, `usage.md` | **`[new/changed]`** (**docs**) | The digest/`View` section, the close/close-group/close-all text, the kill-switch bullet, the SL/TP bullet, the "orders cannot be placed while disconnected" claim; `usage.md`'s `### Portfolio & SL/TP` heading/steps and its Portfolio table row; a Database-section note that the SL/TP **columns** are kept but are no longer settable and their values are cleared by the next position update (ESC-060). Must state plainly that **closes and cancels happen in TWS**. |
+| `docs/codebase-map.md` | **`[new/changed]`** (**Plan-owned**) | Refreshed this batch: the three removed modules and `ibkr/validation` no longer listed as live; `_kill_switch`/`StopLossTargetDialog` no longer named as retained; the `placeOrder` ownership error corrected; the D45 test book (5 deleted / **7** adjusted / 1 added) updated. |
+
+**Deleted by this batch (nothing replaces them)**
+
+| Module | Status | Reason |
+|---|---|---|
+| `ui/news_digest_dock` (`NewsDigestDock`) | **deleted** | `S34`/`AC-D45.1`; owner: its only consumer is the digest |
+| `ibkr/news` (`NewsManager`) | **deleted** | `S34`/A79; only consumer was the dock + its tests |
+| `ui/trade_context_menu` (`TradeContextMenu`) | **deleted** | `S30`/`AC-D45.3`; the only close/group/flatten/SL-TP entry point |
+| `ui/stop_loss_target_dialog` (`StopLossTargetDialog`) | **deleted** | `S32`/A89; local-only setter, unreachable after the menu goes |
+| `ibkr/validation` (`validate_order`) | **deleted** | `S30`; gates an order nothing builds (`AC-D26.7` moot) |
+| `tests/test_d28_6_close_contracts.py`, `tests/test_d41_retained_order_path.py`, `tests/test_order_validation.py`, `tests/test_kill_switch.py`, `tests/test_sltp_honesty.py` | **deleted** | Their subjects no longer exist (A81/`AC-D45.8`, five named whole-file deletions) |
+
+**Retained and deliberately inert (not leftovers — A90)**
+
+- `ibkr/orders.py` — builders + `Orders` registry + the `orders` singleton; **no transmit caller**, still the
+  registry the observers read (`S29`). One permitted edit: a module-docstring note. **[SUPERSEDED BY D46/P5 `S39` — the module is deleted; the registry import and every observer that read it go with it]**
+- `MainWindow._on_open_order` / `_on_order_status` / `_on_exec_details` / `_on_order_error` /
+  `_update_order_status` + the `order_registry` import — observe TWS, place/cancel nothing, registry never
+  populated by the app. **[SUPERSEDED BY D46/P5 `S39` — deleted]**
+- `ibkr/bridge.py` news signals + `ibkr/client.py`'s `tickNews`/`newsProviders`/`historicalNews`/
+  `historicalNewsEnd`/`newsArticle` overrides — the ibapi boundary mirrors; unconnected, harmless (`S35`).
+- `config/settings.py::MAX_ORDER_NOTIONAL` — see *Incidentally affected* in the plan; **not** deleted. **[SUPERSEDED BY D46/P5 `S46` — deleted in wave 4]**
+- `ibkr/pacing.py::order_limiter` — the order-path token bucket; no consumer after D45, but `pacing.py` is a
+  shared, tested module — **not** edited by this batch. **[SUPERSEDED BY D46/P5 `S46` — `OrderRateLimiter`/`order_limiter` deleted in wave 4; `pacing.py`'s remaining shared substrate stays]**
+
+### Data Model (D45)
+
+No schema change, no migration, no destructive schema change (A87/`D45.6`). The retained `stop_loss`/`take_profit` values are **not** preserved, though: a live position update writes both columns empty (ESC-060). Every entity below is `[existing]`. **SUPERSEDED BY D46 / A99:** the `stop_loss`/`take_profit` columns and fields are
+**DROPPED** by one guarded destructive migration (§ P5 `S47`); a row that never receives another live update keeps its
+legacy bytes and loses them here — the batch's only byte-destroying step.
+
+| Entity | Status | Key fields | D45 effect |
+|---|---|---|---|
+| `positions` (SQLite) | `[existing]` | `id, symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, multiplier, expiry, strike, right, stop_loss, take_profit, trade_group_id, updated_at` | **none** — `stop_loss`/`take_profit` stay, written by the unchanged upsert. **P5: both columns DROPPED (§ P5 `S47`); the upsert writes 13 columns.** |
+| `trade_groups` (SQLite) | `[existing]` | `id, name, strategy_type, underlying, stop_loss, take_profit, collapsed, created_at` | **none** — the `UPDATE trade_groups SET stop_loss=…` statement is deleted, the columns are not. **P5: both columns DROPPED (§ P5 `S47`).** |
+| `data.models.Position` | `[existing]` | `symbol, qty, avg_cost, contract_type, con_id, account, local_symbol, multiplier, expiry, strike, right, stop_loss, take_profit, trade_group_id, id` | **none** — `stop_loss`/`take_profit` retained (A87); `tests/test_stop_loss_target.py` keeps asserting them. **P5: the two fields DELETED and that suite DELETED (§ P5 wave 7).** |
+| `data.models.TradeGroup` | `[existing]` | `name, strategy_type, underlying, id, stop_loss, take_profit, collapsed, created_at` | **none**. **P5: both columns DROPPED (§ P5 `S47`).** |
+| `MainWindow._upsert_position` (`:3283`) | `[existing]` | `INSERT INTO positions (… stop_loss, take_profit …) … ON CONFLICT(symbol, con_id) DO UPDATE SET … stop_loss=excluded.stop_loss, take_profit=excluded.take_profit … RETURNING id` | **none** — the upsert still writes both fields; because `_on_position_update` passes `stop_loss=None, take_profit=None`, the `DO UPDATE` **clears** them on every live update (ESC-060). *(The requirements call this `_persist_position`; the tree names it `_upsert_position` — a naming drift only, recorded in the plan.)* **P5: 13 columns, both names removed (§ P5 `S47`); a row that never updates keeps its legacy bytes and loses them there.** |
+| `MainWindow._on_position_end` bulk load (`:3250`–`:3282`) | `[existing]` | SELECTs the 15 columns incl. `stop_loss`/`take_profit`, builds `Position(...)` with `id` | **none** — the bulk load still SELECTs and carries them, but they are only as good as the last write: the live update path clears both columns (ESC-060). They are simply not displayed. **P5: 13 columns, read by name so the shift cannot reoccur (§ P5 `S48`).** |
+| **Positions table view model** | `[new/changed]` (**view only — no storage**) | 8 columns, in order: `0 Symbol`, `1 Qty`, `2 Avg Price`, `3 Type`, `4 Multiplier`, `5 P/L`, `6 Strategy`, `7 Group`; right-aligned set `(1, 2, 4, 5)` | `S33`: the `Stop`(6)/`Target`(7) slots go; `Strategy`/`Group` move `8/9 → 6/7` (`AC-D45.10`). This is a render mapping, **not** a persisted entity |
+
+Relationships: `positions.trade_group_id → trade_groups.id` (FK, unchanged); `position_group_map` unchanged;
+strategy/group cell derivation (`services.strategy_detection.detect_and_group`) unchanged.
+
+### Integration Points (D45)
+
+| Integration | Status | Why it is needed / what changes |
+|---|---|---|
+| **IBKR TWS** — historical + realtime bars, market data, account summary/positions (`ibapi` over the local socket, `7496` live / fail-fast port check) | `[existing]` | The app's whole data plane; **unchanged**. `AC-D26.5`'s port check + badge retained. |
+| **IBKR S0 generic tick `"456"`** (+ tick 59 string) → `_dividend_info` → `dividend_updated` → dividend marker | `[existing]` | Retained **verbatim** (`S34`, R68, `AC-D45.2`): it is the only live dividend source for the chart's event markers. |
+| **IBKR S0 generic tick `"292"`** (live news push) | **removed** | `AC-D45.1`/`.2`: never requested; the digest that consumed it is gone. **The `s0_register` mechanism stays** — only the news need disappears. |
+| **IBKR news API** (`reqNewsProviders`, `reqHistoricalNews`, `reqNewsArticle`) + the bridge's news signals | `[existing]` (inert) | The client/bridge overrides stay (`S35`) — deleting them would touch the connection-callback file for no reachability gain; nothing constructs `NewsManager` any more, so they are never requested. |
+| **IBKR order transmit** (`EClient.placeOrder`, inherited) / **cancel** (`cancelOrder`, `reqGlobalCancel`) | `[existing]`, **unreachable** | `S30`/`S31`: zero call sites in the tree after D45. `ibapi` still exposes the methods (deleting them is impossible/unwise); the **app never calls them** — proven by `S36`. |
+| **IBKR inbound order/execution callbacks** (`openOrder`, `orderStatus`, `execDetails`, `error`) | `[existing]` (inert) | Retained observers (A90): they surface TWS state and order errors on the status bar; registry never populated by the app. **[SUPERSEDED BY D46/P5 `S40`: the three overrides and their observers are deleted; only `IBApiClient.error` remains, surfacing per-code messages on the status bar]** |
+| **yfinance** corporate-events provider (`data/events/yfinance_source`, cache in SQLite) | `[existing]` | Sole approved secondary source; drives earnings/split markers when IBKR has none; **untouched** (`AC-D38.4`, `AC-D38.5` stand). |
+| **SQLite** (`data/db.py`, `bar_cache`, stores) | `[existing]` | **No migration** this batch; a pre-D45 DB opens unchanged with its legacy stop/target values. **SUPERSEDED BY D46 / A99: one guarded destructive migration runs at `DB()` construction; a pre-P5 DB keeps every row and loses only those two values.** |
+| **Qt `QSettings`** (watchlist width/columns) | `[existing]` | Untouched; a stale entry naming the removed dock/toolbar button must be ignored (Journey 38 edge case) — Qt ignores restored state whose objectName no longer exists. |
+| *New integrations* | — | **None.** D45 adds no service, no dependency, no endpoint. |
+
+### Frozen Interfaces (D45)
+
+Interfaces this batch treats as **read-only**: settled, and modified by **no** D45 task. Contracts are
+**verbatim** from the tree at `c702be9` (never paraphrased), with the owning module, so Task Manager can hand
+a worker the contract instead of the implementation. **Nothing under construction this batch is listed** —
+the digest/kill-switch/SL-TP/close surfaces (being deleted) and the 8-column render (being changed) are
+deliberately absent, and `ibkr/orders.py` is frozen **at its API** with one permitted docstring note (`S29`). **[SUPERSEDED BY D46/P5 — the module is deleted outright, so this freeze is void]**
+
+| Interface | Verbatim contract | Owning module |
+|---|---|---|
+| Dividend signal `[existing]` | `dividend_updated = Signal()` | `ui/ticker_session.py` |
+| Tick-59 ingress `[existing]` | `def on_s0_tick_string(self, req_id: int, tick_type: int,`<br>`                          value: str) -> None:` — tick-59 branch parses defensively, sets `_dividend_info`, emits `dividend_updated`, calls `_merge_ibkr_dividend_event` | `ui/ticker_session.py` |
+| Dividend reader `[existing]` | `def dividend_info(self) -> dict:` | `ui/ticker_session.py` |
+| S0 registration API `[existing]` | `def s0_register(self, feature: str, ticks: set[str]) -> None:` · `def s0_deregister(self, feature: str) -> None:` · `def s0_register_many(self, needs: dict[str, set[str]]) -> None:` · `def s0_deregister_many(self, features) -> None:` | `ui/ticker_session.py` |
+| Event merge / read `[existing]` | `def _merge_ibkr_dividend_event(self) -> None:` · `def _merge_events(self, new_events: list, source: str) -> None:` · `def events(self) -> list:` · `def events_unavailable(self) -> bool:` | `ui/ticker_session.py` |
+| Dividend string parser `[existing]` | `def parse_ib_dividend_string(value: str) -> dict[str, Any]:` | `data/events/provider.py` |
+| Marker overlay API `[existing]` | `class EventMarkerOverlay(QObject):`<br>`    def __init__(self, plot: pg.PlotWidget):`<br>`    def set_bars(self, bars) -> None:`<br>`    def set_collapse_map(self, collapse_map) -> None:`<br>`    def set_events(self, events, unavailable: bool = False) -> None:`<br>`    def event_count(self) -> int:`<br>`    def clear(self) -> None:`<br>`    def countdown_text(self) -> str:` | `ui/event_marker_overlay.py` |
+| MD-line guard `[existing]` | `def assess(projected_count: int, symbol: str, purpose: str`<br>`           ) -> tuple[str, str]:` — level ∈ `{"ok", "approaching", "exceeded"}` | `services/md_line_guard.py` |
+| `Position` SL/TP fields **`[existing]` → VOID from P5** | `stop_loss: Optional[float] = None` · `take_profit: Optional[float] = None` (on both `Position` and `TradeGroup`) — **VOID from P5 (`S47`): both fields DELETED** | `data/models.py` |
+| Position upsert `[existing]` | `def _upsert_position(self, position: Position) -> int:` — `INSERT INTO positions (… stop_loss, take_profit …) … ON CONFLICT(symbol, con_id) DO UPDATE SET … stop_loss=excluded.stop_loss, take_profit=excluded.take_profit … ` + `RETURNING id` — **VOID from P5 (`S47`/`S48`): the upsert is 13 columns, re-derived in wave 7** | `ui/main_window.py` |
+| Position bulk load **`[existing]` → VOID from P5** | `def _on_position_end(self):` — SELECTs the 15 columns incl. `stop_loss`, `take_profit`, stamps `id` — **VOID from P5 (`S47`/`S48`): 13 columns, `trade_group_id` read by name** | `ui/main_window.py` |
+| Order registry API `[existing]` | `class Orders:` with `def market_order(self, action: str, qty: float) -> Order:` · `def limit_order(self, action: str, qty: float, price: float) -> Order:` · `def stop_order(self, action: str, qty: float, price: float) -> Order:` · `def bracket_order(`<br>`        self,`<br>`        parent_id: int,`<br>`        action: str,`<br>`        qty: float,`<br>`        entry_price: float,`<br>`        stop_price: float,`<br>`        limit_price: float,`<br>`    ) -> tuple[Order, Order, Order]:` · `def register(self, order: UserOrder) -> None:` · `def get(self, order_id: int) -> Optional[UserOrder]:` · `def update_status(self, order_id: int, status: str) -> None:` · `def clear_filled(self, order_id: int) -> None:` · `def all(self) -> Dict[int, UserOrder]:` · singleton `orders = Orders()` — **API frozen; the only permitted edit is a module-docstring note; no signature and no behaviour change** — **VOID from P5 (`S39`, 2026-10-25): the module and this API are DELETED; nothing may implement or restore them** | `ibkr/orders.py` |
+| Inert inbound observers `[existing]` | `def _on_open_order(self, orderId: int, contract, order, orderState):` · `def _on_order_status(self, orderId: int, status: str, filled: float,`<br>`                           remaining: float, avgFillPrice: float,`<br>`                           permId: int, parentId: int, lastFillPrice: float,`<br>`                           clientId: int, whyHeld: str, mktCapPrice):` · `def _on_exec_details(self, reqId: int, contract, execution):` · `def _on_order_error(self, order_id: int, error_code: int, error_string: str):` · `def _update_order_status(self, orderId: int, status: str):` — **VOID from P5 (`S40`, 2026-10-25): all five members are DELETED; nothing may implement or restore them** | `ui/main_window.py` |
+| Portfolio render API `[existing]` | `account_summary_changed = pyqtSignal(dict)` · `positions_changed = pyqtSignal(list)` · `def set_account_summary(self, summary: dict[str, str]) -> None:` · `def set_account_id(self, account_id: str \| None) -> None:` · `def set_account_unavailable(self, unavailable: bool) -> None:` · `def set_positions(self, positions: list[Position]) -> None:` · `def add_position(self, position: Position) -> None:` · `def refresh(self) -> None:` | `ui/active_portfolio_panel.py` |
+| Portfolio collapse header `[existing]` | `def is_collapsed(self) -> bool:` · `def set_collapsed(self, collapsed: bool) -> None:` · `def toggle_collapsed(self) -> None:` · `self.summary_label` (the right dock's title-bar toggle, D21.13) | `ui/active_portfolio_panel.py` |
+| Right-dock minimum `[existing]` | `RIGHT_DOCK_MIN_WIDTH = dock_layout.RIGHT_DOCK_MIN_WIDTH` (= 200, `ui/dock_layout.py`) — the **value** is frozen; only the module docstring's "10-column" wording is corrected | `ui/active_portfolio_panel.py`, `ui/dock_layout.py` |
+| Broker boundary `[existing]` | `class IBApiClient(EWrapper, EClient):` — `EClient.__init__(self, self)`, remembered connect params for the D27.3 reconnect (`_do_reconnect` re-issues the real `EClient.connect`), `def connected(self)`, the bridge instance. **No `placeOrder`/`cancelOrder`/`reqGlobalCancel` definition exists here** (all inherited from `EClient`) — this batch must not add one | `ibkr/client.py` |
+| Fail-fast port check `[existing]` | `def check_live_port() -> None:` | `config/settings.py` |
+| Error classification `[existing]` | `def classify_error(error_code: int) -> str:` — returns `'info' \| 'warning' \| 'fatal'`; drives the connection-alert path (`_on_order_error` is deleted — D46/P5 `S40`) | `ibkr/error_codes.py` |
+
+### Non-Functional Approach (D45)
+
+- **Reachability / zero-transmit (from `D45.2`, `AC-D45.4`, `AC-D45.6`, R70).** The guarantee is delivered by
+  **structure** (three call sites severed, five modules deleted) and **verified twice**: a static AST/string
+  scan over `ui/ services/ data/ ibkr/ config/` (no `placeOrder`, `cancelOrder`, `reqGlobalCancel`,
+  `validate_order`, the deleted module names, or any of the removed member tokens) plus a `ui/`-only grep for
+  the prose net, and a behavioural walkthrough over a real offscreen `MainWindow` with a mocked client
+  exercising every surviving affordance, asserting
+  `placeOrder.call_count == cancelOrder.call_count == reqGlobalCancel.call_count == 0`. Requirement
+  `D45.5`/`AC-D45.5` (Portfolio still renders and live-updates, view-only, reflecting a TWS-side close on the
+  next position update) is asserted on the same walkthrough so "removed" cannot quietly mean "stopped
+  rendering".
+- **Dividend preservation (from `AC-D45.2`, `D45.3`, R68 — the batch's highest-risk deletion).** Both halves
+  share one `s0_register` mechanism and one file (`ui/ticker_session.py`). Mitigation is procedural **and**
+  structural: the S0 union is built from `_s0_needs`, so removing the `"news"` need leaves `"dividends"`
+  registering `"456"` unchanged; the surviving event-marker/dividend cases in `tests/test_d38_events_news.py`
+  are the regression guard; and the residue list explicitly **forbids** deleting `"456"`, tick 59,
+  `_dividend_info`, `dividend_updated`, `_merge_events` (they are the survivor allow-list, not residue).
+- **Data safety / no migration (from A87, `D45.6`, `AC-D45.10`).** **SUPERSEDED BY D46 / A99 — there IS a destructive
+  migration (§ P5 `S47`); a pre-P5 file keeps every row but loses the two values.** The D45 record: the DB and the ORM fields are untouched, so
+  the migration surface is zero: a pre-D45 database opens unchanged, legacy `stop_loss`/`take_profit` values
+  survive, and the upsert keeps writing them. The only data-adjacent change is **presentational** (two columns
+  not rendered). Verification includes opening a pre-D45 file and confirming the values are still there.
+  The verification of the P5 end state is the legacy-fixture test.
+- **Worker safety on delete-only work (from memory 2026-10-15, R69).** D41 lost three workers to large
+  delete-only tasks. D45 is **split by member group and by file, one wave per `ui/main_window.py` touch**, and
+  every wave task ends with an import/syntax check plus its own group's residue grep — so a worker death is
+  detected at the file, not at the suite.
+- **Importability between waves (from S37).** The window half of Group B lands **before** the panel half,
+  because removing the panel's signals first would make `MainWindow.__init__` connect attributes that no
+  longer exist — every window test would fail for a reason unrelated to the work in flight. Each wave leaves
+  the app importable and its own tests green; the wave-membership rule (an assertion's subject dies in the
+  same wave as its removal) keeps that true for the shared test files.
+- **Doc freshness (from `D45.5`, `AC-D45.7`, R71).** Two owner-facing docs plus the Plan-owned map; the
+  assertion is **grep-checkable** (`News Digest`, `Ctrl+Shift+N`, `Close All Positions`, `Close Group`,
+  `Close Position`, `Kill switch`, `Stop-Loss` absent except where the text says the app does not place/cancel
+  and that closes/cancels happen in **TWS**), so the Code Reviewer verifies it independently rather than
+  trusting the task.
+- **Performance / scalability.** No measurable change and none required: the positions table renders two
+  fewer cells per row, three scheduled paths disappear (the digest's article fetches, the kill switch's
+  per-ID cancel loop, the close path's pacing-deferred retry), and no new request is issued on any path. The
+  S0 line for a charted symbol becomes *shorter* (`"456"` only), not longer.
+- **Security / blast radius (the point of the batch).** The app's authority over the account **shrinks to
+  zero**: it cannot place, cancel or close, so the notional cap, the order pacing bucket and the
+  disconnected-order guard stop gating anything (`AC-D26.7`/`D26.9` moot). Accepted and recorded (owner,
+  R73): **TWS is the cancel surface**, and the app cannot create the order it would need to cancel. No new
+  credential, no new endpoint, no new persistence.
+- **Platform side effect (A86).** Removing `menuBar()` means the app creates **no `QMenuBar`** at all — on
+  macOS it contributes **no** application-menu items, and no orphan `Ctrl+Shift+N` `QAction` can survive
+  because the action object lived on the deleted dock's `toggleViewAction()`.
+
+### Architecture Risks (D45)
+
+| # | Risk | Severity | Mitigation |
+|---|---|---|---|
+| **AR-D45-1** | Removing the news `"292"` line takes the **dividend `"456"`** path (and the markers) with it — one `s0_register` mechanism, one file (R68) | **H** | `AC-D45.2` pins both sides; the surviving event-marker/dividend cases are the guard; the residue list marks `"456"`/tick 59/`_dividend_info`/`dividend_updated` as **survivors**; Build greps `"292"` after each file in the group |
+| **AR-D45-2** | A half-finished deletion leaves the app non-importable (dangling import, a signal connected to a deleted handler, a call into the deleted validation module) — the D41 worker-death pattern (R69) | **H** | One wave per `ui/main_window.py` touch; per-file syntax/import check + residue grep; the per-wave test command covers every suite that builds a window |
+| **AR-D45-3** | The **suite stays green while proving less** — five order-safety suites deleted (R70) | **H** | `S36`'s static invariant + zero-transmit walkthrough replace the *intent*; the loss is stated in D45 consequence 5 and the plan's test book, never presented as "no change"; the new guard is proven **RED** on the pre-D45 tree |
+| **AR-D45-4** | Column shift (`10 → 8`) makes a Strategy/Group assertion read the wrong cell and pass (R75, DG77) | **M** | `AC-D45.10` fixes the shape; the two named files are adjusted `8/9 → 6/7` in the **same wave** as the panel edit; a `tests/`-wide scan confirmed no third column-index assertion exists |
+| **AR-D45-5** | A **half-removed** cancel/protection/context-menu path survives (an `order_registry` read in `_on_order_error`, a leftover `_ref_price_for`, an orphan `set_sltp` string, a panel member whose menu is gone) and a later worker "restores" it (R74) | **M** | The residue list is extended beyond D45's own list and **verified live**, and it names the **nine panel members wave 3 deletes** (`_show_context_menu`, `_on_close_position`, `_on_close_group`, `_on_ungroup`, `_on_flatten_all`, `_selected_row`, `_selected_position`, `_on_selection_changed`, `set_sltp_action`) alongside `_ref_price_for`, `_s0_headless`, `_on_s0_tick_news`, `NewsDigest`, `menuBar`. Its **scope is stated** so the claim is checkable: AST over `ui/ services/ data/ ibkr/ config/` (comments invisible ⇒ `config/settings.py`'s `validate_order()` comment is out of scope) plus a `ui/`-only grep; `tests/` is covered by neither, which is why `AC-D45.3`'s `hasattr(...) is False` measurables are asserted **directly** in `tests/test_d45_removal.py`. `S29`/`S35` record the **intentional** survivors so inertness is not mistaken for a leftover |
+| **AR-D45-6** | A wave-2/3 ordering mistake makes the panel's removed signals still connected (or the reverse), producing `AttributeError` at window construction | **M** | `S37`: window-first ordering is mandatory and stated; the panel's signals are removed only after the window stops connecting them |
+| **AR-D45-7** | Docs drift — the three files keep advertising the digest, the `View` menu, app-placed closes, an in-app cancel or settable SL/TP (R71) | **M** | `AC-D45.7` is grep-checkable; one doc task owns both owner-facing docs (the map is Plan-owned); the Code Reviewer greps independently |
+| **AR-D45-8** | An **unlisted** test/assertion depends on a removed surface and turns red or silently stops testing (R72) | **M** | The plan's test book enumerates **assertions**, not files; the full offscreen suite runs in the final wave; the two "kept by decision" files are justified individually (`test_d41_removal`, `test_stop_loss_target`); sequencing rule 4 puts each assertion's removal in the wave that deletes its subject |
+| **AR-D45-9** | **No in-app panic cancel** afterwards — a runaway TWS order cannot be stopped from the app (R73) | **H** *(accepted)* | Owner-accepted and recorded; **TWS is the cancel surface**; `AC-D45.6` forbids re-adding a cancel path without a new requirement; docs say so plainly |
+| **AR-D45-10** | `ibkr/orders.py` retained-but-unused invites a future reconnection and contradicts "the app places no orders" (DG76) | **L** | `S29`: retained with a docstring note stating unreachability; `ibkr/orders.py`'s builders keep unit coverage (`tests/test_order_builders.py`); `AC-D45.4`'s scan makes a new caller fail a test, not just a review. **SUPERSEDED by P5 (2026-10-25): the module is deleted, so the risk and its note are both moot — `ESC-061` is closed as moot, not implemented.** |
+
+### Requirements → architecture traceability (D45)
+
+| Requirement / journey | Architecture section | Phase (plan) |
+|---|---|---|
+| **`AC-D45.1`** (no digest dock; no menubar; no `Ctrl+Shift+N`) | `S34`; System Components (`ui/main_window.py`, `ui/ticker_session.py`, deleted `ui/news_digest_dock`); AR-D45-1/2 | Phase 1 · **Wave 1** |
+| **`AC-D45.2`** (news `"292"` never requested; `"456"` retained, tick 59 + markers still work) | `S34` + Frozen *Dividend signal / tick-59 ingress / dividend reader / S0 registration / event merge / parser / marker overlay*; Integration Points; AR-D45-1 | Phase 1 · **Wave 1** |
+| **`AC-D45.3`** (no context menu; no close/close-group/flatten affordance) | `S30` + `S32`; System Components (`ui/active_portfolio_panel.py`, deleted `ui/trade_context_menu`); AR-D45-2/5/6 — the `hasattr(...) is False` measurables are asserted **directly** in the wave-6 module (the token list is a net, not a substitute) | Phase 1 · **Waves 2–3**; Phase 2 · **Wave 6** |
+| **`AC-D45.4`** (zero order interaction; `placeOrder`/`cancelOrder`/`reqGlobalCancel` unreachable) | `S30` + `S31` + `S36`; Frozen *Order registry API* / *Broker boundary*; Non-Functional (reachability); AR-D45-3/5 | Phase 1 · **Waves 2, 4** + Phase 2 · **Wave 6** |
+| **`AC-D45.5`** (Portfolio view-only; data path retained; TWS-side close reflected) | `S33`; Frozen *Portfolio render API*; Data Model (`_on_position_end`); AR-D45-4 | Phase 1 · **Wave 3**; Phase 2 · **Wave 6** |
+| **`AC-D45.6`** (INVERTED — kill switch and SL/TP dialog are GONE; no cancel path) | `S31` + `S32`; System Components; AR-D45-5/9 | Phase 1 · **Waves 3 (dialog), 4 (kill switch)** |
+| **`AC-D45.7`** (docs cleaned in the same batch) | `S38`; System Components (docs rows); Non-Functional (doc freshness); AR-D45-7 | Phase 2 · **Wave 5** |
+| **`AC-D45.8`** (no dangling references; suite green; recorded test book) | `S36` + `S37` (**including the wave-membership rule: an assertion's subject and its removal live in the same wave**); the plan's test book (5 deleted / **7** adjusted / 1 added); AR-D45-2/3/8 | Phase 1 · **Waves 1–4** + Phase 2 · **Wave 6** |
+| **`AC-D45.9`** (history preserved; marker + tech stack intact) | `S29`–`S38` relationship table; *Supersessions* below | — (recorded; no production edit) |
+| **`AC-D45.10`** (Stop/Target columns gone; storage + no-migration guarantee) | `S33`; Data Model (view model + `positions`/`trade_groups` unchanged); AR-D45-4. **SUPERSEDED BY D46 / A99:** the storage half ("no migration") is replaced — the columns and fields are **dropped** (`S47`) | Phase 1 · **Wave 3**; Phase 2 · **Wave 6** |
+| **`D45.1`–`D45.6`** (the six requirements) | `S29`–`S33`, `S36`, `S38` | Phases 1–2 |
+| **Journey 38** (steps 1–9; postconditions; the edge cases: stale dock state, orphan shortcut, TWS–cancel, legacy stop/target rows, pre-D45 DB, disconnected) | `S31`, `S33`, `S34`, `S35`, `S38`; Non-Functional (data safety, platform side effect); Data Model | Phase 1 · **Waves 1–4** + Phase 2 · **Waves 5–6** |
+| **A79 / A86 / A87 / A88 / A89 / A90** (owner-decided defaults) | `S34` / `S34` / `S33` / `S31` / `S32` / `S35`; Frozen interfaces | Phases 1–2 |
+| **A80 + DG76** (`ibkr/orders.py`: delete or retain) | `S29` — **retained**, with the docstring note; DG76 resolved. **SUPERSEDED BY D46 / A99 (`S39`): the module is DELETED** | Phase 1 · **Waves 2–4** (no task touches the module's API) |
+| **A81 / A85** (test-book and doc scope) | `S36`, `S38`; the plan's test book | Phases 1–2 |
+| **R68 / R69 / R70 / R71 / R72 / R73 / R74 / R75** | AR-D45-1 / 2 / 3 / 7 / 8 / 9 / 5 / 4 | Phases 1–2 |
+| **DG75** (the "fourth deleted file" count) | Resolved by supersession — the book is now **five named** whole-file deletions (`AC-D45.8`); no deletion rests on a count | Phase 1 · **Waves 2–4** |
+| **DG77** (assertions invalidated in files that stay) | `S37` + AR-D45-4/5; the plan's test book names every adjusted assertion | Phase 1 · **Waves 1–4** |
+| **D1–D44** | `[no relationship]` — **not reopened**; only the clauses D45 names are superseded/revised | — |
+
+### Supersessions and non-changes (recorded, never silent) (D45)
+
+1. **`AC-D38.2` / `AC-D38.3` — SUPERSEDED BY D45.** The digest's grouping and its no-entitlement state have no
+   surface left (`S34`); `AC-D38.6`'s green-suite rule stands for the surviving half (markers + dividend merge:
+   `AC-D38.1`, `.4`, `.5`).
+2. **`AC-D41.1`'s Portfolio clause — REVISED.** "Portfolio section (Close / Close Group / Flatten All + the
+   SL/TP dialog) still renders" → "renders **view-only** (no close/flatten control, no SL/TP dialog, no
+   Stop/Target columns)" (`S30`, `S32`, `S33`).
+3. **`AC-D41.4` (retained-order-path / `ref_price`) — REVISED and MOOT in part.** No order-related surface is
+   retained: the SL/TP dialog goes too, nothing builds or transmits an order (`S30`), and `ref_price` has no
+   consumer — `_ref_price_for` is deleted while its `_symbol_last_prices` source stays for the P/L path.
+   D41's "Scope — KEEP: order machinery" bullet is **superseded**: `ibkr/validation` deleted; `ibkr/orders`
+   retained **without a caller** (`S29`, A80/A90); only the fail-fast port check and the inert inbound
+   observers remain. **[REVERSED BY D46/P5 `S39`/`S40`: `ibkr/orders` is deleted, not retained; the inbound observers and the three bridge signals are deleted too; only the fail-fast port check and `IBApiClient.error`'s generic per-code surfacing remain.]**
+4. **D26 order-entry clauses — MOOT / SUPERSEDED.** `AC-D26.3` (SL/TP labelling branch) is **moot** (`S32`);
+   `AC-D26.8` (kill switch: `reqGlobalCancel` + per-ID cancels + pre/post counts) is **superseded in full**
+   (`S31`); `AC-D26.7` (validate-order gate) and `AC-D26.9`'s order-entry/registry clauses have **no control to
+   exercise**; `AC-D26.4`/`AC-D26.6` were already control-less after D41. **Retained:** the fail-fast port
+   check + connection badge (`AC-D26.5`) and the connection half of the error alerts (`S35`).
+5. **`D21.13` — reviewed, NOT superseded.** It governs the right dock's title-bar toggle and the Portfolio
+   panel, which **stays** (view-only). No `AC-D21.13.*` clause names a close/flatten, kill-switch or SL/TP
+   control; the frozen *Portfolio collapse header* contract is unchanged.
+6. **`AC-D18.6` / D18 width model — NOT superseded, re-derived.** The table drops 10 → 8 columns, which only
+   **reduces** its width demand; `RIGHT_DOCK_MIN_WIDTH` keeps its value; the D18 cap/visibility criteria stand.
+7. **Glossary.** "Live-order path" **revised** (no live-order path exists); **new** rows "Kill switch" and
+   "SL/TP dialog" record both as **removed**. Recorded by Requirements; no production consequence.
+8. **The cancelled-draft numbers (`S29`–`S32`, `FI-D45-1`, `AP-D45-*` of the previous, never-activated D45
+   draft) carry no authority**; `FI-D45-1` in particular is **moot** — the SL/TP dialog it described as
+   "retained with no entry point" is now **deleted** (A89/`S32`). The refreshed `docs/codebase-map.md` no
+   longer names `_kill_switch` or `StopLossTargetDialog` as retained (it did in the previous draft's
+   annotations — DG77 item 1).
+9. **Explicit non-changes (recorded so they are not read as omissions):** the chart render stack, `ui/dock_layout.py`
+   constants (values), `ui/watchlist_panel.py`, the chart load/backfill path, alarms, drawings, studies,
+   pop-outs, D39/D40/D42/D43/D44 behaviour, `data/db.py`'s schema and migrations, `data/models.py`'s fields,
+   the `_upsert_position` upsert, `ibkr/orders.py`'s API, `ibkr/pacing.py`, `config/settings.py` (the now-dead
+   `MAX_ORDER_NOTIONAL` constant is **not** deleted — outside the owner's inventory; noted in the plan), and
+   the pinned dependency set (**no new dependency**). **[SUPERSEDED BY D46/P5 at the owner's instruction: `data/models.py`'s fields and the `_upsert_position` upsert lose the two SL/TP columns via migration; `ibkr/orders.py`'s API and the module itself are deleted; `ibkr/pacing.py` loses `OrderRateLimiter`/`order_limiter`; `MAX_ORDER_NOTIONAL` **is** deleted. The chart, alarms, drawings, studies, pop-outs, D39/D40/D42/D43/D44 behaviour and the dependency set remain genuine non-changes.]**
+10. **The D45 register's suggested "three-signal loop" is recorded as a DEVIATION, not as pending work.** The
+    register's correction record (`requirements.md:4178`–`:4179`) and `DG77` item 4 describe the
+    `tests/test_dock_d18_region.py` edit as the five-signal loop "shrinking to three". D45 removes **all
+    five** signals, so no signal survives and a three-signal loop cannot exist in any wave. The loop is
+    **deleted** (wave 2) and the file's remaining assertions stay; `AC-D45.8` requires the file to be
+    *adjusted* and is satisfied. Recorded here, in the plan's § Exactness note, and in `docs/plan_notes.md`
+    `RG-D45-1` so no later worker "restores" the three close signals.
+
+**Handoff:** this increment is validated `Status: APPROVED` (2026-10-25, legacy single-scope D45 cycle 2 of
+3 — round 1 was `CHANGES_REQUIRED` on R1–R4, all closed and re-verified); the companion plan is
+`docs/plan.md` § *D45 — Batch 20* (`Status: READY_FOR_TASK_MANAGER`) and the review is
+`docs/plan_review.md` (D45 cycle 2). The Code Reviewer independently re-verifies (a) **zero** `placeOrder`,
+`cancelOrder`, `reqGlobalCancel` call sites in `ui/` **and** zero issued on the mocked-client walkthrough,
+(b) the dividend markers still rendering (`"456"` registered, tick 59 → `dividend_updated`,
+`event_count() > 0`), (c) the positions table at 8 columns with no `Stop`/`Target` header and
+Strategy/Group at `6`/`7`, (d) a pre-D45 database opening with its stored stop/target values intact and the
+upsert still writing them (no migration) — **SUPERSEDED BY D46 / A99: the columns are DROPPED at first open; a pre-P5 DB
+keeps every row and loses only those two values (legacy-fixture test)**, (e) the two owner-facing docs advertising nothing removed, (f) the
+new guard's recorded RED-on-`c702be9` failures, and (g) that the intentional survivors (A90's observers, the
+ibapi news boundary, the dividend path) were not deleted. **`ESC-055` stays TASK_MANAGER-owned.**
+
+---
+
+## Phase P5 — D46 increment (Batch 21): **every** order-related coding path is deleted — the module, the observation chain, the zero-consumer order utilities, `IdManager.reserve`, and the stop/target storage (a real, guarded migration) — **revision 2 (scope EXPANDED by the owner 2026-10-25, Q56–Q59)**
+
+> **Revision 2 (2026-10-25) — why this section was re-drafted.** The requirements were **re-registered** after
+> revision 1 was validated and activated: `D46` is no longer "delete the module and its chain" but *all
+> order-related code* — `ibkr/orders`, the observation chain, `data.models.UserOrder`, `ibkr/account.py`'s
+> `Position` copy, `IdManager.reserve`, `OrderRateLimiter`/`order_limiter`, `MAX_ORDER_NOTIONAL`, the order-fill
+> sound, and **the four `stop_loss`/`take_profit` columns dropped by a real migration** (owner-confirmed
+> 2026-10-25). The register is now `D46.1`–`D46.13` / `AC-D46.1`–`AC-D46.13` / A91–A104 / R76–R85 / DG78–DG87.
+> This section is therefore **not** a revision against a `CHANGES_REQUIRED` list (there is none — revision 1 was
+> `APPROVED`); it re-drafts the same phase against a wider register. Every decision revision 1 settled and the
+> register did not overturn is **carried forward and marked as such**; what changed is `S46` (the KEEP boundary),
+> `S44` (the token set and two of its *rationales*), the wave split (5 → 10), and four new decisions (`S47`–`S50`).
+>
+> **Every number, every line reference and every feasibility claim below was re-derived by running it against the
+> working tree and `.venv` on 2026-10-25** — including the migration itself (a `sqlite3` probe), the removal
+> instrument on the pre-P5 tree (**41** AST offences / **40** twin hits) and on a **simulated post-P5 copy of the
+> five source trees** (**0 / 0**). Where something could not be verified it is a design gap or a Flagged Issue,
+> never an assertion.
+>
+> **Status of this section.** The canonical **P5** architecture, drafted **in place** (Stage 3.4 — no separate
+> proposal file). The companion `docs/plan.md` § *Phase P5* was **demoted to a draft** by the scope-expansion run and
+> re-drafted as revision 2; it was then **validated in full and re-activated** by Plan Artifact Editor & Validator
+> (`docs/plan_review_P5.md`, `Status: APPROVED`, 2026-10-25) and ends `READY_FOR_TASK_MANAGER`. **This section is
+> ACTIVE** (activation corrections are recorded in that review).
+>
+> **Requirements of record:** `docs/requirements/requirements.md` — `Status: READY_FOR_PLAN` (`:5404` and the batch
+> footer at `:5553`). **No blocking question remains** (Q56–Q59 answered verbatim by the owner). Sections consumed:
+> **`### D46`** (`D46.1`–`D46.13`, `AC-D46.1`–`AC-D46.13`, the DELETE/RETAIN inventory, the supersession record,
+> A91–A104, the correction record), **Journey 39** (steps 1–10 on the expansion), **R76–R85**,
+> `docs/requirements/design_gaps.md` **DG78–DG87**, `docs/requirements/open_questions.md` **Q56–Q59**.
+>
+> **Baseline:** `main` @ **`c702be9`** **plus the delivered, uncommitted D45 working tree** (D45 built, suite green,
+> five modules and five suites already deleted). Suite invocation
+> `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the `pytest` entry point has a stale shebang).
+> **No new dependency:** PyQt6 / pyqtgraph (locked, `docs/memory.md` 2026-10-16) / `ibapi` 10.51.1 / numpy / SQLite.
+>
+> **Escalation state at drafting time** (`docs/code_review/escalations.json`, read-only here): **`ESC-063`** (open,
+> routed **PLAN**) is **already resolved in the file of record** — `docs/codebase-map.md:25`–`:29` now reads
+> **5 deleted / 7 adjusted / 1 added** with the `ESC-063` note; this run keeps the map current for the wider scope
+> and does not re-open the arithmetic. **`ESC-061`** (open, **BUILD**) is **MOOT** — it asks for a module-docstring
+> note on the retained `ibkr/orders`, and the module is deleted; **no task implements it** and the Code Reviewer
+> closes it as moot. **`ESC-062`** (open, **BUILD**) is **folded into this phase** (`S49`) for its four comment sites
+> and its one test rename — three of the four comments sit in files this phase already edits, so no separate wave is
+> created. **`ESC-059`/`ESC-060`** stay BUILD-owned and are not absorbed: ESC-060's *behavioural* half becomes moot
+> when the columns go, and its *documentation* half is superseded by `S50`/`D46.13`.
+> `docs/pending_doc_sync.md` is **absent**. `docs/tasks/task_manager_notes.md` carries **no**
+> `ESCALATED_TO_PLAN` entry.
+>
+> **Owner decisions this phase does not re-litigate** (recorded, none blocking): **A91** (module deleted in full,
+> reversing A80), **A92** (chain removed, not kept inert — owner-confirmed), **A93** (201/103/202 surface through the
+> existing generic line; no order id, no verdict, no 12 s — owner-confirmed), **A94** (error routing not reordered),
+> **A96** (`data.models.UserOrder` goes — owner-confirmed), **A99** (**the four columns and all model fields are
+> DROPPED by migration**, reversing A87 — owner-confirmed by Q59 *"remove everything"*), **A100**
+> (`classify_error` + the generic error surface stay), **A101** (`IdManager` stays, only `reserve` goes — reversing
+> A97's first half), **A102** (`nextValidId` retained: it is the CONNECTED transition), **A103** (the inventory is
+> the acceptance instrument), **A104** (the two suites are deleted whole). **No replacement order, cancel or
+> protection UI** — declined four times now, **not re-proposed anywhere**.
+
+**The one workstream — subtractive, ten member groups, one invariant, one migration.** Since D45 the app has **zero
+order interaction**; D46 removes the **fossil that still looks live** and the storage that outlived its only setter.
+Every code member it deletes is already inert: `Orders.register()` is never called in production, so the registry is
+permanently empty, every `get()` returns `None`, `_update_order_status` is a no-op and `_on_order_error` is
+unreachable; `OrderRateLimiter`/`order_limiter`, `MAX_ORDER_NOTIONAL` and `SoundService.play_fill` have **zero**
+production readers (re-verified 2026-10-25); `IdManager.reserve` has **tests only**; and the four stop/target columns
+are unreachable and unsettable (ESC-060) — a row that never updates again keeps its legacy bytes, which is why
+the migration is described as byte-destroying rather than cost-free. The work splits by **member group**, never by "all the order stuff" (the D41
+lesson, memory 2026-10-15 / R76), now with a **schema** step in the same batch.
+
+The invariant that binds them is **proven inertness, preserved visibility, preserved rows**:
+
+1. **no order code** — no module, callback, signal, registry, dataclass, builder, limiter, notional cap, order tone
+   or `reserve()` in the tree (`D46.1`–`D46.11`);
+2. **201 / 103 / 202 still reach the status bar** as `Error [<code>]: <TWS's own message>` for **8000 ms**, exactly
+   as the owner sees them today (`D46.3` / `AC-D46.3` — the owner's explicit constraint);
+3. **every `positions` and `trade_groups` row survives** the destructive schema step, together with
+   `idx_positions_symbol_con_id` and the `trade_group_id` foreign key (`D46.12` / `AC-D46.12`, R82).
+
+### Relationship to prior phases (P5)
+
+Every decision carries exactly one relationship label. `[revises P4: …]` names the earlier decision it changes,
+`[extends P4: …]` builds on one without changing it, `[new in P5]` has no prior-phase dependency (or is settled by
+the requirements rather than by an earlier architecture decision). An unlabelled row would be read as new. **`P4` is
+the D45 phase** — its section is `## D45 increment` above; `docs/plan.md` § *D45* is its plan half.
+
+| # | Decision | Relationship |
+|---|---|---|
+| **S39** | **`ibkr/orders.py` is DELETED in full** — `UserOrder`, the four `Orders` builders, the five registry methods and the `orders` singleton — with its **only** importer (`ui/main_window.py`'s `from ibkr.orders import orders as order_registry`). No replacement module, no dormant helper, no "un-comment later" seam: a future order path needs a **new requirement**. Safe because the module has **zero** production callers (`register()` is never called, so every `get()` returns `None`). **Unchanged from revision 1.** | **`[revises P4: S29]`** — D45's "retained, unreferenced, with a module-docstring note" is superseded in full (A91). Voids D45's *Order registry API* frozen row and plan `AP-D45-1`/`AP-D45-9`; makes **`ESC-061` moot** and **`DG76` resolved**. |
+| **S40** | **The inbound observation chain is REMOVED end-to-end, not kept inert** — (a) `ibkr/client.py`'s `orderStatus`/`openOrder`/`execDetails` overrides; (b) `ibkr/bridge.py`'s `order_status`/`open_order`/`exec_details` signals; (c) `ui/main_window.py`'s three `.connect` lines, `_on_open_order`/`_on_order_status`/`_on_exec_details`, `_update_order_status`, `_on_order_error`, the `order_registry` import and the `order_registry.get(reqId)` branch in `_on_error`. The `ibapi` base `EWrapper` no-ops stay **inherited**. **Unchanged from revision 1.** | **`[revises P4: S35]`** — D45's "keep the broker-boundary plumbing inert" is reversed for the **order** half only (the news half stands). Reverses **A90**; recorded by Requirements as A92. |
+| **S41** | **Error surfacing narrows to what the existing generic path already shows, and its routing is untouched.** `_on_error` keeps its ordering — `_closing` guard → session-reqId branch (RT → `_on_rt_stream_error`'s 15 s line; any other session reqId → `session.on_historical_error` **and** the 8000 ms line) → the final `showMessage(f"Error [{errorCode}]: {errorString}", 8000)` — and loses only the registry branch and its D26.9 comment. `_on_order_error`'s mappings (201/103 → `"Rejected"`, 202 → `"Cancelled"`, 12000 ms) are **not** re-homed: they never ran. **Unchanged from revision 1.** | **`[extends P4: S35]`** — the connection/error half of S35 is reused unchanged; A93 records the wording end state and **A94/DG78** the deliberately unfixed orderId↔session-reqId collision. |
+| **S42** | **`data/models.py::UserOrder` is deleted together with `tests/test_ui_smoke.py`'s `hasattr` assertion** (a *different* dataclass from the module's, zero consumers, one reference). **Unchanged from revision 1.** | **`[new in P5]`** — A96 / `AC-D46.8` / DG79. |
+| **S43** | **Teardown is ordered by the callback graph, and the order is now ten waves.** Five rules: **consumer before subject**; **an emitter never outlives its signal**; **the window's connect/slot half goes first**; **the silent-path members go before the module**; and **the guard's token list may only name code that is already gone** (**invariant I-1**, new in revision 2). The storage wave is the one wave whose *production* half must not be split (R84/DG85). | **`[extends P4: S37]`** — D45's "assertion and subject in the same wave" applied to a larger surface; revision 1's four rules are kept in substance and rule 5 is added for the widened token set. |
+| **S44** | **The acceptance instrument is the *existing* removal guard, migrated — no new test module.** `tests/test_d45_removal.py` already owns (i) an AST scan of identifiers **and** string constants over `ui/ services/ data/ ibkr/ config/`, (ii) a `ui/`-only raw-text twin, (iii) `find_spec`/absence checks and (iv) a real offscreen `MainWindow` walkthrough. **Revision 2's token set (all counted):** `_FORBIDDEN` **53 → 80**; `_SURVIVORS` **26 → 16** (the ten names `AC-D46.4` lists leave it: `order_registry`, `orders`, `UserOrder`, `_on_open_order`, `_on_order_status`, `_on_exec_details`, `_on_order_error`, `_update_order_status`, `order_limiter`, `MAX_ORDER_NOTIONAL` — `classify_error`, `pacing_manager`, `PacingExceeded` and the dividend/news names stay); `_DELETED_MODULES` + `ibkr.orders`; `_DELETED_SUITES` + the builders and stop-target suites. **Only `orders` and `Orders` are exact-matched** (whole identifier / whole string constant in the AST half; delimited word in the raw-text twin); the other **78** are substring tokens. **`reserve` is deliberately NOT a token** — measured **13 units across 11 files**: `ibkr/id_manager.py`'s own two, ten docstring occurrences of the English word "preserve(s/d)", and `ui/chart_panel.py`'s `_reserve_price_tag_lane`; `IdManager.reserve` is measured by `hasattr(IdManager, "reserve") is False` instead (`AC-D46.10`'s own measurable). `stop_loss`/`take_profit` **must** be substring tokens because the SQL site that reintroduces them is one whole string constant (`"…, right, stop_loss, take_profit, trade_group_id"`), which whole-unit matching cannot see (DG85). | **`[extends P4: S36]`** — one instrument, one token list, so the grep step and the test cannot drift. **Revision 2 corrects revision 1's two *rationales*, not its mechanism:** the exact-match set was justified by two docstrings in files "no task may edit" (`ibkr/pacing.py`'s `OrderRateLimiter`, `ibkr/id_manager.py`'s `reserve`) and **both are deleted by this phase** — that ground is void. The set is retained on a different, stated ground (prose safety: ordinary English words, and exact matching still catches every class/alias/call/attribute reintroduction), and `pacing.py`/`id_manager.py` are now **edited**, not exempt. |
+| **S45** | **The Plan-owned prose is corrected in this phase.** `docs/codebase-map.md`: the `ibkr/orders` retention claim, the "retained observers — do not clean up" block and the "(docstring note only)" row are replaced by the post-P5 target; the KEEP/survivor list loses `reserve`, `order_limiter`, `MAX_ORDER_NOTIONAL` and the stop/target storage; the D45 book stays **5 / 7 / 1** (`ESC-063`); the P5 book is rewritten. This section supersedes `S29`/`AR-D45-10` and voids D45's frozen rows for the module and the observers. **Extended in revision 2** to the document trail (`S50`). | **`[revises P4: S29 + AR-D45-10 + the map's D45 annotations]`** — DG81's hazard exactly: a Build worker reading the map would preserve what must go, and no token scan catches prose. |
+| **S46** | **The KEEP boundary is re-drawn for the wider register — revision 2's biggest change.** **Frozen:** `classify_error`'s severity table, `Bridge.error_msg`, `IBApiClient.error`'s `severity != 'info'` gate **and** the D40.1 `502` backoff suppression, `_on_error`'s session-first routing and its 8000 ms line, `config/settings.py::check_live_port`, the connection badge, the no-test-transmits rule, **`IdManager` itself with `get_id`/`set_next_valid_id`/`id_manager`** (six `get_id()` callers, incl. **`ui/main_window.py:1095`** — a caller the register does not list), **`IBApiClient.nextValidId`**, **`PacingManager`/`PacingExceeded`/`pacing_manager`**, **ICT `order_blocks`/`orderBlocks`/`_render_order_blocks`**, **`sort_order`**, **`Position`/`positions`/the Portfolio view and the strategy grouping** (`services.strategy_detection` over `Position.id`/`qty`/`strike`/`right`), with the note that **`TradeGroup`, `trade_groups` and `position_group_map` are dead storage** — no reader and no writer anywhere (the audit's R10 correction) — **retained only to avoid widening the batch**, never as a "display grouping" the panel consumes, **`Position`/`positions`/the Portfolio view**, **`play_alarm`/`render_alarm_chime`/`ensure_sound_files`'s `"alarm"` key**, **`advancedOrderRejectJson`**, and the D38 dividend path. **Removed from revision 1's KEEP set** (they are now tasks): `IdManager.reserve`, `OrderRateLimiter`/`order_limiter`, `MAX_ORDER_NOTIONAL`, the order-fill sound, and the `stop_loss`/`take_profit` storage plus the four model fields. | **`[revises P4: S29's KEEP roster and revision 1's S46]`** — the counter-weight to a *wider* delete-only batch: D45 already lost a dividend path once (R68) and the owner's worries here are lost error visibility (R77) and lost rows (R82). Every survivor is frozen **with its consumer named** (`A100`–`A103`, R83). |
+| **S47** | **The stop/target storage is dropped by four guarded in-place `ALTER TABLE … DROP COLUMN` statements — not by a table rebuild.** `data/db.py::_migrate_schema()` gains one block, placed **immediately after** the `CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_symbol_con_id` statement and therefore before any read of either table: for each of `positions` and `trade_groups`, read `_table_columns(table)` **once** and drop `stop_loss` and `take_profit` when present. The `CREATE TABLE IF NOT EXISTS` DDL loses the same four lines, so a **fresh** DB never has the columns and all four statements are skipped. **End state is `D46.12`'s, verbatim**; only the mechanism is decided here (DG86 asked for exactly that). **Why DROP COLUMN, measured rather than assumed (probe in `.venv` 2026-10-25):** rows preserved (3 and 1); `sqlite_sequence` preserved (`positions` 3 → 3, so ids are never reissued); `idx_positions_symbol_con_id` still in `sqlite_master` and still enforcing `UNIQUE`; `PRAGMA foreign_key_list(positions)` still reports `trade_group_id → trade_groups.id`; `foreign_key_check` empty; `integrity_check` = `ok`; `trade_group_id`'s value preserved; the **13-column upsert + `ON CONFLICT` + `RETURNING id` still works**; a second open is a no-op. **Crash safety:** each `DROP COLUMN` is a single atomic DDL statement, so an interrupted open leaves only the columns not yet dropped (each `DROP` commits on its own) and the guard finishes the job — no half-built table to salvage. That is the decisive difference from the `bars` precedent (`data/db.py:203`–`:236`), whose salvage branch exists because Python's `sqlite3` runs `CREATE TABLE` **outside** the implicit DML transaction; a rebuild of `positions` would need that machinery *per table* plus hand-recreated index and FK. **Rejected:** the rebuild route (more failure surface, zero benefit); **and** no automatic copy of the DB file — copying the owner's database at launch is a new behaviour with its own failure modes and no row-copy step to interrupt; row preservation is proven by a legacy-fixture assertion instead (`AC-D46.12`). | **`[new in P5]`** — the requirements fix the **end state** and leave the mechanism to Plan (`D46.12`, DG86). It **reverses A87** and records the third step of the trail (**kept → cleared → dropped**, `S50`). |
+| **S48** | **The bulk load reads its 13 columns by name, and one new assertion proves the mapping.** `_on_position_end`'s SELECT loses two names, so `trade_group_id` moves from **`row[14]` to `row[12]`** — and a missed index is the batch's only **silent** failure (a stop value or `None` lands in the Portfolio **Group** column and reads as a strategy-detection regression, DG85). Decision: that one call site uses a **dedicated cursor with `sqlite3.Row`** and reads `row["trade_group_id"]`, so the mapping is expressed once and cannot shift again; the shared `db.conn` row factory is **not** changed (every other caller unpacks tuples). A wrong mapping is still caught end-to-end by a new case that seeds a **non-null** `trade_group_id` — measured: **no test seeds one today**, so the trap is currently uncovered. | **`[new in P5]`** — DG85's recorded recommendation applied; **rejected** alternative: keep positional indexing and correct the numbers (smaller diff, same bug class live for the next column change). |
+| **S49** | **`ESC-062` is folded into the waves that already touch its files, not given a wave of its own.** (a) `ui/main_window.py:3101`–`:3104` (the `positions.id` comment's "SL/TP dialog persists via `WHERE id=?`") and `:3128`–`:3130` ("the SL/TP dialog early-returns") are reworded in the **storage wave**, which edits both comments' subjects; (b) `ibkr/account.py:40`–`:43` (the `Position.id` comment's dialog clause) is reworded in the same wave; (c) `ui/main_window.py:1543`–`:1545`'s "so the ticket reflects reality" comment is **deleted** with the `_on_error` branch in the consumer wave — incidental, recorded, not claimed as a fix; (d) `tests/test_dock_d18_region.py`'s `test_T48_T03_panel_present_and_signals_wired` is **renamed** for what it now asserts in the **prose wave** (no earlier wave touches that file). Three comments + one rename, zero new tasks. | **`[new in P5]`** — the escalation is BUILD-routed, but its sites are already inside this phase's file set, so absorbing it costs no scope; leaving it out would ship a batch whose deliverable is "no order surface" while four comments still describe one. |
+| **S50** | **The document trail reads kept → cleared → dropped, in one direction, and P5 owns the half it may write.** `docs/architecture.md` § P5 and `docs/plan.md` § P5 (this draft) state the dropped end state; `docs/codebase-map.md` is refreshed here; **`USAGE.txt`** (`:88`–`:90`) and **`usage.md`** (`:154`) are corrected in a Build task, because they are the two files that still say the columns are *kept*; the **D45 sections** of `architecture.md`/`plan.md` are **already-activated sections this run may not edit** — their retention sentences are enumerated by line in `docs/plan.md` § *Document trail* so the Validator can attach the supersession markers at activation (revision 1's *Activation note 2* mechanism), and `A87`'s row in `requirements.md` already carries its `REVERSED` note. `D46.13`'s grep is the gate. | **`[revises P4: ESC-060's documentation correction]`** — ESC-060 said *kept, values cleared*; A99 says *dropped*. Both must not stand as live claims (DG84, `R85`). |
+
+---
+
+### Codebase Summary (existing repository — the P5 surface, re-validated 2026-10-25)
+
+**This is the pointer to `docs/codebase-map.md`, not a second inventory.** The map carries the module index,
+the status legend and the test-impact rows; this section records only the facts P5's decisions rest on, each
+re-derived from source (`graphify-out/graph.json`, 4,947 nodes, used for discovery only — it still describes the
+pre-D45 tree; **the source is authoritative** where they disagree).
+
+| Fact | Verified evidence (working tree = `c702be9` + delivered D45) | Consequence |
+|---|---|---|
+| `ibkr/orders.py` has **exactly one** importer in the tree | `ui/main_window.py:36` → `from ibkr.orders import orders as order_registry`; a repo-wide grep for `ibkr.orders` / `import orders` finds no other production hit and `ibkr/__init__.py` re-exports nothing | `S39`: deleting the module and that line together leaves no dangling import (`AC-D46.1`); wave 1 removes the line, wave 3 the file |
+| The registry is **never written** in production | no `register(` call outside `ibkr/orders.py`; the only caller in the tree is the deleted `tests/test_order_builders.py` | every `get()` returns `None` ⇒ `_update_order_status` is a no-op and `_on_error`'s branch is unreachable (`S40`/`S41`) |
+| The chain's three emitters live **only** in `ibkr/client.py` | `orderStatus` (:394, emits at :405), `openOrder` (:410, emits :412), `execDetails` (:414, emits :416) | `S43` rule 2: the override and its signal are deleted in **one** task (wave 2) |
+| The three signals have **exactly three receivers**, all in `MainWindow.__init__` | `ui/main_window.py:595`–`:597` — `b.open_order` / `b.exec_details` / `b.order_status`; a `tests/`-wide grep finds no other driver | `S43` rule 3: connects + slots leave **first** (wave 1); three zero-receiver signals are harmless and the app still constructs |
+| `_on_order_error` has **one** caller | `ui/main_window.py:1547`, inside the `order_registry.get(reqId) is not None` branch (:1546) | wave 1 deletes branch + handler + `_update_order_status` + import as one unit |
+| `_update_order_status` has **exactly three** callers | the three slots (`:2952`, `:2957`, `:2965`), all deleted in the same wave | no orphan remains after wave 1 |
+| **What the owner sees today is already the generic line** | `IBApiClient.error` emits `error_msg` unless `classify_error` returns `'info'`; `classify_error(201) == classify_error(103) == 'fatal'`, `(202) == 'warning'`; `_on_error` falls through to `showMessage(f"Error [{code}]: {string}", 8000)` | `S41`/`AC-D46.3`: the deletion changes **nothing user-visible**; the positive per-code test pins it |
+| `data/models.py::UserOrder` has **zero** consumers | its only reference in the tree is `tests/test_ui_smoke.py:48` (`hasattr`); `data/models.py`'s `dataclass`/`field` imports stay live (`Study` uses `field(default_factory=dict)`) | `S42`: delete the class and the assertion **in one task** |
+| The removal guard references the chain in **three** places | `tests/test_d45_removal.py:22` (docstring bullet: "an `_on_order_error` emission"), `:145`–`:147` (`_SURVIVORS`), `:523` (`win._on_order_error(1, 201, …)`) | `S44` + `S43` rule 5: `:523` must be repointed to `_on_error` **in the wave that deletes the handler** (wave 1), or the walkthrough raises `AttributeError` |
+| The seven non-`orders` order names occur **4 · 6 · 2 · 2 · 2 · 2 · 4** times in the scanned tree | `order_registry` 4 lines · `UserOrder` 6 · `_on_open_order` 2 · `_on_order_status` 2 · `_on_exec_details` 2 · `_on_order_error` 2 · `_update_order_status` 4 — **all** inside files P5 edits or deletes ⇒ zero post-P5 hits | `R79`: the allow-list→forbidden migration is discriminating by construction (counted 2026-10-25) |
+| The bare name `orders` appears on **5 scanned units as a substring (2 as an exact unit), every one inside a file this phase edits or deletes**, and **the exact-match set is no longer needed to keep any surviving file green** | `ui/main_window.py:36` (import, wave 1), `ibkr/id_manager.py:22` (inside `reserve`'s docstring — **`reserve` is deleted in wave 6**), `ibkr/orders.py:136` ("…all tracked orders.") / `:141` (`orders = Orders()`) / `_orders` (all deleted, wave 3) — counted 2026-10-25 | `S44`: `orders` stays **exact-matched**, but on a **new** ground (prose safety) — revision 1's ground ("a file no task may edit") is **void**, because `ibkr/id_manager.py`'s docstring dies with `reserve` |
+| The class name `Orders` appears on **2 scanned units as a substring (1 as an exact unit), all inside deleted code**, plus one comment | `ibkr/orders.py:27` (`class Orders:`) / `:141` (both deleted, wave 3); `ibkr/pacing.py:131` (a **docstring** inside `class OrderRateLimiter` — **the class is deleted in wave 4**); `ibkr/bridge.py:42` (`# Account & Orders`, a **comment**: invisible to both nets, and the header for the **retained** account signals) | `S44`: same correction as `orders` — exact matching is kept for prose safety, **not** to protect `pacing.py`, which is now **edited**; the `bridge.py:42` comment is **kept** and is not an offence |
+| **`IdManager` is shared, not order-only — the module must stay** | `get_id()` at `ibkr/market_data.py:42,74,90,103`, `ibkr/realtime_bars.py:31` **and `ui/main_window.py:1095`** (a sixth caller the register's list omits); `set_next_valid_id()` at `ibkr/client.py:184`; only `reserve()` (`:19`–`:30`, with its `:22` docstring) is order-motivated | `S46`/A101: the module and `get_id` are frozen; deleting the module would take the chart's subscription machinery with it |
+| `tests/test_id_manager.py` has **8** cases, **6** of which touch `reserve` | `:10`, `:18`, `:32`, `:39`, `:56`, and — **not named by the register** — `:74` `test_concurrent_allocations_never_duplicate`, which calls `mgr.reserve(3)` at `:85` and asserts `len(seen) == 8 * 203` at `:97` | `AC-D46.10`'s "keeps … test_concurrent_allocations_never_duplicate" is **wrong**: it must be rewritten. **Flagged Issue 1**; the plan rewrites six of eight and lands **8 → 4** |
+| `tests/test_sound_service.py` has **four** sites on the fill path, not two | the imports (`:9`, `:15`), `TestFillBlip` (`:43`–`:51`, 2 cases), `TestWavOutput::test_write_wav_is_valid_pcm16` (`:57`), **and `TestEnsureSoundFiles::test_creates_both_files_once`'s `paths["fill"]` assertion (`:76`)** — a `KeyError` once the `"fill"` key goes | `D46.5`'s book under-lists the file. **Flagged Issue 2**; **8 cases → 6** |
+| `SoundService._effect` names `_fill_effect` **in a string constant** | `services/sound_service.py:151` — `attr = "_alarm_effect" if key == "alarm" else "_fill_effect"` | the AST scan sees string constants, so the accessor must **collapse to alarm-only** or the guard stays red on a member this phase deletes. Measured: the simulated post-P5 tree only reached 0 after the collapse |
+| The removal instrument is **discriminating**, with the revision-2 token set | pre-P5: **41 AST offences across 10 files** (`ui/main_window.py` 14, `ibkr/orders` 7, `services/sound_service.py` 5, `data/models.py` 3, `ibkr/bridge.py` 3, `ibkr/client.py` 3, `ibkr/account.py` 2, `ibkr/pacing.py` 2, `data/db.py` 1, `config/settings.py` 1) and **40 twin hits, all `ui/main_window.py`** (`:36`, `:595`–`:597`, `:1546`–`:1551`, `:1559`, `:2951`–`:2965`, `:3093`–`:3094`, `:3133`–`:3134`, `:3164`–`:3165`, `:3186`, `:3198`–`:3199`, `:3216`–`:3217`, `:3226`–`:3227`) | every one of those lines is inside a region this phase deletes or edits; **a simulated post-P5 copy scores 0 / 0** (measured, not assumed) |
+| SQLite is **3.53.1** in the app's interpreter, not 3.54.0 | `.venv/bin/python -c "import sqlite3; print(sqlite3.sqlite_version)"` → `3.53.1`; the system `python3` → `3.54.0`. `DROP COLUMN` needs ≥ 3.35 | `D46.12` cites the wrong interpreter; the capability claim still holds. **Flagged Issue 3** |
+| A **legacy** `positions`/`trade_groups` migrates cleanly in place | probe in `.venv` 2026-10-25: rows 3/1 preserved, `sqlite_sequence` 3→3, `idx_positions_symbol_con_id` intact and still enforcing `UNIQUE`, `foreign_key_list` → `trade_group_id → trade_groups.id`, `foreign_key_check` empty, `integrity_check` ok, the 13-column upsert + `RETURNING id` works, second open no-op | `S47`: `DROP COLUMN` is the mechanism; the row/index/FK preservation is measured, not asserted |
+| `usage.md:167` names a test file P5 deletes | the "Phase 10 core logic tests" command lists `tests/test_order_builders.py` | A98's "no user-facing doc change expected" is **incomplete** — one line is corrected (plan `AP-D46-9`); `USAGE.txt:84`–`:93` already states the end state ("the app places, cancels and closes nothing… IBKR rejections and cancellations appear in the status bar together with TWS's message") and needs **no** change |
+
+#### Data models / persisted state
+
+- **`positions`** — `id, symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, multiplier,
+  expiry, strike, right, trade_group_id, updated_at` **after** this phase (15 → 13 columns): `stop_loss`
+  and `take_profit` are **dropped by the migration** (`S47`). Every row, `idx_positions_symbol_con_id` and the
+  `trade_group_id` FK survive (measured); the two columns' values are lost. **The honest statement of what that
+  costs:** a row that receives another live update has its values **cleared first** (ESC-060), so for those rows the
+  drop destroys nothing; a row that never updates again (a symbol no longer held or not streamed) **keeps its legacy
+  stop/target bytes** and loses them here. That makes this drop the batch's **only byte-destroying step** — it is still
+  defensible (the values are invisible, unsettable and unsupported), but it is not the cost-free delete the code groups
+  are, and `D46.12`'s row-preservation requirement is what keeps it bounded.
+- **`trade_groups`** — `id, name, strategy_type, underlying, collapsed, created_at` after the same migration.
+  `strategy_type`/`collapsed`/`created_at` untouched — the strategy grouping is intact.
+- **`data/models.py`** — `Bar`, `Alarm`, `Study`, `Drawing`, `DrawingGroup`, `Position`, `TradeGroup` **stay**;
+  `Position`/`TradeGroup` lose `stop_loss`/`take_profit`, and `UserOrder` **goes** (`S42`).
+  **One destructive schema step, no new key, no new table.**
+- **`ibkr/account.py::Position`** — a **third** copy of the row; loses the two fields and
+  `build_position_from_ib`'s two parameters.
+- **In-memory only, removed with the module:** `ibkr/orders.py::Orders._orders` — the registry nothing populated.
+
+#### Major components and responsibilities (post-P5 target; deltas in the next tables)
+
+`ui/main_window.py` (window, docks, toolbar, load path, sessions, error routing, persistence, teardown) ·
+`ui/ticker_session.py` (per-symbol sessions: bars, waves, pacing, live bars, S0 substrate — **untouched**) ·
+`ui/active_portfolio_panel.py` (view-only Portfolio, 8 columns — **untouched**) · `ui/chart_panel.py` +
+`ui/candlestick_item.py` + `ui/overlays/*` + `ui/event_marker_overlay.py` (render stack — **untouched**) ·
+`ui/watchlist_panel.py` + `ui/dock_layout.py` (**untouched**) · `services/*` (**untouched except the order-fill
+half of `sound_service.py`**) · `data/*` (SQLite, cache, aggregator, stores, event provider — **`db.py`'s schema
+drops four columns**, `models.py` loses one class and four fields) · `ibkr/*` (client wrapper, bridge, market data,
+RT bars, pacing **minus the order bucket**, id manager **minus `reserve`**, subscriptions, stream health, account
+**minus the two fields**, contracts, error codes, **news/validation already deleted by D45**, **orders deleted by
+P5**).
+
+#### Key entry points / data flow
+
+`main.py` → `MainWindow()` → `IBApiClient.connect` (fail-fast port check) → bridge signals → sessions/chart;
+account-summary + position callbacks → `_on_position_update` → `_upsert_position` (**13 columns**) →
+`ActivePortfolioPanel.set_positions`/`add_position` → `_group_and_render` → `_render_table` (8 columns); the bulk
+path `position_end` → `_on_position_end` (**13-column SELECT, read by name**). **P5 removes one inbound branch** —
+the order-lifecycle callbacks (`openOrder`/`orderStatus`/`execDetails` → three signals → three slots) — **one
+outbound response** (the order-error branch in `_on_error`) and **two stored columns** from that position flow.
+Nothing else on this flow changes; errors continue to arrive on `error_msg` → `_on_error` → status bar.
+
+#### External integrations already in use `[existing]`
+
+IBKR TWS via the official `ibapi` (`10.51.1`): historical + realtime bars, market data with S0 generic ticks,
+account summary/positions, dividends tick `"456"`/59 (**retained**; news `"292"`/news API already removed by D45),
+**error callbacks (retained — the sole TWS-error surface)**, order lifecycle callbacks (**no longer overridden or
+observed**); `placeOrder`/`cancelOrder`/`reqGlobalCancel` inherited from `EClient` and **called nowhere** (D45's
+zero-transmit invariant stands, now enforced from the guard's forbidden set); yfinance as the sole approved
+secondary event source (**retained**); SQLite (**retained, one guarded destructive migration**); Qt `QSettings`
+(**retained**).
+
+#### What P5 changes, in one line
+
+One module deleted (`ibkr/orders`); **eleven** production modules touched — ten edited (`ui/main_window.py`,
+`ibkr/client.py`, `ibkr/bridge.py`, `data/models.py`, `data/db.py`, `ibkr/account.py`, `ibkr/pacing.py`,
+`config/settings.py`, `services/sound_service.py`, `ibkr/id_manager.py`) and one **comment-only**
+(`ibkr/error_codes.py`); **two** suites deleted (`test_order_builders`, `test_stop_loss_target`) and **thirteen**
+files adjusted; two user-facing docs corrected and the Plan-owned map refreshed; **no file added**.
+
+---
+
+### Summary (P5)
+
+P5 is a **subtractive** increment with an **inertness** requirement and, for the first time in this project, **one
+destructive schema step**. The owner asked why any order code remains after D45 removed every order interaction, and
+the honest answer is that a module with no caller, a chain that writes into a registry nothing populates, three
+utilities with no reader, one allocator method with only tests, and four columns nothing could write, display or reach
+were all kept by decisions that were never audited for reachability. The architecture adds nothing: it **severs the chain at
+its three seams** (window consumers → broker boundary → module) in an order dictated by the callback graph, deletes
+the zero-consumer utilities and the unused allocator method, **drops the four columns with four guarded in-place
+`ALTER TABLE … DROP COLUMN` statements that preserve every row, the unique index and the FK**, and **freezes the
+whole generic error path** so TWS visibility survives exactly as the owner sees it today. The guarantee is
+structural — the tree holds no order code and the schema holds no stop/target column, so there is nothing to re-wire
+by accident — and it is verified by migrating the existing removal guard rather than by adding a new one, with the
+token list landing only when every token names code that is already gone.
+
+### Tech Stack Decisions (P5)
+
+**Constrained choices first** — the existing stack; P5 changes none of it (no requirement asks for a stack
+change, and pyqtgraph is a **locked** decision, `docs/memory.md` 2026-10-16).
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| UI toolkit `[existing]` | **PyQt6** (widgets, signals, docks) | The app is PyQt6; P5 only deletes a signal group and its receivers | — (no change proposed) |
+| Broker client `[existing]` | official **`ibapi`** (`10.51.1.post1`) via `IBApiClient(EWrapper, EClient)` | The three order callbacks are **inherited** `EWrapper` no-ops; deleting our overrides returns them to the base behaviour, which is the correct end state | Writing an in-repo no-op override "to keep the callback" — rejected: that is the fossil being removed |
+| Persistence `[existing]` | **SQLite** (`data/db.py`); additive migrations **plus one guarded in-place column drop** | `DROP COLUMN` is available (3.53.1) and was **measured** to preserve rows, `sqlite_sequence`, the unique index and the FK | The `bars`-style rebuild (rejected: four statements per table, manual index/FK recreation, a salvage branch per table); a whole-file copy before migrating (rejected: new launch behaviour, no row-copy step to interrupt — the row-preservation assertion is the real proof) |
+| Chart renderer / secondary source `[existing]` | **pyqtgraph** (locked) / **yfinance** | Untouched by P5 | — (do not re-propose) |
+| Removal mechanism `[new in P5]` | **Delete each member group at its own seam** (ten waves); keep the error path frozen | Each group's only effect is a write into something nothing reads; deletion makes a future re-wire fail a test rather than a review | Keep the observers wired against a re-written registry (rejected — inventing a consumer for a module the owner asked to remove); keep the module as a dormant helper (rejected by A91) |
+| Migration placement `[new in P5]` | Inside `_migrate_schema()`, guarded by `_table_columns()`, **after** the unique-index statement | The guard makes a fresh DB and every later open no-ops (idempotent by construction); placing it after the index keeps that index valid across the table rewrite | A separate `_migrate_d46()` method (rejected: the file has one migration entry point and every prior step lives in it — a second entry point is a second ordering question) |
+| Index-shift mechanism `[new in P5]` | Per-cursor `sqlite3.Row` at the one reshaped SELECT; read `row["trade_group_id"]` | DG85's recommendation; makes the shift impossible rather than corrected | Positional `row[12]` (rejected: correct today, same bug class tomorrow) |
+| Verification mechanism `[extends P4: S36]` | The **existing** `tests/test_d45_removal` (AST identifiers + string constants over the five source dirs; `ui/`-only grep twin; `find_spec`/`hasattr`/`__dict__`/`_table_columns`; mocked-client walkthrough) with `_FORBIDDEN` **53 → 80**, `_SURVIVORS` **26 → 16**, `_DELETED_MODULES`/`_DELETED_SUITES` extended, a positive per-code surfacing case, and **the schema end state** | One instrument, one token list — the grep step and the test cannot drift apart; no new dependency; `tests/test_d41_removal.py` is the precedent | A new `tests/test_d46_removal` (rejected: duplicates the same scans and creates a second list to keep in sync — the register's A95 keeps the rejection test file for the same reason) |
+| Test runner `[existing]` | `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` | Repo convention (stale `pytest` shebang) | — |
+| New dependencies `[new in P5]` | **None** | Constraint; nothing in a deletion needs one | — |
+
+### System Components (P5)
+
+Status is relative to the codebase: `[existing]` = present and **unmodified**; `[new/changed]` = present and
+modified; `[deleted]` = removed by this phase with nothing replacing it.
+
+**Changed by this phase**
+
+| Component | Status | What changes |
+|---|---|---|
+| `ui/main_window.py` | **`[new/changed]`** | **Wave 1, one task:** the three `b.open_order` / `b.exec_details` / `b.order_status` `.connect` lines (`:595`–`:597`); `_on_open_order`, `_on_exec_details`, `_on_order_status` (`:2951`–`:2965`); `_update_order_status` (`:3226`–`:3229`); `_on_order_error` (`:1551`–`:1560`); `_on_error`'s D26.9 comment + `order_registry.get(reqId)` branch + its `return` (`:1543`–`:1548`); and the `from ibkr.orders import orders as order_registry` line (`:36`). **Retained byte-for-byte:** `_on_error`'s `_closing` guard, its session-reqId branch (RT vs historical), and its final `self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)`; `b.error_msg.connect(self._on_error)`; `_symbol_last_prices`, `_upsert_position`, `_on_position_end`, the fail-fast connect path, the badges, `closeEvent`. |
+| `ibkr/client.py` | **`[new/changed]`** | The `orderStatus` (`:394`–`:407`), `openOrder` (`:410`–`:412`) and `execDetails` (`:414`–`:416`) `EWrapper` overrides are deleted whole (with their `super()` calls and comments). **Nothing else in the file changes** — `_do_reconnect`, `connected`, the lifecycle callbacks, and `error` (the D40.1 suppression and the `severity != 'info'` gate) stay **verbatim**. After this, `IBApiClient` defines **no** `orderStatus`/`openOrder`/`execDetails`; the inherited `EWrapper` no-ops are what TWS reaches. Measured as **`"orderStatus" not in IBApiClient.__dict__`** (and the other two) — `hasattr` stays `True` through inheritance before *and* after, so it cannot be the measurable (`AP-D46-14`). |
+| `ibkr/bridge.py` | **`[new/changed]`** | The `order_status`, `open_order` and `exec_details` `pyqtSignal`s (`:47`, `:51`, `:54`) and their two comment blocks are deleted. Every other signal stays, including the news-boundary mirrors (D45 `S35`) and `error_msg`. |
+| `data/models.py` | **`[new/changed]` (two waves)** | **Wave 3:** the `UserOrder` dataclass (`:104`–`:116`) is deleted. **Wave 7:** `Position.stop_loss`/`take_profit` (`:86`–`:87`) and `TradeGroup.stop_loss`/`take_profit` (`:98`–`:99`) are deleted. `dataclass`/`field` stay (used by `Study`); every other dataclass untouched. |
+| `data/db.py` | **`[new/changed]`** | Four DDL lines removed (`positions` `:120`–`:121`, `trade_groups` `:130`–`:131`) and one guarded migration block added to `_migrate_schema()` **immediately after** the `idx_positions_symbol_con_id` statement (`S47`): for each table, `_table_columns(table)` once, then drop `stop_loss`/`take_profit` when present. `_table_columns` and every other table/index/migration untouched. |
+| `ibkr/account.py` | **`[new/changed]`** | `Position.stop_loss`/`take_profit` (`:32`–`:33`), `build_position_from_ib`'s two parameters (`:64`–`:65`) and its two kwargs (`:79`–`:80`) deleted; the `Position.id` comment (`:40`–`:43`) reworded to justify `id` by strategy grouping only (**`ESC-062`**). The `ESC-044` field mapping, `_parse_contract_type` and `Account` untouched. |
+| `ibkr/pacing.py` | **`[new/changed]`** | `OrderRateLimiter` (`:128`–`:170`) and `order_limiter` (`:172`) deleted; the `# Global singletons` comment becomes `# Global singleton`. `PacingManager`, `PacingExceeded`, `pacing_manager` and `reset_for_tests` untouched. |
+| `config/settings.py` | **`[new/changed]`** | `MAX_ORDER_NOTIONAL` (`:37`–`:39`) and its two-line `validate_order()` comment deleted. Every other constant untouched. |
+| `services/sound_service.py` | **`[new/changed]`** | The docstring bullet (`:9`), `BLIP_DURATION` (`:22`), `render_fill_blip` (`:75`–`:83`), `blip_path`/`order_fill.wav` and the `"fill"` key (`:118`, `:121`–`:123`), `_fill_effect` (`:135`), **`_effect` collapsed to alarm-only** (`:148`–`:158` — its ternary names `"_fill_effect"` in a **string constant**, which the AST scan sees) and `play_fill` (`:170`–`:175`) deleted. `play_alarm`, `render_alarm_chime`, `ALARM_DURATION`, the `"alarm"` key and `warm` untouched (`AC-D46.11`). |
+| `ibkr/id_manager.py` | **`[new/changed]`** | `IdManager.reserve` (`:19`–`:30`) and its D26.2 docstring deleted. `IdManager`, `set_next_valid_id`, `get_id`, `id_manager` untouched and still called from `ui/main_window.py:1095`, `ibkr/market_data.py:42,74,90,103`, `ibkr/realtime_bars.py:31`, `ibkr/client.py:184`. |
+| `ibkr/error_codes.py` | **`[new/changed]` (comment only)** | In `classify_error`, the clause "…`_on_error` still routes it to the registry as Cancelled." is replaced by the post-P5 truth (a cancellation is a normal lifecycle event; `severity != 'info'` is what lets 202 reach the status bar). **No code line, no return value, no threshold changes** (`S46`). |
+| `tests/test_order_rejections.py` | **`[new/changed]`** | The two registry cases and their `_fresh_registry`/`_register` helpers and `from ibkr.orders import …` are removed; `test_non_order_error_untouched` is repointed (and renamed) to assert the **generic** line for an unrelated code; both `classify_error` cases stay; **one** parametrised case over `201 / 103 / 202` is added (`AC-D46.3`). Module docstring rewritten — it names `_on_order_error`. |
+| `tests/test_d45_removal.py` | **`[new/changed]` (two waves)** | **Wave 1:** the walkthrough's `win._on_order_error(…)` call (`:523`) and the docstring bullet (`:22`) are repointed at `win._on_error(…)`. **Wave 8, one coherent edit (invariant I-1):** the **ten** names leave `_SURVIVORS` (`order_registry`, `orders`, `UserOrder`, `_on_open_order`, `_on_order_status`, `_on_exec_details`, `_on_order_error`, `_update_order_status`, `order_limiter`, `MAX_ORDER_NOTIONAL` — `classify_error`, `pacing_manager`, `PacingExceeded` stay); `_FORBIDDEN` **53 → 80** (`orders`/`Orders` exact-matched, the other 25 new tokens substring); `_DELETED_MODULES` += `ibkr.orders`; `_DELETED_SUITES` += the builders and stop-target suites; a new end-state test asserts the five window members and three bridge signals by `hasattr`, the three client overrides by **`__dict__` membership**, `find_spec("ibkr.orders") is None`, the module/builder/stop-target files absent, `data.models.UserOrder` absent, `hasattr(IdManager, "reserve") is False`, member absence in `ibkr.pacing`/`config.settings`/`services.sound_service`, the four model fields absent in all three classes, `build_position_from_ib`'s signature, and **the schema end state** (fresh + legacy fixture + second open). The guard's **own** prose is corrected in the same edit (it documents the D45 retention this phase forbids). |
+| `tests/test_account.py`, `tests/test_strategy_detection.py` | **`[new/changed]`** | Four `build_position_from_ib` calls lose the two kwargs and two asserts go (`:36`–`:37`, `:62`–`:63`, `:85`–`:86`, `:103`–`:104`, `:108`–`:109`); `_pos()`'s two `Position(...)` kwargs (`:30`–`:31`) go. Nothing else. |
+| `tests/test_d27_position_id.py`, `tests/test_d27_account_partial_window.py`, `tests/test_d27_account_scoping.py` | **`[new/changed]`** | The three raw-SQL seeders lose the two column names and one placeholder each (`test_d27_position_id` `:97`–`:103`; the other two `:66`–`:72`). `test_d27_position_id` gains **one** case that seeds a non-null `trade_group_id` and asserts it survives the bulk load (`S48`) — the only guard against the silent index shift. |
+| `tests/conftest.py`, `tests/test_d28_pacing.py` | **`[new/changed]`** | The two `pacing_mod.order_limiter.reset_for_tests()` lines (`:143`, `:146`) and the fixture docstring's "and a full order-token bucket" clause removed; the `OrderRateLimiter` import (`:14`) and `test_order_limiter_allows_burst_then_denies` (`:97`–`:101`) removed; the pacing module docstring's order-bucket sentence rewritten. Every pacing case stays. |
+| `tests/test_sound_service.py`, `tests/test_id_manager.py` | **`[new/changed]`** | Sound: imports (`:9`, `:15`), `TestFillBlip` (`:43`–`:51`) and the `paths["fill"]` assertion (`:76`) removed; `:57` switches to `render_alarm_chime()`; the "both files" case renamed. **9 cases → 7** (executed: `--collect-only` reports 9 today; only `TestFillBlip`'s 2 go). IdManager: four pure `reserve` cases deleted, the monotonic case rewritten (renamed), and **`test_concurrent_allocations_never_duplicate` rewritten** (`:85`–`:86` out, `8 * 203` → `8 * 200`); the module docstring's bracket-order sentence removed. **8 cases → 4.** |
+| `tests/test_dock_d18_region.py` | **`[new/changed]`** | `test_T48_T03_panel_present_and_signals_wired` renamed for what it now asserts, its "MainWindow consumes their effect via other slots" comment corrected, and `_receiver_count`'s docstring `>= 1` caller sentence corrected (**`ESC-062` item 5**). No assertion changes. |
+| `tests/test_ui_smoke.py` | **`[new/changed]`** | The `assert hasattr(data.models, "UserOrder")` line only; `Position` and `Drawing` stay asserted, the module imports are untouched. |
+| `docs/codebase-map.md` | **`[new/changed]` (Plan-owned, this phase)** | Refreshed **in this draft**: the `ibkr/orders.py` retention claim and the "retained observers" block replaced by the post-P5 target; the D45 book arithmetic corrected (`ESC-063`); the pointer sentences moved off the superseded D45 proposal drafts; the P5 touch summary and test-impact rows added. Not a Build task. |
+
+**Deleted by this phase (nothing replaces them)**
+
+| Module / file | Status | Reason |
+|---|---|---|
+| `ibkr/orders` (`UserOrder`, `Orders`, the four builders, the registry, the `orders` singleton) | **`[deleted]`** | `S39` / A91 / `AC-D46.1` — no production caller, a registry nothing writes, and the owner's explicit ask |
+| `ibkr/client.py`'s three order `EWrapper` overrides | **`[deleted]`** | `S40` — the emitters of a chain with no consumer |
+| `ibkr/bridge.py`'s three order signals | **`[deleted]`** | `S40` — the channel, removed with its only emitter (wave 2) and after its only receiver (wave 1) |
+| `MainWindow`'s five order members + `_on_order_error` + the `_on_error` registry branch + the import | **`[deleted]`** | `S40`/`S41` — the consumers, removed first |
+| `data.models.UserOrder` | **`[deleted]`** | `S42` / A96 — a second, unused order dataclass |
+| `ibkr.pacing.OrderRateLimiter` + `order_limiter` · `config.settings.MAX_ORDER_NOTIONAL` | **`[deleted]`** | `D46.11` — zero production readers; the notional cap's gate died in D45 |
+| `services.sound_service`'s order-fill path (`render_fill_blip`, `BLIP_DURATION`, `_fill_effect`, `play_fill`, the `"fill"` key, `order_fill.wav`) | **`[deleted]`** | `D46.11` — `play_fill` has zero callers; there is no order to fill. The **alarm** chime stays |
+| `IdManager.reserve` | **`[deleted]`** | `D46.10`/A101 — tests only; the module and `get_id` stay |
+| `tests/test_order_builders.py` (17 cases) · `tests/test_stop_loss_target.py` (3 cases) | **`[deleted]`** | Their whole subject is gone; the loss is stated in the plan's test book, not hidden (R80/A104) |
+
+**Untouched by this phase (deliberately, `S46`):** the chart render stack, `ui/ticker_session.py`,
+`ui/active_portfolio_panel.py` (still 8 columns), `ui/watchlist_panel.py`, `ui/dock_layout.py`, `services/*` except
+the order-fill half of `sound_service.py`, `data/bar_cache.py`, `data/events/*`, `ibkr/market_data.py`,
+`ibkr/realtime_bars.py`, `ibkr/subscription_manager.py`, `ibkr/stream_health.py`, `ibkr/contracts.py`,
+`ibkr/utils.py`, `config/paths.py`, `main.py`, `tests/test_d40_tws_lifecycle.py`, `tests/test_port_guard.py`,
+`tests/test_d41_removal.py`, `tests/test_db_schema.py`, and every test file not named above.
+
+### Data Model (P5)
+
+**This phase changes the schema — the project's first destructive step (`A99`, reversing A87).** The end state is
+`D46.12`'s; the mechanism is `S47`'s and is measured, not asserted.
+
+| Entity | Status | Key fields | P5 effect |
+|---|---|---|---|
+| `positions` (SQLite) | **`[new/changed]`** | `id, symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, multiplier, expiry, strike, right, trade_group_id, updated_at` | Two columns dropped by guarded `ALTER TABLE … DROP COLUMN`; **every row preserved**, `idx_positions_symbol_con_id` and the `trade_group_id` FK preserved, `sqlite_sequence` preserved (ids never reissued). A fresh DB is created without them and the migration no-ops |
+| `trade_groups` (SQLite) | **`[new/changed]`** | `id, name, strategy_type, underlying, collapsed, created_at` | Same mechanism; every row preserved. `strategy_type`/`collapsed`/`created_at` untouched — the strategy grouping is intact |
+| `data.models.Position` / `TradeGroup` | **`[new/changed]`** | minus `stop_loss`, `take_profit` | Fields deleted; every other field (incl. `trade_group_id`, `id`) unchanged |
+| `ibkr.account.Position` + `build_position_from_ib` | **`[new/changed]`** | minus `stop_loss`, `take_profit` (fields **and** the two factory parameters) | Third copy of the row loses the same two; the remaining parameters and `_parse_contract_type` untouched |
+| `data.models.UserOrder` | **`[deleted]`** | `order_id, symbol, action, total_qty, order_type, lmt_price, aux_price, status, parent_id, oca_group, transmit` | removed with the smoke assertion (`S42`, `AC-D46.8`) — **zero** consumers |
+| `ibkr.orders.UserOrder` + `Orders._orders` | **`[deleted]`** | the module's own copy + the in-memory registry | gone with the module; **no persisted state was ever involved** |
+| `MainWindow._symbol_last_prices` | `[existing]` | reqId → last price; read by the Portfolio P/L path | **none** — it is *not* order state and must not be touched (`AP-D45-2` precedent) |
+| `MainWindow._upsert_position` / `_on_position_end` | **`[new/changed]`** | `INSERT … ON CONFLICT(symbol, con_id) DO UPDATE … RETURNING id` over **13** columns; the bulk SELECT over the same 13 | Both keep working on the new shape (measured, incl. `RETURNING id` on the DO UPDATE branch) |
+
+Relationships unchanged: `positions.trade_group_id → trade_groups.id`; `position_group_map`; strategy/group
+derivation via `services.strategy_detection.detect_and_group`. **No new entity, no new key, no new table, no new
+column.**
+
+**What happens to a database at each age (the answer `D46.12` asks for):**
+
+| DB state | First open after P5 | Every later open |
+|---|---|---|
+| **Fresh** (created by this build) | `CREATE TABLE IF NOT EXISTS` already omits the four columns ⇒ all four `DROP` statements are skipped by the `_table_columns()` guard; nothing raises | No-op |
+| **Pre-P5** (columns present, any legacy values) | The four statements run once; rows, `sqlite_sequence`, the unique index and the FK survive (measured); the two columns' values are lost: rows that receive another live update had them cleared first (ESC-060), while a row that never updates again **keeps its legacy bytes and loses them here** — the batch's only byte-destroying step, bounded by the row-preservation requirement | Guard sees no columns ⇒ no-op |
+| **Interrupted mid-migration** (crash between two statements) | Only the columns not yet dropped remain (each `DROP` is one atomic, autocommitted DDL statement — measured in `.venv`), so there is no half-built table to salvage and the guard finishes the remainder | No-op once complete |
+
+### Integration Points (P5)
+
+| Integration | Status | Why it is needed / what changes |
+|---|---|---|
+| **IBKR TWS** — historical + realtime bars, market data, account summary/positions (`ibapi` over the local socket, port `7496`, fail-fast check) | `[existing]` | The app's whole data plane; **unchanged**. |
+| **IBKR error callbacks** (`error` → `error_msg` → `_on_error`) | `[existing]` **frozen** | The **only** remaining TWS-error surface and the owner's constraint: 201/103/202 reach the status bar here (`AC-D46.3`). `classify_error`'s gate and the D40.1 `502` suppression are untouched. |
+| **IBKR order-lifecycle callbacks** (`openOrder`, `orderStatus`, `execDetails`) | **`[new/changed]` → removed** | No override, no signal, no slot, no registry. `ibapi` still invokes the **inherited** `EWrapper` no-ops; the app observes nothing (`D46.2`). |
+| **IBKR order transmit / cancel** (`EClient.placeOrder` / `cancelOrder` / `reqGlobalCancel`) | `[existing]`, **unreachable** | D45's zero-call invariant stands and is made stronger: the names move from the guard's allow-list to its forbidden set (`AC-D46.4`). No definition may be added to `ibkr/client.py`. |
+| **IBKR S0 generic tick `"456"`** (+ tick 59) → dividend markers | `[existing]` | Retained verbatim (`AC-D45.2`/R68); P5 does not touch `ui/ticker_session.py`. |
+| **IBKR news API / tick `"292"`** | **already removed (D45)** | Nothing to do here; the bridge's news **signals** stay as the ibapi boundary mirror (D45 `S35`), untouched by P5. |
+| **yfinance** corporate-events provider | `[existing]` | Sole approved secondary source; **untouched**. |
+| **SQLite** (`data/db.py`) | **`[new/changed]`** | One guarded destructive migration, run at `DB()` construction (`S47`); no new file, no new dependency, no new connection. Every other table/index/migration untouched |
+| **Qt `QSettings`** (watchlist width/columns) | `[existing]` | Untouched; no layout key ever bound to the removed chain. |
+| *New integrations* | — | **None.** No endpoint, no dependency, no credential. |
+
+### Frozen Interfaces (P5)
+
+Interfaces this phase treats as **read-only**: `[existing]` contracts that **no** P5 task modifies. Contracts are
+**verbatim** from the tree (never paraphrased), with the owning module, so Task Manager hands a worker the
+contract instead of the implementation. **Nothing under construction is listed**: the five window members, the
+three signals, the three overrides, the `_on_error` registry branch and `ibkr/orders.py` itself are **being
+deleted**, and `_on_error`'s body is edited in wave 1 (its surviving contract is pinned in the plan's per-file
+map, not frozen here). D45's frozen rows *Order registry API* and *Inert inbound observers* are **void** —
+recorded in § *Supersessions*. One row is a **scope contract, not a file**: *Removal guard scope* freezes the three
+instruments' scope **split**, while `tests/test_d45_removal.py` — the module that implements it — **is** edited by
+waves 1 and 8. That is deliberate and consistent: the split must not move while the token lists and the absence
+test do.
+
+| Interface | Verbatim contract | Owning module |
+|---|---|---|
+| Error classification `[existing]` | `def classify_error(error_code: int) -> str:` — returns `'info'` for `(2104, 2106, 2158)`; `'warning'` for `(2103, 2105, 2108)`; `'fatal'` for `(504, 200, 399, 100, 162)`; `'fatal'` for `(201, 103, 1100, 502, 503, 509)`; `'warning'` otherwise. **Code frozen; only the 202 comment line is reworded.** | `ibkr/error_codes.py` |
+| Error ingress `[existing]` | `def error(self, *args, **kwargs):` — normalises the three TWS signatures, calls `super().error(...)`, then `severity = classify_error(errorCode)`; **D40.1**: returns early (debug log) when `errorCode == 502 and self._last_disconnect_class == DisconnectClass.TWS_GONE and not self._connected`; else `if severity != 'info': self.bridge.error_msg.emit(reqId, errorCode, errorString)` | `ibkr/client.py` |
+| Error signal `[existing]` | `error_msg = pyqtSignal(int, int, str)           # reqId, errorCode, errorString` | `ibkr/bridge.py` |
+| Window error routing `[existing]` | `b.error_msg.connect(self._on_error)` (the connection is frozen; `_on_error`'s call contract is `(self, reqId: int, errorCode: int, errorString: str)` and it is **under construction** in wave 1) | `ui/main_window.py` |
+| Historical-error hand-off `[existing]` | `def on_historical_error(self, req_id: int, code: int, msg: str) -> None:` — the **retained** session branch of `_on_error` calls `session.on_historical_error(reqId, errorCode, errorString)` immediately before the duplicate 8000 ms line; wave 1 must leave the call **and** this method untouched | `ui/ticker_session.py` |
+| Realtime-stream error hand-off `[existing]` | `def _on_rt_stream_error(self, session: TickerSession, code: int, message: str) -> None:` — the **retained** RT branch of `_on_error` calls it when `reqId == session.rt_req_id`; it owns the 15 s `Realtime stream failed [<code>]: <message> — retrying…` line, the stream badge and the retry schedule; untouched by wave 1 | `ui/main_window.py` |
+| Broker boundary `[existing]` | `class IBApiClient(EWrapper, EClient):` — `EClient.__init__(self, self)`, remembered connect params for the D27.3 reconnect (`_do_reconnect` re-issues the real `EClient.connect`), `def connected(self)`, the bridge instance. **No `placeOrder` / `cancelOrder` / `reqGlobalCancel` definition may exist here** (all inherited from `EClient`; the three *order-lifecycle* overrides are deleted in wave 2) | `ibkr/client.py` |
+| Fail-fast port check `[existing]` | `def check_live_port() -> None:` — raises `SystemExit` with a human-readable message unless `IBKR_PORT == LIVE_PORT` | `config/settings.py` |
+| ReqId allocation `[existing]` | `class IdManager:` — `def set_next_valid_id(self, order_id: int):` · `def get_id(self) -> int:` (+ the global `id_manager` singleton). **`reserve` is deleted; every other member is frozen** and must keep serving `ui/main_window.py`, `ibkr/market_data.py`, `ibkr/realtime_bars.py` | `ibkr/id_manager.py` |
+| Connection transition `[existing]` | `def nextValidId(self, orderId: int):` — `super().nextValidId(orderId)`; `id_manager.set_next_valid_id(orderId)`; then the CONNECTED transition (`_connected = True`, `_reconnect_attempt = 0`, `_last_disconnect_class = None`, `_set_state(ConnectionState.CONNECTED)`). **Retained** (A102/DG82): the only reconnect-success hook, and its name is `EWrapper`'s. Only order-worded **comments** may be reworded | `ibkr/client.py` |
+| Alarm tone `[existing]` | `def render_alarm_chime() -> np.ndarray:` · `ALARM_DURATION` · `ensure_sound_files(directory) -> dict` returning the `"alarm"` key · `SoundService.play_alarm(self) -> None:`. **The order-fill half beside it is deleted; the alarm path is frozen and must keep playing** (the D21 alarm calls it at `ui/main_window.py:2114`) | `services/sound_service.py` |
+| Table introspection `[existing]` | `def _table_columns(self, table_name: str) -> set[str]:` — `PRAGMA table_info(<table>)` returning the column-name set. Wave 7 **calls** it for the migration guard; its contract and its existing callers (the `alarms` and `bars` migrations) do not change | `data/db.py` |
+| Position row shape `[existing]` | `class Position:` in `data.models` — `symbol, qty, avg_cost, contract_type, con_id, account, local_symbol, multiplier, expiry, strike, right, trade_group_id, id` — **and the same 13 names in the SQL**. This is the column order every reader depends on after the drop; `trade_group_id` is the **12th** selected column. Frozen so no task re-orders the SELECT | `data/models.py` + `ui/main_window.py` |
+| ICT price structure `[existing]` | `order_blocks = _order_blocks(...)` → `result["orderBlocks"]` → `ICTOverlay._render_order_blocks(...)`. **Not order code** — an ICT price-structure concept; worded like an order, frozen so no sweep "tidies" it (R83) | `services/ict_service.py` + `ui/overlays/ict_overlay.py` |
+| Watchlist sequencing `[existing]` | the `sort_order` column of `watchlist` and its readers (`INSERT OR IGNORE INTO watchlist (symbol, category, sort_order)`, `ORDER BY sort_order ASC`, `set_watchlist(..., sort_order=...)`). **Not order code**; frozen (R83) | `data/db.py` + `ui/watchlist_panel.py` |
+| Removal guard **scope** `[existing]` | The three instruments' **scope split**, frozen while their contents change: (1) **AST scan** — identifiers **and** string constants over exactly `ui/ services/ data/ ibkr/ config/` (`_SOURCE_DIRS`), comments invisible; (2) **raw-text twin** — `ui/` only, same token list, comments visible; (3) **`tests/` in neither**, so absence is asserted directly (`hasattr`, `name not in IBApiClient.__dict__`, `find_spec`, `Path.exists()`). Two tokens are exact-matched (whole identifier / whole string constant in (1), delimited word in (2)). **What is frozen is the split, not the file**: `tests/test_d45_removal.py` **is** edited by waves 1 and 8 — the split must not move while the token lists and the absence test do | `tests/test_d45_removal.py` |
+
+### Non-Functional Approach (P5)
+
+- **Silent-path safety (the phase's defining risk, R76 — `S43`).** A delete-only batch usually fails **loudly**
+  (an import error, a failed constructor). This one can fail **silently**: `emit` on a signal with no receiver is
+  a no-op, a slot that is never invoked is dead code, and pyqtgraph installs a **non-abort `sys.excepthook`**, so
+  an `AttributeError` raised *inside* a slot is printed and swallowed — and **no test triggers an order
+  callback**, so the suite stays green while the app would break on the first TWS order event. Mitigation is
+  structural, not hopeful: (i) the consumer half (connects + slots + `_update_order_status` + `_on_order_error` +
+  the `_on_error` branch + the import) goes **first**, leaving three live signals with zero receivers — harmless
+  and constructible; (ii) each signal is deleted in the **same task** as its only emitters; (iii) the module goes
+  **last**, after its sole importer and every reader; (iv) every wave ends with an import check
+  (`python -c "import ui.main_window"`) plus a residue grep; (v) the end state is asserted directly —
+  `hasattr` on the **eight** window/bridge members, **`name not in IBApiClient.__dict__`** for the **three** client
+  overrides (never `hasattr`: the inherited `EWrapper` no-ops keep it `True` before *and* after the override is
+  deleted, `AR-D46-2`), and `find_spec` on the module — rather than inferred from a green suite. The expansion adds
+  **two more silent paths**: (vi) *the index shift* — a wrong `row[N]` does not raise, it puts a stop value into the
+  **Group** column (`S48`, AR-D46-10), mitigated by name-keyed access **plus** a seeded-`trade_group_id` assertion;
+  and (vii) *the migration* — a half-done schema does not raise either, mitigated by the `_table_columns()` guard and
+  one atomic statement per column (`S47`, AR-D46-9).
+- **Error visibility (from `D46.3` / `AC-D46.3`, R77 — the owner's explicit worry).** The requirement is that
+  **201 / 103 / 202** still reach the status bar with TWS's own text. It is met by the **existing** generic line —
+  `classify_error(201) == classify_error(103) == 'fatal'`, `classify_error(202) == 'warning'`, so
+  `IBApiClient.error`'s `severity != 'info'` gate emits all three — and it is proven **positively and per code**
+  (three parametrised cases asserting `[201]` / `[103]` / `[202]` **and** the TWS string), never by an absence
+  test. The `classify_error` parametrised cases stay in the same file so the gate cannot be "tidied" away
+  unnoticed. What the app no longer does — an order id, a "Rejected"/"Cancelled" verdict, a 12-second duration —
+  never reached the user (the registry was empty), so the change is documentation, not behaviour.
+- **Routing stability (from A94 / DG78).** `_on_error`'s order is unchanged: session reqId first, generic last.
+  An orderId that numerically collides with a live session reqId keeps taking the session path — **pre-existing,
+  deliberate, and not fixed here** (DG78 item 2 is recorded open and non-blocking; the plan forbids a test that
+  would pin the collision as desired behaviour).
+- **Importability and greenness between waves.** Wave 1 leaves `ibkr/orders.py` on disk with **no** importer (a
+  dormant module is harmless); wave 2 leaves the app with no order signal and no order override; wave 3 removes the
+  module *after* nothing references it; waves 4–6 touch files nothing else reads. **Wave 7 is the only wave that
+  would leave the suite red until its own test edits land, which is why they are in the same task** (R84/DG85) —
+  nothing outside that wave depends on the columns, so no other suite can be reddened by it. Wave 8's instrument
+  edit is green the moment it lands (I-1).
+- **Worker safety on delete-only work (memory 2026-10-15, R76; R84).** Ten waves, at most **eleven** files each, and
+  the one large task (wave 7) is **not** a delete-only sweep: ~40 edited lines across eleven files (4 DDL lines + ~8
+  migration lines + 4 field lines + a class + 6 account lines + ~15 `main_window` lines + mechanical test edits),
+  well under the L-size deletion profile that killed three D41 workers (R84). Each wave ends with a syntax/import
+  check and its own residue grep.
+- **Data safety (the destructive step, A99/R82 — `S47`).** What is destroyed is **two columns' bytes** — the batch's
+  only byte-destroying step. For a row that receives another live update the values were already cleared (ESC-060:
+  `_on_position_update` passed `None` and the `DO UPDATE` wrote both columns; every setter died in D45); for a row that
+  never updates again the legacy bytes are lost **at this point and only here**. They are invisible (8-column panel),
+  unsettable (no dialog or menu since D45) and unsupported, which is what makes the drop defensible; it is not a
+  statement that no byte is destroyed. What must not be destroyed is a **row**, the unique index and the FK — all three measured as preserved. **No
+  copy of the database is taken by the app**: copying the owner's DB at launch is a new behaviour with its own failure
+  modes and there is no row-copy step to interrupt. The proof is a legacy-fixture test (pre-seeded DDL + rows with a
+  non-null `trade_group_id`), a row-count comparison, `sqlite_master`'s index, and a second `DB()` on the same file.
+- **Invariant I-1 — the guard may only name what is already gone (new in revision 2).** At **every** wave boundary,
+  every token in `_FORBIDDEN` names code that no longer exists, and every name in `_SURVIVORS` still exists. This is
+  what makes a **single** token migration (wave 8) correct instead of a staged one: the set is not "allowed to lie"
+  in between — it simply does not yet name things that are still there. The interim net for waves 1–7 is the
+  mandatory per-wave residue grep, which uses the **final** token list from wave 1 onward.
+- **Blast radius / security.** The app loses the only place it could hold order state **and** the only place it
+  stored a stop or a target, so nothing in memory or on disk can be mistaken for a live protection. No credential,
+  endpoint or persistence is added, and no transmit/cancel capability is created (the guard forbids all three names).
+- **Performance / scalability.** No measurable change and none required: three callbacks that did nothing are no
+  longer copied, four dead columns are no longer written or read, and the migration runs **once** per database. The
+  generic error line is unchanged in shape and duration.
+- **Doc freshness (R85/DG84 — `S50`).** The trail must read **kept → cleared → dropped**; two live claims side by
+  side is the failure this criterion exists to prevent. P5 owns `architecture.md`/`plan.md`/`codebase-map.md`; Build
+  owns `USAGE.txt`/`usage.md` and the code comments. The already-activated D45 sections are enumerated by line for the
+  Validator rather than edited here.
+
+### Architecture Risks (P5)
+
+| # | Risk | Severity | Mitigation |
+|---|---|---|---|
+| **AR-D46-1** | A surviving importer of `ibkr.orders` (or of the `orders` singleton) turns the deletion into an `ImportError` at launch, possibly in a module nobody edited (R78) | **H** | The only importer is named and deleted in wave 1 (`S39`); wave 3's gate runs an import-all probe plus `find_spec("ibkr.orders") is None`; every window-building suite constructs the real `MainWindow`, so an unresolved import cannot pass; the guard's token scan covers `ui/ services/ data/ ibkr/ config/` |
+| **AR-D46-2** | **A reachable-but-broken intermediate state**: a signal deleted before its emitter, or a slot deleted while its connect remains — an `AttributeError` that only fires on a live TWS order callback, so the suite stays green while the app breaks (R76 — the batch's defining risk) | **H** | `S43`'s four rules, enforced by the wave split: consumers first (wave 1), emitter+signal in **one** task (wave 2), module last (wave 3); per-wave import check; the end state asserted by wave 8's guard — `hasattr` for the **eight** window/bridge members and **`name not in IBApiClient.__dict__`** for the **three** client overrides (the inherited `EWrapper` no-ops make `hasattr` `True` regardless, so `hasattr` proves nothing there) — and re-verified by the Code Reviewer with the same split, not by "the suite is green" |
+| **AR-D46-3** | The removal erodes the **error path** — someone "simplifies" `_on_error`, `classify_error` or `IBApiClient.error` while deleting the branch, and 201/103/202 stop surfacing (R77) | **H** | `S46` freezes `classify_error`, `IBApiClient.error` (gate + D40.1 `502`), `error_msg` and the 8000 ms line as **Frozen Interfaces**; the per-code test (`AC-D46.3`) plus the retained `classify_error` cases turn red on any erosion; wave 10's gate and the Code Reviewer reproduce all three codes independently |
+| **AR-D46-4** | The guard's token set is wrong in either direction: **not shrunk** (a resurrected `order_registry` passes) or **over-broad** (an offence on code the phase keeps) (R79) | **M** | Counted both ways, by execution: pre-P5 **41 AST offences / 40 twin hits**, post-P5 **0 / 0** on a simulated copy. `AC-D46.4` names the exact ten names that leave `_SURVIVORS`; **78** tokens are substring-matched and **two** (`orders`, `Orders`) are exact-matched; **`reserve` is not a token at all** (measured 13 units / 11 files, all "preserve(s/d)" in docstrings) and is covered by `hasattr(IdManager, "reserve") is False`; `stop_loss`/`take_profit` **must** be substring because the SQL column list is one string constant; the scan going red on a re-added name is the guard |
+| **AR-D46-5** | `data/models.UserOrder` is deleted but the smoke assertion is left behind → a red suite that looks like a regression from the module deletion (R81) | **M** | A96 and `AC-D46.8` name the class and the assertion **together**, and both live in **wave 3** (same task); the guard asserts `hasattr(data.models, "UserOrder") is False` |
+| **AR-D46-6** | The suite's meaning shrinks (17 builder cases + 3 stop-target cases + 2 fill-blip + 1 order-limiter + 2 registry cases + 4 reserve cases) and a later reader treats a green suite as "order code is fine" (R80, A104) | **M** | Stated as an owner-accepted consequence and recorded in the plan's book **before → after** (**2 deleted / 13 adjusted / 0 added**) — the deleted cases covered code that is itself deleted, so there is **no untested surface left**; the guard's absence assertions plus the **new** schema and index-shift assertions are the replacement meaning, not a coverage claim |
+| **AR-D46-7** | **The docs re-instruct the wrong outcome**: the map still says the module "is NOT orphaned and must NOT be deleted" and lists the observers as "do not clean up", while `S29`/`AR-D45-10` mandate a docstring note — a Build worker preserves exactly what must go (DG81) | **H** | `S45`: the map is refreshed and `S29`/`AR-D45-10` superseded **in this draft**, so activation hands Build a truthful map; the Validator checks that no "retained"/"must not be deleted" claim survives; the Code Reviewer greps for it independently; `ESC-061` is recorded **moot** so nobody implements the note |
+| **AR-D46-8** | The owner (or a reviewer) reads the deletion as **lost error visibility**, because the "Rejected"/"Cancelled" wording is what they remember being promised (R77/DG78) | **H** *(owner-facing)* | `AC-D46.3` is a positive per-code proof; `S41` and the plan state **exactly** what appears and what no longer does; `USAGE.txt:92`–`:93` already matches the end state ("IBKR rejections and cancellations appear in the status bar together with TWS's message"), so the shipped doc is evidence, not a promise to rewrite |
+| **AR-D46-9** | **The first destructive schema step runs on the owner's real database at launch** and a botched migration loses **rows** (not just the two dead columns), or drops the unique index / the FK and silently breaks the upsert and strategy grouping (R82) | **H** | `S47`: four guarded in-place `DROP COLUMN` statements, one atomic statement per column, **measured** to preserve rows, `sqlite_sequence`, `idx_positions_symbol_con_id`, the FK definition, `foreign_key_check`, `integrity_check` and the 13-column upsert with `RETURNING id`; idempotent on fresh and re-opened DBs; a legacy-fixture test asserts row counts and the index; the Code Reviewer reproduces the migration on its own pre-P5 fixture |
+| **AR-D46-10** | **The index shift fails silently** — `trade_group_id` reading `row[12]` instead of `row[14]` puts a stop value (or `None`) into the Portfolio **Group** column, which looks like a strategy-detection regression (DG85) | **H** | `S48`: name-keyed access at the one reshaped SELECT, **plus** a new case seeding a non-null `trade_group_id` (measured: **no test seeds one today**), **plus** the legacy-fixture migration test — all in the same task as the schema change (R84) |
+| **AR-D46-11** | A token proves **too broad** and the guard goes red on code the register keeps — the measured cases are `reserve` (13 units: `id_manager.py`'s two, ten "preserve(s/d)" docstrings, and `_reserve_price_tag_lane`), `Orders` in prose, and `_fill_effect` inside `_effect`'s ternary string (R79/R83) | **M** | `reserve` is **not** a token (`hasattr` instead); `orders`/`Orders` are exact-matched; `stop_loss`/`take_profit` stay substring because a SQL list is one string; **and `_effect` must collapse to alarm-only**, stated as a named edit because leaving the ternary keeps the scan red on a member this phase deletes |
+| **AR-D46-12** | **Test-book drift**: an assertion invalidated by a deleted surface outside the edited files turns red or silently stops testing — measured instances the register's book does **not** list: `test_id_manager`'s concurrent case (calls `reserve`), `test_sound_service`'s `paths["fill"]` (`KeyError`), and the absence of any seeded `trade_group_id` | **M** | The book is enumerated **per assertion with line numbers** in the plan, before → after, and two of the three are raised as **Flagged Issues** so the requirements side can correct the register rather than have a worker discover them; wave 10 runs the full suite and the Code Reviewer re-derives the book from `git diff --stat -- tests/` |
+
+### Requirements → architecture traceability (P5)
+
+| Requirement / journey | Architecture section | Phase (plan) |
+|---|---|---|
+| **`D46.1` / `AC-D46.1`** (module absent; no importers; no builder/registry name) | `S39`; System Components (deleted); Codebase Summary (single importer); AR-D46-1 | Phase 1 · **W1 + W3**; Phase 2 · **W8**; Phase 3 · W10 |
+| **`D46.2` / `AC-D46.2`** (the chain is gone: 3 signals, 3 overrides, 5 members, no registry lookup) | `S40`; System Components (three rows); Integration Points (order lifecycle `removed`); AR-D46-2. **The client half is measured by `__dict__` membership** — `AP-D46-14` / `RG-D46-2`: the AC's `hasattr(...) is False` wording is unsatisfiable because `EWrapper` supplies the three names | Phase 1 · **W1–W2**; Phase 2 · **W8**; Phase 3 · W10 |
+| **`D46.3` / `AC-D46.3`** (201/103/202 still surface, per code, 8000 ms, no verdict) | `S41` + `S46`; Frozen *Error classification* / *Error ingress* / *Error signal* / *Window error routing*; Non-Functional (error visibility); AR-D46-3/8 | Phase 1 · **W1**; Phase 2 · **W8**; Phase 3 · W10 |
+| **`D46.4` / `AC-D46.4`** (zero order interaction; guard strengthened; the ten survivor names move) | `S44`; Frozen *Broker boundary*; the plan's residue step; AR-D46-4 | Phase 1 · W1–W6; Phase 2 · **W8** |
+| **`D46.5` / `AC-D46.5`** (green suite; exact test book; no other file changes) | `S44`; the plan's book (**2 deleted / 13 adjusted / 0 added**); AR-D46-6, AR-D46-12 | Phase 1 · **W1, W3–W7**; Phase 2 · W8–W9; Phase 3 · W10 |
+| **`D46.6` / `AC-D46.6`** (prose matches the tree: map, `classify_error` comment, user docs, the comments) | `S45` + `S49` + `S50`; System Components (map, `error_codes`, `account`, `main_window` comments); Non-Functional (doc freshness); AR-D46-7 | Phase 2 · **W9** (+ the Plan-owned map in this draft) |
+| **`D46.7` / `AC-D46.7`** (history preserved; A80/A90/A87/A97 keep their wording; marker + tech stack intact) | § *Supersessions and non-changes* below; `S39`/`S40`/`S46`/`S47` relationship labels | — (recorded; no production edit) |
+| **`D46.8` / `AC-D46.8`** (no second `UserOrder`; smoke green) | `S42`; Data Model (`data.models.UserOrder [deleted]`); AR-D46-5 | Phase 1 · **W3** |
+| **`D46.9` / `AC-D46.9`** (the inventory is closed: DELETE empty, RETAIN present with its consumer) | `S44` (token set) + `S46` (frozen survivors, each with its consumer); the plan's per-name ownership table | Phase 2 · **W8**; Phase 3 · W10 |
+| **`D46.10` / `AC-D46.10`** (`IdManager` intact minus `reserve`; 8 cases → 4) | `S46` (module frozen) + `S44` (`reserve` is **not** a token); the plan's Flagged Issue 1 and W6 | Phase 1 · **W6**; Phase 2 · W8 |
+| **`D46.11` / `AC-D46.11`** (zero-consumer utilities gone; the alarm chime still plays) | `S46` (alarm path frozen) + System Components (`pacing`, `settings`, `sound_service`, `id_manager`); AR-D46-11 | Phase 1 · **W4–W6**; Phase 2 · W8 |
+| **`D46.12` / `AC-D46.12`** (storage gone; rows/index/FK preserved; idempotent; Portfolio 8 columns) | **`S47`** (mechanism) + **`S48`** (readers) + Data Model (the three DB ages); AR-D46-9/10 | Phase 1 · **W7**; Phase 2 · **W8**; Phase 3 · W10 |
+| **`D46.13` / `AC-D46.13`** (one-directional doc trail: kept → cleared → dropped) | **`S50`**; the plan's *Document trail* table (site-by-site) | Phase 2 · **W9** (+ the Validator's supersession markers) |
+| **Journey 39** (steps 1–10; postconditions; edge cases: `_closing`, session-reqId collision, 202 severity, `reqId=-1`, D40.1 502, stale `__pycache__`, no saved layout, **pre-D46 DB**, **fresh DB**, **second open**, **inventory grep**, **re-add goes red**) | `S40`–`S50`; Non-Functional (routing stability, data safety, I-1); the plan's edge-case list | Phase 1 · W1–W7; Phase 2 · W8–W9; Phase 3 · **W10** |
+| **A91 / A92 / A93 / A94 / A96** | `S39` / `S40` / `S41` / `S41` (routing unchanged) / `S42` | Phase 1 · W1–W3 |
+| **A95 / A99 / A100 / A101 / A102 / A103 / A104** | `S44` (test book) / **`S47`+`S48`** / `S46` / `S46` (`reserve` only) / `S46` (`nextValidId`) / `S44`+`S46` / the plan's book | Phases 1–3 |
+| **R76 / R77 / R78 / R79 / R80 / R81** | AR-D46-2 / 3 + 8 / 1 / 4 + 11 / 6 / 5; `S43`, `S44` | Phases 1–3 |
+| **R82 / R83 / R84 / R85** | **AR-D46-9 / AR-D46-11 / AR-D46-10 + `S43`'s wave split / AR-D46-7 + `S50`** | Phase 1 · W7; Phase 2 · W8–W9 |
+| **DG78** (wording already unreachable; orderId↔session-reqId collision) | `S41` — (1) pinned by `AC-D46.3`; (2) **deliberately unchanged** (A94) | Phase 1 · W1 (assertion only) |
+| **DG79** (second `UserOrder`) | `S42` | Phase 1 · W3 |
+| **DG80** (`IdManager.reserve`) | `S46` — **resolved**: `reserve` is deleted, the module stays (A101) | Phase 1 · W6 |
+| **DG81** (Plan-owned docs instruct retention) | `S45` + AR-D46-7; the map refresh in this draft | Phase 2 · W8 (verification) |
+| **DG82 / DG83** (`nextValidId`, `advancedOrderRejectJson`) | `S46` — both RETAIN, each with its consumer named | — (recorded) |
+| **DG84 / DG85 / DG86 / DG87** | **`S50` / `S48` / `S47` / `S44`** (scan scoped to tracked `*.py`; `__pycache__` is untracked residue) | Phase 2 · W9 / Phase 1 · W7 / Phase 1 · W7 / Phase 2 · W8 |
+| **`ESC-062`** (four comments + one test name) | **`S49`** | Phase 1 · W1 (deleted comment) + W7 (three); Phase 2 · W9 (rename) |
+| **`ESC-063`** (open PLAN: map says D45 "adjusts six") | `S45`, § *Supersessions* item 15 — **already corrected in `docs/codebase-map.md:25`–`:29`** | — (Plan, this draft) |
+| **`ESC-061`** (open BUILD: docstring note on the retained module) | `S39` — **moot**, no note is owed | — (no task) |
+| **D1–D45** | `[no relationship]` — **not reopened**; only the clauses named in § *Supersessions* change | — |
+
+### Supersessions and non-changes (recorded, never silent) (P5)
+
+1. **`S29` (D45) — SUPERSEDED IN FULL.** "`ibkr/orders.py` is retained, unreferenced by any transmit path, with
+   a module-docstring note" is replaced by `S39`: the module is **deleted**. Requirements recorded the reversal
+   as **A91** (A80's original wording kept beside it) — this section is the architecture half of that reversal.
+2. **`AR-D45-10` — SUPERSEDED.** "`ibkr/orders.py` retained-but-unused invites a future reconnection" described a
+   risk of *keeping* the module; with the module gone the risk does not exist. Its mitigation (the docstring note)
+   is **moot** — recorded here so `ESC-061` is closed as moot rather than re-dispatched.
+3. **`S35`'s observer half + `A90` — REVERSED.** The "keep the broker-boundary plumbing inert rather than deleting
+   it" decision covered two things: the ibapi **news** boundary and the **order** observers. The news half
+   **stands untouched**; the order half is removed by `S40` (A92). The retained fail-fast port check, badge and
+   no-test-transmits rule named in `S35` are exactly what `S46` freezes.
+4. **D45's frozen-interface rows — VOID where they named the removed code.** *Order registry API* (`ibkr/orders.py`)
+   and *Inert inbound observers* (`ui/main_window.py`) described interfaces that no longer exist; they are not
+   carried forward. The *Error classification* row's **role text** is amended: `classify_error` gates **every** TWS
+   error through `IBApiClient.error`, not "the retained `_on_order_error` path".
+5. **Plan `AP-D45-1` and `AP-D45-9` — SUPERSEDED.** "`ibkr/orders.py` is retained, not deleted" and "`tests/test_order_builders.py`
+   stays as the module's residual coverage" are both replaced by `S39` and the deletion of that suite.
+6. **`DG76` — RESOLVED** by the deletion (the "unreferenced code that still looks live" question no longer
+   exists). **`DG79` — resolved** by `S42`. **`DG81` — resolved** by this draft's map refresh plus `S45`.
+   **`DG80`** stays **open (non-blocking)** and deliberately out of scope (A97). **`DG78`** item (2) stays **open
+   (non-blocking, pre-existing, deliberately unchanged)** per A94 — no task may reorder the error path.
+7. **`AC-D26.9`'s registry half — VACUOUS** (there is no registry); its **surfacing half** is carried forward as
+   `AC-D46.3`, exactly as the requirements' supersession record states. No other D26 clause changes.
+8. **`AC-D45.4` / `AC-D45.8` — unchanged in substance, strengthened in fact.** The guard's allow-list loses the
+   eight order names and its forbidden set gains them, so D45's zero-transmit invariant now also forbids the
+   observation seam. Nothing in D45's criteria is weakened.
+9. **Deviation record — the register's Build split order is not executable as written.** The correction record
+   suggests (1) module deletion + importer cleanup, (2) client/bridge/connects, (3) window slots. Group (1) cannot
+   be a standalone wave: deleting `ibkr/orders.py` first leaves `ui/main_window.py`'s import dangling **and**,
+   worse, leaves `_on_error`'s registry branch as a live `NameError` on any non-session TWS error. P5 keeps the
+   register's **member groups** and forces the **order** (window → boundary → module) — `S43`, plan `AP-D46-1`.
+10. **Deviation record — the guard needs four edits across two waves, not one.** `AC-D46.5`/A95 describe
+    `tests/test_d45_removal.py` as "allow-list shrink" only; the walkthrough's `win._on_order_error(...)` call and
+    its docstring bullet must be repointed in **wave 1** or the walkthrough raises once the handler is gone, and the
+    instrument's own retention-era prose and token migration are corrected in **wave 8** (`AP-D46-15`, invariant I-1) —
+    two waves, four sub-edits (`AP-D46-6`). The file is named and
+    *adjusted* in the AC, so no criterion fails — plan `AP-D46-6` records the full set.
+11. **`ESC-063` — RESOLVED (Plan-owned, this draft).** The map's D45 header said the batch "adjusts six" test
+    files and omitted the added suite; it now reads **5 deleted / 7 adjusted / 1 added** (matching
+    `git diff --stat HEAD -- tests/`: five deletions, seven modifications, and `tests/test_d45_removal.py` added),
+    and the file stops pointing workers at the superseded D45 proposal drafts.
+12. **Explicit non-changes (recorded so they are not read as omissions):** the chart render stack, `ui/ticker_session.py`,
+    `ui/active_portfolio_panel.py`, `ui/watchlist_panel.py`, `ui/dock_layout.py`, `services/*` outside
+    `sound_service.py`, `data/bar_cache.py`, `data/events/*`, `ibkr/market_data.py`, `ibkr/realtime_bars.py`,
+    `ibkr/subscription_manager.py`, `ibkr/stream_health.py`, `ibkr/contracts.py`, `ibkr/utils.py`,
+    `ibkr/error_codes.py`'s **code**, `PacingManager`/`PacingExceeded`/`pacing_manager`, `IdManager`'s remaining API,
+    `IBApiClient.nextValidId`, the `"456"`/tick-59 dividend path, the ICT order blocks, `sort_order`,
+    `TradeGroup`/strategy grouping, `play_alarm`/`render_alarm_chime`, `advancedOrderRejectJson`, `config/paths.py`,
+    `main.py`, `tests/test_d40_tws_lifecycle.py`, `tests/test_port_guard.py`, `tests/test_d41_removal.py`,
+    `tests/test_db_schema.py`, `docs/requirements/*` (analyst-owned), and the pinned dependency set (**no new
+    dependency**).
+13. **No replacement surface.** No order, cancel or protection UI is added anywhere; the Portfolio panel stays
+    view-only and stop/target-free. `D46` is a removal, and a future order path needs a new requirement, not an
+    un-comment (`R79`).
+14. **`S33` (D45) and `AC-D45.6`/`AC-D45.10`'s storage halves — SUPERSEDED BY `S47`/`A99`.** Their *UI* halves stand
+    (8 columns, no `Stop`/`Target` header, no setters). Their *storage* halves ("columns and fields retained, no
+    migration") are superseded: the columns and the fields are **dropped**. D45's text stays as written so the
+    reversal is visible; the trail reads **kept → cleared → dropped**.
+15. **`S46` (this phase, revision 1) — REVISED IN PLACE.** Revision 1 froze `IdManager` *including* `reserve`, the
+    `positions`/`trade_groups` storage, `order_limiter` and `MAX_ORDER_NOTIONAL` as untouched. Those five are now
+    **tasks**; everything revision 1 froze that the register still keeps is frozen again, now **with its consumer
+    named**.
+16. **`S44` (this phase, revision 1) — MECHANISM KEPT, TWO RATIONALES CORRECTED.** The exact-match set for
+    `orders`/`Orders` was justified by two docstrings in files "no task may edit"; **both are deleted by this phase**,
+    so that justification is void. The set survives on the prose-safety ground stated in `S44`, and the token set
+    grows to the measured 80. `token in parts` remains **not** the AST implementation, and
+    `PacingExceeded`/`pacing_manager`/`classify_error` remain survivors.
+17. *(merged into item 9 — the same deviation record was written twice in revision 2; removed as duplication, no
+    decision changed.)*
+18. **Deviation record — the guard gets two edits in two waves, and its token migration is deliberately late.** Waves
+    1 and 8 (invariant I-1). `AC-D46.5` names the file as *adjusted*, so no criterion fails; plan `AP-D46-6`.
+19. **Deviation record — the storage wave is one task with eleven files, not three tasks.** R84/DG85 require the
+    schema and its readers to land together; splitting them would leave the suite red between waves **and** separate
+    the schema from its readers, which is exactly the trap. Size measured: ~40 edited lines, four files mechanical.
+    Plan `AP-D46-10`.
+
+**Handoff:** this increment is **ACTIVE** — `docs/plan.md` § *Phase P5* ends `READY_FOR_TASK_MANAGER` (validated and
+re-activated 2026-10-25, `docs/plan_review_P5.md`). The Code
+Reviewer independently re-verifies: (a) `ibkr/orders` absent with **no** importer and `import ibkr.orders` raising
+`ModuleNotFoundError`; (b) the chain absent **by the right measure for each half** — the five `MainWindow` members and
+three `Bridge` signals by `hasattr`, the three `IBApiClient` overrides by **`name not in IBApiClient.__dict__`**
+(never `hasattr`), and no `order_registry` in `_on_error`; (c) `AC-D46.3` reproduced for **201, 103 and 202**, with
+`classify_error`'s table and the 8000 ms line unchanged; (d) `data.models` has no `UserOrder`, no
+`Position`/`TradeGroup` stop/target field, `ibkr.account.Position` matches it, and `build_position_from_ib` takes
+neither; (e) **the migration**: a pre-P5 fixture keeps every row, `sqlite_sequence`, the unique index and the FK, a
+second open is a no-op, and a fresh DB has no such columns; (f) the map no longer claims retention and its books read
+5/7/1 (D45) and the P5 book; (g) the guard's token set really migrated and its end state fails on the pre-P5 tree
+(**41 AST offences / 40 twin hits**, simulated post-P5 **0 / 0**); (h) **no** replacement order/cancel/protection
+surface was introduced.

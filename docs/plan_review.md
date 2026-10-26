@@ -2398,3 +2398,346 @@ asserts exactly this form, so the restated criterion is **satisfied by the deliv
 **Status markers:** unchanged. `docs/plan_review.md` remains `Status: APPROVED`; `docs/plan.md` still
 ends `Status: READY_FOR_TASK_MANAGER`. The sync restores plan freshness (plan ≥ requirements) without
 altering the decision. Task Manager may proceed.
+
+---
+
+# Plan Review — Batch 20 (**D45**): remove the News Digest dock (+ `View` menubar), the Trade Context Menu, the **Kill switch** and the **SL/TP dialog** — 2026-10-25 — initial validation (round **1** of 3, **CHANGES_REQUIRED**)
+
+> Legacy single-scope run (the preamble carries no `Phase: P<n>`; inputs are the unsuffixed
+> `docs/plan_proposal.md` / `docs/architecture_proposal.md`), so no phase gate applies and this review is
+> final for the cycle. Round **1** of the 3-retry cap. The pair was **rewritten wholesale** for D45 (it is not
+> a revision of the D44 pair), so the full Validation Method was run. `plan_lint.py --phase P4` reported
+> **LINT PASS, 0 failures, 0 warnings** (Orchestrator preamble).
+
+## Review Status
+`Status: CHANGES_REQUIRED` — round **1** of 3. The D45 increment is **architecturally sound and
+source-verified**: every one of Plan's five load-bearing own decisions holds against the tree (verdicts
+below), each `AC-D45.*` criterion has a treatment, the frozen interfaces quote **real** contracts, and the
+codebase-map repair is **correct**. It is **not promotable** because the **test book is incomplete in two
+ways that make the plan's own "every wave leaves … its own tests green" invariant unachievable** — one
+invalidated suite is missing entirely (R1) and one case removal is scheduled a wave *after* the change that
+breaks it (R2) — plus a residue-instrument gap (R3) and a contradiction between the two proposal documents
+(R4). `docs/architecture.md` and `docs/plan.md` were **not modified** this cycle.
+
+## Validation Summary
+
+**Inputs.** `docs/requirements/requirements.md` — `Status: READY_FOR_PLAN`, **0 open questions**
+(`open_questions.md` ends at Q55, answered); the `## Existing Repository` marker sentence (`:335`) and
+`Current Tech Stack` (`:455`) are intact and placeholder-free; `### D45` `:4100`–`:4487`, `AC-D45.1`–`.10`
+`:4282`–`:4370`, supersession record `:4371`–`:4416`, A79–A90 `:4423`–`:4582`; Journey 38 `:1086`.
+`design_gaps.md` DG75 (resolved by supersession), DG76 (open non-blocking, Plan-level — decided by `S29`),
+DG77 (open non-blocking). `docs/code_review/escalations.json`: **29 entries, 0 open**, and the only
+`routed_to: PLAN` entry ever recorded (ESC-050) is `addressed` → the escalation-validation path does not
+apply. `docs/pending_doc_sync.md`: **absent** ✓. `docs/memory.md` (165 lines) — the 2026-10-15 delete-only
+worker lesson (`:122`–`:124`), the 2026-10-23 map-ownership note (`:157`) and the pyqtgraph lock (`:164`)
+all exist as cited.
+
+**Freshness / baseline.** `git rev-parse HEAD` = **`c702be9`**; the working tree carries only this batch's
+`requirements.md`, `design_gaps.md`, `codebase-map.md` and the two proposal files (plus the orchestrator's
+`.openchamber/`). Proposals are newer than the requirements edits. Both proposals end
+`Status: READY_FOR_VALIDATION`.
+
+**Source verification.** Every load-bearing claim in the pair was checked against the tree:
+`ui/main_window.py`, `ui/ticker_session.py`, `ui/active_portfolio_panel.py`, `ui/news_digest_dock.py`,
+`ui/trade_context_menu.py`, `ui/stop_loss_target_dialog.py`, `ibkr/news.py`, `ibkr/validation.py`,
+`ibkr/orders.py`, `ibkr/client.py`, `ibkr/error_codes.py`, `data/models.py`, `data/db.py`,
+`services/md_line_guard.py`, `data/events/provider.py`, `ui/event_marker_overlay.py`, `ui/dock_layout.py`,
+`config/settings.py`, and the `tests/` tree (`grep`/`ast` over 131 modules). graphify (`graph.json`,
+4,947 nodes) was used for orientation only; **the source wins** where they differ.
+
+## The five Plan decisions — verdicts
+
+| # | Plan decision | Verdict | Evidence (re-derived this cycle) |
+|---|---|---|---|
+| **1** | **`ibkr/orders.py` is retained, not deleted** — not orphaned: the `orders` singleton feeds the retained inert observers, and `tests/test_order_builders.py` still covers the builders | **VERIFIED — correct** | `ui/main_window.py:36` `from ibkr.orders import orders as order_registry, UserOrder`; live consumers `_update_order_status` (`:3335`–`:3336`) and `_on_order_error` (`:1598`), plus the deleted `_close_position_by_id` (`:3400`, `:3475`). `tests/test_order_builders.py` exists with 17 cases covering `market_order`/`limit_order`/`stop_order`/`bracket_order` (structure, OCA groups, `transmit` flags) and the registry (`register`/`get`/`update_status`/`clear_filled`/`all`/singleton). The module defines no `placeOrder`/`cancelOrder`. `S29`/A80/DG76 are consistent with this evidence. |
+| **2** | **`tests/test_d41_removal.py` and `tests/test_stop_loss_target.py` are kept unchanged** | **VERIFIED — correct** | `test_d41_removal.py`'s only news reference is the allow-list **string** `queue_depth` (`:105`) plus prose at `:170`; its scan roots are `ui/ services/ data/ ibkr/ config/` (`:29`) and its `_identifiers()` is AST-based, so the deleted `ibkr/news.py` breaks nothing. `test_stop_loss_target.py` (37 lines) imports only `data.models.Position`/`TradeGroup` and asserts the four model fields — retained by A87. |
+| **3** | **Six waves; Group B's window half (wave 2) must precede the panel half (wave 3)**; `ui/main_window.py` in waves 1/2/4; `tests/test_dock_d18_region.py` in waves 1/2; never two tasks sharing a file in one wave | **Ordering constraint VERIFIED — wave *contents* incomplete** | The constraint is real and correctly stated: `MainWindow.__init__` connects the five signals at `ui/main_window.py:647`–`:651`, and the panel defines them at `ui/active_portfolio_panel.py:42`–`:51`, so panel-first would raise `AttributeError` in every window test. The wave table has exactly one task per wave and `main_window` only in 1/2/4. **But** two files break the "each wave green" invariant → **R1**, **R2**. |
+| **4** | **The residue-grep list drives a per-wave step *and* `tests/test_d45_removal.py`, with an explicit survivor allow-list** | **Allow-list VERIFIED — directory sound; list incomplete** | No survivor must actually go: A90's observers (`order_registry`, `_on_*`), the ibapi news boundary mirrors (`tick_news`, `news_providers`, `historical_news*`, `news_article`), `MAX_ORDER_NOTIONAL`/`order_limiter` (A85 scope / AP-D45-11), and `queue_depth` are all legitimately retained. **But** the forbidden list omits the panel members wave 3 deletes → **R3**; every token an **AC names** is present. |
+| **5** | **Codebase-map repair:** the old claim that `IBApiClient.placeOrder` was the only transmit is corrected to ibapi's inherited `EClient.placeOrder`; no task inherits the wrong file | **VERIFIED — correct** | `ibkr/client.py:39` `class IBApiClient(EWrapper, EClient)` defines **no** `placeOrder`/`cancelOrder`/`reqGlobalCancel` anywhere in `ibkr/` (repo-wide grep: the only production `placeOrder` site is `ui/main_window.py:3476`). The map's corrected rows `:95` (inherited `EClient`, "no `placeOrder` definition may be added here") and `:97` (`ibkr/orders.py` retained, not orphaned) match. No D45 task edits `ibkr/client.py`; wave 2 deletes only `ibkr/validation.py`. |
+
+## Requirements Coverage
+
+| Criterion / journey | Plan treatment | Verdict |
+|---|---|---|
+| `AC-D45.1` (no digest dock, no `_on_news_digest_visibility`, no `QMenuBar`/`View`/`Ctrl+Shift+N`) | Wave 1 (`main_window` digest + menubar block `:479`–`:493`, `:2757`–`:2763`; two module deletions) | **Covered** — targets verified (`menuBar()` at `:486`–`:491`, dock at `:479`–`:493`) |
+| `AC-D45.2` (`"292"` never requested; `"456"`/tick 59/`_dividend_info`/`dividend_updated`/markers intact) | Wave 1 ticker-session edit + kept `tests/test_d38_events_news.py` cases; wave-6 probe (f); `S34`/R68/AR-D45-1 | **Covered** — `"292"` lives only in the digest + `ticker_session:168/526`; `"456"` registration `:232`, tick 59 `:506` |
+| `AC-D45.3` (no context menu; no close/close-group/flatten affordance; no `_show_context_menu`; no `CustomContextMenu` policy) | Waves 2–3 + `S30`/`S32` | **Covered in the per-file map**, but the *instrument* does not scan for `_show_context_menu` et al. → **R3** |
+| `AC-D45.4` (zero `placeOrder`/`cancelOrder`/`reqGlobalCancel`; deleted modules unresolvable) | `S30`/`S31`/`S36`; wave 6 (a)–(d): `find_spec`, AST/string scan, and a mocked-client walkthrough over **every** remaining affordance (incl. `closeEvent`) asserting three zero call counts | **Covered / verifiable** — walkthrough is the right instrument and the pre-D45 RED evidence is required |
+| `AC-D45.5` (Portfolio view-only, live-updates, reflects a TWS-side close) | `S33`; no production edit beyond the columns; wave-6 walkthrough includes an external position update/close | **Covered** |
+| `AC-D45.6` (INVERTED — kill switch and SL/TP dialog gone; no cancel path) | Waves 3 (dialog) + 4 (switch) + `S31`/`S32`; `hasattr`/`findChildren`/scan/zero-cancel walkthrough | **Covered** — single call sites verified (`:3042`, `:3045`–`:3051`) |
+| `AC-D45.7` (three docs cleaned) | Wave 5 (`USAGE.txt`, `usage.md`; map Plan-owned) | **Covered** — every advertised target exists (`USAGE.txt:85/90/94/99/140`; `usage.md:102/135–141/157`) |
+| `AC-D45.8` (no dangling refs; suite green; recorded test book — 5 deleted / adjusted set) | Test book in `plan_proposal.md` § *Tests* | **NOT met as written** — the book omits an invalidated suite (R1) and mis-sequences one case removal (R2) |
+| `AC-D45.9` (history preserved; marker + tech stack intact) | Requirements-owned, already applied; no production edit | **Covered** (`:335`, `:455` present; D45 register + supersession record present) |
+| `AC-D45.10` (8 columns, no Stop/Target; storage + no migration; Strategy/Group at 6/7) | `S33`; wave 3 column edit + `(1,2,4,5)`; wave 6 (e) | **Covered** — current state verified `QTableWidget(0, 10)` (`:116`) and `col in (1, 2, 4, 5, 6, 7)` (`:349`) |
+| **Journey 38** steps 1–9 + edge cases | Waves 1–6; edge cases (stale dock state, orphan shortcut, TWS cancel, legacy stop/target rows, pre-D45 DB, disconnected) in `S31`/`S33`/`S34`/`S35`/`S38` | **Covered** |
+| **R68–R75 / A79–A90 / DG75–DG77** | `S29`–`S38`, AR-D45-1…10; DG76 decided (`S29`); DG75 superseded; DG77 by the test book | **Covered** (DG77's *suggested* "three-signal loop" is unachievable → RG-D45-1) |
+
+## Architecture Findings
+
+**(a) All five transmit/cancel/reference facts — VERIFIED exactly.**
+- `placeOrder(` — one production site, `ui/main_window.py:3476` inside `_close_position_by_id`; the two other `ui/` matches (`:3404` comment) die with that method. No definition in `ibkr/`.
+- `reqGlobalCancel`/`cancelOrder` — production sites only `ui/main_window.py:3042`/`:3048` (both inside `_kill_switch`; `:324` tooltip, `:3031`/`:3055` docstring/status text die with it). **No** `ibkr/` wrapper, no `closeEvent`/disconnect/teardown caller (re-read). `_kill_switch` has exactly two callers: `:3061` (button) and `:3385` (`_on_portfolio_flatten_all`, removed by wave 2).
+- `_ref_price_for` — definition `:2154`, single caller `:3435` (inside `_close_position_by_id`); `_symbol_last_prices` is written at `:2152` and read by the Portfolio P/L path at `:3207` ⇒ deleting the accessor and keeping the map is correct.
+- `validate_order` — import `:37`, single call `:3433` (inside the deleted method) ⇒ the module deletion has no other consumer.
+- The SL/TP dialog's only entry point — `ui/active_portfolio_panel.py:156` (`set_sltp_action.triggered → _on_set_sltp`) and `_on_set_sltp` is the **only** `StopLossTargetDialog(` construction (`:382`; the other two are in the deleted `test_sltp_honesty.py`) ⇒ A89's "already unreachable" claim is exactly right.
+
+**(b) Dividend preservation — structurally sound.** `"292"` appears only in `ui/news_digest_dock.py` (`:201`, `:211`, `:6`), `ui/ticker_session.py:168` (comment) and `:526` (the deleted push docstring), plus one string in `tests/test_d38_events_news.py:580`. `"456"` registration is `ticker_session.py:232` inside the `_needs` map that the union reads, so deleting the `"news"` need cannot disturb it. `_s0_headless` is set **only** by the deleted dock (`news_digest_dock.py:209/221`) and read at `ticker_session.py:437`/`:483` — the three-site claim is correct; the setter (`:542`–`:548`) and the `_news_push_listeners` attribute also become dead and are implied by the token `news_push_listener` (substring scan catches `_news_push_listeners`).
+
+**(c) Data/columns — verified.** `positions`/`trade_groups` DDL keeps `stop_loss`/`take_profit`; `data/models.py:86-87`/`:98-99` define the four fields; the tree's upsert is **`_upsert_position`** (`:3279`), not the requirements' `_persist_position` — AP-D45-12 records the drift and no edit is asked. The 10 → 8 shift is exactly as planned (`_render_table` values list + `(1,2,4,5,6,7)` at `:349`).
+
+**(d) Frozen Interfaces — genuinely frozen.** All entries are `[existing]`, none is under construction this batch (the digest/kill-switch/SL-TP/close surfaces and the 8-column render are deliberately absent), and no interface is `[revises]`-touched. The list is not missing a consumed-and-unmodified `[existing]` surface: it carries the dividend substrate, the models/upsert/bulk-load, the observers, the orders API, the Portfolio render/collapse API, the dock constant, the broker boundary, the port check and error classification.
+
+**(e) Internal contradictions that must not reach the canonical files (editorial, no new decision).**
+- `architecture_proposal.md`'s System Components row for `tests/test_dock_d18_region.py` says the five-signal receiver loop **"shrinks … to the three surviving signals"**, while `plan_proposal.md` (per-file map, test book, exactness note) and `codebase-map.md:119` **delete the loop**. All five signals (3 close + 2 SL/TP) are removed, so *no* signal survives; a three-signal loop would be red in wave 3. → **R4**.
+- AR-D45-5 claims the residue list is "extended beyond D45's own list (`… _selected_position`)" — the list does **not** contain `_selected_position` (or `_selected_row`, `_on_selection_changed`, `_show_context_menu`, `_on_close_position`, `_on_close_group`, `_on_ungroup`, `_on_flatten_all`, `set_sltp_action`). → **R3**.
+- The wave-6 scan is described as covering `services/ data/ ibkr/ config/`, while AP-D45-11 forbids touching `config/settings.py`, whose comment at `:37` names `validate_order()`. AST ignores comments (so no offence), but the phrase "full residue grep" invites a false positive in a file no task may edit. → **R3** (state the scope).
+
+## Plan Findings
+
+- **Structure / granularity ✓.** Two phases, six waves, one task per wave; each wave states its goal, the criteria/groups it covers and its dependencies; the work is grouped by **member group** (the R69/memory-2026-10-15 mitigation), not by file; no per-task acceptance criteria, no task graph, no per-task test specs.
+- **Sequencing rationale ✓ for the one constraint it names.** Window-before-panel is mandatory and correctly justified (`:647`–`:651` + panel `:42`–`:51`). `ui/main_window.py` appears only in waves 1/2/4; `tests/test_dock_d18_region.py` is split `:147` → wave 1 and `:174`–`:179` → wave 2, never concurrent.
+- **Test book — two defects (blocking).**
+  1. **`tests/test_d27_flat_rows.py` is missing.** `:110`–`:111` asserts `panel._selected_position`; wave 3 deletes `_selected_position` and its `itemSelectionChanged` wiring (AP-D45-4), so `test_p2_t37_rows_stay_index_aligned_with_position_list` raises `AttributeError`. The book's "every other suite **untouched** — a `tests/`-wide scan found no other reference" is therefore wrong, and the map's own test-impact row (`:192`) already selects this file for `ui/active_portfolio_panel.py` changes. → **R1**.
+  2. **The D27.1 AC3 case is removed one wave too late.** `tests/test_d27_position_id.py:169`–`:204` drives `win.portfolio_panel.update_position_sltp(...)` (`:191`) and asserts the DB row (`:197`–`:198`); it passes only because `ui/main_window.py:650` connects `position_sltp_changed → _on_portfolio_sltp_changed` (`:3342`–`:3352`, the `UPDATE positions …`). Wave 2 removes that connection **and** the handler; the case's removal is scheduled in wave 3 ⇒ wave 2 is red on a suite the map selects for `ui/main_window.py` (`:190`). → **R2**.
+- **Everything else in the book verified:** the five whole-file deletions are exactly `test_d28_6_close_contracts`, `test_d41_retained_order_path`, `test_order_validation`, `test_kill_switch`, `test_sltp_honesty` (all exist; all subjects verified); the six adjusted files' cited lines are accurate (`test_d38_events_news.py` sections `:145`–`:201`/`:419`–`:549`, survivors `:83`–`:143`/`:202`–`:417`/`:551`–`:593`; `test_dock_d18_region.py:147`/`:173`–`:179`; `test_d27_position_id.py:164-165`; `test_d27_position_prices.py:290-291`; `test_order_rejections.py:82`–`:109`; `test_d28_pacing.py:160`); no seventh file references the five removed signals or the deleted modules (grep of `position_*`/`group_*`/`flatten_all_requested`, `StopLossTargetDialog`, `TradeContextMenu`, `validate_order`, `_close_position_by_id`, `kill_btn`, `news_digest*`, `ibkr.news`, `ibkr.validation`).
+- **No replacement UI ✓** — the plan, the architecture and both the requirements and A84/A90 forbid a replacement close/cancel/protection surface; nothing in the pair proposes one.
+- **No reopen of D1–D44 ✓** — `S30`/`S31`/`S32`/`S33`/`S34` carry `[revises D41/D26.8/D26.3/D38]` exactly matching D45's recorded supersessions; `S29`/`S35`/`S37`/`S38` are new or `[extends]`; nothing else is touched.
+- **Line-index caveat** (not a finding): the pair's line numbers are indicative and correct within 1–5 lines of the tree; symbol-first citations remain the rule.
+
+## Existing Repo Compliance
+
+Run is an existing repository (`requirements.md:335` carries the marker literal; `Current Tech Stack` at
+`:455` is intact and placeholder-free). Per check:
+- **Codebase Summary present and substantive — PASS.** The architecture's summary inventories the D45 surface with source-verified facts (call sites, the orders/observers relationship, the digest-test block boundaries, the column-shift consumers, the `_s0_headless` read sites), plus persisted state, components, data flow and integrations; it is explicitly a pointer to the map, not a placeholder.
+- **Existing stack respected — PASS.** Tech Stack lists PyQt6, pyqtgraph (locked, `memory.md` 2026-10-16), `ibapi` 10.51.1 (`IBApiClient(EWrapper, EClient)` at `ibkr/client.py:39`), SQLite and pytest **first**, as constrained choices; additions are the removal/verification mechanisms only; **no existing choice is replaced or deprecated** and no new dependency is introduced.
+- **Labels present — PASS.** System Components mark every changed row `[new/changed]`, retained rows `[existing]`, deleted modules **deleted** (a fourth category used deliberately); Data Model labels every entity `[existing]` except the view model `[new/changed]`; Integration Points label every row `[existing]` / `[existing] (inert)` / **removed**.
+- **Additive-only — PASS in the removal sense.** No retained component is redesigned: the panel, dock, models, DB and orders module keep their behaviour; the two removals are what the requirement asks for. `_upsert_position` is untouched; `RIGHT_DOCK_MIN_WIDTH` keeps its value (200, `ui/dock_layout.py:34`).
+- **Summary consistent with the proposal — PASS.** Every `[existing]` item treated as retained exists with the described shape (observers at `:3025`–`:3077`, `Order` API at `ibkr/orders.py:27`–`:141`, `EventMarkerOverlay` methods at `ui/event_marker_overlay.py:32`–`:177`, `parse_ib_dividend_string` at `data/events/provider.py:53`, `assess` at `services/md_line_guard.py:20`).
+
+## Frozen Interfaces
+
+Per check (all against source at `c702be9`):
+- **Verbatim contracts — PASS.** Every entry is the real signature/shape, not prose. Spot-checked byte-exact: `dividend_updated = Signal()` (`ticker_session.py:79`); `def on_s0_tick_string(self, req_id: int, tick_type: int,\n value: str) -> None:` (`:504`–`:505`); `def dividend_info(self) -> dict:` (`:538`); `s0_register/s0_deregister/s0_register_many/s0_deregister_many` (`:396`–`:413`); `_merge_ibkr_dividend_event`/`_merge_events`/`events`/`events_unavailable` (`:562`–`:625`); `parse_ib_dividend_string(value: str) -> dict[str, Any]:` (`provider.py:53`); the `EventMarkerOverlay` block (`event_marker_overlay.py:32`–`:177`); `assess(projected_count: int, symbol: str, purpose: str\n ) -> tuple[str, str]:` (`md_line_guard.py:20`–`:21`); the four SL/TP model fields (`models.py:86-87`, `:98-99`); `_upsert_position(self, position: Position) -> int` (`main_window.py:3279`) and `_on_position_end(self)` (`:3217`); the full `Orders` API incl. `bracket_order` (`ibkr/orders.py:27`–`:141`); the five observer signatures (`:1590`, `:3025`, `:3063`, `:3068`, `:3335`); the Portfolio signals/methods (`active_portfolio_panel.py:40`–`:277`); `RIGHT_DOCK_MIN_WIDTH = dock_layout.RIGHT_DOCK_MIN_WIDTH` (value 200); the broker-boundary shape with **no** `placeOrder`/`cancelOrder` definition; `check_live_port()` (`settings.py:14`); `classify_error(error_code: int) -> str` (`error_codes.py:1`).
+- **Nothing under construction frozen — PASS.** No `[new]`/`[new/changed]`/`[new in D45]` interface appears in the frozen list; the 8-column render, the removed signals and the deleted modules are absent by construction.
+- **Nothing frozen is missing — PASS.** Every `[existing]` interface the waves consume but do not modify appears (panel render/collapse API, models/upsert/bulk load, observers + registry, broker boundary, port check, error classification, dividend substrate, md-line guard).
+- **Owning modules resolve — PASS.** All 13 owning modules exist (`ui/ticker_session.py`, `data/events/provider.py`, `ui/event_marker_overlay.py`, `services/md_line_guard.py`, `data/models.py`, `ui/main_window.py`, `ibkr/orders.py`, `ui/active_portfolio_panel.py`, `ui/dock_layout.py`, `ibkr/client.py`, `config/settings.py`, `ibkr/error_codes.py`); no dangling reference. The one permitted `ibkr/orders.py` docstring note does not alter a frozen signature.
+- **No duplicates — PASS.** Each interface appears once under its canonical name; `dividend_info` appears as a frozen reader and inside the session row's responsibility text, not as a second contract.
+
+## Codebase Map
+
+- **Every section resolves — PASS.** All `ui/`, `services/`, `data/`, `ibkr/`, `config/` entries name real modules; the annotation layer names the five to-be-deleted files **without** a `.py` suffix by its own documented convention (the generated skeleton still lists them because the tree still has them — expected, and rebuilt by `update_codebase_map.py` next batch).
+- **Key files exist — PASS.** Spot-checked ~25: `ui/zoom_overlay.py`, `ui/overlays/{base,session,gap,ict,vix}_overlay.py`, `ui/visual_conventions.py`, `ui/dock_layout.py`, `ui/alarm_edit_dialog.py`, `ui/chart_controls.py`, `services/volume_baseline.py`, `data/events/{provider,ibkr_source}.py`, and every test module named in the D45 test-impact rows (`test_d41_portfolio_dock`, `test_dock_widths_d18`, `test_d27_flat_rows`, `test_d27_account_subs`, `test_d24_9_popout_persistence`, `test_d28_2_sessions`, `test_port_guard`, `test_phase3_fixpass`, …). 131 test modules — matches the map's 131.
+- **No stale entries for deleted modules — PASS with a caveat.** The map keeps the deleted modules visible **as deleted/target-state** rows and says so in its header; that is the documented per-batch convention, not a stale "live" entry. The `placeOrder` ownership correction (`:95`) is verified. **Caveat:** the row for `ui/main_window.py` (and several others) is far more than the ~5-line index size — it is D45 rationale, not index. Not a blocker (established map style), noted for the next refresh.
+- **Status labels current — PASS.** `[changed in D45]` on exactly the three production modules and the adjusted suites; `[existing]` everywhere else; no `[new]` entry for something that predates the batch; the one added file is `[new]`.
+- **Generated region.** The skeleton lists `ibkr/news.py`, `ibkr/validation.py`, `ui/news_digest_dock.py`, `ui/stop_loss_target_dialog.py`, `ui/trade_context_menu.py` because they still exist at `c702be9`; the header explains this — tooling, not a Plan defect.
+- **Pending doc sync — PASS.** `docs/pending_doc_sync.md` does not exist (nothing unapplied).
+
+## Required Changes
+
+**R1 — add the invalidated suite the test book misses: `tests/test_d27_flat_rows.py` (blocking).**
+Wave 3 deletes `_selected_position` (and its `itemSelectionChanged` wiring), but
+`tests/test_d27_flat_rows.py:110`–`:111` asserts `panel._selected_position` in
+`test_p2_t37_rows_stay_index_aligned_with_position_list` (an ESC-053/AC3 guard, owner decision
+"hide qty==0 positions"). The plan's own map (`docs/codebase-map.md:192`) already selects that file for
+`ui/active_portfolio_panel.py` changes. Required: pick one and record it —
+(a) **keep** the selection tracker (`_selected_row`/`_selected_position`/`_on_selection_changed`); it is
+panel-internal, carries no order/cancel/protection semantics, and is **not** in D45's inventory — then the
+suite stays byte-for-byte; **or**
+(b) **delete** the tracker and add `tests/test_d27_flat_rows.py` to the wave-3 test book with the exact
+adjustment (keep the `rowCount == len(_positions)` / column-0 index-alignment assertions; drop or replace
+the two `_selected_position` lines).
+Either way, correct AP-D45-4's "nothing else reads it" claim and the test book's "every other suite
+untouched" row, and update the map's D45 test-impact note if the decision changes it.
+
+**R2 — fix the wave-2/wave-3 ordering of the D27.1 AC3 case (blocking).**
+`tests/test_d27_position_id.py:191` drives `update_position_sltp` and `:197`–`:198` asserts the DB row;
+that only works because `ui/main_window.py:650` connects `position_sltp_changed → _on_portfolio_sltp_changed`
+(`:3342`–`:3352`). Wave 2 removes both, wave 3 removes the case ⇒ **wave 2 cannot pass its own tests**
+(and `test_d27_position_id` is selected for `ui/main_window.py` changes). Required: either
+(a) move the removal of `test_p2_t27_t31_sltp_persists_to_exactly_the_addressed_row` into **wave 2** (the
+`8`/`9` → `6`/`7` edits at `:164`–`:165` stay in wave 3), **or**
+(b) leave the two SL/TP `.connect` lines and their two handlers in place in wave 2 and remove them in
+**wave 3** together with the panel's signals (one task, atomic — no window/panel skew).
+Update the wave table, the per-file map, the test book's *Adjusted* row and the "every wave … green"
+statement.
+
+**R3 — make the residue instrument match what the plan deletes (blocking for its own claim).**
+The forbidden list covers every token an AC names, but not the panel members wave 3 deletes and AR-D45-5
+claims it covers: add (all verified live **only** in the panel / the deleted menu, so zero post-D45 hits)
+`_show_context_menu`, `_on_close_position`, `_on_close_group`, `_on_ungroup`, `_on_flatten_all`,
+`_selected_row`, `_selected_position`, `_on_selection_changed`, `set_sltp_action` (and, if Plan keeps the
+tracker per R1(a), drop the three selection tokens instead). Then make AR-D45-5 true, and state the scan
+scope explicitly: the AST/string scan runs over `ui/ services/ data/ ibkr/ config/`, the **grep** step is
+`ui/`-only, and `config/settings.py:37`'s `validate_order()` **comment** (plus `MAX_ORDER_NOTIONAL` and
+`order_limiter`) is an intentional survivor that no task may "fix" (AP-D45-11) — or add it to the survivor
+allow-list. `AC-D45.3`'s `hasattr(...) is False` measurables should also be asserted directly in
+`tests/test_d45_removal.py`, since the token list is a net, not a substitute.
+
+**R4 — reconcile the two documents on the D18 receiver loop (required; documentation only).**
+`architecture_proposal.md` (System Components, `tests/test_dock_d18_region.py` row) says the five-signal
+loop "shrinks … to the **three** surviving signals"; the plan deletes it, and that is the only coherent end
+state — all five signals (3 close + 2 SL/TP) are deleted in wave 3, so no signal survives and a
+three-signal loop would be red. Make the architecture row match the plan (loop deleted; the
+`account_summary_changed`/`positions_changed` `hasattr` assertions and the `positions_changed`
+zero-receiver sanity probe stay). Because the D45 register's correction record (`requirements.md:4179`)
+and `design_gaps.md` DG77 item 4 also suggest a "three-signal loop", record the deviation and its reason
+in the plan's exactness note (and see RG-D45-1 below) so Task Manager/Code Reviewer do not "fix" the file
+back to a red state. **No `AC-D45.8` clause is weakened** — the criterion requires the file to be
+*adjusted*, which it is.
+
+## Requirements Escalations
+
+**None escalated — no Requirements Analyst action required.**
+- `docs/plan_notes.md` **RG-D45-1** (`Status: addressed`, `Escalation: none`) records the one
+  requirements-document inaccuracy found this cycle: the D45 correction record (`requirements.md:4178`–
+`:4179`) and DG77 item 4 suggest the five-signal loop "shrinks to three", which is unachievable because
+  D45 removes **all five** signals; `AC-D45.8` itself is satisfiable (adjusted file, loop deleted) and is
+  not weakened.
+- DG76 is **decided** by `S29` (retain `ibkr/orders.py`, verified not orphaned); DG75 is resolved by
+  supersession; DG77's adjustable items are the test book's — now R1/R2/R3.
+- Marker sentence and `Current Tech Stack` are intact; no requirements escalation on that count.
+
+## Task Manager Readiness
+
+**Not ready — do not start Task Manager.**
+1. With the test book as written, **wave 2 is red** (`tests/test_d27_position_id.py` AC3) and **wave 3 is
+   red** (`tests/test_d27_flat_rows.py`), so the plan's own "each wave leaves … its own tests green"
+   invariant and `AC-D45.8`'s full-suite-green condition are unreachable. (R1, R2)
+2. The residue instrument (the replacement for the five deleted suites) would not detect a half-removed
+   panel member, while AR-D45-5 asserts it would — a Task Manager/Code Reviewer would be handed an
+   overstated guarantee. (R3)
+3. R4 is document consistency: leaving it would push a contradictory instruction into the canonical
+   architecture and invite a "repair" that makes a suite red.
+
+Everything else is **decision-complete**: the five removal decisions are source-verified, every
+`AC-D45.*`/Journey 38 clause has a treatment, the frozen interfaces are real and frozen, and no new
+architectural decision is needed.
+
+**Artifact state.** `docs/architecture.md` and `docs/plan.md` were **not modified** this cycle. No D45
+section exists in `docs/plan.md` and **no `READY_FOR_TASK_MANAGER` marker anywhere represents D45** — the
+final line of `docs/plan.md` belongs to the already-delivered D44 increment, whose handoff block scopes
+itself to that cycle (the D41 round-1 precedent); the authoritative gate for D45 is this review, and
+`docs/plan.md` must **not** gain a D45 readiness marker until R1–R4 are addressed and the pair is
+re-validated.
+
+## Final Decision
+Status: CHANGES_REQUIRED (2026-10-25, D45 initial validation — round **1** of 3). The architecture is
+sound and all five Plan decisions verify against source at `c702be9`; the frozen-interface, existing-repo
+and codebase-map checks pass. The proposal is blocked by an **incomplete/mis-sequenced test book** (R1,
+R2 — two suites red in the waves as scheduled) and a **residue-instrument gap** (R3), with a
+**cross-document contradiction** to fold in (R4). Re-issue `docs/plan_proposal.md` /
+`docs/architecture_proposal.md` (with revision notes naming R1–R4) and re-run validation.
+
+---
+
+# Plan Review — Batch 20 (**D45**) — 2026-10-25 — cycle **2** of 3 (`retry_2_of_3`: R1–R4 verification, **APPROVED**)
+
+> Legacy single-scope run (no `Phase: P<n>`; inputs are the unsuffixed `docs/plan_proposal.md` /
+> `docs/architecture_proposal.md`), so no phase gate applies and this review is final for the cycle.
+> Plan applied **Revision 2** (plan 434 → 507 lines, architecture 425 → 437, `codebase-map.md` inline),
+> both files labelled *Revision 2, round 2 of 3*; `plan_proposal.md` ends `Status: READY_FOR_VALIDATION`.
+> `plan_lint.py --phase P4` → **LINT PASS, 0 failures, 0 warnings** (before and after the tail
+> normalisation). Requirements unchanged since round 1 (mtime `17:04`, before both proposals at `17:21`),
+> so this is a **targeted re-validation**: each R item verified against source, then a consistency-ripple
+> and regression sweep. Independent re-reads used source at `c702be9`; graphify for orientation only.
+
+## Review Status
+`Status: APPROVED` — cycle **2** of 3. All four round-1 findings are **actually addressed** (verdicts
+below, each re-derived from the tree, not from Plan's revision notes), no regression was introduced,
+and no new architectural decision is required. **Task Manager may proceed.**
+
+## R1–R4 — verdicts (before → after)
+
+| # | Round-1 finding | Verdict | Evidence re-derived this cycle |
+|---|---|---|---|
+| **R1** | The test book missed `tests/test_d27_flat_rows.py`, whose `:110`–`:111` reads `panel._selected_position` — deleted in wave 3 ⇒ wave 3 red | **FIXED — correct and complete** | Plan chose **(b) delete the tracker** and added the file to **wave 3** (wave table, per-file map, test book, map book row). **The five readers really are the only production consumers**: `grep -o` over `ui/ services/ data/ ibkr/ config/` gives `_selected_position` **only** in `ui/active_portfolio_panel.py`, read at `:372` (`_show_context_menu`), `:377`–`:379` (`_on_set_sltp`), `:400`–`:401` (`_on_close_position`), `:405`–`:406` (`_on_close_group`), `:410`–`:411` (`_on_ungroup`) — all deleted in the same wave; `_on_selection_changed` (`:352`–`:368`) only assigns it and calls `self._context_menu.set_actions_enabled(...)`; `_selected_row` has **no** reader. The only reader outside the panel is `tests/test_d27_flat_rows.py:110`–`:111` ✓. AP-D45-4 now states exactly that (symbols + the `set_actions_enabled` effect, `:358/:364/:368`). The per-file row drops `:108`–`:109` (`selectRow(0)`, `processEvents`) and `:110`–`:111`, **keeps `:104`–`:106` verbatim** (verified: `rowCount() == len(panel._positions)` + per-row `symbol`/column-0), and restates the docstring's AC-3 sentence (`:11`–`:13` names `_on_selection_changed`/`_selected_position`). Test book reads **5 deleted / 7 adjusted / 1 added** (AP-D45-13, § *Adjusted — seven files*, map row) and the "every other suite untouched" row carries the exception explicitly. |
+| **R2** | The D27.1 AC-3 case's removal was scheduled a wave after the change that invalidates it ⇒ wave 2 red | **FIXED — correct and complete** | `tests/test_d27_position_id.py:191` drives `update_position_sltp`; `:197`–`:198` assert the DB row; that path needs `ui/main_window.py:650`'s `position_sltp_changed` connection, removed in wave 2. The file now appears in **wave 2 (AC-3 case only)** *and* **wave 3 (`8`/`9` → `6`/`7` only)** — wave table, both per-file rows, the shared-file table, the test book and the correction record all agree. The wave-2 row removes `:170`–`:201` and says explicitly **"Do not touch `:164`–`:165` here — the table still has 10 columns until wave 3"** ✓ (verified: `:164`–`:165` are `item(0, 8)`/`(0, 9)`, and AC1/AC2 do not touch the setter or those columns). **Sequencing rule 4** is stated ("no wave may leave an assertion referencing something a *previous* wave deleted") and the phase intro now names **three** shared files (`ui/main_window.py`, `test_dock_d18_region.py`, `test_d27_position_id.py`), with the docs correctly described as shared across *groups*, not waves. **The rule holds for the other waves** (independent scan of every referenced token in `tests/`): wave 1's digest/`NewsManager` references live only in `tests/test_d38_events_news.py` (`:482`–`:493`, inside the section removed that wave) and in `:147` of the dock file (edited that wave); `test_d41_removal.py`'s only news reference is the `queue_depth` **string** allow-list, and its request-absence case still issues its S0/RT lines because `"456"` survives; wave 2's `_close_position_by_id` / `validate_order` / five-signal references live only in the three deleted suites, the two cases removed that wave (`test_order_rejections.py:82`–`:109`, `test_d28_pacing.py:160`–`:199`) and `test_dock_d18_region.py:173`–`:180` (loop removed that wave); wave 3's `_show_context_menu`/`_selected_*`/`_on_ungroup`/`_on_flatten_all`/dialog references live only in `test_sltp_honesty.py` (deleted) and `test_d27_flat_rows.py` + the two index files (edited that wave); wave 4's `kill_btn`/`_kill_switch` live only in `test_kill_switch.py` (deleted same wave). No other suite asserts `positions_table.columnCount()` (only the watchlist's own 6/7/1 counts) and no other suite indexes columns ≥ 8. |
+| **R3** | The residue instrument did not match what the plan deletes, and its scope was unstated | **FIXED — list, scope and direct assertion all present** | The nine tokens are in the forbidden list (`_show_context_menu`, `_on_close_position`, `_on_close_group`, `_on_ungroup`, `_on_flatten_all`, `_selected_row`, `_selected_position`, `_on_selection_changed`, `set_sltp_action`) with counts; I re-counted them: 2 · 2 · 2 · 2 · 2 · 4 · **15 occurrences on 13 lines** · 4 · 4, all in `ui/active_portfolio_panel.py` (+ `ui/trade_context_menu.py` for `set_sltp_action`) — i.e. zero post-D45 hits. (Plan's footnote says "13" for `_selected_position`; that is the line count, not the occurrence count — corrected to "15 occurrences on 13 lines" in the canonical plan.) The scope is now the required **three-part form**: AST (identifiers **and** string constants) over `ui/ services/ data/ ibkr/ config/`; **grep `ui/`-only**; **`tests/` in neither** — with `config/settings.py`'s `validate_order()` comment at `:37` named as **not an offence** in a file no task may edit (AP-D45-11). Wave-6 item **(g)** asserts `hasattr(panel, name) is False` for the nine members **and** the five signals plus `positions_table.contextMenuPolicy() != Qt.ContextMenuPolicy.CustomContextMenu` ✓. `AR-D45-5` and `S36` state the same scope (both rewritten, no overclaim left). |
+| **R4** | Architecture said the D18 receiver loop "shrinks to three"; the plan deletes it | **FIXED — one story in both documents** | The architecture's System Components row now reads "**deletes the five-signal receiver loop outright** … All five signals go, so **no signal survives** — the loop is removed, not narrowed", and keeps the surrounding assertions + the `positions_changed` zero-receiver probe (verified: `test_dock_d18_region.py:181`–`:190` really does keep `hasattr` on both signals and the `== 0` probe). The deviation is recorded in the plan's § Exactness note (unachievable three-signal loop, why wave 2 and wave 3 both fail that form), in **architecture supersession item 10**, and in `docs/plan_notes.md` `RG-D45-1`. `grep` finds no surviving "shrinks to three"/"three surviving signals" claim anywhere in the pair or the map. `AC-D45.8` is not weakened (the file is *adjusted*; no clause names a surviving signal). |
+
+## Regression sweep — nothing the round-1 approval rested on was broken
+
+- **Five confirmed decisions intact.** (1) `ibkr/orders.py` retained with a docstring note and no transmit caller (`S29`, AP-D45-1) — unchanged, and still consistent with `ui/main_window.py:36`/`:3336`/`:1598`. (2) `tests/test_d41_removal.py` and `tests/test_stop_loss_target.py` kept unchanged (AP-D45-8) — unchanged. (3) The **window→panel** ordering and its forced rationale (AP-D45-5, `S37`, sequencing fact 2) — unchanged and now sharpened by rule 4. (4) The residue list + `tests/test_d45_removal.py` as the replacement instrument — strengthened, not weakened. (5) The map's `placeOrder`-ownership correction — intact (`codebase-map.md:95`, `ibkr/client.py:39` defines no `placeOrder`).
+- **`AC-D45.1`–`.10` each still have a treatment** (architecture traceability table, all ten rows; plan phase `Covers` lines). `AC-D45.8`'s five whole-file deletions still match the requirement **verbatim**: `test_d28_6_close_contracts`, `test_d41_retained_order_path`, `test_order_validation`, `test_kill_switch`, `test_sltp_honesty`. The `8/9 → 6/7` shift still covers **both** named suites (`test_d27_position_id.py:164`–`:165`, `test_d27_position_prices.py:290`–`:291`, both wave 3) and the alignment tuple `(1, 2, 4, 5)` (current code's `(1,2,4,5,6,7)` verified at `ui/active_portfolio_panel.py:349`).
+- **No replacement order/cancel/protection UI** anywhere (plan § Out of scope, `S31`/`S32`/`S33`, wave tables: deletions and edits only, no new widget; the one new file is a test).
+- **Nothing in D1–D44 reopened** beyond the recorded supersessions: `S30`→D41, `S31`→D26.8, `S32`→D26.3, `S33`→D41 (+ extends D27), `S34`→D38 (+ extends), `S35`→extends D26/D38, `S29`/`S36`/`S37`/`S38` new — matching `requirements.md`'s supersession record (`:4371`–`:4416`) and the edge-case/glossary entries; architecture item 9 records the explicit non-changes.
+- **The wave table is executable.** Per wave: wave 1 leaves 0 references to the dock/news modules; wave 2 leaves 0 to `_close_position_by_id`/`validate_order`/the five signals (the panel still defines them, so the app constructs); wave 3 leaves 0 to the removed members/columns (nothing else indexes 8/9); wave 4 leaves 0 to the kill switch; waves 5–6 assert the end state. Import trimming is precise: `pacing_manager` is used only by the deleted `_close_position_by_id` (module-level import at `:39`, local re-import at `:3399`), `order_limiter` only at `:3465`–`:3466`, `UserOrder` only in the import line; `PacingExceeded` and `order_registry` stay live.
+
+## Validation steps (short form)
+
+| Step | Result |
+|---|---|
+| 1. Requirements coverage | **PASS** — all ten ACs + Journey 38 + R68–R75/A79–A90 have a treatment; the round-2 changes only move test-book work between waves. |
+| 2. Architecture completeness | **PASS** — stack, components, responsibilities, relationships, data model, integrations, boundaries, security/performance/scalability/ops, risks (`AR-D45-1`–`10`), each with rationale; unchanged by Revision 2. |
+| 3. Architecture consistency | **PASS** — R4's contradiction is gone; the plan/architecture now agree on the loop, the test book (7 adjusted), the wave split and the residue scope. |
+| 4. Plan quality | **PASS** — two phases / six waves, goals, criteria, dependencies, no per-task decomposition, no task graph, no per-task test specs; the work is grouped by member group, not by file. |
+| 5. Task Manager readiness | **PASS** — a valid graph can be built without a new architectural decision (see below). |
+| 7. Existing-repo compliance | **PASS** — marker sentence (`requirements.md:335`) and `Current Tech Stack` (`:455`) intact and placeholder-free; Codebase Summary substantive and source-validated (now also carrying the selection-tracker fact); constrained stack first, nothing replaced/deprecated; `[existing]`/`[new]`/`[new/changed]` (+ deliberate `deleted`) labels present on Components/Data Model/Integrations; additive-only in the removal sense (no retained component redesigned). |
+| 8. Frozen interfaces | **PASS** — contracts verbatim (spot-checked against source), nothing under construction frozen (the 8-column render, the removed signals and the deleted modules are absent; the frozen `Portfolio render API`/`Order registry API` are untouched by the plan), nothing consumed-and-unmodified missing, all owning modules resolve, no duplicates; Revision 2 changed none of them. |
+| 9. Codebase map | **PASS with one non-blocking stale count** — sections resolve, key files exist, no live entry for a deleted module (the skeleton is marked as generated/not-yet-built), status labels current, the D45 book row and test-impact rows now name 7 adjusted with the wave split. **Header line 27 still says "adjusts six"** — see observations. |
+| 10. Pending doc sync | **PASS** — `docs/pending_doc_sync.md` absent. |
+
+## Non-blocking observations (recorded; no decision required, no re-cycle)
+
+1. **`docs/codebase-map.md:27` says "deletes five whole test files and adjusts six"** while the same
+   file's D45 book row (`:119`) and the plan's book say **seven**, and the correction record claims the
+   map's book was updated to 7. This is a Plan-owned file the Validator may not edit; the executable
+   books (plan § Tests, map `:119`/`:166`, wave tables) are all 7. **Plan should correct that one word at
+   the next map refresh** (or now, if it re-runs before build). Harmless to Task Manager: it reads the
+   plan's book, which is correct.
+2. **`docs/plan_proposal.md` § Sequencing point 3** opened by listing `USAGE.txt`/`usage.md` among files
+   "each touched in more than one wave", then (correctly) says both docs go in one task. Self-
+   contradicting prose; **normalised in the canonical `docs/plan.md`** ("shared across *groups*,
+   collapsed into one task"). No wave assignment changed.
+3. **`architecture_proposal.md` `S37` said "all three docs go in one terminal task (wave 5)"** — wave 5
+   owns the two owner-facing docs; the third (`docs/codebase-map.md`) is Plan-owned and refreshed this
+   batch. **Normalised in the canonical architecture** (`S37`: "both owner-facing docs … the map is
+   Plan-owned"). No decision changed.
+4. **`_selected_position` count** in the residue footnote was 13 (line count) where the other eight are
+   occurrence counts. **Corrected in the canonical plan** to "15 occurrences on 13 lines". The claim
+   (panel + deleted menu only ⇒ zero post-D45 hits) is unaffected.
+5. **Wave-6 item (g) is panel-side.** The explicit `hasattr` assertions cover `AC-D45.3`'s panel
+   measurables; `AC-D45.1`'s (`hasattr(win, "news_digest_dock")`, empty `findChildren(QMenuBar)`, no
+   `View`/`News Digest` `QAction`), `AC-D45.6`'s window-side names and the five SL/TP panel members are
+   covered by the token scan + `find_spec` + the zero-transmit walkthrough rather than by direct
+   `hasattr`. Passed in round 1 on that basis; recorded as a **strengthening opportunity** for Build /
+   Code Reviewer (cheap to add in the same wave-6 module), **not** a gap that blocks the graph.
+6. **Line-number drift** (inherited, accepted in round 1): the pair's citations are indicative and agree
+   with the tree within a few lines; symbols are the primary pointer (`DG56`). Architecturally inert.
+
+## Requirements Escalations
+
+**None escalated — no Requirements Analyst action required (no `ESCALATED_TO_REQUIREMENTS`).**
+- **`RG-D45-1`** (`docs/plan_notes.md`, `addressed`, escalation none) — the register's/DG77's
+  "three-signal loop" is unachievable; the loop deletion is ratified and now recorded in three places.
+  Its round-1 trailer ("R1/R2 remain open for Plan") is updated to **closed**.
+- **`RG-D45-2`** (new, `addressed`, escalation none) — `AC-D45.8`'s adjusted-file enumeration names six;
+  the delivered book adjusts seven (`tests/test_d27_flat_rows.py`, reported explicitly in AP-D45-13). The
+  criterion's substantive clauses are met; no wording change is required this batch, and the Analyst may
+  append the file at the next requirements revision.
+- DG76 is decided (`S29`); DG75 is resolved by supersession; DG77's adjustable items are the test book's.
+
+## Task Manager Readiness
+
+**Ready.** Build six tasks with the dependency chain `D45-01 → D45-02 → D45-03 → D45-04 → D45-05 →
+D45-06`, `touches_files` exactly as the per-file map says (`ui/main_window.py` in 1/2/4;
+`tests/test_dock_d18_region.py` in 1/2; `tests/test_d27_position_id.py` in 2/3), never two tasks sharing a
+file in a wave, and wave 6's acceptance including the RED-on-`c702be9` evidence. No architectural,
+data-model, integration or boundary decision is left to Task Manager; the instrument's scope and survivor
+allow-list remove the only "judgement call" that could have surfaced mid-build.
+
+**Artifact state.** `docs/plan.md` now carries § *D45 — Batch 20* ending `Status: READY_FOR_TASK_MANAGER`;
+D44's status line is marked superseded (its `READY_FOR_TASK_MANAGER` was consumed by the delivered D44
+build at `c702be9`). `docs/architecture.md` now carries § *D45 increment* (`S29`–`S38`, Codebase Summary,
+components, data model, integrations, frozen interfaces, non-functional, `AR-D45-1`–`10`, traceability,
+supersessions 1–10, handoff). Both were **materialised from the validated proposal pair** (content copied,
+then editorially normalised per observations 2–4 — no new architectural decision). `docs/plan_notes.md`
+carries `RG-D45-1` (updated) and `RG-D45-2` (new), both `addressed`, no escalation.
+
+## Final Decision
+Status: APPROVED (2026-10-25, D45 cycle **2** of 3). **R1, R2, R3 and R4 are closed and independently
+re-verified against source at `c702be9`**; the five round-1 decisions and every `AC-D45.*` treatment are
+intact, the wave table is executable end-to-end, and the frozen-interface / existing-repo / doc-sync checks
+pass. One stale count remains in the Plan-owned `docs/codebase-map.md` header (`:27`, "adjusts six" vs the
+book's seven) — recorded above for the next map refresh; it cannot misdirect Task Manager, which reads the
+plan's book. **Cleared for Task Manager.**

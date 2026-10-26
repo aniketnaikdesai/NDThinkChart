@@ -1,19 +1,15 @@
-"""D26.9: TWS order errors route to the registry + the status bar; codes
-promoted; placement blocked while disconnected.
+"""D26.9 / AC-D46.3: TWS order errors surface on the status bar; codes
+promoted.
 
-Pre-fix behaviour: _on_error only special-cased backfill reqIds; order
-errors (orderId in the reqId field) got an 8-second status message while the
-ticket permanently read "Submitted".
-
-D41: the order-entry ticket is gone, so the surfaced message is the status bar
-(``MainWindow._on_order_error``) and the disconnected refusal is asserted on the
-retained close path.
+D41/D45: the order-entry ticket and the order registry are gone. A reported
+error that matches no live session reqId reaches the retained generic line
+``Error [<code>]: <text>`` on the status bar (``MainWindow._on_error``), which
+is the owner's error visibility.
 """
 
 import pytest
 
 from ibkr.error_codes import classify_error
-from ibkr.orders import Orders, UserOrder
 
 
 def _make_window(monkeypatch, qapp):
@@ -26,85 +22,39 @@ def _make_window(monkeypatch, qapp):
     return win
 
 
-def _fresh_registry(monkeypatch):
-    fresh = Orders()
-    monkeypatch.setattr("ui.main_window.order_registry", fresh)
-    return fresh
-
-
-def _register(reg, order_id=42):
-    reg.register(UserOrder(order_id=order_id, symbol="AAPL", action="BUY",
-                           total_qty=10, order_type="LMT", lmt_price=150.0))
-    return order_id
-
-
-def test_rejected_order_updates_registry_and_status(monkeypatch, qapp):
-    # AC-D26.9: TWS 201 for a tracked orderId -> registry Rejected, surfaced.
-    # D41: the ticket is gone; the surfaced message is the status bar.
+def test_non_order_error_shows_generic_line(monkeypatch, qapp):
     win = _make_window(monkeypatch, qapp)
     try:
-        reg = _fresh_registry(monkeypatch)
-        oid = _register(reg)
-        win._on_error(reqId=oid, errorCode=201,
-                      errorString="Order rejected - reason: price violates tick")
-        assert reg.get(oid).status == "Rejected"
-        msg = win.status_bar.currentMessage()
-        assert "Rejected" in msg, f"rejection not surfaced: {msg!r}"
-        assert "tick" in msg, f"TWS message missing from status: {msg!r}"
-    finally:
-        win.close()
-
-
-def test_cancelled_order_updates_registry(monkeypatch, qapp):
-    win = _make_window(monkeypatch, qapp)
-    try:
-        reg = _fresh_registry(monkeypatch)
-        oid = _register(reg, order_id=43)
-        win._on_error(reqId=oid, errorCode=202,
-                      errorString="Order Canceled - reason:")
-        assert reg.get(oid).status == "Cancelled"
-    finally:
-        win.close()
-
-
-def test_non_order_error_untouched(monkeypatch, qapp):
-    win = _make_window(monkeypatch, qapp)
-    try:
-        reg = _fresh_registry(monkeypatch)
-        oid = _register(reg)
         win._on_error(reqId=9999, errorCode=2105,
                       errorString="Data farm connection is broken")
-        assert reg.get(oid).status == "", "unrelated error must not touch orders"
+        msg = win.status_bar.currentMessage()
+        assert "[2105]" in msg, f"code missing from status: {msg!r}"
+        assert "Data farm connection is broken" in msg, (
+            f"TWS message missing from status: {msg!r}")
     finally:
         win.close()
 
 
-def test_close_blocked_while_disconnected(monkeypatch, qapp):
-    # AC-D26.9 / D41-S5: no placement while disconnected. The retained close
-    # path carries the guard now that the order-entry ticket is gone.
-    from data.db import db
+@pytest.mark.parametrize(
+    ("code", "tws_message"),
+    [
+        (201, "Order rejected - reason: price violates tick"),
+        (103, "Duplicate order id"),
+        (202, "Order Canceled - reason:"),
+    ],
+    ids=["201", "103", "202"],
+)
+def test_order_error_codes_surface_on_status_bar(monkeypatch, qapp,
+                                                 code: int,
+                                                 tws_message: str) -> None:
     win = _make_window(monkeypatch, qapp)
-    cur = db.conn.cursor()
-    cur.execute(
-        "INSERT INTO positions (symbol, account, con_id, contract_type, qty,"
-        " avg_cost, local_symbol, multiplier, expiry, strike, right,"
-        " updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        ("AAPL", "DU123", None, "stock", 10.0, 100.0, None, 1.0,
-         None, None, None, 1_760_000_000),
-    )
-    db.conn.commit()
-    pid = cur.lastrowid
     try:
-        assert win._ibkr_connected is False  # harness never connects
-        calls = []
-        monkeypatch.setattr(win.ib_client, "placeOrder",
-                            lambda *a, **k: calls.append(a))
-        win._close_position_by_id(pid)
-        assert calls == [], "must not transmit while disconnected"
-        assert "not connected" in win.status_bar.currentMessage().lower()
+        win._on_error(reqId=987654, errorCode=code, errorString=tws_message)
+        msg = win.status_bar.currentMessage()
+        assert f"[{code}]" in msg, f"code {code} not surfaced: {msg!r}"
+        assert tws_message in msg, (
+            f"TWS message missing from status: {msg!r}")
     finally:
-        cur.execute("DELETE FROM positions WHERE id=?", (pid,))
-        db.conn.commit()
         win.close()
 
 

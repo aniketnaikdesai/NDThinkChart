@@ -12,8 +12,8 @@ Acceptance criteria exercised here
 * T48-T02: ``findChild(QDockWidget, "Portfolio")`` resolves the single region;
   the region's retained header toggle collapses/restores it; exactly one
   right-side region dock.
-* T48-T03: the retained Portfolio panel is the region's widget and its existing
-  signal connections are intact.
+* T48-T03: the retained Portfolio panel is the region's widget and its
+  summary/positions signals are present (the order signals are gone, D45).
 
 Geometry note
 -------------
@@ -137,24 +137,22 @@ def test_T48_T02_findchild_resolves_and_toggles(monkeypatch, qapp):
         assert win.portfolio_panel.body.isVisible()
         assert region.isVisible()
 
-        # Exactly one *region* dock lives in the right dock area (the D38
-        # news digest dock also lives there but is not part of the region).
+        # Exactly one *region* dock lives in the right dock area.
         right_area = win.dockWidgetArea(region)
         assert right_area == Qt.DockWidgetArea.RightDockWidgetArea
         right_docks = [
             d for d in win.findChildren(QDockWidget)
             if win.dockWidgetArea(d) == Qt.DockWidgetArea.RightDockWidgetArea
-            and d.objectName() != "NewsDigest"
         ]
         assert len(right_docks) == 1, right_docks
     finally:
         win.close()
 
 
-# ── T48-T03 — panel present, signal wiring intact ────────────────────────────
+# ── T48-T03 — panel present, summary signals exposed ─────────────────────────
 
-def test_T48_T03_panel_present_and_signals_wired(monkeypatch, qapp):
-    """T48-T03: the retained panel is the region's widget; key signals stay wired."""
+def test_T48_T03_panel_present_and_summary_signals_exposed(monkeypatch, qapp):
+    """T48-T03: the retained panel is the region's widget; summary signals exposed."""
     win = _make_window(monkeypatch, qapp)
     try:
         assert isinstance(win.portfolio_panel, ActivePortfolioPanel)
@@ -164,22 +162,13 @@ def test_T48_T03_panel_present_and_signals_wired(monkeypatch, qapp):
         assert isinstance(container, QWidget)
         assert container is win.portfolio_panel
 
-        # Existing signal connections are intact (connected to MainWindow slots).
-        # ``QObject.receivers(signal)`` reports the number of live receivers of a
-        # signal *emitted by* that object; the sender is the panel, so measure on
-        # the panel and require at least one MainWindow-slot receiver. These are
-        # exactly the five Portfolio connections wired by MainWindow before the
-        # reshape (no wiring changed by T48).
-        for signal in (
-            win.portfolio_panel.position_close_requested,
-            win.portfolio_panel.group_close_requested,
-            win.portfolio_panel.flatten_all_requested,
-            win.portfolio_panel.position_sltp_changed,
-            win.portfolio_panel.group_sltp_changed,
-        ):
-            assert _receiver_count(win.portfolio_panel, signal) >= 1, signal
-        # The panel still exposes its summary/positions signals (present and
-        # unchanged even though MainWindow consumes their effect via other slots).
+        # D45: the panel is view-only end to end. The five order signals
+        # (close / close-group / flatten / SL-TP / group-SL-TP) have no
+        # MainWindow receiver — neither their connections nor the signals
+        # themselves survive D45 — so no receiver loop is asserted here.
+        # The panel still exposes its summary/positions signals, but nothing
+        # receives them: ``account_summary_changed`` and ``positions_changed``
+        # both have zero receivers on this window.
         assert hasattr(win.portfolio_panel, "account_summary_changed")
         assert hasattr(win.portfolio_panel, "positions_changed")
 
@@ -196,7 +185,7 @@ def _receiver_count(obj, signal) -> int:
     """Number of live receivers of ``signal`` emitted by ``obj`` (0 if unknown).
 
     ``QObject.receivers`` is the only reliable public measurement in PyQt6.
-    Returns -1 when the API is unavailable, so the caller's ``>= 1`` assertion
+    Returns -1 when the API is unavailable, so the caller's ``== 0`` assertion
     fails loudly rather than passing vacuously.
     """
     try:

@@ -29,18 +29,17 @@ class Position:
     expiry: Optional[str] = None
     strike: Optional[float] = None
     right: Optional[str] = None  # 'C' | 'P'
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
     trade_group_id: Optional[int] = None
     avg_cost: float = 0.0
     qty: float = 0.0  # signed: positive long, negative short
     market_price: float = 0.0
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
-    # ESC-032 / P2-T27: the `positions.id` DB row key. The panel
-    # (`ActivePortfolioPanel._render_table`) dereferences `pos.id` for strategy
-    # grouping and the SL/TP dialog keys `UPDATE positions ... WHERE id=?` on it,
-    # so the live path must carry the REAL row key — not a defensive None.
+    # ESC-032 / P2-T27 (ESC-062): the `positions.id` DB row key. The panel
+    # (`ActivePortfolioPanel._render_table`) dereferences `pos.id` to derive
+    # strategy grouping, so the live path must carry the REAL row key — not a
+    # defensive None. Without it the Strategy/Group columns render the '—'
+    # missing-id placeholder.
     id: Optional[int] = None
 
 
@@ -61,8 +60,6 @@ def build_position_from_ib(
     right: Optional[str],
     avg_cost: float,
     qty: float,
-    stop_loss: Optional[float],
-    take_profit: Optional[float],
     trade_group_id: Optional[int] = None,
 ) -> Position:
     """Convenience helper to build a Position from IBKR callback data."""
@@ -76,8 +73,6 @@ def build_position_from_ib(
         expiry=expiry,
         strike=strike,
         right=right,
-        stop_loss=stop_loss,
-        take_profit=take_profit,
         trade_group_id=trade_group_id,
         avg_cost=avg_cost,
         qty=qty,

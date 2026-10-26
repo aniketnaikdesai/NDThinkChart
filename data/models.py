@@ -83,8 +83,6 @@ class Position:
     expiry: Optional[str] = None
     strike: Optional[float] = None
     right: Optional[str] = None
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
     trade_group_id: Optional[int] = None
     id: Optional[int] = None
 
@@ -95,22 +93,5 @@ class TradeGroup:
     strategy_type: str  # 'PCS' | 'PDS' | 'CCS' | 'CDS' | 'IC' | 'CUSTOM'
     underlying: str
     id: Optional[int] = None
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
     collapsed: bool = False
     created_at: Optional[int] = None
-
-
-@dataclass
-class UserOrder:
-    order_id: int
-    symbol: str
-    action: str        # 'BUY' | 'SELL'
-    total_qty: float
-    order_type: str    # 'MKT' | 'LMT' | 'STP'
-    lmt_price: Optional[float] = None
-    aux_price: Optional[float] = None
-    status: str = ""
-    parent_id: int = 0
-    oca_group: str = ""
-    transmit: bool = True

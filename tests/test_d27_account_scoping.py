@@ -65,10 +65,9 @@ def _seed_position(symbol: str, con_id: int, account: str,
     cur.execute(
         "INSERT INTO positions "
         "(symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, "
-        " multiplier, stop_loss, take_profit, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (symbol, account, con_id, "stock", qty, avg_cost, symbol, 1.0,
-         None, None, 0),
+        " multiplier, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (symbol, account, con_id, "stock", qty, avg_cost, symbol, 1.0, 0),
     )
     db.conn.commit()
     return int(cur.lastrowid)

@@ -96,10 +96,9 @@ def _seed_position(symbol: str, con_id: int, account: str = "DU123",
     cur.execute(
         "INSERT INTO positions "
         "(symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, "
-        " multiplier, stop_loss, take_profit, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (symbol, account, con_id, "stock", qty, avg_cost, symbol, 1.0,
-         None, None, 0),
+        " multiplier, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (symbol, account, con_id, "stock", qty, avg_cost, symbol, 1.0, 0),
     )
     db.conn.commit()
     return int(cur.lastrowid)
@@ -161,41 +160,46 @@ def test_p2_t27_t21_position_end_loads_every_row_with_its_own_id(monkeypatch, qa
     # exist (they render '—' for stock, but the render must not be skipped).
     table = win.portfolio_panel.positions_table
     assert table.rowCount() == 2
-    assert table.item(0, 8) is not None
-    assert table.item(0, 9) is not None
+    assert table.item(0, 6) is not None
+    assert table.item(0, 7) is not None
 
 
-# ── AC3: the id is the real DB row key (SL/TP persistence) ──────────────────
+# ── AC5 (P5-T07): the bulk load reads by name ───────────────────────────────
 
-def test_p2_t27_t31_sltp_persists_to_exactly_the_addressed_row(monkeypatch, qapp):
-    """AC3 — the populated id is the row key `UPDATE ... WHERE id=?` targets."""
+def test_p5_t07_bulk_load_maps_trade_group_id_by_name(monkeypatch, qapp):
+    """AC5 — a non-null `trade_group_id` survives the bulk load intact.
+
+    Dropping `stop_loss`/`take_profit` shifted every later column, and that
+    shift fails SILENTLY (a stop value landing in the Group column reads as a
+    strategy-detection bug). Only a name-keyed read keeps the seeded value; a
+    positional ``row[14]`` would return ``None`` or the wrong column here.
+    """
     win = _make_window(monkeypatch, qapp)
     _stub_account_calls(win, monkeypatch)
     win._on_connected()
 
-    # Live path populates a real id.
-    win.ib_client.bridge.position_update.emit(
-        "DU123", _stock_contract(), 10.0, 40.0)
-    qapp.processEvents()
-
-    pos = win.portfolio_panel._positions[0]
-    assert pos.id is not None
-    pos_id = pos.id
-
-    # A decoy row that must NOT change.
-    decoy_id = _seed_position("MSFT", 111)
-    assert decoy_id != pos_id
-
-    # `position_sltp_changed -> MainWindow._on_portfolio_sltp_changed` is wired
-    # in MainWindow.__init__, so this drives the real persistence path.
-    win.portfolio_panel.update_position_sltp(pos_id, 1.5, 3.5)
-    qapp.processEvents()
-
     from data.db import db
 
     cur = db.conn.cursor()
-    cur.execute("SELECT stop_loss, take_profit FROM positions WHERE id=?", (pos_id,))
-    assert cur.fetchone() == (1.5, 3.5)
+    cur.execute(
+        "INSERT INTO trade_groups (name, strategy_type, underlying, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("P5 Group", "CUSTOM", "AAPL", 0),
+    )
+    group_id = int(cur.lastrowid)
+    db.conn.commit()
 
-    cur.execute("SELECT stop_loss, take_profit FROM positions WHERE id=?", (decoy_id,))
-    assert cur.fetchone() == (None, None)
+    position_id = _seed_position("AAPL", 265598)
+    cur.execute(
+        "UPDATE positions SET trade_group_id = ? WHERE id = ?",
+        (group_id, position_id),
+    )
+    db.conn.commit()
+
+    win._on_position_end()
+    qapp.processEvents()
+
+    positions = win.portfolio_panel._positions
+    assert len(positions) == 1
+    assert positions[0].trade_group_id == group_id
+    assert positions[0].id == position_id

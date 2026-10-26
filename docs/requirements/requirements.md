@@ -77,7 +77,9 @@
 > **no in-app order ticket** afterwards), and the **right dock becomes Portfolio-only**. Portfolio's
 > **Close / Close Group / Flatten All** and the **SL/TP dialogs** remain — they place orders through the
 > **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket
-> construction, kill switch). All of `ui/active_trader_panel.py` (panel shell, ladder/book, order-entry widget,
+> construction, kill switch). **[REVERSED BY D45 on 2026-10-25 (incl. its later extension): every one of those
+> retained surfaces — closes, SL/TP dialog, kill switch, `ibkr/validation.py` — is now removed; the app has zero
+> order interaction. This paragraph records D41 as it was decided, not the current end state.]** All of `ui/active_trader_panel.py` (panel shell, ladder/book, order-entry widget,
 > its `header_bar`/`header_button`, `set_symbol`/`set_last_price`/`last_price`) is **REMOVED**, and the **D18
 > right-dock model** and **D21.13 dock-title-bar / collapse** clauses that assumed the two-section
 > Active-Trader+Portfolio region are **superseded by D41** (the right dock is now a single Portfolio section
@@ -149,6 +151,79 @@
 > required** — the shipped guard already satisfies the restated measurable. The D44 register's "Expand on click" bullet,
 > Journey 37's postcondition, R67's mitigation and `design_gaps.md` **DG74** carry the same clarification. **D1–D43 are
 > NOT reopened**; `requirements.md` carries `Status: READY_FOR_PLAN` (unchanged).
+
+> **2026-10-25 — Batch 20 (D45): remove the News Digest dock (and the `View` menubar), the Trade Context Menu, the Kill switch and the SL-TP dialog — the app has ZERO order interaction afterwards. OWNER-REQUESTED; full removal; no blocking question (lite lane — defaults A79–A90).**
+> A NEW owner request arrives after D44 was delivered (`bb903a1`), reviewed (29/29 escalations addressed), with a
+> clean tree and a green suite. The owner asked, verbatim, *"I want both removed."* — referring to the two components
+> they had asked about and then confirmed for removal: (1) the **News Digest Dock** (`ui/news_digest_dock.py`,
+> D38a.2); (2) the **Trade Context Menu** (`ui/trade_context_menu.py`). Both are **full removals**. **Owner
+> confirmations (all explicit, 2026-10-25):** `ibkr/news.py` is **deleted** (its only consumer is the digest + its
+> tests); the **View menubar** may go (it exists **solely** for `View → News Digest`, Ctrl+Shift+N; the app had **no
+> menubar** before D38 and returns to **none**); generic tick **`"292"` is removed** while the **dividend tick
+> `"456"` MUST stay** (same `s0_register` mechanism, but it feeds the chart's **dividend event markers**, which are
+> staying); **Portfolio becomes view-only** (closes happen **in TWS directly**; **no replacement UI**); and
+> `USAGE.txt` / `usage.md` / `docs/codebase-map.md` are cleaned **in the same batch**. **Consequence stated
+> plainly:** after D45 the app **places no orders at all** — no notional cap, pacing or disconnected order guard is
+> in play — and the suite's meaning shrinks (three order-safety test files are deleted; **five** in total after
+> the later extension adds `test_kill_switch.py` and `test_sltp_honesty.py`) even as it stays green.
+> `AC-D38.2`/`AC-D38.3` are **SUPERSEDED BY D45**, `AC-D38.6` and the portfolio-close clauses of
+> `AC-D41.1`/`AC-D41.4` are **REVISED**, and D26's order-entry clauses are moot.
+> **EXTENSION (2026-10-25, later — the owner widened the same batch).** Verbatim: *"remove: Kill switch — it only
+> cancels orders, never places one / SL-TP dialog — local-only targets, never transmitted"*, in the context of
+> *"i dont need to place any order from the app"*. The intent is that the app has **no order interaction of any
+> kind** — not placing, **not cancelling, not closing** — so D45's end state moves from "the app places no orders"
+> to **"zero order interaction"**: the **Kill switch** (**Group C**, the cancel path) and the **SL-TP dialog**
+> (**Group B**) are **also removed in full**, and the Portfolio table's **Stop / Target columns** go with the dialog
+> (A87). **A82/A83 are REVERSED** (recorded as reversals, never silently rewritten), the "Scope — KEEP" list now
+> holds **no order-related surface at all**, and the **owner-accepted consequences are rewritten** to that end
+> state. `AC-D45.6` is **INVERTED** (it asserted the switch and dialog *still work*; it now asserts they are
+> **gone**), `AC-D45.10` is added, and **D26.3/D26.8** become **moot/superseded**.
+> **Consequence stated plainly:** after D45 the app **places, cancels and closes nothing** — no notional cap,
+> pacing, disconnected order guard or **panic cancel** is in play — the whole ordering machinery (`ibkr/orders.py`,
+> `ibkr/validation.py`, bracket construction, the registry's only producer, every `placeOrder`/`cancelOrder`/
+> `reqGlobalCancel` call site) is **orphaned together**, and the suite's meaning shrinks (**five** order/protection
+> test files are deleted) even as it stays green.
+> **D1–D44 are NOT reopened.** See D45, Journey 38, `AC-D45.1`–`AC-D45.10`, A79–A90, R68–R75, `design_gaps.md`
+> **DG75** / **DG77**. `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+> **2026-10-25 (later) — Batch 21 (D46): delete `ibkr/orders.py` and the inert order-observation chain. OWNER-REQUESTED; lite lane (defaults A91–A98; owner confirmations Q56–Q59, non-blocking).**
+> Asked after D45 delivered zero order interaction, verbatim: *"I dont want anything to do with orders so why is there orders.py ?"* —
+> and, on being told the module has no production caller and no populated registry, the owner **confirmed opening this batch**.
+> Repo-validated 2026-10-25: `ibkr/orders.py`'s four builders have **zero** production callers and `register()` is never called, so
+> the registry is permanently empty and every read returns `None`; the inbound `orderStatus`/`openOrder`/`execDetails` chain
+> (client overrides → three bridge signals → three `MainWindow` slots → `_update_order_status`) therefore terminates in a
+> **guaranteed no-op**, and `_on_order_error` — which phrased 201/103 "Rejected" and 202 "Cancelled" — is **unreachable**.
+> D46 deletes the module, the chain and the unreachable handler, and **keeps TWS error visibility** on the existing generic
+> status-bar line (`AC-D46.3`). **D1–D45 are NOT reopened**; **A80 and A90 are REVERSED in place** (A91/A92), **ESC-061 becomes
+> MOOT**, and `design_gaps.md` **DG76 is resolved by the deletion**. See D46, Journey 39, `AC-D46.1`–`AC-D46.8`, A91–A98,
+> R76–R81, `design_gaps.md` DG78–DG81, and `open_questions.md` Q56–Q59 (defaults recorded; no blocking item).
+> `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+> **2026-10-25 (later still) — Batch 21 (D46) scope EXPANDED: the owner answered Q56–Q59 verbatim and reversed the
+> retention decisions. The register, the inventory, the acceptance criteria and the A/R/DG numbers below supersede the
+> earlier D46 wording in every place the two differ.**
+> The owner's answers, verbatim: **Q56** *"why is there any order related code left"*; **Q57** *"there should not be any
+> order related coding. i want all of it deleted"*; **Q58** *"yes remove"*; **Q59** *"remove everything"*. **Q57/Q59 reject
+> the premise** of the earlier recorded defaults rather than choosing among the options offered, so the scope is now the
+> **whole order surface**, not `ibkr/orders.py` plus its observers. **What the expansion adds** (each verified in-repo
+> before being written down): (1) three **zero-consumer order utilities** — `ibkr/pacing.py::OrderRateLimiter` /
+> `order_limiter` (no production reader), `config/settings.py::MAX_ORDER_NOTIONAL` (no reader; its `validate_order()` gate
+> died in D45) and the **order-fill sound** (`render_fill_blip`, `play_fill`, `order_fill.wav` — `play_fill` has no
+> caller); (2) **`IdManager.reserve`** — the module itself **stays**, because `get_id()` allocates **market-data and
+> realtime reqIds** (`ibkr/market_data.py:42,74,90,103`, `ibkr/realtime_bars.py:31`), and only `reserve()` is order-only
+> (tests only); (3) the **stop/target storage** — `positions`/`trade_groups` `stop_loss`/`take_profit` **columns and the
+> `Position`/`TradeGroup`/`ibkr.account.Position` fields are DROPPED** (A99), **reversing A87**, the first **destructive**
+> schema step in the project. **The honest justification is ESC-060, not preference:** the values were **already cleared by
+> the first live update** of any row and no setter has existed since D45, so the drop destroys **nothing that survived** —
+> only rows must be preserved. **Reversals recorded in place, original wording kept:** A87 (→ A99), A97 (→ A100/A101),
+> A92/A93/A96 **confirmed** by the owner. **Q56 also has a recorded answer, not just a deletion:** order code survived
+> because D45's A80/A90 retained it on the premise that the observers needed the registry — a registry **nothing ever
+> populated**, so the premise was false; the lesson is that *"retained and inert"* was never checked for **reachability**,
+> and `D46.9`'s inventory is the mechanism that prevents a repeat. **Second documentation correction:** the statements
+> rewritten this morning under ESC-060 ("the columns are kept, but a live update clears them") are **superseded by A99** —
+> the trail must read **kept → cleared → dropped** (`D46.13`, `design_gaps.md` **DG84**). **No blocking question
+> remains.** D1–D45 are **not** reopened. See D46, Journey 39, `AC-D46.1`–`AC-D46.13`, A91–A104, R76–R85,
+> `design_gaps.md` DG78–DG87. `requirements.md` carries `Status: READY_FOR_PLAN`.
 
 ## Problem Statement
 NDThinkChart is a feature-complete desktop trading terminal (PyQt6 + pyqtgraph +
@@ -265,7 +340,16 @@ feature work and restyling are **explicitly revised (dated 2026-10-16)** rather 
 - Keep the live-order path safe: the per-run "gated in TWS" planning assumption is **retired** (owner decision
   2026-10-14, Q42), so D26 may be planned against the live-order path, but the safety behaviour stands —
   `IBKR_PORT != 7496` fails fast, every order requires explicit user action, confirm dialogs remain, and no
-  automated test transmits an order.
+  automated test transmits an order. **D45 (2026-10-25) revises the operative content of this goal:**
+  the app now **places no orders at all** — there is no in-app order path — so "every order requires explicit
+  user action" means **no order can be placed from the app**. **D45 extension (2026-10-25, later) revises it
+  again:** the app has **zero order interaction** — it places, cancels and closes nothing — so the **kill switch**
+  (the only in-app cancel path) and the **local-only SL/TP dialog** are **removed too**. What remains is the
+  fail-fast port check (`config/settings.py::check_live_port`), the connection badge, the inbound
+  order-status/execution callbacks (**observers only** — the registry they read is never populated) and the
+  no-test-transmits rule. **D46 (2026-10-25) removes even the observers and the module they read:** the app keeps
+  the fail-fast port check, the connection badge, the no-test-transmits rule and the **generic TWS error line**
+  (`Error [<code>]: <message>` — the surface for 201/103/202, `AC-D46.3`); it holds no order code at all.
 
 ## Non-Goals
 - **Net-new feature development — OWNER-DIRECTED REVISION 2026-10-16.** As originally written this
@@ -361,7 +445,7 @@ B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
   stale key is currently benign — so D23 does **not** reopen D22's feature criteria (`AC-D22.1`–`AC-D22.9` stand).
   See D23, Journey 28, `AC-D23.1.*`/`AC-D23.2.*`, A53–A55, R49–R50.
 
-- **D41 — remove the D36 footprint + D37 depth heatmap / imbalance / auction + the ENTIRE Active Trader panel (DOM ladder + order-entry UI) (NEW, 2026-10-15, USER-REQUESTED; scope FINALISED 2026-10-15 — Q48/Q49/Q50 answered):** the four chart-panel cluster controls (`Footprint` + `Classic`/`Tick count`, `Depth`, `IMB —`, `AUC —`) and **all of `ui/active_trader_panel.py`** (`ActiveTraderPanel` shell, the DOM ladder/book, and the in-app **order-entry widget** MKT/LMT/STP/Bracket) are removed, along with the **`DOM` toolbar button**; the persisted D36 footprint data (`footprint_cache` table + rows) is **deleted**; the **right dock becomes Portfolio-only**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) stays and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**; the kept order path's `ref_price` takes a **retained source**. The shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is preserved. See D41, Journey 36, `AC-D41.1`–`AC-D41.7`, A68–A71, R61–R62, and `open_questions.md` Q48–Q50 (answered).
+- **D41 — remove the D36 footprint + D37 depth heatmap / imbalance / auction + the ENTIRE Active Trader panel (DOM ladder + order-entry UI) (NEW, 2026-10-15, USER-REQUESTED; scope FINALISED 2026-10-15 — Q48/Q49/Q50 answered):** the four chart-panel cluster controls (`Footprint` + `Classic`/`Tick count`, `Depth`, `IMB —`, `AUC —`) and **all of `ui/active_trader_panel.py`** (`ActiveTraderPanel` shell, the DOM ladder/book, and the in-app **order-entry widget** MKT/LMT/STP/Bracket) are removed, along with the **`DOM` toolbar button**; the persisted D36 footprint data (`footprint_cache` table + rows) is **deleted**; the **right dock becomes Portfolio-only**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, bracket construction, kill switch) was to stay and guard Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**; the kept order path's `ref_price` takes a **retained source** — **REVERSED BY D45 (2026-10-25, incl. its later extension): every one of those surfaces is now removed** (closes, kill switch, SL/TP dialog; `ibkr/validation.py` deleted), so the app has **zero order interaction**. The shared substrate reused by the **kept** D38 (news/dividends) and D39 (burst/search) is preserved. See D41, Journey 36, `AC-D41.1`–`AC-D41.7`, A68–A71, R61–R62, and `open_questions.md` Q48–Q50 (answered).
 
 - **D42 — REQUIREMENTS resolutions for the two REQUIREMENTS-routed Code Reviewer escalations (ESC-042 candle/volume overlap precedence; ESC-038 intraday history depth + present-but-empty trading day) (NEW, 2026-10-15; Q51/Q52 answered 2026-10-15):** a **requirements-decision** batch (no code of its own). **ESC-042:** `AC-D6.4`'s unconditional 4-device-pixel body floor **contradicts** `AC-D7.1`'s "gap remains positive" at high density; the resolution caps the rendered body width at the **inter-bar device-pixel pitch** and makes the 4-px floor **density-aware** (it yields to the pitch when they collide), so **`gap >= 0` always** (no overlap) and **`gap > 0` whenever the pitch exceeds the floor** — this **supersedes the unconditional `AC-D6.4` wording** and the **`AC-D7.1` "positive gap" wording** + the D7 dense-view edge case, and is what unblocks BUILD **ESC-041**. **ESC-038:** the one-session symptom is a **fetch-window** defect (not `useRTH`); the owner's floor **`AC-D16.8`** (>= 30 trading sessions before the current session, each intraday timeframe) is **extended/clarified** (sessions are counted by bars **inside the current mode's session window**, not calendar-day presence; all current `TIMEFRAME_CONFIG` windows fall short and must extend history backwards), and a **present-but-empty trading day** (cached bars all outside the current mode's session window) is required to be treated as a **missing span** (**`AC-D16.9`**, the requirements side of BUILD **ESC-037**). **Owner answers (2026-10-15):** **Q51** confirmed the zero-gap default (no criteria change); **Q52** **widened `AC-D16.8`/`AC-D16.9` to Ext-Hours (ETH) charts too** (`ext_hours=True` shares the one floor with RTH and must not cross-contaminate — the bar cache/key is mode-aware in both directions), **superseding the RTH-only default** (recorded, not silent). See D42, `AC-D6.4`/`AC-D7.1` (revised), `AC-D16.8` (extended), `AC-D16.9` (extended), A72–A73, R63–R64, and `open_questions.md` Q51–Q52 (answered 2026-10-15).
 
@@ -378,6 +462,48 @@ B1–B4 (`open_questions.md`); D17 corrects D13's denominator in lockstep (B1).
   Expected to live in `ui/watchlist_panel.py` (the collapsed bar widget + collapse/expand state) and
   `ui/dock_layout.py` + `ui/main_window.py` (collapsed-aware width clamp). See D44, Journey 37,
   `AC-D44.1`–`AC-D44.8`, A75–A78, R66–R67, `design_gaps.md` DG74.
+
+- **D45 — remove the News Digest dock (+ the `View` menubar), the Trade Context Menu, the Kill switch and the
+  SL-TP dialog; the app has zero order interaction
+  (NEW, 2026-10-25, OWNER-REQUESTED; full removal, no blocking question — lite lane, defaults A79–A90):** the
+  **News Digest** half of D38 is removed end-to-end (`ui/news_digest_dock.py`, `ibkr/news.py`/`NewsManager`, the
+  `View → News Digest` menubar and its `Ctrl+Shift+N` shortcut, `MainWindow._on_news_digest_visibility`, and the
+  news **`"292"`** S0 fan-out in `ui/ticker_session.py`); the **Trade Context Menu** order path is removed
+  end-to-end (`ui/trade_context_menu.py`, `ibkr/validation.py`, the Portfolio `position_close_requested` /
+  `group_close_requested` / `flatten_all_requested` signals and their three `MainWindow` handlers, and
+  `_close_position_by_id`); and — **owner extension, 2026-10-25 (later)** — the **Kill switch**
+  (`kill_btn`/`_on_kill_switch_clicked`/`_kill_switch`, `reqGlobalCancel` + per-ID `cancelOrder`) and the
+  **SL/TP dialog** (`ui/stop_loss_target_dialog.py`, its two signals, both `MainWindow` handlers and the
+  Portfolio **Stop / Target** columns) are removed as well, because the owner wants **no order interaction of
+  any kind** (not placing, **not cancelling, not closing**). **Retained deliberately:** the **dividend** S0 line
+  `"456"`, tick 59, `_dividend_info`/`dividend_updated`, the **chart event markers**, the D39 substrate, the
+  Portfolio **observation** path (account summary + positions, **view-only**), and the `positions` /
+  `trade_groups` `stop_loss` / `take_profit` **DB columns + model fields** (no longer settable or displayed —
+  A87). **Portfolio becomes view-only** — closes happen in TWS, no replacement UI.
+  **[D46 NOTE 2026-10-25 — SUPERSEDED: A87 is reversed. The `stop_loss`/`take_profit` storage is now DROPPED —
+  columns and model fields both go (A99 / D46.12). The trail is kept → cleared → dropped.]**
+  **Accepted consequence:** the app **places, cancels and closes nothing**, every piece of ordering machinery is
+  orphaned together, and **five** test files (three order-safety + `test_kill_switch.py` + `test_sltp_honesty.py`)
+  are deleted, so a green suite proves less about order safety and protection than before (recorded in D45, not
+  hidden). See D45, Journey 38, `AC-D45.1`–`AC-D45.10`, A79–A90, R68–R75, and `design_gaps.md` DG75 / DG77.
+- **D46 — delete **every** order-related coding path (NEW, 2026-10-25, OWNER-REQUESTED; lite lane, then **scope EXPANDED
+  the same day by Q56–Q59**):** `ibkr/orders.py` (141 L — `UserOrder`, the `Orders` builders/registry and the `orders`
+  singleton) is **deleted**, together with the inbound observation chain that is its only reader (`IBApiClient`'s
+  `orderStatus`/`openOrder`/`execDetails` overrides → `ibkr/bridge.py` signals → `MainWindow._on_open_order` /
+  `_on_order_status` / `_on_exec_details` → `_update_order_status`) and the **unreachable** `_on_order_error`. **The
+  expansion adds:** the three **zero-consumer order utilities** (`OrderRateLimiter`/`order_limiter`,
+  `MAX_ORDER_NOTIONAL`, the order-fill sound), **`IdManager.reserve`** (the module stays — `get_id` allocates market-data
+  reqIds), and the **stop/target storage** — the `positions`/`trade_groups` `stop_loss`/`take_profit` **columns and model
+  fields are dropped** (A99, **reverses A87**; the first destructive schema step, justified by ESC-060: the values were
+  already cleared by the first live update, so the drop destroys nothing that survived). `tests/test_order_builders.py` and
+  `tests/test_stop_loss_target.py` are deleted whole; `tests/test_order_rejections.py` is **kept in reduced form** (the
+  surfacing cases repointed at the generic error path plus an added per-code case, and the `classify_error` cases). The
+  vestigial second `UserOrder` in `data/models.py` goes (A96). **TWS order errors still surface** — 201/103/202 reach the
+  status bar exactly as today (`AC-D46.3`). A **symbol-by-symbol inventory** with a disposition for every order-named member
+  — including the general code that must **not** be cut (`classify_error`, `error_msg`, `nextValidId`, `IdManager`, the ICT
+  "order blocks") — makes "all of it" auditable (`D46.9`/`AC-D46.9`). See D46, Journey 39, `AC-D46.1`–`AC-D46.13`,
+  A91–A104, R76–R85, DG78–DG87.
+
 
 **Repository mapping note (graphify).** A knowledge graph exists at `graphify-out/`
 (`graph.json`, `GRAPH_REPORT.md`). Per `AGENTS.md`, downstream agents — Plan, Plan Artifact
@@ -425,6 +551,14 @@ repository files, which remain authoritative if the two disagree.
   against the live-order path. Retained safety behaviour: `config/settings.py::check_live_port` fails
   fast unless `IBKR_PORT == 7496`; every order requires explicit user action; confirm dialogs remain;
   and no automated test transmits an order or connects to live TWS (Q9).
+  **D45 revision (2026-10-25, incl. its later extension):** the order-facing clauses of this constraint are
+  **vacuous, not deleted** — the app offers **no order interaction at all** (no place, cancel or close), so
+  "every order requires explicit user action" and "confirm dialogs remain" have no surface left to govern. The
+  **still-operative** parts are the fail-fast port check, the no-test-transmits rule and the regression-test
+  policy. **D46 (2026-10-25)** removes the last order-named code (`ibkr/orders.py` + the order-observation chain)
+  and **keeps error visibility**: TWS order errors **201/103/202** still reach the status bar via the generic
+  `Error [<code>]: <TWS message>` line — the richer per-order wording lived in a handler that was already
+  unreachable (`AC-D46.3`).
 - **Definition of done:** all test conditions pass; test conditions are defined
   and updated per task as defects are triaged (Q3).
 - **Regression-test policy (Q8, confirmed):** every fix ships with a check that
@@ -452,9 +586,12 @@ repository files, which remain authoritative if the two disagree.
   in TWS" planning assumption is **retired** (owner decision 2026-10-14, Q42); D26 may be planned/decomposed
   against this path. Safety behaviour is unchanged: `IBKR_PORT != 7496` fails fast
   (`config/settings.py::check_live_port`), every order needs explicit user action, confirm dialogs remain, and
-  no automated test transmits an order. **After D41 (2026-10-15)** the in-app order-entry ticket is removed; the
-  retained order paths are Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**, which use
-  the retained machinery (`ibkr/orders.py`, `ibkr/validation.py`, the validate-order gate, the kill switch). |
+  no automated test transmits an order. **After D41 (2026-10-15)** the in-app order-entry ticket is removed. **After D45 (2026-10-25, incl. its later extension)** the app has **zero order interaction** — it **places, cancels and closes nothing**: the Portfolio Close / Close Group / Flatten All paths, `ui/trade_context_menu.py`, `ibkr/validation.py`, the **kill switch** and the **SL/TP dialog** are all removed. What survives is **observation only** (fail-fast port check, connection badge, account/position render path) — see the two rows below. **After D46 (2026-10-25)** even the observation half of ordering is gone: `ibkr/orders.py`, the three inbound order callbacks, `_update_order_status` and the bridge's three order signals are deleted; TWS order errors still surface on the status bar as `Error [<code>]: <TWS's own message>` (`AC-D46.3`, A93). |
+| Kill switch | The red `#KillSwitchButton` toolbar control (D26.8) that issued `reqGlobalCancel` + a per-ID `cancelOrder` for every tracked order and reported pre/post counts. **REMOVED by D45 (2026-10-25, later extension)** — the app has **no cancel path**; TWS-placed orders are cancelled **in TWS**. Retained for history. |
+| SL/TP dialog | `ui/stop_loss_target_dialog.py` (`StopLossTargetDialog`, D26.3) — a **local-only** dialog that saved stop/target prices onto the `positions` / `trade_groups` rows and **never transmitted**. **REMOVED by D45 (2026-10-25, later extension)** together with its **Stop / Target** table columns; the DB columns and model fields are **retained but unsettable** (A87). **[SUPERSEDED BY D46/A99 — both are dropped by migration]** Retained for history. |
+| Order observation chain | The inbound order plumbing D26.9 added and D45 kept inert: `IBApiClient`'s `orderStatus`/`openOrder`/`execDetails` `EWrapper` overrides → `Bridge.order_status`/`open_order`/`exec_details` → `MainWindow._on_open_order`/`_on_order_status`/`_on_exec_details` → `_update_order_status` → the `ibkr/orders.py` registry. **REMOVED by D46 (2026-10-25)** together with the module: it had no behavioural effect because nothing ever populated the registry. TWS error surfacing is unaffected (`AC-D46.3`). |
+| News Digest Dock | The D38 dock (`ui/news_digest_dock.py`) that listed headlines for held positions, opened from `View → News Digest` (Ctrl+Shift+N). **REMOVED by D45 (2026-10-25)** with `ibkr/news.py` and the `View` menubar; the **event markers** it sat beside are retained. |
+| Trade Context Menu | The Portfolio right-click order menu (`ui/trade_context_menu.py`): Close Position / Close Group / Close All Positions. **REMOVED by D45 (2026-10-25)**; the Portfolio panel is **view-only** and closes happen in TWS. |
 | Genuine closure | A market-closed interval that is legitimately non-trading (weekend, actual US-equity holiday, or overnight). Stays **empty** per D16 (`AC-D16.3`). **Dec 31 of a year whose next Jan 1 is a Saturday is NOT a genuine closure** — it is a trading day (`AC-D16.7`, ESC-023). |
 | Chart area | The central region of `MainWindow` holding the chart, excluding the docked panels (Watchlist on the left; the **Portfolio-only** right dock, after D41). Panel caps in D17/D18 are percentages of **this** region (B1/B2), not of the whole window. |
 | Chart-minimum rule | The hard floor (~400px) the chart area must keep, independent of the two docks (B3): each dock clamps against its own % **and** against the space left so the chart never drops below the minimum. Enlarging one dock can force the other to shrink. |
@@ -981,12 +1118,17 @@ repository files, which remain authoritative if the two disagree.
   order ticket** (DG69); the **order execution/safety machinery** (`ibkr/orders.py`, `ibkr/validation.py`,
   validate-order gate, bracket construction, kill switch) is **kept** for the retained **Close / Close Group /
   Flatten All** and **SL/TP** order paths, and the retained path's `ref_price` comes from a **retained source**
-  (session last price / watchlist price map — Plan-level detail, DG71); the **right dock is Portfolio-only** and
+  (session last price / watchlist price map — Plan-level detail, DG71) **[D45 NOTE 2026-10-25: superseded — these paths, the kill switch and the SL/TP dialog are all removed; the app has zero order interaction. See D45 / `AC-D45.6`.]**; the **right dock is Portfolio-only** and
   the `D18`/`D21.13` two-section clauses are **superseded by D41** (DG71); the **D38** news digest + dividend
   markers still work (S0 `"292"`/`"456"`); the **D39** burst/search still works (`INDEX_PROXY` /
   `footprint_cache_key` / `volume_baseline`); the persisted `footprint_cache` table + rows are **removed** (Q49,
   A69, DG70); the **order-entry tests** are re-pointed at the retained machinery or removed with the widget; the
   `DOM` button's deletion changes the D19/D20 toolbar control set, so those geometry fixtures are re-checked.
+  **D45 (2026-10-25, incl. its later extension) note:** the **Portfolio Close / Close Group / Flatten All**
+  controls, the retained-order-path assertion, **and the kill switch + SL/TP dialog** named in this journey are
+  **themselves removed** by D45 — the Portfolio panel is **view-only**, and the app places, cancels and closes
+  **nothing** (zero order interaction). The only order-related code that survives is **observation** (the inbound
+  order-status / execution callbacks, whose registry is never populated). See Journey 38.
 
 ### Journey 37 — D44: collapse the watchlist to a thin vertical bar and click it to expand
 - **Preconditions:** IBKR connected (or not — collapse/expand is pure UI state); the Watchlist dock is visible
@@ -1004,6 +1146,90 @@ repository files, which remain authoritative if the two disagree.
   restores the cap (re-clamped); resize/drag while collapsed does not expand it; floating watchlist (D13) still
   clickable to expand; disconnected/empty watchlist still collapses/expands; first launch starts expanded;
   `CHART_MIN_WIDTH` invariant holds in both states.
+
+### Journey 38 — D45: the news dock, the View menu, the trade context menu, the kill switch and the SL/TP dialog are gone, and nothing in the app touches an order
+- **Preconditions:** IBKR connected (and, for the disconnected edge case, disconnected); a symbol loaded (e.g.
+  `SPY` 5m); positions visible in the Portfolio panel; open orders resting in TWS; an existing user config/DB that
+  may reference the removed News Digest dock or carry saved stop/target values.
+- **Steps:** 1) Look for a menubar and press `Ctrl+Shift+N`. 2) Look for a News Digest dock or any control that
+  opens one. 3) Load a dividend-paying symbol and check the chart's dividend event markers. 4) Right-click a
+  Portfolio position row, a group row, and empty space in the panel. 5) Look for **any** order-related control:
+  Close / Close Group / Close All, the **Kill Switch** button, **Set Stop-Loss / Take-Profit**. 6) Exercise
+  everything that remains (chart, timeframes, extended hours, watchlist add/remove, alarms, studies, drawings,
+  pop-outs, dialogs). 7) Close/cancel in TWS and watch the Portfolio panel. 8) Inspect the positions table's
+  columns. 9) Run the full offscreen suite; start the app.
+- **Postconditions:** **No menubar** exists and `Ctrl+Shift+N` does nothing; **no News Digest dock** renders and
+  no news **`"292"`** line is ever requested; the **dividend** path (`"456"`, tick 59) still works and the chart's
+  **dividend/earnings/split markers** still render. Right-clicking a position, a group, or empty space produces
+  **no** menu; `ui/trade_context_menu.py` no longer exists and the panel exposes none of the three close signals.
+  **No order-related control exists anywhere** — no Close/Close Group/Close All, **no Kill Switch button**, and
+  **no SL/TP dialog or entry point**; `ui/stop_loss_target_dialog.py` no longer exists, `ibkr/validation.py` no
+  longer exists, and with a mocked client the app issues **zero** `placeOrder`, **zero** `cancelOrder` and
+  **zero** `reqGlobalCancel` calls across every remaining affordance. The **Portfolio panel renders
+  positions/account summary view-only**, its table shows **8 columns with no Stop / Target column**, and it
+  reflects a TWS-side close on the next position update; **[D46 2026-10-25 — SUPERSEDED: the stop/target columns
+  and model fields were retained with no migration under A87, but A87 is now REVERSED — they are DROPPED
+  (A99 / D46.12); see D46 / Journey 39.]** ~~they are no longer settable or displayed, and a live position update
+  writes them empty~~
+  — so legacy values do not survive an update (**ESC-060**, corrected 2026-10-25). The suite is green with the
+  recorded deletions/adjustments, and `USAGE.txt` / `usage.md` / `docs/codebase-map.md` advertise nothing that
+  was removed.
+- **Edge Cases:** the `View` menu's shortcut must not survive as an orphan `QAction`; a saved dock state that names
+  the removed digest dock is ignored (no error, no dock recreated); a saved `QSettings`/layout entry naming the
+  removed toolbar button or dialog is ignored; right-click on a **watchlist** row or column header still opens the
+  D21.5 column popup / D22 add-remove (unaffected); right-click on the **chart** is unchanged; **open orders in
+  TWS are left untouched by the app** (nothing cancels them — that happens in TWS) and the app must not acquire a
+  cancel path on teardown/disconnect; a position row carrying legacy `stop_loss` / `take_profit` values renders
+  normally without those columns; the DB schema is **unchanged** (no migration, no destructive schema change) and an old DB
+  opens cleanly **[SUPERSEDED BY D46/A99: the two columns are now dropped by migration; rows, indexes and FKs preserved]**; **disconnected** — the Portfolio panel shows "unavailable" and no order path exists to block;
+  dividend-free or futures symbols skip dividends as today; a yfinance outage still leaves the IBKR tick-59
+  dividend marker rendering (`AC-D38.5` stands); `tests/test_d41_removal.py` mentions `NewsManager`'s
+  `queue_depth` in its allow-list (string/comment only) and must stay green after `ibkr/news.py` is deleted.
+
+### Journey 39 — D46: the app has no order module and no order plumbing, and a TWS order error still shows up
+- **Preconditions:** IBKR connected (mocked client offscreen, or live TWS); an order resting in TWS placed **outside** the app;
+  a chart loaded (e.g. `SPY` 5m); `ibkr/orders.py` absent from the tree.
+- **Steps:** 1) `import ibkr.orders` in a REPL. 2) Grep the tree for the module and its symbols. 3) Trigger a TWS **order
+  rejection** (201), a **duplicate order id** (103) and an **order cancellation** (202) with the app connected. 4) Exercise
+  every remaining affordance (chart, timeframes, extended hours, watchlist add/remove, alarms, studies, drawings, pop-outs,
+  Portfolio). 5) Disconnect and reconnect. 6) Run the full offscreen suite; start the app.
+- **Postconditions:** `ibkr/orders.py` **does not exist** and `import ibkr.orders` raises `ModuleNotFoundError`; no module
+  under `ui/ services/ data/ ibkr/ config/ main.py` imports it, and none of `Orders`, `market_order`, `limit_order`,
+  `stop_order`, `bracket_order`, `order_registry`, `_on_open_order`, `_on_order_status`, `_on_exec_details`,
+  `_update_order_status`, `_on_order_error` occurs anywhere in the tree — the D45 static scan now **rejects** those names
+  instead of allow-listing them. **A TWS order error still appears on the status bar as `Error [<code>]: <TWS's own
+  message>` for 8 seconds**: 201 and 103 (severity `fatal`) and 202 (severity `warning`) are all emitted by
+  `IBApiClient.error` because none is `info`-classified, and `_on_error` shows the line on its non-session path. The app
+  itself no longer adds an order number, a "Rejected"/"Cancelled" verdict or a 12-second duration, because it no longer
+  tracks orders. Nothing the app does places, cancels or closes an order (D45's zero-transmit guard stays green). The suite is
+  green with exactly the recorded test book, and the app launches and charts normally.
+- **Edge Cases:** an order error arriving while `_closing` is set is still dropped by that guard (unchanged); an order error
+  whose numeric id coincides with a **live session reqId** takes the session error path first — **pre-existing** (the registry
+  lookup already sat after the session branch), **unchanged** by D46, recorded as **DG78**; **202** is a normal cancellation
+  (`warning`, not `info`) so it is **not** suppressed; an error with `reqId = -1` (no order id) still shows the generic line;
+  a disconnected TWS keeps D40.1's `502` backoff suppression untouched; a stale `__pycache__/orders.*.pyc` cannot make
+  `import ibkr.orders` succeed (CPython 3.11 does not import bare cache files) — verify at build time; no `QSettings`/dock
+  state ever bound to this chain, so saved layouts are unaffected; the Portfolio table and the retained
+  `stop_loss`/`take_profit` **storage** are **gone** (A99 — the columns and model fields are dropped, every row preserved;
+  see the expansion below), so there are no values to clear or to persist.
+- **Expansion (2026-10-25, Q56–Q59) — steps added:** 7) Open a database created **before** D46 (both stop/target columns
+  present, rows seeded) and confirm the app opens it, keeps every row, and no longer has the columns; open it a **second**
+  time and confirm the migration is a no-op. 8) Open a **fresh** database and confirm the schema is created without the
+  columns and nothing raises. 9) Grep the tree for **every** identifier in D46's inventory and confirm the DELETE set is
+  empty while the RETAIN set is present with its named consumer. 10) Add a `UserOrder`, an `order_registry`, an `IBBridge`
+  order signal or a stop/target column back, and confirm the guard/scan goes red.
+- **Expansion — postconditions added:** `OrderRateLimiter`, `order_limiter`, `MAX_ORDER_NOTIONAL`, `render_fill_blip`,
+  `BLIP_DURATION`, `SoundService.play_fill`, the `"fill"` key and `order_fill.wav` **do not exist**, while the alarm chime
+  still plays; `IdManager.get_id` / `set_next_valid_id` **still exist and are still called** from the market-data and
+  realtime paths, and `IdManager.reserve` is **gone**; `IBApiClient.nextValidId` and `classify_error` **still exist** (they
+  are the connection hook and every TWS error's severity gate, not order code); `PRAGMA table_info(positions)` and
+  `(trade_groups)` list **no** `stop_loss`/`take_profit`; the Portfolio table still renders **8** columns; the documentation
+  trail reads **kept → cleared → dropped** with no surviving counter-claim.
+- **Expansion — edge cases added:** a pre-D46 row carrying legacy stop/target values loses **only those two values** and
+  keeps its row; an interrupted migration must not strand a half-built table (the `bars` rebuild precedent salvages and
+  retries); a stale `__pycache__/order_book.*.pyc` or `test_order_entry_*` cache file is untracked residue, not a live
+  symbol; a symbol scan that matches `sort_order` or the ICT `order blocks` is a **false positive** and must be matched
+  against the inventory's RETAIN set rather than "fixed".
 
 ## Acceptance Criteria (feature-level)
 
@@ -3106,12 +3332,22 @@ of BUILD **ESC-037**). **Q52 (owner-confirmed 2026-10-15)** extended the floor a
 > (D26.1), order-ID reservation (D26.2), the fail-fast port check (D26.5), the kill switch (D26.8),
 > rejection/registry/error handling and blocked-while-disconnected (D26.9) — because they **also guard the
 > retained order paths**: Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs** (D26.3)
-> place orders through the same `ibkr/orders.py` + `ibkr/validation.py` machinery. The **control-specific**
+> place orders through the same `ibkr/orders.py` + `ibkr/validation.py` machinery. **[D45 NOTE 2026-10-25: superseded — these paths, the kill switch and the SL/TP dialog are all removed; the app has zero order interaction. See D45 / `AC-D45.6`.]** The **control-specific**
 > clauses that name the removed ticket — **`AC-D26.4`** (MKT buttons) and the order-entry/ask-click half of
 > **`AC-D26.6`** (its `_pending_ladder` ask-click path is on the removed ladder) — have **no control to exercise**
 > after D41; the **safety invariant they guarded** (validate with the spinbox quantity, `qty>0`, no traceback,
 > correct side) **remains required** for the retained controls. **Do not delete the safety machinery** when
 > removing the order-entry UI.
+>
+> **D45 interaction (2026-10-25, incl. its later extension).** With the Portfolio close / close-group / flatten-all
+> path **also removed**, the app has **no order path at all**; and with the **kill switch** and the **SL/TP dialog**
+> removed too (owner extension, 2026-10-25 later), it has **no order interaction at all**. Of D26, only the
+> **fail-fast port check + badge** (D26.5) and the **connection half** of the error alerts (D26.9) still have a live
+> surface; the order registry that D26.9's rejection half reads is **never populated**, so it is inert.
+> **Moot / superseded after D45:** `AC-D26.3` (the SL/TP dialog's labelling branch — the dialog **no longer
+> exists**), `AC-D26.7` (the `validate_order()` gate), **all of `AC-D26.8`** (D26.8's kill switch is **removed**;
+> its pre/post counts have no caller) and `AC-D26.9`'s order-entry/registry clauses. `AC-D26.4`/`AC-D26.6` were
+> already control-less after D41. **Do not delete `AC-D26.5`** — the fail-fast port check is **not** an order path.
 - **Requirements (final — corrective, SHALL language):**
   - **D26.1 (B-0.1):** bracket-order stop-loss and take-profit children **SHALL** be placed on the **opposite**
     side of the entry (`BUY` entry → `SELL` STP + `SELL` LMT; `SELL` entry → `BUY` STP + `BUY` LMT).
@@ -3374,7 +3610,10 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
   `parse_ib_dividend_string`), `data/events/ibkr_source.py`, `data/events/yfinance_source.py` (`YFinanceCache`,
   TTL), `ibkr/news.py` (`NewsManager`), `ui/news_digest_dock.py` (`NewsDigestDock`),
   `ui/event_marker_overlay.py` (`EventMarkerOverlay`, `EVENT_STYLE`), `ui/ticker_session.py`
-  (`_merge_events`, tick-59 dividend merge).
+`ui/ticker_session.py` (`_merge_events`, tick-59 dividend merge). **D45 (2026-10-25): `ibkr/news.py`
+  (`NewsManager`) and `ui/news_digest_dock.py` (`NewsDigestDock`) are REMOVED, together with the news `"292"`
+  S0 line, the `View` menubar and `reqNewsArticle`; everything else listed here (the event provider,
+  `EventMarkerOverlay`, `_merge_events`, the tick-59 dividend merge, the S0 `"456"` line) is RETAINED.**
 - **Status:** **as-built / APPROVED 2026-10-13** (970 tests green; no blocking findings). Feature; D1–D37 not
   reopened. Acceptance criteria **authored 2026-10-14 (Q45/DG46)** from the shipped behaviour and
   `tests/test_d38_events_news.py` (which states AC-D38.1–AC-D38.6 in its own header).
@@ -3384,9 +3623,12 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
     with distinct per-type styling at the correct dates and a countdown names the next upcoming event
     ("Split in 4d"); no upcoming event → the countdown is hidden; events unavailable → "Event data unavailable";
     a date correction moves the marker (id-keyed) rather than duplicating it.
-  - **AC-D38.2 (digest groups + article fetch)** Given 2 held symbols + synthetic headlines, Then the digest
+  - **AC-D38.2 (digest groups + article fetch)** — **SUPERSEDED BY D45 (2026-10-25): the News Digest dock,
+    `NewsManager` and `ibkr/news.py` are removed, so there is no digest to group or fetch into.** Given 2 held
+    symbols + synthetic headlines, Then the digest
     groups headlines under each holding and clicking a headline fetches that article (`reqNewsArticle`).
-  - **AC-D38.3 (no news entitlement)** Given no API news subscription, Then the digest shows the explicit
+  - **AC-D38.3 (no news entitlement)** — **SUPERSEDED BY D45 (2026-10-25): with no digest there is no such
+    state to show.** Given no API news subscription, Then the digest shows the explicit
     "No API news subscription" state (never silently empty).
   - **AC-D38.4 (corporate-events-only guard)** Given a non-corporate event type, Then it is rejected at the
     provider boundary; the yfinance layer only calls the approved corporate-events endpoints (one secondary
@@ -3395,7 +3637,9 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
     Then the dividend marker still renders while earnings/splits show "event data unavailable"; a yfinance
     dividend on the same date as an IBKR dividend is dropped (IBKR wins), other yfinance events survive.
   - **AC-D38.6 (regression)** Given the feature, Then the full offscreen suite is green and no D1–D37 criterion
-    regresses.
+    regresses. **REVISED BY D45 (2026-10-25):** the green-suite rule stands, but
+    `AC-D38.2`/`AC-D38.3` are no longer live criteria; the surviving D38 surface is the **corporate-event
+    markers + dividend merge** (`AC-D38.1`/`AC-D38.4`/`AC-D38.5`).
 - **Edge Cases:** no API news subscription → explicit state; zero positions → empty state; yfinance
   outage/rate-limit → "event data unavailable", chart unaffected; both sources empty → "no event data" state
   logged for the owner; per-symbol headline fetch failure (others still show); tick-59 parse garbage never
@@ -3496,6 +3740,8 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
   the **whole Active Trader panel** — the in-app **order-entry UI** goes with it (there is **no in-app order
   ticket** afterwards) — and make the **right dock Portfolio-only**. Portfolio's **Close / Close Group /
   Flatten All** and the **SL/TP dialogs** remain and place orders through the retained order machinery.
+  **[REVERSED BY D45 (2026-10-25, incl. its later extension): the closes, the SL/TP dialog and the kill switch
+  are removed — see D45. This line records the D41 decision, not the current end state.]**
 - **Scope — REMOVE (feature-exclusive):**
   - **D36:** `FootprintItem` (`ui/footprint_item.py`), `FootprintService` (`services/footprint_service.py`),
     `FootprintCache`/`is_cacheable` (`data/footprint_cache.py`), `TickHistoryManager` (`ibkr/tick_history.py`),
@@ -3554,15 +3800,24 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
     the **SL/TP dialogs** (`ui/stop_loss_target_dialog.py`) place orders **independently** through it:
     `ibkr/orders.py` (incl. `bracket_order`), `ibkr/validation.py` + the `validate_order()` gate, order-ID
     reservation (`id_manager`), the **kill switch** (`reqGlobalCancel` + per-ID cancels), the order registry /
-    order-error handling, and the fail-fast port check (`config/settings.py::check_live_port`). **Do not delete
-    the safety machinery** while removing the order-entry UI (DG69).
+    order-error handling, and the fail-fast port check (`config/settings.py::check_live_port`). **Do not delete the
+    safety machinery** while removing the order-entry UI (DG69).
+    **REVISED BY D45 (2026-10-25, incl. its later extension):** the close / close-group / flatten-all paths are now
+    **removed too**, and so are the **kill switch** and the **SL/TP dialog** — this bullet is **superseded** as a
+    whole. `ibkr/validation.py` + the `validate_order()` gate are **deleted**; `ibkr/orders.py` (builders +
+    registry), `bracket_order`, order-ID reservation and the registry/order-error handling remain only as
+    **unreferenced / inert** code with no app-placed orders to track (A80). **Nothing in the app builds, transmits
+    or cancels an order.** The **fail-fast port check** (`config/settings.py::check_live_port`) is **retained** —
+    it is not an order path.
   - **Retained order-path `ref_price` — KEEP with a NEW source (Plan-level detail).** `MainWindow` passed
     `ref_price=self.active_trader.last_price` to the MKT notional cap, and `last_price` was populated from the
     **DOM depth feed** (`_on_mkt_depth` → `active_trader.set_last_price(price)`). Both the panel and the DOM feed
     are now removed, so `ref_price` **MUST** be sourced from a **retained** price — the session's last price (the
     live RT-bar / aggregator last) or the `symbol → last_price` watchlist price map (the same source D27.5
     mandates for position market prices) — and **must keep resolving** for the retained order paths. The exact
-    source is a **Plan-level detail** (DG71).
+    source is a **Plan-level detail** (DG71). **REVISED BY D45 (2026-10-25, incl. its later extension):** this
+    clause is **moot** — no retained order path builds an order, so `ref_price` has **no consumer**; the
+    `_ref_price_for` helper may be deleted with the order path or left unused (Plan's call).
   - **D18 / D21.13 — superseded, not deleted.** The right-dock model (D18) and the dock-title-bar / collapse
     behaviour (D21.13) assumed a **two-section Active Trader + Portfolio region**. With the Active Trader panel
     removed, the **right dock is a single Portfolio section**; the **40%-of-chart-area cap (D18/B2)** and the
@@ -3581,8 +3836,9 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
     renders** — no ladder/book table, **no in-app order-entry (Buy/Sell MKT/LMT/STP/Bracket) control**, and no
     Active-Trader title-bar button; `ChartPanel`/`MainWindow` expose no `footprint_*`/`depth_*`/`auction_*`
     signal or attribute and no `active_trader` attribute. The zoom cluster, `Volume` toggle and every other
-    **retained** control are unchanged, and the **Portfolio section** (Close / Close Group / Flatten All + the
-    SL/TP dialogs) still renders.
+    **retained** control are unchanged, and the **Portfolio section** still renders — **REVISED BY D45
+    (2026-10-25, incl. its later extension):** it is **view-only**, i.e. **no** Close / Close Group / Flatten All
+    control exists, **and no SL/TP dialog or entry point exists either** (both removed; see `AC-D45.6`).
   - **AC-D41.2 (no D36/D37/DOM-ladder request is ever issued)** Given any symbol/timeframe load and any control
     interaction while connected, Then the app issues **zero** `reqHistoricalTicks`/`reqTickByTickData`, **zero**
     `reqMktDepth`/`cancelMktDepth` of any kind (heatmap or ladder), and **zero** `reqMktData` with generic
@@ -3604,6 +3860,10 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
     `ibkr/validation.py`/`validate_order()`, `bracket_order` side-correctness, order-ID reservation, the kill
     switch and the fail-fast port check are present and exercised; the retained order paths (**Close / Close
     Group / Flatten All**, SL/TP dialogs) still build and validate orders with a **resolving `ref_price`**.
+    **REVISED BY D45 (2026-10-25, incl. its later extension):** **no** order-related surface is retained — the
+    kill switch and the SL/TP dialog are **removed too**, so the app builds, transmits and cancels **nothing**; the
+    `ref_price` clause is **moot** because no UI path builds an order and `ibkr/validation.py` is deleted. The D38
+    **dividend/event-marker** half and the D39 substrate remain in force.
   - **AC-D41.5 (app starts and charts normally; suite green)** Given the change, Then the app launches, loads
     and renders a chart (candles + volume), and the full offscreen suite (`QT_QPA_PLATFORM=offscreen`) is green
     with no D1–D35/D38–D40 criterion regressed.
@@ -3950,6 +4210,933 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
     class), that the palette matches the app (no white pill), and that the **expanded** D13/D17 width criteria
     are unaffected.
 
+### D45 — Remove the News Digest dock (+ the `View` menubar), the Trade Context Menu, the **Kill switch** and the **SL/TP dialog** — the app has **zero order interaction** afterwards — OWNER-REQUESTED 2026-10-25
+
+- **Area (REMOVE):** `ui/news_digest_dock.py` (`NewsDigestDock`), `ibkr/news.py` (`NewsManager`), the `View`
+  menubar in `ui/main_window.py` (`menuBar()` / `view_menu` / `_on_news_digest_visibility` /
+  `self.news_digest_dock`), the news `"292"` fan-out in `ui/ticker_session.py`; `ui/trade_context_menu.py`
+  (`TradeContextMenu`), `ibkr/validation.py` (`validate_order`), the Portfolio close path in
+  `ui/active_portfolio_panel.py` (`position_close_requested` / `group_close_requested` /
+  `flatten_all_requested`, `_on_flatten_all`, the context-menu policy and its handler) and its three
+  `MainWindow` handlers (`_on_portfolio_close_position`, `_on_portfolio_close_group`,
+  `_on_portfolio_flatten_all`, `_close_position_by_id`); **`ui/stop_loss_target_dialog.py`**
+  (`StopLossTargetDialog`), the Portfolio SL/TP chain (`position_sltp_changed` / `group_sltp_changed`,
+  `_on_set_sltp`, `_on_sltp_confirmed`, `update_position_sltp`, `update_group_sltp`) and the two
+  `MainWindow` handlers (`_on_portfolio_sltp_changed`, `_on_portfolio_group_sltp_changed`) plus the table's
+  **Stop / Target columns**; the **Kill switch** (`kill_btn`, `_on_kill_switch_clicked`, `_kill_switch`, the
+  `reqGlobalCancel()` + per-ID `cancelOrder()` calls); the named test files/cases; and three docs.
+- **Status:** **NEW / OWNER-REQUESTED 2026-10-25 — full removal; no blocking question (lite lane: every open
+  default is recorded as A79–A90).** **D1–D44 are NOT reopened.** D45 **supersedes** `AC-D38.2`/`AC-D38.3`,
+  **revises** `AC-D38.6` and the portfolio-close clauses of `AC-D41.1`/`AC-D41.4`, makes the D26 order-entry
+  clauses **moot**, and — after the **2026-10-25 (later) extension** — makes **`AC-D26.3` moot** and
+  **supersedes `AC-D26.8`**.
+  **Extension (owner-requested, 2026-10-25 later):** verbatim *"remove: Kill switch — it only cancels orders,
+  never places one / SL-TP dialog — local-only targets, never transmitted"*, given in the context of *"i dont
+  need to place any order from the app"*. The intent is **no order interaction of any kind** — not placing, not
+  cancelling, not closing. **Nothing is retained on the order side** except observation; the "Scope — KEEP" list
+  below contains **no order-related surface**.
+  **No `## Non-Goals` bullet needs revision:** D45 **removes** features and adds none, and the existing
+  order-placement Non-Goal only becomes **vacuous** (there is no order interaction left to govern).
+- **Reported (verbatim, first request):** *"I want both removed."* — referring to the two components the owner had
+  asked about and then confirmed for removal: (1) the **News Digest Dock** (`ui/news_digest_dock.py`, D38a.2);
+  (2) the **Trade Context Menu** (`ui/trade_context_menu.py`).
+- **Reported (verbatim, later extension):** *"remove: Kill switch — it only cancels orders, never places one /
+  SL-TP dialog — local-only targets, never transmitted"*; context: *"i dont need to place any order from the
+  app"*.
+- **Owner confirmations (explicit, 2026-10-25 — all confirmed):**
+  - **`ibkr/news.py` — DELETE.** Its only consumer is the digest and its tests.
+  - **The `View` menubar — fine to lose.** It exists **solely** for `View → News Digest` (`Ctrl+Shift+N`); the
+    app had **no menubar** before D38 and returns to **none**.
+  - **Generic tick `"292"` — REMOVE.** The **dividend tick `"456"` MUST STAY** — the same `s0_register`
+    mechanism, but it feeds the chart's **dividend event markers**, which are **staying**.
+  - **Portfolio becomes view-only.** Closes happen **in TWS directly**. **No replacement UI.**
+  - **Kill switch — REMOVE (later extension).** The owner's reason is exact: it **only cancels**, it never
+    places. With no in-app order placement, a cancel-only control is out of scope for the app.
+  - **SL/TP dialog — REMOVE (later extension).** The owner's reason is exact: its targets are **local-only and
+    never transmitted** — they protect nothing, so the dialog is a dead setter.
+  - **Docs** (`USAGE.txt`, `usage.md`, `docs/codebase-map.md`) are cleaned **in the same batch**.
+- **Observed in repository (validated 2026-10-25 against source; the invoking session's inventory, spot-checked
+  here — source is authoritative). Line numbers are indicative; resolve by symbol:**
+  - **Group A — News Digest (≈8 files)**
+    - delete `ui/news_digest_dock.py`, `ibkr/news.py`.
+    - `ui/main_window.py`: the import, `self.news_digest_dock` (479–493), `_on_news_digest_visibility`
+      (2757–2763), the `menuBar()`/`view_menu` block (486–491), the `NewsManager` use (529).
+    - `ui/ticker_session.py`: the news `"292"` fan-out (≈176, 526) — **leave dividends `"456"` / tick 59 /
+      `_dividend_info` / `dividend_updated` untouched.**
+    - `tests/test_d38_events_news.py`: remove the digest + `NewsManager` cases (≈149, 170, 190, 482–493);
+      **keep the event-marker cases.**
+    - `tests/test_dock_d18_region.py:147`: drop the `objectName() != "NewsDigest"` filter.
+    - `USAGE.txt:140` (the `View → News Digest` section), `docs/codebase-map.md:45`.
+  - **Group B — Trade Context Menu + the whole order path + the SL/TP dialog (≈15 files)**
+    - delete `ui/trade_context_menu.py`, `ibkr/validation.py`, **`ui/stop_loss_target_dialog.py`**
+      (`StopLossTargetDialog`, 180 L; its `set_sltp_action` is the **only** entry point that ever opened it).
+    - `ui/active_portfolio_panel.py`: the imports (25 `StopLossTargetDialog`, 26 `TradeContextMenu`), the menu
+      construction (155–160) and the context-menu policy + handler (144–145, 370–373), the signals
+      `position_close_requested` / `group_close_requested` / `flatten_all_requested` **and**
+      `position_sltp_changed` / `group_sltp_changed` (42–51), `_on_flatten_all` (415–417),
+      `_on_set_sltp` (375–389), `_on_sltp_confirmed` (391–396), `update_position_sltp` (249–260),
+      `update_group_sltp` (262–275), `self._sltp_dialog` (168), and the **Stop / Target table columns**
+      (115–127: the table becomes **8 columns**; `_render_table` drops the two values and re-indexes the
+      right-aligned set from `(1,2,4,5,6,7)` to `(1,2,4,5)`; the `RIGHT_DOCK_MIN_WIDTH` docstring's
+      "10-column" wording is corrected).
+    - `ui/main_window.py`: the 3 close connections (647–649), `_on_portfolio_close_position` (3366),
+      `_on_portfolio_close_group` (3370), `_on_portfolio_flatten_all` (3381), `_close_position_by_id`
+      (3394…), the `validate_order` import (37), **and** the two SL/TP connections (650–651) with
+      `_on_portfolio_sltp_changed` (3342–3352) / `_on_portfolio_group_sltp_changed` (3354–3368) — the two
+      `UPDATE positions SET stop_loss=…` / `UPDATE trade_groups SET stop_loss=…` statements die with them
+      (the position **upsert** in `_persist_position` still writes both fields — unchanged).
+    - tests: **delete** `tests/test_d28_6_close_contracts.py`, `tests/test_d41_retained_order_path.py`,
+      `tests/test_order_validation.py`, **`tests/test_sltp_honesty.py`** (both cases assert the deleted
+      dialog's disclosure labels); **adjust** `tests/test_order_rejections.py`, `tests/test_d28_pacing.py`,
+      **`tests/test_dock_d18_region.py`** (`:147` digest filter, `:176` close path, **`:177-178` the two SL/TP
+      signals in the five-signal receiver loop → a three-signal loop**),
+      **`tests/test_d27_position_id.py`** (remove `test_p2_t27_t31_sltp_persists_to_exactly_the_addressed_row`
+      — its subject is the deleted `update_position_sltp → _on_portfolio_sltp_changed` row UPDATE; **keep** the
+      rest, including the position-id AC2 case), and
+      **`tests/test_d27_position_prices.py`** (Strategy/Group column indexes `8`/`9` → **`6`/`7`** after the two
+      columns are dropped), plus `tests/test_d27_position_id.py:164-165` (same `8`/`9` → `6`/`7`).
+      **Keep** `tests/test_stop_loss_target.py` — it asserts only the `Position`/`TradeGroup` model fields,
+      which are retained (A87).
+    - docs: `USAGE.txt` (the close / close-group / close-all text, **and the SL/TP bullet at :94-96**),
+      `usage.md` (`### Portfolio & SL/TP` heading + steps 2–3; the line-102 table row's "SL/TP, close/flatten
+      actions"), `docs/codebase-map.md`.
+  - **Group C — Kill switch (the cancel path, ≈3 files)**
+    - `ui/main_window.py` (toolbar block, `__init__` ≈318–330): `self.kill_btn = QPushButton("Kill Switch")`,
+      `setObjectName("KillSwitchButton")`, its tooltip, the red `#b91c1c` style, the
+      `clicked.connect(self._on_kill_switch_clicked)` line, **and the `QLabel("|")` separator immediately
+      preceding it** — the toolbar's remaining widgets and its trailing `addStretch()` stay.
+    - `ui/main_window.py` handlers: `_on_kill_switch_clicked` (3059–3061) and `_kill_switch`
+      (3028–3057) — the `self.ib_client.reqGlobalCancel()` call (3042), the per-tracked-order
+      `self.ib_client.cancelOrder(oid)` loop (3046–3051), the terminal-status pre-count, the
+      `order_registry.update_status(oid, "Cancelled")` marking, and the pre/post status-bar message.
+      **`_kill_switch` has exactly two callers: the toolbar button and `_on_portfolio_flatten_all` (3385) —
+      the latter is already removed by Group B, so both callers go.**
+    - **`reqGlobalCancel` / `cancelOrder` — no other caller exists (verified 2026-10-25), so nothing needs
+      re-pointing.** There is **no** `reqGlobalCancel`/`cancelOrder` wrapper anywhere in `ibkr/` (no such method
+      on `MarketDataManager`, `RealtimeBarManager`, `Orders` or the client bridge), and **no disconnect /
+      teardown / `closeEvent` / reconnect path issues either call** — the only production call sites in the
+      whole tree are the two lines inside `_kill_switch`. Removing the kill switch therefore removes the app's
+      **entire cancel capability**; nothing is left pointing at a deleted wrapper, and nothing may be added
+      back (A88).
+    - `tests/test_kill_switch.py` — **whole file** (166 L, 4 cases): `test_kill_switch_cancels_all_legs`,
+      `test_kill_switch_reports_counts`, `test_flatten_all_kills_first`, and
+      `test_bracket_builder_registers_all_three_legs` (which also drives `win._kill_switch()` and asserts it
+      cancels all three registered legs — the button it tests is gone).
+    - `USAGE.txt:90-93` (the "Kill switch" bullet) **and** `:97-98` ("Orders cannot be placed while
+      disconnected") — both describe controls/paths that no longer exist.
+    - `docs/codebase-map.md` rows that name `_kill_switch` as retained (Plan-owned; refresh in this batch).
+- **Scope — KEEP (deliberate; MUST NOT be removed with the above):**
+  - **Dividend path (D38):** the S0 generic tick **`"456"`**, tick **59** handling, `_dividend_info`,
+    `dividend_updated`, the dividend merge (`_merge_events`), the **event-marker overlay** and the yfinance
+    corporate-events provider. Only the news `"292"` line and its digest fan-out go. *(Because both features
+    share one `s0_register` mechanism, this is the single most likely accidental deletion — R68.)*
+  - **Account-summary / positions data path:** retained at requirements level — the Portfolio panel stays,
+    **view-only**, rendering positions and account summary as today, **minus** the Stop/Target columns (A87).
+  - **Stop/target storage (NOT the UI):** `positions.stop_loss` / `take_profit` and `trade_groups.stop_loss` /
+    `take_profit` **DB columns**, the `Position` / `TradeGroup` **model fields**, and the **`_persist_position`
+    upsert round-trip** are **retained** — no schema change, no migration (A87). **[SUPERSEDED BY D46/A99 — the columns and model fields are dropped by a migration]** **Legacy values are NOT
+    preserved, though:** with the setter gone nothing ever sets them, and `_on_position_update` builds
+    `Position(stop_loss=None, take_profit=None)` while the upsert's `DO UPDATE` writes both columns, so a row's
+    legacy values are cleared the first time it updates (ESC-060, corrected 2026-10-25). They are **not settable
+    and not displayed**; they are also **not durable**, and every document that touches them says so.
+  - **Observation-only order plumbing:** the **inbound** callbacks `_on_open_order`, `_on_order_status`,
+    `_on_exec_details`, `_update_order_status`, `_on_order_error` and the `order_registry` import stay wired
+    (they **observe** TWS; they neither place nor cancel). The registry is **never populated** by the app any
+    more, so these are **inert** — recorded, not silently deleted (A90). **[D46 NOTE 2026-10-25: superseded — the
+    observers, the three bridge signals, the three client overrides and `ibkr/orders.py` itself are now
+    **removed**, because an inert chain that still looks live is the fossil the owner asked about; see D46 /
+    A91–A92. TWS error surfacing is unchanged (`AC-D46.3`).]**
+  - **Fail-fast port check** (`config/settings.py::check_live_port`), the **connection badge** (D26.5) and the
+    global **no-test-transmits** rule — retained; none of them is an order path.
+  - **D39** (burst alerts / symbol search), the chart, alarms, drawings, studies, pop-outs, D40 and D44 —
+    untouched.
+- **Owner-accepted consequences (stated plainly, not implied):**
+  1. **The app has zero order interaction.** After D45 there is **no UI path to `placeOrder`, `cancelOrder` or
+     `reqGlobalCancel`**: no in-app order ticket (gone since D41), no Close / Close Group / Flatten All, **no
+     kill switch**, **no SL/TP setter** and **no replacement UI**. The app **places, cancels and closes
+     nothing** — trades and their protection are managed in TWS; the app observes.
+  2. **There is no panic cancel any more.** The kill switch was the app's **only** cancel control; with TWS
+     holding the orders, **TWS is the cancel surface**. This is accepted because the app can no longer create an
+     order that would need one (R73).
+  3. **No order-safety behaviour is in play.** The notional cap, the order **pacing** guard, the
+     **disconnected order-entry** guard and the `validate_order()` gate no longer gate anything, because nothing
+     places orders. They are not "retained protections" — they are **moot**.
+  4. **The ordering machinery is orphaned together.** `ibkr/orders.py` (builders **and** the registry, whose
+     only producer was the app), `ibkr/validation.py` (**deleted**), bracket construction, OCA grouping,
+     order-ID reservation (`id_manager` for orders), `ref_price`, `_ref_price_for`, and **every**
+     `placeOrder`/`cancelOrder`/`reqGlobalCancel` call site are now **dead or inert in one and the same
+     change**. The app is **purely read-only for trading**: it renders account, positions, bars and alerts.
+     Whether `ibkr/orders.py` is deleted or left unreferenced remains a Plan/Build choice (A80/A90).
+  5. **The suite's meaning shrinks even though it stays green.** **Five** whole test files are **deleted** —
+     `tests/test_d28_6_close_contracts.py`, `tests/test_d41_retained_order_path.py`,
+     `tests/test_order_validation.py` (the three that were the only coverage of the close/flatten order path and
+     its validation), **plus `tests/test_kill_switch.py`** (the only coverage of the cancel path, of the
+     `Orders` registry's open-order enumeration and of `bracket_order`'s three-leg registration) **and
+     `tests/test_sltp_honesty.py`** (the only assertion that the SL/TP dialog transmitted nothing). Case-level
+     coverage also goes: the D27.1 SL/TP row-addressing case, the D38 digest cases and the two SL/TP signal
+     checks in the D18 receiver loop. A green suite after D45 therefore proves **less** about order safety and
+     protection than a green suite before it. This is recorded, not hidden.
+  6. **The owner closes positions and cancels orders in TWS**, and the panel reflects the result on the next
+     position update; local stop/target values saved before D45 are no longer shown, and the next live update
+     for that row clears them (ESC-060) — nothing preserves them.
+- **Requirements (final):**
+  - **D45.1 — remove all three groups completely.** No News Digest dock, no `View` menubar, no news `"292"`
+    request, no `ibkr/news.py`/`NewsManager`; no Trade Context Menu, no close/close-group/flatten-all signal or
+    handler, no `ibkr/validation.py`; **no Kill switch button/handler/`_kill_switch`**, no `reqGlobalCancel` or
+    `cancelOrder` call; **no SL/TP dialog, no SL/TP signals or handlers, no Stop/Target columns**.
+  - **D45.2 — no order path and no cancel path remain.** `placeOrder`, `cancelOrder` and `reqGlobalCancel` are
+    **unreachable from any UI path**. Whether the now-unreferenced `ibkr/orders.py` is deleted or left is a
+    Plan/Build detail (A80/A90); the requirement is **unreachability and zero transmitted/cancelled orders**.
+  - **D45.3 — dividends keep working.** The S0 `"456"` line, tick 59, `_dividend_info`/`dividend_updated` and
+    the chart's dividend event markers are unchanged and still exercised by tests.
+  - **D45.4 — retained surfaces keep working.** The Portfolio panel renders positions/account summary
+    **view-only** with **8 columns**; the dividend markers, D39, the chart, alarms, drawings, studies, pop-outs,
+    D40 and D44 behave as today. **The kill switch and the SL/TP dialog no longer exist** (they are no longer
+    "retained surfaces").
+  - **D45.5 — docs cleaned in the same batch** (`USAGE.txt`, `usage.md`, `docs/codebase-map.md`), with no doc
+    advertising a removed feature, an app-placed order, an in-app cancel, or settable SL/TP.
+  - **D45.6 — stop/target storage survives the UI.** The `positions` / `trade_groups` `stop_loss` /
+    `take_profit` columns and the model fields are **retained unchanged** (no migration) **[SUPERSEDED BY D46/A99 — dropped by migration]** while
+    the two **display** columns and every setter are removed (A87); the values themselves are **not** preserved — a live update writes them empty (ESC-060).
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D45.1 (no News Digest dock; no menubar)** Given the running app, Then **no News Digest dock**
+    exists and no control opens one, `MainWindow` has **no** `news_digest_dock` attribute and **no**
+    `_on_news_digest_visibility`, and the window creates **no `QMenuBar`** at all — so **no `View` menu**
+    and no `Ctrl+Shift+N` action exist. (Context menus such as the D21.5 watchlist column popup may still
+    exist and are **not** affected.) (Measurable: `hasattr(win, "news_digest_dock") is False`;
+    `win.findChildren(QMenuBar)` is empty; no `QMenu` titled `View`; no `QAction` whose text is
+    `News Digest`; `ui/news_digest_dock.py` and `ibkr/news.py` do not exist; `import ibkr.news` /
+    `import ui.news_digest_dock` fail.)
+  - **AC-D45.2 (news `"292"` gone; dividends `"456"` retained and markers still work)** Given a dividend-paying
+    symbol with earnings/dividend/split events and a mocked client, Then the session **never** requests generic
+    tick `"292"` and **does** register `"456"` for dividends, tick 59 still updates `_dividend_info` and emits
+    `dividend_updated`, and the **event markers + countdown still render**. (Measurable: the fake client's
+    `reqMktData` generic tick strings never contain `"292"` and contain `"456"`; the surviving
+    `tests/test_d38_events_news.py` event-marker/dividend cases pass; `AC-D38.1`/`AC-D38.5` still hold.)
+  - **AC-D45.3 (no Trade Context Menu; no close affordances)** Given positions in the Portfolio panel, When the
+    user right-clicks a position row, a group row and empty space, Then **no menu appears**, and the panel
+    exposes **no** `position_close_requested` / `group_close_requested` / `flatten_all_requested` signal, no
+    `_on_flatten_all`, no `_show_context_menu`, and no Close / Close Group / Close All control anywhere in the
+    app. (Measurable: the table's context-menu policy is not `CustomContextMenu` (or a simulated
+    `customContextMenuRequested` pops no `QMenu`); `hasattr` checks on the panel and window are False;
+    `ui/trade_context_menu.py` does not exist; a source scan finds none of the three signal names or
+    `TradeContextMenu`.)
+  - **AC-D45.4 (no order interaction at all; `placeOrder`/`cancelOrder`/`reqGlobalCancel` unreachable)** Given
+    the app connected to a mocked client, When **every** remaining UI affordance is exercised (chart loads,
+    timeframe/mode switches, watchlist add/remove, watchlist column popup, alarms, studies, drawings, pop-outs,
+    Portfolio selection/refresh, dialogs), Then **zero** orders are built, **zero** are transmitted and **zero**
+    cancellations are issued — `placeOrder.call_count == 0`, `cancelOrder.call_count == 0` and
+    `reqGlobalCancel.call_count == 0` — and no `ui/` module calls `placeOrder`/`cancelOrder`/`reqGlobalCancel`,
+    imports `ui.trade_context_menu` or `ui.stop_loss_target_dialog`, or imports
+    `ibkr.validation`/`validate_order`; `ibkr/validation.py` does not exist. (Measurable: mocked-client
+    walkthrough asserting all three call counts are `0`; a static scan of `ui/` for `placeOrder`, `cancelOrder`,
+    `reqGlobalCancel`, `validate_order`, `trade_context_menu`, `stop_loss_target_dialog`,
+    `_close_position_by_id` returns nothing.)
+  - **AC-D45.5 (Portfolio is view-only; the data path is retained)** Given account-summary and position updates
+    from IBKR, Then the Portfolio panel still renders and live-updates its rows exactly as today (8 columns, no
+    Stop/Target — `AC-D45.10`), offers **no** close/flatten/modify action, and reflects a **TWS-side** close on
+    the next position update. (Measurable: position rows render from `_on_position_update`/`_on_position_end`;
+    no action affordance or menu exists; a simulated external close updates/removes the row.)
+  - **AC-D45.6 (INVERTED — the kill switch and the SL/TP dialog are GONE)** Given the running app, Then **no
+    Kill Switch control or cancel path exists**: `MainWindow` has **no** `kill_btn` attribute, no widget with
+    `objectName() == "KillSwitchButton"`, no `_on_kill_switch_clicked` and no `_kill_switch`; **and** the
+    **SL/TP dialog no longer exists**: `ui/stop_loss_target_dialog.py` does not exist,
+    `import ui.stop_loss_target_dialog` fails, the Portfolio panel exposes **no** `position_sltp_changed` /
+    `group_sltp_changed`, no `_on_set_sltp`, no `_on_sltp_confirmed`, no `update_position_sltp`, no
+    `update_group_sltp` and no `_sltp_dialog`, and `MainWindow` has no `_on_portfolio_sltp_changed` /
+    `_on_portfolio_group_sltp_changed`. With open orders resting in TWS and a mocked client, **no interaction
+    with the app cancels them** — `reqGlobalCancel` and `cancelOrder` are **never** called by the app.
+    (Measurable: `hasattr` checks False for every named member; `findChildren(QPushButton)` on the toolbar
+    contains no "Kill Switch"/`#KillSwitchButton`; a static scan of `ui/` for `reqGlobalCancel`, `cancelOrder`,
+    `_kill_switch`, `StopLossTargetDialog`, `position_sltp_changed`, `group_sltp_changed` returns nothing;
+    mocked-client walkthrough asserting both cancel call counts are `0`. **This criterion replaces the former
+    "kill switch and SL/TP still work" assertion — it is a deliberate inversion, recorded in A88/A89.**)
+  - **AC-D45.7 (docs updated in the same batch)** Given the repository, Then `USAGE.txt` contains **no**
+    `View → News Digest` / digest description, **no** Close / Close Group / Close All description, **no**
+    kill-switch description and **no** SL/TP-dialog description (nor an app-placed-order notional cap /
+    "orders placed while disconnected" claim); `usage.md`'s `### Portfolio & SL/TP` section and its
+    Portfolio table row advertise **no** SL/TP setter and **no** close/flatten actions, while its Database
+    section still lists the `positions` / `trade_groups` tables (with a note that the SL/TP **columns** are retained but are no
+    longer settable in-app, and a live update writes their values empty — ESC-060); `docs/codebase-map.md` no longer lists `ui/news_digest_dock.py`,
+    `ui/trade_context_menu.py` or `ui/stop_loss_target_dialog.py` and no longer names `_kill_switch` or
+    `StopLossTargetDialog` as retained. (Measurable: a grep for `News Digest`, `Ctrl+Shift+N`,
+    `Close All Positions`, `Close Group`, `Close Position`, `Kill switch`, `Stop-Loss` over the three files
+    returns nothing except text that explicitly says the app does **not** place/cancel orders and that closes
+    and cancels happen in TWS.)
+  - **AC-D45.8 (no dangling references; suite green; test book as recorded)** Given the change, Then the app
+    launches and charts normally, no module imports `ui.news_digest_dock`, `ibkr.news`,
+    `ui.trade_context_menu`, `ui.stop_loss_target_dialog` or `ibkr.validation`, and the full offscreen suite is
+    green with exactly the recorded test-book change: **deleted (5)** `tests/test_d28_6_close_contracts.py`,
+    `tests/test_d41_retained_order_path.py`, `tests/test_order_validation.py`, `tests/test_kill_switch.py`,
+    `tests/test_sltp_honesty.py`; **adjusted** `tests/test_order_rejections.py`, `tests/test_d28_pacing.py`,
+    `tests/test_dock_d18_region.py` (`:147` digest filter, `:176` close path, `:177-178` SL/TP signals),
+    `tests/test_d27_position_id.py` (the SL/TP row-addressing case removed; the `8`/`9` column indexes →
+    `6`/`7`), `tests/test_d27_position_prices.py` (`8`/`9` → `6`/`7`), and `tests/test_d38_events_news.py`
+    (digest/`NewsManager` cases removed, **event-marker cases kept**); **kept** `tests/test_stop_loss_target.py` **[DELETED BY D46 — its four model fields go with the columns]**
+    (model fields only) and `tests/test_d41_removal.py` (its `queue_depth` reference is an allow-list string).
+    (Measurable: import/compile check + full-suite run; the residue grep of AC-D45.4/AC-D45.6.)
+  - **AC-D45.9 (history preserved; marker + tech stack intact)** Given `requirements.md`, Then `### D38`,
+    `### D41` and `### D26` remain with explicit **superseded-by/revised-by D45** notes on the clauses named
+    below, and the **Existing Repository marker sentence + Current Tech Stack are unchanged**. (Measurable:
+    the markers are present; the literal existing-repo sentence still occurs; D45 is registered.)
+  - **AC-D45.10 (Stop / Target columns gone; storage and no-migration guarantee)** Given a Portfolio with
+    positions — including rows carrying legacy `stop_loss`/`take_profit` values — When the table renders, Then
+    it shows exactly **8 columns** (`Symbol, Qty, Avg Price, Type, Multiplier, P/L, Strategy, Group`) with **no**
+    `Stop` and **no** `Target` header, the legacy values are **not** displayed, and the underlying
+    `positions`/`trade_groups` columns and `Position`/`TradeGroup` fields still exist (no schema change, no
+    migration run). **This AC does not assert value preservation** — a live update clears both columns (ESC-060),
+    so a test that seeds legacy values and expects them to survive an update asserts the wrong thing.
+    (Measurable: `positions_table.columnCount() == 8`; the header texts contain neither `Stop` nor `Target`;
+    a DB opened from a pre-D45 file keeps its `stop_loss`/`take_profit` values; the Strategy/Group cells are
+    at indexes `6`/`7`.)
+- **Supersession / revision record (recorded, not silent):**
+  - **`AC-D38.2` (digest groups + article fetch) — SUPERSEDED BY D45.** The digest, `NewsManager`,
+    `ibkr/news.py` and `reqNewsArticle` are removed; there is nothing to group or fetch into.
+  - **`AC-D38.3` (no news entitlement state) — SUPERSEDED BY D45.** With no digest there is no such state.
+  - **`AC-D38.6` (regression) — REVISED BY D45.** The green-suite rule stands; the D38 surface that survives is
+    the **corporate-event markers + dividend merge** (`AC-D38.1`, `AC-D38.4`, `AC-D38.5`).
+  - **`AC-D41.1` — the Portfolio clause REVISED BY D45.** Its "Portfolio section (Close / Close Group /
+    Flatten All + the SL/TP dialogs) still renders" becomes: the Portfolio section still renders **view-only**
+    (no close/flatten controls, **no SL/TP dialog**, no Stop/Target columns).
+  - **`AC-D41.4` — the retained-order-path/`ref_price` clause REVISED BY D45.** **No** order-related surface is
+    retained: the SL/TP dialog is **removed** as well, nothing builds or transmits an order, and the `ref_price`
+    clause is **moot**.
+  - **D41 "Scope — KEEP" order-machinery bullet — SUPERSEDED BY D45.** `ibkr/validation.py` is **deleted**; the
+    close/flatten paths, the **kill switch** and the **SL/TP dialog** are gone; `ibkr/orders.py` (and the order
+    registry/error handling) may remain but has **no caller and no app-placed orders** (A80/A90). Only the
+    **fail-fast port check** and the **inert inbound order callbacks** remain. **[D46 NOTE 2026-10-25: the
+    inbound callbacks are removed too — see D46 / A92; only the fail-fast port check, the connection badge and the
+    generic error line remain.]**
+  - **D41 retained-order-path `ref_price` bullet — MOOT (D45).** No order is built, so `ref_price` has no
+    consumer.
+  - **D26 — order-entry clauses MOOT; `AC-D26.3` MOOT; `AC-D26.8` SUPERSEDED.** `AC-D26.4`/`AC-D26.6` were
+    already control-less after D41. After D45: **`AC-D26.3`** (the SL/TP dialog's "labelled as not placing
+    orders" branch) has **no dialog**; **`AC-D26.8`** (the kill switch, `reqGlobalCancel` + per-ID cancels,
+    pre/post counts) has **no switch and no control** — superseded in full; `AC-D26.7` (validate-order gate) and
+    `AC-D26.9`'s order-entry/registry clauses have **no control to exercise**. **Retained:** the **fail-fast
+    port check + badge** (`AC-D26.5`) and the **connection** half of the error alerts.
+  - **`D21.13` — reviewed, NOT superseded.** It governs the right dock / Portfolio "Account Summary" toggle;
+    the Portfolio panel **remains** (view-only). **No** `AC-D21.13.*` clause names a close/flatten, kill-switch
+    or SL/TP control.
+  - **`AC-D18.6` / D18 width model — not superseded; re-derived.** The positions table drops from 10 to 8
+    columns, which only **reduces** its width demand; the dock-cap/visibility criteria stand as written.
+  - **Glossary "Live-order path" — REVISED BY D45**, with new **"Kill switch"** and **"SL/TP dialog"** rows
+    recording both as removed.
+  - **Untouched:** `AC-D44.*`, D39, D40, D42, D43, and every D1–D37 criterion not named above.
+  - **Historical passages left un-annotated (2026-10-25):** the D41 retained-order-path wording also
+    survives, as history, at Journey 36 *Steps* step 3 (≈1041) and *Postconditions* (≈1048–1049); D41 *Status*
+    (≈3621–3622), *Scope — REMOVE* Active-Trader bullet (≈3664–3665) and *Edge Cases* (≈3772–3774); and the
+    Batch 18 narrative (≈4811). These are superseded by D45; they are not annotated individually because the
+    project keeps reversals visible in the history rather than rewriting it. The authoritative statement of the
+    end state is the D45 register + this supersession record.
+- **Edge Cases:** right-click on a **watchlist** row/column header still opens the D21.5 column popup and the
+  D22 add/remove entries (unaffected); right-click on the **chart** is unchanged; right-click anywhere in
+  **Portfolio** now does nothing (no menu at all — the context-menu policy goes with the menu); a stale saved
+  dock state that names the removed digest dock is ignored (no error, no dock recreated) and an orphan
+  `Ctrl+Shift+N` `QAction` must not survive; a stale saved `QSettings`/layout entry naming the removed toolbar
+  button or the dialog is ignored; **open orders resting in TWS are never cancelled by the app** (no kill
+  switch, no teardown cancel) — the owner cancels in TWS; a position row carrying legacy `stop_loss` /
+  `take_profit` values renders normally without those columns; the **DB schema is unchanged** (no migration, no
+  data deletion) and a pre-D45 database opens cleanly **[SUPERSEDED BY D46/A99 — the two columns are dropped by migration; rows preserved]**; the SL/TP dialog is gone even for a position that is
+  still open (there is no "read-only" fallback dialog in this batch); **disconnected** — the Portfolio panel
+  shows "unavailable" and there is no order path left to block; dividend-free/futures symbols skip dividends as
+  today; a yfinance outage still leaves the IBKR tick-59 dividend marker rendering (`AC-D38.5`); **no menubar**
+  means the app adds no macOS app-menu items; `tests/test_d41_removal.py`'s allow-list entry (`queue_depth`) must
+  survive the `ibkr/news.py` deletion.
+- **Assumptions (lite) — D45 (lite lane: no question was asked; every default is A79–A90):**
+  - **A79** the digest half of D38 goes while the **event-marker/dividend half stays** (owner-confirmed).
+  - **A80** `ibkr/orders.py` **may remain unreferenced**; the requirement is that **no UI path reaches
+    `placeOrder`** — deleting it is a Plan/Build choice (default: leave it, delete only the callers).
+  - **A81** whole-file test deletions are **five and all named** (three order-safety + `test_kill_switch.py` +
+    `test_sltp_honesty.py`); the digest/`NewsManager` cases are **trimmed from**
+    `tests/test_d38_events_news.py` (file kept) and the case-level trims are enumerated in `AC-D45.8`.
+  - **A82** ~~the **kill switch** is retained and covered by its own path; only its flatten-all coupling goes.~~
+    **REVERSED 2026-10-25 (D45 extension) — the kill switch is REMOVED in full; see A88.**
+  - **A83** ~~the **SL/TP dialog** is retained unchanged and stays **local-only**.~~ **REVERSED 2026-10-25
+    (D45 extension) — the dialog is REMOVED in full, with its columns; see A89.**
+  - **A84** the Portfolio panel is **view-only** with the account-summary/positions data path retained; **no**
+    replacement close UI, hotkey or TWS-API bridge.
+  - **A85** documentation scope is the **three owner-named files**; `docs/architecture.md`/`docs/plan.md` are
+    Plan/Validator-owned and synced there.
+  - **A86** **no menubar replaces the removed `View` menu**, and `Ctrl+Shift+N` goes with it.
+  - **A87** **Stop / Target columns decision: REMOVE the columns with the dialog; KEEP the storage.** The
+    positions table goes **10 → 8 columns** and the two headers/values/alignment slots go; the
+    `positions.stop_loss` / `take_profit` and `trade_groups.stop_loss` / `take_profit` **DB columns**, the
+    `Position`/`TradeGroup` **model fields** and the `_persist_position` upsert **stay**, with **no migration
+    and no destructive schema change**. **[SUPERSEDED BY D46/A99 — the columns and fields are dropped by migration]** *Why:* (a) with the dialog gone there is **no setter anywhere**, so the columns
+    would be permanently dead display — and a "Stop"/"Target" header on a trading panel implies a control that
+    no longer exists (the owner has declined replacement UI twice, so no read-only fallback dialog either);
+    (b) the storage is cheap to keep and deleting it would mean a destructive schema migration plus edits to
+    the position upsert and four D27 model/persistence tests, for **zero** user-visible gain — keeping it also
+    means a pre-D45 database opens without a migration. **It does not preserve the values**, though: the live
+    update writes both columns empty (ESC-060, corrected 2026-10-25), so the old "values are preserved" rationale
+    was never true at runtime and every document now says what the code actually does. **Rejected alternative:**
+    keep the columns as read-only display of legacy values — it advertises a feature the app cannot perform and
+    costs two of a width-constrained table's columns.
+  - **A88** **Kill-switch removal is total, and no cancel capability is left or re-pointed.** `reqGlobalCancel`
+    and `cancelOrder` each have **exactly one** production call site — inside `MainWindow::_kill_switch` — and
+    **no** disconnect/teardown/reconnect caller and **no** `ibkr/` wrapper exist, so the removal deletes the
+    app's whole cancel capability and nothing needs to be re-homed. Cancel surface after D45 = **TWS**.
+  - **A89** **SL/TP removal is total** — dialog file, `confirmed` signal, Portfolio signals/import/handlers,
+    the two `MainWindow` persistence slots with their row-`UPDATE`s, and the two display columns. The dialog had
+    **already lost its only entry point** when Group B removed `TradeContextMenu.set_sltp_action` (the Plan map
+    records this as `FI-D45-1`), so Groups B and the extension agree about the end state rather than
+    contradicting. The **model fields/DB columns stay** (A87) because they are not UI. **[SUPERSEDED BY D46/A99 — both are dropped by migration]**
+  - **A90** **Observation-only order plumbing stays, inert.** The inbound callbacks (`_on_open_order`,
+    `_on_order_status`, `_on_exec_details`, `_on_order_error`, `_update_order_status`) and the `order_registry`
+    import remain wired — they **observe** TWS and surface errors; they place/cancel nothing, and the registry
+    is never populated, so they are inert. Deleting them is **not** part of this batch (they sit on the
+    connection/error path D26.5's badge depends on). `ibkr/orders.py` keeps A80's default (leave it); if Plan
+    deletes it instead, these callbacks must be made registry-safe in the same task. **No replacement cancel or
+    protection UI is authorized.**
+- **Correction record (artifacts that must change — Plan / Task Manager / Build / Code Reviewer):**
+  - **Plan:** refresh `docs/codebase-map.md` (Plan-owned) to drop all three modules **and** the order path,
+    **and to stop naming `_kill_switch` / `StopLossTargetDialog` as retained** (its D45 rows currently do);
+    this is a **substantive** requirements change, so sync `docs/plan.md`/`docs/architecture.md` (the standing
+    `plan_proposal.md` staleness flag is **not** benign here — memory 2026-10-23).
+  - **Task Manager:** enumerate the assertions invalidated **outside** the edited files (memory 2026-10-23
+    item 4) — `tests/test_d41_removal.py`, `tests/test_dock_d18_region.py`, `tests/test_d38_events_news.py`,
+    **`tests/test_d27_position_id.py` (`8`/`9` column indexes + the SL/TP case)** and
+    **`tests/test_d27_position_prices.py` (`8`/`9` column indexes)**; do **not** task a deletion of
+    `ibkr/orders.py` unless Plan chooses it (A80/A90).
+  - **Build:** split the deletions **by member group** (memory 2026-10-15: delete-only tasks are what kill
+    workers); after each file, run a syntax/import check and a residue grep for `292`, `NewsManager`,
+    `news_digest`, `TradeContextMenu`, `position_close_requested`, `group_close_requested`,
+    `flatten_all_requested`, `validate_order`, `_close_position_by_id`, `placeOrder`, **`kill_btn`**,
+    **`KillSwitchButton`**, **`_kill_switch`**, **`reqGlobalCancel`**, **`cancelOrder`**,
+    **`StopLossTargetDialog`**, **`stop_loss_target_dialog`**, **`position_sltp_changed`**,
+    **`group_sltp_changed`**, **`_on_set_sltp`**, **`_sltp_dialog`** in `ui/`.
+  - **Code Reviewer:** independently confirm **zero** `placeOrder`, **zero** `cancelOrder` and **zero**
+    `reqGlobalCancel` call sites, that the **dividend markers still render**, that the positions table has
+    **8 columns** with no `Stop`/`Target`, that a pre-D45 DB still opens with its stored values intact, and
+    that the three docs advertise nothing removed.
+
+### D46 — Delete **every** order-related coding path — the module, the observation chain, the zero-consumer order utilities and the stops/targets storage — OWNER-REQUESTED 2026-10-25 (scope **EXPANDED** 2026-10-25 by Q56–Q59)
+
+- **Area (REMOVE):**
+  1. **`ibkr/orders.py`** — the whole file (`UserOrder`; `Orders` with `market_order`/`limit_order`/`stop_order`/
+     `bracket_order` and `register`/`get`/`update_status`/`clear_filled`/`all`; the `orders` singleton; the
+     `from ibapi.order import Order` import — the **last** production use of `ibapi.order` in the tree).
+  2. **The inbound observation chain** — `IBApiClient.orderStatus` / `openOrder` / `execDetails`;
+     `IBBridge.order_status` / `open_order` / `exec_details`; their three `__init__` connects;
+     `MainWindow._on_open_order` / `_on_order_status` / `_on_exec_details` / `_update_order_status` /
+     `_on_order_error`; the `order_registry` import and the registry branch in `_on_error`.
+  3. **`data/models.py::UserOrder`** and the `tests/test_ui_smoke.py` `hasattr` that is its only reference.
+  4. **Zero-consumer order utilities** (new in the expansion): `ibkr/pacing.py::OrderRateLimiter` +
+     `order_limiter`; `config/settings.py::MAX_ORDER_NOTIONAL`; the **order-fill sound**
+     (`services/sound_service.py::render_fill_blip`, `BLIP_DURATION`, `SoundService._fill_effect`,
+     `SoundService.play_fill`, the `"fill"` key of `ensure_sound_files`, `order_fill.wav`, the module-docstring
+     bullet).
+  5. **`ibkr/id_manager.py::IdManager.reserve`** (+ its D26.2 docstring). **The module stays** — see A101.
+  6. **The stop/target storage** (A99, **reverses A87**): the `positions.stop_loss` / `positions.take_profit` and
+     `trade_groups.stop_loss` / `trade_groups.take_profit` **DB columns**; the `data/models.py`
+     `Position` / `TradeGroup` fields; the `ibkr/account.py` `Position` fields and the two `build_position_from_ib`
+     parameters; `MainWindow._persist_position`'s `stop_loss=None, take_profit=None`; `_upsert_position`'s column
+     list, `VALUES` placeholders and `DO UPDATE SET` pair; `_on_position_end`'s `columns` tuple, its
+     `row[12]/row[13]/row[14]` indices and its `Position(...)` kwargs.
+  7. **Comments/docstrings that assert any of the above is retained**, and the test book in D46.5/D46.12.
+- **Status:** **NEW / OWNER-REQUESTED 2026-10-25 — lite lane, then EXPANDED the same day when the owner answered
+  Q56–Q59 verbatim.** The original scope (module + observation chain) is A91–A98. The expansion is A99–A104:
+  **A87 is REVERSED** (storage dropped, not kept — first destructive schema step in the project),
+  **A97 is REVERSED IN PART** (its `reserve()` half) and **CONFIRMED IN PART** (`classify_error` → A100),
+  **A92 / A93 / A96 are CONFIRMED by the owner** (no longer recorded defaults), and **A80 / A90 stay reversed**
+  (A91/A92, recorded earlier today). **D1–D45 are NOT reopened**; **ESC-061 is MOOT**; **DG76 is resolved** by the
+  deletion; **DG79 / DG80 are resolved by the owner's answers**. No blocking question remains. This is a
+  **destructive** batch by owner instruction (D46.12) and *not* a delete-only one.
+- **Reported (verbatim):** *"I dont want anything to do with orders so why is there orders.py ?"* — asked after D45
+  delivered zero order interaction; the owner then confirmed opening this batch. On being shown the recorded
+  defaults the owner answered:
+  - **Q56** *"why is there any order related code left"*
+  - **Q57** *"there should not be any order related coding. i want all of it deleted"*
+  - **Q58** *"yes remove"*
+  - **Q59** *"remove everything"*
+- **Why order code was still there — the Q56 answer, recorded (not just deleted).** Two decisions produced it and
+  both rested on a premise nobody checked. D45's **A80** left `ibkr/orders.py` "unreferenced but retained" and
+  **A90** left the observers "wired, inert, for the future", reasoning that the chain only *observes* and can
+  never place or cancel — which was true as written and **wrong in effect**, because "inert" was never audited for
+  **reachability**. The only handler that phrased a rejection, `_on_order_error`, was guarded by
+  `if order_registry.get(reqId) is not None:` against a registry **nothing ever populates**, so it was dead at
+  entry; every observer wrote into that same permanently-empty dict. **The lesson for this pipeline:** a
+  "retained and inert" decision must name the code that proves the path is unreachable **and** the test that would
+  fail if it became reachable — "it only observes" is not evidence. Q56 was not a scope question with an answer; it
+  was the observation that the retention decision had never been audited. **D46.9's inventory is the mechanism that
+  stops the same audit from being skipped again.**
+- **Owner constraints:**
+  1. **Nothing to do with orders.** No replacement order, cancel or protection UI — declined three times now;
+     **not re-proposed anywhere in this batch**.
+  2. **TWS errors must still surface.** The status bar is the surface; this batch must not remove error visibility
+     and must state what happens to **201 / 103 / 202**, whose "Rejected" / "Cancelled" phrasing lives inside the
+     unreachable `_on_order_error` (`D46.3` / `AC-D46.3`).
+  3. **"All of it" is the ask** (Q57/Q59). The retention decisions this supersedes (A80, A87, A90, A93's premise,
+     A96, A97) are **reversed in place, never rewritten**, so a reader can follow kept → cleared → dropped.
+  4. **Nothing innocent may be cut** (Q56 asks *why*, so the answer must show the audit). General code that merely
+     carries an order name is listed in the inventory's **RETAIN** set with the evidence that keeps it.
+- **Observed in repository (validated 2026-10-25; symbol-first — line numbers indicative):**
+  - **`ibkr/orders.py` (141 L)** — `UserOrder` (:11); `Orders` (:27) with builders
+    `market_order` / `limit_order` / `stop_order` / `bracket_order` (:34–115) and registry
+    `register` / `get` / `update_status` / `clear_filled` / `all` (:118–137); singleton `orders` (:141).
+    **The builders have zero production callers** (grep across `ui/ services/ data/ ibkr/ config/ main.py` finds no
+    hit outside the module). **`register()` is never called in production**, so `_orders` is permanently empty and
+    every read returns `None`. The bracket builder still carries a D26.1 comment about protective children trading
+    opposite the entry side — a comment about a feature that no longer exists.
+  - **The inbound chain terminates in that no-op:** `IBApiClient`'s `orderStatus` / `openOrder` / `execDetails`
+    overrides each call `super()` (a no-op on `EWrapper`) and then emit an `IBBridge` signal
+    (`order_status` / `open_order` / `exec_details`); `MainWindow.__init__` connects all three to
+    `_on_open_order` / `_on_exec_details` / `_on_order_status`; each calls `_update_order_status` and nothing else;
+    `_update_order_status` is `order = order_registry.get(orderId); if order: order.status = status` — always
+    `None`. **No other consumer exists anywhere in the tree** (repo-wide grep).
+  - **`_on_order_error` is unreachable.** In `_on_error` the order branch is guarded by
+    `if order_registry.get(reqId) is not None:` — always false — so control falls through to the generic
+    `self.status_bar.showMessage(f"Error [{error_code}]: {error_string}", 8000)`. The unreachable handler mapped
+    **201/103 → "Rejected"**, **202 → "Cancelled"**, anything else → `f"Error {code}"`, and showed
+    `f"Order #{id} {status}: {error_string}"` for **12000 ms**.
+  - **Order errors still reach the generic line.** `ibkr/error_codes.py::classify_error` rates **201, 103 fatal**
+    and **202 warning**; `IBApiClient.error` emits `error_msg` unless the severity is `info`, so all three codes
+    reach `_on_error`. **What the owner sees today is therefore already the generic line** — this removal changes
+    nothing user-visible.
+  - **A second vestige:** `data/models.py::UserOrder` (:105) is a **different, unused** dataclass; its only
+    reference in the tree is `tests/test_ui_smoke.py:48` (`hasattr`). `ibkr/orders.py` carries its own copy of the
+    same class — two `UserOrder` classes, both order-only.
+  - **The three zero-consumer order utilities (new, expansion):** `OrderRateLimiter` / `order_limiter`
+    (`ibkr/pacing.py:128-172`) has **no production reader anywhere** — its only consumers are
+    `tests/conftest.py:143,146` (`reset_for_tests`), one case in `tests/test_d28_pacing.py:97-101` and a survivor
+    string in `tests/test_d45_removal.py:149`. `MAX_ORDER_NOTIONAL` (`config/settings.py:39`) has **zero**
+    readers; its comment still points at `validate_order()`, deleted in D45. `SoundService.play_fill`
+    (`services/sound_service.py:170`) has **zero** callers — only `play_alarm` is ever played
+    (`ui/main_window.py:2114`) — so `render_fill_blip`, `BLIP_DURATION` (:22), `_fill_effect`, the `"fill"` key and
+    `order_fill.wav` are an order-fill path with no order to fill.
+  - **`IdManager` is NOT order-only — checked before writing it down.** `get_id()` is called at
+    `ibkr/market_data.py:42,74,90,103` and `ibkr/realtime_bars.py:31` (market-data/realtime reqIds), and
+    `set_next_valid_id()` at `ibkr/client.py:184`. Only **`reserve()`** (`ibkr/id_manager.py:19-30`) is
+    order-only: it exists for D26.2 multi-leg IDs and its callers are **tests only**
+    (`tests/test_id_manager.py:12,23,34,41,62`). **Verdict: the module stays, `reserve()` goes** (A101).
+  - **`nextValidId` is NOT order-only either — checked.** `IBApiClient.nextValidId` (`ibkr/client.py:182-193`)
+    is the **connection-established** transition (`_connected = True`, reconnect-attempt reset, disconnect-class
+    clear, `_set_state(CONNECTED)`) and is exactly what D40's lifecycle tests drive
+    (`tests/test_d40_tws_lifecycle.py:239,311,368,407,450`; `tests/test_d25_alarm_monitor.py:397`). Its name is
+    IBKR's (`EWrapper.nextValidId`) and cannot be renamed. **Verdict: retained** (A102, DG82).
+  - **Tests:** `tests/test_order_builders.py` (200 L, **17 cases**) covers only the zero-caller builders and the
+    never-populated registry. `tests/test_order_rejections.py` (88 L, **5 cases**): two assert the unreachable
+    registry branch (201 → `Rejected`, 202 → `Cancelled`), one asserts an unrelated error leaves the registry
+    alone, two pin `classify_error` (`201/103/1100/502/503/509` fatal; `2104/2106` info).
+    `tests/test_d45_removal.py::_SURVIVORS` (:145-147) allow-lists `order_registry`, `orders`, `UserOrder`,
+    `_on_open_order`, `_on_order_status`, `_on_exec_details`, `_on_order_error`, `_update_order_status`,
+    `order_limiter`, `MAX_ORDER_NOTIONAL` — **A90's end state plus A97's two leftovers**, all of which must now
+    move from the survivor allow-list to the **forbidden** set.
+  - **The expansion's test book:** `tests/test_stop_loss_target.py` (whole file, 3 cases) asserts only the four
+    model fields, so it dies with them; `tests/test_account.py` has **four** `build_position_from_ib` calls
+    carrying `stop_loss=None, take_profit=None` plus two asserts (:108-109); `tests/test_strategy_detection.py:30-31`
+    passes the two names as `Position(...)` kwargs; **three** SQL seeders name the columns in their `INSERT`
+    (`tests/test_d27_position_id.py:99`, `tests/test_d27_account_partial_window.py:68`,
+    `tests/test_d27_account_scoping.py:68`); `tests/test_sound_service.py` has `TestFillBlip` (2 cases) and a
+    `render_fill_blip` use in `TestWavOutput`; `tests/test_d28_pacing.py:97-101` and `tests/conftest.py:143,146`
+    are `OrderRateLimiter`'s only survivors.
+  - **Docs that contradict the owner (Plan-owned, and the D45/ESC-060 statements now contradicted again):**
+    `docs/codebase-map.md:97` states `ibkr/orders.py` "**is NOT orphaned and must NOT be deleted**", `:177-179`
+    lists the observers as "retained by decision … do not 'clean up'", `:193` / `:204` keep the module in the index;
+    `docs/architecture.md` `S29` / `AR-D45-10` require a **module-docstring note** on the retained module.
+    **Second correction (this batch):** the stop/target statements **rewritten this morning under ESC-060** now say
+    the columns are *kept but cleared* — the opposite of A99. They are at least `USAGE.txt:88` ("The database
+    columns are kept, but an update from TWS writes them empty"), `usage.md:154` ("The stop-loss / take-profit …
+    columns are kept (no migration)"), at least five `docs/architecture.md` sites (`:4645`, `:4822`, `:4848`,
+    `:4901`, and the P5 block `:5127-5129` / `:5331-5332`), at least three `docs/plan.md` sites (`:2004`,
+    `:2551-2552`, `:2916`, `:2954-2955`), and eight `requirements.md` sites (D45's KEEP list, its
+    `AC-D45.6` / `AC-D45.10` retention halves, Journey 38's postcondition and edge case, D46's now-superseded KEEP
+    list, and Journey 39's edge case — all amended or annotated in place in this revision). The trail must read
+    **kept → cleared → dropped**; two live claims must not stand side by side (**D46.13**, DG84).
+- **Order-symbol inventory — exhaustive, with a disposition for every item (this table IS the acceptance
+  instrument for D46.9; ambiguous items are flagged in `design_gaps.md` rather than guessed).**
+
+  **DELETE — order code and order-motivated code (nothing here survives D46):**
+
+  | # | Symbol(s) | Where | What it is | Disposition |
+  |---|---|---|---|---|
+  | 1 | `ibkr/orders.py` (whole file) | `ibkr/orders.py` | Builders + registry, zero production callers | **DELETE** (D46.1) |
+  | 2 | `UserOrder` (module copy), `Orders`, `market_order`, `limit_order`, `stop_order`, `bracket_order`, `register`, `get`, `update_status`, `clear_filled`, `all`, `orders` | `ibkr/orders.py` | Order construction + open-order registry | **DELETE** (D46.1) |
+  | 3 | `from ibapi.order import Order` | `ibkr/orders.py:5` | Last production `ibapi.order` import | **DELETE** (D46.1) |
+  | 4 | `orderStatus`, `openOrder`, `execDetails` (repo overrides) | `ibkr/client.py:394-416` | Inbound overrides → `IBBridge` signals → empty registry | **DELETE** (D46.2) |
+  | 5 | `order_status`, `open_order`, `exec_details` (+ their `# orderId, …` comments) | `ibkr/bridge.py:47-55` | Signals whose only consumers write `None` | **DELETE** (D46.2) |
+  | 6 | `b.open_order/_on_open_order`, `b.exec_details/_on_exec_details`, `b.order_status/_on_order_status` connects | `ui/main_window.py:595-597` | Wiring of the dead chain | **DELETE** (D46.2) |
+  | 7 | `_on_open_order`, `_on_exec_details`, `_on_order_status`, `_update_order_status` | `ui/main_window.py:2951-2965, 3226-3229` | Slots writing `order.status` on `None` | **DELETE** (D46.2) |
+  | 8 | `_on_order_error`, the `order_registry.get(reqId)` branch and its D26.9 comment | `ui/main_window.py:1543-1561` | **Unreachable** "Rejected"/"Cancelled" wording (12 s) | **DELETE** (D46.2, D46.3) |
+  | 9 | `order_registry` import | `ui/main_window.py:36` | Import of the deleted module | **DELETE** (D46.1) |
+  | 10 | `data.models.UserOrder` (+ `order_id`, `order_type`, `oca_group`, `transmit`) | `data/models.py:105-120` | Second, unused order dataclass; only reference is a smoke `hasattr` | **DELETE** (D46.8) |
+  | 11 | `OrderRateLimiter`, `order_limiter` | `ibkr/pacing.py:128-172` | Order-path token bucket; **zero production readers** | **DELETE** (D46.11) |
+  | 12 | `MAX_ORDER_NOTIONAL` (+ the `validate_order()` comment) | `config/settings.py:37-39` | Per-order notional cap; **zero readers**; its gate died in D45 | **DELETE** (D46.11) |
+  | 13 | `render_fill_blip`, `BLIP_DURATION`, `_fill_effect`, `play_fill`, the `"fill"` key, `order_fill.wav`, the module-docstring bullet | `services/sound_service.py:9, 22, 75-76, 118-123, 135, 151, 170-174` | Order-fill sound; **`play_fill` has zero callers** | **DELETE** (D46.11) |
+  | 14 | `IdManager.reserve` + its D26.2 docstring | `ibkr/id_manager.py:19-30` | Contiguous block for multi-leg orders; tests only | **DELETE** (D46.10) |
+  | 15 | `positions.stop_loss`, `positions.take_profit` | `data/db.py:120-121` | Stop/target storage, first table | **DELETE via migration** (D46.12, A99) |
+  | 16 | `trade_groups.stop_loss`, `trade_groups.take_profit` | `data/db.py:130-131` | Stop/target storage, second table | **DELETE via migration** (D46.12, A99) |
+  | 17 | `Position.stop_loss/take_profit`, `TradeGroup.stop_loss/take_profit` | `data/models.py:86-87, 98-99` | Model fields | **DELETE** (D46.12, A99) |
+  | 18 | `ibkr.account.Position.stop_loss/take_profit`, `build_position_from_ib(stop_loss=…, take_profit=…)` | `ibkr/account.py:32-33, 64-65, 79-80` | Third copy of the fields + its factory params | **DELETE** (D46.12, A99) |
+  | 19 | `Position(stop_loss=None, take_profit=None)` + its D27.5 comment | `ui/main_window.py:3090-3094` | Live path that already cleared the values | **DELETE** (D46.12) |
+  | 20 | `stop_loss, take_profit` columns / placeholders / `DO UPDATE SET` pair | `ui/main_window.py:3132-3134, 3186, 3198-3199, 3216-3217` | Upsert round-trip | **DELETE** (D46.12) |
+  | 21 | `columns` tuple's two names, `row[12]/row[13]`, the `trade_group_id=row[14]` index and the two kwargs | `ui/main_window.py:3127-3166` | Bulk load (indices shift — DG85) | **DELETE + RE-INDEX** (D46.12) |
+  | 22 | "the SL/TP dialog early-returns" (`:3123`), "the SL/TP dialog persists via `WHERE id=?`" (`:3096`), "the D28.6 inverse on the close-order path" (`:3065`) | `ui/main_window.py` comments | Comments asserting removed code is live | **DELETE/REWRITE** (D46.6) |
+  | 23 | "order and connectivity failures are first-class… `_on_error` still routes it to the registry as Cancelled" | `ibkr/error_codes.py:14-17` | Comment naming the deleted registry route | **REWRITE comment only** (D46.6) — the code stays (item R3) |
+  | 24 | "The Active Trader panel (DOM ladder + order-entry ticket)… are removed" / "the order path is gone" | `ui/main_window.py:442-443, 612` | Historical comments recording a removal | **RETAIN** — they describe what is *gone*; no live claim (D46.6) |
+  | 25 | Test book: `test_order_builders.py` (17), registry cases of `test_order_rejections.py`, `test_stop_loss_target.py` (3), `TestFillBlip` (2), the `OrderRateLimiter` case, the four `test_account` kwargs + 2 asserts, `test_strategy_detection` kwargs, three SQL seeders, `test_ui_smoke`'s `UserOrder`, the ten `_SURVIVORS`/forbidden entries | `tests/*` | Assertions on the removed surface | **DELETE/REDUCE/REPOINT** (D46.5) |
+
+  **RETAIN — general code that merely carries an order name (cutting any of these breaks something the app still
+  does; each entry is here so a symbol scan cannot mistake it for residue):**
+
+  | # | Symbol(s) | Where | Why it looks order-related | Why it stays |
+  |---|---|---|---|---|
+  | R1 | `_on_error`'s final `status_bar.showMessage(f"Error [{code}]: {string}", 8000)` | `ui/main_window.py:1550` | The **only** place 201/103/202 appear | **Every** non-session TWS error ends here; `AC-D46.3`'s surface (A100) |
+  | R2 | `IBApiClient.error` (`severity != 'info'` gate, `error_msg.emit`) + `IBBridge.error_msg` | `ibkr/client.py:195-246`, `ibkr/bridge.py` | Carries `advancedOrderRejectJson` | General error entry point for all TWS errors (A100) |
+  | R3 | `classify_error` (+ its 201/103/202 classification) | `ibkr/error_codes.py:1-27` | Names order codes in a comment | Severity gate for **every** TWS error; 202 must stay `warning` (A100) |
+  | R4 | `advancedOrderRejectJson` parameter | `ibkr/client.py:199-221` | Literally "Order" | Part of the IB 5-arg `error` callback signature — not app order code (DG83) |
+  | R5 | `IBApiClient.nextValidId` + `IdManager.set_next_valid_id` | `ibkr/client.py:182-193`, `ibkr/id_manager.py:8-11` | IBKR's order-ID callback | The **CONNECTED** transition + reconnect reset + disconnect-class clear; driven by D40/D25 tests; name is IBKR-mandated (A102, DG82) |
+  | R6 | `IdManager` (module), `get_id`, `id_manager` singleton | `ibkr/id_manager.py:1-33` | Its neighbour `reserve()` goes | `get_id()` allocates **market-data / realtime reqIds** (`market_data.py:42,74,90,103`, `realtime_bars.py:31`) (A101) |
+  | R7 | `PacingManager`, `PacingExceeded`, `pacing_manager` | `ibkr/pacing.py` | Sits beside `OrderRateLimiter` | Historical/realtime pacing — the chart's data path |
+  | R8 | `order blocks`, `_render_order_blocks`, `orderBlocks` | `services/ict_service.py:114-159, 258`, `ui/overlays/ict_overlay.py:4, 27, 44` | The word "order" | ICT **price-structure** concept (order blocks, fair-value gaps) — not a trading order |
+  | R9 | `sort_order` | `data/db.py:48, 249-312`, `ui/watchlist_panel.py` | The word "order" | Watchlist sequencing column (false positive) |
+  | R10 | `TradeGroup`, `trade_group_id`, strategy grouping | `data/models.py`, `ui/active_portfolio_panel.py` | Historically carried stop/target | Display-only strategy grouping; **only** its four stop/target fields go (A99) |
+  | R11 | `Position`, `positions` table, Portfolio view | `data/models.py`, `data/db.py`, `ui/active_portfolio_panel.py` | Holds the removed columns | The D45 view-only portfolio readout — still required |
+  | R12 | `render_alarm_chime`, `play_alarm`, `ensure_sound_files`'s `"alarm"` key | `services/sound_service.py` | Shares the module with the fill blip | D21 alarms' sound |
+- **Scope — KEEP (deliberate; MUST NOT be removed with the above):**
+  - **The generic error path** — items **R1–R3**: `_on_error`'s session routing and its final
+    `status_bar.showMessage(f"Error [{code}]: {string}", 8000)`; `IBApiClient.error` (`classify_error` gating plus
+    the D40.1 `502` backoff suppression); `ibkr/error_codes.py::classify_error`; the `error_msg` signal.
+    **201/103/202 keep surfacing through this path** (`AC-D46.3`, now owner-confirmed).
+  - **`ibkr/id_manager.py` minus `reserve`** (**R5, R6**) — evidence in the observations above; `reserve` alone goes.
+  - **`nextValidId` / `set_next_valid_id`** (**R5**) — the connection hook, not an order path.
+  - **`advancedOrderRejectJson`** (**R4**) — an IB signature parameter, not app code.
+  - **ICT order blocks** (**R8**), **`sort_order`** (**R9**) — false positives, documented so no worker "tidies" them.
+  - The fail-fast port check, the connection badge, the no-test-transmits rule, `PacingExceeded` /
+    `pacing_manager`, the D38 dividend path, D39, the chart, alarms, drawings, studies, pop-outs and D44 — all
+    untouched.
+- **Owner-accepted consequences (stated plainly, not implied):**
+  1. **The app no longer observes order lifecycle events at all.** It will not know that an order filled, was
+     rejected or was cancelled; the **status bar** is the only trace (an 8-second line carrying TWS's own text, no
+     order identity, no history). The owner keeps watching order state in TWS. Accepted because the app never
+     places an order, so it holds no order it could reflect (R77).
+  2. **The order-error wording shrinks to what TWS says.** The app contributes no "Rejected"/"Cancelled" verdict,
+     no `Order #<id>` prefix and no 12-second duration. **201/103/202 still surface** — code plus TWS message — but
+     a user comparing with the old (unreachable) wording sees a plainer line (A93, owner-confirmed by Q57).
+  3. **Two same-named `UserOrder` classes disappear** — the module's copy with the file, `data/models.py`'s unused
+     copy per A96 (owner-confirmed by Q58). Nothing else in the repo reads either.
+  4. **The suite's meaning shrinks again, and the book is recorded.** `tests/test_order_builders.py` is
+     **deleted** (17 cases); `tests/test_order_rejections.py` keeps **3 of 5** in repointed form plus one added
+     per-code surfacing case; `tests/test_stop_loss_target.py` is **deleted** (3 cases); the fill-blip and
+     order-limiter cases go. A green suite now proves less about order construction and stop/target storage — which
+     is the point: neither exists any more (R80).
+  5. **`ibkr/orders.py` cannot be "restored" as a dormant helper.** D45 left it "unreferenced but retained"; D46
+     makes the absence explicit, so a future reconnection needs a **new requirement**, not an un-comment (R79).
+  6. **A destructive schema step runs on the owner's real database at app launch (A99).** The two tables lose two
+     columns each. **What is destroyed is nothing that survived:** per ESC-060 the values were already cleared by
+     the first live update of any row, and no setter existed after D45, so the columns could only ever hold `NULL`.
+     **What must not be destroyed is a row** — the migration must preserve every `positions` and `trade_groups` row,
+     `idx_positions_symbol_con_id` and the `trade_group_id` foreign key (D46.12, R82).
+- **Requirements (final):**
+  - **D46.1 — the module is gone.** `ibkr/orders.py` does not exist; `import ibkr.orders` fails; no module under
+    `ui/ services/ data/ ibkr/ config/ main.py` imports it or names `Orders`, `market_order`, `limit_order`,
+    `stop_order`, `bracket_order`, `order_registry`, `UserOrder` or the `orders` singleton. (Unchanged from the
+    original scope; the scan list is extended by D46.9/D46.11.)
+  - **D46.2 — the observation chain is gone.** No `order_status` / `open_order` / `exec_details` signal on
+    `IBBridge`; **no repo-defined** `EWrapper` override for `orderStatus` / `openOrder` / `execDetails` on
+    `IBApiClient` (the inherited `EWrapper` no-ops are what remains — see `AC-D46.2`'s restated measurable); no
+    `_on_open_order` / `_on_order_status` / `_on_exec_details` / `_update_order_status` / `_on_order_error` on
+    `MainWindow`; and `_on_error` contains no registry lookup (A92, owner-confirmed).
+  - **D46.3 — TWS errors still surface (the owner's constraint).** An error carrying **201**, **103** or **202**
+    still produces the status-bar line `Error [<code>]: <TWS's own message>` on the non-session path, for
+    **8000 ms** — **exactly as today** — and a test proves it per code. The app adds no order identity and no
+    verdict of its own; the codes' severity classification (`201/103` fatal, `202` warning) and the
+    `severity != 'info'` emission gate are **unchanged** (A93, owner-confirmed).
+  - **D46.4 — no order interaction is introduced.** Zero `placeOrder` / `cancelOrder` / `reqGlobalCancel` call sites
+    remain; D45's static scan and mocked-client walkthrough stay green and are **strengthened** by D46 — the
+    removed names move from the survivor allow-list to the **forbidden** set.
+  - **D46.5 — the suite is green with exactly the recorded test book.** Deleted: `tests/test_order_builders.py`,
+    `tests/test_stop_loss_target.py`. Reduced/repointed: `tests/test_order_rejections.py` (5 → 3 cases **plus the
+    added per-code surfacing case**, per RG-D46-1), `tests/test_d28_pacing.py` (`OrderRateLimiter` case and import),
+    `tests/test_sound_service.py` (`TestFillBlip`, the `render_fill_blip` use), `tests/conftest.py` (the two
+    `order_limiter` resets). Adjusted: `tests/test_d45_removal.py` (survivor allow-list shrunk, forbidden set
+    extended), `tests/test_ui_smoke.py` (`UserOrder` `hasattr` dropped), `tests/test_account.py`,
+    `tests/test_strategy_detection.py`, `tests/test_d27_position_id.py`,
+    `tests/test_d27_account_partial_window.py`, `tests/test_d27_account_scoping.py` (the column names).
+    **No other test file changes.**
+  - **D46.6 — the prose matches the tree.** `docs/codebase-map.md` no longer says `ibkr/orders.py` is retained /
+    NOT to be deleted and no longer lists the observers as retained; `classify_error`'s comment no longer claims
+    `_on_error` "still routes it to the registry as Cancelled"; `MAX_ORDER_NOTIONAL`'s `validate_order()` comment,
+    `sound_service`'s order-fill docstring bullet and the `_on_position_end` / `_persist_position` "SL/TP dialog"
+    comments are gone or rewritten; the surviving test docstrings name the status bar as the surface; no
+    user-facing doc mentions the module, an order registry *or* retained stop/target columns (D46.13).
+  - **D46.7 — history preserved.** `### D45`, `### D41`, `### D26` and the D45 register stay, with explicit
+    **reversed-by / superseded-by D46** notes on A80/A90/A87/A97 and the codebase-map claims; the
+    **Existing Repository marker sentence and Current Tech Stack are unchanged**.
+  - **D46.8 — no second `UserOrder` (now unconditional).** `data/models.py` defines **no** `UserOrder`,
+    `tests/test_ui_smoke.py` asserts `Position` / `Drawing` only, and `from data.models import UserOrder` raises
+    `ImportError` (A96, owner-confirmed by Q58).
+  - **D46.9 — the inventory is the spec, and it is closed.** Every identifier the inventory lists under **DELETE**
+    is absent from `ui/ services/ data/ ibkr/ config/ main.py` and from the surviving tests; every identifier under
+    **RETAIN** is still present and still has its documented consumer. **No order-named symbol exists outside those
+    two sets.** Any item that is genuinely ambiguous is recorded in `design_gaps.md` (DG82–DG87) **before** it is
+    deleted, never guessed at build time (A103).
+  - **D46.10 — `IdManager` keeps its reqId allocator and loses `reserve`.** `IdManager`, `get_id`,
+    `set_next_valid_id` and the `id_manager` singleton remain and keep their market-data/realtime callers;
+    `IdManager.reserve` and its D26.2 docstring are gone; `tests/test_id_manager.py` keeps `test_get_id_allocates_sequentially`,
+    `test_set_next_valid_id_equal_is_noop` and `test_concurrent_allocations_never_duplicate`, deletes the four pure
+    `reserve` cases (`test_reserve_returns_contiguous_block`, `test_reserve_never_overlaps_later_allocations`,
+    `test_reserve_one_matches_get_id_semantics`, `test_reserve_rejects_non_positive`) and **rewrites**
+    `test_set_next_valid_id_still_monotonic_with_reserve` without `reserve` (its monotonic assertion is about
+    `set_next_valid_id`, which stays) (A101).
+  - **D46.11 — the zero-consumer order utilities are gone.** `OrderRateLimiter` and `order_limiter` do not exist;
+    `MAX_ORDER_NOTIONAL` does not exist; `render_fill_blip`, `BLIP_DURATION`, `SoundService._fill_effect`,
+    `SoundService.play_fill`, the `"fill"` key of `ensure_sound_files` and the `order_fill.wav` write do not exist;
+    the alarm chime path is untouched and still played by the D21 alarm.
+  - **D46.12 — the stop/target storage is gone (reverses A87; the first destructive schema step).** **End state,
+    not mechanism:** `PRAGMA table_info(positions)` and `PRAGMA table_info(trade_groups)` return **no**
+    `stop_loss` and **no** `take_profit`; `data/models.py::Position` / `TradeGroup` and `ibkr/account.py::Position`
+    define neither field; `build_position_from_ib` takes neither; `_persist_position`, `_upsert_position` and
+    `_on_position_end` name neither; no production or test SQL names either; the Portfolio table stays the
+    **8 columns** of `AC-D45.10` (its UI half stands unchanged). **Constraints on the mechanism (Plan's choice):**
+    idempotent on a fresh DB (where `CREATE TABLE IF NOT EXISTS` already omits the columns — so a naive
+    `ALTER TABLE … DROP COLUMN` must be guarded by `_table_columns()`, the helper that already exists) and on every
+    subsequent open; **every row preserved** in both tables; `idx_positions_symbol_con_id` and the
+    `trade_group_id` foreign key preserved; ordered inside `_migrate_schema()` after the table's creation/index and
+    before any read; crash-safe in the same sense as the `bars` rebuild (`data/db.py:203-236`) if a rebuild is
+    chosen instead of `ALTER TABLE … DROP COLUMN` (this env is SQLite **3.54.0**, so both are available).
+  - **D46.13 — the document trail reads kept → cleared → dropped, with no two live claims.** Given the repository,
+    Then `USAGE.txt`, `usage.md`, `docs/codebase-map.md`, `docs/architecture.md`, `docs/plan.md` and
+    `requirements.md` contain **no live statement** that the `stop_loss` / `take_profit` columns or fields are
+    "kept (no migration)", "retained", "unchanged" or that a pre-D46 database "opens unchanged with its stored
+    stop/target values"; each corrected site states the final end state, and the earlier ESC-060 wording ("kept,
+    values cleared by the next live update") is recorded as **superseded by D46 / A99** so the trail is readable
+    in one direction. Historical D45 text is kept verbatim behind that supersession note (A99, DG84).
+- **Acceptance Criteria (Given/When/Then):**
+  - **AC-D46.1 (module absent; no importers)** Given the repository, Then `ibkr/orders.py` does not exist,
+    `import ibkr.orders` raises `ModuleNotFoundError`, and a static scan of `ui/ services/ data/ ibkr/ config/ main.py`
+    finds none of `ibkr.orders`, `order_registry`, `Orders(`, `market_order`, `limit_order`, `stop_order`,
+    `bracket_order`, `UserOrder`; and no production module imports `ibapi.order`. (Measurable:
+    `Path("ibkr/orders.py").exists() is False`; `pytest.raises(ModuleNotFoundError)` on the import; an identifier
+    scan over the production packages returns an empty set.)
+  - **AC-D46.2 (chain absent — measurable restated per RG-D46-2)** Given `MainWindow`, Then it has **no**
+    `_on_open_order`, `_on_order_status`, `_on_exec_details`, `_update_order_status`, `_on_order_error` attribute;
+    **`IBBridge`** (the real class name) has no `order_status`, `open_order`, `exec_details` signal; `IBApiClient`
+    defines **no** override for `orderStatus` / `openOrder` / `execDetails`; and `_on_error`'s source names neither
+    `order_registry` nor `_on_order_error`. (Measurable: `hasattr` checks for the five `MainWindow` members;
+    `hasattr(IBBridge, "order_status") is False` (and the other two); **`"orderStatus" not in
+    IBApiClient.__dict__`** (and the other two) — **not** `hasattr`, which is `True` before *and* after because
+    `ibapi.wrapper.EWrapper` defines all three as no-op stubs (verified in `.venv`); a token scan of the three
+    modules.)
+  - **AC-D46.3 (201/103/202 still surface — the owner's constraint)** Given a `MainWindow` with a mocked client and
+    no live session reqId matching the id, When `win._on_error(reqId=<id>, errorCode=201,
+    errorString="Order rejected - reason: price violates tick")` is called — and likewise for **103** and **202** —
+    Then the status-bar message contains the code **and** TWS's own text (e.g. `Error [201]: Order rejected - reason:
+    price violates tick`, `Error [103]: Duplicate order id`, `Error [202]: Order Canceled - reason:`), the message is
+    **not** empty, and nothing raises. The three codes are still emitted by `IBApiClient.error` because
+    `classify_error(201) == classify_error(103) == "fatal"` and `classify_error(202) == "warning"` — none `"info"`.
+    (Measurable: three parametrised offscreen cases asserting `status_bar.currentMessage()` contains `[201]` /
+    `[103]` / `[202]` and the TWS string; the `classify_error` assertions retained.)
+  - **AC-D46.4 (no order interaction; D45's guard strengthened)** Given the change, Then a static scan of `ui/`
+    finds **zero** `placeOrder` / `cancelOrder` / `reqGlobalCancel`, the mocked-client walkthrough still reports all
+    three call counts `0`, and `tests/test_d45_removal.py`'s survivor allow-list contains **none** of
+    `order_registry`, `orders`, `UserOrder`, `_on_open_order`, `_on_order_status`, `_on_exec_details`,
+    `_on_order_error`, `_update_order_status`, `order_limiter`, `MAX_ORDER_NOTIONAL` — those names are **forbidden**
+    by the scan instead, while `classify_error`, `pacing_manager` and `PacingExceeded` stay survivors. (Measurable:
+    the shrunk `_SURVIVORS` set; the extended `_FORBIDDEN` tuple; the scan going red on a re-added name.)
+  - **AC-D46.5 (test book + green suite)** Given the change, Then the full offscreen suite is green with exactly
+    the D46.5 book: **deleted** `tests/test_order_builders.py` and `tests/test_stop_loss_target.py`; **reduced**
+    `tests/test_order_rejections.py` (the two registry cases removed, `test_non_order_error_untouched` repointed at
+    the generic line, both `classify_error` cases kept, **plus the parametrised per-code surfacing case added**),
+    `tests/test_d28_pacing.py`, `tests/test_sound_service.py`, `tests/conftest.py`; **adjusted**
+    `tests/test_d45_removal.py`, `tests/test_ui_smoke.py`, `tests/test_account.py`,
+    `tests/test_strategy_detection.py`, `tests/test_d27_position_id.py`,
+    `tests/test_d27_account_partial_window.py`, `tests/test_d27_account_scoping.py`. No other test file changes.
+    (Measurable: `git diff --stat HEAD -- tests/`; a clean full-suite run.)
+  - **AC-D46.6 (prose matches the tree)** Given the repository, Then `docs/codebase-map.md` contains no claim that
+    `ibkr/orders.py` is retained / NOT to be deleted and no "retained observers" row naming the removed callbacks;
+    `ibkr/error_codes.py`'s `classify_error` comment no longer says `_on_error` routes a cancelled order to a
+    registry; `services/sound_service.py`'s docstring no longer advertises an order-fill tone; the
+    `_on_position_end` / `_persist_position` comments no longer name the SL/TP dialog; and no `USAGE.txt` /
+    `usage.md` line mentions the module, an order registry or retained stop/target columns. (Measurable: grep for
+    `ibkr/orders.py`, `order registry`, `NOT be deleted`, `routes it to the registry`, `Order-fill`, `SL/TP dialog`
+    over the six files.)
+  - **AC-D46.7 (history preserved; marker + tech stack intact)** Given `requirements.md`, Then `### D45`, `### D41`
+    and `### D26` remain, A80/A90/A87/A97 carry explicit **REVERSED by D46** notes **and keep their original
+    wording**, ESC-061 is recorded moot, and the **existing-repo marker sentence + Current Tech Stack** are
+    unchanged. (Measurable: the marker sentence occurs; the A80/A90/A87/A97 original text is still present beside
+    each reversal; D46 is registered.)
+  - **AC-D46.8 (no second `UserOrder`; smoke green)** Given the repository, Then `data/models.py` defines **no**
+    `UserOrder`, `tests/test_ui_smoke.py` asserts `Position` / `Drawing` only, and `from data.models import
+    UserOrder` raises `ImportError`. (Measurable: `hasattr(data.models, "UserOrder") is False`; the smoke case
+    passes.)
+  - **AC-D46.9 (the inventory is closed)** Given the repository, Then a static scan of
+    `ui/ services/ data/ ibkr/ config/ main.py` and `tests/` for every **DELETE**-set identifier returns **only**
+    the documented **RETAIN**-set survivors (`error_msg`, `classify_error`, `advancedOrderRejectJson`,
+    `nextValidId`, `set_next_valid_id`, `get_id`, `id_manager`, `pacing_manager`, `PacingExceeded`,
+    `order_blocks`/`_render_order_blocks`/`orderBlocks`, `sort_order`, `trade_group`/`TradeGroup`, `Position`,
+    `play_alarm`, `render_alarm_chime`), and each RETAIN entry still has its named consumer. (Measurable: one
+    parametrised test importing the inventory as data — a dict of name → disposition — and asserting
+    `found ⊆ retained`; the Code Reviewer independently reproduces the scan and reports any name it cannot
+    classify.)
+  - **AC-D46.10 (`IdManager` intact minus `reserve`)** Given `ibkr.id_manager`, Then `IdManager.get_id` and
+    `set_next_valid_id` exist and are still called from `ibkr/market_data.py` and `ibkr/client.py`, and
+    `hasattr(IdManager, "reserve") is False`. (Measurable: the two `hasattr`s; the market-data call sites; the
+    reduced `tests/test_id_manager.py` — 8 cases → 4, with the monotonic case rewritten rather than dropped.)
+  - **AC-D46.11 (zero-consumer order utilities gone)** Given the repository, Then `ibkr.pacing` defines no
+    `OrderRateLimiter` and no `order_limiter`, `config.settings` defines no `MAX_ORDER_NOTIONAL`,
+    `services.sound_service` defines no `render_fill_blip` / `BLIP_DURATION` and `SoundService` has no
+    `play_fill` / `_fill_effect`, the `"fill"` key is absent from `ensure_sound_files`' return, and
+    `SoundService.play_alarm` still plays the alarm chime. (Measurable: `hasattr`/`import` checks; the surviving
+    alarm test unchanged; no `order_fill.wav` is written.)
+  - **AC-D46.12 (storage gone; rows preserved; Portfolio unchanged)** Given a database created **before** D46
+    (both columns present, some rows), When the app opens it, Then `PRAGMA table_info(positions)` and
+    `PRAGMA table_info(trade_groups)` list **no** `stop_loss` / `take_profit`, **both tables keep every row they
+    had**, `idx_positions_symbol_con_id` still exists, the `trade_group_id` foreign key still resolves, and a
+    **second** open is a no-op (idempotent). On a **fresh** database the schema is created without the columns and
+    the migration does not raise. The Portfolio table renders the same **8** columns with Strategy/Group at
+    indexes `6`/`7` and the live-update / TWS-side-close walkthrough stays green. (Measurable:
+    `_table_columns("positions")` / `("trade_groups")` exclude both names; a row-count comparison before/after;
+    `sqlite_master` still lists the unique index; `AC-D45.10`'s 8-column assertions unchanged; two consecutive
+    `DB()` constructions on the same file.)
+  - **AC-D46.13 (one-directional doc trail)** Given the six documents, Then no sentence within three lines of
+    `stop_loss` / `take_profit` / `Stop/Target` claims the columns are kept, retained, unchanged or
+    migration-free, and the ESC-060 wording carries a supersession note naming D46 / A99. (Measurable: grep for
+    `kept`, `no migration`, `no schema change`, `retained`, `cleared`, `unchanged` near those tokens over the six
+    files, with each hit either removed or reading `dropped`; the Code Reviewer reproduces the grep and reports the
+    kept → cleared → dropped sequence.)
+- **Supersession / reversal record (recorded, not silent):**
+  - **A80 (D45) — REVERSED by A91** (recorded earlier 2026-10-25). Its "`ibkr/orders.py` may remain unreferenced"
+    default is superseded; the row stays verbatim with the reversal appended.
+  - **A90 (D45) — REVERSED by A92** (recorded earlier 2026-10-25, now **owner-confirmed** by Q56/Q57) — the
+    observers go rather than stay inert.
+  - **A87 (D45) — REVERSED by A99 (2026-10-25, Q59).** The "keep the storage, no migration" decision is superseded:
+    the columns and model fields are **dropped**. A87's row stays verbatim with the reversal appended. **The trail
+    is kept → cleared → dropped:** D45 kept the storage; ESC-060 (this morning) established that a live update
+    **cleared** the values and the docs were corrected to say so; D46 now **drops** the storage because there is
+    nothing left to preserve.
+  - **A97 (D46) — REVERSED IN PART by Q59 / A101 (2026-10-25).** Its `reserve()` half is superseded (deleted); its
+    `classify_error` half is **confirmed** and restated as A100. Row kept verbatim.
+  - **A92 / A93 / A96 — CONFIRMED by the owner (Q56/Q57, Q57, Q58).** No longer recorded defaults.
+  - **A93's premise is rejected, not its substance.** Q57 declined the *question* of restoring order-shaped wording
+    rather than choosing an option: the app adds **no** order identity and **no** verdict, and the generic line
+    stays. `AC-D46.3` is unchanged in substance and now owner-confirmed.
+  - **D45 consequence 4's** "whether `ibkr/orders.py` is deleted or left unreferenced remains a Plan/Build choice"
+    — **decided: deleted** (D45's own text is left as written; this entry is the decision of record).
+  - **`AC-D45.6` / `AC-D45.10`'s retention halves — SUPERSEDED BY D46.** Their *UI* halves stand (8 columns, no
+    Stop/Target header, no setters); their *storage* halves ("columns and fields retained, no migration") are
+    superseded by A99/D46.12. D45's text is left as written so the reversal is visible.
+  - **ESC-060's documentation half — SUPERSEDED BY D46.** Its correction ("columns kept; values cleared by the
+    live update") was right when written and is now one step behind; D46.13 records the second correction. The
+    **behavioural** half of ESC-060 (`_on_position_update` writes nulls) is moot — there is no column to write.
+  - **ESC-061 (open BUILD escalation) — MOOT.** It asks for a module-docstring note on `ibkr/orders.py` saying it is
+    retained deliberately; the module is deleted, so no note can be owed. **Recorded as superseded by D46, not
+    solved** — Code Reviewer closes it as moot.
+  - **DG76 — resolved** by the deletion. **DG79 / DG80 — resolved by Q58 / Q59 + A101.**
+  - **`AC-D45.4` / `AC-D45.8`** — unchanged in substance; revised only where they name the observers as retained or
+    allow-listed.
+  - **D26.9 (`AC-D26.9`)** — its registry half is now vacuous; its **surfacing** half is carried forward as
+    `AC-D46.3`.
+  - **RG-D46-1 / RG-D46-2 (Validator findings, `docs/plan_notes.md`)** — both folded in: the added per-code case is
+    in `D46.5`/`AC-D46.5`, and `AC-D46.2`'s measurable is restated as `__dict__` membership with the class name
+    corrected to `IBBridge`.
+- **Correction record (artifacts that must change — Plan / Task Manager / Build / Code Reviewer):**
+  - **Plan:** supersede `docs/architecture.md` `S29` / `AR-D45-10` (the "retained, read-only, one docstring note"
+    decision), refresh `docs/codebase-map.md` (remove the `ibkr/orders.py` row's "NOT orphaned and must NOT be
+    deleted" claim ≈:97, the retained-observers list ≈:177-179, the "(docstring note only)" row ≈:193 and the
+    module-index entry ≈:204), **re-plan P5 for the expanded scope** (the in-flight draft is stale), add the
+    destructive-migration step to the architecture's data-model section and to `docs/plan.md`, and **supersede the
+    stop/target retention statements** in `docs/architecture.md` (:4645, :4822, :4848, :4901, the P5 block
+    :5127-5129 / :5331-5332) and `docs/plan.md` (:2004, :2551-2552, :2916, :2954-2955) so they read **dropped**.
+    **ESC-061 is moot — do not implement its docstring note.**
+  - **Task Manager:** enumerate the assertions invalidated **outside** the edited files (memory 2026-10-23 item 4):
+    `tests/test_d45_removal.py` (`_SURVIVORS` + `_FORBIDDEN`), `tests/test_ui_smoke.py` (`UserOrder`),
+    `tests/test_order_rejections.py` (imports + 2 cases + 1 added case), `tests/test_stop_loss_target.py` (whole
+    file), `tests/test_account.py`, `tests/test_strategy_detection.py`, the three SQL seeders
+    (`test_d27_position_id`, `test_d27_account_partial_window`, `test_d27_account_scoping`),
+    `tests/test_d28_pacing.py`, `tests/test_sound_service.py`, `tests/conftest.py`. Do **not** task
+    `nextValidId`/`set_next_valid_id`, `get_id`, `classify_error`, the ICT order blocks or `sort_order` (A100–A103);
+    resolve symbols, not line numbers.
+  - **Build:** split **by member group**, because delete-only tasks are what kill workers (memory 2026-10-15) —
+    and this batch is larger than the original: (1) `ibkr/orders.py` deletion + importer cleanup;
+    (2) `ibkr/client.py` overrides + `ibkr/bridge.py` signals + the three `__init__` connects (one task — a signal
+    and its only connect must not be split across waves); (3) the `MainWindow` slots + `_update_order_status` +
+    the `_on_error` branch; (4) the zero-consumer utilities (`pacing`, `settings`, `sound_service`, `id_manager`);
+    (5) the storage migration + model/account/persistence edits (one task — schema and its readers must land
+    together); (6) the stop/target test book; (7) the order test book; (8) comments/docstrings. After each file run
+    a syntax/import check **and** a residue grep for `ibkr.orders`, `order_registry`, `order_status`, `open_order`,
+    `exec_details`, `_on_order_status`, `_update_order_status`, `_on_order_error`, `OrderRateLimiter`,
+    `order_limiter`, `MAX_ORDER_NOTIONAL`, `play_fill`, `render_fill_blip`, `reserve(`, `stop_loss`, `take_profit`.
+  - **Code Reviewer:** independently reproduce `AC-D46.3` for **201, 103 and 202** — not merely "the suite is
+    green" — confirm the chain's absence **by symbol and by `__dict__`/`hasattr`**, confirm `ibkr/orders.py` is
+    gone with no importer, confirm the map no longer claims retention, confirm the migration preserved the row
+    counts/index/FK **and** is idempotent on a second open, and confirm the doc trail reads kept → cleared →
+    dropped with no surviving counter-claim.
+- **Edge Cases:** an order error arriving while `_closing` is set is still dropped (unchanged); an order error whose
+  numeric id coincides with a **live session reqId** takes the session error path first — **pre-existing** and
+  **unchanged** by D46 (DG78); **202** is a normal cancellation, severity `warning`, so it is **not** suppressed;
+  an error with `reqId = -1` still shows the generic line; a disconnected TWS keeps D40.1's `502` backoff
+  suppression untouched; a stale `__pycache__/orders.*.pyc` (or `order_book.*.pyc`) cannot make
+  `import ibkr.orders` succeed — CPython 3.11 does not import bare cache files (DG87); no UI ever bound to this
+  chain, so saved layouts and `QSettings` are unaffected; **a pre-D46 database whose `positions` rows carry legacy
+  stop/target values loses only those two values and keeps every row** (`AC-D46.12`); **a fresh database never runs
+  the drop twice** (the `_table_columns()` guard); **an interrupted rebuild** must not strand a half-built table
+  (the `bars` precedent's salvage branch, DG86); the Portfolio table and the strategy grouping are untouched apart
+  from the two fields; a Build worker must not "tidy" `classify_error`, `nextValidId`, `id_manager`,
+  `pacing_manager`, the ICT order blocks or `sort_order` while removing the order surface (A100–A103).
+- **Assumptions (lite) — D46 (no blocking question remains: every default is A91–A104, and the four owner answers
+  Q56–Q59 are recorded verbatim in `open_questions.md`):**
+  - **A91 (reverses A80)** `ibkr/orders.py` is **DELETED in full**. Owner-requested 2026-10-25 and the batch
+    confirmed. A80's "may remain unreferenced" is superseded; A80 stays verbatim so the reversal is visible.
+  - **A92 (reverses A90)** the **observation chain is removed**, not kept inert: the three `EWrapper` overrides,
+    the three bridge signals, the three `MainWindow` slots, `_update_order_status`, `_on_order_error` and the
+    `_on_error` registry branch. Rationale: the chain's only effect is a write into a registry nothing populates,
+    so it cannot change behaviour; keeping it would contradict the owner's explicit instruction. **Owner-confirmed
+    by Q56/Q57** (was the recorded default).
+  - **A93** 201/103/202 keep surfacing via the **existing generic line** (`Error [<code>]: <TWS message>`, 8000 ms);
+    **no** order-id prefix, **no** "Rejected"/"Cancelled" verdict and **no** 12-second duration is restored.
+    Rationale: that is already what the owner sees (the richer branch is unreachable), it satisfies *"TWS errors must
+    still surface"* without new formatting code, and the app no longer knows which order it was. **Owner-confirmed
+    by Q57** — which rejected the premise of the question rather than choosing an option (`AC-D46.3` unchanged).
+  - **A94** error routing is **not** reordered: the session-reqId branch stays first, so a numeric collision between
+    an orderId and a live session reqId behaves exactly as today (DG78). Rationale: D46 is a removal; changing the
+    error path's ordering is a behaviour change nobody asked for.
+  - **A95** `tests/test_order_rejections.py` **survives in reduced form** — file kept (renaming is churn), the two
+    registry cases removed, `test_non_order_error_untouched` repointed to the generic line, both `classify_error`
+    cases kept, **and the parametrised per-code surfacing case added** (RG-D46-1). Rationale: the surfacing
+    assertions are exactly what `AC-D46.3` needs, and `classify_error` is **not** order-specific.
+  - **A96** `data/models.py::UserOrder` is **removed**, and `tests/test_ui_smoke.py`'s
+    `hasattr(data.models, "UserOrder")` assertion with it. **Owner-confirmed by Q58** (*"yes remove"*).
+  - **A97** — **REVERSED IN PART.** Its `IdManager.reserve` half is superseded (A101: deleted); its
+    `classify_error` severity table half is confirmed and restated as A100. Row kept verbatim with the reversal
+    appended.
+  - **A98** docs scope is `docs/codebase-map.md` (Plan-owned — supersede `S29`/`AR-D45-10` and the "NOT to be
+    deleted" rows) plus **comment-level** fixes in `ibkr/error_codes.py`, `services/sound_service.py`, the
+    `_on_position_end`/`_persist_position` comments and the surviving tests; **plus** the stop/target statements in
+    `USAGE.txt` / `usage.md` (D46.13). Rationale: matches D45's A85 split — Plan owns the map/architecture, Build
+    owns code comments and the two user-facing files.
+  - **A99 (reverses A87)** the `positions` / `trade_groups` `stop_loss` / `take_profit` **columns are DROPPED** and
+    the `Position` / `TradeGroup` / `ibkr.account.Position` model fields with them. Owner: Q59 verbatim
+    *"remove everything"*, having been shown A87's retention and A97's out-of-scope note. **Why the reversal is
+    safe — the honest justification, stronger than "we don't want them":** per **ESC-060** (corrected in these docs
+    earlier the same day) the values were **already destroyed by the first live update** of any row —
+    `_on_position_update` builds `Position(stop_loss=None, take_profit=None)` and the upsert's `DO UPDATE` writes
+    both columns — and with every setter removed in D45 nothing could ever write a non-null value again. **The drop
+    therefore destroys nothing that survived**; it removes two columns that could only hold `NULL` after one update.
+    Mechanism is Plan's (D46.12, DG86); the **end state** is fixed.
+  - **A100** `classify_error` and the generic error surface **stay**: `ibkr/error_codes.py::classify_error`, the
+    `error_msg` signal, `IBApiClient.error`'s `severity != 'info'` gate and the D40.1 `502` backoff suppression,
+    `_on_error`'s session routing and its final `showMessage(..., 8000)`. Rationale: none of it is order-specific —
+    it gates **every** TWS error — and removing it would delete the visibility the owner requires. Confirms A97's
+    second half after Q59.
+  - **A101** **`IdManager` stays; only `reserve()` goes.** Evidence, checked before writing it down:
+    `get_id()` is called at `ibkr/market_data.py:42,74,90,103` and `ibkr/realtime_bars.py:31` (market-data and
+    realtime reqIds) and `set_next_valid_id()` at `ibkr/client.py:184`, so the module is **shared, not order-only**;
+    `reserve()` (`ibkr/id_manager.py:19-30`) has **tests only** — four pure `reserve` cases plus one mixed
+    `set_next_valid_id` case (`tests/test_id_manager.py:10,18,32,39,56`) — and its docstring cites multi-leg orders. Deleting the module would take the chart's subscription machinery with it.
+  - **A102** `IBApiClient.nextValidId` and `IdManager.set_next_valid_id` are **retained** (DG82): `nextValidId` is
+    the connection-established transition and the only reconnect-success hook the app has (`ibkr/client.py:182-193`,
+    driven by `tests/test_d40_tws_lifecycle.py:239,311,368,407,450` and `tests/test_d25_alarm_monitor.py:397`), and
+    its name is IBKR's, not ours. The single order-semantic line inside it (the ID-counter sync) stays because it is
+    what keeps the reqId allocator monotonic against TWS's own counter; only order-worded **comments** are removed.
+  - **A103** **The D46 inventory is the acceptance instrument** (`AC-D46.9`): every order-named symbol is either in
+    the DELETE set or in the RETAIN set with its consumer named, and anything genuinely ambiguous is recorded in
+    `design_gaps.md` **before** it is touched rather than guessed at build time. This is the mechanism the Q56
+    lesson asks for.
+  - **A104** the expanded test book is exactly `D46.5`'s list — nothing else changes — and the two deleted suites
+    (`test_order_builders.py`, `test_stop_loss_target.py`) are deleted **whole**, not trimmed.
+
 ## Assumptions Log
 | # | Assumption | Rationale | Confirmed? | Date |
 |---|---|---|---|---|
@@ -4023,7 +5210,7 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | A67 **[NEW v1.2]** | **D37 — depth heatmap defaults ON:** the `DepthHeatmapItem` is created unconditionally, overriding the reviewer's OFF suggestion (D36 footprint stays OFF). | Owner-confirmed 2026-10-14 (Q44); matches `ui/chart_panel.py::ChartPanel.__init__` (unconditional add — `:368`; `_depth_enabled_ui = True` — `:370`; indicative) | y | 2026-10-14 |
 | A68 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q48 = YES; composition clause SUPERSEDED by A70 2026-10-15]** | **D41 — "Depth" ALSO includes the Active Trader DOM ladder** (toolbar `DOM` button; `ibkr/market_depth.py`, `ibkr/order_book.py`, and the ladder/book rendering in `ui/active_trader_panel.py`), which is **removed** along with the D37 heatmap. *(Originally recorded as a **ladder-scoped** removal keeping the `OrderEntryWidget`/D18 shell/D21.13 header — that composition clause is **superseded by A70**, Q50.)* | Owner answered **Q48 = YES** on 2026-10-15 (the ladder goes too). Consequence: **ESC-039** becomes moot. | y | 2026-10-15 |
 | A69 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q49 = "delete"]** | **D41 — persisted D36 footprint data is DELETED.** The `footprint_cache` DB table's DDL is removed from `data/db.py` (so fresh DBs never create it) **and** an existing user DB's `footprint_cache` table + rows are **dropped/deleted** by a small migration. | Owner answered **Q49 = "delete"** on 2026-10-15; the feature that owns the data is removed, so the table + rows go with it. Interpretation recorded; the one-line alternative ("delete rows only, keep the empty table") is noted as **DG70**, but the chosen default is the full drop. | y | 2026-10-15 |
-| A70 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q50 = YES/YES]** | **D41 scope widened to the ENTIRE Active Trader panel: the in-app order-entry UI is removed with it (no in-app order ticket), and the right dock becomes Portfolio-only.** All of `ui/active_trader_panel.py` (panel shell, ladder/book, `OrderEntryWidget`, `header_bar`/`header_button`, `set_symbol`/`set_last_price`/`last_price`) is **removed**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, `validate_order()`, `bracket_order`, order-ID reservation, the kill switch, the fail-fast port check) is **kept** and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**. **D18** (right-dock model) and **D21.13** (dock title bar / collapse) clauses that assumed the two-section Active-Trader+Portfolio region are **superseded by D41**; the single Portfolio dock's width cap and header are re-derived. | Owner answered **Q50 = YES / YES** on 2026-10-15 (whole panel removed incl. order entry; right dock Portfolio-only). Supersedes A68's ladder-scoped composition clause and DG69's conservative default. | y | 2026-10-15 |
+| A70 **[NEW 2026-10-15; CONFIRMED 2026-10-15 — Q50 = YES/YES]** | **D41 scope widened to the ENTIRE Active Trader panel: the in-app order-entry UI is removed with it (no in-app order ticket), and the right dock becomes Portfolio-only.** All of `ui/active_trader_panel.py` (panel shell, ladder/book, `OrderEntryWidget`, `header_bar`/`header_button`, `set_symbol`/`set_last_price`/`last_price`) is **removed**. The **retained order machinery** (`ibkr/orders.py`, `ibkr/validation.py`, `validate_order()`, `bracket_order`, order-ID reservation, the kill switch, the fail-fast port check) is **kept** and guards Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs**. **D18** (right-dock model) and **D21.13** (dock title bar / collapse) clauses that assumed the two-section Active-Trader+Portfolio region are **superseded by D41**; the single Portfolio dock's width cap and header are re-derived. **[D45 NOTE 2026-10-25: superseded — these paths, the kill switch and the SL/TP dialog are all removed; the app has zero order interaction. See D45 / `AC-D45.6`. A88/A89 supersede this row's retained-machinery clause; the `ibkr/orders.py` singleton itself stays for the inert observers (A90).]** | Owner answered **Q50 = YES / YES** on 2026-10-15 (whole panel removed incl. order entry; right dock Portfolio-only). Supersedes A68's ladder-scoped composition clause and DG69's conservative default. | y | 2026-10-15 |
 | A71 **[NEW 2026-10-15; Plan-level detail (non-blocking)]** | **D41 — retained order-path `ref_price` source and the Portfolio-only dock's re-derived cap/header.** The kept order path's `ref_price` (previously `active_trader.last_price`, fed by the DOM depth feed) **MUST** come from a **retained** source — the session's last price (live RT-bar / aggregator last) or the `symbol → last_price` watchlist price map (as D27.5 mandates for position market prices) — and must keep resolving. The right dock's width cap (was `floor(0.40 × chart_area)` for the two-section region) and its dock header / collapse affordance are **re-derived for the single Portfolio section**. | Owner confirmed the outcomes (Q50); the exact source/cap/header are implementation choices → **Plan-level details** (DG71), not blocking questions. Logged per the Quality Bar rather than silently baked in. | n | 2026-10-15 |
 | A72 **[NEW 2026-10-15 — D42/ESC-042; requirement decision (owner-confirmed via Q51)]** | **The no-overlap guarantee wins over the 4-px body floor at high density.** The candle body width is capped at the inter-bar device-pixel pitch and the D6 4-device-pixel legibility floor becomes **density-aware** (`body = min(max(0.65×pitch, F), pitch)`, `F` = 4 device px at DPR 2); the hard guarantee is `gap >= 0` (never overlap), the gap is `> 0` whenever `pitch > F`, and `0` is acceptable at extreme density (`pitch <= F`). This **supersedes the unconditional `AC-D6.4` wording** and the **`AC-D7.1` "positive gap" wording**. | The escalation is a genuine in-document contradiction and the owner-visible defect (ESC-041: candle/volume overlap on a 5-min Ext-Hours chart) is caused by the unconditional floor; a zero gap (abutting bodies) is not "overlap" and preserves legibility where it can, while a negative gap is never acceptable. Evidence-derived (measured 3.83 px pitch / 4.00 px body); the zero-gap-at-the-limit default was **confirmed by the owner 2026-10-15 (Q51, verbatim: "Zero gap acceptable at the limit.")** — no criteria change. | y (owner-confirmed 2026-10-15, Q51) | 2026-10-15 |
 | A73 **[NEW 2026-10-15 — D42/ESC-038; owner-required floor (Q47) + ETH scope owner-confirmed (Q52) + evidence-derived clarifications]** | **Intraday depth (RTH and ETH) = >= 30 trading sessions before the current session, counted by bars inside the current mode's session window; a present-but-empty trading day is a missing span (not filled).** The floor is `AC-D16.8` (owner-required, Q47); the "session = >= 1 bar inside the current mode's window" and "all five intraday windows fall short" clarifications and the new `AC-D16.9` (mode-aware day presence + mode-aware cache) are evidence-derived from the ESC-038/ESC-037 diagnosis. **Q52 (owner-confirmed 2026-10-15: "Extend it to Ext-Hours charts too.") widened the floor and the present-but-empty rule to ETH (`ext_hours=True`)** — one floor, two modes, no cross-contamination. The fetch-window strategy that delivers the floor is a **Plan/Build** matter. | The owner already required the 30-session floor (Q47) and then extended it to ETH (Q52); the present-but-empty rule is the only consistent reading of "a day with no bars in the session window is not a session" and is required for the floor to be measurable. ETH scope owner-confirmed; the remaining clarifications evidence-derived. | y (floor + ETH scope owner-confirmed, Q47/Q52; clarifications evidence-derived) | 2026-10-15 |
@@ -4032,6 +5219,32 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | A76 | **D44 — the collapsed/expanded state is NOT persisted; the app starts expanded.** Consistent with the existing D21.11 collapse (not persisted) and the D10/A36 precedent that UI show/hide toggles are not persisted; no `QSettings` collapse key. | Owner gave no persistence signal; the consistent default mirrors the existing collapse behaviour. Surfaced to the owner as Q54 (an override would add persistence). | n | 2026-10-16 |
 | A77 | **D44 — while collapsed, the horizontal header strip, the `+` add button (D22.1) and the table's column-header row are hidden; the thin bar's only interactive element is the expand affordance.** They return on expand, so no affordance is lost. | A ~30px bar cannot hold a horizontal `+` plus a rotated label legibly; the `+` belongs to the expanded panel (D22.1). Surfaced to the owner as Q54. | n | 2026-10-16 |
 | A78 | **D44 — the collapsed-bar mechanism is a Plan-level detail:** a small custom widget with a `paintEvent` drawing rotated text (Qt cannot rotate a `QPushButton`'s text), and the dock's title-bar widget presents the bar while collapsed while keeping the dock movable (DG37). | The outcome (a thin, clickable, app-palette bar) is fixed by `AC-D44.1`/`AC-D44.6`; the widget/title-bar mechanism is an implementation choice, logged per the Quality Bar. | n | 2026-10-16 |
+| A79 | **D45 — the digest half of D38 goes; the event-marker half stays.** `ibkr/news.py` (`NewsManager`), `ui/news_digest_dock.py` and the news `"292"` S0 line are removed; the corporate-events provider, `EventMarkerOverlay`, `_merge_events`, the `"456"` dividend S0 line, tick 59, `_dividend_info` and `dividend_updated` are retained. | Owner confirmed 2026-10-25: `ibkr/news.py` delete ("its only consumer is the digest + its tests") and `"456"` must stay "because it feeds the chart's dividend event markers". Recorded so no worker deletes the dividend path with the news path (R68). | y | 2026-10-25 |
+| A80 | **D45 — `ibkr/orders.py` may remain as unreferenced code; the requirement is that no UI path reaches `placeOrder`.** `ibkr/validation.py` is **deleted** (named in the owner's inventory); deleting `ibkr/orders.py` (and the order registry/error handling) is optional and a Plan/Build choice — if kept it must have **no importer** and no reachable path. **REVERSED 2026-10-25 (D46) — the module is DELETED in full, not kept; see A91. This row's original wording is kept so the reversal is visible.** | The owner asked for the two components to be removed and for no order-placement path to remain; the inventory names only `ui/trade_context_menu.py` and `ibkr/validation.py` for deletion. AC-D45.4 measures **unreachability / zero transmits**, which holds either way; inventing an `orders.py` deletion would exceed the stated scope. | n (reversed by D46; see A91) | 2026-10-25 |
+| A81 | **D45 — whole-file test deletions are exactly the three named** (`tests/test_d28_6_close_contracts.py`, `tests/test_d41_retained_order_path.py`, `tests/test_order_validation.py`); the digest/`NewsManager` cases are **removed from** `tests/test_d38_events_news.py` while the **file is kept** for the event-marker cases. | The brief's consequence line says "four test files are deleted, three of which were the only coverage of order safety", while the inventory names three whole-file deletions plus one case-level trim. The "fourth" is read as the digest half of `tests/test_d38_events_news.py` (trimmed, not deleted). A fourth **whole-file** deletion is **not named** and is not guessed — DG75 records it. | n (default) | 2026-10-25 |
+| A82 | **D45 — the kill switch is retained and still meaningful.** It cancels TWS-placed orders (`reqGlobalCancel` + per-ID cancels) and shows pre/post counts; only its `test_flatten_all_kills_first` coupling is dropped (flatten-all is gone), and the switch keeps its own coverage. **REVERSED 2026-10-25 (D45 extension, later the same day): the kill switch is REMOVED in full** — owner: *"remove: Kill switch — it only cancels orders, never places one"*. Superseded by **A88**; this row is kept verbatim so the reversal is visible, not silent. | Owner explicitly retained "the kill switch (cancels TWS-placed orders; still useful)". With orders placed in TWS it is the only in-app protective control. **Reversal rationale:** the owner wants **zero order interaction** — a cancel-only control is still order interaction, and with no in-app placement there is nothing for the app to protect itself from. | n (reversed) | 2026-10-25 |
+| A83 | **D45 — the SL/TP dialog is retained unchanged and local-only.** It never placed orders (D26.3's "labelled as not placing orders" branch) and keeps saving targets locally. **REVERSED 2026-10-25 (D45 extension, later the same day): the dialog is REMOVED in full with its Stop/Target columns** — owner: *"remove: ... SL-TP dialog — local-only targets, never transmitted"*. Superseded by **A89**; kept verbatim so the reversal is visible. | Owner explicitly retained "the SL/TP dialog (local-only, never placed orders)"; its label already says it places no orders, so keeping it introduces no order path. **Reversal rationale:** a **local-only target protects nothing**, and once the Trade Context Menu (its only entry point) is removed it is an unreachable setter whose columns could never show a settable value. | n (reversed) | 2026-10-25 |
+| A84 | **D45 — Portfolio stays view-only with the account-summary/positions data path retained; no replacement close UI, hotkey or TWS-API bridge.** Closing happens in TWS; the panel reflects it on the next position update. | Owner: "Portfolio becomes view-only: closes happen in TWS directly. No replacement UI." | y | 2026-10-25 |
+| A85 | **D45 — documentation scope is the three owner-named files** (`USAGE.txt`, `usage.md`, `docs/codebase-map.md`), cleaned in the same batch; `docs/architecture.md`/`docs/plan.md` are Plan/Validator-owned and synced there. | Owner named the docs; `docs/codebase-map.md` is a Plan-owned per-batch artifact (memory 2026-10-23) and is refreshed by Plan, verified by the Code Reviewer. | y | 2026-10-25 |
+| A86 | **D45 — no menubar replaces the removed `View` menu**, and `Ctrl+Shift+N` is removed with it (no orphan `QAction`). | Owner: the View menubar is "fine to lose"; it existed solely for the dock, and the app had no menubar before D38. | y | 2026-10-25 |
+| A87 | **D45 — Stop/Target columns decision: remove the two columns with the SL/TP dialog; keep the storage.** The positions table goes **10 → 8 columns** (`Symbol, Qty, Avg Price, Type, Multiplier, P/L, Strategy, Group`) and the header/value/alignment slots go; the `positions.stop_loss`/`take_profit` and `trade_groups.stop_loss`/`take_profit` **DB columns**, the `Position`/`TradeGroup` **model fields** and the `_persist_position` upsert **stay** — no migration, no destructive schema change, **but the values are not preserved**: `_on_position_update` passes `stop_loss=None, take_profit=None` and the upsert's `DO UPDATE` writes both columns, so the next live update clears them (ESC-060, corrected 2026-10-25). | With the dialog gone there is **no setter anywhere**, so the columns would be permanently dead display and a `Stop`/`Target` header implies a control that no longer exists (the owner has declined replacement UI twice, so no read-only fallback dialog either). Keeping the storage costs nothing, opens a pre-D45 DB without a migration, avoids a destructive schema change and keeps `tests/test_stop_loss_target.py` (model fields) meaningful. **Rejected:** keep the columns as legacy read-only display — it advertises an impossible feature and costs two columns of a width-constrained table. **REVERSED 2026-10-25 (D46, Q59 — owner: *"remove everything"*): the columns and the model fields are DROPPED, not kept (A99 / D46.12), so the trail reads kept → cleared → dropped. This row's original wording is kept verbatim so the reversal is visible.** | n (reversed by D46; see A99) | 2026-10-25 |
+| A88 | **D45 — the kill switch goes completely and no cancel capability is re-pointed.** `kill_btn` (+ its preceding separator), `_on_kill_switch_clicked`, `_kill_switch`, the `reqGlobalCancel()` call and the per-ID `cancelOrder()` loop are deleted; the app keeps **no** cancel path. `reqGlobalCancel`/`cancelOrder` each have **exactly one** production call site (inside `_kill_switch`), **no** `ibkr/` wrapper and **no** disconnect/teardown caller. | Verified in-repo 2026-10-25: the only call sites are in `ui/main_window.py::MainWindow._kill_switch`; its other caller (`_on_portfolio_flatten_all`) is removed by Group B, so nothing needs re-homing. Cancel surface after D45 is **TWS**. | y (owner-requested; call-site fact verified) | 2026-10-25 |
+| A89 | **D45 — the SL/TP dialog goes completely.** `ui/stop_loss_target_dialog.py`, its `confirmed` signal, `position_sltp_changed`/`group_sltp_changed`, `_on_set_sltp`/`_on_sltp_confirmed`, `update_position_sltp`/`update_group_sltp`, `_sltp_dialog`, both `MainWindow` persistence slots (with their row-`UPDATE`s) and the two display columns are deleted. | The dialog already had **no entry point** once Group B removed `TradeContextMenu.set_sltp_action` (the Plan map records `FI-D45-1`), so removal completes an already-severed path rather than conflicting with Group B; its targets never transmitted, so nothing protective is lost. | y (owner-requested) | 2026-10-25 |
+| A90 | **D45 — observation-only order plumbing stays, inert; no replacement UI.** The inbound `_on_open_order`/`_on_order_status`/`_on_exec_details`/`_on_order_error`/`_update_order_status` callbacks and the `order_registry` import remain wired (they observe; they never place/cancel) and the registry is never populated, so they are inert. `ibkr/orders.py` keeps A80's default (leave unreferenced); if Plan deletes it, these callbacks must be made registry-safe in the same task. **REVERSED 2026-10-25 (D46) — the observers are REMOVED, not kept inert, and the module is deleted; see A92. This row's original wording is kept so the reversal is visible.** The **fail-fast port check**, the connection badge and the no-test-transmits rule are retained. **No replacement cancel/protection UI is authorized.** | Deleting the inbound callbacks would touch the connection/error path the D26.5 badge depends on for no reachability gain (`AC-D45.4` measures zero calls, not the absence of observers); the owner declined replacement UI twice. | n (reversed by D46; see A92) | 2026-10-25 |
+| A91 | **D46 (reverses A80) — `ibkr/orders.py` is DELETED in full.** The module (`UserOrder`, the four `Orders` builders, the five registry methods and the `orders` singleton) is removed; nothing imports it and `import ibkr.orders` fails. | Owner-requested 2026-10-25 (*"I dont want anything to do with orders so why is there orders.py ?"*), batch confirmed after being told the module has **zero** production callers and a registry nothing populates. A80's "may remain unreferenced" was a scope-conservative default, not an owner preference; the owner has now decided the opposite. D45's consequence 4 called this a Plan/Build choice — D46 makes it the requirement. | y | 2026-10-25 |
+| A92 | **D46 (reverses A90) — the inert order-observation chain is REMOVED.** The three `EWrapper` overrides (`orderStatus`/`openOrder`/`execDetails`), the three `Bridge` signals, the three `MainWindow` slots, `_update_order_status`, `_on_order_error` and the `order_registry` lookup in `_on_error` are deleted. | Verified in-repo 2026-10-25: every one of them ends in `order_registry.get(id)` against a registry nothing ever writes, so the whole chain has **no behavioural effect** — removing it cannot change what the user sees. Keeping it would contradict the owner's explicit instruction, keep order names alive in the tree, and force `tests/test_d45_removal.py` to keep allow-listing them. Owner-confirmable (Q56); the only loss is the observation seam itself, which has no consumer. | y (**owner-confirmed 2026-10-25**, Q56/Q57 — *"i want all of it deleted"*) | 2026-10-25 |
+| A93 | **D46 — 201/103/202 keep surfacing on the existing generic line.** The status bar shows `Error [<code>]: <TWS's own message>` for **8000 ms** on the non-session path. **No** order-id prefix, **no** "Rejected"/"Cancelled" verdict and **no** 12-second duration is restored: the richer wording lived in `_on_order_error`, which the always-empty registry made **unreachable**, so this is what the owner already sees today. | The owner's constraint is *"TWS errors must still surface"* — satisfied without new formatting code. `classify_error` rates 201/103 `fatal` and 202 `warning`, so `IBApiClient.error`'s `severity != 'info'` gate emits all three; nothing is suppressed. The app no longer knows which order an error belongs to, so inventing an order-identity format would be a false signal. Owner-confirmable (Q57). | y (**owner-confirmed 2026-10-25**, Q57 — the owner rejected the premise of the question; the substance stands unchanged) | 2026-10-25 |
+| A94 | **D46 — error routing is not reordered.** `_on_error`'s session-reqId branch stays first, so an order error whose numeric id collides with a live session reqId behaves exactly as it does today (routed to the session's handler, which also shows the generic line). | D46 is a removal. Reordering the error path is a behaviour change nobody asked for, and the collision is **pre-existing** (the registry lookup already sat after the session branch). Recorded as **DG78** so it is a visible decision rather than an unnoticed one. | n (default) | 2026-10-25 |
+| A95 | **D46 — `tests/test_order_rejections.py` survives in reduced form (3 of 5 cases).** File kept (renaming is churn): the two registry cases (`201 → Rejected`, `202 → Cancelled`) are removed, `test_non_order_error_untouched` is **repointed** at the generic status-bar line, and both `classify_error` cases are kept. `tests/test_order_builders.py` is deleted whole (17 cases, all for zero-caller builders). | `classify_error` is **not** order-specific — it gates every TWS error through `IBApiClient.error` — so its coverage must stay. The repointed surfacing case is exactly `AC-D46.3`'s positive proof that 201/202 still reach the status bar, which is the owner's stated constraint; deleting the file would leave that constraint unguarded. Owner-confirmable (Q57/Q59). | n (default) | 2026-10-25 |
+| A96 | **D46 — the vestigial second `UserOrder` in `data/models.py` is removed**, and `tests/test_ui_smoke.py`'s `hasattr(data.models, "UserOrder")` assertion with it. | Repo-verified 2026-10-25: `data/models.py::UserOrder` is a **different** dataclass from `ibkr/orders.py::UserOrder` and has **zero** consumers in the tree (its only reference is the smoke `hasattr`). Two same-named order classes, neither used, is the same fossil the owner is asking about; leaving one behind would make the answer to *"why is there order code?"* incomplete. Owner-confirmable (Q58). | y (**owner-confirmed 2026-10-25**, Q58 — *"yes remove"*) | 2026-10-25 |
+| A97 | **D46 — `IdManager.reserve` and `classify_error`'s severity table are LEFT.** `ibkr/id_manager.py` stays whole (`get_id`/`set_next_valid_id` are shared with market-data reqId allocation); `reserve()` is order-motivated (D26.2 bracket IDs) with tests only. `ibkr/error_codes.py::classify_error` is untouched. | Neither is part of the named ask or the observation chain. `reserve()` is a generic contiguous-ID allocator (a test-covered utility, not an order path) and `classify_error` gates **every** TWS error, including the visibility the owner requires. Removing either would widen a delete-only batch (the pattern that kills workers — memory 2026-10-15) for no user-visible gain. Recorded as **DG80** so the leftover is a decision, not an oversight. **REVERSED IN PART 2026-10-25 (D46, Q59 — owner: *"remove everything"*): the `reserve()` half is superseded — `reserve` is DELETED (A101, its only callers are tests) — while the `classify_error` half is CONFIRMED and restated as A100 (it gates every TWS error). Original wording kept verbatim.** | n (reversed in part by D46; see A100/A101) | 2026-10-25 |
+| A98 | **D46 — docs scope is `docs/codebase-map.md` (Plan-owned, incl. superseding `S29`/`AR-D45-10`) plus comment-level fixes in `ibkr/error_codes.py` and the surviving tests.** No user-facing doc change is expected, because no `USAGE.txt`/`usage.md` line describes this module — verify by grep. | Matches D45's A85 split: Plan owns the map/architecture/plan, Build owns code comments and docstrings. `docs/codebase-map.md:97` currently states `ibkr/orders.py` "is NOT orphaned and must NOT be deleted", which is the single most dangerous line for a Build worker reading the map (**DG81**). **D46 EXPANSION NOTE (2026-10-25): the scope also covers the stop/target statements in `USAGE.txt` / `usage.md` (D46.13 / A99)** — the module half needed no user-facing change, but the storage half did, because those two files were corrected this morning under ESC-060 to say the columns are *kept*. | n (default) | 2026-10-25 |
+| A99 **[NEW 2026-10-25 — D46 expansion; REVERSES A87]** | **The `positions` / `trade_groups` `stop_loss` / `take_profit` DB columns are DROPPED, and the `Position` / `TradeGroup` / `ibkr.account.Position` model fields with them.** End state fixed; the migration mechanism is Plan's (D46.12). **Owner: Q59 verbatim *"remove everything"*,** having been shown A87's retention and A97's out-of-scope note. **Justification (honest, and stronger than preference):** per **ESC-060** — corrected in these docs earlier the same day — the values were **already destroyed by the first live update** of any row (`_on_position_update` builds `Position(stop_loss=None, take_profit=None)`; the upsert's `DO UPDATE` writes both columns), and every setter was removed in D45, so the columns could only ever hold `NULL`. **The drop destroys nothing that survived.** What must NOT be destroyed is a **row** (D46.12 / R82). | Owner instruction 2026-10-25. Keeping dead `NULL`-only columns was the only thing A87 bought, and it bought it on the premise that values persisted — which ESC-060 disproved. | y (owner-requested, Q59) | 2026-10-25 |
+| A100 **[NEW 2026-10-25 — D46 expansion]** | **`classify_error` and the generic error surface STAY** after Q59's *"remove everything"*: `ibkr/error_codes.py::classify_error` (incl. 201/103 `fatal`, 202 `warning`), the `error_msg` signal, `IBApiClient.error`'s `severity != 'info'` gate with the D40.1 `502` backoff suppression, `_on_error`'s session routing and its final `statusBar.showMessage(f"Error [{code}]: {string}", 8000)`. | None of it is order-specific — it gates **every** TWS error — and deleting it would remove the error visibility the owner explicitly requires *("TWS errors must still surface")*. This confirms A97's second half after Q59 and is the reason `AC-D46.3` survives the expansion unchanged. | y (owner constraint) | 2026-10-25 |
+| A101 **[NEW 2026-10-25 — D46 expansion; REVERSES A97's first half]** | **`IdManager` STAYS; only `reserve()` goes.** `IdManager`, `get_id`, `set_next_valid_id` and the `id_manager` singleton remain and keep their callers; `IdManager.reserve` (`ibkr/id_manager.py:19-30`) and its D26.2 docstring are deleted, and `tests/test_id_manager.py` loses its four pure `reserve` cases while the mixed `set_next_valid_id_still_monotonic_with_reserve` case is rewritten without `reserve`. | **Checked before writing it down, because deleting the module would take the chart with it:** `get_id()` is called at `ibkr/market_data.py:42,74,90,103` and `ibkr/realtime_bars.py:31` (market-data + realtime reqIds) and `set_next_valid_id()` at `ibkr/client.py:184`, so the module is **shared, not order-only**; `reserve()`'s only callers are `tests/test_id_manager.py:10,18,32,39,56`. | y (owner-requested, Q59; reachability verified 2026-10-25) | 2026-10-25 |
+| A102 **[NEW 2026-10-25 — D46 expansion]** | **`IBApiClient.nextValidId` and `IdManager.set_next_valid_id` are RETAINED.** Only order-worded **comments** inside them are removed. | `nextValidId` is not an order path in effect: it is the **connection-established** transition (`_connected = True`, reconnect-attempt reset, disconnect-class clear, `_set_state(CONNECTED)` — `ibkr/client.py:182-193`) and it is what the D40/D25 lifecycle tests drive (`tests/test_d40_tws_lifecycle.py:239,311,368,407,450`; `tests/test_d25_alarm_monitor.py:397`). Its name is IBKR's (`EWrapper.nextValidId`) and cannot be renamed, so it stays in the inventory's RETAIN set with this note (DG82). | y (evidence-derived, DG82) | 2026-10-25 |
+| A103 **[NEW 2026-10-25 — D46 expansion]** | **D46's symbol inventory is the acceptance instrument** (`D46.9` / `AC-D46.9`): every order-named class, function, method, signal, constant, column, field and docstring is in exactly one of the **DELETE** or **RETAIN** sets, and anything genuinely ambiguous is recorded in `design_gaps.md` **before** it is touched rather than guessed at build time. | This is the mechanism Q56's answer asks for: the earlier failure was a "retained and inert" decision that was never audited for **reachability**. A closed inventory makes "all of it" checkable and equally makes "nothing innocent was cut" checkable. | y (analyst decision; serves the owner's Q56 question) | 2026-10-25 |
+| A104 **[NEW 2026-10-25 — D46 expansion]** | **The expanded test book is exactly D46.5's list** and nothing else changes; `tests/test_order_builders.py` and `tests/test_stop_loss_target.py` are deleted **whole**, not trimmed. | The expansions are consequences of deleting the surface, and the two files have no other subject: builders for zero callers, and model fields that no longer exist. Trimming them would leave tests asserting a removed design. | n (default) | 2026-10-25 |
 ## Documentation Maintenance Requirements
 
 > Added 2026-09-27 to resolve **ESC-011** (documentation drift) and to carry the
@@ -4147,14 +5360,31 @@ behaviour needs defining**. The owner did **not** choose options (a)/(b)/(c); th
 | R58 **[NEW v1.2]** | D24: `load_chart` parameterisation changes the signature every caller uses; missed call sites silently keep the old widget-reading path | M | M | Grep all callers (`_on_ext_hours_toggled`, watchlist double-click, tests); offscreen test loads without toolbar widgets (AC-D28.2) |
 | R59 **[NEW v1.2]** | D27.7/D28.3: backfill and pacing changes alter IBKR request patterns; error-162 storms are timing-dependent and hard to reproduce offscreen | M | M | Pacing math unit-tested with monkeypatched time (AC-D28.6); chunk-cap + retry-once keeps worst case bounded |
 | R60 **[NEW v1.2]** | D24–D28 are specified from a read-only review; behaviour on live TWS (real reconnects, real pacing errors) cannot be fully verified offscreen | M | H | Manual live-TWS verification checklist per batch before merge; no batch ships on offscreen-green alone |
-| R61 **[NEW 2026-10-15; updated for Q50]** | Removing D36/D37, the DOM ladder (Q48), **and the whole Active Trader panel incl. the order-entry UI** (Q50) could silently break a feature the owner did **not** remove: (a) D38 (S0 ticks `"292"`/`"456"`, `md_line_guard`) and D39 (`INDEX_PROXY`, `footprint_cache_key`, `volume_baseline`); (b) the **retained order machinery** (validation, bracket construction, kill switch, `ibkr/orders.py`, `ibkr/validation.py`) that Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs** still use; (c) the order path's `ref_price` (was fed by the DOM depth feed) losing its source; (d) accidentally deleting the retained order machinery **with** the order-entry UI | H | M | `AC-D41.4` + the D41 "Scope — KEEP" list pin every shared symbol and the order machinery; the order-entry **UI** is removed but the **safety machinery is explicitly KEPT** (DG69); `AC-D41.4` requires retained order paths to still validate with a **resolving `ref_price`** (new retained source — A71); `AC-D41.5` requires the full suite green; the D38/D39/order/D27–D28 suites stay green as the regression guard |
+| R61 **[NEW 2026-10-15; updated for Q50]** | Removing D36/D37, the DOM ladder (Q48), **and the whole Active Trader panel incl. the order-entry UI** (Q50) could silently break a feature the owner did **not** remove: (a) D38 (S0 ticks `"292"`/`"456"`, `md_line_guard`) and D39 (`INDEX_PROXY`, `footprint_cache_key`, `volume_baseline`); (b) the **retained order machinery** (validation, bracket construction, kill switch, `ibkr/orders.py`, `ibkr/validation.py`) that Portfolio's **Close / Close Group / Flatten All** and the **SL/TP dialogs** still use; (c) the order path's `ref_price` (was fed by the DOM depth feed) losing its source; (d) accidentally deleting the retained order machinery **with** the order-entry UI | H | M | `AC-D41.4` + the D41 "Scope — KEEP" list pin every shared symbol and the order machinery; the order-entry **UI** is removed but the **safety machinery is explicitly KEPT** (DG69); `AC-D41.4` requires retained order paths to still validate with a **resolving `ref_price`** (new retained source — A71); `AC-D41.5` requires the full suite green; the D38/D39/order/D27–D28 suites stay green as the regression guard | **NOTE 2026-10-25 (D45 extension):** the mitigation's premise — that the order machinery is **retained** for the close/flatten/SL-TP paths — no longer holds: those paths, the kill switch and the SL/TP dialog are all removed, so there is **no retained order path left to break** (see R73–R75 for the risks that replace this one). |
 | R62 **[NEW 2026-10-15]** | The Portfolio-only right dock's **re-derived width cap and header/collapse** could be left unspecified, so the single-section dock might inherit the old two-section assumptions (equal-width clause in `AC-D18.3`, Active-Trader title-bar widget) | M | M | `AC-D41.7` requires the right dock to be Portfolio-only with a re-derived cap/header; `D18`/`D21.13` carry explicit **superseded-by-D41** notes; DG71 records the re-derivation as the Plan/Build detail |
 | R63 **[NEW 2026-10-15 — D42/ESC-042]** | The density-aware cap could be implemented inconsistently between the candle body and the volume width, or the tests that encode the old unconditional rule (`tests/test_candle_spacing.py`, `tests/test_volume_width.py`) could be left asserting the defect, so candles and volume diverge or the suite stays green on the bug | M | H | `AC-D6.4`/`AC-D7.1` (revised) + `AC-D9.1`/`AC-D9.2` pin one shared capped `w`; D42's correction record requires the two enshrining tests be **corrected** (not weakened) and a rendered-geometry guard (`body <= pitch`, from the `QPicture` bbox) added; ESC-041's re-check measures the rendered pixel run |
 | R64 **[NEW 2026-10-15 — D42/ESC-038; ETH scope added by Q52]** | Delivering the 30-session floor **in both RTH and ETH** needs backwards-extending chained fetches across all five intraday timeframes; a partial implementation could meet `1 min` but leave `5 mins`…`4 hours` short, could cover RTH but not ETH (or vice versa), or the mode-aware day-presence change could regress the D16 no-silent-hole behaviour | M | M | `AC-D16.8` states the floor for **all five** timeframes **in both modes** and `AC-D16.9` scopes the change to **presence** only (no-fill/no-silent-hole `AC-D16.1`/`AC-D16.4` unchanged); D42's correction record adds `find_missing_spans(..., ext_hours=False)` **and** `find_missing_spans(..., ext_hours=True)` RED→GREEN cases plus a per-timeframe, per-mode session-count guard and a no-cross-contamination check; the D16 suite stays green |
 | R65 **[NEW 2026-10-16 — D43/ESC-036]** | The `1 min` priming request for `4 hours`/`1 day` could be built inconsistently (e.g. the bar size switched but the duration left at the `5 secs` ceiling, or the switch applied to the wrong timeframe set), leaving the coarse timeframes still rejected by IBKR or over-fetching; the priming tests could also be left asserting the superseded `5 secs`/`7200 S` shape, so the suite stays green on the defect | M | M | `AC-D27.9` (revised) pins the per-span bar size **and** the per-bar-size duration range; D43's correction record requires the priming tests be **corrected** (not weakened) with a RED→GREEN `4 hours`/`1 day` case (a `1 min` request whose duration is inside `[60 S, 1 D]`); P2-T30's stale `AC1`/`P2-T30-T11` are flagged for revision |
 | R66 **[NEW 2026-10-16 — D44]** | The collapsed width could be **snapped back to `WATCHLIST_MIN_WIDTH` (150px)** by `plan_dock_widths`/`_apply_dock_widths` on the next `resizeEvent` or dock drag, so the thin bar never sticks (the same clamp-during-drag defect class as D17/D19) | M | H | `AC-D44.5` requires the layout to honour the collapsed width; `AC-D44.8` requires a **pre-fix-RED** guard that the collapsed width survives a resize/drag; `plan_dock_widths`/`_apply_dock_widths` are the single apply entry points and must learn the collapsed state |
 | R67 **[NEW 2026-10-16 — D44]** | D44's change to the collapsed appearance could **regress** the D21.11 collapse behaviour, the `VIS-D21.1` strike-through convention, or the **expanded-state** D13/D17 width criteria and their suites (`tests/test_dock_widths_d17.py`, `tests/test_dock_widths_d18.py`, `tests/test_dock_layout.py`, `tests/test_watchlist_columns_d21.py`) | M | M | D44 **revises** only the collapsed-appearance clauses (`AC-D21.11.2`/`.3`) and the 150px-minimum clause (`AC-D13.1`/`AC-D17.2`, now expanded-only); the expanded-state width suites must stay green or be updated in lockstep (never left contradicting D44); `AC-D44.8` names the non-regression requirement; the `AC-D44.2` expand-restore measurable is the **tracked** `_watchlist_width` (exactly `clamp(W)`), with a **tolerant** rendered-width check — restated 2026-10-16 per ESC-057, so no suite asserts a rendered-width echo |
-
+| R68 **[NEW 2026-10-25 — D45]** | The news half and the dividend half share one `s0_register` mechanism, so removing the news `"292"` line could silently take the **dividend `"456"`** path (and the chart's dividend markers) with it | H | M | `AC-D45.2` + A79 pin both sides: `"292"` never requested, `"456"` still registered, tick 59 / `_dividend_info` / `dividend_updated` / markers exercised; the surviving event-marker cases in `tests/test_d38_events_news.py` are the regression guard; Build runs a residue grep for `292` and keeps the `"456"` registration untouched |
+| R69 **[NEW 2026-10-25 — D45]** | A half-finished deletion (dangling import, a signal connected to a deleted handler, a call to the removed validation module) leaves the app non-importable or crashes at runtime — the D41 worker-death pattern, which is most likely on delete-only tasks spread across many members | H | M | Build splits the work **by member group**, and after each file runs a syntax/import check plus a residue grep for `NewsManager`, `news_digest`, `TradeContextMenu`, `position_close_requested`, `group_close_requested`, `flatten_all_requested`, `validate_order`, `_close_position_by_id`, `placeOrder`; `AC-D45.8` requires the app to launch and the full suite green |
+| R70 **[NEW 2026-10-25 — D45]** | Deleting `tests/test_d28_6_close_contracts.py`, `tests/test_d41_retained_order_path.py` and `tests/test_order_validation.py` removes the **only** order-safety coverage; the suite stays green while proving less, and a future change could reintroduce an order path unnoticed | H | M | `AC-D45.4` replaces the removed coverage with a **static invariant** (no `ui/` module calls `placeOrder`, imports `ibkr.validation` or `ui.trade_context_menu`) plus a mocked-client walkthrough asserting **zero** transmits; the coverage loss is recorded in D45's consequences and A81, never presented as "no change" |
+| R71 **[NEW 2026-10-25 — D45]** | Docs drift: `USAGE.txt` / `usage.md` / `docs/codebase-map.md` keep advertising the digest, the View menu, or app-placed closes (and a notional cap/validation that no longer gates anything) | M | M | `AC-D45.7` is a grep-checkable doc criterion; A85 scopes the three files; Plan refreshes the Plan-owned map and the Code Reviewer verifies |
+| R72 **[NEW 2026-10-25 — D45]** | An **unlisted** test or assertion depends on the removed components (e.g. `tests/test_d41_removal.py`'s `NewsManager` `queue_depth` allow-list, the `tests/test_dock_d18_region.py` fixtures, or a D38 header comment) and turns red or silently stops testing anything | M | M | Enumerate the **assertions** a change invalidates, not just the files it edits (memory 2026-10-23 item 4); run the full suite; `AC-D45.8` names `tests/test_d41_removal.py` explicitly and requires the retained event-marker cases to stay green; DG75 records the unnamed "fourth" deletion |
+| R73 **[NEW 2026-10-25 — D45 extension]** | **No in-app panic cancel.** The kill switch was the only way to cancel a TWS-placed order from the app; after D45 a runaway or mistyped order in TWS cannot be stopped from NDThinkChart | H | M | Accepted by the owner (*"it only cancels orders, never places one"*) and recorded in the consequences: **TWS is the cancel surface**; the app cannot create the order it would need to cancel; `USAGE.txt`/`usage.md` say so plainly (`AC-D45.7`); `AC-D45.6` forbids re-adding a cancel path without a new requirement |
+| R74 **[NEW 2026-10-25 — D45 extension]** | A **half-removed cancel/protection path** survives (an `order_registry` read in `_on_order_error`, a leftover `_ref_price_for`, an orphan `set_sltp` string) and a later worker "restores" the kill switch or the SL/TP setter because the code still looks live | M | M | The residue-grep list in D45's correction record now includes `kill_btn`, `KillSwitchButton`, `_kill_switch`, `reqGlobalCancel`, `cancelOrder`, `StopLossTargetDialog`, `stop_loss_target_dialog`, `position_sltp_changed`, `group_sltp_changed`, `_on_set_sltp`, `_sltp_dialog`; `AC-D45.4`/`AC-D45.6` are static-scan criteria; A90 records the intentional inert observers so they are not mistaken for leftovers; DG77 |
+| R75 **[NEW 2026-10-25 — D45 extension]** | Dropping the **Stop / Target** columns shifts every later column index, so code/tests addressing Strategy/Group by number silently assert the wrong cell — `tests/test_d27_position_id.py:164-165` and `tests/test_d27_position_prices.py:290-291` currently use `8`/`9` | M | H | `AC-D45.10` fixes the 8-column shape; `AC-D45.8` names both files for the `8`/`9` → `6`/`7` adjustment; Task Manager must enumerate invalidated assertions outside the edited files (memory 2026-10-23 item 4), not just the files it edits |
+| R76 **[NEW 2026-10-25 — D46]** | A **half-removed chain**: a `connect()` left pointing at a deleted slot, or an `emit` of a deleted signal, raises `AttributeError`/`RuntimeError` at startup — the D41 worker-death pattern, most likely on delete-only tasks spread across many members | H | M | Build splits **by member group** (client → bridge → window → tests → comments) and after each file runs a syntax/import check plus a residue grep for `ibkr.orders`, `order_registry`, `order_status`, `open_order`, `exec_details`, `_on_order_status`, `_update_order_status`, `_on_order_error`; `AC-D46.1`/`AC-D46.2`; `AC-D46.4`'s walkthrough constructs the real window, so an import/connect error cannot pass |
+| R77 **[NEW 2026-10-25 — D46]** | **The owner's explicit worry:** the batch silently removes TWS **error visibility** — in particular the 201/103/202 "Rejected"/"Cancelled" wording that lived in the unreachable `_on_order_error` | H | M | `AC-D46.3` is a **positive, per-code assertion** (201, 103, 202 each surface, with TWS's text), not an absence test; the generic line, `classify_error` and the `error_msg` gate are explicitly **KEPT** (not in the removal list); D46 writes the exact message the owner sees instead of implying "no change" |
+| R78 **[NEW 2026-10-25 — D46]** | A surviving importer of `ibkr.orders` (or of the `orders` singleton) turns the deletion into an `ImportError` at launch — possibly in a module nobody edited | H | L | `AC-D46.1`'s scanner covers `ui/ services/ data/ ibkr/ config/ main.py`; the D45 mocked-client walkthrough constructs the real `MainWindow`, so an unresolved import cannot pass the suite; Build runs the app (or an import-all probe) before reporting |
+| R79 **[NEW 2026-10-25 — D46]** | The D45 static scan's survivor allow-list drifts the wrong way: **not shrunk**, so a resurrected `order_registry`/`_on_order_status` passes silently; or **over-shrunk**, so `classify_error`/`pacing` false-positives | M | M | `AC-D46.4` names the exact **eight** tokens to drop (`order_registry`, `orders`, `UserOrder`, `_on_open_order`, `_on_order_status`, `_on_exec_details`, `_on_order_error`, `_update_order_status`) and the one to keep (`classify_error`); the scan going red on a re-added name is itself the guard |
+| R80 **[NEW 2026-10-25 — D46]** | The suite's meaning shrinks **again** (17 builder cases + 2 registry cases) and a later reader treats a green suite as "order code is fine" | M | H | Recorded as an accepted consequence plus A95: the deleted cases covered code that is itself deleted, so there is **no untested surface left** — that is the point, and it is stated rather than implied |
+| R81 **[NEW 2026-10-25 — D46]** | `data/models.UserOrder` is removed but `tests/test_ui_smoke.py` is not adjusted, producing a red suite that looks like a regression from the module deletion | M | L | `AC-D46.5`/`AC-D46.8` name the file and the assertion **together**; A96 records the pairing |
+| R82 **[NEW 2026-10-25 — D46 expansion]** | The **first destructive schema step** runs on the owner's **real** database at app launch: a botched `positions`/`trade_groups` migration loses **rows** (not just the two dead columns), or drops `idx_positions_symbol_con_id` / the `trade_group_id` FK and silently breaks the upsert and strategy grouping | **H** | L | `AC-D46.12` states the end state **and** the constraints (row-count preservation, index + FK preserved, idempotent on a fresh and re-opened DB, crash-safe like the `bars` rebuild); two consecutive opens are asserted; the Code Reviewer reproduces the migration on a pre-D46 fixture and compares row counts. **Plan should state whether the DB is copied before the rebuild** — the values are worthless but the rows are not |
+| R83 **[NEW 2026-10-25 — D46 expansion]** | An **innocent general symbol is cut** with the order sweep — `classify_error` / `error_msg` (all TWS error visibility), `nextValidId` (connection detection), `IdManager.get_id` (market-data reqIds), the ICT "order blocks" or `sort_order` — and the loss surfaces as an unrelated-looking regression | **H** | L | The inventory's **RETAIN** set names each one **with its consumer** (R1–R12) and `AC-D46.9` asserts the retained set is still present; D40/D25 lifecycle tests and the market-data suite are explicitly unchanged; `D46.10` pins `IdManager`; DG82/DG83 record the two IB-signature cases |
+| R84 **[NEW 2026-10-25 — D46 expansion]** | The **widened delete-only scope** exhausts worker step budgets, leaving a file non-importable mid-edit (the D41 pattern: three workers died on L-size deletions) — now with a **schema** task in the same batch | **H** | M | Build splits by **member group** (eight groups in D46's correction record), never by file; after **each** file a syntax/import check **and** the extended residue grep; the storage step (schema + model + account + persistence) is **one** task so the schema and its readers land together (memory 2026-10-15) |
+| R85 **[NEW 2026-10-25 — D46 expansion]** | The **documentation trail contradicts itself**: "kept (no migration)" (this morning's ESC-060 correction) and "dropped" (A99) live side by side in `USAGE.txt`, `usage.md`, `docs/architecture.md`, `docs/plan.md` and `docs/codebase-map.md`, and a reader picks the wrong one | M | **H** | `D46.13` is a **grep** criterion over the six files; the trail is required to read **kept → cleared → dropped** with the ESC-060 wording carrying a supersession note; Plan owns architecture/plan/map, Build owns `USAGE.txt`/`usage.md` and comments; DG84 lists the sites |
 
 ---
 
@@ -4272,4 +5502,52 @@ clause of `AC-D13.1`/`AC-D17.2` (now **expanded-state only**), and **revises the
 that the feature contradicts. `AC-D44.1`–`AC-D44.8`, A75–A78, R66–R67, `design_gaps.md` **DG74**, and `open_questions.md` **Q54** (owner confirmation
 requested; non-blocking defaults recorded). **D1–D43 are NOT reopened.** No blocking question remains.
 
-Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14; D36–D40 as-built with acceptance criteria authored, **D36/D37 now SUPERSEDED BY D41**); **D41 (Batch 18)** — the D36/D37 **+ the entire Active Trader panel (DOM ladder + order-entry UI)** removal is specified with `AC-D41.1`–`AC-D41.7` (Q48/Q49/Q50 answered 2026-10-15), the **right dock is Portfolio-only** (D18/D21.13 clauses superseded by D41), the **retained order machinery** is kept for Portfolio's close/flatten/SL-TP paths, and the shared substrate is preserved; **`AC-D16.8`** records the 30-trading-session intraday depth floor (Q47), now covering **both RTH and Ext-Hours (ETH)** per **Q52**; **Batch 18b (D42)** resolves the two REQUIREMENTS-routed Code Reviewer escalations — **ESC-042** (the `AC-D6.4` vs `AC-D7.1` contradiction: the **no-overlap guarantee wins**, the body is capped at the inter-bar pitch and the 4-px floor is **density-aware**, superseding the unconditional `AC-D6.4` / "positive gap" `AC-D7.1` wording — unblocks BUILD **ESC-041**) and **ESC-038** (intraday depth floor `AC-D16.8` clarified — sessions counted by bars inside the **current mode's** session window, all five intraday windows fall short — plus the new **`AC-D16.9`** for a present-but-empty trading day; the requirements side of BUILD **ESC-037**) — with A72–A73, R63–R64, DG68 resolved + DG72, and **Q51/Q52 answered 2026-10-15 (Q51 confirmed the zero-gap default; Q52 widened `AC-D16.8`/`AC-D16.9` to Ext-Hours, superseding the RTH-only default)**; D1–D41 otherwise unchanged. No blocking question remains.
+**[NEW 2026-10-25] Batch 20 (D45) — the News Digest dock (+ the `View` menubar), the Trade Context Menu, the Kill switch and the SL/TP dialog are removed; the app has zero order interaction.**
+The owner asked, verbatim, *"I want both removed."* Both are **full removals**: `ui/news_digest_dock.py` + `ibkr/news.py` +
+the `View` menubar + the news `"292"` S0 line, and `ui/trade_context_menu.py` + `ibkr/validation.py` + the Portfolio
+Close / Close Group / Flatten All wiring.
+**Extension (2026-10-25, later — same batch, owner-requested):** *"remove: Kill switch — it only cancels orders,
+never places one / SL-TP dialog — local-only targets, never transmitted"*, in the context of *"i dont need to place
+any order from the app"*. The end state is therefore **zero order interaction** — the app **places, cancels and
+closes nothing**. The **Kill switch** (`kill_btn`, `_on_kill_switch_clicked`, `_kill_switch`, `reqGlobalCancel` +
+per-ID `cancelOrder`) and the **SL/TP dialog** (`ui/stop_loss_target_dialog.py`, its two signals, both `MainWindow`
+persistence slots, the Portfolio **Stop / Target** columns) are **removed in full**; the `positions`/`trade_groups`
+`stop_loss`/`take_profit` **DB columns + model fields are retained but unsettable/unrendered** (A87, no migration). **[D46/A99 REVERSES THIS: both are dropped by a migration — the first destructive schema step in the project; rows, indexes and FKs are preserved.]**
+**A82/A83 are REVERSED** (recorded as reversals), and `AC-D45.6` is **INVERTED** — it asserted the switch and dialog
+*still work*, and now asserts they are **gone**; `AC-D45.10` is added. Verified in-repo: `reqGlobalCancel`/
+`cancelOrder` each had **exactly one** caller (inside the removed `_kill_switch`) and **no** disconnect/teardown
+caller, so **no cancel capability is left or re-pointed** (A88).
+The **dividend path** (`"456"`, tick 59, `_dividend_info`/`dividend_updated`, chart event markers) is **kept
+deliberately**, as are the Portfolio **observation** path (view-only), the fail-fast port check and the inert
+inbound order callbacks (A90). **Accepted consequences:** the app **places, cancels and closes nothing** — no
+notional cap, pacing, disconnected guard **or panic cancel** is in play; the whole ordering machinery is
+**orphaned together**; and **five** test files are deleted (`test_d28_6_close_contracts.py`,
+`test_d41_retained_order_path.py`, `test_order_validation.py`, `test_kill_switch.py`, `test_sltp_honesty.py`), so a
+green suite proves less while it stays green. `AC-D38.2`/`AC-D38.3` are **SUPERSEDED BY D45**; `AC-D38.6` and the
+portfolio-close clauses of `AC-D41.1`/`AC-D41.4` are **REVISED**; **`AC-D26.3` is MOOT** and **`AC-D26.8`
+SUPERSEDED** (no dialog, no switch); the remaining D26 order-entry clauses are moot; `D21.13` is reviewed and
+**not** superseded. See D45, Journey 38, `AC-D45.1`–`AC-D45.10`, A79–A90, R68–R75, DG75 / DG77. **D1–D44 are NOT
+reopened.** No blocking question remains (lite lane; no `open_questions.md` entry).
+
+**[NEW 2026-10-25 (later)] Batch 21 (D46) — `ibkr/orders.py` and the inert order-observation chain are DELETED; TWS order errors still surface.**
+The owner asked, verbatim, *"I dont want anything to do with orders so why is there orders.py ?"* — after D45 had already
+removed every order-interaction surface — and, told the module was a fossil with **zero** production callers and a registry
+nothing populates, **confirmed opening this batch**. D46 deletes `ibkr/orders.py` (whole file), the **inert inbound chain**
+that is its only reader (`IBApiClient`'s `orderStatus`/`openOrder`/`execDetails` overrides → the three `Bridge` signals → the
+three `MainWindow` slots → `_update_order_status`) and the **unreachable** `_on_order_error`, so the app holds no order code at
+all. `tests/test_order_builders.py` is **deleted** (17 cases for zero-caller builders) while `tests/test_order_rejections.py`
+**survives in reduced form** (3 of 5 cases: the surfacing cases repointed at the generic error path, plus `classify_error`,
+which gates every TWS error and is **not** order-specific). **TWS error visibility is preserved and specified:** 201 and 103
+(severity `fatal`) and 202 (`warning`) still reach the status bar as `Error [<code>]: <TWS's own message>` for 8 seconds —
+the richer `Order #<id> Rejected/Cancelled` wording lived in the unreachable handler, so **what the owner sees does not
+change**; the app adds no order identity and no verdict (`AC-D46.3`, A93). **A80 and A90 are REVERSED in place**
+(A91/A92 — recorded as reversals, original wording kept), **ESC-061 is MOOT** (it asked for a "retained deliberately"
+docstring on a module that no longer exists), and **DG76 is resolved** by the deletion. **Plan-owned docs must be corrected
+in this batch:** `docs/codebase-map.md` currently states the module "is NOT orphaned and must NOT be deleted" and lists the
+observers as retained, and `docs/architecture.md` `S29`/`AR-D45-10` mandate the docstring note (DG81). **KEPT:** the generic
+error path and `classify_error`, `id_manager`, the retained stop/target **storage** (A87 — and per ESC-060 a live update still
+clears those values, so nothing claims they persist), the D38 dividend path, D39, the chart, alarms, drawings and D44.
+See D46, Journey 39, `AC-D46.1`–`AC-D46.13`, A91–A104, R76–R85, `design_gaps.md` DG78–DG87, and
+`open_questions.md` Q56–Q59 (**answered by the owner 2026-10-25**; no blocking item). **D1–D45 are NOT reopened.**
+
+Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved and code-verified 2026-10-14; D36–D40 as-built with acceptance criteria authored, **D36/D37 now SUPERSEDED BY D41**); **D41 (Batch 18)** — the D36/D37 **+ the entire Active Trader panel (DOM ladder + order-entry UI)** removal is specified with `AC-D41.1`–`AC-D41.7` (Q48/Q49/Q50 answered 2026-10-15), the **right dock is Portfolio-only** (D18/D21.13 clauses superseded by D41), the **retained order machinery** is kept for Portfolio's close/flatten/SL-TP paths, and the shared substrate is preserved — **REVERSED BY D45 (2026-10-25, incl. its later extension): those paths, the kill switch and the SL/TP dialog are all removed**; **`AC-D16.8`** records the 30-trading-session intraday depth floor (Q47), now covering **both RTH and Ext-Hours (ETH)** per **Q52**; **Batch 18b (D42)** resolves the two REQUIREMENTS-routed Code Reviewer escalations — **ESC-042** (the `AC-D6.4` vs `AC-D7.1` contradiction: the **no-overlap guarantee wins**, the body is capped at the inter-bar pitch and the 4-px floor is **density-aware**, superseding the unconditional `AC-D6.4` / "positive gap" `AC-D7.1` wording — unblocks BUILD **ESC-041**) and **ESC-038** (intraday depth floor `AC-D16.8` clarified — sessions counted by bars inside the **current mode's** session window, all five intraday windows fall short — plus the new **`AC-D16.9`** for a present-but-empty trading day; the requirements side of BUILD **ESC-037**) — with A72–A73, R63–R64, DG68 resolved + DG72, and **Q51/Q52 answered 2026-10-15 (Q51 confirmed the zero-gap default; Q52 widened `AC-D16.8`/`AC-D16.9` to Ext-Hours, superseding the RTH-only default)**; D1–D41 otherwise unchanged; **Batch 20 (D45)** adds the removal of the **Kill switch** and the **SL/TP dialog** (owner extension 2026-10-25) so the app has **zero order interaction** — `AC-D45.6` inverted, `AC-D45.10` added, A82/A83 reversed (A87–A90), DG77; **Batch 21 (D46 — scope EXPANDED 2026-10-25 by the owner's Q56–Q59 answers)** deletes **every order-related coding path**: `ibkr/orders.py` and the inert order-observation chain (client order overrides → three bridge signals → three `MainWindow` slots → `_update_order_status`) plus the unreachable `_on_order_error`; the three **zero-consumer order utilities** (`OrderRateLimiter`/`order_limiter`, `MAX_ORDER_NOTIONAL`, the order-fill sound); **`IdManager.reserve`** (the module and `get_id` stay — they allocate market-data reqIds); and the **stop/target storage** — the `positions`/`trade_groups` `stop_loss`/`take_profit` **columns and model fields are DROPPED** (A99, **reverses A87**; the first destructive schema step, justified by ESC-060: the values were already cleared by the first live update, so nothing that survived is destroyed), with **A87/A97 reversed in place** and **A92/A93/A96 owner-confirmed**. `AC-D46.1`–`AC-D46.13`, A91–A104, R76–R85, DG78–DG87, **ESC-061 moot**, **DG76 resolved**, and **201/103/202 still surfacing** on the status bar (`AC-D46.3`). A closed **symbol inventory** (`D46.9`) makes "all of it" auditable and protects the general code that merely carries an order name. No blocking question remains.

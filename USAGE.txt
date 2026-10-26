@@ -81,23 +81,17 @@ Requirements before running
 Trading & safety notes (Phases 1-2)
 -----------------------------------
 
-- Closing a position: the Portfolio panel's right-click menu offers Close
-  Position / Close Group / Close All Positions, which place offsetting market
-  orders. Every order is validated before it leaves the app (quantity > 0,
-  sane prices, a per-order notional cap of $25,000 — waived for a close, which
-  reduces existing exposure rather than adding to it). A rejected order shows
-  the reason in the status bar and nothing is sent to IBKR.
-- Kill switch: the red toolbar button cancels every open order (IBKR global
-  cancel plus each tracked order). It asks for no confirmation — it is a
-  panic control. The status bar reports how many orders were open and how
-  many cancels were sent.
-- Set Stop-Loss / Take-Profit dialog: saves your targets locally only. It
-  does NOT place orders — a position has no protective orders until you
-  place them yourself.
+- Orders: the app places, cancels and closes nothing. It has no order entry,
+  no close control and no cancel control. Placing, cancelling and closing
+  orders all happen in TWS. The Portfolio panel is a view-only readout of
+  your TWS account.
+- Stop and target values saved by an earlier version of this app can no longer
+  be set or displayed. The app stores no stop or target at all: the database
+  columns are dropped the first time this version opens the database.
+- IBKR rejections and cancellations appear in the status bar together with
+  TWS's message.
 - Connection badge: derived from the verified port and your TWS account type.
   Amber "Paper" means you are on a demo (DU) account.
-- Orders cannot be placed while disconnected. IBKR rejections and
-  cancellations appear in the status bar together with TWS's message.
 - Stream health: the toolbar indicator shows the realtime subscription state
   (subscribed / awaiting first bar / live / failed). A failed subscription
   retries with backoff (5s up to 60s).
@@ -126,8 +120,8 @@ Pop-out charts (Phase 3)
   chart, which are monitored headlessly.
 
 
-Event markers & news digest (Phase D38)
---------------------------------------
+Event markers (Phase D38)
+------------------------
 - The chart shows event markers on the time axis for earnings (gold diamond
   with E), dividends (green circle with D) and splits (blue triangle with
   S). A countdown label ("Earnings in 3d") shows for the next upcoming event;
@@ -136,16 +130,6 @@ Event markers & news digest (Phase D38)
   from yfinance (the app's only secondary data source). If neither source has
   events for the symbol, the chart says so explicitly instead of showing
   nothing.
-- The news digest is a dock you can move and close: open it from
-  View -> News Digest (Ctrl+Shift+N). It lists recent headlines for each
-  position you hold, grouped by holding; click a headline to read the
-  article. Opening it fetches the latest headlines, new ones arrive live
-  while it is open, and it re-checks every 15 minutes as a backstop.
-- If you have no API news subscription the digest says so plainly ("No API
-  news subscription" - most TWS news services are not available through the
-  API) instead of showing an empty list. If you hold no positions it says
-  "No holdings". Headlines for each holding are fetched one at a time so
-  opening the digest never floods the connection.
 
 Volume-burst alerts & symbol search (Phase D39)
 ----------------------------------------------

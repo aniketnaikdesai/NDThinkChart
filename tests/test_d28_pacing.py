@@ -1,8 +1,8 @@
 """D28.1 — pacing never sleeps on the GUI thread (AC-D28.1).
 
 Throttlers return a wait duration (or raise PacingExceeded); callers defer via
-QTimer.singleShot with a persistent "pacing-limited, retrying" status. Orders
-use their own token-bucket limiter, never the realtime throttle.
+QTimer.singleShot with a persistent "pacing-limited, retrying" status.
+PacingManager is the only throttle; nothing re-implements its own limiter.
 """
 import threading
 import time
@@ -11,7 +11,7 @@ import pytest
 from PyQt6.QtTest import QTest
 
 from ibkr import pacing as pacing_mod
-from ibkr.pacing import PacingExceeded, PacingManager, OrderRateLimiter
+from ibkr.pacing import PacingExceeded, PacingManager
 from ibkr.realtime_bars import RealtimeBarsManager
 
 
@@ -94,13 +94,6 @@ def test_subscribe_records_slot_when_budget_free():
     assert len(pacing_mod.pacing_manager._rt_times) == 1
 
 
-def test_order_limiter_allows_burst_then_denies():
-    lim = OrderRateLimiter(rate_per_sec=5.0, capacity=5)
-    assert all(lim.try_acquire() for _ in range(5))
-    assert not lim.try_acquire()
-    assert lim.retry_delay_s() > 0
-
-
 def _make_window(monkeypatch, qapp):
     from ibkr.client import IBApiClient
     monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
@@ -132,75 +125,6 @@ def test_attach_live_feed_defers_with_status_and_retries(monkeypatch, qapp):
         assert fake.rt_bars, "deferred subscription never fired"
         assert len(fake.rt_bars) == 1, "must subscribe exactly once"
     finally:
-        win.close()
-
-
-def _seed_position(symbol="AAPL", qty=10.0):
-    """Seed a positions row so the retained close path can be driven."""
-    from data.db import db
-    cur = db.conn.cursor()
-    cur.execute(
-        "INSERT INTO positions (symbol, account, con_id, contract_type, qty,"
-        " avg_cost, local_symbol, multiplier, expiry, strike, right,"
-        " updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (symbol, "DU123", None, "stock", qty, 100.0, None, 1.0,
-         None, None, None, 1_760_000_000),
-    )
-    db.conn.commit()
-    return cur.lastrowid
-
-
-def _clear_position(pid):
-    from data.db import db
-    cur = db.conn.cursor()
-    cur.execute("DELETE FROM positions WHERE id=?", (pid,))
-    db.conn.commit()
-
-
-def test_close_position_defers_when_limiter_empty(monkeypatch, qapp):
-    """D28.1 retained close path: limiter empty -> no sleep, no transmit,
-    status; the deferred retry transmits exactly once.
-
-    Also pins the D41-S5 ordering: the D26.7 gate runs BEFORE the pacing
-    deferral, so a gate-rejected close never shows the pacing status.
-    """
-    sleeps = _capture_gui_sleeps(monkeypatch)
-    win, _fake = _make_window(monkeypatch, qapp)
-    pid = _seed_position()
-    bad_pid = None
-    try:
-        win._ibkr_connected = True
-        calls: list = []
-        monkeypatch.setattr(win.ib_client, "placeOrder",
-                            lambda *a, **k: calls.append(a))
-        lim = pacing_mod.order_limiter
-        for _ in range(5):
-            assert lim.try_acquire()
-
-        # (a) S5 gate order: a gate-rejected close (blank symbol) returns at
-        # the gate -- no transmit, and crucially no pacing status, which it
-        # would show if the deferral ran before validation.
-        bad_pid = _seed_position(symbol="")
-        win._close_position_by_id(bad_pid)
-        qapp.processEvents()
-        assert calls == [], "a rejected close must not transmit"
-        assert "pacing-limited" not in win.status_bar.currentMessage().lower(), (
-            "the validation gate must run before the pacing deferral")
-
-        # (b) the retained close emitter defers when the bucket is empty.
-        win._close_position_by_id(pid)
-        qapp.processEvents()
-        assert calls == [], "rate-limited close must not transmit immediately"
-        assert sleeps == [], "no sleep on the GUI thread"
-        assert "pacing-limited" in win.status_bar.currentMessage().lower()
-
-        # (c) the deferred retry transmits exactly once once the bucket refills.
-        QTest.qWait(1200)  # bucket refills at 5/s; deferred retry fires
-        assert len(calls) == 1, "deferred close must transmit exactly once"
-    finally:
-        if bad_pid is not None:
-            _clear_position(bad_pid)
-        _clear_position(pid)
         win.close()
 
 

@@ -117,8 +117,6 @@ class DB:
             expiry TEXT,
             strike REAL,
             right TEXT,
-            stop_loss REAL,
-            take_profit REAL,
             trade_group_id INTEGER REFERENCES trade_groups(id),
             updated_at INTEGER NOT NULL
         );
@@ -127,8 +125,6 @@ class DB:
             name TEXT NOT NULL,
             strategy_type TEXT NOT NULL,
             underlying TEXT NOT NULL,
-            stop_loss REAL,
-            take_profit REAL,
             collapsed INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
@@ -189,6 +185,23 @@ class DB:
             "CREATE UNIQUE INDEX IF NOT EXISTS "
             "idx_positions_symbol_con_id ON positions(symbol, con_id)"
         )
+        # D46 / A99 (reversing A87): the stop/target storage is gone — the four
+        # columns are dropped, not merely ignored. Guarded by PRAGMA table_info
+        # like every migration above: a fresh DB (already created without them)
+        # and every later open see no such column and skip all four statements,
+        # so this is idempotent and never half-builds a table. Each `DROP
+        # COLUMN` is one atomic autocommitted statement, so an open interrupted
+        # between two of them is finished by the next one. Preserved: every row
+        # (and its `trade_group_id`), `idx_positions_symbol_con_id`, the
+        # `trade_group_id -> trade_groups.id` foreign key, and `sqlite_sequence`
+        # (ids are never reissued). Only the two columns' values are lost.
+        for _table in ("positions", "trade_groups"):
+            _columns = self._table_columns(_table)
+            for _column in ("stop_loss", "take_profit"):
+                if _column in _columns:
+                    self.conn.execute(
+                        f"ALTER TABLE {_table} DROP COLUMN {_column}"
+                    )
         # D42 / S16 (AR-D42-5): mode-aware bars key. SQLite cannot alter a
         # primary key, so a legacy `bars` table (symbol, timeframe, ts) is
         # rebuilt once with the new key (symbol, timeframe, ext_hours, ts).

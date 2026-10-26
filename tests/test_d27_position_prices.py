@@ -287,8 +287,8 @@ def test_p2_t33_options_render_option_and_group(monkeypatch, qapp):
     assert table.rowCount() == 2, table.rowCount()
     types = [table.item(row, 3).text() for row in range(table.rowCount())]
     assert types == ["OPTION", "OPTION"], types
-    strategies = [table.item(row, 8).text() for row in range(table.rowCount())]
-    groups = [table.item(row, 9).text() for row in range(table.rowCount())]
+    strategies = [table.item(row, 6).text() for row in range(table.rowCount())]
+    groups = [table.item(row, 7).text() for row in range(table.rowCount())]
     assert all(s != "—" for s in strategies), strategies
     assert all(g != "—" for g in groups), groups
     assert set(strategies) == {"PCS"}, strategies

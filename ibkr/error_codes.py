@@ -14,8 +14,9 @@ def classify_error(error_code: int) -> str:
     # D26.9: order and connectivity failures are first-class, not warnings.
     # 201 order rejected, 103 duplicate order id, 1100 connectivity lost,
     # 502/503/509 couldn't connect. (202 order cancelled stays 'warning':
-    # cancellation is a normal lifecycle event; _on_error still routes it
-    # to the registry as Cancelled.)
+    # a cancellation is a normal lifecycle event, and 'warning' rather than
+    # 'info' is what keeps IBApiClient.error emitting it, so _on_error shows
+    # the generic status-bar line.)
     if error_code in (201, 103, 1100, 502, 503, 509):
         return 'fatal'
 

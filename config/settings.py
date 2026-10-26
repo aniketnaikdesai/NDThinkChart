@@ -34,10 +34,6 @@ MAX_REALTIME_BARS_PER_10_MIN = 60
 # PacingExceeded when the budget is exhausted.
 MAX_HISTORICAL_PER_600S = 60
 
-# D26.7: per-order notional cap (USD). Owner-set 2026-10-12. validate_order()
-# rejects anything above it; the Phase 1 gate asserts this constant exists.
-MAX_ORDER_NOTIONAL = 25000
-
 # D24.5: maximum pop-out chart windows (owner-set 2026-10-12).
 MAX_POPOUTS = 10
 

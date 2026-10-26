@@ -33,10 +33,8 @@ from data.db import db as _app_db
 from ibkr.realtime_bars import RealtimeBarsManager
 from ibkr.contracts import get_contract_for_symbol
 from ibkr.utils import parse_ibkr_date
-from ibkr.orders import orders as order_registry, UserOrder
-from ibkr.validation import validate_order
 from ibkr.id_manager import id_manager
-from ibkr.pacing import pacing_manager, order_limiter, PacingExceeded
+from ibkr.pacing import PacingExceeded
 from ibkr.subscription_manager import (
     RT_BARS,
     S0_TICKS,
@@ -316,18 +314,6 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(self.draw_set_combo)
         tb_layout.addWidget(self.draw_sets_btn)
         tb_layout.addWidget(self.draw_delete_btn)
-        # D26.8: kill switch — panic control, red, immediate (no confirm).
-        self.kill_btn = QPushButton("Kill Switch")
-        self.kill_btn.setObjectName("KillSwitchButton")
-        self.kill_btn.setToolTip(
-            "Cancel ALL open orders immediately "
-            "(reqGlobalCancel + per-order cancel)."
-        )
-        self.kill_btn.setStyleSheet(
-            "background-color: #b91c1c; color: white; font-weight: bold;")
-        self.kill_btn.clicked.connect(self._on_kill_switch_clicked)
-        tb_layout.addWidget(QLabel("|"))
-        tb_layout.addWidget(self.kill_btn)
         tb_layout.addStretch()
         tb_layout.addWidget(self.stream_badge)
         tb_layout.addWidget(self.conn_badge)
@@ -473,24 +459,6 @@ class MainWindow(QMainWindow):
         # and the panel's bounded content cannot raise it (AC-D18.4/AC-D18.6).
         self.right_dock.setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.right_dock)
-        # ── D38 news digest dock (38a.2) ──────────────────────────────────
-        # Repositionable, closable, reopenable from the View menu (or the
-        # Ctrl+Shift+N shortcut). Hidden until first opened.
-        from ui.news_digest_dock import NewsDigestDock
-        self.news_digest_dock = NewsDigestDock(self, self)
-        self.news_digest_dock.setVisible(False)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea,
-                           self.news_digest_dock)
-        # Minimal menubar (the app previously had none): View → News Digest.
-        # The dock's toggleViewAction keeps menu/dock/shortcut in sync.
-        menubar = self.menuBar()
-        view_menu = menubar.addMenu("View")
-        self._news_digest_action = self.news_digest_dock.toggleViewAction()
-        self._news_digest_action.setText("News Digest")
-        self._news_digest_action.setShortcut("Ctrl+Shift+N")
-        view_menu.addAction(self._news_digest_action)
-        self.news_digest_dock.visibilityChanged.connect(
-            self._on_news_digest_visibility)
         # D18 Phase 4: in-memory-only right-region width. Never persisted — no new
         # QSettings key (AC-D18.7 / A36), matching D10's volume-toggle precedent.
         self._right_dock_width = RIGHT_DOCK_MIN_WIDTH
@@ -525,9 +493,6 @@ class MainWindow(QMainWindow):
         self.md_manager = MarketDataManager(self.ib_client)
         self.rt_manager = RealtimeBarsManager(self.ib_client)
         self.sub_manager = SubscriptionManager()
-        # D38: news API client (38a.1) — headline backfill + article fetch.
-        from ibkr.news import NewsManager
-        self.news_manager = NewsManager(self.ib_client)
         # D38: yfinance event source (38b.1) — the sole approved secondary
         # source. Shared cache + worker across sessions (one throttle point).
         from data.events.yfinance_source import (
@@ -625,11 +590,7 @@ class MainWindow(QMainWindow):
         # D37 S0 substrate: generic/string/news ticks, routed by reqId.
         b.tick_generic.connect(self._on_s0_tick_generic)
         b.tick_string.connect(self._on_s0_tick_string)
-        b.tick_news.connect(self._on_s0_tick_news)
         b.realtime_bar.connect(self._on_realtime_bar)
-        b.open_order.connect(self._on_open_order)
-        b.exec_details.connect(self._on_exec_details)
-        b.order_status.connect(self._on_order_status)
 
         # Account & portfolio signals
         b.account_summary.connect(self._on_account_summary)
@@ -643,12 +604,8 @@ class MainWindow(QMainWindow):
         # D27.6: not subscribed until the first connect.
         self.portfolio_panel.set_account_unavailable(True)
 
-        # Portfolio panel signal wiring
-        self.portfolio_panel.position_close_requested.connect(self._on_portfolio_close_position)
-        self.portfolio_panel.group_close_requested.connect(self._on_portfolio_close_group)
-        self.portfolio_panel.flatten_all_requested.connect(self._on_portfolio_flatten_all)
-        self.portfolio_panel.position_sltp_changed.connect(self._on_portfolio_sltp_changed)
-        self.portfolio_panel.group_sltp_changed.connect(self._on_portfolio_group_sltp_changed)
+        # D45: the Portfolio panel is view-only — its close/flatten/SL-TP
+        # signals are no longer connected (the order path is gone).
 
         # State
         # D28.2: per-symbol sessions. Chart data-plane state (_rt_req_id,
@@ -1579,25 +1536,7 @@ class MainWindow(QMainWindow):
                 f"Error [{errorCode}]: {errorString}", 8000
             )
             return
-        # D26.9: TWS reports order errors with the orderId in the reqId field.
-        # Route them to the order registry so the ticket reflects reality
-        # instead of reading "Submitted" forever.
-        if order_registry.get(reqId) is not None:
-            self._on_order_error(reqId, errorCode, errorString)
-            return
         self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)
-
-    def _on_order_error(self, order_id: int, error_code: int, error_string: str):
-        """D26.9: surface a TWS order error on the registry and the status bar."""
-        if error_code in (201, 103):
-            status = "Rejected"
-        elif error_code == 202:
-            status = "Cancelled"
-        else:
-            status = f"Error {error_code}"
-        order_registry.update_status(order_id, status)
-        self.status_bar.showMessage(
-            f"Order #{order_id} {status}: {error_string}", 12000)
 
     # ── Chart loading ─────────────────────────────────────────────────────────
 
@@ -1965,16 +1904,6 @@ class MainWindow(QMainWindow):
             return
         session.on_s0_tick_string(reqId, tickType, value)
 
-    def _on_s0_tick_news(self, reqId: int, timeStamp: int, providerCode: str,
-                         articleId: str, headline: str) -> None:
-        if self._closing:
-            return
-        session = self._session_for_req_id(reqId)
-        if session is None:
-            return
-        session.on_s0_tick_news(reqId, timeStamp, providerCode, articleId,
-                                headline)
-
     def _on_session_wave_complete(self, session: TickerSession) -> None:
         """A session's backfill wave emptied — finalize (persist + render)."""
         # In 3b only the primary session backfills; a non-primary completion
@@ -2150,17 +2079,6 @@ class MainWindow(QMainWindow):
         """D27.5: record a last price in the central symbol -> price map."""
         if symbol and price and price > 0:
             self._symbol_last_prices[symbol.upper()] = float(price)
-
-    def _ref_price_for(self, symbol: str) -> float | None:
-        """D41-S4: the retained ``ref_price`` source (closes DG71(1)).
-
-        Upper-case-normalised read of the D27.5 central symbol -> last_price
-        map (:attr:`_symbol_last_prices`); returns ``None`` when the symbol has
-        no recorded price. No other source is consulted.
-        """
-        if not symbol:
-            return None
-        return self._symbol_last_prices.get(symbol.upper())
 
     def _on_session_alarm_triggered(self, symbol: str, triggered: list) -> None:
         """Toast + sound exactly once per trigger event (A57).
@@ -2752,20 +2670,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    # ── D38 news digest (38a.2) ──────────────────────────────────────────
-
-    def _on_news_digest_visibility(self, visible: bool) -> None:
-        """Dock shown/hidden — open drives the backfill, close tears down.
-
-        The toggleViewAction (menu / shortcut) and the dock's own close
-        button both funnel through visibility.
-        """
-        dock = self.news_digest_dock
-        if visible and not dock.is_digest_open():
-            dock.open_digest()
-        elif not visible and dock.is_digest_open():
-            dock.close_digest()
-
     def _on_yfinance_events(self, symbol: str) -> None:
         """Background yfinance fetch finished — merge into the session."""
         session = self._sessions.get(symbol.upper())
@@ -3022,57 +2926,6 @@ class MainWindow(QMainWindow):
         self._reload_current_alarms()
         self.status_bar.showMessage("Alarm deleted.", 2000)
 
-    def _on_open_order(self, orderId: int, contract, order, orderState):
-        self._update_order_status(orderId, getattr(orderState, "status", ""))
-
-    def _kill_switch(self) -> tuple[int, int]:
-        """D26.8: cancel EVERY open order immediately.
-
-        Issues reqGlobalCancel() plus a per-ID cancelOrder for each tracked
-        open order (belt-and-braces: the global cancel is a request, not a
-        guarantee). Returns (open_before, cancel_requests_sent). Registry
-        entries are marked Cancelled locally; TWS orderStatus updates will
-        confirm or correct.
-        """
-        terminal = {"Filled", "Cancelled", "Rejected", "Inactive"}
-        open_ids = [oid for oid, o in order_registry.all().items()
-                    if o.status not in terminal]
-        pre = len(open_ids)
-        try:
-            self.ib_client.reqGlobalCancel()
-        except Exception:  # noqa: BLE001 — a kill switch must not raise
-            _LOG.exception("reqGlobalCancel failed")
-        sent = 0
-        for oid in open_ids:
-            try:
-                self.ib_client.cancelOrder(oid)
-                sent += 1
-            except Exception:  # noqa: BLE001
-                _LOG.exception("cancelOrder(%s) failed", oid)
-        for oid in open_ids:
-            order_registry.update_status(oid, "Cancelled")
-        msg = (f"Kill switch: {sent}/{pre} cancel requests sent "
-               f"(reqGlobalCancel + per-order cancel).")
-        self.status_bar.showMessage(msg, 12000)
-        return pre, sent
-
-    def _on_kill_switch_clicked(self):
-        """Toolbar kill-switch button: cancel all open orders, show counts."""
-        self._kill_switch()
-
-    def _on_exec_details(self, reqId: int, contract, execution):
-        oid = getattr(execution, "orderId", None)
-        if oid is not None:
-            self._update_order_status(oid, "Filled")
-
-    def _on_order_status(self, orderId: int, status: str, filled: float,
-                           remaining: float, avgFillPrice: float,
-                           permId: int, parentId: int, lastFillPrice: float,
-                           clientId: int, whyHeld: str, mktCapPrice):
-        # mktCapPrice (10.51.1, None on old servers) is not consumed yet —
-        # carried for the D26 safety layer's future use.
-        self._update_order_status(orderId, status)
-
     def _on_account_summary(self, reqId: int, account: str, tag: str, value: str):
         """Collect account summary key/values."""
         self._account_id = account  # D26.5: feeds the connection badge
@@ -3170,8 +3023,8 @@ class MainWindow(QMainWindow):
         # `class_` / `lastDateOrMonth` / `putCall` do NOT exist on the contract
         # (it has `secType` / `lastTradeDateOrContractMonth` / `right`), so every
         # option/future used to be persisted as 'stock' with a blank expiry and
-        # ibapi's UNSET_DOUBLE sentinel strike. This forward mapping is the exact
-        # mirror of the D28.6 inverse on the close-order path (see below).
+        # ibapi's UNSET_DOUBLE sentinel strike. This forward mapping reads
+        # ibapi's own attribute names — the only names the broker sends.
         sec_type = (getattr(contract, "secType", "") or "").upper()
         contract_type = {"OPT": "option", "FUT": "future"}.get(sec_type, "stock")
         multiplier = float(getattr(contract, "multiplier", 1.0) or 1.0)
@@ -3196,20 +3049,15 @@ class MainWindow(QMainWindow):
             right=right,
             avg_cost=avg_cost,
             qty=pos,
-            # D27.5 drive-by: the call was missing these required args, so
-            # every position update raised TypeError (masked until D27.6
-            # subscribes reqPositions and updates actually flow).
-            stop_loss=None,
-            take_profit=None,
         )
         # D27.5: the position's OWN symbol price — never the chart's price.
         # Unknown symbol -> 0.0 (honest unknown), not a wrong symbol's price.
         position.market_price = self._symbol_last_prices.get(
             (position.symbol or "").upper(), 0.0
         )
-        # ESC-032 / P2-T27: stamp the REAL `positions.id` row key on the object
-        # before it reaches the panel. The panel keys strategy grouping on
-        # `pos.id` and the SL/TP dialog persists via `WHERE id=?`, so the live
+        # ESC-032 / P2-T27 (ESC-062): stamp the REAL `positions.id` row key on the
+        # object before it reaches the panel. Strategy/Group derivation keys on
+        # `pos.id`, so an id-less object renders '—' in both columns — the live
         # path must carry the row key, not an absent/None placeholder.
         position.id = self._upsert_position(position)
         self.portfolio_panel.add_position(position)
@@ -3232,16 +3080,25 @@ class MainWindow(QMainWindow):
         would destroy the persisted rows of a real account whose own summary
         callback has not arrived yet.
         """
+        import sqlite3
+
         from data.db import db
 
-        # ESC-032 / P2-T27: `id` MUST be selected too — without it every loaded
-        # Position is id-less, so the Strategy/Group columns render '—' and the
-        # SL/TP dialog early-returns (the bulk path is degraded, not fixed).
+        # ESC-032 / P2-T27 (ESC-062): `id` MUST be selected too — without it
+        # every loaded Position is id-less, so the Strategy/Group columns
+        # render '—' (the bulk path is degraded, not fixed).
         columns = (
-            "id, symbol, account, con_id, contract_type, qty, avg_cost, "
-            "local_symbol, multiplier, expiry, strike, right, stop_loss, "
-            "take_profit, trade_group_id"
+            "symbol, qty, avg_cost, contract_type, con_id, account, "
+            "local_symbol, multiplier, expiry, strike, right, "
+            "trade_group_id, id"
         )
+        # D46 / S48 (DG85): the rows are read BY NAME, never by position. The
+        # dropped stop/target columns shift every later index, and such a shift
+        # fails silently (a stop value in the Group column reads as a
+        # strategy-detection bug), so a dedicated Row cursor removes the
+        # positional contract entirely.
+        cursor = db.conn.cursor()
+        cursor.row_factory = sqlite3.Row
         live = getattr(self, "_live_accounts", set())
         complete = getattr(self, "_account_summary_complete", False)
         if live and complete:
@@ -3255,23 +3112,23 @@ class MainWindow(QMainWindow):
             # set still scopes the render (hiding foreign rows); it just must
             # not delete (see ESC-052 above).
             placeholders = ",".join("?" for _ in live)
-            rows = db.conn.execute(
+            rows = cursor.execute(
                 f"SELECT {columns} FROM positions "
                 f"WHERE account IN ({placeholders})",
                 tuple(live),
             ).fetchall()
         else:
             # AC2: live set unknown -> prune is a no-op; render unchanged.
-            rows = db.conn.execute(
+            rows = cursor.execute(
                 f"SELECT {columns} FROM positions"
             ).fetchall()
         positions = [Position(
-            id=row[0],
-            symbol=row[1], account=row[2], con_id=row[3],
-            contract_type=row[4], qty=row[5], avg_cost=row[6],
-            local_symbol=row[7], multiplier=row[8], expiry=row[9],
-            strike=row[10], right=row[11], stop_loss=row[12],
-            take_profit=row[13], trade_group_id=row[14],
+            symbol=row["symbol"], qty=row["qty"], avg_cost=row["avg_cost"],
+            contract_type=row["contract_type"], con_id=row["con_id"],
+            account=row["account"], local_symbol=row["local_symbol"],
+            multiplier=row["multiplier"], expiry=row["expiry"],
+            strike=row["strike"], right=row["right"],
+            trade_group_id=row["trade_group_id"], id=row["id"],
         ) for row in rows]
         self.portfolio_panel.set_positions(positions)
         self._positions_rendered = True
@@ -3292,8 +3149,8 @@ class MainWindow(QMainWindow):
             INSERT INTO positions
                 (symbol, account, con_id, contract_type, qty, avg_cost,
                  local_symbol, multiplier, expiry, strike, right,
-                 stop_loss, take_profit, trade_group_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 trade_group_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(symbol, con_id) DO UPDATE SET
                 account=excluded.account,
                 contract_type=excluded.contract_type,
@@ -3304,8 +3161,6 @@ class MainWindow(QMainWindow):
                 expiry=excluded.expiry,
                 strike=excluded.strike,
                 right=excluded.right,
-                stop_loss=excluded.stop_loss,
-                take_profit=excluded.take_profit,
                 trade_group_id=excluded.trade_group_id,
                 updated_at=excluded.updated_at
             RETURNING id
@@ -3322,8 +3177,6 @@ class MainWindow(QMainWindow):
                 position.expiry,
                 position.strike,
                 position.right,
-                position.stop_loss,
-                position.take_profit,
                 position.trade_group_id,
                 int(__import__("time").time()),
             ),
@@ -3331,152 +3184,6 @@ class MainWindow(QMainWindow):
         row = cursor.fetchone()
         db.conn.commit()
         return int(row[0]) if row is not None else None
-
-    def _update_order_status(self, orderId: int, status: str):
-        order = order_registry.get(orderId)
-        if order:
-            order.status = status
-
-    # ── Portfolio SL/TP and close handlers (Phase 7) ────────────────────────────
-
-    def _on_portfolio_sltp_changed(self, position_id: int, stop_loss: float, take_profit: float) -> None:
-        """Persist SL/TP to DB when dialog confirms for a single position."""
-        from data.db import db
-
-        cursor = db.conn.cursor()
-        cursor.execute(
-            "UPDATE positions SET stop_loss=?, take_profit=?, updated_at=? WHERE id=?",
-            (stop_loss if stop_loss > 0 else None, take_profit if take_profit > 0 else None, int(__import__("time").time()), position_id),
-        )
-        db.conn.commit()
-        self.status_bar.showMessage(f"SL/TP updated for position {position_id}", 3000)
-
-    def _on_portfolio_group_sltp_changed(self, group_id: int, stop_loss: float, take_profit: float) -> None:
-        """Persist SL/TP to DB when dialog confirms for a trade group."""
-        from data.db import db
-
-        cursor = db.conn.cursor()
-        cursor.execute(
-            "UPDATE trade_groups SET stop_loss=?, take_profit=? WHERE id=?",
-            (stop_loss if stop_loss > 0 else None, take_profit if take_profit > 0 else None, group_id),
-        )
-        db.conn.commit()
-        self.status_bar.showMessage(f"SL/TP updated for group {group_id}", 3000)
-
-    def _on_portfolio_close_position(self, position_id: int) -> None:
-        """Close a single position via offsetting market order."""
-        self._close_position_by_id(position_id)
-
-    def _on_portfolio_close_group(self, group_id: int) -> None:
-        """Close all positions in a trade group."""
-        from data.db import db
-
-        # Get all positions in this group
-        cursor = db.conn.cursor()
-        cursor.execute("SELECT id FROM positions WHERE trade_group_id=?", (group_id,))
-        position_ids = [row[0] for row in cursor.fetchall()]
-        for pos_id in position_ids:
-            self._close_position_by_id(pos_id)
-
-    def _on_portfolio_flatten_all(self) -> None:
-        """Close all open positions (flatten portfolio)."""
-        # D26.8: kill working orders FIRST so no protective/stale order can
-        # fire against the closes that follow (_kill_switch surfaces counts).
-        self._kill_switch()
-        from data.db import db
-
-        cursor = db.conn.cursor()
-        cursor.execute("SELECT id FROM positions WHERE qty != 0")
-        position_ids = [row[0] for row in cursor.fetchall()]
-        for pos_id in position_ids:
-            self._close_position_by_id(pos_id)
-
-    def _close_position_by_id(self, position_id: int) -> None:
-        """Place an offsetting market order to close a position by its DB ID."""
-        from data.db import db
-        from ibkr.contracts import get_contract_for_symbol
-        from ibkr.id_manager import id_manager
-        from ibkr.pacing import pacing_manager
-        from ibkr.orders import orders as order_registry
-
-        # D41-S5 step 1 (D26.9): refuse while disconnected — never transmit.
-        # Evaluated first, before the row read and before any pacing token is
-        # taken, so a disconnected window can never reach placeOrder.
-        if not self._ibkr_connected:
-            self.status_bar.showMessage(
-                "Not connected to IBKR — cannot close positions.", 4000)
-            return
-
-        cursor = db.conn.cursor()
-        cursor.execute(
-            "SELECT symbol, account, con_id, contract_type, qty, avg_cost, "
-            "local_symbol, multiplier, expiry, strike, right FROM positions WHERE id=?",
-            (position_id,),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return
-
-        symbol, account, con_id, contract_type, qty, avg_cost, local_symbol, multiplier, expiry, strike, right = row
-        if qty == 0:
-            return
-
-        # Build offsetting order
-        action = "SELL" if qty > 0 else "BUY"
-        close_qty = abs(qty)
-
-        # D41-S5 step 2 (D26.7): the retained validation gate. Runs before the
-        # contract build and the pacing deferral below, so a rejected order
-        # never consumes a pacing token. ``risk_reducing=True`` skips only the
-        # notional cap (a position above the cap must still be closable);
-        # ``ref_price`` comes from the retained S4 accessor.
-        problems = validate_order(
-            action=action, order_type="MKT", qty=close_qty,
-            symbol=symbol, ref_price=self._ref_price_for(symbol),
-            risk_reducing=True,
-        )
-        if problems:
-            self.status_bar.showMessage(
-                "Order rejected: " + " ".join(problems), 6000)
-            return
-
-        # Use the stored con_id if available for options/futures, else stock
-        contract = get_contract_for_symbol(symbol)
-        if con_id is not None:
-            contract.conId = con_id
-        if contract_type != "stock":
-            # D28.6: the stored 'option'/'future' must map to IBKR's
-            # OPT/FUT secTypes — a bare .upper() yields the invalid
-            # OPTION/FUTURE and the close order would be rejected.
-            contract.secType = {"option": "OPT", "future": "FUT"}.get(
-                contract_type, contract_type.upper())
-            if local_symbol:
-                contract.localSymbol = local_symbol
-            if expiry:
-                contract.lastTradeDateOrContractMonth = expiry
-            if strike is not None:
-                contract.strike = strike
-            if right:
-                contract.right = right
-            contract.multiplier = str(int(multiplier)) if multiplier != 1.0 else ""
-
-        # D28.1: close orders use the order-path token bucket, never the
-        # realtime-bar throttle. Defer via singleShot when the bucket is empty.
-        if not order_limiter.try_acquire():
-            delay_ms = max(200, int(order_limiter.retry_delay_s() * 1000))
-            self.status_bar.showMessage(
-                "Close-order pacing-limited, retrying…", 4000
-            )
-            QTimer.singleShot(
-                delay_ms, lambda: self._close_position_by_id(position_id)
-            )
-            return
-        order_id = id_manager.get_id()
-        order = order_registry.market_order(action, close_qty)
-        self.ib_client.placeOrder(order_id, contract, order)
-        self.status_bar.showMessage(
-            f"Closing position {position_id}: {action} {close_qty} {symbol} @ MKT", 4000
-        )
 
     #: D28.5: bound for joining the ibkr-reader thread at close.
     READER_JOIN_TIMEOUT_S = 5.0

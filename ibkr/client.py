@@ -390,27 +390,3 @@ class IBApiClient(EWrapper, EClient):
     def positionEnd(self):
         super().positionEnd()
         self.bridge.position_end.emit()
-
-    def orderStatus(self, orderId: int, status: str, filled: float,
-                     remaining: float, avgFillPrice: float, permId: int,
-                     parentId: int, lastFillPrice: float, clientId: int,
-                     whyHeld: str, mktCapPrice):
-        # B1 (10.51.1): the decoder ALWAYS passes 11 positional args —
-        # mktCapPrice is None on old servers (see
-        # Decoder.processOrderStatusMsg). mktCapPrice is untyped (float |
-        # None); the bridge signal carries it as object for None-safety.
-        super().orderStatus(orderId, status, filled, remaining, avgFillPrice,
-                            permId, parentId, lastFillPrice, clientId, whyHeld,
-                            mktCapPrice)
-        self.bridge.order_status.emit(orderId, status, filled, remaining,
-                                       avgFillPrice, permId, parentId,
-                                       lastFillPrice, clientId, whyHeld,
-                                       mktCapPrice)
-
-    def openOrder(self, orderId: int, contract, order, orderState):
-        super().openOrder(orderId, contract, order, orderState)
-        self.bridge.open_order.emit(orderId, contract, order, orderState)
-
-    def execDetails(self, reqId: int, contract, execution):
-        super().execDetails(reqId, contract, execution)
-        self.bridge.exec_details.emit(reqId, contract, execution)

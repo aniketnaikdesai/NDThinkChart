@@ -33,8 +33,6 @@ class TestBuildPositionFromIB:
             right=None,
             avg_cost=150.25,
             qty=100,
-            stop_loss=None,
-            take_profit=None,
         )
         assert pos.symbol == "AAPL"
         assert pos.account == "DU12345"
@@ -59,8 +57,6 @@ class TestBuildPositionFromIB:
             right="C",
             avg_cost=2.50,
             qty=2,
-            stop_loss=None,
-            take_profit=None,
         )
         assert pos.contract_type == "option"
         assert pos.right == "C"
@@ -82,8 +78,6 @@ class TestBuildPositionFromIB:
             right=None,
             avg_cost=150.0,
             qty=-50,
-            stop_loss=None,
-            take_profit=None,
         )
         assert pos.qty == -50  # signed short
 
@@ -100,13 +94,9 @@ class TestBuildPositionFromIB:
             right=None,
             avg_cost=200.0,
             qty=10,
-            stop_loss=None,
-            take_profit=None,
         )
         assert pos.con_id is None
         assert pos.trade_group_id is None
-        assert pos.stop_loss is None
-        assert pos.take_profit is None
         assert pos.market_price == 0.0
 
 

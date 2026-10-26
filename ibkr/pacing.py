@@ -125,48 +125,5 @@ class PacingManager:
             self._last_req_time = 0.0
 
 
-class OrderRateLimiter:
-    """Token bucket for the order path (D28.1).
-
-    Orders were throttled by the realtime-bar budget (which could sleep the
-    GUI thread for up to 10 minutes). They now get their own limiter that
-    never blocks: ``try_acquire`` returns False when empty and the caller
-    defers via QTimer.singleShot.
-    """
-
-    def __init__(self, rate_per_sec: float = 5.0, capacity: int = 5):
-        self._rate = rate_per_sec
-        self._capacity = capacity
-        self._tokens = float(capacity)
-        self._last = time.monotonic()
-        self._lock = threading.Lock()
-
-    def try_acquire(self) -> bool:
-        with self._lock:
-            now = time.monotonic()
-            self._tokens = min(
-                self._capacity, self._tokens + (now - self._last) * self._rate
-            )
-            self._last = now
-            if self._tokens >= 1.0:
-                self._tokens -= 1.0
-                return True
-            return False
-
-    def retry_delay_s(self) -> float:
-        """Seconds until (at least) one token refills."""
-        with self._lock:
-            if self._tokens >= 1.0:
-                return 0.0
-            return max(0.0, (1.0 - self._tokens) / self._rate)
-
-    def reset_for_tests(self) -> None:
-        """Refill the bucket. Test-only: keeps the suite hermetic."""
-        with self._lock:
-            self._tokens = float(self._capacity)
-            self._last = time.monotonic()
-
-
-# Global singletons
+# Global singleton
 pacing_manager = PacingManager()
-order_limiter = OrderRateLimiter()
