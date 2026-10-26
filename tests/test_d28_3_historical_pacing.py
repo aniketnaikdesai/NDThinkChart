@@ -1,25 +1,27 @@
 """D28.3 — rolling 600s historical pacing window (AC-D28.3).
 
-reqHistoricalData gets a rolling 600-second / ~60-request pacing window
-(non-blocking): the issuer raises PacingExceeded when the budget is
-exhausted instead of sleeping; the history wave caps chunks per wave
-(~60) and continues across waves via a deferred re-issue; IBKR error 162
-retries once before the wave finalises short.
+reqHistoricalData gets a rolling 600-second / ~50-request pacing window plus
+a minimum interval between requests (Q-2), both non-blocking: the issuer
+raises PacingExceeded when either gate is closed instead of sleeping; the
+history wave defers the remainder and continues across waves via a deferred
+re-issue, so a same-contract burst can never trip IBKR error 162. IBKR error
+162 retries once before the wave finalises short.
 """
 import time
 
 import pytest
 
+from config import settings
 from ibkr import pacing as pacing_mod
 from ibkr.pacing import PacingExceeded, PacingManager
 from ibkr.market_data import MarketDataManager
 from services.backfill_service import RequestPlan
 
-MAX_HIST = 60
+MAX_HIST = settings.MAX_HISTORICAL_PER_600S
 
 
 def _exhaust_hist_budget(pm: PacingManager, wait_s: float = 600.0) -> None:
-    """Fill the 60-slot historical budget so the next request must wait.
+    """Fill every historical budget slot so the next request must wait.
 
     wait_s controls how long the caller would wait (backdate entries).
     """
@@ -116,9 +118,17 @@ def test_historical_window_rolls_with_time():
 
 def test_record_historical_slot_consumes_budget():
     pm = PacingManager()
-    for _ in range(MAX_HIST):
+    assert pm.historical_wait_seconds() == 0.0
+    # Q-2: the first request closes the min-interval gate for the next one.
+    pm.record_historical_slot()
+    assert 0.0 < pm.historical_wait_seconds() <= settings.HISTORICAL_MIN_INTERVAL_S
+    # Backdate the interval clock so only the budget can block, then fill it.
+    stale = time.time() - 2 * settings.HISTORICAL_MIN_INTERVAL_S
+    pm._last_hist_time = stale
+    for _ in range(MAX_HIST - 1):
         assert pm.historical_wait_seconds() == 0.0
         pm.record_historical_slot()
+        pm._last_hist_time = stale
     assert pm.historical_wait_seconds() > 0.0
 
 
@@ -150,8 +160,8 @@ def test_req_historical_data_records_slot_on_success():
 
 # ── Wave chunking ────────────────────────────────────────────────────
 
-def test_wave_caps_chunks_and_continues(monkeypatch, qapp):
-    """75 plans -> 60 issued now, continuation deferred, rest issued later."""
+def test_wave_spaces_chunks_and_continues(monkeypatch, qapp):
+    """One request per interval; the rest queue and continue via the timer."""
     from ibkr.contracts import get_contract_for_symbol
     fake = _FakeHistClient()
     host, session = _make_session(qapp, fake)
@@ -161,19 +171,21 @@ def test_wave_caps_chunks_and_continues(monkeypatch, qapp):
         lambda ms: continued.append(ms),
     )
     contract = get_contract_for_symbol("AAA")
-    session.queue_wave_plans([_plan(i) for i in range(75)],
+    session.queue_wave_plans([_plan(i) for i in range(25)],
                              contract, "5 mins", False)
-    assert len(fake.hist) == 60, "wave must cap chunks at ~60"
-    assert len(session._wave_plan_queue) == 15
+    assert len(fake.hist) == 1, \
+        "same-contract requests must be spaced, not burst"
+    assert len(session._wave_plan_queue) == 24
     assert len(continued) == 1 and continued[0] > 0, \
         "continuation must be scheduled with a positive delay"
     assert any("pacing-limited" in m.lower() for m in host.status_bar.messages)
-    # Free the budget, fire the deferred continuation.
-    pacing_mod.pacing_manager.reset_for_tests()
-    session._on_wave_continue_timeout()
-    assert len(fake.hist) == 75, "continuation must issue the remaining plans"
+    # Simulate the interval elapsing, then fire the deferred continuation.
+    for _ in range(24):
+        pacing_mod.pacing_manager._last_hist_time = 0.0
+        session._on_wave_continue_timeout()
+    assert len(fake.hist) == 25, "every spaced chunk must be issued"
     assert session._wave_plan_queue == []
-    assert len(continued) == 1, "no further continuation once drained"
+    assert len(continued) == 24, "one continuation per spaced chunk"
 
 
 def test_wave_continuation_never_sleeps(monkeypatch, qapp):
@@ -187,13 +199,11 @@ def test_wave_continuation_never_sleeps(monkeypatch, qapp):
         session._wave_continue_timer, "start",
         lambda ms: continued.append(ms),
     )
-    # Only 40 slots free: the wave must stop mid-list and defer.
+    # Budget exhausted: the wave must defer (not sleep, not issue).
     _exhaust_hist_budget(pacing_mod.pacing_manager, wait_s=600.0)
-    for _ in range(20):
-        pacing_mod.pacing_manager._hist_times.popleft()
     session.queue_wave_plans([_plan(i) for i in range(50)],
                              get_contract_for_symbol("AAA"), "5 mins", False)
-    assert len(fake.hist) == 20
+    assert len(fake.hist) == 0
     assert sleeps == []
     assert len(continued) == 1
 

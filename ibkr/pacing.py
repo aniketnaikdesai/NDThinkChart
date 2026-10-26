@@ -30,6 +30,10 @@ class PacingManager:
         # the realtime-bar budget (IBKR error 162 = pacing violation).
         self._hist_window = 600.0
         self._hist_times: deque = deque()
+        # Q-2: minimum spacing between historical requests. IBKR cancels
+        # same-contract requests issued microseconds apart (error 162), so
+        # the issuer defers instead of bursting a whole wave synchronously.
+        self._last_hist_time = 0.0
 
     def throttle(self):
         with self._lock:
@@ -93,11 +97,13 @@ class PacingManager:
             self._hist_times.popleft()
 
     def historical_wait_seconds(self) -> float:
-        """Seconds until one historical-data slot frees; 0.0 = request now.
+        """Seconds until the next historical request may issue; 0.0 = now.
 
-        Pure and non-blocking: never sleeps. Callers that must issue many
-        requests (the backfill wave) cap their chunk count and defer the
-        rest via QTimer.singleShot (D28.3).
+        Both gates are reported together: the rolling 600s budget and the
+        minimum interval between requests (Q-2). Pure and non-blocking:
+        never sleeps. Callers that must issue many requests (the backfill
+        wave) defer the rest via QTimer.singleShot (D28.3), so the interval
+        naturally spaces a wave out instead of bursting it.
         """
         with self._lock:
             now = time.time()
@@ -105,23 +111,34 @@ class PacingManager:
             budget = settings.MAX_HISTORICAL_PER_600S
             free = budget - len(self._hist_times)
             if free > 0:
-                return 0.0
-            expiry = self._hist_times[0] + self._hist_window
-            return max(0.0, expiry - now)
+                budget_wait = 0.0
+            else:
+                budget_wait = max(
+                    0.0, self._hist_times[0] + self._hist_window - now
+                )
+            interval_wait = max(
+                0.0,
+                settings.HISTORICAL_MIN_INTERVAL_S
+                - (now - self._last_hist_time),
+            )
+            return max(budget_wait, interval_wait)
 
     def record_historical_slot(self) -> None:
         """Record a reqHistoricalData request against the budget. Call only
-        after the request was actually issued (D28.3)."""
+        after the request was actually issued (D28.3). Also stamps the
+        minimum-interval clock (Q-2)."""
         with self._lock:
             now = time.time()
             self._expire_hist_slots(now)
             self._hist_times.append(now)
+            self._last_hist_time = now
 
     def reset_for_tests(self) -> None:
         """Clear pacing state. Test-only: keeps the suite hermetic."""
         with self._lock:
             self._rt_times.clear()
             self._hist_times.clear()
+            self._last_hist_time = 0.0
             self._last_req_time = 0.0
 
 

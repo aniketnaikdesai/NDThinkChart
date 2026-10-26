@@ -29,10 +29,17 @@ DB_PATH = os.getenv("DB_PATH", "charting_app.sqlite3")
 MAX_REQ_PER_SEC = 50
 MAX_REALTIME_BARS_PER_10_MIN = 60
 # D28.3: rolling 600s window budget for reqHistoricalData. IBKR's documented
-# limit is ~60 historical requests per 10 minutes; exceeding it yields
+# ceiling is ~50 historical requests per 10 minutes; exceeding it yields
 # error 162 (pacing violation). Non-blocking: the issuer raises
 # PacingExceeded when the budget is exhausted.
-MAX_HISTORICAL_PER_600S = 60
+MAX_HISTORICAL_PER_600S = 50
+
+# D28.3/Q-2: IBKR cancels same-contract historical requests issued in quick
+# succession (error 162 "API historical data query cancelled"), so keep at
+# least this many seconds between reqHistoricalData calls. Enforced
+# non-blocking: historical_wait_seconds() reports the remainder and callers
+# defer via PacingExceeded -> continuation timer.
+HISTORICAL_MIN_INTERVAL_S = 1.0
 
 # D24.5: maximum pop-out chart windows (owner-set 2026-10-12).
 MAX_POPOUTS = 10
