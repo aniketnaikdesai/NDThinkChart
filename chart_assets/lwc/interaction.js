@@ -276,8 +276,7 @@
   /* Esc blurs the page and hands focus back to the Qt chain through the
    * bridge's `focusReleased` slot (chart.js's bindKeyboard calls the same). */
   function releaseFocus(el, bridge) {
-    var target = bridge;
-    if (!target && typeof window !== "undefined") target = window.lwBridge;
+    var target = pageBridge(bridge);
     if (el && typeof el.blur === "function") el.blur();
     if (target && typeof target.focusReleased === "function") {
       target.focusReleased();
@@ -286,9 +285,32 @@
     return false;
   }
 
+  /* ── page → Python report (Q-20) ─────────────────────────────────────
+   *
+   * TR-9's refusal is a real user-facing event: the magnifier is pressed
+   * while alarm placement is armed and nothing happens. The page reports it
+   * on the bridge's `zoomRefused` slot so the Qt status hint runs; the view
+   * re-emits it on `zoom_refused`, the same signal the default engine has.
+   */
+  function pageBridge(bridge) {
+    var target = bridge;
+    if (!target && typeof window !== "undefined") target = window.lwBridge;
+    return target || null;
+  }
+
+  function reportZoomRefused(trigger, bridge, mode) {
+    var target = pageBridge(bridge);
+    if (!target || typeof target.zoomRefused !== "function") return false;
+    target.zoomRefused(JSON.stringify({
+      trigger: String(trigger || ""),
+      mode: (mode === undefined ? null : mode),
+    }));
+    return true;
+  }
+
   /* ── browser glue (called from the page; nothing runs at load) ──────── */
 
-  function mountControls(container, onControl) {
+  function mountControls(container, onControl, bridge) {
     if (!container || typeof document === "undefined") return [];
     var made = [];
     for (var i = 0; i < CONTROL_BUTTONS.length; i++) {
@@ -307,7 +329,13 @@
             btn.setAttribute("aria-pressed", next ? "true" : "false");
             value = next;
           }
-          if (typeof onControl === "function") onControl(spec.id, value);
+          var result = (typeof onControl === "function")
+            ? onControl(spec.id, value)
+            : null;
+          /* Q-20: the router refused this control (TR-9) — report it. */
+          if (result && result.refused) {
+            reportZoomRefused(spec.intent, bridge, result.mode);
+          }
         });
         container.appendChild(btn);
         made.push(btn);
@@ -336,6 +364,8 @@
     crosshairOptions: crosshairOptions,
     applyCrosshair: applyCrosshair,
     releaseFocus: releaseFocus,
+    pageBridge: pageBridge,
+    reportZoomRefused: reportZoomRefused,
     mountControls: mountControls,
   };
 });

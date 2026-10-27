@@ -172,7 +172,11 @@ class TestTimeParity:
         assert env is not None and len(env["ops"]) == 2
         base = LB.apply_ops_to_bars(env["ops"])
         assert len(base) == len(bars)
-        assert [r[0] for r in base] == view.logical_index
+        # Q-20: the series time is the bar's own UTC timestamp. The logical
+        # index still exists (drawing/overlay mapping) but must never be the
+        # series time — an index-typed axis is what rendered 01/01 1970.
+        assert [r[0] for r in base] == [bar.ts for bar in view.plotted_bars]
+        assert [r[0] for r in base] != view.logical_index
 
         # Same-ts tick: the forming bar advances, the count is unchanged.
         tick = _bar(bars[-1].ts, c=999.25, v=4242.0)
@@ -210,7 +214,23 @@ class TestTimeParity:
             assert set(volume["cols"]) == {"ts", "value"}
             for col in candles["cols"].values():
                 assert isinstance(col, list)
-                assert all(isinstance(v, (int, float)) for v in col)
+            # Q-20: real UTC seconds on the wire, ascending and unique; the
+            # value slots are floats except at the midday hole, which crosses
+            # as three whitespace placeholders (AC-D21.4.4).
+            ts = candles["cols"]["ts"]
+            closes = candles["cols"]["close"]
+            real = [t for t, c in zip(ts, closes) if c is not None]
+            assert real == [bar.ts for bar in view.plotted_bars]
+            assert ts == sorted(set(ts))
+            assert all(isinstance(t, int) for t in ts)
+            assert closes.count(None) == 3, "the 3-bar hole keeps 3 slots"
+            for name in ("open", "high", "low", "close"):
+                assert all(v is None or isinstance(v, (int, float))
+                           for v in candles["cols"][name])
+            assert volume["cols"]["ts"] == ts
+            assert all(v is None or isinstance(v, (int, float))
+                       for v in volume["cols"]["value"])
+            assert volume["cols"]["value"].count(None) == 3
 
 
 # ── T12 · geometry guard + Q60 record (AC2) ────────────────────────────

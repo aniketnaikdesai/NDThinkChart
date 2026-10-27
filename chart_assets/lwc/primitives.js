@@ -1082,6 +1082,70 @@
     refresh();
   }
 
+  /* ── page → Python reports (Q-20) ─────────────────────────────────────
+   *
+   * The drawing tools were dead because nothing in the page could reach a
+   * Python slot. Every message below is one JSON string handed to the
+   * `LwBridge` slot of the same name (the mirror of `opsJson`), and the view
+   * re-emits it on the pre-D47 `DrawingController` surface. Geometry crosses
+   * as the page's own fractional indices; Python maps it back to timestamps.
+   */
+  function pageBridge(bridge) {
+    if (bridge) return bridge;
+    if (typeof window !== "undefined" && window.lwBridge) {
+      return window.lwBridge;
+    }
+    return null;
+  }
+
+  function notifyPage(message, payload, bridge) {
+    var target = pageBridge(bridge);
+    if (!target || typeof target[message] !== "function") return false;
+    target[message](JSON.stringify(payload || {}));
+    return true;
+  }
+
+  function geometryPayload(item) {
+    var out = { kind: (item && item.kind) ? item.kind : "" };
+    if (!item) return out;
+    if (isArray(item.points)) out.points = clone(item.points);
+    if (isArray(item.span)) out.span = clone(item.span);
+    if (item.price !== undefined && item.price !== null) {
+      out.price = Number(item.price);
+    }
+    if (item.y1 !== undefined && item.y1 !== null) out.y1 = Number(item.y1);
+    if (item.y2 !== undefined && item.y2 !== null) out.y2 = Number(item.y2);
+    if (item.type) out.type = item.type;
+    if (item.color) out.color = item.color;
+    if (item.group_id !== undefined) out.group_id = item.group_id;
+    return out;
+  }
+
+  /* A drawing gesture finished: report the new primitive. */
+  function commitDrawing(item, bridge) {
+    if (!item || !item.kind) return false;
+    return notifyPage("drawingCommitted", geometryPayload(item), bridge);
+  }
+
+  /* An existing drawing was edited (drag / colour / settings). */
+  function reportDrawingUpdate(item, bridge) {
+    if (!item || !item.kind) return false;
+    var payload = geometryPayload(item);
+    payload.id = (item.id === undefined ? null : item.id);
+    return notifyPage("drawingUpdated", payload, bridge);
+  }
+
+  function reportDrawingDelete(id, bridge) {
+    return notifyPage("drawingDeleted", { id: id }, bridge);
+  }
+
+  /* Selection is a page-side gesture: mirror it locally, then report it. */
+  function selectDrawing(id, bridge) {
+    selectedId = (id === null || id === undefined) ? null : id;
+    refresh();
+    return notifyPage("selectionChanged", { id: selectedId }, bridge);
+  }
+
   return {
     ENVELOPE_VERSION: ENVELOPE_VERSION,
     DRAWING_CHANNEL: DRAWING_CHANNEL,
@@ -1129,5 +1193,11 @@
     setGroups: setGroups,
     snapshot: snapshot,
     clear: clear,
+    pageBridge: pageBridge,
+    notifyPage: notifyPage,
+    commitDrawing: commitDrawing,
+    reportDrawingUpdate: reportDrawingUpdate,
+    reportDrawingDelete: reportDrawingDelete,
+    selectDrawing: selectDrawing,
   };
 });

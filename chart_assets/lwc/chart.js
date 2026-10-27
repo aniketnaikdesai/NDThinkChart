@@ -7,11 +7,13 @@
  * P6-05 (D47.5 + T10):
  * - v5 panes: the price pane carries the per-mode series, the volume pane
  *   the histogram on its own scale (scaleMargins keep the panes apart).
- * - logical-index time axis: the `ts` column carries logical-index times
- *   (collapse-map display-x from the Python driver, built on the
- *   `gap_is_non_trading` authority). Consecutive steps of 1 render
- *   adjacent; a step of 1+k renders k slots of whitespace for the
- *   within-session hole. Non-trading time is already collapsed out.
+ * - real UTC time axis (Q-20): the `ts` column carries each bar's own UTC
+ *   epoch seconds, not a logical index — the axis labels real dates. The
+ *   library places bars by data index, so a collapsed non-trading gap still
+ *   renders adjacent. A within-session hole crosses as whitespace
+ *   placeholders (a row whose OHLC/value slots are null — `seriesRows` turns
+ *   it into `{time}` only), so the hole keeps its empty slots (AC-D21.4.4).
+ *   `lwSnapshot()` keeps the real bars only: a placeholder is not a bar.
  * - custom tz formatters: `local = t - offset` (`tzLabel`, wired as the
  *   localisation timeFormatter and the time-scale tickMarkFormatter).
  * - per-mode series: `candles` / `hollow` / `heikin` / `line` / `area`.
@@ -98,11 +100,10 @@ function volumeBarColor(open, close) {
 var VOLUME_CEILING_FACTOR = 1.1;
 var VOLUME_NICE_FLOOR = 100;
 
-/* Max volume of the bars whose slot intersects `[from, to]` in
- * logical-index space (the `ts` column's own unit — see the header). A bar
- * at logical position `time` owns the half-slot either side of it, so a
- * bar centred on an endpoint is visible. Non-finite / negative volumes read
- * as 0: a hole is not a volume spike. Returns 0 when nothing is visible. */
+/* Max volume of the bars whose slot intersects `[from, to]` in the time
+ * scale's own unit (real UTC seconds — see the header). A bar centred on an
+ * endpoint is visible. Non-finite / negative volumes read as 0: a hole is
+ * not a volume spike. Returns 0 when nothing is visible. */
 function visibleVolumeMax(rows, from, to) {
   // A missing range (before the chart has ever been laid out) is not the
   // range [0, 0] — it is "nothing visible", which is the floor.
@@ -170,6 +171,8 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   "use strict";
 
   var chart = null;
+  var chartEl = null; // the #chart container (for the width-aware fit)
+  var needsFit = false; // data arrived before the container had a width
   var priceSeries = {}; // mode -> series handle (candles/hollow share one)
   var candleSeries = null; // active candlestick handle (candles + hollow)
   var lineSeries = null;
@@ -178,6 +181,8 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   var activeMode = "candles";
   var tzOffset = 0; // seconds behind UTC (18000 EST, 14400 EDT)
   var snapshot = { candles: [], volume: [] }; // last applied rows per series
+  /* Q-20 probe state: the labels the axis formatter actually produced. */
+  var lastTickLabels = [];
 
   var HOLLOW_STYLE = {
     upColor: "rgba(52,211,153,0.05)",
@@ -222,12 +227,45 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       byTime[snapshot.candles[i].time] = snapshot.candles[i];
     }
     return rows.map(function (r) {
+      /* Q-20: a placeholder row stays a placeholder — never a zero bar. */
+      if (isWhitespaceRow("volume", r)) return { time: r.time };
       var candle = byTime[r.time];
       var color = candle
         ? volumeBarColor(candle.open, candle.close)
         : LW_UP_COLOR;
       return { time: r.time, value: r.value, color: color };
     });
+  }
+
+  /* Q-20 whitespace: a row whose value slots are null is a placeholder, not
+   * a bar. `seriesRows` turns it into `{time}` only (the library's own
+   * whitespace point), so a within-session hole keeps its empty slots
+   * (AC-D21.4.4); `barRows` drops it from the snapshot, which is the real
+   * series the page reports and the volume pane prices. */
+  function isWhitespaceRow(name, row) {
+    if (!row) return true;
+    if (name === "volume") {
+      return row.value === null || row.value === undefined;
+    }
+    return (row.open === null || row.open === undefined ||
+            row.close === null || row.close === undefined);
+  }
+
+  function seriesRows(name, rows) {
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      out.push(isWhitespaceRow(name, row) ? { time: row.time } : row);
+    }
+    return out;
+  }
+
+  function barRows(name, rows) {
+    var out = [];
+    for (var i = 0; i < rows.length; i++) {
+      if (!isWhitespaceRow(name, rows[i])) out.push(rows[i]);
+    }
+    return out;
   }
 
   /* Q-9 / AC-D21.2.1: the range the volume pane should render right now.
@@ -251,7 +289,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     // Line/area read the close leg of the shared candle snapshot.
     if ((mode === "line" || mode === "area") && snapshot.candles.length) {
       var rows = snapshot.candles.map(function (r) {
-        return { time: r.time, value: r.close };
+        /* A missing close (never present in the snapshot) is a hole. */
+        return (r.close === null || r.close === undefined)
+          ? { time: r.time }
+          : { time: r.time, value: r.close };
       });
       var target = mode === "line" ? lineSeries : areaSeries;
       if (target) target.setData(rows);
@@ -288,6 +329,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       return;
     }
     var el = document.getElementById("chart");
+    chartEl = el;
     chart = LightweightCharts.createChart(el, {
       layout: { background: { color: "#0d0f14" }, textColor: "#e5e7eb" },
       grid: {
@@ -304,7 +346,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     });
     chart.timeScale().applyOptions({
       tickMarkFormatter: function (t) {
-        return tzLabel(t, tzOffset);
+        var label = tzLabel(t, tzOffset);
+        recordTick(t, label);
+        return label;
       },
     });
     // Price pane (per-mode series) + volume pane (own scale).
@@ -345,6 +389,13 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       });
     }
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+    /* The Qt host sizes the page after the first envelope can already have
+     * arrived; re-fit once the container finally has a width. */
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(function () {
+        if (needsFit) fitToWidth();
+      }).observe(el);
+    }
     bindKeyboard(el);
     bindChannel();
   }
@@ -360,17 +411,22 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
         if (window.lwBridge && window.lwBridge.focusReleased) {
           window.lwBridge.focusReleased();
         }
+        reportKey(ev.key); // Q-20: the key crossed to Python too
       } else if (ev.key === "ArrowLeft" && range) {
         chart.timeScale().setVisibleLogicalRange({ from: range.from - 5, to: range.to - 5 });
+        reportKey(ev.key);
         ev.preventDefault();
       } else if (ev.key === "ArrowRight" && range) {
         chart.timeScale().setVisibleLogicalRange({ from: range.from + 5, to: range.to + 5 });
+        reportKey(ev.key);
         ev.preventDefault();
       } else if ((ev.key === "+" || ev.key === "=") && range) {
         zoom(range, 0.8);
+        reportKey(ev.key);
         ev.preventDefault();
       } else if (ev.key === "-" && range) {
         zoom(range, 1.25);
+        reportKey(ev.key);
         ev.preventDefault();
       }
     });
@@ -380,6 +436,54 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     var mid = (range.from + range.to) / 2;
     var half = ((range.to - range.from) / 2) * factor;
     chart.timeScale().setVisibleLogicalRange({ from: mid - half, to: mid + half });
+  }
+
+  /* ── Q-20 probes: what the axis really shows, and the page → Python keys ──
+   *
+   * `axisProbe` answers with the time scale's own visible *time* values — real
+   * UTC epoch seconds now, so a logical-index axis would report 0..N-1 here
+   * (the 1970 label the owner saw). `ticks` are the labels the formatter
+   * actually produced during layout (empty when the page has never painted);
+   * every entry is a rendered tick, never a recomputed guess. */
+  function recordTick(t, label) {
+    lastTickLabels.push({ time: Number(t), label: label });
+    if (lastTickLabels.length > 24) lastTickLabels.shift();
+  }
+
+  function axisProbe() {
+    if (!chart) return null;
+    var scale = chart.timeScale();
+    var range = (typeof scale.getVisibleRange === "function")
+      ? scale.getVisibleRange()
+      : null;
+    var logical = (typeof scale.getVisibleLogicalRange === "function")
+      ? scale.getVisibleLogicalRange()
+      : null;
+    var rows = snapshot.candles;
+    var first = rows.length ? Number(rows[0].time) : null;
+    var last = rows.length ? Number(rows[rows.length - 1].time) : null;
+    return {
+      from: range ? Number(range.from) : null,
+      to: range ? Number(range.to) : null,
+      logical: logical
+        ? { from: Number(logical.from), to: Number(logical.to) }
+        : null,
+      firstTime: first,
+      lastTime: last,
+      firstLabel: first === null ? null : tzLabel(first, tzOffset),
+      ticks: lastTickLabels.slice(0),
+      tzOffset: tzOffset,
+    };
+  }
+
+  /* Q-20: a keyboard gesture the page handled crosses to Python (the bridge's
+   * `keyPressed` slot takes one JSON string, the mirror of `opsJson`). */
+  function reportKey(key, bridge) {
+    var target = bridge;
+    if (!target && typeof window !== "undefined") target = window.lwBridge;
+    if (!target || typeof target.keyPressed !== "function") return false;
+    target.keyPressed(JSON.stringify({ key: String(key) }));
+    return true;
   }
 
   function bindChannel() {
@@ -419,6 +523,21 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     });
   }
 
+  /* Fit the whole series once the container has a real width. `fitContent()`
+   * at width 0 is a no-op: the library later falls back to its default
+   * `barSpacing` and shows only the tail, so the first envelope must be
+   * remembered and fitted after layout (the Qt host can deliver data before
+   * the page viewport has been laid out). */
+  function fitToWidth() {
+    if (!chart) return;
+    if (chartEl && chartEl.clientWidth > 0) {
+      chart.timeScale().fitContent();
+      needsFit = false;
+    } else {
+      needsFit = true;
+    }
+  }
+
   /* Apply one envelope idempotently; returns { applied, error }.
    * set_bars/set_volume replace the series snapshot; update_bar upserts
    * one row through `series.update` (the live path — history untouched);
@@ -447,15 +566,19 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       }
       applied++;
     }
-    if (chart) chart.timeScale().fitContent();
+    fitToWidth();
     return { applied: applied, error: null };
   }
 
   function applyRows(series, rows) {
-    var coloured = series === "volume" ? withColor(rows) : rows;
-    setSnapshot(series, series === "volume" ? rows : coloured);
+    var display = (series === "volume")
+      ? withColor(rows)
+      : seriesRows("candles", rows);
+    /* The snapshot is the real series: placeholders are rendering-only and
+     * must not inflate the bar count the page reports (Q-20). */
+    setSnapshot(series, barRows(series, rows));
     var target = seriesFor(series);
-    if (target) target.setData(series === "volume" ? coloured : rows);
+    if (target) target.setData(display);
     if (series === "candles" && (activeMode === "line" || activeMode === "area")) {
       applyMode(activeMode); // refresh the derived close-leg series
     }
@@ -539,6 +662,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   window.lwSnapshot = function () {
     return { candles: snapshot.candles.slice(), volume: snapshot.volume.slice() };
   };
+  /* Q-20: the page's own answer for the time axis (real dates, rendered tick
+   * labels) — the acceptance evidence the count-only test never had. */
+  window.lwAxisProbe = axisProbe;
+  window.lwReportKey = reportKey;
   window.lwActiveMode = function () {
     return activeMode;
   };

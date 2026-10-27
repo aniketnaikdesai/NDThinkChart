@@ -407,6 +407,44 @@
     snapshotPreview = null;
   }
 
+  /* ── page → Python reports (Q-20) ─────────────────────────────────────
+   *
+   * An alarm gesture (place / drag / delete) was unreachable from the page:
+   * no slot existed. Each message is one JSON string handed to the
+   * `LwBridge` slot of the same name; the view re-emits it on the pre-D47
+   * `AlarmController` (create_requested / moved / delete_requested).
+   */
+  function pageBridge(bridge) {
+    if (bridge) return bridge;
+    if (typeof window !== "undefined" && window.lwBridge) {
+      return window.lwBridge;
+    }
+    return null;
+  }
+
+  function notifyPage(message, payload, bridge) {
+    var target = pageBridge(bridge);
+    if (!target || typeof target[message] !== "function") return false;
+    target[message](JSON.stringify(payload || {}));
+    return true;
+  }
+
+  function reportAlarmCreated(price, bridge) {
+    var value = Number(price);
+    if (!isFinite(value)) return false;
+    return notifyPage("alarmCreated", { price: value }, bridge);
+  }
+
+  function reportAlarmMoved(id, price, bridge) {
+    var value = Number(price);
+    if (!isFinite(value)) return false;
+    return notifyPage("alarmMoved", { id: id, price: value }, bridge);
+  }
+
+  function reportAlarmDelete(id, bridge) {
+    return notifyPage("alarmDeleted", { id: id }, bridge);
+  }
+
   return {
     ENVELOPE_VERSION: ENVELOPE_VERSION,
     ALARM_CHANNEL: ALARM_CHANNEL,
@@ -439,5 +477,10 @@
     applyAlarmOps: applyAlarmOps,
     snapshot: snapshot,
     clear: clear,
+    pageBridge: pageBridge,
+    notifyPage: notifyPage,
+    reportAlarmCreated: reportAlarmCreated,
+    reportAlarmMoved: reportAlarmMoved,
+    reportAlarmDelete: reportAlarmDelete,
   };
 });

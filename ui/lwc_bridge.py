@@ -38,6 +38,34 @@ Behaviour:
   duplicated or lost bars.
 * **backpressure counters from day one** — ``counters()`` reports received /
   queued / coalesced / emitted / emissions / replays / queue-depth-max.
+* **whitespace placeholders** — a candle/volume column may hold ``None`` in a
+  value slot (never in ``ts``). The row is a whitespace point: it occupies one
+  index slot so a within-session hole renders as empty space
+  (AC-D21.4.4), and it is not a bar (``apply_ops_to_bars`` skips it,
+  ``chart_assets/lwc/chart.js`` sends ``{time}`` only to the series).
+
+**Page → Python messages (Q-20).** Every call below is a ``pyqtSlot`` whose
+single argument is a JSON string — the mirror of :attr:`opsJson`, so no
+dict/``repr`` ambiguity exists in either direction. Each slot re-emits a
+``page*`` signal; ``ui/lwc_view.py`` maps them onto the pre-D47
+``DrawingController`` / ``AlarmController`` signals and its own
+``zoom_refused`` / ``key_pressed``:
+
+============================ ============================ =======================
+page call                    payload keys                 bridge signal
+============================ ============================ =======================
+``pageReady()``              —                            (drain + replay)
+``focusReleased()``          —                            ``pageFocusReleased``
+``drawingCommitted()``       kind, points/price, color    ``pageDrawingCommitted``
+``drawingUpdated()``         id, payload, color           ``pageDrawingUpdated``
+``drawingDeleted()``         id                           ``pageDrawingDeleted``
+``selectionChanged()``       id (``null``/``-1`` clears)  ``pageSelectionChanged``
+``alarmCreated()``           price                        ``pageAlarmCreated``
+``alarmMoved()``             id, price                    ``pageAlarmMoved``
+``alarmDeleted()``           id                           ``pageAlarmDeleted``
+``zoomRefused()``            trigger                      ``pageZoomRefused``
+``keyPressed()``             key                          ``pageKeyPressed``
+============================ ============================ =======================
 
 Mirroring convention follows ``ibkr/bridge.py::IBBridge`` (Qt signals on a
 ``QObject``); the op-application math mirrors ``chart_assets/lwc/envelope.js``
@@ -99,6 +127,11 @@ def _check_op_shape(op) -> None:
             raise ValueError("column arrays must share one length")
     if kind == "update_bar" and n != 1:
         raise ValueError("update_bar must carry single-element columns")
+    # Q-20 whitespace placeholders: a *value* slot may be ``None`` (that row
+    # renders as ``{time}`` only — a hole, AC-D21.4.4); a ``ts`` slot never
+    # may. The series times are real UTC epoch seconds, ascending and unique.
+    if any(t is None for t in cols["ts"]):
+        raise ValueError("ts columns must carry real times, never None")
 
 
 def candles_set_op(bars) -> dict:
@@ -153,9 +186,11 @@ def apply_ops_to_bars(ops) -> list:
     """Reconstruct the candle series from an op list (replay-identity check).
 
     ``set_bars`` replaces, ``update_bar`` upserts by ``ts``, ``clear`` empties
-    (volume ops are ignored — this is the candle-series reconstruction). The
-    result is ``[(ts, open, high, low, close)]`` sorted by ``ts`` with no
-    duplicates. Mirrors ``mergeRows`` in ``chart_assets/lwc/envelope.js``.
+    (volume ops are ignored — this is the candle-series reconstruction). A
+    whitespace placeholder (a row whose ``close`` is ``None``, Q-20) is not a
+    bar and is skipped. The result is ``[(ts, open, high, low, close)]``
+    sorted by ``ts`` with no duplicates. Mirrors ``mergeRows`` in
+    ``chart_assets/lwc/envelope.js``.
     """
     by_ts: dict = {}
     for op in ops or []:
@@ -172,6 +207,7 @@ def apply_ops_to_bars(ops) -> list:
                     cols["ts"], cols["open"], cols["high"],
                     cols["low"], cols["close"],
                 )
+                if c is not None
             }
         elif kind == "update_bar":
             cols = op["cols"]
@@ -208,6 +244,18 @@ class LwBridge(QObject):
     #: (and its ``focusRoundTrip`` controller signal) runs. A signal cannot
     #: share the slot's name, hence the distinct spelling.
     pageFocusReleased = pyqtSignal()
+    #: Page → Python message channels (Q-20): one signal per ``pyqtSlot``
+    #: below. The payload is the parsed JSON object the page sent; the view
+    #: maps it onto the pre-D47 controller signal (see the module table).
+    pageDrawingCommitted = pyqtSignal(dict)
+    pageDrawingUpdated = pyqtSignal(dict)
+    pageDrawingDeleted = pyqtSignal(dict)
+    pageSelectionChanged = pyqtSignal(dict)
+    pageAlarmCreated = pyqtSignal(dict)
+    pageAlarmMoved = pyqtSignal(dict)
+    pageAlarmDeleted = pyqtSignal(dict)
+    pageZoomRefused = pyqtSignal(dict)
+    pageKeyPressed = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -333,6 +381,72 @@ class LwBridge(QObject):
     def focusReleased(self) -> None:
         """JS slot: the page's Esc blur hands focus back to the Qt chain."""
         self.pageFocusReleased.emit()
+
+    # ── page → Python message slots (Q-20) ────────────────────────────
+    #
+    # One slot per message name the page calls (``chart.js`` keyboard,
+    # ``interaction.js`` controls/refusals, ``primitives.js`` drawing commits,
+    # ``alarms.js`` alarm edits). Each payload is a JSON string — the mirror
+    # of :attr:`opsJson` — parsed here so no ``QVariantMap``/``repr`` ambiguity
+    # exists. The names are the JS call names; the signals carry a ``page``
+    # prefix because a Qt signal and a slot cannot share one name.
+
+    @staticmethod
+    def _payload(raw) -> dict:
+        """Decode one page message payload (``{}`` on anything unusable)."""
+        text = raw if isinstance(raw, str) else ""
+        if not text.strip():
+            return {}
+        try:
+            value = json.loads(text)
+        except (TypeError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @pyqtSlot(str)
+    def drawingCommitted(self, payload: str = "") -> None:
+        """JS slot: a drawing gesture finished in the page."""
+        self.pageDrawingCommitted.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def drawingUpdated(self, payload: str = "") -> None:
+        """JS slot: an existing drawing's geometry/colour was edited."""
+        self.pageDrawingUpdated.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def drawingDeleted(self, payload: str = "") -> None:
+        """JS slot: a drawing was deleted in the page."""
+        self.pageDrawingDeleted.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def selectionChanged(self, payload: str = "") -> None:
+        """JS slot: the page's selected drawing changed (``null`` clears)."""
+        self.pageSelectionChanged.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def alarmCreated(self, payload: str = "") -> None:
+        """JS slot: an alarm was placed on the page's price axis."""
+        self.pageAlarmCreated.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def alarmMoved(self, payload: str = "") -> None:
+        """JS slot: an alarm line was dragged to a new price."""
+        self.pageAlarmMoved.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def alarmDeleted(self, payload: str = "") -> None:
+        """JS slot: an alarm line was deleted in the page."""
+        self.pageAlarmDeleted.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def zoomRefused(self, payload: str = "") -> None:
+        """JS slot: the page's router refused a zoom (TR-9)."""
+        self.pageZoomRefused.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def keyPressed(self, payload: str = "") -> None:
+        """JS slot: a chart keyboard gesture the page handled."""
+        self.pageKeyPressed.emit(self._payload(payload))
 
     # ── recovery / replay ──────────────────────────────────────────────
 

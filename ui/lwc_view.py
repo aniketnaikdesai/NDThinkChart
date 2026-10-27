@@ -18,10 +18,17 @@ by parallel logic:
   ``0`` — ``chart_model.visible_volume_ceiling`` ported verbatim (the
   ESC-028 small-positive band included), recomputed on load/pan/zoom with no
   per-gesture round-trip to Python.
-* **logical-index time axis** — the ``ts`` column carries logical-index
-  times (collapse-map display-x: non-trading time removed,
-  within-session holes kept at full span). Consecutive logical steps of 1
-  render adjacent; a step of ``1 + k`` renders ``k`` slots of whitespace.
+* **real UTC time axis** (Q-20) — the ``ts`` column carries each bar's own
+  UTC epoch seconds, **not** a logical index: the axis renders real dates.
+  LWC places bars by data index, so a collapsed non-trading gap still
+  renders adjacent (the time values jumping is what the label shows). The
+  series is strictly ascending and unique; a within-session hole crosses as
+  ``k`` whitespace placeholders (``None`` value slots, rendered as
+  ``{time}`` only) so it keeps its ``k`` empty slots (AC-D21.4.4). The
+  logical index stays **internal** — drawings, overlays and the
+  ``fractional_index_from_display`` pair keep using it, never the series
+  time. ``update_live_bar`` sends the same domain, so the live and history
+  paths agree.
 * **``gap_is_non_trading`` authority** — the collapse map (and therefore
   every logical step) is built on it, exactly as on the default engine.
 * **custom tz formatters** — ``local = t - offset`` (``format_tz_label``;
@@ -228,13 +235,64 @@ def hole_spans(indices: Sequence) -> list:
     return spans
 
 
+def series_times(bars: Sequence, indices: Sequence,
+                 period=None) -> tuple[list, list]:
+    """Real UTC series times for the plotted rows, plus whitespace flags.
+
+    Returns ``(times, whitespace)`` — two parallel lists in plotted order.
+    Every bar contributes its own ``int(bar.ts)``: the page's time axis is
+    real UTC epoch seconds (Q-20), so the axis labels real dates. A
+    within-session hole of ``k`` missing bars contributes ``k`` placeholder
+    times **before** the next bar, each flagged ``True`` in ``whitespace`` —
+    the page renders those as ``{time}``-only points, so the hole keeps its
+    ``k`` empty slots (AC-D21.4.4). A collapsed non-trading gap advances the
+    logical index by exactly 1 and contributes nothing, so the axis stays
+    contiguous there (LWC places bars by data index).
+
+    The result is strictly ascending and unique, which the library requires:
+    a duplicate bar timestamp (two bars sharing one display-x) is nudged one
+    second past its predecessor instead of being dropped. With no ``period``
+    (no timeframe) no placeholder times are derivable, so the bare bar
+    timestamps cross.
+    """
+    rows = list(bars or [])
+    positions = list(indices or [])
+    times: list = []
+    whitespace: list = []
+    prev_ts = None
+    prev_pos = None
+    for bar, position in zip(rows, positions):
+        try:
+            ts = int(bar.ts)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if prev_pos is not None and period:
+            try:
+                step = int(position) - int(prev_pos)
+            except (TypeError, ValueError):
+                step = 1
+            for k in range(1, max(1, step)):
+                hole = int(prev_ts) + k * int(period)
+                if hole >= ts:
+                    break
+                times.append(hole)
+                whitespace.append(True)
+        if prev_ts is not None and ts <= prev_ts:
+            ts = prev_ts + 1
+        times.append(ts)
+        whitespace.append(False)
+        prev_ts = ts
+        prev_pos = position
+    return times, whitespace
+
+
 def format_tz_label(t, tz_offset) -> str:
-    """Format a logical-index time as a chart-local label.
+    """Format a series time as a chart-local label.
 
     ``local = t - offset`` with a positive offset for zones behind UTC
     (18000 for EST, 14400 for EDT) — the same formula the default
-    engine's axis uses, so labels agree wherever the logical time
-    equals the bar timestamp (every uncollapsed span).
+    engine's axis uses. ``t`` is the bar's real UTC epoch time (Q-20), so
+    the label names the bar's actual date.
     """
     dt = datetime.fromtimestamp(t - tz_offset, tz=timezone.utc)
     return dt.strftime("%m/%d %H:%M")
@@ -351,10 +409,11 @@ def study_op(overlay_id: str, ts: Sequence, values: Sequence,
              params: dict | None = None) -> dict:
     """One ``set_study`` op: the study channel's wire shape.
 
-    ``cols.ts`` carries logical-index times (the same unit as the candles
-    op); ``cols.value`` carries one nullable price per bar — ``None`` is a
-    period the study is not yet valid, which the engine renders as
-    whitespace. Mirrored by ``chart_assets/lwc/studies.js``.
+    ``cols.ts`` carries the series' real UTC times — the same column the
+    candles op carries (Q-20), so the study lands on its bars. ``cols.value``
+    carries one nullable price per bar — ``None`` is a period the study is
+    not yet valid, which the engine renders as whitespace. Mirrored by
+    ``chart_assets/lwc/studies.js``.
     """
     return {
         "op": "set_study",
@@ -758,6 +817,40 @@ def display_from_fractional_index(frac, xs: Sequence,
     i = bisect.bisect_right(idx, f) - 1
     i = max(0, min(i, n - 2))
     return _interp(f, idx[i], xs[i], idx[i + 1], xs[i + 1])
+
+
+def ts_for_fractional_index(frac, plotted: Sequence, indices: Sequence,
+                            period=None):
+    """Inverse of the drawing axis for a page-originated anchor (Q-20).
+
+    The page reports drawing anchors as fractional indices (its time axis'
+    own unit). The drawing records, the store and the session fan-out are
+    timestamp-keyed, so a page anchor is mapped back here: a bar's own index
+    returns that bar's ``ts``, and an index between two bars adds whole
+    ``period`` steps to the bar it starts from — the same relative position
+    ``fractional_index_from_display`` produced. Out-of-range fractions clamp
+    to the loaded range (the page cannot see outside it). ``None`` when the
+    axis is empty.
+    """
+    rows = list(plotted or [])
+    idx = list(indices or [])
+    if not rows or not idx:
+        return None
+    try:
+        f = float(frac)
+    except (TypeError, ValueError):
+        return None
+    f = max(float(idx[0]), min(float(idx[-1]), f))
+    i = bisect.bisect_right(idx, f) - 1
+    i = max(0, min(i, len(idx) - 1))
+    try:
+        base = int(rows[i].ts)
+    except (AttributeError, TypeError, ValueError, IndexError):
+        return None
+    if not period:
+        return base
+    steps = int(round(f - float(idx[i])))
+    return base + steps * int(period)
 
 
 def _drawing_frac(xs: Sequence, indices: Sequence, ts, cmap=None) -> float:
@@ -1458,7 +1551,7 @@ def series_ops(mode: str, bars: Sequence, timeframe: str | None,
 
     ``rows`` are the loaded bars (any mode); RTH filtering, the
     collapse map and the Heikin-Ashi transform (``heikin`` mode) are
-    applied here so the payload carries logical-index times and the JS
+    applied here so the payload carries real UTC times (Q-20) and the JS
     side renders values without trading logic. The candles op carries
     the optional ``mode`` key the P6-04 validators accept; volume
     colours are derived JS-side from the candle snapshot.
@@ -1475,32 +1568,66 @@ def series_ops(mode: str, bars: Sequence, timeframe: str | None,
     else:
         indices = logical_indices_from_display(
             chart_model.display_xs(plotted, cmap), period)
-    return build_series_ops(mode, plotted, cmap, indices)
+    return build_series_ops(mode, plotted, cmap, indices, period)
 
 
 def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
-                     ) -> list:
+                     period=None) -> list:
     """Column ops for already-filtered rows, their collapse map and indices.
 
     Shared by the public :func:`series_ops` wrapper and the live driver
     (which derives the same three arrays once per full replace), so the
     full-history ``ts`` column and the live ``update_bar`` ``ts`` are in
-    one unit: the logical index.
+    one domain: the bar's real UTC epoch seconds (Q-20).
+
+    The ``indices`` stay the logical axis internal to this engine —
+    ``series_times`` uses them (with ``period``) only to decide **where** a
+    within-session hole's whitespace placeholders go. Those placeholders
+    cross as ``None`` value slots (the page renders ``{time}`` only), so a
+    hole keeps its empty slots (AC-D21.4.4) while a collapsed non-trading
+    gap stays adjacent.
     """
+    times, whitespace = series_times(plotted, indices, period)
     candle_rows = [(idx, o, h, lo, c) for idx, (_t, o, h, lo, c) in
                    zip(indices, chart_model.candle_display_rows(plotted, cmap))]
     if mode == "heikin" and candle_rows:
         candle_rows = chart_model.heikin_ashi(candle_rows)
     _vol_x, vol_h, _colors = chart_model.volume_display_columns(plotted, cmap)
+    ts_col: list = []
+    open_col: list = []
+    high_col: list = []
+    low_col: list = []
+    close_col: list = []
+    volume_col: list = []
+    row = 0
+    for t, hole in zip(times, whitespace):
+        ts_col.append(t)
+        if hole:
+            open_col.append(None)
+            high_col.append(None)
+            low_col.append(None)
+            close_col.append(None)
+            volume_col.append(None)
+            continue
+        if row < len(candle_rows):
+            _idx, o, h, lo, c = candle_rows[row]
+        else:  # pragma: no cover — times/rows are built in lock step
+            o = h = lo = c = None
+        open_col.append(o)
+        high_col.append(h)
+        low_col.append(lo)
+        close_col.append(c)
+        volume_col.append(float(vol_h[row]) if row < len(vol_h) else None)
+        row += 1
     candles_op = {
         "op": "set_bars",
         "series": "candles",
         "cols": {
-            "ts": [t for (t, _o, _h, _l, _c) in candle_rows],
-            "open": [o for (_t, o, _h, _l, _c) in candle_rows],
-            "high": [h for (_t, _o, h, _l, _c) in candle_rows],
-            "low": [lo for (_t, _o, _h, lo, _c) in candle_rows],
-            "close": [c for (_t, _o, _h, _l, c) in candle_rows],
+            "ts": ts_col,
+            "open": open_col,
+            "high": high_col,
+            "low": low_col,
+            "close": close_col,
         },
         "mode": mode,
     }
@@ -1512,9 +1639,99 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
     volume_op = {
         "op": "set_volume",
         "series": "volume",
-        "cols": {"ts": list(indices), "value": [float(v) for v in vol_h]},
+        "cols": {"ts": list(ts_col), "value": volume_col},
     }
     return [candles_op, volume_op]
+
+
+class PageDrawing:
+    """A drawing committed in the page — ``Drawing``-shaped, renderer-local.
+
+    ``MainWindow._on_drawing_created`` hands the emitted object straight to
+    the drawing store, so it carries the attributes that path reads
+    (``symbol`` / ``kind`` / ``payload`` / ``color`` / ``group_id`` /
+    ``id``). It is a small transport record defined here rather than imported
+    from ``data.models``: this module must stay free of the data layer
+    (renderer boundary), and a page commit is not a stored row.
+    """
+
+    def __init__(self, symbol: str = "", kind: str = "", payload=None,
+                 color=None, group_id=None, id=None):
+        self.symbol = symbol
+        self.kind = kind
+        self.payload = dict(payload or {})
+        self.color = color
+        self.group_id = group_id
+        self.id = id
+
+
+def _optional_int(value):
+    """``int(value)`` or ``None`` — booleans and junk never become ids."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value):
+    """``float(value)`` or ``None`` — booleans and junk never become prices."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def page_geometry_payload(payload, plotted: Sequence, indices: Sequence,
+                          period=None) -> dict:
+    """Map one page drawing payload back onto bar timestamps (Q-20).
+
+    ``payload`` is the page's own shape: ``points`` (``[[frac, price], …]``)
+    for trendline / measure / fibonacci, ``price`` for a horizontal line,
+    ``span`` + ``y1``/``y2`` for a zone. Every fractional index maps through
+    :func:`ts_for_fractional_index`, so the result is the ts-keyed payload a
+    ``Drawing`` record carries. ``{}`` when the shape is unusable — the
+    caller drops the message rather than emitting a half-record.
+    """
+    data = payload if isinstance(payload, dict) else {}
+    kind = str(data.get("kind") or "")
+    if kind not in DRAWING_KINDS:
+        return {}
+
+    def _ts(value):
+        return ts_for_fractional_index(value, plotted, indices, period)
+
+    if kind in ("trendline", "measure", "fibonacci"):
+        points = data.get("points") or []
+        if not isinstance(points, (list, tuple)) or len(points) != 2:
+            return {}
+        first_x, second_x = _ts(points[0][0]), _ts(points[1][0])
+        first_y = _optional_float(points[0][1])
+        second_y = _optional_float(points[1][1])
+        if None in (first_x, second_x, first_y, second_y):
+            return {}
+        built = {"p1": {"x": first_x, "y": first_y},
+                 "p2": {"x": second_x, "y": second_y}}
+        if kind == "fibonacci":
+            built["type"] = "ext" if data.get("type") == "ext" else "retr"
+        return built
+    if kind == "horizontal":
+        price = _optional_float(data.get("price"))
+        return {} if price is None else {"y": price}
+    if kind == "zone":
+        span = data.get("span") or []
+        if not isinstance(span, (list, tuple)) or len(span) != 2:
+            return {}
+        start, end = _ts(span[0]), _ts(span[1])
+        y1, y2 = _optional_float(data.get("y1")), _optional_float(data.get("y2"))
+        if None in (start, end, y1, y2):
+            return {}
+        return {"x1": min(start, end), "x2": max(start, end),
+                "y1": min(y1, y2), "y2": max(y1, y2)}
+    return {}
 
 
 class LwcDrawingSurface:
@@ -1553,9 +1770,11 @@ class LwcChartView(QWidget):
     Owns the ``ChartView`` state (``update_bars`` / ``update_last_bar``
     / ``set_symbol`` / ``set_timeframe``) plus the P6-05 contract
     (``set_series(mode, rows)`` / ``update_live_bar(bar)``), and emits
-    through an owned ``LwBridge`` the host page drains. Standalone
-    drawing/alarm controllers are not carried here — alarm lines/overlays
-    are published on the alarm channel (P6-08); drawings land in P6-09.
+    through an owned ``LwBridge`` the host page drains. Alarm lines/overlays
+    are published on the alarm channel (P6-08) and drawings on the drawing
+    channel (P6-09); the pre-D47 ``drawing_controller`` / ``alarm_controller``
+    signal surface is present too (Q-20) and is what the page's messages
+    re-emit onto, so MainWindow wires either engine identically.
     """
 
     ENGINE_NAME = "lwc"
@@ -1585,6 +1804,16 @@ class LwcChartView(QWidget):
     #: DG92 focus round-trip: the page's Esc blur handed focus back to Qt.
     focusRoundTrip = pyqtSignal()
 
+    #: AC-D3.9: the page's router refused a zoom (TR-9). Named exactly as
+    #: ``ChartPanel.zoom_refused`` so MainWindow's status hint wires to either
+    #: engine unchanged.
+    zoom_refused = pyqtSignal()
+
+    #: Q-20: a keyboard gesture the page handled (``"ArrowLeft"``, ``"+"``,
+    #: ``"Escape"``, …). No pre-D47 counterpart exists, so this is the view's
+    #: own surface rather than a controller re-emit.
+    key_pressed = pyqtSignal(str)
+
     def __init__(self, tz_offset: float = 0.0, editable: bool = True,
                  parent=None):
         super().__init__(parent)
@@ -1596,6 +1825,30 @@ class LwcChartView(QWidget):
         self._ext_hours = True
         self._mode = DEFAULT_MODE
         self._bridge = LB.LwBridge(self)
+        # D47/Q-20: the engine-neutral controller surface MainWindow already
+        # wires. Imported here (not at module import) so the renderer module
+        # never drags the pyqtgraph seam in at import time.
+        from ui.chart_view import AlarmController, DrawingController
+
+        self.drawing_controller = DrawingController(parent=self)
+        self.alarm_controller = AlarmController(parent=self)
+        # Q-20 page → Python messages: the bridge slots raise these; the
+        # handlers below re-emit onto the controller signals
+        # (``drawing_controller.created`` …) and the view's own
+        # ``zoom_refused`` / ``key_pressed``. Connected here rather than in
+        # ``ensure_host`` so the message path needs no page.
+        self._bridge.pageFocusReleased.connect(self.handle_focus_released)
+        self._bridge.pageDrawingCommitted.connect(
+            self._on_page_drawing_committed)
+        self._bridge.pageDrawingUpdated.connect(self._on_page_drawing_updated)
+        self._bridge.pageDrawingDeleted.connect(self._on_page_drawing_deleted)
+        self._bridge.pageSelectionChanged.connect(
+            self._on_page_selection_changed)
+        self._bridge.pageAlarmCreated.connect(self._on_page_alarm_created)
+        self._bridge.pageAlarmMoved.connect(self._on_page_alarm_moved)
+        self._bridge.pageAlarmDeleted.connect(self._on_page_alarm_deleted)
+        self._bridge.pageZoomRefused.connect(self._on_page_zoom_refused)
+        self._bridge.pageKeyPressed.connect(self._on_page_key_pressed)
         self._plotted: list = []
         self._logical: list = []
         self._cmap = None
@@ -1674,8 +1927,17 @@ class LwcChartView(QWidget):
 
     @property
     def logical_index(self) -> list:
-        """Logical-index positions parallel to ``plotted_bars``."""
+        """Logical-index positions parallel to ``plotted_bars``.
+
+        Internal only (Q-20): drawings/overlays map through it; the series
+        ``ts`` column carries real UTC times.
+        """
         return list(self._logical)
+
+    @property
+    def series_times(self) -> list:
+        """Real UTC epoch seconds parallel to ``plotted_bars`` (Q-20)."""
+        return [int(bar.ts) for bar in self._plotted]
 
     @property
     def studies(self) -> list:
@@ -1860,7 +2122,12 @@ class LwcChartView(QWidget):
             self.set_series(mode, self._bars)
 
     def set_series(self, mode: str, rows: list) -> None:
-        """Full replace: filter, map to logical time, emit set ops."""
+        """Full replace: filter, map to real UTC time, emit set ops.
+
+        The series ``ts`` column is the bar's real UTC epoch seconds (Q-20);
+        the logical index is derived here for the internal drawing/overlay
+        axis only and never leaves as a series time.
+        """
         if mode not in MODES:
             raise ValueError(f"unknown mode: {mode!r}")
         self._mode = mode
@@ -1876,7 +2143,7 @@ class LwcChartView(QWidget):
             self._logical = logical_indices_from_display(
                 chart_model.display_xs(self._plotted, self._cmap), period)
         self._bridge.send_ops(build_series_ops(
-            mode, self._plotted, self._cmap, self._logical))
+            mode, self._plotted, self._cmap, self._logical, period))
         # A wholesale bar replacement invalidates the study cache (the
         # incremental path assumes the same series), exactly as the default
         # engine's chart panel does on a load.
@@ -1899,7 +2166,10 @@ class LwcChartView(QWidget):
         A same-timestamp tick replaces the forming bar; a newer
         timestamp appends a new period; an out-of-order tick is ignored
         (history is never rewritten by a stale tick). Only the tick's
-        ops cross — history is never resent.
+        ops cross — history is never resent. The ``ts`` is the bar's real
+        UTC time, the same domain as ``set_series`` (Q-20); a new period that
+        opens a within-session hole republishes the series so the hole keeps
+        its whitespace slots (AC-D21.4.4).
         """
         if not self._bars:
             self.set_series(self._mode, [bar])
@@ -1927,6 +2197,7 @@ class LwcChartView(QWidget):
                     self._plotted, self._timeframe, self._ext_hours)
             return
         if new_period:
+            previous_index = self._logical[-1] if self._logical else None
             self._plotted.append(bar)
             extended = False
             if self._cmap is not None:
@@ -1939,14 +2210,26 @@ class LwcChartView(QWidget):
                     self._plotted, self._timeframe, self._ext_hours)
             self._logical = logical_indices(
                 self._plotted, self._timeframe, self._ext_hours)
+            opened_hole = (previous_index is not None
+                           and self._logical
+                           and self._logical[-1] - previous_index > 1)
+            if opened_hole:
+                # A within-session hole opened live: republish the series so
+                # the missing periods keep their whitespace slots. The tick's
+                # single update_bar cannot carry placeholders.
+                self._bridge.send_ops(build_series_ops(
+                    self._mode, self._plotted, self._cmap, self._logical,
+                    TIMEFRAME_SECONDS.get(self._timeframe or "")))
+                self._render_studies()
+                self._render_overlays()
+                return
         else:
             self._plotted[-1] = bar
-        lt = self._logical[-1] if self._logical else bar.ts
-        tick = self._tick_candle_cols(bar, lt)
+        tick = self._tick_candle_cols(bar)
         self._bridge.send_ops([
             {"op": "update_bar", "series": "candles", "cols": tick},
             {"op": "update_bar", "series": "volume",
-             "cols": {"ts": [lt], "value": [float(bar.volume)]}},
+             "cols": {"ts": [int(bar.ts)], "value": [float(bar.volume)]}},
         ])
         # Studies follow the tick — a new candle is served by the cache's
         # incremental path, an intra-bar tick takes the full path (the
@@ -2006,7 +2289,7 @@ class LwcChartView(QWidget):
             raise ValueError(
                 "series must be parallel to the plotted bars "
                 f"({len(values)} != {len(self._plotted)})")
-        ts = self._logical if self._plotted else list(range(len(values)))
+        ts = self.series_times if self._plotted else list(range(len(values)))
         overlay = dict(self._study_overlays)
         overlay[kind] = values
         self._study_sig = None
@@ -2047,7 +2330,8 @@ class LwcChartView(QWidget):
                     continue
                 overlay_id = f"{key}{suffix}"
                 overlays[overlay_id] = list(values)
-                ops.append(study_op(overlay_id, self._logical, values, params))
+                ops.append(study_op(overlay_id, self.series_times, values,
+                                    params))
         self._study_sig = sig
         if all_vals:
             self._study_cache.set(
@@ -2165,6 +2449,115 @@ class LwcChartView(QWidget):
         """
         self._focus_released += 1
         self.focusRoundTrip.emit()
+
+    # ── page → Python messages (Q-20) ───────────────────────────────────
+    #
+    # Every bridge slot funnels into one handler here, and each handler
+    # re-emits the signal MainWindow already wires (the pre-D47
+    # ``DrawingController`` / ``AlarmController`` surface, ``zoom_refused``)
+    # or the view's own ``key_pressed``. Payloads are the page's own units —
+    # fractional indices for geometry — so drawing anchors map back onto bar
+    # timestamps before they reach the store-facing signal.
+
+    def _page_axis(self) -> tuple:
+        """``(plotted, indices, period)`` for a page-originated anchor."""
+        return (self._plotted, self._logical,
+                TIMEFRAME_SECONDS.get(self._timeframe or ""))
+
+    def _on_page_drawing_committed(self, payload: dict) -> None:
+        """A drawing gesture finished in the page → ``created``.
+
+        The record carries no id (``created`` means "not stored yet"); its
+        payload is ts-keyed again because the store and the session fan-out
+        are. An unusable geometry is dropped rather than emitted half-built.
+        """
+        data = payload if isinstance(payload, dict) else {}
+        plotted, indices, period = self._page_axis()
+        geometry = page_geometry_payload(data, plotted, indices, period)
+        if not geometry:
+            return
+        # The page does not know the chart's symbol (it is renderer-only
+        # state), so the record takes it from the view — falling back to the
+        # symbol carried by the loaded bars when no explicit ``set_symbol``
+        # has run (the ``update_chart``-only path).
+        symbol = self._symbol
+        if not symbol and self._plotted:
+            symbol = str(getattr(self._plotted[-1], "symbol", "") or "")
+        self.drawing_controller.created.emit(PageDrawing(
+            symbol=symbol,
+            kind=str(data.get("kind") or ""),
+            payload=geometry,
+            color=(str(data["color"]) if data.get("color") else None),
+            group_id=_optional_int(data.get("group_id")),
+        ))
+
+    def _on_page_drawing_updated(self, payload: dict) -> None:
+        """An edited drawing in the page → ``updated(id, payload, color)``."""
+        data = payload if isinstance(payload, dict) else {}
+        drawing_id = _optional_int(data.get("id"))
+        geometry = page_geometry_payload(
+            data, *self._page_axis())
+        if drawing_id is None or not geometry:
+            return
+        self.drawing_controller.updated.emit(
+            int(drawing_id), geometry, str(data.get("color") or ""))
+
+    def _on_page_drawing_deleted(self, payload: dict) -> None:
+        """A drawing deleted in the page → ``deleted(id)``."""
+        data = payload if isinstance(payload, dict) else {}
+        drawing_id = _optional_int(data.get("id"))
+        if drawing_id is None:
+            return
+        if self._selected_drawing_id == drawing_id:
+            self._selected_drawing_id = None
+        self.drawing_controller.deleted.emit(int(drawing_id))
+
+    def _on_page_selection_changed(self, payload: dict) -> None:
+        """The page's selection → ``selection_changed(id)`` (``-1`` clears).
+
+        The page already applied its own highlight, so this only mirrors the
+        state: republishing a ``select_drawing`` op here would echo the
+        message straight back.
+        """
+        data = payload if isinstance(payload, dict) else {}
+        drawing_id = _optional_int(data.get("id"))
+        value = -1 if drawing_id is None or drawing_id < 0 else int(drawing_id)
+        self._selected_drawing_id = None if value < 0 else value
+        self.drawing_controller.selection_changed.emit(value)
+
+    def _on_page_alarm_created(self, payload: dict) -> None:
+        """An alarm placed on the page's price axis → ``create_requested``."""
+        data = payload if isinstance(payload, dict) else {}
+        price = _optional_float(data.get("price"))
+        if price is None:
+            return
+        self.alarm_controller.create_requested.emit(float(price))
+
+    def _on_page_alarm_moved(self, payload: dict) -> None:
+        """An alarm line dragged in the page → ``moved(id, price)``."""
+        data = payload if isinstance(payload, dict) else {}
+        alarm_id = _optional_int(data.get("id"))
+        price = _optional_float(data.get("price"))
+        if alarm_id is None or price is None:
+            return
+        self.alarm_controller.moved.emit(int(alarm_id), float(price))
+
+    def _on_page_alarm_deleted(self, payload: dict) -> None:
+        """An alarm line deleted in the page → ``delete_requested(id)``."""
+        data = payload if isinstance(payload, dict) else {}
+        alarm_id = _optional_int(data.get("id"))
+        if alarm_id is None:
+            return
+        self.alarm_controller.delete_requested.emit(int(alarm_id))
+
+    def _on_page_zoom_refused(self, payload: dict) -> None:
+        """The page's router refused a zoom (TR-9) → ``zoom_refused``."""
+        self.zoom_refused.emit()
+
+    def _on_page_key_pressed(self, payload: dict) -> None:
+        """A keyboard gesture the page handled → ``key_pressed(key)``."""
+        data = payload if isinstance(payload, dict) else {}
+        self.key_pressed.emit(str(data.get("key") or ""))
 
     def _publish_interaction_op(self, op: dict) -> None:
         """Log and emit one interaction envelope (``{"v": 1, "ops": [...]}``)."""
@@ -2489,11 +2882,9 @@ class LwcChartView(QWidget):
             # widget here (once, because ensure_host is lazy) also keeps every
             # pop-out correct — each pop-out view owns its own layout.
             self._host_layout.addWidget(self._host)
-            # Q-19/S3e: the page → Python calls now reach the view's own
-            # controller signal (``focusRoundTrip``). Two sources, one path:
-            # the bridge's ``focusReleased()`` slot (the page's JS call) and
-            # the host's Esc key handler.
-            self._bridge.pageFocusReleased.connect(self.handle_focus_released)
+            # Q-19/S3e + Q-20: the page → Python path is already connected in
+            # ``__init__`` (the bridge slots need no page); the host's own Esc
+            # key handler is the second source of the same round-trip.
             self._host.focusReleased.connect(self.handle_focus_released)
         return self._host
 
@@ -2609,13 +3000,15 @@ class LwcChartView(QWidget):
 
     # ── private ─────────────────────────────────────────────────────
 
-    def _tick_candle_cols(self, bar, lt) -> dict:
+    def _tick_candle_cols(self, bar) -> dict:
         """Single-element candle columns for one live tick.
 
-        Heikin-Ashi ticks are recomputed over the current plotted tail
-        (O(n), obviously correct; the bridge coalesce window bounds how
-        often ticks cross). Every other mode sends the tick's own OHLC.
+        ``ts`` is the bar's real UTC time (Q-20) — the same unit ``set_series``
+        sends. Heikin-Ashi ticks are recomputed over the current plotted tail
+        (O(n), obviously correct; the bridge coalesce window bounds how often
+        ticks cross). Every other mode sends the tick's own OHLC.
         """
+        ts = int(bar.ts)
         if self._mode == "heikin" and self._plotted:
             cmap = self._cmap
             base = chart_model.candle_display_rows(self._plotted[:-1], cmap)
@@ -2623,7 +3016,7 @@ class LwcChartView(QWidget):
             base.append((last_dx, bar.open, bar.high, bar.low, bar.close))
             ha = chart_model.heikin_ashi(base)[-1]
             _t, o, h, lo, c = ha
-            return {"ts": [lt], "open": [o], "high": [h],
+            return {"ts": [ts], "open": [o], "high": [h],
                     "low": [lo], "close": [c]}
-        return {"ts": [lt], "open": [bar.open], "high": [bar.high],
+        return {"ts": [ts], "open": [bar.open], "high": [bar.high],
                 "low": [bar.low], "close": [bar.close]}

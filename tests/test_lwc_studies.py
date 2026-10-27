@@ -142,7 +142,7 @@ class TestStudyParity:
         assert {k for k in overlays if not k.endswith("_hist")} <= set(model)
         assert len(view.study_ops) == len(overlays)
 
-    def test_P6_T06_T11_ops_carry_logical_time_and_nullable_values(self, qapp):
+    def test_P6_T06_T11_ops_carry_real_time_and_nullable_values(self, qapp):
         view = _view()
         envelopes = view.study_envelopes
         assert envelopes and envelopes[0]["v"] == 1
@@ -151,15 +151,18 @@ class TestStudyParity:
                 "op", "series", "kind", "pane", "style", "cols"}
             assert op["op"] == "set_study"
             assert op["series"] == "studies"
-            assert op["cols"]["ts"] == view.logical_index
-            assert len(op["cols"]["value"]) == len(view.logical_index)
+            # Q-20: the study series rides the same real-UTC time column the
+            # candles do, or it would land in a different time domain.
+            assert op["cols"]["ts"] == view.series_times
+            assert len(op["cols"]["value"]) == len(view.series_times)
             base = LV.study_base_kind(op["kind"])
             expect_pane = ("oscillator" if base in LV.OSCILLATOR_STUDIES
                            else "price")
             assert op["pane"] == expect_pane, op["kind"]
             assert all(v is None or isinstance(v, (int, float))
                        for v in op["cols"]["value"])
-            # The not-yet-valid prefix is a real null, never a fake 0
+                # The not-yet-valid prefix is a real null, never a fake 0
+            # (VWAP is valid from the first bar — it has no prefix).
             # (VWAP is valid from the first bar — it has no prefix).
             if base != "vwap":
                 assert op["cols"]["value"][0] is None, op["kind"]
@@ -255,7 +258,7 @@ class TestStudyParity:
         op = seen[0]["ops"][0]
         assert op["kind"] == "sma:9"
         assert op["pane"] == "price"
-        assert op["cols"]["ts"] == view.logical_index
+        assert op["cols"]["ts"] == view.series_times
         assert op["cols"]["value"] == values
         assert view.study_overlays["sma:9"] == values
 
