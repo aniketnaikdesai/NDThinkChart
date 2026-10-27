@@ -731,7 +731,7 @@
         "study rows Done"
       ],
       "size": "M",
-      "status": "in_progress",
+      "status": "done",
       "context": {
         "read_files": [
           {
@@ -835,28 +835,53 @@
         "focus round-trip record"
       ],
       "size": "L",
-      "status": "not_started",
+      "status": "done",
       "context": {
         "read_files": [
           {
             "path": "ui/chart_mouse_router.py",
-            "lines": "1-80",
-            "why": "read-only: RouterMode + TR table \u2014 frozen, never edited in P6"
+            "lines": "31-271",
+            "why": "read-only: the frozen RouterMode + TR-1..17 table the JS mirror must reproduce exactly - do not change it"
           },
           {
             "path": "ui/chart_controls.py",
-            "lines": "1-60",
-            "why": "read-only: Python control surface the HTML controls shim"
+            "lines": "1-48",
+            "why": "read-only: the control set (mode/reset/volume/zoom) the in-HTML controls mirror"
           },
           {
             "path": "ui/zoom_overlay.py",
-            "lines": "1-60",
-            "why": "read-only: rubber-band semantics the mirror must match"
+            "lines": "1-107",
+            "why": "read-only: magnifier/zoom activation semantics the Python zoom shim keeps"
           },
           {
-            "path": "ui/drawing_overlay.py",
-            "lines": "1-60",
-            "why": "read-only: draft/discard semantics (TR-4) the mirror must match"
+            "path": "ui/lwc_view.py",
+            "lines": "342-746",
+            "why": "edit site: LwcChartView state/bridge/emit conventions; the control + router shims land here"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "1-60,175-313",
+            "why": "read-only: the {v:1,ops:[]} transport and its JS->Python slots (focusReleased) the shims speak through"
+          },
+          {
+            "path": "chart_assets/lwc/envelope.js",
+            "lines": "1-110",
+            "why": "read-only: the bar envelope pins candles/volume - interaction ops must not ride it"
+          },
+          {
+            "path": "services/chart_model.py",
+            "lines": "71-134",
+            "why": "read-only: collapse-map/display_xs authority the shim uses to map logical index to timestamp"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "120-170,237-300",
+            "why": "read-only: page glue (series handles, bindKeyboard focus round-trip DG92, QWebChannel binding) the interaction module extends"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "lines": "1-70",
+            "why": "edit site: rows 7/13/14 this wave moves to Done; follow the P6-06 wave-exit note format"
           }
         ],
         "contracts": [
@@ -939,23 +964,48 @@
         "alarm rows Done"
       ],
       "size": "M",
-      "status": "not_started",
+      "status": "done",
       "context": {
         "read_files": [
           {
+            "path": "ui/lwc_view.py",
+            "lines": "342-746",
+            "why": "edit site: LwcChartView bridge/emit conventions; add alarm wiring + set_alarm_lines here"
+          },
+          {
             "path": "ui/chart_panel.py",
-            "lines": "1-60",
-            "why": "read-only: alarm-line rendering the LWC side must match"
+            "lines": "833-900",
+            "why": "read-only: set_alarm_mode/set_alarms/preview-line behaviour the LWC side must match (D21.10)"
           },
           {
             "path": "ui/alarm_overlay.py",
-            "lines": "1-60",
-            "why": "read-only: alarm visual contract the LWC side must match"
+            "lines": "1-140",
+            "why": "read-only: alarm line/label visuals and armed/triggered/muted colours (value-for-value parity)"
           },
           {
             "path": "data/alarm_store.py",
             "lines": "1-60",
-            "why": "read-only: alarm persistence \u2014 unchanged"
+            "why": "read-only: Alarm record shape the unchanged store feeds in"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "1-60,175-313",
+            "why": "read-only: envelope contract + send_ops staging; alarm ops need their own channel"
+          },
+          {
+            "path": "chart_assets/lwc/envelope.js",
+            "lines": "1-110",
+            "why": "read-only: proves the bar transport pins candles/volume - alarm ops must not ride it"
+          },
+          {
+            "path": "chart_assets/lwc/studies.js",
+            "lines": "1-60,253-295",
+            "why": "read-only: the separate-channel UMD pattern (bind(chart), own envelope, node-testable core) alarms.js copies"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "lines": "1-70",
+            "why": "edit site: row 12 (alarms) this wave moves to Done"
           }
         ],
         "contracts": [
@@ -1043,28 +1093,48 @@
         "drawing rows Done"
       ],
       "size": "L",
-      "status": "not_started",
+      "status": "done",
       "context": {
         "read_files": [
           {
+            "path": "ui/lwc_view.py",
+            "lines": "81-140,342-746",
+            "why": "edit site: the ts->logical-index helpers (81-140) and the class where drawing wiring lands"
+          },
+          {
             "path": "ui/chart_panel.py",
-            "lines": "1-60",
-            "why": "read-only: overlay visuals the primitives must match value-for-value"
+            "lines": "726-830",
+            "why": "read-only: plotted-index/collapse-map/display-x mapping the primitives must match"
           },
           {
             "path": "ui/drawing_overlay.py",
-            "lines": "1-80",
-            "why": "read-only: overlay visual contract the primitives must match"
+            "lines": "67-120,231-378",
+            "why": "read-only: drawing payloads, ts-to-x mapping and label/handle rendering the primitives mirror"
+          },
+          {
+            "path": "services/drawing_service.py",
+            "lines": "31-104",
+            "why": "read-only: normalise_payload/fib_levels/points_in_ts - the geometry contract primitives.js reproduces"
           },
           {
             "path": "data/drawing_store.py",
             "lines": "1-60",
-            "why": "read-only: drawing persistence \u2014 unchanged"
+            "why": "read-only: Drawing record shape (store unchanged)"
           },
           {
-            "path": "services/drawing_service.py",
-            "lines": "1-60",
-            "why": "read-only: drawing math \u2014 unchanged"
+            "path": "services/chart_model.py",
+            "lines": "39-134",
+            "why": "read-only: plotted rows + display_xs/collapse authority behind the fractional-index mapping"
+          },
+          {
+            "path": "chart_assets/lwc/studies.js",
+            "lines": "1-60,253-295",
+            "why": "read-only: the UMD + separate-channel + bind(chart) pattern primitives.js follows"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "lines": "1-70",
+            "why": "edit site: row 11 (drawings) moves to Done, incl. the DG93 edge fixtures"
           }
         ],
         "contracts": [
@@ -1148,23 +1218,53 @@
         "overlay rows Done"
       ],
       "size": "M",
-      "status": "not_started",
+      "status": "done",
       "context": {
         "read_files": [
           {
+            "path": "ui/lwc_view.py",
+            "lines": "342-746",
+            "why": "edit site: LwcChartView; set_overlay/set_event_markers wiring lands here"
+          },
+          {
             "path": "ui/chart_panel.py",
-            "lines": "1-60",
-            "why": "read-only: overlay visuals the LWC side must match"
+            "lines": "1014-1038,1490-1560",
+            "why": "read-only: which service feeds each overlay, the ICT trailing window, and the display-x mapping"
           },
           {
             "path": "ui/event_marker_overlay.py",
-            "lines": "1-60",
-            "why": "read-only: marker visual contract"
+            "lines": "1-120",
+            "why": "read-only: marker glyph/colour/positioning + countdown label the LWC markers mirror"
           },
           {
             "path": "services/session_service.py",
-            "lines": "1-60",
-            "why": "read-only: session-band contract \u2014 unchanged"
+            "lines": "33-99",
+            "why": "read-only: session_bands contract (pre/post, ET-clipped) - unchanged"
+          },
+          {
+            "path": "services/gap_vix_service.py",
+            "lines": "30-229",
+            "why": "read-only: RTH-gap steps and VIX band results the two overlays render"
+          },
+          {
+            "path": "ui/overlays/ict_overlay.py",
+            "lines": "1-130",
+            "why": "read-only: the ICT result keys to band/box geometry + colours to reproduce"
+          },
+          {
+            "path": "services/chart_model.py",
+            "lines": "71-134",
+            "why": "read-only: collapse map/display_xs the overlay regions must map through"
+          },
+          {
+            "path": "chart_assets/lwc/studies.js",
+            "lines": "1-60,253-295",
+            "why": "read-only: the separate-envelope UMD pattern overlays.js copies; states the bar-envelope pinning"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "lines": "1-70",
+            "why": "edit site: rows 6/9/10 this wave moves to Done"
           }
         ],
         "contracts": [
@@ -1252,28 +1352,48 @@
         "cap-10 proven on both engines"
       ],
       "size": "L",
-      "status": "not_started",
+      "status": "done",
       "context": {
         "read_files": [
           {
             "path": "ui/popout_window.py",
-            "lines": "1-80",
-            "why": "PopoutChartWindow shell + editable=False + cap refusal to preserve"
+            "lines": "35-240",
+            "why": "edit site: PopoutChartWindow construction/attach/detach - replace the embedded ChartPanel with the engine view"
           },
           {
-            "path": "ui/chart_panel.py",
-            "lines": "1-60",
-            "why": "read-only: the view surface pop-outs host"
+            "path": "ui/lwc_view.py",
+            "lines": "342-420,700-746",
+            "why": "edit site: bridge/host accessors + ensure_host; per-pop-out wiring lands here"
+          },
+          {
+            "path": "ui/lwc_host.py",
+            "lines": "104-160,189-260",
+            "why": "read-only: ndt:// scheme, version pin and create_host - each pop-out needs its own host"
+          },
+          {
+            "path": "ui/chart_view.py",
+            "lines": "44-62,124-240",
+            "why": "read-only: the ChartView protocol + create_chart_view factory pop-outs must go through"
           },
           {
             "path": "ui/ticker_session.py",
-            "lines": "1-60",
-            "why": "read-only: session refcounting the pop-out shares \u2014 unchanged"
+            "lines": "60-80,217-260",
+            "why": "read-only: attach_view/detach_view fan-out + signals - the D24 single-writer invariant"
           },
           {
             "path": "data/popout_store.py",
             "lines": "1-60",
-            "why": "read-only: persistence semantics \u2014 unchanged"
+            "why": "read-only: PopoutStore API - persistence semantics unchanged"
+          },
+          {
+            "path": "config/settings.py",
+            "lines": "40-50",
+            "why": "read-only: MAX_POPOUTS = 10 (Q62/A107) - the cap stays"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "lines": "1-70",
+            "why": "edit site: row 15 (pop-outs) this wave moves to Done"
           }
         ],
         "contracts": [
@@ -1372,28 +1492,48 @@
         "packaging/CI/signing disposition"
       ],
       "size": "M",
-      "status": "not_started",
+      "status": "done",
       "context": {
         "read_files": [
           {
             "path": "NDThinkChart.spec",
-            "lines": "1-60",
-            "why": "bundle asset wiring to extend with the vendored tree"
+            "lines": "1-50",
+            "why": "edit site: datas/hiddenimports - add the vendored LWC tree"
           },
           {
             "path": "packaging/build.spec",
-            "lines": "1-60",
-            "why": "second spec naming the same asset set"
+            "lines": "1-110",
+            "why": "edit site: datas/hiddenimports - same vendored tree for the packaged build"
           },
           {
             "path": "tests/test_d45_removal.py",
             "lines": "1-60",
-            "why": "read-only: guard-pattern precedent for the cutover-gate suite"
+            "why": "read-only: residue-instrument pattern the cutover-gate test follows"
           },
           {
-            "path": "main.py",
-            "lines": "1-60",
-            "why": "read-only: entry point creating QApplication \u2014 handler-before-app ordering"
+            "path": "pytest.ini",
+            "lines": "1-20",
+            "why": "read-only: webengine marker registration - CI must run these as skips, never red"
+          },
+          {
+            "path": "ui/chart_view.py",
+            "lines": "44-62,124-240",
+            "why": "read-only: create_chart_view/default-engine surface the gate asserts (pyqtgraph default)"
+          },
+          {
+            "path": "ui/lwc_host.py",
+            "lines": "104-160,189-260",
+            "why": "read-only: vendored-tree location, ndt:// registration and version pin the bundle must ship"
+          },
+          {
+            "path": "chart_assets/lwc/chart.html",
+            "lines": "1-27",
+            "why": "read-only: the offline page + relative asset list the bundle must include"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "lines": "1-70",
+            "why": "edit site: rows 16/17/19 this wave records the cutover declaration"
           }
         ],
         "contracts": [
@@ -1479,7 +1619,7 @@
         "pyqtgraph deleted (gated-open only) or clean refusal (gated-closed)"
       ],
       "size": "S",
-      "status": "not_started",
+      "status": "in_progress",
       "context": {
         "read_files": [
           {

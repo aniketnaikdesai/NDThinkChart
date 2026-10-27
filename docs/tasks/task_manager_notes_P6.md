@@ -126,6 +126,39 @@ during P6 is a regression, never an engine difference.
    at runtime — noted in their `why` where relevant); new files live in
    `touches_files` as pure-output (checker WARNs, accepted).
 
+## Pack-fix — read-visibility sweep (P6-T07…P6-T12, 2026-10-26)
+
+Trigger: the P6-T07 report showed `ui/lwc_view.py` in `touches_files` but **not**
+in `read_files` (a worker told to edit a file it was never told to read). P6-T06
+hit the same gap (`services/chart_model.py`, `ui/lwc_bridge.py`,
+`chart_assets/lwc/envelope.js`) and only coped by reading them unprompted.
+
+Scope: `context.read_files` only. `touches_files`, ACs, tests, dependencies and
+`status` are unchanged (T06/T07 statuses moved independently by `build_wave.py`
+during this pass and were preserved, not reverted). Every pack now contains
+every existing `touches_files` entry plus the shared surface it consumes, each
+with a `lines` range and a `why` that marks read-only entries explicitly.
+Structural defect fixed across all six: the parity matrix is edited by every
+wave but was in none of their packs.
+
+| Task | Added (beyond its previous pack) | Deliberately not added |
+|---|---|---|
+| P6-T07 | `lwc_view`, `lwc_bridge`, `envelope.js`, `chart_model` (71-134, index↔ts), `chart.js` (bindKeyboard/focus DG92, channel), matrix | `chart.html` (27 lines, not writable here — controls must be built by `interaction.js` at runtime), `chart_view.py` (protocol unchanged); `drawing_overlay.py` **removed** — its 926 lines are the rendering surface T09 owns; the TR-4/7 draft semantics are in the frozen router table |
+| P6-T08 | `lwc_view`, `lwc_bridge`, `envelope.js`, `studies.js` (channel/module precedent), matrix | `chart_model` (alarms are price-keyed, no ts mapping), `chart.js` (the module binds a chart handle) |
+| P6-T09 | `lwc_view` incl. 81-140 (ts→index helpers), `chart_model`, `studies.js`, matrix; `chart_panel` re-pointed 726-830 (mapping authority) | `envelope.js` / `lwc_bridge` (the studies precedent states the pinning; the emit pattern is in `lwc_view`) |
+| P6-T10 | `lwc_view`, `chart_model`, `studies.js`, `gap_vix_service` (gap/VIX results), `ict_overlay` (ICT geometry/colours), matrix; `chart_panel` re-pointed to the overlay call sites | `envelope.js` (redundant with `studies.js`'s header), `chart.js`, the style-only `session_overlay`/`vix_overlay` |
+| P6-T11 | `lwc_view`, `lwc_host` (per-pop-out host), `chart_view` (factory seam), `config/settings.py:MAX_POPOUTS`, matrix | `chart_panel` (replaced in the re-host by `chart_view`) |
+| P6-T12 | `chart_view` (pyqtgraph-default assertion), `lwc_host` (vendored tree/ndt://), `chart.html`, `pytest.ini` (webengine marker), matrix | `main.py` **removed** (entry point already named by the spec; zero decision value) |
+
+Budget exceptions (per the ~8-file rule): **P6-T07 = 9** (XL: four
+control/mirror references + the frozen router table + four shared surfaces +
+matrix) and **P6-T10 = 9** (four overlay families + markers in one approved M
+wave; the family data shapes would otherwise be a silent gap). No pack exceeds
+9. Residual, not fixed here: family-specific pyqtgraph renderers beyond those
+listed (e.g. `vix_overlay`, `session_overlay`) — the data-shape source is in
+the pack; if a worker names one, that is a thinner-than-this-sweep pack, not a
+scope change.
+
 ## Escalations / flags
 
 None. No `routed_to: TASK_MANAGER` open entry (0 open escalations);

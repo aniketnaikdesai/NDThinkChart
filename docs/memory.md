@@ -213,3 +213,8 @@
 **Category:** Locked Decision
 **Finding:** Owner accepted the measured Lightweight Charts size cost: `PyQt6-WebEngine` adds **298,932 KB (~292 MB)** of frameworks, taking the `.app` from **378,400 KB (369.5 MB) to ~661 MB (+79%)** — measured with `du` on the installed frameworks, before PyInstaller packing. The vendored JS tree is only 0.34 MB, so the Chromium engine is the whole cost. Signing remains an obligation rather than a solved item: the spec builds with `codesign_identity=None`, and QtWebEngine's nested Mach-O binaries need nested signing plus hardened-runtime entitlements before any signed distribution.
 **Source:** Owner 2026-10-26 ("yes -- +292 MB acceptable"); Q61, A109, DG89, P6-T12/Q-7 measurements
+
+### [2026-10-26] — verification rule (owner directive)
+**Category:** Technical Note
+**Finding:** A fix is not "done" until the real application has been exercised and the user-facing result inspected. Root-cause analysis + code change + a green unit test has twice been reported as fixed while the app still misbehaved: the LWC chart stayed black after a `HAS_WEBENGINE` probe said the host was fine (the probe never rendered), and the priming loop was "fixed" from a test that never launched the app. For renderer changes, render the real widget and check the pixels/image; for data-path changes, run the app against live TWS and read the status line. Unit tests are the floor, not the proof.
+**Source:** Owner directive 2026-10-26; D47 Q-12/Q-13
