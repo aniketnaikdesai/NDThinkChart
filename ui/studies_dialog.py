@@ -7,6 +7,8 @@ Emits studies_changed(list[dict]) when confirmed.
 from copy import deepcopy
 from typing import List
 
+import math
+
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
@@ -17,6 +19,58 @@ from PyQt6.QtWidgets import (
 
 
 # Default study configuration
+# Documented numeric defaults per study type (mirrors DEFAULT_STUDIES
+# below and data/study_store.sanitize_study_params). Used to restore a
+# sane value when a widget/persisted param is invalid (Q-42).
+_STUDY_NUMERIC_DEFAULTS: dict = {
+    "sma": {"period": 20},
+    "ema": {"period": 9},
+    "ema2": {"period": 21},
+    "bollinger": {"period": 20, "std_dev": 2.0},
+    "rsi": {"period": 14},
+    "macd": {"fast": 12, "slow": 26, "signal": 9},
+}
+
+_PERIOD_KEYS = ("period", "fast", "slow", "signal")
+
+
+def sanitize_study_config(study: dict) -> dict:
+    """Return ``study`` with invalid numeric params restored to their
+    documented defaults (Q-42). Unknown types pass through untouched."""
+    defaults = _STUDY_NUMERIC_DEFAULTS.get(study.get("type", ""))
+    if not defaults:
+        return study
+    params = study.get("params", {})
+    if not isinstance(params, dict):
+        return study
+    for key in _PERIOD_KEYS:
+        if key in defaults and key in params:
+            v = params[key]
+            if isinstance(v, bool):
+                params[key] = defaults[key]
+            elif isinstance(v, int):
+                if v <= 0:
+                    params[key] = defaults[key]
+            elif (isinstance(v, float) and math.isfinite(v)
+                    and v.is_integer() and v > 0):
+                params[key] = int(v)
+            else:
+                params[key] = defaults[key]
+    if "std_dev" in defaults and "std_dev" in params:
+        v = params["std_dev"]
+        if isinstance(v, bool):
+            params["std_dev"] = defaults["std_dev"]
+        else:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                params["std_dev"] = defaults["std_dev"]
+            else:
+                if not math.isfinite(fv) or fv < 0:
+                    params["std_dev"] = defaults["std_dev"]
+                else:
+                    params["std_dev"] = fv
+    return study
 DEFAULT_STUDIES = [
     {"type": "sma",       "label": "SMA",           "enabled": False, "params": {"period": 20,  "source": "close", "color": "#f59e0b"}},
     {"type": "ema",       "label": "EMA",            "enabled": False, "params": {"period": 9,   "source": "close", "color": "#818cf8"}},
@@ -187,6 +241,7 @@ class StudiesDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def _apply(self):
-        configs = [row.get_config() for row in self._rows]
+        configs = [sanitize_study_config(row.get_config())
+                   for row in self._rows]
         self.studies_changed.emit(configs)
         self.accept()

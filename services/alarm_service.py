@@ -4,6 +4,35 @@ from services.volume_baseline import (
     robust_z,
 )
 
+import logging
+import math
+
+_LOG = logging.getLogger(__name__)
+
+
+def _resolve_z_threshold(params: dict) -> float:
+    """Return a finite positive z-threshold, restoring the documented
+    default when the persisted value is missing, non-numeric,
+    non-positive, NaN or infinite (Q-42).
+
+    A NaN/inf threshold would otherwise make the burst alarm silently
+    never fire (``z >= nan`` / ``z >= inf`` is always False), so an
+    invalid config must not pass through.
+    """
+    try:
+        threshold = float(params.get("z_threshold", DEFAULT_Z_THRESHOLD))
+    except (TypeError, ValueError):
+        _LOG.warning("volume_burst alarm has non-numeric z_threshold %r; "
+                     "restoring default %s", params.get("z_threshold"),
+                     DEFAULT_Z_THRESHOLD)
+        return DEFAULT_Z_THRESHOLD
+    if not math.isfinite(threshold) or threshold <= 0:
+        _LOG.warning("volume_burst alarm has invalid z_threshold %r; "
+                     "restoring default %s", params.get("z_threshold"),
+                     DEFAULT_Z_THRESHOLD)
+        return DEFAULT_Z_THRESHOLD
+    return threshold
+
 
 def evaluate_alarms(
     prev_price: float | None,
@@ -65,8 +94,8 @@ def evaluate_volume_burst(
         if not alarm.active or alarm.triggered:
             continue
         try:
-            threshold = float(alarm.params.get("z_threshold", DEFAULT_Z_THRESHOLD))
-        except (TypeError, ValueError):
+            threshold = _resolve_z_threshold(alarm.params)
+        except (TypeError, ValueError, AttributeError):
             threshold = DEFAULT_Z_THRESHOLD
         z = robust_z(volume_per_min, med, mad_value)
         if z >= threshold:

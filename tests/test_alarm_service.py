@@ -1,9 +1,12 @@
 """Tests for services/alarm_service.py — crossing logic."""
 
+import math
+
 import pytest
 
 from data.models import Alarm
-from services.alarm_service import evaluate_alarms
+from services.alarm_service import evaluate_alarms, evaluate_volume_burst
+from services.volume_baseline import DEFAULT_Z_THRESHOLD
 
 
 def make_alarm(price: float, direction: str, active=True, triggered=False) -> Alarm:
@@ -71,3 +74,59 @@ class TestBoundaryAndState:
 
     def test_nonpositive_current_price_returns_empty(self):
         assert evaluate_alarms(5.0, 0.0, [make_alarm(4.0, "cross_either")]) == []
+
+
+def make_burst_alarm(z_threshold, active=True, triggered=False) -> Alarm:
+    return Alarm(id=None, symbol="TEST", price=0.0, direction="cross_above",
+                 active=active, triggered=triggered, kind="volume_burst",
+                 params={"z_threshold": z_threshold})
+
+
+class TestVolumeBurstThreshold:
+    """Q-42: the z_threshold parser restores the documented default for
+    zero/negative/NaN/inf instead of silently never firing."""
+
+    # med=100, mad=10 -> z = 0.6745 * (x - 100) / 10.
+    baseline = (100.0, 10.0, 30, "tod")
+
+    def test_valid_threshold_fires(self):
+        alarm = make_burst_alarm(2.0)
+        # z ~ 2.02 -> at/above 2.0 fires, below the 4.0 default.
+        assert evaluate_volume_burst(130.0, self.baseline, [alarm]) == [alarm]
+
+    def test_default_threshold_does_not_fire_at_z2(self):
+        alarm = Alarm(id=None, symbol="TEST", price=0.0,
+                      direction="cross_above", kind="volume_burst", params={})
+        assert evaluate_volume_burst(130.0, self.baseline, [alarm]) == []
+
+    @pytest.mark.parametrize("bad", [0, 0.0, -1.0, -4,
+                                     float("nan"), float("inf"),
+                                     float("-inf"), "high", None])
+    def test_invalid_threshold_restores_default(self, bad):
+        # z ~ 2.02: would fire for a small/NaN threshold, must not fire
+        # once the invalid value is replaced by the 4.0 default.
+        alarm = make_burst_alarm(bad)
+        assert evaluate_volume_burst(130.0, self.baseline, [alarm]) == []
+        # And a genuine burst (z >> 4) still fires with the restored default.
+        alarm2 = make_burst_alarm(bad)
+        assert evaluate_volume_burst(200.0, self.baseline, [alarm2]) == [alarm2]
+        assert math.isfinite(alarm2.trigger_z)
+
+    def test_nan_threshold_fires_real_burst(self):
+        alarm = make_burst_alarm(float("nan"))
+        assert evaluate_volume_burst(200.0, self.baseline, [alarm]) == [alarm]
+
+    def test_inf_threshold_fires_real_burst(self):
+        alarm = make_burst_alarm(float("inf"))
+        assert evaluate_volume_burst(200.0, self.baseline, [alarm]) == [alarm]
+
+    def test_none_baseline_fires_nothing(self):
+        alarm = make_burst_alarm(0.5)
+        assert evaluate_volume_burst(500.0, None, [alarm]) == []
+
+    def test_inactive_or_triggered_burst_ignored(self):
+        assert evaluate_volume_burst(
+            500.0, self.baseline, [make_burst_alarm(0.5, active=False)]) == []
+        assert evaluate_volume_burst(
+            500.0, self.baseline,
+            [make_burst_alarm(0.5, triggered=True)]) == []

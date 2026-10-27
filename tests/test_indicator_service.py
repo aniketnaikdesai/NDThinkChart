@@ -7,6 +7,7 @@ import pytest
 from services.indicator_service import (
     calculate_sma, calculate_ema, calculate_vwap,
     calculate_bollinger_bands, calculate_rsi, calculate_macd,
+    sma_update, ema_update, bollinger_update, rsi_update, macd_update,
 )
 
 
@@ -128,3 +129,72 @@ class TestMACD:
         macd, signal, hist = calculate_macd(closes, 12, 26, 9)
         assert hist[0] is None
         assert signal[0] is None
+
+
+class TestPeriodValidation:
+    """Q-42: zero/negative/NaN/inf periods fail fast with ValueError."""
+
+    closes = [1.0, 2.0, 3.0, 4.0, 5.0] * 6
+
+    @pytest.mark.parametrize("bad", [0, -1, -20, 0.0, float("nan"),
+                                     float("inf"), float("-inf"),
+                                     "20", None, True])
+    def test_sma_rejects_bad_period(self, bad):
+        with pytest.raises(ValueError):
+            calculate_sma(self.closes, bad)
+
+    @pytest.mark.parametrize("bad", [0, -1, float("nan"), float("inf")])
+    def test_ema_rejects_bad_period(self, bad):
+        with pytest.raises(ValueError):
+            calculate_ema(self.closes, bad)
+
+    @pytest.mark.parametrize("bad", [0, -5, float("nan"), float("inf")])
+    def test_rsi_rejects_bad_period(self, bad):
+        with pytest.raises(ValueError):
+            calculate_rsi(self.closes, bad)
+
+    @pytest.mark.parametrize("bad", [0, -3, float("nan"), float("inf")])
+    def test_bollinger_rejects_bad_period(self, bad):
+        with pytest.raises(ValueError):
+            calculate_bollinger_bands(self.closes, bad, 2.0)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"),
+                                     float("-inf"), -1.0, -2, "x", None])
+    def test_bollinger_rejects_bad_std_dev(self, bad):
+        with pytest.raises(ValueError):
+            calculate_bollinger_bands(self.closes, 5, bad)
+
+    def test_bollinger_zero_std_dev_is_valid(self):
+        upper, mid, lower = calculate_bollinger_bands(self.closes, 5, 0.0)
+        assert upper[4] == mid[4] == lower[4]
+
+    @pytest.mark.parametrize("bad", [0, -1, float("nan"), float("inf")])
+    def test_macd_rejects_bad_periods(self, bad):
+        with pytest.raises(ValueError):
+            calculate_macd(self.closes, bad, 26, 9)
+        with pytest.raises(ValueError):
+            calculate_macd(self.closes, 12, bad, 9)
+        with pytest.raises(ValueError):
+            calculate_macd(self.closes, 12, 26, bad)
+
+    @pytest.mark.parametrize("bad", [0, -2, float("nan"), float("inf")])
+    def test_incremental_updates_reject_bad_period(self, bad):
+        with pytest.raises(ValueError):
+            sma_update({}, 1.0, bad)
+        with pytest.raises(ValueError):
+            ema_update({}, 1.0, bad)
+        with pytest.raises(ValueError):
+            bollinger_update({}, 1.0, bad, 2.0)
+        with pytest.raises(ValueError):
+            rsi_update({}, 1.0, bad)
+        with pytest.raises(ValueError):
+            macd_update({}, 1.0, bad, 26, 9)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -0.5])
+    def test_bollinger_update_rejects_bad_std_dev(self, bad):
+        with pytest.raises(ValueError):
+            bollinger_update({}, 1.0, 5, bad)
+
+    def test_period_one_is_valid(self):
+        assert calculate_sma(self.closes, 1) == list(self.closes)
+        assert sma_update({}, 3.0, 1) == 3.0

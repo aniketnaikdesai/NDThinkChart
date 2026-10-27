@@ -15,6 +15,44 @@ except ImportError:  # pragma: no cover - Python < 3.9 fallback
 
 _EASTERN = ZoneInfo("America/New_York")
 import math
+import operator
+
+
+def _require_positive_int(name: str, value: int) -> int:
+    """Centralized positive-int period validation (Q-42).
+
+    Accepts ints (and integral values exposing ``__index__``); rejects
+    bools, non-integers, NaN/inf floats and anything <= 0 with a clear
+    ``ValueError`` so a bad period fails fast instead of dividing by zero.
+    Returns the value as a plain ``int``.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a positive integer, got {value!r}")
+    try:
+        iv = operator.index(value)
+    except TypeError:
+        raise ValueError(
+            f"{name} must be a positive integer, got {value!r}") from None
+    if iv <= 0:
+        raise ValueError(
+            f"{name} must be a positive integer, got {value!r}")
+    return iv
+
+
+def _require_std_dev(name: str, value: float) -> float:
+    """Centralized std-dev validation: finite and non-negative."""
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a finite non-negative number, "
+                         f"got {value!r}")
+    try:
+        fv = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a finite non-negative number, "
+                         f"got {value!r}") from None
+    if not math.isfinite(fv) or fv < 0:
+        raise ValueError(f"{name} must be a finite non-negative number, "
+                         f"got {value!r}")
+    return fv
 
 
 def _ensure(prices: List[float], period: int) -> bool:
@@ -24,6 +62,7 @@ def _ensure(prices: List[float], period: int) -> bool:
 # ── Simple Moving Average ──────────────────────────────────────────────────────
 
 def calculate_sma(prices: List[float], period: int) -> List[Optional[float]]:
+    period = _require_positive_int("period", period)
     result: List[Optional[float]] = [None] * len(prices)
     for i in range(period - 1, len(prices)):
         result[i] = sum(prices[i - period + 1 : i + 1]) / period
@@ -33,6 +72,7 @@ def calculate_sma(prices: List[float], period: int) -> List[Optional[float]]:
 # ── Exponential Moving Average ─────────────────────────────────────────────────
 
 def calculate_ema(prices: List[float], period: int) -> List[Optional[float]]:
+    period = _require_positive_int("period", period)
     result: List[Optional[float]] = [None] * len(prices)
     if not _ensure(prices, period):
         return result
@@ -91,6 +131,8 @@ def calculate_bollinger_bands(
     prices: List[float], period: int = 20, std_dev: float = 2.0
 ) -> Tuple[List[Optional[float]], List[Optional[float]], List[Optional[float]]]:
     """Returns (upper, middle, lower)."""
+    period = _require_positive_int("period", period)
+    std_dev = _require_std_dev("std_dev", std_dev)
     middle = calculate_sma(prices, period)
     upper: List[Optional[float]] = [None] * len(prices)
     lower: List[Optional[float]] = [None] * len(prices)
@@ -109,6 +151,7 @@ def calculate_bollinger_bands(
 # ── RSI ───────────────────────────────────────────────────────────────────────
 
 def calculate_rsi(prices: List[float], period: int = 14) -> List[Optional[float]]:
+    period = _require_positive_int("period", period)
     result: List[Optional[float]] = [None] * len(prices)
     if len(prices) < period + 1:
         return result
@@ -140,6 +183,7 @@ def calculate_rsi(prices: List[float], period: int = 14) -> List[Optional[float]
 
 def sma_update(state: dict, close: float, period: int) -> Optional[float]:
     """Incremental SMA: O(period) per bar, exact batch match."""
+    period = _require_positive_int("period", period)
     window = state.setdefault("window", [])
     window.append(close)
     if len(window) > period:
@@ -152,6 +196,7 @@ def sma_update(state: dict, close: float, period: int) -> Optional[float]:
 def ema_update(state: dict, close: float, period: int) -> Optional[float]:
     """Incremental EMA: seeds with the SMA of the first ``period`` closes,
     then Wilder-recurses — exact batch match."""
+    period = _require_positive_int("period", period)
     k = 2 / (period + 1)
     if state.get("prev") is None:
         seed = state.setdefault("seed", [])
@@ -187,6 +232,8 @@ def bollinger_update(
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     """Incremental Bollinger Bands — exact batch match. Returns
     (upper, middle, lower)."""
+    period = _require_positive_int("period", period)
+    std_dev = _require_std_dev("std_dev", std_dev)
     window = state.setdefault("window", [])
     window.append(close)
     if len(window) > period:
@@ -205,6 +252,7 @@ def rsi_update(state: dict, close: float, period: int = 14) -> Optional[float]:
     Mirrors ``calculate_rsi`` precisely, including its quirk that the first
     emitted value re-feeds the last seed delta through the Wilder recursion.
     """
+    period = _require_positive_int("period", period)
     prev = state.get("prev_close")
     if prev is None:
         state["prev_close"] = close
@@ -239,6 +287,9 @@ def macd_update(
     signal_period: int = 9,
 ) -> Tuple[Optional[float], Optional[float]]:
     """Incremental MACD — exact batch match. Returns (macd, signal)."""
+    fast = _require_positive_int("fast", fast)
+    slow = _require_positive_int("slow", slow)
+    signal_period = _require_positive_int("signal_period", signal_period)
     f = ema_update(state.setdefault("fast", {}), close, fast)
     s = ema_update(state.setdefault("slow", {}), close, slow)
     if f is None or s is None:
@@ -257,6 +308,9 @@ def calculate_macd(
     signal_period: int = 9,
 ) -> Tuple[List[Optional[float]], List[Optional[float]], List[Optional[float]]]:
     """Returns (macd_line, signal_line, histogram)."""
+    fast = _require_positive_int("fast", fast)
+    slow = _require_positive_int("slow", slow)
+    signal_period = _require_positive_int("signal_period", signal_period)
     ema_fast = calculate_ema(prices, fast)
     ema_slow = calculate_ema(prices, slow)
     macd_line: List[Optional[float]] = []
