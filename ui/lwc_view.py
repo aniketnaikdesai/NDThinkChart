@@ -2909,12 +2909,23 @@ class LwcChartView(QWidget):
                     "QtWebEngine is not available — no host here "
                     "(offscreen CI; engine boxes only)."
                 )
-            self._host = LH.create_host(self._bridge, self)
+            self._host = LH.create_host(self._bridge, self, load=False)
             # Q-19/S3a: give the host the view's rectangle. Without this the
             # page's #chart stayed at the host's default 100x30. Adding the
             # widget here (once, because ensure_host is lazy) also keeps every
             # pop-out correct — each pop-out view owns its own layout.
             self._host_layout.addWidget(self._host)
+            self._host_layout.activate()
+            # Q-23: size the host BEFORE the page boots, so the chart is
+            # created at the view's real rectangle instead of at a zero/
+            # default size (the fit then ran at zero width and collapsed the
+            # series onto one column). A view that has not been laid out yet
+            # keeps the page's own resize/fit retry as the safety net.
+            width = max(0, int(self.width()))
+            height = max(0, int(self.height()))
+            if width > 0 and height > 0:
+                self._host.resize(width, height)
+            self._host.load_chart()
             # Q-19/S3e + Q-20: the page → Python path is already connected in
             # ``__init__`` (the bridge slots need no page); the host's own Esc
             # key handler is the second source of the same round-trip.

@@ -28,6 +28,11 @@
  * - `barSpacing` replaces the density caps (T10 / Q60 YES / A106): the
  *   no-overlap guarantee is restated in `barSpacing` terms (DG94) by
  *   `barGeometry` — gap >= 0 always, gap > 0 whenever the spacing allows.
+ * - layout/fit (Q-23): a fit never runs before the container has a real
+ *   size (a zero width divides to a zero bar pitch and collapses every bar
+ *   onto one column), the chart is resized from the container before the
+ *   first fit, and a series too wide for a readable pitch shows the newest
+ *   window at a comfortable spacing instead of a barcode.
  * - volume pane ceiling (Q-9 / AC-D21.2.1, the D21.2 port): the histogram's
  *   own price scale is priced from the *visible* range —
  *   `maxValue = 1.10 x max(volume of the visible bars)`, the
@@ -184,6 +189,24 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   /* Q-20 probe state: the labels the axis formatter actually produced. */
   var lastTickLabels = [];
 
+  /* Q-23 layout/fit policy. The page boots before the Qt host has a size in
+   * the failure case: a fit then divides by a zero width, the library gets a
+   * zero bar pitch and every bar collapses onto one column (the owner's
+   * full-height stripe field). So: never fit below a real width; resize the
+   * chart from the container first; and when the series is wider than the
+   * readable regime, show the newest window at a comfortable pitch instead
+   * of squeezing thousands of bars into sub-pixel spacing. */
+  var MIN_FIT_WIDTH_PX = 32;      // below this the page is not laid out yet
+  var MIN_FIT_SPACING_PX = 3.0;   // a full fit below this is a barcode
+  var WINDOW_SPACING_PX = 8.0;    // comfortable pitch for the newest window
+  var RIGHT_PADDING_BARS = 2;     // keep the newest bar off the right edge
+  var PRICE_SCALE_ALLOWANCE_PX = 70; // right price scale eats part of the width
+  var MAX_FIT_RETRIES = 100;      // ~10 s of 100 ms deferred fit attempts
+  var chartWidthPx = 0;
+  var chartHeightPx = 0;
+  var fitRetryTimer = null;
+  var fitRetryCount = 0;
+
   var HOLLOW_STYLE = {
     upColor: "rgba(52,211,153,0.05)",
     downColor: "rgba(248,113,113,0.05)",
@@ -272,7 +295,16 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
    * Read fresh on every autoscale, from the visible logical range and the
    * raw volume snapshot — never a cached "max of everything". */
   function currentVolumeRange() {
-    var range = chart ? chart.timeScale().getVisibleLogicalRange() : null;
+    if (!chart) return { minValue: 0, maxValue: VOLUME_NICE_FLOOR };
+    /* Q-23: price the pane from the visible **time** range. The rows carry
+     * real UTC epoch seconds (Q-20), so the logical range (0..N-1) never
+     * intersects a bar and the pane collapsed to the 100 floor — the measured
+     * "floor only" volume range. ``getVisibleRange()`` is the same domain as
+     * ``row.time``. */
+    var scale = chart.timeScale();
+    var range = (typeof scale.getVisibleRange === "function")
+      ? scale.getVisibleRange()
+      : null;
     if (!range) return { minValue: 0, maxValue: VOLUME_NICE_FLOOR };
     return volumeScaleRange(snapshot.volume, range.from, range.to);
   }
@@ -330,7 +362,12 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     }
     var el = document.getElementById("chart");
     chartEl = el;
-    chart = LightweightCharts.createChart(el, {
+    /* Q-23: give the chart real dimensions before the first fit. The host
+     * can boot the page before/while it is sized; a chart created with the
+     * container's current width is either already correct or resized by
+     * ``ensureChartSize`` as soon as the container reports a real size. */
+    var initialSize = containerSize();
+    var chartOptions = {
       layout: { background: { color: "#0d0f14" }, textColor: "#e5e7eb" },
       grid: {
         vertLines: { color: "rgba(148,163,184,0.08)" },
@@ -343,7 +380,14 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
           return tzLabel(t, tzOffset);
         },
       },
-    });
+    };
+    if (initialSize.width >= 1 && initialSize.height >= 1) {
+      chartOptions.width = initialSize.width;
+      chartOptions.height = initialSize.height;
+      chartWidthPx = initialSize.width;
+      chartHeightPx = initialSize.height;
+    }
+    chart = LightweightCharts.createChart(el, chartOptions);
     chart.timeScale().applyOptions({
       tickMarkFormatter: function (t) {
         var label = tzLabel(t, tzOffset);
@@ -390,12 +434,21 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     }
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
     /* The Qt host sizes the page after the first envelope can already have
-     * arrived; re-fit once the container finally has a width. */
+     * arrived; re-fit once the container finally has a width. Q-23: the
+     * callback also resizes the chart from the container, so a host that was
+     * ALREADY sized before this observer attached is covered too (the
+     * observer fires once on attach), and the retry loop covers a page with
+     * no resize event at all. */
     if (typeof ResizeObserver !== "undefined") {
       new ResizeObserver(function () {
-        if (needsFit) fitToWidth();
+        var size = ensureChartSize();
+        if (needsFit && size.width >= MIN_FIT_WIDTH_PX && size.height >= 1) {
+          fitToWidth();
+        }
       }).observe(el);
     }
+    ensureChartSize();
+    if (needsFit) fitToWidth();
     bindKeyboard(el);
     bindChannel();
   }
@@ -459,6 +512,8 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     var logical = (typeof scale.getVisibleLogicalRange === "function")
       ? scale.getVisibleLogicalRange()
       : null;
+    var options = (typeof scale.options === "function") ? scale.options() : null;
+    var size = containerSize();
     var rows = snapshot.candles;
     var first = rows.length ? Number(rows[0].time) : null;
     var last = rows.length ? Number(rows[rows.length - 1].time) : null;
@@ -468,6 +523,16 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       logical: logical
         ? { from: Number(logical.from), to: Number(logical.to) }
         : null,
+      /* Q-23: the real pitch the library is rendering with — the value the
+       * stripe failure drove to 0. */
+      barSpacing: (options && typeof options.barSpacing === "number")
+        ? options.barSpacing
+        : null,
+      chartWidth: chartWidthPx,
+      chartHeight: chartHeightPx,
+      containerWidth: size.width,
+      containerHeight: size.height,
+      needsFit: needsFit,
       firstTime: first,
       lastTime: last,
       firstLabel: first === null ? null : tzLabel(first, tzOffset),
@@ -523,19 +588,96 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     });
   }
 
-  /* Fit the whole series once the container has a real width. `fitContent()`
-   * at width 0 is a no-op: the library later falls back to its default
-   * `barSpacing` and shows only the tail, so the first envelope must be
-   * remembered and fitted after layout (the Qt host can deliver data before
-   * the page viewport has been laid out). */
-  function fitToWidth() {
-    if (!chart) return;
-    if (chartEl && chartEl.clientWidth > 0) {
-      chart.timeScale().fitContent();
-      needsFit = false;
-    } else {
-      needsFit = true;
+  /* The container's real content box. ``clientWidth`` is the normal answer;
+   * a page that has a layout but no client box yet (the host was sized before
+   * the page's stylesheet applied) falls back to the border box. A zero here
+   * means "not laid out" — never a width to fit against. */
+  function containerSize() {
+    var width = 0;
+    var height = 0;
+    if (chartEl) {
+      width = Math.floor(chartEl.clientWidth || 0);
+      height = Math.floor(chartEl.clientHeight || 0);
+      if ((width < 1 || height < 1)
+          && typeof chartEl.getBoundingClientRect === "function") {
+        var rect = chartEl.getBoundingClientRect();
+        width = Math.max(width, Math.floor(rect.width || 0));
+        height = Math.max(height, Math.floor(rect.height || 0));
+      }
     }
+    return { width: width, height: height };
+  }
+
+  /* Q-23: give the chart the container's real dimensions before any fit.
+   * ``createChart`` fixes the canvas size at construction, so a chart built
+   * at 0 width stays 0 wide until this runs. */
+  function ensureChartSize() {
+    var size = containerSize();
+    if (!chart || size.width < 1 || size.height < 1) return size;
+    if (size.width !== chartWidthPx || size.height !== chartHeightPx) {
+      try {
+        chart.resize(size.width, size.height);
+      } catch (err) {
+        return size;
+      }
+      chartWidthPx = size.width;
+      chartHeightPx = size.height;
+    }
+    return size;
+  }
+
+  /* Fit the series once the container has a real size.
+   *
+   * ``fitContent()`` at width 0 is a no-op that leaves the library with a
+   * zero (or default) bar pitch; the later fit then computes
+   * ``barSpacing = width / bars`` from nothing. So a fit is only attempted at
+   * a real width — otherwise the request is remembered and scheduled after
+   * layout. When even a full fit would be unreadable (thousands of bars), the
+   * newest window is shown at a comfortable pitch instead: candles, not a
+   * barcode. */
+  function fitToWidth() {
+    if (!chart) return false;
+    var size = ensureChartSize();
+    if (size.width < MIN_FIT_WIDTH_PX || size.height < 1) {
+      needsFit = true;
+      scheduleFitRetry();
+      return false;
+    }
+    needsFit = false;
+    cancelFitRetry();
+    var total = snapshot.candles.length;
+    var available = size.width - PRICE_SCALE_ALLOWANCE_PX;
+    if (available < 1) available = size.width;
+    if (total > 1 && available / total < MIN_FIT_SPACING_PX) {
+      var visible = Math.max(2, Math.floor(available / WINDOW_SPACING_PX));
+      var to = total - 1 + RIGHT_PADDING_BARS;
+      var from = Math.max(0, total - visible);
+      chart.timeScale().setVisibleLogicalRange({ from: from, to: to });
+    } else {
+      chart.timeScale().fitContent();
+    }
+    return true;
+  }
+
+  /* Q-23: layout can arrive without a resize event (the host was already
+   * sized when the observer attached). A short bounded retry loop covers
+   * that case without polling forever. */
+  function scheduleFitRetry() {
+    if (fitRetryTimer !== null || fitRetryCount >= MAX_FIT_RETRIES) return;
+    fitRetryTimer = window.setTimeout(function () {
+      fitRetryTimer = null;
+      fitRetryCount += 1;
+      if (!needsFit) return;
+      if (!fitToWidth()) scheduleFitRetry();
+    }, 100);
+  }
+
+  function cancelFitRetry() {
+    if (fitRetryTimer !== null) {
+      window.clearTimeout(fitRetryTimer);
+      fitRetryTimer = null;
+    }
+    fitRetryCount = 0;
   }
 
   /* Apply one envelope idempotently; returns { applied, error }.
@@ -646,7 +788,14 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   window.lwDescribeOp = describeOp;
   window.lwApplyMode = applyMode;
   window.lwTzLabel = tzLabel;
-  window.lwBarGeometry = barGeometry;
+  /* Q-23: the geometry probe never throws on a zero pitch — a probe reports
+   * the real state (``null`` = no usable spacing yet) while the pure
+   * ``barGeometry`` keeps its strict contract for the renderer and the node
+   * suite. */
+  window.lwBarGeometry = function (barSpacingPx, floorPx) {
+    if (!(Number(barSpacingPx) > 0)) return null;
+    return barGeometry(Number(barSpacingPx), floorPx);
+  };
   // Probe surface for the volume ceiling (Q-9): the range the pane prices
   // for the current visible logical range, computed exactly as the
   // autoscale provider computes it.
@@ -665,6 +814,16 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   /* Q-20: the page's own answer for the time axis (real dates, rendered tick
    * labels) — the acceptance evidence the count-only test never had. */
   window.lwAxisProbe = axisProbe;
+  /* Q-23: the page's own bitmap, so the acceptance can look at the candles
+   * instead of trusting a count. Returns a composited canvas (or null). */
+  window.lwTakeScreenshot = function () {
+    if (!chart || typeof chart.takeScreenshot !== "function") return null;
+    try {
+      return chart.takeScreenshot();
+    } catch (err) {
+      return null;
+    }
+  };
   window.lwReportKey = reportKey;
   window.lwActiveMode = function () {
     return activeMode;

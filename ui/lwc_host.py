@@ -358,8 +358,13 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
                 "page load finished; waiting for chart.js to call pageReady()"
             )
 
-    def create_host(bridge, parent=None):
-        """Register the scheme/profile wiring and return an ``LwcHost``."""
+    def create_host(bridge, parent=None, load=True):
+        """Register the scheme/profile wiring and return an ``LwcHost``.
+
+        Q-23: ``load=False`` lets the view put the host in its layout (and
+        give it the view's rectangle) before the page boots, so the chart is
+        created at a real size instead of 0x0/100x30.
+        """
         register_ndt_scheme()
         profile = QWebEngineProfile.defaultProfile()
         if profile.urlSchemeHandler(NDT_SCHEME.encode()) is None:
@@ -369,12 +374,13 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
         interceptor = LwcRequestInterceptor(parent)
         profile.setUrlRequestInterceptor(interceptor)
         host = LwcHost(bridge, parent)
-        host.load_chart()
+        if load:
+            host.load_chart()
         return host
 
 else:
 
-    def create_host(bridge, parent=None):  # type: ignore[misc]
+    def create_host(bridge, parent=None, load=True):  # type: ignore[misc]
         """Engine-less stub: raises; engine boxes never reach this branch."""
         raise RuntimeError(
             "QtWebEngine is not available — LwcHost cannot be created "

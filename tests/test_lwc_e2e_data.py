@@ -32,7 +32,9 @@ that re-proves parity-matrix rows 1 (history render, all five modes) and 2
 
 ``@pytest.mark.webengine`` per DG88/AP-P6-4. This is a JavaScript-answer test,
 not a pixel test, so it runs under ``QT_QPA_PLATFORM=offscreen`` (the Q-15
-display limitation applies only to rasterisation).
+display limitation applies only to rasterisation). The single pixel case —
+Q-23's captured-bitmap check — is the exception and is gated by
+``needs_rasteriser``.
 
 **Q-20 — content, not counts.** The count-only cases above passed while the
 time axis read ``01/01 01:29``: the wire carried logical indices and the page
@@ -738,3 +740,256 @@ def test_page_messages_reach_python_signals(app, make_view):
     _wait_until(app, lambda: refused, 5_000,
                 "the page's zoom refusal to reach zoom_refused")
     assert refused == [True]
+
+
+# ── Q-23: the owner's real AAPL history, judged on the page's own bitmap ──
+
+MANUAL_REAL_DATA = (
+    "manual: run this on the owner's box with the AAPL 5-min cache present "
+    "and confirm the chart shows candles (not full-height stripes) — Q-23"
+)
+
+#: Bitmap capture needs a real rasteriser. An offscreen platform runs the page
+#: and answers ``runJavaScript`` for real (every probe below works), but
+#: QtWebEngine never paints there: ``takeScreenshot`` returns a blank canvas
+#: (Q-15). Only the pixel assertions are gated; the probes run everywhere.
+COCOA_BITMAP_COMMAND = (
+    "QT_QPA_PLATFORM=cocoa .venv/bin/python -m pytest "
+    "tests/test_lwc_e2e_data.py::"
+    "test_real_aapl_history_captures_a_readable_candle_field_bitmap -q"
+)
+#: The effective platform after the module-level ``setdefault`` above; an
+#: unset environment is offscreen here.
+_PLATFORM = os.environ.get("QT_QPA_PLATFORM", "").strip().lower()
+needs_rasteriser = pytest.mark.skipif(
+    _PLATFORM in ("", "offscreen", "minimal"),
+    reason=(
+        "QtWebEngine cannot rasterise under an offscreen platform (Q-15): "
+        "takeScreenshot returns a blank canvas, so the bitmap cannot be "
+        "judged here. Run on a display: " + COCOA_BITMAP_COMMAND
+    ),
+)
+
+#: The owner's measured acceptance series: 5,952 AAPL 5-minute bars.
+REAL_SYMBOL = "AAPL"
+REAL_TIMEFRAME = "5 mins"
+REAL_MIN_BARS = 5000
+
+
+def _real_aapl_bars() -> list:
+    """Read the owner's real AAPL 5-min cache (read-only, no store writes).
+
+    Uses a read-only SQLite URI rather than ``BarCache`` so this test never
+    opens the application database for writing and never needs the production
+    opt-in. An absent/corrupt cache yields ``[]`` and the case skips.
+    """
+    import sqlite3
+
+    from config import paths
+
+    db_path = paths.production_db_path()
+    if not db_path.exists():
+        return []
+    try:
+        conn = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT ts, open, high, low, close, volume FROM bars "
+                "WHERE symbol=? AND timeframe=? AND ext_hours=1 "
+                "ORDER BY ts ASC",
+                (REAL_SYMBOL, REAL_TIMEFRAME),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    return [Bar(REAL_SYMBOL, REAL_TIMEFRAME, *row) for row in rows]
+
+
+def _candle_bitmap_stats(image) -> dict:
+    """Count candle-coloured columns and their vertical extents.
+
+    A stripe field paints nearly every column from top to bottom: the body
+    share of the pitch is 65 %, so in a real candle field most columns are
+    background and the coloured ones have varied heights. The price pane is
+    the top 85 % (the volume histogram owns the bottom 15 %).
+    """
+    from PyQt6.QtGui import QImage
+
+    image = image.convertToFormat(QImage.Format.Format_RGB32)
+    width, height = image.width(), image.height()
+    stride = image.bytesPerLine()
+    bits = image.constBits()
+    bits.setsize(image.sizeInBytes())
+    data = bytes(bits)
+    price_bottom = max(1, int(height * 0.85))
+    columns = 0
+    stripes = 0
+    extents: list = []
+    for x in range(width):
+        low = None
+        high = None
+        for y in range(price_bottom):
+            offset = y * stride + x * 4
+            b = data[offset]
+            g = data[offset + 1]
+            r = data[offset + 2]
+            # #34d399 (up) / #f87171 (down), near-exact: antialiased edges
+            # differ enough that only the body interior counts.
+            up = abs(r - 52) < 36 and abs(g - 211) < 36 and abs(b - 153) < 36
+            down = abs(r - 248) < 36 and abs(g - 113) < 36 and abs(b - 113) < 36
+            if not (up or down):
+                continue
+            if low is None or y < low:
+                low = y
+            if high is None or y > high:
+                high = y
+        if low is None:
+            continue
+        columns += 1
+        extent = high - low + 1
+        extents.append(extent)
+        if extent >= 0.8 * price_bottom:
+            stripes += 1
+    return {
+        "width": width,
+        "height": height,
+        "columns": columns,
+        "column_fraction": (columns / width) if width else 0.0,
+        "stripes": stripes,
+        "stripe_fraction": (stripes / width) if width else 0.0,
+        "extents": extents,
+    }
+
+
+def _real_aapl_page(app, make_view) -> tuple:
+    """Load the owner's cached AAPL history into a real, laid-out page (Q-23).
+
+    Shared setup for the two acceptance cases: the probe case reads the page's
+    own answers, the display-only case captures its bitmap. Returns
+    ``(host, expected_bar_count)``; the ``make_view`` fixture keeps the view
+    alive and dismantles it. An absent cache skips both cases.
+    """
+    bars = _real_aapl_bars()
+    if len(bars) < REAL_MIN_BARS:
+        pytest.skip(
+            f"the owner's {REAL_SYMBOL} {REAL_TIMEFRAME} cache is not present "
+            f"here ({len(bars)} bars) — " + MANUAL_REAL_DATA
+        )
+
+    view = make_view()
+    view.resize(1200, 800)
+    _layout_page(view)
+    host = view.ensure_host()
+    _wait_until(app, lambda: view.bridge.is_ready, 30_000,
+                "the page to call bridge.pageReady()")
+
+    view.set_timeframe(REAL_TIMEFRAME)
+    view.update_chart(bars)
+    expected = len(view.plotted_bars)
+    assert expected == len(bars), "the whole cached series must be plotted"
+    _wait_until(app, lambda: len(_candles(host)) == expected, 30_000,
+                "the real AAPL history to cross the transport")
+
+    def probe() -> dict:
+        return _axis(host)
+
+    _wait_until(
+        app,
+        lambda: (probe().get("barSpacing") or 0) > 0
+        and (probe().get("chartWidth") or 0) > 0
+        and probe().get("needsFit") is False,
+        30_000,
+        "the chart to be laid out and fitted at a real width",
+    )
+    return host, expected
+
+
+@pytest.mark.webengine
+@needs_webengine
+def test_real_aapl_history_renders_a_readable_candle_field(app, make_view):
+    """Q-23 acceptance on the owner's real data: the page's own answers.
+
+    Loads the actual AAPL 5-minute cache (5,952 bars) through
+    ``LwcChartView``, waits for layout, then reads the page's own probes: a
+    positive ``barSpacing`` (the measured failure was 0), a narrowed visible
+    window (not thousands of sub-pixel bars) and a real volume ceiling (not
+    the 100 floor). JavaScript answers under offscreen, so this half runs
+    everywhere; only the rasterised bitmap is gated by ``needs_rasteriser``.
+    """
+    host, expected = _real_aapl_page(app, make_view)
+
+    probe_now = _axis(host)
+    assert probe_now["barSpacing"] > 0, (
+        f"barSpacing is {probe_now['barSpacing']!r}: the fit ran at a zero "
+        "width (the Q-23 stripe cause)"
+    )
+    assert probe_now["containerWidth"] > 0
+    assert probe_now["chartWidth"] > 0
+    # A readable newest window: thousands of bars at sub-pixel spacing is a
+    # barcode, so the visible range is narrower than the series.
+    logical = probe_now["logical"]
+    assert logical is not None
+    assert logical["to"] - logical["from"] < expected, probe_now
+
+    volume = _run_js(host, "window.lwVolumeRange()")
+    assert isinstance(volume, dict), volume
+    assert volume["minValue"] == 0
+    assert volume["maxValue"] > 100, (
+        f"lwVolumeRange() still reads the {volume['maxValue']!r} floor: no "
+        "visible bar priced the volume pane"
+    )
+
+
+@pytest.mark.webengine
+@needs_webengine
+@needs_rasteriser
+def test_real_aapl_history_captures_a_readable_candle_field_bitmap(
+        app, make_view, tmp_path):
+    """Q-23's pixel half: the real page renders candles, not stripes.
+
+    Same real cache and transport as the probe case, then a bitmap captured on
+    the page and judged for candle bodies and wicks. Gated on a rasterising
+    platform only (Q-15): the assertions themselves are unchanged, so on a
+    display a stripe field still fails.
+    """
+    import base64
+
+    from PyQt6.QtCore import QByteArray
+    from PyQt6.QtGui import QImage
+
+    host, _expected = _real_aapl_page(app, make_view)
+
+    data_url = _run_js(
+        host,
+        """
+        (function () {
+          if (typeof window.lwTakeScreenshot !== "function") return null;
+          var canvas = window.lwTakeScreenshot();
+          return canvas ? canvas.toDataURL("image/png") : null;
+        })()
+        """,
+        20_000,
+    )
+    assert isinstance(data_url, str) and data_url.startswith(
+        "data:image/png;base64,"), "the page produced no bitmap to judge"
+    image = QImage.fromData(
+        QByteArray(base64.b64decode(data_url.split(",", 1)[1])))
+    assert not image.isNull()
+    shot = tmp_path / "q23_aapl_5min.png"
+    assert image.save(str(shot))
+    stats = _candle_bitmap_stats(image)
+    assert stats["columns"] > 10, f"no candles in the captured bitmap: {stats}"
+    assert stats["column_fraction"] < 0.9, (
+        "nearly every column is candle-coloured — the stripe field is back: "
+        f"{stats}"
+    )
+    assert stats["stripe_fraction"] < 0.05, (
+        "columns run the full price-pane height — full-height stripes, not "
+        f"candles: {stats['stripes']} of {stats['width']} columns ({shot})"
+    )
+    assert len(set(stats["extents"])) > 10, (
+        "every candle column has the same height — not a candle field: "
+        f"{sorted(set(stats['extents']))[:10]} ({shot})"
+    )
+
