@@ -386,7 +386,36 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     if (typeof QWebChannel === "undefined") return; // offscreen/probe: ops via lwApplyOps
     // eslint-disable-next-line no-undef
     new QWebChannel(qt.webChannelTransport, function (channel) {
-      window.lwBridge = channel.objects.lwBridge;
+      var bridge = channel.objects.lwBridge;
+      window.lwBridge = bridge;
+      if (!bridge) return;
+      // Q-19/S3b+S3c: subscribe to the transport. `opsEmitted(dict)` reaches
+      // a JS slot as a Python repr string (`{'v': 1, ...}`), which is not
+      // JSON, so the page listens on `opsJson(str)` — the same envelope,
+      // serialized Python-side. Nothing else calls applyOps in the app.
+      if (bridge.opsJson && typeof bridge.opsJson.connect === "function") {
+        bridge.opsJson.connect(function (payload) {
+          var env;
+          try {
+            env = JSON.parse(payload);
+          } catch (err) {
+            console.error("lwBridge: envelope is not JSON", err);
+            return;
+          }
+          try {
+            var result = applyOps(env);
+            if (result && result.error) {
+              console.warn("lwBridge: envelope rejected:", result.error);
+            }
+          } catch (err) {
+            console.error("lwBridge: applyOps threw", err);
+          }
+        });
+      }
+      // Q-19/S3d: readiness is the page's word. The listener above exists
+      // only now, so the drain/replay cannot race the QWebChannel setup the
+      // way loadFinished did.
+      if (typeof bridge.pageReady === "function") bridge.pageReady();
     });
   }
 

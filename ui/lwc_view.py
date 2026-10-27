@@ -133,7 +133,7 @@ from datetime import datetime, timezone
 from typing import Sequence
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from data.bar_aggregator import TIMEFRAME_SECONDS
 from services import chart_model
@@ -1600,6 +1600,13 @@ class LwcChartView(QWidget):
         self._logical: list = []
         self._cmap = None
         self._host = None
+        # Q-19/S3a: the host was parented to this view but never added to a
+        # layout, so it kept Qt's default widget size (measured 100x30 inside
+        # a 950x850 view). One zero-margin layout owned by the view covers the
+        # main chart and every pop-out (each LWC view builds its own).
+        self._host_layout = QVBoxLayout(self)
+        self._host_layout.setContentsMargins(0, 0, 0, 0)
+        self._host_layout.setSpacing(0)
         # P6-11: the session fan-out reaches drawings through the same
         # ``drawing_overlay.set_data`` entry point the default engine has.
         self._drawing_surface = LwcDrawingSurface(self)
@@ -2477,6 +2484,17 @@ class LwcChartView(QWidget):
                     "(offscreen CI; engine boxes only)."
                 )
             self._host = LH.create_host(self._bridge, self)
+            # Q-19/S3a: give the host the view's rectangle. Without this the
+            # page's #chart stayed at the host's default 100x30. Adding the
+            # widget here (once, because ensure_host is lazy) also keeps every
+            # pop-out correct — each pop-out view owns its own layout.
+            self._host_layout.addWidget(self._host)
+            # Q-19/S3e: the page → Python calls now reach the view's own
+            # controller signal (``focusRoundTrip``). Two sources, one path:
+            # the bridge's ``focusReleased()`` slot (the page's JS call) and
+            # the host's Esc key handler.
+            self._bridge.pageFocusReleased.connect(self.handle_focus_released)
+            self._host.focusReleased.connect(self.handle_focus_released)
         return self._host
 
     # ── P6-11 pop-outs: session surfaces + per-pop-out memory (DG90) ──

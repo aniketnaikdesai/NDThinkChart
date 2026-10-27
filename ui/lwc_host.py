@@ -18,6 +18,10 @@ through a custom ``ndt://`` scheme:
   leaves ``qt`` undefined and ``window.lwBridge`` forever absent. The host
   keeps a strong reference (``self._channel``) and re-attaches the channel
   before every reload, so a renderer restart keeps the handshake;
+* page readiness is the **page's** word (Q-19/S3d): ``loadFinished`` fires
+  before the channel's JS half exists, so ``_on_load_finished`` does not
+  replay. ``chart.js`` calls the bridge's ``pageReady()`` pyqtSlot after it
+  subscribes to ``opsJson``; that slot drains the queue and replays the log.
 * attribution for the vendored tree ships in
   ``chart_assets/lwc/ATTRIBUTION.md`` and is exposed via
   ``attribution_text()``.
@@ -342,8 +346,17 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
             self.load_chart()  # reload into a fresh renderer
 
         def _on_load_finished(self, ok: bool) -> None:
-            if ok:
-                self._bridge.handle_page_ready()
+            if not ok:
+                self._bridge.set_ready(False)
+                return
+            # Q-19/S3d: do NOT call ``handle_page_ready`` here. ``loadFinished``
+            # fires before ``QWebChannel``'s JS half is set up, so a replay
+            # emitted now has no listener and the bars never reach the page.
+            # The page calls the bridge's ``pageReady()`` slot once it has
+            # subscribed to ``opsJson``; that slot owns the drain + replay.
+            _LOG.debug(
+                "page load finished; waiting for chart.js to call pageReady()"
+            )
 
     def create_host(bridge, parent=None):
         """Register the scheme/profile wiring and return an ``LwcHost``."""

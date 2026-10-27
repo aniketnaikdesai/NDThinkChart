@@ -7,7 +7,14 @@ as of P6-12 — the cutover candidate, **declared not shipped**). Rows 1, 2, 4, 
 and 18 are **Done / accepted** as of Q-8, each on the named passing test
 recorded in the Q-8 reconciliation below; rows 1/2/4/5 on
 the same offscreen-parity standard rows 6–17 were accepted on, and row 18 with
-its real-engine interceptor cases executing instead of skipping. **Row 3 is
+its real-engine interceptor cases executing instead of skipping. **Rows 1 and
+2 were re-proven on 2026-10-26 by Q-19**: that Q-8 evidence bypassed the
+transport (envelopes were injected with `window.lwApplyOps`), so it did not
+prove the shipped path. `tests/test_lwc_e2e_data.py` now drives the real view,
+the real `QWebChannel` page and the real `update_chart`, and reads
+`window.lwSnapshot().candles.length` through `runJavaScript` — history in all
+five modes (row 1) and the live forming bar with no history rebuild (row 2).
+**Row 3 is
 Done / accepted as of Q-9**, on the named node suite
 `chart_assets/lwc/volume_scale.test.js` (run by `node --test
 chart_assets/lwc/`): the D21.2/AC-D21.2.1 ceiling — `1.10 ×` the visible max,
@@ -112,6 +119,61 @@ whatever it decided and the `100` floor never applied.
   unaffected.
 - Row 3 moves to **Done / accepted**; no Done row regressed. **19 Done / 0
   Open.**
+
+## Q-19 — real-transport e2e: rows 1 and 2 re-proven (2026-10-26)
+
+The LWC engine rendered a page but received no bars. Five independent causes,
+each sufficient on its own, verified against the tree before fixing:
+
+- **S3a layout.** `ui/lwc_view.py::ensure_host` built the `QWebEngineView`
+  with `parent=self` but never added it to a layout, and neither module had a
+  `resizeEvent`; the host kept Qt's default size. **Measured pre-fix:
+  host 100x30 and `#chart` clientWidth/clientHeight 100x30 inside a 950x850
+  view.** Fix: one zero-margin, zero-spacing `QVBoxLayout` owned by
+  `LwcChartView`, with the host added once in `ensure_host` (every pop-out view
+  owns its own, so the same change covers them). **Measured post-fix: view
+  950x850 → host 950x850 → `#chart` 950x850** (`tests/test_lwc_host_layout.py`).
+- **S3b subscription.** `chart_assets/lwc/chart.js::bindChannel` only assigned
+  `window.lwBridge`; nothing subscribed to a bridge signal, so `applyOps` was
+  reachable only from tests through `window.lwApplyOps`. Fix: inside the
+  `QWebChannel` callback the page connects `opsJson`, `JSON.parse`s +
+  `applyOps`, `console.warn`s a returned error and `console.error`s a throw.
+- **S3c payload.** `LwBridge.opsEmitted(dict)` reaches a JS slot as a Python
+  repr string (`{'v': 1, ...}`), which is not JSON and fails the page's
+  envelope check. Fix: `opsJson = pyqtSignal(str)` emitted beside every
+  `opsEmitted` crossing (flush and replay) with
+  `json.dumps(env, separators=(',', ':'), allow_nan=False)`. **Measured
+  33,000-bar replay on this machine: 1,411,535 bytes / 13.4 ms in
+  `json.dumps` (13.6 ms for the whole `handle_page_ready` replay)** — no
+  chunking or `runJavaScript` fallback needed.
+- **S3d readiness race.** `_on_load_finished` replayed the op log before
+  `QWebChannel`'s JS half existed, so the replay had no listener. Fix:
+  `@pyqtSlot() pageReady` on `LwBridge` owns the drain + replay; the page
+  calls it after subscribing, and `_on_load_finished` no longer replays.
+- **S3e page→Python.** No `pyqtSlot` existed anywhere on the bridge; the
+  page's `focusReleased()` call (the only page→Python call in the JS assets —
+  `chart.js::bindKeyboard` and `interaction.js::releaseFocus` both target it)
+  was silently dropped. Fix: `@pyqtSlot() focusReleased` re-emits
+  `pageFocusReleased`, which the view connects to its existing
+  `handle_focus_released` / `focusRoundTrip` controller signal; the host's Esc
+  signal is connected to the same handler.
+
+**Gate evidence.** `tests/test_lwc_e2e_data.py` — real `LwcChartView`, real
+`ensure_host`, real `update_chart(bars)`, then
+`window.lwSnapshot().candles.length` read through `runJavaScript` and asserted
+equal to the plotted bar count. No `host.resize`, no `lwApplyOps`, no envelope
+captured in Python. It **fails on the pre-Q-19 tree** (the snapshot stays
+empty: no subscription, replay raced the handshake) and passes after the fix.
+It also re-proves row 1 across all five modes (the page reports each mode
+through the transport) and row 2 (an intra-bar tick changes the close with the
+count unchanged; a new period appends exactly one candle).
+`tests/test_lwc_host_layout.py` covers S3a structurally and by measurement.
+`tests/test_lwc_bridge.py` stays green beside them.
+
+Rows 1 and 2 remain **Done / accepted**, now on transport-crossing evidence
+rather than injected envelopes. No row regressed; **19 Done / 0 Open.**
+
+
 
 ### P6-12 — Phase 10 packaging + CI + cutover candidate (2026-10-26)
 

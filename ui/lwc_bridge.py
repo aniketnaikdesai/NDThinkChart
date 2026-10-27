@@ -20,6 +20,13 @@ Behaviour:
 
 * **queue-until-ready** — ops accepted before the page signals ready are
   held in order and drained on ``set_ready(True)``; nothing is dropped.
+  Readiness is the **page's** word (Q-19/S3d): ``chart.js`` calls the
+  ``pageReady()`` slot after its QWebChannel subscription exists, because
+  ``loadFinished`` fires before that subscription and a replay from there had
+  no listener.
+* **two payloads per crossing** — ``opsEmitted(dict)`` for Python consumers
+  and ``opsJson(str)`` for the page (Q-19/S3c: a dict reaches a JS slot as a
+  Python ``repr``, not JSON). The JSON is compact and ``allow_nan=False``.
 * **~33 ms live coalesce** — consecutive ``update_bar`` ops for the same
   (series, ts) merge with last-tick-wins while the coalesce window is open,
   so a tick storm crosses at most once per window. ``flush()`` is explicit
@@ -37,7 +44,9 @@ Mirroring convention follows ``ibkr/bridge.py::IBBridge`` (Qt signals on a
 (``apply_ops_to_bars`` here == ``mergeRows`` there).
 """
 
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer, QCoreApplication
+import json
+
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer, QCoreApplication
 
 #: Envelope version pinned for this wave. The JS side rejects anything else.
 ENVELOPE_VERSION = 1
@@ -180,9 +189,25 @@ class LwBridge(QObject):
     """
 
     #: Emitted once per crossing with the full ``{"v": 1, "ops": [...]}`` dict.
+    #: Python consumers keep this shape. A JS slot connected to it receives a
+    #: Python ``repr`` string (``"{'v': 1, ...}"``), which is **not** JSON —
+    #: that is why the page subscribes to :attr:`opsJson` instead.
     opsEmitted = pyqtSignal(dict)
+    #: The same envelope as compact JSON (Q-19/S3c). Emitted beside every
+    #: ``opsEmitted`` crossing (flush + replay); ``allow_nan=False`` makes a
+    #: non-finite price fail loudly here rather than silently in the page.
+    #: Measured 33k-bar replay on this machine (2026-10-26): **1,411,535 bytes
+    #: / 13.4 ms** in ``json.dumps`` (13.6 ms for the whole
+    #: ``handle_page_ready`` replay) — no chunking or ``runJavaScript``
+    #: fallback is needed at that size.
+    opsJson = pyqtSignal(str)
     #: Emitted after a render-process recovery replay (count of ops replayed).
     replayFinished = pyqtSignal(int)
+    #: Page → Python focus hand-back (Q-19/S3e): the page's ``focusReleased()``
+    #: pyqtSlot below re-emits this so the view's ``handle_focus_released``
+    #: (and its ``focusRoundTrip`` controller signal) runs. A signal cannot
+    #: share the slot's name, hence the distinct spelling.
+    pageFocusReleased = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -269,10 +294,45 @@ class LwBridge(QObject):
         if not staged:
             return None
         env = {"v": ENVELOPE_VERSION, "ops": staged}
-        self.opsEmitted.emit(env)
+        self._emit(env)
         self._counters["emitted"] += len(staged)
         self._counters["emissions"] += 1
         return env
+
+    def _emit(self, env: dict) -> None:
+        """Emit one envelope on both channels (dict + compact JSON string).
+
+        Centralised so the flush crossing and the replay crossing can never
+        diverge: ``opsJson`` is emitted beside every ``opsEmitted`` (Q-19/S3c).
+        ``allow_nan=False`` turns a NaN/inf into a ``ValueError`` here — loud
+        at the boundary — instead of producing text the page's envelope check
+        silently rejects.
+        """
+        payload = json.dumps(env, separators=(",", ":"), allow_nan=False)
+        self.opsEmitted.emit(env)
+        self.opsJson.emit(payload)
+
+    # ── page → Python slots (Q-19/S3d/S3e) ─────────────────────────────
+
+    @pyqtSlot()
+    def pageReady(self) -> None:
+        """The page's QWebChannel half is subscribed; drain and replay now.
+
+        ``QWebEngineView.loadFinished`` fires before ``QWebChannel``'s JS
+        setup completes, so replaying from :meth:`_on_load_finished` raced an
+        absent listener and the bars never reached the page (S3d). Readiness
+        is the page's word: ``chart_assets/lwc/chart.js`` calls this slot
+        *after* connecting :attr:`opsJson` and before anything else.
+
+        Idempotent in the same way :meth:`handle_page_ready` is — a second
+        call replays the same log again, which the page applies idempotently.
+        """
+        self.handle_page_ready()
+
+    @pyqtSlot()
+    def focusReleased(self) -> None:
+        """JS slot: the page's Esc blur hands focus back to the Qt chain."""
+        self.pageFocusReleased.emit()
 
     # ── recovery / replay ──────────────────────────────────────────────
 
@@ -297,7 +357,7 @@ class LwBridge(QObject):
         envelopes = [pending] if pending else []
         if self._op_log:
             env = {"v": ENVELOPE_VERSION, "ops": list(self._op_log)}
-            self.opsEmitted.emit(env)
+            self._emit(env)
             self._counters["emitted"] += len(self._op_log)
             self._counters["emissions"] += 1
             self._counters["replays"] += 1
