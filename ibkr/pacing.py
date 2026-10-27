@@ -42,14 +42,44 @@ class PacingManager:
         # the issuer defers instead of bursting a whole wave synchronously.
         self._last_hist_time = 0.0
 
-    def throttle(self):
+    def request_wait_seconds(self) -> float:
+        """Seconds until the next generic request may issue; 0.0 = now.
+
+        Covers the minimum-interval gate (``1 / MAX_REQ_PER_SEC``) shared by
+        the live market-data paths (reqMktData, reqContractDetails,
+        reqMatchingSymbols). Pure and non-blocking: never sleeps. The lock
+        is held only around the timestamp bookkeeping.
+        """
         with self._lock:
             now = time.time()
             elapsed = now - self._last_req_time
-            if elapsed < self._min_interval:
-                sleep_time = self._min_interval - elapsed
-                time.sleep(sleep_time)
+            return max(0.0, self._min_interval - elapsed)
+
+    def record_request_slot(self) -> None:
+        """Stamp the minimum-interval clock after a request was issued.
+
+        Call only after the request was actually sent, mirroring
+        ``record_historical_slot`` / ``record_realtime_slot``. Lock held
+        only for bookkeeping.
+        """
+        with self._lock:
             self._last_req_time = time.time()
+
+    def throttle(self):
+        """Non-blocking minimum-interval gate (D28.1 / Q-41).
+
+        Never sleeps: when the minimum interval has not elapsed since the
+        last request, raises ``PacingExceeded`` carrying the seconds the
+        caller must wait before retrying. Callers defer via
+        ``QTimer.singleShot`` / existing timer paths (never ``time.sleep``
+        on the GUI thread). On success stamps the interval clock and
+        returns. The lock is held only around timestamp bookkeeping and
+        is never held across the wait.
+        """
+        wait = self.request_wait_seconds()
+        if wait > 0:
+            raise PacingExceeded(wait)
+        self.record_request_slot()
 
     def _expire_rt_slots(self, now: float) -> None:
         """Drop slots older than the rolling window. Caller must hold the lock."""

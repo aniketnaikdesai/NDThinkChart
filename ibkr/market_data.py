@@ -93,6 +93,11 @@ class MarketDataManager:
         generic_ticks: comma-joined generic tick list for the S0 substrate
         (D37), e.g. "225" (auction) — "" preserves the legacy plain tick
         subscription used by the watchlist.
+
+        Q-41 / D28.1: never sleeps. When the minimum-interval budget is
+        exhausted ``pacing_manager.throttle()`` raises PacingExceeded with
+        the seconds to wait; the caller defers via QTimer.singleShot and
+        retries (same wait/defer contract as historical requests).
         """
         self._require_api_ready()
         req_id = id_manager.get_id()
@@ -110,7 +115,12 @@ class MarketDataManager:
             pass
 
     def req_contract_details(self, contract: Contract) -> int:
-        """Request contract details for a contract. Returns the reqId."""
+        """Request contract details for a contract. Returns the reqId.
+
+        Q-41 / D28.1: never sleeps — pacing-limited calls raise
+        PacingExceeded (defer via QTimer.singleShot), same wait/defer
+        contract as historical requests.
+        """
         self._require_api_ready()
         req_id = id_manager.get_id()
         pacing_manager.throttle()
@@ -124,6 +134,10 @@ class MarketDataManager:
         ContractDescriptions). Paced like any other request — the
         debounce in SymbolSearchService keeps the rate at ≤1 per ~300ms
         of typing.
+
+        Q-41 / D28.1: never sleeps — pacing-limited calls raise
+        PacingExceeded (defer via QTimer.singleShot), same wait/defer
+        contract as historical requests.
         """
         self._require_api_ready()
         req_id = id_manager.get_id()

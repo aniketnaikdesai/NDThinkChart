@@ -12,6 +12,7 @@ from PyQt6.QtTest import QTest
 
 from ibkr import pacing as pacing_mod
 from ibkr.pacing import PacingExceeded, PacingManager
+from ibkr.market_data import MarketDataManager
 from ibkr.realtime_bars import RealtimeBarsManager
 
 
@@ -55,6 +56,24 @@ class _FakeClient:
 
     def cancelRealTimeBars(self, reqId):
         pass
+
+
+class _FakeMdClient:
+    """Fake wire client for the three live MarketDataManager paths."""
+
+    def __init__(self):
+        self.mkt_data: list = []
+        self.contract_details: list = []
+        self.matching_symbols: list = []
+
+    def reqMktData(self, reqId, *a, **k):
+        self.mkt_data.append(reqId)
+
+    def reqContractDetails(self, reqId, *a, **k):
+        self.contract_details.append(reqId)
+
+    def reqMatchingSymbols(self, reqId, *a, **k):
+        self.matching_symbols.append(reqId)
 
 
 def test_realtime_wait_zero_when_budget_free():
@@ -154,3 +173,109 @@ def test_replay_all_defers_without_partial_reissue(monkeypatch, qapp):
             "deferred replay must reissue each subscription exactly once"
     finally:
         win.close()
+
+
+# Q-41: the live/contract/search paths must not sleep the calling thread.
+# A throttled call raises PacingExceeded (defer via singleShot) and the
+# pacing lock is never held across the wait.
+
+
+def _throttle_singleton(monkeypatch):
+    """Force the singleton into the throttled state; return GUI-sleep capture."""
+    sleeps = _capture_gui_sleeps(monkeypatch)
+    pacing_mod.pacing_manager._last_req_time = time.time()
+    return sleeps
+
+
+def test_throttle_raises_without_sleep_and_frees_lock(monkeypatch):
+    """Q-41: throttle() raises PacingExceeded, never sleeps, lock stays free."""
+    sleeps = _capture_gui_sleeps(monkeypatch)
+    pm = PacingManager()
+    pm._last_req_time = time.time()
+    assert pm.request_wait_seconds() > 0
+    # A sleep that ran while the pacing lock was held could not re-acquire
+    # it; record whether the lock is free wherever a sleep is attempted.
+    lock_free_at_sleep: list[bool] = []
+
+    def _spy_sleep(seconds: float) -> None:
+        got = pm._lock.acquire(blocking=False)
+        lock_free_at_sleep.append(got)
+        if got:
+            pm._lock.release()
+
+    monkeypatch.setattr(time, "sleep", _spy_sleep)
+    with pytest.raises(PacingExceeded) as excinfo:
+        pm.throttle()
+    assert excinfo.value.wait_seconds > 0
+    assert lock_free_at_sleep == [], \
+        "throttle must not sleep at all — the wait is reported, not waited"
+    assert sleeps == []
+    # The lock must not be held across the wait: free immediately after raise.
+    assert pm._lock.acquire(blocking=False), \
+        "pacing lock held across the wait"
+    pm._lock.release()
+
+
+def test_throttle_success_stamps_interval_gate(monkeypatch):
+    """Q-41: a free throttle() succeeds and stamps; the next one raises."""
+    _capture_gui_sleeps(monkeypatch)
+    pm = PacingManager()
+    assert pm.request_wait_seconds() == 0.0
+    pm.throttle()  # success path stamps the interval clock
+    assert pm.request_wait_seconds() > 0
+    with pytest.raises(PacingExceeded):
+        pm.throttle()
+    # Recording after an actual issue re-arms the gate the same way.
+    pm._last_req_time = 0.0
+    assert pm.request_wait_seconds() == 0.0
+    pm.record_request_slot()
+    assert pm.request_wait_seconds() > 0
+
+
+def _call_live_path(mgr: MarketDataManager, which: str):
+    if which == "mkt_data":
+        return mgr.req_mkt_data(object())
+    if which == "contract_details":
+        return mgr.req_contract_details(object())
+    assert which == "matching_symbols"
+    return mgr.req_matching_symbols("AAPL")
+
+
+@pytest.mark.parametrize(
+    "which,issued_attr",
+    [
+        ("mkt_data", "mkt_data"),
+        ("contract_details", "contract_details"),
+        ("matching_symbols", "matching_symbols"),
+    ],
+)
+def test_live_paths_raise_without_sleeping_caller(
+    monkeypatch, which, issued_attr
+):
+    """Q-41: throttled live/contract/search calls raise instead of sleeping."""
+    sleeps = _throttle_singleton(monkeypatch)
+    fake = _FakeMdClient()
+    mgr = MarketDataManager(fake)
+    with pytest.raises(PacingExceeded) as excinfo:
+        _call_live_path(mgr, which)
+    assert excinfo.value.wait_seconds > 0
+    assert getattr(fake, issued_attr) == [], \
+        "no request may be issued while pacing-limited"
+    assert sleeps == [], "pacing must never sleep the calling thread"
+    assert pacing_mod.pacing_manager._lock.acquire(blocking=False), \
+        "pacing lock held across the wait"
+    pacing_mod.pacing_manager._lock.release()
+
+
+def test_live_paths_succeed_when_interval_free(monkeypatch):
+    """Q-41: free live/contract/search calls issue exactly once, no sleep."""
+    sleeps = _capture_gui_sleeps(monkeypatch)
+    fake = _FakeMdClient()
+    mgr = MarketDataManager(fake)
+    assert mgr.req_mkt_data(object()) is not None
+    pacing_mod.pacing_manager._last_req_time = 0.0
+    assert mgr.req_contract_details(object()) is not None
+    pacing_mod.pacing_manager._last_req_time = 0.0
+    assert mgr.req_matching_symbols("AAPL") is not None
+    assert fake.mkt_data and fake.contract_details and fake.matching_symbols
+    assert sleeps == []
