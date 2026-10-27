@@ -88,6 +88,12 @@ LIVE_OPS = frozenset({"update_bar"})
 #: Series the bridge knows. Anything else is rejected at the boundary.
 KNOWN_SERIES = frozenset({"candles", "volume"})
 
+#: Non-bar channels carried on their own ``channelOpsJson`` envelopes
+#: (Q-31). Each channel is an independent replace-all log: bars stay on the
+#: pinned ``opsJson`` transport, everything else crosses here.
+CHANNELS = ("studies", "interaction", "alarms", "drawings", "overlays",
+            "markers")
+
 _CANDLE_COLS = ("ts", "open", "high", "low", "close")
 _VOLUME_COLS = ("ts", "value")
 
@@ -237,6 +243,11 @@ class LwBridge(QObject):
     #: ``handle_page_ready`` replay) — no chunking or ``runJavaScript``
     #: fallback is needed at that size.
     opsJson = pyqtSignal(str)
+    #: One non-bar channel envelope as compact JSON (Q-31):
+    #: ``{"v": 1, "channel": <name>, "ops": [...]}``. Emitted beside every
+    #: accepted channel crossing (immediate while ready, on replay after a
+    #: page-ready/recovery). ``allow_nan=False`` fails loudly here.
+    channelOpsJson = pyqtSignal(str)
     #: Emitted after a render-process recovery replay (count of ops replayed).
     replayFinished = pyqtSignal(int)
     #: Page → Python focus hand-back (Q-19/S3e): the page's ``focusReleased()``
@@ -272,7 +283,15 @@ class LwBridge(QObject):
             "emissions": 0,
             "replays": 0,
             "queue_depth_max": 0,
+            "channel_received": 0,
+            "channel_emitted": 0,
+            "channel_replays": 0,
         }
+        # Q-31: per-channel op logs (replay source) and the not-ready queue.
+        # Kept separate from the bar `_op_log`/`_queued`/`_stage`: the bar
+        # validators only accept candles/volume column ops.
+        self._channel_logs: dict = {name: [] for name in CHANNELS}
+        self._channel_queue: list = []  # [(channel, ops)] while not ready
         self._timer: QTimer | None = None
 
     # ── readiness / queue-until-ready ──────────────────────────────────
@@ -287,6 +306,9 @@ class LwBridge(QObject):
         if self._ready and self._queued:
             held, self._queued = self._queued, []
             self._stage(held)
+        # Channel ops queued while not ready are covered by the full-log
+        # replay in ``handle_page_ready`` (the page-ready transition), so
+        # nothing is emitted twice here.
 
     # ── send path ──────────────────────────────────────────────────────
 
@@ -359,6 +381,53 @@ class LwBridge(QObject):
         payload = json.dumps(env, separators=(",", ":"), allow_nan=False)
         self.opsEmitted.emit(env)
         self.opsJson.emit(payload)
+
+    # ── non-bar channels (Q-31) ────────────────────────────────────────
+
+    def send_channel(self, channel: str, ops: list) -> None:
+        """Accept ``ops`` for one non-bar channel.
+
+        Every op is logged per channel (the replay source, replace-all by
+        contract), queued in order while the page is not ready, and emitted
+        immediately once it is. Unknown channels and non-dict ops raise at
+        this boundary; a non-finite number raises inside ``json.dumps``
+        (``allow_nan=False``) before anything is emitted. Bars keep their
+        own :meth:`send_ops` path — these ops never touch it.
+        """
+        if channel not in CHANNELS:
+            raise ValueError(f"unknown channel: {channel!r}")
+        batch = list(ops or [])
+        for op in batch:
+            if not isinstance(op, dict):
+                raise ValueError(
+                    f"channel op must be a dict, got {type(op).__name__}")
+        if not batch:
+            return
+        # Encode eagerly so a NaN/inf fails here even while queued, not on
+        # the replay path later.
+        self._encode_channel(channel, batch)
+        self._channel_logs[channel].extend(batch)
+        self._counters["channel_received"] += len(batch)
+        if not self._ready:
+            self._channel_queue.append((channel, batch))
+            return
+        self._emit_channel(channel, batch)
+
+    @staticmethod
+    def _encode_channel(channel: str, ops: list) -> str:
+        """Serialize one channel envelope (raises on NaN/inf or bad shapes)."""
+        return json.dumps(
+            {"v": ENVELOPE_VERSION, "channel": channel, "ops": list(ops)},
+            separators=(",", ":"), allow_nan=False)
+
+    def _emit_channel(self, channel: str, ops: list) -> dict:
+        """Emit one channel envelope and count the ops carried."""
+        payload = self._encode_channel(channel, ops)
+        env = {"v": ENVELOPE_VERSION, "channel": channel,
+               "ops": list(ops)}
+        self.channelOpsJson.emit(payload)
+        self._counters["channel_emitted"] += len(ops)
+        return env
 
     # ── page → Python slots (Q-19/S3d/S3e) ─────────────────────────────
 
@@ -469,6 +538,7 @@ class LwBridge(QObject):
         self.set_ready(True)
         pending = self.flush()  # drain anything staged before the crash first
         envelopes = [pending] if pending else []
+        bar_env = None
         if self._op_log:
             env = {"v": ENVELOPE_VERSION, "ops": list(self._op_log)}
             self._emit(env)
@@ -477,8 +547,30 @@ class LwBridge(QObject):
             self._counters["replays"] += 1
             self.replayFinished.emit(len(self._op_log))
             envelopes.append(env)
-            return env
+            bar_env = env
+        # Q-31: after the bar replay, replay every non-bar channel's full
+        # log. These envelopes are replace-all by contract, so a repeat is
+        # idempotent — the same guarantee the bar replay has.
+        self._replay_channels()
+        if bar_env is not None:
+            return bar_env
         return envelopes[0] if envelopes else None
+
+    def _replay_channels(self) -> None:
+        """Replay every channel's full log; count one replay per channel.
+
+        The log is the single replay source, so anything held in
+        ``_channel_queue`` is already covered by it — the queue is dropped
+        rather than drained, which is what keeps a page-ready transition from
+        emitting the same ops twice.
+        """
+        self._channel_queue.clear()
+        for channel in CHANNELS:
+            ops = self._channel_logs.get(channel) or []
+            if not ops:
+                continue
+            self._emit_channel(channel, ops)
+            self._counters["channel_replays"] += 1
 
     # ── backpressure counters (instrumented from day one) ───────────────
 

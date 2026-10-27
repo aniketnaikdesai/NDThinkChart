@@ -754,8 +754,12 @@
 
   function makePrimitive() {
     return {
+      /* LWC 5.x: ``renderer`` is a method, not the renderer object (see the
+       * same fix in primitives.js). */
       paneViews: function () {
-        return [{ renderer: renderer }];
+        return [{
+          renderer: function () { return renderer; },
+        }];
       },
       updateAllViews: function () {},
       attached: function () {},

@@ -993,3 +993,107 @@ def test_real_aapl_history_captures_a_readable_candle_field_bitmap(
         f"{sorted(set(stats['extents']))[:10]} ({shot})"
     )
 
+
+
+# ---------------------------------------------------------------------------
+# Q-31 — the non-bar channels cross the *real* transport
+#
+# Before Q-31 the page loaded only chart.js: ``alarms.js`` / ``primitives.js``
+# / ``overlays.js`` / ``studies.js`` / ``interaction.js`` never ran, and the
+# view's five channel signals had no consumer, so nothing but bars ever
+# reached the page. These cases drive the real view and read the page's own
+# module state back — the assertion that would have caught both a missing
+# script tag and an envelope the module validators reject.
+# ---------------------------------------------------------------------------
+
+
+def _channel_view(make_view, bars):
+    view = make_view()
+    view.set_symbol("AAPL")
+    view.set_timeframe("5 mins")
+    view.ensure_host()
+    _layout_page(view)
+    _pump(APP, 3000)
+    view.update_chart(bars)
+    _pump(APP, 600)
+    return view
+
+
+def test_the_page_loads_every_channel_module(qapp, make_view):
+    """All five modules are present in the loaded page, not merely on disk."""
+    bars = _two_session_bars()
+    view = _channel_view(make_view, bars)
+    host = view._host
+    modules = _run_js(host, "window.lwModules ? window.lwModules() : null")
+    assert isinstance(modules, dict), "the page exposes no module probe"
+    assert modules == {
+        "interaction": True, "alarms": True, "primitives": True,
+        "overlays": True, "studies": True,
+    }, modules
+    handles = _run_js(host, "Object.keys(window.lwHandles())")
+    assert "chart" in handles and "price" in handles, handles
+
+
+def test_alarm_preview_crosses_and_the_page_draws_it(qapp, make_view):
+    """``show_alarm_preview`` → bridge channel → the page's own price line.
+
+    The pre-Q-31 tree never emitted the channel at all; a channel emitted with
+    the transport's ``channel`` key still fails here, because every module
+    validator accepts exactly ``{v, ops}``.
+    """
+    bars = _two_session_bars()
+    view = _channel_view(make_view, bars)
+    host = view._host
+
+    view.show_alarm_preview(123.45)
+    _pump(APP, 700)
+    preview = _run_js(host, "window.LwAlarms.snapshot().preview")
+    assert isinstance(preview, dict), "the page drew no alarm preview line"
+    assert float(preview["price"]) == 123.45
+
+    view.hide_alarm_preview()
+    _pump(APP, 500)
+    assert _run_js(host, "window.LwAlarms.snapshot().preview") is None
+
+
+def test_drawings_channel_renders_real_records(qapp, make_view):
+    """A stored ``Drawing`` reaches the page's render plan.
+
+    Uses the model objects the session fans out (``drawing_op`` reads
+    attributes, not dict keys), so this fails if the wire ever carries the
+    record instead of the validated item.
+    """
+    from data.models import Drawing
+
+    bars = _two_session_bars()
+    view = _channel_view(make_view, bars)
+    host = view._host
+    start = bars[0].ts
+
+    view.set_drawings([
+        Drawing(symbol="AAPL", kind="horizontal", payload={"y": 120.5}, id=7),
+        Drawing(symbol="AAPL", kind="trendline",
+                payload={"p1": {"x": start + 300, "y": 104.0},
+                         "p2": {"x": start + 3000, "y": 110.0}}, id=8),
+    ])
+    _pump(APP, 800)
+    assert len(view.drawing_items) == 2
+    assert _run_js(host, "window.LwPrimitives.snapshot().items.length") == 2
+    plan = _run_js(host, "window.LwPrimitives.snapshot().plan")
+    assert isinstance(plan, dict) and plan["hlines"], plan
+
+
+def test_the_uploaded_router_state_follows_python(qapp, make_view):
+    """The interaction channel carries the frozen router's mode to the page."""
+    bars = _two_session_bars()
+    view = _channel_view(make_view, bars)
+    host = view._host
+
+    view.set_alarm_mode(True)
+    _pump(APP, 500)
+    state = _run_js(host, "window.lwRouterState()")
+    assert state["mode"] == "ALARM_PLACING", state
+
+    view.set_alarm_mode(False)
+    _pump(APP, 400)
+    assert _run_js(host, "window.lwRouterState()")["mode"] == "IDLE"

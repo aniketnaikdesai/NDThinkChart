@@ -189,6 +189,12 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   /* Q-20 probe state: the labels the axis formatter actually produced. */
   var lastTickLabels = [];
 
+  /* Q-31: the five non-bar channel modules, bound to this page's live
+   * handles. A module that is not loaded warns once and never throws. */
+  var moduleWarnings = {};
+  var boundPriceHandle = null;
+  var routerState = { mode: "IDLE", tool: "none" };
+
   /* Q-23 layout/fit policy. The page boots before the Qt host has a size in
    * the failure case: a fit then divides by a zero width, the library gets a
    * zero bar pitch and every bar collapses onto one column (the owner's
@@ -329,7 +335,126 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       var target = mode === "line" ? lineSeries : areaSeries;
       if (target) target.setData(rows);
     }
+    bindPriceModules(false);
     return activeMode;
+  }
+
+  /* ── Q-31: non-bar channel modules ───────────────────────────────────
+   *
+   * `chart.html` loads the five UMD modules before this file. They are
+   * bound to the live handles here: studies take the chart, alarms /
+   * primitives / overlays take (chart, visible price series). A missing
+   * global is reported once and never thrown. */
+
+  function moduleHandle(name) {
+    if (typeof window === "undefined") return null;
+    return window[name] || null;
+  }
+
+  function warnModule(name) {
+    if (moduleWarnings[name]) return;
+    moduleWarnings[name] = true;
+    if (typeof console !== "undefined") {
+      console.warn("lwBridge: " + name + " is not loaded");
+    }
+  }
+
+  function bindOne(name, args) {
+    var mod = moduleHandle(name);
+    if (!mod || typeof mod.bind !== "function") {
+      warnModule(name);
+      return false;
+    }
+    try {
+      mod.bind.apply(mod, args);
+      return true;
+    } catch (err) {
+      warnModule(name);
+      return false;
+    }
+  }
+
+  /* Price-line / primitive / overlay modules follow the *visible* series
+   * (candles/hollow/heikin share the candle handle; line/area their own).
+   * Re-bind only when that handle actually changed. */
+  function bindPriceModules(force) {
+    if (!chart) return;
+    var price = seriesFor(activeMode);
+    if (!force && price === boundPriceHandle) return;
+    boundPriceHandle = price;
+    bindOne("LwAlarms", [chart, price]);
+    bindOne("LwPrimitives", [chart, price]);
+    bindOne("LwOverlays", [chart, price]);
+  }
+
+  function bindModules() {
+    if (!chart) return false;
+    bindOne("LwStudies", [chart]);
+    bindPriceModules(true);
+    return true;
+  }
+
+  /* Apply one channel envelope. Returns `{applied, error}` and never throws
+   * to the bridge. Studies take (chart, env) — the module's own signature;
+   * alarms / primitives / overlays take (chart, price, env). Markers live
+   * in overlays.js under MARKER_CHANNEL, so they share that dispatcher. */
+  function applyChannel(channel, env) {
+    try {
+      if (!env || typeof env !== "object" || !env.ops ||
+          Object.prototype.toString.call(env.ops) !== "[object Array]") {
+        return { applied: 0, error: "invalid channel envelope" };
+      }
+      var ops = env.ops;
+      if (channel === "interaction") {
+        /* Transport foundation only: record the router mode/tool the Python
+         * router published; gestures land in the next task. */
+        for (var i = 0; i < ops.length; i++) {
+          var op = ops[i] || {};
+          if (op.op === "reset_view") {
+            routerState.mode = "IDLE";
+            routerState.tool = "cursor";
+          }
+          if (typeof op.mode === "string") routerState.mode = op.mode;
+          if (typeof op.tool === "string") {
+            routerState.tool = op.tool;
+          } else if (op.intent === "enter_zoom") {
+            routerState.tool = "zoom";
+          } else if (op.intent === "exit_to_idle"
+                     || op.intent === "symbol_change") {
+            routerState.tool = "cursor";
+          }
+        }
+        return { applied: ops.length, error: null };
+      }
+      var name;
+      if (channel === "studies") name = "LwStudies";
+      else if (channel === "alarms") name = "LwAlarms";
+      else if (channel === "drawings") name = "LwPrimitives";
+      else if (channel === "overlays" || channel === "markers") name = "LwOverlays";
+      else return { applied: 0, error: "unknown channel: " + channel };
+
+      if (!chart) return { applied: 0, error: "no chart handle" };
+      var mod = moduleHandle(name);
+      if (!mod || typeof mod.applyOps !== "function") {
+        warnModule(name);
+        return { applied: 0, error: name + " is not loaded" };
+      }
+      /* Every module validator (pinned by its own node suite) accepts exactly
+       * ``{v, ops}``. ``channel`` is transport metadata — the page already
+       * routed on it — so it is stripped here rather than widened in six
+       * validators. Without this the modules reject every real envelope with
+       * "envelope must be exactly {v, ops}" and nothing renders. */
+      var moduleEnv = { v: env.v, ops: ops };
+      var result = channel === "studies"
+        ? mod.applyOps(chart, moduleEnv)
+        : mod.applyOps(chart, seriesFor(activeMode), moduleEnv);
+      return result || { applied: 0, error: null };
+    } catch (err) {
+      if (typeof console !== "undefined") {
+        console.warn("lwBridge: applyChannel(" + channel + ") threw", err);
+      }
+      return { applied: 0, error: String((err && err.message) || err) };
+    }
   }
 
   /* v5 series API bridge (Q-14). The vendored tree is lightweight-charts
@@ -581,6 +706,35 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
           }
         });
       }
+      // Q-31: the five non-bar channels arrive on their own envelope —
+      // `channelOpsJson` carries {v, channel, ops}. Parse, dispatch, never
+      // throw into the bridge.
+      if (bridge.channelOpsJson
+          && typeof bridge.channelOpsJson.connect === "function") {
+        bridge.channelOpsJson.connect(function (payload) {
+          var env;
+          try {
+            env = JSON.parse(payload);
+          } catch (err) {
+            console.error("lwBridge: channel envelope is not JSON", err);
+            return;
+          }
+          var result;
+          try {
+            result = applyChannel(env && env.channel, env);
+          } catch (err) {
+            console.error("lwBridge: applyChannel threw", err);
+            return;
+          }
+          if (result && result.error) {
+            console.warn("lwBridge: channel envelope rejected:", result.error);
+          }
+        });
+      }
+      // Q-31: bind the modules BEFORE pageReady — the bridge replays every
+      // channel's full log on ready, and the replay must land on bound
+      // handles.
+      bindModules();
       // Q-19/S3d: readiness is the page's word. The listener above exists
       // only now, so the drain/replay cannot race the QWebChannel setup the
       // way loadFinished did.
@@ -827,6 +981,28 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   window.lwReportKey = reportKey;
   window.lwActiveMode = function () {
     return activeMode;
+  };
+  /* Q-31: channel transport probes. */
+  window.lwApplyChannel = applyChannel;
+  window.lwModules = function () {
+    return {
+      interaction: !!moduleHandle("LwInteraction"),
+      alarms: !!moduleHandle("LwAlarms"),
+      primitives: !!moduleHandle("LwPrimitives"),
+      overlays: !!moduleHandle("LwOverlays"),
+      studies: !!moduleHandle("LwStudies"),
+    };
+  };
+  window.lwHandles = function () {
+    return {
+      chart: chart,
+      price: seriesFor(activeMode),
+      candles: candleSeries,
+      volume: volumeSeries,
+    };
+  };
+  window.lwRouterState = function () {
+    return { mode: routerState.mode, tool: routerState.tool };
   };
 
   if (typeof document !== "undefined") {

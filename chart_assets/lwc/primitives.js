@@ -1029,8 +1029,14 @@
 
   function makePrimitive() {
     return {
+      /* LWC 5.x `ISeriesPrimitivePaneView.renderer` is a **method**
+       * (``renderer(): IPrimitivePaneRenderer | null``). Returning the object
+       * itself made the library call it as a function — "this.Yh.renderer is
+       * not a function" — so no primitive ever drew. */
       paneViews: function () {
-        return [{ renderer: renderer }];
+        return [{
+          renderer: function () { return renderer; },
+        }];
       },
       updateAllViews: function () {},
       attached: function () {},

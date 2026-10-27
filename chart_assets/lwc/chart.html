@@ -9,6 +9,14 @@
 <title>NDThinkChart LWC host</title>
 <script src="./lightweight-charts.standalone.production.js"></script>
 <script src="./envelope.js"></script>
+<!-- Q-31: the five non-bar channel modules (UMD globals LwInteraction /
+     LwAlarms / LwPrimitives / LwOverlays / LwStudies) must exist before
+     chart.js binds them. Offline: vendored relative assets only. -->
+<script src="./interaction.js"></script>
+<script src="./alarms.js"></script>
+<script src="./primitives.js"></script>
+<script src="./overlays.js"></script>
+<script src="./studies.js"></script>
 <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <style>
   html, body { margin: 0; padding: 0; background: #0d0f14; height: 100%; }

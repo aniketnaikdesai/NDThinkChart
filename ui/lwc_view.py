@@ -2417,6 +2417,8 @@ class LwcChartView(QWidget):
         self._study_log.extend(env["ops"])
         self._study_envelopes.append(env)
         self.studyOpsEmitted.emit(env)
+        # Q-31: the page's consumer for this channel.
+        self._bridge.send_channel("studies", env["ops"])
 
     # ── P6-07 interaction: in-HTML controls + router shims ─────────────
 
@@ -2598,6 +2600,7 @@ class LwcChartView(QWidget):
         self._interaction_log.extend(env["ops"])
         self._interaction_envelopes.append(env)
         self.interactionOpsEmitted.emit(env)
+        self._bridge.send_channel("interaction", env["ops"])
 
     # ── P6-08 alarm lines/overlays ─────────────────────────────────────
 
@@ -2668,6 +2671,7 @@ class LwcChartView(QWidget):
         self._alarm_log.extend(env["ops"])
         self._alarm_envelopes.append(env)
         self.alarmOpsEmitted.emit(env)
+        self._bridge.send_channel("alarms", env["ops"])
 
     # ── P6-09 drawing primitives (ts -> fractional index) ─────────────
 
@@ -2764,6 +2768,7 @@ class LwcChartView(QWidget):
         self._drawing_log.extend(env["ops"])
         self._drawing_envelopes.append(env)
         self.drawingOpsEmitted.emit(env)
+        self._bridge.send_channel("drawings", env["ops"])
 
     # ── P6-10 overlays + event markers ─────────────────────────────────
 
@@ -2886,6 +2891,7 @@ class LwcChartView(QWidget):
         self._overlay_log.extend(env["ops"])
         self._overlay_envelopes.append(env)
         self.overlayOpsEmitted.emit(env)
+        self._bridge.send_channel("overlays", env["ops"])
 
     def _publish_marker_ops(self, ops: list) -> None:
         """Log and emit one marker envelope (``{"v": 1, "ops": [...]}``)."""
@@ -2893,6 +2899,7 @@ class LwcChartView(QWidget):
         self._marker_log.extend(env["ops"])
         self._marker_envelopes.append(env)
         self.markerOpsEmitted.emit(env)
+        self._bridge.send_channel("markers", env["ops"])
 
     # ── host (cutover owns the wiring) ──────────────────────────────
 
