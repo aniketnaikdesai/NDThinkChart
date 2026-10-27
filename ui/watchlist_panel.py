@@ -14,6 +14,7 @@ from ui.visual_conventions import (
 )
 from ui.add_symbol_dialog import AddSymbolDialog
 from ibkr.subscription_manager import MARKET_DATA
+from ibkr.pacing import PacingExceeded
 
 # ── D21.5: field-key column model ─────────────────────────────────────────────
 # The table is no longer addressed by fixed column indices. ``COLUMN_DEFS`` maps
@@ -954,7 +955,15 @@ class WatchlistPanel(QWidget):
         return len(self._req_to_row)
 
     def add_symbol(self, symbol: str, contract):
-        """Add a new row and subscribe to live ticks."""
+        """Add a new row and subscribe to live ticks.
+
+        The row is always added immediately; when the market-data
+        throttle is exhausted ``req_mkt_data`` raises ``PacingExceeded``
+        (Q-41 — never a GUI-thread sleep) and the subscription is
+        deferred via ``singleShot`` for the reported wait. The deferred
+        retry is dropped when the row was removed meanwhile (the same
+        defer contract as the wave/prime paths).
+        """
         if not self._md_manager:
             return
         row = self.table.rowCount()
@@ -968,7 +977,21 @@ class WatchlistPanel(QWidget):
             item.setTextAlignment(align | Qt.AlignmentFlag.AlignVCenter)
             self.table.setItem(row, col, item)
 
-        req_id = self._md_manager.req_mkt_data(contract)
+        try:
+            req_id = self._md_manager.req_mkt_data(contract)
+        except PacingExceeded as e:
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000),
+                lambda: self._retry_mkt_subscribe(symbol, contract),
+            )
+            return
+        self._register_mkt_subscription(symbol, contract, req_id)
+
+    def _register_mkt_subscription(self, symbol: str, contract, req_id: int) -> None:
+        """Bind an issued market-data reqId to the symbol's row + registry."""
+        row = self._row_index_for_symbol(symbol)
+        if row is None:
+            return
         self._req_to_row[req_id] = row
         # D27.3: type-tag the live subscription for the reconnect replay.
         # (Re-issued by _restore_watchlist's clear+re-add on reconnect, so
@@ -983,6 +1006,30 @@ class WatchlistPanel(QWidget):
                     self._rebind_mkt_data_req_id(_sym, _old, new_id)
                 ),
             )
+
+    def _retry_mkt_subscribe(self, symbol: str, contract) -> None:
+        """Fire a pacing-deferred market-data subscription (singleShot retry).
+
+        Drops the retry when the row is gone (removed or cleared while the
+        retry was pending) or already subscribed (removed + re-added
+        meanwhile); re-defers while still throttled. Never sleeps.
+        """
+        if self._md_manager is None:
+            return
+        row = self._row_index_for_symbol(symbol)
+        if row is None:
+            return  # removed / cleared while the retry was pending
+        if any(r == row for r in self._req_to_row.values()):
+            return  # already subscribed — the re-add issued its own
+        try:
+            req_id = self._md_manager.req_mkt_data(contract)
+        except PacingExceeded as e:
+            QTimer.singleShot(
+                int(e.wait_seconds * 1000),
+                lambda: self._retry_mkt_subscribe(symbol, contract),
+            )
+            return
+        self._register_mkt_subscription(symbol, contract, req_id)
 
     def _rebind_mkt_data_req_id(self, symbol: str, old_id: int,
                                 new_id: int) -> None:

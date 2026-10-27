@@ -25,11 +25,13 @@ import os
 
 import pytest
 from PyQt6.QtCore import QSettings
+from PyQt6.QtTest import QTest
 
 import config.paths as paths
 import ui.main_window as main_window
 from ibkr.contracts import get_contract_for_symbol
-from ui.watchlist_panel import SYMBOL_FIELD
+from ibkr.pacing import PacingExceeded
+from ui.watchlist_panel import SYMBOL_FIELD, WatchlistPanel
 
 
 def _isolated_settings(path) -> QSettings:
@@ -449,3 +451,82 @@ def test_D22_08_T06_restart_round_trip(addflow, qapp):
     assert settings.value(
         main_window.WATCHLIST_CONFIGURED_KEY, False, type=bool
     ) is True
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Q-45 — throttled add defers the subscription (no GUI-thread sleep),
+#        with a removal guard on the deferred retry
+# ═════════════════════════════════════════════════════════════════════
+
+
+class _PacingFakeMdManager:
+    """Market-data double raising PacingExceeded on demand (Q-41, no sleep)."""
+
+    def __init__(self, throttle_first_n: int = 1, wait_s: float = 0.2):
+        self._throttle_first_n = throttle_first_n
+        self._wait_s = wait_s
+        self._next = 900
+        self.attempts = 0
+        self.issued: list[int] = []
+        self.cancelled: list[int] = []
+
+    def req_mkt_data(self, contract):
+        self.attempts += 1
+        if self.attempts <= self._throttle_first_n:
+            raise PacingExceeded(self._wait_s)
+        req_id = self._next
+        self._next += 1
+        self.issued.append(req_id)
+        return req_id
+
+    def cancel_mkt_data(self, req_id):
+        self.cancelled.append(req_id)
+
+
+def _bare_panel(tmp_path, tag: str) -> WatchlistPanel:
+    """A panel with isolated settings and no window (pacing-independent)."""
+    settings = _isolated_settings(tmp_path / f"q45_{tag}.ini")
+    return WatchlistPanel(settings=settings)
+
+
+def test_Q45_throttled_add_row_present_then_subscribed(qapp, tmp_path):
+    """Throttled add: row appears at once, subscription lands after the wait."""
+    panel = _bare_panel(tmp_path, "defer")
+    fake = _PacingFakeMdManager(throttle_first_n=1, wait_s=0.2)
+    panel.set_market_data_manager(fake)
+    try:
+        panel.add_symbol("MSFT", object())
+        # Row present immediately even though the subscribe was throttled.
+        assert panel.table.rowCount() == 1
+        assert _panel_symbols(panel) == ["MSFT"]
+        assert fake.issued == []
+        assert panel.active_row_count() == 0
+        # The deferred singleShot retry (no sleep) subscribes once the wait
+        # elapses.
+        QTest.qWait(700)
+        assert fake.attempts == 2
+        assert fake.issued != []
+        assert panel.active_row_count() == 1
+    finally:
+        panel.close()
+
+
+def test_Q45_throttled_add_dropped_after_remove(qapp, tmp_path):
+    """Throttled add + remove before the retry fires: no late subscription."""
+    panel = _bare_panel(tmp_path, "drop")
+    fake = _PacingFakeMdManager(throttle_first_n=1, wait_s=0.3)
+    panel.set_market_data_manager(fake)
+    try:
+        panel.add_symbol("MSFT", object())
+        assert panel.table.rowCount() == 1
+        assert panel.remove_symbol("MSFT") is True
+        assert panel.table.rowCount() == 0
+        # The deferred retry fires while the row is gone: it must drop the
+        # retry (no re-issue), so the chain ends with nothing subscribed.
+        QTest.qWait(800)
+        assert fake.attempts == 1
+        assert fake.issued == []
+        assert panel.active_row_count() == 0
+        assert panel.table.rowCount() == 0
+    finally:
+        panel.close()
