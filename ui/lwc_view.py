@@ -90,22 +90,19 @@ by parallel logic:
   ``services.drawing_service``; JS receives fractional indices and prices
   only and composes the D11 inner-right labels itself. Zone /
   horizontal-line settings stay the same Qt dialogs (no HTML dialog).
-* **overlays + event markers** (P6-10 / Phase 8, D47.5) — ``set_overlay`` /
-  ``set_event_markers`` publish the session bands, the RTH-gap staircase, the
-  VIX sigma lines and the ICT concepts, plus the D38 dividend/earnings/split
-  markers and their countdown, on two further envelopes
-  (``overlayOpsEmitted`` / ``markerOpsEmitted``). Every value comes from the
-  **unchanged** services the default engine calls (``session_bands``,
+* **overlays** (P6-10 / Phase 8, D47.5) — ``set_overlay`` publishes the
+  session bands, the RTH-gap staircase, the VIX sigma lines and the ICT
+  concepts on its own envelope (``overlayOpsEmitted``). Every value comes from
+  the **unchanged** services the default engine calls (``session_bands``,
   ``calculate_rth_gaps``, ``calculate_vix_standard_deviation``,
   ``calculate_ict_concepts``) and every position from the same display-x
   authority, so identical inputs render identical visuals on both engines.
   The reference constants — the session orange/blue at 10 % alpha and z -10,
   the gap green/red brushes at 0.55/0.32 with their dotted filled border, the
-  VIX right-edge sigma labels, the ICT per-concept alphas/z/widths, the D38
-  glyph/colour table and the z-10 countdown — are asserted against those
-  modules by the parity suite, not restated here. JS receives fractional
-  indices, prices and raw event fields; it composes every glyph, label and
-  countdown itself.
+  VIX right-edge sigma labels and the ICT per-concept alphas/z/widths — are
+  asserted against those modules by the parity suite, not restated here. JS
+  receives fractional indices and prices; it composes every glyph and label
+  itself.
 * **multi-window hosting** (P6-11 / Phase 9, Q62/A107 + DG90) — the
   per-symbol pop-out window re-hosts on whichever engine
   ``ui.chart_view.create_chart_view`` resolves (the default engine stays the
@@ -1103,28 +1100,24 @@ def drag_drawing_item(kind: str, item: dict, point_index: int,
     return item
 
 
-# ── Phase 8 overlays + event markers (P6-10 / D47.5) ───────────────────────
+# ── Phase 8 overlays (P6-10 / D47.5) ───────────────────────────────────────
 #
-# The renderer-only mirror of the four overlay surfaces and the D38 event
-# markers. Every value below comes from the **unchanged** services the default
-# engine itself calls — ``session_bands``, ``calculate_rth_gaps``,
+# The renderer-only mirror of the four overlay surfaces. Every value below
+# comes from the **unchanged** services the default engine itself calls —
+# ``session_bands``, ``calculate_rth_gaps``,
 # ``calculate_vix_standard_deviation``, ``calculate_ict_concepts`` — mapped
 # through the one display-x axis (``drawing_axis``) into the candles'
 # fractional logical index. No service signature, no store, no ``ibkr`` module
 # and no order surface is touched: the same inputs render the same visuals on
-# both engines, and JS receives fractional indices, prices and raw event
-# fields only — it composes glyphs, labels and countdowns itself.
+# both engines, and JS receives fractional indices and prices only — it
+# composes glyphs and labels itself.
 #
 # The reference constants below are the shipped renderers' own values
-# (``ui/overlays/{session,gap,vix,ict}_overlay.py``,
-# ``ui/event_marker_overlay.py``); the parity suite asserts equality against
-# those modules rather than trusting this comment.
+# (``ui/overlays/{session,gap,vix,ict}_overlay.py``); the parity suite asserts
+# equality against those modules rather than trusting this comment.
 
 #: The overlay channel (its own envelope; the bar transport stays pinned).
 OVERLAY_CHANNEL = "overlays"
-
-#: The marker channel (dividends / earnings / splits).
-MARKER_CHANNEL = "markers"
 
 #: The overlay names this driver publishes.
 OVERLAY_NAMES = ("session", "rth_gaps", "vix_sd", "ict")
@@ -1177,33 +1170,6 @@ ICT_DISPLACEMENT_COLORS = {"up": "#34d399", "down": "#f87171"}
 ICT_DISPLACEMENT_SIZE = 10
 ICT_DISPLACEMENT_Z = 4
 ICT_KILLZONE_Z = -8
-
-#: D38 event markers — the reference ``EVENT_STYLE`` table (glyph, colour,
-#: label). ``chart_assets/lwc/overlays.js`` mirrors it row for row.
-EVENT_MARKERS = {
-    "earnings": {"glyph": "\u25c6 E", "color": "#fbbf24", "label": "Earnings"},
-    "dividend": {"glyph": "\u25cf D", "color": "#4ade80", "label": "Dividend"},
-    "split": {"glyph": "\u25b2 S", "color": "#60a5fa", "label": "Split"},
-}
-
-#: Marker text item: z 10, anchor (0.5, 1.0) — the reference ``TextItem``.
-MARKER_Z = 10
-MARKER_ANCHOR = (0.5, 1.0)
-
-#: Countdown label: anchor (0, 0), z 10, the reference fallback colour.
-COUNTDOWN_ANCHOR = (0.0, 0.0)
-COUNTDOWN_COLOR = "#e5e7eb"
-COUNTDOWN_UNAVAILABLE_COLOR = "#f87171"
-COUNTDOWN_UNAVAILABLE_TEXT = "Event data unavailable"
-
-
-def _date_to_ts(value) -> int:
-    """Midnight UTC of a ``date`` — the reference ``_date_to_ts``."""
-    if isinstance(value, datetime):
-        value = value.date()
-    return int(datetime(value.year, value.month, value.day,
-                        tzinfo=timezone.utc).timestamp())
-
 
 def overlay_op(name: str, regions: Sequence) -> dict:
     """One ``set_overlay`` op: a named overlay's regions, replace-all."""
@@ -1487,95 +1453,6 @@ def ict_regions(result, window: Sequence, plotted: Sequence,
     return out
 
 
-def event_marker_frac(event, rows: Sequence, xs: Sequence, indices: Sequence,
-                      cmap) -> float | None:
-    """Display-x rule of ``EventMarkerOverlay._x_for_event``, as a fraction.
-
-    The first bar on or after the event date; a future event (or one beyond
-    the loaded range) sits one bar-width past the last bar. ``None`` when the
-    axis is empty, which hides the marker on both engines.
-    """
-    bars = list(rows or [])
-    if not bars:
-        return None
-    try:
-        day_ts = _date_to_ts(event.date)
-    except (AttributeError, TypeError, ValueError):
-        return None
-    for bar in bars:
-        try:
-            if int(bar.ts) >= day_ts:
-                return _drawing_frac(xs, indices, int(bar.ts), cmap)
-        except (AttributeError, TypeError, ValueError):
-            continue
-    # Future event (or beyond data): one step past the last bar. The reference
-    # adds 1.0 in the axis' own unit — display-x — so that is what is added
-    # here before mapping back onto the fractional logical index.
-    try:
-        last_ts = int(bars[-1].ts)
-    except (AttributeError, TypeError, ValueError, IndexError):
-        return None
-    try:
-        last_display = (float(cmap.to_display(last_ts)) if cmap is not None
-                        else float(last_ts))
-    except Exception:
-        return None
-    return fractional_index_from_display(last_display + 1.0, xs, indices)
-
-
-def marker_ops(events: Sequence, plotted: Sequence, timeframe: str | None,
-               ext_hours: bool, today=None, unavailable: bool = False) -> list:
-    """The marker channel's ops for one event set (markers + countdown).
-
-    Mirrors ``EventMarkerOverlay``: markers are keyed by event id (a date
-    correction moves the marker instead of duplicating it), unknown event
-    types draw nothing, and the countdown names the next upcoming event with
-    its day distance. Glyphs, colours and the countdown string are composed on
-    the engine side from ``EVENT_MARKERS`` and the numbers here — no formatted
-    string crosses.
-    """
-    rows = list(events or [])
-    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
-    items: list = []
-    for event in rows:
-        etype = getattr(event, "type", None)
-        if etype not in EVENT_MARKERS:
-            continue
-        x = event_marker_frac(event, plotted, xs, indices, cmap)
-        details = getattr(event, "details", {}) or {}
-        ev_date = getattr(event, "date", None)
-        items.append({
-            "id": str(getattr(event, "id", "")),
-            "type": str(etype),
-            "x": x,
-            "visible": x is not None,
-            "date": (ev_date.isoformat() if hasattr(ev_date, "isoformat")
-                     else str(ev_date)),
-            "source": str(getattr(event, "source", "")),
-            "details": {str(key): value for key, value in details.items()
-                        if isinstance(value, (int, float, str, bool))
-                        or value is None},
-        })
-    countdown = None
-    if unavailable and not rows:
-        countdown = {"kind": "unavailable"}
-    else:
-        today = today if today is not None else datetime.now().date()
-        upcoming = [event for event in rows
-                    if getattr(event, "date", None) is not None
-                    and event.date >= today]
-        if upcoming:
-            nxt = min(upcoming, key=lambda event: event.date)
-            countdown = {"kind": "upcoming", "type": str(nxt.type),
-                         "days": int((nxt.date - today).days)}
-    if not items and countdown is None:
-        return [{"op": "clear_markers", "series": MARKER_CHANNEL}]
-    return [{
-        "op": "set_markers", "series": MARKER_CHANNEL, "items": items,
-        "countdown": countdown, "unavailable": bool(unavailable),
-    }]
-
-
 def series_ops(mode: str, bars: Sequence, timeframe: str | None,
                ext_hours: bool) -> list:
     """Build the ``set_bars`` / ``set_volume`` ops for one full series.
@@ -1836,9 +1713,6 @@ class LwcChartView(QWidget):
     #: One overlay envelope per publish (session / gap / VIX / ICT regions).
     overlayOpsEmitted = pyqtSignal(dict)
 
-    #: One marker envelope per publish (D38 event markers + countdown).
-    markerOpsEmitted = pyqtSignal(dict)
-
     #: DG92 focus round-trip: the page's Esc blur handed focus back to Qt.
     focusRoundTrip = pyqtSignal()
 
@@ -1929,17 +1803,10 @@ class LwcChartView(QWidget):
         self._drawing_items: list = []
         self._drawing_log: list = []
         self._drawing_envelopes: list = []
-        # P6-10: overlays render from the unchanged services; markers from the
-        # unchanged D38 event records (glyphs/labels composed engine-side).
+        # P6-10: overlays render from the unchanged services.
         self._overlays: dict = {}
         self._overlay_log: list = []
         self._overlay_envelopes: list = []
-        self._events: list = []
-        self._event_unavailable = False
-        self._marker_items: list = []
-        self._countdown: dict | None = None
-        self._marker_log: list = []
-        self._marker_envelopes: list = []
 
     @property
     def tz_offset(self) -> float:
@@ -2089,27 +1956,6 @@ class LwcChartView(QWidget):
         return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
                 for env in self._overlay_envelopes]
 
-    @property
-    def event_markers(self) -> list:
-        """The marker wire items last published (fractional indices + fields)."""
-        return [dict(item) for item in self._marker_items]
-
-    @property
-    def countdown(self) -> dict | None:
-        """The countdown state (next upcoming event, or the unavailable state)."""
-        return dict(self._countdown) if self._countdown else None
-
-    @property
-    def marker_ops(self) -> list:
-        """Every marker op published so far, in order (the replay log)."""
-        return [dict(op) for op in self._marker_log]
-
-    @property
-    def marker_envelopes(self) -> list:
-        """Every marker envelope emitted, in order."""
-        return [{"v": env["v"], "ops": [dict(op) for op in env["ops"]]}
-                for env in self._marker_envelopes]
-
     # ── ChartView protocol ──────────────────────────────────────────
 
     def update_bars(self, bars: list) -> None:
@@ -2193,10 +2039,9 @@ class LwcChartView(QWidget):
         # re-renders at the new display-x (AC-D21.4.1).
         if self._drawings:
             self._render_drawings()
-        # Overlays and event markers are time-anchored too: a new axis re-maps
-        # every region/marker through the same fractional logical index.
+        # Overlays are time-anchored too: a new axis re-maps every region
+        # through the same fractional logical index.
         self._render_overlays()
-        self._render_markers()
 
     def update_live_bar(self, bar) -> None:
         """Advance the forming bar via single-element ``update_bar`` ops.
@@ -2820,7 +2665,7 @@ class LwcChartView(QWidget):
         self.drawingOpsEmitted.emit(env)
         self._bridge.send_channel("drawings", env["ops"])
 
-    # ── P6-10 overlays + event markers ─────────────────────────────────
+    # ── P6-10 overlays ─────────────────────────────────────────────────
 
     def set_overlay(self, name: str, regions: list) -> None:
         """Publish one overlay's regions to the LWC engine.
@@ -2846,21 +2691,6 @@ class LwcChartView(QWidget):
     def overlay_regions(self, name: str) -> list:
         """The regions last published for ``name`` (an empty list when none)."""
         return [dict(region) for region in self._overlays.get(name, [])]
-
-    def set_event_markers(self, events: list, unavailable: bool = False) -> None:
-        """Render the unchanged D38 event records as markers on the LWC engine.
-
-        The contracted Phase-8 surface. Markers are keyed by event id (a date
-        correction moves the marker instead of duplicating it), positioned by
-        the reference rule — the first bar on/after the event date, one bar
-        past the last bar for a future event — and the countdown names the
-        next upcoming event. Glyphs, colours and the countdown text are
-        composed engine-side from ``EVENT_MARKERS``; only raw event fields and
-        a fractional index cross.
-        """
-        self._events = list(events or [])
-        self._event_unavailable = bool(unavailable)
-        self._render_markers()
 
     def _render_overlays(self) -> None:
         """Recompute every overlay from the unchanged services on this axis.
@@ -2916,25 +2746,6 @@ class LwcChartView(QWidget):
         if ops:
             self._publish_overlay_ops(ops)
 
-    def _render_markers(self) -> None:
-        """Publish the marker channel from the current event set and axis."""
-        ops = marker_ops(self._events, self._plotted, self._timeframe,
-                         self._ext_hours, unavailable=self._event_unavailable)
-        op = ops[0]
-        if op["op"] == "set_markers":
-            items = [dict(item) for item in op["items"]]
-            countdown = dict(op["countdown"]) if op.get("countdown") else None
-            if items == self._marker_items and countdown == self._countdown:
-                return
-            self._marker_items = items
-            self._countdown = countdown
-        else:
-            if not self._marker_items and self._countdown is None:
-                return
-            self._marker_items = []
-            self._countdown = None
-        self._publish_marker_ops(ops)
-
     def _publish_overlay_ops(self, ops: list) -> None:
         """Log and emit one overlay envelope (``{"v": 1, "ops": [...]}``)."""
         env = {"v": LB.ENVELOPE_VERSION, "ops": [dict(op) for op in ops]}
@@ -2942,14 +2753,6 @@ class LwcChartView(QWidget):
         self._overlay_envelopes.append(env)
         self.overlayOpsEmitted.emit(env)
         self._bridge.send_channel("overlays", env["ops"])
-
-    def _publish_marker_ops(self, ops: list) -> None:
-        """Log and emit one marker envelope (``{"v": 1, "ops": [...]}``)."""
-        env = {"v": LB.ENVELOPE_VERSION, "ops": [dict(op) for op in ops]}
-        self._marker_log.extend(env["ops"])
-        self._marker_envelopes.append(env)
-        self.markerOpsEmitted.emit(env)
-        self._bridge.send_channel("markers", env["ops"])
 
     # ── host (cutover owns the wiring) ──────────────────────────────
 
@@ -3022,11 +2825,11 @@ class LwcChartView(QWidget):
 
         A pop-out owns a private copy of the series (``_bars`` /
         ``_plotted``), its logical index column, its study value arrays, its
-        drawing/marker wire items and — the one structure that grows with
-        traffic — the bridge replay log (the transport replays it after a
-        renderer restart). Reporting the buckets separately keeps a leak
-        attributable instead of collapsing into one opaque number; the
-        pop-out ledger aggregates ``total_bytes`` per window.
+        drawing wire items and — the one structure that grows with traffic —
+        the bridge replay log (the transport replays it after a renderer
+        restart). Reporting the buckets separately keeps a leak attributable
+        instead of collapsing into one opaque number; the pop-out ledger
+        aggregates ``total_bytes`` per window.
         """
         buckets = {
             "bars": len(self._bars) * self.BAR_BYTES,
@@ -3035,7 +2838,6 @@ class LwcChartView(QWidget):
             "study_values": (sum(len(values) for values in
                                  self._study_overlays.values()) * 8),
             "drawing_items": len(self._drawing_items) * self.OP_BYTES,
-            "marker_items": len(self._marker_items) * self.OP_BYTES,
             "op_log": 0,
         }
         counters: dict = {}
@@ -3080,9 +2882,6 @@ class LwcChartView(QWidget):
         self._drawing_envelopes = []
         self._overlay_log = []
         self._overlay_envelopes = []
-        self._marker_items = []
-        self._marker_log = []
-        self._marker_envelopes = []
         bridge = getattr(self, "_bridge", None)
         for name in ("_op_log", "_queued", "_outbox", "_live_buf"):
             bucket = getattr(bridge, name, None)

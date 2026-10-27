@@ -40,7 +40,6 @@ PUBLISH_CHANNELS = {
     "_publish_alarm_ops": "alarms",
     "_publish_drawing_ops": "drawings",
     "_publish_overlay_ops": "overlays",
-    "_publish_marker_ops": "markers",
 }
 
 

@@ -310,8 +310,7 @@ def test_removed_controls_absent_and_retained_present(monkeypatch, qapp):
             f"removed IMB/AUC chips still rendered: {sorted(texts)}")
 
         # ...and the retained chart surfaces are still there.
-        for name in ("set_alarms", "set_drawings", "set_event_markers",
-                     "set_studies"):
+        for name in ("set_alarms", "set_drawings", "set_studies"):
             assert callable(getattr(cp, name, None)), f"chart view lost {name}"
         assert win.portfolio_panel is not None
         assert win.right_dock.objectName() == "Portfolio"
@@ -377,11 +376,13 @@ def test_removed_requests_are_never_issued(monkeypatch, qapp):
         assert not [s for s in strings if "225" in s], (
             f'the removed "225" auction need is still requested: {strings}')
 
-        # ...while the surviving lines still issue. (The RT line is issued on
-        # the recording fake the RT manager was handed, hence both sources.)
+        # ...while the RT bar line still issues. (It is issued on the
+        # recording fake the RT manager was handed, hence both sources.) The
+        # session opens no market-data line any more: S0's last consumer was
+        # the D38 dividend markers, removed with them.
         assert issued["rt"] or fake.rt_bars, "the RT bar line stopped issuing"
-        assert issued["mkt_data"] or fake.mkt_data, (
-            "the watchlist/S0 market-data line stopped issuing")
+        assert not issued["mkt_data"] and not fake.mkt_data, (
+            "a chart-only session opened a market-data line with no consumer")
     finally:
         win.close()
 

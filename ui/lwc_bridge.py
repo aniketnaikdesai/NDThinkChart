@@ -91,8 +91,7 @@ KNOWN_SERIES = frozenset({"candles", "volume"})
 #: Non-bar channels carried on their own ``channelOpsJson`` envelopes
 #: (Q-31). Each channel is an independent replace-all log: bars stay on the
 #: pinned ``opsJson`` transport, everything else crosses here.
-CHANNELS = ("studies", "interaction", "alarms", "drawings", "overlays",
-            "markers")
+CHANNELS = ("studies", "interaction", "alarms", "drawings", "overlays")
 
 _CANDLE_COLS = ("ts", "open", "high", "low", "close")
 _VOLUME_COLS = ("ts", "value")

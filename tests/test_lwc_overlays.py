@@ -1,11 +1,10 @@
-"""tests/test_lwc_overlays.py — P6-T10 Phase 8 overlays + event markers (M).
+"""tests/test_lwc_overlays.py — P6-T10 Phase 8 overlays (M).
 
-The overlay-parity cases: identical bars/sessions/events must render identical
-session bands, gap/VIX/ICT overlays and dividend/earnings/split markers on both
-engines. Every reference below is the shipped default-engine renderer driven
-on the same fixtures — ``ui/overlays/session_overlay.py``,
-``ui/overlays/gap_overlay.py``, ``ui/overlays/vix_overlay.py``,
-``ui/overlays/ict_overlay.py`` and ``ui/event_marker_overlay.py`` — and every
+The overlay-parity cases: identical bars/sessions must render identical session
+bands, gap/VIX/ICT overlays on both engines. Every reference below is the
+shipped default-engine renderer driven on the same fixtures —
+``ui/overlays/session_overlay.py``, ``ui/overlays/gap_overlay.py``,
+``ui/overlays/vix_overlay.py`` and ``ui/overlays/ict_overlay.py`` — and every
 geometry value is compared in the **display-x** space both engines share:
 ``display_from_fractional_index`` on the LWC side is the inverse of the
 reference overlays' ``_index_to_x`` / ``_ts_to_x``, so a region that lands on
@@ -33,7 +32,7 @@ import ast
 import json
 import shutil
 import subprocess
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -160,14 +159,6 @@ class _FakeViewBox:
 
     def viewRange(self):  # noqa: N802
         return self.range
-
-
-class _MarkerPlot:
-    def __init__(self):
-        self.view = _FakeViewBox()
-
-    def getViewBox(self):  # noqa: N802
-        return self.view
 
 
 
@@ -314,16 +305,6 @@ const out = {
   gap: mod.GAP_STYLE,
   vix: mod.VIX_STYLE,
   ict: mod.ICT_STYLE,
-  event: mod.EVENT_STYLE,
-  markerZ: mod.MARKER_Z,
-  markerAnchor: mod.MARKER_ANCHOR,
-  countdown: {
-    anchor: mod.COUNTDOWN_ANCHOR,
-    z: mod.COUNTDOWN_Z,
-    color: mod.COUNTDOWN_COLOR,
-    unavailableColor: mod.COUNTDOWN_UNAVAILABLE_COLOR,
-    unavailableText: mod.COUNTDOWN_UNAVAILABLE_TEXT,
-  },
   overlayNames: mod.OVERLAY_NAMES,
   envelope: req.envelope ? mod.validateEnvelope(req.envelope) : null,
   envelopes: (req.envelopes || []).map(function (env) {
@@ -331,13 +312,6 @@ const out = {
   }),
   vixLabels: (req.vixLevels || []).map(function (level) {
     return mod.vixLabel(level.sigma, level.price);
-  }),
-  countdownText: ("countdownState" in req)
-    ? mod.countdownText(req.countdownState) : null,
-  countdownColor: ("countdownState" in req)
-    ? mod.countdownColor(req.countdownState) : null,
-  markerSpecs: (req.markerItems || []).map(function (item) {
-    return mod.markerSpec(item);
   }),
 };
 
@@ -363,9 +337,7 @@ if (req.selftest) {
     hlines: out.plan.hlines.length,
     segments: out.plan.segments.length,
     points: out.plan.points.length,
-    markers: out.plan.markers.length,
   };
-  out.countdownTextNow = out.plan.countdownText;
   out.attached = attached.length;
   if (req.replay && req.envelopes.length) {
     const last = req.envelopes[req.envelopes.length - 1];
@@ -401,10 +373,10 @@ def _run_node(payload: dict) -> dict:
 
 
 def _all_envelopes(view):
-    return view.overlay_envelopes + view.marker_envelopes
+    return view.overlay_envelopes
 
 
-# ── T11 · overlay + marker parity (AC1) ─────────────────────────────────────
+# ── T11 · overlay parity (AC1) ──────────────────────────────────────────────
 
 
 class TestOverlayParity:
@@ -415,68 +387,18 @@ class TestOverlayParity:
 
 
 
-    def test_P6_T10_T11_markers_diff_by_id_and_future_sits_past_last(self,
-                                                                    qapp):
-        view = _view()
-        # The fixture's axes are 2026-09-24/25, so an in-window date moves the
-        # marker when it is corrected (a future-only pair would both land on
-        # the single "past the last bar" slot and never move).
-        first = EO_Event("ev-x", "earnings", date(2026, 9, 24), {})
-        view.set_event_markers([first])
-        x_first = view.event_markers[0]["x"]
-        assert len(view.event_markers) == 1
-
-        # A date correction moves the marker instead of duplicating it.
-        corrected = EO_Event("ev-x", "earnings", date(2026, 9, 25), {})
-        view.set_event_markers([corrected])
-        assert len(view.event_markers) == 1
-        x_moved = view.event_markers[0]["x"]
-        assert x_moved > x_first
-
-        # A future event sits one display-x step past the last bar — the
-        # reference rule is "+1.0 in the axis' own unit", not one bar width.
-        future = EO_Event("ev-f", "split", date.today() + timedelta(days=5), {})
-        view.set_event_markers([future])
-        x_future = view.event_markers[0]["x"]
-        last_display = _display_of_ts(view, int(view.plotted_bars[-1].ts))
-        assert _display_of_frac(view, x_future) == pytest.approx(
-            last_display + 1.0)
-        assert _display_of_frac(view, x_future) < last_display + 15 * 60
-
-    def test_P6_T10_T11_unavailable_state_and_empty_set(self, qapp):
-        view = _view()
-        view.set_event_markers([], unavailable=True)
-        assert view.countdown == {"kind": "unavailable"}
-        decoded = _run_node({"countdownState": view.countdown})
-        assert decoded["countdownText"] == "Event data unavailable"
-        assert decoded["countdownColor"] == LV.COUNTDOWN_UNAVAILABLE_COLOR
-
-        view.set_event_markers([])
-        assert view.countdown is None
-        assert view.event_markers == []
-        assert view.marker_ops[-1] == {
-            "op": "clear_markers", "series": "markers"}
-
     def test_P6_T10_T11_identical_state_republishes_identical_values(self,
                                                                      qapp):
         first = _view()
-        today = date.today()
-        events = [EO_Event("ev-1", "dividend", today, {"amount": 0.5})]
-        first.set_event_markers(events)
-
         second = _view()
-        second.set_event_markers(events)
+        for name in ("session", "rth_gaps", "vix_sd", "ict"):
+            assert first.overlays[name] == second.overlays[name]
 
-        assert first.overlays == second.overlays
         assert first.overlay_ops == second.overlay_ops
         assert first.overlay_envelopes == second.overlay_envelopes
-        assert first.event_markers == second.event_markers
-        assert first.marker_ops == second.marker_ops
 
     def test_P6_T10_T11_envelopes_validate_replay_and_clear(self, qapp):
         view = _view()
-        events = [EO_Event("ev-1", "earnings", date.today(), {"estimate": 2.0})]
-        view.set_event_markers(events)
         envelopes = _all_envelopes(view)
         assert envelopes
 
@@ -490,23 +412,15 @@ class TestOverlayParity:
         assert counts["bands"] == len(view.overlays["rth_gaps"]) + len(
             [row for row in view.overlays["ict"] if row["shape"] == "band"])
         assert counts["hlines"] == len(view.overlays["vix_sd"])
-        assert counts["markers"] == 1
-        assert decoded["countdownTextNow"] == "Earnings today"
 
         # Clearing republishes clear ops and empties the engine.
         view.set_series("candles", [])
         assert view.overlays["session"] == []
-        # The reference hides a marker it cannot place once the axis is empty
-        # (the item stays, invisible); the wire mirrors that as visible=False
-        # and the engine draws nothing.
-        assert view.event_markers
-        assert all(item["visible"] is False for item in view.event_markers)
         cleared = _run_node({
             "envelopes": _all_envelopes(view)[-1:], "selftest": True})
         assert cleared["plan"]["regions"] == []
         assert cleared["plan"]["bands"] == []
         assert cleared["plan"]["hlines"] == []
-        assert cleared["plan"]["markers"] == []
 
     def test_P6_T10_T11_parity_rows_6_9_10_move_to_done(self):
         text = MATRIX.read_text(encoding="utf-8")
@@ -520,18 +434,6 @@ class TestOverlayParity:
             if row.startswith("|") and "Done / accepted" in row:
                 assert "Open / pending" not in row
         assert "overlays.js" in text, "the wave note names the JS module"
-
-
-class EO_Event:
-    """The D38 event record shape (``data.events.provider.Event`` fields)."""
-
-    def __init__(self, event_id, etype, event_date, details=None):
-        self.id = event_id
-        self.type = etype
-        self.symbol = SYMBOL
-        self.date = event_date
-        self.source = "ibkr"
-        self.details = dict(details or {})
 
 
 # ── T12 · residue scan (AC2, renderer-only boundary) ────────────────────────
@@ -598,8 +500,8 @@ class TestRendererBoundary:
                 names.add(node.module or "")
         forbidden = {
             "ibkr", "data.db", "data.bar_cache", "data.alarm_store",
-            "data.drawing_store", "data.events.provider",
-            "ui.chart_panel", "ui.event_marker_overlay", "ui.overlays",
+            "data.drawing_store",
+            "ui.chart_panel", "ui.overlays",
             "ui.alarm_overlay", "PyQt6.QtNetwork",
             "requests", "urllib", "urllib.request",
         }
@@ -610,12 +512,10 @@ class TestRendererBoundary:
     def test_P6_T10_T12_ops_carry_no_timestamp_and_no_formatted_string(self,
                                                                        qapp):
         view = _view()
-        view.set_event_markers(
-            [EO_Event("ev-1", "dividend", date.today(), {"amount": 0.1})])
-        assert view.overlay_ops and view.marker_ops
-        for op in view.overlay_ops + view.marker_ops:
+        assert view.overlay_ops
+        for op in view.overlay_ops:
             json.dumps(op)  # primitives only, no objects
-            assert op["series"] in {"overlays", "markers"}
+            assert op["series"] == "overlays"
             for region in op.get("regions", []):
                 keys = set(region)
                 assert "ts" not in keys and "timestamp" not in keys
@@ -635,10 +535,7 @@ class TestRendererBoundary:
 
     def test_P6_T10_T12_overlays_never_ride_the_bar_transport(self, qapp):
         view = _view()
-        view.set_event_markers(
-            [EO_Event("ev-1", "split", date.today(), {})])
         log = view.bridge.replay_log()
         assert log, "the bar transport carries the candles/volume ops"
         assert all(op["series"] in {"candles", "volume"} for op in log)
         assert all(op["series"] == "overlays" for op in view.overlay_ops)
-        assert all(op["series"] == "markers" for op in view.marker_ops)

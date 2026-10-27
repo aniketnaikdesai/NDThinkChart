@@ -173,8 +173,10 @@ _FORBIDDEN = (
 
 #: The survivor allow-list (plan § "Survivors — MUST NOT be reported as
 #: residue"). These are AC-D45.2/A90's and P5's deliberate end state, not
-#: leftovers: the dividend markers (R68), the ibapi news boundary names, the
-#: error-severity gate and the shared pacing substrate. P5 deleted the inert
+#: leftovers: the ibapi news boundary names, the error-severity gate and the
+#: shared pacing substrate. The D38 dividend-marker path was removed with the
+#: markers themselves (owner instruction, 2026-10-27), so its tokens are no
+#: longer survivors — they are gone from the tree. P5 deleted the inert
 #: inbound observers, the ``ibkr/orders`` module, ``order_limiter``,
 #: ``MAX_ORDER_NOTIONAL`` and ``IdManager.reserve``; ``reserve`` is **not** a
 #: forbidden token (the English word "preserve(s/d)" appears across files the
@@ -183,10 +185,6 @@ _FORBIDDEN = (
 #: token today; the list is here so a future rename that would otherwise
 #: collide is a documented decision instead of a silent false positive.
 _SURVIVORS = frozenset({
-    # dividend path (R68 / AC-D45.2) — ui/ticker_session.py, data/events/
-    "456", "59", "_dividend_info", "dividend_updated", "dividend_info",
-    "_merge_ibkr_dividend_event", "_merge_events",
-    "parse_ib_dividend_string",
     # ibapi news boundary (S35) — unconnected, never requested
     "tick_news", "news_providers", "historical_news", "historical_news_end",
     "news_article",
@@ -685,49 +683,6 @@ def test_positions_table_is_eight_columns(walkthrough):
         f"the removed Stop/Target columns are still rendered: {headers!r}")
     assert table.horizontalHeaderItem(6).text() == "Strategy"
     assert table.horizontalHeaderItem(7).text() == "Group"
-
-
-def test_dividend_path_still_alive(monkeypatch, qapp):
-    """P4-T06-T71 (f) / AC6: ``"456"`` requested, tick 59 → markers alive."""
-    win, _fake = _make_window(monkeypatch, qapp)
-    try:
-        _stub_account_calls(win, monkeypatch)
-        win._on_connected()
-        win.symbol_input.setText("AAPL")
-        win.load_chart()
-        win._on_historical_data_end(win._prime_req_id)
-        qapp.processEvents()
-
-        session = win.primary_session
-        assert session is not None, "no primary session after load_chart"
-        needs = (set().union(*session._s0_needs.values())
-                 if session._s0_needs else set())
-        assert "456" in needs, (
-            f"the charted session's S0 needs do not request dividends: {needs!r}")
-        assert "292" not in needs, (
-            f"the removed news need is still requested: {needs!r}")
-        assert session._s0_needs.get("dividends") == {"456"}, (
-            f"the dividends feature need is not exactly {{'456'}}: "
-            f"{session._s0_needs!r}")
-
-        fired: list[int] = []
-        session.dividend_updated.connect(lambda: fired.append(1))
-
-        req_id = session.s0_req_id
-        assert req_id is not None, (
-            "the charted session has no live S0 subscription to deliver "
-            "tick 59 on")
-        # past12m, next12m, nextDate(YYYYMMDD), nextAmt — the documented shape.
-        win._on_s0_tick_string(req_id, 59, "0.82,0.90,20261120,0.225")
-        qapp.processEvents()
-
-        assert fired, "the tick-59 string did not emit dividend_updated"
-        info = session.dividend_info()
-        assert isinstance(info.get("next_date"), date), (
-            f"tick-59 parsing produced no next_date: {info!r}")
-        assert info.get("past12m") == pytest.approx(0.82)
-    finally:
-        win.close()
 
 
 # ---------------------------------------------------------------------------

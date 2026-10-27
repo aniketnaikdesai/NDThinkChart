@@ -1,3 +1,11 @@
+"""SQLite schema and the app's single connection.
+
+``yfinance_events_cache`` is retained but **unused**: the D38 corporate-event
+feature was its only reader and has been removed. The table is left in place
+deliberately — a stale table is cheaper than a schema change — so nothing
+reads or writes it any more.
+"""
+
 import sqlite3
 from config import paths
 

@@ -216,22 +216,19 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
 
         # Every live subscription re-issued with a NEW reqId...
         assert len(fake.rt_bars) == 2 and fake.rt_bars[1] != rt_id_1
-        # The surviving market-data lines are the watchlist row and the
-        # session's S0 line; each is issued once per connect, so the
-        # reconnect re-issues both (the D37 session depth feed and the
-        # generic "225" auction need are gone).
-        _surviving_mkt_lines = len(win.watchlist_panel._req_to_row) + int(
-            win.primary_session.s0_req_id is not None)
-        assert _surviving_mkt_lines == 2
+        # The only surviving market-data line is the watchlist row: the
+        # session's S0 generic-tick line went with its last consumer (the D38
+        # dividend markers), so nothing else is issued or re-issued.
+        _surviving_mkt_lines = len(win.watchlist_panel._req_to_row)
+        assert _surviving_mkt_lines == 1
         assert len(fake.mkt_data) == 2 * _surviving_mkt_lines
-        assert set(fake.mkt_data[2:]).isdisjoint(fake.mkt_data[:2])
+        first_row_req, rebound_req = fake.mkt_data
+        assert rebound_req != first_row_req, "the market-data line reused its reqId"
         rt_id_2 = fake.rt_bars[1]
 
         # ...and rebound to the live routing state.
         assert win._rt_req_id == rt_id_2, "stale RT reqId not rebound"
-        assert win.primary_session.s0_req_id in fake.mkt_data[2:], \
-            "stale S0 reqId not rebound"
-        assert list(win.watchlist_panel._req_to_row)[0] in fake.mkt_data[2:]
+        assert list(win.watchlist_panel._req_to_row)[0] == rebound_req
         assert len(win.watchlist_panel._req_to_row) == 1
 
         # Bars flow on the rebound id with no manual reload...

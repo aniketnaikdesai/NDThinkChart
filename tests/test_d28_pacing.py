@@ -19,9 +19,7 @@ def _capture_gui_sleeps(monkeypatch) -> list[float]:
     """Record ``time.sleep`` calls made on the GUI thread, and never sleep.
 
     D28.1's guarantee is about the GUI thread only, so the capture is scoped to
-    it: a sleep issued by an unrelated thread — e.g. the D38 yfinance event
-    worker's ``time.sleep(gap)`` on its own QThread
-    (``data/events/yfinance_source.py``) — must not be mistaken for a
+    it: a sleep issued by an unrelated worker thread must not be mistaken for a
     GUI-thread sleep, or the assertion fails on another thread's work
     (ESC-047). The GUI thread is the process main thread, since Qt requires
     ``QApplication`` to be created on it.

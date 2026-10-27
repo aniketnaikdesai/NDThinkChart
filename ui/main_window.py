@@ -29,7 +29,6 @@ from PyQt6.QtGui import QKeySequence, QShortcut
 from config import settings
 from ibkr.client import IBApiClient, ConnectionState, DisconnectClass
 from ibkr.market_data import MarketDataManager, TIMEFRAME_CONFIG
-from data.db import db as _app_db
 from ibkr.realtime_bars import RealtimeBarsManager
 from ibkr.contracts import get_contract_for_symbol
 from ibkr.utils import parse_ibkr_date
@@ -562,13 +561,6 @@ class MainWindow(QMainWindow):
         self.md_manager = MarketDataManager(self.ib_client)
         self.rt_manager = RealtimeBarsManager(self.ib_client)
         self.sub_manager = SubscriptionManager()
-        # D38: yfinance event source (38b.1) — the sole approved secondary
-        # source. Shared cache + worker across sessions (one throttle point).
-        from data.events.yfinance_source import (
-            YFinanceCache, YFinanceEventSource)
-        self._yf_cache = YFinanceCache(_app_db.db_path)
-        self.yf_event_source = YFinanceEventSource(self._yf_cache)
-        self.yf_event_source.bind_refresh(self._on_yfinance_events)
 
         # D22 Phase 4: bounded, exactly-once contract-details lookup correlation.
         # The service owns the pending-request map and emits ``lookup_finished``
@@ -667,8 +659,6 @@ class MainWindow(QMainWindow):
         # D41: TickerSession.on_tick_price/on_tick_size are gone, so price/size
         # ticks reach the watchlist only — there is no session relay to wire.
         # D37 S0 substrate: generic/string/news ticks, routed by reqId.
-        b.tick_generic.connect(self._on_s0_tick_generic)
-        b.tick_string.connect(self._on_s0_tick_string)
         b.realtime_bar.connect(self._on_realtime_bar)
 
         # Account & portfolio signals
@@ -850,14 +840,12 @@ class MainWindow(QMainWindow):
     def _md_line_count(self) -> int:
         """Active market-data lines (owns the §7 accounting — C37.1).
 
-        Counts RT-bar lines, S0 lines, and watchlist rows explicitly.
+        Counts RT-bar lines and watchlist rows explicitly.
         """
         rt = sum(1 for s in self._sessions.values()
                  if s.rt_req_id is not None)
-        s0 = sum(1 for s in self._sessions.values()
-                 if s.s0_req_id is not None)
         watchlist = self.watchlist_panel.active_row_count()
-        return rt + s0 + watchlist
+        return rt + watchlist
 
     def _guard_md_lines(self, symbol: str, purpose: str) -> bool:
         """Warn (never silently drop) near the 100-line cap; refuse past it.
@@ -986,17 +974,12 @@ class MainWindow(QMainWindow):
                 except (RuntimeError, TypeError):
                     pass
         self._primary_session = session
-        if old is not None:
-            self._chart_call("unbind_d38_session", old)
         if session is not None:
             session.bar_updated.connect(self._on_primary_bar_updated)
             session.bars_refreshed.connect(self._on_primary_bars_refreshed)
             session.stream_health_changed.connect(
                 self._on_primary_stream_health_changed
             )
-            # D38: event markers bind to the primary session (38b.2). The
-            # shared yfinance source feeds the async refresh.
-            self._chart_call("bind_d38_session", session, self.yf_event_source)
 
     def _on_primary_bar_updated(self, bar: Bar, is_new_candle: bool) -> None:
         if bar.timeframe != self._current_tf:
@@ -2001,24 +1984,6 @@ class MainWindow(QMainWindow):
 
     # ── D37 S0 routing ───────────────────────────────────────────────
 
-    def _on_s0_tick_generic(self, reqId: int, tickType: int,
-                            value: float) -> None:
-        if self._closing:
-            return
-        session = self._session_for_req_id(reqId)
-        if session is None:
-            return
-        session.on_s0_tick_generic(reqId, tickType, value)
-
-    def _on_s0_tick_string(self, reqId: int, tickType: int,
-                           value: str) -> None:
-        if self._closing:
-            return
-        session = self._session_for_req_id(reqId)
-        if session is None:
-            return
-        session.on_s0_tick_string(reqId, tickType, value)
-
     def _on_session_wave_complete(self, session: TickerSession) -> None:
         """A session's backfill wave emptied — finalize (persist + render)."""
         # In 3b only the primary session backfills; a non-primary completion
@@ -2787,15 +2752,6 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-
-    def _on_yfinance_events(self, symbol: str) -> None:
-        """Background yfinance fetch finished — merge into the session."""
-        session = self._sessions.get(symbol.upper())
-        if session is not None:
-            try:
-                session.on_yfinance_refresh(symbol, self.yf_event_source)
-            except Exception:
-                pass
 
     def _on_right_dock_visibility_changed(self, _visible: bool) -> None:
         """Re-clamp after the right region is shown/hidden.

@@ -32,11 +32,12 @@ from data.bar_aggregator import BarAggregator, TIMEFRAME_SECONDS
 from data.bar_cache import BarCache
 from data.alarm_store import AlarmStore
 from data.models import Bar
-from ibkr.contracts import FUTURES_SCHEDULE, get_contract_for_symbol
+from ibkr.contracts import get_contract_for_symbol
 from ibkr.contracts import footprint_cache_key  # D39: resolved-contract key
+from ibkr.error_codes import IBKRNotReady
 from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.stream_health import StreamHealth
-from ibkr.subscription_manager import RT_BARS, S0_TICKS
+from ibkr.subscription_manager import RT_BARS
 from ibkr.utils import parse_ibkr_date
 from services.alarm_service import evaluate_alarms, evaluate_volume_burst
 from services.backfill_service import floor_bar_budget  # D42/S18 cap budget
@@ -88,10 +89,6 @@ class TickerSession(QObject):
     # toast + sound exactly once per trigger event.
     alarm_triggered = Signal(str, list)     # (symbol, [alarms])
     stream_health_changed = Signal()
-    # D38: tick-59 dividend string arrived — event state re-rendered.
-    dividend_updated = Signal()
-    # D38: corporate events (markers) changed for the symbol.
-    events_updated = Signal()
 
     def __init__(self, symbol: str, host):
         super().__init__()
@@ -186,19 +183,9 @@ class TickerSession(QObject):
         self._drawings: list = []
         self._drawing_groups: list = []
 
-        # ── S0 generic-tick substrate (D38) ───────────────────────────
+        # ── S0 generic-tick substrate (D37) ───────────────────────────
         # One optional reqMktData per session; the generic list is the union
-        # of registered feature needs (dividends "456").
-        self._s0_req_id: int | None = None
-        self._s0_needs: dict[str, set[str]] = {}
-        self._s0_union: str = ""
-
-        # ── D38 dividends (tick 59 via S0 generic "456") ───────────────
-        self._dividend_info: dict = {}
-
-        # ── D38 corporate events (markers) ────────────────────────────
-        self._events: list = []          # merged IBKR + yfinance Events
-        self._events_unavailable: bool = False
+        # of registered feature needs.
 
     # ── Identity / lifecycle ───────────────────────────────────────────
 
@@ -241,13 +228,6 @@ class TickerSession(QObject):
             self._views.append((view, timeframe))
             if sync:
                 self._sync_view(view, timeframe)
-            # D38: IBKR dividends (tick 59 via generic "456") feed the event
-            # markers on charted symbols — view-bound lifecycle.
-            # Futures have no dividend stream (plan A38.4): skip the need.
-            _needs: dict[str, set[str]] = {}
-            if self.symbol.split()[0] not in FUTURES_SCHEDULE:
-                _needs["dividends"] = {"456"}
-            self.s0_register_many(_needs)
             # D25: a view opening promotes a headless monitor.
             monitor = getattr(self._host, "alarm_monitor", None)
             if monitor is not None:
@@ -256,9 +236,6 @@ class TickerSession(QObject):
     def detach_view(self, view) -> None:
         """Unregister a view; teardown when orphaned and not monitored."""
         self._views = [(v, tf) for v, tf in self._views if v is not view]
-        # D38: last view gone → drop the dividend S0 need (S0 cancels).
-        if not self._views:
-            self.s0_deregister_many(("dividends",))
         # D25: the last view closing may start headless monitoring.
         monitor = getattr(self._host, "alarm_monitor", None)
         if monitor is not None:
@@ -313,11 +290,6 @@ class TickerSession(QObject):
         # Q-3/Q-12: an orphaned deferred retry must not re-enter after teardown.
         self._prime_retry_pending = False
         self._prime_retry_args = None
-        # Cancel the S0 generic-tick subscription (D38 substrate).
-        self._s0_needs.clear()
-        self._s0_cancel()
-        self._s0_union = ""
-
     # ── Bars / aggregators (data plane) ────────────────────────────────
 
     def aggregator_for(self, timeframe: str) -> BarAggregator:
@@ -410,207 +382,6 @@ class TickerSession(QObject):
         self._unsubscribe_rt()
         self._subscribe_rt(reset_backoff=False)
         return self._rt_req_id
-
-    # ── S0 generic-tick substrate (D38) ─────────────
-
-    def s0_register(self, feature: str, ticks: set[str]) -> None:
-        """Register a feature's generic-tick needs; resubscribe on change."""
-        self._s0_needs[feature] = set(ticks)
-        self._s0_resync()
-
-    def s0_deregister(self, feature: str) -> None:
-        """Drop a feature's needs; resubscribe (or cancel) on change."""
-        self._s0_needs.pop(feature, None)
-        self._s0_resync()
-
-    def s0_register_many(self, needs: dict[str, set[str]]) -> None:
-        """Register several features' needs with a single resync (avoids
-        one cancel+re-subscribe per feature)."""
-        for feature, ticks in needs.items():
-            self._s0_needs[feature] = set(ticks)
-        self._s0_resync()
-
-    def s0_deregister_many(self, features) -> None:
-        """Drop several features' needs with a single resync."""
-        for feature in features:
-            self._s0_needs.pop(feature, None)
-        self._s0_resync()
-
-    @property
-    def s0_req_id(self) -> int | None:
-        return self._s0_req_id
-
-    def _s0_union_str(self) -> str:
-        merged: set[str] = set()
-        for ticks in self._s0_needs.values():
-            merged |= ticks
-        return ",".join(sorted(merged, key=int)) if merged else ""
-
-    def _s0_resync(self) -> None:
-        """Reconcile the S0 subscription with registered needs.
-
-        One reqMktData per session; the generic list is the union of needs.
-        Re-subscribes only when the union changes; cancels when empty.
-        Never silently drops: MD-budget refusal surfaces via the host.
-        """
-        want = self._s0_union_str() if self.view_count > 0 else ""
-        if want == self._s0_union:
-            return
-        self._s0_cancel()
-        self._s0_union = want
-        if not want:
-            return
-        if not self._host._guard_md_lines(self.symbol, "S0 ticks"):
-            self._s0_union = ""
-            return
-        contract = get_contract_for_symbol(self.symbol)
-        req_id = self._host.md_manager.req_mkt_data(
-            contract, generic_ticks=want)
-        self._s0_req_id = req_id
-        self._host._register_req_id(req_id, self)
-        self._host.sub_manager.subscribe(
-            self.symbol,
-            req_id,
-            S0_TICKS,
-            reissue=self._s0_reissue,
-            rebind=self._s0_rebind,
-        )
-
-    def _s0_cancel(self) -> None:
-        if self._s0_req_id is None:
-            return
-        self._host._unregister_req_id(self._s0_req_id)
-        self._host.sub_manager.unsubscribe(self._s0_req_id)
-        try:
-            self._host.md_manager.cancel_mkt_data(self._s0_req_id)
-        except Exception:
-            pass
-        self._s0_req_id = None
-
-    def _s0_reissue(self) -> int:
-        """D27 replay hook — replay_all moves the registry entry itself, so
-        this must not touch sub_manager (mirrors _reissue_rt)."""
-        if self._s0_req_id is not None:
-            self._host._unregister_req_id(self._s0_req_id)
-            try:
-                self._host.md_manager.cancel_mkt_data(self._s0_req_id)
-            except Exception:
-                pass
-            self._s0_req_id = None
-        self._s0_union = ""
-        want = self._s0_union_str() if self.view_count > 0 else ""
-        if not want:
-            return 0
-        self._s0_union = want
-        contract = get_contract_for_symbol(self.symbol)
-        self._s0_req_id = self._host.md_manager.req_mkt_data(
-            contract, generic_ticks=want)
-        return self._s0_req_id
-
-    def _s0_rebind(self, new_req_id: int) -> None:
-        self._s0_req_id = new_req_id
-        self._host._register_req_id(new_req_id, self)
-
-    # ── S0 tick ingress ───────────────────────────────────────────────
-
-    def on_s0_tick_generic(self, req_id: int, tick_type: int,
-                           value: float) -> None:
-        """Plumbing for D38 generic tick values."""
-        if req_id != self._s0_req_id:
-            return
-
-    def on_s0_tick_string(self, req_id: int, tick_type: int,
-                          value: str) -> None:
-        """D38: tick 59 (IB Dividends) arrives here — generic "456" was the
-        request code (plan B1). Parsed defensively; never raises."""
-        if req_id != self._s0_req_id:
-            return
-        if tick_type != 59:
-            return
-        try:
-            from data.events.provider import parse_ib_dividend_string
-            parsed = parse_ib_dividend_string(value)
-        except Exception:
-            return
-        if parsed.get("next_date") is None and parsed.get("past12m") is None:
-            return
-        self._dividend_info = parsed
-        self.dividend_updated.emit()
-        self._merge_ibkr_dividend_event()
-
-    # ── D38 dividends + corporate events ─────────────────────────────
-
-    def dividend_info(self) -> dict:
-        """Latest parsed tick-59 dividend info ({} when none yet)."""
-        return dict(self._dividend_info)
-
-    def _merge_ibkr_dividend_event(self) -> None:
-        """Fold the latest tick-59 dividend into the event list (IBKR-first
-        source priority). yfinance dividend events for the same date do not
-        duplicate it — see ``refresh_events``."""
-        from data.events.ibkr_source import IBKREventSource
-        from datetime import date as _date
-        src = IBKREventSource(lambda _s: self)
-        ibkr_events = src.get_events(
-            self.symbol, _date(1970, 1, 1), _date(2100, 1, 1))
-        self._merge_events(ibkr_events, source="ibkr")
-
-    def _merge_events(self, new_events: list, source: str) -> None:
-        """Merge one source's events: replace that source's entries, keep the
-        other's. Emits ``events_updated`` when the merged set changes."""
-        from data.events.provider import Event
-        kept = [e for e in self._events
-                if isinstance(e, Event) and e.source != source]
-        # IBKR-first priority: a yfinance dividend on the same date as an
-        # IBKR dividend is dropped (IBKR is live; yfinance is the fallback).
-        if source == "yfinance":
-            ibkr_dividend_dates = {
-                e.date for e in kept
-                if e.type == "dividend" and e.source == "ibkr"
-            }
-            new_events = [e for e in new_events
-                          if not (e.type == "dividend"
-                                  and e.date in ibkr_dividend_dates)]
-        merged = kept + [e for e in new_events if isinstance(e, Event)]
-        old_ids = {e.id for e in self._events if isinstance(e, Event)}
-        new_ids = {e.id for e in merged}
-        self._events = sorted(merged, key=lambda e: (e.date, e.type, e.id))
-        if old_ids != new_ids:
-            self.events_updated.emit()
-
-    def refresh_events(self, yf_source=None) -> None:
-        """Rebuild the event list: IBKR dividends (sync, from tick-59 state)
-        + yfinance earnings/splits/dividends (async, cache-first).
-
-        ``yf_source`` is a ``YFinanceEventSource`` (host-provided, shared).
-        Never raises; never blocks on the network.
-        """
-        self._merge_ibkr_dividend_event()
-        if yf_source is not None:
-            from datetime import date as _date
-            try:
-                yf_events = yf_source.get_events(
-                    self.symbol, _date(1970, 1, 1), _date(2100, 1, 1))
-            except Exception:
-                yf_events = []
-            self._merge_events(yf_events, source="yfinance")
-            self._events_unavailable = yf_source.unavailable(self.symbol)
-        self.events_updated.emit()
-
-    def on_yfinance_refresh(self, symbol: str, yf_source) -> None:
-        """Worker finished a background yfinance fetch — merge if ours."""
-        if symbol.upper() != self.symbol:
-            return
-        self.refresh_events(yf_source)
-
-    def events(self) -> list:
-        """Current merged corporate events (sorted by date)."""
-        return list(self._events)
-
-    def events_unavailable(self) -> bool:
-        """True when yfinance cannot serve this symbol and no cache exists —
-        the UI shows the explicit "event data unavailable" state."""
-        return self._events_unavailable
 
     # ── Realtime bar ingress ───────────────────────────────────────────
 
@@ -897,8 +668,13 @@ class TickerSession(QObject):
                     bar_size=plan.bar_size,
                     duration=plan.duration,
                 )
-            except PacingExceeded as e:
-                self._schedule_wave_continuation(e.wait_seconds)
+            except (PacingExceeded, IBKRNotReady) as e:
+                # IBKRNotReady carries no budget wait — retry shortly after
+                # the handshake lands instead of hot-spinning.
+                wait = getattr(e, "wait_seconds", None)
+                if wait is None:
+                    wait = 1.0
+                self._schedule_wave_continuation(wait)
                 return
             self._wave_plan_queue.pop(0)
             self._register_history_request(req_id)
@@ -1128,7 +904,7 @@ class TickerSession(QObject):
                 bar_size=bar_size,
                 duration=f"{prime_s} S",
             )
-        except PacingExceeded as e:
+        except (PacingExceeded, IBKRNotReady) as e:
             if retrying:
                 # Q-3/Q-12: the one allowed retry was also pacing-limited —
                 # no issue, no reschedule, no timer restart. The retry caller

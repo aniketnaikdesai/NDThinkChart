@@ -228,3 +228,8 @@
 **Category:** Technical Note
 **Finding:** The owner names the validation method and it is binding. Perform it exactly as asked; if it is blocked, or a different check seems better, ask permission **before** reporting — never substitute. The Orchestrator is not the decision-maker on how something is verified: a probe, a green test or a fixture is not an acceptable stand-in for the validation that was requested. Additional checks are welcome after the requested one, not instead of it.
 **Source:** Owner directive 2026-10-27 ("you are not any decision maker")
+
+### [2026-10-27] — discovered during Build (handshake gate + page-load lifecycle)
+**Category:** Known Gotcha
+**Finding:** Two backend/frontend lifecycle defects with the same shape (a shared-global object owned by a short-lived view): (1) `IBApiClient.connected` delegated to the raw socket and `_poll` promoted socket-open to CONNECTED before `nextValidId`, so pre-handshake `reqHistoricalData` earned TWS 504 — readiness is now handshake-gated (`connected`/`api_ready` only after `nextValidId`; `IBKRNotReady` in `ibkr/error_codes.py` so `market_data.py` stays Qt-free). (2) `create_host` installed the `ndt://` scheme handler per view on the shared default profile; after create/destroy cycles the registration dangles and every later page load silently never finishes (empty page, `readyState: complete`) — the handler and interceptor are now app-lifetime singletons. Symptom signature for (2): `typeof window.lwSnapshot` undefined + `chart: None` with a complete readyState, green in subsets, red in full runs.
+**Source:** Bug report 2026-10-27; Q-35/Q-38/Q-40
