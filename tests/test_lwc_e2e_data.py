@@ -331,6 +331,113 @@ def _rth_bars_with_hole(n: int = 12, hole=(4, 5)) -> list:
     return rows
 
 
+def _two_session_bars(n: int = 40) -> list:
+    """The measured Q-22 fixture: 40 Fri + 40 Mon RTH bars, each from the open.
+
+    Friday 2026-10-23 and Monday 2026-10-26 both start at 13:30 UTC (09:30 ET,
+    EDT). The 5-minute blocks are separated by a whole weekend: 68.75 h of
+    wall time, i.e. 824 periods. Before the fix this crossed as 904 ``ts``
+    slots (824 placeholders), pinning the 80 candles to the two edges.
+    """
+    from datetime import datetime, timezone
+
+    fri = int(datetime(2026, 10, 23, 13, 30, tzinfo=timezone.utc).timestamp())
+    mon = int(datetime(2026, 10, 26, 13, 30, tzinfo=timezone.utc).timestamp())
+    rows = []
+    for base in (fri, mon):
+        for i in range(n):
+            price = 100.0 + i * 0.1
+            rows.append(Bar("TEST", "5 mins", base + i * 300, price,
+                            price + 0.25, price - 0.25, price + 0.05,
+                            1000.0 + i))
+    return rows
+
+
+def _is_weekend_et(ts: int) -> bool:
+    """True when ``ts`` falls on a Saturday or Sunday in New York time."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    et = datetime.fromtimestamp(int(ts), tz=ZoneInfo("America/New_York"))
+    return et.weekday() >= 5
+
+
+@pytest.mark.parametrize("ext_hours", [False, True])
+def test_two_session_gap_collapses_instead_of_padding_the_weekend(ext_hours):
+    """Q-22 regression: a between-session gap is not a hole.
+
+    Pre-fix the series carried 904 ``ts`` slots for 80 bars — 824
+    placeholders, every weekend period among them — so the candles clustered
+    at the two edges of a multi-day axis. The hole decision is the
+    non-trading authority, not an index jump: a gap that crosses a session
+    boundary contributes no placeholder slots (AC-D21.4.1), while a hole
+    inside one session still does (AC-D21.4.4, the 900 s case below).
+    """
+    bars = _two_session_bars()
+    candles = LV.series_ops("candles", bars, "5 mins", ext_hours)[0]
+    ts = candles["cols"]["ts"]
+    closes = candles["cols"]["close"]
+
+    assert [t for t, c in zip(ts, closes) if c is not None] == [b.ts for b in bars]
+    placeholders = [t for t, c in zip(ts, closes) if c is None]
+    assert [t for t in placeholders if _is_weekend_et(t)] == [], (
+        "the weekend must contribute no whitespace slots"
+    )
+    assert placeholders == [], (
+        f"{len(placeholders)} placeholder slots for {len(bars)} bars across a "
+        "session boundary: the gap is not a within-session hole"
+    )
+    assert len(ts) == len(bars) == 80
+    assert ts == [b.ts for b in bars]
+
+
+@pytest.mark.parametrize("ext_hours", [False, True])
+def test_weekend_only_gap_keeps_zero_placeholders(ext_hours):
+    """AC-D21.4.1 on a clean weekend: Friday's close meets Monday's open.
+
+    40 bars ending at Friday 15:55 ET + 40 from Monday 09:30 ET. The gap is
+    entirely closed market time, so it collapses to adjacent bars.
+    """
+    from datetime import datetime, timezone
+
+    fri_last = int(datetime(2026, 10, 23, 19, 55, tzinfo=timezone.utc).timestamp())
+    mon_open = int(datetime(2026, 10, 26, 13, 30, tzinfo=timezone.utc).timestamp())
+    bars = []
+    for base in (fri_last - 39 * 300, mon_open):
+        for i in range(40):
+            price = 100.0 + i * 0.1
+            bars.append(Bar("TEST", "5 mins", base + i * 300, price,
+                            price + 0.25, price - 0.25, price + 0.05,
+                            1000.0 + i))
+    candles = LV.series_ops("candles", bars, "5 mins", ext_hours)[0]
+    ts = candles["cols"]["ts"]
+
+    assert len(ts) == 80
+    assert candles["cols"]["close"].count(None) == 0
+    assert ts == [b.ts for b in bars]
+
+
+def test_two_session_set_bars_op_has_one_slot_per_bar(qapp):
+    """The measured real path: ``set_series`` → ``bridge.flush()``.
+
+    The wire op must carry 80 ``ts`` slots (one per bar, no placeholders), not
+    the 904 the pre-fix tree emitted.
+    """
+    view = LV.LwcChartView(tz_offset=14400)
+    view.set_timeframe("5 mins")
+    view.bridge.set_ready(True)
+    bars = _two_session_bars()
+
+    view.set_series("candles", bars)
+    env = view.bridge.flush()
+
+    candles = env["ops"][0]
+    assert candles["op"] == "set_bars"
+    assert len(candles["cols"]["ts"]) == 80
+    assert candles["cols"]["close"].count(None) == 0
+    assert candles["cols"]["ts"] == [b.ts for b in bars]
+
+
 @pytest.fixture()
 def app():
     if APP is None:  # pragma: no cover — gated case skips first

@@ -22,13 +22,17 @@ by parallel logic:
   UTC epoch seconds, **not** a logical index: the axis renders real dates.
   LWC places bars by data index, so a collapsed non-trading gap still
   renders adjacent (the time values jumping is what the label shows). The
-  series is strictly ascending and unique; a within-session hole crosses as
-  ``k`` whitespace placeholders (``None`` value slots, rendered as
-  ``{time}`` only) so it keeps its ``k`` empty slots (AC-D21.4.4). The
-  logical index stays **internal** — drawings, overlays and the
-  ``fractional_index_from_display`` pair keep using it, never the series
-  time. ``update_live_bar`` sends the same domain, so the live and history
-  paths agree.
+  series is strictly ascending and unique. A hole — both bars on the same
+  trading session with missing periods between them — crosses as ``k``
+  whitespace placeholders (``None`` value slots, rendered as ``{time}``
+  only) so it keeps its ``k`` empty slots (AC-D21.4.4). A gap that is
+  non-trading time (overnight, weekend, holiday) or that crosses a session
+  boundary contributes no placeholders at all (AC-D21.4.1): the two bars
+  stay adjacent, so a two-day load is not padded back into a multi-day
+  block of blanks. The logical index stays **internal** — drawings, overlays
+  and the ``fractional_index_from_display`` pair keep using it, never the
+  series time. ``update_live_bar`` sends the same domain, so the live and
+  history paths agree.
 * **``gap_is_non_trading`` authority** — the collapse map (and therefore
   every logical step) is built on it, exactly as on the default engine.
 * **custom tz formatters** — ``local = t - offset`` (``format_tz_label``;
@@ -156,6 +160,7 @@ from services.gap_vix_service import (
     infer_ticker_context,
 )
 from services.ict_service import calculate_ict_concepts
+from services.market_calendar import session_windows
 from services.session_service import session_bands
 from services.time_collapse_service import gap_is_non_trading
 from ui import lwc_bridge as LB
@@ -235,54 +240,80 @@ def hole_spans(indices: Sequence) -> list:
     return spans
 
 
+def gap_is_within_session(a, b, ext_hours: bool) -> bool:
+    """True iff the whole span ``(a, b)`` lies inside **one** trading session.
+
+    ``session_windows`` is the non-trading authority here — the very window
+    list ``gap_is_non_trading`` (and therefore ``chart_model.collapse_for_bars``)
+    is built from, so this adds no second definition of trading time. A span
+    no window covers is overnight / weekend / holiday time; a span covered
+    only across a boundary (its window starts after ``a`` or ends before
+    ``b``) crosses a session. Neither is a within-session hole, so neither
+    keeps whitespace slots (AC-D21.4.1 / AC-D21.4.4).
+    """
+    try:
+        a, b = int(a), int(b)
+    except (TypeError, ValueError):
+        return False
+    if b <= a:
+        return False
+    return any(window["start_ts"] <= a and window["end_ts"] >= b
+               for window in session_windows(a, b, ext_hours))
+
+
 def series_times(bars: Sequence, indices: Sequence,
-                 period=None) -> tuple[list, list]:
+                 period=None, ext_hours: bool = True) -> tuple[list, list]:
     """Real UTC series times for the plotted rows, plus whitespace flags.
 
     Returns ``(times, whitespace)`` — two parallel lists in plotted order.
     Every bar contributes its own ``int(bar.ts)``: the page's time axis is
     real UTC epoch seconds (Q-20), so the axis labels real dates. A
-    within-session hole of ``k`` missing bars contributes ``k`` placeholder
-    times **before** the next bar, each flagged ``True`` in ``whitespace`` —
-    the page renders those as ``{time}``-only points, so the hole keeps its
-    ``k`` empty slots (AC-D21.4.4). A collapsed non-trading gap advances the
-    logical index by exactly 1 and contributes nothing, so the axis stays
-    contiguous there (LWC places bars by data index).
+    within-session hole of ``k`` missing periods contributes ``k``
+    placeholder times **before** the next bar, each flagged ``True`` in
+    ``whitespace`` — the page renders those as ``{time}``-only points, so the
+    hole keeps its ``k`` empty slots (AC-D21.4.4).
+
+    The hole test is **trading time**, not an index jump:
+    ``gap_is_within_session`` (built on ``session_windows``, the same
+    authority as ``gap_is_non_trading``) decides. A gap that is
+    non-trading time (overnight, weekend, holiday) or that crosses a session
+    boundary contributes nothing, so those bars stay adjacent
+    (AC-D21.4.1) — without this, a two-day load was padded across the whole
+    weekend (824 placeholder slots for 80 bars).
 
     The result is strictly ascending and unique, which the library requires:
     a duplicate bar timestamp (two bars sharing one display-x) is nudged one
     second past its predecessor instead of being dropped. With no ``period``
     (no timeframe) no placeholder times are derivable, so the bare bar
-    timestamps cross.
+    timestamps cross. ``indices`` is kept for the caller's parallel-array
+    contract; the hole decision no longer derives from it.
     """
     rows = list(bars or [])
     positions = list(indices or [])
     times: list = []
     whitespace: list = []
     prev_ts = None
-    prev_pos = None
-    for bar, position in zip(rows, positions):
+    try:
+        step = int(period) if period else 0
+    except (TypeError, ValueError):
+        step = 0
+    for bar, _position in zip(rows, positions):
         try:
             ts = int(bar.ts)
         except (AttributeError, TypeError, ValueError):
             continue
-        if prev_pos is not None and period:
-            try:
-                step = int(position) - int(prev_pos)
-            except (TypeError, ValueError):
-                step = 1
-            for k in range(1, max(1, step)):
-                hole = int(prev_ts) + k * int(period)
-                if hole >= ts:
-                    break
+        if prev_ts is not None and step > 0 and gap_is_within_session(
+                prev_ts, ts, ext_hours):
+            hole = int(prev_ts) + step
+            while hole < ts:
                 times.append(hole)
                 whitespace.append(True)
+                hole += step
         if prev_ts is not None and ts <= prev_ts:
             ts = prev_ts + 1
         times.append(ts)
         whitespace.append(False)
         prev_ts = ts
-        prev_pos = position
     return times, whitespace
 
 
@@ -1581,13 +1612,15 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
     one domain: the bar's real UTC epoch seconds (Q-20).
 
     The ``indices`` stay the logical axis internal to this engine —
-    ``series_times`` uses them (with ``period``) only to decide **where** a
-    within-session hole's whitespace placeholders go. Those placeholders
-    cross as ``None`` value slots (the page renders ``{time}`` only), so a
-    hole keeps its empty slots (AC-D21.4.4) while a collapsed non-trading
-    gap stays adjacent.
+    ``series_times`` accepts them for its parallel-array contract, but a
+    within-session hole's whitespace placeholders are decided by the
+    non-trading authority (``gap_is_within_session``), never by an index
+    jump. Those placeholders cross as ``None`` value slots (the page renders
+    ``{time}`` only), so a hole keeps its empty slots (AC-D21.4.4) while a
+    non-trading or between-session gap stays adjacent (AC-D21.4.1).
     """
-    times, whitespace = series_times(plotted, indices, period)
+    times, whitespace = series_times(
+        plotted, indices, period, getattr(cmap, "ext_hours", True))
     candle_rows = [(idx, o, h, lo, c) for idx, (_t, o, h, lo, c) in
                    zip(indices, chart_model.candle_display_rows(plotted, cmap))]
     if mode == "heikin" and candle_rows:
