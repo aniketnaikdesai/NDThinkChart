@@ -907,7 +907,13 @@
     var series = seriesRef;
     if (!chart || !series) return 0;
     var timeScale = chart.timeScale ? chart.timeScale() : null;
-    var priceToCoordinate = series.priceToCoordinate;
+    /* Bound: the library method needs its series as `this`. An unbound
+     * reference throws inside the bundle ('reading \u2018ae\u2019') on the
+     * first painted line and aborts the whole draw — the Q-33 blank-drawing
+     * defect the revision trace isolated. */
+    var priceToCoordinate = (typeof series.priceToCoordinate === "function")
+      ? series.priceToCoordinate.bind(series)
+      : series.priceToCoordinate;
     if (!timeScale || typeof priceToCoordinate !== "function") return 0;
     var drawCount = 0;
     var width = scope && scope.mediaSize ? scope.mediaSize.width : 0;
