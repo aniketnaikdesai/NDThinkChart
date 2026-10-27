@@ -358,8 +358,13 @@ class TickerSession(QObject):
         self._host.sub_manager.unsubscribe(self._rt_req_id)
         try:
             self._host.rt_manager.unsubscribe(self._rt_req_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: true teardown cleanup — stays best-effort, but logged
+            # (debug: cleanup noise, not an operational error).
+            _LOG.debug(
+                "RT unsubscribe best-effort cleanup failed for %s: %s: %s",
+                self.symbol, type(exc).__name__, exc,
+            )
         self._rt_req_id = None
 
     def _reissue_rt(self) -> int:
@@ -533,8 +538,15 @@ class TickerSession(QObject):
         for view, _tf in self._views:
             try:
                 view.set_studies(self._studies)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Q-43: operational fan-out failure — never silent. Log with
+                # symbol/view context and keep looping so one bad view cannot
+                # stale the rest; the session stays consistent.
+                _LOG.warning(
+                    "set_studies fan-out failed for %s view=%r: %s: %s",
+                    self.symbol, type(view).__name__,
+                    type(exc).__name__, exc,
+                )
         self.studies_changed.emit()
 
     # ── Drawings ─────────────────────────────────────────────────────
@@ -554,8 +566,14 @@ class TickerSession(QObject):
                 view.drawing_overlay.set_data(
                     self.symbol, self._drawings, self._drawing_groups
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Q-43: operational fan-out failure — never silent. Log with
+                # symbol/view context; one bad view never blocks the rest.
+                _LOG.warning(
+                    "sync_drawings fan-out failed for %s view=%r: %s: %s",
+                    self.symbol, type(view).__name__,
+                    type(exc).__name__, exc,
+                )
 
     def prepare_load(self, timeframe: str) -> None:
         """Reset per-load data-plane state for a (re)load of the chart.
@@ -606,8 +624,13 @@ class TickerSession(QObject):
             self._host._unregister_req_id(req_id)
             try:
                 self._host.md_manager.cancel_historical_data(req_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Q-43: true teardown cleanup — stays best-effort, logged
+                # with the request context for strand diagnostics.
+                _LOG.debug(
+                    "Cancel best-effort cleanup failed for %s reqId=%s: %s: %s",
+                    self.symbol, req_id, type(exc).__name__, exc,
+                )
         self._history_req_ids.clear()
         self._history_req_generation.clear()
         self._pending_bars = []

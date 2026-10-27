@@ -2318,7 +2318,9 @@ class MainWindow(QMainWindow):
         try:
             raw = self._settings.value(WATCHLIST_WIDTH_KEY)
             width = int(raw) if raw is not None else DEFAULT_WATCHLIST_WIDTH
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as exc:
+            # Q-43: corrupt persisted width — logged, falls back to default.
+            _LOG.debug("Persisted watchlist width unreadable (%r): %s", raw, exc)
             width = DEFAULT_WATCHLIST_WIDTH
         return max(WATCHLIST_MIN_WIDTH, width)
 
@@ -2347,7 +2349,10 @@ class MainWindow(QMainWindow):
             return False
         try:
             return bool(dock.isVisible())
-        except Exception:
+        except Exception as exc:
+            # Q-43: layout probe best-effort — logged, treated as hidden.
+            _LOG.debug("right_dock visibility probe failed: %s: %s",
+                       type(exc).__name__, exc)
             return False
 
     def _compute_right_dock_collapsed_min_width(self) -> int:
@@ -2365,22 +2370,30 @@ class MainWindow(QMainWindow):
                 RIGHT_DOCK_COLLAPSED_MIN_WIDTH,
                 int(content) + 2 * RIGHT_DOCK_COLLAPSED_MARGIN,
             )
-        except Exception:
+        except Exception as exc:
+            # Q-43: layout probe best-effort — logged, floor value kept.
+            _LOG.debug("Collapsed min-width probe failed: %s: %s",
+                       type(exc).__name__, exc)
             return RIGHT_DOCK_COLLAPSED_MIN_WIDTH
 
     def _right_region_is_collapsed(self) -> bool:
         """True when the right-region panel is collapsed to its button."""
         try:
             return bool(self.portfolio_panel.is_collapsed())
-        except Exception:
+        except Exception as exc:
+            # Q-43: layout probe best-effort — logged, treated as expanded.
+            _LOG.debug("Right-region collapse probe failed: %s: %s",
+                       type(exc).__name__, exc)
             return False
 
     def _on_right_panel_toggled(self, _checked: bool = False) -> None:
         """Re-layout the right region after a per-panel hide/show toggle (D21.13)."""
         try:
             self._sync_right_dock_collapse()
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: layout best-effort — logged, toggle state already applied.
+            _LOG.debug("Right-dock collapse sync failed: %s: %s",
+                       type(exc).__name__, exc)
 
     def _sync_right_dock_collapse(self) -> None:
         """Apply the D21.13 right-region collapse state.
@@ -2418,8 +2431,10 @@ class MainWindow(QMainWindow):
         # so the collapsed width actually sticks.
         try:
             QTimer.singleShot(0, self._apply_dock_widths)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: deferred-apply best-effort — logged.
+            _LOG.debug("Right-dock deferred apply scheduling failed: %s: %s",
+                       type(exc).__name__, exc)
 
     def _plan_dock_widths(self, chart_area: int, requested_left, requested_right,
                           left_collapsed: bool = False):
@@ -2452,7 +2467,10 @@ class MainWindow(QMainWindow):
         try:
             cur_left = self.watchlist_dock.width()
             cur_right = self.right_dock.width()
-        except Exception:
+        except Exception as exc:
+            # Q-43: layout probe best-effort — logged, requested widths kept.
+            _LOG.debug("Dock width probe failed: %s: %s",
+                       type(exc).__name__, exc)
             cur_left = requested_left if requested_left is not None else 0
             cur_right = requested_right if requested_right is not None else 0
         invariant = chart_area + int(cur_left) + int(cur_right)
@@ -2496,8 +2514,10 @@ class MainWindow(QMainWindow):
             try:
                 if widget.minimumWidth() != target:
                     widget.setMinimumWidth(target)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Q-43: layout best-effort — logged per widget.
+                _LOG.debug("Watchlist min-width relax/restore failed: %s: %s",
+                           type(exc).__name__, exc)
 
     def _on_watchlist_collapsed_changed(self, collapsed: bool) -> None:
         """D44: the watchlist collapse transition (title-bar swap + width pin).
@@ -2544,8 +2564,10 @@ class MainWindow(QMainWindow):
             )
             self._resize_docks_guarded([dock], [target])
             QTimer.singleShot(0, self._apply_dock_widths)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: collapse-transition best-effort — logged.
+            _LOG.debug("Watchlist collapse transition failed: %s: %s",
+                       type(exc).__name__, exc)
 
     def _apply_dock_widths(self, requested_left: int | None = None,
                            requested_right: int | None = None) -> int:
@@ -2588,7 +2610,10 @@ class MainWindow(QMainWindow):
             # expanded minimum does not apply.
             try:
                 watchlist_collapsed = bool(self.watchlist_panel.is_collapsed())
-            except Exception:
+            except Exception as exc:
+                # Q-43: layout probe best-effort — logged, expanded assumed.
+                _LOG.debug("Watchlist collapse probe failed: %s: %s",
+                           type(exc).__name__, exc)
                 watchlist_collapsed = False
             self._sync_watchlist_min_width(watchlist_collapsed)
 
@@ -2658,8 +2683,10 @@ class MainWindow(QMainWindow):
                         )
                 elif abs(current_left - desired) > 1:
                     self._resize_docks_guarded([dock], [desired])
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: clamp-apply best-effort — logged, widths already read.
+            _LOG.debug("Dock-width clamp apply failed: %s: %s",
+                       type(exc).__name__, exc)
         finally:
             self._applying_dock_widths = False
         return self._watchlist_width
@@ -2678,7 +2705,10 @@ class MainWindow(QMainWindow):
             try:
                 splitter.blockSignals(True)
                 blocked = True
-            except Exception:
+            except Exception as exc:
+                # Q-43: teardown/layout guard best-effort — logged.
+                _LOG.debug("Splitter blockSignals(True) failed: %s: %s",
+                           type(exc).__name__, exc)
                 blocked = False
         try:
             self.resizeDocks(docks, sizes, Qt.Orientation.Horizontal)
@@ -2686,8 +2716,9 @@ class MainWindow(QMainWindow):
             if blocked:
                 try:
                     splitter.blockSignals(False)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _LOG.debug("Splitter blockSignals(False) failed: %s: %s",
+                               type(exc).__name__, exc)
 
     def _acquire_dock_splitter(self):
         """Defensively obtain the dock-area internal ``QSplitter`` (D17 risk).
@@ -2710,11 +2741,16 @@ class MainWindow(QMainWindow):
                 if self._splitter_contains_watchlist(splitter):
                     try:
                         splitter.splitterMoved.connect(self._on_dock_splitter_moved)
-                    except Exception:
+                    except Exception as exc:
+                        # Q-43: splitter wiring best-effort — logged, skipped.
+                        _LOG.debug("Dock splitter wiring failed: %s: %s",
+                                   type(exc).__name__, exc)
                         continue
                     return splitter
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: splitter acquisition best-effort — logged, fallback used.
+            _LOG.debug("Dock splitter acquisition failed: %s: %s",
+                       type(exc).__name__, exc)
         return None
 
     def _splitter_contains_watchlist(self, splitter) -> bool:
@@ -2728,7 +2764,10 @@ class MainWindow(QMainWindow):
                     return True
                 if widget.isAncestorOf(self.watchlist_dock):
                     return True
-        except Exception:
+        except Exception as exc:
+            # Q-43: splitter probe best-effort — logged, treated as no-match.
+            _LOG.debug("Splitter watchlist probe failed: %s: %s",
+                       type(exc).__name__, exc)
             pass
         return False
 
@@ -2750,8 +2789,10 @@ class MainWindow(QMainWindow):
                     self, "_persisted_watchlist_width", DEFAULT_WATCHLIST_WIDTH
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: deferred setup best-effort — logged, start-up continues.
+            _LOG.debug("Deferred dock setup failed: %s: %s",
+                       type(exc).__name__, exc)
 
     def _on_right_dock_visibility_changed(self, _visible: bool) -> None:
         """Re-clamp after the right region is shown/hidden.
@@ -2781,8 +2822,10 @@ class MainWindow(QMainWindow):
         def _pass(remaining: int):
             try:
                 self._apply_dock_widths(requested_left=requested_left)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Q-43: deferred clamp pass best-effort — logged.
+                _LOG.debug("Deferred dock clamp pass failed: %s: %s",
+                           type(exc).__name__, exc)
             if remaining > 1 and not self._dock_widths_consistent():
                 QTimer.singleShot(0, lambda: _pass(remaining - 1))
 
@@ -2806,7 +2849,10 @@ class MainWindow(QMainWindow):
             ca = self._chart_area_width()
             try:
                 watchlist_collapsed = bool(self.watchlist_panel.is_collapsed())
-            except Exception:
+            except Exception as exc:
+                # Q-43: layout probe best-effort — logged, expanded assumed.
+                _LOG.debug("Watchlist collapse probe failed: %s: %s",
+                           type(exc).__name__, exc)
                 watchlist_collapsed = False
             if self._right_dock_available() and not getattr(
                 self, "_right_region_collapsed", False
@@ -2832,7 +2878,11 @@ class MainWindow(QMainWindow):
             return self._watchlist_width == watchlist_max_width(
                 invariant - self._watchlist_width
             )
-        except Exception:
+        except Exception as exc:
+            # Q-43: consistency probe best-effort — logged, assumed settled
+            # so the deferred clamp does not spin.
+            _LOG.debug("Dock-width consistency probe failed: %s: %s",
+                       type(exc).__name__, exc)
             return True
 
     def _on_dock_splitter_moved(self, pos: int, index: int) -> None:

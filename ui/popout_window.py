@@ -30,6 +30,7 @@ context menu (owner decision 2026-10-12).
 from __future__ import annotations
 
 import itertools
+import logging
 
 from PyQt6.QtCore import Qt, QPoint, QTimer
 from PyQt6.QtWidgets import (
@@ -44,6 +45,8 @@ from PyQt6.QtWidgets import (
 from data.popout_store import PopoutStore
 from ibkr.pacing import PacingExceeded
 from ui.chart_view import create_chart_view
+
+_LOG = logging.getLogger(__name__)
 
 #: Mode label (the header/host text) → the LWC driver's mode name.
 MODE_NAMES = {
@@ -98,8 +101,10 @@ def view_memory_estimate(view) -> dict:
     if callable(reporter):
         try:
             return dict(reporter())
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: accounting probe failed — logged, falls back to bars.
+            _LOG.debug("memory_bytes probe failed: %s: %s",
+                       type(exc).__name__, exc)
     bars = len(list(getattr(view, "_bars", None) or []))
     return {
         "engine": getattr(view, "ENGINE_NAME", type(view).__name__),
@@ -236,7 +241,10 @@ class PopoutChartWindow(QWidget):
             return
         try:
             self._engine_host = ensure()
-        except Exception:
+        except Exception as exc:
+            # Q-43: offline-host best-effort — logged, view still syncs.
+            _LOG.debug("Pop-out %s engine host unavailable: %s: %s",
+                       self.symbol, type(exc).__name__, exc)
             self._engine_host = None
 
     # ── DG90 memory accounting ────────────────────────────────────────
@@ -266,8 +274,10 @@ class PopoutChartWindow(QWidget):
         if callable(release):
             try:
                 release()
-            except Exception:
-                pass
+            except Exception as exc:
+                # Q-43: true teardown cleanup — stays best-effort, logged.
+                _LOG.debug("Pop-out %s release_resources failed: %s: %s",
+                           self.symbol, type(exc).__name__, exc)
 
     # ── Session wiring ────────────────────────────────────────────────
 
@@ -298,10 +308,29 @@ class PopoutChartWindow(QWidget):
             QTimer.singleShot(
                 int(e.wait_seconds * 1000), self._retry_rt_subscribe
             )
-        except Exception:
-            # Unexpected subscribe failure: the view stays registered and
-            # synced from cache; a later reconnect replays subscriptions.
-            pass
+        except Exception as exc:
+            # Q-43: unexpected (non-pacing) subscribe failure — surfaced like
+            # the pacing branch (status + stream health + the same singleShot
+            # retry) instead of discarded. The view stays registered and
+            # synced from cache so the session stays consistent.
+            _LOG.warning(
+                "Pop-out %s RT subscribe failed (%s: %s); retrying…",
+                self.symbol, type(exc).__name__, exc,
+            )
+            try:
+                session.stream_health.mark_failed(
+                    -1, f"pop-out subscribe failed: {exc}"
+                )
+            except Exception as health_exc:
+                _LOG.debug(
+                    "Pop-out %s stream-health mark failed: %s: %s",
+                    self.symbol, type(health_exc).__name__, health_exc,
+                )
+            self._host.status_bar.showMessage(
+                f"Pop-out {self.symbol} subscription failed, retrying in 5s…",
+                15000,
+            )
+            QTimer.singleShot(5000, self._retry_rt_subscribe)
         # Track for the MAX_POPOUTS cap and persistence.
         self._host._register_popout(self)
         # P6-11/DG90: account this pop-out's memory (per window).
@@ -328,8 +357,19 @@ class PopoutChartWindow(QWidget):
             QTimer.singleShot(
                 int(e.wait_seconds * 1000), self._retry_rt_subscribe
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: same treatment as the pacing branch — log, surface,
+            # retry — so an unexpected failure can never strand the pop-out
+            # silently. The open-popout guard above re-checks on fire.
+            _LOG.warning(
+                "Pop-out %s RT re-subscribe failed (%s: %s); retrying…",
+                self.symbol, type(exc).__name__, exc,
+            )
+            self._host.status_bar.showMessage(
+                f"Pop-out {self.symbol} subscription failed, retrying in 5s…",
+                15000,
+            )
+            QTimer.singleShot(5000, self._retry_rt_subscribe)
 
     def detach(self) -> None:
         """Release the session (RT refcount + view)."""
@@ -338,22 +378,28 @@ class PopoutChartWindow(QWidget):
             if session is not None:
                 try:
                     session.bar_updated.disconnect(self._on_bar_updated)
-                except (RuntimeError, TypeError):
-                    pass
+                except (RuntimeError, TypeError) as exc:
+                    # Q-43: teardown disconnect of a never-connected slot is
+                    # expected — stays best-effort, logged at debug.
+                    _LOG.debug("Pop-out %s bar_updated disconnect: %s",
+                               self.symbol, exc)
                 try:
                     session.bars_refreshed.disconnect(self._on_bars_refreshed)
-                except (RuntimeError, TypeError):
-                    pass
+                except (RuntimeError, TypeError) as exc:
+                    _LOG.debug("Pop-out %s bars_refreshed disconnect: %s",
+                               self.symbol, exc)
                 try:
                     session.alarms_changed.disconnect(self._on_alarms_changed)
-                except (RuntimeError, TypeError):
-                    pass
+                except (RuntimeError, TypeError) as exc:
+                    _LOG.debug("Pop-out %s alarms_changed disconnect: %s",
+                               self.symbol, exc)
                 try:
                     session.drawings_changed.disconnect(
                         self._on_drawings_changed
                     )
-                except (RuntimeError, TypeError):
-                    pass
+                except (RuntimeError, TypeError) as exc:
+                    _LOG.debug("Pop-out %s drawings_changed disconnect: %s",
+                               self.symbol, exc)
                 session.release_rt()
                 session.detach_view(self.chart)
         finally:
@@ -387,8 +433,10 @@ class PopoutChartWindow(QWidget):
         if self._popout_id is not None:
             try:
                 PopoutStore.delete(self._popout_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Q-43: teardown persistence cleanup — best-effort, logged.
+                _LOG.debug("Pop-out %s persisted-record delete failed: %s: %s",
+                           self.symbol, type(exc).__name__, exc)
         self.detach()
         super().closeEvent(event)
 
@@ -407,8 +455,10 @@ class PopoutChartWindow(QWidget):
                 self.extended_hours,
                 self._geometry_dict(),
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Q-43: geometry-persist best-effort — logged, never breaks close.
+            _LOG.debug("Pop-out %s geometry save failed: %s: %s",
+                       self.symbol, type(exc).__name__, exc)
 
     def moveEvent(self, event) -> None:  # noqa: N802 (Qt naming)
         super().moveEvent(event)
@@ -427,8 +477,10 @@ class PopoutChartWindow(QWidget):
                 int(geometry.get("w", 640)),
                 int(geometry.get("h", 420)),
             )
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            # Q-43: corrupt-record best-effort — logged with the symbol.
+            _LOG.debug("Pop-out %s geometry restore failed: %s",
+                       self.symbol, exc)
 
     # ── Header ────────────────────────────────────────────────────────
 
