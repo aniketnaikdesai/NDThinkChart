@@ -13,9 +13,11 @@ Guards the D16 rules that the D42 mode-aware presence change must leave intact:
   surfaced by the shortfall report; a genuine closure stays empty.
 * **AC-D16.x / ESC-065** — the reconciliation node runs a **stable non-timing
   subset** of the offscreen suite in a hermetic subprocess and asserts it is
-  green (no assertion weakened, none deleted). The subset is every module under
-  ``tests/`` except six, excluded for structural reasons — not because their
-  assertions are wrong:
+  green (no assertion weakened, none deleted). The regular suite runs the
+  five D16/D42-core modules in :data:`_INNER_TARGETED`; the full sweep
+  (every module under ``tests/`` except the structural exclusions in
+  :data:`_INNER_EXCLUDED`) stays available behind the
+  ``NDTHINK_D42_FULL_INNER`` env flag for a dedicated CI job:
 
   * **wall-clock gates** — ``test_d24_smoke_gate.py`` (baseline x multiplier),
     ``test_d28_4_gate.py`` (50 ms/tick), ``test_d28_tick_burst_baseline.py``
@@ -201,6 +203,29 @@ _INNER_EXCLUDED: tuple[str, ...] = (
     "test_watchlist_addflow_d22.py",
 )
 
+#: Env flag restoring the full (minus :data:`_INNER_EXCLUDED`) child sweep for
+#: a dedicated CI job. Unset (or anything but 1/true/yes), the regular suite
+#: runs only :data:`_INNER_TARGETED` and no longer duplicates ~1000 tests.
+_FULL_INNER_ENV = "NDTHINK_D42_FULL_INNER"
+
+#: The stable targeted subset the regular suite runs: the D16/D42 core (the
+#: calendar, the planner and the three D42 guards). Small, deterministic and
+#: non-timing; a red core still fails the node loudly.
+_INNER_TARGETED: tuple[str, ...] = (
+    "test_market_calendar.py",
+    "test_backfill_service.py",
+    "test_d42_day_presence.py",
+    "test_d42_depth_floor.py",
+    "test_d42_mode_cache.py",
+)
+
+
+def _full_inner_requested() -> bool:
+    """True when the env flag asks for the full child sweep (CI job only)."""
+    return os.environ.get(_FULL_INNER_ENV, "").strip().lower() in (
+        "1", "true", "yes",
+    )
+
 #: A hung child must fail the node instead of hanging the outer suite.
 _INNER_TIMEOUT_S = 600.0
 
@@ -211,12 +236,17 @@ _INNER_OUTCOME_RE = re.compile(
 )
 
 
-def _inner_pytest_args(repo: pathlib.Path) -> list[str]:
-    """argv of the child run: a stable, non-timing subset of ``<repo>/tests``.
+def _inner_pytest_args(repo: pathlib.Path, full: bool = False) -> list[str]:
+    """argv of the child run: the targeted subset, or the full sweep.
 
     Pins ``pytest.ini``/``--rootdir`` so the child does not depend on its cwd's
-    config, and carries both recursion guards (``--ignore`` *and*
-    ``--deselect`` for this module / this node).
+    config, and carries the recursion guard (``--deselect`` for this module /
+    this node; the full sweep additionally ``--ignore``s this module).
+
+    ``full=False`` (the regular suite) collects exactly
+    :data:`_INNER_TARGETED`. ``full=True`` (``NDTHINK_D42_FULL_INNER``, the
+    dedicated CI job) collects every module under ``tests/`` except
+    :data:`_INNER_EXCLUDED`.
     """
     args = [
         sys.executable,
@@ -233,14 +263,18 @@ def _inner_pytest_args(repo: pathlib.Path) -> list[str]:
         "-q",
         "-p",
         "no:cacheprovider",
-        str(repo / "tests"),
     ]
-    for module in _INNER_EXCLUDED:
-        args.append(f"--ignore={repo / 'tests' / module}")
     # Recursion guard — belt and braces: the child never runs this module (and
     # so never this node), whether or not the ignore alone is honoured.
     this_module = repo / "tests" / "test_d42_nonregression.py"
-    args.append(f"--ignore={this_module}")
+    if full:
+        args.append(str(repo / "tests"))
+        for module in _INNER_EXCLUDED:
+            args.append(f"--ignore={repo / 'tests' / module}")
+        args.append(f"--ignore={this_module}")
+    else:
+        for module in _INNER_TARGETED:
+            args.append(str(repo / "tests" / module))
     args.append(f"--deselect={this_module}::test_full_offscreen_suite_is_green")
     return args
 
@@ -251,11 +285,16 @@ def _run_inner_suite(
     """Run the child suite from ``cwd`` with ``env`` — the single seam tests patch.
 
     ``env["DB_PATH"]`` lives under the caller's ``tmp_path``; the ``--basetemp``
-    is derived beside it so every invocation gets a unique, isolated one.
+    is derived beside it so every invocation gets a unique, isolated one. The
+    ``NDTHINK_D42_FULL_INNER`` flag rides in ``env`` (the caller copies
+    ``os.environ``), so the seam needs no extra parameter.
     """
     basetemp = pathlib.Path(env["DB_PATH"]).parent / "inner-basetemp"
+    full = str(env.get(_FULL_INNER_ENV, "")).strip().lower() in (
+        "1", "true", "yes",
+    )
     return subprocess.run(
-        _inner_pytest_args(cwd) + [f"--basetemp={basetemp}"],
+        _inner_pytest_args(cwd, full=full) + [f"--basetemp={basetemp}"],
         cwd=str(cwd),
         env=env,
         capture_output=True,
@@ -273,16 +312,18 @@ def _inner_collected_count(stdout: str) -> int:
 
 
 def test_full_offscreen_suite_is_green(tmp_path) -> None:
-    """AC3 (P2-T23-T31) / ESC-065: the stable non-timing subset is green.
+    """AC3 (P2-T23-T31) / ESC-065: the stable targeted subset is green.
 
-    The child is a **subset**, never a full-suite run: every module under
+    The regular suite runs only :data:`_INNER_TARGETED` (the five D16/D42-core
+    modules) — never the ~1000-test sweep. The full sweep (every module under
     ``tests/`` except the six in :data:`_INNER_EXCLUDED` — the three wall-clock
-    gates (``test_d24_smoke_gate.py``, ``test_d28_4_gate.py``,
-    ``test_d28_tick_burst_baseline.py``) and the three Qt-teardown-sensitive
-    ones (``test_session_overlay.py``, ``test_d28_5_teardown.py``, which pumps
-    ``processEvents`` mid-teardown, and ``test_watchlist_addflow_d22.py``, whose
-    ``seed_guard`` node segfaulted in this task's three-run check).
-    Whole-suite-green evidence belongs to ``verify_tests.py`` ->
+    gates ``test_d24_smoke_gate.py``, ``test_d28_4_gate.py``,
+    ``test_d28_tick_burst_baseline.py`` and the three Qt-teardown-sensitive
+    ones ``test_session_overlay.py``, ``test_d28_5_teardown.py``, which pumps
+    ``processEvents`` mid-teardown, and ``test_watchlist_addflow_d22.py``,
+    whose ``seed_guard`` node segfaulted in this task's three-run check) runs
+    only behind the ``NDTHINK_D42_FULL_INNER`` env flag, for a dedicated CI
+    job. Whole-suite-green evidence belongs to ``verify_tests.py`` ->
     ``docs/code_review/test_verification.json`` and to the ``P5-T10`` phase
     gate, not to this node.
 
@@ -293,6 +334,7 @@ def test_full_offscreen_suite_is_green(tmp_path) -> None:
     (including the AC-D16.7 and AC-D16.1/3/4 guards above).
     """
     repo = pathlib.Path(__file__).resolve().parents[1]
+    full = _full_inner_requested()
     env = dict(os.environ)
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["DB_PATH"] = str(tmp_path / "d42_reconciliation_suite.db")
@@ -303,13 +345,14 @@ def test_full_offscreen_suite_is_green(tmp_path) -> None:
     elapsed = time.perf_counter() - started
 
     collected = _inner_collected_count(result.stdout)
+    mode = "full" if full else "targeted"
     print(
-        f"inner suite: {collected} collected outcomes in {elapsed:.2f}s "
-        f"(rc={result.returncode})"
+        f"inner suite ({mode}): {collected} collected outcomes in "
+        f"{elapsed:.2f}s (rc={result.returncode})"
     )
 
     assert result.returncode == 0, (
-        f"the stable non-timing subset is not green (rc={result.returncode}):\n"
+        f"the {mode} inner subset is not green (rc={result.returncode}):\n"
         + result.stdout[-12000:]
         + "\n--- stderr (head: the crash site) ---\n"
         + result.stderr[:4000]
@@ -328,13 +371,32 @@ def test_full_offscreen_suite_is_green(tmp_path) -> None:
 def test_inner_selection_is_a_stable_non_timing_subset(tmp_path, monkeypatch) -> None:
     """P5-T11-T11: the argv shape, the guards, and the node's cwd/env seam."""
     repo = pathlib.Path(__file__).resolve().parents[1]
-    args = _inner_pytest_args(repo)
+    this_module = repo / "tests" / "test_d42_nonregression.py"
 
-    assert str(repo / "tests") in args
+    # --- default (regular suite): exactly the targeted core, nothing else ---
+    monkeypatch.delenv(_FULL_INNER_ENV, raising=False)
+    assert _full_inner_requested() is False
+    args = _inner_pytest_args(repo)
     assert args[args.index("-c") + 1] == str(repo / "pytest.ini")
     assert args[args.index("--rootdir") + 1] == str(repo)
     assert args[args.index("-p") + 1] == "no:cacheprovider"
+    assert str(repo / "tests") not in args, (
+        "the regular suite must not collect the whole tests/ tree"
+    )
+    for module in _INNER_TARGETED:
+        assert str(repo / "tests" / module) in args
+        assert (repo / "tests" / module).exists(), (
+            f"targeted child module is missing: {module}"
+        )
+    assert (
+        f"--deselect={this_module}::test_full_offscreen_suite_is_green" in args
+    )
 
+    # --- env flag (dedicated CI job): the full sweep minus structural guards ---
+    monkeypatch.setenv(_FULL_INNER_ENV, "1")
+    assert _full_inner_requested() is True
+    full_args = _inner_pytest_args(repo, full=True)
+    assert str(repo / "tests") in full_args
     assert set(_INNER_EXCLUDED) == {
         "test_d24_smoke_gate.py",
         "test_d28_4_gate.py",
@@ -345,16 +407,19 @@ def test_inner_selection_is_a_stable_non_timing_subset(tmp_path, monkeypatch) ->
         # test_D22_07_T03_seed_guard; see the comment at _INNER_EXCLUDED.
         "test_watchlist_addflow_d22.py",
     }
-    ignores = [arg for arg in args if arg.startswith("--ignore=")]
+    ignores = [arg for arg in full_args if arg.startswith("--ignore=")]
     assert len(ignores) == len(_INNER_EXCLUDED) + 1
     for module in _INNER_EXCLUDED:
         assert f"--ignore={repo / 'tests' / module}" in ignores
-
-    this_module = repo / "tests" / "test_d42_nonregression.py"
     assert f"--ignore={this_module}" in ignores
     assert (
-        f"--deselect={this_module}::test_full_offscreen_suite_is_green" in args
+        f"--deselect={this_module}::test_full_offscreen_suite_is_green"
+        in full_args
     )
+    for flag in ("true", "yes", " True "):
+        monkeypatch.setenv(_FULL_INNER_ENV, flag)
+        assert _full_inner_requested() is True
+    monkeypatch.delenv(_FULL_INNER_ENV, raising=False)
 
     seen: dict[str, object] = {}
 

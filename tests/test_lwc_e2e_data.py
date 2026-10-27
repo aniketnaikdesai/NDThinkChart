@@ -496,6 +496,84 @@ def test_two_session_set_bars_op_has_one_slot_per_bar(qapp):
     assert candles["cols"]["ts"] == [b.ts for b in bars]
 
 
+#: How long the page/bridge readiness probe may wait for a trivial page load
+#: plus a JS round-trip before declaring this Chromium nonfunctional. One
+#: short cached wait per session — not one 30 s ``_wait_until`` timeout per
+#: test (a present-but-nonfunctional offscreen engine otherwise burns 30 s
+#: per case before failing).
+_READINESS_TIMEOUT_MS = 10_000
+
+#: Tri-state cache for the readiness probe: None = unprobed, True/False after
+#: the single probe. A passing session pays the probe once; later tests skip
+#: it entirely.
+_READINESS_CACHE: object = None
+
+
+def _probe_page_answers(app, timeout_ms: int = _READINESS_TIMEOUT_MS) -> bool:
+    """True when a trivial page loads and answers JS in this process."""
+    from PyQt6.QtCore import QEventLoop, QTimer
+
+    try:
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+    except Exception:
+        return False
+    view = None
+    try:
+        view = QWebEngineView()
+        loaded = QEventLoop()
+        view.loadFinished.connect(lambda _ok: loaded.quit())
+        QTimer.singleShot(timeout_ms // 2, loaded.quit)
+        view.setHtml("<html><body>ready</body></html>")
+        loaded.exec()
+        box: dict = {}
+        answered = QEventLoop()
+
+        def _done(result):
+            box["result"] = result
+            answered.quit()
+
+        QTimer.singleShot(timeout_ms // 2, answered.quit)
+        try:
+            view.page().runJavaScript("1+1", 0, _done)
+        except Exception:
+            return False
+        answered.exec()
+        return box.get("result") == 2
+    except Exception:
+        return False
+    finally:
+        try:
+            if view is not None:
+                view.deleteLater()
+        except Exception:  # pragma: no cover — teardown must never raise
+            pass
+        _drain(app)
+
+
+def _ensure_functional_webengine(app) -> None:
+    """Skip when Chromium is present but cannot run a page here.
+
+    Extends the ``needs_webengine`` pattern (which only gates on import-time
+    availability): a Chromium-present-but-nonfunctional offscreen environment
+    otherwise burns one 30 s ``_wait_until`` timeout per test before failing.
+    One cached short probe per session replaces N long timeouts.
+    """
+    global _READINESS_CACHE
+    if _READINESS_CACHE is True:
+        return
+    if _READINESS_CACHE is False:
+        pytest.skip("QtWebEngine loads no page in this process — "
+                    + MANUAL_E2E)
+    if _probe_page_answers(app):
+        _READINESS_CACHE = True
+        return
+    _READINESS_CACHE = False
+    pytest.skip(
+        "QtWebEngine is present but its renderer answers nothing offscreen "
+        "here — " + MANUAL_E2E
+    )
+
+
 @pytest.fixture()
 def app():
     if APP is None:  # pragma: no cover — gated case skips first
@@ -506,6 +584,7 @@ def app():
             "aborts on the first profile, so the e2e test cannot run in this "
             "process"
         )
+    _ensure_functional_webengine(APP)
     return APP
 
 
