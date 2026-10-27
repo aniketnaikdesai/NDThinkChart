@@ -55,7 +55,7 @@ def _panel_symbols(panel) -> list[str]:
 @pytest.fixture
 def window(monkeypatch, qapp, tmp_path):
     """A shown MainWindow with an isolated DB + QSettings; never touches TWS."""
-    from ibkr.client import IBApiClient
+    from ibkr.client import ConnectionState, IBApiClient
 
     monkeypatch.setattr(IBApiClient, "connect", lambda *a, **k: None)
 
@@ -72,6 +72,14 @@ def window(monkeypatch, qapp, tmp_path):
     win = None
     try:
         win = main_window.MainWindow()
+        # Q-37: the real IBApiClient is handshake-gated (Q-34/Q-35) while
+        # connect is a no-op here, so mark the handshake done at the client
+        # level (flags only, mirroring _go_live — no CONNECTED emission, so
+        # no connect handling runs during setup). The panel's real
+        # market-data path can then subscribe; win._ibkr_connected still
+        # starts False and each test drives _on_connected itself.
+        win.ib_client._connected = True
+        win.ib_client._connection_state = ConnectionState.CONNECTED
         # Swap in per-test settings BEFORE anything can write the real sentinel.
         settings = _isolated_settings(tmp_path / "watchlist_addflow_d22.ini")
         win._settings = settings
