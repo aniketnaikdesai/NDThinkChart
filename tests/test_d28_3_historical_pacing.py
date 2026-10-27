@@ -1,7 +1,8 @@
 """D28.3 — rolling 600s historical pacing window (AC-D28.3).
 
-reqHistoricalData gets a rolling 600-second / ~50-request pacing window plus
-a minimum interval between requests (Q-2), both non-blocking: the issuer
+reqHistoricalData gets a rolling 600-second pacing window (100 requests,
+owner-set in Q-30) plus a 0.5 s minimum interval between requests (Q-2/Q-30),
+both non-blocking: the issuer
 raises PacingExceeded when either gate is closed instead of sleeping; the
 history wave defers the remainder and continues across waves via a deferred
 re-issue, so a same-contract burst can never trip IBKR error 162. IBKR error
@@ -134,6 +135,69 @@ def test_record_historical_slot_consumes_budget():
         pm.record_historical_slot()
         pm._last_hist_time = stale
     assert pm.historical_wait_seconds() > 0.0
+
+
+# ── Q-30: owner-set pacing constants ─────────────────────────────────
+
+def test_q30_owner_constants_are_in_force():
+    """Q-30: 0.5 s spacing and a 100-request window are the live values."""
+    assert settings.HISTORICAL_MIN_INTERVAL_S == 0.5
+    assert settings.MAX_HISTORICAL_PER_600S == 100
+    # At 0.5 s spacing the interval ceiling is 1200/600s, so the budget
+    # is the gate that binds first.
+    assert (600.0 / settings.HISTORICAL_MIN_INTERVAL_S
+            > settings.MAX_HISTORICAL_PER_600S)
+
+
+def test_q30_interval_gate_reports_half_a_second_not_one():
+    """Q-30: the interval gate must reflect 0.5 s, not the old 1.0 s."""
+    pm = PacingManager()
+    pm.record_historical_slot()
+    wait = pm.historical_wait_seconds()
+    # A fresh request reports one interval (capped at HISTORICAL_MIN_INTERVAL_S).
+    assert 0.4 < wait <= settings.HISTORICAL_MIN_INTERVAL_S
+    assert wait < 0.9, f"interval gate still reports the old ~1 s ({wait})"
+    # The Q-17 safety margin still pads a hair-early residual.
+    pm._last_hist_time = time.time() - (
+        settings.HISTORICAL_MIN_INTERVAL_S - 0.0004)
+    assert pm.historical_wait_seconds() > 0.02
+    # 0.6 s after a request the gate is open; a 1.0 s interval would still hold.
+    pm._last_hist_time = time.time() - 0.6
+    assert pm.historical_wait_seconds() == 0.0
+
+
+def test_q30_budget_gate_closes_after_100_requests_in_the_window():
+    """Q-30: exactly MAX_HISTORICAL_PER_600S requests fit in the window."""
+    pm = PacingManager()
+    for _ in range(settings.MAX_HISTORICAL_PER_600S):
+        pm.record_historical_slot()
+        pm._last_hist_time = 0.0  # isolate the budget gate from the interval
+    assert pm.historical_wait_seconds() > 500.0, \
+        "the 101st request in the window must be deferred to the window edge"
+    # The old 50-request budget would have closed here; the new one has not.
+    pm2 = PacingManager()
+    for _ in range(settings.MAX_HISTORICAL_PER_600S // 2):
+        pm2.record_historical_slot()
+        pm2._last_hist_time = 0.0
+    assert pm2.historical_wait_seconds() == 0.0, \
+        "50 requests must no longer exhaust the budget"
+
+
+def test_q30_budget_gate_uses_the_constant_not_a_literal():
+    """Q-30: the budget maths must read settings.MAX_HISTORICAL_PER_600S."""
+    import inspect
+    src = inspect.getsource(pacing_mod.PacingManager.historical_wait_seconds)
+    assert "settings.MAX_HISTORICAL_PER_600S" in src
+
+
+def test_q30_wave_continuation_ticks_at_550ms(qapp):
+    """Q-30: at 0.5 s spacing a deferred chunk re-issues after ~550 ms."""
+    fake = _FakeHistClient()
+    _host, session = _make_session(qapp, fake)
+    delay = session._continuation_delay_ms(
+        settings.HISTORICAL_MIN_INTERVAL_S)
+    assert delay == 550, "0.5 s interval -> ceil(500 ms) + 50 ms margin"
+    assert delay < 1000, "the old 1.0 s interval's tick must be gone"
 
 
 # ── Issuer behaviour ─────────────────────────────────────────────────
