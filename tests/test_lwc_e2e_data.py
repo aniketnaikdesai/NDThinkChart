@@ -1286,3 +1286,107 @@ def test_alarm_mode_click_creates_an_alarm_through_the_real_page(qapp,
     )
     assert _run_js(host, "window.LwAlarms.snapshot().preview") is None
 
+
+
+# ---------------------------------------------------------------------------
+# Q-33 — the drawing toolbar draws through the *real* page
+#
+# The toolbar called ``set_drawing_tool`` and the LWC driver had no such method,
+# so the combo moved and nothing was ever armed. These cases drive the toolbar
+# method, then dispatch real pointer gestures at the page and read the created
+# record back through ``drawing_controller.created``.
+# ---------------------------------------------------------------------------
+
+
+def _drawing_view(make_view, bars):
+    view = _channel_view(make_view, bars)
+    # The default view size leaves a 200x100 page; a real pane is needed for a
+    # meaningful drag (the page re-sizes through its own ResizeObserver).
+    view.resize(960, 720)
+    _pump(APP, 800)
+    return view
+
+
+def test_the_toolbar_trendline_draws_through_the_real_page(qapp, make_view):
+    bars = _two_session_bars()
+    view = _drawing_view(make_view, bars)
+    host = view._host
+    created = []
+    view.drawing_controller.created.connect(created.append)
+
+    assert view.set_drawing_tool("trendline") == "DRAWING"
+    _pump(APP, 400)
+    armed = _run_js(host, "window.lwGestureState()")
+    assert armed["mode"] == "DRAWING" and armed["tool"] == "trendline", armed
+
+    rect = _chart_rect(host)
+    assert rect and rect["width"] > 100 and rect["height"] > 100, rect
+    x1, y1 = rect["width"] * 0.30, rect["height"] * 0.35
+    x2, y2 = rect["width"] * 0.70, rect["height"] * 0.55
+
+    _pointer(host, "pointerdown", x1, y1)
+    _pointer(host, "pointermove", x2, y2)
+    draft = _run_js(host, "window.lwGestureState().draft")
+    assert isinstance(draft, dict) and draft["kind"] == "trendline", (
+        f"no live draft while dragging: {draft!r}"
+    )
+    assert _run_js(host, "window.LwPrimitives.snapshot().draft") is not None
+
+    _pointer(host, "pointerup", x2, y2)
+    _wait_until(APP, lambda: created, 5_000,
+                "the page's trendline drag to reach drawing_controller.created")
+
+    assert len(created) == 1, created
+    record = created[0]
+    assert record.kind == "trendline"
+    assert record.symbol == "AAPL"
+    p1, p2 = record.payload["p1"], record.payload["p2"]
+    first_ts, last_ts = bars[0].ts, bars[-1].ts
+    for point in (p1, p2):
+        assert isinstance(point["x"], int), point
+        assert first_ts <= point["x"] <= last_ts, (point, first_ts, last_ts)
+        assert isinstance(point["y"], float), point
+    assert p1["x"] != p2["x"], "the two anchors collapsed onto one bar"
+
+    assert _run_js(host, "window.lwGestureState().draft") is None, (
+        "the draft survived the commit"
+    )
+    assert view.router.active_mode.name == "DRAWING", (
+        "the tool disarmed after one drawing; the reference keeps it armed"
+    )
+
+
+def test_the_toolbar_horizontal_commits_on_a_click(qapp, make_view):
+    bars = _two_session_bars()
+    view = _drawing_view(make_view, bars)
+    host = view._host
+    created = []
+    view.drawing_controller.created.connect(created.append)
+
+    assert view.set_drawing_tool("horizontal") == "DRAWING"
+    _pump(APP, 400)
+    rect = _chart_rect(host)
+    x = rect["width"] * 0.5
+    y = rect["height"] * 0.4
+
+    _pointer(host, "pointerdown", x, y)
+    _pointer(host, "pointerup", x, y)  # no drag at all
+    _wait_until(APP, lambda: created, 5_000,
+                "the horizontal click to reach drawing_controller.created")
+
+    assert len(created) == 1, created
+    assert created[0].kind == "horizontal"
+    assert isinstance(created[0].payload["y"], float)
+
+
+def test_the_magnifier_reports_the_cleared_tool(qapp, make_view):
+    bars = _two_session_bars()
+    view = _drawing_view(make_view, bars)
+    seen = []
+    view.drawing_controller.mode_changed.connect(seen.append)
+
+    view.set_drawing_tool("zone")
+    seen.clear()
+    view.handle_control("magnifier", True)
+
+    assert seen == ["cursor"], "the toolbar combo would keep a stale tool label"

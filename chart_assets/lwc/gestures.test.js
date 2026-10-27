@@ -35,6 +35,15 @@ function fakeChart() {
   const calls = [];
   return {
     calls,
+    // Q-33: a drawing anchor needs the page's own time axis. `logicalAt`
+    // subtracts the container's left edge and asks this scale.
+    timeScale() {
+      return {
+        coordinateToLogical(x) {
+          return Number(x) / 10;
+        },
+      };
+    },
     applyOptions(options) {
       if (options && ("handleScroll" in options || "handleScale" in options)) {
         calls.push({
@@ -350,5 +359,161 @@ describe("alarms.js preview wrappers (Q-32)", () => {
     assert.equal(lines.length, 0);
     assert.equal(LwAlarms.snapshot().preview, null);
     LwAlarms.clear();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Q-33 — the drawing half. Same fake glue as above, plus a primitives stub so
+// the draft/commit path is observable without the renderer.
+// ---------------------------------------------------------------------------
+
+function fakePrimitives() {
+  const seen = { drafts: [], committed: [], cleared: 0 };
+  let draft = null;
+  return {
+    seen,
+    setDraft(item) {
+      draft = item ? JSON.parse(JSON.stringify(item)) : null;
+      seen.drafts.push(draft);
+      return true;
+    },
+    clearDraft() {
+      draft = null;
+      seen.cleared += 1;
+      return true;
+    },
+    snapshot() {
+      return { draft };
+    },
+    commitDrawing(item) {
+      seen.committed.push(JSON.parse(JSON.stringify(item)));
+      return true;
+    },
+  };
+}
+
+function drawingGlue(primitives) {
+  const glue = bindAll({ primitives });
+  return glue;
+}
+
+function armTool(glue, tool) {
+  LwGestures.applyRouterOp({ op: "router_mode", mode: "DRAWING", tool });
+}
+
+describe("gestures.js — drawing tool arming", () => {
+  it("suppresses pan/zoom and sets the crosshair while a tool is armed", () => {
+    const primitives = fakePrimitives();
+    const glue = drawingGlue(primitives);
+    armTool(glue, "trendline");
+    assert.equal(glue.container.style.cursor, "crosshair");
+    const state = LwGestures.state();
+    assert.equal(state.mode, "DRAWING");
+    assert.equal(state.tool, "trendline");
+    assert.equal(state.panZoomSuppressed, true);
+  });
+
+  it("restores pan/zoom and the cursor on the cursor tool", () => {
+    const primitives = fakePrimitives();
+    const glue = drawingGlue(primitives);
+    armTool(glue, "trendline");
+    LwGestures.applyRouterOp({ op: "router_mode", mode: "IDLE", tool: "cursor" });
+    assert.equal(glue.container.style.cursor, "");
+    assert.equal(LwGestures.state().panZoomSuppressed, false);
+  });
+});
+
+describe("gestures.js — drawing geometry", () => {
+  it("builds a trendline item from two anchors", () => {
+    const item = LwGestures.drawingItem(
+      "trendline", { frac: 1.5, price: 100 }, { frac: 9.5, price: 110 });
+    assert.equal(item.kind, "trendline");
+    assert.deepEqual(item.points, [[1.5, 100], [9.5, 110]]);
+    assert.equal(item.id, null);
+    assert.equal(item.selected, false);
+  });
+
+  it("normalises a zone's span and prices", () => {
+    const item = LwGestures.drawingItem(
+      "zone", { frac: 9.0, price: 120 }, { frac: 2.0, price: 100 });
+    assert.deepEqual(item.span, [2.0, 9.0]);
+    assert.equal(item.y1, 100);
+    assert.equal(item.y2, 120);
+  });
+
+  it("marks a horizontal line from the press price alone", () => {
+    const item = LwGestures.drawingItem(
+      "horizontal", { frac: 3.0, price: 101.25 }, null);
+    assert.equal(item.price, 101.25);
+    assert.equal(item.points, undefined);
+  });
+
+  it("gives fibonacci retracement levels and a measure its delta", () => {
+    const fib = LwGestures.drawingItem(
+      "fibonacci", { frac: 0, price: 100 }, { frac: 10, price: 120 });
+    assert.equal(fib.type, "retr");
+    assert.ok(Array.isArray(fib.levels) && fib.levels.length >= 3);
+    const measure = LwGestures.drawingItem(
+      "measure", { frac: 0, price: 100 }, { frac: 10, price: 110 });
+    assert.equal(measure.delta.dy, 10);
+    assert.equal(measure.delta.pct, 10);
+  });
+
+  it("refuses a half-built item (null anchor)", () => {
+    assert.equal(LwGestures.drawingItem("trendline", { frac: 0, price: 100 }, null), null);
+    assert.equal(LwGestures.drawingItem("trendline", null, { frac: 1, price: 1 }), null);
+    assert.equal(LwGestures.drawingItem("nonsense", { frac: 0, price: 1 }, { frac: 1, price: 2 }), null);
+  });
+});
+
+describe("gestures.js — draft, commit, and the 3 px threshold", () => {
+  it("shows the draft while dragging and commits it on release", () => {
+    const primitives = fakePrimitives();
+    const glue = drawingGlue(primitives);
+    armTool(glue, "trendline");
+
+    glue.handlers.pointerdown({ clientX: 100, clientY: 450, button: 0 });
+    glue.handlers.pointermove({ clientX: 300, clientY: 400 });
+    assert.ok(primitives.seen.drafts.some((d) => d && d.kind === "trendline"),
+      "no live draft while dragging");
+
+    glue.handlers.pointerup({ clientX: 300, clientY: 400 });
+    assert.equal(primitives.seen.committed.length, 1);
+    assert.equal(primitives.seen.committed[0].kind, "trendline");
+    assert.equal(LwGestures.state().draft, null, "the draft survived the commit");
+    assert.equal(LwGestures.state().tool, "trendline",
+      "the tool must stay armed after a commit");
+  });
+
+  it("discards a drag shorter than the threshold", () => {
+    const primitives = fakePrimitives();
+    const glue = drawingGlue(primitives);
+    armTool(glue, "zone");
+
+    glue.handlers.pointerdown({ clientX: 200, clientY: 300, button: 0 });
+    glue.handlers.pointerup({ clientX: 202, clientY: 301 });
+    assert.equal(primitives.seen.committed.length, 0);
+  });
+
+  it("commits a horizontal line on a click with no movement", () => {
+    const primitives = fakePrimitives();
+    const glue = drawingGlue(primitives);
+    armTool(glue, "horizontal");
+
+    glue.handlers.pointerdown({ clientX: 200, clientY: 300, button: 0 });
+    glue.handlers.pointerup({ clientX: 200, clientY: 300 });
+    assert.equal(primitives.seen.committed.length, 1);
+    assert.equal(primitives.seen.committed[0].kind, "horizontal");
+  });
+
+  it("does nothing outside the drawing modes", () => {
+    const primitives = fakePrimitives();
+    const glue = drawingGlue(primitives);
+    LwGestures.applyRouterOp({ op: "router_mode", mode: "IDLE", tool: "cursor" });
+
+    glue.handlers.pointerdown({ clientX: 100, clientY: 200, button: 0 });
+    glue.handlers.pointermove({ clientX: 400, clientY: 300 });
+    glue.handlers.pointerup({ clientX: 400, clientY: 300 });
+    assert.equal(primitives.seen.committed.length, 0);
   });
 });

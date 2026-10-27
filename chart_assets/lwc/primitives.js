@@ -724,7 +724,12 @@
   var primitives = [];
   var selectedId = null;
   var planSnapshot = renderPlan([], [], null);
+  /* Q-33: the in-progress drawing, rendered through the same plan as the
+   * committed ones (the gesture layer owns the geometry, this owns the paint). */
+  var draft = null;
   var primitiveHandle = null;
+  var attachedSeries = null;
+  var requestUpdate = null;
 
   function clone(value) {
     if (value === null || value === undefined) return value;
@@ -766,14 +771,18 @@
     for (var i = 0; i < primitives.length; i++) {
       extra.push(primitives[i]);
     }
+    if (draft) {
+      var draftRow = clone(draft);
+      draftRow.id = null;
+      draftRow.selected = false;
+      extra.push(draftRow);
+    }
     return renderPlan(rows.concat(extra), groups, selectedId);
   }
 
   function refresh() {
     planSnapshot = planForCurrent();
-    if (primitiveHandle && typeof primitiveHandle.requestUpdate === "function") {
-      primitiveHandle.requestUpdate();
-    }
+    if (typeof requestUpdate === "function") requestUpdate();
   }
 
   function replaceGeometry(target, op) {
@@ -864,11 +873,28 @@
 
   /* ── canvas primitive (LWC v5 series primitive) ─────────────────────── */
 
+  /* Fractional logical index -> pixels.
+   *
+   * The wire carries fractional *logical indices* (DG93), and
+   * `logicalToCoordinate` is the scale's own answer for one. This used to call
+   * ``timeToCoordinate``, which was correct only while the axis carried logical
+   * indices as fake timestamps; since Q-20 the time scale holds real UTC
+   * seconds, so ``timeToCoordinate(3)`` is null and every drawing and overlay
+   * silently vanished. Interpolation stays as the fallback for a library that
+   * refuses a fractional logical. */
   function coordinateForFrac(frac, timeScale) {
+    if (typeof timeScale.logicalToCoordinate === "function") {
+      var direct = timeScale.logicalToCoordinate(frac);
+      if (direct !== null && direct !== undefined) return direct;
+    }
     var lo = Math.floor(frac);
     var hi = Math.ceil(frac);
-    var a = timeScale.timeToCoordinate(lo);
-    var b = timeScale.timeToCoordinate(hi);
+    var a = timeScale.logicalToCoordinate
+      ? timeScale.logicalToCoordinate(lo)
+      : timeScale.timeToCoordinate(lo);
+    var b = timeScale.logicalToCoordinate
+      ? timeScale.logicalToCoordinate(hi)
+      : timeScale.timeToCoordinate(hi);
     if (a === null || a === undefined) a = b;
     if (b === null || b === undefined) b = a;
     if (a === null || a === undefined) return null;
@@ -1033,24 +1059,48 @@
        * (``renderer(): IPrimitivePaneRenderer | null``). Returning the object
        * itself made the library call it as a function — "this.Yh.renderer is
        * not a function" — so no primitive ever drew. */
+      /* LWC 5.x `ISeriesPrimitivePaneView.renderer` is a **method**
+       * (``renderer(): IPrimitivePaneRenderer | null``). Returning the object
+       * itself made the library call it as a function — "this.Yh.renderer is
+       * not a function" — so no primitive ever drew. */
       paneViews: function () {
         return [{
+          zOrder: function () { return "top"; },
           renderer: function () { return renderer; },
         }];
       },
       updateAllViews: function () {},
-      attached: function () {},
-      detached: function () {},
+      attached: function (param) {
+        /* The library passes the only repaint handle a primitive gets. */
+        requestUpdate = (param && typeof param.requestUpdate === "function")
+          ? param.requestUpdate
+          : null;
+        refresh();
+      },
+      detached: function () {
+        requestUpdate = null;
+        attachedSeries = null;
+      },
     };
   }
 
+  /* Attach once per *series*. ``bind`` runs again whenever the visible price
+   * series changes, and a primitive left on the old handle never repaints —
+   * the drawing would exist in the module's state and nowhere on screen. */
   function attach() {
-    if (primitiveHandle || !seriesRef ||
-        typeof seriesRef.attachPrimitive !== "function") {
-      return;
+    if (!seriesRef || typeof seriesRef.attachPrimitive !== "function") return;
+    if (primitiveHandle && attachedSeries === seriesRef) return;
+    if (primitiveHandle && attachedSeries &&
+        typeof attachedSeries.detachPrimitive === "function") {
+      try {
+        attachedSeries.detachPrimitive(primitiveHandle);
+      } catch (err) {
+        /* a dead handle may refuse; the new attach is what matters */
+      }
     }
-    primitiveHandle = makePrimitive();
+    if (!primitiveHandle) primitiveHandle = makePrimitive();
     seriesRef.attachPrimitive(primitiveHandle);
+    attachedSeries = seriesRef;
   }
 
   function bind(chart, series) {
@@ -1071,17 +1121,42 @@
     refresh();
   }
 
+  /* Q-33: the live draft the gesture layer paints while a tool is armed.
+   * A rejected/absent item clears it, so a half-built drawing is never sent. */
+  function setDraft(item) {
+    if (item === null || item === undefined) return clearDraft();
+    if (typeof item !== "object" || isArray(item) || !item.kind) return false;
+    draft = clone(item);
+    draft.id = null;
+    draft.selected = false;
+    refresh();
+    return true;
+  }
+
+  function clearDraft() {
+    if (draft === null) return false;
+    draft = null;
+    refresh();
+    return true;
+  }
+
+  function draftItem() {
+    return clone(draft);
+  }
+
   /* What the engine currently shows — the parity evidence. */
   function snapshot() {
     return {
       items: clone(items),
       primitives: clone(primitives),
+      draft: clone(draft),
       selectedId: selectedId,
       plan: clone(planSnapshot),
     };
   }
 
   function clear() {
+    draft = null;
     items = [];
     primitives = [];
     selectedId = null;
@@ -1197,6 +1272,9 @@
     applyOps: applyOps,
     applyDrawOps: applyDrawOps,
     setGroups: setGroups,
+    setDraft: setDraft,
+    clearDraft: clearDraft,
+    draftItem: draftItem,
     snapshot: snapshot,
     clear: clear,
     pageBridge: pageBridge,

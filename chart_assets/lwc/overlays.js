@@ -439,6 +439,8 @@
   var countdown = null;
   var unavailable = false;
   var primitiveHandle = null;
+  var attachedSeries = null;
+  var requestUpdate = null;
   var planSnapshot = null;
 
   function renderPlan() {
@@ -479,9 +481,7 @@
 
   function refresh() {
     planSnapshot = renderPlan();
-    if (primitiveHandle && typeof primitiveHandle.requestUpdate === "function") {
-      primitiveHandle.requestUpdate();
-    }
+    if (typeof requestUpdate === "function") requestUpdate();
   }
 
   function applyOp(op) {
@@ -556,11 +556,28 @@
     return [];
   }
 
+  /* Fractional logical index -> pixels.
+   *
+   * The wire carries fractional *logical indices* (DG93), and
+   * `logicalToCoordinate` is the scale's own answer for one. This used to call
+   * ``timeToCoordinate``, which was correct only while the axis carried logical
+   * indices as fake timestamps; since Q-20 the time scale holds real UTC
+   * seconds, so ``timeToCoordinate(3)`` is null and every drawing and overlay
+   * silently vanished. Interpolation stays as the fallback for a library that
+   * refuses a fractional logical. */
   function coordinateForFrac(frac, timeScale) {
+    if (typeof timeScale.logicalToCoordinate === "function") {
+      var direct = timeScale.logicalToCoordinate(frac);
+      if (direct !== null && direct !== undefined) return direct;
+    }
     var lo = Math.floor(frac);
     var hi = Math.ceil(frac);
-    var a = timeScale.timeToCoordinate(lo);
-    var b = timeScale.timeToCoordinate(hi);
+    var a = timeScale.logicalToCoordinate
+      ? timeScale.logicalToCoordinate(lo)
+      : timeScale.timeToCoordinate(lo);
+    var b = timeScale.logicalToCoordinate
+      ? timeScale.logicalToCoordinate(hi)
+      : timeScale.timeToCoordinate(hi);
     if (a === null || a === undefined) a = b;
     if (b === null || b === undefined) b = a;
     if (a === null || a === undefined) return null;
@@ -756,24 +773,44 @@
     return {
       /* LWC 5.x: ``renderer`` is a method, not the renderer object (see the
        * same fix in primitives.js). */
+      /* LWC 5.x: ``renderer`` is a method, not the renderer object. */
       paneViews: function () {
         return [{
+          zOrder: function () { return "top"; },
           renderer: function () { return renderer; },
         }];
       },
       updateAllViews: function () {},
-      attached: function () {},
-      detached: function () {},
+      attached: function (param) {
+        /* The library passes the only repaint handle a primitive gets. */
+        requestUpdate = (param && typeof param.requestUpdate === "function")
+          ? param.requestUpdate
+          : null;
+        refresh();
+      },
+      detached: function () {
+        requestUpdate = null;
+        attachedSeries = null;
+      },
     };
   }
 
+  /* Attach once per *series*: a primitive left on a replaced handle never
+   * repaints (see the same note in primitives.js). */
   function attach() {
-    if (primitiveHandle || !seriesRef ||
-        typeof seriesRef.attachPrimitive !== "function") {
-      return;
+    if (!seriesRef || typeof seriesRef.attachPrimitive !== "function") return;
+    if (primitiveHandle && attachedSeries === seriesRef) return;
+    if (primitiveHandle && attachedSeries &&
+        typeof attachedSeries.detachPrimitive === "function") {
+      try {
+        attachedSeries.detachPrimitive(primitiveHandle);
+      } catch (err) {
+        /* a dead handle may refuse; the new attach is what matters */
+      }
     }
-    primitiveHandle = makePrimitive();
+    if (!primitiveHandle) primitiveHandle = makePrimitive();
     seriesRef.attachPrimitive(primitiveHandle);
+    attachedSeries = seriesRef;
   }
 
   function bind(chart, series) {

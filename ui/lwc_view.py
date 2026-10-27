@@ -165,7 +165,7 @@ from services.session_service import session_bands
 from services.time_collapse_service import gap_is_non_trading
 from ui import lwc_bridge as LB
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
-from ui.drawing_tools import TOOL_CURSOR
+from ui.drawing_tools import DRAWING_TOOLS, TOOL_CURSOR
 
 #: The five render modes, mirroring the default engine's ``ChartMode``.
 MODES = ("candles", "hollow", "heikin", "line", "area")
@@ -1682,20 +1682,25 @@ class PageDrawing:
 
     ``MainWindow._on_drawing_created`` hands the emitted object straight to
     the drawing store, so it carries the attributes that path reads
-    (``symbol`` / ``kind`` / ``payload`` / ``color`` / ``group_id`` /
-    ``id``). It is a small transport record defined here rather than imported
+    (``symbol`` / ``kind`` / ``payload`` / ``color`` / ``label`` /
+    ``group_id`` / ``id``). It is a small transport record defined here rather than imported
     from ``data.models``: this module must stay free of the data layer
     (renderer boundary), and a page commit is not a stored row.
     """
 
     def __init__(self, symbol: str = "", kind: str = "", payload=None,
-                 color=None, group_id=None, id=None):
+                 color=None, group_id=None, id=None, label: str = ""):
         self.symbol = symbol
         self.kind = kind
         self.payload = dict(payload or {})
         self.color = color
         self.group_id = group_id
         self.id = id
+        # The store's create path reads ``drawing.label``; a page commit has no
+        # label editor (the page is renderer-only), so the attribute exists and
+        # stays empty until the Qt settings path sets one. Named without the
+        # store's module symbol on purpose: the renderer boundary forbids it.
+        self.label = label
 
 
 def _optional_int(value):
@@ -2440,6 +2445,7 @@ class LwcChartView(QWidget):
         elif control_id == "magnifier":
             # ``value`` is the toggle's checked state (ChartControls emits
             # ``magnify_toggled(bool)``); ``None`` toggles from the router.
+            before = self._router.active_mode
             mode = self._router.active_mode
             enabled = (mode != RouterMode.ZOOMING) if value is None else bool(value)
             if enabled:
@@ -2452,6 +2458,11 @@ class LwcChartView(QWidget):
                 intent = "exit_to_idle"
             op = {"op": "router_mode", "mode": self._router.active_mode.name,
                   "intent": intent, "refused": refused}
+            # TR-4 (and the refused TR-9 from DRAWING): entering zoom from
+            # DRAWING is the router clearing the drawing tool as a side
+            # effect. Mirror the overlay's signal so the combo resets.
+            if (enabled and not refused and before == RouterMode.DRAWING):
+                self.drawing_controller.mode_changed.emit(TOOL_CURSOR)
         else:  # "reset"
             self._router.exit_to_idle()
             op = {"op": "reset_view", "mode": self._router.active_mode.name}
@@ -2460,11 +2471,42 @@ class LwcChartView(QWidget):
         return {"control": control_id, "op": dict(op),
                 "mode": self._router.active_mode.name, "refused": refused}
 
+    def set_drawing_tool(self, tool: str) -> str:
+        """Arm (or clear) a drawing tool through the frozen router.
+
+        The main window's toolbar calls this for every combo change. An
+        unknown/``None`` name falls back to ``TOOL_CURSOR`` — the reference
+        overlay's ``set_tool`` contract — and a real tool enters ``DRAWING``
+        (TR-1/TR-5/TR-8). D24: a pop-out (non-editable) view is read-only and
+        the call is inert.
+
+        ``mode_changed`` mirrors the overlay's own signal, so ``MainWindow``
+        keeps its combo in step (ESC-017). The tool stays armed after a
+        commit; only an explicit cursor switch / router clear disarms it.
+        """
+        if not self._editable:
+            return self._router.active_mode.name
+        name = tool if tool in DRAWING_TOOLS else TOOL_CURSOR
+        self._router.enter_drawing(name)
+        real_tool = name != TOOL_CURSOR
+        self._publish_interaction_op({
+            "op": "router_mode",
+            "mode": self._router.active_mode.name,
+            "intent": "draw_tool" if real_tool else "draw_cursor",
+            "refused": False,
+            "tool": name,
+        })
+        self.drawing_controller.mode_changed.emit(name)
+        return self._router.active_mode.name
+
     def reset_interaction(self) -> str:
         """TR-17: reset the router (discard any draft) on a symbol change.
 
         Emits one ``router_mode`` op when a gesture was in progress, so the
-        page drops its magnifier/draft state with the Python router.
+        page drops its magnifier/draft state with the Python router. A
+        symbol change out of ``DRAWING`` also cleared the drawing tool as a
+        side effect, so the overlay's ``mode_changed(cursor)`` fires and the
+        toolbar combo resets (ESC-017).
         """
         before = self._router.active_mode
         mode = reset_router_for_symbol_change(self._router)
@@ -2472,6 +2514,8 @@ class LwcChartView(QWidget):
             self._publish_interaction_op(
                 {"op": "router_mode", "mode": mode.name,
                  "intent": "symbol_change", "refused": False})
+        if before == RouterMode.DRAWING:
+            self.drawing_controller.mode_changed.emit(TOOL_CURSOR)
         return mode.name
 
     def handle_focus_released(self) -> None:
@@ -2633,6 +2677,7 @@ class LwcChartView(QWidget):
         """
         if not self._editable:
             return self._router.active_mode.name
+        before = self._router.active_mode
         if enabled:
             self._router.enter_alarm_placing()
             intent = "enter_alarm_placing"
@@ -2644,6 +2689,11 @@ class LwcChartView(QWidget):
             "op": "router_mode", "mode": self._router.active_mode.name,
             "intent": intent, "refused": False,
         })
+        # TR-7: arming alarm placement from DRAWING discards the drawing
+        # tool. Mirror the overlay's signal so the toolbar combo resets
+        # (ESC-017) — otherwise the stale label can never re-arm the tool.
+        if enabled and before == RouterMode.DRAWING:
+            self.drawing_controller.mode_changed.emit(TOOL_CURSOR)
         return self._router.active_mode.name
 
     def show_alarm_preview(self, price: float) -> None:
