@@ -95,7 +95,77 @@ def _pump(app, ms: int) -> None:
         time.sleep(0.01)
 
 
-def _wait_until(app, predicate, timeout_ms: int, what: str) -> None:
+_PAGE_DIAG_JS = """
+(function () {
+  var out = {};
+  try { out.readyState = document.readyState; } catch (e) { out.readyState = "unknown"; }
+  try { out.lwSnapshot = typeof window.lwSnapshot; } catch (e) { out.lwSnapshot = "unknown"; }
+  try { out.lwBridge = typeof window.lwBridge; } catch (e) { out.lwBridge = "unknown"; }
+  try {
+    out.lwModules = (typeof window.lwModules === "function")
+      ? window.lwModules() : (typeof window.lwModules);
+  } catch (e) { out.lwModules = "error"; }
+  try {
+    var el = document.getElementById("chart");
+    if (!el) { out.chart = null; }
+    else {
+      var r = el.getBoundingClientRect();
+      out.chart = { w: el.clientWidth, h: el.clientHeight,
+        rect: { top: r.top, left: r.left, width: r.width, height: r.height } };
+    }
+  } catch (e) { out.chart = "error"; }
+  return out;
+})()
+"""
+
+
+def _collect_page_diagnostics(host=None, view=None) -> str:
+    """Best-effort page-load bundle appended to a timed-out readiness wait.
+
+    Uses the explicitly passed ``host``/``view`` when given, else the
+    calling test's ``host``/``view`` locals (best-effort). Never raises:
+    any failure yields ``"diagnostics unavailable"`` (or a partial bundle
+    naming what could not be read). The caller truncates.
+    """
+    import inspect
+
+    try:
+        if host is None or view is None:
+            frame = None
+            try:
+                frame = inspect.currentframe()
+                caller = frame.f_back.f_back if frame and frame.f_back else None
+                names = dict(getattr(caller, "f_locals", {}) or {})
+                if host is None:
+                    host = names.get("host")
+                if view is None:
+                    view = names.get("view")
+            except Exception:
+                pass
+            finally:
+                del frame
+        if host is None and view is None:
+            return "diagnostics unavailable"
+        bundle = {}
+        if host is not None:
+            try:
+                bundle["page"] = _run_js(host, _PAGE_DIAG_JS, 3000)
+            except Exception as exc:
+                bundle["page"] = f"<unavailable: {type(exc).__name__}>"
+        else:
+            bundle["page"] = "<no host>"
+        try:
+            bridge = getattr(view, "bridge", None) if view is not None else None
+            bundle["bridge_is_ready"] = getattr(bridge, "is_ready", "<no view>")
+        except Exception:
+            bundle["bridge_is_ready"] = "<unavailable>"
+        return str(bundle)[:1500]
+    except Exception:
+        return "diagnostics unavailable"
+
+
+def _wait_until(app, predicate, timeout_ms: int, what: str,
+                host=None, view=None) -> None:
     from PyQt6.QtCore import QEventLoop
 
     deadline = time.monotonic() + timeout_ms / 1000.0
@@ -104,7 +174,14 @@ def _wait_until(app, predicate, timeout_ms: int, what: str) -> None:
         if predicate():
             return
         time.sleep(0.01)
-    raise AssertionError(f"timed out after {timeout_ms} ms waiting for {what}")
+    try:
+        diagnostics = _collect_page_diagnostics(host=host, view=view)
+    except Exception:
+        diagnostics = "diagnostics unavailable"
+    raise AssertionError(
+        f"timed out after {timeout_ms} ms waiting for {what}"
+        f" | page diagnostics: {diagnostics}"
+    )
 
 
 def _run_js(host, js: str, timeout_ms: int = 5000):
@@ -145,35 +222,15 @@ def _drain(app, rounds: int = 3) -> None:
 
 
 def _release_profile() -> None:
-    """Uninstall this host's handlers from the application-owned profile.
+    """No-op: the profile wiring is application-lifetime (Q-40).
 
-    ``create_host`` installs the ``ndt://`` handler and the interceptor on
-    ``QWebEngineProfile.defaultProfile()``. The profile outlives the view, so
-    leaving them pointing at a deleted widget is what turns process exit into
-    "Release of profile requested but WebEnginePage still not deleted"
-    (Q-15). Cleaning it here keeps the offscreen suite exit-safe.
+    ``create_host`` installs the shared ``ndt://`` handler and the
+    deny-default interceptor ONCE, parented to the ``QApplication``. Removing
+    them here dangled the profile-global registration after the first
+    create/destroy cycle (a dead wrapper defeats the ``is None`` reinstall
+    guard) and every later page load silently never finished. Teardown must
+    leave the shared pair installed.
     """
-    from PyQt6.QtWebEngineCore import QWebEngineProfile
-
-    try:
-        profile = QWebEngineProfile.defaultProfile()
-    except Exception:  # pragma: no cover — engine already gone
-        return
-    if profile is None:  # pragma: no cover
-        return
-    try:
-        handler = profile.urlSchemeHandler(LH.NDT_SCHEME.encode())
-    except Exception:  # pragma: no cover
-        handler = None
-    if isinstance(handler, LH.NdtSchemeHandler):
-        try:
-            profile.removeUrlSchemeHandler(handler)
-        except Exception:  # pragma: no cover
-            pass
-    try:
-        profile.setUrlRequestInterceptor(None)
-    except Exception:  # pragma: no cover
-        pass
 
 
 def _teardown_view(app, view) -> None:
@@ -220,8 +277,8 @@ def _teardown_view(app, view) -> None:
             except (TypeError, RuntimeError):  # nothing connected / gone
                 pass
 
-    if host is not None:
-        _release_profile()
+    # Q-40: the profile wiring is application-lifetime — teardown must NOT
+    # remove the shared handler/interceptor (see _release_profile).
 
     try:
         view.deleteLater()
@@ -363,3 +420,37 @@ def test_page_bridge_handshake_reaches_window(make_view):
     assert host._channel is channel
     assert view.bridge.is_ready is True
     _pump(APP, 50)
+
+
+@pytest.mark.webengine
+@needs_webengine
+def test_view_cycles_keep_page_loads_alive(app):
+    """Q-40: three create/teardown cycles; every cycle's page loads and
+    completes the bridge handshake.
+
+    Fails on the pre-Q-40 per-view ownership: after the first teardown the
+    profile-global registration dangles (a dead wrapper defeats the
+    ``is None`` reinstall guard), so cycle 3+ loads silently never finish —
+    the bridge never reports ready and ``lwSnapshot`` is never a function.
+    The application-lifetime singleton stays green through all three cycles.
+    """
+    for cycle in range(3):
+        view = LV.LwcChartView()
+        try:
+            host = view.ensure_host()
+            _wait_until(
+                app, lambda v=view: v.bridge.is_ready, 30_000,
+                f"cycle {cycle}: the page to call bridge.pageReady()",
+                host=host, view=view,
+            )
+            _wait_until(
+                app,
+                lambda h=host: _run_js(h, "typeof window.lwSnapshot")
+                == "function",
+                10_000,
+                f"cycle {cycle}: chart.js to publish window.lwSnapshot "
+                "(pre-Q-40: undefined once the profile registration dangles)",
+                host=host, view=view,
+            )
+        finally:
+            _teardown_view(app, view)

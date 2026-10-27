@@ -358,21 +358,70 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
                 "page load finished; waiting for chart.js to call pageReady()"
             )
 
+    #: Q-40: application-lifetime profile wiring. ``defaultProfile()``
+    #: outlives every view, so a handler/interceptor parented to a view
+    #: dangles after that view is destroyed: the profile then holds a dead
+    #: wrapper, the ``is None`` reinstall guard never fires, and every later
+    #: ``ndt://`` load silently never finishes. The single shared pair is
+    #: installed once, parented to the ``QApplication`` and held by these
+    #: module refs; teardowns must NOT remove it.
+    _SHARED_SCHEME_HANDLER: "NdtSchemeHandler | None" = None
+    _SHARED_INTERCEPTOR: "LwcRequestInterceptor | None" = None
+    _PROFILE_WIRING_DONE = False
+
+
+    def _ensure_profile_wiring() -> None:
+        """Install the shared scheme handler + interceptor exactly once.
+
+        Application lifetime (parented to the ``QApplication`` instance),
+        never per view — see the Q-40 note above. Idempotent: later views
+        reuse the same pair. Self-healing: if a legacy teardown stripped
+        the profile wiring mid-process (other suites still do), reinstall
+        it here instead of trusting the module flag alone.
+        """
+        global _SHARED_SCHEME_HANDLER, _SHARED_INTERCEPTOR
+        global _PROFILE_WIRING_DONE
+        from PyQt6.QtWidgets import QApplication
+        profile = QWebEngineProfile.defaultProfile()
+        try:
+            current = profile.urlSchemeHandler(NDT_SCHEME.encode())
+        except Exception:  # pragma: no cover — engine already gone
+            current = None
+        if (
+            _PROFILE_WIRING_DONE
+            and _SHARED_SCHEME_HANDLER is not None
+            and current is _SHARED_SCHEME_HANDLER
+        ):
+            return
+        app = QApplication.instance()
+        if current is None or not isinstance(current, NdtSchemeHandler):
+            _SHARED_SCHEME_HANDLER = NdtSchemeHandler(app)
+            profile.installUrlSchemeHandler(
+                NDT_SCHEME.encode(), _SHARED_SCHEME_HANDLER
+            )
+        else:
+            # Adopt: a compatible handler is already installed (e.g. put
+            # there before this guard existed). Hold a strong ref so the
+            # profile-global registration can never dangle.
+            _SHARED_SCHEME_HANDLER = current
+        _SHARED_INTERCEPTOR = LwcRequestInterceptor(app)
+        profile.setUrlRequestInterceptor(_SHARED_INTERCEPTOR)
+        _PROFILE_WIRING_DONE = True
+
+
     def create_host(bridge, parent=None, load=True):
         """Register the scheme/profile wiring and return an ``LwcHost``.
 
         Q-23: ``load=False`` lets the view put the host in its layout (and
         give it the view's rectangle) before the page boots, so the chart is
         created at a real size instead of 0x0/100x30.
+
+        Q-40: the scheme handler and the request interceptor are installed
+        ONCE with application lifetime (``_ensure_profile_wiring``) — never
+        per view, never parented to the view.
         """
         register_ndt_scheme()
-        profile = QWebEngineProfile.defaultProfile()
-        if profile.urlSchemeHandler(NDT_SCHEME.encode()) is None:
-            profile.installUrlSchemeHandler(
-                NDT_SCHEME.encode(), NdtSchemeHandler(parent)
-            )
-        interceptor = LwcRequestInterceptor(parent)
-        profile.setUrlRequestInterceptor(interceptor)
+        _ensure_profile_wiring()
         host = LwcHost(bridge, parent)
         if load:
             host.load_chart()

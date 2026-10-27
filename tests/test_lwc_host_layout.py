@@ -71,7 +71,77 @@ def _pump(app, ms: int) -> None:
         time.sleep(0.01)
 
 
-def _wait_until(app, predicate, timeout_ms: int, what: str) -> None:
+_PAGE_DIAG_JS = """
+(function () {
+  var out = {};
+  try { out.readyState = document.readyState; } catch (e) { out.readyState = "unknown"; }
+  try { out.lwSnapshot = typeof window.lwSnapshot; } catch (e) { out.lwSnapshot = "unknown"; }
+  try { out.lwBridge = typeof window.lwBridge; } catch (e) { out.lwBridge = "unknown"; }
+  try {
+    out.lwModules = (typeof window.lwModules === "function")
+      ? window.lwModules() : (typeof window.lwModules);
+  } catch (e) { out.lwModules = "error"; }
+  try {
+    var el = document.getElementById("chart");
+    if (!el) { out.chart = null; }
+    else {
+      var r = el.getBoundingClientRect();
+      out.chart = { w: el.clientWidth, h: el.clientHeight,
+        rect: { top: r.top, left: r.left, width: r.width, height: r.height } };
+    }
+  } catch (e) { out.chart = "error"; }
+  return out;
+})()
+"""
+
+
+def _collect_page_diagnostics(host=None, view=None) -> str:
+    """Best-effort page-load bundle appended to a timed-out readiness wait.
+
+    Uses the explicitly passed ``host``/``view`` when given, else the
+    calling test's ``host``/``view`` locals (best-effort). Never raises:
+    any failure yields ``"diagnostics unavailable"`` (or a partial bundle
+    naming what could not be read). The caller truncates.
+    """
+    import inspect
+
+    try:
+        if host is None or view is None:
+            frame = None
+            try:
+                frame = inspect.currentframe()
+                caller = frame.f_back.f_back if frame and frame.f_back else None
+                names = dict(getattr(caller, "f_locals", {}) or {})
+                if host is None:
+                    host = names.get("host")
+                if view is None:
+                    view = names.get("view")
+            except Exception:
+                pass
+            finally:
+                del frame
+        if host is None and view is None:
+            return "diagnostics unavailable"
+        bundle = {}
+        if host is not None:
+            try:
+                bundle["page"] = _run_js(host, _PAGE_DIAG_JS, 3000)
+            except Exception as exc:
+                bundle["page"] = f"<unavailable: {type(exc).__name__}>"
+        else:
+            bundle["page"] = "<no host>"
+        try:
+            bridge = getattr(view, "bridge", None) if view is not None else None
+            bundle["bridge_is_ready"] = getattr(bridge, "is_ready", "<no view>")
+        except Exception:
+            bundle["bridge_is_ready"] = "<unavailable>"
+        return str(bundle)[:1500]
+    except Exception:
+        return "diagnostics unavailable"
+
+
+def _wait_until(app, predicate, timeout_ms: int, what: str,
+                host=None, view=None) -> None:
     from PyQt6.QtCore import QEventLoop
 
     deadline = time.monotonic() + timeout_ms / 1000.0
@@ -83,7 +153,14 @@ def _wait_until(app, predicate, timeout_ms: int, what: str) -> None:
         except RuntimeError:
             pass
         time.sleep(0.01)
-    raise AssertionError(f"timed out after {timeout_ms} ms waiting for {what}")
+    try:
+        diagnostics = _collect_page_diagnostics(host=host, view=view)
+    except Exception:
+        diagnostics = "diagnostics unavailable"
+    raise AssertionError(
+        f"timed out after {timeout_ms} ms waiting for {what}"
+        f" | page diagnostics: {diagnostics}"
+    )
 
 
 def _run_js(host, js: str, timeout_ms: int = 5000):
