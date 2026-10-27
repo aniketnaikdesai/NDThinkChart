@@ -38,9 +38,13 @@ CI without Chromium imports this module fine and the engine-gated cases skip
 
 from __future__ import annotations
 
+import logging
 import mimetypes
+from collections import deque
 from pathlib import Path
 from urllib.parse import urlsplit
+
+_LOG = logging.getLogger(__name__)
 
 #: Custom scheme hosting the vendored tree: ``ndt://lwc/<asset>``.
 NDT_SCHEME = "ndt"
@@ -69,6 +73,18 @@ ALLOWED_SCHEMES = ("ndt", "qrc", "data", "blob")
 #: when no ``QApplication`` existed yet (the required order), False/None
 #: otherwise. ``None`` until the first call.
 REGISTERED_BEFORE_QAPP: bool | None = None
+
+#: ESC-071: bound on the recent page-console messages the host keeps. The
+#: browser also prints them; this deque is what lets an offscreen test assert
+#: that a page-level error was actually seen (never an unbounded log).
+JS_CONSOLE_HISTORY = 50
+
+#: Qt's ``QWebEnginePage.JavaScriptConsoleMessageLevel`` values, named.
+JS_CONSOLE_LEVELS = {
+    0: "INFO",
+    1: "WARNING",
+    2: "ERROR",
+}
 
 #: ``QWebChannel`` object name the page's JS looks up
 #: (``chart_assets/lwc/chart.js::bindChannel`` does
@@ -166,6 +182,7 @@ def register_ndt_scheme() -> bool:
 try:  # pragma: no cover — exercised on engine boxes, skipped elsewhere
     from PyQt6.QtCore import QBuffer, QIODevice, QByteArray  # noqa: F401
     from PyQt6.QtWebEngineCore import (
+        QWebEnginePage,
         QWebEngineProfile,
         QWebEngineUrlSchemeHandler,
         QWebEngineUrlRequestInterceptor,
@@ -210,6 +227,38 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
             if not is_request_allowed(info.requestUrl().toString()):
                 info.block(True)
 
+    class NdtWebPage(QWebEnginePage):
+        """Page that makes JavaScript console output VISIBLE (ESC-071).
+
+        ``QWebEnginePage``'s default ``javaScriptConsoleMessage`` sends page
+        errors (``qt is not defined``, ``addCandlestickSeries is not a
+        function``) only to stderr, so a renderer failure left no trace in the
+        application log. Every message is forwarded to logging at WARNING with
+        its level, source and line, and the most recent ones are retained in a
+        bounded deque so an offscreen test can assert what the page reported.
+        """
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.console_messages = deque(maxlen=JS_CONSOLE_HISTORY)
+
+        def javaScriptConsoleMessage(  # noqa: N802 (Qt naming)
+            self, level, message, line_number, source_id
+        ) -> None:
+            raw_level = getattr(level, "value", level)
+            name = JS_CONSOLE_LEVELS.get(raw_level, str(raw_level))
+            text = str(message)
+            self.console_messages.append({
+                "level": name,
+                "message": text,
+                "line": int(line_number),
+                "source": str(source_id),
+            })
+            _LOG.warning(
+                "JavaScript console [%s] %s (%s:%s)",
+                name, text, source_id, line_number,
+            )
+
     from PyQt6.QtCore import pyqtSignal as _sig
     from PyQt6.QtWidgets import QSizePolicy as _SP
 
@@ -225,6 +274,12 @@ if HAS_WEBENGINE:  # pragma: no cover — engine-only surface
         def __init__(self, bridge, parent=None):
             super().__init__(parent)
             self._bridge = bridge
+            # ESC-071: install the console-capturing page before anything can
+            # load or attach a channel. ``setPage`` retires the page the view
+            # created in ``super().__init__`` itself; the custom page is kept
+            # referenced (``setPage`` does not take ownership).
+            self._console_page = NdtWebPage(self)
+            self.setPage(self._console_page)
             # Q-16: the channel must exist and be attached to the page BEFORE
             # the first ``load``. Qt injects ``qt.webChannelTransport`` only
             # for a page that already had a channel when the load began, and

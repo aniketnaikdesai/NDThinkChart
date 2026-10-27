@@ -525,11 +525,13 @@
     "routed_to": "BUILD",
     "category": "quality",
     "severity": "should-fix",
-    "status": "open",
+    "status": "addressed",
     "opened": "2026-10-26T20:47:35-04:00",
     "observed": "A failed chart-engine start is silent. ui/main_window.py:354-359 wraps ensure_host() in `try: ... except Exception: self._chart_engine_host = None`, so when the LWC host cannot start the window renders a blank chart with no status message, no error and no log line. That is precisely the shape the owner reported three times today ('chart is black, streaming live'), and it is why four independent defects each presented as the same silent symptom. The except also swallows the traceback, so the cause is unrecoverable from the running app.",
     "expected": "A host-start failure must be visible: at minimum a logged exception with the traceback, and ideally a user-facing signal (status-bar message and/or a badge) saying the chart engine failed to start, so a blank canvas is never indistinguishable from a working-but-empty chart.",
-    "suggested_direction": "Keep the non-fatal behaviour (window start-up must not depend on the host), but log the exception with _LOG.exception and surface a short status message naming the engine; consider a stream-health/badge state so the failure is visible in the UI, not only in a terminal."
+    "suggested_direction": "Keep the non-fatal behaviour (window start-up must not depend on the host), but log the exception with _LOG.exception and surface a short status message naming the engine; consider a stream-health/badge state so the failure is visible in the UI, not only in a terminal.",
+    "verified": "re-verified by the Orchestrator as reviewer: main_window sets chart_engine_failed, logs _LOG.exception and posts a status message (checked at :371/:378/:549); lwc_host installs NdtWebPage with javaScriptConsoleMessage and a bounded history via setPage; all five suites route the token through a _uses_pyqtgraph AST helper proven to reject import/instantiation and accept prose; wave127_P6-T03.json carries task_id. Targeted 50 passed; full suite green.",
+    "addressed_at": "2026-10-26T20:55:38-04:00"
   },
   {
     "id": "ESC-071",
@@ -537,11 +539,13 @@
     "routed_to": "BUILD",
     "category": "quality",
     "severity": "nice-to-have",
-    "status": "open",
+    "status": "addressed",
     "opened": "2026-10-26T20:47:35-04:00",
     "observed": "JavaScript errors never reach Python. ui/lwc_host.py does not override QWebEnginePage.javaScriptConsoleMessage, so a page-level exception (the v4-vs-v5 API mismatch, 'qt is not defined') is printed by Chromium to stderr and invisible to the app, the logs and the tests.",
     "expected": "Console errors from the chart page are captured and logged at warning level (with source id/line), so a page-level failure is diagnosable from the app log rather than from a terminal tail.",
-    "suggested_direction": "Subclass QWebEnginePage, override javaScriptConsoleMessage, forward to the logging module; keep it cheap (no per-frame spam) and consider a counter for tests."
+    "suggested_direction": "Subclass QWebEnginePage, override javaScriptConsoleMessage, forward to the logging module; keep it cheap (no per-frame spam) and consider a counter for tests.",
+    "verified": "re-verified by the Orchestrator as reviewer: main_window sets chart_engine_failed, logs _LOG.exception and posts a status message (checked at :371/:378/:549); lwc_host installs NdtWebPage with javaScriptConsoleMessage and a bounded history via setPage; all five suites route the token through a _uses_pyqtgraph AST helper proven to reject import/instantiation and accept prose; wave127_P6-T03.json carries task_id. Targeted 50 passed; full suite green.",
+    "addressed_at": "2026-10-26T20:55:38-04:00"
   },
   {
     "id": "ESC-072",
@@ -549,11 +553,13 @@
     "routed_to": "BUILD",
     "category": "quality",
     "severity": "nice-to-have",
-    "status": "open",
+    "status": "addressed",
     "opened": "2026-10-26T20:47:35-04:00",
     "observed": "The renderer residue scans forbid the literal word 'pyqtgraph' anywhere in ui/lwc_view.py (tests/test_lwc_time_parity.py:273 and four sibling suites), so P6-T11 had to reword a docstring to avoid it. The scans match raw text, not imports, which means legitimate prose about the retained default engine is treated as a residue violation.",
     "expected": "The scans assert the property they care about (the LWC renderer does not import or instantiate pyqtgraph), not the appearance of the word in a comment or docstring.",
-    "suggested_direction": "Match at AST/import level (like the boundary test already does) or strip comments and docstrings before the raw-text pass; the same class of drift was already fixed for the stdlib allowlist in Q-6."
+    "suggested_direction": "Match at AST/import level (like the boundary test already does) or strip comments and docstrings before the raw-text pass; the same class of drift was already fixed for the stdlib allowlist in Q-6.",
+    "verified": "re-verified by the Orchestrator as reviewer: main_window sets chart_engine_failed, logs _LOG.exception and posts a status message (checked at :371/:378/:549); lwc_host installs NdtWebPage with javaScriptConsoleMessage and a bounded history via setPage; all five suites route the token through a _uses_pyqtgraph AST helper proven to reject import/instantiation and accept prose; wave127_P6-T03.json carries task_id. Targeted 50 passed; full suite green.",
+    "addressed_at": "2026-10-26T20:55:38-04:00"
   },
   {
     "id": "ESC-073",
@@ -561,11 +567,13 @@
     "routed_to": "BUILD",
     "category": "consistency",
     "severity": "nice-to-have",
-    "status": "open",
+    "status": "addressed",
     "opened": "2026-10-26T20:47:35-04:00",
     "observed": "P6-T03's result JSON (docs/build/results/_archive/wave127_P6-T03.json) has no task_id key, which is what precheck flagged as PRE-001. The task itself is done and verified; only the record is malformed.",
     "expected": "Every result JSON carries task_id, status, files_changed and selfcheck, so precheck can attribute it without falling back to the filename.",
-    "suggested_direction": "Correct the archived record and, if the worker template omits it, fix the template so future results always carry task_id."
+    "suggested_direction": "Correct the archived record and, if the worker template omits it, fix the template so future results always carry task_id.",
+    "verified": "re-verified by the Orchestrator as reviewer: main_window sets chart_engine_failed, logs _LOG.exception and posts a status message (checked at :371/:378/:549); lwc_host installs NdtWebPage with javaScriptConsoleMessage and a bounded history via setPage; all five suites route the token through a _uses_pyqtgraph AST helper proven to reject import/instantiation and accept prose; wave127_P6-T03.json carries task_id. Targeted 50 passed; full suite green.",
+    "addressed_at": "2026-10-26T20:55:38-04:00"
   },
   {
     "id": "ESC-074",
@@ -573,10 +581,12 @@
     "routed_to": "TASK_MANAGER",
     "category": "consistency",
     "severity": "nice-to-have",
-    "status": "open",
+    "status": "addressed",
     "opened": "2026-10-26T20:47:35-04:00",
     "observed": "The phase's commit history no longer matches its wave structure: 12 waves plus 17 quick tasks (Q-1..Q-17) touched the same files, and the plan's 'one commit per wave' was not achievable once hotfixes started landing between waves. Waves 1-4 were checkpointed together (1df6668) and wave 5 was committed with wave 6 (aad8285).",
     "expected": "Either the wave boundaries are committed as they complete, or the plan records that a defect found mid-phase may collapse wave commits; the history should make it obvious which change belongs to which wave.",
-    "suggested_direction": "Decide the rule for hotfix-during-phase commits (e.g. always a separate commit referencing the quick-task id, never folded into a wave commit) and record it in the plan notes."
+    "suggested_direction": "Decide the rule for hotfix-during-phase commits (e.g. always a separate commit referencing the quick-task id, never folded into a wave commit) and record it in the plan notes.",
+    "verified": "Decision recorded by the committer: a hotfix landing during a phase is always its own commit naming the quick-task id (e.g. 'fix: ... (Q-18)') and is never folded into a wave commit; wave commits stay wave-scoped even when a hotfix intervenes. Recorded in orchestrator memory and project memory so the rule survives the run.",
+    "addressed_at": "2026-10-26T20:55:38-04:00"
   }
 ]

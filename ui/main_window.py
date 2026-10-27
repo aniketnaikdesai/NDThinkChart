@@ -128,6 +128,19 @@ RIGHT_DOCK_COLLAPSED_MARGIN = 12
 ALARM_MODE_STATUS_MESSAGE = "Alarm mode: click the chart to place a price alarm."
 
 
+def chart_engine_failure_message(engine_name: str) -> str:
+    """ESC-070: user-facing status text when the chart engine cannot start.
+
+    Named in one place so the window's status bar and the visibility tests
+    cannot drift on the wording; it always names the engine that failed.
+    """
+    return (
+        f"Chart engine '{engine_name}' could not start — the chart is blank. "
+        "See the log for details."
+    )
+
+
+
 def conn_badge_text(
     account_id: str | None,
     account_type: str | None,
@@ -350,13 +363,25 @@ class MainWindow(QMainWindow):
         # exactly as a pop-out does in ``attach``. Engine-less CI has no
         # Chromium: ``ensure_host`` raises, the view still syncs through its
         # bridge, and window start-up never depends on the host existing.
+        #
+        # ESC-070: start-up stays non-fatal, but a host that cannot start is
+        # now VISIBLE — full traceback in the log, an explicit flag, and a
+        # status-bar message once the bar exists below. Before this, a failed
+        # engine left a blank canvas byte-identical to an empty chart.
+        self.chart_engine_failed = False
         self._chart_engine_host = None
         _ensure_host = getattr(self.chart_panel, "ensure_host", None)
         if callable(_ensure_host):
             try:
                 self._chart_engine_host = _ensure_host()
             except Exception:
+                self.chart_engine_failed = True
                 self._chart_engine_host = None
+                _LOG.exception(
+                    "Chart engine %r could not start — the chart will stay "
+                    "blank.",
+                    getattr(self.chart_panel, "ENGINE_NAME", "unknown"),
+                )
         # D19 Phase 1: keep the toolbar inside the central widget but stop its
         # ~1716px minimumSizeHint from pinning the central widget. A frameless
         # horizontal QScrollArea holds the full-natural-width toolbar so it stays
@@ -521,7 +546,16 @@ class MainWindow(QMainWindow):
         # ── Status bar ────────────────────────────────────────────────────────
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Connecting to IBKR…")
+        if self.chart_engine_failed:
+            # ESC-070: the blank chart says why, instead of looking empty.
+            self.status_bar.showMessage(
+                chart_engine_failure_message(
+                    getattr(self.chart_panel, "ENGINE_NAME", "unknown")
+                ),
+                0,
+            )
+        else:
+            self.status_bar.showMessage("Connecting to IBKR…")
 
         # ── IBKR client ───────────────────────────────────────────────────────
         self.ib_client = IBApiClient()

@@ -445,6 +445,30 @@ class TestAlarmParity:
 # ── T12 · residue scan (AC2, renderer-only boundary) ────────────────────────
 
 
+def _uses_pyqtgraph(src: str) -> bool:
+    """True when source imports or instantiates pyqtgraph (ESC-072).
+
+    The boundary is a property — the LWC engine must not import or use the
+    default engine — not the literal word. A docstring that merely names the
+    default engine passes; a real import/usage still fails.
+    """
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:  # a JS asset: text is all there is
+        return "pyqtgraph" in src
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name.split(".")[0] == "pyqtgraph"
+                   for alias in node.names):
+                return True
+        elif isinstance(node, ast.ImportFrom):
+            if (node.module or "").split(".")[0] == "pyqtgraph":
+                return True
+        elif isinstance(node, ast.Name) and node.id == "pyqtgraph":
+            return True
+    return False
+
+
 class TestRendererBoundary:
     SOURCES = ["ui/lwc_view.py", "chart_assets/lwc/alarms.js"]
 
@@ -463,7 +487,11 @@ class TestRendererBoundary:
         for rel in self.SOURCES:
             src = (REPO / rel).read_text(encoding="utf-8")
             for token in self.FORBIDDEN:
-                if token in src:
+                if token == "pyqtgraph":
+                    # ESC-072: assert the property, not the word.
+                    if _uses_pyqtgraph(src):
+                        hits.append(f"{rel}: 'pyqtgraph' imported/used")
+                elif token in src:
                     hits.append(f"{rel}: {token!r}")
         assert hits == [], f"out-of-scope residue: {hits}"
 
