@@ -694,3 +694,24 @@ Open / pending" statements describe those waves; after Q-8 the matrix state is
   per-controller signal-signature assertions + renderer-only boundary scan).
 - No parity row changes disposition in this wave: 19/19 remain Open /
   pending; render parity is P6-05+ work. No Done row regressed.
+
+## Retired coverage (P6-T13, 2026-10-27)
+
+The owner retired the oracle rather than freezing golden fixtures: cases whose
+expected value was computed by the deleted pyqtgraph implementation are gone, not
+skipped. Recorded here so the 19/19 rows above are not read as protection that no
+longer exists.
+
+| Area | What was lost |
+|---|---|
+| Drawing geometry | value-for-value comparison against `DrawingOverlay._ts_to_x`; fibre/zone/measure coordinate parity |
+| Alarm rendering | overlay pen/dash styling, line-item labels, pop-out drag/menu guards |
+| Overlay geometry | session bands, RTH gaps, VIX levels, ICT shapes compared against the shipped overlays |
+| Volume affordance | the D21-08 strike-through toggle and the D10 hide/splitter restore |
+| Candle rendering | density-cap, wick, DPI and crosshair-chip suites (engine-specific by nature) |
+| D38 markers | per-type colour and "Split in 4d" text assertions |
+| Dock geometry | fixed-pixel convergence cases that relied on the pyqtgraph price-panel minimum width |
+
+**Still guarded independently:** the LWC e2e transport tests, the time-axis and
+whitespace tests, the studies/alarms/drawings envelope tests, the removal gate
+(`tests/test_lwc_removal_gate.py`), and the full suite.

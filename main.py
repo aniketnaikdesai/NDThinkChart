@@ -1,6 +1,5 @@
 import sys
 import os
-import pyqtgraph as pg
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from config import paths
 
@@ -43,11 +42,6 @@ _register_lwc_scheme_before_qapp()
 
 
 def main() -> int:
-    # Configure pyqtgraph before any widgets are created
-    pg.setConfigOption('background', '#0d0f14')
-    pg.setConfigOption('foreground', '#a3a3a3')
-    pg.setConfigOptions(antialias=True)
-
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 

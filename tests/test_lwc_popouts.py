@@ -297,9 +297,8 @@ def test_max_popouts_is_ten():
     assert settings.MAX_POPOUTS == 10
 
 
-@pytest.mark.parametrize("engine", ["pyqtgraph", "lwc"])
-def test_eleventh_popout_refused_on_either_engine(engine, monkeypatch, qapp):
-    """AC2: the 11th open is refused with the D24 message on both engines.
+def test_eleventh_popout_refused_on_the_lwc_engine(monkeypatch, qapp):
+    """AC2: the 11th open is refused with the D24 message on the only engine.
 
     The cap check runs in ``MainWindow._open_popout`` *before* the window (and
     therefore the engine view) is constructed, so no engine can bypass it —
@@ -307,14 +306,10 @@ def test_eleventh_popout_refused_on_either_engine(engine, monkeypatch, qapp):
     """
     from ibkr.client import IBApiClient
     from ui import popout_window
-    from ui.chart_view import PyqtgraphChartView
     from ui.lwc_view import LwcChartView
     from ui.main_window import MainWindow
 
-    if engine == "lwc":
-        monkeypatch.setenv(ENGINE_ENV, "lwc")
-    else:
-        monkeypatch.delenv(ENGINE_ENV, raising=False)
+    monkeypatch.setenv(ENGINE_ENV, "lwc")
 
     real_factory = popout_window.create_chart_view
     created: list = []
@@ -350,9 +345,8 @@ def test_eleventh_popout_refused_on_either_engine(engine, monkeypatch, qapp):
             for message in messages
         ), messages
 
-        # Every accepted pop-out landed on the engine under test.
-        expected = LwcChartView if engine == "lwc" else PyqtgraphChartView
-        assert all(isinstance(popout.chart, expected) for popout in win._popouts)
+        # Every accepted pop-out landed on the LWC engine (the only engine).
+        assert all(isinstance(popout.chart, LwcChartView) for popout in win._popouts)
 
         for popout in list(win._popouts):
             popout.close()
@@ -395,12 +389,11 @@ def test_residue_scan_no_out_of_scope_surface(monkeypatch, qapp):
     assert settings.MAX_POPOUTS == 10
     assert "MAX_POPOUTS = 10" in inspect.getsource(settings)
 
-    # 4. pyqtgraph stays present and default: the factory resolves the default
-    #    engine (no env override, no persisted override) to the pyqtgraph view.
+    # 4. The seam resolves to the LWC engine — the only engine since P6-13.
     monkeypatch.delenv("NDT_CHART_ENGINE", raising=False)
-    monkeypatch.setattr(chart_view, "_read_persisted_engine", lambda: "")
     assert isinstance(chart_view.create_chart_view(editable=False),
-                      chart_view.PyqtgraphChartView)
+                      lwc_view.LwcChartView)
+    assert not hasattr(chart_view, "PyqtgraphChartView")
 
     # 5. The pop-out module added no order / DB / network path, and no dock or
     #    watchlist surface; persistence semantics stay PopoutStore's.
@@ -420,13 +413,12 @@ def test_residue_scan_no_out_of_scope_surface(monkeypatch, qapp):
                   "ibkr.", "sqlite3", "ui.main_window"):
         assert token not in lwc_src, token
 
-    # 7. Pop-outs on the default engine still get the pyqtgraph panel — the
-    #    new seam did not make LWC the default.
+    # 7. Pop-outs resolve to the LWC view (the only engine).
     host = _StubHost()
     host.get_or_create_session(SYMBOL).set_bars(TF, _bars())
     popout = _open_popout(host)
     try:
-        assert isinstance(popout.chart, chart_view.PyqtgraphChartView)
+        assert isinstance(popout.chart, lwc_view.LwcChartView)
         assert popout.memory_bytes > 0
     finally:
         popout.close()

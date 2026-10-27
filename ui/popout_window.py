@@ -210,21 +210,10 @@ class PopoutChartWindow(QWidget):
     # ── Engine-neutral view helpers ───────────────────────────────────
 
     def _apply_mode(self, mode: str) -> None:
-        """Apply the snapshot's mode on either engine (frozen for pop-outs)."""
+        """Apply the snapshot's mode on the LWC view (frozen for pop-outs)."""
         set_mode = getattr(self.chart, "set_mode", None)
         if set_mode is not None:
             set_mode(MODE_NAMES.get(mode, "candles"))
-            return
-        from ui.chart_panel import ChartMode
-
-        mode_by_label = {
-            "Candles": ChartMode.CANDLES,
-            "Hollow": ChartMode.HOLLOW,
-            "Heikin-Ashi": ChartMode.HEIKIN,
-            "Line": ChartMode.LINE,
-            "Area": ChartMode.AREA,
-        }
-        self.chart.set_chart_mode(mode_by_label.get(mode, ChartMode.CANDLES))
 
     def _push_bars(self, bars: list) -> None:
         """Full-series replace on either engine (``update_chart``/``update_bars``)."""

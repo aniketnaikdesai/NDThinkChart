@@ -1,9 +1,7 @@
 import pytest
-import pyqtgraph as pg
 from PyQt6.QtWidgets import QPushButton
 from data.models import Drawing
 from ui.zone_settings_dialog import ZoneSettingsDialog
-from ui.drawing_overlay import DrawingOverlay
 
 def test_zone_dialog_has_four_tabs_no_extend(qapp):
     drawing = Drawing(id=1, symbol="TEST", kind="zone",
@@ -64,54 +62,3 @@ def test_zone_visibility_tab_rows(qapp):
     assert state["Months_hi"] == 12
     dlg.deleteLater()
 
-def test_double_click_zone_emits_settings_requested(qapp):
-    """Uses a standalone overlay so no modal dialog is opened (ChartPanel wires
-    settings_requested to dlg.exec(), which would block an offscreen test)."""
-    import pyqtgraph as pg
-    from ui.drawing_overlay import DrawingOverlay
-
-    plot = pg.PlotWidget()
-    plot.resize(800, 500)
-    plot.show()
-    qapp.processEvents()
-    overlay = DrawingOverlay(plot)
-    overlay.set_bars([])
-
-    zone = Drawing(id=1, symbol="TEST", kind="zone",
-                   payload={"x1": 1_700_000_000, "x2": 1_700_001_500, "y1": 101.0, "y2": 105.0},
-                   color="#38bdf8")
-    overlay.add_drawing(zone)
-    qapp.processEvents()
-
-    fired = []
-    overlay.settings_requested.connect(lambda d: fired.append(d))
-
-    vb = plot.getViewBox()
-    # Explicit range so price 103 is inside the view
-    vb.setRange(xRange=(1_700_000_000, 1_700_002_000), yRange=(99.0, 106.0), padding=0)
-    qapp.processEvents()
-    scene_pos = vb.mapViewToScene(pg.Point(1_700_000_700, 103.0))
-
-    class FakeClick:
-        def __init__(self, sp):
-            self._sp = sp
-        def button(self):
-            from PyQt6.QtCore import Qt
-            return Qt.MouseButton.LeftButton
-        def scenePos(self):
-            return self._sp
-        def double(self):
-            return True
-        def accept(self):
-            pass
-        def ignore(self):
-            pass
-
-    # Sanity: the hit test finds the zone
-    assert overlay._hit_drawing(scene_pos) is not None
-    result = overlay.view_mouse_click(FakeClick(scene_pos))
-    qapp.processEvents()
-    assert result is True
-    assert fired and fired[0].id == zone.id
-    plot.hide()
-    plot.close()

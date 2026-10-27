@@ -102,17 +102,13 @@ def test_popout_readonly(monkeypatch, qapp):
 
         popout = win._popouts[0]
         assert popout.chart._editable is False
-        assert popout.chart.mouse_router.active_mode == RouterMode.IDLE
+        assert popout.chart.router.active_mode == RouterMode.IDLE
 
-        # Both adapters early-return on the _editable guard, so the router
-        # never leaves IDLE and no tool/alarm mode is entered.
-        popout.chart.set_drawing_tool("trendline")
-        assert popout.chart.drawing_overlay.tool_active() is False
-        assert popout.chart.mouse_router.active_mode == RouterMode.IDLE
-
+        # The alarm-placement shim early-returns on the _editable guard, so the
+        # router never leaves IDLE and no alarm mode is entered.
         popout.chart.set_alarm_mode(True)
-        assert popout.chart.alarm_overlay.is_alarm_mode() is False
-        assert popout.chart.mouse_router.active_mode == RouterMode.IDLE
+        assert popout.chart.router.active_mode == RouterMode.IDLE
+        assert popout.chart.drawing_overlay.tool_active() is False
 
         popout.close()
         qapp.processEvents()
@@ -132,21 +128,21 @@ def test_popout_drawing_sync(monkeypatch, qapp):
         qapp.processEvents()
 
         popout = win._popouts[0]
-        assert popout.chart.drawing_overlay._drawings == []
+        assert popout.chart.drawing_overlay.drawings == []
 
-        # The main chart is the sole writer: its overlay emits `created`,
+        # The main chart is the sole writer: its controller emits `created`,
         # MainWindow persists it and the session fans the state out to views.
         drawing = Drawing(symbol=SYMBOL, kind="horizontal", payload={"y": 101.0})
-        win.chart_panel.drawing_overlay.created.emit(drawing)
+        win.chart_panel.drawing_controller.created.emit(drawing)
         qapp.processEvents()
 
-        synced = popout.chart.drawing_overlay._drawings
+        synced = popout.chart.drawing_overlay.drawings
         assert len(synced) == 1
         assert synced[0].payload == {"y": 101.0}
 
         win._on_drawing_deleted(drawing.id)
         qapp.processEvents()
-        assert popout.chart.drawing_overlay._drawings == []
+        assert popout.chart.drawing_overlay.drawings == []
     finally:
         win.close()
 

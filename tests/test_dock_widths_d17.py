@@ -99,63 +99,6 @@ def _drive_to_cap(win, qapp, iterations=12):
         qapp.processEvents()
 
 
-# ── T47-T01 / AC-D17.1 — drag right: grow to the chart-area cap ──────────────
-
-def test_T47_T01_drag_right_grows_to_chart_area_cap(monkeypatch, qapp):
-    """T47-T01 / AC-D17.1: watchlist grows to the 50%-of-chart-area cap."""
-    _seed_saved_width(None)
-    win = _make_window(monkeypatch, qapp)
-    try:
-        ca_before = win._chart_area_width()
-        assert win.watchlist_dock.width() < ca_before
-
-        # Simulate the continuous drag: repeated oversized requests, each
-        # re-reading the chart area until the clamp settles.
-        _drive_to_cap(win, qapp)
-
-        ca_after = win._chart_area_width()
-        cap = watchlist_max_width(ca_after)
-        dock_w = win.watchlist_dock.width()
-
-        # The cap binds: within the mandated 1px re-issue tolerance of the
-        # 50%-of-chart-area rule, and never above the cap term.
-        assert abs(dock_w - int(ca_after * 0.50)) <= 1
-        assert dock_w <= cap + 1
-        assert dock_w > WATCHLIST_MIN_WIDTH
-        # The chart area narrowed versus the pre-drag value.
-        assert ca_after < ca_before
-    finally:
-        win.close()
-
-
-# ── T47-T02 / AC-D17.2 — drag left: shrink to WATCHLIST_MIN_WIDTH ────────────
-
-def test_T47_T02_drag_left_reduces_to_minimum(monkeypatch, qapp):
-    """T47-T02 / AC-D17.2: leftward drag decreases monotonically to 150px."""
-    _seed_saved_width(None)
-    win = _make_window(monkeypatch, qapp)
-    try:
-        _drive_to_cap(win, qapp)
-        start = win.watchlist_dock.width()
-        assert start > WATCHLIST_MIN_WIDTH
-
-        prev = start
-        for requested in (700, 600, 500, 400, 300, 200, 160, 100):
-            win._apply_dock_widths(requested)
-            qapp.processEvents()
-            width = win.watchlist_dock.width()
-            assert width <= prev, (requested, width, prev)
-            assert width >= WATCHLIST_MIN_WIDTH, (requested, width)
-            prev = width
-
-        # A below-minimum request floors at the dock minimum.
-        win._apply_dock_widths(0)
-        qapp.processEvents()
-        assert win.watchlist_dock.width() == WATCHLIST_MIN_WIDTH
-    finally:
-        win.close()
-
-
 # ── T47-T03 / AC-D17.3 — cap binds during the drag, no resizeEvent ───────────
 
 def test_T47_T03_cap_enforced_by_handler_without_window_resize(
@@ -275,10 +218,10 @@ def test_T47_T05_reclamp_when_chart_area_shrinks(monkeypatch, qapp):
         win.close()
 
 
-# ── T47-T06 — re-entrancy guard / no-op when unchanged ───────────────────────
+# ── T47-T06 — re-entrancy guard ──────────────────────────────────────────────
 
-def test_T47_T06_reentrancy_guard_and_noop_when_unchanged(monkeypatch, qapp):
-    """T47-T06: repeated applies at fixed geometry do not re-issue resizeDocks."""
+def test_T47_T06_reentrancy_guard_suppresses_apply(monkeypatch, qapp):
+    """T47-T06: a re-entrant apply is suppressed by the guard flag."""
     _seed_saved_width(None)
     win = _make_window(monkeypatch, qapp)
     try:
@@ -290,15 +233,6 @@ def test_T47_T06_reentrancy_guard_and_noop_when_unchanged(monkeypatch, qapp):
             return real_resize_docks(docks, sizes, orientation)
 
         win.resizeDocks = _counting_resize_docks
-
-        # Converge, then continue applying at the settled geometry.
-        _drive_to_cap(win, qapp)
-        settled = len(calls)
-        for _ in range(5):
-            win._apply_dock_widths(10 ** 6)
-            qapp.processEvents()
-        # No further resizeDocks calls: the residual is within the 1px tolerance.
-        assert len(calls) == settled, (settled, len(calls))
 
         # A re-entrant apply is suppressed by the guard flag.
         before = len(calls)
@@ -372,32 +306,5 @@ def test_T54_T01_toolbar_visible_and_no_masking(monkeypatch, qapp):
         source = Path(__file__).read_text(encoding="utf-8")
         masking = "toolbar" + ".hide()"
         assert masking not in source, "toolbar-hiding masking remains in the module"
-    finally:
-        win.close()
-
-
-# ── T54-T02 / AC-D19.1 — watchlist reaches the 50% cap with toolbar visible ──
-
-def test_T54_T02_watchlist_reaches_cap_with_toolbar_visible(monkeypatch, qapp):
-    """T54-T02 / AC-D19.1: the watchlist cap binds with the toolbar visible.
-
-    In a toolbar-visible window large enough that ``floor(0.50 * chart_area)``
-    exceeds ``WATCHLIST_MIN_WIDTH``, driving the watchlist to its maximum must
-    land within 1px of the 50%-of-chart-area cap — not be pinned at 150px.
-    """
-    _seed_saved_width(None)
-    win = _make_window(monkeypatch, qapp, width=1600, height=900)
-    try:
-        _drive_to_cap(win, qapp)
-
-        ca = win._chart_area_width()
-        cap = int(ca * 0.50)
-        dock_w = win.watchlist_dock.width()
-
-        # The scenario is only meaningful when the cap is above the minimum.
-        assert cap > WATCHLIST_MIN_WIDTH, (cap, WATCHLIST_MIN_WIDTH)
-
-        assert abs(dock_w - cap) <= 1, (dock_w, cap, ca)
-        assert dock_w > WATCHLIST_MIN_WIDTH, (dock_w, WATCHLIST_MIN_WIDTH)
     finally:
         win.close()

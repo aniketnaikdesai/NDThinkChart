@@ -1,21 +1,26 @@
-"""T28 / ESC-005: combined D10 (volume hide) + D13 (watchlist max clamp).
+"""T28 / ESC-005: D13 watchlist max clamp against the D17/B1 chart area.
+
+The D10 half of this combination (the volume pane's hide/show and the Qt
+vertical splitter that held ``price_plot`` / ``volume_plot``) is retired with
+the pyqtgraph chart engine: ``chart_panel`` is now the LWC view and has no
+volume pane, no splitter and no price plot. What survives is the
+cross-cutting invariant these tests were written for — the watchlist dock can
+never squeeze the chart area below its 400px minimum.
 
 Layout structure (documented per ESC-005):
-  * ``ChartPanel`` owns a single vertical ``QSplitter`` holding
-    ``[price_plot, volume_plot, osc_plot]`` (``ui/chart_panel.py``). D10's
-    ``_on_volume_toggled`` only hides the volume plot and calls
-    ``QSplitter.refresh()`` on that vertical splitter.
+  * The chart is ``MainWindow.chart_panel`` (``LwcChartView``); the chart area
+    used by the clamp is ``centralWidget().width()``.
   * The watchlist is a separate ``QDockWidget`` on the ``MainWindow``
     (``ui/main_window.py``), i.e. **not** a nested splitter. Its width is
     governed by the D13 helpers in ``ui/watchlist_panel.py``
     (``watchlist_max_width`` / ``clamp_watchlist_width``).
 
-ESC-005 is the cross-cutting gap: no test combined a volume hide with a
-max-clamp watchlist drag and asserted the price panel keeps its 400px width
-minimum. These tests cover that combination in one offscreen ``MainWindow``.
+ESC-005 is the cross-cutting gap: no test combined a dock drag to its maximum
+clamp with the price panel's 400px width minimum. These tests cover that in
+one offscreen ``MainWindow``.
 
 The right-hand dock (the single Portfolio section, D41 / S6) is hidden for the
-duration of each test so that D10/D13 is the only horizontal constraint under test --
+duration of each test so that D13 is the only horizontal constraint under test --
 the D13/D17 clamp reserves ``CHART_MIN_WIDTH`` against the **chart area**
 (``centralWidget().width()``), not the whole window width (D17/B1).
 """
@@ -106,20 +111,12 @@ def _settle_dock_clamp(win, qapp, *, turns: int = 80, deadline_s: float = 5.0):
     qapp.processEvents()
 
 
-def test_T28_T01_volume_hidden_and_watchlist_max_clamp_keeps_price_panel(
+def test_T28_T01_watchlist_max_clamp_keeps_chart_min_width(
     monkeypatch, qapp
 ):
-    """T28-T01 / ESC-005: chart stays >= 400px with volume hidden + max dock."""
+    """T28-T01 / ESC-005: chart area stays >= 400px with the dock at max."""
     win = _make_main_window(monkeypatch, qapp)
     try:
-        cp = win.chart_panel
-
-        # D10: hide the volume panel.
-        cp._volume_toggle.setChecked(False)
-        qapp.processEvents()
-        assert not cp.volume_plot.isVisible()
-        assert not cp.volume_plot.getAxis('right').isVisible()
-
         # D17/B1: the denominator is the chart area (central widget width), not
         # the whole window width.
         chart_area_w = win.centralWidget().width()
@@ -131,43 +128,28 @@ def test_T28_T01_volume_hidden_and_watchlist_max_clamp_keeps_price_panel(
         # ESC-005: the price panel never drops below its 400px minimum, and
         # the dock stays inside the D13/D17 range.
         assert WATCHLIST_MIN_WIDTH <= win.watchlist_dock.width() <= max_w
-        assert cp.width() >= CHART_MIN_WIDTH
-        assert cp.price_plot.width() >= CHART_MIN_WIDTH
-        assert win.centralWidget().width() >= CHART_MIN_WIDTH
-        # The clamp reserves CHART_MIN_WIDTH against the chart area (D17/B1).
+        assert win.chart_panel.width() >= CHART_MIN_WIDTH
         assert win.centralWidget().width() >= CHART_MIN_WIDTH
 
-        # Overshooting the clamp must still never shrink the price panel below
+        # Overshooting the clamp must still never shrink the chart below
         # its minimum.
         _drag_watchlist_to(win, max_w + 1000, qapp)
         # Drain the deferred dock clamp so the asserts below never observe the
         # pre-clamp width (bounded settle; the assertions are unchanged).
         _settle_dock_clamp(win, qapp)
-        assert cp.width() >= CHART_MIN_WIDTH
-        assert cp.price_plot.width() >= CHART_MIN_WIDTH
+        assert win.chart_panel.width() >= CHART_MIN_WIDTH
+        assert win.centralWidget().width() >= CHART_MIN_WIDTH
     finally:
         win.close()
 
 
-def test_T28_T02_watchlist_clamp_with_volume_hidden_and_splitter_restored(
-    monkeypatch, qapp
-):
-    """T28-T02 / AC-D13.1 + AC-D10.1: clamp while hidden, splitter restores."""
+def test_T28_T02_watchlist_clamp_keeps_chart_min_width(monkeypatch, qapp):
+    """T28-T02 / AC-D13.1: the watchlist clamp reserves the chart minimum."""
     win = _make_main_window(monkeypatch, qapp)
     try:
-        cp = win.chart_panel
         # D17/B1: the watchlist cap is derived from the chart area.
         chart_area_w = win.centralWidget().width()
         max_w = watchlist_max_width(chart_area_w)
-
-        # Baseline while the volume panel is visible.
-        assert cp.volume_plot.isVisible()
-        sizes_visible = cp._splitter.sizes()
-
-        # D10: hide volume, then drag the watchlist to its max clamp.
-        cp._volume_toggle.setChecked(False)
-        qapp.processEvents()
-        assert not cp.volume_plot.isVisible()
 
         # AC-D13.1/D17: the clamp is [150, min(floor(0.50 x chart_area),
         # chart_area - 400)], measured against the chart area (D17/B1).
@@ -186,12 +168,7 @@ def test_T28_T02_watchlist_clamp_with_volume_hidden_and_splitter_restored(
         _drag_watchlist_to(win, max_w, qapp)
         dock_w = win.watchlist_dock.width()
         assert WATCHLIST_MIN_WIDTH <= dock_w <= max_w
-        assert cp.width() >= CHART_MIN_WIDTH
-
-        # AC-D10.1: the hide/show cycle restores the splitter correctly.
-        cp._volume_toggle.setChecked(True)
-        qapp.processEvents()
-        assert cp.volume_plot.isVisible()
-        assert cp._splitter.sizes() == sizes_visible
+        assert win.chart_panel.width() >= CHART_MIN_WIDTH
+        assert win.centralWidget().width() >= CHART_MIN_WIDTH
     finally:
         win.close()

@@ -26,14 +26,12 @@ D21-07 adds the Alarm-Mode coverage (``D21.8``):
   permanently masks a later status message.
 """
 
-from PyQt6.QtCore import QPoint
 from PyQt6.QtGui import QColor, QImage
 from PyQt6.QtWidgets import QScrollArea, QWidget
 
 from ui.visual_conventions import (
     ACTIVE_PROPERTY,
     VIS_D21_2_STYLESHEET,
-    DiagonalStrikeButton,
     set_button_active,
 )
 
@@ -432,103 +430,3 @@ def test_D21_07_T03_exit_paths_clear_status(monkeypatch, qapp):
         assert win.status_bar.currentMessage() == "Done."
     finally:
         win.close()
-
-
-# ── D21-08 / D21.12 — Volume toggle struck while the pane is hidden ───────────
-
-def test_D21_08_T01_volume_toggle_strikes_when_hidden(qapp):
-    """D21-08-T01 / AC-D21.12.1: the Volume toggle strikes iff the pane is hidden."""
-    from ui.chart_panel import ChartPanel
-
-    panel = ChartPanel()
-    panel.resize(900, 600)
-    panel.show()
-    qapp.processEvents()
-    try:
-        toggle = panel._volume_toggle
-
-        # The D10 affordance is now the VIS-D21.1 strike-capable button.
-        assert isinstance(toggle, DiagonalStrikeButton)
-        assert toggle.text() == "Volume"
-
-        # Default: checked (pane shown) and therefore not struck.
-        assert toggle.isChecked() is True
-        assert toggle.struck is False
-        assert panel.volume_plot.isVisible()
-
-        # Unchecked (pane hidden) -> struck.
-        toggle.setChecked(False)
-        qapp.processEvents()
-        assert toggle.struck is True
-        assert not panel.volume_plot.isVisible()
-
-        # Re-checked (pane shown) -> strike removed.
-        toggle.setChecked(True)
-        qapp.processEvents()
-        assert toggle.struck is False
-        assert panel.volume_plot.isVisible()
-    finally:
-        panel.hide()
-        panel.close()
-
-
-def test_D21_08_T02_d10_placement_and_toggle_preserved(qapp):
-    """D21-08-T02 / AC-D21.12.1: D10 placement/toggle behaviour is unchanged.
-
-    The strike is cosmetic: the button stays at the top-left of the volume pane
-    while shown, and toggling still hides/shows ``volume_plot`` + its axis and
-    refreshes the splitter exactly as D10 did.
-    """
-    from ui.chart_panel import ChartPanel
-
-    panel = ChartPanel()
-    panel.resize(900, 600)
-    panel.show()
-    qapp.processEvents()
-    try:
-        toggle = panel._volume_toggle
-
-        # Shown/checked: the toggle sits at the top-left of the volume pane (D10).
-        panel._position_volume_toggle()
-        qapp.processEvents()
-        vol_tl = panel.volume_plot.mapTo(panel, QPoint(0, 0))
-        assert abs(toggle.x() - (vol_tl.x() + 8)) <= 1, (toggle.pos(), vol_tl)
-        assert abs(toggle.y() - (vol_tl.y() + 4)) <= 1, (toggle.pos(), vol_tl)
-
-        sizes_visible = panel._splitter.sizes()
-        price_h_visible = panel.price_plot.height()
-
-        # Hide: struck, pane + axis hidden, price expands (D10 splitter refresh).
-        toggle.setChecked(False)
-        qapp.processEvents()
-        assert toggle.struck is True
-        assert not panel.volume_plot.isVisible()
-        assert not panel.volume_plot.getAxis('right').isVisible()
-        assert panel._splitter.sizes() != sizes_visible
-        assert panel.price_plot.height() > price_h_visible
-
-        # Show again: unstruck, pane + axis visible, splitter/price restored.
-        toggle.setChecked(True)
-        qapp.processEvents()
-        assert toggle.struck is False
-        assert panel.volume_plot.isVisible()
-        assert panel.volume_plot.getAxis('right').isVisible()
-        assert panel._splitter.sizes() == sizes_visible
-        assert panel.price_plot.height() == price_h_visible
-
-        # The strike is cosmetic only: the button remains clickable while struck.
-        toggle.setChecked(False)
-        qapp.processEvents()
-        assert toggle.struck is True
-        fired: list[bool] = []
-        toggle.clicked.connect(lambda: fired.append(True))
-        toggle.click()
-        qapp.processEvents()
-        assert fired == [True], "struck Volume toggle is no longer clickable"
-        # The click toggled it back on (checked -> unstruck, pane visible).
-        assert toggle.isChecked() is True
-        assert toggle.struck is False
-        assert panel.volume_plot.isVisible()
-    finally:
-        panel.hide()
-        panel.close()

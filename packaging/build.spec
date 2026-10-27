@@ -52,7 +52,6 @@ a = Analysis(
         "PyQt6.QtWebEngineCore",
         "PyQt6.QtWebEngineWidgets",
         "PyQt6.QtWebChannel",
-        "pyqtgraph",
         "ibapi",
         "ibapi.client",
         "ibapi.wrapper",

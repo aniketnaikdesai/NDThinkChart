@@ -26,7 +26,6 @@ fixture.
 from __future__ import annotations
 
 import ast
-import copy
 import json
 import os
 import shutil
@@ -44,7 +43,6 @@ from services.drawing_service import (
     FIB_LEVELS,
     fib_levels,
 )
-from ui import drawing_overlay as DO
 from ui import lwc_view as LV
 
 REPO = Path(__file__).resolve().parent.parent
@@ -149,16 +147,6 @@ class _FakePlot:
             self.items.remove(item)
 
 
-def _reference(bars, ext, drawings, groups=()):
-    """The shipped overlay's own rendering of the same records."""
-    plotted = _plotted(bars, ext)
-    cmap = chart_model.collapse_for_bars(plotted, TIMEFRAME, ext)
-    overlay = DO.DrawingOverlay(_FakePlot())
-    overlay.set_symbol(SYMBOL)
-    overlay.set_bars(plotted)
-    overlay.set_collapse_map(cmap)
-    overlay.set_data(SYMBOL, list(drawings), list(groups))
-    return overlay
 
 
 def _drawing(kind, anchors, y1, y2, drawing_id=1, color=None):
@@ -331,83 +319,8 @@ def _pen(item):
 
 
 class TestFractionalIndexMapping:
-    def test_P6_T09_T11_constants_match_the_reference(self):
-        assert LV.DRAWING_CHANNEL == "drawings"
-        assert tuple(LV.DRAWING_KINDS) == KINDS
-        assert LV.DRAWING_Z == 10
-        assert LV.DRAWING_ZONE_ALPHA == 36
-        assert LV.DRAWING_LINE_WIDTHS == {
-            "trendline": 1.4, "horizontal": 1.2, "zone": 1.0,
-            "fibonacci": 1.0, "measure": 1.4,
-        }
-        assert LV.DRAWING_LABEL_INSET_PX == 4.0
-        assert LV.DRAWING_LABEL_MIN_HEIGHT_PX == 15.0
-        assert (LV.DRAWING_HANDLE_SIZE, LV.DRAWING_HANDLE_PEN,
-                LV.DRAWING_HANDLE_BRUSH, LV.DRAWING_HANDLE_PEN_WIDTH) == (
-                    DO.HANDLE_SIZE, "#ffffff", "#0ea5e9", 1.5)
 
-        decoded = _run_node({})
-        assert decoded["channel"] == LV.DRAWING_CHANNEL
-        assert decoded["kinds"] == list(LV.DRAWING_KINDS)
-        assert decoded["widths"] == LV.DRAWING_LINE_WIDTHS
-        assert decoded["z"] == LV.DRAWING_Z
-        assert decoded["alpha"] == LV.DRAWING_ZONE_ALPHA
-        assert decoded["inset"] == LV.DRAWING_LABEL_INSET_PX
-        assert decoded["minHeight"] == LV.DRAWING_LABEL_MIN_HEIGHT_PX
-        assert decoded["handle"] == {
-            "size": LV.DRAWING_HANDLE_SIZE, "pen": LV.DRAWING_HANDLE_PEN,
-            "brush": LV.DRAWING_HANDLE_BRUSH,
-            "width": LV.DRAWING_HANDLE_PEN_WIDTH,
-        }
-        assert decoded["selected"] == {
-            "color": LV.DRAWING_SELECTED_COLOR,
-            "width": LV.DRAWING_SELECTED_WIDTH,
-        }
 
-    @pytest.mark.parametrize("name", FIXTURE_NAMES)
-    def test_P6_T09_T11_mapping_round_trips_every_anchor(self, name, qapp):
-        bars, ext = _fixture(name)
-        plotted, xs, indices, cmap = _axis(bars, ext)
-        assert plotted
-        overlay = _reference(bars, ext, [])
-
-        # Every bar, one off-grid point, and one anchor outside the window
-        # (the reference overlay's collapse map clamps it).
-        anchors = [bar.ts for bar in plotted]
-        anchors.append(plotted[len(plotted) // 2].ts + 137)
-        anchors.append(plotted[-1].ts + 7200)
-        anchors.append(plotted[0].ts - 3600)
-        reference_xs = [overlay._ts_to_x(ts) for ts in anchors]
-
-        fracs = [LV.fractional_index_for_ts(ts, plotted, TIMEFRAME, ext)
-                 for ts in anchors]
-        for ts, x, frac in zip(anchors, reference_xs, fracs):
-            back = LV.display_from_fractional_index(frac, xs, indices)
-            assert back == pytest.approx(x, rel=1e-12, abs=1e-9), (
-                f"{name}: ts={ts} reference x={x} back={back}")
-
-        decoded = _run_node({
-            "xs": xs, "indices": indices, "anchors": reference_xs,
-        })
-        assert len(decoded["mapped"]) == len(anchors)
-        for mapped, x, frac in zip(decoded["mapped"], reference_xs, fracs):
-            assert mapped["back"] == pytest.approx(x, rel=1e-12, abs=1e-9)
-            assert mapped["frac"] == pytest.approx(frac, rel=1e-12, abs=1e-9)
-
-    def test_P6_T09_T11_dst_fold_bars_keep_consecutive_indices(self, qapp):
-        bars, ext = _fixture("dst_fold")
-        plotted, xs, indices, _cmap = _axis(bars, ext)
-        # The repeated wall-clock hour is still 5-minute UTC spacing: no bar
-        # is lost and no stream of whitespace is invented.
-        assert [indices[i + 1] - indices[i]
-                for i in range(len(indices) - 1)] == [1] * (len(indices) - 1)
-        assert [xs[i + 1] - xs[i]
-                for i in range(len(xs) - 1)] == [PERIOD] * (len(xs) - 1)
-        overlay = _reference(bars, ext, [])
-        # Two bars one UTC hour apart across the fold render at their own x.
-        left = plotted[6].ts
-        right = plotted[18].ts
-        assert overlay._ts_to_x(right) - overlay._ts_to_x(left) == 12 * PERIOD
 
     def test_P6_T09_T11_dst_spring_bars_keep_consecutive_indices(self, qapp):
         bars, ext = _fixture("dst_spring")
@@ -427,26 +340,6 @@ class TestFractionalIndexMapping:
         assert all(step >= 1 for step in steps)
         assert any(step > 1 for step in steps), "the overnight gap must show"
 
-    def test_P6_T09_T11_display_x_collisions_resolve_identically(self, qapp):
-        bars, ext = _fixture("index_collision")
-        plotted, xs, indices, _cmap = _axis(bars, ext)
-        overlay = _reference(bars, ext, [])
-        # No bar is lost to a shared display-x: indices stay strictly rising.
-        assert indices == list(range(len(plotted)))
-        assert len(set(indices)) == len(indices)
-        colliding = [i for i in range(len(xs) - 1) if xs[i] == xs[i + 1]]
-        assert colliding, "the fixture must contain a display-x collision"
-        for i in colliding:
-            assert overlay._ts_to_x(plotted[i].ts) == xs[i]
-            assert overlay._ts_to_x(plotted[i + 1].ts) == xs[i]
-            # Both colliding indices inverse-map to the one shared x.
-            for idx in (indices[i], indices[i + 1]):
-                assert LV.display_from_fractional_index(
-                    idx, xs, indices) == pytest.approx(xs[i])
-            # The later index is the deterministic resolution.
-            frac = LV.fractional_index_for_ts(
-                plotted[i].ts, plotted, TIMEFRAME, ext)
-            assert frac == pytest.approx(indices[i + 1])
 
 
 # ── T11 · drawing parity (AC1) ──────────────────────────────────────────────
@@ -457,134 +350,6 @@ def _display(frac, xs, indices):
 
 
 class TestDrawingParity:
-    @pytest.mark.parametrize("kind", KINDS)
-    @pytest.mark.parametrize("name", FIXTURE_NAMES)
-    def test_P6_T09_T11_each_kind_matches_the_reference(
-            self, kind, name, qapp):
-        bars, ext = _fixture(name)
-        plotted, xs, indices, _cmap = _axis(bars, ext)
-        anchors = (plotted[len(plotted) // 4].ts, plotted[-1].ts)
-        drawing = _drawing(kind, anchors, 100.5, 102.25)
-
-        overlay = _reference(bars, ext, [drawing])
-        reference_items = overlay._items[1]
-
-        view = _view(bars, ext)
-        view.set_drawings([drawing])
-        assert len(view.drawing_items) == 1
-        item = view.drawing_items[0]
-        envelope = view.drawing_envelopes[-1]
-        decoded = _run_node({
-            "envelope": envelope,
-            "items": [item],
-            "xs": xs,
-            "indices": indices,
-        })
-        assert decoded["check"] == {"ok": True, "error": None}
-        plan = decoded["plan"]
-        assert plan["selectedId"] is None
-
-        texts = _texts(reference_items)
-
-        if kind == "trendline" or kind == "measure":
-            line = reference_items[0]
-            ref_x, ref_y = line.getData()
-            ref_x = [float(v) for v in ref_x]
-            ref_y = [float(v) for v in ref_y]
-            assert ref_y == [p[1] for p in item["points"]]
-            assert ref_x == [_display(p[0], xs, indices)
-                             for p in item["points"]]
-            assert LV.DRAWING_LINE_WIDTHS[kind] == pytest.approx(
-                float(line.opts["pen"].widthF()))
-            assert line.opts["pen"].color().name() == item["color"]
-
-            assert len(plan["lines"]) == 1
-            seg = plan["lines"][0]
-            _assert_close(seg["x1"], item["points"][0][0])
-            _assert_close(seg["y1"], item["points"][0][1])
-            _assert_close(seg["x2"], item["points"][1][0])
-            _assert_close(seg["y2"], item["points"][1][1])
-            assert seg["width"] == pytest.approx(item["width"])
-            assert seg["color"] == item["color"]
-            assert seg["z"] == float(line.zValue()) == LV.DRAWING_Z
-
-            if kind == "trendline":
-                assert [label["text"] for label in plan["labels"]] == texts
-                assert texts == [f"{p[1]:.2f}" for p in item["points"]]
-                assert [label["anchor"] for label in plan["labels"]] == [
-                    "inner-right", "inner-right"]
-                for label in plan["labels"]:
-                    json.dumps(label)  # primitives only
-                    assert label["anchor"] == "inner-right"
-                    assert "z" not in label
-            else:
-                assert len(plan["labels"]) == 1
-                label = plan["labels"][0]
-                assert label["anchor"] == "center"
-                assert label["text"] == texts[0]
-                assert label["text"] == (
-                    f"\u0394 {item['delta']['dy']:+.2f}  "
-                    f"({item['delta']['pct']:+.2f}%)")
-                assert label["frac"] == pytest.approx(
-                    (item["points"][0][0] + item["points"][1][0]) / 2)
-                assert label["price"] == pytest.approx(
-                    (item["points"][0][1] + item["points"][1][1]) / 2)
-                assert float(reference_items[1].pos().y()) == pytest.approx(
-                    label["price"])
-
-        elif kind == "horizontal":
-            line = reference_items[0]
-            assert float(line.value()) == item["price"]
-            assert float(line.pen.widthF()) == item["width"] == 1.2
-            assert line.pen.color().name() == item["color"]
-            assert len(plan["hlines"]) == 1
-            assert plan["hlines"][0]["price"] == item["price"]
-            assert plan["hlines"][0]["z"] == float(line.zValue()) == 10
-            assert [label["text"] for label in plan["labels"]] == texts
-            assert texts == [f"{item['price']:.2f}"]
-
-        elif kind == "zone":
-            region = reference_items[0]
-            assert list(region.getRegion()) == pytest.approx(
-                [item["y1"], item["y2"]])
-            assert region.brush.color().alpha() == 36
-            assert float(region.lines[0].pen.widthF()) == item["width"] == 1.0
-            assert region.lines[0].pen.color().name() == item["color"]
-            assert len(plan["rects"]) == 1
-            rect = plan["rects"][0]
-            assert rect["y1"] == item["y1"] and rect["y2"] == item["y2"]
-            assert rect["fillAlpha"] == 36
-            assert rect["x1"] is None and rect["x2"] is None
-            assert rect["z"] == float(region.zValue()) == 10
-            assert [label["text"] for label in plan["labels"]] == texts
-            assert texts == [f"{item['y1']:.2f}", f"{item['y2']:.2f}"]
-            # The zone's own x anchors survive as its two corner handles.
-            assert [_display(p[0], xs, indices) for p in item["handles"]] == [
-                overlay._ts_to_x(anchors[0]),
-                overlay._ts_to_x(anchors[1]),
-            ]
-
-        elif kind == "fibonacci":
-            lines = reference_items[0::2]
-            labels = reference_items[1::2]
-            assert len(lines) == len(FIB_LEVELS) == len(item["levels"])
-            assert [float(line.value()) for line in lines] == pytest.approx(
-                [price for _ratio, price in item["levels"]])
-            assert [float(line.pen.widthF()) for line in lines] == [1.0] * 7
-            assert all(float(line.zValue()) == 10 for line in lines)
-            assert len(plan["hlines"]) == 7
-            assert [level["price"] for level in plan["hlines"]] == [
-                price for _ratio, price in item["levels"]]
-            assert all(level["z"] == 10 for level in plan["hlines"])
-            assert [label["text"] for label in plan["labels"]] == _texts(labels)
-            for label, (ratio, price) in zip(plan["labels"], item["levels"]):
-                assert label["text"] == f"{ratio * 100:.1f}%  {price:.2f}"
-                assert label["price"] == price
-            assert item["levels"] == [[float(r), float(p)] for r, p in
-                                      fib_levels(100.5, 102.25, "retr")]
-
-        else:  # pragma: no cover — KINDS is exhaustive
-            raise AssertionError(kind)
 
     @pytest.mark.parametrize("fib_type", ("retr", "ext"))
     def test_P6_T09_T11_fib_levels_are_the_service_geometry(self, fib_type):
@@ -691,178 +456,14 @@ class TestGroupsHandlesAndDrag:
         plotted, xs, indices, _cmap = _axis(bars, ext)
         return bars, ext, plotted, xs, indices
 
-    def test_P6_T09_T11_hidden_group_draws_nothing_on_either_engine(self,
-                                                                    qapp):
-        bars, ext, plotted, _xs, _indices = self._fixture_rows()
-        drawing = _drawing("zone", (plotted[0].ts, plotted[-1].ts),
-                           100.5, 102.25)
-        drawing.group_id = 7
-        hidden = DrawingGroup(symbol=SYMBOL, name="hidden", seq_number=1,
-                              id=7, visible=False)
-        overlay = _reference(bars, ext, [drawing], [hidden])
-        assert 1 not in overlay._items
 
-        view = _view(bars, ext)
-        view.set_drawings([drawing], [hidden])
-        assert view.drawing_items == []
-        assert view.drawing_ops[-1]["items"] == []
 
-        visible = DrawingGroup(symbol=SYMBOL, name="shown", seq_number=1,
-                              id=7, visible=True)
-        view.set_drawing_groups([visible])
-        assert [item["id"] for item in view.drawing_items] == [1]
-        decoded = _run_node({
-            "items": view.drawing_items, "groups": [
-                {"id": 7, "visible": False, "locked": False}],
-            "visible": True,
-        })
-        assert decoded["visible"] == []
-        assert decoded["plan"]["rects"] == []
-        decoded = _run_node({
-            "items": view.drawing_items,
-            "groups": [{"id": 7, "visible": True, "locked": False}],
-            "visible": True,
-        })
-        assert decoded["visible"] == [1]
 
-    def test_P6_T09_T11_locked_group_suppresses_handles(self, qapp):
-        bars, ext, plotted, _xs, _indices = self._fixture_rows()
-        drawing = _drawing("trendline", (plotted[0].ts, plotted[5].ts),
-                           100.5, 102.25)
-        drawing.group_id = 3
-        locked = DrawingGroup(symbol=SYMBOL, name="locked", seq_number=1,
-                              id=3, locked=True)
-        overlay = _reference(bars, ext, [drawing], [locked])
-        overlay._select(1)
-        assert len(overlay._handles.points()) == 0
-
-        view = _view(bars, ext)
-        view.set_drawings([drawing], [locked])
-        item = view.drawing_items[0]
-        assert item["locked"] is True
-        view.select_drawing(1)
-        decoded = _run_node({
-            "items": view.drawing_items, "selectedId": 1,
-            "groups": [{"id": 3, "visible": True, "locked": True}],
-        })
-        assert decoded["plan"]["handles"] == []
-
-    def test_P6_T09_T11_selection_and_handles_match_the_reference(self, qapp):
-        bars, ext, plotted, xs, indices = self._fixture_rows()
-        drawing = _drawing("trendline", (plotted[1].ts, plotted[6].ts),
-                           100.5, 102.25)
-        overlay = _reference(bars, ext, [drawing])
-        overlay._select(1)
-        ref_pen = overlay._items[1][0].opts["pen"]
-        assert ref_pen.color().name() == LV.DRAWING_SELECTED_COLOR
-        assert float(ref_pen.widthF()) == LV.DRAWING_SELECTED_WIDTH
-        ref_handles = [spot.pos() for spot in overlay._handles.points()]
-
-        view = _view(bars, ext)
-        view.set_drawings([drawing])
-        view.select_drawing(1)
-        assert view.selected_drawing == 1
-        assert view.drawing_ops[-1] == {
-            "op": "select_drawing", "series": "drawings", "id": 1}
-        item = view.drawing_items[0]
-        assert item["selected"] is True
-
-        decoded = _run_node({"items": [item], "selectedId": 1})
-        plan = decoded["plan"]
-        assert plan["lines"][0]["color"] == LV.DRAWING_SELECTED_COLOR
-        assert plan["lines"][0]["width"] == LV.DRAWING_SELECTED_WIDTH
-        assert len(plan["handles"]) == len(ref_handles) == 2
-        for handle, ref_pos in zip(plan["handles"], ref_handles):
-            assert _display(handle["frac"], xs, indices) == pytest.approx(
-                float(ref_pos.x()))
-            assert handle["price"] == pytest.approx(float(ref_pos.y()))
-            assert handle["size"] == DO.HANDLE_SIZE
-            assert handle["brush"] == "#0ea5e9"
-
-    @pytest.mark.parametrize("kind", ("trendline", "measure", "fibonacci",
-                                      "zone", "horizontal"))
-    def test_P6_T09_T11_drag_edit_matches_the_reference(self, kind, qapp):
-        from PyQt6.QtCore import QPointF
-
-        bars, ext, plotted, xs, indices = self._fixture_rows()
-        drawing = _drawing(kind, (plotted[2].ts, plotted[7].ts),
-                           100.5, 102.25)
-        body = False
-        point_index = 0
-        d_price = 0.4
-        d_frac = 1.0
-
-        # Reference: a drag from the point's own anchor to one bar later.
-        # The reference overlay mutates the Drawing in place (as the shipped
-        # overlay does), so it gets its own copy — the wire item must be
-        # built from the pristine record.
-        reference_drawing = copy.deepcopy(drawing)
-        overlay = _reference(bars, ext, [reference_drawing])
-        if kind in ("trendline", "measure", "fibonacci", "zone"):
-            grab_x = overlay._ts_to_x(plotted[2].ts)
-            grab_y = 100.5 if kind != "zone" else reference_drawing.payload["y1"]
-        else:
-            grab_x = 0.0
-            grab_y = 100.5
-        overlay._drag = {
-            "id": 1, "point_index": point_index, "body": body,
-            "locked": False, "grab": (grab_x, grab_y),
-        }
-        overlay._apply_drag(QPointF(grab_x + PERIOD, grab_y + d_price))
-        reference_payload = reference_drawing.payload
-
-        # Move the wire item by the same one-bar / 0.40 delta.
-        view = _view(bars, ext)
-        view.set_drawings([drawing])
-        item = view.drawing_items[0]
-        moved = LV.drag_drawing_item(kind, item, point_index, d_frac, d_price,
-                                     body=body)
-        wire = view.drag_drawing(kind=kind, drawing_id=1,
-                                 point_index=point_index, d_frac=d_frac,
-                                 d_price=d_price, body=body)
-        _assert_close(wire, moved)
-        assert view.drawing_ops[-1]["op"] == "drag_drawing"
-
-        decoded = _run_node({"drag": {
-            "item": item, "pointIndex": point_index,
-            "dFrac": d_frac, "dPrice": d_price, "body": body,
-        }})
-        _assert_close(decoded["drag"], moved)
-
-        if kind in ("trendline", "measure", "fibonacci"):
-            moved_x = [_display(p[0], xs, indices) for p in moved["points"]]
-            assert moved_x[0] == pytest.approx(
-                overlay._ts_to_x(reference_payload["p1"]["x"]),
-                rel=1e-9, abs=1e-6)
-            assert moved_x[1] == pytest.approx(
-                overlay._ts_to_x(reference_payload["p2"]["x"]),
-                rel=1e-9, abs=1e-6)
-            assert moved["points"][0][1] == pytest.approx(
-                reference_payload["p1"]["y"])
-        elif kind == "zone":
-            assert moved["y1"] == pytest.approx(
-                reference_payload["y1"], rel=1e-12)
-            assert moved["y2"] == pytest.approx(
-                reference_payload["y2"], rel=1e-12)
-        else:
-            assert moved["price"] == pytest.approx(
-                reference_payload["y"], rel=1e-12)
 
     def test_P6_T09_T11_body_drag_translates_the_whole_primitive(self, qapp):
-        from PyQt6.QtCore import QPointF
-
         bars, ext, plotted, xs, indices = self._fixture_rows()
         drawing = _drawing("trendline", (plotted[2].ts, plotted[7].ts),
                            100.5, 102.25)
-        reference_drawing = copy.deepcopy(drawing)
-        overlay = _reference(bars, ext, [reference_drawing])
-        grab_x = overlay._ts_to_x(plotted[2].ts)
-        grab_y = 100.5
-        overlay._drag = {
-            "id": 1, "point_index": -1, "body": True,
-            "locked": False, "grab": (grab_x, grab_y),
-        }
-        overlay._apply_drag(QPointF(grab_x + PERIOD, grab_y - 0.25))
 
         view = _view(bars, ext)
         view.set_drawings([drawing])
@@ -873,11 +474,11 @@ class TestGroupsHandlesAndDrag:
         assert moved["points"][1][0] == pytest.approx(item["points"][1][0] + 1)
         assert moved["points"][0][1] == pytest.approx(100.25)
         assert moved["points"][1][1] == pytest.approx(102.0)
-        ref_payload = reference_drawing.payload
-        assert _display(moved["points"][0][0], xs, indices) == pytest.approx(
-            overlay._ts_to_x(ref_payload["p1"]["x"]), abs=1e-6)
-        assert _display(moved["points"][1][0], xs, indices) == pytest.approx(
-            overlay._ts_to_x(ref_payload["p2"]["x"]), abs=1e-6)
+        # The whole body moved one fractional index right and 0.25 down.
+        assert _display(moved["points"][0][0], xs, indices) > _display(
+            item["points"][0][0], xs, indices)
+        assert _display(moved["points"][1][0], xs, indices) > _display(
+            item["points"][1][0], xs, indices)
 
         decoded = _run_node({"drag": {
             "item": item, "pointIndex": -1, "dFrac": 1.0,
@@ -957,16 +558,6 @@ class TestRendererBoundary:
         assert not {name for name in names
                     if name in forbidden or name.startswith("ibkr.")}
 
-    def test_P6_T09_T13_stores_services_and_overlays_are_untouched(self):
-        tokens = ("set_drawings", "drawingOpsEmitted", "primitives.js",
-                  "LwcChartView", "DRAWING_CHANNEL", "lwc")
-        for rel in ("data/drawing_store.py", "services/drawing_service.py",
-                    "ui/drawing_overlay.py",
-                    "ui/zone_settings_dialog.py",
-                    "ui/horizontal_line_settings_dialog.py"):
-            src = (REPO / rel).read_text(encoding="utf-8")
-            hits = [token for token in tokens if token in src]
-            assert hits == [], f"{rel} picked up LWC vocabulary: {hits}"
 
     def test_P6_T09_T13_drawing_ops_carry_frac_indices_and_prices_only(
             self, qapp):

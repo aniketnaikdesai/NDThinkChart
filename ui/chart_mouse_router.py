@@ -25,7 +25,7 @@ is left behind (TR-4/TR-7).
 
 from enum import Enum, auto
 
-from ui.drawing_overlay import DRAWING_TOOLS, TOOL_CURSOR
+from ui.drawing_tools import DRAWING_TOOLS, TOOL_CURSOR
 
 
 class RouterMode(Enum):

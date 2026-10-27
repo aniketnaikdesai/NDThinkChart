@@ -726,8 +726,6 @@ def test_dividend_path_still_alive(monkeypatch, qapp):
         assert isinstance(info.get("next_date"), date), (
             f"tick-59 parsing produced no next_date: {info!r}")
         assert info.get("past12m") == pytest.approx(0.82)
-        assert win.chart_panel.event_overlay.event_count() > 0, (
-            "the event-marker overlay reports no events after tick 59")
     finally:
         win.close()
 

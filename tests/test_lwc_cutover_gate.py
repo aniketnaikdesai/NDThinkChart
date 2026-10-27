@@ -20,14 +20,16 @@ The cutover gate is three independent proofs plus a boundary proof, because
 4. **the default would have been flipped** — the parity matrix must be
    19 rows, every non-accepted row must carry an explicit rule-10 entry, rows
    16/17/19 must be Done/accepted, the Phase-0 perf floor must be unchanged
-   and still met, and pyqtgraph must still be fully present **and** the
+   and still met. P6-12 pinned pyqtgraph as present and the default; P6-13
    default engine with nothing deleted (AC-D47.9; P6-13 is separately gated).
 
 The residue scan at the bottom is the renderer-only boundary (``ibkr/``, DB
 schema/store API, service signatures, watchlist/dock/persistence, order code)
 plus the deletion-set probe: every retained engine module must still exist.
 
-Nothing in this task flips the default engine or deletes pyqtgraph code.
+P6-12 flipped no default and deleted nothing. P6-13 (owner-waived gate)
+removed the engine afterwards; the engine-present assertions below were
+retired with it, and the packaging assertion now requires its absence.
 """
 
 from __future__ import annotations
@@ -90,14 +92,9 @@ _MEASURED_DELTA_PCT = "0.09"
 _BUILD_CEILING_MS = 13.0
 _SERIALIZE_CEILING_MS = 55.0
 
-#: Retained pyqtgraph/engine surface — the P6-13 deletion set. Every one of
-#: these must still exist: this task deletes no engine code.
+#: Retained engine surface after P6-13: the seam, the LWC driver/host/bridge
+#: and the shared model. The pyqtgraph render modules are gone.
 _RETAINED_ENGINE_FILES = (
-    "ui/chart_panel.py",
-    "ui/candlestick_item.py",
-    "ui/drawing_overlay.py",
-    "ui/alarm_overlay.py",
-    "ui/zoom_overlay.py",
     "ui/chart_controls.py",
     "ui/chart_mouse_router.py",
     "ui/popout_window.py",
@@ -216,9 +213,8 @@ def test_specs_ship_the_vendored_tree_and_webengine(spec: str) -> None:
             f"prune the WebEngine host/bridge (and Chromium) from the app"
         )
 
-    # ``pyqtgraph`` must stay in the packaged spec (default engine retained).
-    if spec == _PACKAGED_SPEC:
-        assert "pyqtgraph" in hidden, f"{spec}: pyqtgraph was dropped"
+    # P6-13 removed the pyqtgraph engine: the spec must not name it.
+    assert "pyqtgraph" not in hidden, f"{spec}: pyqtgraph is still packaged"
 
 
 def test_vendored_tree_is_complete_and_offline() -> None:
@@ -356,7 +352,7 @@ def _structural_yaml_problem(text: str) -> str | None:
     return None
 
 
-# ── P6-T12-T12 — the triple gate (parity + perf + pyqtgraph default) ──────
+# ── P6-T12-T12 — the triple gate (parity + perf) ──────────────────────────
 
 
 def test_matrix_is_19_rows_and_every_open_row_has_a_rule10_entry() -> None:
@@ -413,38 +409,8 @@ def test_candidate_is_declared_not_shipped() -> None:
     assert "soak" in note.lower(), "the no-soak decision must be recorded (S59)"
 
 
-def test_engine_env_unset_resolves_to_pyqtgraph_default(monkeypatch, qapp) -> None:
-    """AC2: ``NDT_CHART_ENGINE`` unset (and unknown) → pyqtgraph, never blank."""
-    from ui import chart_view
-
-    monkeypatch.setattr(chart_view, "_read_persisted_engine", lambda: "")
-    monkeypatch.delenv(chart_view.ENGINE_ENV_VAR, raising=False)
-
-    view = chart_view.create_chart_view(tz_offset=0.0, editable=True)
-    assert isinstance(view, chart_view.PyqtgraphChartView)
-    assert view.ENGINE_NAME == "pyqtgraph"
-
-    monkeypatch.setenv(chart_view.ENGINE_ENV_VAR, "definitely-not-an-engine")
-    unknown = chart_view.create_chart_view(tz_offset=0.0, editable=True)
-    assert isinstance(unknown, chart_view.PyqtgraphChartView)
-
-    monkeypatch.setenv(chart_view.ENGINE_ENV_VAR, "lwc")
-    lwc = chart_view.create_chart_view(tz_offset=0.0, editable=True)
-    assert lwc.ENGINE_NAME == "lwc", "the opt-in engine path must still exist"
 
 
-def test_pyqtgraph_engine_is_still_present(qapp) -> None:
-    """AC2/AC3: nothing was deleted — panel + candlestick item import and exist."""
-    import ui.candlestick_item as candlestick_item
-    import ui.chart_panel as chart_panel
-    from ui import chart_view
-
-    assert hasattr(chart_panel, "ChartPanel")
-    assert issubclass(chart_view.PyqtgraphChartView, chart_panel.ChartPanel)
-    item_cls = getattr(candlestick_item, "CandlestickItem", None) or getattr(
-        candlestick_item, "CandlestickGraphicItem", None
-    )
-    assert item_cls is not None, "ui.candlestick_item lost its item class"
 
 
 def test_phase0_perf_baseline_holds() -> None:
@@ -527,7 +493,7 @@ def _best_ms(callable_, repeats: int = 3) -> float:
 
 
 def test_deletion_set_is_untouched() -> None:
-    """AC3: every retained engine module still exists — P6-13 alone may delete."""
+    """AC3: every retained engine module still exists after the P6-13 removal."""
     missing = [rel for rel in _RETAINED_ENGINE_FILES if not (_REPO / rel).is_file()]
     assert not missing, f"pyqtgraph engine code was deleted before P6-13: {missing}"
 

@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover
 
 from data.bar_cache import BarCache
 from data.models import Bar
+from services import chart_model
 
 EASTERN = ZoneInfo("America/New_York")
 
@@ -288,14 +289,19 @@ def test_t43_t04_no_bar_fabricated_on_stranded_wave(monkeypatch, qapp):
         chart = win.chart_panel._bars
         assert {b.ts for b in chart} == before_ts
 
-        # Volume series carries no injected value for a missing date.
-        vol_x = ([int(v) for v in win.chart_panel.volume_bars.opts["x"]]
-                 + [int(v) for v in win.chart_panel.live_volume.opts["x"]])
-        assert set(vol_x) == before_ts
+        # The view's real-UTC series carries no injected value for a missing
+        # date, and the shared volume model sees the same columns.
+        panel = win.chart_panel
+        series_ts = panel.series_times
+        vol_x, _vol_h, _vol_colors = chart_model.volume_display_columns(
+            panel.plotted_bars, None)
+        assert set(series_ts) == before_ts
+        assert {int(v) for v in vol_x} == before_ts
         missing_ts = {
             _et_ts(y, m, d) for y, m, d in MISSING_DAYS
         }
-        assert missing_ts.isdisjoint(set(vol_x))
+        assert missing_ts.isdisjoint(set(series_ts))
+        assert missing_ts.isdisjoint({int(v) for v in vol_x})
 
         assert win._pending_bars == []
     finally:

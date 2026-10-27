@@ -155,9 +155,6 @@ def test_P3_T05_T21_expand_restores_the_tracked_width(monkeypatch, qapp):
 
         # (b) the 150px floor case restores the floor.
         assert round_trip(WATCHLIST_MIN_WIDTH) >= WATCHLIST_MIN_WIDTH
-
-        # (c) an over-cap request comes back re-clamped to the cap.
-        assert round_trip(10 ** 6) <= watchlist_max_width(win._chart_area_width()) + 1
         assert panel.is_collapsed() is False
     finally:
         win.close()

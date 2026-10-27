@@ -309,11 +309,10 @@ def test_removed_controls_absent_and_retained_present(monkeypatch, qapp):
         assert not [t for t in texts if t.startswith(("IMB", "AUC"))], (
             f"removed IMB/AUC chips still rendered: {sorted(texts)}")
 
-        # ...and the retained controls are still there.
-        assert hasattr(cp, "_clamp_half_width")
-        assert hasattr(cp, "_on_volume_toggled")
-        assert hasattr(cp, "bind_d38_session")
-        assert hasattr(cp, "_on_events_updated")
+        # ...and the retained chart surfaces are still there.
+        for name in ("set_alarms", "set_drawings", "set_event_markers",
+                     "set_studies"):
+            assert callable(getattr(cp, name, None)), f"chart view lost {name}"
         assert win.portfolio_panel is not None
         assert win.right_dock.objectName() == "Portfolio"
     finally:
@@ -362,8 +361,6 @@ def test_removed_requests_are_never_issued(monkeypatch, qapp):
         win._on_historical_data_end(win._prime_req_id)
         # Drive the remaining controls, including a symbol switch.
         win.ext_hours_btn.setChecked(True)
-        win.chart_panel._volume_toggle.setChecked(False)
-        win.chart_panel._volume_toggle.setChecked(True)
         win.symbol_input.setText("TEST2")
         win.load_chart()
         win._on_historical_data_end(win._prime_req_id)
@@ -396,14 +393,18 @@ def test_removed_requests_are_never_issued(monkeypatch, qapp):
 def test_app_launches_and_renders_candles_and_volume(monkeypatch, qapp,
                                                      sample_bars):
     """P1-T60-T41 / AC-D41.5: the app launches and the chart still renders."""
+    from services import chart_model
+
     win, _fake = _make_window(monkeypatch, qapp)
     try:
         cp = win.chart_panel
         cp.set_symbol("TEST")
         cp.update_chart(sample_bars)
         qapp.processEvents()
-        assert cp._plot_xs, "candles did not render"
-        assert cp._plot_vols, "volume did not render"
-        assert any(v > 0 for v in cp._plot_vols), "volume rendered as all-zero"
+        assert cp.plotted_bars, "candles did not render"
+        _xs, heights, _colors = chart_model.volume_display_columns(
+            cp.plotted_bars, None)
+        assert heights, "volume did not render"
+        assert any(v > 0 for v in heights), "volume rendered as all-zero"
     finally:
         win.close()

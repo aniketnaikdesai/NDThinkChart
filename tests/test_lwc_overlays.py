@@ -44,12 +44,7 @@ from services import chart_model
 from services import gap_vix_service as GS
 from services import ict_service as IS
 from services import session_service as SS
-from ui import event_marker_overlay as EO
 from ui import lwc_view as LV
-from ui.overlays import gap_overlay as GO
-from ui.overlays import ict_overlay as IO
-from ui.overlays import session_overlay as SO
-from ui.overlays import vix_overlay as VO
 
 REPO = Path(__file__).resolve().parent.parent
 OVERLAYS_JS = REPO / "chart_assets" / "lwc" / "overlays.js"
@@ -175,51 +170,14 @@ class _MarkerPlot:
         return self.view
 
 
-def _reference_overlay(cls, view):
-    overlay = cls(_FakePlot())
-    overlay.set_collapse_map(_axis(view)[2])
-    return overlay
 
 
-def _reference_session(view):
-    overlay = SO.SessionOverlay(_FakePlot())
-    overlay.set_collapse_map(_axis(view)[2])
-    bands = [
-        {"kind": band["kind"],
-         "start_ts": _display_of_ts(view, band["start_ts"]),
-         "end_ts": _display_of_ts(view, band["end_ts"])}
-        for band in SS.session_bands(list(view.plotted_bars), TIMEFRAME)
-    ]
-    overlay.render(bands)
-    return overlay
 
 
-def _reference_gaps(view):
-    overlay = _reference_overlay(GO.RthGapOverlay, view)
-    bars = list(view.plotted_bars)
-    gaps = GS.calculate_rth_gaps(
-        bars, GS.infer_ticker_context(SYMBOL, bars), {})
-    overlay.render(gaps, bars)
-    return overlay
 
 
-def _reference_vix(view):
-    overlay = _reference_overlay(VO.VixOverlay, view)
-    bars = list(view.plotted_bars)
-    result = GS.calculate_vix_standard_deviation(
-        GS.infer_ticker_context(SYMBOL, bars), bars, {})
-    overlay.render(result, bars)
-    return overlay, result
 
 
-def _reference_ict(view):
-    overlay = _reference_overlay(IO.ICTStudyOverlay, view)
-    bars = list(view.plotted_bars)
-    window = chart_model.trailing_bars(bars, LV.ICT_TRAILING_BARS)
-    result = IS.calculate_ict_concepts(
-        window, GS.infer_ticker_context(SYMBOL, bars), {})
-    overlay.render(result, window)
-    return overlay, result, window
 
 
 def _pen_of(item):
@@ -450,213 +408,12 @@ def _all_envelopes(view):
 
 
 class TestOverlayParity:
-    def test_P6_T10_T11_constants_match_the_reference_renderers(self, qapp):
-        decoded = _run_node({})
-        assert decoded["colors"] == {"pre": SO.ORANGE, "post": SO.BLUE}
-        assert decoded["sessionAlpha"] == 0.10
-        assert decoded["sessionZ"] == -10
-        assert decoded["gap"] == {
-            "up": {"color": GO.UP_COLOR, "brush": GO.UP_BRUSH},
-            "down": {"color": GO.DOWN_COLOR, "brush": GO.DOWN_BRUSH},
-            "openAlpha": 0.55,
-            "filledAlpha": 0.32,
-            "borderWidth": 0.8,
-            "z": -5,
-        }
-        assert decoded["vix"]["labelAnchor"] == "right"
-        assert decoded["vix"]["z"] == 0
-        assert decoded["ict"]["structure"] == {
-            "width": 1.2, "lineStyle": "dashed", "z": 3}
-        assert decoded["ict"]["orderBlock"] == {"alpha": 0.18, "z": -3}
-        assert decoded["ict"]["fvg"] == {
-            "alpha": 0.14, "mitigatedAlpha": 0.06, "z": -4}
-        assert decoded["ict"]["killzone"] == {"z": -8}
-        assert decoded["event"] == EO.EVENT_STYLE
-        assert decoded["markerZ"] == 10
-        assert decoded["markerAnchor"] == [0.5, 1.0]
-        assert decoded["countdown"]["anchor"] == [0.0, 0.0]
-        assert decoded["countdown"]["z"] == 10
-        assert decoded["countdown"]["color"] == "#e5e7eb"
-        assert decoded["countdown"]["unavailableColor"] == "#f87171"
-        assert (decoded["countdown"]["unavailableText"]
-                == "Event data unavailable")
-        assert decoded["overlayNames"] == list(LV.OVERLAY_NAMES)
 
-        # The Python mirror carries the same reference constants.
-        assert LV.SESSION_COLORS == {"pre": SO.ORANGE, "post": SO.BLUE}
-        assert (LV.SESSION_ALPHA, LV.SESSION_Z) == (0.10, -10)
-        assert LV.GAP_UP_COLOR == GO.UP_COLOR
-        assert LV.GAP_UP_BRUSH == GO.UP_BRUSH
-        assert LV.GAP_DOWN_COLOR == GO.DOWN_COLOR
-        assert LV.GAP_DOWN_BRUSH == GO.DOWN_BRUSH
-        assert (LV.GAP_OPEN_ALPHA, LV.GAP_FILLED_ALPHA,
-                LV.GAP_BORDER_WIDTH, LV.GAP_Z) == (0.55, 0.32, 0.8, -5)
-        assert LV.ICT_STRUCTURE_WIDTH == 1.2
-        assert LV.ICT_ORDER_BLOCK_ALPHA == 0.18
-        assert LV.ICT_FVG_ALPHA == 0.14
-        assert LV.ICT_FVG_MITIGATED_ALPHA == 0.06
-        assert LV.ICT_POOL_ALPHA == 0.07
-        assert LV.ICT_VOLUME_IMBALANCE_ALPHA == 0.35
-        assert LV.ICT_VOLUME_IMBALANCE_COLOR == IO.VI_COLOR
-        assert LV.ICT_OPENING_GAP_ALPHA == 0.10
-        assert LV.ICT_KILLZONE_Z == -8
-        assert LV.EVENT_MARKERS == EO.EVENT_STYLE
-        assert (LV.MARKER_Z, LV.MARKER_ANCHOR) == (10, (0.5, 1.0))
 
-    def test_P6_T10_T11_session_bands_match_the_reference_overlay(self, qapp):
-        view = _view()
-        shapes, labels = _describe_reference_items(_reference_session(view))
-        regions = _lwc_shapes(view, "session")
 
-        assert labels == []
-        assert len(regions) == len(shapes) > 0
-        assert [row["kind"] for row in regions] == ["pre", "post", "pre", "post"]
-        for region, reference in zip(regions, shapes):
-            assert region["shape"] == "region" == reference["shape"]
-            assert region["from"] == pytest.approx(reference["from"], abs=1e-6)
-            assert region["to"] == pytest.approx(reference["to"], abs=1e-6)
-            assert region["color"] == reference["color"]
-            assert region["alpha"] == pytest.approx(reference["alpha"], abs=1e-6)
-            assert region["z"] == reference["z"] == -10
 
-    def test_P6_T10_T11_session_bands_follow_the_reference_gating(self, qapp):
-        # No extended hours -> no bands (ChartPanel._render_sessions).
-        no_ext = _view(ext_hours=False)
-        assert no_ext.overlays["session"] == []
 
-        # 1 day -> the service returns no bands.
-        daily = LV.LwcChartView(tz_offset=TZ_OFFSET)
-        daily.set_symbol(SYMBOL)
-        daily.set_timeframe("1 day")
-        daily.set_series("candles", _bars())
-        assert daily.overlays["session"] == []
-        # Nothing was ever drawn on this axis, so there is nothing to clear:
-        # the empty state is recorded without traffic.
-        assert daily.overlay_ops == []
 
-    def test_P6_T10_T11_gap_staircase_matches_the_reference_overlay(self, qapp):
-        view = _view()
-        shapes, _labels = _describe_reference_items(_reference_gaps(view))
-        bands = _lwc_shapes(view, "rth_gaps")
-
-        assert bands, "the fixture must contain an RTH gap"
-        assert len(bands) == len(shapes)
-        for band, reference in zip(bands, shapes):
-            assert reference["shape"] == "band"
-            assert band["from"] == pytest.approx(reference["from"], abs=1e-6)
-            assert band["to"] == pytest.approx(reference["to"], abs=1e-6)
-            assert band["bottom"] == pytest.approx(reference["bottom"])
-            assert band["top"] == pytest.approx(reference["top"])
-            assert band["color"] == reference["color"]
-            assert band["brush"] == reference["fill"]
-            assert band["alpha"] == pytest.approx(reference["alpha"])
-            assert band["borderWidth"] == pytest.approx(
-                reference["borderWidth"])
-            assert band["borderStyle"] == reference["borderStyle"]
-            assert band["z"] == reference["z"] == -5
-
-    def test_P6_T10_T11_vix_levels_match_the_reference_overlay(self, qapp):
-        view = _view()
-        overlay, result = _reference_vix(view)
-        shapes, labels = _describe_reference_items(overlay)
-        rows = _lwc_shapes(view, "vix_sd")
-
-        lines = [row for row in shapes if row["shape"] == "hline"]
-        assert len(rows) == len(lines) == len(result["levels"])
-        assert len(labels) == len(rows)
-        for row, reference, label in zip(rows, lines, labels):
-            assert row["shape"] == "hline"
-            assert row["price"] == pytest.approx(reference["price"])
-            assert row["color"] == reference["color"]
-            assert row["width"] == pytest.approx(reference["width"])
-            assert row["lineStyle"] == reference["style"]
-            assert row["z"] == reference["z"] == 0
-            # The label is composed engine-side from sigma + price.
-            assert LV.vix_label(row["sigma"], row["price"]) == label["text"]
-            assert _display_of_frac(view, row["labelFrom"]) == pytest.approx(
-                label["x"], abs=1e-6)
-            assert row["labelAnchor"] == "right"
-
-        # The JS composer produces the same strings from the same numbers.
-        decoded = _run_node({"vixLevels": [
-            {"sigma": row["sigma"], "price": row["price"]} for row in rows]})
-        assert decoded["vixLabels"] == [label["text"] for label in labels]
-
-    def test_P6_T10_T11_ict_concepts_match_the_reference_overlay(self, qapp):
-        view = _view()
-        overlay, _result, _window = _reference_ict(view)
-        shapes, labels = _describe_reference_items(overlay)
-        rows = _lwc_shapes(view, "ict")
-
-        assert rows, "the fixture must produce ICT concepts"
-        shapes = [row for row in shapes if row["shape"] != "segment"
-                  or row.get("color") is not None]
-        assert len(rows) == len(shapes), (rows, shapes)
-        for row, reference in zip(rows, shapes):
-            assert row["shape"] == reference["shape"]
-            assert row["from"] == pytest.approx(reference["from"], abs=1e-6)
-            assert row["to"] == pytest.approx(reference["to"], abs=1e-6)
-            if row["shape"] in ("band", "region"):
-                assert row.get("alpha", 1.0) == pytest.approx(
-                    reference["alpha"])
-                assert row["color"] == reference["color"]
-                assert row["z"] == reference["z"]
-            elif row["shape"] == "segment":
-                assert row["price"] == pytest.approx(reference["price"])
-                assert row["color"] == reference["color"]
-                assert row["width"] == pytest.approx(reference["width"])
-                assert row["lineStyle"] == reference["style"]
-                assert row["z"] == reference["z"]
-            else:  # point
-                assert row["price"] == pytest.approx(reference["price"])
-                assert row["color"] == reference["color"]
-                assert row["size"] == pytest.approx(reference["size"])
-                assert row["direction"] == (
-                    "up" if reference["symbol"] == "t" else "down")
-                assert row["z"] == reference["z"]
-
-        # Segments that carry a reference label carry the same text.
-        lwc_labels = [row.get("label") for row in rows
-                      if row["shape"] == "segment" and row.get("label")]
-        assert lwc_labels == [label["text"] for label in labels]
-
-    def test_P6_T10_T11_event_markers_match_the_reference_overlay(self, qapp):
-        view = _view()
-        today = date.today()
-        events = [
-            EO_Event("ev-earn", "earnings", today - timedelta(days=1),
-                     {"estimate": 1.25, "reported": 1.31}),
-            EO_Event("ev-div", "dividend", today - timedelta(days=2),
-                     {"amount": 0.25}),
-            EO_Event("ev-split", "split", today + timedelta(days=3),
-                     {"ratio": "4:1"}),
-        ]
-        reference = EO.EventMarkerOverlay(_MarkerPlot())
-        reference.set_bars(list(view.plotted_bars))
-        reference.set_collapse_map(_axis(view)[2])
-        reference.set_events(events)
-        view.set_event_markers(events)
-
-        assert len(view.event_markers) == len(events)
-        for item in view.event_markers:
-            ref_item = reference._items[item["id"]]
-            style = EO.EVENT_STYLE[item["type"]]
-            spec = _run_node({"markerItems": [item]})["markerSpecs"][0]
-            assert spec["glyph"] == style["glyph"]
-            assert spec["color"] == style["color"]
-            assert spec["label"] == style["label"]
-            assert spec["z"] == ref_item.zValue() == 10
-            assert spec["anchor"] == [0.5, 1.0]
-            assert _display_of_frac(view, item["x"]) == pytest.approx(
-                float(ref_item.pos().x()), abs=1e-6)
-            assert float(ref_item.pos().y()) == pytest.approx(100.0)
-            assert spec["tooltip"] == ref_item.toolTip()
-
-        # Countdown: the next upcoming event, in the reference wording.
-        assert reference.countdown_text() == "Split in 3d"
-        decoded = _run_node({"countdownState": view.countdown})
-        assert decoded["countdownText"] == reference.countdown_text()
-        assert decoded["countdownColor"] == EO.EVENT_STYLE["split"]["color"]
 
     def test_P6_T10_T11_markers_diff_by_id_and_future_sits_past_last(self,
                                                                     qapp):
@@ -849,21 +606,6 @@ class TestRendererBoundary:
         assert not {name for name in names
                     if name in forbidden or name.startswith("ibkr.")}
 
-    def test_P6_T10_T12_overlays_services_and_provider_are_untouched(self):
-        tokens = ("set_overlay", "set_event_markers", "overlayOpsEmitted",
-                  "markerOpsEmitted", "LwcChartView", "overlays.js", "lwc")
-        for rel in ("ui/overlays/session_overlay.py",
-                    "ui/overlays/gap_overlay.py",
-                    "ui/overlays/vix_overlay.py",
-                    "ui/overlays/ict_overlay.py",
-                    "ui/event_marker_overlay.py",
-                    "services/session_service.py",
-                    "services/gap_vix_service.py",
-                    "services/ict_service.py",
-                    "data/events/provider.py"):
-            src = (REPO / rel).read_text(encoding="utf-8")
-            hits = [token for token in tokens if token in src]
-            assert hits == [], f"{rel} picked up LWC vocabulary: {hits}"
 
     def test_P6_T10_T12_ops_carry_no_timestamp_and_no_formatted_string(self,
                                                                        qapp):

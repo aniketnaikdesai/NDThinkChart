@@ -27,9 +27,8 @@ from pathlib import Path
 import pytest
 
 from data.models import Alarm
-from ui import alarm_overlay as AO
 from ui import lwc_view as LV
-from ui.chart_panel import ALARM_PREVIEW_COLOR
+from ui.lwc_view import ALARM_PREVIEW_COLOR
 from ui.chart_mouse_router import RouterMode
 
 REPO = Path(__file__).resolve().parent.parent
@@ -95,27 +94,6 @@ class _FakePlot:
             self.items.remove(item)
 
 
-def _reference_items(alarms):
-    """What ``AlarmOverlay`` actually draws, keyed by alarm id."""
-    overlay = AO.AlarmOverlay(_FakePlot())
-    overlay.set_data(alarms)
-    expected = [alarm.id for alarm in alarms if alarm.id is not None
-                and getattr(alarm, "kind", "price") == "price"]
-    assert sorted(overlay._items) == expected
-    out = {}
-    for alarm_id, (line, label) in overlay._items.items():
-        text_item = getattr(label, "textItem", label)
-        out[alarm_id] = {
-            "price": float(line.value()),
-            "color": line.pen.color().name(),
-            "pen_width": float(line.pen.widthF()),
-            "text": text_item.toPlainText(),
-            "label_price": float(label.pos().y()),
-            "label_x": float(label.pos().x()),
-            "line_z": float(line.zValue()),
-            "label_z": float(label.zValue()),
-        }
-    return out
 
 
 # ── JS harness ───────────────────────────────────────────────────────────────
@@ -222,70 +200,7 @@ def _alarm_envelopes(view):
 
 
 class TestAlarmParity:
-    def test_P6_T08_T11_constants_match_the_reference_overlay(self):
-        assert LV.ALARM_TRIGGERED_COLOR == AO.TRIGGERED_COLOR
-        assert LV.ALARM_ARMED_COLOR == AO.ARMED_COLOR
-        assert LV.ALARM_MUTED_COLOR == AO.MUTED_COLOR
-        assert LV.ALARM_INACTIVE_COLOR == AO.INACTIVE_COLOR
-        assert LV.ALARM_DIRECTION_GLYPH == AO.DIRECTION_GLYPH
-        assert LV.ALARM_PREVIEW_COLOR == ALARM_PREVIEW_COLOR
-        assert (LV.ALARM_LINE_WIDTH, LV.ALARM_LINE_Z, LV.ALARM_LABEL_Z,
-                LV.ALARM_PREVIEW_Z) == (1.4, 6, 7, 5)
 
-        decoded = _run_node({"alarms": [_wire(alarm) for alarm in _alarms()]})
-        assert decoded["colors"] == {
-            "triggered": AO.TRIGGERED_COLOR,
-            "armed": AO.ARMED_COLOR,
-            "muted": AO.MUTED_COLOR,
-            "inactive": AO.INACTIVE_COLOR,
-        }
-        assert decoded["previewColor"] == ALARM_PREVIEW_COLOR
-        assert decoded["lineWidth"] == LV.ALARM_LINE_WIDTH
-        assert decoded["z"] == {
-            "line": LV.ALARM_LINE_Z, "label": LV.ALARM_LABEL_Z,
-            "preview": LV.ALARM_PREVIEW_Z,
-        }
-        assert decoded["labelAnchor"] == "right"
-
-    def test_P6_T08_T11_color_and_label_match_all_five_states(self, qapp):
-        alarms = _state_alarms()
-        reference = _reference_items(alarms)
-        colors = {alarm.id: LV.alarm_color(alarm) for alarm in alarms}
-        labels = {alarm.id: LV.alarm_label(alarm) for alarm in alarms}
-
-        # The Python mirror agrees with the shipped overlay's own functions.
-        for alarm in alarms:
-            assert LV.alarm_color(alarm) == AO.AlarmOverlay._color_for(None, alarm)
-            assert LV.alarm_label(alarm) == AO.AlarmOverlay._label_text(None, alarm)
-
-        decoded = _run_node({"alarms": [_wire(alarm) for alarm in alarms]})
-        specs = {spec["id"]: spec for spec in decoded["specs"]}
-        assert list(specs) == [alarm.id for alarm in alarms]
-        assert set(colors.values()) == {
-            AO.ARMED_COLOR, AO.TRIGGERED_COLOR, AO.MUTED_COLOR,
-            AO.INACTIVE_COLOR,
-        }
-        for alarm in alarms:
-            spec = specs[alarm.id]
-            ref = reference[alarm.id]
-            assert spec["color"] == ref["color"] == colors[alarm.id]
-            assert spec["title"] == ref["text"] == labels[alarm.id]
-            assert spec["price"] == ref["price"] == alarm.price
-            assert spec["price"] == ref["label_price"]
-            assert spec["width"] == ref["pen_width"] == 1.4
-            assert spec["z"] == ref["line_z"] == 6
-            assert spec["labelZ"] == ref["label_z"] == 7
-            assert spec["labelAnchor"] == "right"
-
-        # Re-armed looks exactly like armed: no (hit) suffix, amber again.
-        armed = specs[1]
-        rearmed = specs[3]
-        assert rearmed["color"] == armed["color"] == AO.ARMED_COLOR
-        assert "(hit)" not in rearmed["title"]
-        assert rearmed["title"].endswith("103.0000 \u00b7 trim half")
-        assert specs[2]["title"].endswith("(hit)")
-        assert specs[4]["title"].endswith("(muted)")
-        assert specs[5]["title"].endswith("(off)")
 
     def test_P6_T08_T11_only_price_alarms_with_ids_draw(self, qapp):
         view = _view()
@@ -295,37 +210,6 @@ class TestAlarmParity:
         assert None not in cols["id"], "an unsaved alarm has no line yet"
         assert [alarm.id for alarm in view.alarms] == [1, 2, 3, 4, 5]
 
-    def test_P6_T08_T11_engine_lines_match_the_reference_items(self, qapp):
-        view = _view()
-        reference = _reference_items(_alarms())
-        envelopes = _alarm_envelopes(view)
-        decoded = _run_node({"envelope": envelopes[0], "envelopes": envelopes,
-                             "selftest": True})
-
-        assert decoded["check"]["ok"] is True, decoded["check"]
-        assert all(result["error"] is None for result in decoded["results"])
-        assert decoded["results"][0]["applied"] == 1
-        assert decoded["openLines"] == 5
-
-        lines = decoded["snapshot"]["lines"]
-        assert [line["id"] for line in lines] == [1, 2, 3, 4, 5]
-        for line in lines:
-            ref = reference[line["id"]]
-            assert line["color"] == ref["color"]
-            assert line["title"] == ref["text"]
-            assert line["price"] == ref["price"]
-
-        # The library call carries the same values. LWC price lines accept an
-        # integer width only (1..4): the reference 1.4 crosses unchanged in
-        # the spec and the call takes the nearest supported width.
-        assert len(decoded["created"]) == 5
-        for opts, line in zip(decoded["created"], lines):
-            assert opts["price"] == line["price"]
-            assert opts["color"] == line["color"]
-            assert opts["title"] == line["title"]
-            assert opts["axisLabelVisible"] is True
-            assert opts["lineWidth"] == 1  # nearest integer to 1.4
-            assert opts["lineStyle"] == 0  # solid, as the default pen
 
     def test_P6_T08_T11_replay_is_idempotent_and_empty_clears(self, qapp):
         view = _view()
@@ -512,14 +396,6 @@ class TestRendererBoundary:
         assert not {name for name in names
                     if name in forbidden or name.startswith("ibkr.")}
 
-    def test_P6_T08_T12_stores_overlays_and_dialogs_are_untouched(self):
-        tokens = ("set_alarm_lines", "alarmOpsEmitted", "alarms.js",
-                  "LwcChartView", "LWC", "lwc")
-        for rel in ("data/alarm_store.py", "ui/alarm_overlay.py",
-                    "ui/chart_panel.py"):
-            src = (REPO / rel).read_text(encoding="utf-8")
-            hits = [token for token in tokens if token in src]
-            assert hits == [], f"{rel} picked up LWC vocabulary: {hits}"
 
     def test_P6_T08_T12_alarm_ops_carry_prices_and_state_only(self, qapp):
         view = _view()

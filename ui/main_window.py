@@ -42,7 +42,7 @@ from ibkr.subscription_manager import (
 )
 from ibkr.stream_health import StreamHealth, StreamState
 from ui.chart_view import create_chart_view
-from ui.candlestick_item import ChartMode
+from services.chart_model import ChartMode
 from ui.watchlist_panel import (
     WatchlistPanel,
     WATCHLIST_MIN_WIDTH,
@@ -2237,11 +2237,9 @@ class MainWindow(QMainWindow):
             "Area": ChartMode.AREA,
         }
         mode = mode_by_label.get(label, ChartMode.CANDLES)
-        if getattr(self.chart_panel, "set_chart_mode", None) is not None:
-            self.chart_panel.set_chart_mode(mode)
-        else:
-            # LWC names modes with the shared lower-case strings.
-            self._chart_call("set_mode", getattr(mode, "value", str(mode)))
+        # The LWC engine names modes with the shared lower-case strings; the
+        # ChartMode enum stays the single mode vocabulary.
+        self._chart_call("set_mode", getattr(mode, "value", str(mode)))
 
     def _open_studies_dialog(self):
         dialog = StudiesDialog(self._current_studies, self)

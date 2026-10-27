@@ -1,14 +1,15 @@
-"""D28.6 T-4 — drawing store→overlay round-trip per kind.
+"""D28.6 T-4 — drawing store→view round-trip per kind.
 
 One drawing of each kind (trendline, horizontal, zone, fibonacci,
 measure) goes through DrawingStore.create_drawing → drawings_for_symbol
-→ overlay.set_data; the payload must survive the store byte-for-byte
-and the overlay must build items for every kind.
+→ the engine-neutral drawing surface (``drawing_overlay.set_data``); the
+payload must survive the store byte-for-byte and the surface must publish a
+primitive for every kind.
 """
 import pytest
 
 from data.drawing_store import DrawingStore
-from data.models import Drawing
+from data.models import Bar, Drawing
 
 SYMBOL = "T4DRAW"
 TS1, TS2 = 1_760_000_000, 1_760_000_300
@@ -24,14 +25,28 @@ PAYLOADS = {
 
 
 @pytest.fixture()
-def overlay(chart_panel, sample_bars):
-    chart_panel.update_chart(sample_bars)
-    ov = chart_panel.drawing_overlay
-    ov.set_symbol(SYMBOL)
+def view(qapp):
+    """An LWC view whose axis spans both drawing anchors."""
+    from ui.lwc_view import LwcChartView
+
+    v = LwcChartView()
+    v.set_symbol(SYMBOL)
+    v.set_timeframe("5 mins")
+    v.update_bars([
+        Bar(SYMBOL, "5 mins", TS1 + i * 300, 100.0, 101.0, 99.0, 100.0, 1000.0)
+        for i in range(3)
+    ])
+    return v
+
+
+@pytest.fixture()
+def overlay(view):
+    ov = view.drawing_overlay
+    ov.set_data(SYMBOL, [], [])
     return ov
 
 
-def test_store_overlay_round_trip_per_kind(overlay):
+def test_store_overlay_round_trip_per_kind(view, overlay):
     ids = []
     try:
         for kind, payload in PAYLOADS.items():
@@ -49,10 +64,10 @@ def test_store_overlay_round_trip_per_kind(overlay):
                 f"{kind}: payload did not survive the store round-trip")
 
         overlay.set_data(SYMBOL, stored, [])
-        assert len(overlay._drawings) == len(PAYLOADS)
-        for kind, drawing in by_kind.items():
-            items = overlay._items.get(drawing.id)
-            assert items, f"{kind}: overlay built no items"
+        assert len(overlay.drawings) == len(PAYLOADS)
+        published = {item["kind"] for item in view.drawing_items}
+        assert published == set(PAYLOADS), (
+            f"kinds without a published primitive: {set(PAYLOADS) - published}")
     finally:
         if ids:
             DrawingStore.delete_drawings(ids)

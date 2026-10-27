@@ -165,7 +165,7 @@ from services.session_service import session_bands
 from services.time_collapse_service import gap_is_non_trading
 from ui import lwc_bridge as LB
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
-from ui.drawing_overlay import TOOL_CURSOR
+from ui.drawing_tools import TOOL_CURSOR
 
 #: The five render modes, mirroring the default engine's ``ChartMode``.
 MODES = ("candles", "hollow", "heikin", "line", "area")

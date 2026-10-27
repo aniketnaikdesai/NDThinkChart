@@ -218,3 +218,13 @@
 **Category:** Technical Note
 **Finding:** A fix is not "done" until the real application has been exercised and the user-facing result inspected. Root-cause analysis + code change + a green unit test has twice been reported as fixed while the app still misbehaved: the LWC chart stayed black after a `HAS_WEBENGINE` probe said the host was fine (the probe never rendered), and the priming loop was "fixed" from a test that never launched the app. For renderer changes, render the real widget and check the pixels/image; for data-path changes, run the app against live TWS and read the status line. Unit tests are the floor, not the proof.
 **Source:** Owner directive 2026-10-26; D47 Q-12/Q-13
+
+### [2026-10-27] — debugging rule (owner directive)
+**Category:** Technical Note
+**Finding:** Root-cause analysis is the Orchestrator's own work, not a subagent's. A subagent may implement a fix whose cause is already proven, or run a scoped repair, but the *determination of what is wrong* must be reproduced first-hand — in the running app where possible, or with a probe that prints the actual state, never by relaying a worker's explanation. Twice in D47 a worker's diagnosis was accepted as fact and the "fix" treated the wrong thing (the black-chart round: three separate causes, only one found at a time; and the axis regression where a bar count passed while the dates read 1970).
+**Source:** Owner directive 2026-10-27; D47 Q-19..Q-21
+
+### [2026-10-27] — authority over validation method (owner directive)
+**Category:** Technical Note
+**Finding:** The owner names the validation method and it is binding. Perform it exactly as asked; if it is blocked, or a different check seems better, ask permission **before** reporting — never substitute. The Orchestrator is not the decision-maker on how something is verified: a probe, a green test or a fixture is not an acceptable stand-in for the validation that was requested. Additional checks are welcome after the requested one, not instead of it.
+**Source:** Owner directive 2026-10-27 ("you are not any decision maker")

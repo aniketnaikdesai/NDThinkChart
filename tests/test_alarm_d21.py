@@ -6,7 +6,7 @@ no live TWS).
 """
 
 import pytest
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QPushButton
 
 from data.alarm_store import AlarmStore
@@ -142,10 +142,10 @@ def test_d21_12_t03_save_persists_and_cancel_discards(dialog, qapp):
     assert loaded[0].note == "edited"
 
 
-def test_d21_12_t04_triggered_alarm_state_preserved_and_overlay_updated(
-    dialog, qapp, chart_panel, sample_bars
+def test_d21_12_t04_triggered_alarm_state_preserved_and_wire_op_updated(
+    dialog, qapp
 ):
-    alarm = add_alarm(price=100.0, note="orig", triggered=True)
+    add_alarm(price=100.0, note="orig", triggered=True)
     before = AlarmStore.load("TEST")[0]
     assert before.triggered is True
     assert before.triggered_at is not None
@@ -166,13 +166,19 @@ def test_d21_12_t04_triggered_alarm_state_preserved_and_overlay_updated(
     assert after.active is True
     assert after.triggered_at == triggered_at
 
-    # The overlay/badge reflects the edited price once reloaded from the store.
-    chart_panel.update_chart(sample_bars)
-    overlay = chart_panel.alarm_overlay
-    overlay.set_data(AlarmStore.load("TEST"))
-    line, label = overlay._items[alarm.id]
-    assert line.value() == pytest.approx(150.25, abs=1e-4)
-    assert "150.2500" in label.textItem.toPlainText()
+    # The rendered alarm set reflects the edited price once reloaded from the
+    # store, and crosses to the LWC engine as one replace-all ``set_alarms`` op.
+    from ui.lwc_view import LwcChartView
+
+    view = LwcChartView(tz_offset=14400, editable=True)
+    view.set_alarms(AlarmStore.load("TEST"))
+    op = view.alarm_ops[-1]
+    assert op["op"] == "set_alarms"
+    cols = op["cols"]
+    assert cols["price"] == [pytest.approx(150.25, abs=1e-4)]
+    # Editing a triggered alarm must not re-arm it on the wire either.
+    assert cols["triggered"] == [True]
+    assert cols["active"] == [True]
 
 
 # ── D21.10 / D21-13 — smart alarm setup: clicked price, yellow dashed preview,
@@ -216,7 +222,7 @@ def test_d21_13_t01_click_price_prefills_popup(monkeypatch, qapp):
 
 
 def test_d21_13_t02_preview_line_visible_while_open(monkeypatch, qapp):
-    """D21-13-T02 / AC-D21.10.2: yellow dashed preview at the clicked level."""
+    """D21-13-T02 / AC-D21.10.2: the preview sits at the clicked level."""
     win = _make_window(monkeypatch, qapp)
     try:
         win._current_symbol = "TEST"
@@ -224,28 +230,18 @@ def test_d21_13_t02_preview_line_visible_while_open(monkeypatch, qapp):
         captured = {}
 
         def fake_exec(self):
-            line = win.chart_panel.alarm_preview_line
-            captured["line"] = line
-            captured["value"] = line.value() if line is not None else None
-            captured["visible"] = line.isVisible() if line is not None else False
+            captured["price"] = win.chart_panel.alarm_preview_price
+            captured["op"] = win.chart_panel.alarm_ops[-1]
             return 0
 
         monkeypatch.setattr(AlarmDialog, "exec", fake_exec)
         win._on_alarm_create_requested(118.25)
         qapp.processEvents()
 
-        line = captured["line"]
-        assert line is not None, "no preview line while the popup was open"
-        assert captured["value"] == pytest.approx(118.25, abs=1e-4)
-        assert captured["visible"] is True, "preview line is not visible while open"
-
-        pen = line.pen
-        color = pen.color()
-        assert color.red() > 200 and color.green() > 200 and color.blue() < 100, (
-            f"preview line is not yellow: {color.name()}"
-        )
-        assert pen.style() == Qt.PenStyle.DashLine, "preview line is not dashed"
-        assert line.movable is False, "preview line must not be movable"
+        assert captured["price"] == pytest.approx(118.25, abs=1e-4)
+        # ... and the level crossed to the engine while the popup was open.
+        assert captured["op"] == {
+            "op": "set_alarm_preview", "series": "alarms", "price": 118.25}
     finally:
         win.close()
 
@@ -261,8 +257,7 @@ def test_d21_13_t03_preview_follows_price_live(monkeypatch, qapp):
         def fake_exec(self):
             self.price_input.setValue(130.75)
             qapp.processEvents()
-            line = win.chart_panel.alarm_preview_line
-            seen.append(line.value() if line is not None else None)
+            seen.append(win.chart_panel.alarm_preview_price)
             return 0
 
         monkeypatch.setattr(AlarmDialog, "exec", fake_exec)
@@ -288,10 +283,10 @@ def test_d21_13_t04_preview_removed_close_and_replaced_on_add(
         monkeypatch.setattr(AlarmDialog, "exec", lambda self: 0)
         win._on_alarm_create_requested(120.0)
         qapp.processEvents()
-        assert win.chart_panel.alarm_preview_line is None
-        assert win.chart_panel.alarm_overlay.alarm_count() == 0
+        assert win.chart_panel.alarm_preview_price is None
+        assert win.chart_panel.alarms == []
 
-        # Add -> preview removed and the real AlarmOverlay line replaces it.
+        # Add -> preview removed and the real alarm line replaces it.
         def fake_exec(self):
             self.price_input.setValue(120.0)
             self._add_alarm()
@@ -301,12 +296,12 @@ def test_d21_13_t04_preview_removed_close_and_replaced_on_add(
         win._on_alarm_create_requested(120.0)
         qapp.processEvents()
 
-        assert win.chart_panel.alarm_preview_line is None
+        assert win.chart_panel.alarm_preview_price is None
         alarms = AlarmStore.load("TEST")
         assert len(alarms) == 1
-        overlay = win.chart_panel.alarm_overlay
-        line, _label = overlay._items[alarms[0].id]
-        assert line.value() == pytest.approx(120.0, abs=1e-4)
+        op = win.chart_panel.alarm_ops[-1]
+        assert op["op"] == "set_alarms"
+        assert op["cols"]["price"] == [pytest.approx(120.0, abs=1e-4)]
     finally:
         win.close()
 
@@ -347,7 +342,7 @@ def test_d21_13_t06_alarms_button_path_has_no_preview(monkeypatch, qapp):
         captured = {}
 
         def fake_exec(self):
-            captured["preview"] = win.chart_panel.alarm_preview_line
+            captured["preview"] = win.chart_panel.alarm_preview_price
             return 0
 
         monkeypatch.setattr(AlarmDialog, "exec", fake_exec)
@@ -355,6 +350,6 @@ def test_d21_13_t06_alarms_button_path_has_no_preview(monkeypatch, qapp):
         qapp.processEvents()
 
         assert captured["preview"] is None
-        assert win.chart_panel.alarm_preview_line is None
+        assert win.chart_panel.alarm_preview_price is None
     finally:
         win.close()

@@ -33,6 +33,22 @@ from services.market_calendar import session_windows
 from services.time_collapse_service import TimeCollapseMap, build_collapse_map
 
 
+# ── Render modes ─────────────────────────────────────────────────────────────
+# Moved here from ``ui/candlestick_item`` when the pyqtgraph engine was
+# removed (P6-13): the mode vocabulary is Qt-free and shared by the LWC view,
+# MainWindow, pop-outs and the tests.
+
+from enum import Enum
+
+
+class ChartMode(str, Enum):
+    CANDLES = "candles"
+    HOLLOW = "hollow"
+    HEIKIN = "heikin"
+    LINE = "line"
+    AREA = "area"
+
+
 # ── Plotted-index filtering (from ChartPanel._compute_plotted_indices /
 #    ChartPanel._new_bar_is_plotted) ───────────────────────────────────────────
 

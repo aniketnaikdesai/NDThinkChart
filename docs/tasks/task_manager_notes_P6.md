@@ -43,15 +43,31 @@ because the chain serializes them; no two tasks in the same wave exist.
   collision-fixture harness per task. If the worker reports step pressure, the
   Orchestrator may finish in place (D41 precedent) — never silently drop a kind.
 
-## P6-T13 DISPATCH GATE (S59 / AC-D47.8)
+- **P6-T13 (plan S → size L):** whole-engine removal is one atomic invariant. Deleting
+  the renderer without retiring its 34 engine-specific and 30 oracle-comparison cases
+  leaves a red tree, and retiring the suites first leaves a green tree still carrying the
+  engine — neither half has a passing end-state, so it cannot be split. Sized to ~32.
 
-Do NOT dispatch P6-T13 until BOTH artifacts exist on record:
-(1) explicit owner approval of pyqtgraph deletion, and
-(2) sign-off of one live trading session with no engine defect.
-Gated-closed, the worker MUST refuse before editing (AC1 — refusal is green).
-Phase 11 never rides along with cutover. Proposed gate probes:
-`docs/lwc_removal_approval.md` + `docs/lwc_live_session_signoff.md`
-(the task's `test_command` asserts GATE-OPEN vs GATE-CLOSED).
+## P6-T13 DISPATCH GATE (S59 / AC-D47.8) — OPEN ON RECORD (amended 2026-10-26b)
+
+The gate requires explicit owner approval AND one clean live trading session. Both are
+now resolved **on record in `docs/build/gate_P6_T13.md`**:
+
+1. **Owner approval — SATISFIED** (2026-10-27: "ok delete pyqtgraph" / "delete").
+2. **Live-session sign-off — WAIVED, NOT SATISFIED.** No live session was run; the
+   owner waived the condition knowingly. Never write "gate satisfied" in any artifact.
+3. **Oracle decision — RETIRE (§3).** The 30 keep/retarget cases take their expected
+   value from the old pyqtgraph implementation, so deleting the engine deletes the
+   oracle. The comparison suites go with the engine — no golden fixtures, no
+   re-derivation from the specification.
+
+P6-T13 therefore no longer refuses: AC1 verifies the three records (refusing only if one
+is absent) and proceeds, calling the gate owner-waived. AC2 carries the oracle-retirement
+step — retire each keep/retarget suite's comparison cases (or the whole file where it
+exists only to compare), keep LWC-only cases that stand alone, and record every retired
+suite plus the coverage it took in the result's `retired_suites` ledger, folded into
+`docs/lwc_parity_matrix.md` so "19/19 open" doesn't imply protection that no longer exists.
+Silently weakening a case (skip / xfail / loosened assertion) instead of retiring it fails.
 
 ## AP-P6-3 classification — chart-adjacent test files (keep / retarget / engine-specific)
 

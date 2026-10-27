@@ -40,7 +40,7 @@ import pytest
 from ui import lwc_view as LV
 from ui.chart_controls import ChartControls
 from ui.chart_mouse_router import ChartMouseRouter
-from ui.drawing_overlay import DRAWING_TOOLS, TOOL_CURSOR
+from ui.drawing_tools import DRAWING_TOOLS, TOOL_CURSOR
 
 ROOT = Path(__file__).resolve().parents[1]
 INTERACTION_JS = ROOT / "chart_assets" / "lwc" / "interaction.js"

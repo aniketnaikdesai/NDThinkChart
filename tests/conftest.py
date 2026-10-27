@@ -102,14 +102,6 @@ def qapp():
     yield app
 
 
-@pytest.fixture
-def chart_panel(qapp):
-    from ui.chart_panel import ChartPanel
-
-    panel = ChartPanel()
-    yield panel
-    panel.close()
-
 @pytest.fixture(autouse=True)
 def _isolate_test_db():
     """Hermetic DB: no test sees another test's rows (D28.6).

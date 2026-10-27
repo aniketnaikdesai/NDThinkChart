@@ -35,6 +35,7 @@ from data.bar_cache import BarCache
 from data.models import Bar
 from ibkr.market_data import TIMEFRAME_CONFIG
 from services.backfill_service import find_missing_spans, plan_requests
+from services import chart_model
 from services.market_calendar import is_trading_day
 
 EASTERN = ZoneInfo("America/New_York")
@@ -325,32 +326,26 @@ def test_t40_t02_both_panels_span_backfilled_timestamps(monkeypatch, qapp):
         _drive_calls(win, tf, stub, expected, _AC_NOW)
 
         panel = win.chart_panel
-        bars = panel._bars
-        # D28.4: candles render across the static + live layers.
-        candle_ts = ([c[0] for c in panel.candlestick._raw_data]
-                     + [c[0] for c in panel.live_candle._raw_data])
-        vol_x = ([int(v) for v in panel.volume_bars.opts["x"]]
-                 + [int(v) for v in panel.live_volume.opts["x"]])
-        vol_h = ([float(v) for v in panel.volume_bars.opts["height"]]
-                 + [float(v) for v in panel.live_volume.opts["height"]])
+        # Q-20: the LWC series carries real UTC times, one entry per plotted
+        # row, and the volume heights come from the shared chart model.
+        plotted = panel.plotted_bars
+        series_ts = panel.series_times
+        vol_x, vol_h, _vol_colors = chart_model.volume_display_columns(
+            plotted, None)
 
-        # Both panels are driven by the same continuous bar list. The rendered
-        # x-model is display-x after the D21.4 collapse, so compare through the
-        # panel's map rather than the raw Bar.ts.
-        expected_x = [panel._to_display(b.ts) for b in bars]
-        assert candle_ts == expected_x
-        assert vol_x == [int(x) for x in expected_x]
-        assert len(vol_h) == len(candle_ts)
+        assert series_ts == [int(b.ts) for b in plotted]
+        assert [int(x) for x in vol_x] == series_ts
+        assert len(vol_h) == len(series_ts)
 
-        # Both span the backfilled timestamps (at their display-x positions).
-        span_x = [panel._to_display(b.ts) for b in expected]
-        assert set(span_x) <= set(candle_ts)
-        assert set(span_x) <= set(vol_x)
+        # Both span the backfilled timestamps.
+        span_ts = [int(b.ts) for b in expected]
+        assert set(span_ts) <= set(series_ts)
+        assert set(span_ts) <= {int(x) for x in vol_x}
 
-        # Non-zero height wherever a candle exists in the backfilled span.
-        index = {x: i for i, x in enumerate(candle_ts)}
-        for x in span_x:
-            assert vol_h[index[x]] > 0, x
+        # Non-zero height wherever a bar exists in the backfilled span.
+        index = {int(x): i for i, x in enumerate(vol_x)}
+        for ts in span_ts:
+            assert vol_h[index[ts]] > 0, ts
         assert all(h > 0 for h in vol_h)
     finally:
         win.close()
@@ -399,22 +394,20 @@ def test_t40_t03_closures_stay_empty_and_axis_uncompressed(monkeypatch, qapp):
             assert d.isoformat() not in msg, (
                 f"a genuine closure ({d}) must not be reported as a shortfall")
 
-        # The axis is timestamp-based and not compressed: x == the real ts list
-        # and the pre/post-closure gap spans the true weekend + holiday.
+        # The axis is timestamp-based and not compressed: the series times are
+        # the real UTC ts list and the pre/post-closure gap spans the true
+        # weekend + holiday.
         panel = win.chart_panel
-        # D28.4: candles render across the static + live layers.
-        candle_ts = ([c[0] for c in panel.candlestick._raw_data]
-                     + [c[0] for c in panel.live_candle._raw_data])
-        vol_x = ([int(v) for v in panel.volume_bars.opts["x"]]
-                 + [int(v) for v in panel.live_volume.opts["x"]])
-        assert vol_x == candle_ts
+        series_ts = panel.series_times
+        vol_x, _vol_h, _vol_colors = chart_model.volume_display_columns(
+            panel.plotted_bars, None)
+        assert [int(x) for x in vol_x] == series_ts
 
         last_pre = max(b.ts for b in bars if _et_date(b.ts) == date(2026, 9, 4))
         first_post = min(b.ts for b in bars if _et_date(b.ts) == date(2026, 9, 8))
         assert first_post - last_pre > 3 * 86_400  # 09-04 12:00 -> 09-08 04:00
 
-        x_range = panel.price_plot.getViewBox().viewRange()[0]
-        assert x_range[1] - x_range[0] >= max(candle_ts) - min(candle_ts)
+        assert max(series_ts) - min(series_ts) > 3 * 86_400
     finally:
         win.close()
 
@@ -624,18 +617,14 @@ def test_t40_t06_empty_cache_fallback_renders(monkeypatch, qapp):
         assert [b.ts for b in bars] == sorted(b.ts for b in expected)
         assert all(b.symbol == symbol for b in bars)
 
-        # Rendered without error: both panels carry the returned bars, at their
-        # D21.4 display-x positions (the x-model is display-x after collapse).
-        # D28.4: candles render across the static + live layers.
-        candle_ts = ([c[0] for c in win.chart_panel.candlestick._raw_data]
-                     + [c[0] for c in win.chart_panel.live_candle._raw_data])
-        vol_x = ([int(v) for v in win.chart_panel.volume_bars.opts["x"]]
-                 + [int(v) for v in win.chart_panel.live_volume.opts["x"]])
-        expected_x = [
-            win.chart_panel._to_display(ts) for ts in sorted(b.ts for b in expected)
-        ]
-        assert candle_ts == expected_x
-        assert vol_x == candle_ts
+        # Rendered without error: the view carries the returned bars as real
+        # UTC series times, with the volume heights from the shared model.
+        panel = win.chart_panel
+        series_ts = panel.series_times
+        vol_x, _vol_h, _vol_colors = chart_model.volume_display_columns(
+            panel.plotted_bars, None)
+        assert series_ts == sorted(int(b.ts) for b in expected)
+        assert [int(x) for x in vol_x] == series_ts
         assert "error" not in win.status_bar.currentMessage().lower()
     finally:
         win.close()

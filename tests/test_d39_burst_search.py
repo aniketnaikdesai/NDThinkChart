@@ -597,20 +597,19 @@ def test_alarm_dialog_burst_on_index_sets_proxy(qapp):
 
 # ── Chart overlay ignores burst alarms (no bogus line at zero) ───────────
 
-def test_alarm_overlay_skips_burst_alarms(qapp):
-    from ui.alarm_overlay import AlarmOverlay
-    from ui.chart_panel import ChartPanel
-    panel = ChartPanel()
-    try:
-        overlay = AlarmOverlay(panel.price_plot)
-        price_alarm = Alarm(id=1, symbol="AAPL", price=100.0,
-                            direction="cross_above")
-        burst = _burst_alarm("AAPL")
-        burst.id = 2
-        overlay.set_data([price_alarm, burst])
-        assert overlay.alarm_count() == 1  # only the price alarm draws
-    finally:
-        panel.close()
+def test_alarm_channel_skips_burst_alarms(qapp):
+    from ui import lwc_view as LV
+
+    price_alarm = Alarm(id=1, symbol="AAPL", price=100.0,
+                        direction="cross_above")
+    burst = _burst_alarm("AAPL")
+    burst.id = 2
+    # The alarm channel mirrors the reference overlay's D39 filter: only
+    # `kind == "price"` alarms draw, so a burst alarm adds no bogus line at 0.
+    assert LV.alarm_visible(price_alarm) is True
+    assert LV.alarm_visible(burst) is False
+    op = LV.alarm_op([price_alarm, burst])
+    assert op["cols"]["id"] == [1]
 
 
 # ── Owner rule: no mock endpoint of any kind in production code ──────────

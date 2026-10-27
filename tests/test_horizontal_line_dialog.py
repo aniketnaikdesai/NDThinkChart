@@ -1,5 +1,4 @@
 import pytest
-import pyqtgraph as pg
 from PyQt6.QtWidgets import QPushButton
 from data.models import Drawing
 from ui.horizontal_line_settings_dialog import HorizontalLineSettingsDialog

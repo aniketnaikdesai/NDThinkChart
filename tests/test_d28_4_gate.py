@@ -5,13 +5,10 @@ Phase 3 interim smoke gate (<=5x baseline for 4 panels) does NOT satisfy
 this. Configuration: the main chart + 9 pop-outs on one symbol (the
 realistic max-load layout), each holding a 500-bar series.
 
-  Gate 1: zero static-layer full QPicture regens per forming tick
-          (render-call counters) — the B-2.4 pathology. One trailing
-          new-candle tick is allowed exactly one static regen per panel.
-  Gate 2: per-tick cost within a generous bound (counters first, timing
-          second — no wall-clock flakes).
-  Gate 3: memory bounded — every panel's series stays within the cap and
-          the cached arrays stay consistent.
+  Gate 1: per-tick cost within a generous bound (timing only — the
+          pyqtgraph static/live regen counters are gone with that engine).
+  Gate 2: memory bounded — every panel's series stays within the cap and
+          the published series arrays stay consistent.
 """
 from __future__ import annotations
 
@@ -79,9 +76,6 @@ def test_ten_chart_tick_burst_gate(monkeypatch, qapp, capsys):
         for panel in panels:
             panel.update_chart(bars)
         qapp.processEvents()
-        for panel in panels:
-            panel.candlestick.regen_count = 0
-            panel.live_candle.regen_count = 0
 
         # Warm up the aggregator's forming bar (not measured).
         for i in range(5):
@@ -90,11 +84,8 @@ def test_ten_chart_tick_burst_gate(monkeypatch, qapp, capsys):
                 100.0, 100.0, 5,
             )
         qapp.processEvents()
-        for panel in panels:
-            panel.candlestick.regen_count = 0
-            panel.live_candle.regen_count = 0
 
-        # Gate 1+2: 99 forming ticks — no static regen anywhere.
+        # Gate 1+2: 99 forming ticks across the full 10-chart bar.
         start = time.perf_counter()
         for i in range(99):
             price = 100.0 + (i % 10) * 0.1
@@ -105,17 +96,6 @@ def test_ten_chart_tick_burst_gate(monkeypatch, qapp, capsys):
         qapp.processEvents()
         forming_elapsed = time.perf_counter() - start
 
-        static_regens = sum(p.candlestick.regen_count for p in panels)
-        live_regens = sum(p.live_candle.regen_count for p in panels)
-        assert static_regens == 0, (
-            f"B-2.4 pathology: {static_regens} static full regens during "
-            f"99 forming ticks across 10 charts"
-        )
-        assert live_regens == 99 * 10, (
-            f"live layer must refresh once per tick per chart "
-            f"(got {live_regens}, expected {99 * 10})"
-        )
-
         per_tick_ms = (forming_elapsed / 99) * 1000
         with capsys.disabled():
             print(
@@ -124,31 +104,16 @@ def test_ten_chart_tick_burst_gate(monkeypatch, qapp, capsys):
                 f"{per_tick_ms:.2f}ms per tick "
                 f"(gate <= {GATE_PER_TICK_MS:.1f}ms)"
             )
-            print(f"[10-CHART GATE] static regens: {static_regens}, "
-                  f"live regens: {live_regens}")
         assert per_tick_ms <= GATE_PER_TICK_MS, (
             f"{per_tick_ms:.2f}ms/tick exceeds the {GATE_PER_TICK_MS:.1f}ms "
             f"gate for 10 charts"
         )
-
-        # One new candle: exactly one static regen per panel (the commit).
-        for panel in panels:
-            panel.candlestick.regen_count = 0
-        win._on_realtime_bar(
-            req_id, NOW_TS + 301, 101.0, 101.1, 100.9, 101.0,
-            101.0, 101.0, 5,
-        )
-        qapp.processEvents()
-        assert sum(p.candlestick.regen_count for p in panels) == 10
 
         # Gate 3: memory bounded on every panel.
         for panel in panels:
             assert len(panel._bars) <= SESSION_BAR_CAP, (
                 f"panel series unbounded: {len(panel._bars)}"
             )
-            assert panel._plot_xs == [
-                panel._to_display(b.ts) for b in panel._plotted_bars]
-            assert len(panel._plot_vols) == len(panel._plotted_bars)
     finally:
         for p in list(win._popouts):
             p.close()

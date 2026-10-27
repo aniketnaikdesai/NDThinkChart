@@ -4,7 +4,8 @@
     "batch": "D47 (Batch 22)",
     "baseline": "post-P5/D46 tree (order code deleted; suite green; 0 open escalations)",
     "generated": "2026-10-26",
-    "revision": "2026-10-26a \u2014 fresh_graph for D47 (Batch 22), phase P6. Thirteen tasks P6-T01..P6-T13, one per approved wave of docs/plan.md \u00a7 Phase P6 (Status: READY_FOR_TASK_MANAGER; docs/plan_review_P6.md APPROVED). This file REPLACES the delivered P5/D46 graph (11 tasks, all done). Chain is strictly sequential P6-T01\u2192P6-T13 exactly as the plan prescribes; shared files across sequential waves: services/chart_model.py (T03+T05..T10 reads), ui/lwc_view.py (T05..T11), chart_assets/lwc/* globs, docs/lwc_parity_matrix.md (every wave exit). P6-T13 carries a dispatch gate (explicit owner approval + one clean live session) and must refuse while gated-closed."
+    "revision": "2026-10-26b - P6-T13 amended: gate re-scoped to the two owner decisions on record (deletion approved 2026-10-27; oracle RETIRE; live session WAIVED-not-satisfied), AC2 extended with oracle retirement and the retired-coverage ledger; task returned to not_started.",
+    "notes": "See docs/tasks/task_manager_notes_P6.md: wave map, dependency edges, XL sizing exceptions (T05/T07/T09), the P6-T13 gate as re-scoped 2026-10-26b (owner approval + oracle retirement; live session waived-not-satisfied), the AP-P6-3 keep/retarget/engine-specific classification, and deviations."
   },
   "status": "READY_FOR_BUILD",
   "notes": "See docs/tasks/task_manager_notes_P6.md: wave map, dependency edges, XL sizing exceptions (T05/T07/T09), the P6-T13 gate, the AP-P6-3 keep/retarget/engine-specific classification, and deviations (new-file paths chosen by Task Manager within approved waves).",
@@ -1571,76 +1572,180 @@
     },
     {
       "id": "P6-T13",
-      "title": "P6-13 / Phase 11 pyqtgraph removal (S, SEPARATELY GATED) \u2014 executes ONLY on explicit owner approval AND one clean live trading session with no engine defect",
-      "description": "DISPATCH GATE \u2014 DO NOT DISPATCH THIS TASK until BOTH gate artifacts exist on record: (1) the explicit owner approval of pyqtgraph deletion, and (2) the sign-off of one live trading session with no engine defect (AC-D47.8/S59). If either is absent the worker MUST refuse before editing (AC1) and the task stays not_started. When gated open: delete the pyqtgraph-only render modules and engine-specific suites per the AP-P6-3 engine-specific list, keep every shared surface, and prove the LWC-only suite green with the residue scan clean.",
+      "title": "P6-13 / Phase 11 pyqtgraph removal - gate OPEN on record (deletion approved 2026-10-27, oracle retired, live session WAIVED) - delete engine + retire oracle suites",
+      "description": "GATE IS OPEN ON RECORD, NOT SATISFIED. docs/build/gate_P6_T13.md holds (1) explicit owner approval of pyqtgraph deletion (SATISFIED, 2026-10-27; owner said delete), (2) the live-session sign-off recorded as WAIVED, NOT SATISFIED - never describe the gate as satisfied - and (3) the oracle decision RETIRE (section 3). Read those three records, then execute the removal: delete the pyqtgraph-only modules and the AP-P6-3 engine-specific suites, keep every shared surface, and retire - do not freeze or re-derive - the keep/retarget comparison cases that use pyqtgraph as their expected-value source. For each such suite delete the comparison cases, or the whole file when it exists only to compare, and keep any LWC-only cases that stand on their own. Record every retired suite in the removal result retired_suites ledger as {file, cases_removed, coverage_lost} and fold that lost coverage into docs/lwc_parity_matrix.md, so the 19/19 open rows never imply protection the retired tests no longer provide. Weakening a case in place (skip, xfail, loosened assertion) instead of retiring it is a failure, not a pass.",
       "agent": "Build",
       "task_type": "removal",
       "dependencies": [
         "P6-T12"
       ],
       "acceptance_criteria": [
-        "AC1 \u2014 Given the Phase 11 gate (AC-D47.8/S59), When either the explicit owner approval record or the one-clean-live-session sign-off is absent, Then no file is created, modified or deleted (the worker refuses before editing; refusal is the passing outcome).",
-        "AC2 \u2014 Given both gate artifacts are on record, When the task is done, Then the pyqtgraph-only render modules and the engine-specific suites are deleted per the AP-P6-3 list, every shared surface (seam, model, stores, dialogs, backend) is intact, and the remaining suite is green with pyqtgraph unimportable."
+        "AC1 - Given docs/build/gate_P6_T13.md records the two owner decisions on file (deletion approved 2026-10-27; oracle RETIRED; live-session sign-off WAIVED, NOT SATISFIED), When P6-T13 is dispatched, Then the worker verifies all three records before editing and proceeds - AC1 no longer refuses - and both the removal result and any doc it writes call the gate owner-waived, never gate-satisfied. If any of the three records is absent, the worker refuses before editing (zero file changes) and the task stays not_started.",
+        "AC2 - Given the gate is open on those records, When the task is done, Then: (a) the pyqtgraph-only render modules (ui/chart_panel.py, ui/candlestick_item.py and the ui/overlays items) and the 34 AP-P6-3 engine-specific suites are deleted while every shared surface - the ui/chart_view.create_chart_view seam, services/chart_model.py, stores, dialogs, IBKR backend, watchlist, dock - stays intact and the seam still resolves (LWC-only); (b) every keep/retarget suite that uses pyqtgraph (ui.chart_panel or an old overlay/item) as its expected-value source has its comparison cases retired - deleted, or the whole file when it exists only to compare - with LWC-only cases kept, and no retired case is replaced by a skip, xfail or loosened assertion; (c) the removal result lists every retired suite with the coverage it took with it, and docs/lwc_parity_matrix.md records that retired coverage so the 19/19 open rows do not imply missing protection; (d) zero pyqtgraph imports remain in app, tests and packaging, requirements.txt and packaging/build.spec no longer name it, import ui.chart_panel raises ModuleNotFoundError, import pyqtgraph fails, the app still starts, the D45 token guard passes, and the full suite is green."
       ],
       "tests": [
         {
           "test_id": "P6-T13-T11",
           "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Gate probe in `tests/test_lwc_removal_gate.py`: without both artifacts on record, assert the worker refuses (zero `git status` changes); the refusal itself is the green outcome.",
-          "expected_result": "Refusal with a clean tree when ungated; proceeds only when both artifacts exist."
+          "type": "unit",
+          "description": "Gate-record probe in tests/test_lwc_removal_gate.py: assert docs/build/gate_P6_T13.md records the deletion approval with its 2026-10-27 date, the WAIVED-NOT-SATISFIED live-session wording, and the RETIRE oracle decision; assert the removal result gate field is owner-waived and that neither the gate doc nor the result claims the gate was satisfied; assert the probe derived GATE_OPEN is True with those records present.",
+          "expected_result": "Probe passes: three records found, gate reported open and owner-waived, no artifact asserts gate-satisfied."
         },
         {
           "test_id": "P6-T13-T12",
           "linked_acceptance_criterion": "AC2",
           "type": "unit",
-          "description": "Post-deletion proof (gated-open only): engine-specific suites gone per list; `import ui.chart_panel` raises ModuleNotFoundError while seam/model/stores/dialogs import; remaining suite green; residue scan clean.",
-          "expected_result": "Deletion exact per list; shared surfaces intact; suite green."
+          "description": "Post-deletion import and residue proof: import ui.chart_panel raises ModuleNotFoundError; ui.chart_view.create_chart_view imports and returns the LWC view; services/chart_model, stores, dialogs, IBKR backend, watchlist and dock modules import; a source scan of ui/, services/, tests/ and packaging/ finds zero pyqtgraph imports (comments and docstrings excluded, scope stated in the test); requirements.txt and packaging/build.spec contain no pyqtgraph entry; import pyqtgraph fails under an importlib meta-path blocker for the pyqtgraph module.",
+          "expected_result": "Engine import raises, seam and shared surfaces import, zero pyqtgraph imports or requirements entries, blocked import raises ImportError."
+        },
+        {
+          "test_id": "P6-T13-T13",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "App-start and suite proof: start the app offscreen on the LWC engine (main window constructs, chart host loads, then closes cleanly); run the D45 token-guard test; run the full test suite after the removal.",
+          "expected_result": "App starts and shuts down cleanly, D45 token guard green, full suite green with no failures and no unexplained skips added by this task."
+        },
+        {
+          "test_id": "P6-T13-T14",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Retirement-ledger review: for each retired keep/retarget suite, confirm the result retired_suites ledger names the file, the cases removed and the coverage lost (value-for-value geometry, alarm placement, overlay geometry, tick-label strings); confirm no retired case survives as a skip, xfail or weakened assertion; confirm docs/lwc_parity_matrix.md carries the landed retired-coverage record next to the 19/19 row count.",
+          "expected_result": "Ledger complete and honest per retired suite; no silent weakening; parity matrix shows retired coverage beside the 19/19 rows."
         }
       ],
       "expected_artifacts": [
-        "pyqtgraph-only modules + engine-specific suites (deleted, gated-open only)",
-        "tests/test_lwc_removal_gate.py (new: gate probe)",
-        "gate artifacts (approval + session sign-off, preconditions \u2014 not this task's outputs)"
+        "pyqtgraph-only modules deleted (ui/chart_panel.py, ui/candlestick_item.py, overlay items, ui/overlays/*)",
+        "34 AP-P6-3 engine-specific suites deleted",
+        "oracle-dependent comparison cases retired from keep/retarget suites (LWC-only cases kept)",
+        "tests/test_lwc_removal_gate.py (new: gate-record + import/residue proof)",
+        "removal result with retired_suites ledger ({file, cases_removed, coverage_lost})",
+        "docs/lwc_parity_matrix.md (retired-coverage record)",
+        "requirements.txt + packaging/build.spec (pyqtgraph dependency removed)"
       ],
       "touches_files": [
         "ui/chart_panel.py",
         "ui/candlestick_item.py",
+        "ui/alarm_overlay.py",
+        "ui/drawing_overlay.py",
+        "ui/event_marker_overlay.py",
+        "ui/zoom_overlay.py",
+        "ui/overlays/base.py",
+        "ui/overlays/ict_overlay.py",
+        "ui/overlays/session_overlay.py",
+        "ui/chart_view.py",
+        "ui/popout_window.py",
+        "ui/main_window.py",
+        "tests/conftest.py",
         "tests/test_lwc_removal_gate.py",
-        "docs/lwc_parity_matrix.md"
+        "docs/lwc_parity_matrix.md",
+        "requirements.txt",
+        "packaging/build.spec",
+        "tests/test_candle_spacing.py",
+        "tests/test_candlestick_wick.py",
+        "tests/test_volume_width.py",
+        "tests/test_volume_linear.py",
+        "tests/test_volume_log.py",
+        "tests/test_volume_ceiling.py",
+        "tests/test_volume_d21.py",
+        "tests/test_volume_toggle.py",
+        "tests/test_chart_crosshair.py",
+        "tests/test_crosshair_axis_lane.py",
+        "tests/test_crosshair_chip_bounds.py",
+        "tests/test_chart_dpi.py",
+        "tests/test_chart_controls.py",
+        "tests/test_zoom_overlay.py",
+        "tests/test_zoom_behavior.py",
+        "tests/test_drawing_overlay.py",
+        "tests/test_drawing_interaction.py",
+        "tests/test_drawing_labels.py",
+        "tests/test_d27_drawing_colours.py",
+        "tests/test_alarm_overlay.py",
+        "tests/test_alarm_interaction.py",
+        "tests/test_session_overlay.py",
+        "tests/test_study_overlays.py",
+        "tests/test_d27_overlay_coords.py",
+        "tests/test_time_collapse_d21.py",
+        "tests/test_collapse_resync_fix.py",
+        "tests/test_d28_4a_render_layers.py",
+        "tests/test_d28_4f_panel_bar_cap.py",
+        "tests/test_d28_4_bisect.py",
+        "tests/test_d42_candle_width.py",
+        "tests/test_d28_4d_collapse_tail.py",
+        "tests/test_draw_combo_sync.py",
+        "tests/test_d28_4f_study_invalidate.py",
+        "tests/test_d28_4b_study_cache.py",
+        "tests/test_d21_flash_lifetime.py",
+        "tests/test_d24_smoke_gate.py",
+        "tests/test_d28_2_load_chart_button.py",
+        "tests/test_d38_events_news.py",
+        "tests/test_d24_chart_quality.py",
+        "tests/test_d39_burst_search.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_toolbar_d21.py",
+        "tests/test_chart_model.py",
+        "tests/test_chart_view_seam.py",
+        "tests/test_chart_mouse_router.py"
       ],
       "inputs": [
         "P6-T12 cutover candidate",
-        "explicit owner approval record (precondition)",
-        "one-clean-live-session sign-off (precondition)",
-        "AP-P6-3 engine-specific list (task notes)"
+        "docs/build/gate_P6_T13.md (deletion approval SATISFIED; live session WAIVED; oracle RETIRE)",
+        "AP-P6-3 engine-specific (34) / retarget (32) / keep (59) lists in docs/tasks/task_manager_notes_P6.md",
+        "docs/lwc_parity_matrix.md (19/19 open rows)"
       ],
       "outputs": [
-        "pyqtgraph deleted (gated-open only) or clean refusal (gated-closed)"
+        "pyqtgraph engine and engine-specific suites deleted",
+        "oracle-dependent parity cases retired with a per-suite coverage ledger",
+        "parity matrix carrying the retired coverage"
       ],
-      "size": "S",
+      "size": "L",
       "status": "in_progress",
+      "doc_required": true,
       "context": {
         "read_files": [
           {
+            "path": "docs/build/gate_P6_T13.md",
+            "lines": "1-41",
+            "why": "gate authority: approval SATISFIED, live session WAIVED-not-satisfied, oracle RETIRED (AC1) - read-only, do not edit"
+          },
+          {
+            "path": "docs/tasks/task_manager_notes_P6.md",
+            "lines": "56-92",
+            "why": "AP-P6-3 lists: the 34-file engine-specific deletion set and the retarget/keep classification - read-only"
+          },
+          {
+            "path": "ui/chart_view.py",
+            "lines": "1-60",
+            "why": "seam to keep: create_chart_view must survive LWC-only; the pyqtgraph branch is this task edit"
+          },
+          {
             "path": "ui/chart_panel.py",
-            "lines": "1-80",
-            "why": "deletion-set member: verify pyqtgraph-only render code before deleting"
+            "lines": "1-60",
+            "why": "deletion-set member: confirm pyqtgraph-only render code before deleting"
           },
           {
             "path": "ui/candlestick_item.py",
-            "lines": "1-60",
+            "lines": "1-40",
             "why": "deletion-set member: verify pyqtgraph-only renderer before deleting"
           },
           {
-            "path": "tests/test_d45_removal.py",
-            "lines": "1-60",
-            "why": "read-only: guard-pattern precedent for the removal-gate probe"
+            "path": "tests/conftest.py",
+            "lines": "100-115",
+            "why": "chart_panel fixture imports ui.chart_panel; it must be removed with the engine"
+          },
+          {
+            "path": "ui/popout_window.py",
+            "lines": "205-225",
+            "why": "real from ui.chart_panel import ChartMode that must be relocated, not left broken"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "lines": "630-700",
+            "why": "19/19 open rows where the retired-coverage record must land"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/chart_panel.py:ChartPanel",
+            "ref": "ui/chart_view.py:create_chart_view",
             "status": "existing"
           },
           {
@@ -1657,15 +1762,18 @@
           "S59",
           "AP-P6-3"
         ],
-        "test_command": "test -f docs/lwc_removal_approval.md && test -f docs/lwc_live_session_signoff.md && echo GATE-OPEN || echo GATE-CLOSED-NO-DISPATCH",
+        "test_command": "pytest tests/test_lwc_removal_gate.py -q",
         "memory_refs": [
           "2026-10-26"
         ],
         "memory_notes": [
-          "Phase 11 never rides along with cutover (S59) \u2014 a bundled deletion fails review even if the suite is green."
+          "Phase 11 never rides along with cutover (S59) - a bundled deletion fails review even if the suite is green.",
+          "Gate is owner-WAIVED, not satisfied: see docs/build/gate_P6_T13.md section 2. Never write gate satisfied in any artifact.",
+          "Oracle decision RETIRE: comparison suites go with the engine; list every retired suite and the coverage lost - silently weakening a test is not acceptable.",
+          "Discovery is bounded: grep -rln pyqtgraph tests/ ui/ services/ packaging/ requirements.txt, then subtract the 34 engine-specific files; every remaining hit is either a comment (ignore) or an oracle dependency (retire the comparison cases)."
         ],
         "needs_graphify": false,
-        "size": "S"
+        "size": "L"
       }
     }
   ]

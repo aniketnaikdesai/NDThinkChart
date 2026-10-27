@@ -1,15 +1,15 @@
-"""tests/test_chart_view_seam.py — P6-T02 seam tests (AC-D47.1, AC3, AC4).
+"""tests/test_chart_view_seam.py — the ChartView seam after P6-13.
 
-T11 (AC1): factory selection over ``NDT_CHART_ENGINE`` / the ``QSettings``
-equivalent — unset/unknown/pyqtgraph select pyqtgraph, only ``lwc`` selects
-the LWC view, never blank; ``tz_offset``/``editable`` propagate.
-T12 (AC2): per-controller signal-signature assertions against the frozen
-pre-D47 surface captured from the pyqtgraph overlays, on both engines.
-T13 (AC3): renderer-only boundary — the seam module stays clear of the
-broker boundary, persistence, chrome and order-code surfaces; pyqtgraph
-stays present and default.
-T14 (AC4): the parity-matrix seam record reflects this wave with no Done
-row regressed.
+The pyqtgraph engine was removed under an **owner-waived** gate
+(``docs/build/gate_P6_T13.md``: deletion approved 2026-10-27, live-session
+sign-off WAIVED, NOT SATISFIED, oracle RETIRE). The seam is now LWC-only.
+
+T11: ``create_chart_view`` always returns the LWC driver; the old engine
+env/settings values no longer select a renderer; ``tz_offset``/``editable``
+propagate.
+T12: the controllers keep the frozen pre-D47 signal surface.
+T13: renderer-only boundary.
+T14: the parity-matrix seam record stays truthful.
 """
 
 import importlib
@@ -17,104 +17,44 @@ import os
 import re
 
 import pytest
-from PyQt6.QtCore import QObject, QMetaMethod, QSettings
+from PyQt6.QtCore import QObject, QMetaMethod
 from PyQt6.QtWidgets import QWidget
 
-from ui.chart_panel import ChartPanel
-from ui.alarm_overlay import AlarmOverlay
-from ui.drawing_overlay import DrawingOverlay
 from ui.chart_view import (
     ENGINE_ENV_VAR,
-    SETTINGS_APPLICATION,
-    SETTINGS_ENGINE_KEY,
-    SETTINGS_ORGANIZATION,
     AlarmController,
     ChartView,
     DrawingController,
-    LwcChartView,
-    PyqtgraphChartView,
     create_chart_view,
 )
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def clean_env(monkeypatch):
-    """Run with ``NDT_CHART_ENGINE`` unset."""
-    monkeypatch.delenv(ENGINE_ENV_VAR, raising=False)
-    return monkeypatch
-
-
-@pytest.fixture
-def clean_settings():
-    """Run with the persisted engine key cleared; restore afterwards."""
-    settings = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
-    previous = settings.value(SETTINGS_ENGINE_KEY)
-    settings.remove(SETTINGS_ENGINE_KEY)
-    settings.sync()
-    yield settings
-    if previous is None:
-        settings.remove(SETTINGS_ENGINE_KEY)
-    else:
-        settings.setValue(SETTINGS_ENGINE_KEY, previous)
-    settings.sync()
-
-
-# ── T11: factory selection (AC1) ──────────────────────────────────────────
+# ── T11: factory selection (LWC only) ─────────────────────────────────────
 
 class TestFactorySelection:
-    def test_unset_env_returns_pyqtgraph(self, qapp, clean_env, clean_settings):
-        view = create_chart_view(0.0)
-        assert view is not None
-        assert isinstance(view, PyqtgraphChartView)
-        assert isinstance(view, ChartPanel)
-        assert isinstance(view, ChartView)
+    def test_factory_returns_the_lwc_view(self, qapp):
+        from ui.lwc_view import LwcChartView
 
-    def test_unknown_value_returns_pyqtgraph(self, qapp, clean_settings, monkeypatch):
-        monkeypatch.setenv(ENGINE_ENV_VAR, "bogus-engine")
         view = create_chart_view(0.0)
-        assert isinstance(view, PyqtgraphChartView)
-        assert not isinstance(view, LwcChartView)
-
-    def test_pyqtgraph_value_returns_pyqtgraph(
-        self, qapp, clean_settings, monkeypatch
-    ):
-        monkeypatch.setenv(ENGINE_ENV_VAR, "pyqtgraph")
-        view = create_chart_view(0.0)
-        assert isinstance(view, PyqtgraphChartView)
-
-    def test_lwc_value_returns_lwc_view(self, qapp, clean_settings, monkeypatch):
-        monkeypatch.setenv(ENGINE_ENV_VAR, "lwc")
-        view = create_chart_view(0.0)
-        assert view is not None
         assert isinstance(view, LwcChartView)
         assert isinstance(view, QWidget)
-        assert not isinstance(view, ChartPanel)
         assert isinstance(view, ChartView)
+        assert view.ENGINE_NAME == "lwc"
 
-    def test_qsettings_override_mirrors_env(self, qapp, clean_env, clean_settings):
-        clean_settings.setValue(SETTINGS_ENGINE_KEY, "lwc")
-        clean_settings.sync()
-        assert isinstance(create_chart_view(0.0), LwcChartView)
-
-        clean_settings.setValue(SETTINGS_ENGINE_KEY, "pyqtgraph")
-        clean_settings.sync()
-        assert isinstance(create_chart_view(0.0), PyqtgraphChartView)
-
-        clean_settings.setValue(SETTINGS_ENGINE_KEY, "bogus-engine")
-        clean_settings.sync()
-        assert isinstance(create_chart_view(0.0), PyqtgraphChartView)
-
-        clean_settings.remove(SETTINGS_ENGINE_KEY)
-        clean_settings.sync()
-        assert isinstance(create_chart_view(0.0), PyqtgraphChartView)
-
-    @pytest.mark.parametrize("engine", ["pyqtgraph", "lwc"])
-    def test_tz_offset_and_editable_propagate(
-        self, qapp, clean_settings, monkeypatch, engine
+    def test_former_engine_values_no_longer_select_a_renderer(
+        self, qapp, monkeypatch
     ):
-        monkeypatch.setenv(ENGINE_ENV_VAR, engine)
+        from ui.lwc_view import LwcChartView
+
+        for value in ("pyqtgraph", "bogus-engine", ""):
+            if value:
+                monkeypatch.setenv(ENGINE_ENV_VAR, value)
+            else:
+                monkeypatch.delenv(ENGINE_ENV_VAR, raising=False)
+            view = create_chart_view(0.0)
+            assert isinstance(view, LwcChartView), value
+
+    def test_tz_offset_and_editable_propagate(self, qapp):
         view = create_chart_view(18000, editable=False)
         assert view.tz_offset == 18000
         assert view.editable is False
@@ -124,7 +64,7 @@ class TestFactorySelection:
         assert default_view.editable is True
 
 
-# ── T12: signal signatures (AC2) ──────────────────────────────────────────
+# ── T12: signal surface ──────────────────────────────────────────────────
 
 def _text(value) -> str:
     if isinstance(value, (bytes, bytearray)):
@@ -181,45 +121,17 @@ FROZEN_ALARM_SIGNALS = {
 
 
 class TestSignalSignatures:
-    def test_drawing_controller_matches_pyqtgraph_surface(self, qapp):
-        controller = DrawingController()
-        frozen = _own_signals(DrawingOverlay.staticMetaObject)
-        assert set(frozen) == FROZEN_DRAWING_SIGNALS
-        assert _own_signals(controller) == frozen
+    def test_drawing_controller_keeps_the_frozen_surface(self, qapp):
+        assert set(_own_signals(DrawingController())) == FROZEN_DRAWING_SIGNALS
 
-    def test_alarm_controller_matches_pyqtgraph_surface(self, qapp):
-        controller = AlarmController()
-        frozen = _own_signals(AlarmOverlay.staticMetaObject)
-        assert set(frozen) == FROZEN_ALARM_SIGNALS
-        assert _own_signals(controller) == frozen
+    def test_alarm_controller_keeps_the_frozen_surface(self, qapp):
+        assert set(_own_signals(AlarmController())) == FROZEN_ALARM_SIGNALS
 
-    @pytest.mark.parametrize("engine", ["pyqtgraph", "lwc"])
-    def test_both_engines_expose_same_surface(
-        self, qapp, clean_settings, monkeypatch, engine
-    ):
-        monkeypatch.setenv(ENGINE_ENV_VAR, engine)
+    def test_lwc_view_exposes_the_same_controller_surface(self, qapp):
         view = create_chart_view(0.0)
-        assert _own_signals(view.drawing_controller) == _own_signals(
-            DrawingOverlay.staticMetaObject
-        )
-        assert _own_signals(view.alarm_controller) == _own_signals(
-            AlarmOverlay.staticMetaObject
-        )
-
-    def test_controller_forwards_overlay_signals(self, qapp, chart_panel):
-        drawing = DrawingController(chart_panel.drawing_overlay)
-        received = []
-        drawing.mode_changed.connect(received.append)
-        chart_panel.drawing_overlay.mode_changed.emit("trendline")
-        qapp.processEvents()
-        assert received == ["trendline"]
-
-        alarm = AlarmController(chart_panel.alarm_overlay)
-        prices = []
-        alarm.create_requested.connect(prices.append)
-        chart_panel.alarm_overlay.create_requested.emit(123.45)
-        qapp.processEvents()
-        assert prices == [123.45]
+        assert set(_own_signals(view.drawing_controller)) == \
+            FROZEN_DRAWING_SIGNALS
+        assert set(_own_signals(view.alarm_controller)) == FROZEN_ALARM_SIGNALS
 
 
 # ── T13: renderer-only boundary (AC3) ─────────────────────────────────────
@@ -253,20 +165,13 @@ class TestRendererOnlyBoundary:
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module("ibkr.orders")
 
-    def test_pyqtgraph_present_and_default(
-        self, qapp, clean_env, clean_settings
-    ):
-        assert ChartPanel(tz_offset=0) is not None
-        view = create_chart_view(0.0)
-        assert isinstance(view, ChartPanel)
+    def test_pyqtgraph_engine_module_is_gone(self):
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module("ui.chart_panel")
 
-    @pytest.mark.parametrize("engine", ["pyqtgraph", "lwc"])
-    def test_both_views_accept_bars_and_live_ticks(
-        self, qapp, clean_settings, monkeypatch, engine, sample_bars
-    ):
+    def test_view_accepts_bars_and_live_ticks(self, qapp, sample_bars):
         from data.models import Bar
 
-        monkeypatch.setenv(ENGINE_ENV_VAR, engine)
         view = create_chart_view(0.0)
         view.set_symbol("SPY")
         view.set_timeframe("5 mins")
@@ -349,14 +254,7 @@ class TestParityMatrixSeamRecord:
 # ── Q-10: MainWindow goes through the factory (AC1) ───────────────────────
 
 class TestMainWindowChartFactory:
-    """The main chart is engine-selected through ``create_chart_view``.
-
-    Before Q-10 ``MainWindow`` built ``ChartPanel`` directly, so the factory
-    only ever reached pop-outs: ``NDT_CHART_ENGINE=lwc`` could not select the
-    main chart and the live-session sign-off gate was unreachable. These
-    cases pin the factory path, the pyqtgraph fallback for an unknown value,
-    and the LWC driver re-host on the main-chart construction path.
-    """
+    """The main chart is resolved through ``create_chart_view`` (LWC only)."""
 
     @staticmethod
     def _make_window(monkeypatch):
@@ -371,9 +269,10 @@ class TestMainWindowChartFactory:
         return win
 
     def test_main_window_chart_comes_from_the_factory(
-        self, qapp, clean_env, clean_settings, monkeypatch
+        self, qapp, monkeypatch
     ):
         import ui.main_window as main_window
+        from ui.lwc_view import LwcChartView as LwcDriverView
 
         calls = []
         real_create = main_window.create_chart_view
@@ -392,39 +291,22 @@ class TestMainWindowChartFactory:
             assert kwargs.get("editable") is True
             assert kwargs.get("tz_offset") == win._tz_offset
             assert win.chart_panel is view
-            assert isinstance(view, PyqtgraphChartView)
+            assert isinstance(view, LwcDriverView)
         finally:
             win.close()
             qapp.processEvents()
 
-    def test_unknown_engine_value_falls_back_to_pyqtgraph(
-        self, qapp, clean_settings, monkeypatch
-    ):
-        monkeypatch.setenv(ENGINE_ENV_VAR, "definitely-not-an-engine")
-        win = self._make_window(monkeypatch)
-        try:
-            qapp.processEvents()
-            assert isinstance(win.chart_panel, PyqtgraphChartView)
-            assert win.chart_panel.ENGINE_NAME == "pyqtgraph"
-        finally:
-            win.close()
-            qapp.processEvents()
-
-    def test_lwc_engine_rehosts_the_real_driver(
-        self, qapp, clean_settings, monkeypatch
-    ):
+    def test_main_window_rehosts_the_real_driver(self, qapp, monkeypatch):
         from ui.lwc_view import LwcChartView as LwcDriverView
 
         # DG88: no Chromium in offscreen CI. Record that MainWindow asks the
-        # driver for its host (the pop-out path does the same in attach),
-        # without depending on a WebEngine context existing here.
+        # driver for its host, without depending on a WebEngine context.
         host_calls = []
         monkeypatch.setattr(
             LwcDriverView,
             "ensure_host",
             lambda self: host_calls.append(self) or None,
         )
-        monkeypatch.setenv(ENGINE_ENV_VAR, "lwc")
         win = self._make_window(monkeypatch)
         try:
             qapp.processEvents()
