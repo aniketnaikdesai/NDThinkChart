@@ -1,7 +1,10 @@
+from ibkr.error_codes import IBKRNotReady
 from ibkr.pacing import PacingExceeded, pacing_manager
 from ibkr.id_manager import id_manager
 from ibapi.contract import Contract
 from datetime import datetime, timezone
+
+__all__ = ["IBKRNotReady", "MarketDataManager", "TIMEFRAME_CONFIG"]
 
 # Map timeframe strings to IBKR duration and bar-size strings
 TIMEFRAME_CONFIG = {
@@ -16,6 +19,25 @@ TIMEFRAME_CONFIG = {
 class MarketDataManager:
     def __init__(self, client):
         self.client = client
+
+    def _require_api_ready(self) -> None:
+        """Raise IBKRNotReady when the TWS handshake hasn't completed.
+
+        Checked BEFORE allocating a reqId or touching pacing so nothing
+        is sent (or budgeted) pre-handshake — TWS rejects such requests
+        with 504.
+        """
+        if hasattr(self.client, "api_ready"):
+            ready = self.client.api_ready
+        elif hasattr(self.client, "_connected"):
+            ready = self.client._connected
+        else:
+            # Test double with no readiness signal: assume ready.
+            return
+        if callable(ready):
+            ready = ready()
+        if not ready:
+            raise IBKRNotReady("IBKR API not ready (handshake pending)")
 
     def req_historical_data(
         self,
@@ -39,6 +61,7 @@ class MarketDataManager:
             duration: override the config duration (D27.9: current period span)
         """
         cfg = TIMEFRAME_CONFIG.get(timeframe, TIMEFRAME_CONFIG["5 mins"])
+        self._require_api_ready()
         req_id = id_manager.get_id()
         # D28.3: rolling 600s historical window, non-blocking. Never sleeps:
         # when the budget is exhausted the caller defers (the backfill wave
@@ -71,6 +94,7 @@ class MarketDataManager:
         (D37), e.g. "225" (auction) — "" preserves the legacy plain tick
         subscription used by the watchlist.
         """
+        self._require_api_ready()
         req_id = id_manager.get_id()
         pacing_manager.throttle()
         self.client.reqMktData(req_id, contract, generic_ticks, False, False,
@@ -87,6 +111,7 @@ class MarketDataManager:
 
     def req_contract_details(self, contract: Contract) -> int:
         """Request contract details for a contract. Returns the reqId."""
+        self._require_api_ready()
         req_id = id_manager.get_id()
         pacing_manager.throttle()
         self.client.reqContractDetails(req_id, contract)
@@ -100,6 +125,7 @@ class MarketDataManager:
         debounce in SymbolSearchService keeps the rate at ≤1 per ~300ms
         of typing.
         """
+        self._require_api_ready()
         req_id = id_manager.get_id()
         pacing_manager.throttle()
         self.client.reqMatchingSymbols(req_id, pattern)

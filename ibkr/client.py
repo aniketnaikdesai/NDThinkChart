@@ -5,7 +5,14 @@ from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 from ibkr.bridge import IBBridge
 from ibkr.id_manager import id_manager
-from ibkr.error_codes import classify_error
+from ibkr.error_codes import IBKRNotReady, classify_error
+
+__all__ = [
+    "ConnectionState",
+    "DisconnectClass",
+    "IBKRNotReady",
+    "IBApiClient",
+]
 
 _LOG = logging.getLogger(__name__)
 
@@ -59,19 +66,40 @@ class IBApiClient(EWrapper, EClient):
         self._last_disconnect_class: str | None = None
 
     def connect(self, host: str, port: int, clientId: int):
-        """Connect and remember the params for reconnect (D27.3)."""
+        """Connect and remember the params for reconnect (D27.3).
+
+        Handshake-gated: a fresh connect is CONNECTING with the API not
+        ready — only ``nextValidId`` promotes to CONNECTED.
+        """
         self._conn_host = host
         self._conn_port = port
         self._conn_client_id = clientId
+        self._connected = False
+        self._set_state(ConnectionState.CONNECTING)
         super().connect(host, port, clientId)
         self.start_polling()
 
     @property
     def connected(self) -> bool:
+        """Handshake-gated readiness: True only after ``nextValidId``.
+
+        Never delegates to the raw socket — an open socket pre-handshake
+        must NOT look ready, or callers send requests TWS rejects (504).
+        """
+        return self._connected
+
+    @property
+    def socket_connected(self) -> bool:
+        """Raw socket state (EClient.isConnected), pre-handshake included."""
         try:
-            return EClient.isConnected(self)
+            return bool(EClient.isConnected(self))
         except Exception:
-            return self._connected
+            return False
+
+    @property
+    def api_ready(self) -> bool:
+        """Handshake readiness alias for the MarketDataManager gate."""
+        return self._connected
 
     @property
     def connection_state(self) -> str:
@@ -106,18 +134,29 @@ class IBApiClient(EWrapper, EClient):
             self._poll_timer = None
 
     def _poll(self) -> None:
-        """Poll connection state and trigger reconnect if needed."""
+        """Poll connection state and trigger reconnect if needed.
+
+        Handshake-gated: an open socket NEVER promotes to CONNECTED —
+        only ``nextValidId`` does. Socket up + handshake pending stays
+        CONNECTING (re-arm the poll); socket down is RECONNECTING with
+        backoff.
+        """
         try:
-            if self.connected and not self._connected:
-                self._connected = True
-                self._reconnect_attempt = 0
-                self._set_state(ConnectionState.CONNECTED)
-                self.start_polling()
-                return
+            socket_up = self.socket_connected
         except Exception:
-            pass
+            socket_up = False
 
         if not self._connected:
+            if socket_up:
+                # Handshake pending: not ready, stay CONNECTING and keep
+                # polling for nextValidId. Never emit CONNECTED here.
+                if self._connection_state != ConnectionState.CONNECTING:
+                    self._set_state(ConnectionState.CONNECTING)
+                try:
+                    self.start_polling()
+                except Exception:
+                    pass
+                return
             self._connected = False
             if self._connection_state != ConnectionState.RECONNECTING:
                 self._set_state(ConnectionState.RECONNECTING)
@@ -289,6 +328,7 @@ class IBApiClient(EWrapper, EClient):
 
     def close(self) -> None:
         """Clean disconnect."""
+        self._connected = False
         self.stop_polling()
         if self._reconnect_timer is not None:
             self._reconnect_timer.cancel()

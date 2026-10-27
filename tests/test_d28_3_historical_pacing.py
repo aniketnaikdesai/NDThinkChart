@@ -34,6 +34,7 @@ def _exhaust_hist_budget(pm: PacingManager, wait_s: float = 600.0) -> None:
 
 class _FakeHistClient:
     def __init__(self):
+        self.api_ready = True
         self.hist: list[int] = []
 
     def reqHistoricalData(self, reqId, *a, **k):
@@ -224,6 +225,19 @@ def test_req_historical_data_records_slot_on_success():
     req_id = mgr.req_historical_data(get_contract_for_symbol("AAPL"), "5 mins")
     assert fake.hist == [req_id]
     assert len(pacing_mod.pacing_manager._hist_times) == 1
+
+
+def test_handshake_gate_takes_precedence_over_pacing():
+    """Q-36: pre-handshake raises IBKRNotReady even when pacing is exhausted."""
+    from ibkr.client import IBKRNotReady
+    from ibkr.contracts import get_contract_for_symbol
+    _exhaust_hist_budget(pacing_mod.pacing_manager)
+    fake = _FakeHistClient()
+    fake.api_ready = False
+    mgr = MarketDataManager(fake)
+    with pytest.raises(IBKRNotReady):
+        mgr.req_historical_data(get_contract_for_symbol("AAPL"), "5 mins")
+    assert fake.hist == [], "no request may be issued pre-handshake"
 
 
 # ── Wave chunking ────────────────────────────────────────────────────

@@ -1,3 +1,12 @@
+class IBKRNotReady(Exception):
+    """Raised when an API request is attempted before the TWS handshake.
+
+    The socket being open is NOT readiness: TWS rejects pre-handshake
+    requests (e.g. reqHistoricalData) with 504. Only ``nextValidId``
+    marks the API ready. Callers defer (like pacing) instead of sending.
+    """
+
+
 def classify_error(error_code: int) -> str:
     """
     Returns 'info', 'warning', or 'fatal'.
