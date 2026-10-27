@@ -8,3 +8,4 @@
 require("./chart.test.js");
 require("./envelope.test.js");
 require("./volume_scale.test.js");
+require("./gestures.test.js");

@@ -1097,3 +1097,192 @@ def test_the_uploaded_router_state_follows_python(qapp, make_view):
     view.set_alarm_mode(False)
     _pump(APP, 400)
     assert _run_js(host, "window.lwRouterState()")["mode"] == "IDLE"
+
+
+# ---------------------------------------------------------------------------
+# Q-32 — ALARM MODE end-to-end: a page click in ALARM_PLACING creates an alarm
+#
+# Q-31 made the mode *arm*: the interaction channel crosses, `chart.js`
+# mirrors it, and the page reports ALARM_PLACING — yet nothing converted a
+# click into an alarm, so the mode was a decoration. These cases dispatch real
+# `PointerEvent`s on the page's `#chart` container (the same target a real
+# mouse event bubbles through on its way out of the library's canvas) and
+# assert the whole path: gesture -> `alarmCreated` bridge slot ->
+# `_on_page_alarm_created` -> `alarm_controller.create_requested`. They also
+# pin the two things the fix must not break: pan/zoom suppression applies
+# *only* while placing and is restored afterwards, and a click after disarming
+# creates nothing.
+# ---------------------------------------------------------------------------
+
+
+def _chart_rect(host) -> dict:
+    """The page's laid-out ``#chart`` box (rect + offset)."""
+    rect = _run_js(
+        host,
+        """
+        (function () {
+          var el = document.getElementById("chart");
+          if (!el) return null;
+          var r = el.getBoundingClientRect();
+          return {
+            top: r.top, left: r.left,
+            width: r.width, height: r.height
+          };
+        })()
+        """,
+    )
+    return rect if isinstance(rect, dict) else {}
+
+
+def _pointer(host, kind: str, x: float, y: float):
+    """Dispatch one real ``PointerEvent`` at ``(x, y)`` inside ``#chart``.
+
+    ``x``/``y`` are offsets inside the container, so the case is independent of
+    where the page sits; the event is the browser's own ``PointerEvent``
+    constructor, dispatched through the DOM — not a synthetic call into the
+    gesture module.
+    """
+    js = """
+    (function () {
+      var el = document.getElementById("chart");
+      if (!el) return false;
+      var r = el.getBoundingClientRect();
+      el.dispatchEvent(new PointerEvent(%s, {
+        bubbles: true, cancelable: true, composed: true,
+        clientX: r.left + %r, clientY: r.top + %r,
+        pointerId: 1, pointerType: "mouse", isPrimary: true,
+        button: 0, buttons: %d
+      }));
+      return true;
+    })()
+    """ % (json.dumps(kind), float(x), float(y), 0 if kind == "pointerup" else 1)
+    return _run_js(host, js)
+
+
+def _record_pan_zoom_options(host) -> bool:
+    """Record the chart's own ``handleScroll`` / ``handleScale`` applications.
+
+    ``IChartApi.options()`` is not part of the vendored surface this page is
+    allowed to depend on, so the acceptance observes the *calls* the gesture
+    layer makes on the real chart handle — the library's own contract for
+    turning its pan/zoom off and back on.
+    """
+    return _run_js(
+        host,
+        """
+        (function () {
+          var handles = window.lwHandles ? window.lwHandles() : null;
+          var chart = handles && handles.chart;
+          if (!chart || typeof chart.applyOptions !== "function") return false;
+          if (chart.__q32Applied) return true;
+          var original = chart.applyOptions;
+          chart.__q32Applied = [];
+          chart.applyOptions = function (options) {
+            if (options
+                && ("handleScroll" in options || "handleScale" in options)) {
+              chart.__q32Applied.push({
+                handleScroll: options.handleScroll,
+                handleScale: options.handleScale
+              });
+            }
+            return original.apply(chart, arguments);
+          };
+          return true;
+        })()
+        """,
+    )
+
+
+def test_alarm_mode_click_creates_an_alarm_through_the_real_page(qapp,
+                                                                make_view):
+    """Q-32 acceptance: ALARM_PLACING + a real click -> ``create_requested``.
+
+    The page's own price mapping is the expectation: the preview line the
+    pointer drew carries the price the click reported, so a gesture that
+    quietly used a stale/zero price fails here. After disarming, the same
+    click must create nothing and the preview must stay gone.
+    """
+    bars = _two_session_bars()
+    view = _channel_view(make_view, bars)
+    # The demo chart is 200x100 at the view's default size; give the pointer
+    # cases a real price pane to click in (the page re-sizes through its own
+    # ResizeObserver, the Q-23 path).
+    view.resize(960, 720)
+    _pump(APP, 800)
+    host = view._host
+
+    created = []
+    view.alarm_controller.create_requested.connect(created.append)
+
+    assert _record_pan_zoom_options(host) is True, (
+        "the page exposes no chart handle to observe"
+    )
+
+    # ── arm: mode mirrored, crosshair on, the library's pan/zoom off ──────
+    view.set_alarm_mode(True)
+    _pump(APP, 600)
+    armed = _run_js(host, "window.lwGestureState ? window.lwGestureState() : null")
+    assert isinstance(armed, dict), "the page exposes no gesture state probe"
+    assert armed["mode"] == "ALARM_PLACING", armed
+    assert armed["alarmMode"] is True, armed
+    assert _run_js(host, "document.getElementById('chart').style.cursor") == (
+        "crosshair"), "ALARM_PLACING did not set the placement cursor"
+    applied = _run_js(host, "window.lwHandles().chart.__q32Applied")
+    assert applied and applied[-1] == {
+        "handleScroll": False, "handleScale": False,
+    }, f"the library's pan/zoom was not suppressed while placing: {applied}"
+
+    rect = _chart_rect(host)
+    assert rect and rect["width"] > 100 and rect["height"] > 100, rect
+    x = rect["width"] / 2.0
+    y = rect["height"] / 3.0  # the price pane (volume owns the bottom 15 %)
+
+    # ── move: the yellow preview follows the pointer's own price ──────────
+    _pointer(host, "pointerdown", x, y)
+    _pointer(host, "pointermove", x, y)
+    preview_price = _run_js(host, "window.lwGestureState().previewPrice")
+    assert isinstance(preview_price, (int, float)), (
+        f"the pointer did not map to a price: {preview_price!r}"
+    )
+    preview_line = _run_js(host, "window.LwAlarms.snapshot().preview")
+    assert isinstance(preview_line, dict), "the page drew no alarm preview line"
+    assert float(preview_line["price"]) == pytest.approx(preview_price)
+
+    # ── click: the gesture becomes the Python create request ──────────────
+    _pointer(host, "pointerup", x, y)
+    _wait_until(APP, lambda: created, 5_000,
+                "the page's ALARM_PLACING click to reach create_requested")
+    assert len(created) == 1, created
+    price = float(created[0])
+    assert price == pytest.approx(float(preview_price)), (
+        "the created alarm's price is not the clicked price"
+    )
+    assert price > 0
+    assert min(b.low for b in bars) - 1.0 <= price <= max(
+        b.high for b in bars) + 1.0, f"{price} is outside the plotted series"
+    assert _run_js(host, "window.LwAlarms.snapshot().preview") is None, (
+        "the preview survived the placement"
+    )
+
+    # ── disarm: cursor and both pan/zoom handles come back ────────────────
+    view.set_alarm_mode(False)
+    _pump(APP, 600)
+    idle = _run_js(host, "window.lwGestureState()")
+    assert idle["mode"] == "IDLE", idle
+    assert idle["panZoomSuppressed"] is False, idle
+    assert _run_js(host, "document.getElementById('chart').style.cursor") == ""
+    applied = _run_js(host, "window.lwHandles().chart.__q32Applied")
+    assert applied[-1] == {
+        "handleScroll": True, "handleScale": True,
+    }, f"pan/zoom was not restored after leaving alarm mode: {applied}"
+
+    # ── a click after disarming creates nothing ───────────────────────────
+    _pointer(host, "pointerdown", x, y)
+    _pointer(host, "pointermove", x, y)
+    _pointer(host, "pointerup", x, y)
+    _pump(APP, 500)
+    assert len(created) == 1, (
+        f"a click after disarming created an alarm: {created}"
+    )
+    assert _run_js(host, "window.LwAlarms.snapshot().preview") is None
+

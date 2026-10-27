@@ -353,6 +353,32 @@
     return true;
   }
 
+  /* ── preview gestures (Q-32) ─────────────────────────────────────────
+   *
+   * The page's gesture layer draws/clears the D21.10 yellow preview without
+   * re-deriving the price-line code: these build the same two ops Python's
+   * `show_alarm_preview` / `hide_alarm_preview` publish and hand them to
+   * `applyOp` above. No validation bypass either — the op is checked first.
+   */
+  function previewOp(price) {
+    return { op: "set_alarm_preview", series: ALARM_CHANNEL, price: Number(price) };
+  }
+
+  function clearPreviewOp() {
+    return { op: "clear_alarm_preview", series: ALARM_CHANNEL };
+  }
+
+  function showPreview(price) {
+    if (!isFiniteNumber(price)) return false;
+    var op = previewOp(price);
+    if (validateOp(op)) return false;
+    return applyOp(op) === true;
+  }
+
+  function clearPreview() {
+    return applyOp(clearPreviewOp()) === true;
+  }
+
   /* Apply one alarm envelope to `chart`/`series`; returns {applied, error}. */
   function applyOps(chart, series, env) {
     var check = validateEnvelope(env);
@@ -472,6 +498,10 @@
     validateEnvelope: validateEnvelope,
     lineWidthFor: lineWidthFor,
     priceLineOptions: priceLineOptions,
+    previewOp: previewOp,
+    clearPreviewOp: clearPreviewOp,
+    showPreview: showPreview,
+    clearPreview: clearPreview,
     bind: bind,
     applyOps: applyOps,
     applyAlarmOps: applyAlarmOps,

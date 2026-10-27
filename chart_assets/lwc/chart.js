@@ -391,6 +391,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     if (!chart) return false;
     bindOne("LwStudies", [chart]);
     bindPriceModules(true);
+    /* Q-32: the gesture layer takes (chart, container, seriesGetter) — the
+     * getter keeps it on the visible per-mode series without a re-bind. */
+    bindOne("LwGestures", [chart, chartEl, function () {
+      return seriesFor(activeMode);
+    }]);
     return true;
   }
 
@@ -406,8 +411,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       }
       var ops = env.ops;
       if (channel === "interaction") {
-        /* Transport foundation only: record the router mode/tool the Python
-         * router published; gestures land in the next task. */
+        /* Record the router mode/tool the Python router published, then hand
+         * every op to the gesture layer (Q-32): the alarm half lives in
+         * gestures.js so pan/zoom suppression and the preview stay in one
+         * place. */
+        var gestures = moduleHandle("LwGestures");
         for (var i = 0; i < ops.length; i++) {
           var op = ops[i] || {};
           if (op.op === "reset_view") {
@@ -422,6 +430,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
           } else if (op.intent === "exit_to_idle"
                      || op.intent === "symbol_change") {
             routerState.tool = "cursor";
+          }
+          if (gestures && typeof gestures.applyRouterOp === "function") {
+            gestures.applyRouterOp(op);
           }
         }
         return { applied: ops.length, error: null };
@@ -1003,6 +1014,13 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   };
   window.lwRouterState = function () {
     return { mode: routerState.mode, tool: routerState.tool };
+  };
+  /* Q-32: the gesture layer's own state (mode/tool/previewPrice) — the probe
+   * the alarm-mode acceptance reads. */
+  window.lwGestureState = function () {
+    var gestures = moduleHandle("LwGestures");
+    if (!gestures || typeof gestures.state !== "function") return null;
+    return gestures.state();
   };
 
   if (typeof document !== "undefined") {
