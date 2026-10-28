@@ -1342,3 +1342,90 @@
   pixel-parity case to the matrix; drift keeps the matrix row as behaviour-parity only.
 - **Affected requirement section:** D47.7 / `AC-D47.7`; A108; Journey 40.
 - **Answer (owner, 2026-10-26, verbatim): "Accept drift (Recommended)"** — accept drift to the library-native crosshair (no exact-pill custom primitives); D2/Q33 stands only where still applicable.
+
+# Open Questions — 2026-10-28 (Batch 24 / D49 — Q64–Q66 ANSWERED 2026-10-28; no blocking gap)
+
+> All five D49 items are owner-ordered with concrete fix directions (`POPOUT_CHART_CODE_TRACE_REPORT.txt`, findings 1–5), so no scope or semantic question blocks Plan. Q64–Q66 were non-blocking confirmations and are now ANSWERED by the owner on 2026-10-28 (all three standing defaults accepted verbatim); `requirements.md` carries `Status: READY_FOR_PLAN`.
+
+## Q64 — D49.3: is the default error-state presentation (in-pop-out message + status text, ESC-070 model) accepted, or do you want different copy/placement?
+
+- **Status:** **answered 2026-10-28 — owner-confirmed (accepted the standing default verbatim).**
+- **Answer (owner, 2026-10-28):** accept the in-pop-out message + status text (ESC-070 model).
+- **Question:** the pop-out whose chart-host fails to start shows an in-pop-out message area + status text (visible, unambiguous, distinct from empty-data), keeping the debug-level diagnostic log. Accept, or name alternative copy/placement?
+- **Recommended default (A124):** accept the ESC-070-model default — the testable outcome (error visible, never mistaken for no-data, log retained) does not depend on pixel details.
+- **What a different answer would change:** `AC-D49.3`'s presentation clause and the D49.3 visual reference; no logic change.
+- **Affected requirement section:** D49.3 / `AC-D49.3`; A123–A124.
+
+## Q65 — D49: do you want to name a live-TWS validation step, or is offscreen-only acceptance enough?
+
+- **Status:** **answered 2026-10-28 — owner-confirmed (accepted the standing default verbatim).**
+- **Answer (owner, 2026-10-28):** offscreen-only acceptance; no live-TWS step named.
+- **Question:** every D49 item is measurable offscreen (seeded cache, failure injection, broken host, signal spies, hold-lifecycle probe). If you want a live check (e.g. cold-start restore of a named symbol, or a named live pop-out session), name it and it becomes an owner-gated acceptance step; otherwise live behavior is not assumed and no live step is required.
+- **Recommended default:** offscreen-only (no live step assumed) — no live gate is presumed; any live check must be owner-named.
+- **What a different answer would change:** a named live step joins `AC-D49.1` (and only that AC) as an owner-gated clause.
+- **Affected requirement section:** D49 / `AC-D49.1`; quality-bar note in the Batch 24 header.
+
+## Q66 — D49.5: is a verified-close with no code change an acceptable delivered outcome (assuming the probe finds no lasting effect)?
+
+- **Status:** **answered 2026-10-28 — owner-confirmed (accepted the standing default verbatim).**
+- **Answer (owner, 2026-10-28):** YES — verified-close with no code change counts as delivered.
+- **Question:** if the hold-count verification finds no lasting effect (count self-heals via session teardown), D49.5 closes with the verification record and no code change. Confirm that reads as delivered, not dropped — the batch was ordered as "explicitly nothing dropped," and this question exists so a zero-diff D49.5 is never misread as one.
+- **Recommended default (A126):** YES — verified-close counts as delivered; the per-owner fix lands only on a confirmed lasting effect.
+- **What a different answer would change:** a NO converts D49.5 into an unconditional fix work item (idempotent per-owner acquire/release regardless of probe outcome).
+- **Affected requirement section:** D49.5 / `AC-D49.5`; A126; R98.
+
+---
+
+# Open Questions — 2026-10-28 (Batch 25 / D50 — drag-editing for LWC drawings; Q70 ANSWERED, 4 blocking remain)
+
+> Owner-scheduled batch: drag-editing for LWC drawings. The render path (bind fix), the `PageDrawing` /
+> `drawing_controller.created` commit surface and the `DrawingStore` update paths are settled inputs (A127–A129);
+> creation is not re-specified. `requirements.md` carries the `### D50` block (`Status: DRAFT`, `AC-D50.4` settled 2026-10-28),
+> Journey 43, A127–A132 and R99–R101 (`AC-D50.4` settled, A130 resolved, A132 added 2026-10-28). **Q70 is answered; no remaining D50 criterion is final until Q67–Q69 + Q71 are answered** (or the owner
+> explicitly directs proceeding on stated assumptions). **D1–D49 are NOT reopened.**
+
+## Q67 — D50.1: which edits exist — whole-drawing move vs anchor/handle drags — for each kind (trendline, horizontal, zone, fibonacci, measure)?
+
+- **Status:** **open (blocking).**
+- **Question:** for each of the five kinds, is the edit (a) whole-move **plus** anchor/endpoint drags where the kind has anchors, (b) whole-move only for every kind, or (c) an owner-named per-kind matrix?
+- **Recommended default (R-a):** (a) — whole-move for all five kinds, plus anchor drags per kind's anchors (trendline/fibonacci/measure endpoints, zone edges/corners, horizontal price level). Rationale: matches the drawing kinds' geometry; whole-move-only would leave anchored drawings unreshapable.
+- **What a different answer would change:** (b) removes every anchor-handle AC and test; (c) replaces `AC-D50.1` with the named matrix.
+- **Why it's blocking:** the per-kind matrix, the handle set, and the geometry test matrix differ completely per answer — `AC-D50.1` cannot be written without it.
+- **Affected requirement section:** D50.1 / `AC-D50.1` (provisional); Journey 43; R99.
+
+## Q68 — D50.2: handle UI — which handles appear, in which selection state, and how do they behave on locked drawings?
+
+- **Status:** **open (blocking).**
+- **Question:** which handles appear (endpoints/corners/edges/level per kind), and when — only while the drawing is selected, or also unselected? And what does a locked drawing show: no handles, or visible-but-not-draggable handles?
+- **Recommended default:** handles appear **only while their drawing is selected** and hide on deselect; a **locked drawing offers no draggable handle** (selection highlight only). Rationale: selection-gated handles are the conventional affordance; a locked drawing must not present a drag affordance.
+- **What a different answer would change:** `AC-D50.2` handle-visibility clauses; persistent handles add an AC-G.1 visual reference for the unselected state.
+- **Why it's blocking:** handle visibility is UI-visual (AC-G.1 gate: confirmed reference or provisional assumption) and `AC-D50.2` cannot be finalized without the selection/locked rules.
+- **Affected requirement section:** D50.2 / `AC-D50.2` (provisional); Journey 43.
+
+## Q69 — D50.3: lock semantics — what exactly does a locked drawing forbid, operation by operation?
+
+- **Status:** **open (blocking).**
+- **Question:** does a locked drawing forbid (i) drag **initiation**, (ii) move/commit, (iii) **delete**, (iv) **colour/style change** — each answered separately?
+- **Recommended default:** locked forbids **(i) + (ii) + (iii)** — no drag initiation, no move, no delete — while **(iv) colour/style change stays allowed**, consistent with the settled Q70 stored-colour semantics. Rationale: lock protects geometry and existence; colour is not geometry. Note the interaction this leaves open: under (c) a group recolour repaints **all current members**, so it would also repaint a **locked** member's stored colour unless the Q69 answer forbids (iv) — say so explicitly when answering. Option "locked only hides handles" is explicitly NOT offered — `gestures.js` has no drag-initiation path, so handle-hiding alone cannot enforce anything at the `drag_drawing` operation surface.
+- **What a different answer would change:** forbidding (iv) as well moves colour under the lock in `AC-D50.3`/`AC-D50.4`; allowing (iii) keeps delete available on locked drawings.
+- **Why it's blocking:** `AC-D50.3` must assert refusal **at the operation surface with no store write**; a handle-level-only lock would leave locked drawings movable (R100).
+- **Affected requirement section:** D50.3 / `AC-D50.3` (provisional); A129; R100.
+
+## Q70 — D50.4 / 3.3: group colour — default-for-new, or override-for-all? (SETTLED 2026-10-28: (c) Both)
+
+- **Status:** **answered 2026-10-28 — owner picked (c) Both; no longer blocking.**
+- **Answer (owner, relayed 2026-10-28):** **(c) Both** — new drawings take the group colour **at creation** (stored on the drawing, surviving leave-group); recolouring a group repaints **all current members** (updating stored colours). Dragged/edited drawings keep their own stored colour; mid-drag recolour handling per A132 (analyst decision, as delegated).
+- **Question:** the pending 3.3 decision: is group colour the **default for new drawings only** (an edit preserves the drawing's own colour), or an **override for all members** (an edit preserves group linkage and the group colour wins)?
+- **Recommended default:** none from the analyst — this is a genuine owner choice, so **both readings are carried**: R-a (default-for-new → edit preserves own colour) / R-b (override-for-all → edit preserves linkage, group wins). Rationale for carrying both: building colour-preservation on an assumed reading risks a direct contradiction when 3.3 lands (R101).
+- **What the answer changes:** `AC-D50.4` is written in exactly one reading; the other is retired in place (never silently dropped).
+- **Why it was blocking (resolved):** `AC-D50.4` could not be finalized on an assumed reading (R101) — the pick settles it; `AC-D50.4` is now final, A130 resolved, A132 records the delegated mid-drag rule.
+- **Affected requirement section:** D50.4 / `AC-D50.4` (blocked); A130; R101.
+
+## Q71 — D50.5: confirm persistence + fan-out — store update, session-reload restore, single view sync, offscreen-measurable?
+
+- **Status:** **open (blocking `AC-D50.5` wording; safe default recorded).**
+- **Question:** confirm that every committed edit (a) updates the store, (b) survives session reload, (c) syncs to all views **exactly once per change** (the D49.4 pattern), and (d) is accepted **offscreen** (seeded store + committed coordinates + reload-restore + fan-out count, no live TWS)?
+- **Recommended default (A131):** yes to all four. Rationale: store-update + reload-restore is the existing persistence contract; single fan-out reuses the D49.4 pattern; offscreen matches the D49 quality bar.
+- **What a different answer would change:** a NO on (c) writes a multi-fan-out tolerance into `AC-D50.5`; a live-step requirement adds an owner-named live clause.
+- **Why it's blocking:** finalizes the `AC-D50.5` measurable (fan-out count + reload equality); the default is safe but the fan-out clause touches D49.4 semantics, so it is asked rather than assumed.
+- **Affected requirement section:** D50.5 / `AC-D50.5` (provisional); Journey 43; A131.
