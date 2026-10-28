@@ -21,7 +21,7 @@ from __future__ import annotations
 import glob
 import inspect
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -105,25 +105,45 @@ def _rth_ts(day) -> int:
     )
 
 
+def _chunk_seconds(duration: str) -> int:
+    """IBKR durationStr (``"30 D"``) -> seconds; mirrors the planner step."""
+    units = {"S": 1, "D": 86400, "W": 604800, "M": 2592000, "Y": 31536000}
+    token = (duration or "").strip().upper()
+    return int(token[:-1]) * units[token[-1]]
+
+
 def _persist_answered_chunk(cache_ts: list, plan) -> None:
-    """Append dense 1-min bars for the chunk's calendar date (capped at now).
+    """Append dense 1-min bars for every trading day the chunk window owns.
 
     A single timestamp per day would trip the D27.7 bar-level hole-repair
     pass (leading/trailing-edge gaps); real fetched chunks are dense, so the
-    double is dense too: every 1-min period start in the RTH window.
+    double is dense too: every 1-min period start in the RTH window of each
+    trading day in ``(anchor - duration, anchor]`` (capped at now).
+    Under 1D chunks this was one calendar date; under widened 30D chunks it
+    is the chunk's whole window.
     """
-    day = _anchor_utc(plan.endDateTime).astimezone(_ET).date()
-    start = int(
-        datetime(day.year, day.month, day.day, 9, 30, tzinfo=_ET).timestamp()
-    )
-    end = int(
-        datetime(day.year, day.month, day.day, 16, 0, tzinfo=_ET).timestamp()
-    )
-    end = min(end, NOW_TS)
-    ts = start
-    while ts < end:
-        cache_ts.append(ts)
-        ts += 60
+    from services.market_calendar import is_trading_day
+
+    anchor = _anchor_utc(plan.endDateTime)
+    lo = anchor.timestamp() - _chunk_seconds(plan.duration)
+    day = datetime.fromtimestamp(lo + 1, tz=timezone.utc).astimezone(_ET).date()
+    last = anchor.astimezone(_ET).date()
+    while day <= last:
+        if is_trading_day(day):
+            start = int(
+                datetime(day.year, day.month, day.day, 9, 30,
+                         tzinfo=_ET).timestamp()
+            )
+            end = int(
+                datetime(day.year, day.month, day.day, 16, 0,
+                         tzinfo=_ET).timestamp()
+            )
+            end = min(end, NOW_TS)
+            ts = max(start, int(lo) + 1)
+            while ts < end:
+                cache_ts.append(ts)
+                ts += 60
+        day += timedelta(days=1)
 
 
 def _issue_and_answer(sess, host, plans):
@@ -171,26 +191,38 @@ def test_t11_per_load_cap(_qt, monkeypatch):
         min_sessions=settings.MIN_INTRADAY_SESSIONS,
     )
     plans = plan_requests(missing, "1 min")
-    assert len(plans) > cap, "floor must need more than one load"
+    # Widened 30D chunks: the 30-session floor fits in 2 requests (was ~30+
+    # under 1D chunks), so one full-cap load drains it — the cap binds only
+    # via the scaled tunable below.
+    assert len(plans) == 2, "widened chunks: floor fits in 2 requests"
+    assert len(plans) <= cap, "floor no longer needs more than one full load"
 
     host = _StubHost()
     sess = TickerSession("SPY", host)
     sess.queue_wave_plans(plans, object(), "1 min", False)
 
     # Issued-before-yield is bounded by floor(B/4) ...
-    assert len(host.md_manager.issued) == cap
+    assert len(host.md_manager.issued) == min(cap, len(plans))
     assert len(host.md_manager.issued) <= settings.MAX_HISTORICAL_PER_600S // 4
-    # ... and the remainder stays queued, not dropped.
-    assert len(sess._wave_plan_queue) == len(plans) - cap > 0
+    # ... and nothing is dropped: every plan is either issued or still queued.
+    assert len(sess._wave_plan_queue) == len(plans) - len(
+        host.md_manager.issued
+    )
+    assert (
+        len(host.md_manager.issued) + len(sess._wave_plan_queue) == len(plans)
+    )
 
-    # The bound scales with the tunable.
+    # The bound scales with the tunable (never a hardcoded 25): shrink the
+    # budget until the cap binds, and the remainder stays queued, not dropped.
     monkeypatch.setattr(settings, "MAX_HISTORICAL_PER_600S", 50)
     assert per_load_historical_cap() == 12
+    monkeypatch.setattr(settings, "MAX_HISTORICAL_PER_600S", 4)
+    assert per_load_historical_cap() == 1
     host2 = _StubHost()
     sess2 = TickerSession("SPY", host2)
     sess2.queue_wave_plans(plans, object(), "1 min", False)
-    assert len(host2.md_manager.issued) == 12
-    assert len(sess2._wave_plan_queue) == len(plans) - 12
+    assert len(host2.md_manager.issued) == 1 == per_load_historical_cap()
+    assert len(sess2._wave_plan_queue) == len(plans) - 1 > 0
 
 
 def test_t12_monotonic_oldest_first_across_loads(_qt, monkeypatch):
@@ -209,7 +241,13 @@ def test_t12_monotonic_oldest_first_across_loads(_qt, monkeypatch):
         lambda bars, ext_hours=True: saved_batches.append(list(bars)),
     )
 
+    # Widened 30D chunks fit the 30-session floor in 2 requests, so the
+    # real tunable (cap 25) would drain it in one load. Shrink the budget
+    # until the cap binds (cap 1): load 1 is capped, load 2 resumes.
+    monkeypatch.setattr(settings, "MAX_HISTORICAL_PER_600S", 4)
+
     cap = per_load_historical_cap()
+    assert cap == 1 == settings.MAX_HISTORICAL_PER_600S // 4
     min_sessions = settings.MIN_INTRADAY_SESSIONS
 
     def plan_for(cache_ts):
@@ -223,7 +261,8 @@ def test_t12_monotonic_oldest_first_across_loads(_qt, monkeypatch):
     cache_ts: list = []
     spans1, plans1 = plan_for(cache_ts)
     assert len(spans1) == 1, "empty cache plans one backwards floor span"
-    assert len(plans1) > cap
+    assert len(plans1) == 2, "widened chunks: floor fits in 2 requests"
+    assert len(plans1) > cap, "shrunk cap binds: floor needs two loads"
 
     host = _StubHost()
     sess = TickerSession("SPY", host)

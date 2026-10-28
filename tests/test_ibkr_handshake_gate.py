@@ -142,12 +142,26 @@ def test_close_clears_readiness(client):
 
 
 def test_timeframe_config_untouched():
-    """Q-35 must not change TIMEFRAME_CONFIG durations."""
+    """Q-35 must not change TIMEFRAME_CONFIG durations (Q-48: approved widening).
+
+    Pins the owner-approved widened set (P7 widening, approval 2026-10-28,
+    owned by the T06 gate in test_p7_w3_wide.py): any duration drift fails
+    here, and every widened duration must name its approval record — a
+    widening without the record fails closed.
+    """
+    import os
+
     assert {k: v["duration"] for k, v in TIMEFRAME_CONFIG.items()} == {
-        "1 min": "1 D",
-        "5 mins": "5 D",
-        "15 mins": "5 D",
-        "1 hour": "10 D",
-        "4 hours": "30 D",
+        "1 min": "30 D",
+        "5 mins": "30 D",
+        "15 mins": "30 D",
+        "1 hour": "60 D",
+        "4 hours": "60 D",
         "1 day": "1 Y",
     }
+    for timeframe in ("1 min", "5 mins", "15 mins", "1 hour", "4 hours"):
+        slug = timeframe.replace(" ", "")
+        path = f"docs/build/approvals/P7-T06-{slug}.md"
+        assert os.path.exists(path), (
+            f"{timeframe} widened duration without owner approval {path}"
+        )

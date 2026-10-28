@@ -5,9 +5,9 @@ Replaces the all-or-nothing wave finalise: every completed chunk is
 killing/reloading mid-wave loses zero fetched bars and overlapping resumes
 never duplicate rows (``INSERT OR REPLACE`` idempotence).
 
-T11 — a 3-chunk wave through the real MainWindow load path (fake transport):
+T11 — a 2-chunk wave through the real MainWindow load path (fake transport):
     after each chunk-end the cache and the session/chart bars advance while
-    the remaining chunks are still in flight; exactly one save plus one set
+    the remaining chunk is still in flight; exactly one save plus one set
     per completed chunk.
 T12 — interrupt the wave mid-flight (same-symbol reload), then resume:
     the completed chunk's bars survive in cache and on the chart, the cache
@@ -19,9 +19,9 @@ T13 — unit: the same chunk fed twice yields no duplicate rows with exactly
 
 Fake-transport note: the stub counts/issues reqIds without touching
 ``pacing_manager``, so the suites are hermetic. The calendar is fixed
-(NOW = 2026-11-06 20:00 ET; the Oct19-30 hole chunks into exactly 3
-"5 mins" requests once the 30-session floor is seeded), so chunk counts and
-anchors are deterministic forever.
+(NOW = 2026-11-06 20:00 ET; the Sep28-Oct30 hole chunks into exactly 2
+"5 mins" requests under the widened 30 D duration once the 30-session floor
+is seeded), so chunk counts and anchors are deterministic forever.
 """
 
 from __future__ import annotations
@@ -57,12 +57,17 @@ NOW = int(datetime(2026, 11, 6, 20, 0, tzinfo=EASTERN).timestamp())
 NOW_DAY = date(2026, 11, 6)
 TF = "5 mins"
 
-# The hole: two full trading weeks. Its closure exceeds the "5 mins"
-# configured 5 D fetch window, so the planner chunks it into 3 requests.
+# The hole: five full trading weeks. Its closure exceeds the widened "5 mins"
+# 30 D fetch window (33 calendar days), so the planner chunks it into 2
+# requests.
 MISSING_DAYS = [
-    (2026, 10, 19), (2026, 10, 20), (2026, 10, 21), (2026, 10, 22),
-    (2026, 10, 23), (2026, 10, 26), (2026, 10, 27), (2026, 10, 28),
-    (2026, 10, 29), (2026, 10, 30),
+    (2026, 9, 28), (2026, 9, 29), (2026, 9, 30),
+    (2026, 10, 1), (2026, 10, 2),
+    (2026, 10, 5), (2026, 10, 6), (2026, 10, 7), (2026, 10, 8),
+    (2026, 10, 9), (2026, 10, 12), (2026, 10, 13), (2026, 10, 14),
+    (2026, 10, 15), (2026, 10, 16), (2026, 10, 19), (2026, 10, 20),
+    (2026, 10, 21), (2026, 10, 22), (2026, 10, 23), (2026, 10, 26),
+    (2026, 10, 27), (2026, 10, 28), (2026, 10, 29), (2026, 10, 30),
 ]
 _MISSING_SET = {date(*t) for t in MISSING_DAYS}
 
@@ -85,14 +90,14 @@ def _trading_days_back(now_day: date, count: int) -> list[date]:
     return list(reversed(days))
 
 
-# 45 trading sessions back from NOW, minus the hole: 35 present sessions, so
+# 60 trading sessions back from NOW, minus the hole: 35 present sessions, so
 # the 30-session depth floor is satisfied and the wave is exactly the hole's
-# 3 chunks (no floor span). Bars are native 5-min RTH density (78/day), so
-# the whole scenario (35*78 + 10*78 = 3510 bars) fits under the 5000 RTH
-# floor budget: nothing is trimmed from memory or retention mid-test, and
-# every assertion reads exact sets. Deterministic forever (fixed calendar).
+# 2 chunks (no floor span). Bars are native 5-min RTH density (78/day), so
+# the whole scenario (60*78 = 4680 bars) fits under the 5000 RTH floor
+# budget: nothing is trimmed from memory or retention mid-test, and every
+# assertion reads exact sets. Deterministic forever (fixed calendar).
 SEED_DAYS = [
-    d for d in _trading_days_back(NOW_DAY, 45) if d not in _MISSING_SET
+    d for d in _trading_days_back(NOW_DAY, 60) if d not in _MISSING_SET
 ]
 assert len(SEED_DAYS) == 35
 
@@ -262,7 +267,7 @@ def test_t11_per_chunk_persist_and_render(monkeypatch, qapp):
         assert win.ext_hours_btn.isChecked() == MODE
         session = win.get_or_create_session(symbol)
         req_ids = _wave_req_ids(win, session, stub)
-        assert len(req_ids) == 3, f"hole must chunk into 3 requests: {stub.calls}"
+        assert len(req_ids) == 2, f"hole must chunk into 2 requests: {stub.calls}"
 
         # Spy after load so the initial cached render is not counted.
         real_save = BarCache.save_bars
@@ -325,8 +330,8 @@ def test_t11_per_chunk_persist_and_render(monkeypatch, qapp):
         assert session._history_req_ids == set()
         # Completed chunks were already persisted: the finaliser owes no
         # save (remainder empty) and adds only the final render.
-        assert len(save_lengths) == 3, save_lengths
-        assert len(set_lengths) == 4, len(set_lengths)
+        assert len(save_lengths) == 2, save_lengths
+        assert len(set_lengths) == 3, len(set_lengths)
         assert expected <= {b.ts for b in _cached(symbol)}
         # The wave record is drained by the finalise (pinned finalize
         # contract: the fetched bars live in the cache and on the chart now,
@@ -353,7 +358,7 @@ def test_t12_interrupted_wave_resumes_not_restarts(monkeypatch, qapp):
         _load(win, symbol, stub)
         session = win.get_or_create_session(symbol)
         req_ids = _wave_req_ids(win, session, stub)
-        assert len(req_ids) == 3
+        assert len(req_ids) == 2
 
         expected = _expected_hole_ts(symbol)
         first_call = next(c for c in stub.calls if c["reqId"] == req_ids[0])
@@ -363,7 +368,7 @@ def test_t12_interrupted_wave_resumes_not_restarts(monkeypatch, qapp):
         # Complete exactly one chunk, then interrupt with a same-target reload.
         _drive_chunk(win, req_ids[0], chunk_ts)
         assert set(chunk_ts) <= {b.ts for b in _cached(symbol)}
-        assert session._history_req_ids, "two chunks still in flight"
+        assert session._history_req_ids, "one chunk still in flight"
         n_calls_load1 = len(stub.calls)
         gen_before = session._history_generation
 
