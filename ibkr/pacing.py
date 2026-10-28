@@ -185,6 +185,31 @@ class PacingManager:
             self._hist_times.append(now)
             self._last_hist_time = now
 
+    def refund_historical_slot(self) -> bool:
+        """Return one historical slot to the rolling budget.
+
+        P7-W1 (S-P7-2 / AR-P7-4): the pre-issue-only counterpart to
+        :meth:`record_historical_slot` — ``TickerSession`` calls this only
+        for a cancelled reqId whose request never reached TWS, so the wave
+        does not re-spend budget on data it never asked for. Post-issue
+        cancels keep their slot (never refunded). The minimum-interval
+        clock (``_last_hist_time``) is deliberately untouched: the refund
+        restores budget count, never issue spacing (Q-2). No-op (``False``)
+        when no slot is held, so a stray refund can never inflate the
+        budget past its bound. Pacing stays the single owner — callers
+        never mutate the deque themselves. Returns True when a slot was
+        actually freed.
+        """
+        with self._lock:
+            now = time.time()
+            self._expire_hist_slots(now)
+            if not self._hist_times:
+                return False
+            # Newest-first: the cancelled request's own spend is the most
+            # recent unexpired slot.
+            self._hist_times.pop()
+            return True
+
     def reset_for_tests(self) -> None:
         """Clear pacing state. Test-only: keeps the suite hermetic."""
         with self._lock:

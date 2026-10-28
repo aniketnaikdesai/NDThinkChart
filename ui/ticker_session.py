@@ -28,6 +28,7 @@ import time
 
 from PyQt6.QtCore import QObject, pyqtSignal as Signal, QTimer
 
+from config import settings
 from data.bar_aggregator import BarAggregator, TIMEFRAME_SECONDS
 from data.bar_cache import BarCache
 from data.alarm_store import AlarmStore
@@ -73,6 +74,31 @@ _LOG = logging.getLogger(__name__)
 _NEAR_ZERO_WAIT_S = 0.2
 _NEAR_ZERO_TICK_MS = 50
 _CONTINUATION_MARGIN_MS = 50
+
+# P7-W2 (S-P7-3): watchdog/pacing coherence. The stranded-wave watchdog
+# bound is window-relative — fractions of the rolling historical budget
+# window (``pacing_manager._hist_window``, 600 s), never literal seconds —
+# so it survives tunable retunes. The base bound (no deferral scheduled)
+# is one fifth of the window (the old 120 s fixed bound on a 600 s
+# window); the margin above a scheduled continuation delay is one
+# twentieth of the window. A wave legitimately waiting out a pacing
+# deferral of ``wait_s`` therefore strands only past wait + margin, never
+# inside its legal deferral.
+_WATCHDOG_BASE_WINDOW_FRACTION = 1 / 5
+_WATCHDOG_MARGIN_WINDOW_FRACTION = 1 / 20
+
+
+def per_load_historical_cap() -> int:
+    """P7-W1 (S-P7-1): max historical requests a single chart load may issue.
+
+    One quarter of the rolling 600 s budget (``floor(B/4)``, at least 1) —
+    a fraction of the ``MAX_HISTORICAL_PER_600S`` tunable, never a hardcoded
+    count, so the bound survives retunes (50 vs 100). A load that plans more
+    chunks than this issues the cap, then yields: the remainder stays queued
+    and resumes on a later load (oldest-first, replanned from persisted
+    cache state), never inside the same wave.
+    """
+    return max(1, int(settings.MAX_HISTORICAL_PER_600S) // 4)
 
 
 class TickerSession(QObject):
@@ -129,8 +155,25 @@ class TickerSession(QObject):
         # ── History wave (3b-2) ────────────────────────────────────────
         self._history_req_ids: set[int] = set()
         self._history_req_generation: dict[int, int] = {}
+        # P7-W1 (S-P7-2): per-reqId issue state for the cancel-slot refund
+        # rule. A tracked reqId is pre-issue until its request reaches TWS;
+        # only pre-issue cancels refund their rolling-budget slot (via the
+        # pacing owner). ``mark_history_request_issued`` flips it at the
+        # single post-send registration site.
+        self._history_req_issued: set[int] = set()
+        # P7-W1 (S-P7-2): cancel-tagged reqIds. A 162 arriving for one of
+        # these is the expected TWS echo of our own cancel (superseded),
+        # classified debug at the error ingress — never a user-facing error.
+        self._cancelled_history_req_ids: set[int] = set()
         self._history_generation: int = 0
         self._pending_bars: list[Bar] = []
+        # P7-W1 (S-P7-2): per-chunk persist-and-render. Bars fetched under
+        # each in-flight reqId accumulate here until that chunk completes;
+        # the completed chunk is then BarCache-persisted and popped, so
+        # ``_pending_bars`` always holds the full wave record (flush +
+        # status accounting) while this map holds only the not-yet-persisted
+        # remainder the finaliser still owes.
+        self._req_bars: dict[int, list[Bar]] = {}
         self._backfill_missing_spans: list = []
         self._backfill_failed_req_ids: set[int] = set()
         self._history_stranded_reason: str = ""
@@ -138,13 +181,20 @@ class TickerSession(QObject):
         self._history_wave_timer = QTimer(self)
         self._history_wave_timer.setSingleShot(True)
         self._history_wave_timer.timeout.connect(self._on_history_wave_timeout)
-        self._history_wave_timeout_ms: int = 120_000
+        # P7-W2 (S-P7-3): the last armed strand bound, in ms (introspection
+        # seam: tests assert the bound covers the scheduled continuation
+        # delay + margin). Set by every _arm_history_wave_watchdog call.
+        self._history_wave_bound_ms: int = 0
         # D28.3: pacing-aware wave issuing. Plans are issued ~60 per wave;
         # when the 600s historical budget is exhausted the remainder stays
         # queued and continues via the timer below (never sleeps).
         self._wave_plan_queue: list = []
         self._req_to_plan: dict[int, object] = {}
         self._wave_contract = None
+        # P7-W1 (S-P7-1): per-load spend — reset by queue_wave_plans for each
+        # load, never by the continuation tick, so one load can never exceed
+        # the cap even across pacing-deferred continuations.
+        self._wave_issued_this_load: int = 0
         # D28.3/D42: the wave's mode — also the session's mode (S19). Every
         # mode-scoped cache read/write and floor-aware cap for this session
         # uses it, so an RTH and an ETH chart (primary vs pop-out) cannot
@@ -156,6 +206,10 @@ class TickerSession(QObject):
         self._wave_continue_timer.timeout.connect(
             self._on_wave_continue_timeout
         )
+        # P7-W2 (S-P7-4): the last wait handed to _schedule_wave_continuation
+        # — the base the prime-precedence slip extends by exactly one
+        # HISTORICAL_MIN_INTERVAL_S (never a new literal).
+        self._wave_continue_wait_s: float = 0.0
         # D27.9 aggregator priming state (per load).
         self._prime_req_id: int | None = None
         self._prime_symbol: str = ""
@@ -176,6 +230,16 @@ class TickerSession(QObject):
         # logged the warning, restarted the backstop and re-armed itself).
         self._prime_retry_pending: bool = False
         self._prime_retry_args: tuple | None = None
+        # P7-W2 (S-P7-4): prime precedence over the backfill wave. A
+        # pacing-deferred prime holds an explicit reservation
+        # (``_prime_reserved``) against the shared historical-interval gate
+        # until it issues or fails open; the wave slips its continuation by
+        # exactly one interval so the prime retry reaches the gate first.
+        self._prime_reserved: bool = False
+        # P7-W2 (S-P7-4): skipped primes — a prime that cannot issue even
+        # with precedence and fails open to the live feed. Counted (never
+        # just the routine pacing-limited log line).
+        self._prime_skipped_count: int = 0
 
         # ── Studies + drawings (3b-3) ──────────────────────────────────
         self._studies: list[dict] = []  # per-symbol study config
@@ -290,6 +354,9 @@ class TickerSession(QObject):
         # Q-3/Q-12: an orphaned deferred retry must not re-enter after teardown.
         self._prime_retry_pending = False
         self._prime_retry_args = None
+        # P7-W2 (S-P7-4): teardown drops a held prime reservation with the rest
+        # of the priming state — a torn-down session yields the gate.
+        self._prime_reserved = False
     # ── Bars / aggregators (data plane) ────────────────────────────────
 
     def aggregator_for(self, timeframe: str) -> BarAggregator:
@@ -593,6 +660,9 @@ class TickerSession(QObject):
         self._prime_period_start = None
         self._prime_retry_pending = False
         self._prime_retry_args = None
+        # P7-W2 (S-P7-4): a reload supersedes the previous load's reservation
+        # with the rest of its priming state.
+        self._prime_reserved = False
         self.reload_alarms()
 
     def reset_aggregator(self, timeframe: str) -> BarAggregator:
@@ -610,7 +680,30 @@ class TickerSession(QObject):
     def _register_history_request(self, req_id: int) -> None:
         self._history_req_ids.add(req_id)
         self._history_req_generation[req_id] = self._history_generation
+        self._req_bars.setdefault(req_id, [])
+        # A reqId re-entering the wave is live again, not superseded: a
+        # stale cancel tag must never misclassify a later 162 for it.
+        self._cancelled_history_req_ids.discard(req_id)
         self._host._register_req_id(req_id, self)
+
+    def mark_history_request_issued(self, req_id: int) -> None:
+        """Mark a tracked reqId as issued (its request reached TWS).
+
+        P7-W1 (S-P7-2): the single post-send seam for the pre/post-issue
+        refund rule. Registrations default to pre-issue; the wave issue
+        path flips each reqId here once ``req_historical_data`` returns, so
+        a later cancel of it keeps (never refunds) its pacing slot.
+        """
+        if req_id in self._history_req_ids:
+            self._history_req_issued.add(req_id)
+
+    def is_superseded(self, req_id: int) -> bool:
+        """True when reqId was cancel-tagged (its 162 is a superseded ack).
+
+        P7-W1 (S-P7-2): read by the window's error ingress to route a 162
+        for a superseded reqId at debug with no status-bar error.
+        """
+        return req_id in self._cancelled_history_req_ids
 
     def _history_event_accepted(self, req_id: int) -> bool:
         return (
@@ -631,13 +724,50 @@ class TickerSession(QObject):
                     "Cancel best-effort cleanup failed for %s reqId=%s: %s: %s",
                     self.symbol, req_id, type(exc).__name__, exc,
                 )
+            # P7-W1 (S-P7-2): tag the cancel so a later 162 for this reqId
+            # classifies as a superseded ack (debug, no status-bar error),
+            # and refund the pacing slot ONLY when the request never reached
+            # TWS (pre-issue cancel). Post-issue cancels keep their slot
+            # (AR-P7-4: refunding issued slots would over-count the budget
+            # and risk a real 162 storm); pacing_manager stays the owner.
+            self._cancelled_history_req_ids.add(req_id)
+            if req_id not in self._history_req_issued:
+                pacing_manager.refund_historical_slot()
         self._history_req_ids.clear()
         self._history_req_generation.clear()
+        self._history_req_issued.clear()
+        self._req_bars.clear()
         self._pending_bars = []
 
-    def _arm_history_wave_watchdog(self) -> None:
+    def _history_wave_watchdog_bound_ms(self, wait_s: float = 0.0) -> int:
+        """Window-relative strand bound (P7-W2, S-P7-3): max(base, wait+margin).
+
+        ``base`` is one fifth of the rolling historical budget window and
+        ``margin`` one twentieth — fractions of the tunable window, never
+        literal seconds. A wave waiting out a legal
+        pacing deferral of ``wait_s`` is therefore never flagged stranded
+        inside its deferral, up to the full budget-window continuation.
+        """
+        window_s = float(getattr(pacing_manager, "_hist_window", 600.0) or 600.0)
+        if window_s <= 0:
+            window_s = 600.0
+        base_ms = int(window_s * _WATCHDOG_BASE_WINDOW_FRACTION * 1000.0)
+        margin_ms = int(window_s * _WATCHDOG_MARGIN_WINDOW_FRACTION * 1000.0)
+        wait_ms = int(max(0.0, float(wait_s or 0.0)) * 1000.0)
+        return max(base_ms, wait_ms + margin_ms)
+
+    def _arm_history_wave_watchdog(self, wait_s: float = 0.0) -> None:
+        """Arm the strand watchdog so it covers a ``wait_s`` deferral + margin.
+
+        P7-W2 (S-P7-3): the bound is never below the scheduled continuation
+        delay plus margin — a wave legitimately waiting on pacing never
+        reads as stranded. Callers with no deferral scheduled omit the wait
+        and get the window-relative base bound.
+        """
+        bound_ms = self._history_wave_watchdog_bound_ms(wait_s)
+        self._history_wave_bound_ms = bound_ms
         self._history_wave_timer.stop()
-        self._history_wave_timer.start(self._history_wave_timeout_ms)
+        self._history_wave_timer.start(bound_ms)
 
     def _disarm_history_wave_watchdog(self) -> None:
         self._history_wave_timer.stop()
@@ -650,6 +780,9 @@ class TickerSession(QObject):
         # retry so it cannot re-enter after the live feed has attached.
         self._prime_retry_pending = False
         self._prime_retry_args = None
+        # P7-W2 (S-P7-4): the backstop is an issued-but-unanswered prime, not
+        # a skip — release the reservation without counting.
+        self._prime_reserved = False
         self._host._on_session_prime_timeout(self)
 
     # ── D28.3 pacing-aware wave issuing ─────────────────────────────────
@@ -664,21 +797,42 @@ class TickerSession(QObject):
                          extended_hours: bool) -> None:
         """D28.3: queue backfill plans and issue the first wave.
 
-        Chunks are issued ~60 per wave; when the rolling 600s historical
-        budget is exhausted the remainder stays queued and continues via
-        the deferred timer (never sleeps, never storms TWS with 162s).
+        P7-W1 (S-P7-1): a single load issues at most
+        :func:`per_load_historical_cap` historical requests before yielding.
+        Chunks are issued oldest-first across loads: when the 600s historical
+        budget or the per-load cap is exhausted the remainder stays queued
+        and resumes on a later load (replanned from the persisted cache),
+        never storming TWS with 162s and never sleeping.
         """
         self._wave_plan_queue = list(plans)
         self._wave_contract = contract
         self._wave_timeframe = timeframe
         self._wave_extended_hours = extended_hours
         self._retried_plans = set()
+        self._req_bars = {}
+        self._history_req_issued = set()
+        self._wave_issued_this_load = 0
         self._issue_wave_chunks()
 
-    def _issue_wave_chunks(self, max_per_wave: int = 60) -> None:
-        """Issue queued plans while the budget allows (D28.3)."""
+    def _issue_wave_chunks(self, max_per_wave: int | None = None) -> None:
+        """Issue queued plans while the budget allows (D28.3 / P7-W1).
+
+        ``max_per_wave`` is an explicit per-tick bound defaulting to the
+        per-load cap; the load's remaining spend
+        (``cap - _wave_issued_this_load``) clamps it further, so neither a
+        direct call nor a pacing-deferred continuation can push one load
+        past the cap. When the per-load spend is exhausted the remainder
+        stays queued WITHOUT arming the continuation timer — it resumes on
+        a later load. Pacing exhaustion still defers via the continuation
+        timer as before.
+        """
+        cap = per_load_historical_cap()
+        if max_per_wave is None:
+            max_per_wave = cap
+        remaining = max(0, cap - self._wave_issued_this_load)
+        allowance = min(max_per_wave, remaining)
         issued = 0
-        while self._wave_plan_queue and issued < max_per_wave:
+        while self._wave_plan_queue and issued < allowance:
             plan = self._wave_plan_queue[0]
             try:
                 req_id = self._host.md_manager.req_historical_data(
@@ -702,9 +856,25 @@ class TickerSession(QObject):
             self._wave_plan_queue.pop(0)
             self._register_history_request(req_id)
             self._req_to_plan[req_id] = plan
+            # The transport accepted the request: it reached TWS, so a
+            # later cancel of this reqId keeps (never refunds) its slot.
+            self.mark_history_request_issued(req_id)
             issued += 1
+            self._wave_issued_this_load += 1
         if self._wave_plan_queue:
-            # Hit the per-wave cap: space waves out over the rolling window.
+            if self._wave_issued_this_load >= cap:
+                # P7-W1: per-load spend exhausted — yield. The remainder stays
+                # queued for a later load (oldest-first, from persisted cache);
+                # no continuation timer, so this wave never carries the floor
+                # by itself.
+                self._status(
+                    f"{self.symbol} — per-load budget reached "
+                    f"({cap} historical request(s)); "
+                    f"{len(self._wave_plan_queue)} chunk(s) resume on the "
+                    "next load…"
+                )
+                return
+            # Hit the per-tick bound: space waves out over the rolling window.
             wait = pacing_manager.historical_wait_seconds()
             self._schedule_wave_continuation(max(wait, 1.0))
 
@@ -736,14 +906,19 @@ class TickerSession(QObject):
         Q-17: the wait is authoritative, not exact (see
         :meth:`_continuation_delay_ms`); a tick that lands a hair early retries
         on a short tick instead of rescheduling a full second forever.
+
+        P7-W2 (S-P7-3): the watchdog is re-armed for this exact wait + margin,
+        so the deferred chunks never trip the strand bound while waiting out
+        their legal deferral.
         """
         wait_s = max(0.0, float(wait_s or 0.0))
+        self._wave_continue_wait_s = wait_s
         ms = self._continuation_delay_ms(wait_s)
         self._status(
             f"{self.symbol} — pacing-limited, continuing backfill in "
             f"{self._format_wait(wait_s)}…"
         )
-        self._arm_history_wave_watchdog()
+        self._arm_history_wave_watchdog(wait_s)
         self._wave_continue_timer.start(ms)
 
     def _on_wave_continue_timeout(self) -> None:
@@ -753,6 +928,24 @@ class TickerSession(QObject):
         """The wave finalises only when nothing is in flight AND nothing
         remains queued for continuation (D28.3)."""
         return not self._history_req_ids and not self._wave_plan_queue
+
+    def flush_pending_bars(self) -> int:
+        """P7-W1: persist fetched-but-unfinalized bars (resume-not-restart).
+
+        Saves ``_pending_bars`` to the mode-scoped cache and clears the list
+        WITHOUT finalising (no render, no shortfall report): a same-symbol
+        reload calls this before cancelling the previous wave, so the next
+        load replans from the persisted depth instead of re-requesting it.
+        Returns the number of bars saved. No-op when empty.
+        """
+        if not self._pending_bars:
+            return 0
+        BarCache.save_bars(
+            self._pending_bars, ext_hours=self._wave_extended_hours
+        )
+        saved = len(self._pending_bars)
+        self._pending_bars = []
+        return saved
 
     def register_history_request(self, req_id: int) -> None:
         """Public wrapper: track a backfill-wave member reqId."""
@@ -783,7 +976,7 @@ class TickerSession(QObject):
         if not self._history_event_accepted(req_id):
             return
         ts = parse_ibkr_date(bar.date)
-        self._pending_bars.append(Bar(
+        bar_obj = Bar(
             symbol=self.symbol,
             timeframe=self._wave_timeframe or "",
             ts=ts,
@@ -792,11 +985,43 @@ class TickerSession(QObject):
             low=bar.low,
             close=bar.close,
             volume=float(bar.volume),
-        ))
+        )
+        self._pending_bars.append(bar_obj)
+        # P7-W1 (S-P7-2): track the bar under its chunk so the chunk's end
+        # marker can persist exactly this chunk (one save) and render it
+        # (one set) without waiting for the rest of the wave.
+        self._req_bars.setdefault(req_id, []).append(bar_obj)
+
+    def _persist_chunk_bars(self, chunk_bars: list[Bar]) -> None:
+        """Persist one completed chunk and render it (S-P7-2).
+
+        Exactly one ``BarCache.save_bars`` plus one ``set_bars`` per
+        completed chunk — never per bar. ``save_bars`` is idempotent
+        (``INSERT OR REPLACE`` on the mode-aware PK), so an overlapping
+        resume that re-fetches already-persisted bars changes no row.
+        The re-read keeps the in-memory series identical to the cache
+        (deduped, ascending), which is what makes resume-not-restart
+        safe; ``set_bars`` emits ``bars_refreshed`` so the chart advances
+        monotonically per chunk instead of only at the last chunk.
+        """
+        mode = self._wave_extended_hours
+        BarCache.save_bars(chunk_bars, ext_hours=mode)
+        timeframe = self._wave_timeframe
+        if not timeframe:
+            return
+        all_bars = BarCache.get_bars(self.symbol, timeframe, ext_hours=mode)
+        self.set_bars(timeframe, all_bars)
+        # D27.1: same never-move-backward rule as the final finalise — the
+        # live price is newer than history once realtime bars were observed.
+        if not self._rt_seen:
+            self.last_chart_price = (
+                all_bars[-1].close if all_bars else None
+            )
 
     def on_historical_data_end(self, req_id: int) -> None:
         """Route an end marker: priming completion attaches the live feed;
-        the last wave member triggers host finalization."""
+        a wave member persists + renders its chunk, and the last member
+        triggers host finalization."""
         if self._prime_req_id is not None and req_id == self._prime_req_id:
             self._prime_req_id = None
             self._prime_period_start = None
@@ -807,9 +1032,17 @@ class TickerSession(QObject):
             return
         self._history_req_ids.discard(req_id)
         self._req_to_plan.pop(req_id, None)
+        # P7-W1 (S-P7-2): per-chunk persist-and-render — this chunk's bars
+        # survive a kill/reload mid-wave even though the remaining chunks
+        # are still in flight. Superseded generations return above, so a
+        # stale wave can neither persist nor paint over the current one.
+        chunk_bars = self._req_bars.pop(req_id, [])
+        self._persist_chunk_bars(chunk_bars)
         if not self._wave_may_complete():
             return
-        # Last member ended: the host finalizes (persist + render + status).
+        # Last member ended: the host finalizes (persist the remainder +
+        # render + status). Completed chunks are already in the cache, so
+        # the finaliser owes only never-completed members' partial bars.
         self._host._on_session_wave_complete(self)
 
     def on_historical_error(self, req_id: int, code: int, msg: str) -> None:
@@ -846,10 +1079,13 @@ class TickerSession(QObject):
                         "retrying chunk once…"
                     )
                     wait = pacing_manager.historical_wait_seconds()
+                    self._wave_continue_wait_s = wait
                     self._wave_continue_timer.start(
                         self._continuation_delay_ms(wait)
                     )
-                    self._arm_history_wave_watchdog()
+                    # P7-W2 (S-P7-3): cover the backoff deferral + margin so
+                    # the retried chunk never trips the strand bound.
+                    self._arm_history_wave_watchdog(wait)
                     return
                 _LOG.warning(
                     "Historical request %s failed [162] after retry; "
@@ -948,6 +1184,25 @@ class TickerSession(QObject):
             )
             self._prime_retry_pending = True
             self._prime_retry_args = (contract, timeframe, extended_hours)
+            # P7-W2 (S-P7-4): prime precedence over the backfill wave. The
+            # wave started alongside this prime, so the wave yields the
+            # shared historical-interval gate: a queued wave's continuation
+            # slips by exactly one HISTORICAL_MIN_INTERVAL_S (never a new
+            # literal) so the prime retry below reaches the gate first
+            # instead of starving behind the wave. The slip re-uses the
+            # existing continuation path (watchdog re-armed there). The
+            # explicit reservation is cleared when the prime issues or
+            # fails open.
+            self._prime_reserved = True
+            if (
+                self._wave_plan_queue
+                and self._wave_continue_timer.isActive()
+                and self._wave_continue_wait_s > 0
+            ):
+                self._schedule_wave_continuation(
+                    self._wave_continue_wait_s
+                    + settings.HISTORICAL_MIN_INTERVAL_S
+                )
             self._prime_timer.start(15_000)
             QTimer.singleShot(
                 max(1000, int(wait_s * 1000)), self._on_prime_retry
@@ -958,25 +1213,40 @@ class TickerSession(QObject):
         self._prime_symbol = self.symbol
         self._prime_period_start = period_start
         self._host._register_req_id(req_id, self)
+        # P7-W2 (S-P7-4): the prime took its slot — the precedence
+        # reservation is released.
+        self._prime_reserved = False
         # Backstop: a priming request that never answers must not strand the
         # chart without a live feed.
         self._prime_timer.start(15_000)
         return True
 
-    def _fail_open_prime(self) -> None:
+    def _fail_open_prime(self, timeframe: str | None = None) -> None:
         """Q-12: attach the live feed when priming cannot issue.
 
         Stops the 15 s backstop, drops every priming/retry marker (so neither
         the scheduled callback nor the timeout can act again) and tells the
         host the prime is over. Idempotent: state is cleared first.
+
+        P7-W2 (S-P7-4): a skipped prime — one that cannot issue even with
+        precedence — is warning-level and counted, naming the symbol and
+        timeframe, so a starved prime is visible instead of reading as the
+        routine pacing-limited line. A merely deferred prime (first attempt,
+        one retry scheduled) is not a skip and is never counted.
         """
         self._prime_timer.stop()
         self._prime_req_id = None
         self._prime_period_start = None
         self._prime_retry_pending = False
         self._prime_retry_args = None
+        self._prime_reserved = False
+        self._prime_skipped_count += 1
         _LOG.warning(
-            "Aggregator priming retry did not issue; attaching live feed"
+            "Skipped aggregator prime for %s [%s]: pacing-limited retry "
+            "did not issue; attaching live feed (skip #%d)",
+            self.symbol,
+            timeframe if timeframe is not None else self._prime_timeframe,
+            self._prime_skipped_count,
         )
         self._host._on_session_prime_complete(self)
 
@@ -1003,4 +1273,4 @@ class TickerSession(QObject):
             contract, timeframe, int(time.time()), extended_hours,
             retrying=True,
         ):
-            self._fail_open_prime()
+            self._fail_open_prime(timeframe)

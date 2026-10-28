@@ -8,11 +8,11 @@ __all__ = ["IBKRNotReady", "MarketDataManager", "TIMEFRAME_CONFIG"]
 
 # Map timeframe strings to IBKR duration and bar-size strings
 TIMEFRAME_CONFIG = {
-    "1 min":  {"duration": "1 D",  "bar_size": "1 min"},
-    "5 mins": {"duration": "5 D",  "bar_size": "5 mins"},
-    "15 mins":{"duration": "5 D",  "bar_size": "15 mins"},
-    "1 hour": {"duration": "10 D", "bar_size": "1 hour"},
-    "4 hours":{"duration": "30 D", "bar_size": "4 hours"},
+    "1 min":  {"duration": "30 D",  "bar_size": "1 min"},
+    "5 mins": {"duration": "30 D", "bar_size": "5 mins"},
+    "15 mins":{"duration": "30 D", "bar_size": "15 mins"},
+    "1 hour": {"duration": "60 D", "bar_size": "1 hour"},
+    "4 hours":{"duration": "60 D", "bar_size": "4 hours"},
     "1 day":  {"duration": "1 Y",  "bar_size": "1 day"},
 }
 

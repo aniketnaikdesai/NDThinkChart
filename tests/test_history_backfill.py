@@ -419,6 +419,26 @@ TIMEFRAMES = list(TIMEFRAME_CONFIG.keys())
 SYMBOLS = ["T40SPY", "T40AAPL"]
 
 
+def _floor_extra_days(now: int, pre: date, post: date,
+                        missing: list[date]) -> list[date]:
+    """Floor-span trading days beyond the fixture's own hole (P7-W1 resume).
+
+    A floor-scale wave's chunks cover the >= 30-session depth floor, not just
+    the fixture hole; answering those chunks empty would replan them forever.
+    The stub therefore fabricates dense bars for the surrounding trading days
+    (skipping the seeded/fixture days) exactly as a real feed would return
+    real bars for those windows.
+    """
+    skip = {pre, post, *missing}
+    days: list[date] = []
+    cur = _et_date(now)
+    for _ in range(60):
+        if is_trading_day(cur) and cur not in skip:
+            days.append(cur)
+        cur -= timedelta(days=1)
+    return days
+
+
 def _chunk_scenario(tf: str):
     """A hole larger than one configured fetch window, plus seed/post context."""
     chunk_days = -(-_duration_seconds(TIMEFRAME_CONFIG[tf]["duration"]) // 86_400)
@@ -464,7 +484,38 @@ def test_t40_t04_chunked_multi_request_continuity(monkeypatch, qapp, tf, symbol)
 
         expected = [b for d in missing for b in _session_bars(symbol, tf, d)]
         expected_ts = [b.ts for b in expected]
-        delivered = _drive_calls(win, tf, stub, expected, now)
+        # P7-W1 (S-P7-1): a 1-min floor-scale wave (~42 one-day chunks)
+        # exceeds the per-load cap (floor(MAX_HISTORICAL_PER_600S/4)), so a
+        # single load cannot finalize it. The stub answers like a real feed:
+        # every load delivers the hole through its issued windows plus dense
+        # bars for the other floor-span days, ends its issued calls, and
+        # reloads -- load_chart flushes pending bars before replanning
+        # oldest-first -- until a load issues no further wave calls. Waves
+        # that fit the cap converge on the first iteration, exactly as before.
+        floor_extra = [b for d in _floor_extra_days(now, pre, post, missing)
+                       for b in _session_bars(symbol, tf, d)]
+        session = win.get_or_create_session(symbol)
+        delivered: set[int] = set()
+        base = 0
+        converged = False
+        for _ in range(8):
+            new_calls = stub.calls[base:]
+            base = len(stub.calls)
+            wave_new = [c for c in new_calls if c.get("bar_size") != "5 secs"]
+            if not wave_new:
+                converged = True
+                break
+            anchor_new = wave_new[0]["reqId"]
+            for b in floor_extra:
+                win._on_historical_bar(
+                    anchor_new, _FakeIbBar(b.ts, b.close, b.volume))
+            delivered |= _drive_calls(win, tf, stub, expected, now,
+                                      calls=new_calls)
+            if not session._wave_plan_queue and win._history_req_ids == set():
+                converged = True
+                break  # queue drained: the wave finalized in this load
+            _load(win, symbol, tf, stub, now)
+        assert converged, f"floor wave did not converge: {(tf, symbol)}"
         assert delivered == set(expected_ts)
 
         # The resulting bar list is continuous across the whole span: exactly

@@ -683,6 +683,11 @@ class MainWindow(QMainWindow):
         # delegate to the primary session for the current symbol.
         self._sessions: dict[str, TickerSession] = {}
         self._req_to_session: dict[int, TickerSession] = {}
+        # P7-W1 (S-P7-2): cancel-tagged history reqIds whose session has
+        # been torn down (popped from _sessions). Live sessions carry their
+        # own tags; this set keeps teardown from erasing them — a 162 for
+        # any of these is still a superseded ack (debug, no status bar).
+        self._superseded_history_reqs: set[int] = set()
         self._primary_session: TickerSession | None = None
         # D24: open pop-out windows (capped at MAX_POPOUTS).
         self._popouts: list = []
@@ -830,6 +835,10 @@ class MainWindow(QMainWindow):
         if self._primary_session is session:
             self._primary_session = None
         session.teardown()
+        # P7-W1 (S-P7-2): the session leaves the registry, but its cancel
+        # tags must survive it — merged AFTER teardown, which is what
+        # populates them. See _superseded_history_reqs.
+        self._superseded_history_reqs |= session._cancelled_history_req_ids
         session.deleteLater()
 
     def _session_for_req_id(self, req_id: int) -> TickerSession | None:
@@ -1606,6 +1615,13 @@ class MainWindow(QMainWindow):
         if not session._history_req_ids:
             return False
         session._cancel_history_requests()
+        # P7-W2 (S-P7-3): a finalised wave can never resume — stop the
+        # continuation timer and drop the queued plans, so no further chunk
+        # issues and no second finalise can occur afterwards. (Late end
+        # markers are already fenced by the generation advance below, and a
+        # late timer tick finds an empty queue and no-ops.)
+        session._wave_continue_timer.stop()
+        session._wave_plan_queue.clear()
         # Advance the generation: any late historical_bar / historical_data_end
         # for a pre-drop reqId now fails _history_event_accepted and can neither
         # accumulate bars nor finalise the wave a second time.
@@ -1623,7 +1639,8 @@ class MainWindow(QMainWindow):
 
         ESC-024: a request that never ends must not strand the wave forever. The
         stalled wave is finalised through the same path as a disconnect (cancel
-        remaining reqIds, advance the generation, surface the shortfall once).
+        remaining reqIds, stop the continuation timer, clear the plan queue,
+        advance the generation, surface the shortfall once).
         """
         self._finalize_stranded_history_wave(
             session, reason="Historical backfill timed out"
@@ -1632,6 +1649,17 @@ class MainWindow(QMainWindow):
     def _on_error(self, reqId: int, errorCode: int, errorString: str):
         if self._closing:
             return  # D28.5: teardown never touches cleared widgets.
+        # P7-W1 (S-P7-2): a 162 acknowledgement for a cancel-tagged
+        # (superseded) reqId is the expected TWS echo of our own cancel —
+        # debug-level only, never a user-facing error. A 162 on any other
+        # reqId keeps the existing warning + status-bar + retry path.
+        if errorCode == 162 and self._is_superseded_history_req(reqId):
+            _LOG.debug(
+                "Historical request %s superseded by cancel; "
+                "162 acknowledgement ignored (no status-bar error).",
+                reqId,
+            )
+            return
         # D28.2: session-owned reqIds (RT, priming, wave members) route via
         # the table; the session owns the priming/wave/error semantics.
         session = self._session_for_req_id(reqId)
@@ -1649,6 +1677,22 @@ class MainWindow(QMainWindow):
             )
             return
         self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)
+
+    def _is_superseded_history_req(self, req_id: int) -> bool:
+        """True when a session cancel-tagged req_id (its 162 is superseded).
+
+        P7-W1 (S-P7-2): the reqId is already unregistered from the routing
+        table by the cancel, so the check reads the cancel tags instead:
+        live sessions carry their own, and torn-down sessions merged theirs
+        into the window set on teardown. Errors are rare; the scan cost is
+        negligible.
+        """
+        if req_id in self._superseded_history_reqs:
+            return True
+        return any(
+            session.is_superseded(req_id)
+            for session in self._sessions.values()
+        )
 
     # ── Chart loading ─────────────────────────────────────────────────────────
 
@@ -1672,6 +1716,29 @@ class MainWindow(QMainWindow):
         # orphaned (no views and not monitored).
         new_session = self.get_or_create_session(symbol)
         old_session = self._primary_session
+        # P7-W1 (S-P7-2): same-chart reload coalescing. An in-flight wave
+        # for the identical (symbol, timeframe, ext-hours) triple continues
+        # untouched — no cancel, no generation advance, no re-spend for data
+        # already in flight. Any change of the triple is a genuine new wave
+        # and falls through to the cancel+generation block below exactly as
+        # before. ``_current_*`` still hold the previous load here.
+        if (
+            bool(new_session._history_req_ids)
+            and symbol == self._current_symbol
+            and timeframe == self._current_tf
+            and extended_hours == new_session._wave_extended_hours
+        ):
+            _LOG.debug(
+                "Reload of %s [%s] coalesced into the running wave "
+                "(%d in-flight request(s)); no cancel, no re-spend.",
+                symbol, timeframe, len(new_session._history_req_ids),
+            )
+            self.status_bar.showMessage(
+                f"{symbol} — already backfilling; reload coalesced into "
+                "the running wave…",
+                4000,
+            )
+            return
         if old_session is not None and old_session is not new_session:
             old_session.release_rt()
             old_session.detach_view(self.chart_panel)
@@ -1689,6 +1756,13 @@ class MainWindow(QMainWindow):
         # advance the generation so its late responses cannot mix series.
         # D28.2: the wave lives on the session now.
         new_session._disarm_history_wave_watchdog()
+        # P7-W1 (S-P7-1/S-P7-2): the previous load may have yielded at the
+        # per-load cap with fetched-but-unfinalized bars still behind it.
+        # Flush them to the mode-scoped cache BEFORE cancelling, so the
+        # replan below resumes from the persisted depth (oldest-first,
+        # monotonic) instead of re-requesting — a reload resumes the wave,
+        # never restarts it. Uses the previous load's mode (set below).
+        new_session.flush_pending_bars()
         new_session._cancel_history_requests()
         new_session._history_generation += 1
         new_session._backfill_failed_req_ids = set()
@@ -1768,9 +1842,11 @@ class MainWindow(QMainWindow):
         contract = get_contract_for_symbol(symbol)
 
         if plans:
-            # D28.3: the session issues chunks ~60 per wave and continues
-            # across waves when the 600s historical budget is exhausted
-            # (non-blocking — never sleeps, never storms TWS with 162s).
+            # P7-W1 (S-P7-1): the session issues at most
+            # floor(MAX_HISTORICAL_PER_600S/4) per load and leaves the
+            # remainder queued; later loads resume oldest-first from the
+            # persisted cache (non-blocking — never sleeps, never storms
+            # TWS with 162s).
             new_session.queue_wave_plans(
                 plans, contract, timeframe, extended_hours,
             )
@@ -2012,6 +2088,12 @@ class MainWindow(QMainWindow):
         disconnect are distinguishable. For a normal (non-stranded) finalise
         the reason is empty and the wording is unchanged.
 
+        P7-W1 (S-P7-2): completed chunks are already ``save_bars``-persisted
+        per chunk by ``TickerSession.on_historical_data_end`` — this final
+        save covers only never-completed members' partial bars (failed
+        members dropped by ``on_historical_error``), so a full wave still
+        costs exactly one save per completed chunk.
+
         The session defaults to the current symbol's session (test seam).
         """
         if session is None:
@@ -2023,9 +2105,14 @@ class MainWindow(QMainWindow):
         # D42/S18+S19: the wave's mode scopes the save/get/prune, and the
         # retention keep is the floor-aware budget so the fetched depth floor
         # survives retention (a flat RETENTION_BARS would prune it away).
+        # P7-W1 (S-P7-2): completed chunks are already persisted per chunk;
+        # only never-completed members' partial bars remain in _req_bars.
         mode = session._wave_extended_hours
-        if session._pending_bars:
-            BarCache.save_bars(session._pending_bars, ext_hours=mode)
+        remaining = [
+            b for bars in session._req_bars.values() for b in bars
+        ]
+        if remaining:
+            BarCache.save_bars(remaining, ext_hours=mode)
         timeframe = session._wave_timeframe or self._current_tf
         # D28.4: keep the on-disk cache bounded per (symbol, timeframe, mode).
         BarCache.prune(

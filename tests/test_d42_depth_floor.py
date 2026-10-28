@@ -193,30 +193,45 @@ def _drive_floor_wave(win, symbol: str, tf: str, mode: bool,
                       timestamps: list[int]) -> list[int]:
     """Load with an empty cache, feed the floor's bars, finalize the wave.
 
-    The empty cache makes the planner emit exactly one **backwards floor span**
-    (S17), which the window chunks into requests. Each ``timestamps`` entry is
-    fed as one stubbed historical bar on the first member, then every member is
-    ended so the wave finalizes (persist + prune + re-read + render).
+    P7-W1 (S-P7-1): a 1-min floor-scale wave (~42 one-day chunks) exceeds the
+    per-load cap (floor(MAX_HISTORICAL_PER_600S/4)), so one load cannot
+    finalize it. Each load feeds the floor's bars on its first wave member
+    (as the single-load harness fed them on the anchor), ends every issued
+    member, and reloads -- load_chart flushes pending bars before replanning
+    oldest-first -- until a load issues no further wave calls. Waves that fit
+    the cap converge on the first iteration, exactly as before.
     """
     _set_mode(win, mode)
     _clear(symbol, tf)
     stub = _ReqStub()
     win._now_ts = lambda: NOW
-    win.symbol_input.setText(symbol)
-    win.tf_combo.setCurrentText(tf)
-    win.md_manager.req_historical_data = stub.req
-    win.md_manager.cancel_historical_data = stub.cancel
-    win.load_chart()
-
-    req_ids = [c["reqId"] for c in stub.calls]
-    assert req_ids, "the empty-cache depth floor must issue at least one request"
-    anchor = req_ids[0]
-    for ts in timestamps:
-        win._on_historical_bar(anchor, _FakeIbBar(ts))
-    for rid in req_ids:
-        win._on_historical_data_end(rid)
+    base = 0
+    converged = False
+    for _ in range(10):
+        win.symbol_input.setText(symbol)
+        win.tf_combo.setCurrentText(tf)
+        win.md_manager.req_historical_data = stub.req
+        win.md_manager.cancel_historical_data = stub.cancel
+        win.load_chart()
+        new_calls = stub.calls[base:]
+        base = len(stub.calls)
+        session = win.get_or_create_session(symbol)
+        wave_new = [c["reqId"] for c in new_calls
+                    if c["reqId"] in session._history_req_ids]
+        if not wave_new:
+            converged = True
+            break
+        anchor = wave_new[0]
+        for ts in timestamps:
+            win._on_historical_bar(anchor, _FakeIbBar(ts))
+        for call in new_calls:
+            win._on_historical_data_end(call["reqId"])
+        if not session._wave_plan_queue and win._history_req_ids == set():
+            converged = True
+            break  # queue drained: the wave finalized in this load
+    assert converged, f"floor wave did not converge: {(tf, mode)}"
     assert win._history_req_ids == set(), "the wave must finalize"
-    return req_ids
+    return [c["reqId"] for c in stub.calls]
 
 
 # ---------------------------------------------------------------------------

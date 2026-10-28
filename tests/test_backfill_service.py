@@ -43,8 +43,8 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TIMEFRAMES = ["1 min", "5 mins", "15 mins", "1 hour", "4 hours", "1 day"]
 
 # Hardcoded expectations, deliberately independent of the implementation's own
-# duration parser (the repo's TIMEFRAME_CONFIG durations are 1D / 5D / 5D / 10D /
-# 30D / 1Y).
+# duration parser (the repo's TIMEFRAME_CONFIG durations are 30D / 30D / 30D /
+# 60D / 60D / 1Y per owner approval 2026-10-28, Q-47; 1 week/1 month out of scope).
 _EXPECTED_PERIODS = {
     "1 min": 60,
     "5 mins": 300,
@@ -54,11 +54,11 @@ _EXPECTED_PERIODS = {
     "1 day": 86400,
 }
 _DURATION_SECONDS = {
-    "1 min": 1 * 86400,
-    "5 mins": 5 * 86400,
-    "15 mins": 5 * 86400,
-    "1 hour": 10 * 86400,
-    "4 hours": 30 * 86400,
+    "1 min": 30 * 86400,
+    "5 mins": 30 * 86400,
+    "15 mins": 30 * 86400,
+    "1 hour": 60 * 86400,
+    "4 hours": 60 * 86400,
     "1 day": 365 * 86400,
 }
 
@@ -233,12 +233,12 @@ def test_t38_t05_empty_cache_returns_empty(timeframe: str) -> None:
 # (span_seconds, expected_chunk_count) chosen so the span exceeds one configured
 # duration and chunk count is the configured-duration ceiling.
 _CHUNK_CASES = {
-    "1 min": (3 * 86400 + 43200, 4),   # 3.5 D / 1 D  -> 4
-    "5 mins": (12 * 86400, 3),         # 12 D / 5 D   -> 3
-    "15 mins": (10 * 86400, 2),        # 10 D / 5 D   -> 2
-    "1 hour": (25 * 86400, 3),         # 25 D / 10 D  -> 3
-    "4 hours": (75 * 86400, 3),        # 75 D / 30 D  -> 3
-    "1 day": (500 * 86400, 2),         # 500 D / 365 D -> 2
+    "1 min": (75 * 86400, 3),    # 75 D / 30 D  -> 3
+    "5 mins": (75 * 86400, 3),   # 75 D / 30 D  -> 3
+    "15 mins": (75 * 86400, 3),  # 75 D / 30 D  -> 3
+    "1 hour": (150 * 86400, 3),  # 150 D / 60 D -> 3
+    "4 hours": (150 * 86400, 3), # 150 D / 60 D -> 3
+    "1 day": (500 * 86400, 2),   # 500 D / 365 D -> 2
 }
 _BASE = 1_700_000_000
 
