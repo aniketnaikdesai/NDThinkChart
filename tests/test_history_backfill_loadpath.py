@@ -359,24 +359,41 @@ def test_t39_t04_multi_request_wave_finalises_once(monkeypatch, qapp):
         win._history_generation = gen
         assert win._pending_bars == []
 
-        # Bars from every member accumulate; nothing is saved/rendered mid-wave.
+        # Bars from every member accumulate with no save/render on arrival.
         for i, rid in enumerate(req_ids):
             win._on_historical_bar(rid, _FakeIbBar(_et_ts(2026, 10, 19) + i * 300))
         assert win._pending_bars
         assert save_calls == [] and get_calls == [] and update_calls == []
 
-        # End all but the last: the wave is still open, so still no finalise.
-        for rid in req_ids[:-1]:
+        # Landed per-chunk persist (P7-T02): every completed chunk is saved
+        # and re-rendered on arrival — one save of exactly that member's
+        # bars plus one render per end — while the wave stays open.
+        for k, rid in enumerate(req_ids[:-1]):
+            n_save, n_get, n_upd = (
+                len(save_calls), len(get_calls), len(update_calls))
             win._on_historical_data_end(rid)
-        assert win._history_req_ids == {req_ids[-1]}
-        assert save_calls == [] and get_calls == [] and update_calls == []
+            assert win._history_req_ids == set(req_ids[k + 1:])
+            assert save_calls[n_save:] == [1], (
+                "one save of the completed chunk's bars")
+            assert len(get_calls) == n_get + 1, (
+                "one re-read per completed chunk")
+            assert len(update_calls) == n_upd + 1, (
+                "one render per completed chunk")
 
-        # The last end empties the set: exactly one save + re-read + render.
+        # The last end drains the wave: one save for the last member's
+        # chunk, then the single final render (the finalise itself owes no
+        # save — the remainder is empty).
+        n_save, n_get, n_upd = (
+            len(save_calls), len(get_calls), len(update_calls))
         win._on_historical_data_end(req_ids[-1])
         assert win._history_req_ids == set()
-        assert len(save_calls) == 1
-        assert len(get_calls) == 1
-        assert len(update_calls) == 1
+        assert save_calls[n_save:] == [1], "one save for the last chunk"
+        assert len(save_calls) == len(req_ids), "exactly one save per member"
+        assert len(get_calls) > n_get, "the finalise re-reads for the render"
+        # One render per completed chunk (7, including the last) plus the
+        # single final render — the T11 persist-suite shape (sets == chunks+1).
+        assert len(update_calls) == len(req_ids) + 1, (
+            "one render per chunk plus the single final render")
     finally:
         win.close()
 
