@@ -274,3 +274,25 @@ untouched. No new findings; no follow-ups opened — every sub-claim the four
 reports named is implemented and guarded by a discriminating test.
 
 Status: REVIEW_COMPLETE
+
+## Focused close-out pass 2026-10-28 — ESC-079 (PLAN-routed, AC-D16.8 restatement Analyst debt)
+
+Single item. Entry: full offscreen suite green on the committed tree; precheck clean (0 fail_fast).
+Tier: light permitted for the slice (no task results in scope, no footprint), but the single
+close-out item was fully re-verified, not taken on the preamble's word.
+
+- **ESC-079** (PLAN, gap, should-fix — budget invariant / per-load cap / floor-across-loads): **ADDRESSED.**
+  Restatement verified additive: commit `82ccf1a` adds exactly 7 lines to
+  `docs/requirements/requirements.md` (RG-P7-1 block, :2261-2267 — successive-loads floor,
+  per-load cap <= 1/4 rolling slots, oldest-first, per-chunk persist+render, coalesce, no
+  single-load deadline; single-load reading marked superseded, original wording preserved beneath
+  as history); `git log 82ccf1a..HEAD -- requirements.md` is empty (nothing else changed).
+  Architecture half verified on file: S-P7-1/S-P7-2 (`docs/architecture.md:5942-5943`,
+  `docs/plan.md:3313/3328-3330`). Suite verified by reviewer run on the committed tree
+  (`QT_QPA_PLATFORM=offscreen pytest`): **1210 passed, 3 skipped, 0 failed in 73.46s**.
+  The stale `test_verification.json` fail predates the restatement commit by ~10h and no longer
+  reproduces (`wave167_P8-T03.json` now carries `task_id` by direct read).
+  Entry flipped `open` -> `addressed` with `verified` in `escalations.json`; all other entries untouched.
+  No code, docs, or other escalation touched. No new findings.
+
+Status: REVIEW_COMPLETE
