@@ -756,3 +756,40 @@ presence; only the Requirements Analyst can update the record.
 revision (non-blocking; no build change).
 
 **Status:** open — non-blocking for the build (analyst-owned doc debt).
+
+---
+
+# Phase P9 — alarm/drawing fix batch (recorded by the Validator, 2026-10-28, `initial_validation`)
+
+- Issue: **RG-P9-1**
+
+**Requirement/Journey:** Batch-25 alarm/drawing findings **3.1, 3.2, 3.4, 1.4**
+(`ALARM_AND_DRAWING_CODE_REVIEW.txt` §§ 3.1, 3.2, 3.4, 1.4) — no D-batch, Journey, or
+acceptance criteria in `docs/requirements/requirements.md` (the report name occurs 0
+times in that file; the D50 register covers drag-editing only, and of the five P9 items
+only **3.3** is requirements-grounded — settled `AC-D50.4` / Q70 = (c) Both, A130/A132).
+
+**Problem:** P9 plans four corrective items whose basis is the static-trace report plus
+the five owner decisions relayed by the Orchestrator (recorded verbatim in `docs/plan.md`
+§ *Phase P9* traceability + AP-P9-1…AP-P9-4 and `docs/architecture.md` § *Phase P9*
+S-P9-1…S-P9-4), not analyst-captured requirements entries. The D49 precedent (Batch 24,
+same report shape) was captured as D49 / Journey 42 / `AC-D49.1`–`AC-D49.6` before
+planning; P9 was not.
+
+**Why it does not block the build:** the four items are corrective (no new product
+scope, no reopened batch, D1–D49 untouched, D50's blocked Q67–Q69/Q71 scope explicitly
+excluded as composition-only); every acceptance measurable is stated in full in the
+plan waves (repro-first probes: fault-injection for 1.4, dialog/panel probes for
+3.2/3.4, commit-payload assertions for 3.1, stored-colour round-trips for 3.3); the
+owner decisions are the product decisions, already made and recorded. Capturing ACs
+would not change what gets built.
+
+**Suggested Direction:** at the next requirements revision, capture 3.1/3.2/3.4/1.4 as
+a D-batch (or fold them into the D50 register as settled inputs alongside `AC-D50.4`),
+reusing the plan waves' measurables verbatim. No build change; nothing P9 delivers
+depends on the wording.
+
+**Status:** open — non-blocking (interpretation recorded; waves executable as written).
+
+**Escalation:** none this cycle — no analyst decision is needed before build (owner
+already decided; cf. RG-D46-2…RG-D46-9 precedent).

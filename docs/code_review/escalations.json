@@ -787,5 +787,19 @@
     "status": "addressed",
     "verified": "2026-10-28 close-out: P8-T09 landed docs-only - usage.md:134 reads 'Select timeframe (1 min - 1 month, including 1 week and 1 month)'; USAGE.txt:217 carries the D48 picker section. Both doc_candidates touched. No code/test change; suite green.",
     "opened": "2026-10-28T05:35:45Z"
+  },
+  {
+    "id": "PRE-005",
+    "task_id": "P9-T6",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "[precheck] result missing or mistyped keys: task_id",
+    "expected": "result file is malformed",
+    "suggested_direction": "re-run the task so it writes a well-formed result per the schema",
+    "status": "addressed",
+    "verified": "2026-10-28 final P9 review: newest P9-T6 result docs/build/results/_archive/wave178_P9-T6.json carries task_id='P9-T6', status done (direct read); independent full-suite run green (test_verification.json verdict pass, exit 0) incl. the archived-results gate.",
+    "source": "precheck",
+    "opened": "2026-10-28T18:14:10.746230+00:00"
   }
 ]

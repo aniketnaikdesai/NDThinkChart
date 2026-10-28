@@ -6132,3 +6132,147 @@ contract, never the implementation. The repository is authoritative on conflict.
 | S-P8-5 | **Priming table is documentation-only (D48.2/D48.6, DG98):** weekly spans (≤ 604800 s) and monthly spans (≤ ~2.7 Ms) land in the existing coarse branch (`1 min`/`[60 S, 1 D]`); the per-span table gains two rows naming that branch; the probe verifies. Rationale: the span-based code is already generic — inventing a coarser bar would add an unprobed IBKR-validity claim. Alternative: a coarser priming bar (rejected — DG98's own gate is the probe, and the existing branch is already inside accepted ranges). Probe rejection escalates per R93. | `[new in P8]` — DG98; docstring rows + probe, no logic change |
 | S-P8-6 | **Visibility grid unchanged (D48.5, DG97):** no new rows — the six rows enumerate duration *units* (Weeks/Months included), not timeframes, and no render consumer maps timeframe→row, so weekly/monthly are visible by construction with every box default-checked (A120). A guard test pins dialog open + all-checked + payload round-trip. Rationale: verified write-only state; adding rows would imply a per-timeframe control that does not exist. Alternative: new per-timeframe rows (rejected — no consumer could honor them). | `[new in P8]` — DG97; guard test only |
 | S-P8-7 | **Burst minutes mapping (D48.5-adjacent):** `minutes_for_timeframe` maps `1 week` → 1950.0 (5 × 390) and `1 month` → 8190.0 (21 × 390) regular-session minutes. Rationale: the `"1 day"` → 390 precedent counts RTH-session minutes, not wall-clock; nominal secs/60 (10080/43200) would count weekends/overnights the convention excludes. Alternative: leave the secs/60 fallback (rejected — semantically dishonest per-minute contract). | `[new in P8]` — two mapping lines + unit case |
+
+---
+
+## Phase P9 — alarm/drawing fix batch (Batch 25): five findings from `ALARM_AND_DRAWING_CODE_REVIEW.txt` + owner decisions — drafted 2026-10-28
+
+> Companion: `docs/plan.md` § *Phase P9*. Requirements basis (approved scope, not re-derived):
+> the static-trace review report at repo root (`ALARM_AND_DRAWING_CODE_REVIEW.txt` §§ 1.4, 3.1–3.4)
+> plus the five owner decisions relayed by the Orchestrator (3.1 carry group+color with symbol
+> validation; 3.2 read-only name cell; 3.4 re-validate on every group reload; 1.4 isolate persistence
+> failures; 3.3 recolor semantics **(c) Both** + leave-group rule + D50 composition). `requirements.md`
+> carries `Status: READY_FOR_PLAN` (Batch 24/D49 lane; this batch's scope is the report + owner
+> decisions above). Existing-repo run: every entry below carries one status label relative to the
+> codebase — `[existing]` (present, unmodified this phase), `[new]` (introduced), `[new/changed]`
+> (present and modified). No new module, no new dependency, no schema migration, no live-TWS
+> dependency. One phase only — nothing past the P9 build wave is planned.
+
+### Relationship to prior phases
+
+Every decision below is `[new in P9]` (no prior phase decided these surfaces). Compositions, not
+revisions: S-P9-1/S-P9-4 build on the D28.2 "main chart is the sole writer" rule and the D27.10
+color-persist precedent without changing either (no `[revises]` — nothing earlier is contradicted);
+S-P9-4's drag-editing constraint names the in-flight D50 batch as a consumer, not as a decision.
+
+### Codebase Summary (pointer + this phase's deltas — not a rewritten inventory)
+
+The full index is `docs/codebase-map.md` (skeleton re-run for P9: 211 code files, 24 test-impact
+rows; annotations carried forward). This phase touches six existing files, verified against source
+2026-10-28 (graphify `graphify-out/graph.json` used for discovery only — the source is
+authoritative):
+
+- `[existing]` `chart_assets/lwc/gestures.js::drawingItem` — builds the commit item with
+  `color: DEFAULT_DRAWING_COLOR` and `group_id: null` (`:158`); no active-group state exists.
+- `[existing]` `ui/lwc_view.py` — `LwcDrawingSurface` exposes `set_data`/`tool_active` but no
+  `set_active_group` (so `MainWindow._drawing_actions` returns no active-group action for LWC);
+  `PageDrawing` already carries `group_id`/`color` fields (`:1573–1578`); `drawing_item`
+  (`:928`) renders from `Drawing.color` with group `locked`/`visible` overlaid (`:950`, `:998–1003`);
+  `drag_drawing_item` (`:1048`) + `drag_drawing` (`:2649`) form the drag path (D50 in flight).
+- `[existing]` `ui/main_window.py` — `_active_draw_group_id` (`:743`); `_apply_active_draw_group`
+  (`:1944`) resolves the group color but the LWC action is absent; `_on_drawing_created` (`:1994`)
+  persists the page payload as received; `_refresh_drawing_groups` (`:1933`) re-syncs the combo but
+  never re-validates the active ID (only `load_chart` `:1801–1803` clears it, on ticker change).
+- `[existing]` `ui/drawing_groups_dialog.py` — the name `QTableWidgetItem` stores the bare integer
+  group ID in `UserRole` (`:103`) while visible/locked cells store `("field", id)` tuples
+  (`:119`, `:127`); `_on_group_item_changed` (`:233`) unconditionally unpacks
+  `field, group_id = item.data(...)` (`:236`) — the integer path raises `TypeError`.
+- `[existing]` `ui/ticker_session.py::_on_aggregated_bar` + `::_evaluate_burst_alarms` — both call
+  `AlarmStore.mark_triggered` (`:486`, `:579`) with no local exception handling; a DB failure skips
+  `alarm.triggered = True`, the `alarm_triggered` emit, and `_last_chart_price` for that bar.
+- `[existing]` `data/drawing_store.py` — `DrawingGroup.color` column exists (`create_group`,
+  `update_group`); `delete_group` NULLs members then deletes (`:78–81`); `update_drawing` accepts
+  `color`/`group_id` (D27.10).
+
+### Summary
+
+P9 closes the five owner-ordered findings with additive, in-place fixes: the active drawing group
+(and its color) travels from the toolbar into the LWC commit payload and is validated before
+persist; the group dialog stops crashing on inline rename and stops retaining deleted-group state;
+alarm trigger persistence can no longer abort the bar path; and group color gains a defined
+"both" semantics (creation default + member repaint) with a leave-group rule the drag-editing batch
+composes with. Every fix lands behind a repro-first test; no production behaviour changes beyond
+the five items.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI / engine / store | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only, SQLite (`ibapi-latest==10.51.1` untouched) | Existing-repo hard constraint; none of the five items needs a stack change | Any stack change (rejected — out of scope) |
+| Group-state transport (S-P9-1) | Plain JS active-group fields on the LWC tool state + existing `PageDrawing.group_id`/`color` fields + existing `DrawingStore.create_drawing` | The payload shape already carries both keys; only values are populated — no new channel, no new schema | A new Python→page bridge method per tool (rejected — one setter covers all tools); new store columns (rejected — fields exist) |
+| Dialog fix shape (S-P9-2) | `ItemIsEditable` cleared on the name cell; `Rename` button stays the only rename path | Smallest change that removes the `TypeError` path entirely; matches the report's recommended fix | Typed-role + explicit handler (kept as fallback if Task Manager finds a consumer of inline editing — none exists today) |
+| Persistence isolation (S-P9-3) | `try/except` at the two call sites + in-memory update unconditional + bounded retry queue | Keeps the failure contained where it occurs; the store signature stays frozen for every other caller | Guard inside `AlarmStore.mark_triggered` (rejected — a silent swallow there hides the failure from the session, which needs to schedule the retry) |
+| Recolor mechanism (S-P9-4) | Stored-color semantics: creation stamps `Drawing.color`; recolor issues one member-repaint `UPDATE`; serializer unchanged | `drawing_item` already renders from `Drawing.color`, so stored colors flow with zero renderer change; D50 drag path keeps working untouched | Live group-color substitution in the serializer (rejected — ungrouped drawings would lose their color; contradicts the stored/leave-group decision) |
+| Testing | Offscreen pytest + `node --test` for the gestures change; monkeypatch fault injection for the DB failure | Repo standard; no live TWS needed for any of the five items | Live-session validation (rejected — every item is reproducible offscreen) |
+
+### System Components
+
+- `[new/changed]` `chart_assets/lwc/gestures.js` — gains active-group tool state (group ID + intended color setters) consumed by `drawingItem` at commit time; no new drag path.
+- `[new/changed]` `ui/lwc_view.py` — `LwcDrawingSurface` gains the active-group setter the toolbar already calls (`set_active_group(id, color)`); `_on_page_drawing_committed` forwards the payload unchanged.
+- `[new/changed]` `ui/main_window.py` — `_on_drawing_created` validates the submitted group against the drawing's symbol before persist; `_refresh_drawing_groups` re-validates `_active_draw_group_id` on every reload (clear + combo + tool sync).
+- `[new/changed]` `ui/drawing_groups_dialog.py` — name cell read-only; group recolor repaints current members (stored colors updated).
+- `[new/changed]` `ui/ticker_session.py` — both `mark_triggered` call sites isolated (log + in-memory update + retry queue flushed on subsequent bars / `reload_alarms`).
+- `[new/changed]` `data/drawing_store.py` — member-repaint update (recolor path); no DDL, no migration.
+- `[existing]` `data/alarm_store.py` — `mark_triggered` signature and semantics unchanged (frozen).
+- `[existing]` `ui/lwc_view.py::drag_drawing_item` / `::drag_drawing` — drag geometry untouched (D50 owns it; P9 only constrains color preservation).
+
+### Data Model
+
+- `[existing]` `Drawing` (symbol, kind, payload, color, label, group_id) — no field added/removed; P9 changes which *values* `color`/`group_id` carry at creation.
+- `[existing]` `DrawingGroup` (symbol, name, seq_number, color) — no field added/removed; recolor now propagates to members' stored colors.
+- `[new/changed]` Stored-color semantics — `Drawing.color` is the source of truth at render (`drawing_item` already reads it): creation stamps the active group color (or default when ungrouped); recolor overwrites current members; ungroup/reassign preserves the stored color (the leave-group rule). No migration — existing rows keep their values; the first recolor migrates old members.
+- `[existing]` `Alarm` + `alarms` table — untouched; the retry queue is in-memory only and never persisted.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths, SQLite, Qt signals, `pacing_manager` are untouched — P9 issues no new request type and changes no subscription behaviour.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen). Task Manager gives
+workers the contract, never the implementation.
+
+- `data/alarm_store.py::AlarmStore.mark_triggered` — verbatim contract:
+  `def mark_triggered(alarm_id: int, triggered_at: int | None = None) -> None`. Call-site handling
+  changes (S-P9-3); the signature and its DB-write semantics do not.
+- `data/drawing_store.py::DrawingStore.assign_groups` — verbatim contract:
+  `def assign_groups(drawing_ids: Iterable[int], group_id: Optional[int]) -> None`
+  (`UPDATE drawings SET group_id=? WHERE id IN (...)`). Unchanged.
+- `data/drawing_store.py::DrawingStore.delete_group` — verbatim contract: members NULLed first
+  (`UPDATE drawings SET group_id=NULL WHERE group_id=?`), then the group row deleted. Unchanged.
+- `ui/lwc_view.py::drawing_op` visibility rule — verbatim contract: a drawing whose group is missing
+  stays visible; a drawing whose group exists with `visible=False` is omitted from the set operation.
+  Unchanged (S-P9-4 preserves it).
+- `ui/lwc_view.py::drag_drawing_item` geometry — verbatim contract: pure geometry
+  `(kind, item, point_index, d_frac, d_price) → moved item`; D50's in-flight surface. Untouched.
+- `ui/main_window.py` D28.2 sole-writer rule — verbatim contract: the main chart is the sole writer
+  of drawings; the session fans out (`reload_drawings` + `sync_drawings_to_views`). Preserved.
+
+### Non-Functional Approach
+
+- **Correctness over coverage:** each fix lands behind a repro-first test that is red on the current
+  tree (fault injection for 1.4 — the report notes no fault was injected, so reproduction is the
+  wave's first deliverable; offscreen dialog/panel probes for 3.2/3.4; commit-payload assertions for
+  3.1; stored-color round-trips for 3.3).
+- **Performance:** one member-repaint `UPDATE` per recolor (group cardinality, not bar cardinality);
+  retry queue bounded (failed IDs only, flushed on next bar); no new per-bar work.
+- **Security/safety:** group-belongs-to-symbol validation closes a cross-symbol write at the persist
+  boundary; no order-code surface is touched (D45/D46 invariants hold); no live TWS needed.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P9-1 — pop-out (read-only) views submit a stale group ID the symbol no longer has | L / M | Symbol validation in `_on_drawing_created` coerces unknown IDs to `None` (ungrouped) — never a silent cross-symbol write, never a crash |
+| AR-P9-2 — recolor repaint races a concurrent drag edit (D50 in flight) | L / M | Stored-color rule: the drag path preserves `Drawing.color`; last-writer-wins at row granularity, no torn state; D50 composition is an explicit wave exit check |
+| AR-P9-3 — retry queue grows if the DB stays down | L / L | Queue holds alarm IDs only (bounded by active-alarm count), flushed on each subsequent bar and `reload_alarms`; a still-failing flush re-logs once per bar, never per alarm per bar |
+| AR-P9-4 — JS active-group state desyncs from the toolbar (page reload) | L / L | `_apply_active_draw_group` re-pushes on every group reload and symbol change; creation-time values are validated server-side (Python) regardless |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P9-1 | **Group assignment into the commit payload (3.1 P1):** `gestures.js` gains active-group tool state (`setActiveGroup(id, color)`); `drawingItem` stamps the active group ID + intended color instead of `null`/default; `PageDrawing` forwards; `_on_drawing_created` validates the group belongs to `drawing.symbol` (else `None`) before `create_drawing`. Rationale: closes the exact five-link break the trace names (setter → item → PageDrawing → persist → validate). Alternative: Python-side stamping after commit (rejected — the page is the creation point; post-stamping splits one fact across two writers). | `[new in P9]` — 3.1; additive state + validation |
+| S-P9-2 | **Dialog state fixes (3.2 + 3.4 P2):** the group-name cell becomes read-only (`ItemIsEditable` cleared; `Rename` button stays the path); `_refresh_drawing_groups` re-validates `_active_draw_group_id` against the current symbol's groups on *every* reload — unknown → `None` + combo reset to Ungrouped + tool re-push. Rationale: removes the `TypeError` unpack path structurally; extends the existing ticker-change clear (load_chart) to the deletion path the trace names. Alternative: typed-role + explicit edit handler (fallback only — no inline-edit consumer exists). | `[new in P9]` — 3.2/3.4; dialog + main-window state |
+| S-P9-3 | **Persistence isolation (1.4 P2):** both `mark_triggered` call sites (`_on_aggregated_bar`, `_evaluate_burst_alarms`) catch DB errors, log with symbol/alarm context, still set `alarm.triggered = True` and emit, and queue the ID for retry (flushed on subsequent bars / `reload_alarms`). Rationale: notification + `_last_chart_price` can never again be skipped by a persistence failure; the store stays frozen. Alternative: guard inside the store (rejected — hides the failure from the retry owner). | `[new in P9]` — 1.4; call-site isolation + retry |
+| S-P9-4 | **Recolor semantics (c) Both + leave-group rule (3.3 P2):** new drawings stamp the active group color into `Drawing.color` at creation (stored, survives leave-group); group recolor repaints all *current* members (stored colors updated via member-repaint); ungroup/reassign preserves the drawing's stored color (never reset to default); edited drawings keep stored colors (D50 composition constraint — the drag path must not re-derive color). Rationale: owner decision (c); stored-color makes the existing `drawing_item` renderer correct with zero change. Alternative: live substitution in the serializer (rejected — contradicts stored/leave-group). | `[new in P9]` — 3.3; stored-color rule + D50 constraint |

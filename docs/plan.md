@@ -3445,3 +3445,76 @@ ESC-079 (open, PLAN-routed) is P7 scope, already answered by S-P7-1 — it is no
   wording, not Plan reinterpretation.
 
 Status: BUILT - waves P8-T01 through P8-T04 + Q-48 landed 2026-10-28 (feature commit `09761fb`, tracking `b7978c2`); phase-final verdict REVIEW_COMPLETE (`docs/code_review/review_log_P8.md`, commit `f7d4e3c`); as-built record in `docs/phase-changelog.md` Phase P8.
+
+---
+
+## Phase P9 — alarm/drawing fix batch (Batch 25): five owner-ordered findings — drafted 2026-10-28
+
+> Companion: `docs/architecture.md` § *Phase P9* (Codebase Summary, S-P9-1…S-P9-4, frozen
+> interfaces, non-functional, AR-P9-1…AR-P9-4). Requirements basis (approved scope, not
+> re-derived): `ALARM_AND_DRAWING_CODE_REVIEW.txt` §§ 1.4, 3.1–3.4 plus the five owner decisions
+> relayed by the Orchestrator (3.1 carry group+color with symbol validation, repro-first; 3.2
+> read-only name cell, unit test; 3.4 re-validate on every group reload; 1.4 isolate persistence
+> failures, fault-injection test first; 3.3 recolor semantics **(c) Both** + leave-group rule,
+> compose with the in-flight D50 drag-editing batch). `requirements.md` carries
+> `Status: READY_FOR_PLAN`. Existing-repo run: `[existing]` / `[new]` / `[new/changed]` labels
+> relative to the codebase; **no new module, no new dependency, no schema migration**. One phase
+> only — nothing past the P9 build wave is planned. Out of scope: operation-level lock
+> enforcement beyond hidden handles (no drag path enforces it today; rides with drag-editing,
+> not this batch) and the D50 batch itself.
+
+### Traceability (finding → architecture → wave)
+
+| Finding / owner decision | Architecture section | Wave |
+|---|---|---|
+| 3.1 P1 — selected set not assigned to new LWC drawings (group + color into payload; symbol validation; repro-first) | S-P9-1; Frozen (persist rule, sole-writer) | P9-W3 |
+| 3.2 P2 — inline group-name edit `TypeError` (read-only cell, `Rename` stays the path; unit test) | S-P9-2 | P9-W2 |
+| 3.4 P2 — deleted group leaves stale `_active_draw_group_id` (re-validate on every reload; clear + combo + tool sync) | S-P9-2 | P9-W2 |
+| 1.4 P2 — DB error in `mark_triggered` aborts the bar path (isolate: log, in-memory update, retry/reconcile; fault-injection test first) | S-P9-3; Frozen (`mark_triggered` signature) | P9-W1 |
+| 3.3 P2 — recolor semantics, owner decision (c) Both (creation stamps group color, stored; recolor repaints members; leave-group rule; D50 keeps stored colors) | S-P9-4; Frozen (`drawing_op` visibility) | P9-W3 |
+| No production behaviour change beyond the five items; no skips/xfails; suite green | Non-Functional gate | P9-W4 |
+| D50 drag-editing (in flight) — composition only | S-P9-4 constraint | P9-W3 exit check, P9-W4 |
+
+Every item above is addressed somewhere in the architecture AND the waves below; nothing is
+narrowed or reinterpreted (the leave-group rule and the D50 constraint are the owner decisions
+as relayed, recorded verbatim in S-P9-4).
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. Every wave
+lands its repro test **red-first** (failing on the current tree) before the fix.
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P9-W1 | S | **Alarm persistence isolation (1.4; S-P9-3).** Fault-injection repro first (no fault was injected in the report — reproduce before fixing), then isolate both `mark_triggered` call sites: log with symbol/alarm context, update in-memory state, emit, queue retry. | (1) Injected `mark_triggered` failure → notification still emitted, `alarm.triggered` still set, `_last_chart_price` still advanced; (2) error logged with symbol + alarm context; (3) retry queue flushed on a later bar / `reload_alarms` with no duplicate emits; (4) full offscreen suite green. | Offscreen fault-injection + retry suites + full suite. |
+| P9-W2 | S | **Dialog state fixes (3.2 + 3.4; S-P9-2).** Name cell read-only (Rename path unchanged); active-ID re-validation on every group reload (delete-group path included). | (1) Name-cell edit attempt is impossible (no `ItemIsEditable`); Rename button renames as today; (2) deleting the selected group clears `_active_draw_group_id` to `None`, combo shows Ungrouped, tool re-pushed; (3) ticker-change clear still works; (4) full offscreen suite green. | Offscreen dialog/panel suites (name-edit probe, delete-selected-group probe) + full suite. |
+| P9-W3 | M | **Group-color pipeline (3.1 + 3.3; S-P9-1, S-P9-4).** Active group + color into the LWC commit payload with symbol validation; stored-color recolor semantics + leave-group rule; D50 composition check. | (1) New drawing under a selected set persists the set's ID **and** its color; ungrouped creation keeps the default; (2) foreign-group IDs coerce to `None` (no cross-symbol write); (3) recolor repaints all current members' stored colors; ungroup/reassign preserves stored color; (4) drag-edited drawings keep stored colors (D50 composition — verified, not re-implemented); (5) full offscreen + `node --test` suites green. | Offscreen payload/validation/recolor suites + gestures JS tests + full suite. |
+| P9-W4 | S | **Batch gate: close-out.** Every item observably satisfied, nothing else changed, suite green. | (1) All five findings' acceptance checks green; (2) no production behaviour change beyond the five items (diff review); (3) no skipped/xfailed tests added; (4) **full offscreen suite green**. | Full suite + the five-item checklist. A red suite fails the wave. |
+
+**What stays untouched by every P9 wave:** the `mark_triggered` signature; `assign_groups` /
+`delete_group` contracts; `drawing_op` visibility; `drag_drawing_item` geometry; the D28.2
+sole-writer rule; the `bars`/`alarms`/`drawings` schemas (no migration); the order-code absence
+(D45/D46); the LWC renderer seam; error ingress/classification; pacing tunables and the port guard.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P9-1 | The JS active-group setter is the single writer of the tool state's group fields, re-pushed by `_apply_active_draw_group` on every group reload and symbol change (AR-P9-4) | One writer keeps page state from desyncing; the Python-side validation is the backstop regardless |
+| AP-P9-2 | The retry queue is in-memory only (alarm IDs, flushed on subsequent bars / `reload_alarms`); a restart with an unflushed queue loses nothing observable because `reload_alarms` re-reads `triggered` state from the store | Persisting the queue would be a schema change for a transient condition; the store remains the durable truth |
+| AP-P9-3 | Recolor repaints *current* members only — drawings that left the group earlier keep the color they had (the leave-group rule, S-P9-4) | Owner decision (c) as relayed: stored colors survive leave-group in both directions |
+| AP-P9-4 | AC-G.1 (visual reference gate) does not apply: P9 makes no UI-visual decision (group colors are user data, the read-only cell removes an affordance rather than adding one) | All P9 outcomes are state/persistence behaviour with probe measurables |
+
+### Flagged Issues
+
+**None.** Every finding is satisfiable as written on the existing stack:
+
+- 3.1/3.3 ride fields and renderer paths that already exist (`PageDrawing`, `Drawing.color`,
+  `drawing_item`); only values and one validation are added.
+- 3.2/3.4 are state-bookkeeping fixes with probe measurables.
+- 1.4 is call-site isolation with a frozen store contract; the fault-injection repro is the
+  wave's first deliverable because the report performed no injection.
+- Operation-level lock enforcement (report §2.2) is **out of scope by owner order**, recorded
+  here — not an open gap: hidden handles stay the enforcement signal until drag-editing lands.
+
+Status: READY_FOR_TASK_MANAGER

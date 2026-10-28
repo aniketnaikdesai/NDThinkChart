@@ -1,977 +1,605 @@
 {
   "metadata": {
-    "phase": "P8",
-    "batch": "D48",
+    "phase": "P9",
+    "batch": "Batch 25 (alarm/drawing fix batch)",
     "status": "READY_FOR_BUILD",
-    "note": "P8 lite: 1 week (2Y) + 1 month (10Y). Waves P8-W1 (T01+T02) -> P8-W2 (T03+T04) -> P8-W3 (T05)."
+    "note": "P9: five owner-ordered findings (1.4, 3.1-3.4). Waves P9-W1 (T01) -> P9-W2 (T02+T03) -> P9-W3 (T04+T05) -> P9-W4 (T06 gate). Repro-first every wave; no skips/xfails. RG-P9-1: no requirements entries for 3.1/3.2/3.4/1.4 - built from plan measurables, requirement_ids use finding labels."
   },
   "tasks": [
     {
-      "id": "P8-T01",
-      "title": "Data plane: TIMEFRAME_CONFIG rows + Monday-anchored weekly and calendar-month bucketing",
-      "description": "Add exactly two TIMEFRAME_CONFIG rows (1 week -> 1 week/2 Y; 1 month -> 1 month/10 Y) appended after 1 day, add the nominal 604800/2592000 TIMEFRAME_SECONDS keys, and implement Monday-00:00-ET weekly bucketing plus calendar-month-boundary monthly bucketing in data/bar_aggregator.py beside (never altering) the existing fixed-seconds grid. Covers plan wave P8-W1 data-plane core and architecture S-P8-1/S-P8-2.",
+      "id": "P9-T1",
+      "title": "Alarm persistence isolation (1.4): fault-injection repro, then isolate both mark_triggered call sites with retry",
+      "description": "Repro-first: add fault-injection tests proving a DB failure in AlarmStore.mark_triggered aborts the bar path (no emit, no in-memory update, _last_chart_price stalls), then isolate both call sites in ui/ticker_session.py (_on_aggregated_bar and _evaluate_burst_alarms): catch the DB error, log with symbol plus alarm context, still set alarm.triggered, still emit, still advance _last_chart_price, and queue the alarm ID for retry flushed on subsequent bars and reload_alarms. The store signature stays frozen.",
       "agent": "build_worker",
-      "task_type": "build",
+      "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given TIMEFRAME_CONFIG, when inspected, then it contains 1 week (bar_size 1 week, duration 2 Y) and 1 month (bar_size 1 month, duration 10 Y) appended after 1 day, with the six existing rows byte-identical.",
-        "Given daily bars spanning a DST fold, a February, and a Dec/Jan boundary, when aggregated to 1 week / 1 month, then weekly buckets open Monday 00:00 America/New_York and monthly buckets open on the calendar-month boundary ET, and live forming-bar aggregation follows the same buckets."
+        "Given an injected mark_triggered DB failure at either call site, when a bar is processed, then the alarm notification is still emitted, alarm.triggered is set True, and _last_chart_price still advances for that bar.",
+        "Given such a persistence failure, when it is caught, then an error is logged carrying the symbol and alarm-ID context.",
+        "Given failed alarm IDs queued for retry, when a subsequent bar is processed or reload_alarms runs, then the retry flushes with no duplicate emissions for already-notified alarms."
       ],
       "tests": [
         {
-          "test_id": "P8-T01-T11",
-          "linked_acceptance_criterion": "Given TIMEFRAME_CONFIG, when inspected, then it contains 1 week (bar_size 1 week, duration 2 Y) and 1 month (bar_size 1 month, duration 10 Y) appended after 1 day, with the six existing rows byte-identical.",
-          "type": "unit",
-          "description": "In tests/test_d48_data_plane.py assert the two exact row dicts, key order (1 week/1 month immediately after 1 day), and byte-equality of the six pre-existing rows; assert TIMEFRAME_SECONDS gains 604800/2592000 while the seven existing periods are unchanged.",
-          "expected_result": "Passes only with the exact rows, order, and nominal keys present."
+          "test_id": "P9-T1-T11",
+          "linked_acceptance_criterion": "Given an injected mark_triggered DB failure at either call site, when a bar is processed, then the alarm notification is still emitted, alarm.triggered is set True, and _last_chart_price still advances for that bar.",
+          "type": "integration",
+          "description": "Monkeypatch AlarmStore.mark_triggered to raise on the _on_aggregated_bar path with a live alarm; drive one aggregated bar offscreen and assert emit plus triggered plus price advance. Red on the current tree (bar path aborts), green after.",
+          "expected_result": "Fails pre-fix (no emit, triggered unset, price stalled); passes post-fix."
         },
         {
-          "test_id": "P8-T01-T21",
-          "linked_acceptance_criterion": "Given daily bars spanning a DST fold, a February, and a Dec/Jan boundary, when aggregated to 1 week / 1 month, then weekly buckets open Monday 00:00 America/New_York and monthly buckets open on the calendar-month boundary ET, and live forming-bar aggregation follows the same buckets.",
+          "test_id": "P9-T1-T12",
+          "linked_acceptance_criterion": "Given an injected mark_triggered DB failure at either call site, when a bar is processed, then the alarm notification is still emitted, alarm.triggered is set True, and _last_chart_price still advances for that bar.",
+          "type": "integration",
+          "description": "Same injected failure on the _evaluate_burst_alarms path with a volume-burst alarm; drive one bar and assert emit plus triggered plus price advance. Red pre-fix, green post-fix.",
+          "expected_result": "Fails pre-fix; passes post-fix."
+        },
+        {
+          "test_id": "P9-T1-T13",
+          "linked_acceptance_criterion": "Given failed alarm IDs queued for retry, when a subsequent bar is processed or reload_alarms runs, then the retry flushes with no duplicate emissions for already-notified alarms.",
+          "type": "integration",
+          "description": "Fail once, then restore mark_triggered; drive a subsequent bar and call reload_alarms; assert the queue drains and exactly one emission per alarm occurred in total.",
+          "expected_result": "Retry flushes on next bar and on reload_alarms with no duplicate emits."
+        },
+        {
+          "test_id": "P9-T1-T14",
+          "linked_acceptance_criterion": "Given such a persistence failure, when it is caught, then an error is logged carrying the symbol and alarm-ID context.",
           "type": "unit",
-          "description": "In tests/test_d48_data_plane.py parametrize weekly bucketing over a DST-fold week, a cross-year Dec/Jan week, and a holiday week (sessions-only aggregation, no fabrication), and monthly bucketing over February, a 30-day month, and a 31-day month; assert bucket-open timestamps equal Monday 00:00 ET / month-boundary ET.",
-          "expected_result": "All parametrized cases pass; a fixed-seconds 30-day month grid would fail the February and cross-year cases."
+          "description": "Capture logs around an injected failure; assert the record names the symbol and the alarm ID.",
+          "expected_result": "Error log contains symbol and alarm-ID context."
         }
       ],
       "expected_artifacts": [
-        "ibkr/market_data.py (+2 config rows)",
-        "data/bar_aggregator.py (+weekly/monthly bucketing, +2 nominal keys)",
-        "tests/test_d48_data_plane.py"
-      ],
-      "touches_files": [
-        "ibkr/market_data.py",
-        "data/bar_aggregator.py",
-        "tests/test_d48_data_plane.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "S-P8-1",
-        "S-P8-2",
-        "AC-D48.1",
-        "AC-D48.2",
-        "A113-A116",
-        "A119"
-      ],
-      "outputs": [
-        "Two config rows live; calendar bucketing implemented; data-plane test module green"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ibkr/market_data.py",
-            "lines": "1-30",
-            "why": "TIMEFRAME_CONFIG rows to extend; appended after 1 day"
-          },
-          {
-            "path": "data/bar_aggregator.py",
-            "lines": "1-80",
-            "why": "TIMEFRAME_SECONDS + _period_start grid the new bucketing sits beside"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
-            "status": "existing"
-          },
-          {
-            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
-            "status": "existing"
-          },
-          {
-            "ref": "data/bar_aggregator.py:_period_start",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/market_data.py:req_historical_data",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "TIMEFRAME_CONFIG['1 week'] = {'duration': '2 Y', 'bar_size': '1 week'}; TIMEFRAME_CONFIG['1 month'] = {'duration': '10 Y', 'bar_size': '1 month'}",
-            "module": "ibkr/market_data.py"
-          },
-          {
-            "status": "new",
-            "signature": "TIMEFRAME_SECONDS['1 week'] = 604800; TIMEFRAME_SECONDS['1 month'] = 2592000 (nominal, fixed-seconds consumers only; never used for bucketing)",
-            "module": "data/bar_aggregator.py"
-          },
-          {
-            "status": "new",
-            "signature": "week_bucket_start(ts) -> Monday 00:00 America/New_York; month_bucket_start(ts) -> calendar-month boundary ET",
-            "module": "data/bar_aggregator.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
-        "requirement_ids": [
-          "D48",
-          "AC-D48.1",
-          "AC-D48.2",
-          "A113",
-          "A114",
-          "A115",
-          "A116",
-          "A119",
-          "R94"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_data_plane.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P8-T02",
-      "title": "Planner verification, priming-table docstring rows, and standalone IBKR probe",
-      "description": "Verify (no logic change) that weekly/monthly loads plan the configured durations, skip the AC-D16.8 intraday floor, and detect holes at bar granularity; add the two weekly/monthly rows to the prime_aggregator per-span docstring naming the existing coarse branch; run the standalone live-TWS probe for both new combos and record the outcome. Covers S-P8-3/S-P8-5, DG98, R93; delivers the AC-D48.6 probe evidence.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P8-T01"
-      ],
-      "acceptance_criteria": [
-        "Given a weekly/monthly load, when the planner runs, then it requests the configured duration (chunked per the existing stepping rule when one window cannot cover the span), never applies the AC-D16.8 30-session floor, and detects missing spans at bar granularity.",
-        "Given live TWS, when the standalone probe issues the (2 Y, 1 week) and (10 Y, 1 month) historical requests, then both complete with no 321-class rejection, and the probe record on file names both combos; a rejection fails the wave and escalates instead of shrinking durations."
-      ],
-      "tests": [
-        {
-          "test_id": "P8-T02-T11",
-          "linked_acceptance_criterion": "Given a weekly/monthly load, when the planner runs, then it requests the configured duration (chunked per the existing stepping rule when one window cannot cover the span), never applies the AC-D16.8 30-session floor, and detects missing spans at bar granularity.",
-          "type": "unit",
-          "description": "In tests/test_d48_planner_probe.py drive find_missing_spans/plan_requests for 1 week and 1 month: full-span case yields the configured duration in one chunk, a multi-window span chunks by that duration, the AC-D16.8 floor never fires (period >= 86400), and a hole-in-the-middle span is detected at bar granularity. Uses P8-T01 config rows.",
-          "expected_result": "All planner cases pass with zero planner source changes (verification, not code)."
-        },
-        {
-          "test_id": "P8-T02-T21",
-          "linked_acceptance_criterion": "Given live TWS, when the standalone probe issues the (2 Y, 1 week) and (10 Y, 1 month) historical requests, then both complete with no 321-class rejection, and the probe record on file names both combos; a rejection fails the wave and escalates instead of shrinking durations.",
-          "type": "manual",
-          "description": "Run the standalone read-only probe (historical requests only, no orders, port-guard respected) for both combos against live TWS; record durations, bar sizes, completion, and any error code in docs/d48_probe_record.md. Assert both complete with no 321-class rejection.",
-          "expected_result": "Probe record present naming both combos with clean completion; any 321-class rejection is recorded as a wave failure escalated to Requirements (R93), never a silent duration change."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/ticker_session.py (priming docstring +2 rows only)",
-        "tests/test_d48_planner_probe.py",
-        "docs/d48_probe_record.md"
+        "tests/test_p9_alarm_persistence.py",
+        "isolated call sites plus retry queue in ui/ticker_session.py"
       ],
       "touches_files": [
         "ui/ticker_session.py",
-        "tests/test_d48_planner_probe.py",
-        "docs/d48_probe_record.md"
+        "tests/test_p9_alarm_persistence.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P8-3",
-        "S-P8-5",
-        "AC-D48.3",
-        "AC-D48.6",
-        "A117",
-        "DG98",
-        "R93",
-        "P8-T01 config rows"
+        "S-P9-3 design",
+        "frozen mark_triggered contract"
       ],
       "outputs": [
-        "Planner verified unchanged; priming table documents weekly/monthly spans; probe record on file"
+        "Fault-isolated bar path",
+        "in-memory retry queue"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "services/backfill_service.py",
-            "lines": "1-60",
-            "why": "read-only: planner contracts under verification (no logic change)"
+            "path": "ui/ticker_session.py",
+            "lines": "472-600",
+            "why": "both mark_triggered call sites plus reload_alarms to modify"
           },
           {
-            "path": "ui/ticker_session.py",
-            "lines": "1670-1730",
-            "why": "prime_aggregator span branches whose docstring table gains two rows"
+            "path": "data/alarm_store.py",
+            "lines": "60-100",
+            "why": "read-only: frozen mark_triggered contract - do not change it"
+          },
+          {
+            "path": "tests/test_d25_alarm_monitor.py",
+            "lines": "1-80",
+            "why": "alarm monitor test conventions for this module"
           }
         ],
         "contracts": [
           {
-            "ref": "services/backfill_service.py:find_missing_spans",
+            "ref": "data/alarm_store.py:mark_triggered",
             "status": "existing"
           },
           {
-            "ref": "services/backfill_service.py:plan_requests",
+            "ref": "ui/ticker_session.py:_on_aggregated_bar",
             "status": "existing"
           },
           {
-            "ref": "services/backfill_service.py:floor_bar_budget",
+            "ref": "ui/ticker_session.py:_evaluate_burst_alarms",
             "status": "existing"
           },
           {
-            "ref": "services/backfill_service.py:bar_period_seconds",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:prime_aggregator",
+            "ref": "ui/ticker_session.py:reload_alarms",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "priming docstring rows: weekly spans (<= 604800 s) and monthly spans (~2.6 Ms) -> existing coarse branch: 1 min / [60 S, 1 D]; no logic change",
+            "signature": "_trigger_retry_queue: list[int] on TickerSession, flushed on subsequent bars and reload_alarms, bounded by active-alarm count",
             "module": "ui/ticker_session.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "architecture_ref": "docs/architecture.md#Phase P9",
+        "plan_ref": "docs/plan.md#Phase P9",
         "requirement_ids": [
-          "D48",
-          "AC-D48.3",
-          "AC-D48.6",
-          "A117",
-          "DG98",
-          "R93"
+          "P9-1.4"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_planner_probe.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_alarm_persistence.py -q -o addopts=\"\"",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P9-T2",
+      "title": "Dialog state fix (3.2): group-name cell read-only, Rename stays the path",
+      "description": "Make the group-name QTableWidgetItem read-only by clearing ItemIsEditable so the _on_group_item_changed integer-unpack TypeError path is structurally removed; the Rename button remains the sole rename path, unchanged.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P9-T1"
+      ],
+      "acceptance_criteria": [
+        "Given the groups dialog open, when the name cell is probed, then it carries no ItemIsEditable flag so inline editing is impossible.",
+        "Given a group selected, when Rename is used, then the group renames and persists exactly as today."
+      ],
+      "tests": [
+        {
+          "test_id": "P9-T2-T21",
+          "linked_acceptance_criterion": "Given the groups dialog open, when the name cell is probed, then it carries no ItemIsEditable flag so inline editing is impossible.",
+          "type": "unit",
+          "description": "Build the dialog offscreen with one group; assert the name item flags exclude ItemIsEditable. Red pre-fix (editable), green post-fix.",
+          "expected_result": "Fails pre-fix; passes post-fix with Rename path untouched."
+        },
+        {
+          "test_id": "P9-T2-T22",
+          "linked_acceptance_criterion": "Given a group selected, when Rename is used, then the group renames and persists exactly as today.",
+          "type": "unit",
+          "description": "Drive _rename_group offscreen; assert the group row renames and the store persists the new name.",
+          "expected_result": "Rename works and persists as today."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p9_group_dialog.py",
+        "read-only name cell in ui/drawing_groups_dialog.py"
+      ],
+      "touches_files": [
+        "ui/drawing_groups_dialog.py",
+        "tests/test_p9_group_dialog.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P9-2 dialog fix shape"
+      ],
+      "outputs": [
+        "TypeError path removed",
+        "Rename regression guard"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/drawing_groups_dialog.py",
+            "lines": "20-130",
+            "why": "dialog table build holding the name-cell flags"
+          },
+          {
+            "path": "ui/drawing_groups_dialog.py",
+            "lines": "171-250",
+            "why": "rename handler and _on_group_item_changed to keep consistent"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "1-60",
+            "why": "offscreen harness and DB isolation conventions"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/drawing_groups_dialog.py:_rename_group",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/drawing_groups_dialog.py:_on_group_item_changed",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P9",
+        "plan_ref": "docs/plan.md#Phase P9",
+        "requirement_ids": [
+          "P9-3.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_group_dialog.py -q -o addopts=\"\"",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P8-T03",
-      "title": "Canonical daily+ full-session mode: identical RTH/ETH bars through one shared cache",
-      "description": "Canonicalise loads for any timeframe with period >= 86400 to one shared full-session mode across the cache read/write, planner call, wave, and prime in ui/main_window.py, and extend the services/chart_model.py plotted/collapse membership branches to the shared daily-or-coarser predicate. RTH/ETH toggle on 1 week / 1 month then converges with identical bars and no extra requests when cached. Covers S-P8-4 load-path half and AC-D48.4 mode-parity half.",
+      "id": "P9-T3",
+      "title": "Dialog state fix (3.4): re-validate active draw-group ID on every group reload",
+      "description": "Extend _refresh_drawing_groups in ui/main_window.py to re-validate _active_draw_group_id against the current symbol's groups on every reload: an unknown ID clears to None, the combo resets to Ungrouped, and the tool state is re-pushed; the existing ticker-change clear in load_chart is preserved as a regression guard.",
       "agent": "build_worker",
-      "task_type": "build",
+      "task_type": "code",
       "dependencies": [
-        "P8-T01"
+        "P9-T1"
       ],
       "acceptance_criteria": [
-        "Given either new timeframe, when loaded under RTH and under ETH, then both loads return identical bars from one shared cache treatment, and toggling the mode with the span cached issues no extra historical requests."
+        "Given an active draw-group ID that no longer exists for the current symbol, when drawing groups reload, then _active_draw_group_id clears to None, the combo shows Ungrouped, and the tool state is re-pushed.",
+        "Given a ticker change, when load_chart runs, then the active-group clear behaves exactly as today."
       ],
       "tests": [
         {
-          "test_id": "P8-T03-T11",
-          "linked_acceptance_criterion": "Given either new timeframe, when loaded under RTH and under ETH, then both loads return identical bars from one shared cache treatment, and toggling the mode with the span cached issues no extra historical requests.",
+          "test_id": "P9-T3-T31",
+          "linked_acceptance_criterion": "Given an active draw-group ID that no longer exists for the current symbol, when drawing groups reload, then _active_draw_group_id clears to None, the combo shows Ungrouped, and the tool state is re-pushed.",
           "type": "integration",
-          "description": "In tests/test_d48_mode_parity.py drive the MainWindow load path offscreen (IBApiClient.connect monkeypatched, req_historical_data stubbed with an unbounded reqId source per the D42 gotcha, symbol upper-cased per the load_chart trap) for 1 week and 1 month under ext_hours False then True: assert identical bars, a single shared cache key, and zero new historical requests on the toggle when cached; assert chart-model plotted/collapse output is identical under both modes.",
-          "expected_result": "Mode-parity holds for both new timeframes; toggle is a cache hit with no extra requests."
+          "description": "Select a group, delete it via the store, reload groups offscreen; assert active ID is None, combo is Ungrouped, tool re-pushed. Red pre-fix (stale ID retained), green post-fix.",
+          "expected_result": "Fails pre-fix; passes post-fix."
+        },
+        {
+          "test_id": "P9-T3-T32",
+          "linked_acceptance_criterion": "Given an active draw-group ID that no longer exists for the current symbol, when drawing groups reload, then _active_draw_group_id clears to None, the combo shows Ungrouped, and the tool state is re-pushed.",
+          "type": "integration",
+          "description": "Seed a stale foreign active ID directly, reload groups; assert coercion to None with Ungrouped combo.",
+          "expected_result": "Stale ID coerces to None on reload."
+        },
+        {
+          "test_id": "P9-T3-T33",
+          "linked_acceptance_criterion": "Given a ticker change, when load_chart runs, then the active-group clear behaves exactly as today.",
+          "type": "integration",
+          "description": "Drive load_chart with a symbol change offscreen; assert the active group clears as today.",
+          "expected_result": "Ticker-change clear preserved."
         }
       ],
       "expected_artifacts": [
-        "ui/main_window.py (canonical daily+ mode)",
-        "services/chart_model.py (shared predicate)",
-        "tests/test_d48_mode_parity.py"
+        "tests/test_p9_active_group.py",
+        "re-validation in MainWindow._refresh_drawing_groups"
       ],
       "touches_files": [
         "ui/main_window.py",
-        "services/chart_model.py",
-        "tests/test_d48_mode_parity.py"
+        "tests/test_p9_active_group.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P8-4",
-        "AC-D48.4",
-        "A118",
-        "P8-T01 config rows + nominal keys"
+        "S-P9-2 re-validation rule"
       ],
       "outputs": [
-        "RTH/ETH no-op structural for weekly/monthly; mode-parity suite green"
+        "No stale active-group state",
+        "ticker-clear regression guard"
       ],
       "status": "done",
-      "size": "M",
+      "size": "S",
       "context": {
         "read_files": [
           {
             "path": "ui/main_window.py",
-            "lines": "230-250",
-            "why": "tf_combo picker construction (config order, no change)"
+            "lines": "1933-2010",
+            "why": "_refresh_drawing_groups, _apply_active_draw_group, _on_drawing_created to modify"
           },
           {
-            "path": "services/chart_model.py",
+            "path": "ui/main_window.py",
+            "lines": "1801-1810",
+            "why": "read-only: existing ticker-change clear - do not change it"
+          },
+          {
+            "path": "tests/test_d28_6_drawing_roundtrip.py",
             "lines": "1-60",
-            "why": "plotted/collapse membership branches adopting the shared predicate"
-          },
-          {
-            "path": "data/models.py",
-            "lines": "1-13",
-            "why": "read-only: Bar dataclass fields to seed the cache via save_bars in the parity test \u2014 do not change it"
-          },
-          {
-            "path": "data/bar_cache.py",
-            "lines": "11-49",
-            "why": "read-only: (symbol, timeframe, ext_hours) key scheme in save_bars/get_bars to assert the single shared cache key \u2014 do not change it"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "796-815",
-            "why": "read-only: queue_wave_plans issuance path issuing req_historical_data \u2014 do not change it"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "1103-1134",
-            "why": "read-only: prime_aggregator replay-guard and request/defer behavior to stub req_historical_data and assert issuance \u2014 do not change it"
+            "why": "drawing round-trip test conventions for this surface"
           }
         ],
         "contracts": [
           {
-            "ref": "ibkr/market_data.py:req_historical_data",
+            "ref": "ui/main_window.py:_refresh_drawing_groups",
             "status": "existing"
           },
           {
-            "ref": "data/bar_cache.py:save_bars",
+            "ref": "ui/main_window.py:_apply_active_draw_group",
             "status": "existing"
-          },
-          {
-            "ref": "data/bar_cache.py:get_bars",
-            "status": "existing"
-          },
-          {
-            "ref": "services/chart_model.py:plotted_index_rows",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "is_daily_or_coarser(timeframe) -> bar_period_seconds(timeframe) >= 86400; loads with True use one canonical full-session mode for request, cache, planner, and prime",
-            "module": "ui/main_window.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "architecture_ref": "docs/architecture.md#Phase P9",
+        "plan_ref": "docs/plan.md#Phase P9",
         "requirement_ids": [
-          "D48",
-          "AC-D48.4",
-          "A118"
+          "P9-3.4"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_mode_parity.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_active_group.py -q -o addopts=\"\"",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "M"
+        "size": "S"
       }
     },
     {
-      "id": "P8-T04",
-      "title": "Presentation remainder: daily+ predicate sweep, picker parity, burst minutes, visibility guard",
-      "description": "Adopt the one shared daily-or-coarser predicate at the six == 1 day gates (session bands x2, time-collapse identity, lwc session regions) so weekly/monthly get no bands and no collapse; map minutes_for_timeframe for 1 week (1950.0) and 1 month (8190.0); pin picker order/select/load/persist parity; guard the visibility grid (no new rows, all boxes default-checked, payload round-trips). Covers S-P8-4 predicate half, S-P8-6, S-P8-7, DG97, R95, AC-D48.4 bands half and AC-D48.5.",
+      "id": "P9-T4",
+      "title": "Group-color pipeline (3.1): active group plus color into the LWC commit payload with symbol validation",
+      "description": "Add active-group tool state (setActiveGroup(id, color), the single writer) to chart_assets/lwc/gestures.js so drawingItem stamps the active group ID and intended color instead of null and default; forward via PageDrawing unchanged through _on_page_drawing_committed; validate in MainWindow._on_drawing_created that the submitted group belongs to the drawing symbol (else coerce to None) before create_drawing; re-push the setter from _apply_active_draw_group on every group reload and symbol change.",
       "agent": "build_worker",
-      "task_type": "build",
+      "task_type": "code",
       "dependencies": [
-        "P8-T01"
+        "P9-T2",
+        "P9-T3"
       ],
       "acceptance_criteria": [
-        "Given either new timeframe in either mode, when bands and collapse are evaluated, then no session band is produced and the collapse map is identity, exactly as for 1 day.",
-        "Given minutes_for_timeframe, when called with 1 week and 1 month, then it returns 1950.0 and 8190.0 regular-session minutes.",
-        "Given the toolbar picker, when inspected and driven, then 1 week and 1 month follow 1 day and each selects, loads, and persists like every other timeframe.",
-        "Given the drawing/alarm visibility dialog, when opened, then every box is checked by default and the get/set payload round-trips with no per-timeframe key and no new row."
+        "Given a selected draw group, when a new LWC drawing commits, then the persisted drawing carries the set's ID and its color; an ungrouped creation keeps the default color and a null group.",
+        "Given a commit payload whose group ID belongs to another symbol, when _on_drawing_created persists, then the group coerces to None with no cross-symbol write and no crash.",
+        "Given a group reload or symbol change, when _apply_active_draw_group runs, then the JS active-group state is re-pushed so the page cannot desync from the toolbar."
       ],
       "tests": [
         {
-          "test_id": "P8-T04-T11",
-          "linked_acceptance_criterion": "Given either new timeframe in either mode, when bands and collapse are evaluated, then no session band is produced and the collapse map is identity, exactly as for 1 day.",
+          "test_id": "P9-T4-T41",
+          "linked_acceptance_criterion": "Given a selected draw group, when a new LWC drawing commits, then the persisted drawing carries the set's ID and its color; an ungrouped creation keeps the default color and a null group.",
           "type": "unit",
-          "description": "In tests/test_d48_presentation.py assert session_bands/session_bands_for_range return [] and the collapse map is identity for 1 week / 1 month under both modes, mirroring the 1 day assertions; assert lwc session_regions emits nothing for the new keys.",
-          "expected_result": "Bands/collapse absent for both new timeframes in both modes."
+          "description": "node --test on gestures.test.js: set active group then build a drawingItem; assert the item stamps the group ID and color, and defaults when ungrouped. Red pre-fix (null and default), green post-fix.",
+          "expected_result": "Fails pre-fix; passes post-fix."
         },
         {
-          "test_id": "P8-T04-T21",
-          "linked_acceptance_criterion": "Given minutes_for_timeframe, when called with 1 week and 1 month, then it returns 1950.0 and 8190.0 regular-session minutes.",
-          "type": "unit",
-          "description": "In tests/test_d48_presentation.py assert minutes_for_timeframe('1 week') == 1950.0 and ('1 month') == 8190.0, with the 1 day -> 390.0 precedent case kept.",
-          "expected_result": "Exact RTH-session minutes returned; nominal secs/60 fallback would fail."
+          "test_id": "P9-T4-T42",
+          "linked_acceptance_criterion": "Given a selected draw group, when a new LWC drawing commits, then the persisted drawing carries the set's ID and its color; an ungrouped creation keeps the default color and a null group.",
+          "type": "integration",
+          "description": "Drive a page commit payload with group plus color through _on_page_drawing_committed into _on_drawing_created offscreen; assert the stored drawing row carries both values.",
+          "expected_result": "Group ID and color persist end to end."
         },
         {
-          "test_id": "P8-T04-T31",
-          "linked_acceptance_criterion": "Given the toolbar picker, when inspected and driven, then 1 week and 1 month follow 1 day and each selects, loads, and persists like every other timeframe.",
-          "type": "unit",
-          "description": "In tests/test_d48_presentation.py assert tf_combo order (1 week/1 month immediately after 1 day) and drive select/load/persist for each new timeframe offscreen like the existing timeframe parity cases.",
-          "expected_result": "Picker parity holds; no picker code change required."
+          "test_id": "P9-T4-T43",
+          "linked_acceptance_criterion": "Given a commit payload whose group ID belongs to another symbol, when _on_drawing_created persists, then the group coerces to None with no cross-symbol write and no crash.",
+          "type": "integration",
+          "description": "Submit a foreign-symbol group ID in the commit payload; assert the drawing persists with group None and no exception. Red pre-fix (foreign ID stored), green post-fix.",
+          "expected_result": "Fails pre-fix; passes post-fix with group None."
         },
         {
-          "test_id": "P8-T04-T41",
-          "linked_acceptance_criterion": "Given the drawing/alarm visibility dialog, when opened, then every box is checked by default and the get/set payload round-trips with no per-timeframe key and no new row.",
-          "type": "unit",
-          "description": "In tests/test_d48_presentation.py open the VisibilityTab, assert all six unit boxes (incl. Weeks/Months) default-checked, and assert get_visibility/set_visibility round-trips the payload unchanged with no per-timeframe key (DG97 resolved as no-new-rows).",
-          "expected_result": "Visibility default-on by construction; round-trip passes."
+          "test_id": "P9-T4-T44",
+          "linked_acceptance_criterion": "Given a group reload or symbol change, when _apply_active_draw_group runs, then the JS active-group state is re-pushed so the page cannot desync from the toolbar.",
+          "type": "integration",
+          "description": "Reload groups and change symbol offscreen with a page stub capturing the setter; assert setActiveGroup is re-pushed with the current ID and color each time.",
+          "expected_result": "Setter re-pushed on every reload and symbol change."
         }
       ],
       "expected_artifacts": [
-        "services/session_service.py + services/time_collapse_service.py + ui/lwc_view.py (shared predicate)",
-        "services/volume_baseline.py (+2 minutes lines)",
-        "tests/test_d48_presentation.py"
+        "chart_assets/lwc/gestures.js active-group state",
+        "validation in MainWindow._on_drawing_created",
+        "tests/test_p9_group_payload.py",
+        "gestures.test.js additions"
       ],
       "touches_files": [
-        "services/session_service.py",
-        "services/time_collapse_service.py",
+        "chart_assets/lwc/gestures.js",
+        "chart_assets/lwc/gestures.test.js",
         "ui/lwc_view.py",
-        "services/volume_baseline.py",
-        "tests/test_d48_presentation.py"
+        "ui/main_window.py",
+        "tests/test_p9_group_payload.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P8-4",
-        "S-P8-6",
-        "S-P8-7",
-        "AC-D48.4",
-        "AC-D48.5",
-        "A118",
-        "A119",
-        "A120",
-        "DG97",
-        "R95"
+        "S-P9-1 five-link chain",
+        "P9-T3 re-push hook"
       ],
       "outputs": [
-        "Predicate sweep complete; minutes mapped; picker + visibility pinned"
+        "Group plus color in commit payload",
+        "symbol validation at persist boundary"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "services/session_service.py",
-            "lines": "35-95",
-            "why": "the two 1 day gates adopting the shared predicate"
+            "path": "chart_assets/lwc/gestures.js",
+            "lines": "140-180",
+            "why": "drawingItem commit builder stamping null and default - to modify"
           },
           {
-            "path": "services/time_collapse_service.py",
-            "lines": "40-60",
-            "why": "IDENTITY_TIMEFRAME gate adopting the shared predicate"
+            "path": "chart_assets/lwc/gestures.test.js",
+            "lines": "1-60",
+            "why": "JS test conventions to extend"
           },
           {
             "path": "ui/lwc_view.py",
-            "lines": "1185-1210",
-            "why": "session_regions 1 day gate adopting the shared predicate"
+            "lines": "1561-1700",
+            "why": "PageDrawing transport record and LwcDrawingSurface setter home"
           },
           {
-            "path": "services/volume_baseline.py",
-            "lines": "1-60",
-            "why": "minutes_for_timeframe gaining the two explicit mappings"
-          },
-          {
-            "path": "ui/drawing_settings_common.py",
-            "lines": "1-60",
-            "why": "read-only: VisibilityTab payload shape (unchanged, guard only)"
+            "path": "ui/main_window.py",
+            "lines": "1933-2010",
+            "why": "_apply_active_draw_group and _on_drawing_created to modify"
           }
         ],
         "contracts": [
           {
-            "ref": "services/session_service.py:session_bands",
+            "ref": "ui/lwc_view.py:PageDrawing",
             "status": "existing"
           },
           {
-            "ref": "services/time_collapse_service.py:IDENTITY_TIMEFRAME",
+            "ref": "ui/lwc_view.py:_on_page_drawing_committed",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_view.py:session_regions",
-            "status": "existing"
-          },
-          {
-            "ref": "services/volume_baseline.py:minutes_for_timeframe",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/drawing_settings_common.py:VisibilityTab",
+            "ref": "ui/main_window.py:_on_drawing_created",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "minutes_for_timeframe('1 week') == 1950.0; minutes_for_timeframe('1 month') == 8190.0",
-            "module": "services/volume_baseline.py"
+            "signature": "setActiveGroup(id, color) - single writer of the tool-state group fields, re-pushed on every group reload and symbol change",
+            "module": "chart_assets/lwc/gestures.js"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "architecture_ref": "docs/architecture.md#Phase P9",
+        "plan_ref": "docs/plan.md#Phase P9",
         "requirement_ids": [
-          "D48",
-          "AC-D48.4",
-          "AC-D48.5",
-          "A118",
-          "A119",
-          "A120",
-          "DG97",
-          "R95"
+          "P9-3.1"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_presentation.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_group_payload.py -q -o addopts=\"\" && node --test chart_assets/lwc/gestures.test.js",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P8-T05",
-      "title": "Batch gate: probe record, history-intact, and full-suite green",
-      "description": "Close out P8: assert the P8-T02 probe record names both combos with clean completion, assert requirements history is intact (D41-D47 sections, marker sentence, Current Tech Stack, only the recorded enumeration extension), and run the full offscreen suite green. Covers plan wave P8-W3 and AC-D48.6 (record side) / AC-D48.7.",
+      "id": "P9-T5",
+      "title": "Recolor semantics (3.3): stored colors, member repaint, leave-group rule, D50 composition",
+      "description": "Implement owner decision (c) Both: creation already stamps the group color via P9-T4; group recolor repaints all current members by updating their stored Drawing.color values (member-repaint, one UPDATE per recolor); ungroup and reassign preserve each drawing's stored color (never reset to default); edited drawings keep stored colors through the D50 drag path, which is verified for composition but not re-implemented. Serializer and drawing_op visibility unchanged.",
       "agent": "build_worker",
-      "task_type": "build",
+      "task_type": "code",
       "dependencies": [
-        "P8-T02",
-        "P8-T03",
-        "P8-T04",
-        "P8-T06",
-        "P8-T07",
-        "P8-T08"
+        "P9-T4"
       ],
       "acceptance_criteria": [
-        "Given the probe record, when read, then it documents both the (2 Y, 1 week) and (10 Y, 1 month) combos with completion and no 321-class rejection.",
-        "Given requirements.md, when inspected, then the D41-D47 sections with reversals, the Existing Repository marker sentence, and the Current Tech Stack are intact, and the only pre-D48 wording touched is the recorded timeframe-enumeration extension plus the two AC-D27.9 table rows.",
-        "Given the repository with all P8 changes, when the full offscreen suite runs, then it is green."
+        "Given a group recolor, when committed, then every current member's stored Drawing.color is repainted to the new color.",
+        "Given an ungroup or reassignment, when applied, then the drawing keeps its stored color and never resets to the default; drawings that left the group earlier keep the color they had.",
+        "Given a drag edit through the D50 drag path, when applied, then the drawing's stored color is preserved."
       ],
       "tests": [
         {
-          "test_id": "P8-T05-T11",
-          "linked_acceptance_criterion": "Given the probe record, when read, then it documents both the (2 Y, 1 week) and (10 Y, 1 month) combos with completion and no 321-class rejection.",
-          "type": "unit",
-          "description": "In tests/test_d48_gate.py assert docs/d48_probe_record.md exists and names both combos with clean completion and no 321-class code (reads the P8-T02 artifact; asserts presence and content, never re-probes).",
-          "expected_result": "Passes only with the complete probe record on file."
+          "test_id": "P9-T5-T51",
+          "linked_acceptance_criterion": "Given a group recolor, when committed, then every current member's stored Drawing.color is repainted to the new color.",
+          "type": "integration",
+          "description": "Create a group with two member drawings, recolor via _recolor_group offscreen; assert both stored colors equal the new color. Red pre-fix (members unchanged), green post-fix.",
+          "expected_result": "Fails pre-fix; passes post-fix."
         },
         {
-          "test_id": "P8-T05-T21",
-          "linked_acceptance_criterion": "Given requirements.md, when inspected, then the D41-D47 sections with reversals, the Existing Repository marker sentence, and the Current Tech Stack are intact, and the only pre-D48 wording touched is the recorded timeframe-enumeration extension plus the two AC-D27.9 table rows.",
-          "type": "unit",
-          "description": "In tests/test_d48_gate.py assert the marker sentence, the ### D41 through ### D47 sections, and the Current Tech Stack are present, and assert the AC-D16.1 enumeration reads eight timeframes with the AC-D27.9 table carrying the two added rows.",
-          "expected_result": "History intact; only the recorded extension touched."
+          "test_id": "P9-T5-T52",
+          "linked_acceptance_criterion": "Given an ungroup or reassignment, when applied, then the drawing keeps its stored color and never resets to the default; drawings that left the group earlier keep the color they had.",
+          "type": "integration",
+          "description": "Ungroup and reassign member drawings; assert stored colors survive in both directions and an earlier-leaver keeps its color through a later recolor.",
+          "expected_result": "Stored colors survive ungroup, reassign, and later recolors."
         },
         {
-          "test_id": "P8-T05-T31",
-          "linked_acceptance_criterion": "Given the repository with all P8 changes, when the full offscreen suite runs, then it is green.",
-          "type": "manual",
-          "description": "Run the full offscreen suite (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts='' -q from the repo root; hermetic via tests/conftest.py DB_PATH) and confirm green with no new failures versus the pre-P8 baseline.",
-          "expected_result": "Full suite green; the batch gate holds."
+          "test_id": "P9-T5-T53",
+          "linked_acceptance_criterion": "Given a drag edit through the D50 drag path, when applied, then the drawing's stored color is preserved.",
+          "type": "unit",
+          "description": "Apply drag_drawing_item geometry to a grouped drawing payload; assert the stored color is untouched by the geometry move.",
+          "expected_result": "Drag edits preserve stored colors (composition verified)."
         }
       ],
       "expected_artifacts": [
-        "tests/test_d48_gate.py",
-        "full-suite green run"
+        "tests/test_p9_recolor.py",
+        "member-repaint in recolor path",
+        "stored-color leave-group behavior"
       ],
       "touches_files": [
-        "tests/test_d48_gate.py"
+        "ui/drawing_groups_dialog.py",
+        "data/drawing_store.py",
+        "tests/test_p9_recolor.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P8-T02 probe record",
-        "AC-D48.6",
-        "AC-D48.7",
-        "full P8 change set"
+        "S-P9-4 stored-color rule",
+        "P9-T4 creation stamping"
       ],
       "outputs": [
-        "Gate test green; batch close-out evidence"
-      ],
-      "status": "blocked",
-      "size": "S",
-      "context": {
-        "read_files": [],
-        "contracts": [
-          {
-            "ref": "config/settings.py:check_live_port",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/chart_view.py:create_chart_view",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
-        "requirement_ids": [
-          "D48",
-          "AC-D48.6",
-          "AC-D48.7"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_gate.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P8-T06",
-      "title": "T40 backfill fixture: weekly/monthly bar model per AC-D48.2 (ESC-080)",
-      "description": "Follow-up to the P8 review (ESC-080): extend the T40 fixture _session_bars in tests/test_history_backfill.py with a weekly/monthly bar model anchored on the canonical data/bar_aggregator.py week_bucket_start/month_bucket_start helpers (Monday-00:00-ET weekly buckets, calendar-month-boundary monthly buckets; bucket-keyed so per-day callers never duplicate a bucket bar). TIMEFRAMES keeps all eight config keys (no scoping); production bucketing in data/bar_aggregator.py is the exonerated reference and must not move. The t13 knock-on (test_p7_w1_cap subprocess rerun) clears with the same fix and needs no file of its own. Covers ESC-080 and the AC-D48.7 suite-green gate.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [
-        "P8-T01"
-      ],
-      "acceptance_criteria": [
-        "Given the eight-row TIMEFRAME_CONFIG (the six pre-existing rows plus 1 week and 1 month), when test_t40_t04_chunked_multi_request_continuity runs for the 1 week and 1 month params, then every in-span bar matches the AC-D48.2 bucket model - weekly bars open Monday 00:00 America/New_York, monthly bars open on the calendar-month boundary ET - with no index-0 86400 shift and no extra in-span bars.",
-        "Given the six pre-existing timeframes, when the full tests/test_history_backfill.py module runs, then every pre-existing param stays green - the fixture change adds a weekly/monthly branch only and alters no existing expectation."
-      ],
-      "tests": [
-        {
-          "test_id": "P8-T06-T11",
-          "linked_acceptance_criterion": "Given the eight-row TIMEFRAME_CONFIG (the six pre-existing rows plus 1 week and 1 month), when test_t40_t04_chunked_multi_request_continuity runs for the 1 week and 1 month params, then every in-span bar matches the AC-D48.2 bucket model - weekly bars open Monday 00:00 America/New_York, monthly bars open on the calendar-month boundary ET - with no index-0 86400 shift and no extra in-span bars.",
-          "type": "unit",
-          "description": "Run the four newly-reddened params (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_history_backfill.py -q -k \"week or month\"): each converges with in_span bars equal to expected_ts, and the stubbed feed answers weekly/monthly windows with bucket-anchored bars.",
-          "expected_result": "All four params pass; the 86400 index-0 shift and the 2 extra in-span bars are gone."
-        },
-        {
-          "test_id": "P8-T06-T21",
-          "linked_acceptance_criterion": "Given the six pre-existing timeframes, when the full tests/test_history_backfill.py module runs, then every pre-existing param stays green - the fixture change adds a weekly/monthly branch only and alters no existing expectation.",
-          "type": "unit",
-          "description": "Run the whole tests/test_history_backfill.py module: every pre-existing (six-timeframe) param passes unchanged, proving the new branch did not alter the day-model.",
-          "expected_result": "Full module green; no pre-existing expectation weakened or rescoped."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_history_backfill.py (weekly/monthly fixture branch)"
-      ],
-      "touches_files": [
-        "tests/test_history_backfill.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "S-P8-2",
-        "AC-D48.2",
-        "AC-D48.7",
-        "A113-A116",
-        "P8-T01 bucketing",
-        "ESC-080"
-      ],
-      "outputs": [
-        "Four week/month T40-T04 params green; t13 knock-on cleared; no day-model regression"
+        "Member repaint on recolor",
+        "leave-group preservation",
+        "D50 composition evidence"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "tests/test_history_backfill.py",
-            "lines": "97-120",
-            "why": "_session_bars day-model gaining the weekly/monthly branch"
+            "path": "ui/drawing_groups_dialog.py",
+            "lines": "171-250",
+            "why": "_recolor_group and related member handlers to modify"
           },
           {
-            "path": "tests/test_history_backfill.py",
-            "lines": "418-500",
-            "why": "TIMEFRAMES matrix, _chunk_scenario and the T40-T04 body"
+            "path": "data/drawing_store.py",
+            "lines": "70-200",
+            "why": "delete_group, update_drawing and assign_groups member-write paths"
           },
           {
-            "path": "data/bar_aggregator.py",
-            "lines": "83-110",
-            "why": "read-only: week_bucket_start/month_bucket_start anchor semantics the fixture must match - do not change them"
+            "path": "ui/lwc_view.py",
+            "lines": "928-1010",
+            "why": "read-only: drawing_item renders from Drawing.color - do not change it"
           },
           {
-            "path": "services/backfill_service.py",
-            "lines": "201-234",
-            "why": "read-only: present_days presence predicate flagging the 737 cached week-days as missing \u2014 do not change it"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2163-2223",
-            "why": "read-only: _finalize_history_wave shortfall surfacing via _missing_backfill_trading_days the load path must surface \u2014 do not change it"
+            "path": "tests/test_drawing_store.py",
+            "lines": "1-60",
+            "why": "drawing store test conventions for this module"
           }
         ],
         "contracts": [
           {
-            "ref": "tests/test_history_backfill.py:_session_bars",
+            "ref": "data/drawing_store.py:update_drawing",
             "status": "existing"
           },
           {
-            "ref": "data/bar_aggregator.py:week_bucket_start",
+            "ref": "data/drawing_store.py:delete_group",
             "status": "existing"
           },
           {
-            "ref": "data/bar_aggregator.py:month_bucket_start",
+            "ref": "ui/drawing_groups_dialog.py:_recolor_group",
             "status": "existing"
           },
           {
-            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
+            "ref": "ui/lwc_view.py:drag_drawing_item",
             "status": "existing"
           },
           {
-            "ref": "services/backfill_service.py:present_days",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_missing_backfill_trading_days",
+            "ref": "ui/lwc_view.py:drawing_item",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "architecture_ref": "docs/architecture.md#Phase P9",
+        "plan_ref": "docs/plan.md#Phase P9",
         "requirement_ids": [
-          "D48",
-          "AC-D48.2",
-          "AC-D48.7",
-          "A113",
-          "A114",
-          "A115",
-          "A116"
+          "P9-3.3"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_history_backfill.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_recolor.py -q -o addopts=\"\"",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P8-T07",
-      "title": "Duration pins: encode the owner-approved eight-row set (ESC-081)",
-      "description": "Follow-up to the P8 review (ESC-081): extend the two exact-equality duration pins to the S-P8-1-mandated eight rows - tests/test_ibkr_handshake_gate.py duration map gains 1 week 2 Y and 1 month 10 Y; tests/test_p7_w3_wide.py approved AND chained dicts gain identical 1 week/1 month entries (so the unapproved-change loop skips them with no approval record), and the \"(1 week/1 month are out of scope)\" comment is rewritten to match the assert. Do not weaken either pin to a subset comparison (t12 fails closed by design); WIDEN_CANDIDATES and the five P7 approval records are untouched. Covers ESC-081 and the AC-D48.7 gate.",
+      "id": "P9-T6",
+      "title": "Batch gate (W4): five-item close-out, diff review, full suite green",
+      "description": "Verification-only close-out: re-run the five new suites to confirm every finding's acceptance checks are green with no skipped or xfailed tests added; review the production diff to confirm no behaviour change beyond the five items with frozen interfaces and the order-code absence intact; run the full offscreen suite green.",
       "agent": "build_worker",
-      "task_type": "build",
+      "task_type": "verification",
       "dependencies": [
-        "P8-T01"
+        "P9-T1",
+        "P9-T2",
+        "P9-T3",
+        "P9-T4",
+        "P9-T5"
       ],
       "acceptance_criteria": [
-        "Given the eight-row TIMEFRAME_CONFIG, when the handshake pin runs, then it asserts the exact eight-duration map (1 min/5 mins/15 mins 30 D; 1 hour/4 hours 60 D; 1 day 1 Y; 1 week 2 Y; 1 month 10 Y), and the approval-record loop still covers only the five P7-widened intraday rows - the two P8 rows were added, never widened, so no new approval record is required.",
-        "Given the t12 diff-clean guard, when it runs, then its approved and chained dicts both carry all eight rows with identical 1 week/1 month entries (added-never-widened, so the changed-duration loop skips them without a record), the assert stays an exact-equality fail-closed comparison (no subset containment), and its out-of-scope comment no longer contradicts the assert."
+        "Given the five new suites, when run, then every finding's acceptance checks are green with no skipped or xfailed tests added anywhere in the batch.",
+        "Given the production diff, when reviewed, then no behaviour changes beyond the five items and the frozen interfaces plus order-code absence hold.",
+        "Given the full offscreen suite, when run, then it is green."
       ],
       "tests": [
         {
-          "test_id": "P8-T07-T11",
-          "linked_acceptance_criterion": "Given the eight-row TIMEFRAME_CONFIG, when the handshake pin runs, then it asserts the exact eight-duration map (1 min/5 mins/15 mins 30 D; 1 hour/4 hours 60 D; 1 day 1 Y; 1 week 2 Y; 1 month 10 Y), and the approval-record loop still covers only the five P7-widened intraday rows - the two P8 rows were added, never widened, so no new approval record is required.",
-          "type": "unit",
-          "description": "Run tests/test_ibkr_handshake_gate.py: the eight-duration assert passes with the mandated rows in place, and the approval loop still requires exactly the five P7 records.",
-          "expected_result": "Handshake file green; no unapproved widening can pass."
+          "test_id": "P9-T6-T61",
+          "linked_acceptance_criterion": "Given the five new suites, when run, then every finding's acceptance checks are green with no skipped or xfailed tests added anywhere in the batch.",
+          "type": "integration",
+          "description": "Run the five P9 suites together plus a skip/xfail grep over the new files; assert all green and zero skips.",
+          "expected_result": "Five suites green; no skips or xfails added."
         },
         {
-          "test_id": "P8-T07-T21",
-          "linked_acceptance_criterion": "Given the t12 diff-clean guard, when it runs, then its approved and chained dicts both carry all eight rows with identical 1 week/1 month entries (added-never-widened, so the changed-duration loop skips them without a record), the assert stays an exact-equality fail-closed comparison (no subset containment), and its out-of-scope comment no longer contradicts the assert.",
-          "type": "unit",
-          "description": "Run tests/test_p7_w3_wide.py::test_t12_unapproved_durations_are_diff_clean: passes on the eight-row config, the exact-equality assert is retained verbatim in shape, and the comment scopes P8 in rather than out.",
-          "expected_result": "t12 green; fail-closed shape preserved."
+          "test_id": "P9-T6-T62",
+          "linked_acceptance_criterion": "Given the production diff, when reviewed, then no behaviour changes beyond the five items and the frozen interfaces plus order-code absence hold.",
+          "type": "manual",
+          "description": "Review git diff of production files against the five-item scope; grep frozen symbols and order-code tokens; record the checklist.",
+          "expected_result": "Diff confined to the five items; frozen interfaces and order absence intact."
+        },
+        {
+          "test_id": "P9-T6-T63",
+          "linked_acceptance_criterion": "Given the full offscreen suite, when run, then it is green.",
+          "type": "integration",
+          "description": "Run the full offscreen suite once end to end; a red suite fails the wave.",
+          "expected_result": "Full offscreen suite green."
         }
       ],
       "expected_artifacts": [
-        "tests/test_ibkr_handshake_gate.py (eight-duration map)",
-        "tests/test_p7_w3_wide.py (eight-row approved/chained + comment)"
+        "Five-item close-out checklist in the worker result",
+        "full-suite green run"
       ],
       "touches_files": [
-        "tests/test_ibkr_handshake_gate.py",
-        "tests/test_p7_w3_wide.py"
+        "docs/build/results/P9-T6.json"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P8-1",
-        "A113",
-        "A116",
-        "P8-T01 config rows",
-        "ESC-081"
+        "P9-T1 through P9-T5 results"
       ],
       "outputs": [
-        "Both duration pins encode the approved eight rows; suite-green gate unblocked"
+        "Batch close-out verdict"
       ],
       "status": "done",
       "size": "S",
       "context": {
-        "read_files": [
-          {
-            "path": "tests/test_ibkr_handshake_gate.py",
-            "lines": "145-170",
-            "why": "the six-duration exact-equality pin gaining the two S-P8-1 rows"
-          },
-          {
-            "path": "tests/test_p7_w3_wide.py",
-            "lines": "336-372",
-            "why": "the t12 approved/chained dicts, exact-equality assert and self-contradictory comment"
-          },
-          {
-            "path": "tests/test_p7_w3_wide.py",
-            "lines": "75-115",
-            "why": "read-only: WIDEN_CANDIDATES and _approval_path, untouched by this task - do not change them"
-          },
-          {
-            "path": "ibkr/market_data.py",
-            "lines": "1-30",
-            "why": "read-only: the mandated eight-row TIMEFRAME_CONFIG the pins must match - do not change it"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "TIMEFRAME_CONFIG durations: 1 min/5 mins/15 mins 30 D; 1 hour/4 hours 60 D; 1 day 1 Y; 1 week 2 Y; 1 month 10 Y",
-            "module": "ibkr/market_data.py"
-          },
-          {
-            "status": "new",
-            "signature": "t12 chained and approved carry identical 1 week/1 month entries (added-never-widened, no approval record)",
-            "module": "tests/test_p7_w3_wide.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "read_files": [],
+        "architecture_ref": "docs/architecture.md#Phase P9",
+        "plan_ref": "docs/plan.md#Phase P9",
         "requirement_ids": [
-          "D48",
-          "AC-D48.1",
-          "AC-D48.7",
-          "A113",
-          "A116"
+          "P9-W4"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_ibkr_handshake_gate.py tests/test_p7_w3_wide.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P8-T08",
-      "title": "Archived-results gate: latest-per-task scope plus prune of superseded intermediates (ESC-082)",
-      "description": "Follow-up to the P8 review (ESC-082): re-scope tests/test_lwc_failure_visibility.py::test_archived_results_carry_task_id to latest-per-task - group ARCHIVE files by task stem (the token after the wave prefix, e.g. P8-T02 in wave163_P8-T02.json), assert a non-empty task_id only on the newest file per group, and factor the grouping so it is unit-testable on synthetic dicts without disk writes. Additionally delete the five named superseded intermediates (each has a newer same-task stamped result carrying task_id). Keep the wave127 P6-T03 pin and the fail-closed task_id requirement intact. Covers ESC-082 and the AC-D48.7 gate.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "Given the archive directory holding superseded intermediate result files, when the archived-results gate runs, then it groups files by task stem and requires a non-empty task_id only on the newest file per task - superseded intermediates can never redden it, while a newest result missing task_id still fails.",
-        "Given the five named superseded intermediates, when this task lands, then docs/build/results/_archive/wave154_P7-T08.PRIOR_PHASE.json, wave156_P8-T02.json, wave156_P8-T04.json, wave159_P8-T03.json and wave160_P8-T05.json are deleted, and the wave127 P6-T03 pin still passes.",
-        [
-          "Given a newest-per-task result without task_id, when the gate evaluates it, then it is reported missing (the task_id requirement that caught PRE-001..004 is preserved, not weakened)."
-        ]
-      ],
-      "tests": [
-        {
-          "test_id": "P8-T08-T11",
-          "linked_acceptance_criterion": "Given the archive directory holding superseded intermediate result files, when the archived-results gate runs, then it groups files by task stem and requires a non-empty task_id only on the newest file per task - superseded intermediates can never redden it, while a newest result missing task_id still fails.",
-          "type": "unit",
-          "description": "Run tests/test_lwc_failure_visibility.py::test_archived_results_carry_task_id on the pruned archive: passes with only newest-per-task files asserted.",
-          "expected_result": "Gate green on the terminal record."
-        },
-        {
-          "test_id": "P8-T08-T21",
-          "linked_acceptance_criterion": "Given the five named superseded intermediates, when this task lands, then docs/build/results/_archive/wave154_P7-T08.PRIOR_PHASE.json, wave156_P8-T02.json, wave156_P8-T04.json, wave159_P8-T03.json and wave160_P8-T05.json are deleted, and the wave127 P6-T03 pin still passes.",
-          "type": "unit",
-          "description": "Assert the five superseded paths are absent from docs/build/results/_archive/ and the wave127 pin (task_id P6-T03) still passes.",
-          "expected_result": "Stale intermediates gone; historical pin intact."
-        },
-        {
-          "test_id": "P8-T08-T31",
-          "linked_acceptance_criterion": [
-            "Given a newest-per-task result without task_id, when the gate evaluates it, then it is reported missing (the task_id requirement that caught PRE-001..004 is preserved, not weakened)."
-          ],
-          "type": "unit",
-          "description": "Drive the factored grouping helper with synthetic newest-result dicts, one without task_id: it is reported missing without any disk write.",
-          "expected_result": "Fail-closed behavior proven; PRE-001..004-class gaps still caught."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_lwc_failure_visibility.py (latest-per-task gate)",
-        "five superseded archive files deleted"
-      ],
-      "touches_files": [
-        "tests/test_lwc_failure_visibility.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "ESC-082",
-        "ESC-073",
-        "AC-D48.7",
-        "PRE-002",
-        "PRE-003",
-        "PRE-004"
-      ],
-      "outputs": [
-        "Gate asserts latest-per-task; stale intermediates pruned; fail-closed kept"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "tests/test_lwc_failure_visibility.py",
-            "lines": "327-341",
-            "why": "the whole-archive glob gate becoming latest-per-task"
-          },
-          {
-            "path": "tests/test_lwc_failure_visibility.py",
-            "lines": "40-50",
-            "why": "ARCHIVE const and module conventions the helper follows"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "tests/test_lwc_failure_visibility.py:test_archived_results_carry_task_id",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "newest wave file per task stem carries non-empty task_id; older same-task files excluded from the requirement",
-            "module": "tests/test_lwc_failure_visibility.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
-        "requirement_ids": [
-          "D48",
-          "AC-D48.7"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_failure_visibility.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P8-T09",
-      "title": "User docs: timeframe range now 1 min - 1 month (ESC-085)",
-      "description": "Follow-up to the P8 review (ESC-085, nice-to-have): usage.md:134 still reads \"Select timeframe (1 min - 1 day)\", stale since P8 added picker entries after 1 day. Widen the range endpoint to 1 month and name the 1 week / 1 month entries; add a short D48 picker note to USAGE.txt in the established per-batch convention. Docs only - no code or test change. Covers ESC-085.",
-      "agent": "build_worker",
-      "task_type": "build",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "Given usage.md Key Workflows, when the Load-a-Chart steps are read, then the timeframe range reads 1 min - 1 month and names the 1 week / 1 month picker entries - no stale 1 day upper bound remains.",
-        "Given USAGE.txt, when read end to end, then it carries a one-line-per-batch D48 picker note in the established \"<Feature> (Phase D<n>)\" plus dashed-underline convention, matching the ESC-058 precedent."
-      ],
-      "tests": [
-        {
-          "test_id": "P8-T09-T11",
-          "linked_acceptance_criterion": "Given usage.md Key Workflows, when the Load-a-Chart steps are read, then the timeframe range reads 1 min - 1 month and names the 1 week / 1 month picker entries - no stale 1 day upper bound remains.",
-          "type": "unit",
-          "description": "Read usage.md: the Load-a-Chart step names 1 week / 1 month with a 1 min - 1 month range, and no 1 day upper bound remains on that line.",
-          "expected_result": "Range statement factually matches the shipped picker."
-        },
-        {
-          "test_id": "P8-T09-T21",
-          "linked_acceptance_criterion": "Given USAGE.txt, when read end to end, then it carries a one-line-per-batch D48 picker note in the established \"<Feature> (Phase D<n>)\" plus dashed-underline convention, matching the ESC-058 precedent.",
-          "type": "unit",
-          "description": "Read USAGE.txt: a D48 picker note exists under the per-batch heading convention after the D44 section.",
-          "expected_result": "Per-batch coverage convention holds."
-        }
-      ],
-      "expected_artifacts": [
-        "usage.md (range fix)",
-        "USAGE.txt (D48 picker note)"
-      ],
-      "touches_files": [
-        "usage.md",
-        "USAGE.txt"
-      ],
-      "doc_required": true,
-      "inputs": [
-        "AC-D48.5",
-        "ESC-085",
-        "ESC-058"
-      ],
-      "outputs": [
-        "Timeframe range documented as 1 min - 1 month in both user docs"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "usage.md",
-            "lines": "130-140",
-            "why": "the stale 1 min - 1 day Load-a-Chart step"
-          },
-          {
-            "path": "USAGE.txt",
-            "lines": "204-214",
-            "why": "the D44 section after which the D48 note lands, per the per-batch convention"
-          }
-        ],
-        "contracts": [
-          {
-            "status": "new",
-            "signature": "usage.md Load-a-Chart step: timeframe range 1 min - 1 month with 1 week / 1 month picker entries",
-            "module": "usage.md"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
-        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
-        "requirement_ids": [
-          "D48",
-          "AC-D48.5"
-        ],
-        "test_command": "grep -n -e \"1 month\" usage.md USAGE.txt",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_alarm_persistence.py tests/test_p9_group_dialog.py tests/test_p9_active_group.py tests/test_p9_group_payload.py tests/test_p9_recolor.py -q -o addopts=\"\"",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
