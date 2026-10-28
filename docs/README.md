@@ -13,7 +13,7 @@
 | Approved and proposed work sequencing | `docs/plan.md` | Phase reviews and task-manager notes are decision/decomposition records |
 | What actually shipped and when | `docs/phase-changelog.md` | `docs/CHANGELOG.md` is a short index pointing here (see its header) |
 | Current review findings | Current phase review and open escalation ledger (`docs/code_review/escalations.json`) | Older review logs and investigations are historical evidence |
-| How to install and use the current application | One canonical user guide (see note below) | Any second guide is a short pointer or generated equivalent |
+| How to install and use the current application | `usage.md` — the canonical full user guide (`USAGE.txt` is only its short pointer + quick start) | `docs/phase-changelog.md` records per-phase user-doc changes |
 | Third-party licence/attribution | `chart_assets/lwc/ATTRIBUTION.md` | Vendored library licence header |
 
 Global rules (binding on every doc edit):

@@ -53,6 +53,10 @@ class IBApiClient(EWrapper, EClient):
         self._reconnect_attempt = 0
         self._max_backoff = 16
         self._backoff_base = 2
+        # Q-54: delay last warned about in _do_reconnect (backoff flood
+        # protection — repeats at the capped delay drop to debug). None
+        # means "nothing logged yet for this outage".
+        self._last_reconnect_log_delay = None
         self._poll_timer = None
         # D27.3: last connect() params, so _do_reconnect can re-issue the
         # real EClient.connect instead of the nonexistent eConnect.
@@ -210,7 +214,35 @@ class IBApiClient(EWrapper, EClient):
             super().connect(
                 self._conn_host, self._conn_port, self._conn_client_id
             )
-        except Exception:
+        except Exception as exc:
+            # Q-54: visibility into the retry loop — log what failed and
+            # how long the backoff waits before the next attempt. Backoff
+            # flood protection: warn while the delay is still growing (or
+            # the first failure); repeats at the capped delay are expected
+            # overnight noise and drop to debug. Retrying continues either
+            # way.
+            delay = min(
+                self._backoff_base ** min(self._reconnect_attempt, 6),
+                self._max_backoff,
+            )
+            if delay != self._last_reconnect_log_delay:
+                _LOG.warning(
+                    "D27: reconnect attempt %d failed (%s: %s) — "
+                    "retrying in %ss",
+                    self._reconnect_attempt + 1,
+                    type(exc).__name__,
+                    exc,
+                    delay,
+                )
+                self._last_reconnect_log_delay = delay
+            else:
+                _LOG.debug(
+                    "D27: reconnect attempt %d failed (%s) — still "
+                    "retrying in %ss (backoff capped)",
+                    self._reconnect_attempt + 1,
+                    type(exc).__name__,
+                    delay,
+                )
             self._schedule_reconnect()
             return
         # The attempt is issued; resume polling so the outcome is observed:
@@ -224,6 +256,9 @@ class IBApiClient(EWrapper, EClient):
         if not self._connected:
             self._connected = True
             self._reconnect_attempt = 0
+            # Q-54: a successful handshake ends the outage — clear the
+            # backoff flood-protection memory so the next outage warns.
+            self._last_reconnect_log_delay = None
             # D40/A1: clear the disconnect classification on a successful
             # connect — a stale TWS_GONE would otherwise downgrade a
             # legitimate mid-day transient 502 to a debug log and hide

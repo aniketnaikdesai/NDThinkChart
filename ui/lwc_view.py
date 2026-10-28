@@ -137,6 +137,7 @@ stub keeps session wiring unbroken and this driver is composed directly.
 from __future__ import annotations
 
 import bisect
+import logging
 from datetime import datetime, timezone
 from typing import Sequence
 
@@ -163,6 +164,8 @@ from services.time_collapse_service import gap_is_non_trading, is_daily_or_coars
 from ui import lwc_bridge as LB
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
 from ui.drawing_tools import DRAWING_TOOLS, TOOL_CURSOR
+
+_LOG = logging.getLogger(__name__)
 
 #: The five render modes, mirroring the default engine's ``ChartMode``.
 MODES = ("candles", "hollow", "heikin", "line", "area")
@@ -1765,6 +1768,10 @@ class LwcChartView(QWidget):
         self._plotted: list = []
         self._logical: list = []
         self._cmap = None
+        # Q-54: rate-limiting for the logical-map extend-failure log in
+        # update_live_bar — the first failure per series warns, repeats
+        # drop to debug until the map is healthy again.
+        self._extend_fallback_warned = False
         self._host = None
         # Q-19/S3a: the host was parented to this view but never added to a
         # layout, so it kept Qt's default widget size (measured 100x30 inside
@@ -2017,6 +2024,9 @@ class LwcChartView(QWidget):
             raise ValueError(f"unknown mode: {mode!r}")
         self._mode = mode
         self._bars = list(rows or [])
+        # Q-54: a wholesale replacement rebuilds the map — re-arm the
+        # extend-failure warning for the new series.
+        self._extend_fallback_warned = False
         self._plotted = [self._bars[i] for i in chart_model.plotted_index_rows(
             self._bars, self._timeframe, self._ext_hours)]
         self._cmap = chart_model.collapse_for_bars(
@@ -2087,8 +2097,29 @@ class LwcChartView(QWidget):
             if self._cmap is not None:
                 try:
                     extended = bool(self._cmap.extend(bar.ts))
-                except Exception:
+                except Exception as exc:
+                    # Q-54: keep the rebuild fallback, but make it visible:
+                    # first failure per series warns (timeframe + exception
+                    # type), repeats drop to debug so a per-bar failure
+                    # storm logs once.
                     extended = False
+                    if not self._extend_fallback_warned:
+                        _LOG.warning(
+                            "lwc logical-map extend failed "
+                            "(timeframe=%s, exc=%s) — rebuilding map",
+                            self._timeframe,
+                            type(exc).__name__,
+                        )
+                        self._extend_fallback_warned = True
+                    else:
+                        _LOG.debug(
+                            "lwc logical-map extend failed "
+                            "(timeframe=%s, exc=%s) — rebuilding map",
+                            self._timeframe,
+                            type(exc).__name__,
+                        )
+                if extended:
+                    self._extend_fallback_warned = False
             if not extended:
                 self._cmap = chart_model.collapse_for_bars(
                     self._plotted, self._timeframe, self._ext_hours)

@@ -106,3 +106,67 @@ def test_session_bands_boundary_classification_and_clipping():
     for b in bands3:
         assert b["start_ts"] >= t_min
         assert b["end_ts"] <= t_max
+
+
+# ── Q-54 (a): boundary validation — warn once with the count, skip bad rows ──
+
+
+class _NoTs:
+    pass
+
+
+class _BadTs:
+    ts = "not-a-ts"
+
+
+class _NoneTs:
+    ts = None
+
+
+class _NaNTs:
+    ts = float("nan")
+
+
+class _BoolTs:
+    ts = True
+
+
+def test_Q54_invalid_ts_rows_warn_and_skip(caplog):
+    import logging
+    t0 = _et_ts(2024, 1, 15, 5, 0)
+    t1 = _et_ts(2024, 1, 15, 18, 0)
+    bars = [_bar(t0), _bar(t1), _NoTs(), _BadTs(), _NoneTs(), _NaNTs(),
+            _BoolTs()]
+    with caplog.at_level(logging.WARNING, logger="services.session_service"):
+        bands = session_bands(bars, "5 mins")
+    # Valid rows still produce their bands (pre + post for the single day).
+    assert [b["kind"] for b in bands] == ["pre", "post"]
+    assert bands[0]["start_ts"] == t0  # pre clipped to first valid bar
+    assert bands[0]["end_ts"] == _et_ts(2024, 1, 15, 9, 30)
+    assert bands[1]["start_ts"] == _et_ts(2024, 1, 15, 16, 0)
+    assert bands[1]["end_ts"] == t1  # post clipped to last valid bar
+    # One concise warning reporting the skipped-row count, not per-row noise.
+    warns = [r for r in caplog.records
+             if r.name == "services.session_service"
+             and r.levelname == "WARNING"]
+    assert len(warns) == 1
+    assert "5" in warns[0].message
+
+
+def test_Q54_all_invalid_ts_returns_empty_with_warning(caplog):
+    import logging
+    with caplog.at_level(logging.WARNING, logger="services.session_service"):
+        assert session_bands([_NoTs(), _BadTs()], "5 mins") == []
+    warns = [r for r in caplog.records
+             if r.name == "services.session_service"
+             and r.levelname == "WARNING"]
+    assert len(warns) == 1
+
+
+def test_Q54_valid_input_logs_no_warning(caplog, recwarn):
+    t0 = _et_ts(2024, 1, 15, 5, 0)
+    t1 = _et_ts(2024, 1, 15, 18, 0)
+    bands = session_bands([_bar(t0), _bar(t1)], "5 mins")
+    assert len(bands) == 2
+    assert [r for r in recwarn.list
+            if r.filename == "session_service.py"] == []

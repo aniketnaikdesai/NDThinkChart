@@ -6,16 +6,36 @@
 > **index, not documentation** — if an entry needs more than ~5 lines it is doing too much; follow the symbol,
 > not this file.
 >
-> **This is an existing repository** (`requirements.md` carries the marker). It is a PyQt6 + pyqtgraph +
-> official `ibapi` desktop trading terminal (live TWS 7496, SQLite, PyInstaller `.app`).
+> **This is an existing repository** (`requirements.md` carries the marker). **Current tree (2026-10-28):**
+> PyQt6 + Lightweight Charts **only** — no pyqtgraph. P6-T13 executed the removal 2026-10-27 (commit
+> `6e35b27`); `ui/chart_view.py::create_chart_view` is the LWC-only factory (`NDT_CHART_ENGINE` /
+> `chart/engine` no longer select a renderer); live-session sign-off waived-not-satisfied per
+> `docs/build/gate_P6_T13.md`. **P7 BUILT** (data-path batch, feature commit `7cba534`, 2026-10-28) and
+> **P8 BUILT** (D48 weekly/monthly timeframes, feature commit `09761fb`, 2026-10-28). Detail lives in
+> `docs/phase-changelog.md` (Phase P6/P7/P8) and `docs/lwc_parity_matrix.md`. Skeleton figures are current:
+> **211 code files, 11 module rows, 24 test-impact rows**; `graphify-out/graph.json` used for discovery
+> only — **the source is authoritative** where they disagree. P8 adds **no new module**, so every annotation
+> below carries forward. All P6-planned paths have landed, so the 2026-10-26 skeleton-naming note below is
+> spent (kept for lineage).
 >
-> **Baseline:** post-P5 (D46 built — ibkr/orders + tests/test_order_builders +
-> tests/test_stop_loss_target deleted from the tree; skeleton regenerated 2026-10-26).
-> **Map written:** 2026-10-26, **P6 / Batch 22 (D47)** — the chart stack migrates to Lightweight Charts behind a
-> `ChartView` seam (strangler; pyqtgraph retained and default until parity accepted). Skeleton re-run 2026-10-26
-> (205 code files, 24 test-impact rows); annotations carried forward from P5 and extended for P6 below;
-> `graphify-out/graph.json` (4,625 nodes) used for discovery only — **the source is authoritative** where they
-> disagree.
+> **Status legend** (batch-relative P6 vocabulary, retained for the rows below): `[existing]` — present,
+> **not** modified by P6 · `[new in P6]` — introduced by P6 · `[changed in P6]` — present and modified by
+> P6. Post-P6 changes (P6-T13 removal, P7, P8) are recorded in the notes below and in
+> `docs/phase-changelog.md`, never in the status cells.
+>
+> **Historical note — superseded 2026-10-26 plan-time wording (preserved as decision lineage, not current
+> state).** P6 / Batch 22 (D47) was planned as a strangler migration: the chart stack would move to
+> Lightweight Charts behind a `ChartView` seam with pyqtgraph retained and default until parity was accepted
+> ("pyqtgraph stays default through Phase 10", "no pyqtgraph code is deleted before Phase 11", P6-T13
+> separately gated); two new production modules would land (the ChartView seam + the shared chart model),
+> plus one new web-asset tree + bridge, one throwaway spike directory (never imported), and two docs (parity
+> matrix + spike results), with `ui/chart_panel` edited for delegation only. P6-T13 executed the removal
+> instead (2026-10-27, commit `6e35b27`), so those sentences are superseded. Plan-time baseline was post-P5
+> (D46 built — ibkr/orders + tests/test_order_builders + tests/test_stop_loss_target deleted; skeleton
+> 2026-10-26: 205 code files, 24 test-impact rows; annotations carried forward from P5 and extended for P6).
+> P5 end state for the record: five deleted production modules, `ibkr/error_codes.py` comment-only, **two**
+> suites deleted, **thirteen** test files adjusted, **0** added; `USAGE.txt` / `usage.md` corrected and this
+> map refreshed (full record: the D45 line below).
 >
 > **D45 record (delivered, not re-opened in P5).** Batch 20 removed the News Digest dock (+ the `View` menubar),
 > the Trade Context Menu, the **Kill switch** and the **SL/TP dialog**: five deleted production modules
@@ -24,12 +44,6 @@
 > `ui/active_portfolio_panel.py`), **five deleted** test files, **seven adjusted** test files and **one added**
 > (`tests/test_d45_removal` — the static/behavioural removal guard), two docs cleaned. *(This line read
 > "adjusts six" until 2026-10-25; corrected with the addition of the added suite per `ESC-063`.)*
->
-> **Status legend** (batch-relative): `[existing]` — present, **not** modified by P6 · `[new in P6]` —
-> introduced by P6 · `[changed in P6]` — present and modified by P6. A row may still **describe** an earlier batch's delivered change; that history belongs in the row's
-> prose, never in the status cell — no `[… in D4x]` value is a status here. P6 is a **renderer-migration increment** (D47): two new production modules land (the ChartView seam + the shared chart model), one new web-asset tree + bridge land, one throwaway spike directory lands (never imported), and two docs land (parity matrix + spike results); `ui/chart_panel` is the one chart file edited (delegation only, no behaviour change); pyqtgraph stays default through Phase 10 and **no pyqtgraph code is deleted before Phase 11** (P6-13, separately gated). P5's removal record below is history. Every other entry below is `[existing]`.
-> (`ibkr/error_codes.py`); **two** suites deleted, **thirteen** test files adjusted, **0** added; two user-facing docs
-> corrected (`USAGE.txt`, `usage.md`) and this map refreshed. Every other entry below is `[existing]`.
 >
 > **P6 note (2026-10-26):** the skeleton is regenerated from the post-P5 tree, so it no longer lists the P5-deleted
 > files — the stale-skeleton note from P5 is retired. Planned-but-not-yet-existing P6 paths (the ChartView seam

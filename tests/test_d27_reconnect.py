@@ -243,3 +243,121 @@ def test_d27_3_drop_reconnect_reissues_with_rebound_reqids(monkeypatch, qapp):
         assert win._current_symbol == "TEST"
     finally:
         db.set_watchlist([])
+
+
+# ---------------------------------------------------------------------------
+# Q-54 (b): reconnect failures are visible (exception + retry delay) with
+# backoff flood protection; (c): logical-map extend failures log once.
+# ---------------------------------------------------------------------------
+
+
+def test_Q54_do_reconnect_logs_exception_and_delay(quiet_client, monkeypatch,
+                                                  caplog):
+    """A failed connect attempt warns with the exception and retry delay,
+    and the retry loop keeps going (a backoff timer stays pending)."""
+    import logging
+
+    client = quiet_client
+    client._conn_host = "127.0.0.1"
+    client._conn_port = 7496
+    client._conn_client_id = 7
+
+    def _boom(self, host, port, clientId):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(EClient, "connect", _boom)
+    with caplog.at_level(logging.WARNING, logger="ibkr.client"):
+        client._do_reconnect()
+
+    warns = [r for r in caplog.records
+             if r.name == "ibkr.client" and r.levelname == "WARNING"]
+    assert warns, "reconnect failure logged nothing at warning"
+    assert "RuntimeError" in warns[0].message
+    assert "retrying in 1s" in warns[0].message  # 2**0, uncapped
+    assert client._reconnect_timer is not None, "retry loop stopped"
+
+
+def test_Q54_do_reconnect_backoff_flood_protection(quiet_client, monkeypatch,
+                                                  caplog):
+    """Repeats at the capped backoff delay warn once, then drop to debug —
+    the retry loop itself never stops."""
+    import logging
+
+    from ibkr import client as client_mod
+
+    client = quiet_client
+    client._conn_host = "127.0.0.1"
+    client._conn_port = 7496
+    client._conn_client_id = 7
+    # Pin the backoff at the cap: delay stays 16s across attempts.
+    client._reconnect_attempt = 6
+    assert min(client._backoff_base ** 6, client._max_backoff) == 16
+
+    def _boom(self, host, port, clientId):
+        raise RuntimeError("still down")
+
+    monkeypatch.setattr(EClient, "connect", _boom)
+    with caplog.at_level(logging.DEBUG, logger="ibkr.client"):
+        client._do_reconnect()  # first at cap -> warns
+        client._do_reconnect()  # repeat at same delay -> debug
+        client._do_reconnect()  # repeat at same delay -> debug
+
+    warns = [r for r in caplog.records
+             if r.name == "ibkr.client" and r.levelname == "WARNING"]
+    debugs = [r for r in caplog.records
+              if r.name == "ibkr.client" and r.levelname == "DEBUG"]
+    assert len(warns) == 1, [r.message for r in warns]
+    assert len(debugs) == 2, [r.message for r in debugs]
+    assert client._reconnect_timer is not None, "retry loop stopped"
+
+    # A successful handshake clears the flood-protection memory so the
+    # next outage warns again.
+    client.nextValidId(1)
+    assert client._last_reconnect_log_delay is None
+
+
+def test_Q54_extend_failure_logged_once_not_per_bar(monkeypatch, qapp, caplog):
+    """A logical-map extend failure keeps the rebuild fallback but warns
+    once per series (timeframe + exception type); repeats drop to debug."""
+    import logging
+    from datetime import datetime, timezone
+
+    from data.bar_aggregator import TIMEFRAME_SECONDS
+    from data.models import Bar
+    from services.time_collapse_service import TimeCollapseMap
+    from ui import lwc_view as LV
+
+    period = TIMEFRAME_SECONDS["5 mins"]
+    # Monday 2026-09-28 RTH open (EDT) — plain contiguous 5-min bars.
+    base = int(datetime(2026, 9, 28, 13, 30,
+                        tzinfo=timezone.utc).timestamp())
+
+    def _bar(ts):
+        return Bar(symbol="Q54", timeframe="5 mins", ts=ts, open=100.0,
+                   high=101.0, low=99.0, close=100.5, volume=1000.0)
+
+    view = LV.LwcChartView()
+    view.set_timeframe("5 mins")
+    view.bridge.set_ready(True)
+    view.set_series("candles", [_bar(base + i * period) for i in range(4)])
+    assert view._cmap is not None
+
+    def _boom(self, ts):
+        raise ValueError("bad map state")
+
+    monkeypatch.setattr(TimeCollapseMap, "extend", _boom)
+    last = view._bars[-1].ts
+    with caplog.at_level(logging.DEBUG, logger="ui.lwc_view"):
+        view.update_live_bar(_bar(last + period))
+        view.update_live_bar(_bar(last + 2 * period))
+
+    warns = [r for r in caplog.records
+             if r.name == "ui.lwc_view" and r.levelname == "WARNING"]
+    debugs = [r for r in caplog.records
+              if r.name == "ui.lwc_view" and r.levelname == "DEBUG"]
+    assert len(warns) == 1, [r.message for r in caplog.records]
+    assert "5 mins" in warns[0].message
+    assert "ValueError" in warns[0].message
+    assert len(debugs) == 1, [r.message for r in caplog.records]
+    # The fallback still rebuilt: both new bars are plotted.
+    assert len(view.plotted_bars) == 6

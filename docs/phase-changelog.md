@@ -423,12 +423,85 @@ coder's and reviewer's reports for that phase, verified against the branch.
 - **Follow-ups (not P6 scope):** ESC-070 (surface engine-start failure) still owed; the one clean live session
   is still owed as live validation of the LWC-only tree; ESC-075…ESC-079 feed P7 (per-load cap S-P7-1) with
   the `AC-D16.8` restatement open as Analyst debt.
+- **Resolution update (2026-10-28 — status, not a rewrite of the close-out above):** ESC-070 **addressed**
+  (fix commit `d022ad0`: failed engine start sets `chart_engine_failed`, logs the exception with traceback
+  and posts a persistent status-bar message; `NdtWebPage` captures JS console output; covered by
+  `tests/test_lwc_failure_visibility.py`, verified entry in `docs/code_review/escalations.json`).
+  ESC-075/076/077/078 **addressed** (focused close-out 2026-10-28 in `docs/code_review/review_log_P8.md`:
+  independently re-verified on the live tree with one neutralising mutation per fix, 8 P7 test modules
+  green — 37 passed — and the full offscreen suite green; flips recorded in commit `4610c35`).
+  ESC-079 stays **open** (Requirements Analyst debt — `AC-D16.8` restatement, RG-P7-1). The one clean
+  live session for the LWC-only tree is still owed (gate waived-not-satisfied, `docs/build/gate_P6_T13.md`).
 
 ---
 
-## Phase P7 / Phase P8 — no as-built entries yet (placeholder, 2026-10-28)
+## Phase P7 — data-path batch: historical backfill correct + fast, streaming correct (as-built, landed 2026-10-28)
 
-P7 (data-path batch, `docs/plan.md` § Phase P7) and P8 (D48 weekly/monthly, drafted 2026-10-28, `Status: READY_FOR_PLAN`) have no shipped history. As-built entries land here when waves land; `docs/CHANGELOG.md` indexes them. Open into P7: ESC-075…ESC-079 with the `AC-D16.8` restatement as Analyst debt (RG-P7-1).
+- **Status:** Built 2026-10-28 (waves `P7-T01`…`P7-T08` + `Q-46`/`Q-47`); feature commit `7cba534`
+  (tracking commit `c4f2be2`), and pushed. P7 closes the P6 follow-ups ESC-075…078 on the code side;
+  ESC-079 stays open as Requirements Analyst debt (see below).
+- **Review:** Focused close-out pass 2026-10-28 in `docs/code_review/review_log_P8.md`
+  (commit `4610c35`): ESC-075/076/077/078 flipped to `addressed` with per-entry `verified`, each
+  re-verified on the live tree — never on the worker's word — with one neutralising mutation per fix
+  (restored byte-identical afterwards) and all 8 P7 test modules green (37 passed).
+- **Gate:** full offscreen suite green on the committed tree (1204 passed / 3 skipped, exit 0, re-measured
+  in the close-out pass); per-wave suites per `docs/build/results/P7-*.json` + `Q-46`/`Q-47.json`. No live
+  TWS needed (offscreen fake-transport suites + full suite; read-only live validation owner-gated per wave).
+- **Tests:** new wave-lifecycle suites with a fake transport (request counting, mid-wave reload,
+  chunk-visibility assertions) + full suite. No test touches live TWS.
+- **What shipped:** per-load budget cap `floor(MAX_HISTORICAL_PER_600S/4)` as a tunable fraction
+  (a maximum, never a target — a one-request load issues one request); oldest-first monotonic floor fill
+  across successive loads with per-chunk persist+render (zero fetched bars lost on kill/reload); same-chart
+  (symbol+timeframe+mode) reload coalescing with pre-issue-only cancel-slot refund and superseded-162 at
+  debug; window-relative watchdog bound `max(window/5, wait+window/20)` re-armed on every scheduled
+  continuation; prime precedence via explicit `_prime_reserved` (one-interval slip, skipped-prime warning
+  naming symbol and timeframe); approved wide durations (`1min`/`5min`/`15min` → 30D, `1h`/`4h` → 60D,
+  frozen-duration gate with owner approval record); streaming close-out (reconnect replay, backoff,
+  priming, watchlist deferral, Q-41 deferral contract); batch test book aligned (`Q-46`);
+  pinned chunk math recomputed for widened durations (`Q-48`, commit `d941e54`).
+
+### Follow-ups filed (not Phase P7 scope)
+- ESC-079 **open**: `AC-D16.8` as literally written (floor in one load) vs the planned/implemented
+  successive-load floor (S-P7-1) — the Requirements Analyst must restate or confirm (RG-P7-1).
+  The per-load cap and successive-load floor already answer it code-side; only the wording is owed.
+- Budget-number reconciliation recorded in plan § Phase P7: ESC-075's prose cites a 50-slot budget,
+  the tree carries `MAX_HISTORICAL_PER_600S = 100` — the invariant is fraction-based so it holds
+  under either value; the suite asserts the source value.
+
+### USAGE.txt
+- No user-facing changes in Phase P7 (data-path internals are invisible). No USAGE.txt update needed.
+
+---
+
+## Phase P8 — D48: `1 week` (2Y) and `1 month` (10Y) timeframes (as-built, landed 2026-10-28)
+
+- **Status:** Built 2026-10-28 (waves `P8-T01`…`P8-T04` + `Q-48`); feature commit `09761fb`
+  (tracking commit `b7978c2`), and pushed. Batch 23 (D48, lite lane): existing modules edited in
+  place — **no new module, no new dependency, no schema migration**.
+- **Review:** phase-final verdict **REVIEW_COMPLETE** 2026-10-28 (commit `f7d4e3c`,
+  `docs/code_review/review_log_P8.md`): 10 escalations verified addressed on evidence
+  (ESC-080…085, PRE-001…004); no new findings. The initial red intermediate run is distinguished
+  from the later committed green result in the log (not hidden).
+- **Gate:** `AC-D48.7` — full offscreen suite green on the committed tree (1204 passed / 3 skipped);
+  standalone probe record for both new combos in `docs/d48_probe_record.md` (both complete, no
+  321-class rejection); both user docs correct (`usage.md`, `USAGE.txt`).
+- **Tests:** `tests/test_d48_data_plane.py`, `tests/test_d48_gate.py`, `tests/test_d48_mode_parity.py`,
+  `tests/test_d48_planner_probe.py`, `tests/test_d48_presentation.py` (plus `test_lwc_failure_visibility.py`
+  +11 for the ESC-070 fix); full suite green. No test touches live TWS.
+- **What shipped:** two `TIMEFRAME_CONFIG` rows (`1 week`→`1 week`/`2 Y`, `1 month`→`1 month`/`10 Y`);
+  Monday-00:00-ET weekly + calendar-month bucketing with nominal-seconds keys (DST-fold, February,
+  Dec/Jan unit cases); planner unchanged (configured durations, never the `AC-D16.8` floor,
+  bar-granular holes); daily-or-coarser shared full-session mode (RTH/ETH identical bars, one shared
+  cache, no bands, no collapse, toggle converges with no extra requests when cached); picker order
+  after `1 day` with select/load/persist parity; visibility dialog guard; burst minutes 1950.0/8190.0;
+  backfill anchor convention aligned; T40 fixture extended with the weekly/monthly model.
+
+### Follow-ups filed (not Phase P8 scope)
+- ESC-079 stays **open** (P7 scope, Requirements Analyst debt — not re-planned in P8).
+- No further phases (D41+) without the owner's explicit go-ahead (standing rule, carried).
+
+### USAGE.txt
+- Probe-backed timeframe rows for `1 week`/`1 month` (`USAGE.txt` + `usage.md`, P8-T04).
 
 ---
 

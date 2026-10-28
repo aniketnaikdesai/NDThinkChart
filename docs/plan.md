@@ -1,6 +1,6 @@
 # Implementation Plan — NDThinkChart Batch 17 (D23: two D22 post-build quality corrections)
 
-> **Current baseline (appended 2026-10-28, Q-52 — navigation only, no phase re-planned).** As-built through P6-T13 (removal commit `6e35b27`, 2026-10-27; LWC-only tree; live-session sign-off waived-not-satisfied per `docs/build/gate_P6_T13.md`). Active: **Phase P7** (§ Phase P7) and **Phase P8** (§ Phase P8), both `Status: READY_FOR_TASK_MANAGER`. Per-increment status lines below are the authority for each increment's state (D41→D42→D44→D45 supersession chain consumed in order). Open debt into P7: ESC-075…ESC-079 with the `AC-D16.8` restatement as Analyst debt (RG-P7-1). Authority: `docs/README.md`. As-built history: `docs/phase-changelog.md` (indexed by `docs/CHANGELOG.md`).
+> **Current baseline (appended 2026-10-28, Q-53 - navigation only, no phase re-planned).** As-built through **P8 (D48)** (P7 feature commit `7cba534`, P8 feature commit `09761fb`, both landed 2026-10-28; LWC-only tree; live-session sign-off waived-not-satisfied per `docs/build/gate_P6_T13.md`). **Phase P7: BUILT. Phase P8: BUILT** (per-section status lines below are the authority). Open debt: ESC-079 only (`AC-D16.8` restatement, Analyst debt RG-P7-1); ESC-070 and ESC-075-078 are addressed - see `docs/phase-changelog.md` Phase P6/P7 entries. Authority: `docs/README.md`. As-built history: `docs/phase-changelog.md` (indexed by `docs/CHANGELOG.md`).
 
 > **Document state (2026-10-15).** This file is the canonical plan. Its **first section** is the
 > approved **D23** plan (Phases 1–3, `Status: READY_FOR_TASK_MANAGER`); below it, the
@@ -3373,7 +3373,7 @@ Every ESC-075…079 expectation is addressed somewhere above; no expectation is 
    `MAX_HISTORICAL_PER_600S = 100`. S-P7-1 is deliberately fraction-based so the invariant holds under either
    value; no requirement change is needed, but the Validator should confirm which value the suite asserts.
 
-Status: READY_FOR_TASK_MANAGER
+Status: BUILT - waves P7-T01 through P7-T08 + Q-46/Q-47 landed 2026-10-28 (feature commit `7cba534`, tracking `c4f2be2`); as-built record in `docs/phase-changelog.md` Phase P7. ESC-075/076/077/078 addressed code-side (focused close-out 2026-10-28, `docs/code_review/review_log_P8.md`, commit `4610c35`); ESC-079 open as Requirements Analyst debt (RG-P7-1).
 
 ## Phase P8 — D48 (Batch 23): add `1 week` (2Y) and `1 month` (10Y) timeframes — drafted 2026-10-28
 
@@ -3444,4 +3444,4 @@ ESC-079 (open, PLAN-routed) is P7 scope, already answered by S-P7-1 — it is no
 - The `AC-D16.1` enumeration extension and the `AC-D27.9` table rows are recorded analyst-side
   wording, not Plan reinterpretation.
 
-Status: READY_FOR_TASK_MANAGER
+Status: BUILT - waves P8-T01 through P8-T04 + Q-48 landed 2026-10-28 (feature commit `09761fb`, tracking `b7978c2`); phase-final verdict REVIEW_COMPLETE (`docs/code_review/review_log_P8.md`, commit `f7d4e3c`); as-built record in `docs/phase-changelog.md` Phase P8.

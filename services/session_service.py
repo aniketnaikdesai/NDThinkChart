@@ -6,6 +6,8 @@ intersected with the loaded data range. DST-aware via ZoneInfo.
 
 from __future__ import annotations
 
+import logging
+import math
 from datetime import datetime, timedelta
 from typing import List, Dict
 
@@ -15,6 +17,8 @@ try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover
     from backports.zoneinfo import ZoneInfo  # type: ignore
+
+_LOG = logging.getLogger(__name__)
 
 _EASTERN = ZoneInfo("America/New_York")
 
@@ -50,12 +54,32 @@ def session_bands(bars, timeframe: str) -> List[Dict]:
         return []
     if not bars:
         return []
-    # Determine range
-    try:
-        t_min = min(b.ts for b in bars)
-        t_max = max(b.ts for b in bars)
-    except Exception:
+    # Q-54: validate the required ``ts`` field at the boundary. Rows with a
+    # missing or non-numeric timestamp are skipped (counted in one concise
+    # warning) instead of empty-listing the whole range on the first bad row.
+    ts_values: List[float] = []
+    bad = 0
+    for b in bars:
+        ts = getattr(b, "ts", None)
+        if (
+            isinstance(ts, bool)
+            or not isinstance(ts, (int, float))
+            or (isinstance(ts, float) and not math.isfinite(ts))
+        ):
+            bad += 1
+            continue
+        ts_values.append(ts)
+    if bad:
+        _LOG.warning(
+            "session_bands: skipping %d bar(s) with missing/invalid ts (%s)",
+            bad,
+            timeframe,
+        )
+    if not ts_values:
         return []
+    # Determine range
+    t_min = min(ts_values)
+    t_max = max(ts_values)
 
     start_date = _et_date(t_min).date()
     end_date = _et_date(t_max).date()

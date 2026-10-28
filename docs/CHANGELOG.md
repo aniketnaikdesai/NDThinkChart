@@ -11,11 +11,20 @@ commit `6e35b27`, gate owner-waived per `docs/build/gate_P6_T13.md`). Full recor
 `docs/phase-changelog.md` § Phase P6 (D47). Parity: `docs/lwc_parity_matrix.md` (rows 1–18 accepted,
 row 19 retired).
 
-## P7 / P8 — no as-built entries yet
+## P7 (data-path batch) — 2026-10-28
 
-P7 (data-path batch) and P8 (D48 weekly/monthly timeframes, drafted 2026-10-28) have no shipped history to
-index; sequencing and design live in `docs/plan.md` and `docs/architecture.md` §§ Phase P7 / Phase P8.
-Index rows will be added here when their as-built entries land in `docs/phase-changelog.md` (placeholder § Phase P7 / Phase P8, 2026-10-28).
+Per-load budget cap (a maximum, never a target) with oldest-first persist-and-resume backfill, same-chart
+reload coalescing, window-relative watchdog, prime precedence, approved wide durations, streaming
+close-out (feature commit `7cba534`; ESC-075…078 closed on evidence, ESC-079 open as Analyst debt).
+Full record: `docs/phase-changelog.md` § Phase P7. Review: focused close-out 2026-10-28
+(`docs/code_review/review_log_P8.md`, commit `4610c35`); full offscreen suite green (1204 passed / 3 skipped).
+
+## P8 (D48 weekly/monthly timeframes) — 2026-10-28
+
+`1 week` (2Y) and `1 month` (10Y) end to end: config rows, Monday-ET weekly + calendar-month bucketing,
+shared full-session mode for daily-or-coarser, picker parity, probe record for both combos
+(feature commit `09761fb`). Full record: `docs/phase-changelog.md` § Phase P8. Review:
+phase-final **REVIEW_COMPLETE** (`docs/code_review/review_log_P8.md`, commit `f7d4e3c`); full suite green.
 
 ## P4 — 2026-10-26
 
