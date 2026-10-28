@@ -139,15 +139,15 @@ no engine switch and no opt-in — one engine, always on.
 3. The collapse state is not persisted — the app always starts with the watchlist expanded
 
 ### Pop-out Charts
-1. The toolbar **Pop out** button (or Ctrl/Cmd+P) detaches the current ticker into a slim standalone chart window — up to 10 per ticker
+1. The toolbar **Pop out** button (or Ctrl/Cmd+P) detaches the current ticker into a slim standalone chart window — up to 10 total
 2. Pop-outs follow their ticker in real time (bars, studies, zones, lines, alarms stay in sync); there is only one IBKR market-data subscription per symbol no matter how many windows show it
 3. Timeframe, mode and extended-hours are frozen at pop-out time; drawing, alarm placement and study changes happen in the main chart only (pop-outs are read-only views — zoom, pan and crosshair still work)
 4. Header context menu toggles always-on-top per window (off by default); pop-outs are restored after an app restart
 5. Alarms are evaluated per ticker, so an alarm fires even while the main chart shows a different symbol — including tickers with no visible chart, which are monitored headlessly
 
-### Event Markers (Phase D38)
-- The chart shows time-axis markers for earnings (gold diamond `E`), dividends (green circle `D`) and splits (blue triangle `S`); a countdown label (`Earnings in 3d`) shows for the next upcoming event
-- Dividend data comes from IBKR first, earnings/splits from yfinance (the app's only secondary data source); if neither source has events, the chart says so explicitly instead of showing nothing
+### Event Markers (removed — Q-34, commit `1a30d41`)
+
+> The D38 earnings/dividend/split markers were removed; the chart shows no event markers.
 
 ### Volume-Burst Alerts & Symbol Search (Phase D39)
 - The search box sits in the watchlist header: type part of a ticker (requests at most ~once per 300ms, up to 16 matches as symbol/security-type/exchange); while disconnected the box is disabled
@@ -177,7 +177,7 @@ no engine switch and no opt-in — one engine, always on.
 ### Drawing Tools
 1. Select tool from **Draw** dropdown: Trendline, Horizontal, Zone, Fibonacci, Measure
 2. Click chart to place anchor points
-3. Right-click drawing → **Delete** or drag handles to edit
+3. Right-click drawing → **Delete** (drawings are delete-only until D50 drag-editing lands)
 4. Use **Sets…** to create named groups with color/lock/visibility
 
 ### Portfolio (view-only)
@@ -206,11 +206,11 @@ Tables:
 ## Testing
 
 ```bash
-# Full suite -- run it for the current total (~25s offscreen)
-python -m pytest tests/ -v
+# Full suite -- run it for the current total (~75s offscreen)
+.venv/bin/python -m pytest tests/ -v
 
-# Phase 10 core logic tests only (~0.2s)
-python -m pytest tests/test_indicator_service.py tests/test_gap_vix_service.py \
+# Core logic tests only (~0.2s)
+.venv/bin/python -m pytest tests/test_indicator_service.py tests/test_gap_vix_service.py \
   tests/test_ict_service.py tests/test_alarm_service.py tests/test_bar_aggregator.py \
   tests/test_strategy_detection.py tests/test_ui_smoke.py -v
 ```
@@ -227,7 +227,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 | "Client ID already in use" | Change `IBKR_CLIENT_ID` env var |
 | Theme not loading | Ensure `config/theme.qss` bundled (`pyinstaller --add-data`) |
 | DB permission error | Check `~/Library/Application Support/NDThinkChart/` writable |
-| Duplicate bars after reconnect | Fixed in Phase 8 — `_last_pushed_ts` guard in `BarAggregator` |
+| Duplicate bars after reconnect | Fixed — `_last_pushed_ts` guard in `BarAggregator` |
 | `ModuleNotFoundError: ibapi` | `pip install -r requirements.txt` (the dist is `ibapi-latest`, which provides the `ibapi` module) |
 
 ---
@@ -261,5 +261,5 @@ All tests run **offscreen** (no display required) and **without TWS**.
 
 - Check `docs/phase-changelog.md` for the phase-by-phase change record
   (`PENDING_IMPLEMENTATION_PLAN.md`, the old Phases 1-10 roadmap, was deleted 2026-10-15)
-- Run `python -m pytest` to verify environment
+- Run `.venv/bin/python -m pytest` to verify environment
 - TWS must be running before app launch
