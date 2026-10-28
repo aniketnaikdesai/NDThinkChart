@@ -2258,6 +2258,13 @@ Chart; Q29 no-op semantics):**
     explicitly (`AC-D16.4`) — **never** classified as a genuine closure and left as a silent hole.
 
 - **AC-D16.8 (minimum intraday history depth — 30 trading sessions, RTH **and** Ext-Hours; Q47/ESC-038, answered 2026-10-15; EXTENDED 2026-10-15 by D42/ESC-038; EXTENDED TO ETH 2026-10-15 by Q52)**
+  - **Restatement (RG-P7-1 / ESC-079, 2026-10-28 — settled P7 direction S-P7-1/S-P7-2, implemented and green):**
+    the 30-session floor is satisfied **monotonically across successive loads** — persist-and-resume with a
+    **per-load cap** of at most one quarter of the `MAX_HISTORICAL_PER_600S` rolling slots and an **oldest-first**
+    floor fill (per-chunk persist+render; same-chart reloads coalesce) — **never necessarily inside one load**;
+    there is no single-load deadline. The single-load implication in the Given/When/Then and Measurable below is
+    **SUPERSEDED as a reading** (original wording preserved beneath as history); the normative target is the
+    successive-loads floor fill.
   Given an intraday timeframe (`1 min`, `5 mins`, `15 mins`, `1 hour`, `4 hours`) in **either** session mode —
   **RTH** (`extended_hours=False` → `useRTH=1`, session window `09:30–16:00 ET`) **or** **Ext-Hours (ETH)**
   (`extended_hours=True`, extended window `04:00–20:00 ET`) — When the symbol is loaded and all historical
