@@ -1,0 +1,45 @@
+TEST SUITE RUNTIME REVIEW
+=========================
+Date: 2026-10-27
+Basis: supplied /tmp/full_clean.log and static source inspection.
+
+REVIEW RESULTS
+--------------
+The suite's main delay comes from tests/test_d42_nonregression.py running a
+second pytest process from inside the outer pytest run. The supplied log shows
+that nested run collected 1,024 outcomes and took 293.36 seconds (about 4m53s).
+The outer run then continues its own tests, repeating much of that work.
+
+The nested run also includes Qt WebEngine integration tests that wait up to 30
+seconds for the page bridge to become ready. In the supplied log, multiple
+bridge, end-to-end chart, and layout tests time out. Repeated
+“URL scheme handler already installed for the scheme: ndt” messages appear;
+the log does not prove that warning is the cause of the bridge failures.
+
+REASONING
+---------
+A full-suite subprocess inside the suite duplicates broad test execution and
+makes one test account for nearly five minutes by itself. Repeated 30-second
+readiness waits add further delay when the offscreen WebEngine page does not
+boot. The test currently checks the same broad suite health that an external
+CI/full-suite command can check more efficiently.
+
+ACTION RECOMMENDED
+------------------
+1. Remove the nested full-suite subprocess from the regular pytest suite, or
+   replace it with a small targeted non-regression subset.
+2. Run Qt WebEngine integration tests in a separate job that first confirms the
+   page and bridge can become ready in that environment. Skip them early when
+   Chromium/WebEngine is present but nonfunctional under offscreen mode.
+3. Investigate the duplicate `ndt` scheme registration and add diagnostics for
+   page-load/renderer failures so a missing `pageReady` does not consume a
+   30-second timeout repeatedly.
+
+ALTERNATE SOLUTION
+------------------
+Keep the nested suite check, but run it only in a dedicated CI job, cache or
+otherwise avoid repeating the same tests in the outer job, and exclude the
+WebEngine tests unless that job has a verified working Chromium environment.
+
+No tests were run to prepare this report; it is based on the supplied log and
+source inspection.

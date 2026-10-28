@@ -1,0 +1,176 @@
+DRAWING / OVERLAY RENDERING DEBUG REPORT
+========================================
+
+Scope
+-----
+Source-based root-cause analysis and fix suggestions for drawings and overlays
+that are present in state and in their render plans but are not visible in the
+chart. No source code was changed. No tests were run, per instruction.
+
+Executive assessment
+--------------------
+The evidence points to a rendering lifecycle or view-invalidation defect in the
+custom primitive integration, rather than a failure to create or persist
+annotations, a general inability of Lightweight Charts to paint custom content,
+or a drawing gesture problem.
+
+The exact failing step is not established. The strongest code-level lead is that
+both custom primitives leave updateAllViews() empty while their renderer reads
+a module-level planSnapshot. Lightweight Charts documents updateAllViews() as
+the hook for updating primitive views before rendering; requestUpdate() requests
+a chart redraw, but does not itself demonstrate that the renderer's cached view
+has received fresh data. This is a plausible lifecycle/cache mismatch, not a
+confirmed root cause.
+
+Given the reported prior instrumentation and attempted fixes, the practical
+recommendation is one final, bounded lifecycle diagnostic. If it does not show
+an obvious small fix, use a project-owned canvas overlay for drawings and
+session/gap/VIX/ICT bands. That path trades library lifecycle uncertainty for
+explicit repaint and coordinate management.
+
+Evidence
+--------
+Code inspection:
+- chart_assets/lwc/primitives.js refresh() rebuilds planSnapshot and calls the
+  captured requestUpdate callback.
+- The primitive's renderer.draw() later reads that shared planSnapshot.
+- makePrimitive() returns paneViews(), but updateAllViews() is empty.
+- attached() captures param.requestUpdate and calls refresh().
+- overlays.js uses the same broad design: a shared plan snapshot, a renderer
+  that reads it, requestUpdate(), and an empty updateAllViews().
+- chart.js binds these modules to the visible price series and rebinds when the
+  visible price-series handle changes.
+- The e2e drawing test verifies that records reach LwPrimitives.snapshot() and
+  that the generated plan contains the expected line. It does not assert that
+  the real primitive rasterizes pixels.
+- chart_assets/lwc/VERSION identifies Lightweight Charts 5.2.1.
+
+Reported instrumentation from the developer (not independently reproduced):
+- Drawing gestures commit records, and those records persist and reload.
+- The page reports two drawing items and one planned line, while the rasterized
+  frame behaves as if the plan were empty/stale.
+- A minimal control primitive attached to the same series paints successfully.
+- Fixes to time/logical coordinate mapping, renderer method shape, and series
+  rebinding did not resolve the missing drawing pixels.
+- The toolbar/router path and alarm price lines work; the user reports that the
+  overlay primitives share the suspect drawing primitive path.
+
+These observations make a broken general chart canvas or gesture/controller
+path less likely. They do not distinguish stale view state from geometry,
+clipping, coordinate-space, z-order, or repaint scheduling defects at the
+actual draw callback.
+
+Root-cause assessment
+--------------------
+Most likely fault boundary: primitive view refresh and rasterization.
+
+The module currently has at least three separate states to correlate:
+1. Annotation/model state (items and draft).
+2. The plan snapshot produced from that state.
+3. The view/renderer state consumed during a chart frame.
+
+The reported evidence establishes that states 1 and 2 are correct. The missing
+proof is that state 3 consumed the same plan revision during the actual frame.
+The empty updateAllViews() makes this transition especially worth checking.
+
+Other plausible causes still open:
+- Lightweight Charts retains/caches pane views or renderer references in a way
+  that makes a shared mutable snapshot or freshly returned pane-view object
+  ineffective at the expected time.
+- drawPlan() is invoked with a current plan, but coordinates are null, outside
+  the pane bounds, clipped, or computed in a different coordinate space.
+- The renderer draws to a valid context but the layer is occluded or cleared by
+  another page/chart paint operation.
+- requestUpdate() is absent, captured from a stale attachment, or runs before
+  the library has refreshed/captured the relevant view state.
+
+No one item above is proven to be the root cause. The stale-plan observation is
+strong evidence of a lifecycle boundary problem, but the exact mechanism needs
+a revision-level trace at draw time.
+
+Recommended diagnostic and fix sequence
+---------------------------------------
+1. One bounded diagnostic pass in both primitives.js and overlays.js.
+   Give each generated plan a monotonically increasing revision. Log or expose
+   through a debug snapshot: revision and counts when refresh() builds it,
+   revision/counts when updateAllViews() runs, and revision/counts plus draw
+   count and skipped-coordinate counts inside renderer.draw()/drawPlan(). Also
+   record attachment identity and whether requestUpdate is present. Keep the
+   diagnostic opt-in or removable after diagnosis.
+
+   Interpret the trace:
+   - No draw callback after requestUpdate: attachment/invalidation scheduling.
+   - updateAllViews() sees a new revision but draw uses an old one: view/renderer
+     cache or ownership problem.
+   - draw sees the new revision but draws zero items: geometry or coordinate
+     conversion problem.
+   - draw count is positive but the screen remains blank: context, clipping,
+     clearing, or stacking/layer problem.
+
+2. If view state is stale, make the pane view own its current plan and refresh
+   that view from updateAllViews(); have its renderer draw the view-owned plan.
+   Preserve requestUpdate() as the signal to schedule the frame. This follows
+   the documented primitive lifecycle more directly than relying on a shared
+   module-level snapshot. Apply the same pattern to overlays if they use the
+   same lifecycle.
+
+3. If the trace cannot establish a small lifecycle correction in one focused
+   pass, stop extending the primitive debugging effort and adopt the canvas
+   overlay. Reuse the existing plan builders and interaction/persistence flow;
+   replace only presentation for drawings and the affected overlays. Keep
+   alarm price lines on their current path.
+
+Options: risk, usability, and cost
+----------------------------------
+Option A — bounded primitive diagnosis/fix (recommended first if one more
+focused investigation is acceptable)
+- User usability: best outcome if it identifies a small defect; retains native
+  chart primitive integration and its chart-managed drawing lifecycle.
+- Risk: low-to-medium if the cause is the view/update contract; medium overall
+  because the prior instrumented session did not isolate it.
+- Cost: small diagnostic patch, potentially small fix; uncertain if evidence
+  remains ambiguous.
+- Main failure mode: another round of instrumentation without a decisive
+  answer.
+
+Option B — project-owned transparent canvas (preferred fallback for predictable
+progress)
+- User usability: can provide deterministic drawing/overlay repainting once
+  coordinate and resize behavior are correct.
+- Risk: medium. It removes dependence on primitive view caching, but introduces
+  responsibility for plot-area alignment, device-pixel ratio, z-order, redraw
+  triggers, and cleanup.
+- Cost: medium. Keep plan builders and data/gesture/store/session code; add a
+  presentation module and binding.
+- Key acceptance checks: visual parity for line styles/fonts/handles; correct
+  alignment during pan/zoom/scale changes and resize; no interference with
+  pointer interaction or chart crosshair; screenshot/pixel validation.
+
+Option C — move to pane primitives
+- User usability: may simplify series-specific attachment if graphics span the
+  pane.
+- Risk/cost: medium, with uncertain benefit. Pane primitives use the same
+  primitive view and update lifecycle, so this does not by itself address the
+  suspected stale-view boundary. Treat it as a scope/ownership choice, not a
+  proven rendering fix.
+
+Recommendation
+--------------
+Do Option A once, with revision-level evidence at updateAllViews() and the
+rasterization callback. The current empty updateAllViews() is the most concrete
+code-level lead, while remaining only a hypothesis. Time-box the attempt because
+substantial prior debugging has already been reported. If the trace does not
+produce a direct and verifiable fix, choose Option B for drawings and affected
+overlays. This keeps a clear decision point and avoids an open-ended primitive
+investigation.
+
+Official API reference
+----------------------
+Lightweight Charts documents series primitives as custom extensions, including
+pane views/renderers and the attached requestUpdate callback. Its lifecycle
+also documents updateAllViews() for updating views before drawing:
+https://tradingview.github.io/lightweight-charts/docs/plugins/series-primitives
+
+Pane primitives use a related view/renderer lifecycle and are a possible scope
+alternative, but not an automatic cure for stale view state:
+https://tradingview.github.io/lightweight-charts/docs/plugins/pane-primitives
