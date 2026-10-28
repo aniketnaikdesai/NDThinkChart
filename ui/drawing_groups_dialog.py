@@ -101,6 +101,7 @@ class DrawingGroupsDialog(QDialog):
         for r, group in enumerate(groups):
             name_item = QTableWidgetItem(group.name)
             name_item.setData(Qt.ItemDataRole.UserRole, group.id)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             color_item = QTableWidgetItem()
             while len(self.PRECOLORS) < 8:
                 self.PRECOLORS.append("#ffffff")
@@ -192,7 +193,9 @@ class DrawingGroupsDialog(QDialog):
             return
         color = QColorDialog.getColor(QColor(group.color or "#888888"), self, "Group color")
         if color.isValid():
-            DrawingStore.update_group(ids[0], color=color.name())
+            new_color = color.name()
+            DrawingStore.update_group(ids[0], color=new_color)
+            DrawingStore.repaint_group_members(ids[0], new_color)
             self._commit()
 
     def _delete_group(self):

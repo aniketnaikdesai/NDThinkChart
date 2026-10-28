@@ -141,6 +141,11 @@ class TickerSession(QObject):
         # D39.4: burst alarms from index symbols evaluated on this tape
         # (e.g. SPX alarms on the ES session). Survive reload_alarms().
         self._proxy_alarms: list = []
+        # P9 (S-P9-3): in-memory retry queue for alarm IDs whose
+        # mark_triggered DB write failed. Flushed on subsequent bars and
+        # reload_alarms; holds IDs only (bounded by active-alarm count),
+        # never persisted — the store stays the durable truth.
+        self._trigger_retry_queue: list[int] = []
         # D39: last forming bar seen per timeframe — when a new candle
         # starts, the previous bar is complete and feeds the baseline.
         self._burst_forming: dict[str, Bar] = {}
@@ -473,6 +478,9 @@ class TickerSession(QObject):
         """BarAggregator callback (main thread). Data-plane update + per-
         session alarm evaluation (DEC-1: fires even with zero views)."""
         self._append_bar(bar.timeframe, bar, is_new_candle)
+        # P9 (S-P9-3): flush persistence retries first, so a recovered DB
+        # marks still-pending IDs before this bar's evaluation.
+        self._flush_trigger_retries()
         triggered = []
         if not self.monitoring_paused:
             # D40: while TWS is gone, evaluation is fully paused — no
@@ -482,8 +490,9 @@ class TickerSession(QObject):
                 self._last_chart_price, bar.close, self._alarms
             )
         for alarm in triggered:
-            if alarm.id is not None:
-                AlarmStore.mark_triggered(alarm.id)
+            # P9 (S-P9-3): a DB failure here must never skip the in-memory
+            # update, the emit, or the price advance below.
+            self._persist_alarm_trigger(alarm)
             alarm.triggered = True
         if triggered:
             self.alarm_triggered.emit(self.symbol, triggered)
@@ -506,7 +515,64 @@ class TickerSession(QObject):
         self._alarms = list(alarms)
         self.alarms_changed.emit()
 
+    def _persist_alarm_trigger(self, alarm) -> None:
+        """P9 (S-P9-3): persist one trigger, isolating DB failures.
+
+        A persistence failure is logged with symbol + alarm context and the
+        ID is queued for retry — the caller still sets ``alarm.triggered``
+        and emits, so notification and the bar path can never be skipped
+        by a DB error. The store signature stays frozen (no change inside
+        ``AlarmStore.mark_triggered``).
+        """
+        if alarm.id is None:
+            return
+        try:
+            AlarmStore.mark_triggered(alarm.id)
+        except Exception as exc:
+            _LOG.error(
+                "Alarm persistence failed for %s alarm_id=%s: %s: %s",
+                alarm.symbol, alarm.id, type(exc).__name__, exc,
+            )
+            if alarm.id not in self._trigger_retry_queue:
+                self._trigger_retry_queue.append(alarm.id)
+                # Bound: IDs only, at most one entry per alarm.
+                max_pending = max(
+                    1, len(self._alarms) + len(self._proxy_alarms))
+                del self._trigger_retry_queue[:-max_pending]
+
+    def _flush_trigger_retries(self) -> None:
+        """P9 (S-P9-3): retry queued mark_triggered writes.
+
+        Runs on subsequent bars and reload_alarms. Already-notified alarms
+        are never re-emitted here — this only retries the DB write. A
+        still-failing flush re-logs once per flush (per bar), carrying every
+        still-failing ID, and keeps the IDs queued.
+        """
+        if not self._trigger_retry_queue:
+            return
+        pending = list(self._trigger_retry_queue)
+        self._trigger_retry_queue.clear()
+        failed: list[int] = []
+        for alarm_id in pending:
+            try:
+                AlarmStore.mark_triggered(alarm_id)
+            except Exception:
+                failed.append(alarm_id)
+        if failed:
+            _LOG.error(
+                "Alarm retry flush failed for %s alarm_ids=%s "
+                "(%d of %d still pending)",
+                self.symbol, failed, len(failed), len(pending),
+            )
+            for alarm_id in failed:
+                if alarm_id not in self._trigger_retry_queue:
+                    self._trigger_retry_queue.append(alarm_id)
+
     def reload_alarms(self) -> None:
+        # P9 (S-P9-3): flush first so a recovered DB marks still-pending
+        # IDs before the store re-read (avoids resurrecting an
+        # already-notified alarm from its stale untriggered row).
+        self._flush_trigger_retries()
         # D39.4: proxy burst alarms (e.g. SPX on the ES tape) survive the
         # reload — they are owned by the AlarmMonitor, not the store query.
         self.set_alarms(AlarmStore.load(self.symbol) + self._proxy_alarms)
@@ -575,8 +641,8 @@ class TickerSession(QObject):
         baseline = self._volume_baseline.baseline(resolved_key, bar.ts)
         fired = evaluate_volume_burst(per_min, baseline, burst_alarms)
         for alarm in fired:
-            if alarm.id is not None:
-                AlarmStore.mark_triggered(alarm.id)
+            # P9 (S-P9-3): isolate the DB write — notification still fires.
+            self._persist_alarm_trigger(alarm)
             alarm.triggered = True
         if fired:
             # Group by alarm symbol: proxy alarms (SPX on the ES tape)

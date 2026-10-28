@@ -75,6 +75,22 @@ class DrawingStore:
         db.conn.commit()
 
     @staticmethod
+    def repaint_group_members(group_id: int, color: str) -> None:
+        """Member-repaint for a group recolor (S-P9-4, owner decision (c) Both).
+
+        One UPDATE over the group's current members: every drawing currently
+        in the group gets the new stored color. Drawings that left the group
+        earlier (group_id already NULL or reassigned) are untouched — the
+        leave-group rule. No DDL, no migration.
+        """
+        cursor = db.conn.cursor()
+        cursor.execute(
+            "UPDATE drawings SET color=? WHERE group_id=?",
+            (color, group_id),
+        )
+        db.conn.commit()
+
+    @staticmethod
     def delete_group(group_id: int) -> None:
         cursor = db.conn.cursor()
         cursor.execute("UPDATE drawings SET group_id=NULL WHERE group_id=?", (group_id,))

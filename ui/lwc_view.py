@@ -1682,6 +1682,24 @@ class LwcDrawingSurface:
         """No tool can be active on the LWC engine's read-only surface."""
         return False
 
+    def set_active_group(self, group_id, color) -> None:
+        """Push the toolbar's active draw group into the page tool state.
+
+        P9 (S-P9-1 / finding 3.1): the single-writer setter's Python home.
+        Publishes one ``set_active_group`` interaction op carrying the
+        active group ID (``None`` when ungrouped) plus its color, which the
+        page's gesture layer stamps into every committed drawing item.
+        ``MainWindow._apply_active_draw_group`` re-pushes this on every
+        group reload and symbol change, so the page cannot desync from the
+        toolbar; the commit path itself forwards the stamped values
+        unchanged (``_on_page_drawing_committed``).
+        """
+        self._view._publish_interaction_op({
+            "op": "set_active_group",
+            "group_id": _optional_int(group_id),
+            "color": str(color or DEFAULT_DRAWING_COLOR),
+        })
+
 
 class LwcChartView(QWidget):
     """The LWC engine view: the Phase 3 core-chart driver.

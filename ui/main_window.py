@@ -1931,10 +1931,21 @@ class MainWindow(QMainWindow):
     # ── Drawing slots ─────────────────────────────────────────────────────────
 
     def _refresh_drawing_groups(self, symbol: str):
+        groups = DrawingStore.groups_for_symbol(symbol)
+        # P9 (S-P9-2 / finding 3.4): re-validate the active ID on every
+        # reload. A group deleted since selection (or a stale foreign ID)
+        # clears to None so the combo falls back to Ungrouped and the tool
+        # state is re-pushed below. The ticker-change clear in load_chart is
+        # preserved as-is (it runs before this; already-None is a no-op here).
+        if (
+            self._active_draw_group_id is not None
+            and self._active_draw_group_id not in {g.id for g in groups}
+        ):
+            self._active_draw_group_id = None
         self.draw_set_combo.blockSignals(True)
         self.draw_set_combo.clear()
         self.draw_set_combo.addItem("— Ungrouped —", None)
-        for group in DrawingStore.groups_for_symbol(symbol):
+        for group in groups:
             self.draw_set_combo.addItem(group.name, group.id)
         index = self.draw_set_combo.findData(self._active_draw_group_id)
         self.draw_set_combo.setCurrentIndex(index if index >= 0 else 0)
@@ -1994,6 +2005,15 @@ class MainWindow(QMainWindow):
     def _on_drawing_created(self, drawing):
         # D28.2: the main chart is the sole writer of drawings; the session
         # fans the new state out to all attached views (3c pop-outs read-only).
+        # P9 (S-P9-1 / finding 3.1): the page stamps the toolbar's active
+        # group, but a read-only view may submit a stale ID from another
+        # symbol — coerce a foreign group to None (ungrouped) so a commit can
+        # never write across symbols, and never crash on it (AR-P9-1).
+        if getattr(drawing, "group_id", None) is not None:
+            valid_ids = {g.id for g in DrawingStore.groups_for_symbol(
+                getattr(drawing, "symbol", "") or "")}
+            if drawing.group_id not in valid_ids:
+                drawing.group_id = None
         drawing_id = DrawingStore.create_drawing(drawing)
         drawing.id = drawing_id
         session = self._session_for_facade()

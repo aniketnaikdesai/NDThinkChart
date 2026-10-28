@@ -140,6 +140,28 @@
     return out;
   }
 
+  /* Active-group tool state (P9 / S-P9-1): the toolbar's selected draw
+   * group plus its color. `setActiveGroup` is the single writer — the
+   * Python toolbar re-pushes it on every group reload and symbol change —
+   * and `drawingItem` stamps both into the commit item. Ungrouped (a null
+   * / non-numeric id) keeps the default color and a null group. */
+  var activeGroupId = null;
+  var activeGroupColor = DEFAULT_DRAWING_COLOR;
+
+  function setActiveGroup(id, color) {
+    var num = (id === null || id === undefined ||
+               typeof id === "boolean") ? null : Number(id);
+    if (num === null || !isFinite(num)) {
+      activeGroupId = null;
+      activeGroupColor = DEFAULT_DRAWING_COLOR;
+    } else {
+      activeGroupId = num;
+      activeGroupColor = (typeof color === "string" && color) ?
+        color : DEFAULT_DRAWING_COLOR;
+    }
+    return { id: activeGroupId, color: activeGroupColor };
+  }
+
   function validAnchor(anchor) {
     return !!anchor && isFiniteNumber(anchor.frac) &&
       isFiniteNumber(anchor.price);
@@ -154,8 +176,8 @@
     var item = {
       id: null,
       kind: kind,
-      color: DEFAULT_DRAWING_COLOR,
-      group_id: null,
+      color: activeGroupColor,
+      group_id: activeGroupId,
       locked: false,
       selected: false,
       z: DRAWING_Z,
@@ -353,6 +375,15 @@
   /* Apply one interaction-channel op. Idempotent: the same mode applied
    * twice changes nothing and issues no second `applyOptions`. */
   function applyRouterOp(op) {
+    /* P9 / S-P9-1: the toolbar's active-group push. It carries no mode or
+     * tool, so the router is untouched — only the stamped group/color the
+     * next commit carries. Every interaction op reaches this function (the
+     * chart dispatcher forwards the whole channel), so no other page change
+     * is needed for the push to land. */
+    if (op && op.op === "set_active_group") {
+      setActiveGroup(op.group_id, op.color);
+      return state();
+    }
     var wasAlarm = isAlarmPlacing(router);
     var wasDrawing = isDrawing(router);
     var previousTool = router.tool;
@@ -556,6 +587,8 @@
     draftItem = null;
     press = null;
     suppressed = false;
+    activeGroupId = null;
+    activeGroupColor = DEFAULT_DRAWING_COLOR;
     return state();
   }
 
@@ -574,6 +607,7 @@
     priceAt: priceAt,
     logicalAt: logicalAt,
     drawingItem: drawingItem,
+    setActiveGroup: setActiveGroup,
     fibLevels: fibLevels,
     applyRouterOp: applyRouterOp,
     bind: bind,

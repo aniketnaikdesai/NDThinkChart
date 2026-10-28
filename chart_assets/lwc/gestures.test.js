@@ -517,3 +517,65 @@ describe("gestures.js — draft, commit, and the 3 px threshold", () => {
     assert.equal(primitives.seen.committed.length, 0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// P9-T4 (S-P9-1 / finding 3.1) — the active draw group travels into the
+// commit payload: setActiveGroup is the single writer, drawingItem stamps
+// the group ID plus color, and an ungrouped tool keeps the default color
+// with a null group.
+// ---------------------------------------------------------------------------
+
+describe("gestures.js — active draw group (P9-T4)", () => {
+  const anchors = () => [
+    { frac: 1.5, price: 100 },
+    { frac: 9.5, price: 110 },
+  ];
+
+  it("stamps the active group ID and color into new items", () => {
+    LwGestures.reset();
+    LwGestures.setActiveGroup(7, "#ff0000");
+    const [first, second] = anchors();
+    const item = LwGestures.drawingItem("trendline", first, second);
+    assert.equal(item.group_id, 7);
+    assert.equal(item.color, "#ff0000");
+  });
+
+  it("keeps the default color and a null group when ungrouped", () => {
+    LwGestures.reset();
+    LwGestures.setActiveGroup(7, "#ff0000");
+    LwGestures.setActiveGroup(null, null);
+    const [first, second] = anchors();
+    const item = LwGestures.drawingItem("trendline", first, second);
+    assert.equal(item.group_id, null);
+    // The shipped default (mirrors DEFAULT_DRAWING_COLOR in gestures.js).
+    assert.equal(item.color, "#38bdf8");
+  });
+
+  it("starts ungrouped after a reset", () => {
+    LwGestures.reset();
+    const [first, second] = anchors();
+    const item = LwGestures.drawingItem("trendline", first, second);
+    assert.equal(item.group_id, null);
+    assert.equal(item.color, "#38bdf8");
+  });
+
+  it("applies a set_active_group router op into new items", () => {
+    LwGestures.reset();
+    LwGestures.applyRouterOp({
+      op: "set_active_group", group_id: 12, color: "#00ff00",
+    });
+    const [first, second] = anchors();
+    const item = LwGestures.drawingItem("trendline", first, second);
+    assert.equal(item.group_id, 12);
+    assert.equal(item.color, "#00ff00");
+  });
+
+  it("rejects a junk group ID instead of stamping it", () => {
+    LwGestures.reset();
+    LwGestures.setActiveGroup("not-a-group", "#ff0000");
+    const [first, second] = anchors();
+    const item = LwGestures.drawingItem("trendline", first, second);
+    assert.equal(item.group_id, null);
+    assert.equal(item.color, "#38bdf8");
+  });
+});
