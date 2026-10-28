@@ -18,8 +18,9 @@ The cutover gate is three independent proofs plus a boundary proof, because
    hold the 19-row parity matrix; the file is structurally validated here
    (no PyYAML in this venv);
 4. **the default would have been flipped** — the parity matrix must be
-   19 rows, every non-accepted row must carry an explicit rule-10 entry, rows
-   16/17/19 must be Done/accepted, the Phase-0 perf floor must be unchanged
+   19 rows, every non-accepted non-retired row must carry an explicit
+   rule-10 entry, rows 16/17 must be Done/accepted and row 19 must be
+   Retired (P6-T13 as-built + coverage ledger), the Phase-0 perf floor
    and still met. P6-12 pinned pyqtgraph as present and the default; P6-13
    default engine with nothing deleted (AC-D47.9; P6-13 is separately gated).
 
@@ -356,14 +357,25 @@ def _structural_yaml_problem(text: str) -> str | None:
 
 
 def test_matrix_is_19_rows_and_every_open_row_has_a_rule10_entry() -> None:
-    """AC2: parity all Done/accepted, or an explicit rule-10 entry — never a hole."""
+    """AC2: parity all Done/accepted, row 19 Retired recorded, or an explicit rule-10 entry — never a hole."""
     rows = _matrix_rows()
     assert len(rows) == 19, f"parity matrix must hold 19 rows, found {len(rows)}"
     assert set(rows) == set(range(1, 20)), "parity matrix row numbers are not 1..19"
 
     done = {n for n, row in rows.items() if "done / accepted" in row["disposition"].lower()}
-    pending = sorted(set(rows) - done)
-    for required in (16, 17, 19):
+    retired = {n for n, row in rows.items() if "retired" in row["disposition"].lower()}
+    # P6-T13 retired the oracle with owner approval: row 19 is Retired, and
+    # it is the only row allowed outside Done/Open — fail closed.
+    assert retired == {19}, sorted(retired)
+    cell_19 = rows[19]["disposition"]
+    assert "Retired" in cell_19, cell_19
+    lowered_19 = cell_19.lower()
+    assert "as-built" in lowered_19 and "p6-t13" in lowered_19, cell_19
+    assert "retired coverage" in _read(_MATRIX).lower(), (
+        "parity matrix has no Retired coverage ledger for row 19"
+    )
+    pending = sorted(set(rows) - done - retired)
+    for required in (16, 17):
         assert required in done, (
             f"row {required} ({rows[required]['row']}) must be Done/accepted for "
             f"the cutover candidate — it is {rows[required]['disposition']!r}"

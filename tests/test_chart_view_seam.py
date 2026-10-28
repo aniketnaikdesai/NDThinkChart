@@ -194,7 +194,8 @@ class TestRendererOnlyBoundary:
 # ── T14: parity-matrix seam record (AC4) ──────────────────────────────────
 
 # Rows this project has completed so far. Later waves add to this set; a row
-# regressing to Open/pending still fails because every other row must be Open.
+# regressing to Open/pending still fails because every other non-retired row
+# must be Open. (Row 19 is Retired since P6-T13, handled in the test below.)
 DONE_PARITY_ROWS = {7, 8, 13, 14}
 
 DONE_DISPOSITION = "Done / accepted"
@@ -228,13 +229,30 @@ class TestParityMatrixSeamRecord:
 
         done = {number for number, cell in rows.items() if cell == DONE_DISPOSITION}
         open_rows = {number for number, cell in rows.items() if cell == OPEN_DISPOSITION}
-        # Every row carries one of the two dispositions, exactly.
-        assert done | open_rows == set(rows)
-        assert not done & open_rows
+        # P6-T13 retired the oracle with owner approval: row 19 is the only
+        # row allowed a third disposition, and it must carry it explicitly.
+        retired = {
+            number
+            for number, cell in rows.items()
+            if "retired" in cell.lower()
+        }
+        assert retired == {19}, sorted(retired)
+        # Every row carries exactly one disposition — fail closed.
+        assert done | open_rows | retired == set(rows)
+        assert not ((done & open_rows) | (done & retired) | (open_rows & retired))
         # Completed rows stay Done (later waves may complete more) ...
         assert DONE_PARITY_ROWS <= done, sorted(DONE_PARITY_ROWS - done)
-        # ... and every other row is still Open, so a regression fails.
-        assert open_rows == set(rows) - done
+        # ... and every other non-retired row is still Open, so a regression fails.
+        assert open_rows == set(rows) - done - retired
+
+        # Row 19 must be Retired AND carry the as-built note + ledger link.
+        cell_19 = rows[19]
+        assert "Retired" in cell_19, cell_19
+        lowered_19 = cell_19.lower()
+        assert "as-built" in lowered_19 and "p6-t13" in lowered_19, cell_19
+        assert "retired coverage" in text.lower(), (
+            "parity matrix has no Retired coverage ledger for row 19"
+        )
 
         # The summary line is derived from the table, not pinned to a count.
         summary = re.search(
@@ -248,7 +266,9 @@ class TestParityMatrixSeamRecord:
         assert total == len(rows)
         assert open_count == len(open_rows)
         assert done_count == len(done)
-        assert open_count + done_count == total
+        # Row 19 is Retired, not Open or Done — the only row allowed outside
+        # the two counted dispositions.
+        assert open_count + done_count + len(retired) == total
 
 
 # ── Q-10: MainWindow goes through the factory (AC1) ───────────────────────
