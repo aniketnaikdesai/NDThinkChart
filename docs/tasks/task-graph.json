@@ -1,102 +1,196 @@
 {
   "metadata": {
-    "phase": "P7",
-    "status": "READY_FOR_BUILD"
+    "phase": "P8",
+    "batch": "D48",
+    "status": "READY_FOR_BUILD",
+    "note": "P8 lite: 1 week (2Y) + 1 month (10Y). Waves P8-W1 (T01+T02) -> P8-W2 (T03+T04) -> P8-W3 (T05)."
   },
   "tasks": [
     {
-      "id": "P7-T01",
-      "title": "W1: per-load historical budget cap with oldest-first floor fill across loads",
-      "description": "Cap what a single chart load may spend (at most floor(MAX_HISTORICAL_PER_600S/4) historical requests before yielding) and fill the 30-session depth floor monotonically oldest-first across successive loads, resuming from persisted state instead of restarting one giant wave (S-P7-1; code side of ESC-075/079).",
+      "id": "P8-T01",
+      "title": "Data plane: TIMEFRAME_CONFIG rows + Monday-anchored weekly and calendar-month bucketing",
+      "description": "Add exactly two TIMEFRAME_CONFIG rows (1 week -> 1 week/2 Y; 1 month -> 1 month/10 Y) appended after 1 day, add the nominal 604800/2592000 TIMEFRAME_SECONDS keys, and implement Monday-00:00-ET weekly bucketing plus calendar-month-boundary monthly bucketing in data/bar_aggregator.py beside (never altering) the existing fixed-seconds grid. Covers plan wave P8-W1 data-plane core and architecture S-P8-1/S-P8-2.",
       "agent": "build_worker",
-      "task_type": "code",
+      "task_type": "build",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given a rolling historical budget of B=MAX_HISTORICAL_PER_600S slots, when a 1-min chart load plans its backfill, then it issues at most floor(B/4) historical requests before yielding (the remainder stays queued for later loads).",
-        "Given a cache short of the AC-D16.8 30-session floor, when successive loads complete, then cached depth grows monotonically oldest-first across the loads and converges to the floor without any single wave carrying it all.",
-        "Given the capped planner in place, when the existing planner/backfill suites run, then find_missing_spans/plan_requests/floor_bar_budget semantics are unchanged (pure, Qt-free) and the scoped existing suites stay green."
+        "Given TIMEFRAME_CONFIG, when inspected, then it contains 1 week (bar_size 1 week, duration 2 Y) and 1 month (bar_size 1 month, duration 10 Y) appended after 1 day, with the six existing rows byte-identical.",
+        "Given daily bars spanning a DST fold, a February, and a Dec/Jan boundary, when aggregated to 1 week / 1 month, then weekly buckets open Monday 00:00 America/New_York and monthly buckets open on the calendar-month boundary ET, and live forming-bar aggregation follows the same buckets."
       ],
       "tests": [
         {
-          "test_id": "P7-T01-T11",
-          "linked_acceptance_criterion": 1,
+          "test_id": "P8-T01-T11",
+          "linked_acceptance_criterion": "Given TIMEFRAME_CONFIG, when inspected, then it contains 1 week (bar_size 1 week, duration 2 Y) and 1 month (bar_size 1 month, duration 10 Y) appended after 1 day, with the six existing rows byte-identical.",
           "type": "unit",
-          "description": "Drive load planning for SPY 1-min on an empty cache through a fake transport that counts req_historical_data issues; assert issued-before-yield <= floor(MAX_HISTORICAL_PER_600S/4).",
-          "expected_result": "Issued count is <= 25 at B=100 (and scales with the tunable, never a hardcoded 25); the leftover plans remain queued, not dropped."
+          "description": "In tests/test_d48_data_plane.py assert the two exact row dicts, key order (1 week/1 month immediately after 1 day), and byte-equality of the six pre-existing rows; assert TIMEFRAME_SECONDS gains 604800/2592000 while the seven existing periods are unchanged.",
+          "expected_result": "Passes only with the exact rows, order, and nominal keys present."
         },
         {
-          "test_id": "P7-T01-T12",
-          "linked_acceptance_criterion": 2,
-          "type": "integration",
-          "description": "Complete two successive capped loads against a session/BarCache double; assert the second load starts from the first load's persisted depth, fills the next-oldest span first, and total cached sessions strictly increase toward the floor.",
-          "expected_result": "Depth after load 2 > depth after load 1 (monotonic, oldest-first); no re-request of already-persisted spans."
-        },
-        {
-          "test_id": "P7-T01-T13",
-          "linked_acceptance_criterion": 3,
-          "type": "integration",
-          "description": "Run the scoped existing suites (test_backfill_service, test_history_backfill*, test_d42_depth_floor, test_d42_day_presence) unmodified.",
-          "expected_result": "All scoped suites pass; no planner contract signature changed."
+          "test_id": "P8-T01-T21",
+          "linked_acceptance_criterion": "Given daily bars spanning a DST fold, a February, and a Dec/Jan boundary, when aggregated to 1 week / 1 month, then weekly buckets open Monday 00:00 America/New_York and monthly buckets open on the calendar-month boundary ET, and live forming-bar aggregation follows the same buckets.",
+          "type": "unit",
+          "description": "In tests/test_d48_data_plane.py parametrize weekly bucketing over a DST-fold week, a cross-year Dec/Jan week, and a holiday week (sessions-only aggregation, no fabrication), and monthly bucketing over February, a 30-day month, and a 31-day month; assert bucket-open timestamps equal Monday 00:00 ET / month-boundary ET.",
+          "expected_result": "All parametrized cases pass; a fixed-seconds 30-day month grid would fail the February and cross-year cases."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p7_w1_cap.py (new: cap counting, cross-load monotonic fill)"
+        "ibkr/market_data.py (+2 config rows)",
+        "data/bar_aggregator.py (+weekly/monthly bucketing, +2 nominal keys)",
+        "tests/test_d48_data_plane.py"
       ],
       "touches_files": [
-        "ui/ticker_session.py",
-        "ui/main_window.py",
-        "tests/test_p7_w1_cap.py"
+        "ibkr/market_data.py",
+        "data/bar_aggregator.py",
+        "tests/test_d48_data_plane.py"
       ],
       "doc_required": false,
       "inputs": [
-        "ESC-075/079 text; S-P7-1; TIMEFRAME_CONFIG durations"
+        "S-P8-1",
+        "S-P8-2",
+        "AC-D48.1",
+        "AC-D48.2",
+        "A113-A116",
+        "A119"
       ],
       "outputs": [
-        "Capped per-load wave; cross-load floor resume"
+        "Two config rows live; calendar bucketing implemented; data-plane test module green"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/ticker_session.py",
-            "lines": "663-760",
-            "why": "extend queue_wave_plans/_issue_wave_chunks with the per-load cap and resume queue"
+            "path": "ibkr/market_data.py",
+            "lines": "1-30",
+            "why": "TIMEFRAME_CONFIG rows to extend; appended after 1 day"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "1655-1800",
-            "why": "read-only: load_chart planning feeds the capped queue \u2014 do not change its contract"
-          },
-          {
-            "path": "services/backfill_service.py",
-            "lines": "300-500",
-            "why": "read-only: find_missing_spans/plan_requests/floor_bar_budget stay pure \u2014 do not change signatures"
-          },
-          {
-            "path": "config/settings.py",
-            "lines": "25-60",
-            "why": "read-only: MAX_HISTORICAL_PER_600S/HISTORICAL_MIN_INTERVAL_S/MIN_INTRADAY_SESSIONS values \u2014 never edit tunables here"
-          },
-          {
-            "path": "ibkr/pacing.py",
-            "lines": "129-195",
-            "why": "read-only: historical_wait_seconds/record_historical_slot stay the single budget owner"
+            "path": "data/bar_aggregator.py",
+            "lines": "1-80",
+            "why": "TIMEFRAME_SECONDS + _period_start grid the new bucketing sits beside"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/ticker_session.py:queue_wave_plans",
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:_issue_wave_chunks",
+            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:load_chart",
+            "ref": "data/bar_aggregator.py:_period_start",
             "status": "existing"
           },
+          {
+            "ref": "ibkr/market_data.py:req_historical_data",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "TIMEFRAME_CONFIG['1 week'] = {'duration': '2 Y', 'bar_size': '1 week'}; TIMEFRAME_CONFIG['1 month'] = {'duration': '10 Y', 'bar_size': '1 month'}",
+            "module": "ibkr/market_data.py"
+          },
+          {
+            "status": "new",
+            "signature": "TIMEFRAME_SECONDS['1 week'] = 604800; TIMEFRAME_SECONDS['1 month'] = 2592000 (nominal, fixed-seconds consumers only; never used for bucketing)",
+            "module": "data/bar_aggregator.py"
+          },
+          {
+            "status": "new",
+            "signature": "week_bucket_start(ts) -> Monday 00:00 America/New_York; month_bucket_start(ts) -> calendar-month boundary ET",
+            "module": "data/bar_aggregator.py"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "requirement_ids": [
+          "D48",
+          "AC-D48.1",
+          "AC-D48.2",
+          "A113",
+          "A114",
+          "A115",
+          "A116",
+          "A119",
+          "R94"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_data_plane.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P8-T02",
+      "title": "Planner verification, priming-table docstring rows, and standalone IBKR probe",
+      "description": "Verify (no logic change) that weekly/monthly loads plan the configured durations, skip the AC-D16.8 intraday floor, and detect holes at bar granularity; add the two weekly/monthly rows to the prime_aggregator per-span docstring naming the existing coarse branch; run the standalone live-TWS probe for both new combos and record the outcome. Covers S-P8-3/S-P8-5, DG98, R93; delivers the AC-D48.6 probe evidence.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P8-T01"
+      ],
+      "acceptance_criteria": [
+        "Given a weekly/monthly load, when the planner runs, then it requests the configured duration (chunked per the existing stepping rule when one window cannot cover the span), never applies the AC-D16.8 30-session floor, and detects missing spans at bar granularity.",
+        "Given live TWS, when the standalone probe issues the (2 Y, 1 week) and (10 Y, 1 month) historical requests, then both complete with no 321-class rejection, and the probe record on file names both combos; a rejection fails the wave and escalates instead of shrinking durations."
+      ],
+      "tests": [
+        {
+          "test_id": "P8-T02-T11",
+          "linked_acceptance_criterion": "Given a weekly/monthly load, when the planner runs, then it requests the configured duration (chunked per the existing stepping rule when one window cannot cover the span), never applies the AC-D16.8 30-session floor, and detects missing spans at bar granularity.",
+          "type": "unit",
+          "description": "In tests/test_d48_planner_probe.py drive find_missing_spans/plan_requests for 1 week and 1 month: full-span case yields the configured duration in one chunk, a multi-window span chunks by that duration, the AC-D16.8 floor never fires (period >= 86400), and a hole-in-the-middle span is detected at bar granularity. Uses P8-T01 config rows.",
+          "expected_result": "All planner cases pass with zero planner source changes (verification, not code)."
+        },
+        {
+          "test_id": "P8-T02-T21",
+          "linked_acceptance_criterion": "Given live TWS, when the standalone probe issues the (2 Y, 1 week) and (10 Y, 1 month) historical requests, then both complete with no 321-class rejection, and the probe record on file names both combos; a rejection fails the wave and escalates instead of shrinking durations.",
+          "type": "manual",
+          "description": "Run the standalone read-only probe (historical requests only, no orders, port-guard respected) for both combos against live TWS; record durations, bar sizes, completion, and any error code in docs/d48_probe_record.md. Assert both complete with no 321-class rejection.",
+          "expected_result": "Probe record present naming both combos with clean completion; any 321-class rejection is recorded as a wave failure escalated to Requirements (R93), never a silent duration change."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/ticker_session.py (priming docstring +2 rows only)",
+        "tests/test_d48_planner_probe.py",
+        "docs/d48_probe_record.md"
+      ],
+      "touches_files": [
+        "ui/ticker_session.py",
+        "tests/test_d48_planner_probe.py",
+        "docs/d48_probe_record.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P8-3",
+        "S-P8-5",
+        "AC-D48.3",
+        "AC-D48.6",
+        "A117",
+        "DG98",
+        "R93",
+        "P8-T01 config rows"
+      ],
+      "outputs": [
+        "Planner verified unchanged; priming table documents weekly/monthly spans; probe record on file"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/backfill_service.py",
+            "lines": "1-60",
+            "why": "read-only: planner contracts under verification (no logic change)"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "1670-1730",
+            "why": "prime_aggregator span branches whose docstring table gains two rows"
+          }
+        ],
+        "contracts": [
           {
             "ref": "services/backfill_service.py:find_missing_spans",
             "status": "existing"
@@ -106,119 +200,118 @@
             "status": "existing"
           },
           {
-            "ref": "ibkr/pacing.py:record_historical_slot",
+            "ref": "services/backfill_service.py:floor_bar_budget",
             "status": "existing"
           },
           {
-            "ref": "config/settings.py:MAX_HISTORICAL_PER_600S",
+            "ref": "services/backfill_service.py:bar_period_seconds",
             "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:prime_aggregator",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "priming docstring rows: weekly spans (<= 604800 s) and monthly spans (~2.6 Ms) -> existing coarse branch: 1 min / [60 S, 1 D]; no logic change",
+            "module": "ui/ticker_session.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
         "requirement_ids": [
-          "AC-D16.8",
-          "AC-D16.9",
-          "AC-D16.4"
+          "D48",
+          "AC-D48.3",
+          "AC-D48.6",
+          "A117",
+          "DG98",
+          "R93"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w1_cap.py -o addopts=\"\" -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_planner_probe.py -q",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "M"
+        "size": "S"
       }
     },
     {
-      "id": "P7-T02",
-      "title": "W1: persist-and-render per chunk with resume-not-restart finalisation",
-      "description": "Replace the all-or-nothing wave finalise with per-chunk save_bars persist plus incremental render on every completed chunk, so killing or reloading mid-wave loses zero fetched bars and overlapping resumes never duplicate rows (S-P7-2; code side of ESC-075).",
+      "id": "P8-T03",
+      "title": "Canonical daily+ full-session mode: identical RTH/ETH bars through one shared cache",
+      "description": "Canonicalise loads for any timeframe with period >= 86400 to one shared full-session mode across the cache read/write, planner call, wave, and prime in ui/main_window.py, and extend the services/chart_model.py plotted/collapse membership branches to the shared daily-or-coarser predicate. RTH/ETH toggle on 1 week / 1 month then converges with identical bars and no extra requests when cached. Covers S-P8-4 load-path half and AC-D48.4 mode-parity half.",
       "agent": "build_worker",
-      "task_type": "code",
+      "task_type": "build",
       "dependencies": [
-        "P7-T01"
+        "P8-T01"
       ],
       "acceptance_criteria": [
-        "Given a wave with N chunks in flight, when any single chunk's historical_data_end arrives, then its bars are BarCache.save_bars-persisted and rendered before the remaining chunks complete (cache and chart advance monotonically per chunk, never only at the last chunk).",
-        "Given an interrupted wave (cancel, reload, or strand) that had completed K chunks, when the next load for the same target runs, then the K chunks' bars are still in the cache and on the chart (the cache after interruption is never smaller than before the wave started).",
-        "Given an overlapping resume that re-fetches already-persisted bars, when the duplicate bars arrive, then INSERT OR REPLACE idempotence yields no duplicate rows and exactly one save plus one set per completed chunk occurs (never per bar), with the generation fence still suppressing superseded waves."
+        "Given either new timeframe, when loaded under RTH and under ETH, then both loads return identical bars from one shared cache treatment, and toggling the mode with the span cached issues no extra historical requests."
       ],
       "tests": [
         {
-          "test_id": "P7-T02-T11",
-          "linked_acceptance_criterion": 1,
+          "test_id": "P8-T03-T11",
+          "linked_acceptance_criterion": "Given either new timeframe, when loaded under RTH and under ETH, then both loads return identical bars from one shared cache treatment, and toggling the mode with the span cached issues no extra historical requests.",
           "type": "integration",
-          "description": "Drive a 3-chunk wave through the real TickerSession/MainWindow path with a fake transport; after each chunk-end assert BarCache row count grew and the chart/session bars include the new chunk while other chunks are still in flight.",
-          "expected_result": "Cache and rendered bars advance after chunk 1 and chunk 2, not only after chunk 3; per-chunk save+set observed exactly once per chunk."
-        },
-        {
-          "test_id": "P7-T02-T12",
-          "linked_acceptance_criterion": 2,
-          "type": "integration",
-          "description": "Interrupt a wave mid-flight (cancel/reload), then reload the same symbol/timeframe/mode and assert the previously completed chunks survive in cache and chart.",
-          "expected_result": "Post-interruption cache row count >= pre-wave count and includes the completed chunks; no refetch of completed spans."
-        },
-        {
-          "test_id": "P7-T02-T13",
-          "linked_acceptance_criterion": 3,
-          "type": "unit",
-          "description": "Feed the same chunk twice (overlap) and assert row counts, plus count save/set calls per chunk completion.",
-          "expected_result": "No duplicate (symbol,timeframe,ts) rows; one save plus one set per completed chunk; superseded-generation bars still rejected."
+          "description": "In tests/test_d48_mode_parity.py drive the MainWindow load path offscreen (IBApiClient.connect monkeypatched, req_historical_data stubbed with an unbounded reqId source per the D42 gotcha, symbol upper-cased per the load_chart trap) for 1 week and 1 month under ext_hours False then True: assert identical bars, a single shared cache key, and zero new historical requests on the toggle when cached; assert chart-model plotted/collapse output is identical under both modes.",
+          "expected_result": "Mode-parity holds for both new timeframes; toggle is a cache hit with no extra requests."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p7_w1_persist.py (new: chunk-visibility, resume-loss, idempotence)"
+        "ui/main_window.py (canonical daily+ mode)",
+        "services/chart_model.py (shared predicate)",
+        "tests/test_d48_mode_parity.py"
       ],
       "touches_files": [
-        "ui/ticker_session.py",
         "ui/main_window.py",
-        "tests/test_p7_w1_persist.py"
+        "services/chart_model.py",
+        "tests/test_d48_mode_parity.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Capped per-load wave from P7-T01; BarCache idempotence"
+        "S-P8-4",
+        "AC-D48.4",
+        "A118",
+        "P8-T01 config rows + nominal keys"
       ],
       "outputs": [
-        "Per-chunk persist+render; resume-safe finalisation"
+        "RTH/ETH no-op structural for weekly/monthly; mode-parity suite green"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/ticker_session.py",
-            "lines": "760-900",
-            "why": "rework on_historical_bar/on_historical_data_end for per-chunk completion"
+            "path": "ui/main_window.py",
+            "lines": "230-250",
+            "why": "tf_combo picker construction (config order, no change)"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "1960-2110",
-            "why": "rework _on_session_wave_complete/_finalize_history_wave to incremental finalise"
+            "path": "services/chart_model.py",
+            "lines": "1-60",
+            "why": "plotted/collapse membership branches adopting the shared predicate"
+          },
+          {
+            "path": "data/models.py",
+            "lines": "1-13",
+            "why": "read-only: Bar dataclass fields to seed the cache via save_bars in the parity test \u2014 do not change it"
           },
           {
             "path": "data/bar_cache.py",
-            "lines": "1-70",
-            "why": "read-only: save_bars/get_bars/prune API unchanged \u2014 called per chunk now"
+            "lines": "11-49",
+            "why": "read-only: (symbol, timeframe, ext_hours) key scheme in save_bars/get_bars to assert the single shared cache key \u2014 do not change it"
           },
           {
             "path": "ui/ticker_session.py",
-            "lines": "663-760",
-            "why": "read-only: capped queue shape from P7-T01 that per-chunk completion drains"
+            "lines": "796-815",
+            "why": "read-only: queue_wave_plans issuance path issuing req_historical_data \u2014 do not change it"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "1103-1134",
+            "why": "read-only: prime_aggregator replay-guard and request/defer behavior to stub req_historical_data and assert issuance \u2014 do not change it"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/ticker_session.py:on_historical_data_end",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:on_historical_bar",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_history_wave",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_on_session_wave_complete",
+            "ref": "ibkr/market_data.py:req_historical_data",
             "status": "existing"
           },
           {
@@ -228,419 +321,455 @@
           {
             "ref": "data/bar_cache.py:get_bars",
             "status": "existing"
+          },
+          {
+            "ref": "services/chart_model.py:plotted_index_rows",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "is_daily_or_coarser(timeframe) -> bar_period_seconds(timeframe) >= 86400; loads with True use one canonical full-session mode for request, cache, planner, and prime",
+            "module": "ui/main_window.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
         "requirement_ids": [
-          "AC-D16.1",
-          "AC-D16.4",
-          "AC-D16.8"
+          "D48",
+          "AC-D48.4",
+          "A118"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w1_persist.py -o addopts=\"\" -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_mode_parity.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P7-T03",
-      "title": "W1: same-chart reload coalescing, cancel-slot refund, superseded-162 at debug",
-      "description": "Stop the cancel-and-respend storm: a reload that does not change symbol/timeframe/mode coalesces into the running wave, genuinely cancelled slots are refunded only when their request never reached TWS, and a 162 acknowledgement for a superseded reqId is debug-level instead of a user-facing error (S-P7-2; code side of ESC-076).",
+      "id": "P8-T04",
+      "title": "Presentation remainder: daily+ predicate sweep, picker parity, burst minutes, visibility guard",
+      "description": "Adopt the one shared daily-or-coarser predicate at the six == 1 day gates (session bands x2, time-collapse identity, lwc session regions) so weekly/monthly get no bands and no collapse; map minutes_for_timeframe for 1 week (1950.0) and 1 month (8190.0); pin picker order/select/load/persist parity; guard the visibility grid (no new rows, all boxes default-checked, payload round-trips). Covers S-P8-4 predicate half, S-P8-6, S-P8-7, DG97, R95, AC-D48.4 bands half and AC-D48.5.",
       "agent": "build_worker",
-      "task_type": "code",
+      "task_type": "build",
       "dependencies": [
-        "P7-T01",
-        "P7-T02"
+        "P8-T01"
       ],
       "acceptance_criteria": [
-        "Given an in-flight wave for a (symbol, timeframe, ext-hours) triple, when load_chart is called with the identical triple, then no tracked reqId is cancelled, the history generation is unchanged, and the wave continues (zero re-spend for data already in flight).",
-        "Given an in-flight wave, when load_chart is called with a different symbol, timeframe, or ext-hours mode, then the old wave cancels with a generation advance exactly as before (genuine target changes still fence off stale responses).",
-        "Given a cancelled reqId, when its request never reached TWS (pre-issue cancel), then its rolling-budget slot is refunded via the pacing owner; when the request was already issued (post-issue cancel), then its slot is kept (never refunded).",
-        "Given error 162 arriving for a cancel-tagged (superseded) reqId, when error ingress routes it, then it is logged at debug with no status-bar error; given 162 on a reqId this client did not cancel, when it arrives, then the existing warning plus status-bar plus retry path is unchanged."
+        "Given either new timeframe in either mode, when bands and collapse are evaluated, then no session band is produced and the collapse map is identity, exactly as for 1 day.",
+        "Given minutes_for_timeframe, when called with 1 week and 1 month, then it returns 1950.0 and 8190.0 regular-session minutes.",
+        "Given the toolbar picker, when inspected and driven, then 1 week and 1 month follow 1 day and each selects, loads, and persists like every other timeframe.",
+        "Given the drawing/alarm visibility dialog, when opened, then every box is checked by default and the get/set payload round-trips with no per-timeframe key and no new row."
       ],
       "tests": [
         {
-          "test_id": "P7-T03-T11",
-          "linked_acceptance_criterion": 1,
-          "type": "integration",
-          "description": "Start a wave, reload the identical triple mid-wave with a recording transport, and assert no cancel_historical_data call, unchanged generation, and continued chunk completion.",
-          "expected_result": "Zero cancels on identical reload; wave completes with the original reqIds; no duplicate spend."
-        },
-        {
-          "test_id": "P7-T03-T12",
-          "linked_acceptance_criterion": 2,
-          "type": "integration",
-          "description": "Start a wave, load a different symbol, and assert the old wave cancelled with a generation bump and stale responses rejected.",
-          "expected_result": "Old reqIds cancelled, generation advanced, late bars for the old reqIds ignored."
-        },
-        {
-          "test_id": "P7-T03-T13",
-          "linked_acceptance_criterion": 3,
+          "test_id": "P8-T04-T11",
+          "linked_acceptance_criterion": "Given either new timeframe in either mode, when bands and collapse are evaluated, then no session band is produced and the collapse map is identity, exactly as for 1 day.",
           "type": "unit",
-          "description": "Cancel one pre-issue reqId and one post-issue reqId; assert pacing slot counts via historical_wait_seconds/record state.",
-          "expected_result": "Pre-issue cancel frees exactly its slot; post-issue cancel frees nothing."
+          "description": "In tests/test_d48_presentation.py assert session_bands/session_bands_for_range return [] and the collapse map is identity for 1 week / 1 month under both modes, mirroring the 1 day assertions; assert lwc session_regions emits nothing for the new keys.",
+          "expected_result": "Bands/collapse absent for both new timeframes in both modes."
         },
         {
-          "test_id": "P7-T03-T14",
-          "linked_acceptance_criterion": 4,
-          "type": "integration",
-          "description": "Deliver 162 for a superseded reqId and for a live wave reqId; assert log-level and status-bar routing for each.",
-          "expected_result": "Superseded 162 is debug-only with no status-bar error; genuine 162 keeps warning plus status-bar plus retry."
+          "test_id": "P8-T04-T21",
+          "linked_acceptance_criterion": "Given minutes_for_timeframe, when called with 1 week and 1 month, then it returns 1950.0 and 8190.0 regular-session minutes.",
+          "type": "unit",
+          "description": "In tests/test_d48_presentation.py assert minutes_for_timeframe('1 week') == 1950.0 and ('1 month') == 8190.0, with the 1 day -> 390.0 precedent case kept.",
+          "expected_result": "Exact RTH-session minutes returned; nominal secs/60 fallback would fail."
+        },
+        {
+          "test_id": "P8-T04-T31",
+          "linked_acceptance_criterion": "Given the toolbar picker, when inspected and driven, then 1 week and 1 month follow 1 day and each selects, loads, and persists like every other timeframe.",
+          "type": "unit",
+          "description": "In tests/test_d48_presentation.py assert tf_combo order (1 week/1 month immediately after 1 day) and drive select/load/persist for each new timeframe offscreen like the existing timeframe parity cases.",
+          "expected_result": "Picker parity holds; no picker code change required."
+        },
+        {
+          "test_id": "P8-T04-T41",
+          "linked_acceptance_criterion": "Given the drawing/alarm visibility dialog, when opened, then every box is checked by default and the get/set payload round-trips with no per-timeframe key and no new row.",
+          "type": "unit",
+          "description": "In tests/test_d48_presentation.py open the VisibilityTab, assert all six unit boxes (incl. Weeks/Months) default-checked, and assert get_visibility/set_visibility round-trips the payload unchanged with no per-timeframe key (DG97 resolved as no-new-rows).",
+          "expected_result": "Visibility default-on by construction; round-trip passes."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p7_w1_coalesce.py (new: coalesce, refund, 162 classification)"
+        "services/session_service.py + services/time_collapse_service.py + ui/lwc_view.py (shared predicate)",
+        "services/volume_baseline.py (+2 minutes lines)",
+        "tests/test_d48_presentation.py"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "ui/ticker_session.py",
-        "ibkr/pacing.py",
-        "tests/test_p7_w1_coalesce.py"
+        "services/session_service.py",
+        "services/time_collapse_service.py",
+        "ui/lwc_view.py",
+        "services/volume_baseline.py",
+        "tests/test_d48_presentation.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Capped, per-chunk wave from P7-T01/P7-T02"
+        "S-P8-4",
+        "S-P8-6",
+        "S-P8-7",
+        "AC-D48.4",
+        "AC-D48.5",
+        "A118",
+        "A119",
+        "A120",
+        "DG97",
+        "R95"
       ],
       "outputs": [
-        "Coalesced reloads; refund rule; quiet superseded-162"
+        "Predicate sweep complete; minutes mapped; picker + visibility pinned"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/main_window.py",
-            "lines": "1655-1720",
-            "why": "add the identical-triple coalesce guard around the cancel+generation block in load_chart"
+            "path": "services/session_service.py",
+            "lines": "35-95",
+            "why": "the two 1 day gates adopting the shared predicate"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "1632-1655",
-            "why": "extend _on_error ingress to classify superseded-162 at debug"
+            "path": "services/time_collapse_service.py",
+            "lines": "40-60",
+            "why": "IDENTITY_TIMEFRAME gate adopting the shared predicate"
           },
           {
-            "path": "ui/ticker_session.py",
-            "lines": "610-660",
-            "why": "tag cancel-requested reqIds and expose pre/post-issue state for refund"
+            "path": "ui/lwc_view.py",
+            "lines": "1185-1210",
+            "why": "session_regions 1 day gate adopting the shared predicate"
           },
           {
-            "path": "ibkr/pacing.py",
-            "lines": "129-195",
-            "why": "add the pre-issue-only refund counterpart to record_historical_slot \u2014 pacing stays the single owner"
+            "path": "services/volume_baseline.py",
+            "lines": "1-60",
+            "why": "minutes_for_timeframe gaining the two explicit mappings"
           },
           {
-            "path": "ibkr/error_codes.py",
-            "lines": "1-30",
-            "why": "read-only: classify_error unchanged \u2014 this task only reclassifies at the call site"
+            "path": "ui/drawing_settings_common.py",
+            "lines": "1-60",
+            "why": "read-only: VisibilityTab payload shape (unchanged, guard only)"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/main_window.py:load_chart",
+            "ref": "services/session_service.py:session_bands",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:_on_error",
+            "ref": "services/time_collapse_service.py:IDENTITY_TIMEFRAME",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:_cancel_history_requests",
+            "ref": "ui/lwc_view.py:session_regions",
             "status": "existing"
           },
           {
-            "ref": "ibkr/pacing.py:record_historical_slot",
+            "ref": "services/volume_baseline.py:minutes_for_timeframe",
             "status": "existing"
           },
           {
-            "ref": "ibkr/pacing.py:historical_wait_seconds",
+            "ref": "ui/drawing_settings_common.py:VisibilityTab",
             "status": "existing"
           },
           {
-            "ref": "ibkr/error_codes.py:classify_error",
-            "status": "existing"
+            "status": "new",
+            "signature": "minutes_for_timeframe('1 week') == 1950.0; minutes_for_timeframe('1 month') == 8190.0",
+            "module": "services/volume_baseline.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
         "requirement_ids": [
-          "AC-D16.4"
+          "D48",
+          "AC-D48.4",
+          "AC-D48.5",
+          "A118",
+          "A119",
+          "A120",
+          "DG97",
+          "R95"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w1_coalesce.py -o addopts=\"\" -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_presentation.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P7-T04",
-      "title": "W2: watchdog bound covers pacing deferrals and strands cannot resume",
-      "description": "Make the stranded-wave watchdog coherent with pacing: its bound is never below the scheduled continuation delay plus margin, and a strand finalise stops the continuation timer and clears the plan queue so a finalised wave can never resume or finalise twice (S-P7-3; code side of ESC-077).",
+      "id": "P8-T05",
+      "title": "Batch gate: probe record, history-intact, and full-suite green",
+      "description": "Close out P8: assert the P8-T02 probe record names both combos with clean completion, assert requirements history is intact (D41-D47 sections, marker sentence, Current Tech Stack, only the recorded enumeration extension), and run the full offscreen suite green. Covers plan wave P8-W3 and AC-D48.6 (record side) / AC-D48.7.",
       "agent": "build_worker",
-      "task_type": "code",
+      "task_type": "build",
       "dependencies": [
-        "P7-T03"
+        "P8-T02",
+        "P8-T03",
+        "P8-T04",
+        "P8-T06",
+        "P8-T07",
+        "P8-T08"
       ],
       "acceptance_criteria": [
-        "Given a wave legitimately waiting on a pacing deferral with continuation delay W, when the watchdog is armed, then its bound is at least W plus margin, so the wave is never flagged stranded while waiting out a legal deferral of up to the full budget-window continuation.",
-        "Given a strand finalise (watchdog timeout or transport drop), when it runs, then the wave continuation timer is stopped and the plan queue is cleared, so no further chunk issues and no second finalise can occur afterwards."
+        "Given the probe record, when read, then it documents both the (2 Y, 1 week) and (10 Y, 1 month) combos with completion and no 321-class rejection.",
+        "Given requirements.md, when inspected, then the D41-D47 sections with reversals, the Existing Repository marker sentence, and the Current Tech Stack are intact, and the only pre-D48 wording touched is the recorded timeframe-enumeration extension plus the two AC-D27.9 table rows.",
+        "Given the repository with all P8 changes, when the full offscreen suite runs, then it is green."
       ],
       "tests": [
         {
-          "test_id": "P7-T04-T11",
-          "linked_acceptance_criterion": 1,
+          "test_id": "P8-T05-T11",
+          "linked_acceptance_criterion": "Given the probe record, when read, then it documents both the (2 Y, 1 week) and (10 Y, 1 month) combos with completion and no 321-class rejection.",
           "type": "unit",
-          "description": "Schedule continuations with waits from ~1 s up to the full budget-window wait using a fake clock; arm the watchdog and advance time past the old fixed 120 s bound while still inside W+margin.",
-          "expected_result": "No strand fires while the wave is inside its legal deferral at any wait; a wait beyond the computed bound still strands exactly once."
+          "description": "In tests/test_d48_gate.py assert docs/d48_probe_record.md exists and names both combos with clean completion and no 321-class code (reads the P8-T02 artifact; asserts presence and content, never re-probes).",
+          "expected_result": "Passes only with the complete probe record on file."
         },
         {
-          "test_id": "P7-T04-T12",
-          "linked_acceptance_criterion": 2,
-          "type": "integration",
-          "description": "Force a strand (timeout/disconnect) with queued plans and an armed continuation timer; then advance timers and deliver a late end marker.",
-          "expected_result": "Timer stopped, queue empty, exactly one finalise; late markers and timer ticks after the strand change nothing."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_p7_w2_watchdog.py (new: window-relative bound, strand-clears)"
-      ],
-      "touches_files": [
-        "ui/ticker_session.py",
-        "ui/main_window.py",
-        "tests/test_p7_w2_watchdog.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "Coalesced wave lifecycle from P7-T03"
-      ],
-      "outputs": [
-        "Window-relative watchdog; single-finalise strand path"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "610-660",
-            "why": "rework _arm_history_wave_watchdog/_schedule_wave_continuation so the bound covers the scheduled wait"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1594-1632",
-            "why": "extend _finalize_stranded_history_wave/_on_session_history_wave_timeout to stop the timer and clear the queue"
-          },
-          {
-            "path": "config/settings.py",
-            "lines": "25-60",
-            "why": "read-only: bounds expressed in budget-window fractions, never literal seconds \u2014 tunables untouched"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/ticker_session.py:_arm_history_wave_watchdog",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_schedule_wave_continuation",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_on_session_history_wave_timeout",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
-        "requirement_ids": [
-          "AC-D16.4"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w2_watchdog.py -o addopts=\"\" -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P7-T05",
-      "title": "W2: aggregator-prime precedence over the backfill wave",
-      "description": "Give the D27.9 aggregator prime precedence when a full wave starts alongside it (the wave defers its continuation by exactly one HISTORICAL_MIN_INTERVAL_S or the prime holds an explicit reservation), and make a skipped prime a counted warning instead of the expected-case log line (S-P7-4; code side of ESC-078).",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P7-T03"
-      ],
-      "acceptance_criteria": [
-        "Given a backfill wave starting alongside the D27.9 aggregator prime, when the wave would issue while the shared historical-interval gate is closed, then the wave defers its continuation by exactly one HISTORICAL_MIN_INTERVAL_S (or the prime holds an explicit reservation) and the prime issues instead of starving.",
-        "Given a prime that cannot issue even with precedence, when the live feed attaches fail-open, then a warning names the skipped prime and a counter records it, so a starved prime is visible rather than logged as the routine pacing-limited line."
-      ],
-      "tests": [
-        {
-          "test_id": "P7-T05-T11",
-          "linked_acceptance_criterion": 1,
-          "type": "integration",
-          "description": "Start a multi-chunk wave and the prime together with a closed interval gate; assert the prime reqId issues and the wave continuation slips by exactly one interval.",
-          "expected_result": "Prime issued (no fail-open skip); wave continuation delayed by exactly HISTORICAL_MIN_INTERVAL_S; ordering preserved across repeated runs."
+          "test_id": "P8-T05-T21",
+          "linked_acceptance_criterion": "Given requirements.md, when inspected, then the D41-D47 sections with reversals, the Existing Repository marker sentence, and the Current Tech Stack are intact, and the only pre-D48 wording touched is the recorded timeframe-enumeration extension plus the two AC-D27.9 table rows.",
+          "type": "unit",
+          "description": "In tests/test_d48_gate.py assert the marker sentence, the ### D41 through ### D47 sections, and the Current Tech Stack are present, and assert the AC-D16.1 enumeration reads eight timeframes with the AC-D27.9 table carrying the two added rows.",
+          "expected_result": "History intact; only the recorded extension touched."
         },
         {
-          "test_id": "P7-T05-T12",
-          "linked_acceptance_criterion": 2,
-          "type": "integration",
-          "description": "Force the prime retry to also find the gate closed; attach fail-open and assert the warning plus counter.",
-          "expected_result": "Warning names the skipped prime for the symbol/timeframe; the skip counter increments; the existing one-retry/fail-open semantics are otherwise unchanged (D27.9 intact)."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_p7_w2_prime.py (new: precedence ordering, skipped-prime accounting)"
-      ],
-      "touches_files": [
-        "ui/ticker_session.py",
-        "ui/main_window.py",
-        "tests/test_p7_w2_prime.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "Wave lifecycle from P7-T03; D27.9 priming semantics"
-      ],
-      "outputs": [
-        "Prime precedence rule; counted skipped-prime warning"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "900-1010",
-            "why": "give prime_aggregator precedence over _issue_wave_chunks (defer-by-one-interval or explicit reservation)"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1800-1860",
-            "why": "read-only: load_chart wave-then-prime call order that the precedence rule schedules around \u2014 keep the order, change the scheduling"
-          },
-          {
-            "path": "config/settings.py",
-            "lines": "25-60",
-            "why": "read-only: HISTORICAL_MIN_INTERVAL_S value \u2014 the precedence delay equals it exactly, never a new literal"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/ticker_session.py:prime_aggregator",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_issue_wave_chunks",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_schedule_wave_continuation",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:load_chart",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
-        "requirement_ids": [
-          "AC-D27.9"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w2_prime.py -o addopts=\"\" -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P7-T06",
-      "title": "W3: wide-duration decision point with measured before/after and owner gate",
-      "description": "Turn the single-shot probe win into an explicit decision: record measured before/after per timeframe, re-verify pacing with any wide request in place, and change a TIMEFRAME_CONFIG duration value only with an owner-approval record naming that timeframe \u2014 otherwise the chained-request path stands and the wave is still complete (S-P7-5). No automated live step: any live measurement runs only by the method the owner names.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P7-T04",
-        "P7-T05"
-      ],
-      "acceptance_criteria": [
-        "Given each candidate timeframe, when the measurement suites run offscreen, then requests-per-load, time-to-first-bar, time-to-current, and pacing-slot spend are recorded before and after the widened duration for that timeframe.",
-        "Given the owner-gated rule, when this wave lands without an owner-approval record naming a timeframe, then that timeframe's TIMEFRAME_CONFIG duration value is byte-identical to before; a value changes only with the approval record present and naming it.",
-        "Given a widened duration in place, when backfill waves issue through it, then the 0.5 s minimum interval and the rolling budget still gate every request and no pacing path blocks the GUI thread.",
-        "Given a wide request that returns short or empty, when finalisation runs, then the shortfall surfaces as a status-bar message (never a silent hole) and the planner rolls back to chained requests for the uncovered span."
-      ],
-      "tests": [
-        {
-          "test_id": "P7-T06-T11",
-          "linked_acceptance_criterion": 1,
-          "type": "integration",
-          "description": "Run the before/after harness per candidate timeframe against the fake transport with recorded timings; emit the measurement record (requests/load, first-bar latency, current latency, slot spend).",
-          "expected_result": "A complete before/after record exists for every timeframe the wave claims to widen; numbers are measured, not asserted constants."
-        },
-        {
-          "test_id": "P7-T06-T12",
-          "linked_acceptance_criterion": 2,
+          "test_id": "P8-T05-T31",
+          "linked_acceptance_criterion": "Given the repository with all P8 changes, when the full offscreen suite runs, then it is green.",
           "type": "manual",
-          "description": "Inspect the git diff on ibkr/market_data.py TIMEFRAME_CONFIG durations and the owner-approval record: every changed duration names its approval, and every unapproved timeframe is diff-clean.",
-          "expected_result": "No silent constants edit exists; an unapproved widening fails this check by construction."
-        },
-        {
-          "test_id": "P7-T06-T13",
-          "linked_acceptance_criterion": 3,
-          "type": "integration",
-          "description": "Issue waves through the widened duration with a pacing spy; assert interval/budget gating and non-blocking deferral.",
-          "expected_result": "Minimum-interval and rolling-budget gates hold; deferrals use PacingExceeded plus singleShot; no GUI-thread sleep on any path."
-        },
-        {
-          "test_id": "P7-T06-T14",
-          "linked_acceptance_criterion": 4,
-          "type": "integration",
-          "description": "Return short/empty on a wide request; assert the surfaced shortfall and the chained-request rollback covering the gap.",
-          "expected_result": "Status-bar shortfall names the uncovered span; rollback plans chain over it; no silent hole."
+          "description": "Run the full offscreen suite (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts='' -q from the repo root; hermetic via tests/conftest.py DB_PATH) and confirm green with no new failures versus the pre-P8 baseline.",
+          "expected_result": "Full suite green; the batch gate holds."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p7_w3_wide.py (new: before/after harness, pacing re-verify, rollback); ibkr/market_data.py durations only with approval"
+        "tests/test_d48_gate.py",
+        "full-suite green run"
       ],
       "touches_files": [
-        "ibkr/market_data.py",
+        "tests/test_d48_gate.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P8-T02 probe record",
+        "AC-D48.6",
+        "AC-D48.7",
+        "full P8 change set"
+      ],
+      "outputs": [
+        "Gate test green; batch close-out evidence"
+      ],
+      "status": "blocked",
+      "size": "S",
+      "context": {
+        "read_files": [],
+        "contracts": [
+          {
+            "ref": "config/settings.py:check_live_port",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/chart_view.py:create_chart_view",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "requirement_ids": [
+          "D48",
+          "AC-D48.6",
+          "AC-D48.7"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d48_gate.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P8-T06",
+      "title": "T40 backfill fixture: weekly/monthly bar model per AC-D48.2 (ESC-080)",
+      "description": "Follow-up to the P8 review (ESC-080): extend the T40 fixture _session_bars in tests/test_history_backfill.py with a weekly/monthly bar model anchored on the canonical data/bar_aggregator.py week_bucket_start/month_bucket_start helpers (Monday-00:00-ET weekly buckets, calendar-month-boundary monthly buckets; bucket-keyed so per-day callers never duplicate a bucket bar). TIMEFRAMES keeps all eight config keys (no scoping); production bucketing in data/bar_aggregator.py is the exonerated reference and must not move. The t13 knock-on (test_p7_w1_cap subprocess rerun) clears with the same fix and needs no file of its own. Covers ESC-080 and the AC-D48.7 suite-green gate.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P8-T01"
+      ],
+      "acceptance_criteria": [
+        "Given the eight-row TIMEFRAME_CONFIG (the six pre-existing rows plus 1 week and 1 month), when test_t40_t04_chunked_multi_request_continuity runs for the 1 week and 1 month params, then every in-span bar matches the AC-D48.2 bucket model - weekly bars open Monday 00:00 America/New_York, monthly bars open on the calendar-month boundary ET - with no index-0 86400 shift and no extra in-span bars.",
+        "Given the six pre-existing timeframes, when the full tests/test_history_backfill.py module runs, then every pre-existing param stays green - the fixture change adds a weekly/monthly branch only and alters no existing expectation."
+      ],
+      "tests": [
+        {
+          "test_id": "P8-T06-T11",
+          "linked_acceptance_criterion": "Given the eight-row TIMEFRAME_CONFIG (the six pre-existing rows plus 1 week and 1 month), when test_t40_t04_chunked_multi_request_continuity runs for the 1 week and 1 month params, then every in-span bar matches the AC-D48.2 bucket model - weekly bars open Monday 00:00 America/New_York, monthly bars open on the calendar-month boundary ET - with no index-0 86400 shift and no extra in-span bars.",
+          "type": "unit",
+          "description": "Run the four newly-reddened params (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_history_backfill.py -q -k \"week or month\"): each converges with in_span bars equal to expected_ts, and the stubbed feed answers weekly/monthly windows with bucket-anchored bars.",
+          "expected_result": "All four params pass; the 86400 index-0 shift and the 2 extra in-span bars are gone."
+        },
+        {
+          "test_id": "P8-T06-T21",
+          "linked_acceptance_criterion": "Given the six pre-existing timeframes, when the full tests/test_history_backfill.py module runs, then every pre-existing param stays green - the fixture change adds a weekly/monthly branch only and alters no existing expectation.",
+          "type": "unit",
+          "description": "Run the whole tests/test_history_backfill.py module: every pre-existing (six-timeframe) param passes unchanged, proving the new branch did not alter the day-model.",
+          "expected_result": "Full module green; no pre-existing expectation weakened or rescoped."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_history_backfill.py (weekly/monthly fixture branch)"
+      ],
+      "touches_files": [
+        "tests/test_history_backfill.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P8-2",
+        "AC-D48.2",
+        "AC-D48.7",
+        "A113-A116",
+        "P8-T01 bucketing",
+        "ESC-080"
+      ],
+      "outputs": [
+        "Four week/month T40-T04 params green; t13 knock-on cleared; no day-model regression"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_history_backfill.py",
+            "lines": "97-120",
+            "why": "_session_bars day-model gaining the weekly/monthly branch"
+          },
+          {
+            "path": "tests/test_history_backfill.py",
+            "lines": "418-500",
+            "why": "TIMEFRAMES matrix, _chunk_scenario and the T40-T04 body"
+          },
+          {
+            "path": "data/bar_aggregator.py",
+            "lines": "83-110",
+            "why": "read-only: week_bucket_start/month_bucket_start anchor semantics the fixture must match - do not change them"
+          },
+          {
+            "path": "services/backfill_service.py",
+            "lines": "201-234",
+            "why": "read-only: present_days presence predicate flagging the 737 cached week-days as missing \u2014 do not change it"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2163-2223",
+            "why": "read-only: _finalize_history_wave shortfall surfacing via _missing_backfill_trading_days the load path must surface \u2014 do not change it"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_history_backfill.py:_session_bars",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_aggregator.py:week_bucket_start",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_aggregator.py:month_bucket_start",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
+            "status": "existing"
+          },
+          {
+            "ref": "services/backfill_service.py:present_days",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_missing_backfill_trading_days",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "requirement_ids": [
+          "D48",
+          "AC-D48.2",
+          "AC-D48.7",
+          "A113",
+          "A114",
+          "A115",
+          "A116"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_history_backfill.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P8-T07",
+      "title": "Duration pins: encode the owner-approved eight-row set (ESC-081)",
+      "description": "Follow-up to the P8 review (ESC-081): extend the two exact-equality duration pins to the S-P8-1-mandated eight rows - tests/test_ibkr_handshake_gate.py duration map gains 1 week 2 Y and 1 month 10 Y; tests/test_p7_w3_wide.py approved AND chained dicts gain identical 1 week/1 month entries (so the unapproved-change loop skips them with no approval record), and the \"(1 week/1 month are out of scope)\" comment is rewritten to match the assert. Do not weaken either pin to a subset comparison (t12 fails closed by design); WIDEN_CANDIDATES and the five P7 approval records are untouched. Covers ESC-081 and the AC-D48.7 gate.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P8-T01"
+      ],
+      "acceptance_criteria": [
+        "Given the eight-row TIMEFRAME_CONFIG, when the handshake pin runs, then it asserts the exact eight-duration map (1 min/5 mins/15 mins 30 D; 1 hour/4 hours 60 D; 1 day 1 Y; 1 week 2 Y; 1 month 10 Y), and the approval-record loop still covers only the five P7-widened intraday rows - the two P8 rows were added, never widened, so no new approval record is required.",
+        "Given the t12 diff-clean guard, when it runs, then its approved and chained dicts both carry all eight rows with identical 1 week/1 month entries (added-never-widened, so the changed-duration loop skips them without a record), the assert stays an exact-equality fail-closed comparison (no subset containment), and its out-of-scope comment no longer contradicts the assert."
+      ],
+      "tests": [
+        {
+          "test_id": "P8-T07-T11",
+          "linked_acceptance_criterion": "Given the eight-row TIMEFRAME_CONFIG, when the handshake pin runs, then it asserts the exact eight-duration map (1 min/5 mins/15 mins 30 D; 1 hour/4 hours 60 D; 1 day 1 Y; 1 week 2 Y; 1 month 10 Y), and the approval-record loop still covers only the five P7-widened intraday rows - the two P8 rows were added, never widened, so no new approval record is required.",
+          "type": "unit",
+          "description": "Run tests/test_ibkr_handshake_gate.py: the eight-duration assert passes with the mandated rows in place, and the approval loop still requires exactly the five P7 records.",
+          "expected_result": "Handshake file green; no unapproved widening can pass."
+        },
+        {
+          "test_id": "P8-T07-T21",
+          "linked_acceptance_criterion": "Given the t12 diff-clean guard, when it runs, then its approved and chained dicts both carry all eight rows with identical 1 week/1 month entries (added-never-widened, so the changed-duration loop skips them without a record), the assert stays an exact-equality fail-closed comparison (no subset containment), and its out-of-scope comment no longer contradicts the assert.",
+          "type": "unit",
+          "description": "Run tests/test_p7_w3_wide.py::test_t12_unapproved_durations_are_diff_clean: passes on the eight-row config, the exact-equality assert is retained verbatim in shape, and the comment scopes P8 in rather than out.",
+          "expected_result": "t12 green; fail-closed shape preserved."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_ibkr_handshake_gate.py (eight-duration map)",
+        "tests/test_p7_w3_wide.py (eight-row approved/chained + comment)"
+      ],
+      "touches_files": [
+        "tests/test_ibkr_handshake_gate.py",
         "tests/test_p7_w3_wide.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Stable W1/W2 wave lifecycle; probe evidence"
+        "S-P8-1",
+        "A113",
+        "A116",
+        "P8-T01 config rows",
+        "ESC-081"
       ],
       "outputs": [
-        "Measurement record; gated duration decision"
+        "Both duration pins encode the approved eight rows; suite-green gate unblocked"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
+            "path": "tests/test_ibkr_handshake_gate.py",
+            "lines": "145-170",
+            "why": "the six-duration exact-equality pin gaining the two S-P8-1 rows"
+          },
+          {
+            "path": "tests/test_p7_w3_wide.py",
+            "lines": "336-372",
+            "why": "the t12 approved/chained dicts, exact-equality assert and self-contradictory comment"
+          },
+          {
+            "path": "tests/test_p7_w3_wide.py",
+            "lines": "75-115",
+            "why": "read-only: WIDEN_CANDIDATES and _approval_path, untouched by this task - do not change them"
+          },
+          {
             "path": "ibkr/market_data.py",
-            "lines": "1-110",
-            "why": "only file whose duration VALUES may change, and only with the approval record present"
-          },
-          {
-            "path": "services/backfill_service.py",
-            "lines": "300-500",
-            "why": "read-only: rollback chains through the unchanged planner contracts"
-          },
-          {
-            "path": "ibkr/pacing.py",
-            "lines": "129-195",
-            "why": "read-only: interval plus rolling budget re-verified, never retuned here"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "663-760",
-            "why": "read-only: wave issuing that the pacing re-verify observes"
+            "lines": "1-30",
+            "why": "read-only: the mandated eight-row TIMEFRAME_CONFIG the pins must match - do not change it"
           }
         ],
         "contracts": [
@@ -649,231 +778,200 @@
             "status": "existing"
           },
           {
-            "ref": "ibkr/market_data.py:req_historical_data",
-            "status": "existing"
+            "status": "new",
+            "signature": "TIMEFRAME_CONFIG durations: 1 min/5 mins/15 mins 30 D; 1 hour/4 hours 60 D; 1 day 1 Y; 1 week 2 Y; 1 month 10 Y",
+            "module": "ibkr/market_data.py"
           },
           {
-            "ref": "services/backfill_service.py:plan_requests",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/pacing.py:historical_wait_seconds",
-            "status": "existing"
+            "status": "new",
+            "signature": "t12 chained and approved carry identical 1 week/1 month entries (added-never-widened, no approval record)",
+            "module": "tests/test_p7_w3_wide.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
         "requirement_ids": [
-          "AC-D16.8",
-          "AC-D16.4"
+          "D48",
+          "AC-D48.1",
+          "AC-D48.7",
+          "A113",
+          "A116"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w3_wide.py -o addopts=\"\" -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_ibkr_handshake_gate.py tests/test_p7_w3_wide.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P7-T07",
-      "title": "W4: streaming correctness close-out (reconnect replay, health/backoff, burst integrity)",
-      "description": "Close out streaming without redesigning it: prove reconnect replays subscriptions with rebound reqIds and no duplicate bars, stream-health/backoff transitions hold, realtime-bars priming stays intact under a tick burst with no dropped or late aggregated bars, and W1-W3 changed none of it (S-P7-6).",
+      "id": "P8-T08",
+      "title": "Archived-results gate: latest-per-task scope plus prune of superseded intermediates (ESC-082)",
+      "description": "Follow-up to the P8 review (ESC-082): re-scope tests/test_lwc_failure_visibility.py::test_archived_results_carry_task_id to latest-per-task - group ARCHIVE files by task stem (the token after the wave prefix, e.g. P8-T02 in wave163_P8-T02.json), assert a non-empty task_id only on the newest file per group, and factor the grouping so it is unit-testable on synthetic dicts without disk writes. Additionally delete the five named superseded intermediates (each has a newer same-task stamped result carrying task_id). Keep the wave127 P6-T03 pin and the fail-closed task_id requirement intact. Covers ESC-082 and the AC-D48.7 gate.",
       "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P7-T06"
-      ],
+      "task_type": "build",
+      "dependencies": [],
       "acceptance_criteria": [
-        "Given live subscriptions at disconnect, when the transport reconnects, then every subscription replays with a rebound reqId, stream health returns through its documented transitions, and no bar is duplicated or lost across the replay.",
-        "Given a tick burst against primed aggregators, when aggregated bars push, then every tick is accounted exactly once in order, the forming candle reflects primed history (D27.9 intact), and no bar arrives late or dropped.",
-        "Given every pacing path touched by W1-W3 (wave continuation, prime retry, watchlist deferral), when pacing binds, then each path defers via PacingExceeded plus QTimer.singleShot and none blocks the GUI thread."
+        "Given the archive directory holding superseded intermediate result files, when the archived-results gate runs, then it groups files by task stem and requires a non-empty task_id only on the newest file per task - superseded intermediates can never redden it, while a newest result missing task_id still fails.",
+        "Given the five named superseded intermediates, when this task lands, then docs/build/results/_archive/wave154_P7-T08.PRIOR_PHASE.json, wave156_P8-T02.json, wave156_P8-T04.json, wave159_P8-T03.json and wave160_P8-T05.json are deleted, and the wave127 P6-T03 pin still passes.",
+        [
+          "Given a newest-per-task result without task_id, when the gate evaluates it, then it is reported missing (the task_id requirement that caught PRE-001..004 is preserved, not weakened)."
+        ]
       ],
       "tests": [
         {
-          "test_id": "P7-T07-T11",
-          "linked_acceptance_criterion": 1,
-          "type": "integration",
-          "description": "Subscribe, disconnect mid-stream, reconnect with a fake transport that records reqIds; assert replayed subscriptions, rebound ids, health transitions, and bar-set equality (no dupes, no loss).",
-          "expected_result": "All pre-drop subscriptions replayed exactly once with fresh reqIds; bar multiset identical across the drop; health reaches live only on first post-reconnect bar."
-        },
-        {
-          "test_id": "P7-T07-T12",
-          "linked_acceptance_criterion": 2,
-          "type": "integration",
-          "description": "Prime aggregators then inject an out-of-order/tight tick burst; assert push ordering, priming survival, and forming-candle content.",
-          "expected_result": "No dropped or late bars; forming candle equals primed history plus burst ticks in order."
-        },
-        {
-          "test_id": "P7-T07-T13",
-          "linked_acceptance_criterion": 3,
+          "test_id": "P8-T08-T11",
+          "linked_acceptance_criterion": "Given the archive directory holding superseded intermediate result files, when the archived-results gate runs, then it groups files by task stem and requires a non-empty task_id only on the newest file per task - superseded intermediates can never redden it, while a newest result missing task_id still fails.",
           "type": "unit",
-          "description": "Source-plus-behavior assertion: scan the W1-W3 pacing paths for blocking sleeps and drive each binding path to observe deferral.",
-          "expected_result": "Zero blocking-sleep primitives on any pacing path; every binding path defers via PacingExceeded plus singleShot."
+          "description": "Run tests/test_lwc_failure_visibility.py::test_archived_results_carry_task_id on the pruned archive: passes with only newest-per-task files asserted.",
+          "expected_result": "Gate green on the terminal record."
+        },
+        {
+          "test_id": "P8-T08-T21",
+          "linked_acceptance_criterion": "Given the five named superseded intermediates, when this task lands, then docs/build/results/_archive/wave154_P7-T08.PRIOR_PHASE.json, wave156_P8-T02.json, wave156_P8-T04.json, wave159_P8-T03.json and wave160_P8-T05.json are deleted, and the wave127 P6-T03 pin still passes.",
+          "type": "unit",
+          "description": "Assert the five superseded paths are absent from docs/build/results/_archive/ and the wave127 pin (task_id P6-T03) still passes.",
+          "expected_result": "Stale intermediates gone; historical pin intact."
+        },
+        {
+          "test_id": "P8-T08-T31",
+          "linked_acceptance_criterion": [
+            "Given a newest-per-task result without task_id, when the gate evaluates it, then it is reported missing (the task_id requirement that caught PRE-001..004 is preserved, not weakened)."
+          ],
+          "type": "unit",
+          "description": "Drive the factored grouping helper with synthetic newest-result dicts, one without task_id: it is reported missing without any disk write.",
+          "expected_result": "Fail-closed behavior proven; PRE-001..004-class gaps still caught."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p7_w4_streaming.py (new: replay, burst, no-sleep suites)"
+        "tests/test_lwc_failure_visibility.py (latest-per-task gate)",
+        "five superseded archive files deleted"
       ],
       "touches_files": [
-        "ui/ticker_session.py",
-        "ui/main_window.py",
-        "tests/test_p7_w4_streaming.py"
+        "tests/test_lwc_failure_visibility.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Stable wave/prime lifecycle from W1-W3; D27 reconnect path"
+        "ESC-082",
+        "ESC-073",
+        "AC-D48.7",
+        "PRE-002",
+        "PRE-003",
+        "PRE-004"
       ],
       "outputs": [
-        "Streaming regression net over reconnect, health, burst"
+        "Gate asserts latest-per-task; stale intermediates pruned; fail-closed kept"
       ],
       "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "240-440",
-            "why": "read-only: RT subscribe/replay/rebind and aggregator paths under regression net \u2014 change only on a proven W1-W3 regression"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1835-1960",
-            "why": "read-only: live-feed attach plus reconnect routing observed by the replay suite"
-          },
-          {
-            "path": "ibkr/realtime_bars.py",
-            "lines": "1-70",
-            "why": "read-only: subscribe/unsubscribe/cancel_all/replay_all contracts unchanged"
-          },
-          {
-            "path": "ibkr/stream_health.py",
-            "lines": "30-75",
-            "why": "read-only: mark_subscribed/mark_first_bar/mark_failed/is_live/describe transitions asserted, not edited"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ibkr/realtime_bars.py:subscribe",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/realtime_bars.py:replay_all",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/stream_health.py:mark_subscribed",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/stream_health.py:is_live",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:prime_aggregator",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
-        "requirement_ids": [
-          "AC-D27.9"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_streaming.py -o addopts=\"\" -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P7-T08",
-      "title": "W4: watchlist reqMktData deferral under throttle plus the batch gate",
-      "description": "Prove the Q-41 deferral contract holds for watchlist adds made while throttled (defer, never lose the row, never sleep), then close the batch: full offscreen suite green with no order code, no schema change, no renderer edit, and the read-only live validation performed only by the owner-named method.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P7-T07"
-      ],
-      "acceptance_criteria": [
-        "Given a watchlist add while the reqMktData throttle is exhausted, when the add fires, then the subscription defers via singleShot for the reported wait, the row persists through the deferral, and the subscription follows without loss.",
-        "Given every P7 pacing path, when throttled, then the Q-41 contract holds end to end (PacingExceeded plus QTimer.singleShot deferral, never a GUI-thread sleep) across wave, prime, and watchlist paths alike.",
-        "Given the whole P7 batch, when the batch gate runs, then the full offscreen suite is green, the tree carries no order-related code, no bars-schema migration, and no LWC renderer edit, and any live validation was read-only and performed only by the owner-named method."
-      ],
-      "tests": [
-        {
-          "test_id": "P7-T08-T11",
-          "linked_acceptance_criterion": 1,
-          "type": "integration",
-          "description": "Add a watchlist symbol with the mkt-data throttle forced exhausted; advance timers and assert row persistence plus eventual subscription.",
-          "expected_result": "Row present before and after the wait; exactly one deferred subscription issues for the reported wait; nothing sleeps."
-        },
-        {
-          "test_id": "P7-T08-T12",
-          "linked_acceptance_criterion": 2,
-          "type": "unit",
-          "description": "Cross-path Q-41 assertion over wave continuation, prime retry, and watchlist deferral call sites (source scan plus one throttled drive each).",
-          "expected_result": "All three paths raise-or-handle PacingExceeded with singleShot deferral; no blocking primitive on any of them."
-        },
-        {
-          "test_id": "P7-T08-T13",
-          "linked_acceptance_criterion": 3,
-          "type": "manual",
-          "description": "Run the full offscreen suite; verify the order-absence/schema/renderer invariants; confirm any live check used only the owner-named read-only method (or record that no live check ran).",
-          "expected_result": "Full suite green; import ibkr.orders still raises ModuleNotFoundError with no placeOrder/cancelOrder/reqGlobalCancel call site; bars schema untouched; LWC seam untouched; live-check provenance on record."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_p7_w4_deferral.py (new: throttled-add deferral, Q-41 cross-path); batch-gate record"
-      ],
-      "touches_files": [
-        "ui/watchlist_panel.py",
-        "tests/test_p7_w4_deferral.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "Streaming net from P7-T07; landed Q-45 deferral"
-      ],
-      "outputs": [
-        "Deferral proof; batch gate (suite green, invariants held)"
-      ],
-      "status": "in_progress",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/watchlist_panel.py",
-            "lines": "953-1048",
-            "why": "harden add_symbol/_register_mkt_subscription/_retry_mkt_subscribe so throttled adds defer without losing the row"
+            "path": "tests/test_lwc_failure_visibility.py",
+            "lines": "327-341",
+            "why": "the whole-archive glob gate becoming latest-per-task"
           },
           {
-            "path": "ibkr/market_data.py",
-            "lines": "90-110",
-            "why": "read-only: req_mkt_data Q-41 pacing contract asserted, never edited"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1835-1960",
-            "why": "read-only: live-feed attach path that shares the same deferral contract"
+            "path": "tests/test_lwc_failure_visibility.py",
+            "lines": "40-50",
+            "why": "ARCHIVE const and module conventions the helper follows"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/watchlist_panel.py:add_symbol",
+            "ref": "tests/test_lwc_failure_visibility.py:test_archived_results_carry_task_id",
             "status": "existing"
           },
           {
-            "ref": "ibkr/market_data.py:req_mkt_data",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/pacing.py:historical_wait_seconds",
-            "status": "existing"
+            "status": "new",
+            "signature": "newest wave file per task stem carries non-empty task_id; older same-task files excluded from the requirement",
+            "module": "tests/test_lwc_failure_visibility.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
-        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
         "requirement_ids": [
-          "AC-D16.4"
+          "D48",
+          "AC-D48.7"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_deferral.py -o addopts=\"\" -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_failure_visibility.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P8-T09",
+      "title": "User docs: timeframe range now 1 min - 1 month (ESC-085)",
+      "description": "Follow-up to the P8 review (ESC-085, nice-to-have): usage.md:134 still reads \"Select timeframe (1 min - 1 day)\", stale since P8 added picker entries after 1 day. Widen the range endpoint to 1 month and name the 1 week / 1 month entries; add a short D48 picker note to USAGE.txt in the established per-batch convention. Docs only - no code or test change. Covers ESC-085.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given usage.md Key Workflows, when the Load-a-Chart steps are read, then the timeframe range reads 1 min - 1 month and names the 1 week / 1 month picker entries - no stale 1 day upper bound remains.",
+        "Given USAGE.txt, when read end to end, then it carries a one-line-per-batch D48 picker note in the established \"<Feature> (Phase D<n>)\" plus dashed-underline convention, matching the ESC-058 precedent."
+      ],
+      "tests": [
+        {
+          "test_id": "P8-T09-T11",
+          "linked_acceptance_criterion": "Given usage.md Key Workflows, when the Load-a-Chart steps are read, then the timeframe range reads 1 min - 1 month and names the 1 week / 1 month picker entries - no stale 1 day upper bound remains.",
+          "type": "unit",
+          "description": "Read usage.md: the Load-a-Chart step names 1 week / 1 month with a 1 min - 1 month range, and no 1 day upper bound remains on that line.",
+          "expected_result": "Range statement factually matches the shipped picker."
+        },
+        {
+          "test_id": "P8-T09-T21",
+          "linked_acceptance_criterion": "Given USAGE.txt, when read end to end, then it carries a one-line-per-batch D48 picker note in the established \"<Feature> (Phase D<n>)\" plus dashed-underline convention, matching the ESC-058 precedent.",
+          "type": "unit",
+          "description": "Read USAGE.txt: a D48 picker note exists under the per-batch heading convention after the D44 section.",
+          "expected_result": "Per-batch coverage convention holds."
+        }
+      ],
+      "expected_artifacts": [
+        "usage.md (range fix)",
+        "USAGE.txt (D48 picker note)"
+      ],
+      "touches_files": [
+        "usage.md",
+        "USAGE.txt"
+      ],
+      "doc_required": true,
+      "inputs": [
+        "AC-D48.5",
+        "ESC-085",
+        "ESC-058"
+      ],
+      "outputs": [
+        "Timeframe range documented as 1 min - 1 month in both user docs"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "usage.md",
+            "lines": "130-140",
+            "why": "the stale 1 min - 1 day Load-a-Chart step"
+          },
+          {
+            "path": "USAGE.txt",
+            "lines": "204-214",
+            "why": "the D44 section after which the D48 note lands, per the per-batch convention"
+          }
+        ],
+        "contracts": [
+          {
+            "status": "new",
+            "signature": "usage.md Load-a-Chart step: timeframe range 1 min - 1 month with 1 week / 1 month picker entries",
+            "module": "usage.md"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P8 \u2014 D48 increment",
+        "plan_ref": "docs/plan.md#Phase P8 \u2014 D48 (Batch 23)",
+        "requirement_ids": [
+          "D48",
+          "AC-D48.5"
+        ],
+        "test_command": "grep -n -e \"1 month\" usage.md USAGE.txt",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"

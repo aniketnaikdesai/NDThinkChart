@@ -36,6 +36,11 @@
 > module, the shared chart-model module, the spike directory, the parity-matrix and spike-results docs) are named
 > **without backticks** in the annotations until they land, per the map lint rule; live files keep their real path.
 >
+> **P8 note (2026-10-28):** skeleton re-run for Batch 23 (D48); only drift is the deleted `probe_1min_short.py`
+> dropping from the root row and the test count advancing. P8 adds **no new module** — two config/aggregator
+> key additions plus in-place predicate/mode/minutes edits — so every annotation above carries forward and the
+> generated test-impact rows stand as regenerated (Plan-confirmed).
+>
 > **Status-cell reading rule for P6:** rows below that still carry a P5-era status (`[changed in P5]`,
 > `deleted in P5`) describe the **delivered P5 end state**; under the P6 legend they read as `[existing]`
 > (present, unmodified by P6) and deleted history respectively. Only the rows explicitly marked `[new in P6]` /
@@ -322,7 +327,7 @@ delegation as affecting every chart/render suite (they must stay green unmodifie
 <!-- MAP-SKELETON:BEGIN -->
 ## Module index (generated — do not hand-edit inside the skeleton markers)
 
-- `(root)/` — main.py, probe_1min_short.py
+- `(root)/` — main.py
 - `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, volume_scale.test.js
 - `config/` — __init__.py, paths.py, settings.py
 - `data/` — __init__.py, alarm_store.py, bar_aggregator.py, bar_cache.py, db.py, drawing_store.py, models.py, popout_store.py, study_store.py
@@ -330,7 +335,7 @@ delegation as affecting every chart/render suite (they must stay green unmodifie
 - `packaging/` — __init__.py
 - `services/` — __init__.py, alarm_monitor.py, alarm_service.py, backfill_service.py, chart_model.py, contract_lookup_service.py, drawing_service.py, gap_vix_service.py, ict_service.py, indicator_service.py, market_calendar.py, md_line_guard.py, session_service.py, sound_service.py, strategy_detection.py, symbol_search.py, time_collapse_service.py, volume_baseline.py
 - `spikes/lwc/` — spike_probe.py
-- `tests/` — conftest.py, test_account.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_account_partial_window.py, test_d27_account_scoping.py, test_d27_account_subs.py, test_d27_aggregator_priming.py … (+88 more)
+- `tests/` — conftest.py, test_account.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_account_partial_window.py, test_d27_account_scoping.py, test_d27_account_subs.py, test_d27_aggregator_priming.py … (+96 more)
 - `ui/` — __init__.py, active_portfolio_panel.py, add_symbol_dialog.py, alarm_dialog.py, alarm_edit_dialog.py, chart_controls.py, chart_mouse_router.py, chart_view.py, dock_layout.py, drawing_groups_dialog.py, drawing_settings_common.py, drawing_tools.py, horizontal_line_settings_dialog.py, lwc_bridge.py, lwc_host.py, lwc_view.py, main_window.py, popout_window.py, studies_dialog.py, ticker_session.py, toast.py, visual_conventions.py, watchlist_panel.py, zone_settings_dialog.py
 - `ui/overlays/` — __init__.py
 

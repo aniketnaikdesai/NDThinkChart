@@ -5940,3 +5940,189 @@ never the implementation. The repository is authoritative on conflict.
 | S-P7-5 | **Wide-duration decision point (owner-gated):** widening `"1 min"` (and any other) `TIMEFRAME_CONFIG` duration (e.g. `"1 D"` → `"30 D"`, covering the 30-session floor in one shot) lands **only as an explicit decision with measured before/after** (request count, time-to-first-bar, time-to-current, pacing-slot spend) **and owner approval** — never a silent constants edit; pacing (0.5 s interval, rolling budget, no GUI-thread sleep) is re-verified with the wide request in place. Rationale: the probe proves the win (~1.1 s for 11,644 bars) but duration is owner-visible pacing behaviour. Alternative: silent widening (rejected — the brief forbids it). | `[new in P7]` — probe evidence; changes duration *values* only, under gate |
 | S-P7-6 | **Streaming re-affirmation, not redesign:** `reqMktData` watchlist/watchlist-panel defer (Q-45, landed), realtime-bars aggregator priming, `StreamHealth` state + backoff, D27 reconnect replay, and the Q-41 pacing-deferral contract keep their current design; P7 adds only the scheduling rules in S-P7-3/S-P7-4 and regression coverage. Rationale: streaming is correct-by-construction today except for the starved-prime and watchdog misreads. Alternative: streaming redesign (rejected — out of scope). | `[extends prior phases: D27/D28 streaming path]` — Q-41/Q-45/D27; re-affirmed, not re-planned |
 | S-P7-7 | **Landed substrate stays frozen:** `IBKRNotReady` handshake gate (Q-35), 0.5 s interval + rolling budget (Q-30), error-162 retry, S0/D38 removal end state, Qt-free import boundary (`test_t38_t08`), per-view WebEngine profile (Q-40), zero order code (D45/D46), LWC renderer seam. Rationale: the brief excludes all of them from re-planning. Alternative: none entertained. | `[extends P6: end state]` — all prior phases; frozen |
+
+## Phase P8 — D48 increment: add `1 week` (2Y) and `1 month` (10Y) timeframes — drafted 2026-10-28
+
+> Companion: `docs/plan.md` § *Phase P8* (waves P8-W1…P8-W3, traceability, assumptions, flagged issues).
+> Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Batch 23 (D48),
+> Journey 41, `AC-D48.1`–`AC-D48.7`, lite defaults A113–A120, R93–R95, `design_gaps.md` DG97–DG98.
+> Existing-repo run: the Current Tech Stack is a hard constraint; every item below carries
+> `[existing]` / `[new]` / `[new/changed]`. **D1–D47 are NOT reopened** beyond the recorded
+> timeframe-enumeration extension (`AC-D16.1`'s "all six timeframes" now reads eight; the D43/Q53
+> `AC-D27.9` per-span table gains two rows). One phase only — nothing past the P8 build wave is planned.
+> Open PLAN escalation check: `docs/code_review/escalations.json` holds exactly one `routed_to: PLAN`
+> + `open` entry (**ESC-079**), which Phase P7 already answers (S-P7-1, `Status: READY_FOR_TASK_MANAGER`);
+> it is P7 scope and is not re-planned here.
+
+### Codebase Summary (existing repository — what P8 changes, verified against the current tree)
+
+> Pointer: the full module index is `docs/codebase-map.md` (skeleton re-run 2026-10-28 for P8; no new
+> modules land in P8, so annotations carry forward). The deltas below are the complete P8 surface,
+> each verified in source this run (the repository is authoritative):
+
+- `[existing] ibkr/market_data.py::TIMEFRAME_CONFIG` — six rows (`1 min`→`30 D`/`1 min`,
+  `5 mins`→`30 D`/`5 mins`, `15 mins`→`30 D`/`15 mins`, `1 hour`→`60 D`/`1 hour`,
+  `4 hours`→`60 D`/`4 hours`, `1 day`→`1 Y`/`1 day`); `req_historical_data` falls back to the
+  `5 mins` row for unknown timeframes and already accepts `duration`/`bar_size` overrides.
+- `[existing] data/bar_aggregator.py::TIMEFRAME_SECONDS` — seven keys (`5 secs` + the six timeframe
+  periods); `_ET_ANCHORED_TIMEFRAMES = frozenset({"1 day", "4 hours"})` (fixed-seconds ET-midnight
+  grid); `_period_start(ts, seconds, timeframe)` (UTC-epoch grid for everything else).
+- `[existing] services/backfill_service.py` — `floor_bar_budget` returns the flat cap when
+  `period >= 86400` (daily+ already excluded); `find_missing_spans` enables the `AC-D16.8` floor only
+  when `min_sessions > 0 and bar_period_seconds(timeframe) < 86400` (intraday-only, already generic);
+  `plan_requests` chunks by the configured duration via `_duration_to_seconds` (Y units already parse —
+  `1 Y` flows through it today); `bar_period_seconds` reads `TIMEFRAME_SECONDS` with a `5 mins` fallback.
+- `[existing] ui/ticker_session.py::prime_aggregator` — span-based branches (`span_s <= 3600` →
+  `5 secs`/`[60 S, 3600 S]`; longer → `1 min`/`[60 S, 1 D]`), already generic over any span.
+- `[existing] ui/main_window.py` load path — `tf_combo.addItems(list(TIMEFRAME_CONFIG.keys()))`
+  (picker follows config order); per-load `BarCache.get_bars(symbol, timeframe, ext_hours=mode)`,
+  `find_missing_spans(..., ext_hours=mode, min_sessions=30)`, `queue_wave_plans(..., extended_hours)`,
+  `prime_aggregator(..., extended_hours)`; `_on_ext_hours_toggled` reloads on every toggle.
+- `[existing]` the six `== "1 day"` daily-gates: `services/session_service.py` ×2
+  (`session_bands`, `session_bands_for_range`), `services/time_collapse_service.py::IDENTITY_TIMEFRAME`
+  (+ `extend` identity branch), `ui/lwc_view.py::session_regions`.
+- `[existing] services/chart_model.py` — `plotted_index_rows`/`is_bar_plotted` filter through
+  `session_windows` for any timeframe present in `TIMEFRAME_SECONDS`; `collapse_for_bars` delegates
+  to `build_collapse_map` for any known timeframe.
+- `[existing] services/volume_baseline.py::minutes_for_timeframe` — `"1 day"` → 390.0, else
+  `secs/60` with a 1.0 fallback (no crash on unknown keys, but nominal-seconds math).
+- `[existing] ui/drawing_settings_common.py::VISIBILITY_ROWS` — six **duration-unit** rows
+  (Seconds/Minutes/Hours/Days/Weeks/Months), not per-timeframe rows; `VisibilityTab`
+  (`get_visibility`/`set_visibility`) round-trips a checkbox dict into the drawing payload; **no
+  render-time consumer** maps the current timeframe to a row (verified: zero readers in `services/`,
+  `chart_assets/`, `ui/` outside the two settings dialogs).
+- `[existing]` generic timeframe carriers (no enumeration, no change): drawing/alarm/popout/study
+  stores keyed by free-form timeframe strings; `services/chart_model.py` value objects.
+
+### Summary
+
+Add two `TIMEFRAME_CONFIG` rows and teach the aggregator Monday-anchored weekly and calendar-month
+bucketing; everything downstream already keys off period length, so the planner, the priming table,
+and the depth floor need no logic change — only new keys to read. Canonicalise daily-and-coarser
+loads to one shared full-session mode so RTH/ETH is a true no-op, extend the existing daily identity
+rules to the two new timeframes through one shared predicate, and gate the whole batch on a
+standalone IBKR probe plus the green suite.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained stack first | Unchanged: Python 3.11+, PyQt6, `ibapi-latest==10.51.1`, SQLite, LWC chart stack | Existing-repo hard constraint; two timeframe rows need no new capability | Any replacement — rejected outright |
+| Bar-size/duration source | IBKR-native `1 week` / `1 month` bar sizes with `2 Y` / `10 Y` durations inside `TIMEFRAME_CONFIG` (A113/A116) | Owner-specified spans; the year-unit spelling is inside IBKR's duration vocabulary (`_duration_to_seconds` already parses `1 Y`) and the probe (`AC-D48.6`) verifies acceptance | Day-count durations (rejected — A116 records year units; a probe rejection escalates per R93, never a silent shrink) |
+| No new dependency, no schema migration, no order code | Nothing added, nothing migrated | The batch is pure timeframe-surface; the Qt-free boundary and the P5 order absence stay intact | Any new table/column/dependency — rejected (nothing persists beyond the existing `bars` rows keyed by the new timeframe strings) |
+
+### System Components
+
+- `[new/changed] ibkr/market_data.py::TIMEFRAME_CONFIG` — gains exactly two rows
+  (`1 week` → `1 week`/`2 Y`; `1 month` → `1 month`/`10 Y`), appended after `1 day` so the picker,
+  which builds from `list(TIMEFRAME_CONFIG.keys())`, orders them per A119 with no picker code change.
+- `[new/changed] data/bar_aggregator.py` — gains Monday-00:00-ET weekly bucketing and
+  calendar-month-boundary monthly bucketing (S-P8-2); `TIMEFRAME_SECONDS` gains the two nominal keys
+  (604800 / 2592000, A115) for fixed-seconds consumers only.
+- `[existing] services/backfill_service.py` — planner contracts unchanged; the floor gating is already
+  period-based so weekly/monthly skip `AC-D16.8` with no code change (S-P8-3).
+- `[new/changed] ui/main_window.py` load path — daily-and-coarser loads canonicalise to one shared
+  full-session mode for the cache read/write, the planner call, the wave, and the prime (S-P8-4).
+- `[new/changed] services/session_service.py`, `services/time_collapse_service.py`,
+  `services/chart_model.py`, `ui/lwc_view.py` — the six `== "1 day"` gates plus the chart-model
+  membership branches adopt one shared daily-or-coarser predicate (S-P8-4).
+- `[new/changed] services/volume_baseline.py::minutes_for_timeframe` — explicit weekly/monthly
+  regular-session minutes (S-P8-7); every other baseline path unchanged.
+- `[existing] ui/drawing_settings_common.py::VisibilityTab` + zone/horizontal dialogs — unchanged;
+  the unit rows already span Weeks/Months and no consumer maps timeframe→row (S-P8-6).
+- `[existing] ui/ticker_session.py::prime_aggregator` — unchanged logic; the docstring per-span table
+  gains the two new rows documenting the existing coarse branch (S-P8-5).
+
+### Data Model
+
+- `[existing]` `bars` table (`PRIMARY KEY (symbol, timeframe, ts)`, mode-aware key per D42) — **no
+  migration**; weekly/monthly rows persist under the new timeframe strings and share one canonical
+  mode (S-P8-4), so no cache fork.
+- `[existing]` `Bar` dataclass, `SESSION_BAR_CAP = 5000` bound, retention/prune — unchanged; a 2Y
+  weekly series (~104 bars) and a 10Y monthly series (~120 bars) sit far below every cap.
+- `[new]` In-memory calendar anchoring only (week-start / month-start ET helpers in the aggregator);
+  nothing persists beyond the existing cache.
+
+### Integration Points
+
+- `[existing]` TWS historical data (`reqHistoricalData`) — same call shape; two new
+  (`duration`, `bar_size`) combos, both probe-verified before the batch passes (`AC-D48.6`).
+- `[existing]` TWS real-time bars — the live 5-sec feed still primes the forming weekly/monthly bar
+  through the existing `prime_aggregator` coarse branch; no new subscription type.
+- `[existing]` SQLite bar cache — same API; written/read under the canonical daily+ mode.
+- No new external service, endpoint, credential, or dependency. Live validation stays **read-only**;
+  the probe issues historical requests only.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and **unmodified by every P8 wave**. Task Manager gives workers the
+contract, never the implementation. The repository is authoritative on conflict.
+
+- **`ibkr/market_data.py::MarketDataManager.req_historical_data`** — contract:
+  `req_historical_data(self, contract: Contract, timeframe: str = "5 mins", endDateTime: str = "", whatToShow: str = "TRADES", useRTH: int = 1, extended_hours: bool = False, bar_size: str | None = None, duration: str | None = None) -> int`. Owner: `ibkr/market_data.py`. (Only the *configured* `duration`/`bar_size` values for the two new keys are added; the signature, handshake gate, and pacing contract do not change; the `5 mins` unknown-timeframe fallback is untouched.)
+- **`ibkr/market_data.py::TIMEFRAME_CONFIG` existing six rows** — contract: the six
+  `duration`/`bar_size` pairs verified above are byte-identical after P8; exactly two rows are added.
+  Owner: `ibkr/market_data.py`.
+- **`data/bar_aggregator.py::TIMEFRAME_SECONDS` existing seven keys + `_period_start` grid** — contract:
+  the seven existing periods and the UTC-epoch-vs-ET-midnight branch keep their values; weekly/monthly
+  bucketing is additive calendar logic beside them. Owner: `data/bar_aggregator.py`.
+- **`services/backfill_service.py` planner contracts** — contracts: `find_missing_spans` (with the
+  `min_sessions > 0 and bar_period_seconds(timeframe) < 86400` intraday-only floor gate),
+  `plan_requests` (chunking by configured duration), `floor_bar_budget` (flat cap at
+  `period >= 86400`), `bar_period_seconds`. Owner: `services/backfill_service.py`. (Pure, Qt-free;
+  no signature or gating change.)
+- **`ui/ticker_session.py::prime_aggregator` span branches** — contract: `span_s <= 3600` →
+  `5 secs`/`[60 S, 3600 S]`; longer spans → `1 min`/`[60 S, 1 D]`; `period_s <= 5` early-out; replay
+  guard on `_prime_period_start`. Owner: `ui/ticker_session.py`. (Weekly/monthly spans land in the
+  existing coarse branch; only the docstring table gains rows.)
+- **`data/bar_cache.py::BarCache.save_bars` / `::get_bars`** — same API as frozen in P7; called with
+  the canonical daily+ mode. Owner: `data/bar_cache.py`.
+- **`config/settings.py` pacing tunables + `check_live_port`** — contracts unchanged (P7 frozen row
+  carried forward). Owner: `config/settings.py`.
+- **Drawing/alarm visibility payload shape** — contract: `VisibilityTab.get_visibility()` /
+  `set_visibility()` dict shape (`Ticks`, six unit checkboxes, `Ranges`, `*_lo`/`*_hi` bounds) is
+  unchanged; no per-timeframe key exists. Owner: `ui/drawing_settings_common.py`.
+- **Qt-free import boundary** — contract: `data/` + `services/` import without Qt (`test_t38_t08`).
+  Owner: the boundary itself. (New aggregator calendar math stays in `services/`/`data/`.)
+- **Order-code absence** — contract: `import ibkr.orders` raises `ModuleNotFoundError`; no
+  `placeOrder`/`cancelOrder`/`reqGlobalCancel` call site, no order UI. Owner: the P5 end state.
+  (P8 adds zero order interaction; D45/D46 stand.)
+- **LWC chart stack seam** — contract: `ui/chart_view.py::create_chart_view(tz_offset: float = 0.0, editable: bool = True) -> ChartView`, `services/chart_model.py` value objects, `RouterMode`
+  TR-1…TR-17. Owner: `ui/` + `services/`. (The data path feeds the seam; no P8 task edits the renderer.)
+
+### Non-Functional Approach
+
+- **Performance (driven by D48.3 + the probe):** a 2Y weekly span is ~104 bars and a 10Y monthly span
+  ~120 bars — trivially below `SESSION_BAR_CAP`; `plan_requests` chunking by the configured duration
+  yields ~1 chunk per span when the probe passes, so the new timeframes cost the budget almost nothing.
+  No GUI-thread blocking anywhere (the P7 wave/prime rules are untouched and apply unchanged).
+- **Correctness (driven by AC-D48.2/AC-D48.4 + R94):** calendar-anchored bucketing (Monday ET /
+  month boundary) with unit cases over a DST fold, February, and a Dec/Jan boundary; the daily+
+  predicate keeps bands, collapse, plotted-filtering, and session regions identical under both modes;
+  the canonical cache mode makes RTH/ETH parity structural, not asserted-by-luck.
+- **Security/scalability:** no new surface (no dependency, no endpoint, no credential); read-only
+  live validation; the probe is the only live step and issues historical requests only.
+- **Stability gate:** the full offscreen suite stays green on every wave; a 321-class probe rejection
+  fails the wave and escalates to Requirements (R93) — durations are never silently shrunk.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P8-1 — IBKR rejects one of the new combos (321-class, as in ESC-036) | M / L | `AC-D48.6`: the standalone probe verifies both combos before the batch passes; a rejection escalates to Requirements — durations are never silently shrunk (R93, S-P8-5) |
+| AR-P8-2 — fixed-seconds month bucketing drifts real month boundaries (28–31-day months, February) | M / L | Calendar-month anchoring (S-P8-2); nominal 30-day seconds only where an API demands fixed seconds, never for bucketing (A115); `AC-D48.2` Feb unit case (R94) |
+| AR-P8-3 — a hardcoded six-timeframe enumeration misses the new entries (R95) | M / M | The R95 inventory is the checklist (S-P8-4/S-P8-6): config, aggregator, predicate sites, chart model, session regions, minutes mapping, picker order; `AC-D48.5`/`AC-D48.7` are the gates |
+| AR-P8-4 — IBKR's native weekly/monthly anchors differ from Monday-ET / calendar-month (cf. the D27.8 4h-caveat precedent) | L / M | AP-P8-1 records the assumption; first-load bar-to-bar comparison against IBKR history is the check; a systematic phase mismatch becomes a follow-up, never a silent re-anchor |
+| AR-P8-5 — weekly/monthly volume-burst baselines stay thin (few buckets, sparse samples) | L / L | Explicit RTH-session minutes keep the per-minute contract honest (S-P8-7); burst evaluation is timeframe-generic and self-consistent; no baseline redesign |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P8-1 | **Config rows + picker order (D48.1/D48.5):** `TIMEFRAME_CONFIG` gains exactly `1 week` → `1 week`/`2 Y` and `1 month` → `1 month`/`10 Y`, appended after `1 day`; the picker follows config order with no code change (A119). Rationale: owner-specified spans (A113) in IBKR year units (A116); insertion order is the existing ordering mechanism. Alternative: explicit picker list (rejected — a second enumeration is exactly the R95 defect class). | `[new in P8]` — D48.1/D48.5; additive rows only |
+| S-P8-2 | **Calendar bucketing (D48.2):** weekly buckets open Monday 00:00 ET (A114); monthly buckets open on the calendar-month boundary (A115); `TIMEFRAME_SECONDS` gains nominal 604800/2592000 keys for fixed-seconds consumers only. Rationale: weeks/months are calendar concepts — the fixed-seconds ET grid would drift month ends (R94). Alternative: extend `_ET_ANCHORED_TIMEFRAMES` (rejected — that set is a fixed-seconds grid, wrong for months). | `[new in P8]` — D48.2; additive functions beside `_period_start` |
+| S-P8-3 | **Planner/backfill unchanged (D48.3):** no logic change — the `AC-D16.8` floor gate (`period < 86400`) and the flat-cap rule already exclude daily+; `plan_requests` chunks by configured duration; day-presence is already bar-granular (A117). Rationale: verified in source, not assumed. Alternative: timeframe-name special cases (rejected — period-based gating already covers the new keys). | `[new in P8]` — D48.3; verification, not code |
+| S-P8-4 | **Daily+ canonical mode + one shared predicate (D48.4):** loads for any timeframe with `period >= 86400` use one canonical full-session mode for request, cache, planner, and prime (A118); the six `== "1 day"` gates plus the chart-model membership branches adopt one shared daily-or-coarser predicate covering weekly/monthly. Rationale: makes RTH/ETH parity structural with one cache (no fork, no double spend); one predicate kills the R95 enumeration class. Alternative: mode-aware keys for weekly/monthly (rejected — forks two multi-year caches); per-site `in (...)` tuples (rejected — re-creates R95). | `[new in P8]` — D48.4; load-path + five predicate sites |
+| S-P8-5 | **Priming table is documentation-only (D48.2/D48.6, DG98):** weekly spans (≤ 604800 s) and monthly spans (≤ ~2.7 Ms) land in the existing coarse branch (`1 min`/`[60 S, 1 D]`); the per-span table gains two rows naming that branch; the probe verifies. Rationale: the span-based code is already generic — inventing a coarser bar would add an unprobed IBKR-validity claim. Alternative: a coarser priming bar (rejected — DG98's own gate is the probe, and the existing branch is already inside accepted ranges). Probe rejection escalates per R93. | `[new in P8]` — DG98; docstring rows + probe, no logic change |
+| S-P8-6 | **Visibility grid unchanged (D48.5, DG97):** no new rows — the six rows enumerate duration *units* (Weeks/Months included), not timeframes, and no render consumer maps timeframe→row, so weekly/monthly are visible by construction with every box default-checked (A120). A guard test pins dialog open + all-checked + payload round-trip. Rationale: verified write-only state; adding rows would imply a per-timeframe control that does not exist. Alternative: new per-timeframe rows (rejected — no consumer could honor them). | `[new in P8]` — DG97; guard test only |
+| S-P8-7 | **Burst minutes mapping (D48.5-adjacent):** `minutes_for_timeframe` maps `1 week` → 1950.0 (5 × 390) and `1 month` → 8190.0 (21 × 390) regular-session minutes. Rationale: the `"1 day"` → 390 precedent counts RTH-session minutes, not wall-clock; nominal secs/60 (10080/43200) would count weekends/overnights the convention excludes. Alternative: leave the secs/60 fallback (rejected — semantically dishonest per-minute contract). | `[new in P8]` — two mapping lines + unit case |

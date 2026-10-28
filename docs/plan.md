@@ -3363,3 +3363,74 @@ Every ESC-075…079 expectation is addressed somewhere above; no expectation is 
    value; no requirement change is needed, but the Validator should confirm which value the suite asserts.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P8 — D48 (Batch 23): add `1 week` (2Y) and `1 month` (10Y) timeframes — drafted 2026-10-28
+
+> Companion: `docs/architecture.md` § *Phase P8 — D48 increment* (Codebase Summary, S-P8-1…S-P8-7, frozen
+> interfaces, non-functional, AR-P8-1…AR-P8-5). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Batch 23 (D48), Journey 41, `AC-D48.1`–`AC-D48.7`, lite defaults A113–A120,
+> R93–R95, `design_gaps.md` DG97–DG98. Hard constraints: **no order code anywhere** (D45/D46); live
+> validation is **read-only** (the standalone probe issues historical requests only); the **full offscreen
+> suite green is the gate**. Existing-repo run: every wave below modifies existing modules in place; **no
+> new module, no new dependency, no schema migration**. One phase only — nothing past the P8 build wave
+> is planned. If this decomposed L-sized, the lane is wrong: report back instead of building.
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones.
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P8-W1 | M | **Data plane: config + calendar bucketing + probe** (S-P8-1, S-P8-2, S-P8-3, S-P8-5; answers DG98 and the R93/R94 risks). Two `TIMEFRAME_CONFIG` rows; Monday-ET weekly + calendar-month bucketing with nominal-seconds keys; planner no-change verification; priming docstring rows; standalone probe of both new combos. | (1) Config holds the two exact rows and no other row changes; (2) weekly buckets open Monday ET and monthly on month boundary across DST-fold, February, and Dec/Jan unit cases; (3) a weekly/monthly load plans the configured duration (chunked as needed), never applies the `AC-D16.8` floor, and detects holes at bar granularity; (4) both probe requests complete with no 321-class rejection (a rejection fails the wave and escalates — never a silent shrink); (5) full offscreen suite green. | Offscreen unit/planner/aggregator suites with the new keys + the standalone probe record + full suite. |
+| P8-W2 | S | **Presentation plane: picker + daily+ no-ops + visibility** (S-P8-4, S-P8-6, S-P8-7; answers DG97 and the R95 inventory). Picker order after `1 day` with select/load/persist parity; canonical full-session mode for daily+ (request, cache, planner, prime) with toggle-convergence; the shared daily-or-coarser predicate across bands/collapse/plotted/session-regions; visibility dialog guard; burst minutes mapping. | (1) Picker lists `1 week`/`1 month` immediately after `1 day` and each selects/loads/persists like every other timeframe; (2) RTH and ETH loads of each new timeframe return identical bars with one shared cache, no band and no collapse (toggle converges with no extra requests when cached); (3) visibility dialog opens with every box checked and the payload round-trips; (4) `minutes_for_timeframe` returns 1950.0/8190.0; (5) full offscreen suite green. | Offscreen picker/mode-parity/dialog/minutes suites + full suite. No live TWS needed. |
+| P8-W3 | S | **Batch gate: probe record + non-regression close-out**. Both probe outcomes on record, every `AC-D48.*` observably satisfied, pre-D48 criteria untouched except the recorded enumeration extension, full suite green. | (1) Probe record present for both combos; (2) `AC-D16.1` "eight timeframes" wording and the `AC-D27.9` two added table rows verified, `### D41`–`### D47` + marker + Current Tech Stack intact; (3) **full offscreen suite green**. | Full suite + the AC checklist. A red suite or a missing probe record fails the wave. |
+
+**What stays untouched by every P8 wave:** the `req_historical_data` / `req_mkt_data` signatures and
+pacing contract; the planner function contracts; the pacing tunables and the port guard; error
+ingress/classification; `RealtimeBarsManager` / `StreamHealth` APIs; `BarCache` APIs; the Qt-free
+import boundary; the order-code absence; the entire LWC renderer seam; the `bars` schema (no
+migration); the six existing `TIMEFRAME_CONFIG` rows' values; the visibility payload shape.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / input | Architecture section | Wave |
+|---|---|---|
+| D48.1 / `AC-D48.1` (mapping: `1 week`→`1 week`/`2 Y`, `1 month`→`1 month`/`10 Y`) | S-P8-1; Frozen (six existing rows) | P8-W1 |
+| D48.2 / `AC-D48.2` (Monday-ET weekly, calendar-month buckets, live forming-bar parity) | S-P8-2; Frozen (existing periods + `_period_start` grid) | P8-W1 |
+| D48.3 / `AC-D48.3` (planner/backfill: configured duration, no `AC-D16.8` floor, bar-granular holes) | S-P8-3; Frozen (planner contracts) | P8-W1 |
+| D48.4 / `AC-D48.4` (RTH/ETH no-op, shared cache, bands/collapse absent) | S-P8-4; Frozen (`req_historical_data`, `BarCache`) | P8-W2 |
+| D48.5 / `AC-D48.5` (picker entries after `1 day`; select/load/persist parity; visibility default-on) | S-P8-1, S-P8-6; Frozen (visibility payload shape) | P8-W2 |
+| D48.6 / `AC-D48.6` (standalone probe + suite green) | S-P8-5; Non-Functional stability gate | P8-W1 (probe) + P8-W3 (record) |
+| D48.7 / `AC-D48.7` (history intact; only the recorded enumeration extension) | Frozen (all `[existing]` rows) | P8-W3 |
+| Journey 41 (load weekly/monthly, toggle Ext Hours, switch symbols, suite green) | S-P8-1…S-P8-7 | P8-W1…P8-W3 |
+| A113–A120 (lite defaults) | S-P8-1…S-P8-7 (each default cited at its decision) | P8-W1/P8-W2 |
+| R93 (321 rejection → escalate) | AR-P8-1; S-P8-5 | P8-W1 (probe is the gate) |
+| R94 (month-boundary drift) | AR-P8-2; S-P8-2 | P8-W1 (`AC-D48.2` Feb case) |
+| R95 (hardcoded six-timeframe enumerations) | AR-P8-3; S-P8-4/S-P8-6 | P8-W2 (inventory checklist) |
+| DG97 (visibility-grid rows) | S-P8-6 | P8-W2 (guard test) |
+| DG98 (priming table for weekly/monthly spans) | S-P8-5 | P8-W1 (docstring rows + probe) |
+| Hard constraints: no order code (D45/D46); read-only live; suite-green gate | S-P8-1…S-P8-7; Frozen (order absence, seam) | Every wave |
+
+Every D48 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+ESC-079 (open, PLAN-routed) is P7 scope, already answered by S-P7-1 — it is not re-planned here.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P8-1 | IBKR's native weekly/monthly bars anchor compatibly with Monday-00:00-ET weeks and calendar months; a systematic phase mismatch, if the first-load comparison shows one, becomes a follow-up rather than a silent re-anchor | Mirrors the recorded D27.8 4h-anchor caveat precedent; the assumption is checkable, not load-bearing for the batch gate |
+| AP-P8-2 | An Ext-Hours toggle on a daily+ timeframe converges with no extra requests when the span is cached (canonical mode makes the reload a cache hit); the toggle control itself is left in place and keeps working for intraday | A118 requires identical bars, not a disabled control; convergence is the observable |
+| AP-P8-3 | AC-G.1 (visual reference gate) does not apply: P8 makes no UI-visual decision — picker entries are text labels in the existing combo in A119 order, and the visibility grid is unchanged | All P8 outcomes are config/aggregation/planner behaviour with config-assertion and bar-equality measurables |
+
+### Flagged Issues
+
+**None.** Every D48 item is satisfiable as written on the existing stack:
+
+- The two new combos ride the existing request shape; IBKR acceptance is probe-verified (`AC-D48.6`),
+  and a rejection has a specified escalation (R93) rather than a gap.
+- Calendar bucketing, the predicate sweep, the minutes mapping, and the visibility guard are all
+  mechanical changes with stated measurables (DG97/DG98 both resolve inside the waves above).
+- The `AC-D16.1` enumeration extension and the `AC-D27.9` table rows are recorded analyst-side
+  wording, not Plan reinterpretation.
+
+Status: READY_FOR_TASK_MANAGER

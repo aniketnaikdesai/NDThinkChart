@@ -1517,3 +1517,17 @@ history of the choice.
 - **Suggested resolution:** the spike results doc states per-behaviour pass/fail + the overall go/no-go before
   Phase 1 starts; `spikes/lwc/` stays unimported by production/tests (Build enforces).
 - **Status:** **open (non-blocking)** — Phase 0 exit detail; recorded so the exception stays an exception.
+
+## DG97 — D48: drawing/alarm visibility-grid rows for the new timeframes
+
+- **Where it shows up:** D48.5 / `AC-D48.5`; A120; the D12/D15 8-row Visibility grids.
+- **Why it matters:** the zone/horizontal-line settings dialogs enumerate timeframes row-by-row; two new timeframes with no rows are either invisible-on (wrong default) or unconfigurable (wrong control).
+- **Suggested resolution:** default both new timeframes to **visible** (A120); Plan adds the rows (or an equivalent control) in the D48 picker task. Task Manager covers it under `AC-D48.5`.
+- **Status:** **open (non-blocking)** — lite-lane default recorded; Plan detail.
+
+## DG98 — D48: forming-bar priming table (`AC-D27.9`/D43) for weekly/monthly elapsed spans
+
+- **Where it shows up:** D48.2/D48.6; `AC-D27.9` (revised by D43); A113/A116.
+- **Why it matters:** the D43 per-span table tops out at `1 min`-for-`1 day` (valid up to `1 D`); a monthly forming span (~2.6 Ms) exceeds that ceiling, so the priming bar size for weekly/monthly spans is unspecified — Build cannot derive it without inventing an IBKR validity claim.
+- **Suggested resolution:** Plan extends the per-span table to the two new spans with bar sizes inside IBKR-accepted ranges (coarser bar or clamped recent span), verified by the `AC-D48.6` probe; a probe rejection escalates to Requirements (R93), never a silent shrink.
+- **Status:** **open (non-blocking)** — Plan detail; `AC-D48.6` is the gate.
