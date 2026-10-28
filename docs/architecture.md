@@ -6276,3 +6276,153 @@ workers the contract, never the implementation.
 | S-P9-2 | **Dialog state fixes (3.2 + 3.4 P2):** the group-name cell becomes read-only (`ItemIsEditable` cleared; `Rename` button stays the path); `_refresh_drawing_groups` re-validates `_active_draw_group_id` against the current symbol's groups on *every* reload — unknown → `None` + combo reset to Ungrouped + tool re-push. Rationale: removes the `TypeError` unpack path structurally; extends the existing ticker-change clear (load_chart) to the deletion path the trace names. Alternative: typed-role + explicit edit handler (fallback only — no inline-edit consumer exists). | `[new in P9]` — 3.2/3.4; dialog + main-window state |
 | S-P9-3 | **Persistence isolation (1.4 P2):** both `mark_triggered` call sites (`_on_aggregated_bar`, `_evaluate_burst_alarms`) catch DB errors, log with symbol/alarm context, still set `alarm.triggered = True` and emit, and queue the ID for retry (flushed on subsequent bars / `reload_alarms`). Rationale: notification + `_last_chart_price` can never again be skipped by a persistence failure; the store stays frozen. Alternative: guard inside the store (rejected — hides the failure from the retry owner). | `[new in P9]` — 1.4; call-site isolation + retry |
 | S-P9-4 | **Recolor semantics (c) Both + leave-group rule (3.3 P2):** new drawings stamp the active group color into `Drawing.color` at creation (stored, survives leave-group); group recolor repaints all *current* members (stored colors updated via member-repaint); ungroup/reassign preserves the drawing's stored color (never reset to default); edited drawings keep stored colors (D50 composition constraint — the drag path must not re-derive color). Rationale: owner decision (c); stored-color makes the existing `drawing_item` renderer correct with zero change. Alternative: live substitution in the serializer (rejected — contradicts stored/leave-group). | `[new in P9]` — 3.3; stored-color rule + D50 constraint |
+
+## Phase P10 — D50 drag-editing for LWC drawings (whole-move + anchor drags, handle UI, lock, recolor interplay, persistence/fan-out) — drafted 2026-10-28
+
+> Companion: `docs/plan.md` § *Phase P10*. Requirements basis (approved scope, not
+> re-derived): D50, Journey 43, `AC-D50.1`–`AC-D50.5`, A127–A132, R99–R101, Q67–Q71
+> (answered owner-confirmed 2026-10-28). `requirements.md` carries
+> `Status: READY_FOR_PLAN`. Existing-repo run: every entry below carries one status label
+> relative to the codebase — `[existing]` (present, unmodified this phase), `[new]`
+> (introduced), `[new/changed]` (present and modified). No new module, no new dependency,
+> no schema migration, no live-TWS dependency, no order code. One phase only — nothing past
+> the P10 build wave is planned.
+
+### Relationship to prior phases
+
+Every decision below is `[new in P10]` (no prior phase decided the edit path).
+Compositions, not revisions: S-P10-3 rides the D28.2 sole-writer rule and the D49.4
+single-fan-out pattern without changing either; S-P10-5 preserves P9 S-P9-4 stored-color
+semantics; S-P10-4 delivers the item P9 explicitly recorded as out of scope
+(operation-level lock enforcement, P9 plan Flagged Issues) now that the drag path lands.
+No `[revises]` — nothing earlier is contradicted.
+
+### Codebase Summary (pointer + this phase's deltas — not a rewritten inventory)
+
+The full index is `docs/codebase-map.md`. This phase touches three existing files plus
+their suites, verified against source 2026-10-28 (graphify used for discovery only — the
+source is authoritative):
+
+- `[existing]` `chart_assets/lwc/gestures.js` — create-only today: `drawingItem` stamps
+  the active group + color (P9 S-P9-1) with per-kind handles; there is **no
+  drag-initiation path** (A129). Selection/highlight state is page-local.
+- `[existing]` `ui/lwc_view.py` — `drag_drawing_item` (pure, Qt-free geometry: body
+  translate + endpoint move per kind; recomputes `handles`, fib levels, measure delta);
+  `LwcDrawingSurface.drag_drawing` computes validated geometry and publishes the
+  `drag_drawing` op but **never persists** (docstring-stated); `drawing_item` always
+  attaches `handles` plus the `selected` flag; `drawing_op`'s docstring aspires
+  "locked → the engine never starts a drag" but no gate exists; `_on_page_drawing_updated`
+  emits `updated(id, payload, color)` and `_on_page_drawing_deleted` emits `deleted(id)`.
+- `[existing]` `ui/chart_view.py::DrawingController` — `created` / `updated(int, dict,
+  str)` / `deleted(int)` / `selection_changed(int)`; the seam signatures are settled.
+- `[existing]` `ui/main_window.py` — `_on_drawing_updated` persists via
+  `DrawingStore.update_drawing` then `reload_drawings` + `sync_drawings_to_views` with a
+  session-`None` guard (zero-view persist already holds); `_on_drawing_deleted`;
+  `_delete_selected_drawing` → `delete_selected`.
+- `[existing]` `data/drawing_store.py::DrawingStore.update_drawing` — `color=None` means
+  "unchanged" (D27.10); the geometry-only commit rides this contract.
+
+### Summary
+
+P10 makes LWC drawings editable in place: a drag-initiation path in the page (body move
+for all five kinds plus per-kind anchor drags), selection-gated handles with no draggable
+handle on locked drawings, operation-level lock refusal at the `drag_drawing` surface,
+geometry-only commits that preserve stored colors (including across mid-drag recolours),
+and the established persist → reload → single-fan-out close-out. Every edit lands behind
+a repro-first test; no production behaviour changes beyond D50.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI / engine / store | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only, SQLite (`ibapi-latest==10.51.1` untouched) | Existing-repo hard constraint; drag-editing needs no stack change | Any stack change (rejected — out of scope) |
+| Drag geometry home (S-P10-2/S-P10-3, restated ESC-086 2026-10-28 — record only, no behavior change) | Page-computed geometry persisted: `primitives.js::dragItem` (the `drag_drawing_item` mirror, incl. fib/measure recompute) computes preview + commit geometry page-side; commit-time validation is the shape/bounds check in `page_geometry_payload` at `_on_page_drawing_updated` before `update_drawing`. Python `drag_drawing`/`drag_drawing_item` is the lock-enforcing validation surface exercised per-move when bound (node tests / direct calls) — production `chart.js::bindModules` binds `LwGestures` with 3 args (no `options.drag`), so no per-move Python pass runs in production | The page owns pointer events and a per-move QWebChannel round-trip has no latency budget; the store must never receive unvalidated numbers — the recorded validation is the page-side mirror (equivalence-pinned: `primitives.js` mirror header + per-kind node and Python `drag_drawing_item` suites) plus the commit-time shape/bounds check | Page-computed payload persisted directly **with no validation** (rejected — unvalidated numbers must never reach the store; the shipped shape carries the mirror + the commit-time check, so it is not this); per-move Python round-trip in production (rejected — latency, no budget); Python-side hit-testing (rejected — the page owns pointer geometry) |
+| Commit transport (S-P10-3) | Existing `updated(id, payload, color)` bridge + `_on_drawing_updated` persist/fan-out | The path already implements sole-writer persist → reload → sync; only the producer (drag vs settings) is new | A new drag-specific signal (rejected — one updated contract, two producers) |
+| Color on drag commits (S-P10-5) | Geometry-only: empty color normalises to `None` (unchanged) | `update_drawing`'s `None`-means-unchanged contract already exists; honors A132 with zero new machinery | Echo the page-sampled color (rejected — clobbers a mid-drag recolour) |
+| Testing | Offscreen pytest + `node --test` for the gestures change; seeded-store reload + fan-out-count probes | Repo standard; every D50 criterion is offscreen-measurable (A131/Q71) | Live-session validation (rejected — no live TWS needed) |
+
+### System Components
+
+- `[new/changed]` `chart_assets/lwc/gestures.js` — gains the drag-initiation path: hit-test the selected drawing's body/handles, emit per-move deltas, emit the commit on pointer-up and discard on cancel; locked items never start a drag (presentation-level refusal; authoritative refusal stays Python-side per S-P10-4). No creation-path change.
+- `[new/changed]` `ui/lwc_view.py` — `drawing_item`/`drawing_op` gate `handles` on selected-and-unlocked (locked keeps the selection highlight only); `drag_drawing` refuses locked drawings before computing geometry; `_on_page_drawing_updated` normalises empty color to unchanged; `drag_drawing_item` itself unchanged (frozen).
+- `[new/changed]` `ui/main_window.py` — `_on_drawing_updated` stays the single commit close-out (persist → reload → exactly-once sync); `_on_drawing_deleted` / `delete_selected` refuse locked drawings; color/style edits bypass the lock guard.
+- `[existing]` `ui/chart_view.py::DrawingController` — signal signatures unchanged (frozen).
+- `[existing]` `data/drawing_store.py` — `update_drawing` / `delete_drawing` signatures and semantics unchanged (frozen); drag commits ride the `color=None` contract.
+- `[existing]` `ui/ticker_session.py` — `reload_drawings` / `sync_drawings_to_views` unchanged (frozen); the single-fan-out call sites are reused, not re-implemented.
+
+### Data Model
+
+- `[existing]` `Drawing` (symbol, kind, payload, color, label, group_id) — no field added/removed; drag commits rewrite `payload` geometry in place and never touch `color`/`group_id`/`label`.
+- `[new/changed]` Stored-geometry semantics — the committed payload is the source of truth at render: whole-move translates all anchors, anchor drags move the addressed anchor (trendline/fibonacci/measure endpoints, zone edges/corners, horizontal price level); fib levels and the measure delta are recomputed from the new geometry by the page-side `dragItem` mirror (equivalence-pinned to the unchanged `drag_drawing_item`; ESC-086 record restatement 2026-10-28 — production commits persist page-computed geometry, validated by the mirror plus the `page_geometry_payload` commit-time shape/bounds check).
+- `[existing]` `DrawingGroup.locked` — the lock source of truth; read at the operation surface, never cached in the drawing row.
+- `[existing]` `alarms` / `bars` tables and every other store — untouched; no migration.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths, SQLite, Qt signals,
+`pacing_manager` are untouched — P10 issues no new request type and changes no
+subscription behaviour.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen). Task
+Manager gives workers the contract, never the implementation.
+
+- `data/drawing_store.py::DrawingStore.update_drawing` — verbatim contract:
+  `def update_drawing(drawing_id: int, payload: dict, color: Optional[str] = None, label: Optional[str] = None, group_id: Optional[int] = None) -> None`
+  (`None` means "unchanged" — omitted fields are never clobbered). Unchanged.
+- `data/drawing_store.py::DrawingStore.delete_drawing` — verbatim contract:
+  `def delete_drawing(drawing_id: int) -> None`. Unchanged (call sites gain the lock guard).
+- `ui/lwc_view.py::drag_drawing_item` — verbatim contract: pure geometry
+  `(kind, item, point_index, d_frac, d_price, body) → moved item` with recomputed
+  `handles`/levels/delta; input not mutated. Unchanged.
+- `ui/lwc_view.py::drawing_handle_points` — verbatim contract: per-kind anchors in
+  `[frac_index, price]` / `[None, price]` form (two-point endpoints; horizontal one price
+  handle at `None` x; zone two corner handles). Unchanged (only the attach gating changes).
+- `ui/chart_view.py::DrawingController` signals — verbatim contracts:
+  `created = pyqtSignal(object)`; `updated = pyqtSignal(int, dict, str)`;
+  `deleted = pyqtSignal(int)`; `selection_changed = pyqtSignal(int)`. Unchanged.
+- `ui/main_window.py` D28.2 sole-writer rule — verbatim contract: the main chart is the
+  sole writer of drawings; the session fans out (`reload_drawings` +
+  `sync_drawings_to_views`). Preserved.
+- `ui/lwc_view.py::drawing_op` visibility rule — verbatim contract: a drawing whose group
+  is missing stays visible; a drawing whose group exists with `visible=False` is omitted.
+  Unchanged (S-P10-1 only gates handles, never visibility).
+
+### Non-Functional Approach
+
+- **Correctness over coverage:** each wave lands its repro test red-first on the current
+  tree (handle-presence probes for S-P10-1; per-kind geometry assertions for S-P10-2;
+  lock-refusal probes with no-store-write assertions for S-P10-4; stored-color
+  round-trips incl. the mid-drag recolour case for S-P10-5; seeded-store reload +
+  fan-out-count probes for AC-D50.5).
+- **Performance:** one store write + one reload + one fan-out per committed edit (the
+  D49.4 pattern); drag previews publish ops without touching the store; no new per-bar work.
+- **Safety:** lock is enforced at the `drag_drawing` initiation/move surface where the
+  operation happens, never by handle visibility alone (A129 — `gestures.js` has no
+  initiation path to hide behind); geometry and color are independent commit channels so a
+  drag can neither lose a recolour nor clobber one; no order-code surface is touched
+  (D45/D46 invariants hold); no live TWS needed. The Qt-free geometry boundary holds:
+  drag math stays in page JS plus the module-level Qt-free Python functions.
+- **Visual gate:** handle show/hide introduces no new visual language (the primitives
+  render path is proven, A127) — presence-gating only; recorded as a provisional
+  assumption (AP-P10-4), satisfying AC-G.1 without a new reference.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P10-1 — page/bridge color echo clobbers a mid-drag group recolour | M / M | Geometry-only commits (empty color → `None`/unchanged); the recolour writes stored color immediately and the commit never overwrites it (A132); pinned by the mid-drag recolour test |
+| AR-P10-2 — lock checked only in the page, bypassed by a direct `drag_drawing` call | H / L | Authoritative refusal lives in `drag_drawing` (and the delete path), not in the page; the page-level never-start is presentation only; refusal probes call the Python surface directly |
+| AR-P10-3 — cancel leaves a preview geometry behind (engine state vs store drift) | M / L | Commit only on pointer-up; cancel restores via `_render_drawings` from the store-fresh session state; the cancel-no-write test asserts store and geometry identity |
+| AR-P10-4 — fan-out regresses to per-view or repeated sync under drag-commit volume | L / M | Reuse of the exact `_on_drawing_updated` close-out (no new sync path); the fan-out-count probe fails on anything but exactly once |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P10-1 | **Handle UI (D50.2):** `drawing_item`/`drawing_op` attach `handles` only while the drawing is selected; a locked drawing gets no draggable handle (selection highlight via `selected` only). Deselection clears handles. Rationale: Q68 verbatim; highlight-without-handle keeps locked selection visible without offering an affordance. Alternative: page-side handle filtering (rejected — the wire item is the single source the engine renders; filtering at construction keeps page and Python consistent). | `[new in P10]` — D50.2; wire-item gating |
+| S-P10-2 | **Drag initiation + per-kind matrix (D50.1; restated ESC-086 2026-10-28 — record only, no behavior change):** the page gains the initiation path `gestures.js` lacks: body hit → whole-move for all five kinds; handle hit → the kind's anchor (trendline/fibonacci/measure endpoints, zone edges/corners, horizontal price level). In production the per-move path stays page-side — `previewDrag`/`commitDrag` recompute via the `primitives.js::dragItem` mirror (incl. fib levels / measure delta recompute) and the commit persists that page-computed geometry through `reportDrawingUpdate → _on_page_drawing_updated → update_drawing`, validated by the mirror (equivalence-pinned to `drag_drawing_item`) plus the `page_geometry_payload` shape/bounds check at the commit surface. `routeDragDelta → drag_drawing` is the lock-enforcing validation surface bound in tests/direct calls (authoritative lock refusal lives there), but production `bindModules` passes no `options.drag`, so no per-move Python pass runs in production; cancel emits nothing. Rationale: Q67 "both"; per-move Python round-trip has no latency budget. Alternative: Python-side hit-testing (rejected — the page owns pointer geometry); unvalidated store writes (rejected — the mirror + commit-time check is the recorded validation). | `[new in P10]` — D50.1; page initiation + matrix |
+| S-P10-3 | **Commit close-out (D50.5):** drag commits ride `_on_drawing_updated` unchanged — `update_drawing` → `reload_drawings` → `sync_drawings_to_views` exactly once; the session-`None` guard gives zero-view persist for free; cancel performs no store write. Rationale: Q71 yes; the D49.4 single-fan-out pattern is the settled mechanism. Alternative: a drag-specific persist path (rejected — two close-outs diverge). | `[new in P10]` — D50.5; close-out reuse |
+| S-P10-4 | **Operation-level lock (D50.3):** `drag_drawing` refuses locked drawings at initiation/move (geometry unchanged, no store write); delete is refused on locked drawings; color/style changes — including group recolour of a locked member — bypass the guard. Rationale: Q69 (i)+(ii)+(iii) forbidden, color allowed; A129 pins enforcement to the operation surface. Alternative: handle-hiding as the lock (rejected — A129 forbids it; no initiation path exists to hide behind). | `[new in P10]` — D50.3; operation-surface guard |
+| S-P10-5 | **Recolor interplay pin (D50.4):** drag commits are geometry-only (empty color normalises to unchanged, never overwrites stored color); mid-drag recolour updates stored color immediately, the ghost keeps the drag-start color, stored wins at commit; leave-group keeps stored color both directions (P9 rule preserved). Rationale: Q70 (c) Both + A132; geometry and color are independent channels. Alternative: commit echoes page color (rejected — AR-P10-1). | `[new in P10]` — D50.4; color-preservation constraint |

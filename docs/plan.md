@@ -3518,3 +3518,81 @@ sole-writer rule; the `bars`/`alarms`/`drawings` schemas (no migration); the ord
   here — not an open gap: hidden handles stay the enforcement signal until drag-editing lands.
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P10 — D50 drag-editing for LWC drawings (whole-move + anchor drags, handle UI, lock, recolor interplay, persistence/fan-out) — drafted 2026-10-28
+
+> Companion: `docs/architecture.md` § *Phase P10* (Codebase Summary, S-P10-1…S-P10-5,
+> frozen interfaces, non-functional, AR-P10-1…AR-P10-4). Requirements basis (approved
+> scope, not re-derived): D50, Journey 43, `AC-D50.1`–`AC-D50.5`, A127–A132, R99–R101,
+> Q67–Q71 (answered owner-confirmed 2026-10-28). `requirements.md` carries
+> `Status: READY_FOR_PLAN`. Existing-repo run: `[existing]` / `[new]` / `[new/changed]`
+> labels relative to the codebase; **no new module, no new dependency, no schema
+> migration, no order code**. One phase only — nothing past the P10 build wave is planned.
+> Out of scope: creation behaviour (settled inputs A127/A128 — creation is not
+> re-specified); render-path changes (primitives path proven, A127); any visual language
+> beyond handle presence-gating.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / journey / AC | Architecture section | Wave |
+|---|---|---|
+| D50.1 whole-move + per-kind anchor drags (Q67 both) | S-P10-2 (restated ESC-086: page `dragItem` mirror computes preview/commit geometry; `page_geometry_payload` commit-time check; `drag_drawing` lock/validation surface bound in tests/direct calls); Frozen (`drag_drawing_item`, `drawing_handle_points`) | P10-W2 |
+| D50.2 handles only while selected; locked none (Q68) | S-P10-1 | P10-W1 |
+| D50.3 operation-level lock: drag initiation/move/commit + delete refused, color allowed (Q69) | S-P10-4 | P10-W2 (drag refusal) + P10-W3 (delete refusal, color-allowed) |
+| D50.4 recolor interplay, (c) Both + A132 mid-drag rule (Q70) | S-P10-5; Frozen (`update_drawing` None-contract) | P10-W3 |
+| D50.5 store update + reload restore + exactly-once fan-out (Q71) | S-P10-3; Frozen (sole-writer rule) | P10-W2 (close-out) + P10-W4 (gate) |
+| Journey 43 (select/drag/locked-attempt/reload) + edge cases | S-P10-1…S-P10-5 | P10-W1…W4 |
+| A127–A129 settled inputs/facts; A130–A132 recolor + offscreen + mid-drag | Summary; S-P10-5; Non-Functional | All waves (constraints, not work) |
+| R99 (matrix undecided) / R100 (visibility-only lock) / R101 (3.3 landing) | Settled pre-clarification risks — closed by Q67/Q69/Q70; S-P10-2/S-P10-4/S-P10-5 | — (no wave; recorded as closed) |
+| No production behaviour change beyond D50; no skips/xfails; suite green | Non-Functional gate | P10-W4 |
+
+Every item above is addressed somewhere in the architecture AND the waves below; nothing
+is narrowed or reinterpreted (the per-kind matrix, the lock triple-forbid + color-allowed,
+and the (c) Both + A132 rules are the owner decisions as recorded).
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. Every
+wave lands its repro test **red-first** (failing on the current tree) before the fix.
+Waves are S/M only.
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P10-W1 | S | **Handle UI (D50.2; S-P10-1).** Selection-gated handles; locked offers none (highlight only); deselect clears. | (1) Selecting a drawing attaches its per-kind handles; deselecting clears them; (2) a locked drawing carries `selected` highlight with empty handles; (3) visibility/visible-group rules unchanged; (4) full offscreen + `node --test` suites green. | Offscreen wire-item/selection probes + JS tests + full suite. |
+| P10-W2 | M | **Drag initiation + commit close-out (D50.1/D50.5; S-P10-2 restated ESC-086, S-P10-3 + drag half of S-P10-4).** Page initiation (body whole-move all five kinds + per-kind anchors), page-mirror commit (`dragItem` recompute → `updated` → persist → reload → exactly-once fan-out, `page_geometry_payload` commit-time check); `drag_drawing` lock refusal at initiation; cancel writes nothing. | (1) Whole-move + anchor drags commit the dragged geometry per kind (endpoints, edges/corners, price level; fib levels / measure delta recomputed by the page mirror); (2) locked initiation refused: geometry unchanged, no store write; (3) mid-drag cancel leaves store + geometry identical; (4) committed edit survives session reload on every view with one fan-out; zero-view edit persists; (5) full suites green. | Per-kind geometry suites + lock-refusal/cancel probes + seeded-store reload/fan-out-count suites + full suite. |
+| P10-W3 | S | **Lock completion + recolor interplay (D50.3/D50.4; S-P10-4, S-P10-5).** Delete refusal on locked drawings; color/style allowed incl. group recolour of locked members; geometry-only commits; mid-drag recolour case. | (1) Delete on a locked drawing refused (row + geometry intact); (2) color/style change on a locked drawing applies, incl. group recolour repainting a locked member's stored color; (3) drag-edit commit leaves stored color untouched; mid-drag recolour: ghost keeps start color, stored (recoloured) wins at commit; former members keep leave-group color; (4) full suites green. | Offscreen lock/delete/color probes + stored-color round-trips + mid-drag recolour suite + full suite. |
+| P10-W4 | S | **Batch gate: close-out.** Every D50 criterion observably satisfied, nothing else changed, suite green. | (1) All five ACs' checks green; (2) no production behaviour change beyond D50 (diff review); creation path, render path, schemas, order-code absence untouched; (3) no skipped/xfailed tests added; (4) **full offscreen suite green**. | Full suite + the five-AC checklist. A red suite fails the wave. |
+
+**What stays untouched by every P10 wave:** the `DrawingController` signal signatures;
+`DrawingStore.update_drawing` / `delete_drawing` signatures and the `None`-means-unchanged
+contract; `drag_drawing_item` / `drawing_handle_points` geometry; `drawing_op`
+visibility; the creation path (`drawingItem`, `PageDrawing`, `_on_drawing_created`,
+group validation); the primitives render path; the `bars`/`alarms`/`drawings` schemas (no
+migration); the order-code absence (D45/D46); pacing tunables and the port guard.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P10-1 | Drag previews publish `drag_drawing` ops without touching the store; only pointer-up commits, and cancel restores via `_render_drawings` from store-fresh state | The engine already separates validated-geometry ops from persistence (`drag_drawing` never persists); previews must not create store-write pressure per drag tick |
+| AP-P10-2 | The page echoes no color on drag commits (empty → normalised to unchanged); explicit colors travel only on color/style edits | Geometry and color are independent channels (A132); the `None`-means-unchanged contract already exists, so no new flag is needed — Task Manager verifies no existing caller depends on `""` overwriting |
+| AP-P10-3 | Lock state is read from `DrawingGroup.locked` at the operation surface on every drag/delete attempt, never cached in the drawing row | Group lock is the settled source of truth; caching it in the row would desync on group edits |
+| AP-P10-4 | AC-G.1 (visual reference gate) is satisfied by provisional assumption: handles reuse the proven primitives handle glyphs — D50 gates their presence only, introducing no new visual language | A127 settles the render path as proven; presence-gating has probe measurables and needs no confirmed reference |
+| AP-P10-5 | R99–R101 are closed pre-clarification risks, not work: Q67 settled the matrix, Q69/S-P10-4 answers the visibility-only-lock concern structurally, Q70 settled (c) Both before P9 built on it | Recording closure so no wave re-litigates them; a future recolor change would arrive as a new requirement |
+
+### Flagged Issues
+
+**None.** Every D50 criterion is satisfiable as written on the existing stack:
+
+- The per-kind matrix rides anchors and geometry functions that already exist
+  (`drawing_handle_points`, `drag_drawing_item`); only initiation + gating are added.
+- Operation-level lock is enforceable exactly where the owner pinned it (the
+  `drag_drawing` initiation/move surface plus the delete path) with probe measurables.
+- Stored-color semantics (P9 S-P9-4) plus the `None`-means-unchanged contract already
+  implement (c) Both + A132; D50 only constrains commits to geometry-only.
+- Persistence + fan-out reuse the settled `_on_drawing_updated` close-out and the D49.4
+  pattern with offscreen measurables (A131/Q71).
+
+Status: READY_FOR_TASK_MANAGER
