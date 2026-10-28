@@ -1,117 +1,82 @@
 {
   "nodes": [
     {
-      "id": "P6-T01",
+      "id": "P7-T01",
       "type": "Task"
     },
     {
-      "id": "P6-T02",
+      "id": "P7-T02",
       "type": "Task"
     },
     {
-      "id": "P6-T03",
+      "id": "P7-T03",
       "type": "Task"
     },
     {
-      "id": "P6-T04",
+      "id": "P7-T04",
       "type": "Task"
     },
     {
-      "id": "P6-T05",
+      "id": "P7-T05",
       "type": "Task"
     },
     {
-      "id": "P6-T06",
+      "id": "P7-T06",
       "type": "Task"
     },
     {
-      "id": "P6-T07",
+      "id": "P7-T07",
       "type": "Task"
     },
     {
-      "id": "P6-T08",
-      "type": "Task"
-    },
-    {
-      "id": "P6-T09",
-      "type": "Task"
-    },
-    {
-      "id": "P6-T10",
-      "type": "Task"
-    },
-    {
-      "id": "P6-T11",
-      "type": "Task"
-    },
-    {
-      "id": "P6-T12",
-      "type": "Task"
-    },
-    {
-      "id": "P6-T13",
+      "id": "P7-T08",
       "type": "Task"
     }
   ],
   "edges": [
     {
-      "from": "P6-T01",
-      "to": "P6-T02",
+      "from": "P7-T01",
+      "to": "P7-T02",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T02",
-      "to": "P6-T03",
+      "from": "P7-T01",
+      "to": "P7-T03",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T03",
-      "to": "P6-T04",
+      "from": "P7-T02",
+      "to": "P7-T03",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T04",
-      "to": "P6-T05",
+      "from": "P7-T03",
+      "to": "P7-T04",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T05",
-      "to": "P6-T06",
+      "from": "P7-T03",
+      "to": "P7-T05",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T06",
-      "to": "P6-T07",
+      "from": "P7-T04",
+      "to": "P7-T06",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T07",
-      "to": "P6-T08",
+      "from": "P7-T05",
+      "to": "P7-T06",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T08",
-      "to": "P6-T09",
+      "from": "P7-T06",
+      "to": "P7-T07",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P6-T09",
-      "to": "P6-T10",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P6-T10",
-      "to": "P6-T11",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P6-T11",
-      "to": "P6-T12",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P6-T12",
-      "to": "P6-T13",
+      "from": "P7-T07",
+      "to": "P7-T08",
       "type": "DEPENDS_ON"
     }
   ]

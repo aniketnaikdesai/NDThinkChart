@@ -715,3 +715,44 @@ analyst-owned documentation defect, not a Build or Plan failure).
 
 **Escalation:** none this cycle — **the fix would not change what gets built** (owner policy on document rounds),
 so it is recorded for the next requirements revision rather than pausing P5.
+---
+
+- Issue: **RG-P7-1**
+
+**Requirement/Journey:** `AC-D16.8` (>= 30 trading sessions before the current session, every intraday timeframe)
+via `ESC-079` (PLAN gap) and `ESC-075` (BUILD).
+
+**Problem:** `AC-D16.8` as literally written is unsatisfiable for `"1 min"` in one load — the measured proof in
+the P7 state brief: ~31 floor requests plus hole repair against a 50–100-slot rolling budget shared by every
+session/pop-out/prime. Plan's `S-P7-1`/`P7-W1` carry the satisfiable reading (the floor as an invariant over
+**successive loads**, oldest-first, per-load cap ≤ ¼ rolling budget, no single-load deadline), and Flagged Issue 1
+in `docs/plan.md` § *Phase P7* surfaces it there — but Plan does not rewrite requirements.
+
+**Why it cannot be satisfied as currently written:** a single 1-min load cannot cover the 30-session floor and
+repair holes within one rolling-budget window; the criterion states no multi-load horizon.
+
+**Suggested Direction:** restate `AC-D16.8` as the floor met monotonically across loads (S-P7-1 wording verbatim)
+or explicitly confirm the restatement.
+
+**Status:** open
+
+**Escalation:** ESCALATED_TO_REQUIREMENTS
+---
+
+- Issue: **RG-P7-2**
+
+**Requirement/Journey:** `docs/requirements/requirements.md` `## Existing Repository` / Current Tech Stack vs the
+post-P6-T13 tree (commit `6e35b27`: pyqtgraph engine removed, LWC-only seam).
+
+**Problem:** the requirements Current Tech Stack still names the pre-removal stack while the tree (and the P7
+Codebase Summary, verified) no longer contains pyqtgraph. This is requirements-doc staleness, not an architecture
+defect — P7 states its invariant fractionally so it holds under either value, and no P7 wave depends on the
+renderer either way.
+
+**Why it cannot be satisfied as currently written:** the stack record and the tree disagree about pyqtgraph's
+presence; only the Requirements Analyst can update the record.
+
+**Suggested Direction:** update the Current Tech Stack to the LWC-only end state at the next requirements
+revision (non-blocking; no build change).
+
+**Status:** open — non-blocking for the build (analyst-owned doc debt).

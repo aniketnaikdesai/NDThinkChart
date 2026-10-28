@@ -648,5 +648,18 @@
     "suggested_direction": "State the budget invariant and the per-load cap as an architecture decision (and restate AC-D16.8 as an invariant over successive loads), so the fix is not written as a per-timeframe special case. ESC-075/076/077 are the code-side consequences.",
     "status": "open",
     "opened": "2026-10-26T23:54:37-04:00"
+  },
+  {
+    "id": "PRE-001",
+    "task_id": "P7-T01",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "[precheck] result missing or mistyped keys: task_id",
+    "expected": "result file is malformed",
+    "suggested_direction": "re-run the task so it writes a well-formed result per the schema",
+    "status": "open",
+    "source": "precheck",
+    "opened": "2026-10-28T02:30:19.139682+00:00"
   }
 ]

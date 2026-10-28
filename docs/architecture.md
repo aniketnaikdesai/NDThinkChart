@@ -5775,3 +5775,168 @@ repository is authoritative on conflict.
 | S58 | Delivery in Phases 0–11 with the 19-row parity matrix kept updated and rule 10 governing the unmeetable: spike + go/no-go record before Phase 1; each phase exit updates the matrix (`docs/lwc_parity_matrix.md`); an unmeetable AC is escalated + recorded as a parity row, never silently dropped. Rationale: the gate is the product (D47.9, DG95). Alternative: phase exits without matrix updates (rejected). | `[new in P6]` — D47.8/`AC-D47.8`, D47.9/`AC-D47.9` |
 | S59 | Cutover and removal gates: cutover = owner accept **and** parity all Done/accepted **and** Phase-0 perf holds (no soak, by explicit owner decision); Phase 11 (pyqtgraph deletion) executes only on explicit owner approval after one live trading session with no engine defect. Out of scope stays out (`ibkr/`, schemas, persistence, watchlist, dock, order code, paid library, aggregation/backfill). History preserved (D41–D46 + reversals, marker sentence, Current Tech Stack extended not replaced, `ESC-061` moot). Rationale: D47.11–D47.13. Alternative: calendar soak (rejected by owner); bundled deletion (rejected). | `[extends P5: end state]` — D47.11–D47.13/`AC-D47.6`/`AC-D47.8`/`AC-D47.9`; builds on the P5 baseline without changing any P5 decision |
 | S60 | Pyramid tests + webengine discipline: pure-Python suites, `node --test` JS suites, a few `@pytest.mark.webengine` cases (skip-never-red), the manual checklist as the gate where no engine exists (DG88); the 66 chart-adjacent test files are classified keep/retarget/engine-specific by the Task Manager per the attached plan. Phase 0 additionally reports the measured `.app` size delta + signing-flow finding (A109/DG89). Rationale: D47.10, Q61–Q63. Alternative: engine-mandatory CI (rejected). | `[new in P6]` — D47.10/`AC-D47.10` |
+
+## Phase P7 — data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)
+
+> Companion: `docs/plan.md` § *Phase P7* (waves P7-W1…P7-W4, traceability, assumptions, flagged issues).
+> Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`); the P7 state brief
+> (native-ibapi probe evidence — SPY 1-min 30 D in ~1.1 s, AAPL 1-min 2–3 D complete — proving the 90 s
+> zero-bar timeouts were our own bugs: missing reader thread, pre-handshake requests → 504, both understood);
+> open Code Reviewer escalations **ESC-075/076/077/078** (`routed_to: BUILD`) and **ESC-079** (`routed_to: PLAN`).
+> Existing-repo run: the Current Tech Stack is a hard constraint; every item below carries
+> `[existing]` / `[new]` / `[new/changed]`. P7 lands **no new module and no new dependency** — every change is
+> in-place inside the modules named below. One phase only: nothing past the P7 build wave is planned here.
+
+### Codebase Summary (existing repository — what P7 changes, verified against the current tree)
+
+- `[existing] ibkr/market_data.py::MarketDataManager` — `TIMEFRAME_CONFIG` per-request durations
+  (`"1 min": "1 D"`, `"5 mins"/"15 mins": "5 D"`, `"1 hour": "10 D"`, `"4 hours": "30 D"`, `"1 day": "1 Y"`);
+  `req_historical_data(...)` (handshake gate via `IBKRNotReady`, `id_manager.get_id()`, `pacing_manager` throttle,
+  `duration`/`bar_size` overrides for D27.9 priming) and `req_mkt_data(contract, generic_ticks="")`
+  (Q-41 non-blocking pacing contract, `PacingExceeded` + `QTimer.singleShot` deferral).
+- `[existing] config/settings.py` — the pacing tunables P7 budgets against: `MAX_HISTORICAL_PER_600S = 100`,
+  `HISTORICAL_MIN_INTERVAL_S = 0.5`, `MIN_INTRADAY_SESSIONS = 30`, `SESSION_BAR_CAP = 5000`
+  (note: ESC-075's text cites a 50-slot budget — the tree carries 100; S-P7-1 states the invariant as a
+  **fraction of the tunable** so it survives retunes either way).
+- `[existing] ui/ticker_session.py::TickerSession` — the history-wave lifecycle P7 reworks in place:
+  the req-id registry + `_pending_bars` accumulation, `_wave_plan_queue`, the watchdog
+  (`_history_stranded_reason`), generation fencing, and the D27.9 priming state (`_prime_req_id`,
+  `_prime_timer`, `_prime_retry_pending`). Finalisation today is all-or-nothing
+  (`MainWindow._finalize_history_wave` runs only when the queue and id set drain).
+- `[existing] services/backfill_service.py` — the pure planner: `find_missing_spans`, `plan_requests`,
+  `floor_bar_budget`, `bar_period_seconds` (`MissingSpan`/`RequestPlan`). P7 keeps the planner pure and
+  Qt-free; the **orchestration** around it changes, not its function contracts.
+- `[existing] ibkr/realtime_bars.py::RealtimeBarsManager` (`subscribe`/`unsubscribe`/`cancel_all`/`replay_all`),
+  `[existing] ibkr/stream_health.py::StreamHealth` (`mark_subscribed`/`mark_first_bar`/`mark_failed`/`is_live`/
+  backoff), `[existing] ibkr/pacing.py` (`PacingManager`/`PacingExceeded`), `[existing] data/bar_cache.py`
+  (`save_bars`/`get_bars`/mode-aware key), `[existing] services/contract_lookup_service.py` +
+  `services/symbol_search.py` (the Q-45 watchlist-add deferral, landed `cd4266a`).
+- `[existing]` the landed-and-frozen substrate P7 builds on and does not touch: handshake-gated readiness
+  (`IBKRNotReady`, Q-35), the 0.5 s interval + rolling budget (Q-30), error-162 retry, S0/D38 removal end state,
+  the Qt-free import boundary (`test_t38_t08`), the per-view WebEngine profile (Q-40), the D27 reconnect-replay
+  path, and the LWC chart stack (`ui/chart_view.py`, `services/chart_model.py`, `ui/lwc_host.py`,
+  `ui/lwc_bridge.py`, `ui/lwc_view.py`) — the renderer consumes the data path, P7 never edits it.
+
+### Summary
+
+Stop treating a wide backfill as one giant wave: cap what a single load may spend, persist and render every
+chunk as it arrives, resume instead of restarting, and express all wave/watchdog bounds in budget-window terms.
+Then take the probe's single-shot win (a wide 1-min duration covering the 30-session floor in one request) only
+as an explicit, measured, owner-approved decision — and close out streaming (prime precedence, watchdog/pacing
+coherence, reconnect replay, the Q-41 deferral contract) without touching the renderer, the schema, or the
+order-code absence.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained stack first | Unchanged: Python 3.11+, PyQt6, `ibapi-latest==10.51.1`, SQLite, LWC chart stack | Existing-repo hard constraint; the data path needs no new capability | Any replacement — rejected outright |
+| Chunk transport | Unchanged `reqHistoricalData` via `MarketDataManager` ( pacing-counted, handshake-gated) | The probe proves TWS serves wide requests fast; the bug is our orchestration, not the transport | New transport / parallel connections — rejected (pacing budget is per-connection; more sockets burn it faster) |
+| Wide durations (S-P7-5) | Additive duration widening (e.g. `"1 min"` → `"30 D"`) as an explicit owner-gated decision with measured before/after, never a silent constants edit | The probe proves one 30 D request replaces ~31 floor chunks; silent edits hide a pacing-behaviour change from the owner | Keep 1 D chunking (rejected: 42 requests/load, 45 s of silence); widen silently (rejected: owner-approval rule from the brief) |
+
+### System Components
+
+- `[new/changed] ui/ticker_session.py::TickerSession` history-wave orchestration — per-chunk persist+render,
+  resume-not-restart, coalesced same-chart reloads, watchdog/pacing coherence, prime precedence.
+- `[new/changed] ui/main_window.py` load/finalise path — incremental finalisation per chunk instead of
+  all-or-nothing `_finalize_history_wave`; cancelled-slot accounting.
+- `[existing] services/backfill_service.py` — planner contracts unchanged; called more often (per resume) with
+  the same pure semantics.
+- `[existing] ibkr/market_data.py` request path — signature and pacing contract unchanged; only the
+  `duration` argument values change (owner-gated, S-P7-5).
+- `[existing] ibkr/realtime_bars.py` + `ibkr/stream_health.py` + D27 reconnect replay — behaviour re-affirmed,
+  no redesign; prime precedence is a scheduling rule, not a new component.
+- `[existing] LWC chart stack` (`ui/chart_view.py`, `services/chart_model.py`, `ui/lwc_*`) — untouched consumer.
+
+### Data Model
+
+- `[existing]` `bars` table (`PRIMARY KEY (symbol, timeframe, ts)`, mode-aware key per D42) — **no migration**;
+  incremental per-chunk `save_bars` is idempotent by `INSERT OR REPLACE`, which is exactly what makes
+  resume-not-restart safe.
+- `[existing]` `Bar` dataclass, `SESSION_BAR_CAP = 5000` bound, retention/prune — unchanged.
+- `[new]` In-memory wave accounting only (no new table): per-wave spent-slot count, refunded-cancel count,
+  162-ack maintained-as-debug classification. Nothing persists beyond the existing cache.
+
+### Integration Points
+
+- `[existing]` TWS historical data (`reqHistoricalData`) — same call shape; fewer, wider requests after S-P7-5.
+- `[existing]` TWS real-time bars + `reqMktData` watchlist/watchlist-panel defer (Q-45, landed) — unchanged.
+- `[existing]` SQLite bar cache — same API; written incrementally instead of once per wave.
+- No new external service, endpoint, credential, or dependency. Live validation stays **read-only**; the owner
+  names the validation method.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and **unmodified by every P7 wave**. Task Manager gives workers the contract,
+never the implementation. The repository is authoritative on conflict.
+
+- **`ibkr/market_data.py::MarketDataManager.req_historical_data`** — contract:
+  `req_historical_data(self, contract: Contract, timeframe: str = "5 mins", endDateTime: str = "", whatToShow: str = "TRADES", useRTH: int = 1, extended_hours: bool = False, bar_size: str | None = None, duration: str | None = None) -> int`. Owner: `ibkr/market_data.py`. (Only the *passed* `duration` values change, owner-gated; the signature, handshake gate, and pacing contract do not.)
+- **`ibkr/market_data.py::MarketDataManager.req_mkt_data`** — contract:
+  `req_mkt_data(self, contract: Contract, generic_ticks: str = "") -> int` with the Q-41 non-blocking
+  contract (`PacingExceeded` + `QTimer.singleShot` deferral, never sleeps on the GUI thread).
+  Owner: `ibkr/market_data.py`.
+- **`services/backfill_service.py` planner contracts** — contracts: `find_missing_spans(cached_ts, now_ts,
+  timeframe, trailing_days, ext_hours, min_sessions)`, `plan_requests(missing_spans, timeframe)`,
+  `floor_bar_budget(timeframe, ext_hours)`, `bar_period_seconds(timeframe)`. Owner:
+  `services/backfill_service.py`. (Pure, Qt-free; orchestration changes around them, signatures do not.)
+- **`config/settings.py` pacing tunables exist** — contracts: `MAX_HISTORICAL_PER_600S`,
+  `HISTORICAL_MIN_INTERVAL_S`, `MIN_INTRADAY_SESSIONS`, `SESSION_BAR_CAP` exist with current values
+  (100 / 0.5 s / 30 / 5000); `check_live_port` fails fast unless `IBKR_PORT == 7496`.
+  Owner: `config/settings.py`. (S-P7-5 may change a `TIMEFRAME_CONFIG` *duration value* only, never these.)
+- **`ibkr/error_codes.py::classify_error` + `IBApiClient.error`/`error_msg`** — the error ingress, severity
+  gate, and status-bar line (incl. error-162 handling). Owner: `ibkr/`. (162-ack-as-debug is a *call-site
+  classification*, not a change to the classifier.)
+- **`ibkr/realtime_bars.py::RealtimeBarsManager` + `ibkr/stream_health.py::StreamHealth`** — contracts:
+  `subscribe`/`unsubscribe`/`cancel_all`/`replay_all`; `mark_subscribed`/`mark_first_bar`/`mark_failed`/
+  `is_live`/`describe` + backoff. Owner: `ibkr/`. (Scheduling around them changes; the APIs do not.)
+- **`data/bar_cache.py::BarCache.save_bars` / `::get_bars`** — contracts:
+  `save_bars(bars, ext_hours=True)`; `get_bars(symbol, timeframe, ext_hours=True)`. Owner: `data/bar_cache.py`.
+  (Called per chunk instead of per wave; the API does not change.)
+- **Qt-free import boundary** — contract: `data/` + `services/` import without Qt (`test_t38_t08`).
+  Owner: the boundary itself. (New wave code in `ui/` must not leak Qt into planner logic.)
+- **Order-code absence** — contract: `import ibkr.orders` raises `ModuleNotFoundError`; no `placeOrder`/
+  `cancelOrder`/`reqGlobalCancel` call site, no order UI. Owner: the P5 end state. (P7 adds zero order
+  interaction; D45/D46 stand.)
+- **LWC chart stack seam** — contract: `ui/chart_view.py::create_chart_view(tz_offset: float = 0.0, editable: bool = True) -> ChartView`, `services/chart_model.py`
+  value objects, `RouterMode` TR-1…TR-17, per-view WebEngine profile (Q-40). Owner: `ui/` + `services/`.
+  (The data path feeds the seam; no P7 task edits the renderer.)
+
+### Non-Functional Approach
+
+- **Performance (driven by the probe + ESC-075):** the per-load cap (S-P7-1) bounds worst-case time-to-first-bars;
+  per-chunk persist+render bounds time-to-visible-progress to one chunk latency; the wide-duration decision
+  (S-P7-5) removes ~31 floor requests for `"1 min"` where TWS proves it serves them in ~1 s, while the 0.5 s
+  minimum interval and the rolling budget keep pacing legal. No GUI-thread blocking anywhere (Q-41 deferral
+  contract re-affirmed).
+- **Correctness (driven by ESC-075/076/077/078 + D16/D42):** no holes (floor + gap repair preserved across
+  resumes), no duplicates (`INSERT OR REPLACE` idempotence + oldest-first monotonic fill), no dropped/late bars
+  (aggregator priming intact, prime precedence explicit), reconnect replays intact (D27 path untouched).
+- **Security/scalability:** no new surface (no dependency, no endpoint, no credential); read-only live
+  validation; the budget invariant is per-load so pop-outs, headless alarm sessions, and the watchlist share
+  the same rolling window without starving each other.
+- **Stability gate:** the full offscreen suite stays green on every wave; live validation is read-only and the
+  owner names the method — a red suite or an unapproved live step fails the wave.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P7-1 — the per-load cap throttles the floor fill so visibly that the chart looks perpetually "catching up" | M / M | Oldest-first monotonic fill + per-chunk render: every load shows progress; the floor completes across loads instead of one 45 s silence (S-P7-1/S-P7-2) |
+| AR-P7-2 — incremental persist/render reintroduces flicker or partial-write visibility the all-or-nothing finalise avoided | M / M | Single save + set per completed chunk (never per bar); generation fencing unchanged so a superseded wave cannot paint over the current one |
+| AR-P7-3 — wide durations hit an undocumented TWS limit for some symbol/timeframe and return short/empty with no error | M / H | S-P7-5 is measured before/after per affected timeframe with a rollback to chained requests on any shortfall; shortfall stays a surfaced status-bar message, never a silent hole (AC-D16.4) |
+| AR-P7-4 — refunding cancelled slots over-counts the budget and trips a real 162 storm | H / L | Refund only slots whose reqId never reached TWS (pre-issue cancel); post-issue cancels keep their slot; pacing_manager stays the single owner |
+| AR-P7-5 — prime precedence delays the wave enough to look like a stall, or a skipped prime hides a real defect | L / M | Precedence is exactly one interval (bounded, S-P7-4); a skipped prime is warning-level and counted, never logged as the expected case |
+| AR-P7-6 — P7 "fixes" streaming by redesigning D27 reconnect replay or the Q-41 deferral contract | M / H | Both are Frozen Interfaces above; P7 schedules *around* them (watchdog bound ≥ continuation delay + margin) and re-affirms them with tests |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P7-1 | **Budget invariant + per-load cap (answers ESC-079):** a single chart load consumes at most **one quarter** of `MAX_HISTORICAL_PER_600S` rolling slots; the 30-session depth floor (`AC-D16.8`) is satisfied **monotonically across loads** (persist-and-resume, oldest-first), never inside one wave; wave/watchdog/continuation bounds are expressed in **budget-window terms** (fractions of the 600 s window), not literal seconds. Rationale: binds every historical-request consumer (pop-outs, headless alarm sessions, watchlist, prime) to one rule; survives tunable retunes (50 vs 100). Alternative: a per-timeframe special case (rejected — ESC-079's suggested direction forbids it). | `[new in P7]` — ESC-079; restates the *reading* of `AC-D16.8` (flagged for the Analyst, not rewritten here) |
+| S-P7-2 | **Persist-and-render per chunk + resume-not-restart (code side of ESC-075/076):** each completed chunk is `save_bars`-persisted and rendered on arrival; a reload for the same symbol/timeframe/mode **coalesces into** the running wave (no cancel, no re-spend); a genuinely cancelled slot is refunded **only if its request never reached TWS**, and a 162 acknowledgement for a superseded reqId is classified debug, not a user-facing error. Rationale: fetched bars are never thrown away (the measured 42-request/44.7 s/45 s-silence failure); `INSERT OR REPLACE` idempotence makes resume safe. Alternative: keep all-or-nothing finalise (rejected — it is the defect). | `[new in P7]` — ESC-075/076; changes `TickerSession` wave lifecycle + `MainWindow` finalise path |
+| S-P7-3 | **Watchdog/pacing coherence (code side of ESC-077):** the stranded-wave watchdog bound is **≥ the scheduled continuation delay + margin**; a strand clears the continuation timer **and** the plan queue so a finalised wave cannot resume. Rationale: a wave legitimately waiting on pacing must never read as stranded. Alternative: longer fixed timeouts (rejected — they rot when tunables change; window-relative bounds do not). | `[new in P7]` — ESC-077; changes watchdog/continuation wiring only |
+| S-P7-4 | **Prime precedence (code side of ESC-078):** the D27.9 aggregator prime takes precedence — the backfill wave defers its continuation by **exactly one** `HISTORICAL_MIN_INTERVAL_S` so the prime issues — or the prime holds an explicit reservation; a skipped prime is warning-level and counted. Rationale: the prime must never starve behind the wave it was started alongside. Alternative: prime-inside-wave ordering (rejected — couples the pure planner to transport scheduling). | `[new in P7]` — ESC-078; scheduling rule, no planner/API change |
+| S-P7-5 | **Wide-duration decision point (owner-gated):** widening `"1 min"` (and any other) `TIMEFRAME_CONFIG` duration (e.g. `"1 D"` → `"30 D"`, covering the 30-session floor in one shot) lands **only as an explicit decision with measured before/after** (request count, time-to-first-bar, time-to-current, pacing-slot spend) **and owner approval** — never a silent constants edit; pacing (0.5 s interval, rolling budget, no GUI-thread sleep) is re-verified with the wide request in place. Rationale: the probe proves the win (~1.1 s for 11,644 bars) but duration is owner-visible pacing behaviour. Alternative: silent widening (rejected — the brief forbids it). | `[new in P7]` — probe evidence; changes duration *values* only, under gate |
+| S-P7-6 | **Streaming re-affirmation, not redesign:** `reqMktData` watchlist/watchlist-panel defer (Q-45, landed), realtime-bars aggregator priming, `StreamHealth` state + backoff, D27 reconnect replay, and the Q-41 pacing-deferral contract keep their current design; P7 adds only the scheduling rules in S-P7-3/S-P7-4 and regression coverage. Rationale: streaming is correct-by-construction today except for the starved-prime and watchdog misreads. Alternative: streaming redesign (rejected — out of scope). | `[extends prior phases: D27/D28 streaming path]` — Q-41/Q-45/D27; re-affirmed, not re-planned |
+| S-P7-7 | **Landed substrate stays frozen:** `IBKRNotReady` handshake gate (Q-35), 0.5 s interval + rolling budget (Q-30), error-162 retry, S0/D38 removal end state, Qt-free import boundary (`test_t38_t08`), per-view WebEngine profile (Q-40), zero order code (D45/D46), LWC renderer seam. Rationale: the brief excludes all of them from re-planning. Alternative: none entertained. | `[extends P6: end state]` — all prior phases; frozen |

@@ -3285,3 +3285,81 @@ additions (vendored v5.2.x tree, `QWebChannel`, Qt-free model — all additive, 
 - DG88–DG96 are recorded Plan/Build details with owners and waves assigned above — none blocks planning.
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P7 — data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) — drafted 2026-10-28
+
+> Companion: `docs/architecture.md` § *Phase P7 — data-path batch* (Codebase Summary, S-P7-1…S-P7-7, frozen
+> interfaces, non-functional, AR-P7-1…AR-P7-6). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`); the P7 state brief (native-ibapi probe: SPY 1-min 30 D in ~1.1 s, AAPL 1-min
+> complete — the 90 s zero-bar timeouts were our own reader-thread/handshake bugs, both understood);
+> open escalations ESC-075/076/077/078 (`routed_to: BUILD`) and ESC-079 (`routed_to: PLAN`).
+> Already landed — re-affirmed, never re-planned: handshake-gated readiness (`IBKRNotReady`, Q-35), 0.5 s
+> interval + rolling budget (Q-30), error-162 retry, S0/D38 removal end state, Qt-free import boundary
+> (`test_t38_t08`), per-view WebEngine profile (Q-40). Hard constraints: **no order-related code anywhere**
+> (D45/D46); live validation is **read-only**; the **owner names the validation method**; the **full offscreen
+> suite green is the gate**. Existing-repo run: every wave below modifies existing modules in place; **no new
+> module, no new dependency, no schema migration**. One phase only — nothing past the P7 build wave is planned.
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones.
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P7-W1 | M | **Budget invariant + persist-and-resume backfill core** (S-P7-1, S-P7-2; architectural answer to ESC-079, code side of ESC-075/076). Per-load cap (≤ ¼ rolling budget), oldest-first monotonic floor fill across loads, per-chunk persist+render, same-chart reload coalescing, cancel-slot refund rule. | (1) A 1-min load issues at most ⌊budget/4⌋ historical requests before yielding; (2) killing/reloading mid-wave loses zero fetched bars (cache + chart advance monotonically); (3) a same symbol/timeframe/mode reload does not cancel an in-flight wave; (4) full offscreen suite green. | Offscreen: new wave-lifecycle suites with a fake transport (request counting, mid-wave reload, chunk-visibility assertions) + full suite. No live TWS needed. |
+| P7-W2 | S | **Watchdog/prime/pacing coherence** (S-P7-3, S-P7-4; code side of ESC-077/078 + the 076 debug-classification). Window-relative watchdog bound, strand clears timer + queue, one-interval prime precedence (or explicit reservation), skipped-prime warning, superseded-reqId 162-ack at debug. | (1) A wave deferred on pacing for the full continuation delay is never flagged stranded; (2) a finalised wave cannot resume after a strand-clear; (3) the prime issues even when a full wave starts alongside it (or a counted warning names it); (4) full offscreen suite green. | Offscreen: watchdog/prime timing suites (fake clock/timers) + 162-classification assertions + full suite. No live TWS needed. |
+| P7-W3 | S | **Wide-duration decision point** (S-P7-5): `"1 min"` (and only the timeframes the evidence supports) widened — e.g. `"1 D"` → `"30 D"` — **only with measured before/after and explicit owner approval**. Pacing re-verified with the wide request (0.5 s interval, rolling budget, no GUI-thread sleep). | (1) Before/after numbers on record (requests/load, time-to-first-bar, time-to-current, slot spend) for each widened timeframe; (2) owner approval on record before the constants change; (3) shortfall/empty on a wide request surfaces (never a silent hole) with rollback to chained requests; (4) full offscreen suite green. | Offscreen suites + a **read-only** live measurement run **only by the method the owner names** (owner-gated; no automated live step). Suite green is the merge gate either way. |
+| P7-W4 | M | **Streaming correctness close-out + batch gate** (S-P7-6/S-P7-7): reconnect replay, stream-health/backoff, realtime-bars priming, watchlist `reqMktData` deferral, and the Q-41 deferral contract covered end-to-end; batch-wide non-regression. | (1) Reconnect replays subscriptions with rebound reqIds and no duplicate bars; (2) no dropped/late aggregated bars under a tick burst with priming intact; (3) watchlist adds while throttled defer without losing the row; (4) nothing sleeps on the GUI thread on any pacing path; (5) **full offscreen suite green**; (6) read-only live validation performed by the owner-named method. | Offscreen burst/reconnect/deferral suites + full suite, then the owner-named read-only live check. A red suite or an unapproved live step fails the wave. |
+
+**What stays untouched by every P7 wave:** the `req_historical_data` / `req_mkt_data` signatures and pacing
+contract; the pure planner function contracts (`find_missing_spans`, `plan_requests`, `floor_bar_budget`);
+the pacing tunables' existence and the port guard; error ingress/classification; `RealtimeBarsManager` /
+`StreamHealth` APIs; `BarCache` APIs; the Qt-free import boundary; the order-code absence; the entire LWC
+renderer seam (`ui/chart_view.py`, `services/chart_model.py`, `ui/lwc_*`); the `bars` schema (no migration).
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / input | Architecture section | Wave |
+|---|---|---|
+| ESC-079 (PLAN: budget invariant, per-load cap, floor across loads, window-relative bounds) | S-P7-1; Frozen (tunables, planner contracts) | P7-W1 |
+| ESC-075 (BUILD: persist-as-arrived, no resume-loss, floor must not cost one wave) | S-P7-1, S-P7-2; Frozen (`BarCache`, planner) | P7-W1 |
+| ESC-076 (BUILD: coalesce same-chart reload; cancel accounting; 162-ack as debug) | S-P7-2; Frozen (error ingress) | P7-W1 (coalesce/refund) + P7-W2 (162 classification) |
+| ESC-077 (BUILD: watchdog vs pacing-deferral coherence) | S-P7-3; Frozen (pacing contract) | P7-W2 |
+| ESC-078 (BUILD: prime precedence vs wave starvation) | S-P7-4; Frozen (planner, RT bars) | P7-W2 |
+| Probe: single-shot wide requests (30 D ≈ 1.1 s) → duration widening as gated decision | S-P7-5; Tech Stack table | P7-W3 |
+| Streaming: watchlist `reqMktData` defer (Q-45), aggregator priming, stream health, reconnect replay (D27), Q-41 deferral contract | S-P7-6; Frozen (RT bars, StreamHealth, `req_mkt_data`) | P7-W4 (W1–W3 must not regress it) |
+| Hard constraints: no order code (D45/D46); read-only live; owner names method; suite green gate | S-P7-7; Frozen (order absence, Qt-free boundary, renderer seam) | Every wave |
+| Landed substrate (Q-30/Q-35/Q-38/Q-40, 162 retry, S0/D38 removal) | S-P7-7; Frozen | Re-affirmed, no wave |
+
+Every ESC-075…079 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P7-1 | The ¼-budget per-load cap is a starting bound, not a tuned optimum; waves measure actual slot spend and the Validator may tighten/loosen the fraction on evidence | A fixed count would rot on the next tunable retune (the 50-vs-100 drift in ESC-075's text is the proof) |
+| AP-P7-2 | "Same chart" for reload coalescing means identical symbol + timeframe + ext-hours mode; any change of the three is a genuine new wave that cancels the old one | Coalescing across different charts would paint the wrong bars; generation fencing stays the guard |
+| AP-P7-3 | Cancel-slot refund applies only to reqIds whose request never reached TWS (pre-issue cancel); post-issue cancels keep their slot | Refunding issued slots would over-count the budget and risk a real 162 storm (AR-P7-4) |
+| AP-P7-4 | P7-W3 widens only the timeframes with measured evidence; timeframes without a before/after record keep chained requests | The brief gates each duration change on measurement, not on the wave as a whole |
+| AP-P7-5 | Read-only live validation never places, cancels, or closes anything and never writes production state; the owner names the exact method (symbol set, session, read-only checks) before P7-W3/W4 run it | Zero order interaction (D45/D46) plus the live gate from the brief |
+| AP-P7-6 | AC-G.1 (visual reference gate) does not apply: P7 makes no UI-visual decision (no icon/placement/colour/label/size choice) | All P7 outcomes are data-path behaviour with log/cache/render-state measurables |
+
+### Flagged Issues
+
+1. **`AC-D16.8` as literally written is unsatisfiable for `"1 min"` in one load** (ESC-079's measured proof:
+   ~31 floor requests + hole repair against a 50–100-slot rolling budget shared by every session). P7 plans the
+   satisfiable reading — the floor as an invariant over **successive loads** (S-P7-1) — but Plan does not rewrite
+   requirements: the **Requirements Analyst must restate `AC-D16.8`** (floor met monotonically across loads,
+   oldest-first, no single-load deadline) or explicitly confirm the restatement. Suggested direction: adopt the
+   S-P7-1 wording verbatim. (The Validator carries this as the official escalation; it is surfaced here, not
+   filed here.)
+2. **Duration widening (S-P7-5/P7-W3) needs explicit owner approval per timeframe** with the measured
+   before/after on record. If the owner declines, P7-W3 records the decline and the chained-request path
+   (with W1/W2 fixes) stands as the shipped behaviour — the wave is still complete, just narrower.
+3. **Budget-number drift:** ESC-075's text cites a 50-slot budget while the tree carries
+   `MAX_HISTORICAL_PER_600S = 100`. S-P7-1 is deliberately fraction-based so the invariant holds under either
+   value; no requirement change is needed, but the Validator should confirm which value the suite asserts.
+
+Status: READY_FOR_TASK_MANAGER

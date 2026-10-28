@@ -1,1779 +1,882 @@
 {
   "metadata": {
-    "phase": "P6",
-    "batch": "D47 (Batch 22)",
-    "baseline": "post-P5/D46 tree (order code deleted; suite green; 0 open escalations)",
-    "generated": "2026-10-26",
-    "revision": "2026-10-26b - P6-T13 amended: gate re-scoped to the two owner decisions on record (deletion approved 2026-10-27; oracle RETIRE; live session WAIVED-not-satisfied), AC2 extended with oracle retirement and the retired-coverage ledger; task returned to not_started.",
-    "notes": "See docs/tasks/task_manager_notes_P6.md: wave map, dependency edges, XL sizing exceptions (T05/T07/T09), the P6-T13 gate as re-scoped 2026-10-26b (owner approval + oracle retirement; live session waived-not-satisfied), the AP-P6-3 keep/retarget/engine-specific classification, and deviations."
+    "phase": "P7",
+    "status": "READY_FOR_BUILD"
   },
-  "status": "READY_FOR_BUILD",
-  "notes": "See docs/tasks/task_manager_notes_P6.md: wave map, dependency edges, XL sizing exceptions (T05/T07/T09), the P6-T13 gate, the AP-P6-3 keep/retarget/engine-specific classification, and deviations (new-file paths chosen by Task Manager within approved waves).",
   "tasks": [
     {
-      "id": "P6-T01",
-      "title": "P6-01 / Phase 0 spike + go/no-go + size/perf baseline (S) \u2014 throwaway `spikes/lwc/` proving the 9 API behaviours, results doc with gate record",
-      "description": "Build ONLY the throwaway Phase 0 spike in `spikes/lwc/` proving the 9 API behaviours from the attached migration plan, record the measured `.app` size delta and the signing-flow finding plus the Phase-0 perf baseline in `docs/lwc_spike_results.md` with an explicit go/no-go record, and create the 19-row `docs/lwc_parity_matrix.md` skeleton (all rows Open). Nothing in `spikes/lwc/` may be imported by production or tests, it ships no test of its own into the suite book, and it is excluded from packaging. A recorded no-go stops Phase 1 (P6-T02 must not proceed on a no-go).",
-      "agent": "Build",
-      "task_type": "spike",
+      "id": "P7-T01",
+      "title": "W1: per-load historical budget cap with oldest-first floor fill across loads",
+      "description": "Cap what a single chart load may spend (at most floor(MAX_HISTORICAL_PER_600S/4) historical requests before yielding) and fill the 30-session depth floor monotonically oldest-first across successive loads, resuming from persisted state instead of restarting one giant wave (S-P7-1; code side of ESC-075/079).",
+      "agent": "build_worker",
+      "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "AC1 \u2014 Given the attached migration plan names 9 API behaviours for Phase 0, When the task is done, Then `spikes/lwc/` demonstrates each of the 9 and `docs/lwc_spike_results.md` records per-behaviour evidence plus one explicit go/no-go verdict.",
-        "AC2 \u2014 Given the spike is throwaway (AP-P6-2, A105), When the task is done, Then no production module and no test module imports anything under `spikes/` (a repo-wide import scan is clean) and the spike ships no test file into `tests/`.",
-        "AC3 \u2014 Given Q61 is measure-first (A109, DG89), When the task is done, Then `docs/lwc_spike_results.md` records the measured `.app` size delta, the signing-flow finding (whether the current flow covers the Chromium/vendored tree), and the Phase-0 perf baseline the P6-12 cutover gate holds.",
-        "AC4 \u2014 Given the parity matrix is the gate (AC-D47.9, S58), When the task is done, Then `docs/lwc_parity_matrix.md` exists with all 19 rows listed and every row dispositioned Open/pending, and a later row regressing without an escalation fails review (rule 10)."
+        "Given a rolling historical budget of B=MAX_HISTORICAL_PER_600S slots, when a 1-min chart load plans its backfill, then it issues at most floor(B/4) historical requests before yielding (the remainder stays queued for later loads).",
+        "Given a cache short of the AC-D16.8 30-session floor, when successive loads complete, then cached depth grows monotonically oldest-first across the loads and converges to the floor without any single wave carrying it all.",
+        "Given the capped planner in place, when the existing planner/backfill suites run, then find_missing_spans/plan_requests/floor_bar_budget semantics are unchanged (pure, Qt-free) and the scoped existing suites stay green."
       ],
       "tests": [
         {
-          "test_id": "P6-T01-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Read `docs/lwc_spike_results.md`: check each of the 9 API behaviours has a named evidence subsection and exactly one go/no-go verdict line.",
-          "expected_result": "All 9 behaviours evidenced; one unambiguous verdict present."
+          "test_id": "P7-T01-T11",
+          "linked_acceptance_criterion": 1,
+          "type": "unit",
+          "description": "Drive load planning for SPY 1-min on an empty cache through a fake transport that counts req_historical_data issues; assert issued-before-yield <= floor(MAX_HISTORICAL_PER_600S/4).",
+          "expected_result": "Issued count is <= 25 at B=100 (and scales with the tunable, never a hardcoded 25); the leftover plans remain queued, not dropped."
         },
         {
-          "test_id": "P6-T01-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Run the fence probe: `! grep -rn \"spikes\" --include=\"*.py\" ui ibkr services data config main.py` and confirm no file under `tests/` exercises `spikes/lwc/`.",
-          "expected_result": "Grep is clean (exit 0 via the negation) and `tests/` holds no spike suite; the spike is unimported."
+          "test_id": "P7-T01-T12",
+          "linked_acceptance_criterion": 2,
+          "type": "integration",
+          "description": "Complete two successive capped loads against a session/BarCache double; assert the second load starts from the first load's persisted depth, fills the next-oldest span first, and total cached sessions strictly increase toward the floor.",
+          "expected_result": "Depth after load 2 > depth after load 1 (monotonic, oldest-first); no re-request of already-persisted spans."
         },
         {
-          "test_id": "P6-T01-T13",
-          "linked_acceptance_criterion": "AC3",
-          "type": "manual",
-          "description": "Read `docs/lwc_spike_results.md`: check the `.app` size-delta figure, the signing-flow finding and the perf-baseline block are present with measured numbers.",
-          "expected_result": "Measured delta, signing finding and perf baseline all present; no fixed budget invented (measure-first)."
-        },
-        {
-          "test_id": "P6-T01-T14",
-          "linked_acceptance_criterion": "AC4",
-          "type": "manual",
-          "description": "Count rows in `docs/lwc_parity_matrix.md` and check every disposition reads Open/pending.",
-          "expected_result": "19 rows, all Open/pending; the gate skeleton is complete."
+          "test_id": "P7-T01-T13",
+          "linked_acceptance_criterion": 3,
+          "type": "integration",
+          "description": "Run the scoped existing suites (test_backfill_service, test_history_backfill*, test_d42_depth_floor, test_d42_day_presence) unmodified.",
+          "expected_result": "All scoped suites pass; no planner contract signature changed."
         }
       ],
       "expected_artifacts": [
-        "spikes/lwc/ (throwaway 9-behaviour proof; never imported)",
-        "docs/lwc_spike_results.md (evidence + go/no-go + size delta + signing finding + perf baseline)",
-        "docs/lwc_parity_matrix.md (19-row skeleton, all Open)"
+        "tests/test_p7_w1_cap.py (new: cap counting, cross-load monotonic fill)"
       ],
       "touches_files": [
-        "spikes/lwc/*",
-        "docs/lwc_spike_results.md",
-        "docs/lwc_parity_matrix.md"
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_p7_w1_cap.py"
       ],
+      "doc_required": false,
       "inputs": [
-        "docs/plan.md \u00a7 Phase P6 waves P6-01 + AP-P6-2",
-        "docs/architecture.md \u00a7 System Components (spike row) + S58/S60",
-        "the attached migration plan Phase 0 (9 API behaviours)"
+        "ESC-075/079 text; S-P7-1; TIMEFRAME_CONFIG durations"
       ],
       "outputs": [
-        "throwaway spike + results doc with go/no-go",
-        "19-row parity skeleton",
-        "fence + measure-first evidence for P6-12"
+        "Capped per-load wave; cross-load floor resume"
       ],
-      "size": "S",
       "status": "done",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "docs/codebase-map.md",
-            "lines": "60-78",
-            "why": "the chart render surface inventory (~5,135 lines) the spike probes \u2014 read-only, do not change the map"
+            "path": "ui/ticker_session.py",
+            "lines": "663-760",
+            "why": "extend queue_wave_plans/_issue_wave_chunks with the per-load cap and resume queue"
           },
           {
-            "path": "ui/chart_panel.py",
-            "lines": "1-60",
-            "why": "read-only: import block + ChartPanel surface the spike mirrors \u2014 do not edit this file in this wave"
+            "path": "ui/main_window.py",
+            "lines": "1655-1800",
+            "why": "read-only: load_chart planning feeds the capped queue \u2014 do not change its contract"
+          },
+          {
+            "path": "services/backfill_service.py",
+            "lines": "300-500",
+            "why": "read-only: find_missing_spans/plan_requests/floor_bar_budget stay pure \u2014 do not change signatures"
           },
           {
             "path": "config/settings.py",
-            "lines": "1-60",
-            "why": "read-only: tunables (MAX_POPOUTS, SESSION_BAR_CAP, MIN_INTRADAY_SESSIONS) the perf baseline references"
+            "lines": "25-60",
+            "why": "read-only: MAX_HISTORICAL_PER_600S/HISTORICAL_MIN_INTERVAL_S/MIN_INTRADAY_SESSIONS values \u2014 never edit tunables here"
+          },
+          {
+            "path": "ibkr/pacing.py",
+            "lines": "129-195",
+            "why": "read-only: historical_wait_seconds/record_historical_slot stay the single budget owner"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/chart_panel.py:ChartPanel",
+            "ref": "ui/ticker_session.py:queue_wave_plans",
             "status": "existing"
           },
           {
-            "ref": "config/settings.py:check_live_port",
+            "ref": "ui/ticker_session.py:_issue_wave_chunks",
             "status": "existing"
           },
           {
-            "status": "new",
-            "signature": "create_chart_view(tz_offset: float, editable: bool = True) -> ChartView",
-            "module": "ui/chart_view.py"
+            "ref": "ui/main_window.py:load_chart",
+            "status": "existing"
+          },
+          {
+            "ref": "services/backfill_service.py:find_missing_spans",
+            "status": "existing"
+          },
+          {
+            "ref": "services/backfill_service.py:plan_requests",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:record_historical_slot",
+            "status": "existing"
+          },
+          {
+            "ref": "config/settings.py:MAX_HISTORICAL_PER_600S",
+            "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#System Components",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
         "requirement_ids": [
-          "AC-D47.8",
-          "AC-D47.9",
-          "D47.8",
-          "A105",
-          "A109",
-          "Q61",
-          "AP-P6-2"
+          "AC-D16.8",
+          "AC-D16.9",
+          "AC-D16.4"
         ],
-        "test_command": "! grep -rn \"spikes\" --include=\"*.py\" ui ibkr services data config main.py && test -f docs/lwc_spike_results.md && test -f docs/lwc_parity_matrix.md && echo SPIKE-GATE-OK",
-        "memory_refs": [
-          "2026-10-26"
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w1_cap.py -o addopts=\"\" -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P7-T02",
+      "title": "W1: persist-and-render per chunk with resume-not-restart finalisation",
+      "description": "Replace the all-or-nothing wave finalise with per-chunk save_bars persist plus incremental render on every completed chunk, so killing or reloading mid-wave loses zero fetched bars and overlapping resumes never duplicate rows (S-P7-2; code side of ESC-075).",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P7-T01"
+      ],
+      "acceptance_criteria": [
+        "Given a wave with N chunks in flight, when any single chunk's historical_data_end arrives, then its bars are BarCache.save_bars-persisted and rendered before the remaining chunks complete (cache and chart advance monotonically per chunk, never only at the last chunk).",
+        "Given an interrupted wave (cancel, reload, or strand) that had completed K chunks, when the next load for the same target runs, then the K chunks' bars are still in the cache and on the chart (the cache after interruption is never smaller than before the wave started).",
+        "Given an overlapping resume that re-fetches already-persisted bars, when the duplicate bars arrive, then INSERT OR REPLACE idempotence yields no duplicate rows and exactly one save plus one set per completed chunk occurs (never per bar), with the generation fence still suppressing superseded waves."
+      ],
+      "tests": [
+        {
+          "test_id": "P7-T02-T11",
+          "linked_acceptance_criterion": 1,
+          "type": "integration",
+          "description": "Drive a 3-chunk wave through the real TickerSession/MainWindow path with a fake transport; after each chunk-end assert BarCache row count grew and the chart/session bars include the new chunk while other chunks are still in flight.",
+          "expected_result": "Cache and rendered bars advance after chunk 1 and chunk 2, not only after chunk 3; per-chunk save+set observed exactly once per chunk."
+        },
+        {
+          "test_id": "P7-T02-T12",
+          "linked_acceptance_criterion": 2,
+          "type": "integration",
+          "description": "Interrupt a wave mid-flight (cancel/reload), then reload the same symbol/timeframe/mode and assert the previously completed chunks survive in cache and chart.",
+          "expected_result": "Post-interruption cache row count >= pre-wave count and includes the completed chunks; no refetch of completed spans."
+        },
+        {
+          "test_id": "P7-T02-T13",
+          "linked_acceptance_criterion": 3,
+          "type": "unit",
+          "description": "Feed the same chunk twice (overlap) and assert row counts, plus count save/set calls per chunk completion.",
+          "expected_result": "No duplicate (symbol,timeframe,ts) rows; one save plus one set per completed chunk; superseded-generation bars still rejected."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p7_w1_persist.py (new: chunk-visibility, resume-loss, idempotence)"
+      ],
+      "touches_files": [
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_p7_w1_persist.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "Capped per-load wave from P7-T01; BarCache idempotence"
+      ],
+      "outputs": [
+        "Per-chunk persist+render; resume-safe finalisation"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "760-900",
+            "why": "rework on_historical_bar/on_historical_data_end for per-chunk completion"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1960-2110",
+            "why": "rework _on_session_wave_complete/_finalize_history_wave to incremental finalise"
+          },
+          {
+            "path": "data/bar_cache.py",
+            "lines": "1-70",
+            "why": "read-only: save_bars/get_bars/prune API unchanged \u2014 called per chunk now"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "663-760",
+            "why": "read-only: capped queue shape from P7-T01 that per-chunk completion drains"
+          }
         ],
-        "memory_notes": [
-          "2026-10-26 (D47 reversal): the strangler keeps pyqtgraph default until parity is accepted; Phase 0 spike in spikes/lwc/ is the single no-prototype exception.",
-          "2026-10-15 (ESC-043): any non-pytest offscreen probe must export DB_PATH to a temp file before importing the app."
+        "contracts": [
+          {
+            "ref": "ui/ticker_session.py:on_historical_data_end",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:on_historical_bar",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_finalize_history_wave",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_session_wave_complete",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_cache.py:save_bars",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_cache.py:get_bars",
+            "status": "existing"
+          }
         ],
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "requirement_ids": [
+          "AC-D16.1",
+          "AC-D16.4",
+          "AC-D16.8"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w1_persist.py -o addopts=\"\" -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P7-T03",
+      "title": "W1: same-chart reload coalescing, cancel-slot refund, superseded-162 at debug",
+      "description": "Stop the cancel-and-respend storm: a reload that does not change symbol/timeframe/mode coalesces into the running wave, genuinely cancelled slots are refunded only when their request never reached TWS, and a 162 acknowledgement for a superseded reqId is debug-level instead of a user-facing error (S-P7-2; code side of ESC-076).",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P7-T01",
+        "P7-T02"
+      ],
+      "acceptance_criteria": [
+        "Given an in-flight wave for a (symbol, timeframe, ext-hours) triple, when load_chart is called with the identical triple, then no tracked reqId is cancelled, the history generation is unchanged, and the wave continues (zero re-spend for data already in flight).",
+        "Given an in-flight wave, when load_chart is called with a different symbol, timeframe, or ext-hours mode, then the old wave cancels with a generation advance exactly as before (genuine target changes still fence off stale responses).",
+        "Given a cancelled reqId, when its request never reached TWS (pre-issue cancel), then its rolling-budget slot is refunded via the pacing owner; when the request was already issued (post-issue cancel), then its slot is kept (never refunded).",
+        "Given error 162 arriving for a cancel-tagged (superseded) reqId, when error ingress routes it, then it is logged at debug with no status-bar error; given 162 on a reqId this client did not cancel, when it arrives, then the existing warning plus status-bar plus retry path is unchanged."
+      ],
+      "tests": [
+        {
+          "test_id": "P7-T03-T11",
+          "linked_acceptance_criterion": 1,
+          "type": "integration",
+          "description": "Start a wave, reload the identical triple mid-wave with a recording transport, and assert no cancel_historical_data call, unchanged generation, and continued chunk completion.",
+          "expected_result": "Zero cancels on identical reload; wave completes with the original reqIds; no duplicate spend."
+        },
+        {
+          "test_id": "P7-T03-T12",
+          "linked_acceptance_criterion": 2,
+          "type": "integration",
+          "description": "Start a wave, load a different symbol, and assert the old wave cancelled with a generation bump and stale responses rejected.",
+          "expected_result": "Old reqIds cancelled, generation advanced, late bars for the old reqIds ignored."
+        },
+        {
+          "test_id": "P7-T03-T13",
+          "linked_acceptance_criterion": 3,
+          "type": "unit",
+          "description": "Cancel one pre-issue reqId and one post-issue reqId; assert pacing slot counts via historical_wait_seconds/record state.",
+          "expected_result": "Pre-issue cancel frees exactly its slot; post-issue cancel frees nothing."
+        },
+        {
+          "test_id": "P7-T03-T14",
+          "linked_acceptance_criterion": 4,
+          "type": "integration",
+          "description": "Deliver 162 for a superseded reqId and for a live wave reqId; assert log-level and status-bar routing for each.",
+          "expected_result": "Superseded 162 is debug-only with no status-bar error; genuine 162 keeps warning plus status-bar plus retry."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p7_w1_coalesce.py (new: coalesce, refund, 162 classification)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/ticker_session.py",
+        "ibkr/pacing.py",
+        "tests/test_p7_w1_coalesce.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "Capped, per-chunk wave from P7-T01/P7-T02"
+      ],
+      "outputs": [
+        "Coalesced reloads; refund rule; quiet superseded-162"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "1655-1720",
+            "why": "add the identical-triple coalesce guard around the cancel+generation block in load_chart"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1632-1655",
+            "why": "extend _on_error ingress to classify superseded-162 at debug"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "610-660",
+            "why": "tag cancel-requested reqIds and expose pre/post-issue state for refund"
+          },
+          {
+            "path": "ibkr/pacing.py",
+            "lines": "129-195",
+            "why": "add the pre-issue-only refund counterpart to record_historical_slot \u2014 pacing stays the single owner"
+          },
+          {
+            "path": "ibkr/error_codes.py",
+            "lines": "1-30",
+            "why": "read-only: classify_error unchanged \u2014 this task only reclassifies at the call site"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/main_window.py:load_chart",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_error",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_cancel_history_requests",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:record_historical_slot",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:historical_wait_seconds",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/error_codes.py:classify_error",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "requirement_ids": [
+          "AC-D16.4"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w1_coalesce.py -o addopts=\"\" -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P7-T04",
+      "title": "W2: watchdog bound covers pacing deferrals and strands cannot resume",
+      "description": "Make the stranded-wave watchdog coherent with pacing: its bound is never below the scheduled continuation delay plus margin, and a strand finalise stops the continuation timer and clears the plan queue so a finalised wave can never resume or finalise twice (S-P7-3; code side of ESC-077).",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P7-T03"
+      ],
+      "acceptance_criteria": [
+        "Given a wave legitimately waiting on a pacing deferral with continuation delay W, when the watchdog is armed, then its bound is at least W plus margin, so the wave is never flagged stranded while waiting out a legal deferral of up to the full budget-window continuation.",
+        "Given a strand finalise (watchdog timeout or transport drop), when it runs, then the wave continuation timer is stopped and the plan queue is cleared, so no further chunk issues and no second finalise can occur afterwards."
+      ],
+      "tests": [
+        {
+          "test_id": "P7-T04-T11",
+          "linked_acceptance_criterion": 1,
+          "type": "unit",
+          "description": "Schedule continuations with waits from ~1 s up to the full budget-window wait using a fake clock; arm the watchdog and advance time past the old fixed 120 s bound while still inside W+margin.",
+          "expected_result": "No strand fires while the wave is inside its legal deferral at any wait; a wait beyond the computed bound still strands exactly once."
+        },
+        {
+          "test_id": "P7-T04-T12",
+          "linked_acceptance_criterion": 2,
+          "type": "integration",
+          "description": "Force a strand (timeout/disconnect) with queued plans and an armed continuation timer; then advance timers and deliver a late end marker.",
+          "expected_result": "Timer stopped, queue empty, exactly one finalise; late markers and timer ticks after the strand change nothing."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p7_w2_watchdog.py (new: window-relative bound, strand-clears)"
+      ],
+      "touches_files": [
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_p7_w2_watchdog.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "Coalesced wave lifecycle from P7-T03"
+      ],
+      "outputs": [
+        "Window-relative watchdog; single-finalise strand path"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "610-660",
+            "why": "rework _arm_history_wave_watchdog/_schedule_wave_continuation so the bound covers the scheduled wait"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1594-1632",
+            "why": "extend _finalize_stranded_history_wave/_on_session_history_wave_timeout to stop the timer and clear the queue"
+          },
+          {
+            "path": "config/settings.py",
+            "lines": "25-60",
+            "why": "read-only: bounds expressed in budget-window fractions, never literal seconds \u2014 tunables untouched"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/ticker_session.py:_arm_history_wave_watchdog",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_schedule_wave_continuation",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_session_history_wave_timeout",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
+        "requirement_ids": [
+          "AC-D16.4"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w2_watchdog.py -o addopts=\"\" -q",
+        "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P6-T02",
-      "title": "P6-02 / Phase 1a seam + factory (M) \u2014 `ChartView` protocol, `DrawingController`/`AlarmController` exact signal signatures, `create_chart_view` on `NDT_CHART_ENGINE`/QSettings (pyqtgraph default)",
-      "description": "Create `ui/chart_view.py` with the `ChartView` protocol, `DrawingController` and `AlarmController` exposing exactly the pre-D47 signal signatures, and `create_chart_view(tz_offset, editable)` selecting the pyqtgraph view for unset/unknown `NDT_CHART_ENGINE` (or QSettings equivalent) and the LWC view only for the LWC value. pyqtgraph remains the default; an unknown value never blanks the chart. Depends on the P6-01 go record (a no-go stops this task).",
-      "agent": "Build",
-      "task_type": "feature",
+      "id": "P7-T05",
+      "title": "W2: aggregator-prime precedence over the backfill wave",
+      "description": "Give the D27.9 aggregator prime precedence when a full wave starts alongside it (the wave defers its continuation by exactly one HISTORICAL_MIN_INTERVAL_S or the prime holds an explicit reservation), and make a skipped prime a counted warning instead of the expected-case log line (S-P7-4; code side of ESC-078).",
+      "agent": "build_worker",
+      "task_type": "code",
       "dependencies": [
-        "P6-T01"
+        "P7-T03"
       ],
       "acceptance_criteria": [
-        "AC1 \u2014 Given `NDT_CHART_ENGINE` unset, set to an unknown value, set to the pyqtgraph value, or set to the LWC value (and the QSettings equivalents), When `create_chart_view(tz_offset, editable)` is called, Then it returns the pyqtgraph view for unset/unknown/pyqtgraph and the LWC view only for the LWC value \u2014 never a blank/None chart.",
-        "AC2 \u2014 Given the pre-D47 drawing/alarm signal surface, When inspected on both engines, Then `DrawingController` and `AlarmController` expose exactly the pre-D47 signal signatures (a per-controller signal-signature assertion passes).",
-        "AC3 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only).",
-        "AC4 \u2014 Given S58 (matrix kept updated), When the task is done, Then `docs/lwc_parity_matrix.md` seam rows reflect this wave and no Done row regressed without an escalation."
+        "Given a backfill wave starting alongside the D27.9 aggregator prime, when the wave would issue while the shared historical-interval gate is closed, then the wave defers its continuation by exactly one HISTORICAL_MIN_INTERVAL_S (or the prime holds an explicit reservation) and the prime issues instead of starving.",
+        "Given a prime that cannot issue even with precedence, when the live feed attaches fail-open, then a warning names the skipped prime and a counter records it, so a starved prime is visible rather than logged as the routine pacing-limited line."
       ],
       "tests": [
         {
-          "test_id": "P6-T02-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Factory cases in `tests/test_chart_view_seam.py`: unset env \u2192 pyqtgraph; unknown value \u2192 pyqtgraph; pyqtgraph value \u2192 pyqtgraph; LWC value \u2192 LWC view; QSettings override mirrors env; `tz_offset`/`editable` propagate to the created view.",
-          "expected_result": "All six selection cases pass; unknown input falls back to pyqtgraph, never blank."
+          "test_id": "P7-T05-T11",
+          "linked_acceptance_criterion": 1,
+          "type": "integration",
+          "description": "Start a multi-chunk wave and the prime together with a closed interval gate; assert the prime reqId issues and the wave continuation slips by exactly one interval.",
+          "expected_result": "Prime issued (no fail-open skip); wave continuation delayed by exactly HISTORICAL_MIN_INTERVAL_S; ordering preserved across repeated runs."
         },
         {
-          "test_id": "P6-T02-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Per-controller signal-signature assertions: enumerate each controller's Qt signals and compare name-plus-signature against the frozen pre-D47 surface captured from the pyqtgraph controllers.",
-          "expected_result": "Exact match on both engines; any added/renamed/dropped signal fails."
-        },
-        {
-          "test_id": "P6-T02-T13",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Residue scan over the diff (see shared residue probe): no `ibkr/`, schema, service-signature, watchlist/dock, or order-code change.",
-          "expected_result": "Zero out-of-scope hits; pyqtgraph present and default."
-        },
-        {
-          "test_id": "P6-T02-T14",
-          "linked_acceptance_criterion": "AC4",
-          "type": "manual",
-          "description": "Read the seam rows of `docs/lwc_parity_matrix.md` after the wave exit.",
-          "expected_result": "Seam rows updated; no unexplained regression (rule 10)."
+          "test_id": "P7-T05-T12",
+          "linked_acceptance_criterion": 2,
+          "type": "integration",
+          "description": "Force the prime retry to also find the gate closed; attach fail-open and assert the warning plus counter.",
+          "expected_result": "Warning names the skipped prime for the symbol/timeframe; the skip counter increments; the existing one-retry/fail-open semantics are otherwise unchanged (D27.9 intact)."
         }
       ],
       "expected_artifacts": [
-        "ui/chart_view.py (new: protocol + controllers + factory)",
-        "tests/test_chart_view_seam.py (new: selection + signature suites)",
-        "docs/lwc_parity_matrix.md (seam rows updated)"
+        "tests/test_p7_w2_prime.py (new: precedence ordering, skipped-prime accounting)"
       ],
       "touches_files": [
-        "ui/chart_view.py",
-        "tests/test_chart_view_seam.py",
-        "docs/lwc_parity_matrix.md"
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_p7_w2_prime.py"
       ],
+      "doc_required": false,
       "inputs": [
-        "P6-T01 go record + parity skeleton",
-        "docs/architecture.md \u00a7 Frozen Interfaces + S51",
-        "pre-D47 controller signal surface (ui/chart_panel.py, ui/drawing_overlay.py, ui/alarm_overlay.py)"
+        "Wave lifecycle from P7-T03; D27.9 priming semantics"
       ],
       "outputs": [
-        "strangler seam + engine selector (pyqtgraph default)",
-        "per-controller signature assertions"
+        "Prime precedence rule; counted skipped-prime warning"
       ],
-      "size": "M",
       "status": "done",
+      "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/chart_panel.py",
-            "lines": "1-80",
-            "why": "read-only: the ChartPanel surface the protocol abstracts \u2014 signatures only, do not edit here"
+            "path": "ui/ticker_session.py",
+            "lines": "900-1010",
+            "why": "give prime_aggregator precedence over _issue_wave_chunks (defer-by-one-interval or explicit reservation)"
           },
           {
-            "path": "ui/chart_mouse_router.py",
-            "lines": "1-60",
-            "why": "read-only: RouterMode/TR-1\u202617 contract the seam must not disturb"
-          },
-          {
-            "path": "ui/popout_window.py",
-            "lines": "1-80",
-            "why": "read-only: PopoutChartWindow(editable=False) \u2014 a seam consumer in P6-11"
-          },
-          {
-            "path": "ui/drawing_overlay.py",
-            "lines": "1-60",
-            "why": "read-only: drawing signal surface the DrawingController mirrors"
-          },
-          {
-            "path": "ui/alarm_overlay.py",
-            "lines": "1-60",
-            "why": "read-only: alarm signal surface the AlarmController mirrors"
+            "path": "ui/main_window.py",
+            "lines": "1800-1860",
+            "why": "read-only: load_chart wave-then-prime call order that the precedence rule schedules around \u2014 keep the order, change the scheduling"
           },
           {
             "path": "config/settings.py",
-            "lines": "1-60",
-            "why": "read-only: env/QSettings conventions the factory persisted override follows"
+            "lines": "25-60",
+            "why": "read-only: HISTORICAL_MIN_INTERVAL_S value \u2014 the precedence delay equals it exactly, never a new literal"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/chart_mouse_router.py:RouterMode",
+            "ref": "ui/ticker_session.py:prime_aggregator",
             "status": "existing"
           },
           {
-            "ref": "ui/popout_window.py:PopoutChartWindow",
+            "ref": "ui/ticker_session.py:_issue_wave_chunks",
             "status": "existing"
           },
           {
-            "ref": "ui/chart_panel.py:ChartPanel",
+            "ref": "ui/ticker_session.py:_schedule_wave_continuation",
             "status": "existing"
           },
           {
-            "status": "new",
-            "signature": "class ChartView(Protocol): update_bars(...) / update_last_bar(...) / set_symbol(...) / set_timeframe(...)",
-            "module": "ui/chart_view.py"
-          },
-          {
-            "status": "new",
-            "signature": "create_chart_view(tz_offset: float, editable: bool = True) -> ChartView",
-            "module": "ui/chart_view.py"
+            "ref": "ui/main_window.py:load_chart",
+            "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Frozen Interfaces",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
         "requirement_ids": [
-          "AC-D47.1",
-          "D47.1",
-          "Journey 40",
-          "AP-P6-1"
+          "AC-D27.9"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_chart_view_seam.py -q",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "2026-10-16 (D44 decomposition lesson): an AC whose measurable depends on a later wave belongs to that later wave \u2014 the LWC view here is a stub behind the factory; render parity is P6-05's AC, not this task's."
-        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w2_prime.py -o addopts=\"\" -q",
+        "memory_refs": [],
         "needs_graphify": false,
-        "size": "M"
+        "size": "S"
       }
     },
     {
-      "id": "P6-T03",
-      "title": "P6-03 / Phase 1b shared model + delegation (M) \u2014 Qt-free `services/chart_model.py` as the single value source; `ChartPanel` delegates with zero behaviour change",
-      "description": "Create the shared Qt-free `services/chart_model.py` (plotted-index filtering, `floor_bar_budget`, whitespace derivation, studies + cache, Heikin-Ashi, volume formatting) and delegate `ChartPanel` value computation to it with no behaviour change: the full pre-D47 chart suite stays green unmodified. Owns the AP-P6-3 classification of the chart-adjacent test files (keep/retarget/engine-specific) recorded in the wave result.",
-      "agent": "Build",
-      "task_type": "refactor",
+      "id": "P7-T06",
+      "title": "W3: wide-duration decision point with measured before/after and owner gate",
+      "description": "Turn the single-shot probe win into an explicit decision: record measured before/after per timeframe, re-verify pacing with any wide request in place, and change a TIMEFRAME_CONFIG duration value only with an owner-approval record naming that timeframe \u2014 otherwise the chained-request path stands and the wave is still complete (S-P7-5). No automated live step: any live measurement runs only by the method the owner names.",
+      "agent": "build_worker",
+      "task_type": "code",
       "dependencies": [
-        "P6-T02"
+        "P7-T04",
+        "P7-T05"
       ],
       "acceptance_criteria": [
-        "AC1 \u2014 Given any chart load, When `ChartPanel` renders, Then every plotted value (indices, budgets, whitespace runs, study series, Heikin-Ashi, volume formatting) comes from `services/chart_model.py` (a delegation probe asserting plotted-index filtering + `floor_bar_budget` passes).",
-        "AC2 \u2014 Given the delegation, When the pre-D47 chart suites run unmodified, Then the keep/engine-specific suites (candles, volume, collapse, bands, crosshair, drawings, alarms, overlays) stay green with zero behaviour change.",
-        "AC3 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only).",
-        "AC4 \u2014 Given AP-P6-3, When the task is done, Then the wave result records the keep/retarget/engine-specific disposition of the chart-adjacent test files (reuser of the Task Manager classification in `docs/tasks/task_manager_notes_P6.md`)."
+        "Given each candidate timeframe, when the measurement suites run offscreen, then requests-per-load, time-to-first-bar, time-to-current, and pacing-slot spend are recorded before and after the widened duration for that timeframe.",
+        "Given the owner-gated rule, when this wave lands without an owner-approval record naming a timeframe, then that timeframe's TIMEFRAME_CONFIG duration value is byte-identical to before; a value changes only with the approval record present and naming it.",
+        "Given a widened duration in place, when backfill waves issue through it, then the 0.5 s minimum interval and the rolling budget still gate every request and no pacing path blocks the GUI thread.",
+        "Given a wide request that returns short or empty, when finalisation runs, then the shortfall surfaces as a status-bar message (never a silent hole) and the planner rolls back to chained requests for the uncovered span."
       ],
       "tests": [
         {
-          "test_id": "P6-T03-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Delegation probe in `tests/test_chart_model.py`: plotted-index filtering and `floor_bar_budget` asserted against the model directly, plus a probe that `ChartPanel` value paths call into the model (identical inputs \u2192 identical plotted outputs on both paths).",
-          "expected_result": "Probe green; no value is computed in `ChartPanel` that the model does not own."
+          "test_id": "P7-T06-T11",
+          "linked_acceptance_criterion": 1,
+          "type": "integration",
+          "description": "Run the before/after harness per candidate timeframe against the fake transport with recorded timings; emit the measurement record (requests/load, first-bar latency, current latency, slot spend).",
+          "expected_result": "A complete before/after record exists for every timeframe the wave claims to widen; numbers are measured, not asserted constants."
         },
         {
-          "test_id": "P6-T03-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Run the named pre-D47 suites unmodified (`test_candle_spacing`, `test_volume_width`, `test_time_collapse_d21`, `test_session_overlay`, `test_study_overlays`, `test_chart_crosshair`, `test_drawing_overlay`, `test_alarm_overlay`) offscreen.",
-          "expected_result": "All green unmodified; delegation changed no pixel and no logic outcome."
-        },
-        {
-          "test_id": "P6-T03-T13",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Residue scan over the diff: no `ibkr/`, schema, service-signature (other stores), watchlist/dock, or order-code change.",
-          "expected_result": "Zero out-of-scope hits."
-        },
-        {
-          "test_id": "P6-T03-T14",
-          "linked_acceptance_criterion": "AC4",
+          "test_id": "P7-T06-T12",
+          "linked_acceptance_criterion": 2,
           "type": "manual",
-          "description": "Read the wave result's classification table against `docs/tasks/task_manager_notes_P6.md` (keep/retarget/engine-specific).",
-          "expected_result": "Every chart-adjacent file dispositioned; engine-specific suites named for the P6-13 deletion set."
+          "description": "Inspect the git diff on ibkr/market_data.py TIMEFRAME_CONFIG durations and the owner-approval record: every changed duration names its approval, and every unapproved timeframe is diff-clean.",
+          "expected_result": "No silent constants edit exists; an unapproved widening fails this check by construction."
+        },
+        {
+          "test_id": "P7-T06-T13",
+          "linked_acceptance_criterion": 3,
+          "type": "integration",
+          "description": "Issue waves through the widened duration with a pacing spy; assert interval/budget gating and non-blocking deferral.",
+          "expected_result": "Minimum-interval and rolling-budget gates hold; deferrals use PacingExceeded plus singleShot; no GUI-thread sleep on any path."
+        },
+        {
+          "test_id": "P7-T06-T14",
+          "linked_acceptance_criterion": 4,
+          "type": "integration",
+          "description": "Return short/empty on a wide request; assert the surfaced shortfall and the chained-request rollback covering the gap.",
+          "expected_result": "Status-bar shortfall names the uncovered span; rollback plans chain over it; no silent hole."
         }
       ],
       "expected_artifacts": [
-        "services/chart_model.py (new: single value source)",
-        "ui/chart_panel.py (edited: delegation only)",
-        "tests/test_chart_model.py (new: probe)",
-        "wave result with AP-P6-3 classification"
+        "tests/test_p7_w3_wide.py (new: before/after harness, pacing re-verify, rollback); ibkr/market_data.py durations only with approval"
       ],
       "touches_files": [
-        "services/chart_model.py",
-        "ui/chart_panel.py",
-        "tests/test_chart_model.py",
-        "docs/lwc_parity_matrix.md"
+        "ibkr/market_data.py",
+        "tests/test_p7_w3_wide.py"
       ],
+      "doc_required": false,
       "inputs": [
-        "P6-T02 seam",
-        "D42 shared width helper + `_StudyCache` + collapse map (current owners)",
-        "AP-P6-3 classification (task notes)"
+        "Stable W1/W2 wave lifecycle; probe evidence"
       ],
       "outputs": [
-        "single Qt-free value source both engines render from",
-        "delegation probe + green pre-D47 suites"
+        "Measurement record; gated duration decision"
       ],
-      "size": "M",
       "status": "done",
+      "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/chart_panel.py",
-            "lines": "1-120",
-            "why": "value-computation sites to delegate (update paths, volume formatting, study cache use)"
-          },
-          {
-            "path": "ui/candlestick_item.py",
-            "lines": "1-80",
-            "why": "read-only: CappedBodyHalfWidth contract the model must preserve"
-          },
-          {
-            "path": "services/time_collapse_service.py",
-            "lines": "1-80",
-            "why": "read-only: collapse-map contract the model's whitespace derivation keeps"
-          },
-          {
-            "path": "services/indicator_service.py",
-            "lines": "1-60",
-            "why": "read-only: study-computation contract the model wraps, not rewrites"
-          },
-          {
-            "path": "data/bar_cache.py",
-            "lines": "1-60",
-            "why": "read-only: Bar rows + save/get contract the model derives plotted values from"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/chart_panel.py:ChartPanel",
-            "status": "existing"
-          },
-          {
-            "ref": "services/time_collapse_service.py:TimeCollapseMap",
-            "status": "existing"
-          },
-          {
-            "ref": "data/bar_cache.py:BarCache",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "def plotted_index_rows(bars: list, ...) -> list",
-            "module": "services/chart_model.py"
-          },
-          {
-            "status": "new",
-            "signature": "def floor_bar_budget(...) -> int",
-            "module": "services/chart_model.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Data Model",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.2",
-          "D47.2",
-          "AP-P6-3"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_chart_model.py tests/test_candle_spacing.py tests/test_volume_width.py tests/test_time_collapse_d21.py -q",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "2026-10-16 (D42): load_chart upper-cases the symbol \u2014 drive delegation fixtures with upper-case symbols.",
-          "2026-10-26 (D46): IdManager.get_id() serves market-data reqIds; stubs for historical paths need unbounded id sources (itertools.count)."
-        ],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P6-T04",
-      "title": "P6-04 / Phase 2 runtime + self-healing bridge (L) \u2014 offline `QWebEngineView` host (vendored v5.2.x, `ndt://`, deny-default interceptor) + batched `QWebChannel` `LwBridge` with replay",
-      "description": "Build the offline LWC host (`ui/lwc_host.py`: `QWebEngineView`, vendored lightweight-charts v5.2.x resolved via `ndt://` registered before `QApplication`, deny-default interceptor, attribution) and the batched self-healing bridge (`ui/lwc_bridge.py`: `LwBridge` over `QWebChannel`, `{v:1,ops:[]}` column-array ops, queue-until-ready, ~33ms live coalesce, full op-log replay after `renderProcessTerminated`, backpressure counters from day one). Register the `webengine` pytest marker (skip-never-red) and prove the host offline, the interceptor deny-default, and replay identity. Focus/keyboard model named per DG92.",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T03"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given the running app, When any chart asset loads, Then it resolves to the vendored v5.2.x tree via `ndt://` (version pin asserted), the handler is registered before `QApplication`, a non-`ndt` (`https:`/`http:`) request is blocked by the interceptor, and attribution is present (AC-D47.3).",
-        "AC2 \u2014 Given a live session, When ticks flow and the renderer process terminates, Then transport emits batched `{v:1,ops:[]}` ops over `QWebChannel`, queues while not ready, coalesces live ticks at ~33ms, and after `renderProcessTerminated` Python replays the full op log with no duplicated or lost bars (AC-D47.4).",
-        "AC3 \u2014 Given offscreen CI has no webengine (DG88/A110), When webengine-dependent cases run there, Then they are `@pytest.mark.webengine` and skip (never red), each naming its manual-checklist counterpart; the focus/keyboard model is named in-code.",
-        "AC4 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T04-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Offline/interceptor cases in `tests/test_lwc_bridge.py`: vendored version-pin assertion; `ndt://`-before-`QApplication` ordering probe; interceptor cases (`ndt:` allowed, `https:`/`http:` blocked); attribution-file presence; airplane/offline run with no network.",
-          "expected_result": "All pass; any CDN/npm import fails the suite."
-        },
-        {
-          "test_id": "P6-T04-T12",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Batch-shape cases: ops envelope is exactly `{v:1,ops:[]}` with column arrays; queue-until-ready holds pre-ready ops; ~33ms coalesce bounds the per-tick crossing cost (counter-instrumented).",
-          "expected_result": "Envelope exact; queue + coalesce proven by counters."
-        },
-        {
-          "test_id": "P6-T04-T13",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Replay-identity case: drive ops, simulate `renderProcessTerminated`, replay the full op log, assert bar identity (no duplicates, no losses) on the re-rendered series.",
-          "expected_result": "Identity holds; replay is idempotent."
-        },
-        {
-          "test_id": "P6-T04-T14",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Marker audit: every webengine-gated case carries `@pytest.mark.webengine`, the marker is registered in `pytest.ini`, and the suite passes (with skips) on an offscreen box with no engine.",
-          "expected_result": "Green-with-skips; no red without an engine; each skip names its manual counterpart."
-        },
-        {
-          "test_id": "P6-T04-T15",
-          "linked_acceptance_criterion": "AC4",
-          "type": "unit",
-          "description": "Residue scan over the diff (renderer-only boundary).",
-          "expected_result": "Zero out-of-scope hits; no CDN/npm at runtime."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/lwc_host.py + ui/lwc_bridge.py (new)",
-        "chart_assets/lwc/ (vendored v5.2.x + attribution + bridge JS + node suites)",
-        "pytest.ini (webengine marker)",
-        "tests/test_lwc_bridge.py (new)"
-      ],
-      "touches_files": [
-        "ui/lwc_host.py",
-        "ui/lwc_bridge.py",
-        "chart_assets/lwc/*",
-        "pytest.ini",
-        "tests/test_lwc_bridge.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T03 model",
-        "vendored lightweight-charts v5.2.x tree",
-        "DG88/DG91/DG92 details"
-      ],
-      "outputs": [
-        "offline host + self-healing batched bridge",
-        "webengine discipline + focus/keyboard model"
-      ],
-      "size": "L",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/chart_panel.py",
-            "lines": "1-60",
-            "why": "read-only: the render surface the host replaces \u2014 frame contract only"
-          },
-          {
-            "path": "data/bar_cache.py",
-            "lines": "1-60",
-            "why": "read-only: Bar value shape the bridge serialises into column arrays"
-          },
-          {
-            "path": "ibkr/bridge.py",
-            "lines": "1-80",
-            "why": "read-only: Qt-signal bridge conventions the LwBridge mirrors"
-          },
-          {
-            "path": "pytest.ini",
-            "lines": "1-20",
-            "why": "marker registration site (`markers = webengine: ...`)"
-          },
-          {
-            "path": "NDThinkChart.spec",
-            "lines": "1-60",
-            "why": "read-only: bundle asset wiring the host must fit (edited only in P6-12)"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ibkr/bridge.py:IBBridge",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "class LwBridge(QObject): send_ops(ops: list) -> None; replay_log() -> list",
-            "module": "ui/lwc_bridge.py"
-          },
-          {
-            "status": "new",
-            "signature": "{v:1, ops:[{op, series, cols}]} op-log envelope (versioned)",
-            "module": "ui/lwc_bridge.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Tech Stack Decisions",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.3",
-          "AC-D47.4",
-          "D47.3",
-          "D47.4",
-          "DG88",
-          "DG91",
-          "DG92",
-          "A110",
-          "A112",
-          "AP-P6-4"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_bridge.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "Offscreen QtWebEngine viability is unproven (DG88) \u2014 a red webengine case must mean a regression, never a missing Chromium; skip-never-red is the rule (AP-P6-4)."
-        ],
-        "needs_graphify": false,
-        "size": "L"
-      }
-    },
-    {
-      "id": "P6-T05",
-      "title": "P6-05 / Phase 3 core chart on the Q60 record (L*) \u2014 panes, logical-index time axis, `gap_is_non_trading` authority, per-mode series, live `series.update`; T10 retires the pyqtgraph density-cap language for `barSpacing`",
-      "description": "Build the LWC core chart driver (`ui/lwc_view.py` + `chart_assets/lwc/chart.js`): v5 panes, logical-index time axis with whitespace for within-session holes, `gap_is_non_trading` as the authority in both engines, custom tz formatters (`local = t - offset`), per-mode series, and live-bar `series.update`. Land T10 on the Q60 answered-by-default YES (A106): retire the `AC-D6.4`/`AC-D7.1`/`AC-D9.1` density-cap wording for `barSpacing`, restate the no-overlap guarantee in `barSpacing` terms (DG94) with a rendered-geometry guard that survives the engine change, and record the retirement in the parity matrix. The pyqtgraph engine keeps satisfying the old ACs until cutover.",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T04"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given identical bars in RTH and ETH, When rendered on both engines, Then the LWC view shows the same sessions, whitespace-for-holes, per-mode series and tz labels (`local = t - offset`) with `gap_is_non_trading` as the authority in both (AC-D47.5; DST/session-boundary logical-index cases pass).",
-        "AC2 \u2014 Given Q60 answered-by-default YES (A106) and DG94, When the task is done, Then the density-cap language is retired for `barSpacing` only (recorded in the matrix + wave result, never silent), the no-overlap guarantee is restated in `barSpacing` terms, and a rendered-geometry guard (gap >= 0; gap > 0 whenever spacing allows) passes on the LWC engine while the pyqtgraph suites stay green.",
-        "AC3 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T05-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Time-parity cases in `tests/test_lwc_time_parity.py`: DST-fold and session-boundary fixtures render identical logical-index series on both engines; whitespace runs match `gap_is_non_trading`; tz labels equal `t - offset` per mode; live `series.update` advances the forming bar.",
-          "expected_result": "All parity cases pass; any divergence names the engine and the bar."
-        },
-        {
-          "test_id": "P6-T05-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Rendered-geometry guard: dense-spacing LWC render asserts no candle/volume overlap (gap >= 0 invariant; positive whenever `barSpacing` allows); plus the Q60 record assertion (retirement note present in matrix + result).",
-          "expected_result": "Guard green on LWC; pyqtgraph density suites (`test_d42_candle_width`, `test_candle_spacing`) still green untouched."
-        },
-        {
-          "test_id": "P6-T05-T13",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Residue scan over the diff (renderer-only boundary).",
-          "expected_result": "Zero out-of-scope hits."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/lwc_view.py (new: core driver)",
-        "chart_assets/lwc/chart.js (new: panes/axis/series)",
-        "tests/test_lwc_time_parity.py (new)",
-        "Q60 retirement record (matrix + result)"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "chart_assets/lwc/chart.js",
-        "tests/test_lwc_time_parity.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T04 host/bridge",
-        "P6-T03 model (time mapping)",
-        "Q60/A106 + DG93/DG94",
-        "DST/session-boundary fixtures"
-      ],
-      "outputs": [
-        "LWC core chart at time/pane/series parity",
-        "density-cap retirement on the Q60 record + geometry guard"
-      ],
-      "size": "L",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "data/bar_cache.py",
-            "lines": "1-60",
-            "why": "read-only: Bar value shape the driver renders"
-          },
-          {
-            "path": "services/time_collapse_service.py",
-            "lines": "1-80",
-            "why": "read-only: gap_is_non_trading authority \u2014 kept, not reimplemented"
-          },
-          {
-            "path": "services/session_service.py",
-            "lines": "1-60",
-            "why": "read-only: session-band contract for pane parity"
-          },
-          {
-            "path": "ui/chart_panel.py",
-            "lines": "1-80",
-            "why": "read-only: per-mode series behaviour the LWC driver must match"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "services/time_collapse_service.py:TimeCollapseMap",
-            "status": "existing"
-          },
-          {
-            "ref": "data/bar_cache.py:BarCache",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "class LwcChartView(ChartView): set_series(mode: str, rows: list) -> None; update_live_bar(bar: Bar) -> None",
-            "module": "ui/lwc_view.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Tech Stack Decisions",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.5",
-          "AC-D47.6",
-          "D47.5",
-          "D47.6",
-          "Q60",
-          "A106",
-          "DG93",
-          "DG94",
-          "S55",
-          "S56"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_time_parity.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "Timestamp edges (DST folds, session-boundary bars, ts-to-fractional-index collisions) are DG93 \u2014 verify both engines on the same fixtures; logical-index parity is where silent divergence hides."
-        ],
-        "needs_graphify": false,
-        "size": "L"
-      }
-    },
-    {
-      "id": "P6-T06",
-      "title": "P6-06 / Phase 4 studies (M) \u2014 study overlays through the shared model + cache on the LWC engine",
-      "description": "Render study overlays through the shared model + cache on the LWC engine (`chart_assets/lwc/studies.js` + `ui/lwc_view.py` study wiring): identical study values from the one `_StudyCache`-backed source on both engines. Study parity rows move to Done.",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T05"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given identical bars and study settings, When rendered on both engines, Then every study overlay value on LWC equals the shared-model value (study parity rows pass; cache reuse holds \u2014 no per-frame recompute).",
-        "AC2 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T06-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Study-parity cases in `tests/test_lwc_studies.py`: each study overlay asserted value-equal across engines on shared fixtures, plus a cache-reuse probe (second renderServes from cache).",
-          "expected_result": "Values identical; cache hit proven; study rows Done."
-        },
-        {
-          "test_id": "P6-T06-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Residue scan over the diff (renderer-only boundary).",
-          "expected_result": "Zero out-of-scope hits."
-        }
-      ],
-      "expected_artifacts": [
-        "chart_assets/lwc/studies.js (new)",
-        "ui/lwc_view.py (study wiring)",
-        "tests/test_lwc_studies.py (new)"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "chart_assets/lwc/studies.js",
-        "tests/test_lwc_studies.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T05 driver",
-        "P6-T03 model (studies + cache)",
-        "study parity rows"
-      ],
-      "outputs": [
-        "study overlays at parity on LWC",
-        "study rows Done"
-      ],
-      "size": "M",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/chart_panel.py",
-            "lines": "1-80",
-            "why": "read-only: study rendering the LWC side must match value-for-value"
-          },
-          {
-            "path": "services/indicator_service.py",
-            "lines": "1-60",
-            "why": "read-only: study math contract \u2014 unchanged"
-          },
-          {
-            "path": "data/study_store.py",
-            "lines": "1-60",
-            "why": "read-only: study persistence \u2014 unchanged"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/chart_panel.py:ChartPanel",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "def set_study_overlay(kind: str, series: list) -> None",
-            "module": "ui/lwc_view.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#System Components",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.5",
-          "D47.5"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_studies.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P6-T07",
-      "title": "P6-07 / Phase 5 interaction + router mirror + crosshair drift (L*) \u2014 in-HTML controls with Python shims, Python `RouterMode` + JS mirror, crosshair to library-native (Q63)",
-      "description": "Build in-HTML controls with Python shims, the JS router mirror (mirroring \u2014 never reinterpreting \u2014 the frozen Python TR-1\u202617 table), and the crosshair drift to the library-native crosshair + axis label (Q63/A108: no custom primitive; D2/Q33 stands only where still applicable). Prove the mirror with router-mirror suites and keep the Qt dialog suites green; record the focus round-trip (DG92).",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T06"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given the frozen Python TR-1\u202617 table, When every (mode, trigger) transition fires on the LWC engine, Then the JS mirror resolves each exactly as Python does (router-mirror suites green; the mirror never reinterprets a transition).",
-        "AC2 \u2014 Given Q63 owner-confirmed accept-drift (A108), When the crosshair moves on LWC, Then it is the library-native crosshair + axis label (no exact-pill custom primitive), and the zone/horizontal-line/alarm dialogs remain the same Qt dialogs (dialog suites green).",
-        "AC3 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T07-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Router-mirror suites in `tests/test_lwc_router_mirror.py`: every TR-1\u202617 row driven on both engines incl. the ALARM_PLACING + magnifier \u2192 refusal (TR-9) and the mid-drag symbol-change reset (TR-17).",
-          "expected_result": "All 17 rows identical across engines; refusal + reset proven."
-        },
-        {
-          "test_id": "P6-T07-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Crosshair-drift assertion (library-native crosshair configured; no custom pill primitive in `chart_assets/`) + Qt dialog suites green (`test_zone_dialog`, `test_horizontal_line_dialog`, alarm dialogs).",
-          "expected_result": "Drift proven by config + absence; dialogs unchanged and green."
-        },
-        {
-          "test_id": "P6-T07-T13",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Residue scan over the diff (renderer-only boundary; Python RouterMode untouched).",
-          "expected_result": "Zero out-of-scope hits; `ui/chart_mouse_router.py` unmodified."
-        }
-      ],
-      "expected_artifacts": [
-        "chart_assets/lwc/interaction.js (new: controls + mirror + crosshair)",
-        "ui/lwc_view.py (shims)",
-        "tests/test_lwc_router_mirror.py (new)"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "chart_assets/lwc/interaction.js",
-        "tests/test_lwc_router_mirror.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T06 driver",
-        "frozen TR-1\u202617 table",
-        "Q63/A108 + DG92",
-        "Qt dialog surfaces (unchanged)"
-      ],
-      "outputs": [
-        "interaction parity (mirror + drift + shims)",
-        "focus round-trip record"
-      ],
-      "size": "L",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/chart_mouse_router.py",
-            "lines": "31-271",
-            "why": "read-only: the frozen RouterMode + TR-1..17 table the JS mirror must reproduce exactly - do not change it"
-          },
-          {
-            "path": "ui/chart_controls.py",
-            "lines": "1-48",
-            "why": "read-only: the control set (mode/reset/volume/zoom) the in-HTML controls mirror"
-          },
-          {
-            "path": "ui/zoom_overlay.py",
-            "lines": "1-107",
-            "why": "read-only: magnifier/zoom activation semantics the Python zoom shim keeps"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "342-746",
-            "why": "edit site: LwcChartView state/bridge/emit conventions; the control + router shims land here"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "1-60,175-313",
-            "why": "read-only: the {v:1,ops:[]} transport and its JS->Python slots (focusReleased) the shims speak through"
-          },
-          {
-            "path": "chart_assets/lwc/envelope.js",
+            "path": "ibkr/market_data.py",
             "lines": "1-110",
-            "why": "read-only: the bar envelope pins candles/volume - interaction ops must not ride it"
+            "why": "only file whose duration VALUES may change, and only with the approval record present"
           },
           {
-            "path": "services/chart_model.py",
-            "lines": "71-134",
-            "why": "read-only: collapse-map/display_xs authority the shim uses to map logical index to timestamp"
+            "path": "services/backfill_service.py",
+            "lines": "300-500",
+            "why": "read-only: rollback chains through the unchanged planner contracts"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "120-170,237-300",
-            "why": "read-only: page glue (series handles, bindKeyboard focus round-trip DG92, QWebChannel binding) the interaction module extends"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
-            "lines": "1-70",
-            "why": "edit site: rows 7/13/14 this wave moves to Done; follow the P6-06 wave-exit note format"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/chart_mouse_router.py:RouterMode",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/chart_panel.py:ChartPanel",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Frozen Interfaces",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.7",
-          "D47.7",
-          "Q63",
-          "A108",
-          "DG92",
-          "S57",
-          "AP-P6-6"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_router_mirror.py tests/test_zone_dialog.py tests/test_horizontal_line_dialog.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [],
-        "needs_graphify": false,
-        "size": "L"
-      }
-    },
-    {
-      "id": "P6-T08",
-      "title": "P6-08 / Phase 6 alarms (M) \u2014 alarm lines/overlays on LWC; Qt alarm dialogs stay",
-      "description": "Render alarm lines/overlays on the LWC engine (`chart_assets/lwc/alarms.js` + `ui/lwc_view.py` wiring) from the unchanged alarm stores: identical alarm visuals for identical alarm state on both engines. Qt alarm dialogs (incl. edit) stay exactly as before. Alarm parity rows move to Done.",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T07"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given identical alarm state, When rendered on both engines, Then LWC alarm lines/overlays match the pyqtgraph visuals value-for-value (alarm parity rows pass).",
-        "AC2 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T08-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Alarm-parity cases in `tests/test_lwc_alarms.py`: set/triggered/rearmed alarms asserted visually identical across engines on shared fixtures; Qt alarm dialog suites stay green.",
-          "expected_result": "Parity green; dialogs untouched and green; rows Done."
-        },
-        {
-          "test_id": "P6-T08-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Residue scan over the diff (stores, services, dialogs untouched).",
-          "expected_result": "Zero out-of-scope hits."
-        }
-      ],
-      "expected_artifacts": [
-        "chart_assets/lwc/alarms.js (new)",
-        "ui/lwc_view.py (alarm wiring)",
-        "tests/test_lwc_alarms.py (new)"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "chart_assets/lwc/alarms.js",
-        "tests/test_lwc_alarms.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T07 driver",
-        "alarm stores + AlarmOverlay surface (unchanged)",
-        "alarm parity rows"
-      ],
-      "outputs": [
-        "alarm visuals at parity on LWC",
-        "alarm rows Done"
-      ],
-      "size": "M",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "342-746",
-            "why": "edit site: LwcChartView bridge/emit conventions; add alarm wiring + set_alarm_lines here"
-          },
-          {
-            "path": "ui/chart_panel.py",
-            "lines": "833-900",
-            "why": "read-only: set_alarm_mode/set_alarms/preview-line behaviour the LWC side must match (D21.10)"
-          },
-          {
-            "path": "ui/alarm_overlay.py",
-            "lines": "1-140",
-            "why": "read-only: alarm line/label visuals and armed/triggered/muted colours (value-for-value parity)"
-          },
-          {
-            "path": "data/alarm_store.py",
-            "lines": "1-60",
-            "why": "read-only: Alarm record shape the unchanged store feeds in"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "1-60,175-313",
-            "why": "read-only: envelope contract + send_ops staging; alarm ops need their own channel"
-          },
-          {
-            "path": "chart_assets/lwc/envelope.js",
-            "lines": "1-110",
-            "why": "read-only: proves the bar transport pins candles/volume - alarm ops must not ride it"
-          },
-          {
-            "path": "chart_assets/lwc/studies.js",
-            "lines": "1-60,253-295",
-            "why": "read-only: the separate-channel UMD pattern (bind(chart), own envelope, node-testable core) alarms.js copies"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
-            "lines": "1-70",
-            "why": "edit site: row 12 (alarms) this wave moves to Done"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "data/alarm_store.py:AlarmStore",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "def set_alarm_lines(alarms: list) -> None",
-            "module": "ui/lwc_view.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#System Components",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.5",
-          "D47.5"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_alarms.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P6-T09",
-      "title": "P6-09 / Phase 7 drawing primitives (L*, largest) \u2014 ts-to-fractional-index primitives library; zone/horizontal-line settings stay Qt",
-      "description": "Build the drawings primitives library (`chart_assets/lwc/primitives.js` + `ui/lwc_view.py` wiring): every drawing kind renders on LWC from ts-to-fractional-index mapping, value-identical to the pyqtgraph overlays on timestamp edge fixtures (DG93: DST folds, session-boundary bars, index collisions). Zone/horizontal-line settings stay the same Qt dialogs. Drawing parity rows (incl. edge fixtures) move to Done. Largest wave: single-owner primitives library with parametrized timestamp fixtures (see notes for the sizing exception).",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T08"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given identical drawings incl. DG93 timestamp edge fixtures, When rendered on both engines, Then every LWC primitive (zone, trendline, horizontal, fib,Text/price labels) matches the pyqtgraph overlay value-for-value (drawing parity rows pass).",
-        "AC2 \u2014 Given the Qt-dialog contract, When zone/horizontal-line settings open on either engine, Then they are the same Qt dialogs (dialog suites green; no HTML dialog rebuild).",
-        "AC3 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T09-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Drawing-parity cases in `tests/test_lwc_drawings.py`, parametrized over drawing kinds \u00d7 DG93 edge fixtures (DST folds, session-boundary bars, ts-to-fractional-index collisions): each asserted value-identical across engines.",
-          "expected_result": "All parametrized cases pass; collisions resolve identically; rows Done."
-        },
-        {
-          "test_id": "P6-T09-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Qt drawing-dialog suites green unmodified; absence probe: no dialog rebuild under `chart_assets/`.",
-          "expected_result": "Dialogs unchanged and green; no HTML dialog exists."
-        },
-        {
-          "test_id": "P6-T09-T13",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Residue scan over the diff (drawing stores + services untouched).",
-          "expected_result": "Zero out-of-scope hits."
-        }
-      ],
-      "expected_artifacts": [
-        "chart_assets/lwc/primitives.js (new: single-owner library)",
-        "ui/lwc_view.py (drawing wiring)",
-        "tests/test_lwc_drawings.py (new, parametrized)"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "chart_assets/lwc/primitives.js",
-        "tests/test_lwc_drawings.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T08 driver",
-        "drawing stores + DrawingOverlay surface (unchanged)",
-        "DG93 edge fixtures",
-        "drawing parity rows"
-      ],
-      "outputs": [
-        "drawings at parity on LWC incl. edge fixtures",
-        "drawing rows Done"
-      ],
-      "size": "L",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "81-140,342-746",
-            "why": "edit site: the ts->logical-index helpers (81-140) and the class where drawing wiring lands"
-          },
-          {
-            "path": "ui/chart_panel.py",
-            "lines": "726-830",
-            "why": "read-only: plotted-index/collapse-map/display-x mapping the primitives must match"
-          },
-          {
-            "path": "ui/drawing_overlay.py",
-            "lines": "67-120,231-378",
-            "why": "read-only: drawing payloads, ts-to-x mapping and label/handle rendering the primitives mirror"
-          },
-          {
-            "path": "services/drawing_service.py",
-            "lines": "31-104",
-            "why": "read-only: normalise_payload/fib_levels/points_in_ts - the geometry contract primitives.js reproduces"
-          },
-          {
-            "path": "data/drawing_store.py",
-            "lines": "1-60",
-            "why": "read-only: Drawing record shape (store unchanged)"
-          },
-          {
-            "path": "services/chart_model.py",
-            "lines": "39-134",
-            "why": "read-only: plotted rows + display_xs/collapse authority behind the fractional-index mapping"
-          },
-          {
-            "path": "chart_assets/lwc/studies.js",
-            "lines": "1-60,253-295",
-            "why": "read-only: the UMD + separate-channel + bind(chart) pattern primitives.js follows"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
-            "lines": "1-70",
-            "why": "edit site: row 11 (drawings) moves to Done, incl. the DG93 edge fixtures"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/chart_panel.py:ChartPanel",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "def set_drawing_primitive(kind: str, frac_index_pts: list) -> None",
-            "module": "ui/lwc_view.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#System Components",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.5",
-          "AC-D47.7",
-          "D47.5",
-          "DG93",
-          "S57"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_drawings.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "Largest wave by plan effort (XL): kept whole under the ~32-step exception because the primitives library has a single owner and the edge fixtures parametrize into one suite \u2014 see notes P6-T09."
-        ],
-        "needs_graphify": false,
-        "size": "L"
-      }
-    },
-    {
-      "id": "P6-T10",
-      "title": "P6-10 / Phase 8 overlays + markers (M) \u2014 session/gap/ICT/VIX overlays and event markers on LWC",
-      "description": "Render session/gap/ICT/VIX overlays and dividend/earnings/split event markers on the LWC engine (`chart_assets/lwc/overlays.js` + `ui/lwc_view.py` wiring) from the unchanged services: identical overlay/marker visuals for identical inputs on both engines. Overlay parity rows move to Done.",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T09"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given identical bars/sessions/events, When rendered on both engines, Then every LWC overlay and event marker matches the pyqtgraph visuals value-for-value (overlay parity rows pass).",
-        "AC2 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T10-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Overlay-parity cases in `tests/test_lwc_overlays.py`: session bands, gap/VIX/ICT overlays and dividend/earnings/split markers asserted identical across engines on shared fixtures.",
-          "expected_result": "All green; rows Done."
-        },
-        {
-          "test_id": "P6-T10-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Residue scan over the diff (overlay services + event provider untouched).",
-          "expected_result": "Zero out-of-scope hits."
-        }
-      ],
-      "expected_artifacts": [
-        "chart_assets/lwc/overlays.js (new)",
-        "ui/lwc_view.py (overlay wiring)",
-        "tests/test_lwc_overlays.py (new)"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "chart_assets/lwc/overlays.js",
-        "tests/test_lwc_overlays.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T09 driver",
-        "overlay services + EventMarkerOverlay surface (unchanged)",
-        "overlay parity rows"
-      ],
-      "outputs": [
-        "overlays/markers at parity on LWC",
-        "overlay rows Done"
-      ],
-      "size": "M",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "342-746",
-            "why": "edit site: LwcChartView; set_overlay/set_event_markers wiring lands here"
-          },
-          {
-            "path": "ui/chart_panel.py",
-            "lines": "1014-1038,1490-1560",
-            "why": "read-only: which service feeds each overlay, the ICT trailing window, and the display-x mapping"
-          },
-          {
-            "path": "ui/event_marker_overlay.py",
-            "lines": "1-120",
-            "why": "read-only: marker glyph/colour/positioning + countdown label the LWC markers mirror"
-          },
-          {
-            "path": "services/session_service.py",
-            "lines": "33-99",
-            "why": "read-only: session_bands contract (pre/post, ET-clipped) - unchanged"
-          },
-          {
-            "path": "services/gap_vix_service.py",
-            "lines": "30-229",
-            "why": "read-only: RTH-gap steps and VIX band results the two overlays render"
-          },
-          {
-            "path": "ui/overlays/ict_overlay.py",
-            "lines": "1-130",
-            "why": "read-only: the ICT result keys to band/box geometry + colours to reproduce"
-          },
-          {
-            "path": "services/chart_model.py",
-            "lines": "71-134",
-            "why": "read-only: collapse map/display_xs the overlay regions must map through"
-          },
-          {
-            "path": "chart_assets/lwc/studies.js",
-            "lines": "1-60,253-295",
-            "why": "read-only: the separate-envelope UMD pattern overlays.js copies; states the bar-envelope pinning"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
-            "lines": "1-70",
-            "why": "edit site: rows 6/9/10 this wave moves to Done"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "services/session_service.py:session_bands",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "def set_overlay(name: str, regions: list) -> None; def set_event_markers(events: list) -> None",
-            "module": "ui/lwc_view.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#System Components",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
-        "requirement_ids": [
-          "AC-D47.5",
-          "D47.5"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_overlays.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P6-T11",
-      "title": "P6-11 / Phase 9 pop-outs (L) \u2014 LWC views in pop-outs; cap stays 10 (Q62); per-pop-out memory accounted",
-      "description": "Re-host pop-out charts on LWC views (`ui/popout_window.py` re-host + `ui/lwc_view.py` pop-out wiring): 1/3/6 pop-out verification with per-pop-out memory accounting (DG90), the cap stays at the D24 10 (Q62/A107) enforced on both engines, and pop-out persistence semantics unchanged.",
-      "agent": "Build",
-      "task_type": "feature",
-      "dependencies": [
-        "P6-T10"
-      ],
-      "acceptance_criteria": [
-        "AC1 \u2014 Given 1, 3 and 6 pop-outs on the LWC engine, When opened, synced and closed, Then bars/studies/zones/lines/alarms sync per the D24 single-writer invariant with per-pop-out memory accounted (DG90) and no leak on close.",
-        "AC2 \u2014 Given Q62 owner-confirmed keep-10 (A107), When an 11th pop-out is requested on either engine, Then it is refused exactly as D24 specifies (`MAX_POPOUTS = 10` unchanged).",
-        "AC3 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
-      ],
-      "tests": [
-        {
-          "test_id": "P6-T11-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Pop-out verification in `tests/test_lwc_popouts.py`: 1/3/6 LWC pop-outs open, sync (main-chart sole writer) and close; per-pop-out memory counters recorded; close releases.",
-          "expected_result": "Sync holds; memory accounted and released; rows Done."
-        },
-        {
-          "test_id": "P6-T11-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Cap cases: `MAX_POPOUTS == 10` asserted; the 11th open is refused with the D24 status-bar message on both engines.",
-          "expected_result": "Cap 10 enforced identically; no engine bypasses it."
-        },
-        {
-          "test_id": "P6-T11-T13",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Residue scan over the diff (sessions, persistence, dock untouched).",
-          "expected_result": "Zero out-of-scope hits."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/popout_window.py (edited: LWC re-host)",
-        "ui/lwc_view.py (pop-out wiring)",
-        "tests/test_lwc_popouts.py (new)",
-        "per-pop-out memory accounting"
-      ],
-      "touches_files": [
-        "ui/popout_window.py",
-        "ui/lwc_view.py",
-        "tests/test_lwc_popouts.py",
-        "docs/lwc_parity_matrix.md"
-      ],
-      "inputs": [
-        "P6-T10 driver",
-        "D24 pop-out semantics (unchanged)",
-        "Q62/A107 + DG90"
-      ],
-      "outputs": [
-        "LWC pop-outs verified 1/3/6 with memory accounting",
-        "cap-10 proven on both engines"
-      ],
-      "size": "L",
-      "status": "done",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/popout_window.py",
-            "lines": "35-240",
-            "why": "edit site: PopoutChartWindow construction/attach/detach - replace the embedded ChartPanel with the engine view"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "342-420,700-746",
-            "why": "edit site: bridge/host accessors + ensure_host; per-pop-out wiring lands here"
-          },
-          {
-            "path": "ui/lwc_host.py",
-            "lines": "104-160,189-260",
-            "why": "read-only: ndt:// scheme, version pin and create_host - each pop-out needs its own host"
-          },
-          {
-            "path": "ui/chart_view.py",
-            "lines": "44-62,124-240",
-            "why": "read-only: the ChartView protocol + create_chart_view factory pop-outs must go through"
+            "path": "ibkr/pacing.py",
+            "lines": "129-195",
+            "why": "read-only: interval plus rolling budget re-verified, never retuned here"
           },
           {
             "path": "ui/ticker_session.py",
-            "lines": "60-80,217-260",
-            "why": "read-only: attach_view/detach_view fan-out + signals - the D24 single-writer invariant"
-          },
-          {
-            "path": "data/popout_store.py",
-            "lines": "1-60",
-            "why": "read-only: PopoutStore API - persistence semantics unchanged"
-          },
-          {
-            "path": "config/settings.py",
-            "lines": "40-50",
-            "why": "read-only: MAX_POPOUTS = 10 (Q62/A107) - the cap stays"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
-            "lines": "1-70",
-            "why": "edit site: row 15 (pop-outs) this wave moves to Done"
+            "lines": "663-760",
+            "why": "read-only: wave issuing that the pacing re-verify observes"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/popout_window.py:PopoutChartWindow",
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
             "status": "existing"
           },
           {
-            "ref": "config/settings.py:check_live_port",
+            "ref": "ibkr/market_data.py:req_historical_data",
             "status": "existing"
           },
           {
-            "status": "new",
-            "signature": "MAX_POPOUTS = 10",
-            "module": "config/settings.py"
+            "ref": "services/backfill_service.py:plan_requests",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:historical_wait_seconds",
+            "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Non-Functional Approach",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
         "requirement_ids": [
-          "AC-D47.5",
-          "D47.9",
-          "Q62",
-          "A107",
-          "DG90",
-          "S58"
+          "AC-D16.8",
+          "AC-D16.4"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_popouts.py tests/test_d24_popouts.py -q",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "2026-10-26 (Q-2): historical requests must go through req_historical_data (1/s spacing); pop-out sync waves must not add a bypassing request path."
-        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w3_wide.py -o addopts=\"\" -q",
+        "memory_refs": [],
         "needs_graphify": false,
-        "size": "L"
+        "size": "S"
       }
     },
     {
-      "id": "P6-T12",
-      "title": "P6-12 / Phase 10 packaging + CI + cutover candidate (M) \u2014 bundle/signing disposition from the measured delta, CI wiring, triple-gate declaration with pyqtgraph still present and default",
-      "description": "Declare the cutover candidate WITHOUT shipping it: wire the vendored tree + Chromium into the bundle (`NDThinkChart.spec`, `packaging/build.spec`), report the signing-flow disposition from the measured P6-01 delta (Q61/A109 \u2014 the owner sets any budget from the numbers), wire CI (`.github/workflows/lwc_parity.yml`: offscreen suite + `node --test` + webengine-skips + matrix row-count), and prove the triple gate (owner acceptance AND parity all Done/accepted AND Phase-0 perf holds \u2014 no soak) with pyqtgraph still fully present and default. No pyqtgraph code is deleted in this wave.",
-      "agent": "Build",
-      "task_type": "feature",
+      "id": "P7-T07",
+      "title": "W4: streaming correctness close-out (reconnect replay, health/backoff, burst integrity)",
+      "description": "Close out streaming without redesigning it: prove reconnect replays subscriptions with rebound reqIds and no duplicate bars, stream-health/backoff transitions hold, realtime-bars priming stays intact under a tick burst with no dropped or late aggregated bars, and W1-W3 changed none of it (S-P7-6).",
+      "agent": "build_worker",
+      "task_type": "code",
       "dependencies": [
-        "P6-T11"
+        "P7-T06"
       ],
       "acceptance_criteria": [
-        "AC1 \u2014 Given the measured P6-01 size delta, When the task is done, Then the bundle includes the vendored tree, the signing-flow disposition is recorded from the measured numbers (no invented budget), and CI runs the offscreen suite plus `node --test` with webengine cases skipping cleanly.",
-        "AC2 \u2014 Given the cutover triple gate (AC-D47.6/S59), When the task is done, Then `tests/test_lwc_cutover_gate.py` proves: parity matrix all Done/accepted (or rule-10 entries), the Phase-0 perf baseline holds, pyqtgraph is fully present AND the default engine, and the candidate is declared \u2014 not shipped.",
-        "AC3 \u2014 Given the renderer-only boundary, When the task is done, Then no file under `ibkr/`, no DB schema or store API, no service signature, no watchlist/dock/persistence surface and no order-code surface is created, modified or reintroduced (pyqtgraph stays present and default; JS receives timestamps and prices only)."
+        "Given live subscriptions at disconnect, when the transport reconnects, then every subscription replays with a rebound reqId, stream health returns through its documented transitions, and no bar is duplicated or lost across the replay.",
+        "Given a tick burst against primed aggregators, when aggregated bars push, then every tick is accounted exactly once in order, the forming candle reflects primed history (D27.9 intact), and no bar arrives late or dropped.",
+        "Given every pacing path touched by W1-W3 (wave continuation, prime retry, watchlist deferral), when pacing binds, then each path defers via PacingExceeded plus QTimer.singleShot and none blocks the GUI thread."
       ],
       "tests": [
         {
-          "test_id": "P6-T12-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Packaging/CI cases in `tests/test_lwc_cutover_gate.py`: spec files name the vendored tree; signing disposition references the P6-01 measured delta; CI workflow file exists and is syntactically valid.",
-          "expected_result": "Bundle wiring + measured disposition + CI file all proven."
+          "test_id": "P7-T07-T11",
+          "linked_acceptance_criterion": 1,
+          "type": "integration",
+          "description": "Subscribe, disconnect mid-stream, reconnect with a fake transport that records reqIds; assert replayed subscriptions, rebound ids, health transitions, and bar-set equality (no dupes, no loss).",
+          "expected_result": "All pre-drop subscriptions replayed exactly once with fresh reqIds; bar multiset identical across the drop; health reaches live only on first post-reconnect bar."
         },
         {
-          "test_id": "P6-T12-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Triple-gate cases: matrix row-count is 19 with zero non-accepted rows lacking a rule-10 entry; perf baseline holds; `NDT_CHART_ENGINE` unset \u2192 pyqtgraph; `import ui.chart_panel` + `ui.candlestick_item` succeed (nothing deleted).",
-          "expected_result": "Gate proven; pyqtgraph present and default; candidate declared, not shipped."
+          "test_id": "P7-T07-T12",
+          "linked_acceptance_criterion": 2,
+          "type": "integration",
+          "description": "Prime aggregators then inject an out-of-order/tight tick burst; assert push ordering, priming survival, and forming-candle content.",
+          "expected_result": "No dropped or late bars; forming candle equals primed history plus burst ticks in order."
         },
         {
-          "test_id": "P6-T12-T13",
-          "linked_acceptance_criterion": "AC3",
+          "test_id": "P7-T07-T13",
+          "linked_acceptance_criterion": 3,
           "type": "unit",
-          "description": "Residue scan over the diff (no engine deletion, no backend change).",
-          "expected_result": "Zero out-of-scope hits; deletion set untouched."
+          "description": "Source-plus-behavior assertion: scan the W1-W3 pacing paths for blocking sleeps and drive each binding path to observe deferral.",
+          "expected_result": "Zero blocking-sleep primitives on any pacing path; every binding path defers via PacingExceeded plus singleShot."
         }
       ],
       "expected_artifacts": [
-        "NDThinkChart.spec + packaging/build.spec (edited: vendored tree)",
-        ".github/workflows/lwc_parity.yml (new: CI)",
-        "tests/test_lwc_cutover_gate.py (new)",
-        "signing disposition record"
+        "tests/test_p7_w4_streaming.py (new: replay, burst, no-sleep suites)"
       ],
       "touches_files": [
-        "NDThinkChart.spec",
-        "packaging/build.spec",
-        ".github/workflows/lwc_parity.yml",
-        "tests/test_lwc_cutover_gate.py",
-        "docs/lwc_parity_matrix.md"
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_p7_w4_streaming.py"
       ],
+      "doc_required": false,
       "inputs": [
-        "P6-T11 driver + memory accounting",
-        "P6-01 measured delta + signing finding",
-        "triple-gate inputs (acceptance, matrix, perf)"
+        "Stable wave/prime lifecycle from W1-W3; D27 reconnect path"
       ],
       "outputs": [
-        "cutover candidate declared (not shipped)",
-        "packaging/CI/signing disposition"
+        "Streaming regression net over reconnect, health, burst"
       ],
-      "size": "M",
       "status": "done",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "NDThinkChart.spec",
-            "lines": "1-50",
-            "why": "edit site: datas/hiddenimports - add the vendored LWC tree"
+            "path": "ui/ticker_session.py",
+            "lines": "240-440",
+            "why": "read-only: RT subscribe/replay/rebind and aggregator paths under regression net \u2014 change only on a proven W1-W3 regression"
           },
           {
-            "path": "packaging/build.spec",
-            "lines": "1-110",
-            "why": "edit site: datas/hiddenimports - same vendored tree for the packaged build"
+            "path": "ui/main_window.py",
+            "lines": "1835-1960",
+            "why": "read-only: live-feed attach plus reconnect routing observed by the replay suite"
           },
           {
-            "path": "tests/test_d45_removal.py",
-            "lines": "1-60",
-            "why": "read-only: residue-instrument pattern the cutover-gate test follows"
-          },
-          {
-            "path": "pytest.ini",
-            "lines": "1-20",
-            "why": "read-only: webengine marker registration - CI must run these as skips, never red"
-          },
-          {
-            "path": "ui/chart_view.py",
-            "lines": "44-62,124-240",
-            "why": "read-only: create_chart_view/default-engine surface the gate asserts (pyqtgraph default)"
-          },
-          {
-            "path": "ui/lwc_host.py",
-            "lines": "104-160,189-260",
-            "why": "read-only: vendored-tree location, ndt:// registration and version pin the bundle must ship"
-          },
-          {
-            "path": "chart_assets/lwc/chart.html",
-            "lines": "1-27",
-            "why": "read-only: the offline page + relative asset list the bundle must include"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
+            "path": "ibkr/realtime_bars.py",
             "lines": "1-70",
-            "why": "edit site: rows 16/17/19 this wave records the cutover declaration"
+            "why": "read-only: subscribe/unsubscribe/cancel_all/replay_all contracts unchanged"
+          },
+          {
+            "path": "ibkr/stream_health.py",
+            "lines": "30-75",
+            "why": "read-only: mark_subscribed/mark_first_bar/mark_failed/is_live/describe transitions asserted, not edited"
           }
         ],
         "contracts": [
           {
-            "ref": "config/settings.py:check_live_port",
+            "ref": "ibkr/realtime_bars.py:subscribe",
             "status": "existing"
           },
           {
-            "ref": "ui/chart_panel.py:ChartPanel",
+            "ref": "ibkr/realtime_bars.py:replay_all",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/stream_health.py:mark_subscribed",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/stream_health.py:is_live",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:prime_aggregator",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Architecture Risks",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
         "requirement_ids": [
-          "AC-D47.6",
-          "AC-D47.8",
-          "AC-D47.9",
-          "D47.6",
-          "D47.11",
-          "Q61",
-          "A109",
-          "S59"
+          "AC-D27.9"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_cutover_gate.py -q && node --test chart_assets/lwc/",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "No soak by explicit owner decision \u2014 the triple gate (acceptance + parity + perf) replaces it; Phase 11 additionally needs explicit approval + one clean live session (S59)."
-        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_streaming.py -o addopts=\"\" -q",
+        "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P6-T13",
-      "title": "P6-13 / Phase 11 pyqtgraph removal - gate OPEN on record (deletion approved 2026-10-27, oracle retired, live session WAIVED) - delete engine + retire oracle suites",
-      "description": "GATE IS OPEN ON RECORD, NOT SATISFIED. docs/build/gate_P6_T13.md holds (1) explicit owner approval of pyqtgraph deletion (SATISFIED, 2026-10-27; owner said delete), (2) the live-session sign-off recorded as WAIVED, NOT SATISFIED - never describe the gate as satisfied - and (3) the oracle decision RETIRE (section 3). Read those three records, then execute the removal: delete the pyqtgraph-only modules and the AP-P6-3 engine-specific suites, keep every shared surface, and retire - do not freeze or re-derive - the keep/retarget comparison cases that use pyqtgraph as their expected-value source. For each such suite delete the comparison cases, or the whole file when it exists only to compare, and keep any LWC-only cases that stand on their own. Record every retired suite in the removal result retired_suites ledger as {file, cases_removed, coverage_lost} and fold that lost coverage into docs/lwc_parity_matrix.md, so the 19/19 open rows never imply protection the retired tests no longer provide. Weakening a case in place (skip, xfail, loosened assertion) instead of retiring it is a failure, not a pass.",
-      "agent": "Build",
-      "task_type": "removal",
+      "id": "P7-T08",
+      "title": "W4: watchlist reqMktData deferral under throttle plus the batch gate",
+      "description": "Prove the Q-41 deferral contract holds for watchlist adds made while throttled (defer, never lose the row, never sleep), then close the batch: full offscreen suite green with no order code, no schema change, no renderer edit, and the read-only live validation performed only by the owner-named method.",
+      "agent": "build_worker",
+      "task_type": "code",
       "dependencies": [
-        "P6-T12"
+        "P7-T07"
       ],
       "acceptance_criteria": [
-        "AC1 - Given docs/build/gate_P6_T13.md records the two owner decisions on file (deletion approved 2026-10-27; oracle RETIRED; live-session sign-off WAIVED, NOT SATISFIED), When P6-T13 is dispatched, Then the worker verifies all three records before editing and proceeds - AC1 no longer refuses - and both the removal result and any doc it writes call the gate owner-waived, never gate-satisfied. If any of the three records is absent, the worker refuses before editing (zero file changes) and the task stays not_started.",
-        "AC2 - Given the gate is open on those records, When the task is done, Then: (a) the pyqtgraph-only render modules (ui/chart_panel.py, ui/candlestick_item.py and the ui/overlays items) and the 34 AP-P6-3 engine-specific suites are deleted while every shared surface - the ui/chart_view.create_chart_view seam, services/chart_model.py, stores, dialogs, IBKR backend, watchlist, dock - stays intact and the seam still resolves (LWC-only); (b) every keep/retarget suite that uses pyqtgraph (ui.chart_panel or an old overlay/item) as its expected-value source has its comparison cases retired - deleted, or the whole file when it exists only to compare - with LWC-only cases kept, and no retired case is replaced by a skip, xfail or loosened assertion; (c) the removal result lists every retired suite with the coverage it took with it, and docs/lwc_parity_matrix.md records that retired coverage so the 19/19 open rows do not imply missing protection; (d) zero pyqtgraph imports remain in app, tests and packaging, requirements.txt and packaging/build.spec no longer name it, import ui.chart_panel raises ModuleNotFoundError, import pyqtgraph fails, the app still starts, the D45 token guard passes, and the full suite is green."
+        "Given a watchlist add while the reqMktData throttle is exhausted, when the add fires, then the subscription defers via singleShot for the reported wait, the row persists through the deferral, and the subscription follows without loss.",
+        "Given every P7 pacing path, when throttled, then the Q-41 contract holds end to end (PacingExceeded plus QTimer.singleShot deferral, never a GUI-thread sleep) across wave, prime, and watchlist paths alike.",
+        "Given the whole P7 batch, when the batch gate runs, then the full offscreen suite is green, the tree carries no order-related code, no bars-schema migration, and no LWC renderer edit, and any live validation was read-only and performed only by the owner-named method."
       ],
       "tests": [
         {
-          "test_id": "P6-T13-T11",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Gate-record probe in tests/test_lwc_removal_gate.py: assert docs/build/gate_P6_T13.md records the deletion approval with its 2026-10-27 date, the WAIVED-NOT-SATISFIED live-session wording, and the RETIRE oracle decision; assert the removal result gate field is owner-waived and that neither the gate doc nor the result claims the gate was satisfied; assert the probe derived GATE_OPEN is True with those records present.",
-          "expected_result": "Probe passes: three records found, gate reported open and owner-waived, no artifact asserts gate-satisfied."
-        },
-        {
-          "test_id": "P6-T13-T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Post-deletion import and residue proof: import ui.chart_panel raises ModuleNotFoundError; ui.chart_view.create_chart_view imports and returns the LWC view; services/chart_model, stores, dialogs, IBKR backend, watchlist and dock modules import; a source scan of ui/, services/, tests/ and packaging/ finds zero pyqtgraph imports (comments and docstrings excluded, scope stated in the test); requirements.txt and packaging/build.spec contain no pyqtgraph entry; import pyqtgraph fails under an importlib meta-path blocker for the pyqtgraph module.",
-          "expected_result": "Engine import raises, seam and shared surfaces import, zero pyqtgraph imports or requirements entries, blocked import raises ImportError."
-        },
-        {
-          "test_id": "P6-T13-T13",
-          "linked_acceptance_criterion": "AC2",
+          "test_id": "P7-T08-T11",
+          "linked_acceptance_criterion": 1,
           "type": "integration",
-          "description": "App-start and suite proof: start the app offscreen on the LWC engine (main window constructs, chart host loads, then closes cleanly); run the D45 token-guard test; run the full test suite after the removal.",
-          "expected_result": "App starts and shuts down cleanly, D45 token guard green, full suite green with no failures and no unexplained skips added by this task."
+          "description": "Add a watchlist symbol with the mkt-data throttle forced exhausted; advance timers and assert row persistence plus eventual subscription.",
+          "expected_result": "Row present before and after the wait; exactly one deferred subscription issues for the reported wait; nothing sleeps."
         },
         {
-          "test_id": "P6-T13-T14",
-          "linked_acceptance_criterion": "AC2",
+          "test_id": "P7-T08-T12",
+          "linked_acceptance_criterion": 2,
+          "type": "unit",
+          "description": "Cross-path Q-41 assertion over wave continuation, prime retry, and watchlist deferral call sites (source scan plus one throttled drive each).",
+          "expected_result": "All three paths raise-or-handle PacingExceeded with singleShot deferral; no blocking primitive on any of them."
+        },
+        {
+          "test_id": "P7-T08-T13",
+          "linked_acceptance_criterion": 3,
           "type": "manual",
-          "description": "Retirement-ledger review: for each retired keep/retarget suite, confirm the result retired_suites ledger names the file, the cases removed and the coverage lost (value-for-value geometry, alarm placement, overlay geometry, tick-label strings); confirm no retired case survives as a skip, xfail or weakened assertion; confirm docs/lwc_parity_matrix.md carries the landed retired-coverage record next to the 19/19 row count.",
-          "expected_result": "Ledger complete and honest per retired suite; no silent weakening; parity matrix shows retired coverage beside the 19/19 rows."
+          "description": "Run the full offscreen suite; verify the order-absence/schema/renderer invariants; confirm any live check used only the owner-named read-only method (or record that no live check ran).",
+          "expected_result": "Full suite green; import ibkr.orders still raises ModuleNotFoundError with no placeOrder/cancelOrder/reqGlobalCancel call site; bars schema untouched; LWC seam untouched; live-check provenance on record."
         }
       ],
       "expected_artifacts": [
-        "pyqtgraph-only modules deleted (ui/chart_panel.py, ui/candlestick_item.py, overlay items, ui/overlays/*)",
-        "34 AP-P6-3 engine-specific suites deleted",
-        "oracle-dependent comparison cases retired from keep/retarget suites (LWC-only cases kept)",
-        "tests/test_lwc_removal_gate.py (new: gate-record + import/residue proof)",
-        "removal result with retired_suites ledger ({file, cases_removed, coverage_lost})",
-        "docs/lwc_parity_matrix.md (retired-coverage record)",
-        "requirements.txt + packaging/build.spec (pyqtgraph dependency removed)"
+        "tests/test_p7_w4_deferral.py (new: throttled-add deferral, Q-41 cross-path); batch-gate record"
       ],
       "touches_files": [
-        "ui/chart_panel.py",
-        "ui/candlestick_item.py",
-        "ui/alarm_overlay.py",
-        "ui/drawing_overlay.py",
-        "ui/event_marker_overlay.py",
-        "ui/zoom_overlay.py",
-        "ui/overlays/base.py",
-        "ui/overlays/ict_overlay.py",
-        "ui/overlays/session_overlay.py",
-        "ui/chart_view.py",
-        "ui/popout_window.py",
-        "ui/main_window.py",
-        "tests/conftest.py",
-        "tests/test_lwc_removal_gate.py",
-        "docs/lwc_parity_matrix.md",
-        "requirements.txt",
-        "packaging/build.spec",
-        "tests/test_candle_spacing.py",
-        "tests/test_candlestick_wick.py",
-        "tests/test_volume_width.py",
-        "tests/test_volume_linear.py",
-        "tests/test_volume_log.py",
-        "tests/test_volume_ceiling.py",
-        "tests/test_volume_d21.py",
-        "tests/test_volume_toggle.py",
-        "tests/test_chart_crosshair.py",
-        "tests/test_crosshair_axis_lane.py",
-        "tests/test_crosshair_chip_bounds.py",
-        "tests/test_chart_dpi.py",
-        "tests/test_chart_controls.py",
-        "tests/test_zoom_overlay.py",
-        "tests/test_zoom_behavior.py",
-        "tests/test_drawing_overlay.py",
-        "tests/test_drawing_interaction.py",
-        "tests/test_drawing_labels.py",
-        "tests/test_d27_drawing_colours.py",
-        "tests/test_alarm_overlay.py",
-        "tests/test_alarm_interaction.py",
-        "tests/test_session_overlay.py",
-        "tests/test_study_overlays.py",
-        "tests/test_d27_overlay_coords.py",
-        "tests/test_time_collapse_d21.py",
-        "tests/test_collapse_resync_fix.py",
-        "tests/test_d28_4a_render_layers.py",
-        "tests/test_d28_4f_panel_bar_cap.py",
-        "tests/test_d28_4_bisect.py",
-        "tests/test_d42_candle_width.py",
-        "tests/test_d28_4d_collapse_tail.py",
-        "tests/test_draw_combo_sync.py",
-        "tests/test_d28_4f_study_invalidate.py",
-        "tests/test_d28_4b_study_cache.py",
-        "tests/test_d21_flash_lifetime.py",
-        "tests/test_d24_smoke_gate.py",
-        "tests/test_d28_2_load_chart_button.py",
-        "tests/test_d38_events_news.py",
-        "tests/test_d24_chart_quality.py",
-        "tests/test_d39_burst_search.py",
-        "tests/test_d10_d13_integration.py",
-        "tests/test_toolbar_d21.py",
-        "tests/test_chart_model.py",
-        "tests/test_chart_view_seam.py",
-        "tests/test_chart_mouse_router.py"
+        "ui/watchlist_panel.py",
+        "tests/test_p7_w4_deferral.py"
       ],
+      "doc_required": false,
       "inputs": [
-        "P6-T12 cutover candidate",
-        "docs/build/gate_P6_T13.md (deletion approval SATISFIED; live session WAIVED; oracle RETIRE)",
-        "AP-P6-3 engine-specific (34) / retarget (32) / keep (59) lists in docs/tasks/task_manager_notes_P6.md",
-        "docs/lwc_parity_matrix.md (19/19 open rows)"
+        "Streaming net from P7-T07; landed Q-45 deferral"
       ],
       "outputs": [
-        "pyqtgraph engine and engine-specific suites deleted",
-        "oracle-dependent parity cases retired with a per-suite coverage ledger",
-        "parity matrix carrying the retired coverage"
+        "Deferral proof; batch gate (suite green, invariants held)"
       ],
-      "size": "L",
       "status": "in_progress",
-      "doc_required": true,
+      "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "docs/build/gate_P6_T13.md",
-            "lines": "1-41",
-            "why": "gate authority: approval SATISFIED, live session WAIVED-not-satisfied, oracle RETIRED (AC1) - read-only, do not edit"
+            "path": "ui/watchlist_panel.py",
+            "lines": "953-1048",
+            "why": "harden add_symbol/_register_mkt_subscription/_retry_mkt_subscribe so throttled adds defer without losing the row"
           },
           {
-            "path": "docs/tasks/task_manager_notes_P6.md",
-            "lines": "56-92",
-            "why": "AP-P6-3 lists: the 34-file engine-specific deletion set and the retarget/keep classification - read-only"
+            "path": "ibkr/market_data.py",
+            "lines": "90-110",
+            "why": "read-only: req_mkt_data Q-41 pacing contract asserted, never edited"
           },
           {
-            "path": "ui/chart_view.py",
-            "lines": "1-60",
-            "why": "seam to keep: create_chart_view must survive LWC-only; the pyqtgraph branch is this task edit"
-          },
-          {
-            "path": "ui/chart_panel.py",
-            "lines": "1-60",
-            "why": "deletion-set member: confirm pyqtgraph-only render code before deleting"
-          },
-          {
-            "path": "ui/candlestick_item.py",
-            "lines": "1-40",
-            "why": "deletion-set member: verify pyqtgraph-only renderer before deleting"
-          },
-          {
-            "path": "tests/conftest.py",
-            "lines": "100-115",
-            "why": "chart_panel fixture imports ui.chart_panel; it must be removed with the engine"
-          },
-          {
-            "path": "ui/popout_window.py",
-            "lines": "205-225",
-            "why": "real from ui.chart_panel import ChartMode that must be relocated, not left broken"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
-            "lines": "630-700",
-            "why": "19/19 open rows where the retired-coverage record must land"
+            "path": "ui/main_window.py",
+            "lines": "1835-1960",
+            "why": "read-only: live-feed attach path that shares the same deferral contract"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/chart_view.py:create_chart_view",
+            "ref": "ui/watchlist_panel.py:add_symbol",
             "status": "existing"
           },
           {
-            "ref": "config/settings.py:check_live_port",
+            "ref": "ibkr/market_data.py:req_mkt_data",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:historical_wait_seconds",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Architecture Decisions (relationship-labelled)",
-        "plan_ref": "docs/plan.md#Phases (milestones \u2014 Task Manager decomposes each wave into tasks)",
+        "architecture_ref": "docs/architecture.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars)",
+        "plan_ref": "docs/plan.md#Phase P7 \u2014 data-path batch: historical backfill correct + fast, streaming correct (no holes, no duplicates, no dropped/late bars) \u2014 drafted 2026-10-28",
         "requirement_ids": [
-          "AC-D47.8",
-          "D47.8",
-          "D47.11",
-          "S59",
-          "AP-P6-3"
+          "AC-D16.4"
         ],
-        "test_command": "pytest tests/test_lwc_removal_gate.py -q",
-        "memory_refs": [
-          "2026-10-26"
-        ],
-        "memory_notes": [
-          "Phase 11 never rides along with cutover (S59) - a bundled deletion fails review even if the suite is green.",
-          "Gate is owner-WAIVED, not satisfied: see docs/build/gate_P6_T13.md section 2. Never write gate satisfied in any artifact.",
-          "Oracle decision RETIRE: comparison suites go with the engine; list every retired suite and the coverage lost - silently weakening a test is not acceptable.",
-          "Discovery is bounded: grep -rln pyqtgraph tests/ ui/ services/ packaging/ requirements.txt, then subtract the 34 engine-specific files; every remaining hit is either a comment (ignore) or an oracle dependency (retire the comparison cases)."
-        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_deferral.py -o addopts=\"\" -q",
+        "memory_refs": [],
         "needs_graphify": false,
-        "size": "L"
+        "size": "S"
       }
     }
   ]

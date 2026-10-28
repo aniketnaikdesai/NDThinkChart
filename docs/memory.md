@@ -238,3 +238,13 @@
 **Category:** Known Gotcha
 **Finding:** Never detach a library method from its object: `var f = series.priceToCoordinate` then `f(x)` throws inside the Lightweight Charts bundle (reads `this` internals), aborting the whole primitive draw with zero pixels and no obvious error — the console shows only `Uncaught TypeError: Cannot read properties of undefined (reading 'ae')`, easily dismissed as library noise. Always call coordinate methods on their object (`series.priceToCoordinate(x)`) or bind at capture. The revision trace that isolated it: plan revision current at refresh, updateAllViews AND draw, yet drawPlan returned 0 — so the miss was inside the rasterization call, not the lifecycle.
 **Source:** Q-33 drawing paint defect; DRAWING_RENDER_DEBUG_REPORT.txt review
+
+### [2026-10-28] — measured IBKR wide-duration behavior (owner-run standalone probes)
+**Category:** Technical Note
+**Finding:** Single-shot wide 1-min requests complete but latency varies widely and nonlinearly: 5 D/0.35 s, 15 D/0.45 s, 30 D/1.1 s, 35 D/74 s (33,600 bars, 35 sessions), 45 D/25 s (owner-measured). A 45 D attempt once timed out silent at 90 s with zero bars and zero errors — same params later completed in 25 s — so absence of an error is not failure, and timeouts must be generous with retry-then-split fallback. Practical ceiling for one request is ~30 sessions; there is no hard duration reject (no 321/162 observed on wide requests), only slow assembly past ~30 D.
+**Source:** Owner standalone runs + Orchestrator probes 2026-10-27/28; feeds P7-W3/T06 owner decision
+
+### [2026-10-28] — measured IBKR wide-duration behavior, continued (owner-run)
+**Category:** Technical Note
+**Finding:** SPY 1-min 60 D completed: 23,400 bars across 60 Eastern sessions (08-04→10-27) in 76 s, no errors. Together with the earlier table (30 D/1.1 s, 35 D/74 s, 45 D/25 s), single-shot wide requests work up to at least 60 D but latency past ~30 D is tens of seconds and highly variable — plan wide windows at ~30 D per request and chain for deeper history rather than one giant request.
+**Source:** Owner standalone run 2026-10-28; feeds P7-W3/T06 owner decision
