@@ -932,7 +932,10 @@ def drawing_item(drawing, xs: Sequence, indices: Sequence,
     Raises ``ValueError`` for an unknown kind or a malformed payload, exactly
     as ``DrawingOverlay._build_items`` swallows those rows. The wire carries
     numbers only: colours, fractional indices, prices, fib ratios and the
-    measure delta; the engine composes every label string.
+    measure delta; the engine composes every label string. Handles are
+    attached only while the drawing is selected and unlocked (a locked
+    drawing keeps the ``selected`` highlight with empty handles, so the
+    engine offers no draggable affordance); deselection clears them.
     """
     kind = drawing.kind
     if kind not in DRAWING_KINDS:
@@ -975,7 +978,10 @@ def drawing_item(drawing, xs: Sequence, indices: Sequence,
                           [_drawing_frac(xs, indices, p2["x"], cmap), p2["y"]]]
         item["levels"] = [[float(ratio), float(price)] for ratio, price in
                           fib_levels(p1["y"], p2["y"], payload["type"])]
-    item["handles"] = drawing_handle_points(kind, item)
+    if bool(selected) and not item["locked"]:
+        item["handles"] = drawing_handle_points(kind, item)
+    else:
+        item["handles"] = []
     return item
 
 
@@ -1662,8 +1668,11 @@ class LwcDrawingSurface:
     the default engine's overlay, so it exposes the same single entry point
     and maps it onto :meth:`LwcChartView.set_drawings`. Read-only by
     construction:
-    there is no tool mode to query and no drag/edit surface — a pop-out is
+    there is no tool mode to query and no commit surface — a pop-out is
     never an editor (D24.6), and the main chart remains the sole writer.
+    The one operation the surface does expose is the lock-gated
+    :meth:`drag_drawing` probe entry, which delegates geometry to the view
+    (authoritative refusal lives there) without persisting anything.
     """
 
     def __init__(self, view: "LwcChartView"):
@@ -1677,6 +1686,22 @@ class LwcDrawingSurface:
     def drawings(self) -> list:
         """The drawing records currently rendered (read-only copy)."""
         return self._view.drawings
+
+    def drag_drawing(self, drawing_id, kind: str, point_index: int,
+                     d_frac: float, d_price: float,
+                     body: bool = False) -> dict:
+        """Lock-gated drag entry point (S-P10-4, AR-P10-2).
+
+        The operation-level probe surface: unlike the page path (which never
+        starts a drag on locked drawings as presentation only), a direct call
+        here reaches the authoritative refusal in
+        :meth:`LwcChartView.drag_drawing` — a locked drawing comes back with
+        its geometry unchanged and nothing published, while an unlocked one
+        follows the normal validated-geometry path. Geometry only; commits
+        still flow through ``updated`` (the surface never persists).
+        """
+        return self._view.drag_drawing(
+            drawing_id, kind, point_index, d_frac, d_price, body=body)
 
     def tool_active(self) -> bool:
         """No tool can be active on the LWC engine's read-only surface."""
@@ -1825,6 +1850,7 @@ class LwcChartView(QWidget):
         # the validated payloads; the Qt drawing dialogs stay where they are.
         self._drawings: list = []
         self._drawing_groups: list = []
+        self._stored_drawing_colors: dict = {}
         self._selected_drawing_id = None
         self._drawing_items: list = []
         self._drawing_log: list = []
@@ -2473,8 +2499,34 @@ class LwcChartView(QWidget):
             data, *self._page_axis())
         if drawing_id is None or not geometry:
             return
+        color = str(data.get("color") or "")
+        if not color:
+            # S-P10-5: drag commits are geometry-only — an empty page color
+            # normalises to unchanged so the commit can never clobber a stored
+            # color (AR-P10-1; the mid-drag recolour case). The ``updated``
+            # signal carries a ``str`` (a ``None`` would coerce back to ``""``
+            # at emit), so resolve to the currently rendered color — writing
+            # the same value back leaves the stored color untouched.
+            current = next((item for item in self._drawing_items
+                            if item.get("id") == drawing_id), None)
+            if current is None:
+                # No rendered item for this id. A known id in the
+                # set_drawings index means the page is out of sync with the
+                # delivered records (e.g. the drawing was deleted mid-drag
+                # via the groups dialog, or its group is hidden) — drop the commit
+                # instead of emitting it, because the empty page color would
+                # persist as ``""`` (only ``None`` means unchanged in
+                # ``update_drawing``), clobbering the stored color. No stored
+                # row means nothing to protect — emit with ``""`` (the
+                # pre-P10 transport behavior; ``update_drawing`` on a
+                # missing id updates zero rows, and the Q-20 e2e suite pins
+                # that an unrendered id still reaches ``updated``).
+                if int(drawing_id) in self._stored_drawing_colors:
+                    return
+            else:
+                color = str(current.get("color") or "")
         self.drawing_controller.updated.emit(
-            int(drawing_id), geometry, str(data.get("color") or ""))
+            int(drawing_id), geometry, color)
 
     def _on_page_drawing_deleted(self, payload: dict) -> None:
         """A drawing deleted in the page → ``deleted(id)``."""
@@ -2637,6 +2689,16 @@ class LwcChartView(QWidget):
         """
         self._drawings = list(drawings or [])
         self._drawing_groups = list(groups or [])
+        self._stored_drawing_colors = {}
+        for record in self._drawings:
+            try:
+                rid = getattr(record, "id", None)
+                if rid is None:
+                    continue
+                self._stored_drawing_colors[int(rid)] = str(
+                    getattr(record, "color", None) or "")
+            except (TypeError, ValueError):
+                continue
         self._render_drawings()
 
     def set_drawing_groups(self, groups: list) -> None:
@@ -2664,6 +2726,29 @@ class LwcChartView(QWidget):
             "id": self._selected_drawing_id,
         }])
 
+    def _drawing_locked(self, drawing_id, item=None) -> bool:
+        """Whether a drawing's group is locked, read at the operation surface.
+
+        AP-P10-3: ``DrawingGroup.locked`` is the source of truth, consulted on
+        every drag attempt — never cached in the drawing row. Falls back to
+        the wire item's render-time ``locked`` flag only when no group record
+        is available (ungrouped or otherwise unknown drawings are unlocked).
+        """
+        record = next((drawing for drawing in self._drawings
+                       if getattr(drawing, "id", None) == drawing_id), None)
+        if record is not None:
+            group = next(
+                (group for group in self._drawing_groups
+                 if getattr(group, "id", None)
+                 == getattr(record, "group_id", None)),
+                None)
+            if group is not None:
+                return bool(getattr(group, "locked", False))
+        if item is None:
+            item = next((item for item in self._drawing_items
+                         if item.get("id") == drawing_id), None)
+        return bool((item or {}).get("locked", False))
+
     def drag_drawing(self, drawing_id, kind: str, point_index: int,
                      d_frac: float, d_price: float,
                      body: bool = False) -> dict:
@@ -2674,11 +2759,19 @@ class LwcChartView(QWidget):
         the new wire item (also reflected in the stored record's payload for
         the engine's own state, never persisted — persistence stays with the
         drawing store, which the LWC engine never touches).
+
+        S-P10-4: a locked drawing is refused at this operation surface
+        (AR-P10-2 — the page-level never-start is presentation only, so a
+        direct call must refuse too). Refusal returns the current wire item
+        unchanged and publishes nothing: geometry, store and op log are
+        identical to the pre-call state.
         """
         item = next((item for item in self._drawing_items
                      if item.get("id") == drawing_id), None)
         if item is None:
             raise ValueError(f"unknown drawing: {drawing_id!r}")
+        if self._drawing_locked(drawing_id, item):
+            return dict(item)
         moved = drag_drawing_item(kind, item, point_index, d_frac, d_price,
                                   body=body)
         self._drawing_items = [dict(moved) if existing.get("id") == drawing_id
