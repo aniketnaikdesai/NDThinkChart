@@ -1,221 +1,63 @@
-NDThinkChart Usage
-==================
+NDThinkChart Quick Start
+=========================
 
-Exact command to start the app
-------------------------------
+This is the short pointer. The canonical full guide is usage.md
+(workflows, features, troubleshooting, change record pointer).
 
-Run this from Terminal:
+Start the app
+-------------
 
-cd /Users/aniket-desai/Documents/python_development/NDThinkChart
-.venv/bin/python main.py
+Run from the project root:
 
+    .venv/bin/python main.py
 
-Requirements before running
----------------------------
+Headless (CI):
 
-1. Python virtual environment
+    QT_QPA_PLATFORM=offscreen .venv/bin/python main.py
 
-   The project expects a local virtual environment at:
+Requirements
+------------
 
-   /Users/aniket-desai/Documents/python_development/NDThinkChart/.venv
+1. Python virtual environment at .venv (Python 3.11):
 
-   If the virtual environment does not exist, create it with Python 3.11:
+    python3.11 -m venv .venv
+    .venv/bin/pip install -r requirements.txt
 
-   python3.11 -m venv .venv
+   Packages: PyQt6, PyQt6-WebEngine (required - it hosts the chart;
+   must match the installed PyQt6 version), ibapi-latest (provides the
+   ibapi module), numpy, yfinance. There is no pyqtgraph dependency.
 
+2. Interactive Brokers TWS Desktop installed, running, and logged in.
 
-2. Python packages
+3. TWS API socket access enabled (TWS -> Edit -> Global Configuration
+   -> API -> Settings):
 
-   The virtual environment must have these packages installed:
+    Host: 127.0.0.1
+    Port: 7496
+    Client ID: 1
 
-   PyQt6
-   PyQt6-WebEngine
-   pyqtgraph
-   ibapi            (installed from the PyPI distribution named ibapi-latest)
-   numpy
-   yfinance
+   The app refuses to start on any other port. A paper (DU) TWS login
+   on the same port works too; the badge shows amber "Paper".
 
-   Install them with:
+4. Market data entitlements for the symbols being viewed (the app opens
+   without them, but live charts and ticks need them).
 
-   .venv/bin/pip install -r requirements.txt
+Chart engine
+------------
 
-   Note: PyQt6-WebEngine must match the installed PyQt6 version — both are
-   pinned together in requirements.txt. For the most reliable IBKR
-   compatibility, install ibapi from the TWS API installer bundled by
-   Interactive Brokers if the pinned package does not match your installed
-   TWS version.
+Lightweight Charts only. A leftover NDT_CHART_ENGINE value from an
+older version is ignored.
 
+Safety
+------
 
-3. Interactive Brokers TWS Desktop
+- The app places, cancels and closes nothing. Orders happen in TWS.
+- Read-Only API in TWS is recommended for extra safety.
 
-   TWS Desktop must be installed, running, and logged in before starting the app.
-   This app connects to TWS through the local IBKR API socket; it does not launch
-   or bundle TWS.
+Next steps
+----------
 
-
-4. TWS API settings
-
-   In TWS, API socket access must be enabled.
-
-   Required default connection settings used by this app:
-
-   Host: 127.0.0.1
-   Port: 7496
-   Client ID: 1
-
-   Port 7496 is the default live TWS API port. The app refuses to start on any
-   other port (safety guard) — do NOT set IBKR_PORT=7497. For paper trading,
-   log into your paper (DU) account in TWS itself and keep the port at 7496;
-   the connection badge shows amber "Paper" for demo accounts.
-
-
-5. Market data permissions
-
-   The app can open without market data subscriptions, but live charts, watchlist
-   quotes and realtime bars require the relevant IBKR market data entitlements
-   for the symbols being viewed.
-
-
-6. macOS notes
-
-   The current implementation targets macOS with PyQt6 and both chart engines
-   (pyqtgraph by default, Lightweight Charts through QtWebEngine when opted
-   in). If macOS blocks network/socket access on first launch, allow the Python
-   process to connect to localhost/TWS.
-
-
-Chart engines: pyqtgraph default, LWC opt-in
---------------------------------------------
-
-- The app ships two chart renderers behind one selection seam. pyqtgraph is
-  the default and stays the default until the cutover is accepted; nothing
-  changes unless you opt in.
-- Set NDT_CHART_ENGINE=lwc to run the new Lightweight Charts (LWC) engine:
-
-    NDT_CHART_ENGINE=lwc .venv/bin/python main.py
-
-  Unset, blank or unknown values keep pyqtgraph, so a typo never blanks the
-  chart.
-- Feature parity is complete, but one live trading session is still owed
-  before pyqtgraph is removed. Both engines remain present until then.
-- Size: the LWC engine needs PyQt6-WebEngine, which adds about 292 MB of
-  QtWebEngine/Chromium frameworks and takes the packaged app from about
-  369 MB to about 661 MB (measured before PyInstaller packing).
-  PyQt6-WebEngine must match the installed PyQt6 version.
-
-
-Trading & safety notes (Phases 1-2)
------------------------------------
-
-- Orders: the app places, cancels and closes nothing. It has no order entry,
-  no close control and no cancel control. Placing, cancelling and closing
-  orders all happen in TWS. The Portfolio panel is a view-only readout of
-  your TWS account.
-- Stop and target values saved by an earlier version of this app can no longer
-  be set or displayed. The app stores no stop or target at all: the database
-  columns are dropped the first time this version opens the database.
-- IBKR rejections and cancellations appear in the status bar together with
-  TWS's message.
-- Connection badge: derived from the verified port and your TWS account type.
-  Amber "Paper" means you are on a demo (DU) account.
-- Stream health: the toolbar indicator shows the realtime subscription state
-  (subscribed / awaiting first bar / live / failed). A failed subscription
-  retries with backoff (5s up to 60s).
-- Account data (positions, account summary) is subscribed on connect; the
-  panel shows "unavailable" when it is not subscribed.
-- Drawings: colour, label and group can be edited from the drawing settings;
-  edits persist across restarts.
-
-
-Pop-out charts (Phase 3)
-------------------------
-
-- Toolbar "Pop out" button (or Ctrl/Cmd+P) detaches the current ticker into a
-  slim standalone chart window. Up to 10 per ticker.
-- Pop-outs follow their ticker in real time: bars, studies, zones, lines and
-  alarms stay in sync with the main chart. There is only one IBKR market-data
-  subscription per symbol no matter how many windows show it.
-- The pop-out's timeframe, mode and extended-hours setting are frozen at the
-  moment you pop it out. Drawing, alarm placement and study changes are done
-  in the main chart only — pop-outs are read-only views (zoom, pan and
-  crosshair still work).
-- Header context menu: toggle always-on-top per window (off by default).
-- Pop-outs are restored after an app restart (positions and sizes kept).
-- Alarms are evaluated per ticker, so a ticker's alarm fires even while the
-  main chart shows a different symbol — including tickers with no visible
-  chart, which are monitored headlessly.
-
-
-Event markers (Phase D38)
-------------------------
-- The chart shows event markers on the time axis for earnings (gold diamond
-  with E), dividends (green circle with D) and splits (blue triangle with
-  S). A countdown label ("Earnings in 3d") shows for the next upcoming event;
-  if there are no upcoming events the countdown is hidden.
-- Dividend data comes from IBKR first (free, live) and earnings/splits come
-  from yfinance (the app's only secondary data source). If neither source has
-  events for the symbol, the chart says so explicitly instead of showing
-  nothing.
-
-Volume-burst alerts & symbol search (Phase D39)
-----------------------------------------------
-- The search box sits in the watchlist header. Type part of a ticker -
-  requests are sent at most about once every 300ms while you type, and up
-  to 16 matches come back as symbol, security type and exchange. Pick one
-  and its chart loads. While disconnected the box is disabled with a
-  message; no matches shows a clear empty state.
-- To create a volume-burst alarm, add an alarm of kind "volume_burst" on a
-  symbol. Each bar's volume is compared against the typical volume for
-  that time of day (a robust median/MAD baseline built from the last 30
-  bars of the same minute-of-day) and the alarm fires when the z-score
-  reaches your threshold (default 4.0; the lowest allowed setting is 1.0,
-  since anything lower fires on normal market noise).
-- The baseline needs 5 bars before it can evaluate; until then the alarm
-  shows "warming up (n/5)" and stays silent. Very quiet symbols (under
-  1.0 contracts/shares per minute) are never evaluated, so dust volume
-  cannot trigger an alert.
-- Forming bars are evaluated as they build and completed bars are
-  recorded; a fired burst behaves exactly like a price alarm (toast +
-  sound once, re-arm re-enables it, and it works for tickers with no
-  chart open).
-- Alarms on indices trade the proxy tape: a burst alarm on SPX watches ES
-  front-month volume, and the toast says so - "Volume burst on ES tape
-  (z=9.4)". The baseline resets automatically when a futures contract
-  rolls, so volume is never compared against the wrong contract month.
-
-TWS daily lifecycle (Phase D40)
-- You close TWS every night; the app handles the rest. When TWS goes away,
-  the connection badge shows "Monitoring paused — TWS disconnected" in
-  amber — never a green "connected". While paused, no alarm is evaluated
-  and nothing can fire: there is no data, so the app says so instead of
-  guessing.
-- In the morning, log into TWS as usual — no app restart needed. The app
-  detects TWS back, reconnects, resubscribes your symbols, and resumes
-  monitoring. The status bar reports the gap, e.g. "ES, NQ unmonitored
-  22:14–09:40", so you can see exactly what was not watched.
-- Resume never triggers alarms by itself: prices re-seed quietly, and an
-  alarm fires only if the live price then crosses its level. A move that
-  happened overnight while TWS was closed fires no alarm — that is by
-  design (check the gap report).
-- Brief drops during the day are different: they reconnect fast in the
-  background with no pause badge and no gap report.
-
-
-Collapsible Watchlist bar (Phase D44)
--------------------------------------
-- Collapse the watchlist with the "Watchlist" header button: the dock shrinks
-  to a thin vertical bar (about 30px wide) that shows the word WATCHLIST
-  rotated on its side, drawn in the app's own dark palette.
-- Click the bar (or its handle) to expand the panel again - it comes back to
-  the width it held just before you collapsed it.
-- While collapsed the header strip, the "+" button and the column-header row
-  are hidden; all three return when you expand.
-- The collapse state is not remembered: the app always starts with the
-  watchlist expanded.
-
-
-Weekly and monthly timeframes (Phase D48)
------------------------------------------
-- The timeframe picker also offers 1 week (2 years of history) and 1 month
-  (10 years of history) after 1 day; daily-and-coarser loads ignore the
-  Ext Hours toggle.
+Full workflows and feature docs (pop-outs, alarms, drawings, event
+markers, volume-burst alerts, TWS daily lifecycle, timeframes),
+configuration, database paths, and troubleshooting: see usage.md.
+What shipped per phase: see docs/phase-changelog.md.

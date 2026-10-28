@@ -44,3 +44,15 @@ the Qt-free boundary, the order-code absence, the LWC seam, or the bars schema.
 P7-T06 is the single permitted exception (TIMEFRAME_CONFIG duration *values*
 only, owner-gated). Pacing refunds (P7-T03) go through pacing_manager, the single
 budget owner (AR-P7-4: pre-issue cancels only).
+
+## Addendum 2026-10-28 (Q-51 doc-consolidation — no task or requirement changed)
+
+- **Per-load cap = maximum, never target:** a load issues at most `min(needed, floor(B/4))`
+  (`B` = current `MAX_HISTORICAL_PER_600S`); the cap never creates work. Examples at cap 25:
+  need 1 -> issue 1; need 10 -> at most 10; need 40 -> at most 25 this load, persist and resume later.
+  Per-load = one wave for one symbol + timeframe + mode; same-chart reloads coalesce and share the
+  allocation; refunds cover pre-issue cancels only.
+- **Budget numbers reconciled:** tree = 100 (`config/settings.py`, owner-set); ESC-075's 50 is stale
+  prose named here, not silently chosen; the fraction-based invariant holds under either value.
+- **AC-D16.8** stays open Analyst debt (RG-P7-1) — no P7 task rewrites requirements; if the Analyst
+  restates it, P7-T01's AC2 already matches the satisfiable reading.

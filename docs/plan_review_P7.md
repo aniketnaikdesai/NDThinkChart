@@ -28,3 +28,26 @@ phase is activated. `docs/plan.md` § *Phase P7* now ends `Status: READY_FOR_TAS
 **Requirements Escalations:** RG-P7-1 filed in `docs/plan_notes.md` (`ESCALATED_TO_REQUIREMENTS`) — non-blocking for the build: P7 plans the satisfiable multi-load reading (S-P7-1) and Flagged Issue 1 records the restatement request. RG-P7-2 recorded `open`, non-blocking.
 
 **Task Manager Readiness:** ready — proceed; build P7 packs from the post-T13 tree.
+
+## Delta note 2026-10-28 (Q-51 doc-consolidation — approval preserved)
+
+This section is appended; the approval record above is untouched and `Status: APPROVED` stands.
+`AC-D16.8` stays open Requirements Analyst debt (RG-P7-1); nothing here restates requirements.
+
+- **Per-load cap = maximum, never target (S-P7-1 / P7-W1 reading, clarified):** a single chart load issues
+  at most `min(requests needed, floor(B/4))` historical requests (`B` = current `MAX_HISTORICAL_PER_600S`);
+  the cap never creates work to fill itself. Worked examples at `floor(B/4) = 25`: need **1** -> issue **1**;
+  need **10** -> issue at most **10**; need **40** -> issue at most **25** this load, persist completed chunks,
+  resume the rest on later loads (persist-and-resume / oldest-first, S-P7-2). No forced chunking, no
+  automatic spend of reserved slots, no promise of immediate full history.
+- **Per-load defined:** one chart-load wave for one symbol + timeframe + ext-hours mode. A same-chart reload
+  coalesces into the running wave and shares its allocation (AP-P7-2); a cancelled slot is refunded only
+  when its request never reached TWS (AP-P7-3 / AR-P7-4).
+- **Budget-number reconciliation (plan Flagged Issue 3):** the tree carries `MAX_HISTORICAL_PER_600S = 100`
+  (`config/settings.py`, owner-set per the source comment); ESC-075's "50-slot" text is stale prose. The
+  operative value is **100 per the source**, and the invariant is fraction-based so it holds under either
+  value — both figures are named here, none silently chosen.
+- **User guides (changeset 4, same task):** `usage.md` is the canonical full guide (LWC-only engine, no
+  `NDT_CHART_ENGINE` opt-in, port/paper-live reconciliation, as-of dated); `USAGE.txt` is a short
+  pointer/quick-start. Packaging/`NDThinkChart.spec` bundle no plain-text consumer (checked 2026-10-28),
+  so the pointer form is safe. No source/test file changed.

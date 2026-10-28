@@ -1,6 +1,10 @@
 # NDThinkChart — Usage Guide
 
-A PyQt6 trading terminal for Interactive Brokers TWS with two chart engines — **pyqtgraph** (the default) and **Lightweight Charts** (served through QtWebEngine) — and the official `ibapi`.
+> **As of 2026-10-28.** Canonical user guide. Short version: `USAGE.txt` (pointer + quick start).
+> Change record: `docs/phase-changelog.md`.
+
+A PyQt6 trading terminal for Interactive Brokers TWS with the **Lightweight Charts** engine
+(served through an offline QtWebEngine page) and the official `ibapi`.
 
 ---
 
@@ -9,7 +13,7 @@ A PyQt6 trading terminal for Interactive Brokers TWS with two chart engines — 
 - **macOS 11+ (Big Sur)** on Apple Silicon (ARM64)
 - **Python 3.11+** (managed via pyenv recommended)
 - **Interactive Brokers TWS** installed and running
-- **TWS API port 7496** enabled (Live trading — *no paper mode*)
+- **TWS API port 7496** enabled (the app refuses any other port; account type comes from the TWS login)
 
 ---
 
@@ -24,8 +28,9 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
-# requirements.txt pins PyQt6-WebEngine to the installed PyQt6 version.
-# Keep those two in step when you upgrade PyQt6.
+# requirements.txt pins PyQt6-WebEngine to the installed PyQt6 version (the chart
+# engine runs on it — it is required, not optional). Keep those two in step
+# when you upgrade PyQt6.
 
 # 3. Ensure TWS is running on port 7496
 #    TWS → Edit → Global Configuration → API → Settings
@@ -72,7 +77,7 @@ The bundle is self-contained:
 | `IBKR_PORT` | `7496` | TWS socket port (Live only) |
 | `IBKR_CLIENT_ID` | `1` | Unique client ID per session |
 | `DB_PATH` | `charting_app.sqlite3` | SQLite path (dev); overridden in bundle |
-| `NDT_CHART_ENGINE` | unset (pyqtgraph) | Chart engine. Set to `lwc` for the Lightweight Charts engine; any other value — including unset — keeps pyqtgraph |
+| `NDT_CHART_ENGINE` | ignored (legacy) | Older versions used this to select a chart engine. The app is now Lightweight-Charts-only; the variable is read by nothing that selects a renderer, so setting it has no effect |
 
 ```bash
 # Example: custom port + client ID
@@ -81,31 +86,25 @@ IBKR_PORT=7496 IBKR_CLIENT_ID=123 python main.py
 
 ---
 
-## Chart Engines
+## Chart Engine
 
-The app ships two renderers behind one `create_chart_view` seam:
+The app renders with **Lightweight Charts (LWC)** through an offline QtWebEngine page behind the
+`create_chart_view` seam. The legacy pyqtgraph renderer was removed (P6-T13, owner-approved); there is
+no engine switch and no opt-in — one engine, always on.
 
-- **pyqtgraph** — the default. Unchanged behaviour, and what every run uses unless you opt in.
-- **Lightweight Charts (LWC)** — the new renderer, served through an offline QtWebEngine page. Feature parity is complete, but it has not yet been through a live trading session, so pyqtgraph stays the default until that cutover is accepted and pyqtgraph is removed.
-
-Opt in per run:
-
-```bash
-NDT_CHART_ENGINE=lwc python main.py
-```
-
-An unset, blank or unknown `NDT_CHART_ENGINE` value keeps the pyqtgraph engine, so a typo never blanks the chart.
-
-**Size:** the LWC engine needs `PyQt6-WebEngine`, which adds about **292 MB** of QtWebEngine/Chromium frameworks to the packaged app — roughly **661 MB** versus **369 MB** without it (measured before PyInstaller packing). `PyQt6-WebEngine` must match the installed `PyQt6` version.
-
-One live trading session is still owed before pyqtgraph is removed. Until then both engines are present, and pyqtgraph remains the default.
+- `PyQt6-WebEngine` is **required** (it hosts the chart) and must match the installed `PyQt6` version.
+- A `NDT_CHART_ENGINE` value left over from an older version is **ignored** — it cannot blank the chart.
+- The LWC assets ship vendored (`chart_assets/lwc/`, v5.2.1) and are bundled with the app, so the chart
+  works fully offline.
 
 ---
 
 ## TWS Setup Checklist
 
 1. **Install TWS** from IBKR website (not IB Gateway)
-2. **Login** with live credentials
+2. **Login** — live account for live trading. The app connects only to `127.0.0.1:7496` and refuses
+   any other port; a paper (DU) TWS login on that same port works too (connection badge shows amber
+   `Paper`), since the guard is on the port, not the account type
 3. **Enable API**:
    - Edit → Global Configuration → API → Settings
    - ✅ Enable ActiveX and Socket Clients
@@ -138,6 +137,31 @@ One live trading session is still owed before pyqtgraph is removed. Until then b
 1. Click the **Watchlist** header button to collapse the dock — it shrinks to a thin vertical bar showing the rotated `WATCHLIST` label
 2. Click the bar (or its handle) to expand it back to the width it held before collapsing
 3. The collapse state is not persisted — the app always starts with the watchlist expanded
+
+### Pop-out Charts
+1. The toolbar **Pop out** button (or Ctrl/Cmd+P) detaches the current ticker into a slim standalone chart window — up to 10 per ticker
+2. Pop-outs follow their ticker in real time (bars, studies, zones, lines, alarms stay in sync); there is only one IBKR market-data subscription per symbol no matter how many windows show it
+3. Timeframe, mode and extended-hours are frozen at pop-out time; drawing, alarm placement and study changes happen in the main chart only (pop-outs are read-only views — zoom, pan and crosshair still work)
+4. Header context menu toggles always-on-top per window (off by default); pop-outs are restored after an app restart
+5. Alarms are evaluated per ticker, so an alarm fires even while the main chart shows a different symbol — including tickers with no visible chart, which are monitored headlessly
+
+### Event Markers (Phase D38)
+- The chart shows time-axis markers for earnings (gold diamond `E`), dividends (green circle `D`) and splits (blue triangle `S`); a countdown label (`Earnings in 3d`) shows for the next upcoming event
+- Dividend data comes from IBKR first, earnings/splits from yfinance (the app's only secondary data source); if neither source has events, the chart says so explicitly instead of showing nothing
+
+### Volume-Burst Alerts & Symbol Search (Phase D39)
+- The search box sits in the watchlist header: type part of a ticker (requests at most ~once per 300ms, up to 16 matches as symbol/security-type/exchange); while disconnected the box is disabled
+- A `volume_burst` alarm compares each bar's volume against the typical volume for that time of day (robust median/MAD baseline over the last 30 bars of the same minute-of-day) and fires when the z-score reaches your threshold (default 4.0, minimum 1.0)
+- The baseline needs 5 bars before it can evaluate (`warming up (n/5)`); symbols under 1.0 contracts/shares per minute are never evaluated; a fired burst behaves exactly like a price alarm (toast + sound once, re-arm works, headless tickers included)
+- Index alarms trade the proxy tape (e.g. SPX watches ES front-month volume) and the baseline resets on futures roll
+
+### TWS Daily Lifecycle (Phase D40)
+- When TWS goes away (e.g. overnight close), the badge shows amber `Monitoring paused — TWS disconnected` — never green; while paused no alarm is evaluated and nothing can fire
+- Log into TWS in the morning with no app restart: the app reconnects, resubscribes, and resumes monitoring; the status bar reports the gap (e.g. `ES, NQ unmonitored 22:14–09:40`)
+- Resume never triggers alarms by itself — prices re-seed quietly and an alarm fires only if the live price then crosses its level; brief intraday drops reconnect in the background with no pause badge
+
+### Weekly & Monthly Timeframes (Phase D48)
+- The timeframe picker offers `1 week` (2 years of history) and `1 month` (10 years of history) after `1 day`; daily-and-coarser loads ignore the Ext Hours toggle
 
 ### Add Studies
 1. Click **Studies…** button
@@ -214,7 +238,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 - **IBKR layer** (`ibkr/*.py`) — `IBApiClient` (EWrapper/EClient), pacing, subscriptions
 - **Data layer** (`data/*.py`) — SQLite, cache, models, aggregation
 - **UI layer** (`ui/*.py`) — PyQt6 widgets, docks, and the chart behind the
-  `create_chart_view` seam (pyqtgraph default, Lightweight Charts opt-in)
+  `create_chart_view` seam (Lightweight Charts only — the legacy pyqtgraph renderer was removed)
 - **Reconnect hardening** (D27.3) — connection state machine (DISCONNECTED /
   CONNECTING / CONNECTED / RECONNECTING); `_do_reconnect` re-issues the real
   `EClient.connect` with the stored host/port/clientId on exponential backoff
@@ -227,7 +251,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 
 ## Safety
 
-- **Live port only (7496)** — no paper/simulated mode
+- **Port guard: only 7496** — the app refuses to start on any other port (live TWS port; a paper TWS login on the same port shows amber `Paper`)
 - **No order entry in the app** — the app places, cancels and closes nothing; place, cancel and close orders in TWS
 - **Read-Only API** recommended in TWS for extra safety
 

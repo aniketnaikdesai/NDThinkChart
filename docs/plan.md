@@ -3333,6 +3333,15 @@ renderer seam (`ui/chart_view.py`, `services/chart_model.py`, `ui/lwc_*`); the `
 | Hard constraints: no order code (D45/D46); read-only live; owner names method; suite green gate | S-P7-7; Frozen (order absence, Qt-free boundary, renderer seam) | Every wave |
 | Landed substrate (Q-30/Q-35/Q-38/Q-40, 162 retry, S0/D38 removal) | S-P7-7; Frozen | Re-affirmed, no wave |
 
+### Per-load cap semantics (clarification 2026-10-28, Q-51 — no decision changed)
+
+The per-load cap (S-P7-1, P7-W1) is a **maximum, never a target**:
+
+- A single chart load issues **at most** `min(requests needed, floor(B/4))` historical requests, where `B` is the current `MAX_HISTORICAL_PER_600S` rolling budget — the cap never creates work to fill itself.
+- Examples (with `floor(B/4) = 25`): a load needing **1** request issues **1** and stops; a load needing **10** issues at most **10**; a load needing **40** issues at most **25** in this load, persists the completed chunks, and resumes the remainder on later loads under the persist-and-resume / oldest-first floor contract (S-P7-2) — never forced chunking, never an automatic spend of reserved slots, never a promise of immediate full history.
+- **Per-load** means one chart-load wave for one symbol + timeframe + ext-hours mode. A reload for the same chart **coalesces into** the running wave (AP-P7-2) and shares its allocation — it does not open a second allocation. A cancelled slot is refunded **only** when its request never reached TWS (pre-issue cancel, AP-P7-3); post-issue cancels keep their slot (AR-P7-4).
+- **Budget-number reconciliation (Flagged Issue 3, settled as a reading, not a silent choice):** the tree carries `MAX_HISTORICAL_PER_600S = 100` (`config/settings.py`, whose comment marks it owner-set), while ESC-075's text cites a 50-slot budget. The 50 is **stale prose**; the operative value is **100 per the source**, and S-P7-1 states the invariant as a **fraction of the tunable** so it holds under either value and survives future retunes. `AC-D16.8` itself is untouched by this clarification — its restatement stays open Requirements Analyst debt (Flagged Issue 1 / RG-P7-1).
+
 Every ESC-075…079 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
 
 ### Assumptions (plan-level only)
