@@ -658,7 +658,8 @@
     "observed": "[precheck] result missing or mistyped keys: task_id",
     "expected": "result file is malformed",
     "suggested_direction": "re-run the task so it writes a well-formed result per the schema",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: newest P7-T01 result docs/build/results/_archive/wave147_P7-T01.json carries task_id='P7-T01', status done (direct read); latest-per-task gate green; full suite exit 0.",
     "source": "precheck",
     "opened": "2026-10-28T02:30:19.139682+00:00"
   },
@@ -671,7 +672,8 @@
     "observed": "[precheck] result missing or mistyped keys: task_id",
     "expected": "result file is malformed",
     "suggested_direction": "re-run the task so it writes a well-formed result per the schema",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: newest P8-T02 result docs/build/results/_archive/wave163_P8-T02.json carries task_id='P8-T02', status done (direct read); latest-per-task gate green; full suite exit 0.",
     "source": "precheck",
     "opened": "2026-10-28T05:28:55.565959+00:00"
   },
@@ -684,7 +686,8 @@
     "observed": "[precheck] result missing or mistyped keys: task_id",
     "expected": "result file is malformed",
     "suggested_direction": "re-run the task so it writes a well-formed result per the schema",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: newest P8-T03 result docs/build/results/_archive/wave167_P8-T03.json carries task_id='P8-T03', status done (direct read); latest-per-task gate green; full suite exit 0.",
     "source": "precheck",
     "opened": "2026-10-28T05:28:55.565963+00:00"
   },
@@ -697,7 +700,8 @@
     "observed": "[precheck] result missing or mistyped keys: task_id",
     "expected": "result file is malformed",
     "suggested_direction": "re-run the task so it writes a well-formed result per the schema",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: newest P8-T04 result docs/build/results/_archive/wave164_P8-T04.json carries task_id='P8-T04', status done (direct read); latest-per-task gate green; full suite exit 0.",
     "source": "precheck",
     "opened": "2026-10-28T05:28:55.565965+00:00"
   },
@@ -710,7 +714,8 @@
     "observed": "Full suite red: tests/test_history_backfill.py::test_t40_t04_chunked_multi_request_continuity fails for all 4 new params ([1 week|1 month] x [T40SPY|T40AAPL]) with in_span vs expected_ts differing by exactly 86400 at index 0 and 2 extra bars in-span (e.g. week: [1777536000, ...] vs [1777622400, ...], first extra 1869465600; month: same index-0 shift, first extra 2236410000). tests/test_p7_w1_cap.py::test_t13_planner_contracts_and_scoped_suites fails knock-on (it subprocesses the backfill suite; tail shows the same 4 backfill failures, 4 failed / 97 passed). Mechanism: the test parametrizes TIMEFRAMES = list(TIMEFRAME_CONFIG.keys()), so P8's two mandated S-P8-1 rows newly enter the matrix; but its fixture _session_bars (tests/test_history_backfill.py:97-120) models EVERY timeframe as per-trading-day 04:00-ET bars stepped by nominal fixed TIMEFRAME_SECONDS (for week/month: one 04:00 bar/day), which cannot represent Monday-00:00-ET weekly buckets or calendar-month-boundary monthly buckets. P8-T01's own anchor cases (DST fold, February, cross-year Dec/Jan) pass, and an independent probe of the shipped helpers confirms the spec anchors: week_bucket_start(Thu 2026-04-30 04:00 ET) = Mon 2026-04-27 00:00 ET, month_bucket_start = 2026-04-01 00:00 ET. So the production bucketing meets AC-D48.2 and the stale fixture is what disagrees. No P8 task lists tests/test_history_backfill.py (or test_p7_w1_cap.py) in touches_files, so no worker could correct it.",
     "expected": "The T40-T04 fixture models weekly/monthly bars per AC-D48.2 (Monday-00:00-ET week opens, calendar-month-boundary month opens) so the 4 new params pass, and the knock-on t13 subprocess run goes green with it. AC-D48.7's suite-green gate (P8-T05-T31) then becomes achievable.",
     "suggested_direction": "Small follow-up task owning tests/test_history_backfill.py: extend _session_bars (and the _chunk_scenario/span expectations) with a weekly/monthly bar model anchored per AC-D48.2, or scope TIMEFRAMES for this test to the granularities its day-model supports. Do not change data/bar_aggregator.py bucketing to fit the fixture (that would break AC-D48.2). One invariant, one task: the 4 params plus the t13 knock-on share this root cause.",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: P8-T06 landed the AC-D48.2 weekly/monthly branch in tests/test_history_backfill.py. Direct re-run green incl. all 4 week/month T40-T04 params; full offscreen suite 1204 passed / 3 skipped / exit 0. Production data/bar_aggregator.py bucketing untouched.",
     "opened": "2026-10-28T05:35:45Z"
   },
   {
@@ -722,7 +727,8 @@
     "observed": "Two duration-pin tests assert exact 6-row equality and fail on P8's S-P8-1-mandated rows: tests/test_ibkr_handshake_gate.py::test_timeframe_config_untouched (line 154 asserts the 6-duration dict; left now contains '1 week'/'1 month') and tests/test_p7_w3_wide.py::test_t12_unapproved_durations_are_diff_clean (line 352 asserts TIMEFRAME_CONFIG == 6-row approved dict; left contains the 2 new rows). Self-contradiction inside t12: its own comment (line 364-365, '(1 week/1 month are out of scope)') scopes P8 out, yet the line-352 exact-equality assert cannot pass with any added row. No P8 task lists either file in touches_files. NOTE on the worker's 'red on baseline' claim: reproduced in a clean-HEAD worktree, but there both tests fail EARLIER at os.path.exists approval-record checks (t12:357/370, handshake:165) because a fresh worktree lacks the untracked docs/build/approvals/* files present in the real tree; in the real pre-P8 tree the equality asserts pass (6==6). These two pins are therefore NEWLY reddened by P8's approved row additions, not pre-existing red.",
     "expected": "Both pins encode P8's owner-approved 8-row set (S-P8-1/A113): the equality asserts cover all eight rows (or scope to the six with an explicit 2-row P8 allowance), and the approval-record loop covers the P8 addition per its record, so the suite is green with the mandated config.",
     "suggested_direction": "Small follow-up task owning the two test files: extend the approved dicts with the two S-P8-1 rows and extend (or explicitly scope) the approval-record checks. Do not weaken to a subset comparison that would let an unapproved widening through (t12 fails closed by design). Same invariant for both files: one task, not per-file patches.",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: P8-T07 landed the owner-approved eight-row pins (tests/test_ibkr_handshake_gate.py duration map + tests/test_p7_w3_wide.py approved/chained dicts, exact-equality fail-closed shape kept). Both files green in direct re-run; full suite 1204 passed, exit 0.",
     "opened": "2026-10-28T05:35:45Z"
   },
   {
@@ -734,7 +740,8 @@
     "observed": "tests/test_lwc_failure_visibility.py::test_archived_results_carry_task_id fails on 5 task_id-less archive files: wave154_P7-T08.PRIOR_PHASE.json, wave156_P8-T02.json, wave156_P8-T04.json, wave159_P8-T03.json, wave160_P8-T05.json. Every one is a SUPERSEDED intermediate: the newest result for each task carries task_id and a passing selfcheck (P8-T01 wave155, P8-T02 wave163, P8-T03 wave163, P8-T04 wave164; verified in precheck.json files_verified). The gate globs the whole git-ignored docs/build/results/_archive/ directory, so superseded rework waves permanently redden it. The files are written by build_wave.py (orchestration tooling), not by any Build worker, and no P8 task can delete or amend them within its footprint.",
     "expected": "The archived-results gate passes on the terminal record: either superseded intermediate archives are pruned when a task re-runs, or the gate asserts per-task latest-result (not every file ever written). PRE-002..PRE-004's substance (well-formed newest results) is already delivered; only the stale intermediates keep the suite red.",
     "suggested_direction": "Task Manager / Orchestrator decision: prune the 5 superseded files (all have a newer same-task stamped result) or re-scope the gate to latest-per-task. Do not weaken the task_id requirement itself (it caught real PRE-001..004 gaps this round).",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: P8-T08 landed latest-per-task gate + TM-sanctioned prune; all 5 named intermediates confirmed absent on disk; tests/test_lwc_failure_visibility.py green; full suite 1204 passed, exit 0; task_id requirement intact.",
     "opened": "2026-10-28T05:35:45Z"
   },
   {
@@ -746,7 +753,8 @@
     "observed": "S-P8-4 mandates 'one shared daily-or-coarser predicate', but the tree now carries three implementations: services/time_collapse_service.py::is_daily_or_coarser (the canonical one, imported by session_service and lwc_view), services/chart_model.py::is_daily_or_coarser (local copy, justified as Qt-avoidance), and ui/main_window.py::is_daily_or_coarser (local copy). Verified behaviorally equivalent today for all 8 config keys, unknown strings, and None (main_window's bar_period_seconds fallback yields 300 -> False; chart_model guards None explicitly; time_collapse returns False via .get). But a future boundary edit must land in three places. Consolidation is cycle-free: time_collapse_service imports only data.bar_aggregator + services.market_calendar, neither of which imports chart_model or main_window, and main_window already imports both of those modules.",
     "expected": "One predicate: chart_model and main_window import is_daily_or_coarser from services.time_collapse_service (the Qt-free home both copies already approximate), deleting the two local copies.",
     "suggested_direction": "Replace the two local defs with the shared import; keep the call sites unchanged. No behaviour change; the existing P8-T03/T04 suites discriminate the boundary.",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: consolidation landed by green work - single def services/time_collapse_service.py:53; services/chart_model.py:36 and ui/main_window.py:86 import it; repo grep finds no other def. Full suite 1204 passed, exit 0.",
     "opened": "2026-10-28T05:35:45Z"
   },
   {
@@ -758,7 +766,8 @@
     "observed": "data/bar_aggregator.py:99 defines _CALENDAR_BUCKETED_TIMEFRAMES = frozenset({'1 week', '1 month'}) but nothing references it: _bucket_start (lines 102-110) compares against the two literal strings instead. Dead set literal one screen above its only plausible use.",
     "expected": "Either _bucket_start tests membership in _CALENDAR_BUCKETED_TIMEFRAMES (dispatching to the matching helper), or the frozenset is removed. No behaviour change either way.",
     "suggested_direction": "Prefer using the set (it documents the calendar-bucketed family in one place, consistent with the R95 enumeration concern).",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: data/bar_aggregator.py:107 _bucket_start now dispatches via `timeframe in _CALENDAR_BUCKETED_TIMEFRAMES` (dead set wired to its use). Full suite 1204 passed, exit 0.",
     "opened": "2026-10-28T05:35:45Z"
   },
   {
@@ -770,7 +779,8 @@
     "observed": "P8 adds user-visible picker entries (1 week / 1 month after 1 day, AC-D48.5) but no P8 task owns user docs (all doc_required: false). usage.md:134 still reads 'Select timeframe (1 min - 1 day)', which is now factually wrong (range is 1 min - 1 month). USAGE.txt has no timeframe-range statement (only the pop-out freeze line at :138), so it is merely missing coverage, not stale.",
     "expected": "usage.md's timeframe range reads (1 min - 1 month) (and a one-line D48 picker note if the project wants per-batch coverage in USAGE.txt per the ESC-058 convention).",
     "suggested_direction": "Small documentation task owning usage.md (and optionally USAGE.txt). Docs-only; no code or test change.",
-    "status": "open",
+    "status": "addressed",
+    "verified": "2026-10-28 close-out: P8-T09 landed docs-only - usage.md:134 reads 'Select timeframe (1 min - 1 month, including 1 week and 1 month)'; USAGE.txt:217 carries the D48 picker section. Both doc_candidates touched. No code/test change; suite green.",
     "opened": "2026-10-28T05:35:45Z"
   }
 ]

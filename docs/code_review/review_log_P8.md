@@ -143,3 +143,81 @@ only stale intermediates keep this leg red (see §C).
   in `docs/code_review/escalations.json`. No code or any other file touched.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Code Review — P8 close-out pass (T06–T09 + Q follow-ups), phase-final — 2026-10-28
+
+**Reviewer:** Code Reviewer agent (subagent close-out). **Phase:** P8 (D48, Batch 23).
+**Scope:** `P8-T06`…`P8-T09` (follow-ups to ESC-080/081/082/085), the Q-46/Q-48
+follow-ups, ESC-083/084 nice-to-haves, PRE-001…004 + PRE-005…009 adjudication,
+and close-out of ESC-080/081/082/083/084/085. ESC-075…079 explicitly out of scope
+(prior phase — left untouched). Entry: committed tree @ `8f72f42`, clean.
+**Tier: FULL pass** — phase-final, required unconditionally.
+**Ground truth consumed, not re-derived:** `docs/code_review/precheck.json`
+(gen. 2026-10-28T14:09Z — scope `[P8-T01, P8-T03, P8-T06…P8-T09]`,
+`fail_fast: [P8-T08]` via PRE-005…009, `doc_candidates` 3 with both user docs
+touched); task-graph P8 (T01–T04, T06–T09 `done`, T05 `blocked` — gate evidence
+is the suite itself). `test_verification.json` on disk was stale (red on the
+superseded gate), so per the brief I ran the suite fresh rather than trusting it.
+
+## A. Fresh verification (mine, this pass)
+
+- **Full offscreen suite:** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest
+  -q -o addopts=""` → **1204 passed, 3 skipped, exit 0, ~70 s.** Suite is green;
+  P8-T05's AC-D48.7 gate evidence holds.
+- **Targeted re-run:** `test_lwc_failure_visibility.py` +
+  `test_history_backfill.py` + `test_ibkr_handshake_gate.py` + `test_p7_w3_wide.py`
+  → all green (no failures).
+- **PRE-005…009 adjudication — CONFIRMED INVALID, not appended:** the 5 flagged
+  paths (`wave154_P7-T08.PRIOR_PHASE`, `wave156_P8-T02`, `wave156_P8-T04`,
+  `wave159_P8-T03`, `wave160_P8-T05`) are byte-for-byte the 5 files P8-T08's
+  TM-approved task description orders deleted (AC2 lists each path verbatim);
+  all 5 confirmed absent on disk (`GONE` × 5); P8-T08's verified files are
+  `tests/test_lwc_failure_visibility.py` only — no worker edit outside footprint.
+  The precheck "violation" is the sanctioned prune observed as a diff, the same
+  class as the `PRIOR_PHASE` consolidation rename. No `BUILD` escalation exists
+  or is filed; the Orchestrator's invalidation stands on this evidence.
+
+## B. Follow-up verification (each re-verified on the live tree, not on report)
+
+| id | landed work | how confirmed |
+|---|---|---|
+| ESC-080 (T06) | `_session_bars` weekly/monthly AC-D48.2 branch | `test_history_backfill.py` green incl. all 4 week/month T40-T04 params; production `bar_aggregator.py` bucketing untouched |
+| ESC-081 (T07) | eight-row duration pins, exact-equality kept | both pin files green in direct re-run; approval loop still P7-five-only |
+| ESC-082 (T08) | latest-per-task gate + 5-file prune | gate file green; 5 paths absent; `task_id` requirement intact (newest results all carry it) |
+| ESC-085 (T09) | docs-only | `usage.md:134` reads "1 min – 1 month, including 1 week and 1 month"; `USAGE.txt:217` D48 section present |
+| ESC-083 | predicate consolidation | single `def` at `time_collapse_service.py:53`; `chart_model.py:36` + `main_window.py:86` import it; repo grep finds no other def |
+| ESC-084 | dead set wired up | `_bucket_start` (`bar_aggregator.py:107`) dispatches via `in _CALENDAR_BUCKETED_TIMEFRAMES` |
+| PRE-001…004 | newest results well-formed | direct reads: `wave147_P7-T01`, `wave163_P8-T02`, `wave167_P8-T03`, `wave164_P8-T04` all carry `task_id` + `done`; gate green |
+| Q-46 / Q-48 | test-book alignment / pinned chunk math | commits `8e74373` / `d941e54` in history; suite green over them |
+| Q-49 | — | no Q-49 artifact exists anywhere (history, notes, build log all searched): nothing outstanding, no finding filed |
+
+- **Usage-doc judgment:** candidates `USAGE.txt` + `usage.md` both `touched: true`,
+  both verified above with D48-correct content. Gate met, no finding.
+- **Mock-endpoint containment (B.6):** scoped production files show zero
+  mock/fake/stub/simulat × endpoint/client/service/server/api/harness hits; no
+  production module imports `tests.*` (repo grep, 0 hits). Clean, non-downgraded.
+- **Test integrity:** no skips/xfails added in the P8 test diffs; no weakened
+  assertion found (T06 adds a branch, T07 extends dicts keeping exact equality,
+  T08 keeps the fail-closed newest-missing check plus a synthetic proving case).
+
+## C. Escalation close-out
+
+- **Flipped to `addressed` with per-entry `verified` (10):**
+  ESC-080, ESC-081, ESC-082, ESC-083, ESC-084, ESC-085,
+  PRE-001, PRE-002, PRE-003, PRE-004. Each re-verified above by direct
+  file reads and test runs, never on the owning agent's say-so.
+- **PRE-005…009:** never entered `escalations.json` (correctly); confirmed
+  invalid here with evidence (§A). Nothing to flip.
+- **ESC-075…079: left `open`, untouched** — prior-phase scope per the brief; no
+  P8 interaction re-diagnosed this pass.
+
+## D. Findings this pass
+
+**None.** No new code, quality, consistency, security, or gap findings. The P8
+batch (weekly/monthly timeframes + widened durations, T01–T04 + T06–T09, Q-46 /
+Q-48) is fully landed with a green 1204-test suite on the committed tree, both
+user docs correct, and every P8-routed escalation closed on verified evidence.
+
+Status: REVIEW_COMPLETE
