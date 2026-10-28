@@ -399,3 +399,27 @@ coder's and reviewer's reports for that phase, verified against the branch.
 
 ### USAGE.txt
 - New "Footprint charts (Phase D36)" section: toggle location, style toggle, metric selector, OFF default, cache scope, loading states.
+
+---
+
+## Phase P6 (D47) — chart migration to Lightweight Charts + P6-T13 removal (as-built, appended 2026-10-28)
+
+- **Status:** Built 2026-10-26 (waves `P6-T01`…`P6-T12` + hotfix trail `Q-1`…`Q-17`); **P6-T13 executed 2026-10-27
+  as removal commit `6e35b27`** (owner-approved). The tree is LWC-only: `ui/chart_view.py::create_chart_view`
+  always returns the LWC view; `NDT_CHART_ENGINE` / `QSettings chart/engine` no longer select a renderer.
+- **Review:** Code Reviewer pass over `P6-T01`…`P6-T12` + `Q-1`…`Q-17` verdict **REVIEW_COMPLETE** 2026-10-27
+  (`docs/code_review/review_log_P6.md` — no blocking code defect; 1 should-fix ESC-070 silent engine start,
+  3 nice-to-have, 1 Task Manager note). Post-review ad-hoc investigation of the owner's 1-min backfill
+  starvation filed ESC-075 (blocking) + ESC-076/077/078 + ESC-079 (budget invariant gap), all open into P7.
+- **Gate:** `docs/build/gate_P6_T13.md` — owner approval SATISFIED 2026-10-27; the one-clean-live-session
+  sign-off (AC-D47.8 / S59) **WAIVED, NOT SATISFIED** (no live session run); oracle decision RETIRE (34
+  engine-specific + 30 oracle-comparison suites went with the engine; lost coverage ledgered in
+  `docs/lwc_parity_matrix.md` "Retired coverage (P6-T13, 2026-10-27)").
+- **Parity:** feature-parity rows 1–18 Done/accepted (Q-8 + Q-9 reconciliations, each on a named passing test);
+  row 19 (pyqtgraph retained/default) Retired — retention is moot post-removal. Parity and deletion are
+  recorded separately; no row claims live-session validation.
+- **Tests:** wave gate suites per `docs/build/results/P6-T*.json` + `Q-*.json`; full offscreen suite green at
+  each landing (see `docs/build/test_verification.json`).
+- **Follow-ups (not P6 scope):** ESC-070 (surface engine-start failure) still owed; the one clean live session
+  is still owed as live validation of the LWC-only tree; ESC-075…ESC-079 feed P7 (per-load cap S-P7-1) with
+  the `AC-D16.8` restatement open as Analyst debt.

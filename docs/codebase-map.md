@@ -41,6 +41,17 @@
 > key additions plus in-place predicate/mode/minutes edits — so every annotation above carries forward and the
 > generated test-impact rows stand as regenerated (Plan-confirmed).
 >
+> **As-built P6-T13 note (2026-10-28):** the P6 plan-time sentences above ("pyqtgraph retained and default
+> through Phase 10", "no pyqtgraph code is deleted before Phase 11") are **superseded history** — P6-T13 executed
+> 2026-10-27 (removal commit `6e35b27`; gate owner-waived per `docs/build/gate_P6_T13.md`). The tree is
+> **LWC-only**: `ui/chart_view.py::create_chart_view` always returns the LWC view; `NDT_CHART_ENGINE` /
+> `chart/engine` no longer select a renderer. Deleted: `ui/chart_panel`, `ui/candlestick_item`, the pyqtgraph
+> overlay/control/router-companion modules, `ui/overlays/` contents (package marker only). Kept: the seam
+> (`ui/chart_view.py`), the shared model (`services/chart_model.py`), the LWC host/view/bridge
+> (`ui/lwc_host.py`, `ui/lwc_view.py`, `ui/lwc_bridge.py`), `chart_assets/lwc/`, `spikes/lwc/` (never imported).
+> Row-level detail (parity vs deletion, retired suites) lives in `docs/lwc_parity_matrix.md`; gate disposition in
+> `docs/build/gate_P6_T13.md`; the full outcome in `docs/architecture.md` § Phase P6 (as-built T13 outcome).
+>
 > **Status-cell reading rule for P6:** rows below that still carry a P5-era status (`[changed in P5]`,
 > `deleted in P5`) describe the **delivered P5 end state**; under the P6 legend they read as `[existing]`
 > (present, unmodified by P6) and deleted history respectively. Only the rows explicitly marked `[new in P6]` /

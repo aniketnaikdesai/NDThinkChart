@@ -45,9 +45,26 @@ acceptance + full parity + Phase-0 perf) stands in for it (S59). Phase waves per
 | 16 | Perf parity (Phase-0 baseline holds) | perf baseline in `docs/lwc_spike_results.md` | cutover evidence vs baseline (triple gate) | P6-12 | Done / accepted |
 | 17 | Bundle size + signing disposition | measured delta in `docs/lwc_spike_results.md` (Q61/A109) | vendored tree in `datas`; measured delta + signing disposition recorded | P6-12 | Done / accepted |
 | 18 | Offline/airplane + deny-default network | new in P6-04 (DG88/DG91) | interceptor + offline case green | P6-04 | Done / accepted |
-| 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | Done / accepted |
+| 19 | pyqtgraph default retained through cutover | locked decision (D47 reversal) | pyqtgraph present + default until Phase 11 approval | P6-12/P6-13 | **Retired** (P6-T13 as-built 2026-10-28 — retention moot, nothing retained; see note above) |
 
-Row count: 19. Dispositioned Open/pending: 0. Done/accepted: 19.
+Row count: 19. Dispositioned Open/pending: 0. Done/accepted: 18. Retired (retention moot post-removal): 1.
+
+## P6-T13 as-built — parity vs deletion, separated (2026-10-28)
+
+Source: `ui/chart_view.py::create_chart_view` always returns `LwcChartView` (verified 2026-10-28);
+`NDT_CHART_ENGINE` / `QSettings chart/engine` no longer select a renderer. Removal commit `6e35b27`;
+gate `docs/build/gate_P6_T13.md` (approval SATISFIED 2026-10-27; live-session sign-off **WAIVED, NOT
+SATISFIED**; oracle RETIRE).
+
+- **Feature parity (rows 1–18): unchanged, Done / accepted.** Every row keeps the named passing test
+  recorded in its wave section / the Q-8 and Q-9 reconciliations above. Deleting the old engine does not
+  un-prove what the LWC engine was proven to do.
+- **Cutover/deletion (row 19): Retired.** Row 19 ("pyqtgraph present + default until Phase 11 approval")
+  described a retention that no longer exists — nothing is retained, there is no default to hold, and Phase 11
+  approval is moot. Evidence: removal commit `6e35b27`, `docs/build/gate_P6_T13.md` §2–§3, and the
+  "Retired coverage" section below (the value-for-value oracle that went with the engine).
+- **Waived, not satisfied, preserved.** The live-session deletion gate (AC-D47.8 / S59) stays recorded as
+  waived per the gate file — no row in this matrix claims a live session validated the engine.
 
 ## Rule-10 entries — none open after Q-9
 

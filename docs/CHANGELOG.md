@@ -1,5 +1,22 @@
 # Changelog
 
+> **Role (set 2026-10-28):** short index. The as-built history lives in `docs/phase-changelog.md` — this file
+> points at it and carries no independent narrative. Per-entry detail (commits, tests, review verdicts) is
+> added to `docs/phase-changelog.md`, never here.
+
+## P6 (D47) — 2026-10-27
+
+Chart migration to Lightweight Charts behind the `ChartView` seam, then pyqtgraph removal (P6-T13,
+commit `6e35b27`, gate owner-waived per `docs/build/gate_P6_T13.md`). Full record:
+`docs/phase-changelog.md` § Phase P6 (D47). Parity: `docs/lwc_parity_matrix.md` (rows 1–18 accepted,
+row 19 retired).
+
+## P7 / P8 — no as-built entries yet
+
+P7 (data-path batch) and P8 (D48 weekly/monthly timeframes, drafted 2026-10-28) have no shipped history to
+index; sequencing and design live in `docs/plan.md` and `docs/architecture.md` §§ Phase P7 / Phase P8.
+Index rows will be added here when their as-built entries land in `docs/phase-changelog.md`.
+
 ## P4 — 2026-10-26
 
 Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.

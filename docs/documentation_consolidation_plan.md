@@ -1,7 +1,19 @@
 +# Documentation Consolidation and Update Plan
 
 **Prepared:** 2026-10-28  
-**Status:** Proposed plan only — no existing documentation changed by this plan.  
+**Status:** Proposed plan only — no existing documentation changed by this plan.
+
+> **Changesets 1–2 applied 2026-10-28 (Q-50; append-only, plan text above unedited):** authority/index +
+> current-status fact sheet and P6 reconciliation landed in `docs/README.md` (new index),
+> `docs/codebase-map.md` (as-built P6-T13 note), `docs/lwc_parity_matrix.md` (parity-vs-deletion separation,
+> row 19 Retired), `docs/phase-changelog.md` (§ Phase P6 as-built entry), `docs/CHANGELOG.md` (index role +
+> P6 pointer). **Not applied in this changeset:** the `docs/architecture.md` as-built T13 outcome subsection
+> and the `docs/code_review/review_log_P6.md` dated addendum — both files reject worker edits (tool permission);
+> their full texts ride in `docs/build/quick/results/Q-50.json` for the follow-up applier. Fact sheet behind
+> the edits: chart-engine status from `ui/chart_view.py::create_chart_view` (LWC-only) +
+> `docs/build/gate_P6_T13.md` (waived-not-satisfied preserved); connection from `config/settings.py`
+> (`IBKR_HOST` 127.0.0.1 / `IBKR_PORT` 7496 / `IBKR_CLIENT_ID` 1, `LIVE_PORT` 7496 fail-fast,
+> live-only); `AC-D16.8` restatement kept as open Analyst debt (S-P7-1 flagged, not rewritten).  
 **Review scope:** 51 tracked Markdown/text files, plus current untracked review reports and the P8 review note. Generated build, distribution, cache, and graph reports are outside the canonical documentation set.
 
 ## 1. Purpose
