@@ -221,3 +221,56 @@ Q-48) is fully landed with a green 1204-test suite on the committed tree, both
 user docs correct, and every P8-routed escalation closed on verified evidence.
 
 Status: REVIEW_COMPLETE
+
+## Focused close-out pass — ESC-075/076/077/078 (P7 1-min-chart defects) — 2026-10-28
+
+**Tier:** full (phase-final duty for the in-scope slice: four pre-existing BUILD
+escalations from a prior phase; precheck clean, 0 fail-fast). **Entry:** full
+offscreen suite green on the committed tree (re-measured this pass: 1204 passed /
+3 skipped / exit 0 in 73 s, superseding the stale `test_verification.json`
+fail which names a `wave167_P8-T03.json` state that no longer holds — that file
+now carries `task_id` and `test_lwc_failure_visibility.py` is 11/11 green).
+**Scope note:** ESC-079 (PLAN) and ESC-083/084 leftovers untouched per the brief;
+this pass owns only the four BUILD close-outs. No code or task-graph edits made;
+only `escalations.json` (four status flips) and this log were modified.
+
+**Method:** for each ESC, read the P7 implementation diff (commit `7cba534`: per-load
+cap, per-chunk persist, coalescing, refund, superseded-162, window-relative
+watchdog, strand clearing, prime precedence) against the live files, confirmed
+the guards drive real `MainWindow`/`TickerSession` paths (recording fake
+transport + in-memory bar cache only), ran all 8 P7 test modules green
+(37 passed), ran one neutralising mutation per fix (restored byte-identical via
+`git checkout`, tree verified clean after), and re-ran the full suite green.
+
+- **ESC-075 (blocking, 1-min stuck + storm) → addressed.** Cap
+  `floor(MAX_HISTORICAL_PER_600S/4)` as a tunable fraction; cap-exhaustion yields
+  with remainder queued and no continuation timer; per-chunk persist+render with
+  flush-before-cancel and finaliser owing only never-completed members; T12 proves
+  monotonic oldest-first convergence to the 30-session floor. Mutations:
+  cap-to-huge fails cap-T11; persist neutered fails persist-T11.
+- **ESC-076 (should-fix, nine 162s) → addressed.** Identical-triple reload
+  coalesces (cancels empty, generation and reqIds unchanged, wave completes);
+  triple change still cancels and fences; pre-issue-only refund (empty-budget
+  no-op, interval clock untouched); superseded-162 at debug with no status-bar
+  error, genuine 162 keeps warning, status and single-retry. Mutation:
+  superseded branch neutralised fails coalesce-T14.
+- **ESC-077 (should-fix, fixed 120 s watchdog) → addressed.** Bound
+  `max(window/5, wait+window/20)` from `pacing_manager._hist_window`; re-armed on
+  every scheduled continuation including the 162-retry path; strand stops the
+  timer, clears the queue, fences the generation, finalises exactly once (timeout
+  and disconnect strands both proven; late end-markers and continuation ticks
+  no-op). Mutation: fixed 120000 bound fails watchdog-T11.
+- **ESC-078 (nice-to-have, prime starvation) → addressed.** Deferred prime holds
+  `_prime_reserved` and slips a queued wave by exactly one
+  `HISTORICAL_MIN_INTERVAL_S`; reservation released on issue, fail-open, backstop,
+  teardown and reload; a skipped prime warns (naming symbol and timeframe) and
+  counts `_prime_skipped_count`, while a merely deferred prime is never counted.
+  Mutation: slip removed fails prime-T11.
+
+**Escalation close-out:** flipped ESC-075/076/077/078 to `addressed` with per-entry
+`verified` (code sites, guard names, mutation evidence, suite result), each
+re-verified on the live tree, never on the worker's word. ESC-079 left `open`
+untouched. No new findings; no follow-ups opened — every sub-claim the four
+reports named is implemented and guarded by a discriminating test.
+
+Status: REVIEW_COMPLETE
