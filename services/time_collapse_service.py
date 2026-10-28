@@ -45,6 +45,27 @@ from services.market_calendar import session_windows
 #: The only timeframe for which collapse is a no-op (one bar per trading day).
 IDENTITY_TIMEFRAME = "1 day"
 
+#: Seconds in one trading day — the granularity floor for the shared
+#: daily-or-coarser predicate (S-P8-4, A118).
+_DAILY_PERIOD_SECONDS = 86400
+
+
+def is_daily_or_coarser(timeframe: str | None) -> bool:
+    """True for daily-and-coarser granularities (S-P8-4, R95).
+
+    Any timeframe whose bar period spans a full trading day or more
+    (``1 day``, ``1 week``, ``1 month``) shares one canonical full-session
+    mode: no session bands and no time collapse (both are intraday
+    concepts). Period-based — not a name tuple — so a future daily+
+    granularity is covered without touching every gate. Unknown or
+    sub-daily timeframes return False (``1 day`` itself stays covered even
+    if the period table ever drops it).
+    """
+    if timeframe == IDENTITY_TIMEFRAME:
+        return True
+    period = TIMEFRAME_SECONDS.get(timeframe or "")
+    return period is not None and period >= _DAILY_PERIOD_SECONDS
+
 Number = Union[int, float]
 
 
@@ -165,9 +186,10 @@ class TimeCollapseMap:
         ts = int(ts)
         if not self._ts_sorted or ts <= self._ts_sorted[-1]:
             return False
-        if self.timeframe == IDENTITY_TIMEFRAME:
-            # "1 day" is an identity map by construction (build never
-            # collapses it) — the tail step is a plain append.
+        if is_daily_or_coarser(self.timeframe):
+            # Daily-and-coarser granularities are identity maps by
+            # construction (build never collapses them) — the tail step is
+            # a plain append.
             self.x_values.append(ts)
             self._ts_sorted.append(ts)
             self._display_sorted.append(ts)
@@ -208,7 +230,7 @@ def build_collapse_map(bars: Iterable, timeframe: str, ext_hours: bool) -> TimeC
     bar_period = TIMEFRAME_SECONDS[timeframe]
     ts_seq = [_bar_ts(bar) for bar in bars]
 
-    if timeframe == IDENTITY_TIMEFRAME:
+    if is_daily_or_coarser(timeframe):
         return TimeCollapseMap(
             timeframe=timeframe,
             bar_period=bar_period,

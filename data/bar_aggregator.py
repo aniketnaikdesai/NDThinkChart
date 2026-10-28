@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional
 from data.models import Bar
 
@@ -19,6 +19,11 @@ TIMEFRAME_SECONDS: Dict[str, int] = {
     "1 hour":  3600,
     "4 hours": 14400,
     "1 day":   86400,
+    # S-P8-2 nominal keys for fixed-seconds consumers only (A115). These are
+    # never used for weekly/monthly bucketing — weeks anchor to Monday 00:00
+    # ET and months to the calendar-month boundary (see below).
+    "1 week":  604800,
+    "1 month": 2592000,
 }
 
 
@@ -71,6 +76,41 @@ def _period_start(
     return (ts // seconds) * seconds
 
 
+# S-P8-2: calendar-anchored bucketing for the two coarse timeframes. Weeks
+# and months are calendar concepts — a fixed-seconds grid would drift month
+# ends (R94: 28–31-day months, February) — so these helpers sit BESIDE the
+# existing fixed-seconds grid above, which is left byte-untouched.
+def week_bucket_start(ts: int) -> int:
+    """Start of the weekly bucket containing ``ts``: Monday 00:00 ET."""
+    et = datetime.fromtimestamp(ts, tz=_EASTERN)
+    monday = (et - timedelta(days=et.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return int(monday.timestamp())
+
+
+def month_bucket_start(ts: int) -> int:
+    """Start of the monthly bucket containing ``ts``: month boundary ET."""
+    et = datetime.fromtimestamp(ts, tz=_EASTERN)
+    first = et.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return int(first.timestamp())
+
+
+_CALENDAR_BUCKETED_TIMEFRAMES = frozenset({"1 week", "1 month"})
+
+
+def _bucket_start(
+    ts: int, seconds: int, timeframe: Optional[str] = None
+) -> int:
+    """Period start for any timeframe: calendar buckets for week/month,
+    the existing fixed-seconds grid (``_period_start``) otherwise."""
+    if timeframe in _CALENDAR_BUCKETED_TIMEFRAMES:
+        if timeframe == "1 week":
+            return week_bucket_start(ts)
+        return month_bucket_start(ts)
+    return _period_start(ts, seconds, timeframe)
+
+
 class BarAggregator:
     """
     Rolls incoming IBKR 5-second real-time bars into any wider timeframe.
@@ -100,7 +140,7 @@ class BarAggregator:
 
     def period_start(self, ts: int) -> int:
         """Start of the candle period containing ``ts`` (D27.9 priming)."""
-        return _period_start(ts, self._period_seconds, self.timeframe)
+        return _bucket_start(ts, self._period_seconds, self.timeframe)
 
     def push(self, ts: int, o: float, h: float, l: float, c: float, vol: float):
         """Feed one 5-second bar from IBKR into the aggregator.
@@ -110,7 +150,7 @@ class BarAggregator:
         """
         if self._last_pushed_ts is not None and ts <= self._last_pushed_ts:
             return  # skip duplicate / stale bar from replay
-        ps = _period_start(ts, self._period_seconds, self.timeframe)
+        ps = _bucket_start(ts, self._period_seconds, self.timeframe)
         is_new = False
 
         if self._state is None or ps != self._state.period_start:

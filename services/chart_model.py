@@ -30,7 +30,11 @@ from services.indicator_service import (
     vwap_update,
 )
 from services.market_calendar import session_windows
-from services.time_collapse_service import TimeCollapseMap, build_collapse_map
+from services.time_collapse_service import (
+    TimeCollapseMap,
+    build_collapse_map,
+    is_daily_or_coarser,
+)
 
 
 # ── Render modes ─────────────────────────────────────────────────────────────
@@ -65,6 +69,10 @@ def plotted_index_rows(bars: Sequence, timeframe: str | None, ext_hours: bool) -
         return list(range(len(bars)))
     if timeframe is None or timeframe not in TIMEFRAME_SECONDS:
         return list(range(len(bars)))
+    if is_daily_or_coarser(timeframe):
+        # S-P8-4 / D48.4: daily-and-coarser bars always plot — the RTH/ETH
+        # toggle is a display no-op for these timeframes.
+        return list(range(len(bars)))
     period = TIMEFRAME_SECONDS[timeframe]
     return [
         i for i, b in enumerate(bars)
@@ -78,6 +86,9 @@ def is_bar_plotted(bar, timeframe: str | None, ext_hours: bool) -> bool:
         return True
     if timeframe is None or timeframe not in TIMEFRAME_SECONDS:
         return True
+    if is_daily_or_coarser(timeframe):
+        # S-P8-4 / D48.4: daily-and-coarser bars always plot.
+        return True
     period = TIMEFRAME_SECONDS[timeframe]
     return bool(session_windows(int(bar.ts), int(bar.ts) + period, False))
 
@@ -90,9 +101,14 @@ def collapse_for_bars(bars: Sequence, timeframe: str | None,
 
     The map is timeframe-dependent; an unknown timeframe (or ``None``) yields
     ``None`` (identity display), exactly as the panel's rebuild did.
+    Daily-and-coarser timeframes always build under the canonical
+    full-session mode (S-P8-4 / D48.4), so the map is identical under RTH
+    and ETH.
     """
     if timeframe is None or timeframe not in TIMEFRAME_SECONDS:
         return None
+    if is_daily_or_coarser(timeframe):
+        ext_hours = True
     return build_collapse_map(bars, timeframe, ext_hours)
 
 

@@ -26,6 +26,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
@@ -327,14 +328,78 @@ def test_lwc_view_does_not_import_or_use_pyqtgraph():
 # ── ESC-073 · archived results attribute themselves ────────────────────────
 
 
+_ARCHIVE_NAME = re.compile(r"^wave(\d+)_(.+)\.json$")
+
+
+def _archive_wave_and_stem(filename: str):
+    """Split an archive filename into ``(wave number, task stem)``.
+
+    The stem is the token after the wave prefix, e.g. ``P8-T02`` in
+    ``wave163_P8-T02.json``; a dotted suffix such as ``.PRIOR_PHASE`` or
+    ``.ORPHAN`` belongs to the wave record, not the task. Names outside
+    the convention return ``(None, filename)`` and sort oldest.
+    """
+    match = _ARCHIVE_NAME.match(filename)
+    if match is None:
+        return (None, filename)
+    return (int(match.group(1)), match.group(2).split(".")[0])
+
+
+def _newest_per_task(entries):
+    """Group archive entries by task stem, keeping the newest wave per task.
+
+    ``entries`` is an iterable of mappings with at least ``name`` (the
+    archive filename); any other keys (e.g. ``task_id``) ride along
+    untouched. Pure — no disk access — so unit-testable on synthetic dicts.
+    """
+    newest: dict = {}
+    for entry in entries:
+        wave, stem = _archive_wave_and_stem(entry["name"])
+        order = wave if wave is not None else -1
+        current = newest.get(stem)
+        if current is None or order > current[0]:
+            newest[stem] = (order, entry)
+    return {stem: entry for stem, (_, entry) in newest.items()}
+
+
+def _newest_missing_task_id(entries):
+    """Names of newest-per-task entries carrying no ``task_id`` (fail-closed)."""
+    return sorted(
+        entry["name"]
+        for entry in _newest_per_task(entries).values()
+        if not entry.get("task_id")
+    )
+
+
 def test_archived_results_carry_task_id():
-    missing = []
+    entries = []
     for path in sorted(ARCHIVE.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not data.get("task_id"):
-            missing.append(path.name)
+        entries.append({"name": path.name, "task_id": data.get("task_id")})
+    # Only the newest file per task stem must attribute itself: superseded
+    # intermediates (older same-task waves) can never redden this gate,
+    # while a newest result missing task_id still fails it.
+    missing = _newest_missing_task_id(entries)
     assert missing == [], f"archived results without task_id: {missing}"
 
     wave127 = json.loads(
         (ARCHIVE / "wave127_P6-T03.json").read_text(encoding="utf-8"))
     assert wave127["task_id"] == "P6-T03"
+
+
+def test_newest_per_task_helper_flags_missing_task_id():
+    """The grouping helper is fail-closed on synthetic dicts (no disk write)."""
+    entries = [
+        {"name": "wave156_P8-T02.json", "task_id": ""},
+        {"name": "wave163_P8-T02.json", "task_id": "P8-T02"},
+        {"name": "wave159_P8-T03.json", "task_id": None},
+        {"name": "wave163_P8-T03.json", "task_id": "P8-T03"},
+        {"name": "wave160_P8-T05.json", "task_id": ""},
+    ]
+    newest = _newest_per_task(entries)
+    assert {entry["name"] for entry in newest.values()} == {
+        "wave163_P8-T02.json", "wave163_P8-T03.json", "wave160_P8-T05.json",
+    }
+    # The superseded intermediates without task_id are excluded, while the
+    # newest result without task_id is still reported missing.
+    assert _newest_missing_task_id(entries) == ["wave160_P8-T05.json"]

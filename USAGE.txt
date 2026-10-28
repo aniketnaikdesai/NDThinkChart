@@ -212,3 +212,10 @@ Collapsible Watchlist bar (Phase D44)
   are hidden; all three return when you expand.
 - The collapse state is not remembered: the app always starts with the
   watchlist expanded.
+
+
+Weekly and monthly timeframes (Phase D48)
+-----------------------------------------
+- The timeframe picker also offers 1 week (2 years of history) and 1 month
+  (10 years of history) after 1 day; daily-and-coarser loads ignore the
+  Ext Hours toggle.

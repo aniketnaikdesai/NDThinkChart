@@ -158,6 +158,8 @@ def test_timeframe_config_untouched():
         "1 hour": "60 D",
         "4 hours": "60 D",
         "1 day": "1 Y",
+        "1 week": "2 Y",
+        "1 month": "10 Y",
     }
     for timeframe in ("1 min", "5 mins", "15 mins", "1 hour", "4 hours"):
         slug = timeframe.replace(" ", "")

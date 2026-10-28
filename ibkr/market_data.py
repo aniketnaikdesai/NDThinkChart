@@ -14,6 +14,8 @@ TIMEFRAME_CONFIG = {
     "1 hour": {"duration": "60 D", "bar_size": "1 hour"},
     "4 hours":{"duration": "60 D", "bar_size": "4 hours"},
     "1 day":  {"duration": "1 Y",  "bar_size": "1 day"},
+    "1 week": {"duration": "2 Y",  "bar_size": "1 week"},
+    "1 month": {"duration": "10 Y", "bar_size": "1 month"},
 }
 
 class MarketDataManager:

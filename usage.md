@@ -131,7 +131,7 @@ One live trading session is still owed before pyqtgraph is removed. Until then b
 
 ### Load a Chart
 1. Type symbol (e.g., `AAPL`) in toolbar
-2. Select timeframe (1 min – 1 day)
+2. Select timeframe (1 min – 1 month, including 1 week and 1 month)
 3. Click **Load Chart** or press Enter
 
 ### Collapse / Expand the Watchlist (Phase D44)

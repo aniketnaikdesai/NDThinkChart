@@ -159,7 +159,7 @@ from services.gap_vix_service import (
 from services.ict_service import calculate_ict_concepts
 from services.market_calendar import session_windows
 from services.session_service import session_bands
-from services.time_collapse_service import gap_is_non_trading
+from services.time_collapse_service import gap_is_non_trading, is_daily_or_coarser
 from ui import lwc_bridge as LB
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
 from ui.drawing_tools import DRAWING_TOOLS, TOOL_CURSOR
@@ -1187,14 +1187,15 @@ def session_regions(bars: Sequence, plotted: Sequence, timeframe: str | None,
     """Session pre/post bands as engine regions (fractional indices).
 
     Mirrors ``ChartPanel._render_sessions``: nothing without extended hours,
-    nothing for ``1 day``, nothing for an empty load; the bands themselves
+    nothing for daily-and-coarser timeframes (S-P8-4), nothing for an empty
+    load; the bands themselves
     come from the unchanged ``session_bands`` and are mapped through the same
     display-x axis the candles use (``AC-D21.4.3``), so a band lands on the
     session actually shown and never covers a collapsed gap. A band whose
     mapped end does not exceed its start draws nothing (the reference
     ``SessionOverlay`` skips it).
     """
-    if not ext_hours or not bars or timeframe == "1 day":
+    if not ext_hours or not bars or is_daily_or_coarser(timeframe):
         return []
     xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
     regions: list = []

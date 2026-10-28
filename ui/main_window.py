@@ -83,6 +83,7 @@ from services.sound_service import SoundService
 from services.backfill_service import (
     find_missing_spans, floor_bar_budget, plan_requests, present_days,
 )
+from services.time_collapse_service import is_daily_or_coarser
 from services.market_calendar import trading_days
 from services.contract_lookup_service import ContractLookupService
 from services.md_line_guard import assess as md_assess
@@ -1707,6 +1708,13 @@ class MainWindow(QMainWindow):
             timeframe = self.tf_combo.currentText()
         if extended_hours is None:
             extended_hours = self.ext_hours_btn.isChecked()
+        # S-P8-4 / D48.4: daily-and-coarser loads use one canonical
+        # full-session mode (ETH) for the cache read/write, the planner call,
+        # the wave, and the prime below — the RTH/ETH toggle then converges
+        # with identical bars from one shared cache, and a cached toggle
+        # reload is a pure cache hit (no extra historical requests).
+        if is_daily_or_coarser(timeframe):
+            extended_hours = True
         if not symbol:
             self.status_bar.showMessage("Enter a symbol first.", 3000)
             return

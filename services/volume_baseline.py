@@ -66,6 +66,10 @@ MAD_FLOOR_RATIO = 0.05
 DEFAULT_Z_THRESHOLD = 4.0
 #: Regular-session minutes used to normalize "1 day" bars.
 DAY_SESSION_MINUTES = 390.0
+#: Regular-session minutes for "1 week" bars: 5 RTH sessions (S-P8-7).
+WEEK_SESSION_MINUTES = 1950.0
+#: Regular-session minutes for "1 month" bars: 21 RTH sessions (S-P8-7).
+MONTH_SESSION_MINUTES = 8190.0
 
 
 # ── Pure statistics ──────────────────────────────────────────────────────
@@ -111,6 +115,10 @@ def minutes_for_timeframe(timeframe: str) -> float:
     """Bar period in minutes, for per-minute volume normalization."""
     if timeframe == "1 day":
         return DAY_SESSION_MINUTES
+    if timeframe == "1 week":
+        return WEEK_SESSION_MINUTES
+    if timeframe == "1 month":
+        return MONTH_SESSION_MINUTES
     secs = TIMEFRAME_SECONDS.get(timeframe)
     if not secs:
         return 1.0

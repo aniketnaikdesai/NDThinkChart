@@ -1111,6 +1111,14 @@ class TickerSession(QObject):
         '1 day'), whose spans exceed that ceiling, prime with `'1 min'` bars
         (duration clamped into [60 S, 1 D]).
 
+        Per-span priming table (S-P8-5/DG98 — documentation only; the
+        span-based branches below are generic over any span, so the D48
+        timeframes add rows here, never new branches below):
+        intraday spans (<= 3600 s) ................ '5 secs' / [60 S, 3600 S]
+        '4 hours' / '1 day' spans (<= 86400 s) ..... '1 min' / [60 S, 1 D]
+        '1 week' spans (<= 604800 s) .............. '1 min' / [60 S, 1 D]
+        '1 month' spans (~2.6 Ms) ................. '1 min' / [60 S, 1 D]
+
         ``retrying=True`` marks the single deferred re-entry (Q-3/Q-12). It is
         an explicit argument, never inferred from instance state: a retry that
         is still pacing-limited can therefore never fall back into the

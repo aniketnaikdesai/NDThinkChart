@@ -2,8 +2,8 @@
 
 The single-shot probe win lands here as an EXPLICIT, MEASURED, OWNER-GATED
 decision — never a silent constants edit. Q-47 applies the owner-approved
-widening (approval recorded 2026-10-28, five durations; 1 week/1 month out of
-scope): production ``TIMEFRAME_CONFIG`` durations move to the approved values
+widening (approval recorded 2026-10-28, five durations; 1 week/1 month
+added later in P8, never widened, so diff-clean with no record): production ``TIMEFRAME_CONFIG`` durations move to the approved values
 and the gate below verifies every changed duration names its approval record.
 
 MEASUREMENT RECORD (owner-measured live evidence, standalone native probes —
@@ -340,6 +340,8 @@ def test_t12_unapproved_durations_are_diff_clean():
         "1 hour": {"duration": "10 D", "bar_size": "1 hour"},
         "4 hours": {"duration": "30 D", "bar_size": "4 hours"},
         "1 day": {"duration": "1 Y", "bar_size": "1 day"},
+        "1 week": {"duration": "2 Y", "bar_size": "1 week"},
+        "1 month": {"duration": "10 Y", "bar_size": "1 month"},
     }
     approved = {
         "1 min": {"duration": "30 D", "bar_size": "1 min"},
@@ -348,6 +350,8 @@ def test_t12_unapproved_durations_are_diff_clean():
         "1 hour": {"duration": "60 D", "bar_size": "1 hour"},
         "4 hours": {"duration": "60 D", "bar_size": "4 hours"},
         "1 day": {"duration": "1 Y", "bar_size": "1 day"},
+        "1 week": {"duration": "2 Y", "bar_size": "1 week"},
+        "1 month": {"duration": "10 Y", "bar_size": "1 month"},
     }
     assert TIMEFRAME_CONFIG == approved  # approved durations AND bar sizes
 
@@ -362,7 +366,9 @@ def test_t12_unapproved_durations_are_diff_clean():
                 assert timeframe in content
                 assert "2026-10-28" in content
     # The five approved widenings each carry their record; "1 day" is
-    # unchanged and carries none (1 week/1 month are out of scope).
+    # unchanged and carries none; "1 week"/"1 month" were added in P8
+    # (S-P8-1, added-never-widened) so the changed-duration loop skips
+    # them with no approval record.
     assert set(WIDEN_CANDIDATES) == {
         "1 min", "5 mins", "15 mins", "1 hour", "4 hours",
     }

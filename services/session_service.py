@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import List, Dict
 
+from services.time_collapse_service import is_daily_or_coarser
+
 try:
     from zoneinfo import ZoneInfo
 except ImportError:  # pragma: no cover
@@ -42,9 +44,9 @@ def session_bands(bars, timeframe: str) -> List[Dict]:
         where pre is 04:00-09:30 ET and post is 16:00-20:00 ET, clipped to
         [t_min, t_max] of the bars.
 
-        Returns [] if timeframe == "1 day" or bars empty.
+        Returns [] for daily-and-coarser timeframes (S-P8-4) or bars empty.
     """
-    if timeframe == "1 day":
+    if is_daily_or_coarser(timeframe):
         return []
     if not bars:
         return []
@@ -88,7 +90,7 @@ def session_bands(bars, timeframe: str) -> List[Dict]:
 
 def session_bands_for_range(t_min: int, t_max: int, timeframe: str) -> List[Dict]:
     """Helper taking explicit range."""
-    if timeframe == "1 day":
+    if is_daily_or_coarser(timeframe):
         return []
     if t_max < t_min:
         return []
