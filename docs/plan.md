@@ -1,5 +1,7 @@
 # Implementation Plan — NDThinkChart Batch 17 (D23: two D22 post-build quality corrections)
 
+> **Current baseline (appended 2026-10-28, Q-52 — navigation only, no phase re-planned).** As-built through P6-T13 (removal commit `6e35b27`, 2026-10-27; LWC-only tree; live-session sign-off waived-not-satisfied per `docs/build/gate_P6_T13.md`). Active: **Phase P7** (§ Phase P7) and **Phase P8** (§ Phase P8), both `Status: READY_FOR_TASK_MANAGER`. Per-increment status lines below are the authority for each increment's state (D41→D42→D44→D45 supersession chain consumed in order). Open debt into P7: ESC-075…ESC-079 with the `AC-D16.8` restatement as Analyst debt (RG-P7-1). Authority: `docs/README.md`. As-built history: `docs/phase-changelog.md` (indexed by `docs/CHANGELOG.md`).
+
 > **Document state (2026-10-15).** This file is the canonical plan. Its **first section** is the
 > approved **D23** plan (Phases 1–3, `Status: READY_FOR_TASK_MANAGER`); below it, the
 > **as-built** records for **D24–D28** (as-built / **OWNER-APPROVED 2026-10-14**, Q41) and

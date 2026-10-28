@@ -423,3 +423,17 @@ coder's and reviewer's reports for that phase, verified against the branch.
 - **Follow-ups (not P6 scope):** ESC-070 (surface engine-start failure) still owed; the one clean live session
   is still owed as live validation of the LWC-only tree; ESC-075…ESC-079 feed P7 (per-load cap S-P7-1) with
   the `AC-D16.8` restatement open as Analyst debt.
+
+---
+
+## Phase P7 / Phase P8 — no as-built entries yet (placeholder, 2026-10-28)
+
+P7 (data-path batch, `docs/plan.md` § Phase P7) and P8 (D48 weekly/monthly, drafted 2026-10-28, `Status: READY_FOR_PLAN`) have no shipped history. As-built entries land here when waves land; `docs/CHANGELOG.md` indexes them. Open into P7: ESC-075…ESC-079 with the `AC-D16.8` restatement as Analyst debt (RG-P7-1).
+
+---
+
+## Doc-consolidation changesets 5–6 (2026-10-28, Q-52)
+
+- **Navigation:** current-baseline boxes prepared for `requirements.md`, `architecture.md`, `plan.md` (engine LWC-only post-P6-T13 commit `6e35b27`, gate waived-not-satisfied; active phases P7/P8; open debt RG-P7-1, RG-D46-2…RG-D46-9, RG-P7-2; authority `docs/README.md`; history here, indexed by `docs/CHANGELOG.md`) plus an open-items index and final-audit entry for `plan_notes.md`. **Those four files reject worker edits at the tool-permission layer** — the full texts ride in `docs/build/quick/results/Q-52.json` (`carryover_edits`) for a privileged follow-up applier; nothing was rewritten, only appended.
+- **Historical labels:** no archive moves or deletions executed. Reference checks across `scripts/`, `packaging/`, `tests/` show no tooling consumer of the move candidates (`USAGE.txt`, proposal docs); the candidates are additionally referenced from docs prose, so per the task rule they stay in place. The `architecture_proposal.md` / `plan_proposal.md` supersession pointers are already recorded in `docs/codebase-map.md`; in-file HISTORICAL banners on files outside this task's footprint are flagged for the archivist, not applied silently.
+- **Final audit (stale-claim greps, 2026-10-28):** `pyqtgraph default` / dual-engine hits are plan-time D47 wording in the three canonical files, covered by the new baseline supersession notes plus the existing `architecture.md` T13-outcome note plus this log's Phase P6 entry; no live "parity complete" claim exists (parity rows 1–18 Done/accepted, row 19 Retired, no row claims live-session validation); live-session status reads consistently **WAIVED, NOT SATISFIED** (gate, architecture, this log); legacy `addCandlestickSeries` occurs only in the consolidation plan's diagnosis, `docs/lwc_spike_results.md:18` evidence text (outside footprint — flagged, not edited), and historical build results. Commit `6e35b27` verified in-repo; P6/P7/P8 phase IDs consistent across all six files.

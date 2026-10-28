@@ -15,7 +15,7 @@ row 19 retired).
 
 P7 (data-path batch) and P8 (D48 weekly/monthly timeframes, drafted 2026-10-28) have no shipped history to
 index; sequencing and design live in `docs/plan.md` and `docs/architecture.md` §§ Phase P7 / Phase P8.
-Index rows will be added here when their as-built entries land in `docs/phase-changelog.md`.
+Index rows will be added here when their as-built entries land in `docs/phase-changelog.md` (placeholder § Phase P7 / Phase P8, 2026-10-28).
 
 ## P4 — 2026-10-26
 
