@@ -3596,3 +3596,153 @@ migration); the order-code absence (D45/D46); pacing tunables and the port guard
   pattern with offscreen measurables (A131/Q71).
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P11 — D51 follow-live viewport for the LWC main chart (no yank while scrolled back) — drafted 2026-10-29
+
+> Companion: `docs/architecture.md` § *Phase P11* (Codebase Summary, S-P11-1…S-P11-5,
+> frozen interfaces, non-functional, AR-P11-1…AR-P11-4). Requirements basis (approved
+> scope, not re-derived): D51, Journey 44, `AC-D51.1`–`AC-D51.5`, A135, R103,
+> Q72–Q76 (answered-owner-confirmed 2026-10-29). `requirements.md` carries
+> `Status: READY_FOR_PLAN`. Existing-repo run: `[existing]` / `[new]` / `[new/changed]`
+> labels relative to the codebase; **no new module, no new dependency, no schema
+> migration, no order code, no data-path change**. One phase only — nothing past the
+> P11 build wave is planned. Out of scope: pop-out viewports (main chart only, D51
+> register); creation/render/data paths beyond the viewport gating; any visual language
+> beyond the go-to-realtime affordance's presence-gating.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / journey / AC | Architecture section | Wave |
+|---|---|---|
+| D51.1 follow-vs-away definition (Q72 TradingView-copy) | S-P11-1 (derived `isFollowing()`; newest-slot-visible) | P11-W1 |
+| D51.2 no yank while away; resume only on pan-back/Fit (Q73(a) stay-put) | S-P11-2 (live-update viewport gating) | P11-W2 |
+| D51.3 Fit/reset frames all + re-engages + affordance (Q74(a) Fit+re-engage) | S-P11-4; Frozen (Reset affordance D3) | P11-W2 |
+| D51.4 per-symbol viewport + follow memory (Q75(a)) | S-P11-5 (Python-side store + range reports) | P11-W3 |
+| D51.5 same-symbol preserve / new-symbol follow (Q76(a)) | S-P11-3 (series-replace directive) | P11-W3 |
+| Journey 44 (pan away → live bars → Fit → switch → replace) + edge cases | S-P11-1…S-P11-5 | P11-W1…W4 |
+| A135 settled owner answers; R103 closed pre-clarification risk | Summary; Non-Functional | — (no wave; recorded as closed) |
+| No production behaviour change beyond D51; no skips/xfails; suite green | Non-Functional gate | P11-W4 |
+
+Every item above is addressed somewhere in the architecture AND the waves below; nothing
+is narrowed or reinterpreted (the Q72–Q76 option-(a) answers are the owner decisions as
+recorded verbatim in `open_questions.md`).
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. Every
+wave lands its repro test **red-first** (failing on the current tree) before the fix.
+Waves are S/M only.
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P11-W1 | S | **Follow-state definition + repro probes (D51.1; S-P11-1).** Page-side derived `isFollowing()` (newest bar's logical slot inside the visible logical range); offscreen-queryable follow state; repro-first probes proving the current tree has no follow state and yanks (unconditional `fitToWidth`). | (1) Loaded-at-edge chart reports following; pan/zoom-away chart reports scrolled back (AC-D51.1); (2) probes are red on the current tree (no `isFollowing` surface; `applyOps` refits unconditionally); (3) full offscreen + `node --test` suites green. | Offscreen follow-state probes + JS tests + full suite. |
+| P11-W2 | M | **No-yank live path + Fit/reset + go-to-realtime affordance (D51.2/D51.3; S-P11-2, S-P11-4).** Live `update_bar` upserts leave the visible range untouched while away and follow only when following; unconditional refit removed; Fit/reset frames all loaded bars + re-engages follow; affordance appears on new-bars-while-away and invokes `scrollToRealTime`. | (1) Scrolled-back viewport bit-identical across injected live bars; follow stays disengaged (AC-D51.2); (2) pan-back-to-edge or Fit resumes follow; (3) Fit frames all loaded bars, re-engages follow, affordance available (AC-D51.3); (4) affordance invokes the realtime scroll; (5) full suites green. | Viewport-slot assertions before/after injected bars + Fit/affordance suites + full suite. |
+| P11-W3 | S | **Per-symbol memory + same/new replacement (D51.4/D51.5; S-P11-5, S-P11-3).** Python-side per-symbol `{range, following}` store fed by throttled page range reports; save on switch-away, restore on switch-back; same-symbol full replace preserves, new-symbol load follows. | (1) Switch away and back restores remembered viewport + follow state (AC-D51.4); (2) same-symbol replace keeps viewport + follow state; new-symbol load starts following (AC-D51.5); (3) zero-bar Fit is a no-op with no error (Journey 44 edge); (4) full suites green. | Per-symbol state + same/new-replacement suites + full suite. |
+| P11-W4 | S | **Batch gate: close-out.** Every D51 criterion observably satisfied, nothing else changed, suite green. | (1) All five ACs' checks green; (2) no production behaviour change beyond D51 (diff review — `chart.js` viewport path + view update path only); pop-out/data/order paths untouched; (3) no skipped/xfailed tests added; (4) **full offscreen suite green**. | Full suite + the five-AC checklist. A red suite fails the wave. |
+
+**What stays untouched by every P11 wave:** the bar data path (history/backfill/pacing/aggregation); the Python `update_live_bar` bar-domain contract (still emits `update_bar` ops; only the page's viewport reaction changes); pop-out viewports; the `DrawingController`/`drawing_op`/drag geometry; the `bars`/`alarms`/`drawings` schemas (no migration — the per-symbol store is in-memory session state); the order-code absence (D45/D46); pacing tunables and the port guard.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P11-1 | Follow state is derived on query (newest-slot-visible), never stored as a page flag | A stored flag desyncs on every unobserved gesture (keyboard pan, wheel zoom); derivation from `getVisibleLogicalRange()` + snapshot length is O(1) and cannot drift |
+| AP-P11-2 | The per-symbol viewport store is in-memory session state, keyed by upper-cased symbol; nothing persists it across restarts and no migration is added | D51 requires switch-back restore within the session (Journey 44); persistence was never asked for and every comparable UI show/hide toggle in this repo is unpersisted (D10/A36, D44/A76 precedent) |
+| AP-P11-3 | Page→Python visible-range reports are throttled (gesture-end + post-update, not per-frame) and are the only new page→Python traffic | Per-move reporting has no latency budget (P10 S-P10-2 precedent); the store only needs switch-away freshness, which gesture-end/post-update reports guarantee |
+| AP-P11-4 | AC-G.1 (visual reference gate) is satisfied by provisional assumption: the go-to-realtime affordance reuses the proven in-chart control idiom (existing Reset/zoom controls, D3) — P11 gates its presence and behaviour, introducing no new visual language | Same precedent as AP-P10-4 (handle presence-gating); show/hide + invoke behaviour has probe measurables and needs no confirmed reference |
+| AP-P11-5 | R103 is a closed pre-clarification risk, not work: Q72–Q76 settled the threshold and resume rule before any build | Recording closure so no wave re-litigates the definition; a different threshold would arrive as a new requirement |
+
+### Flagged Issues
+
+**None.** Every D51 criterion is satisfiable as written on the existing stack:
+
+- The yank is one unconditional call (`applyOps` → `fitToWidth()`); gating it on a
+  derived follow check is additive page logic with probe measurables.
+- `scrollToRealTime` / `setVisibleLogicalRange` / `fitContent` all exist in the vendored
+  5.2.1 library; no library change is needed.
+- Per-symbol memory rides the existing `set_symbol` lifecycle with an in-memory dict —
+  no schema, no new module, no new integration.
+- Same-vs-new replacement reuses the existing full-replace path with a continuity
+  directive; the library preserves the logical range across `setData` unless fitted.
+
+Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P12 — D52 (Batch 27): add `30 mins` (30 D) as a valid chart interval — drafted 2026-10-29
+
+> Companion: `docs/architecture.md` § *Phase P12 — D52 increment* (Codebase Summary, S-P12-1…S-P12-6, frozen
+> interfaces, non-functional, AR-P12-1…AR-P12-3). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Batch 27 (D52), Journey 45, `AC-D52.1`–`AC-D52.8`, lite defaults A136–A141
+> (A136 owner-decided per Q77 answered-owner-confirmed), R104–R105, `design_gaps.md` DG99. Hard constraints: **no order code anywhere**
+> (D45/D46); live validation is **read-only** (the standalone probe issues historical requests only); the **full offscreen
+> suite green is the gate**. Existing-repo run: every wave below modifies existing modules in place; **no
+> new module, no new dependency, no schema migration**. One phase only — nothing past the P12 build wave
+> is planned. D1–D51 are NOT reopened beyond the recorded timeframe-enumeration extension (`AC-D16.1` now
+> reads nine; `AC-D16.8` Given now reads six intraday timeframes; the D43/`AC-D27.9` per-span table gains
+> the `30 mins` row). If this decomposed larger than S, the lane is wrong: report back instead of building.
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. Every wave is S.
+Repro-first where behavior is new: the W1 bucketing tests land **red on the current tree** (unknown
+`30 mins` falls back to the 300 s grid) before the fix; the priming-shape case is red-first at the
+per-span table assertion (the table has no `30 mins` row) with the branch behavior pinned alongside.
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P12-W1 | S | **Data plane: config + bucketing + probe** (S-P12-1, S-P12-2, S-P12-3, S-P12-5; answers DG99's priming half and the R104 risk). One `TIMEFRAME_CONFIG` row inserted between `15 mins` and `1 hour`; `TIMEFRAME_SECONDS` gains the 1800 key with the existing UTC-epoch grid (no anchor change); planner no-logic-change verification; priming docstring row; standalone probe of the new combo. | (1) Config holds the exact new row and no other row changes; (2) 30-minute buckets open on ET clock half-hours (`HH:00`/`HH:30`, `09:30` RTH open on a boundary) across a DST fold, and the forming bar aggregates into the current half-hour bucket; (3) a `30 mins` load plans the configured duration (chunked as needed), applies the `AC-D16.8` floor mode-aware, and detects holes at bar granularity; (4) the probe request completes with no 321-class rejection (a rejection fails the wave and escalates — never a silent shrink); (5) full offscreen suite green. | Offscreen unit/planner/aggregator suites with the new key (red-first bucketing cases) + the standalone probe record + full suite. |
+| P12-W2 | S | **Presentation plane: picker + enumeration inventory** (S-P12-1 picker slot, S-P12-4, S-P12-6; answers DG99 and the R105 risk). Picker order with select/load/persist parity; RTH/ETH distinct bar sets with bands + collapse; visibility-m grid verification; burst-minutes pin. | (1) Picker lists `30 mins` between `15 mins` and `1 hour` and it selects/loads/persists like every other intraday timeframe; (2) RTH and ETH loads of `30 mins` return their mode's bars (not identical sets), and session bands + collapse apply as for the other intraday timeframes; (3) visibility dialog opens with every box default-checked and the payload round-trips (the `Minutes` unit row covers `30 mins` — verified, no new row); (4) `minutes_for_timeframe("30 mins")` returns 30.0; (5) full offscreen suite green. | Offscreen picker/mode-parity/dialog/minutes suites + full suite. No live TWS needed. |
+| P12-W3 | S | **Batch gate: probe record + non-regression close-out**. The probe outcome on record, every `AC-D52.*` observably satisfied, pre-D52 criteria untouched except the recorded enumeration extension, full suite green. | (1) Probe record present for the `30 mins` / `30 D` combo; (2) `AC-D16.1` "nine timeframes" wording, the `AC-D16.8` six-intraday list, and the `AC-D27.9` added table row verified, `### D41`–`### D51` + marker + Current Tech Stack intact; (3) **full offscreen suite green**. | Full suite + the AC checklist. A red suite or a missing probe record fails the wave. |
+
+**What stays untouched by every P12 wave:** the `req_historical_data` / `req_mkt_data` signatures and
+pacing contract; the planner function contracts; the pacing tunables and the port guard; error
+ingress/classification; `RealtimeBarsManager` / `StreamHealth` APIs; `BarCache` APIs; the Qt-free
+import boundary; the order-code absence; the entire LWC renderer seam; the `bars` schema (no
+migration); the eight existing `TIMEFRAME_CONFIG` rows' values and order; the visibility payload shape;
+the daily-or-coarser canonical-mode rule (P8 — intraday keeps mode-aware keys).
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / input | Architecture section | Wave |
+|---|---|---|
+| D52.1 / `AC-D52.1` (mapping: `30 mins`→`30 mins`/`30 D`) | S-P12-1; Frozen (eight existing rows) | P12-W1 |
+| D52.2 / `AC-D52.2` (ET half-hour buckets, live forming-bar parity) | S-P12-2; Frozen (existing periods + `_period_start`/`_bucket_start` grid) | P12-W1 |
+| D52.3 / `AC-D52.3` (planner/backfill: configured duration, `AC-D16.8` floor applies mode-aware, bar-granular holes) | S-P12-3; Frozen (planner contracts) | P12-W1 |
+| D52.4 / `AC-D52.4` (RTH/ETH distinct sets, bands + collapse as intraday) | S-P12-4; Frozen (`req_historical_data`, `BarCache`) | P12-W2 |
+| D52.5 / `AC-D52.5` (picker entry between `15 mins` and `1 hour`; select/load/persist parity; visibility default-on) | S-P12-1, S-P12-6; Frozen (visibility payload shape) | P12-W2 |
+| D52.6 / `AC-D52.6` (priming: `5 secs` branch, span 1800 s inside `[60 S, 3600 S]`) | S-P12-5; Frozen (prime span branches) | P12-W1 |
+| D52.7 / `AC-D52.7` (standalone probe + suite green) | S-P12-5; Non-Functional stability gate | P12-W1 (probe) + P12-W3 (record) |
+| D52.8 / `AC-D52.8` (history intact; only the recorded enumeration extension) | Frozen (all `[existing]` rows) | P12-W3 |
+| Journey 45 (load 30-min chart, toggle modes, successive loads, switch symbols, suite green) | S-P12-1…S-P12-6 | P12-W1…P12-W3 |
+| A136–A141 (lite defaults; A136 owner-confirmed) | S-P12-1…S-P12-6 (each default cited at its decision) | P12-W1/P12-W2 |
+| R104 (321 rejection → escalate) | AR-P12-1; S-P12-1/S-P12-5 | P12-W1 (probe is the gate) |
+| R105 (hardcoded intraday enumerations) | AR-P12-2; S-P12-6 | P12-W2 (inventory checklist) |
+| DG99 (enumeration entries for the new timeframe) | S-P12-1/S-P12-5/S-P12-6 | P12-W1 (priming row) + P12-W2 (picker + inventory) |
+| Hard constraints: no order code (D45/D46); read-only live; suite-green gate | S-P12-1…S-P12-6; Frozen (order absence, seam) | Every wave |
+
+Every D52 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+ESC-079 (open, PLAN-routed) is P7 scope, already answered by S-P7-1 — it is not re-planned here.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P12-1 | IBKR's native 30-minute bars anchor compatibly with ET clock half-hours; a systematic phase mismatch, if the first-load comparison shows one, becomes a follow-up rather than a silent re-anchor | Mirrors the recorded D27.8 4h-caveat and AP-P8-1 precedent; the assumption is checkable, not load-bearing for the batch gate |
+| AP-P12-2 | The successive-loads reading of the `AC-D16.8` floor (P7 S-P7-1/S-P7-2: per-load cap, oldest-first, persist-and-resume) applies unchanged to `30 mins`; no new floor mechanics are introduced | The floor machinery is timeframe-generic; `30 D` yields ~21 RTH sessions per load, so the floor is met across loads exactly as for the other intraday timeframes |
+| AP-P12-3 | AC-G.1 (visual reference gate) does not apply: P12 makes no UI-visual decision — the picker entry is a text label in the existing combo in A140 order, and the visibility grid is unchanged | All P12 outcomes are config/aggregation/planner behaviour with config-assertion and bar-equality measurables |
+
+### Flagged Issues
+
+**None.** Every D52 item is satisfiable as written on the existing stack:
+
+- The new combo rides the existing request shape; IBKR acceptance is probe-verified (`AC-D52.7`),
+  and a rejection has a specified escalation (R104) rather than a gap.
+- Half-hour bucketing, the predicate membership, the minutes value, and the visibility coverage are all
+  mechanical with stated measurables (DG99 resolves inside the waves above).
+- The `AC-D16.1` / `AC-D16.8` enumeration extension and the `AC-D27.9` table row are recorded analyst-side
+  wording, not Plan reinterpretation.
+
+Status: READY_FOR_VALIDATION

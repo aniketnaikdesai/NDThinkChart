@@ -1,605 +1,591 @@
 {
   "metadata": {
-    "phase": "P9",
-    "batch": "Batch 25 (alarm/drawing fix batch)",
+    "phase": "P11",
+    "batch": "Batch D51 (follow-live viewport for the LWC main chart)",
     "status": "READY_FOR_BUILD",
-    "note": "P9: five owner-ordered findings (1.4, 3.1-3.4). Waves P9-W1 (T01) -> P9-W2 (T02+T03) -> P9-W3 (T04+T05) -> P9-W4 (T06 gate). Repro-first every wave; no skips/xfails. RG-P9-1: no requirements entries for 3.1/3.2/3.4/1.4 - built from plan measurables, requirement_ids use finding labels."
+    "note": "P11: D51 follow-live viewport (AC-D51.1-AC-D51.5). Waves P11-W1 (T1 follow-state definition + repro probes) -> P11-W2 (T2 no-yank live path, then T3 Fit/reset + affordance) -> P11-W3 (T4 per-symbol memory, then T5 same/new replacement) -> P11-W4 (T6 batch gate). Repro-first every wave; no skips/xfails; no new module, no migration, no order-code touch, Qt-free boundary held."
   },
   "tasks": [
     {
-      "id": "P9-T1",
-      "title": "Alarm persistence isolation (1.4): fault-injection repro, then isolate both mark_triggered call sites with retry",
-      "description": "Repro-first: add fault-injection tests proving a DB failure in AlarmStore.mark_triggered aborts the bar path (no emit, no in-memory update, _last_chart_price stalls), then isolate both call sites in ui/ticker_session.py (_on_aggregated_bar and _evaluate_burst_alarms): catch the DB error, log with symbol plus alarm context, still set alarm.triggered, still emit, still advance _last_chart_price, and queue the alarm ID for retry flushed on subsequent bars and reload_alarms. The store signature stays frozen.",
+      "id": "P11-T1",
+      "title": "Follow-state definition + repro probes (D51.1; S-P11-1)",
+      "description": "Add a page-side derived isFollowing() to chart_assets/lwc/chart.js (following iff the newest bar's logical slot is inside getVisibleLogicalRange()), expose offscreen-queryable follow-state and visible-range probes, and land repro-first tests proving the current tree has no follow surface and refits unconditionally.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given an injected mark_triggered DB failure at either call site, when a bar is processed, then the alarm notification is still emitted, alarm.triggered is set True, and _last_chart_price still advances for that bar.",
-        "Given such a persistence failure, when it is caught, then an error is logged carrying the symbol and alarm-ID context.",
-        "Given failed alarm IDs queued for retry, when a subsequent bar is processed or reload_alarms runs, then the retry flushes with no duplicate emissions for already-notified alarms."
+        "Given a loaded main chart at the live edge and a chart scrolled back by scripted pan/zoom, when the follow-state probe is queried offscreen, then the former reports following (newest bar's slot inside the visible range) and the latter reports scrolled back.",
+        "Given a seeded series offscreen, when the visible-range probe is queried, then it reports the newest bar's logical slot and the current visible logical range consistently with the library timeScale, so later waves can assert viewport identity without re-deriving geometry."
       ],
       "tests": [
         {
-          "test_id": "P9-T1-T11",
-          "linked_acceptance_criterion": "Given an injected mark_triggered DB failure at either call site, when a bar is processed, then the alarm notification is still emitted, alarm.triggered is set True, and _last_chart_price still advances for that bar.",
-          "type": "integration",
-          "description": "Monkeypatch AlarmStore.mark_triggered to raise on the _on_aggregated_bar path with a live alarm; drive one aggregated bar offscreen and assert emit plus triggered plus price advance. Red on the current tree (bar path aborts), green after.",
-          "expected_result": "Fails pre-fix (no emit, triggered unset, price stalled); passes post-fix."
-        },
-        {
-          "test_id": "P9-T1-T12",
-          "linked_acceptance_criterion": "Given an injected mark_triggered DB failure at either call site, when a bar is processed, then the alarm notification is still emitted, alarm.triggered is set True, and _last_chart_price still advances for that bar.",
-          "type": "integration",
-          "description": "Same injected failure on the _evaluate_burst_alarms path with a volume-burst alarm; drive one bar and assert emit plus triggered plus price advance. Red pre-fix, green post-fix.",
-          "expected_result": "Fails pre-fix; passes post-fix."
-        },
-        {
-          "test_id": "P9-T1-T13",
-          "linked_acceptance_criterion": "Given failed alarm IDs queued for retry, when a subsequent bar is processed or reload_alarms runs, then the retry flushes with no duplicate emissions for already-notified alarms.",
-          "type": "integration",
-          "description": "Fail once, then restore mark_triggered; drive a subsequent bar and call reload_alarms; assert the queue drains and exactly one emission per alarm occurred in total.",
-          "expected_result": "Retry flushes on next bar and on reload_alarms with no duplicate emits."
-        },
-        {
-          "test_id": "P9-T1-T14",
-          "linked_acceptance_criterion": "Given such a persistence failure, when it is caught, then an error is logged carrying the symbol and alarm-ID context.",
+          "test_id": "P11-T1-T11",
+          "linked_acceptance_criterion": "AC1",
           "type": "unit",
-          "description": "Capture logs around an injected failure; assert the record names the symbol and the alarm ID.",
-          "expected_result": "Error log contains symbol and alarm-ID context."
+          "description": "Seeded-series offscreen probe: chart at live edge reports following; scripted pan/zoom away reports scrolled back; keyboard/wheel-driven pan also reports scrolled back (AR-P11-1). Red pre-fix (no isFollowing surface), green post-fix.",
+          "expected_result": "Fails pre-fix (probe surface absent); passes post-fix with edge/scrolled-back distinguished."
+        },
+        {
+          "test_id": "P11-T1-T12",
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "Visible-range probe returns newest-slot + visible logical range matching the library getVisibleLogicalRange for a seeded series; plus a static assertion that pre-fix applyOps refits unconditionally (documents the yank as the repro baseline).",
+          "expected_result": "Probe assertions pass post-fix; the unconditional-refit characterization holds on the pre-fix tree."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p9_alarm_persistence.py",
-        "isolated call sites plus retry queue in ui/ticker_session.py"
+        "chart_assets/lwc/chart.js (isFollowing + probes)",
+        "tests/test_p11_follow_state.py",
+        "chart_assets/lwc/chart.test.js (isFollowing cases)"
       ],
       "touches_files": [
-        "ui/ticker_session.py",
-        "tests/test_p9_alarm_persistence.py"
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/chart.test.js",
+        "tests/test_p11_follow_state.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P9-3 design",
-        "frozen mark_triggered contract"
+        "S-P11-1 derived follow-state definition",
+        "current unconditional applyOps refit"
       ],
       "outputs": [
-        "Fault-isolated bar path",
-        "in-memory retry queue"
+        "isFollowing() + range probes",
+        "repro baseline for W2/W3"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "690-730",
+            "why": "applyOps dispatch site to instrument with probes"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "800-880",
+            "why": "fitToWidth framer + the unconditional post-applyOps refit (the yank)"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "590-660",
+            "why": "read-only: existing range/pan helpers and getVisibleLogicalRange use"
+          },
+          {
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "1-60",
+            "why": "JS test conventions for the chart.js change"
+          },
+          {
+            "path": "tests/test_lwc_page_wiring.py",
+            "lines": "1-60",
+            "why": "read-only: offscreen page-probe conventions"
+          },
+          {
+            "path": "chart_assets/lwc/chart.html",
+            "lines": "1-60",
+            "why": "read-only: module load order if a new probe needs page exposure"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "chart_assets/lwc/chart.js:fitToWidth",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:getVisibleLogicalRange",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "function isFollowing() -> boolean // true iff newest bar logical slot inside getVisibleLogicalRange(); any pan/zoom away means false",
+            "module": "chart_assets/lwc/chart.js"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P11",
+        "plan_ref": "docs/plan.md#Phase P11",
+        "requirement_ids": [
+          "AC-D51.1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_follow_state.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P11-T2",
+      "title": "No-yank live path (D51.2; S-P11-2)",
+      "description": "Gate every viewport movement on the live update path on isFollowing(): remove the unconditional post-applyOps fitToWidth, leave the visible range untouched on update_bar upserts while scrolled back, follow only when isFollowing(), and resume on user pan-back-to-edge via scrollToRealTime/setVisibleLogicalRange with no automatic resume on new bars.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P11-T1"
+      ],
+      "acceptance_criteria": [
+        "Given a scrolled-back viewport, when live bars arrive offscreen, then the visible logical range is bit-identical before and after and follow stays disengaged.",
+        "Given a scrolled-back viewport, when the user pans back to the edge, then follow resumes via the realtime scroll; new bars alone never re-engage follow."
+      ],
+      "tests": [
+        {
+          "test_id": "P11-T2-T21",
+          "linked_acceptance_criterion": "AC1",
+          "type": "unit",
+          "description": "Seeded series scrolled back offscreen; inject update_bar upserts (new periods + forming-bar ticks); assert visible-range slot identity across every injection and follow still disengaged. Red pre-fix (unconditional refit moves the viewport), green post-fix.",
+          "expected_result": "Fails pre-fix (range moves on upsert); passes post-fix with range bit-identical."
+        },
+        {
+          "test_id": "P11-T2-T22",
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "While away, inject new bars and assert follow stays disengaged (no auto-resume); then script pan-back-to-edge and assert follow re-engaged through the realtime scroll path.",
+          "expected_result": "No auto-resume on bars alone; follow re-engages only on pan-back-to-edge."
+        }
+      ],
+      "expected_artifacts": [
+        "chart_assets/lwc/chart.js (gated live viewport reaction)",
+        "tests/test_p11_no_yank.py"
+      ],
+      "touches_files": [
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/chart.test.js",
+        "tests/test_p11_no_yank.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P11-T1 isFollowing() + probes",
+        "Python update_live_bar bar-domain contract (unchanged)"
+      ],
+      "outputs": [
+        "gated live path",
+        "no auto-resume invariant"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/ticker_session.py",
-            "lines": "472-600",
-            "why": "both mark_triggered call sites plus reload_alarms to modify"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "850-960",
+            "why": "applyOps + upsertRow live path whose viewport reaction is gated"
           },
           {
-            "path": "data/alarm_store.py",
-            "lines": "60-100",
-            "why": "read-only: frozen mark_triggered contract - do not change it"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "800-850",
+            "why": "fitToWidth framer reused by the resume path"
           },
           {
-            "path": "tests/test_d25_alarm_monitor.py",
-            "lines": "1-80",
-            "why": "alarm monitor test conventions for this module"
+            "path": "ui/lwc_view.py",
+            "lines": "2101-2160",
+            "why": "read-only: update_live_bar bar-domain contract \u2014 Python emit side unchanged"
+          },
+          {
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "1-60",
+            "why": "JS test conventions for the gating change"
+          },
+          {
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "338-373",
+            "why": "edit site (T2 owns this hunk): replace the T12 pre-fix yank-baseline assertion with the gated post-fix assertion, plus the T23 live-edge fallback pin"
           }
         ],
         "contracts": [
           {
-            "ref": "data/alarm_store.py:mark_triggered",
+            "ref": "chart_assets/lwc/chart.js:upsertRow",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:_on_aggregated_bar",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_evaluate_burst_alarms",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:reload_alarms",
+            "ref": "ui/lwc_view.py:update_live_bar",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "_trigger_retry_queue: list[int] on TickerSession, flushed on subsequent bars and reload_alarms, bounded by active-alarm count",
-            "module": "ui/ticker_session.py"
+            "signature": "live update_bar path: if (!isFollowing()) leave visible range untouched; else follow via scrollToRealTime()/setVisibleLogicalRange; never auto-resume on bars alone",
+            "module": "chart_assets/lwc/chart.js"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P9",
-        "plan_ref": "docs/plan.md#Phase P9",
+        "architecture_ref": "docs/architecture.md#Phase P11",
+        "plan_ref": "docs/plan.md#Phase P11",
         "requirement_ids": [
-          "P9-1.4"
+          "AC-D51.2"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_alarm_persistence.py -q -o addopts=\"\"",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_no_yank.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P9-T2",
-      "title": "Dialog state fix (3.2): group-name cell read-only, Rename stays the path",
-      "description": "Make the group-name QTableWidgetItem read-only by clearing ItemIsEditable so the _on_group_item_changed integer-unpack TypeError path is structurally removed; the Rename button remains the sole rename path, unchanged.",
+      "id": "P11-T3",
+      "title": "Fit/reset + go-to-realtime affordance (D51.3; S-P11-4)",
+      "description": "Make Fit/reset frame all loaded bars and re-engage follow via the existing fitToWidth framer, and add a go-to-realtime affordance that appears exactly when away with new-bars-since-away and invokes the realtime scroll on activation.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P9-T1"
+        "P11-T1",
+        "P11-T2"
       ],
       "acceptance_criteria": [
-        "Given the groups dialog open, when the name cell is probed, then it carries no ItemIsEditable flag so inline editing is impossible.",
-        "Given a group selected, when Rename is used, then the group renames and persists exactly as today."
+        "Given any viewport state, when Fit/reset is invoked offscreen, then the viewport frames all loaded bars and follow is re-engaged.",
+        "Given a scrolled-back viewport, when new bars arrive while away, then the go-to-realtime affordance appears, and invoking it scrolls to realtime and re-engages follow; with no new bars while away, or while following, the affordance stays hidden."
       ],
       "tests": [
         {
-          "test_id": "P9-T2-T21",
-          "linked_acceptance_criterion": "Given the groups dialog open, when the name cell is probed, then it carries no ItemIsEditable flag so inline editing is impossible.",
+          "test_id": "P11-T3-T31",
+          "linked_acceptance_criterion": "AC1",
           "type": "unit",
-          "description": "Build the dialog offscreen with one group; assert the name item flags exclude ItemIsEditable. Red pre-fix (editable), green post-fix.",
-          "expected_result": "Fails pre-fix; passes post-fix with Rename path untouched."
+          "description": "Seeded series in scrolled-back and following states; invoke Fit/reset offscreen; assert range frames all loaded bars and follow reports engaged in both cases.",
+          "expected_result": "Fit frames all bars and re-engages follow from any starting state."
         },
         {
-          "test_id": "P9-T2-T22",
-          "linked_acceptance_criterion": "Given a group selected, when Rename is used, then the group renames and persists exactly as today.",
+          "test_id": "P11-T3-T32",
+          "linked_acceptance_criterion": "AC2",
           "type": "unit",
-          "description": "Drive _rename_group offscreen; assert the group row renames and the store persists the new name.",
-          "expected_result": "Rename works and persists as today."
+          "description": "Scrolled back + injected new bars shows the affordance; invoking it scrolls to realtime and re-engages follow; following state and away-without-new-bars keep it hidden (both show/hide transitions asserted, AR-P11-4).",
+          "expected_result": "Affordance visibility is exactly (away AND new-bars-since-away); invocation re-engages follow."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p9_group_dialog.py",
-        "read-only name cell in ui/drawing_groups_dialog.py"
+        "chart_assets/lwc/chart.js (Fit re-engage + affordance)",
+        "tests/test_p11_fit_affordance.py"
       ],
       "touches_files": [
-        "ui/drawing_groups_dialog.py",
-        "tests/test_p9_group_dialog.py"
+        "chart_assets/lwc/chart.js",
+        "tests/test_p11_fit_affordance.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P9-2 dialog fix shape"
+        "P11-T1 follow probes",
+        "P11-T2 no-yank live path"
       ],
       "outputs": [
-        "TypeError path removed",
-        "Rename regression guard"
+        "explicit re-engage path",
+        "go-to-realtime affordance"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/drawing_groups_dialog.py",
-            "lines": "20-130",
-            "why": "dialog table build holding the name-cell flags"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "800-850",
+            "why": "existing fitToWidth framer reused by Fit/reset"
           },
           {
-            "path": "ui/drawing_groups_dialog.py",
-            "lines": "171-250",
-            "why": "rename handler and _on_group_item_changed to keep consistent"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "590-660",
+            "why": "existing in-chart control/pan helpers the affordance composes with (D3 idiom)"
           },
           {
-            "path": "tests/conftest.py",
-            "lines": "1-60",
-            "why": "offscreen harness and DB isolation conventions"
+            "path": "ui/lwc_view.py",
+            "lines": "2013-2060",
+            "why": "read-only: set_symbol lifecycle \u2014 Fit/reset must not disturb the symbol lifecycle"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/drawing_groups_dialog.py:_rename_group",
+            "ref": "chart_assets/lwc/chart.js:fitToWidth",
             "status": "existing"
           },
           {
-            "ref": "ui/drawing_groups_dialog.py:_on_group_item_changed",
-            "status": "existing"
+            "status": "new",
+            "signature": "go-to-realtime affordance: visible iff (away AND new-bars-since-away); on invoke calls scrollToRealTime()/setVisibleLogicalRange and re-engages follow",
+            "module": "chart_assets/lwc/chart.js"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P9",
-        "plan_ref": "docs/plan.md#Phase P9",
+        "architecture_ref": "docs/architecture.md#Phase P11",
+        "plan_ref": "docs/plan.md#Phase P11",
         "requirement_ids": [
-          "P9-3.2"
+          "AC-D51.3"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_group_dialog.py -q -o addopts=\"\"",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_fit_affordance.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P9-T3",
-      "title": "Dialog state fix (3.4): re-validate active draw-group ID on every group reload",
-      "description": "Extend _refresh_drawing_groups in ui/main_window.py to re-validate _active_draw_group_id against the current symbol's groups on every reload: an unknown ID clears to None, the combo resets to Ungrouped, and the tool state is re-pushed; the existing ticker-change clear in load_chart is preserved as a regression guard.",
+      "id": "P11-T4",
+      "title": "Per-symbol viewport memory (D51.4; S-P11-5)",
+      "description": "Add an in-memory Python-side symbol-to-{range, following} store on the LWC view fed by throttled page range reports (gesture-end + post-update only); save on switch-away via the existing set_symbol lifecycle and restore on switch-back via a range op, with no persistence and no schema change.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P9-T1"
+        "P11-T1"
       ],
       "acceptance_criteria": [
-        "Given an active draw-group ID that no longer exists for the current symbol, when drawing groups reload, then _active_draw_group_id clears to None, the combo shows Ungrouped, and the tool state is re-pushed.",
-        "Given a ticker change, when load_chart runs, then the active-group clear behaves exactly as today."
+        "Given symbols switched offscreen and back, when the follow/scroll state is queried, then the restored symbol shows its remembered viewport range and follow state.",
+        "Given the per-symbol store, when inspected, then it is in-memory session state keyed by upper-cased symbol with no persistence and no schema change (a fresh view starts empty)."
       ],
       "tests": [
         {
-          "test_id": "P9-T3-T31",
-          "linked_acceptance_criterion": "Given an active draw-group ID that no longer exists for the current symbol, when drawing groups reload, then _active_draw_group_id clears to None, the combo shows Ungrouped, and the tool state is re-pushed.",
+          "test_id": "P11-T4-T41",
+          "linked_acceptance_criterion": "AC1",
           "type": "integration",
-          "description": "Select a group, delete it via the store, reload groups offscreen; assert active ID is None, combo is Ungrouped, tool re-pushed. Red pre-fix (stale ID retained), green post-fix.",
-          "expected_result": "Fails pre-fix; passes post-fix."
+          "description": "Offscreen view: load symbol A, scroll back, switch to B, switch back to A; assert A's remembered range + follow state restored exactly (freshest gesture-end/post-update report wins, AR-P11-2).",
+          "expected_result": "Switch-back restores the remembered viewport + follow state for each symbol."
         },
         {
-          "test_id": "P9-T3-T32",
-          "linked_acceptance_criterion": "Given an active draw-group ID that no longer exists for the current symbol, when drawing groups reload, then _active_draw_group_id clears to None, the combo shows Ungrouped, and the tool state is re-pushed.",
-          "type": "integration",
-          "description": "Seed a stale foreign active ID directly, reload groups; assert coercion to None with Ungrouped combo.",
-          "expected_result": "Stale ID coerces to None on reload."
-        },
-        {
-          "test_id": "P9-T3-T33",
-          "linked_acceptance_criterion": "Given a ticker change, when load_chart runs, then the active-group clear behaves exactly as today.",
-          "type": "integration",
-          "description": "Drive load_chart with a symbol change offscreen; assert the active group clears as today.",
-          "expected_result": "Ticker-change clear preserved."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_p9_active_group.py",
-        "re-validation in MainWindow._refresh_drawing_groups"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_p9_active_group.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "S-P9-2 re-validation rule"
-      ],
-      "outputs": [
-        "No stale active-group state",
-        "ticker-clear regression guard"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/main_window.py",
-            "lines": "1933-2010",
-            "why": "_refresh_drawing_groups, _apply_active_draw_group, _on_drawing_created to modify"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1801-1810",
-            "why": "read-only: existing ticker-change clear - do not change it"
-          },
-          {
-            "path": "tests/test_d28_6_drawing_roundtrip.py",
-            "lines": "1-60",
-            "why": "drawing round-trip test conventions for this surface"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/main_window.py:_refresh_drawing_groups",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_apply_active_draw_group",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P9",
-        "plan_ref": "docs/plan.md#Phase P9",
-        "requirement_ids": [
-          "P9-3.4"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_active_group.py -q -o addopts=\"\"",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P9-T4",
-      "title": "Group-color pipeline (3.1): active group plus color into the LWC commit payload with symbol validation",
-      "description": "Add active-group tool state (setActiveGroup(id, color), the single writer) to chart_assets/lwc/gestures.js so drawingItem stamps the active group ID and intended color instead of null and default; forward via PageDrawing unchanged through _on_page_drawing_committed; validate in MainWindow._on_drawing_created that the submitted group belongs to the drawing symbol (else coerce to None) before create_drawing; re-push the setter from _apply_active_draw_group on every group reload and symbol change.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P9-T2",
-        "P9-T3"
-      ],
-      "acceptance_criteria": [
-        "Given a selected draw group, when a new LWC drawing commits, then the persisted drawing carries the set's ID and its color; an ungrouped creation keeps the default color and a null group.",
-        "Given a commit payload whose group ID belongs to another symbol, when _on_drawing_created persists, then the group coerces to None with no cross-symbol write and no crash.",
-        "Given a group reload or symbol change, when _apply_active_draw_group runs, then the JS active-group state is re-pushed so the page cannot desync from the toolbar."
-      ],
-      "tests": [
-        {
-          "test_id": "P9-T4-T41",
-          "linked_acceptance_criterion": "Given a selected draw group, when a new LWC drawing commits, then the persisted drawing carries the set's ID and its color; an ungrouped creation keeps the default color and a null group.",
+          "test_id": "P11-T4-T42",
+          "linked_acceptance_criterion": "AC2",
           "type": "unit",
-          "description": "node --test on gestures.test.js: set active group then build a drawingItem; assert the item stamps the group ID and color, and defaults when ungrouped. Red pre-fix (null and default), green post-fix.",
-          "expected_result": "Fails pre-fix; passes post-fix."
-        },
-        {
-          "test_id": "P9-T4-T42",
-          "linked_acceptance_criterion": "Given a selected draw group, when a new LWC drawing commits, then the persisted drawing carries the set's ID and its color; an ungrouped creation keeps the default color and a null group.",
-          "type": "integration",
-          "description": "Drive a page commit payload with group plus color through _on_page_drawing_committed into _on_drawing_created offscreen; assert the stored drawing row carries both values.",
-          "expected_result": "Group ID and color persist end to end."
-        },
-        {
-          "test_id": "P9-T4-T43",
-          "linked_acceptance_criterion": "Given a commit payload whose group ID belongs to another symbol, when _on_drawing_created persists, then the group coerces to None with no cross-symbol write and no crash.",
-          "type": "integration",
-          "description": "Submit a foreign-symbol group ID in the commit payload; assert the drawing persists with group None and no exception. Red pre-fix (foreign ID stored), green post-fix.",
-          "expected_result": "Fails pre-fix; passes post-fix with group None."
-        },
-        {
-          "test_id": "P9-T4-T44",
-          "linked_acceptance_criterion": "Given a group reload or symbol change, when _apply_active_draw_group runs, then the JS active-group state is re-pushed so the page cannot desync from the toolbar.",
-          "type": "integration",
-          "description": "Reload groups and change symbol offscreen with a page stub capturing the setter; assert setActiveGroup is re-pushed with the current ID and color each time.",
-          "expected_result": "Setter re-pushed on every reload and symbol change."
+          "description": "Store keyed by upper-cased symbol (lowercase set_symbol lands on the upper-cased key); fresh view holds no entries; bars/drawings/alarms schemas and migrations untouched.",
+          "expected_result": "Upper-case keying holds; no persistence and no migration exist."
         }
       ],
       "expected_artifacts": [
-        "chart_assets/lwc/gestures.js active-group state",
-        "validation in MainWindow._on_drawing_created",
-        "tests/test_p9_group_payload.py",
-        "gestures.test.js additions"
+        "ui/lwc_view.py (per-symbol store + report sink)",
+        "ui/lwc_bridge.py (range-report transport if needed)",
+        "tests/test_p11_symbol_memory.py"
       ],
       "touches_files": [
-        "chart_assets/lwc/gestures.js",
-        "chart_assets/lwc/gestures.test.js",
         "ui/lwc_view.py",
-        "ui/main_window.py",
-        "tests/test_p9_group_payload.py"
+        "ui/lwc_bridge.py",
+        "tests/test_p11_symbol_memory.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P9-1 five-link chain",
-        "P9-T3 re-push hook"
+        "P11-T1 range probes",
+        "set_symbol lifecycle (D28.2 sole-writer)"
       ],
       "outputs": [
-        "Group plus color in commit payload",
-        "symbol validation at persist boundary"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "chart_assets/lwc/gestures.js",
-            "lines": "140-180",
-            "why": "drawingItem commit builder stamping null and default - to modify"
-          },
-          {
-            "path": "chart_assets/lwc/gestures.test.js",
-            "lines": "1-60",
-            "why": "JS test conventions to extend"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "1561-1700",
-            "why": "PageDrawing transport record and LwcDrawingSurface setter home"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1933-2010",
-            "why": "_apply_active_draw_group and _on_drawing_created to modify"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_view.py:PageDrawing",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:_on_page_drawing_committed",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_on_drawing_created",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "setActiveGroup(id, color) - single writer of the tool-state group fields, re-pushed on every group reload and symbol change",
-            "module": "chart_assets/lwc/gestures.js"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P9",
-        "plan_ref": "docs/plan.md#Phase P9",
-        "requirement_ids": [
-          "P9-3.1"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_group_payload.py -q -o addopts=\"\" && node --test chart_assets/lwc/gestures.test.js",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P9-T5",
-      "title": "Recolor semantics (3.3): stored colors, member repaint, leave-group rule, D50 composition",
-      "description": "Implement owner decision (c) Both: creation already stamps the group color via P9-T4; group recolor repaints all current members by updating their stored Drawing.color values (member-repaint, one UPDATE per recolor); ungroup and reassign preserve each drawing's stored color (never reset to default); edited drawings keep stored colors through the D50 drag path, which is verified for composition but not re-implemented. Serializer and drawing_op visibility unchanged.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P9-T4"
-      ],
-      "acceptance_criteria": [
-        "Given a group recolor, when committed, then every current member's stored Drawing.color is repainted to the new color.",
-        "Given an ungroup or reassignment, when applied, then the drawing keeps its stored color and never resets to the default; drawings that left the group earlier keep the color they had.",
-        "Given a drag edit through the D50 drag path, when applied, then the drawing's stored color is preserved."
-      ],
-      "tests": [
-        {
-          "test_id": "P9-T5-T51",
-          "linked_acceptance_criterion": "Given a group recolor, when committed, then every current member's stored Drawing.color is repainted to the new color.",
-          "type": "integration",
-          "description": "Create a group with two member drawings, recolor via _recolor_group offscreen; assert both stored colors equal the new color. Red pre-fix (members unchanged), green post-fix.",
-          "expected_result": "Fails pre-fix; passes post-fix."
-        },
-        {
-          "test_id": "P9-T5-T52",
-          "linked_acceptance_criterion": "Given an ungroup or reassignment, when applied, then the drawing keeps its stored color and never resets to the default; drawings that left the group earlier keep the color they had.",
-          "type": "integration",
-          "description": "Ungroup and reassign member drawings; assert stored colors survive in both directions and an earlier-leaver keeps its color through a later recolor.",
-          "expected_result": "Stored colors survive ungroup, reassign, and later recolors."
-        },
-        {
-          "test_id": "P9-T5-T53",
-          "linked_acceptance_criterion": "Given a drag edit through the D50 drag path, when applied, then the drawing's stored color is preserved.",
-          "type": "unit",
-          "description": "Apply drag_drawing_item geometry to a grouped drawing payload; assert the stored color is untouched by the geometry move.",
-          "expected_result": "Drag edits preserve stored colors (composition verified)."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_p9_recolor.py",
-        "member-repaint in recolor path",
-        "stored-color leave-group behavior"
-      ],
-      "touches_files": [
-        "ui/drawing_groups_dialog.py",
-        "data/drawing_store.py",
-        "tests/test_p9_recolor.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "S-P9-4 stored-color rule",
-        "P9-T4 creation stamping"
-      ],
-      "outputs": [
-        "Member repaint on recolor",
-        "leave-group preservation",
-        "D50 composition evidence"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/drawing_groups_dialog.py",
-            "lines": "171-250",
-            "why": "_recolor_group and related member handlers to modify"
-          },
-          {
-            "path": "data/drawing_store.py",
-            "lines": "70-200",
-            "why": "delete_group, update_drawing and assign_groups member-write paths"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "928-1010",
-            "why": "read-only: drawing_item renders from Drawing.color - do not change it"
-          },
-          {
-            "path": "tests/test_drawing_store.py",
-            "lines": "1-60",
-            "why": "drawing store test conventions for this module"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "data/drawing_store.py:update_drawing",
-            "status": "existing"
-          },
-          {
-            "ref": "data/drawing_store.py:delete_group",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/drawing_groups_dialog.py:_recolor_group",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:drag_drawing_item",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:drawing_item",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P9",
-        "plan_ref": "docs/plan.md#Phase P9",
-        "requirement_ids": [
-          "P9-3.3"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_recolor.py -q -o addopts=\"\"",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P9-T6",
-      "title": "Batch gate (W4): five-item close-out, diff review, full suite green",
-      "description": "Verification-only close-out: re-run the five new suites to confirm every finding's acceptance checks are green with no skipped or xfailed tests added; review the production diff to confirm no behaviour change beyond the five items with frozen interfaces and the order-code absence intact; run the full offscreen suite green.",
-      "agent": "build_worker",
-      "task_type": "verification",
-      "dependencies": [
-        "P9-T1",
-        "P9-T2",
-        "P9-T3",
-        "P9-T4",
-        "P9-T5"
-      ],
-      "acceptance_criteria": [
-        "Given the five new suites, when run, then every finding's acceptance checks are green with no skipped or xfailed tests added anywhere in the batch.",
-        "Given the production diff, when reviewed, then no behaviour changes beyond the five items and the frozen interfaces plus order-code absence hold.",
-        "Given the full offscreen suite, when run, then it is green."
-      ],
-      "tests": [
-        {
-          "test_id": "P9-T6-T61",
-          "linked_acceptance_criterion": "Given the five new suites, when run, then every finding's acceptance checks are green with no skipped or xfailed tests added anywhere in the batch.",
-          "type": "integration",
-          "description": "Run the five P9 suites together plus a skip/xfail grep over the new files; assert all green and zero skips.",
-          "expected_result": "Five suites green; no skips or xfails added."
-        },
-        {
-          "test_id": "P9-T6-T62",
-          "linked_acceptance_criterion": "Given the production diff, when reviewed, then no behaviour changes beyond the five items and the frozen interfaces plus order-code absence hold.",
-          "type": "manual",
-          "description": "Review git diff of production files against the five-item scope; grep frozen symbols and order-code tokens; record the checklist.",
-          "expected_result": "Diff confined to the five items; frozen interfaces and order absence intact."
-        },
-        {
-          "test_id": "P9-T6-T63",
-          "linked_acceptance_criterion": "Given the full offscreen suite, when run, then it is green.",
-          "type": "integration",
-          "description": "Run the full offscreen suite once end to end; a red suite fails the wave.",
-          "expected_result": "Full offscreen suite green."
-        }
-      ],
-      "expected_artifacts": [
-        "Five-item close-out checklist in the worker result",
-        "full-suite green run"
-      ],
-      "touches_files": [
-        "docs/build/results/P9-T6.json"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P9-T1 through P9-T5 results"
-      ],
-      "outputs": [
-        "Batch close-out verdict"
+        "in-memory per-symbol store",
+        "throttled range-report sink"
       ],
       "status": "done",
       "size": "S",
       "context": {
-        "read_files": [],
-        "architecture_ref": "docs/architecture.md#Phase P9",
-        "plan_ref": "docs/plan.md#Phase P9",
-        "requirement_ids": [
-          "P9-W4"
+        "read_files": [
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "2025-2060",
+            "why": "set_symbol lifecycle where save/restore hooks in"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "314-340",
+            "why": "send_ops transport the range op reuses"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "386-434",
+            "why": "channel send path if the range report needs a channel"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "590-660",
+            "why": "read-only: page range source the throttled reports read"
+          }
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p9_alarm_persistence.py tests/test_p9_group_dialog.py tests/test_p9_active_group.py tests/test_p9_group_payload.py tests/test_p9_recolor.py -q -o addopts=\"\"",
+        "contracts": [
+          {
+            "ref": "ui/lwc_view.py:set_symbol",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:send_ops",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "LwcView._viewport_memory: dict[str, dict] // upper-cased symbol -> {range: {from, to}, following: bool}; in-memory only, saved on switch-away, restored on switch-back",
+            "module": "ui/lwc_view.py"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P11",
+        "plan_ref": "docs/plan.md#Phase P11",
+        "requirement_ids": [
+          "AC-D51.4"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_symbol_memory.py -q -o addopts=\"\"",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P11-T5",
+      "title": "Same/new full-series replacement (D51.5; S-P11-3)",
+      "description": "Carry a same-vs-new continuity directive on full-series replaces: same symbol re-applies the preserved viewport range and follow state after the replace (no visible jump while scrolled back), new symbol starts following the live edge; zero-bar Fit stays a no-op with no error.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P11-T1",
+        "P11-T4"
+      ],
+      "acceptance_criteria": [
+        "Given a scrolled-back viewport, when a full-series replacement for the same symbol lands offscreen, then viewport range and follow state are preserved (slot-identical, no jump).",
+        "Given a full-series replacement for a new symbol, when it lands offscreen, then the chart starts following the live edge; and given a zero-bar series, when Fit is invoked, then it is a no-op with no error."
+      ],
+      "tests": [
+        {
+          "test_id": "P11-T5-T51",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Scrolled-back seeded chart; same-symbol full replace (backfill-shaped); assert range slot identity and follow state preserved across the replace (AR-P11-3).",
+          "expected_result": "Same-symbol replace preserves viewport + follow with no jump."
+        },
+        {
+          "test_id": "P11-T5-T52",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "New-symbol full replace starts following the live edge; zero-bar series Fit is a no-op with no error (Journey 44 edge).",
+          "expected_result": "New symbol follows; zero-bar Fit neither errors nor moves."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/lwc_view.py (continuity directive on replaces)",
+        "chart_assets/lwc/chart.js (preserve/re-apply range)",
+        "tests/test_p11_replace.py"
+      ],
+      "touches_files": [
+        "ui/lwc_view.py",
+        "chart_assets/lwc/chart.js",
+        "tests/test_p11_replace.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P11-T1 follow probes",
+        "P11-T4 per-symbol store + report channel"
+      ],
+      "outputs": [
+        "continuity directive",
+        "zero-bar Fit guard"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "2060-2101",
+            "why": "set_series full-replace path emitting the continuity directive"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "850-894",
+            "why": "applyRows/setData path re-applying the preserved range"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "800-850",
+            "why": "read-only: fitToWidth framer the new-symbol path reuses"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/lwc_view.py:set_series",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:applyRows",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "full-replace continuity: {same_symbol: bool} // same symbol re-applies preserved {range, following}; new symbol fits to the live edge",
+            "module": "ui/lwc_view.py"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P11",
+        "plan_ref": "docs/plan.md#Phase P11",
+        "requirement_ids": [
+          "AC-D51.5"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_replace.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P11-T6",
+      "title": "Batch gate: close-out (P11-W4)",
+      "description": "Verify every D51 criterion observably satisfied: re-run the five AC checks, review the production diff (chart.js viewport path + view update path only; pop-out/data/order paths untouched), confirm no skipped/xfailed tests added, and run the full offscreen suite green.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P11-T1",
+        "P11-T2",
+        "P11-T3",
+        "P11-T4",
+        "P11-T5"
+      ],
+      "acceptance_criteria": [
+        "Given all P11 tasks done, when the five AC checks (follow query, no-yank, Fit/affordance, per-symbol restore, same/new replacement) are re-run, then every one is green.",
+        "Given the P11 production diff, when reviewed, then it touches only the viewport path (chart.js viewport gating + view update wiring) with pop-out/data/order paths untouched, no skipped or xfailed tests added, and the full offscreen suite green."
+      ],
+      "tests": [
+        {
+          "test_id": "P11-T6-T61",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Re-run the five AC suites (test_p11_follow_state, test_p11_no_yank, test_p11_fit_affordance, test_p11_symbol_memory, test_p11_replace) plus the JS chart tests; all green.",
+          "expected_result": "All five AC suites and the JS tests pass."
+        },
+        {
+          "test_id": "P11-T6-T62",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Diff review of the P11 production change (chart.js viewport path + view update path only), grep for skip/xfail markers in the new suites, and one full offscreen suite run; a red suite fails the wave.",
+          "expected_result": "Diff confined to the viewport path, no skips/xfails, full suite green."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/build/results/P11-T6.json"
+      ],
+      "touches_files": [
+        "docs/build/results/P11-T6.json"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P11-T1..P11-T5 results and suites"
+      ],
+      "outputs": [
+        "five-AC checklist verdict",
+        "batch gate verdict"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "800-880",
+            "why": "read-only: review the gated viewport path is the only chart.js behaviour change"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "2013-2060",
+            "why": "read-only: review the store/directive wiring is the only view behaviour change"
+          },
+          {
+            "path": "tests/test_lwc_page_wiring.py",
+            "lines": "1-40",
+            "why": "read-only: probe-convention reference for the gate review"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/lwc_view.py:update_live_bar",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_view.py:set_symbol",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P11",
+        "plan_ref": "docs/plan.md#Phase P11",
+        "requirement_ids": [
+          "AC-D51.1",
+          "AC-D51.2",
+          "AC-D51.3",
+          "AC-D51.4",
+          "AC-D51.5"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q -o addopts=\"\"",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"

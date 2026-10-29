@@ -6426,3 +6426,316 @@ Manager gives workers the contract, never the implementation.
 | S-P10-3 | **Commit close-out (D50.5):** drag commits ride `_on_drawing_updated` unchanged — `update_drawing` → `reload_drawings` → `sync_drawings_to_views` exactly once; the session-`None` guard gives zero-view persist for free; cancel performs no store write. Rationale: Q71 yes; the D49.4 single-fan-out pattern is the settled mechanism. Alternative: a drag-specific persist path (rejected — two close-outs diverge). | `[new in P10]` — D50.5; close-out reuse |
 | S-P10-4 | **Operation-level lock (D50.3):** `drag_drawing` refuses locked drawings at initiation/move (geometry unchanged, no store write); delete is refused on locked drawings; color/style changes — including group recolour of a locked member — bypass the guard. Rationale: Q69 (i)+(ii)+(iii) forbidden, color allowed; A129 pins enforcement to the operation surface. Alternative: handle-hiding as the lock (rejected — A129 forbids it; no initiation path exists to hide behind). | `[new in P10]` — D50.3; operation-surface guard |
 | S-P10-5 | **Recolor interplay pin (D50.4):** drag commits are geometry-only (empty color normalises to unchanged, never overwrites stored color); mid-drag recolour updates stored color immediately, the ghost keeps the drag-start color, stored wins at commit; leave-group keeps stored color both directions (P9 rule preserved). Rationale: Q70 (c) Both + A132; geometry and color are independent channels. Alternative: commit echoes page color (rejected — AR-P10-1). | `[new in P10]` — D50.4; color-preservation constraint |
+
+## Phase P11 — D51 follow-live viewport for the LWC main chart (no yank while scrolled back) — drafted 2026-10-29
+
+> Companion: `docs/plan.md` § *Phase P11*. Requirements basis (approved scope, not
+> re-derived): D51, Journey 44, `AC-D51.1`–`AC-D51.5`, A135, R103, Q72–Q76
+> (answered-owner-confirmed 2026-10-29). `requirements.md` carries
+> `Status: READY_FOR_PLAN`. Existing-repo run: every entry below carries one status
+> label relative to the codebase — `[existing]` (present, unmodified this phase),
+> `[new]` (introduced), `[new/changed]` (present and modified). No new module, no new
+> dependency, no schema migration, no live-TWS dependency, no order code. One phase
+> only — nothing past the P11 build wave is planned.
+
+### Relationship to prior phases
+
+Every decision below is `[new in P11]` (no prior phase decided the viewport-follow
+behaviour). Compositions, not revisions: S-P11-4 reuses the D3 Reset affordance and
+the existing `fitToWidth` framer without changing their contracts; S-P11-5 rides the
+D28.2 sole-writer `set_symbol` lifecycle without changing it; S-P11-2 keeps the
+Python `update_live_bar` bar-domain contract byte-identical (only the page's viewport
+reaction changes). No `[revises]` — nothing earlier is contradicted.
+
+### Codebase Summary (pointer + this phase's deltas — not a rewritten inventory)
+
+The full index is `docs/codebase-map.md`. This phase touches two existing files plus
+their suites, verified against source 2026-10-29 (graphify used for discovery only —
+the source is authoritative):
+
+- `[existing]` `chart_assets/lwc/chart.js` — `applyOps` calls `fitToWidth()`
+  unconditionally after every envelope (`:876`), including live `update_bar` upserts
+  via `upsertRow` (`:894`, `series.update`); there is **no follow state** — no
+  `isFollowing` probe, no `shiftVisibleRangeOnNewBar`/`scrollToRealTime` use, no
+  go-to-realtime affordance. The unconditional refit is the reported yank.
+- `[existing]` `ui/lwc_view.py` — `update_bars` (`:2013`, full replace via
+  `set_series`), `update_last_bar` (`:2017`, forming-bar/new-candle live path),
+  `set_series` (`:2060`, full replace + study/overlay re-render), `set_symbol`
+  (`:2025`, symbol lifecycle + interaction reset); there is **no per-symbol viewport
+  store** and **no page→Python visible-range report channel**.
+- `[existing]` `ui/chart_view.py::DrawingController`, `drag_drawing_item` /
+  `drawing_handle_points`, `data/drawing_store.py`, `data/alarm_store.py`,
+  `ui/ticker_session.py` fan-out — untouched surfaces (frozen where listed below).
+
+### Summary
+
+P11 gives the main chart a TradingView-copy follow model with per-symbol memory: a
+page-side derived follow check (newest bar's slot inside the visible logical range)
+gates every viewport movement on the live path, so scrolled-back viewports stay put
+until the user pans back or invokes Fit/reset; Fit frames all loaded bars and
+re-engages follow with a go-to-realtime affordance on new-bars-while-away; a
+Python-side per-symbol store restores viewport + follow state on switch-back while
+same-symbol replaces preserve and new-symbol loads follow. Every change lands behind
+a repro-first test; no production behaviour changes beyond D51.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI / engine / store | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only, SQLite (`ibapi-latest==10.51.1` untouched) | Existing-repo hard constraint; viewport gating needs no stack change | Any stack change (rejected — out of scope) |
+| Follow-state home (S-P11-1) | Derived page-side on query (`getVisibleLogicalRange()` vs snapshot length), offscreen-queryable | The page owns geometry (Qt-free boundary, P10 precedent); derivation cannot desync the way a stored flag would on unobserved gestures | Python-side mirror as source of truth (rejected — needs a per-gesture round-trip with no latency budget; kept as a query cache only) |
+| Live-path follow mechanism (S-P11-2) | Explicit `isFollowing()` guard around every viewport movement on the live path; resume via `scrollToRealTime()` / `setVisibleLogicalRange` | The yank is our own unconditional `fitToWidth()`, not the library — an explicit guard fixes exactly the defect with probe measurables | Relying solely on the library `shiftVisibleRangeOnNewBar` option (rejected — the full-replace yank and the same/new + per-symbol directives need explicit control regardless; the option's semantic is the reference, not the mechanism) |
+| Per-symbol store home (S-P11-5) | In-memory Python-side dict on the view, fed by throttled page range reports | Python owns the symbol lifecycle (`set_symbol`); in-memory matches every comparable UI-toggle precedent (D10/A36, D44/A76) and needs no migration | Page-side-only memory (rejected — lost on page reload/new view); persisted store (rejected — never asked for; a migration for session state) |
+| Testing | Offscreen pytest + `node --test` for the `chart.js` change; seeded-series viewport-slot assertions | Repo standard; every D51 criterion is offscreen-measurable (Journey 44) | Live-session validation (rejected — no live TWS needed) |
+
+### System Components
+
+- `[new/changed]` `chart_assets/lwc/chart.js` — gains the derived `isFollowing()` check, gates the post-`applyOps` fit and the live-upsert viewport reaction on it, exposes follow-state/range probes, and hosts the go-to-realtime affordance (shown on new-bars-while-away, invokes the realtime scroll). No data-path change.
+- `[new/changed]` `ui/lwc_view.py` — gains the per-symbol `{range, following}` store (save on switch-away from page range reports, restore on switch-back via a range op), emits the same-vs-new continuity with full-series replaces, and hosts the throttled page→Python range-report sink. Bar-domain emit behaviour unchanged.
+- `[existing]` `ui/main_window.py` — the load/switch path flows through the existing `set_symbol`/`update_bars` calls unchanged; the Reset affordance (D3) is reused, not re-specified.
+- `[existing]` `ui/lwc_bridge.py` — reused as the op/signal transport; extended only as needed for the range report and the continuity directive (Task Manager's wire-shape detail, no new channel type).
+
+### Data Model
+
+- `[new]` Per-symbol viewport memory — in-memory `symbol → {range, following}` session state on the view. No field added/removed anywhere; no migration — viewport position is session state, not durable data (AP-P11-2).
+- `[existing]` `Bar` / `bars` table, `Drawing` / `DrawingGroup`, `Alarm` + `alarms` table — untouched.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths, SQLite, Qt signals,
+`pacing_manager` are untouched — P11 issues no new request type and changes no
+subscription behaviour.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen). Task Manager gives workers the contract, never the implementation.
+
+- `ui/lwc_view.py::update_live_bar` bar-domain contract — verbatim: same-timestamp tick replaces the forming bar, newer timestamp appends, out-of-order tick ignored; only the tick's ops cross, history never resent. The Python emit side is unchanged (S-P11-2 changes only the page's viewport reaction).
+- `ui/chart_view.py::DrawingController` signals — verbatim contracts:
+  `created = pyqtSignal(object)`; `updated = pyqtSignal(int, dict, str)`;
+  `deleted = pyqtSignal(int)`; `selection_changed = pyqtSignal(int)`. Unchanged.
+- `ui/lwc_view.py::drag_drawing_item` / `::drawing_handle_points` — verbatim geometry contracts (P10 § Frozen Interfaces). Untouched.
+- `data/drawing_store.py::DrawingStore.update_drawing` / `::delete_drawing` — verbatim contracts (P10 § Frozen Interfaces; `None`-means-unchanged holds). Unchanged.
+- `data/alarm_store.py::AlarmStore.mark_triggered` — verbatim contract:
+  `def mark_triggered(alarm_id: int, triggered_at: int | None = None) -> None`. Unchanged.
+- `ui/main_window.py` D28.2 sole-writer rule — verbatim contract: the main chart is the sole writer of drawings; the session fans out (`reload_drawings` + `sync_drawings_to_views`). Preserved.
+
+### Non-Functional Approach
+
+- **Correctness over coverage:** each wave lands its repro test red-first on the current tree (follow-state probes proving no `isFollowing` surface + unconditional refit for S-P11-1; viewport-slot identity across injected bars for S-P11-2; range + follow-state assertions for Fit/affordance; per-symbol restore + same/new assertions for S-P11-3/5).
+- **Performance:** follow check is O(1) per update (range compare, no scan); range reports throttled to gesture-end + post-update (AP-P11-3); no per-tick Python round-trip; no new per-bar work.
+- **Safety:** the Qt-free geometry boundary holds — viewport math stays in page JS, symbol lifecycle in Python; the bar-domain contract is untouched so the data path cannot regress; no order-code surface touched (D45/D46 invariants hold); no live TWS needed.
+- **Visual gate:** the affordance reuses the proven in-chart control idiom (D3) — presence + behaviour gating only; recorded as a provisional assumption (AP-P11-4), satisfying AC-G.1 without a new reference.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P11-1 — keyboard pan (arrows/+/−) or wheel zoom bypasses the follow model | M / L | Follow state is derived from the live visible range on query, not from tracked gestures — any viewport change is reflected by construction; probes cover keyboard-driven pans |
+| AR-P11-2 — range report arrives stale at switch-away (store saves a pre-gesture range) | M / L | Reports fire on gesture-end + post-update (AP-P11-3); the save path reads the freshest report and the restore path asserts range identity in tests |
+| AR-P11-3 — full replace on same symbol visibly jumps (library resets range on `setData`) | M / L | Same-symbol path explicitly re-applies the preserved range after the replace; the preservation test asserts slot identity, failing on any jump |
+| AR-P11-4 — affordance shows without new bars (stale badge) or never shows | L / L | Affordance visibility is a pure function of (away AND new-bars-since-away); show/hide transitions are asserted offscreen in both directions |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P11-1 | **Follow-state definition (D51.1):** `isFollowing()` is derived page-side — following iff the newest bar's logical slot is inside `getVisibleLogicalRange()`; any user pan/zoom away means scrolled back. Exposed as an offscreen-queryable probe. Rationale: Q72 verbatim (TradingView `shiftVisibleRangeOnNewBar` semantic, verified in vendored 5.2.1); derivation cannot desync. Alternative: pixel-tolerance / N-bars-from-edge threshold (rejected — the owner picked the binary slot rule). | `[new in P11]` — D51.1; derived state |
+| S-P11-2 | **No-yank live path (D51.2):** the post-`applyOps` unconditional `fitToWidth()` is removed; live `update_bar` upserts leave the visible range untouched while away and follow only when `isFollowing()`; follow resumes on user pan-back-to-edge or Fit/reset — never automatically on new bars. Rationale: Q73(a) stay-put; the yank is our own refit call, so removing/gating it is the exact fix. Alternative: keep refit for upserts that extend the series (rejected — any extension-triggered move is the reported defect). | `[new in P11]` — D51.2; viewport gating |
+| S-P11-3 | **Same-vs-new replacement (D51.5):** full-series replaces carry a continuity directive — same symbol preserves viewport + follow state (re-apply the preserved range; the library keeps the logical range across `setData` unless fitted), new symbol starts following (fit). Rationale: Q76(a); a backfill/reload must not move the user while a new symbol has no prior viewport. Alternative: always preserve (rejected — a new symbol would open scrolled-back into an unrelated range). | `[new in P11]` — D51.5; replace directive |
+| S-P11-4 | **Fit/reset + go-to-realtime affordance (D51.3):** Fit/reset frames all loaded bars and re-engages follow (existing `fitToWidth` framer reused); a go-to-realtime affordance appears when new bars arrive while away and invokes `scrollToRealTime()`. Rationale: Q74(a); one explicit way back plus a visible one when it matters. Alternative: Fit restores the pre-scroll view (rejected — the owner picked frame-all + follow). | `[new in P11]` — D51.3; explicit re-engage |
+| S-P11-5 | **Per-symbol memory (D51.4):** Python-side in-memory `symbol → {range, following}` store, fed by throttled page range reports; saved on switch-away, restored on switch-back via a range op. Rationale: Q75(a) — deliberate TradingView improvement for the multi-symbol alarm workflow. Alternative: fresh-follow on every switch (rejected — Q75(b) superseded; it re-introduces the yank on switch-back). | `[new in P11]` — D51.4; session store |
+
+---
+
+## Phase P12 — D52 increment: add `30 mins` (30 D) as a valid chart interval — drafted 2026-10-29
+
+> Companion: `docs/plan.md` § *Phase P12* (waves P12-W1…P12-W3, traceability, assumptions, flagged issues).
+> Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Batch 27 (D52),
+> Journey 45, `AC-D52.1`–`AC-D52.8`, lite defaults A136–A141, R104–R105, `design_gaps.md` DG99.
+> Existing-repo run: the Current Tech Stack is a hard constraint; every item below carries
+> `[existing]` / `[new]` / `[new/changed]`. **D1–D51 are NOT reopened** beyond the recorded
+> timeframe-enumeration extension (`AC-D16.1` now reads nine; `AC-D16.8` Given now reads six intraday
+> timeframes; the D43/Q53 `AC-D27.9` per-span table gains the `30 mins` row). One phase only — nothing
+> past the P12 build wave is planned. No open PLAN escalation exists
+> (`docs/code_review/escalations.json` holds zero `routed_to: PLAN` + `open` entries).
+
+### Codebase Summary (existing repository — what P12 changes, verified against the current tree)
+
+> Pointer: the full module index is `docs/codebase-map.md` (skeleton re-run 2026-10-29 for P12: 224 code
+> files, 24 test-impact rows; no new module lands in P12, so annotations carry forward). The deltas below
+> are the complete P12 surface, each verified in source this run (the repository is authoritative):
+
+- `[existing] ibkr/market_data.py::TIMEFRAME_CONFIG` — eight rows (`1 min`→`30 D`/`1 min`,
+  `5 mins`→`30 D`/`5 mins`, `15 mins`→`30 D`/`15 mins`, `1 hour`→`60 D`/`1 hour`,
+  `4 hours`→`60 D`/`4 hours`, `1 day`→`1 Y`/`1 day`, `1 week`→`2 Y`/`1 week`,
+  `1 month`→`10 Y`/`1 month` — intraday durations carry the P7 wide-duration outcome);
+  `req_historical_data` falls back to the `5 mins` row for unknown timeframes and already accepts
+  `duration`/`bar_size` overrides. No `30 mins` row exists.
+- `[existing] data/bar_aggregator.py::TIMEFRAME_SECONDS` — nine keys (`5 secs` + the eight timeframe
+  periods); `_ET_ANCHORED_TIMEFRAMES = frozenset({"1 day", "4 hours"})` (fixed-seconds ET-midnight
+  grid); `_CALENDAR_BUCKETED_TIMEFRAMES = frozenset({"1 week", "1 month"})` with
+  `week_bucket_start` (Monday 00:00 ET) / `month_bucket_start`; `_bucket_start` dispatches calendar
+  buckets for week/month and `_period_start` (UTC-epoch grid) otherwise. No 1800 key exists
+  (`BarAggregator` falls back to 300 s for unknown timeframes).
+- `[existing] services/backfill_service.py` — `floor_bar_budget` returns the flat cap when
+  `period >= 86400` (daily+ already excluded); `find_missing_spans` enables the `AC-D16.8` floor only
+  when `min_sessions > 0 and bar_period_seconds(timeframe) < 86400` (intraday-only, already generic);
+  `plan_requests` chunks by the configured duration via `_duration_to_seconds`; `bar_period_seconds`
+  reads `TIMEFRAME_SECONDS` with a `5 mins` fallback.
+- `[existing] ui/ticker_session.py::prime_aggregator` — span-based branches (`span_s <= 3600` →
+  `5 secs`/`[60 S, 3600 S]`; longer → `1 min`/`[60 S, 1 D]`), already generic over any span; the
+  docstring per-span table names the fine (`5 secs`) and coarse (`1 min`) groups with no `30 mins` row.
+- `[existing] ui/main_window.py` load path — `tf_combo.addItems(list(TIMEFRAME_CONFIG.keys()))`
+  (picker follows config order); per-load `BarCache.get_bars(symbol, timeframe, ext_hours=mode)`,
+  `find_missing_spans(..., ext_hours=mode, min_sessions=30)`, `queue_wave_plans(..., extended_hours)`,
+  `prime_aggregator(..., extended_hours)`; the P7 persist-and-resume / oldest-first floor machinery
+  applies per timeframe + mode.
+- `[existing]` the shared daily-or-coarser predicate (P8 S-P8-4) across `services/session_service.py`,
+  `services/time_collapse_service.py`, `services/chart_model.py`, `ui/lwc_view.py` — an 1800 s period
+  is intraday under it, so bands, collapse, plotted-filtering, and session regions apply to `30 mins`
+  with no predicate change.
+- `[existing] services/volume_baseline.py::minutes_for_timeframe` — `"1 day"` → 390.0,
+  `"1 week"` → 1950.0, `"1 month"` → 8190.0, else `secs/60` with a 1.0 fallback; the fallback yields
+  exactly 30.0 for an 1800 s period.
+- `[existing] ui/drawing_settings_common.py::VISIBILITY_ROWS` — six **duration-unit** rows
+  (Seconds/Minutes/Hours/Days/Weeks/Months), not per-timeframe rows; `VisibilityTab`
+  (`get_visibility`/`set_visibility`) round-trips a checkbox dict with **no render-time consumer**
+  mapping the current timeframe to a row (P8 S-P8-6, verified write-only state).
+- `[existing]` generic timeframe carriers (no enumeration, no change): drawing/alarm/popout/study
+  stores keyed by free-form timeframe strings; `services/chart_model.py` value objects.
+
+### Summary
+
+Add one `TIMEFRAME_CONFIG` row and teach the aggregator the 1800 s period; everything downstream
+already keys off period length, so the planner, the priming branches, the depth floor, the mode-aware
+cache, and the burst-minutes fallback need no logic change — only new keys to read. Keep the
+intraday contract whole: the `AC-D16.8` floor applies (successive-loads reading), RTH/ETH stay
+distinct modes, bands and collapse apply as for every other intraday timeframe, and the batch is
+gated on a standalone IBKR probe plus the green suite. Follow the D48 weekly/monthly precedent
+structurally — with the intraday polarity inverted (P8 excluded daily+ from the floor and
+canonicalised the mode; P12 joins the floor and keeps the modes distinct).
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained stack first | Unchanged: Python 3.11+, PyQt6, `ibapi-latest==10.51.1`, SQLite, LWC chart stack | Existing-repo hard constraint; one timeframe row needs no new capability | Any replacement — rejected outright |
+| Bar-size/duration source | IBKR-native `30 mins` bar size with `30 D` duration inside `TIMEFRAME_CONFIG` (A136) | Owner-specified span (Q77 answered-owner-confirmed); the duration spelling is inside IBKR's per-request vocabulary for intraday bars and the probe (`AC-D52.7`) verifies acceptance | Shorter window (rejected — advances less toward the `AC-D16.8` floor); a probe rejection escalates per R104, never a silent shrink |
+| No new dependency, no schema migration, no order code | Nothing added, nothing migrated | The batch is pure timeframe-surface; the Qt-free boundary and the P5 order absence stay intact | Any new table/column/dependency — rejected (nothing persists beyond the existing `bars` rows keyed by the new timeframe string) |
+
+### System Components
+
+- `[new/changed] ibkr/market_data.py::TIMEFRAME_CONFIG` — gains exactly one row
+  (`30 mins` → `30 mins`/`30 D`), inserted between `15 mins` and `1 hour` so the picker,
+  which builds from `list(TIMEFRAME_CONFIG.keys())`, orders it per A140 with no picker code change.
+- `[new/changed] data/bar_aggregator.py` — `TIMEFRAME_SECONDS` gains the 1800 key (S-P12-2);
+  bucketing rides the existing `_period_start` UTC-epoch grid, whose half-hour boundaries coincide
+  with ET clock half-hours (whole-hour UTC offsets preserve `:00`/`:30`); no anchor-set change.
+- `[existing] services/backfill_service.py` — planner contracts unchanged; the `AC-D16.8` floor gate
+  (`period < 86400`) and the flat-cap rule already cover an 1800 s period, so `30 mins` joins the
+  floor with no code change (S-P12-3).
+- `[existing] ui/main_window.py` load path — unchanged logic; the mode-aware cache read, planner call,
+  wave queue, and prime run for `30 mins` exactly as for the other intraday timeframes (S-P12-4).
+- `[existing] services/session_service.py`, `services/time_collapse_service.py`,
+  `services/chart_model.py`, `ui/lwc_view.py` — the shared daily-or-coarser predicate already treats
+  1800 s as intraday; bands, collapse, plotted-filtering, and session regions apply with no edit
+  (S-P12-4).
+- `[existing] services/volume_baseline.py::minutes_for_timeframe` — unchanged; the `secs/60` fallback
+  yields exactly 30.0 RTH-session minutes for `30 mins` (S-P12-6).
+- `[existing] ui/drawing_settings_common.py::VisibilityTab` + zone/horizontal dialogs — unchanged;
+  the `Minutes` unit row already covers `30 mins` and no consumer maps timeframe→row (S-P12-6).
+- `[existing] ui/ticker_session.py::prime_aggregator` — unchanged logic; the docstring per-span table
+  gains the `30 mins` row naming the existing `5 secs` branch (S-P12-5).
+
+### Data Model
+
+- `[existing]` `bars` table (`PRIMARY KEY (symbol, timeframe, ts)`, mode-aware key per D42) — **no
+  migration**; `30 mins` rows persist under the new timeframe string with distinct RTH/ETH keys
+  (S-P12-4), so no cache fork and no cross-mode contamination.
+- `[existing]` `Bar` dataclass, `SESSION_BAR_CAP`, retention/prune — unchanged; a `30 D` half-hour
+  series (~13 RTH bars/day + ETH extension, capped by the floor machinery) sits far below every cap.
+- `[new]` In-memory period key only (the 1800 entry in `TIMEFRAME_SECONDS`); nothing persists beyond
+  the existing cache.
+
+### Integration Points
+
+- `[existing]` TWS historical data (`reqHistoricalData`) — same call shape; one new
+  (`duration`, `bar_size`) combo, probe-verified before the batch passes (`AC-D52.7`).
+- `[existing]` TWS real-time bars — the live 5-sec feed still primes the forming 30-minute bar
+  through the existing `prime_aggregator` fine branch; no new subscription type.
+- `[existing]` SQLite bar cache — same API; read/written under the mode-aware intraday keys.
+- No new external service, endpoint, credential, or dependency. Live validation stays **read-only**;
+  the probe issues historical requests only.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and **unmodified by every P12 wave**. Task Manager gives workers the
+contract, never the implementation. The repository is authoritative on conflict.
+
+- **`ibkr/market_data.py::MarketDataManager.req_historical_data`** — contract:
+  `req_historical_data(self, contract: Contract, timeframe: str = "5 mins", endDateTime: str = "", whatToShow: str = "TRADES", useRTH: int = 1, extended_hours: bool = False, bar_size: str | None = None, duration: str | None = None) -> int`. Owner: `ibkr/market_data.py`. (Only the *configured* `duration`/`bar_size` values for the one new key are added; the signature, handshake gate, and pacing contract do not change; the `5 mins` unknown-timeframe fallback is untouched.)
+- **`ibkr/market_data.py::TIMEFRAME_CONFIG` existing eight rows** — contract: the eight
+  `duration`/`bar_size` pairs verified above are byte-identical and order-identical after P12; exactly
+  one row is added between `15 mins` and `1 hour`. Owner: `ibkr/market_data.py`.
+- **`data/bar_aggregator.py::TIMEFRAME_SECONDS` existing nine keys + `_period_start` / `_bucket_start` grid** — contract:
+  the nine existing periods and the UTC-epoch / ET-midnight / calendar-month branches keep their values;
+  half-hour bucketing is the existing UTC branch under a new key. Owner: `data/bar_aggregator.py`.
+- **`services/backfill_service.py` planner contracts** — contracts: `find_missing_spans` (with the
+  `min_sessions > 0 and bar_period_seconds(timeframe) < 86400` intraday-only floor gate),
+  `plan_requests` (chunking by configured duration), `floor_bar_budget` (flat cap at
+  `period >= 86400`), `bar_period_seconds`. Owner: `services/backfill_service.py`. (Pure, Qt-free;
+  no signature or gating change.)
+- **`ui/ticker_session.py::prime_aggregator` span branches** — contract: `span_s <= 3600` →
+  `5 secs`/`[60 S, 3600 S]`; longer spans → `1 min`/`[60 S, 1 D]`; `period_s <= 5` early-out; replay
+  guard on `_prime_period_start`. Owner: `ui/ticker_session.py`. (An 1800 s span lands in the
+  existing fine branch; only the docstring table gains a row.)
+- **`data/bar_cache.py::BarCache.save_bars` / `::get_bars`** — same API as frozen in P7; called with
+  the mode-aware intraday keys. Owner: `data/bar_cache.py`.
+- **`config/settings.py` pacing tunables + `check_live_port`** — contracts unchanged (P7 frozen row
+  carried forward). Owner: `config/settings.py`.
+- **Drawing/alarm visibility payload shape** — contract: `VisibilityTab.get_visibility()` /
+  `set_visibility()` dict shape (Ticks, six unit checkboxes, `Ranges`, `*_lo`/`*_hi` bounds) is
+  unchanged; no per-timeframe key exists. Owner: `ui/drawing_settings_common.py`.
+- **Qt-free import boundary** — contract: `data/` + `services/` import without Qt (`test_t38_t08`).
+  Owner: the boundary itself. (The 1800 key is plain data; no Qt enters.)
+- **Order-code absence** — contract: `import ibkr.orders` raises `ModuleNotFoundError`; no
+  `placeOrder`/`cancelOrder`/`reqGlobalCancel` call site, no order UI. Owner: the P5 end state.
+  (P12 adds zero order interaction; D45/D46 stand.)
+- **LWC chart stack seam** — contract: `ui/chart_view.py::create_chart_view(tz_offset: float = 0.0, editable: bool = True) -> ChartView`, `services/chart_model.py` value objects, `RouterMode`
+  TR-1…TR-17. Owner: `ui/` + `services/`. (The data path feeds the seam; no P12 task edits the renderer.)
+
+### Non-Functional Approach
+
+- **Performance (driven by D52.3 + the probe):** a `30 D` half-hour load plans one configured-duration
+  chunk per the P7 wide-duration outcome and extends backwards across loads under the per-load cap
+  (S-P7-1); the floor fill for `30 mins` (~30 sessions × ~13–27 bars) is comparable to the other
+  intraday timeframes. No GUI-thread blocking anywhere (the P7 wave/prime rules are untouched and
+  apply unchanged).
+- **Correctness (driven by AC-D52.2/AC-D52.4 + R105):** fixed-seconds bucketing with unit cases over
+  a DST fold and the `09:30` boundary; the daily-or-coarser predicate keeps bands, collapse,
+  plotted-filtering, and session regions intraday-identical under both modes; the DG99 inventory
+  checklist keeps every timeframe enumeration complete.
+- **Security/scalability:** no new surface (no dependency, no endpoint, no credential); read-only
+  live validation; the probe is the only live step and issues historical requests only.
+- **Stability gate:** the full offscreen suite stays green on every wave; a 321-class probe rejection
+  fails the wave and escalates to Requirements (R104) — durations are never silently shrunk.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P12-1 — IBKR rejects the new combo (321-class, as in ESC-036) | M / L | `AC-D52.7`: the standalone probe verifies the `30 mins` / `30 D` combo before the batch passes; a rejection escalates to Requirements — durations are never silently shrunk (R104, S-P12-1/S-P12-5) |
+| AR-P12-2 — a hardcoded intraday-timeframe enumeration misses the new entry (R105) | M / M | The DG99 inventory is the checklist (S-P12-6): config, aggregator, predicate sites, chart model, session regions, minutes mapping, picker order, backfill parameterisation, priming table; `AC-D52.5`/`AC-D52.6`/`AC-D52.8` are the gates |
+| AR-P12-3 — IBKR's native 30-minute anchor differs from ET clock half-hours (cf. the D27.8 4h-caveat precedent) | L / M | AP-P12-1 records the assumption; first-load bar-to-bar comparison against IBKR history is the check; a systematic phase mismatch becomes a follow-up, never a silent re-anchor |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P12-1 | **Config row + picker order (D52.1/D52.5):** `TIMEFRAME_CONFIG` gains exactly `30 mins` → `30 mins`/`30 D`, inserted between `15 mins` and `1 hour`; the picker follows config order with no code change (A136/A140). Rationale: owner-specified span (A136, Q77) that advances toward the `AC-D16.8` floor inside IBKR's per-request vocabulary; insertion order is the existing ordering mechanism. Alternative: explicit picker list (rejected — a second enumeration is exactly the R105 defect class). | `[new in P12]` — D52.1/D52.5; additive row only |
+| S-P12-2 | **Fixed-seconds half-hour bucketing (D52.2):** `TIMEFRAME_SECONDS` gains the 1800 key; bucketing rides the existing UTC-epoch grid with no anchor-set change (A137). Rationale: whole-hour UTC offsets preserve `:00`/`:30` boundaries, so the UTC grid already lands `HH:00`/`HH:30` ET — including the `09:30` RTH open — and ET midnight (04:00/05:00 UTC) is itself a multiple of 1800; the DST-fold unit case pins it. Alternative: add `30 mins` to `_ET_ANCHORED_TIMEFRAMES` (rejected — provably identical output, a dead branch that only invites drift). | `[new in P12]` — D52.2; additive key beside `_period_start` |
+| S-P12-3 | **Planner/backfill unchanged (D52.3):** no logic change — the `AC-D16.8` floor gate (`period < 86400`) and the flat-cap rule already cover 1800 s; `plan_requests` chunks by configured duration; day-presence is already bar-granular (A138). Rationale: verified in source, not assumed; the successive-loads floor machinery (P7 S-P7-1/S-P7-2) is timeframe-generic. Alternative: timeframe-name special cases (rejected — period-based gating already covers the new key). | `[new in P12]` — D52.3; verification, not code |
+| S-P12-4 | **Intraday mode parity, no canonical mode (D52.4):** `30 mins` keeps distinct RTH/ETH bar sets under the existing mode-aware cache; bands and collapse apply via the existing intraday paths (A139). Rationale: a 30-minute bar aggregates part of a session, so mode filtering is meaningful — the P8 canonical-mode no-op does NOT extend here; the shared daily-or-coarser predicate already excludes 1800 s. Alternative: canonical full-session mode for `30 mins` (rejected — would merge two genuinely different bar sets into one cache). | `[new in P12]` — D52.4; load-path membership, no new predicate |
+| S-P12-5 | **Priming table is documentation-only (D52.2/D52.6, DG99):** the 1800 s forming span lands in the existing fine branch (`5 secs`/`[60 S, 3600 S]`); the per-span table gains the `30 mins` row naming that branch; the probe verifies. Rationale: the span-based code is already generic — inventing another branch would add an unprobed IBKR-validity claim. Alternative: a dedicated priming branch (rejected — DG99's own gate is the probe, and the existing branch is already inside accepted ranges). Probe rejection escalates per R104. | `[new in P12]` — DG99; docstring row + probe, no logic change |
+| S-P12-6 | **Enumeration inventory + minutes pin (D52.5/D52.8, DG99):** the picker slot comes from config insertion (S-P12-1); the visibility `Minutes` unit row already covers `30 mins` (verified write-only state, guard test only — the P8 S-P8-6 precedent); `minutes_for_timeframe` needs no new line (the `secs/60` fallback yields exactly 30.0 honest RTH minutes); the backfill coverage parameterisation and the priming table gain the entry (A140). Rationale: change only the enumerations that are actually per-timeframe. Alternative: explicit 30.0 mapping line / new visibility row (rejected — the fallback is exact and no consumer could honor a new row). | `[new in P12]` — DG99; inventory + pins, minimal code |

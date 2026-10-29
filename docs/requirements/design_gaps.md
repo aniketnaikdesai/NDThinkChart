@@ -1531,3 +1531,10 @@ history of the choice.
 - **Why it matters:** the D43 per-span table tops out at `1 min`-for-`1 day` (valid up to `1 D`); a monthly forming span (~2.6 Ms) exceeds that ceiling, so the priming bar size for weekly/monthly spans is unspecified — Build cannot derive it without inventing an IBKR validity claim.
 - **Suggested resolution:** Plan extends the per-span table to the two new spans with bar sizes inside IBKR-accepted ranges (coarser bar or clamped recent span), verified by the `AC-D48.6` probe; a probe rejection escalates to Requirements (R93), never a silent shrink.
 - **Status:** **open (non-blocking)** — Plan detail; `AC-D48.6` is the gate.
+
+## DG99 — D52: hardcoded timeframe enumerations must gain the `30 mins` entry
+
+- **Where it shows up:** D52.5 / `AC-D52.5`; A140; the D12/D15 visibility grids; `AC-D16.1` / `AC-D16.8` lists; the D43 priming table.
+- **Why it matters:** picker order, drawing/alarm visibility grids, the backfill coverage parameterisation and the priming per-span table each enumerate timeframes explicitly; a new timeframe with no row is unselectable, invisible-on, untested, or mis-primed (the D48 DG97/DG98 class — now for an intraday entry that additionally joins the `AC-D16.8` floor).
+- **Suggested resolution:** default `30 mins` to **visible** (A140); Plan adds the picker slot (between `15 mins` and `1 hour`), the visibility-grid row, the `AC-D16.1` parameterisation entry and the priming-table row (`5 secs` group) in the D52 picker task. Task Manager covers it under `AC-D52.5` / `AC-D52.6` / `AC-D52.8`.
+- **Status:** **open (non-blocking)** — lite-lane default recorded; Plan detail.

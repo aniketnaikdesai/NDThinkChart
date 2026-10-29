@@ -177,8 +177,11 @@ no engine switch and no opt-in — one engine, always on.
 ### Drawing Tools
 1. Select tool from **Draw** dropdown: Trendline, Horizontal, Zone, Fibonacci, Measure
 2. Click chart to place anchor points
-3. Right-click drawing → **Delete** (drawings are delete-only until D50 drag-editing lands)
-4. Use **Sets…** to create named groups with color/lock/visibility
+3. Click a drawing to select it — its per-kind handles appear (endpoints for Trendline/Fibonacci/Measure, price handle for Horizontal, corners/edges for Zone); clicking empty chart deselects and hides the handles
+4. Drag the drawing body to move it, or drag a handle to reshape it (fib levels and the measure readout recompute from the new geometry)
+5. Right-click drawing → **Delete**; a locked drawing (via **Sets…**) offers no draggable handle — selection shows highlight only — and refuses drag and delete, while color/style changes stay allowed
+6. Press Esc mid-drag (or start another action) to cancel — nothing is saved
+7. Use **Sets…** to create named groups with color/lock/visibility
 
 ### Portfolio (view-only)
 1. Open the **Portfolio** dock — it shows your account summary, positions and P&L

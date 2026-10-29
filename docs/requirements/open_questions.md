@@ -1376,17 +1376,17 @@
 
 ---
 
-# Open Questions — 2026-10-28 (Batch 25 / D50 — drag-editing for LWC drawings; Q70 ANSWERED, 4 blocking remain)
+# Open Questions — 2026-10-28 (Batch 25 / D50 — drag-editing for LWC drawings; Q67–Q71 ANSWERED 2026-10-28)
 
 > Owner-scheduled batch: drag-editing for LWC drawings. The render path (bind fix), the `PageDrawing` /
 > `drawing_controller.created` commit surface and the `DrawingStore` update paths are settled inputs (A127–A129);
-> creation is not re-specified. `requirements.md` carries the `### D50` block (`Status: DRAFT`, `AC-D50.4` settled 2026-10-28),
-> Journey 43, A127–A132 and R99–R101 (`AC-D50.4` settled, A130 resolved, A132 added 2026-10-28). **Q70 is answered; no remaining D50 criterion is final until Q67–Q69 + Q71 are answered** (or the owner
-> explicitly directs proceeding on stated assumptions). **D1–D49 are NOT reopened.**
+> creation is not re-specified. `requirements.md` carries the `### D50` block (`Status: READY_FOR_PLAN`, `AC-D50.1`–`AC-D50.5` final 2026-10-28),
+> Journey 43, A127–A132 and R99–R101. **Q67–Q71 are answered owner-confirmed verbatim 2026-10-28 (Q70 = (c) Both previously recorded); no blocking question remains.** **D1–D49 are NOT reopened.**
 
 ## Q67 — D50.1: which edits exist — whole-drawing move vs anchor/handle drags — for each kind (trendline, horizontal, zone, fibonacci, measure)?
 
-- **Status:** **open (blocking).**
+- **Status:** **answered 2026-10-28 — owner-confirmed verbatim ("both").**
+- **Answer (owner, 2026-10-28):** **both** — whole-move for all five kinds **plus** anchor drags per kind's anchors.
 - **Question:** for each of the five kinds, is the edit (a) whole-move **plus** anchor/endpoint drags where the kind has anchors, (b) whole-move only for every kind, or (c) an owner-named per-kind matrix?
 - **Recommended default (R-a):** (a) — whole-move for all five kinds, plus anchor drags per kind's anchors (trendline/fibonacci/measure endpoints, zone edges/corners, horizontal price level). Rationale: matches the drawing kinds' geometry; whole-move-only would leave anchored drawings unreshapable.
 - **What a different answer would change:** (b) removes every anchor-handle AC and test; (c) replaces `AC-D50.1` with the named matrix.
@@ -1395,7 +1395,8 @@
 
 ## Q68 — D50.2: handle UI — which handles appear, in which selection state, and how do they behave on locked drawings?
 
-- **Status:** **open (blocking).**
+- **Status:** **answered 2026-10-28 — owner-confirmed verbatim.**
+- **Answer (owner, 2026-10-28):** handles appear **only while their drawing is selected**; a **locked drawing offers no draggable handle**.
 - **Question:** which handles appear (endpoints/corners/edges/level per kind), and when — only while the drawing is selected, or also unselected? And what does a locked drawing show: no handles, or visible-but-not-draggable handles?
 - **Recommended default:** handles appear **only while their drawing is selected** and hide on deselect; a **locked drawing offers no draggable handle** (selection highlight only). Rationale: selection-gated handles are the conventional affordance; a locked drawing must not present a drag affordance.
 - **What a different answer would change:** `AC-D50.2` handle-visibility clauses; persistent handles add an AC-G.1 visual reference for the unselected state.
@@ -1404,7 +1405,8 @@
 
 ## Q69 — D50.3: lock semantics — what exactly does a locked drawing forbid, operation by operation?
 
-- **Status:** **open (blocking).**
+- **Status:** **answered 2026-10-28 — owner-confirmed verbatim (Recommended: (i)+(ii)+(iii); colour allowed).**
+- **Answer (owner, 2026-10-28):** locked forbids **(i) + (ii) + (iii)** — no drag initiation, no move, no delete — while **(iv) colour/style change stays allowed**; consequently a group recolour repaints **all current members including a locked member's** stored colour (settled Q70 (c) interaction, stated explicitly as requested).
 - **Question:** does a locked drawing forbid (i) drag **initiation**, (ii) move/commit, (iii) **delete**, (iv) **colour/style change** — each answered separately?
 - **Recommended default:** locked forbids **(i) + (ii) + (iii)** — no drag initiation, no move, no delete — while **(iv) colour/style change stays allowed**, consistent with the settled Q70 stored-colour semantics. Rationale: lock protects geometry and existence; colour is not geometry. Note the interaction this leaves open: under (c) a group recolour repaints **all current members**, so it would also repaint a **locked** member's stored colour unless the Q69 answer forbids (iv) — say so explicitly when answering. Option "locked only hides handles" is explicitly NOT offered — `gestures.js` has no drag-initiation path, so handle-hiding alone cannot enforce anything at the `drag_drawing` operation surface.
 - **What a different answer would change:** forbidding (iv) as well moves colour under the lock in `AC-D50.3`/`AC-D50.4`; allowing (iii) keeps delete available on locked drawings.
@@ -1423,9 +1425,82 @@
 
 ## Q71 — D50.5: confirm persistence + fan-out — store update, session-reload restore, single view sync, offscreen-measurable?
 
-- **Status:** **open (blocking `AC-D50.5` wording; safe default recorded).**
+- **Status:** **answered 2026-10-28 — owner-confirmed verbatim ("yes").**
+- **Answer (owner, 2026-10-28):** **yes** — every committed edit (a) updates the store, (b) survives session reload, (c) syncs to all views **exactly once per change** (the D49.4 pattern), and (d) is accepted **offscreen** (seeded store + committed coordinates + reload-restore + fan-out count, no live TWS).
 - **Question:** confirm that every committed edit (a) updates the store, (b) survives session reload, (c) syncs to all views **exactly once per change** (the D49.4 pattern), and (d) is accepted **offscreen** (seeded store + committed coordinates + reload-restore + fan-out count, no live TWS)?
 - **Recommended default (A131):** yes to all four. Rationale: store-update + reload-restore is the existing persistence contract; single fan-out reuses the D49.4 pattern; offscreen matches the D49 quality bar.
 - **What a different answer would change:** a NO on (c) writes a multi-fan-out tolerance into `AC-D50.5`; a live-step requirement adds an owner-named live clause.
 - **Why it's blocking:** finalizes the `AC-D50.5` measurable (fan-out count + reload equality); the default is safe but the fan-out clause touches D49.4 semantics, so it is asked rather than assumed.
 - **Affected requirement section:** D50.5 / `AC-D50.5` (provisional); Journey 43; A131.
+
+---
+
+# Open Questions — 2026-10-29 (Batch 26 / D51 — follow-live viewport; Q72–Q76 ANSWERED 2026-10-29)
+
+> New batch D51: the main-chart viewport must not be yanked to the newest bar on live updates while the user has scrolled back. All five questions below are answered-owner-confirmed 2026-10-29 — `AC-D51.1`–`AC-D51.5` are FINAL (Journey 44, A135, R103) and D51 carries `Status: READY_FOR_PLAN`. Repro-first measurables, offscreen where possible. **D1–D50 are NOT reopened.** (D49.6, the timezone handoff in the same batch, is fully derivable and asked no question.)
+
+## Q72 — D51.1: what counts as "following the live edge" vs "scrolled back"?
+
+- **Status:** **answered-owner-confirmed 2026-10-29.**
+- **Answer (owner, 2026-10-29):** copy TradingView behavior — newest-bar-slot-visible = following (library shiftVisibleRangeOnNewBar semantic, verified in vendored 5.2.1); any pan/zoom away = scrolled back, viewport stays put on new bars; return only via explicit action (Fit/reset, scrollToRealTime, go-to-realtime affordance when new bars arrive while away).
+- **Why it's blocking:** `AC-D51.1`'s pass/fail turns entirely on the rule — a last-bar-visible rule, a tolerance rule, and an edge-pinned rule produce different follow-state probes and different tests.
+- **Question:** is the chart "following" iff the newest bar's slot is inside the visible range (and any user pan/zoom away means scrolled back) — or do you want a different rule (e.g. newest bar within N bars of the right edge, a pixel tolerance at the edge, or edge-pinned-only)?
+- **Recommended default:** newest-bar-slot-visible = following; any user pan/zoom away = scrolled back. Rationale: the simplest testable rule, and it matches the complaint ("don't yank once I moved").
+- **What a different answer would change:** `AC-D51.1`'s measurable and the follow-state probe (tolerance/threshold cases replace the binary visible-slot check).
+- **Affected requirement section:** D51.1 / `AC-D51.1` (provisional); Journey 44.
+
+## Q73 — D51.2: while scrolled back, do arriving new bars auto-resume follow, or does the viewport stay put?
+
+- **Status:** **answered-owner-confirmed 2026-10-29 (option (a)).**
+- **Answer (owner, 2026-10-29):** **(a)** — while scrolled back, new bars stay put, no auto-resume; follow returns only on pan-back-to-edge or Fit/reset.
+- **Why it's blocking:** `AC-D51.2` must assert either "viewport unchanged until the user acts" or a resume trigger — the two are opposite tests.
+- **Question:** while away, (a) stay put until the user pans back to the edge or invokes Fit/reset (no automatic resume on new bars), or (b) auto-resume follow when new bars arrive (with an owner-named trigger), or (c) an owner-named third rule (e.g. resume after N seconds idle)?
+- **Recommended default:** (a) stay put; resume only on user pan-back-to-edge or Fit/reset. Rationale: the user scrolled back to look at something — moving the viewport under them on every tick is the reported defect.
+- **What a different answer would change:** `AC-D51.2` gains the resume-trigger clause and its timing/count cases instead of the stay-put assertion.
+- **Affected requirement section:** D51.2 / `AC-D51.2` (provisional); Journey 44.
+
+## Q74 — D51.3: what does explicit Fit/reset do?
+
+- **Status:** **answered-owner-confirmed 2026-10-29 (option (a)).**
+- **Answer (owner, 2026-10-29):** **(a)** — explicit Fit/reset frames all loaded bars and re-engages follow, plus the go-to-realtime affordance.
+- **Why it's blocking:** `AC-D51.3` must name the framing Fit produces and whether it re-engages follow — "frames all loaded bars" vs "frames the visible session" vs "returns to a stored view" are different assertions.
+- **Question:** does Fit/reset (a) frame all loaded bars and re-engage follow, or (b) frame a different owner-named range, or (c) restore a stored pre-scroll view?
+- **Recommended default:** (a) Fit frames all loaded bars and re-engages follow. Rationale: fits the existing Reset affordance (D3) and gives the user one explicit way back to the live edge.
+- **What a different answer would change:** `AC-D51.3`'s range + follow-state assertions.
+- **Affected requirement section:** D51.3 / `AC-D51.3` (provisional); Journey 44.
+
+## Q75 — D51.4: is follow/scroll state remembered per symbol across switches?
+
+- **Status:** **answered-owner-confirmed 2026-10-29 (option (a)).**
+- **Answer (owner, 2026-10-29):** **(a)** — per-symbol memory — switching back restores viewport + follow state (deliberate improvement over TradingView for the multi-symbol alarm workflow; supersedes the earlier (b)).
+- **Why it's blocking:** `AC-D51.4` must assert either per-symbol memory (restore viewport + follow state on switch-back) or a fresh follow on every switch — opposite tests.
+- **Question:** (a) remember viewport + follow state per symbol (switching back restores where you were), or (b) every symbol switch starts following the live edge, or (c) an owner-named scope (e.g. memory only within the session)?
+- **Recommended default:** (a) per-symbol memory across switches. Rationale: preserves the user's place per ticker; a fresh-follow default would re-introduce the yank on every switch-back.
+- **What a different answer would change:** `AC-D51.4`'s per-symbol state assertions become fresh-follow assertions (or the named scope).
+- **Affected requirement section:** D51.4 / `AC-D51.4` (provisional); Journey 44.
+
+## Q76 — D51.5: on a full-series replacement, does the viewport behave differently for the same symbol vs a new symbol?
+
+- **Status:** **answered-owner-confirmed 2026-10-29 (option (a)).**
+- **Answer (owner, 2026-10-29):** **(a)** — same-symbol full-series replacement preserves viewport + follow state; new symbol starts following.
+- **Why it's blocking:** `AC-D51.5` covers two cases whose rules may differ — same-symbol reload/backfill vs new-symbol load — and each needs its own stated expectation.
+- **Question:** (a) same-symbol replacement preserves viewport + follow state while a new-symbol load starts following the live edge, or (b) both preserve, or (c) both reset to follow, or (d) an owner-named split?
+- **Recommended default:** (a) same-symbol preserves, new-symbol follows. Rationale: a backfill/reload must not move the user; a new symbol has no prior viewport worth keeping.
+- **What a different answer would change:** `AC-D51.5`'s same-vs-new assertions (preservation vs follow per case).
+- **Affected requirement section:** D51.5 / `AC-D51.5` (provisional); Journey 44.
+
+---
+
+# Open Questions — 2026-10-29 (Batch 27 / D52 — `30 mins` interval; Q77 NON-BLOCKING, default recorded)
+
+> New batch D52: add `30 mins` as a valid chart interval alongside the existing intraday set, following the D48 precedent. The single owner-choice input (the exact duration window) is recorded below as **Q77 answered-owner-confirmed as `30 D` (A136 owner decision)** — lite lane: the default is specified in `AC-D52.1` and verified by the `AC-D52.7` probe, so **no blocking question remains** and `requirements.md` carries `Status: READY_FOR_PLAN`. The owner overrode the `10 D` analyst default pre-Plan with `30 D`; the override changed only `AC-D52.1` / A136 and the probe combo. **D1–D51 are NOT reopened.**
+
+## Q77 — D52.1: is the `30 mins` fetch duration `10 D`, or do you want a different window?
+
+- **Status:** **answered-owner-confirmed 2026-10-29.** The owner overrode the `10 D` analyst default: duration is `30 D`. `AC-D52.1` specifies `30 D` and `AC-D52.7` verifies it against IBKR. Not blocking.
+- **Why it could matter:** the window sets how much history one `30 mins` request covers (`10 D` ≈ 7 trading sessions — still short of the `AC-D16.8` floor, which the successive-loads mechanism then extends). A shorter window (`5 D`, matching `15 mins`) means more chained requests to reach the floor; a longer single window is bounded by IBKR's per-request acceptance (the probe decides).
+- **Question:** keep the analyst default `duration='10 D'` for `30 mins`, or name a different window (e.g. `5 D` to match `15 mins`, or a longer span if the probe allows)?
+- **Recommended default (analyst, OVERRIDDEN by owner 2026-10-29):** `10 D` was the analyst default (upper-neighbour duration: `15 mins` → `5 D`, `1 hour` → `10 D`). Rationale was fewer chained requests toward the 30-session floor than `5 D`, inside IBKR's accepted vocabulary for 30-minute bars pending probe confirmation.
+- **Answer (owner-confirmed 2026-10-29):** `30 D` — the `30 mins` row uses duration `30 D`. `AC-D52.1`, A136 and the `AC-D52.7` probe combo read `30 mins` / `30 D`.
+- **What a different answer would change:** `AC-D52.1`'s duration, A136, and the `AC-D52.7` probe combo only — planner stepping, the floor, and aggregation are unchanged.
+- **Affected requirement section:** D52.1 / `AC-D52.1`; A136; Journey 45.

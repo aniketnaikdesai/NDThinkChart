@@ -920,5 +920,45 @@
     "source": "precheck",
     "opened": "2026-10-28T23:01:53.850893+00:00",
     "verified": "2026-10-28 close-out: malformed-result condition gone. Live docs/build/results/P10-T3.json carries task_id P10-T3 (ran 2026-10-28T23:24:17, 5 passed) and archive wave193_P10-T3.json carries task_id (PRE-007 fix: worker restored the key in its own prior archive scratch, git-ignored, self-disclosed via footprint_flags per the P10-T5/Q-56 precedent). Full suite green per test_verification.json (exit 0)."
+  },
+  {
+    "id": "PRE-008",
+    "task_id": "P11-T2",
+    "routed_to": "BUILD",
+    "category": "consistency",
+    "severity": "blocking",
+    "observed": "[precheck] changed chart_assets/lwc/chart.test.js outside touches_files ['chart_assets/lwc/chart.js', 'tests/test_p11_no_yank.py']",
+    "expected": "changed files outside touches_files",
+    "suggested_direction": "keep the change inside the declared footprint or escalate the scope change",
+    "status": "addressed",
+    "source": "precheck",
+    "opened": "2026-10-29T18:09:59.380614+00:00",
+    "verified": "2026-10-29 P11 review: accepted as wave-mandated pack deviation, not a code defect. Re-verified myself, not on the worker's word: (1) work green — my own spot run on the live tree: tests/test_p11_follow_state.py + test_p11_no_yank.py + test_p11_symbol_memory.py + test_p11_replace.py = 8 passed, node --test chart_assets/lwc/chart.test.js = 22 passed; independent test_verification.json verdict pass exit 0; (2) the edit is mandated by the dispatched pack itself — docs/build/wave/P11-T2.md context read_files lists chart.test.js:338-373 as 'replaced with the gated post-fix assertion, do not duplicate its fixtures' and the task test_command runs that file, so a green suite is impossible without the edit; (3) the wave-198 'separate known red' claim (test_p11_follow_state T12 failing by design) is stale on the live tree — my spot run proves that suite green. Reverting chart.test.js would break the mandated suite. No BUILD code change exists or is needed; the residual is a one-line Task Manager pack amendment tracked in ESC-093."
+  },
+  {
+    "id": "ESC-093",
+    "task_id": "P11-T2",
+    "routed_to": "TASK_MANAGER",
+    "category": "consistency",
+    "severity": "blocking",
+    "observed": "P11-T2's touches_files ['chart_assets/lwc/chart.js', 'tests/test_p11_no_yank.py'] omits chart_assets/lwc/chart.test.js, but the dispatched wave pack mandates editing exactly that file (wave P11-T2.md context read_files chart.test.js:338-373 'P11-T1-T12 pre-fix yank-baseline test replaced with the gated post-fix assertion' plus T23 fallback-pin) and the task test_command runs it (node --test chart_assets/lwc/chart.test.js). Two BUILD waves (198, 202) both landed green suites (my spot run: 22/22 node, 2/2 pytest) that are mechanically unconsolidatable because the mandated edit trips the footprint flag. Blind re-verify cannot unblock it.",
+    "expected": "touches_files covers every file the dispatched pack requires the worker to edit; a task whose own test_command runs a file lists that file.",
+    "suggested_direction": "Amend P11-T2 touches_files to add chart_assets/lwc/chart.test.js (pack-only change, no code edit) and re-consolidate P11-T2 to done on the existing green results; then P11-T3 (deps P11-T1+T2) becomes dispatchable and P11-T6 follows. No BUILD rework needed.",
+    "status": "addressed",
+    "verified": "2026-10-29 focused P11 close-out: amendment landed in docs/tasks/task-graph.json — P11-T2 touches_files now ['chart_assets/lwc/chart.js', 'chart_assets/lwc/chart.test.js', 'tests/test_p11_no_yank.py'], covering the wave-mandated edit. Green work confirmed without re-deriving: wave202 result selfcheck tests verdict pass exit 0 (pytest 2/2, node 22/22) and test_verification.json verdict pass exit 0 on the live tree. Pack defect resolved; residual graph-status flip needs a BUILD re-dispatch (ESC-094).",
+    "opened": "2026-10-29T18:40:00+00:00"
+  },
+  {
+    "id": "ESC-094",
+    "task_id": "P11-T2",
+    "routed_to": "BUILD",
+    "category": "consistency",
+    "severity": "blocking",
+    "observed": "P11-T2 graph status is still blocked on the wave-202 footprint flag (chart_assets/lwc/chart.test.js edited outside the then-declared touches_files), even though the pack amendment is now in the graph (touches_files includes chart.test.js) and the work is green (wave202 selfcheck tests verdict pass exit 0: pytest 2/2, node 22/22; test_verification.json verdict pass exit 0). Only a fresh BUILD re-dispatch re-stamps the gate.",
+    "expected": "P11-T2 re-run against the amended pack re-stamps done with no footprint violation, unblocking P11-T3 (deps P11-T1+T2) and then P11-T6.",
+    "suggested_direction": "Re-dispatch P11-T2 as a gate re-stamp on the amended pack: no code change expected, run the task test_command to confirm green, consolidate to done.",
+    "status": "addressed",
+    "opened": "2026-10-29T18:41:00+00:00",
+    "verified": "2026-10-29 final P11 close-out, re-verified on the live tree per entry-C (not the worker's word). (1) Graph: P11-T2 status=done, touches_files holds ['chart_assets/lwc/chart.js', 'chart_assets/lwc/chart.test.js', 'tests/test_p11_no_yank.py'] — the ESC-093 pack amendment survived. (2) Gate re-stamp landed twice: archived results wave206_P11-T2.json and wave207_P11-T2.json both status=done, footprint_flags=[], selfcheck verdict=pass exit_code=0 (pytest 2/2, node 22/22). (3) My own live-tree node run: 22/22 pass. (4) Full offscreen suite green per test_verification.json (verdict pass, exit 0). The unblock chain fired as predicted: P11-T3 done (wave208, pytest 2/2 + node 22/22) and P11-T6 done (wave209, full suite 1258 passed, 3 pre-existing webengine skips). Gate re-stamp only, no code change — as predicted."
   }
 ]

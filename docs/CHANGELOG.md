@@ -103,3 +103,45 @@ None in the final state. Two transient blocks were both resolved inside the phas
 - b48133d D41: remove D36 footprint, D37 depth/IMB/AUC, and the whole Active Trader panel
 - 29067af docs: delete PENDING_IMPLEMENTATION_PLAN.md and retire its references
 - b09a89f docs(gaps): close the nine remaining D1-D15 specification-ambiguity gaps
+## P10 — 2026-10-28
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 3.
+
+### Done
+- P10-T1 — drawing_item attaches per-kind handles only while selected and unlocked; locked keeps highlight with empty handles, deselect clears; visibility rule pinned
+- P10-T2 — P10-T2 done: drag initiation verified (body whole-move + per-kind anchor drags for all five kinds, locked never-start, commit/cancel); added T21-T23 node suites (48/48 green, exit 0)
+- P10-T3 — P10-T3 done: locked drags refused at LwcDrawingSurface/LwcChartView.drag_drawing (geometry/store/op-log unchanged), empty commit color normalises to unchanged, persist-reload-exactly-once-fan-out and cancel/zero-view close-out pinned; 3/3 tests pass
+- P10-T4 — P10-T4 done: locked deletes refused on page + Del-button paths (row/geometry intact), color/recolour allowed, geometry-only commits and mid-drag/leave-group interplay pinned; 2 passed, exit 0
+- P10-T5 — P10-T5 gate green: four suites pass (pytest 17/17 exit 0, node 48/48 exit 0), zero skips/xfails added, prod diff confined to D50 with frozen contracts and order-code absence holding, full offscreen suite 1243 passed with only 3 pre-existing display-gated skips
+- P10-T2 — P10-T2 re-verified green: page drag initiation (body whole-move + per-kind anchor drags, locked never-start, commit/cancel) with node suite 48/48 pass
+- P10-T6 — Gate groups-dialog Delete Selected on DrawingGroup.locked; locked members survive with row and geometry intact, all-locked selection is a no-op
+- P10-T3 — Re-verified P10-T3 landed work: all 3 drag-commit tests green (exit 0); note ESC-089 unknown-item empty-color guard not present in tree (ui/lwc_view.py _on_page_drawing_updated still emits '' when id absent from _drawing_items; no re-implementation per dispatch).
+- P10-T7 — Rewrote usage.md Drawing Tools section to describe shipped D50 drag-editing (select/deselect handles, body/handle drags, locked no-handle with drag/delete refusal and color allowed, cancel semantics)
+- P10-T2 — ESC-091 fixed: drag moves require the button held, pointerleave/pointercancel abandon orphaned drags, non-hit press clears stale sessions; 52/52 node tests pass (exit 0)
+- P10-T3 — ESC-092 fixed: unknown-item empty-color commit dropped in _on_page_drawing_updated, stored color preserved; 4/4 tests green
+- P10-T3 — P10-T3 done: lock refusal + geometry-only commit + cancel/zero-view close-out green (5/5); archive wave193 task_id restored so archived-results gate green (11/11); e2e edit case + full e2e file green (19 passed, 1 skipped) — reported #chart 0x0 did not reproduce, load-dependent flake
+
+### User-facing / documented-behavior changes (doc_required)
+- P10-T7
+
+### Recent commits
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
+- 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
+- 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE
+- a04fbd9 Q64-66 answered by owner (accept defaults); D50 Q70 settled to (c)
+- 281d4e8 ESC-079 addressed: AC-D16.8 restatement verified, zero open escalations
+- 61f8dff CI: restore workflow_dispatch colon (fuzzy edit ate it)
+- abd036e CI: fix workflow syntax (stray colon)
+- 73b27be CI: cancel superseded LWC parity runs on new pushes
+- 82ccf1a RG-P7-1: AC-D16.8 successive-loads restatement (additive annotation, history preserved)
+- 42c6474 Remove worked-through review snapshots (findings all landed)
+- 3b3d190 Q-55: gates accept the retired row-19 disposition, fail closed elsewhere
+- d4aa352 Quality report follow-ups: status sync docs + reconnect/session/map error visibility
+- 0b19f7f Doc consolidation changesets 5-6: navigation baselines, historical labels, final audit
+- c9e2b77 Doc consolidation changesets 3-4: P7 cap semantics, LWC-only user guides
+- 3345161 Doc consolidation changesets 1-2: authority index + P6 reconciliation as-built
+- 4610c35 Close ESC-075-078: verified resolved on live tree, full suite green
+- f7d4e3c P8 close-out review: REVIEW_COMPLETE, 10 escalations verified addressed
