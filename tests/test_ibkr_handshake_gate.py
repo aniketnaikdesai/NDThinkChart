@@ -142,10 +142,13 @@ def test_close_clears_readiness(client):
 
 
 def test_timeframe_config_untouched():
-    """Q-35 must not change TIMEFRAME_CONFIG durations (Q-48: approved widening).
+    """Q-35 must not change TIMEFRAME_CONFIG durations (Q-48: approved widening;
+    Q-61: approved P12 30-min addition).
 
     Pins the owner-approved widened set (P7 widening, approval 2026-10-28,
-    owned by the T06 gate in test_p7_w3_wide.py): any duration drift fails
+    owned by the T06 gate in test_p7_w3_wide.py) plus the approved P12 30-min
+    row (added-never-widened, so no new approval record — same treatment as
+    the P8 1 week/1 month additions): any duration drift fails
     here, and every widened duration must name its approval record — a
     widening without the record fails closed.
     """
@@ -155,6 +158,7 @@ def test_timeframe_config_untouched():
         "1 min": "30 D",
         "5 mins": "30 D",
         "15 mins": "30 D",
+        "30 mins": "30 D",
         "1 hour": "60 D",
         "4 hours": "60 D",
         "1 day": "1 Y",

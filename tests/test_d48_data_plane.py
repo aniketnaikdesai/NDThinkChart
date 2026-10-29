@@ -45,6 +45,7 @@ _EXPECTED_CONFIG = {
     "1 min": {"duration": "30 D", "bar_size": "1 min"},
     "5 mins": {"duration": "30 D", "bar_size": "5 mins"},
     "15 mins": {"duration": "30 D", "bar_size": "15 mins"},
+    "30 mins": {"duration": "30 D", "bar_size": "30 mins"},
     "1 hour": {"duration": "60 D", "bar_size": "1 hour"},
     "4 hours": {"duration": "60 D", "bar_size": "4 hours"},
     "1 day": {"duration": "1 Y", "bar_size": "1 day"},
@@ -53,7 +54,7 @@ _EXPECTED_CONFIG = {
 }
 
 _EXPECTED_ORDER = [
-    "1 min", "5 mins", "15 mins", "1 hour", "4 hours",
+    "1 min", "5 mins", "15 mins", "30 mins", "1 hour", "4 hours",
     "1 day", "1 week", "1 month",
 ]
 
@@ -62,6 +63,7 @@ _EXPECTED_SECONDS = {
     "1 min": 60,
     "5 mins": 300,
     "15 mins": 900,
+    "30 mins": 1800,
     "1 hour": 3600,
     "4 hours": 14400,
     "1 day": 86400,
@@ -77,9 +79,12 @@ def test_p8_t01_t11_timeframe_config_rows_order_and_history():
     for tf in ("1 min", "5 mins", "15 mins", "1 hour", "4 hours", "1 day"):
         assert TIMEFRAME_CONFIG[tf] == _EXPECTED_CONFIG[tf]
         assert set(TIMEFRAME_CONFIG[tf].keys()) == {"duration", "bar_size"}
-    # The two new rows appended immediately after "1 day".
-    assert list(TIMEFRAME_CONFIG.keys()).index("1 week") == 6
-    assert list(TIMEFRAME_CONFIG.keys()).index("1 month") == 7
+    # The P12 30-min row sits between "15 mins" and "1 hour".
+    assert list(TIMEFRAME_CONFIG.keys()).index("30 mins") == 3
+    assert TIMEFRAME_CONFIG["30 mins"] == {"duration": "30 D", "bar_size": "30 mins"}
+    # The two P8 rows appended immediately after "1 day".
+    assert list(TIMEFRAME_CONFIG.keys()).index("1 week") == 7
+    assert list(TIMEFRAME_CONFIG.keys()).index("1 month") == 8
     assert TIMEFRAME_CONFIG["1 week"] == {"duration": "2 Y", "bar_size": "1 week"}
     assert TIMEFRAME_CONFIG["1 month"] == {"duration": "10 Y", "bar_size": "1 month"}
 
