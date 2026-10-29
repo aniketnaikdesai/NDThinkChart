@@ -145,3 +145,36 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 3.
 - 3345161 Doc consolidation changesets 1-2: authority index + P6 reconciliation as-built
 - 4610c35 Close ESC-075-078: verified resolved on live tree, full suite green
 - f7d4e3c P8 close-out review: REVIEW_COMPLETE, 10 escalations verified addressed
+## P12 — 2026-10-29
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 6.
+
+### Done
+- P12-T1 — Added 30 mins -> 30 D / 30 mins row to TIMEFRAME_CONFIG between 15 mins and 1 hour, plus tests/test_p12_config.py config/order assertions
+- P12-T2 — P12-T2 done: TIMEFRAME_SECONDS gains 30 mins -> 1800 on the existing UTC-epoch grid; 10/10 new bucket tests green (exit 0)
+- P12-T3 — P12-T3 done: 30 mins planner verified (1-chunk plan, newest-first chunking, mode-aware 30-session floor, bar-granular hole), priming docstring row added (5 secs group), live probe of 30 D/30 mins passed with no 321 (389 bars, record written)
+- P12-T4 — P12-T4 done: new tests/test_p12_presentation.py pins picker order/parity for 30 mins, visibility default-on round-trip with unchanged Minutes row, and minutes_for_timeframe fallback 30.0; suite green (3 passed, exit 0)
+- P12-T5 — P12-T5 done: 30-min intraday parity suite green — RTH/ETH loads return mode-distinct bar sets under separate cache keys, bands+collapse apply as intraday with 15-min regions parity
+- P12-T6 — P12 batch gate: probe record + history intact + no skips + full offscreen suite green. Verified by Orchestrator: Q-61 fallouts fixed, full suite exit 0, worker_selfcheck verdict pass with clean footprint.
+
+### Recent commits
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
+- 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
+- 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE
+- a04fbd9 Q64-66 answered by owner (accept defaults); D50 Q70 settled to (c)
+- 281d4e8 ESC-079 addressed: AC-D16.8 restatement verified, zero open escalations
+- 61f8dff CI: restore workflow_dispatch colon (fuzzy edit ate it)
+- abd036e CI: fix workflow syntax (stray colon)
+- 73b27be CI: cancel superseded LWC parity runs on new pushes
+- 82ccf1a RG-P7-1: AC-D16.8 successive-loads restatement (additive annotation, history preserved)
+- 42c6474 Remove worked-through review snapshots (findings all landed)
+- 3b3d190 Q-55: gates accept the retired row-19 disposition, fail closed elsewhere

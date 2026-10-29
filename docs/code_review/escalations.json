@@ -960,5 +960,18 @@
     "status": "addressed",
     "opened": "2026-10-29T18:41:00+00:00",
     "verified": "2026-10-29 final P11 close-out, re-verified on the live tree per entry-C (not the worker's word). (1) Graph: P11-T2 status=done, touches_files holds ['chart_assets/lwc/chart.js', 'chart_assets/lwc/chart.test.js', 'tests/test_p11_no_yank.py'] — the ESC-093 pack amendment survived. (2) Gate re-stamp landed twice: archived results wave206_P11-T2.json and wave207_P11-T2.json both status=done, footprint_flags=[], selfcheck verdict=pass exit_code=0 (pytest 2/2, node 22/22). (3) My own live-tree node run: 22/22 pass. (4) Full offscreen suite green per test_verification.json (verdict pass, exit 0). The unblock chain fired as predicted: P11-T3 done (wave208, pytest 2/2 + node 22/22) and P11-T6 done (wave209, full suite 1258 passed, 3 pre-existing webengine skips). Gate re-stamp only, no code change — as predicted."
+  },
+  {
+    "id": "ESC-095",
+    "task_id": "P13-T9",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "P13-T9 batch gate blocked (2/3 pass) on two deterministic, out-of-footprint failures reproduced with tests/test_p13_gate.py stashed: (1) tests/test_lwc_failure_visibility.py::test_archived_results_carry_task_id flagged docs/build/results/_archive/wave220_P13-T6.json as missing task_id; (2) tests/test_lwc_popouts.py::test_residue_scan_no_out_of_scope_surface asserted PopoutStore.save params == [symbol, timeframe, mode, ext_hours, geometry] while the in-flight P13-T7 additive column adds tz_offset. Both fixed at the source since: direct read confirms wave220_P13-T6.json now carries task_id, and the live-tree diff shows tests/test_lwc_popouts.py expecting the 6-param signature incl. tz_offset. Targeted re-runs on the live tree are green: all eight P13 suites 32/32 (restore 3, attach 2, host_error 2, fanout 2, hold_probe 2, hold_fix 2, tz_create 2, tz_restore 2, gate 13 isolation), the two former blockers green in direct re-run, and the independent full offscreen suite green per test_verification.json (verdict pass, exit 0, 71.77s). Only the gate re-run stamp is missing: task-graph still marks P13-T9 blocked and build_log ends NEEDS_CODE_REVIEW.",
+    "expected": "P13-T9 re-run against the fixed tree re-stamps done (gate 3/3 incl. the T91/T92/T93 checks) with no footprint violation, closing the phase.",
+    "suggested_direction": "Re-dispatch P13-T9 as a gate re-stamp on the current tree: no code change expected, run the task test_command (full offscreen suite) to confirm green, consolidate to done.",
+    "status": "addressed",
+    "opened": "2026-10-29T21:10:27+00:00",
+    "verified": "2026-10-29T21:16:12+00:00 final P13 close-out, re-verified on the live tree per entry-C (not the worker's word). (1) Re-stamp landed: archived result wave225_P13-T9.json status=done, task_id=P13-T9 present, footprint_flags=[], selfcheck verdict=pass exit_code=0 (gate 13/13 + full offscreen suite 1329 passed / 3 pre-existing webengine skips in 71.67s); task-graph P13-T9 status=done; build_log ends Status: READY_FOR_REVIEW. (2) My own live-tree runs: tests/test_p13_gate.py 13/13 pass; gate + both former blockers (tests/test_lwc_popouts.py, tests/test_lwc_failure_visibility.py) 30/30 pass. (3) Full suite green per test_verification.json (verdict pass, exit 0). Gate re-stamp only, no code change - as predicted."
   }
 ]

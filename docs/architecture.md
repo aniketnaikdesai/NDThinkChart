@@ -6739,3 +6739,202 @@ contract, never the implementation. The repository is authoritative on conflict.
 | S-P12-4 | **Intraday mode parity, no canonical mode (D52.4):** `30 mins` keeps distinct RTH/ETH bar sets under the existing mode-aware cache; bands and collapse apply via the existing intraday paths (A139). Rationale: a 30-minute bar aggregates part of a session, so mode filtering is meaningful — the P8 canonical-mode no-op does NOT extend here; the shared daily-or-coarser predicate already excludes 1800 s. Alternative: canonical full-session mode for `30 mins` (rejected — would merge two genuinely different bar sets into one cache). | `[new in P12]` — D52.4; load-path membership, no new predicate |
 | S-P12-5 | **Priming table is documentation-only (D52.2/D52.6, DG99):** the 1800 s forming span lands in the existing fine branch (`5 secs`/`[60 S, 3600 S]`); the per-span table gains the `30 mins` row naming that branch; the probe verifies. Rationale: the span-based code is already generic — inventing another branch would add an unprobed IBKR-validity claim. Alternative: a dedicated priming branch (rejected — DG99's own gate is the probe, and the existing branch is already inside accepted ranges). Probe rejection escalates per R104. | `[new in P12]` — DG99; docstring row + probe, no logic change |
 | S-P12-6 | **Enumeration inventory + minutes pin (D52.5/D52.8, DG99):** the picker slot comes from config insertion (S-P12-1); the visibility `Minutes` unit row already covers `30 mins` (verified write-only state, guard test only — the P8 S-P8-6 precedent); `minutes_for_timeframe` needs no new line (the `secs/60` fallback yields exactly 30.0 honest RTH minutes); the backfill coverage parameterisation and the priming table gain the entry (A140). Rationale: change only the enumerations that are actually per-timeframe. Alternative: explicit 30.0 mapping line / new visibility row (rejected — the fallback is exact and no consumer could honor a new row). | `[new in P12]` — DG99; inventory + pins, minimal code |
+
+---
+
+## Phase P13 — D49 pop-out robustness (Batch 24 + D49.6 timezone handoff) — drafted 2026-10-29
+
+> Companion: `docs/plan.md` § *Phase P13* (waves P13-W1…P13-W8). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Batch 24 (D49),
+> Journey 42, `AC-D49.1`–`AC-D49.7`, A121–A126/A133–A134 (Q64–Q66 answered
+> 2026-10-28), R96–R98/R102. Hard constraints: **no order code anywhere** (D45/D46);
+> offscreen-first acceptance (Q65: no live-TWS step named); the **full offscreen suite
+> green is the gate**; waves S/M only; no skips/xfails. Existing-repo run: every wave
+> below modifies existing modules in place; **no new module, no new dependency**. The only
+> schema touch is one **additive** `popouts.tz_offset` column (D49.6) under the existing
+> additive-migration precedent. One phase only — nothing past the P13 build waves is
+> planned. D1–D48 are NOT reopened; D24's pop-out criteria stand and are not re-planned
+> (D49 corrects the implementation paths behind them).
+
+### Codebase Summary (existing repository — the D49 surface, validated against source)
+
+> Inventory gathered from the current source files (the repository is authoritative;
+> `graphify-out/graph.json` used for discovery only). Only the parts D49 touches are
+> listed; the full layer inventory is unchanged.
+
+- `[existing] ui/main_window.py::_restore_popouts` — re-opens persisted pop-outs on every
+  (re)connect: constructs `PopoutChartWindow`, calls `attach()`, applies geometry, shows;
+  failures are caught per-record and logged (`_LOG.warning`) with no user-visible state.
+  Cold symbols get whatever the session happens to hold — no cached-bar guarantee, no
+  timeframe-aggregator creation, no history/backfill request on this path.
+- `[existing] ui/main_window.py::_open_popout` — snapshots the current chart into a
+  `PopoutChartWindow` (symbol/timeframe/mode/ext_hours, no timezone argument); the main
+  chart's offset lives in `self._tz_offset` and is passed to the main view only.
+- `[existing] ui/popout_window.py::PopoutChartWindow` — builds its chart via
+  `popout_view(tz_offset=0.0)` (**hardcoded**); `attach()` runs `_ensure_engine_host`,
+  `get_or_create_session`, `attach_view(sync=True)`, four signal connects,
+  `ensure_rt_subscribed` (pacing/exception branches retry via `singleShot`), then
+  `_register_popout` + `PopoutStore.save`. Cleanup is split across `detach()` (disconnects,
+  unconditional `release_rt`, `detach_view`, unregister) with **no per-step acquisition
+  record** — a mid-`attach()` failure leaves whatever steps already ran.
+- `[existing] ui/ticker_session.py` — `attach_view(view, timeframe, sync=True)` (no RT side
+  effects; `sync=True` does the initial full sync from `get_bars`); `detach_view`;
+  `ensure_rt_subscribed` (refcount `self._rt_holders += 1` when already subscribed, else
+  subscribe-and-set-1); `release_rt` (decrement, unsubscribe at zero); `sync_drawings_to_views`
+  (all-view fan-out); `reload_drawings` (reload + `drawings_changed.emit`); each pop-out's
+  `_on_drawings_changed` calls the full `sync_drawings_to_views()` — N pop-outs per change
+  means N fan-outs. No per-owner hold identity anywhere: holds are one integer.
+- `[existing] data/popout_store.py::PopoutStore` — additive `popouts` table
+  (symbol/timeframe/mode/ext_hours/geometry/updated_at); `save` upserts per
+  (symbol, timeframe, mode); `load_all` returns records most-recent-first. **No timezone
+  field.**
+- `[existing] ESC-070 model (main window)` — `chart_engine_failure_message(engine_name)`
+  single-sources the user-facing text; a failed host sets `chart_engine_failed`, logs the
+  full traceback, and the status bar shows the message instead of a blank chart.
+
+### Summary
+
+Restore cold pop-outs through the same cached-bars → aggregator → realtime/backfill data
+path the main chart uses; make `attach()` transactional with explicit acquisition-state
+tracking so any failure unwinds exactly what it acquired; surface chart-host startup
+failure inside the pop-out on the ESC-070 model; perform the drawing all-view sync once
+at the change point with per-view handlers reduced to single-view refresh; verify the
+realtime-hold accounting with a probe before building any fix; and thread the main
+chart's timezone offset through pop-out creation, persistence, and restore.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI stack | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only | Existing-repo hard constraint; D49 is implementation-path correction, not a stack change | None — no stack change is on the table |
+| Test harness | pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS | Q65: offscreen-only acceptance; every D49 AC names an offscreen measurable (seeded cache, failure injection, broken host, signal spies, lifecycle probe) | Live-TWS validation (rejected — Q65 named no live step; live behavior is never assumed) |
+| No new dependency / module / integration | All six items land in existing files; the only store change is an additive column | D49 findings are all in-tree wiring defects; a second fetch path or new service would split the `AC-D16.8`/`AC-D16.9` semantics (A121) | New restore/fetch service (rejected — A121: reuse the existing paced path) |
+
+### System Components
+
+- `[new/changed] ui/main_window.py::_restore_popouts` — gains the data-path ensure step:
+  for a symbol with no in-memory session, load cached bars, create the timeframe's
+  `BarAggregator`, and subscribe realtime, issuing the existing history/backfill/pacing
+  requests where cache coverage is incomplete (A121). Disconnected restore stays a D14-style
+  no-op (status message, no request).
+- `[new/changed] ui/main_window.py::_open_popout` — passes the main chart's current
+  `self._tz_offset` into the new `PopoutChartWindow` (A133); the hardcoded `0.0` at the
+  creation call site is removed.
+- `[new/changed] ui/popout_window.py::PopoutChartWindow.attach` — rewritten as a
+  transaction: each step records what it acquired (connected-signal list, view-attached
+  flag, hold-acquired flag set only where `ensure_rt_subscribed` actually added a hold,
+  registered flag, resources flag); on ANY failure the steps unwind in reverse order —
+  disconnect connected signals, detach the view, release the RT hold **only if the flag
+  says this attach acquired one**, unregister, release resources (A122). A hold acquired
+  means `ensure_rt_subscribed` returned without raising (whether it created the
+  subscription or bumped the refcount); a raise means no hold was acquired and cleanup
+  releases none — this is the explicit tracking, and it never touches another view's hold.
+- `[new/changed] ui/popout_window.py` host-failure path — a chart-host that raises on
+  startup produces an in-pop-out error state + status message on the ESC-070 model
+  (A123/A124; copy/layout owner-confirmed by Q64) while the diagnostic log entry is
+  retained at its current level.
+- `[new/changed] ui/popout_window.py::_on_drawings_changed` — reduced from full
+  `sync_drawings_to_views()` to a single-view refresh of the receiving view (notification
+  role kept; signal and per-pop-out wiring unchanged per A125).
+- `[new/changed] ui/ticker_session.py` drawing change point — the mutation paths
+  (`reload_drawings` and the drawing-commit paths that emit `drawings_changed`) perform
+  exactly one `sync_drawings_to_views()` per change; update semantics do not change (A125).
+- `[new/changed] ui/ticker_session.py` hold accounting — **conditional on the P13-W5 probe
+  confirming a lasting effect**: idempotent per-owner acquire/release (owners: main chart,
+  each pop-out, alarm monitor). If the probe finds no lasting effect, this component is
+  **not modified** and the verification record closes D49.5 (A126).
+- `[new/changed] data/popout_store.py::PopoutStore` — persists `tz_offset` with the saved
+  set (additive column; existing rows read back without it); restore applies the stored
+  offset, falling back to the main chart's current offset for pre-change saves — never
+  silent UTC (A134).
+- `[existing] BarCache / BarAggregator / backfill planner / pacing / id_manager` —
+  called by the new restore ensure step, not modified.
+- `[existing] Chart host seam (`ui/chart_view.py`) + LWC host/view/bridge` — called with
+  the threaded offset, not modified.
+
+### Data Model
+
+- `[new/changed] `popouts` table — gains one additive `tz_offset` column (REAL, default
+  NULL = pre-change save → A134 fallback at restore). PK and upsert key
+  (symbol/timeframe/mode) unchanged; existing rows are preserved (read-back tolerates the
+  missing field).
+- `[existing] `bars` table (PK `(symbol, timeframe, ts)`) — read by the restore ensure step
+  via the existing `BarCache` API; no migration.
+- `[existing] Alarm/drawing/study stores` — read by the unchanged initial-sync path; no
+  migration.
+
+### Integration Points
+
+- `[existing] IBKR historical + realtime data` — the restore ensure step reuses the
+  standing request shapes (`req_historical_data` chunking, `reqRealTimeBars` refcount);
+  no new call type, no new pacing budget owner. R96 (cold-start backfill pressure) is
+  answered by cache-first ordering plus the existing paced path, with staggered restores
+  if the saved set is large.
+- `[existing] SQLite` — one additive column under the existing additive-migration
+  precedent; no new table.
+- `[existing] Qt signals (`bar_updated` / `bars_refreshed` / `alarms_changed` /
+  `drawings_changed`)` — wiring preserved (A125); only the fan-out multiplicity changes.
+- No new external service, endpoint, or credential.
+
+### Frozen Interfaces
+
+- `ui/chart_view.py::create_chart_view` — contract: `def create_chart_view(tz_offset:
+  float = 0.0, editable: bool = True) -> ChartView:` — always returns the LWC view; the
+  seam signature is unchanged (only the offset value threaded through it changes).
+  Owner: `ui/chart_view.py`.
+- `ui/main_window.py::chart_engine_failure_message` — contract: `def
+  chart_engine_failure_message(engine_name: str) -> str:` returning `f"Chart engine
+  '{engine_name}' could not start — the chart is blank. See the log for details."`
+  Single source of truth for the wording; D49.3 reuses the model, never rewords it.
+  Owner: `ui/main_window.py`.
+- `ui/ticker_session.py::detach_view` — contract: `self._views = [(v, tf) for v, tf in
+  self._views if v is not view]` plus monitor notify plus teardown when orphaned and
+  unmonitored. Called by the new transactional cleanup; not modified.
+  Owner: `ui/ticker_session.py`.
+- `data/bar_cache.py::BarCache` read/write API — contract (per the canonical D16/P7
+  record): `save_bars` (`INSERT OR REPLACE` on the `(symbol, timeframe, ts)` PK),
+  `get_bars` (all cached, ascending), `get_last_timestamp` (`MAX(ts)`). Called by the
+  restore ensure step; not modified. Owner: `data/bar_cache.py`.
+- `services/backfill_service.py` planner contracts — `find_missing_spans`,
+  `plan_requests`, intraday floor gate, per the P7 frozen row. Called, not modified.
+  Owner: `services/backfill_service.py`.
+- Order-code absence — contract: no `ibkr/orders` module, no `placeOrder` /
+  `cancelOrder` / `reqGlobalCancel` call site, no order UI (the P5/D45–D46 end state).
+  P13 adds zero order interaction. Owner: the P5 end state.
+
+### Non-Functional Approach
+
+- **Performance (driven by D49.1/D49.4 + R96):** restore is cache-first and rides the
+  existing paced wave machinery — no new request bursts; cold-start restores stagger if
+  the saved set is large. The single fan-out cuts per-change sync work from N all-view
+  passes to one (end state identical, pinned by test before the change).
+- **Correctness (driven by AC-D49.2/AC-D49.4 + R97):** acquisition-state flags make
+  cleanup exact (disconnect-first ordering keeps a concurrent session update from
+  iterating a half-detached view — R97); the fan-out pin-then-dedupe order keeps update
+  semantics byte-identical.
+- **Observability (driven by AC-D49.3 + R98):** host failure is visible in the pop-out
+  (unmistakable vs no-data) with the diagnostic log retained; D49.5's probe record is a
+  committed artifact either way, and Code Reviewer fails a D49.5 diff with no probe
+  record (R98).
+- **Stability gate:** the full offscreen suite stays green on every wave; no
+  skipped/xfailed tests are added; no live TWS is touched.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P13-1 — Cold-start restore replays a full backfill per saved pop-out and pressures the IBKR pacing budget (R96) | M / M | Cache-first ordering through the existing paced path (A121); Plan staggers restores if the saved set is large |
+| AR-P13-2 — Transactional cleanup races a concurrent session update iterating the detaching view (R97) | L / M | Disconnect-signals-first unwind ordering; an offscreen attach-failure-under-update case |
+| AR-P13-3 — D49.5 verification is read as license to build the per-owner fix unconditionally (R98) | M / L | `AC-D49.5` gates the fix on a confirmed lasting effect; the probe record is mandatory and Code Reviewer fails a D49.5 diff without one |
+| AR-P13-4 — Pre-change saved pop-out sets carry no offset field; a wrong fallback silently renders UTC against a non-UTC main chart (R102) | L / M | A134 fallback (main chart's current offset at restore); `AC-D49.6` asserts the restored offset, not just label output |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P13-1 | **Restore through the existing data path (D49.1):** `_restore_popouts` ensures cached bars + timeframe `BarAggregator` + realtime subscribe for session-less symbols, issuing the existing history/backfill/pacing requests where coverage is incomplete (A121). Rationale: reuses the `AC-D16.8`/`AC-D16.9`-consistent machinery; a second fetch path would split those semantics. Alternative: lazy sync-only restore as today (rejected — it is the reported defect: empty/stale windows). | `[new in P13]` — D49.1; additive ensure step, existing path reused |
+| S-P13-2 | **Transactional attach with explicit acquisition-state tracking (D49.2):** per-step acquired-flags with reverse-order unwind; the hold flag is set only where `ensure_rt_subscribed` returned (A122). Rationale: without the flag, cleanup cannot tell whose hold it releases. Alternative: blanket `release_rt` in cleanup (rejected — can steal another view's hold); controller-object extraction (rejected — more surface for the same guarantee). | `[new in P13]` — D49.2; `attach()` rewrite, `detach()` reused |
+| S-P13-3 | **In-pop-out host-failure error state on the ESC-070 model (D49.3):** message area + status text, unambiguous vs no-data, diagnostic log retained (A123/A124, Q64). Rationale: the batch names ESC-070 as the model and this site as different; the mechanism transfers, the site does not. Alternative: log-only (rejected — it is the reported defect: silent failure). | `[new in P13]` — D49.3; presentation + log, no engine change |
+| S-P13-4 | **Single fan-out at the change point (D49.4):** exactly one `sync_drawings_to_views()` per change at the session mutation point; pop-out handlers refresh only their receiving view; signal + wiring kept (A125); pin-then-dedupe order. Rationale: removing the signal would change the session contract beyond the perf fix. Alternative: handler-side dedup counting (rejected — still N handler wakeups per change; the change point is the single choke point). | `[new in P13]` — D49.4; call-site dedupe, semantics pinned first |
+| S-P13-5 | **Verify-first hold accounting (D49.5):** an offscreen lifecycle probe (main-chart same-symbol reload + pop-out attach/close) records hold-count vs active owners; the idempotent per-owner fix lands ONLY on a confirmed lasting effect, else verified-close with the record and no code change (A126, Q66). Rationale: no code on an unproven premise. Alternative: build the per-owner fix unconditionally (rejected — R98; may fix nothing while churning the refcount contract). | `[new in P13]` — D49.5; probe always lands, fix is gated |
+| S-P13-6 | **Timezone handoff create + persist + restore (D49.6):** `_open_popout`/`_restore_popouts` thread the main chart's current offset into the view (hardcoded `0.0` removed at the call site); `PopoutStore` persists it; restore applies it with the A134 fallback for pre-change saves (A133/A134). Rationale: the main chart's offset is the only correct source for "same view". Alternative: a new timezone source or per-pop-out setting (rejected — unasked surface; the main chart already owns the offset). | `[new in P13]` — D49.6; threading + additive column, no new source |

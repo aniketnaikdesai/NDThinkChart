@@ -1,255 +1,367 @@
 {
   "metadata": {
-    "phase": "P12",
-    "batch": "Batch 27 (D52: add 30 mins as a valid chart interval)",
+    "phase": "P13",
+    "batch": "Batch 24 + D49.6 (D49 pop-out robustness: restore, attach, host error, fan-out, hold verify, tz handoff)",
     "status": "READY_FOR_BUILD",
-    "note": "P12: D52 30-min timeframe (AC-D52.1-AC-D52.8). W1 (T1 config row + T2 1800 bucketing in parallel, then T3 planner/priming verification + live probe) -> W2 (T4 picker/inventory + T5 mode parity, parallel after T1/T2) -> W3 (T6 batch gate). All S; repro-first bucketing cases; no skips/xfails; no order code; Qt-free boundary held; full suite green."
+    "note": "P13: D49.1-D49.7 over waves W1-W8. T1 restore (M) -> T2 transactional attach (M) -> T3 host error (S) -> T4 single fan-out (S) -> T5 hold probe+record, no prod change (S) -> T6 conditional per-owner fix or verified-close (S) -> T7 tz create threading (S) -> T8 tz persist/restore/fallback (S) -> T9 batch gate (S). Strict chain per plan wave order. Repro-first everywhere except T4 pin-green-first and T6 record-gated. No skips/xfails; no order code; Qt-free data/services boundary held; full suite green."
   },
   "tasks": [
     {
-      "id": "P12-T1",
-      "title": "Config row: TIMEFRAME_CONFIG gains 30 mins -> 30 D / 30 mins",
-      "description": "Add exactly one row (30 mins -> duration 30 D, bar_size 30 mins) to TIMEFRAME_CONFIG in ibkr/market_data.py, inserted between 15 mins and 1 hour so the picker (built from list(TIMEFRAME_CONFIG.keys())) orders it per A140 with no picker code change. Covers S-P12-1, D52.1, AC-D52.1 and the DG99 picker slot.",
+      "id": "P13-T1",
+      "title": "Cold restore routes through cached bars + aggregator + realtime subscribe (D49.1)",
+      "description": "Extend ui/main_window.py _restore_popouts with a data-path ensure step: for a saved pop-out whose symbol has no in-memory session, load cached bars via BarCache, create the timeframe BarAggregator, and realtime-subscribe; where cache coverage is incomplete, issue the existing history/backfill/pacing requests (A121, cache-first per R96). Already-loaded main-chart symbols add nothing; disconnected restore stays a D14-style no-op. Covers S-P13-1, AC-D49.1.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given TIMEFRAME_CONFIG, when read, then it contains exactly one 30 mins row mapping to duration 30 D and bar_size 30 mins, positioned between 15 mins and 1 hour.",
-        "Given the eight pre-existing TIMEFRAME_CONFIG rows, when compared, then their values and order are byte-identical to before (only one row added)."
+        "Given a saved pop-out for a symbol with no in-memory session and a seeded BarCache, when the restore path runs offscreen, then the window shows the cached bars, owns the timeframe aggregator, and holds a realtime subscription.",
+        "Given a saved pop-out whose seeded cache has a gapped span, when the restore path runs offscreen, then it issues the existing backfill/pacing request covering the gap instead of leaving the window stale.",
+        "Given a saved pop-out for the already-loaded main-chart symbol, when the restore path runs, then no second aggregator and no second subscription is created; and given a disconnected client, when restore runs, then it stays a status-message no-op issuing no request."
       ],
       "tests": [
         {
-          "test_id": "P12-T1-T11",
-          "linked_acceptance_criterion": "Given TIMEFRAME_CONFIG, when read, then it contains exactly one 30 mins row mapping to duration 30 D and bar_size 30 mins, positioned between 15 mins and 1 hour.",
-          "type": "unit",
-          "description": "Assert TIMEFRAME_CONFIG['30 mins'] == {'duration': '30 D', 'bar_size': '30 mins'} and list(keys).index('30 mins') is one past '15 mins' and one before '1 hour'.",
-          "expected_result": "Passes post-fix; fails pre-fix (KeyError on the missing row)."
+          "test_id": "P13-T1-T11",
+          "linked_acceptance_criterion": "Given a saved pop-out for a symbol with no in-memory session and a seeded BarCache, when the restore path runs offscreen, then the window shows the cached bars, owns the timeframe aggregator, and holds a realtime subscription.",
+          "type": "integration",
+          "description": "Seed BarCache for an unloaded symbol, run _restore_popouts offscreen with mocked IBKR, assert the pop-out view bars equal the seeded bars, the timeframe aggregator exists on the session, and a realtime hold is held. Red pre-fix (empty/stale window).",
+          "expected_result": "Fails pre-fix (no bars/aggregator/subscription on the cold path); passes post-fix."
         },
         {
-          "test_id": "P12-T1-T12",
-          "linked_acceptance_criterion": "Given the eight pre-existing TIMEFRAME_CONFIG rows, when compared, then their values and order are byte-identical to before (only one row added).",
-          "type": "unit",
-          "description": "Assert the full key order equals the eight known keys plus 30 mins in slot, each old row's duration/bar_size unchanged, and len(config) == 9.",
-          "expected_result": "Passes post-fix; any altered, reordered, or extra row fails it."
+          "test_id": "P13-T1-T12",
+          "linked_acceptance_criterion": "Given a saved pop-out whose seeded cache has a gapped span, when the restore path runs offscreen, then it issues the existing backfill/pacing request covering the gap instead of leaving the window stale.",
+          "type": "integration",
+          "description": "Seed a gapped cache, stub req_historical_data to record calls, run _restore_popouts, assert a backfill request covering the missing span is issued through the existing path.",
+          "expected_result": "Fails pre-fix (no request issued); passes post-fix."
+        },
+        {
+          "test_id": "P13-T1-T13",
+          "linked_acceptance_criterion": "Given a saved pop-out for the already-loaded main-chart symbol, when the restore path runs, then no second aggregator and no second subscription is created; and given a disconnected client, when restore runs, then it stays a status-message no-op issuing no request.",
+          "type": "integration",
+          "description": "Restore a pop-out for the loaded symbol and assert aggregator/subscription identity is unchanged; restore while disconnected and assert a status message with zero historical/RT requests.",
+          "expected_result": "Passes post-fix; any duplicate aggregator, duplicate subscription, or disconnected request fails it."
         }
       ],
       "expected_artifacts": [
-        "ibkr/market_data.py (one added row)",
-        "tests/test_p12_config.py (new)"
+        "ui/main_window.py (restore ensure step)",
+        "tests/test_p13_restore.py (new)"
       ],
       "touches_files": [
-        "ibkr/market_data.py",
-        "tests/test_p12_config.py"
+        "ui/main_window.py",
+        "tests/test_p13_restore.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P12-1 decision",
-        "A136 owner-confirmed 30 D duration"
+        "S-P13-1 ensure semantics",
+        "BarCache/aggregator/RT contracts",
+        "D24 pop-out restore conventions"
       ],
       "outputs": [
-        "TIMEFRAME_CONFIG 30 mins row",
-        "config assertion suite"
+        "data-path cold restore",
+        "restore test suite"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
-          {
-            "path": "ibkr/market_data.py",
-            "lines": "1-30",
-            "why": "extend TIMEFRAME_CONFIG with the new row"
-          },
           {
             "path": "ui/main_window.py",
-            "lines": "238-250",
-            "why": "read-only: picker builds from list(TIMEFRAME_CONFIG.keys()) \u2014 no picker edit"
+            "lines": "900-980",
+            "why": "extend _restore_popouts with the ensure step"
           },
           {
-            "path": "tests/test_d48_data_plane.py",
-            "lines": "1-60",
-            "why": "config-row assertion conventions from the D48 precedent"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
-            "status": "existing"
+            "path": "data/bar_cache.py",
+            "lines": "1-80",
+            "why": "read-only: BarCache read API the ensure step calls"
           },
-          {
-            "status": "new",
-            "signature": "TIMEFRAME_CONFIG[\"30 mins\"] = {\"duration\": \"30 D\", \"bar_size\": \"30 mins\"}",
-            "module": "ibkr/market_data.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
-        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
-        "requirement_ids": [
-          "D52.1",
-          "AC-D52.1"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_config.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P12-T2",
-      "title": "Aggregator: TIMEFRAME_SECONDS gains the 1800 key on ET half-hours",
-      "description": "Add the 1800 key for 30 mins to TIMEFRAME_SECONDS in data/bar_aggregator.py; bucketing rides the existing UTC-epoch _period_start grid (no anchor-set change per S-P12-2). Buckets must open on ET clock half-hours across a DST fold with the 09:30 RTH open on a boundary, and the forming bar must aggregate into the current half-hour bucket. Covers D52.2, AC-D52.2.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "Given TIMEFRAME_SECONDS, when read, then it maps 30 mins to 1800 while the nine existing periods and the _ET_ANCHORED/_CALENDAR_BUCKETED sets are unchanged.",
-        "Given 30-minute ticks spanning a DST fold and the 09:30 RTH open, when bucketed, then every bucket opens on an ET clock half-hour (HH:00/HH:30) and 09:30 lands on a bucket boundary.",
-        "Given live ticks inside the current half-hour, when the forming bar aggregates, then it joins the current half-hour bucket (same bucket the historical bars for that half-hour land in)."
-      ],
-      "tests": [
-        {
-          "test_id": "P12-T2-T21",
-          "linked_acceptance_criterion": "Given TIMEFRAME_SECONDS, when read, then it maps 30 mins to 1800 while the nine existing periods and the _ET_ANCHORED/_CALENDAR_BUCKETED sets are unchanged.",
-          "type": "unit",
-          "description": "Assert TIMEFRAME_SECONDS['30 mins'] == 1800 and the nine existing keys plus both frozensets are unchanged.",
-          "expected_result": "Passes post-fix; fails pre-fix (KeyError / 300 s fallback)."
-        },
-        {
-          "test_id": "P12-T2-T22",
-          "linked_acceptance_criterion": "Given 30-minute ticks spanning a DST fold and the 09:30 RTH open, when bucketed, then every bucket opens on an ET clock half-hour (HH:00/HH:30) and 09:30 lands on a bucket boundary.",
-          "type": "unit",
-          "description": "Red-first bucket-boundary cases over a DST-fold weekend plus the 09:30 RTH open, asserting HH:00/HH:30 ET bucket starts (parametrized over fold days). Pre-fix the unknown timeframe falls back to the 300 s grid, so boundaries fail.",
-          "expected_result": "Red pre-fix (300 s fallback splits half-hours); green post-fix with every asserted boundary on HH:00/HH:30 ET."
-        },
-        {
-          "test_id": "P12-T2-T23",
-          "linked_acceptance_criterion": "Given live ticks inside the current half-hour, when the forming bar aggregates, then it joins the current half-hour bucket (same bucket the historical bars for that half-hour land in).",
-          "type": "unit",
-          "description": "Feed BarAggregator ticks for one half-hour plus a forming tick and assert the forming bar's period_start equals the historical bucket start for that half-hour.",
-          "expected_result": "Passes post-fix; fails pre-fix where the forming tick lands in a 5-minute bucket."
-        }
-      ],
-      "expected_artifacts": [
-        "data/bar_aggregator.py (1800 key)",
-        "tests/test_p12_buckets.py (new)"
-      ],
-      "touches_files": [
-        "data/bar_aggregator.py",
-        "tests/test_p12_buckets.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "S-P12-2 decision",
-        "A137 ET half-hour buckets"
-      ],
-      "outputs": [
-        "1800 s period key",
-        "DST-fold + forming-bar bucket suite"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
           {
             "path": "data/bar_aggregator.py",
-            "lines": "14-115",
-            "why": "add the 1800 key beside _period_start/_bucket_start grid"
+            "lines": "1-60",
+            "why": "read-only: BarAggregator construction contract"
           },
           {
             "path": "services/backfill_service.py",
-            "lines": "117-145",
-            "why": "read-only: bar_period_seconds fallback contract the planner relies on"
+            "lines": "1-60",
+            "why": "read-only: missing-span planner the ensure step reuses"
           },
           {
-            "path": "tests/test_bar_aggregator.py",
-            "lines": "1-50",
-            "why": "aggregator test conventions"
+            "path": "tests/test_d24_9_popout_persistence.py",
+            "lines": "1-80",
+            "why": "restore-test conventions for the pop-out set"
           }
         ],
         "contracts": [
           {
-            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
+            "ref": "ui/main_window.py:_restore_popouts",
             "status": "existing"
           },
           {
-            "ref": "data/bar_aggregator.py:_period_start",
+            "ref": "data/bar_cache.py:save_bars",
             "status": "existing"
           },
           {
-            "status": "new",
-            "signature": "TIMEFRAME_SECONDS[\"30 mins\"] = 1800",
-            "module": "data/bar_aggregator.py"
+            "ref": "data/bar_aggregator.py:BarAggregator",
+            "status": "existing"
+          },
+          {
+            "ref": "services/backfill_service.py:find_missing_spans",
+            "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
-        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
         "requirement_ids": [
-          "D52.2",
-          "AC-D52.2"
+          "D49.1",
+          "AC-D49.1",
+          "Journey 42",
+          "A121",
+          "R96"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_buckets.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_restore.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P13-T2",
+      "title": "Transactional attach with explicit acquisition-state tracking (D49.2)",
+      "description": "Rewrite ui/popout_window.py PopoutChartWindow.attach as a transaction: record each acquired step (connected signals, attached view, RT hold only where ensure_rt_subscribed returned, registration, resources) and on ANY failure unwind in reverse order, releasing only the hold this attach acquired. detach_view is reused unchanged (frozen). Covers S-P13-2, AC-D49.2.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P13-T1"
+      ],
+      "acceptance_criteria": [
+        "Given each attach failure-injection point (sync raise, registration raise, save raise), when attach fails offscreen, then the session holds no stale view, the realtime hold count is unchanged by the failed attach, the pop-out is unregistered, and the connected signals are disconnected.",
+        "Given a shared live session with other attached views, when one pop-out attach fails offscreen, then the surviving views keep their session membership, holds, and updates undisturbed."
+      ],
+      "tests": [
+        {
+          "test_id": "P13-T2-T21",
+          "linked_acceptance_criterion": "Given each attach failure-injection point (sync raise, registration raise, save raise), when attach fails offscreen, then the session holds no stale view, the realtime hold count is unchanged by the failed attach, the pop-out is unregistered, and the connected signals are disconnected.",
+          "type": "integration",
+          "description": "Per-injection-point cases (monkeypatched sync/registration/save raising): assert session-view membership excludes the failed view, hold count delta is zero, registry membership is absent, and signal connections are torn down. Red pre-fix (leaked view/hold/registration).",
+          "expected_result": "Fail pre-fix; green post-fix for every injection point."
+        },
+        {
+          "test_id": "P13-T2-T22",
+          "linked_acceptance_criterion": "Given a shared live session with other attached views, when one pop-out attach fails offscreen, then the surviving views keep their session membership, holds, and updates undisturbed.",
+          "type": "integration",
+          "description": "Two-view session, fail the second attach (attach-failure-under-update ordering per R97: disconnect-signals-first), assert the first view still receives session updates with its hold intact.",
+          "expected_result": "Green post-fix; any disturbed survivor fails it."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/popout_window.py (transactional attach)",
+        "tests/test_p13_attach.py (new)"
+      ],
+      "touches_files": [
+        "ui/popout_window.py",
+        "tests/test_p13_attach.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P13-2 flag semantics",
+        "detach/ensure/release contracts",
+        "P13-T1 restore path"
+      ],
+      "outputs": [
+        "transactional attach",
+        "attach test suite"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/popout_window.py",
+            "lines": "280-380",
+            "why": "rewrite attach() with per-step acquired flags"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "280-340",
+            "why": "read-only: detach_view / ensure_rt_subscribed / release_rt contracts"
+          },
+          {
+            "path": "tests/test_d24_popouts.py",
+            "lines": "1-80",
+            "why": "pop-out attach-test conventions"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/popout_window.py:attach",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:detach_view",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:ensure_rt_subscribed",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:release_rt",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
+        "requirement_ids": [
+          "D49.2",
+          "AC-D49.2",
+          "Journey 42",
+          "A122",
+          "R97"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_attach.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P13-T3",
+      "title": "In-pop-out chart-host failure error state on the ESC-070 model (D49.3)",
+      "description": "Give ui/popout_window.py a host-startup failure path: a chart host that raises on startup produces an in-pop-out error message area plus status text reusing the main-window chart_engine_failure_message wording verbatim (never reworded), unambiguous against the no-data state, while the diagnostic log entry is retained at its current level. Copy/layout follows the Q64 owner-confirmed default (A124). Covers S-P13-3, AC-D49.3.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P13-T2"
+      ],
+      "acceptance_criteria": [
+        "Given a chart host that raises on startup, when the pop-out opens offscreen, then it shows the error state (message area plus status text) instead of a blank chart, and the diagnostic log entry for the failure is retained.",
+        "Given the rendered error state, when compared against the no-data state and the ESC-070 wording, then the state is unambiguous versus no-data and the message text reuses the chart_engine_failure_message wording without rewording."
+      ],
+      "tests": [
+        {
+          "test_id": "P13-T3-T31",
+          "linked_acceptance_criterion": "Given a chart host that raises on startup, when the pop-out opens offscreen, then it shows the error state (message area plus status text) instead of a blank chart, and the diagnostic log entry for the failure is retained.",
+          "type": "integration",
+          "description": "Broken-host injection (host factory raising), open offscreen, assert the error widget/message is visible and a log-capture assertion finds the diagnostic entry. Red pre-fix (blank chart, the reported defect).",
+          "expected_result": "Fails pre-fix; passes post-fix."
+        },
+        {
+          "test_id": "P13-T3-T32",
+          "linked_acceptance_criterion": "Given the rendered error state, when compared against the no-data state and the ESC-070 wording, then the state is unambiguous versus no-data and the message text reuses the chart_engine_failure_message wording without rewording.",
+          "type": "integration",
+          "description": "Assert the error text equals chart_engine_failure_message output for the engine name and the error widget is distinct from the empty-data placeholder (different object/text).",
+          "expected_result": "Green post-fix; reworded text or a shared no-data widget fails it."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/popout_window.py (host-failure error state)",
+        "tests/test_p13_host_error.py (new)"
+      ],
+      "touches_files": [
+        "ui/popout_window.py",
+        "tests/test_p13_host_error.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P13-3 error-state model",
+        "ESC-070 wording contract",
+        "P13-T2 attach path"
+      ],
+      "outputs": [
+        "host-failure error state",
+        "error-state test suite"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/popout_window.py",
+            "lines": "150-283",
+            "why": "add the host-failure error path at startup"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "125-145",
+            "why": "read-only: chart_engine_failure_message wording contract, reused verbatim"
+          },
+          {
+            "path": "tests/test_d24_popouts.py",
+            "lines": "1-80",
+            "why": "pop-out offscreen-test conventions"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/main_window.py:chart_engine_failure_message",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/popout_window.py:attach",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
+        "requirement_ids": [
+          "D49.3",
+          "AC-D49.3",
+          "Journey 42",
+          "A123",
+          "A124"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_host_error.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P12-T3",
-      "title": "Planner verification + priming row + standalone IBKR probe",
-      "description": "Verify (no logic change) that the planner treats 30 mins as intraday: configured-duration chunking, the AC-D16.8 floor mode-aware, bar-granular holes. Add the 30 mins row to the prime_aggregator docstring per-span table (5 secs group). Run the standalone read-only probe of the 30 mins / 30 D combo against live TWS and record it in docs/d52_probe_record.md; a 321-class rejection fails and escalates per R104, never a silent shrink. Covers S-P12-3, S-P12-5, AC-D52.3, AC-D52.6, AC-D52.7.",
+      "id": "P13-T4",
+      "title": "Pin drawing fan-out baseline, then synchronize once at the change point (D49.4)",
+      "description": "First land pinning tests on the current tree recording per-change sync_drawings_to_views fan-out count and end state (green-first by design), then de-duplicate at the session change point (reload_drawings and the drawing-commit paths emitting drawings_changed) to exactly one all-view sync per change, reducing each pop-out _on_drawings_changed to a single-view refresh of its receiving view. Signal and per-pop-out wiring kept (A125); update semantics unchanged. Covers S-P13-4, AC-D49.4.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P12-T1",
-        "P12-T2"
+        "P13-T3"
       ],
       "acceptance_criteria": [
-        "Given a 30 mins load, when the planner runs, then it requests the configured duration (chunked newest-first when one window cannot cover the span), applies the AC-D16.8 floor mode-aware per AC-D16.9, and detects a hole in the middle of cached coverage at bar granularity.",
-        "Given a fresh 30 mins load mid-period, when priming runs, then it uses bar_size 5 secs with duration inside [60 S, 3600 S] (never outside that range, never the 1 min coarse branch), and the docstring per-span table names the 30 mins row in the 5 secs group.",
-        "Given live TWS, when the standalone probe issues the 30 mins / 30 D historical request, then it completes with no 321-class rejection and docs/d52_probe_record.md names the combo with a pass conclusion; a rejection fails the task and escalates instead of shrinking the duration."
+        "Given the current tree before the dedupe change, when the pinning tests run, then they record the per-change all-view sync count and the end-state view contents as the baseline.",
+        "Given N open pop-outs on one symbol, when drawings change or reload offscreen, then sync_drawings_to_views executes exactly once per change with end state identical to the pinned baseline, while the drawings_changed signal and per-pop-out wiring remain connected."
       ],
       "tests": [
         {
-          "test_id": "P12-T3-T31",
-          "linked_acceptance_criterion": "Given a 30 mins load, when the planner runs, then it requests the configured duration (chunked newest-first when one window cannot cover the span), applies the AC-D16.8 floor mode-aware per AC-D16.9, and detects a hole in the middle of cached coverage at bar granularity.",
-          "type": "unit",
-          "description": "Qt-free planner cases for 30 mins: full-span single chunk, wider-than-window chunking newest-first, per-mode 30-session floor session count, and hole-in-middle bar-granular detection (mirrors the D48 planner-probe structure).",
-          "expected_result": "Green post-fix (planner is generic); any chunking, floor, or hole-detection deviation fails."
+          "test_id": "P13-T4-T41",
+          "linked_acceptance_criterion": "Given the current tree before the dedupe change, when the pinning tests run, then they record the per-change all-view sync count and the end-state view contents as the baseline.",
+          "type": "integration",
+          "description": "Spy on sync_drawings_to_views, open N pop-outs on one symbol, emit a drawing change, record call count and per-view end state into the pinned baseline assertions. Lands FIRST on the current tree (green-first, not red-first).",
+          "expected_result": "Green on the current tree; the recorded count/state become the baseline T42 asserts against."
         },
         {
-          "test_id": "P12-T3-T32",
-          "linked_acceptance_criterion": "Given a fresh 30 mins load mid-period, when priming runs, then it uses bar_size 5 secs with duration inside [60 S, 3600 S] (never outside that range, never the 1 min coarse branch), and the docstring per-span table names the 30 mins row in the 5 secs group.",
-          "type": "unit",
-          "description": "Priming-shape case for a mid-period 30 mins load (elapsed span 1800 s -> 5 secs branch, duration clamped into [60 S, 3600 S]) plus a docstring assertion that the per-span table names the 30 mins row in the 5 secs group. Red-first at the table assertion (no 30 mins row pre-fix).",
-          "expected_result": "Red pre-fix on the table assertion; green post-fix on both shape and table."
-        },
-        {
-          "test_id": "P12-T3-T33",
-          "linked_acceptance_criterion": "Given live TWS, when the standalone probe issues the 30 mins / 30 D historical request, then it completes with no 321-class rejection and docs/d52_probe_record.md names the combo with a pass conclusion; a rejection fails the task and escalates instead of shrinking the duration.",
-          "type": "manual",
-          "description": "Assert docs/d52_probe_record.md exists, names the (30 D, 30 mins) combo with completed bars, states no 321-class rejection, and concludes the probe gate passes (same record shape as docs/d48_probe_record.md).",
-          "expected_result": "Passes once the worker runs the read-only live probe and writes the record; a rejection or missing record fails."
+          "test_id": "P13-T4-T42",
+          "linked_acceptance_criterion": "Given N open pop-outs on one symbol, when drawings change or reload offscreen, then sync_drawings_to_views executes exactly once per change with end state identical to the pinned baseline, while the drawings_changed signal and per-pop-out wiring remain connected.",
+          "type": "integration",
+          "description": "Same N-pop-out scenario post-dedupe: assert sync count is exactly 1 per change, per-view end state equals the T41 baseline, and the signal/slots remain connected (handler reduced to single-view refresh). Red without the dedupe (count N).",
+          "expected_result": "Fails without the dedupe (count N, not 1); passes post-fix with baseline-equal end state."
         }
       ],
       "expected_artifacts": [
-        "ui/ticker_session.py (docstring row only)",
-        "tests/test_p12_planner_probe.py (new)",
-        "docs/d52_probe_record.md (new)"
+        "ui/ticker_session.py (single fan-out)",
+        "ui/popout_window.py (single-view handler)",
+        "tests/test_p13_fanout.py (new)"
       ],
       "touches_files": [
         "ui/ticker_session.py",
-        "tests/test_p12_planner_probe.py",
-        "docs/d52_probe_record.md"
+        "ui/popout_window.py",
+        "tests/test_p13_fanout.py"
       ],
       "doc_required": false,
       "inputs": [
-        "TIMEFRAME_CONFIG 30 mins row (P12-T1)",
-        "1800 s period key (P12-T2)",
-        "A138 intraday floor",
-        "A141 5 secs branch"
+        "S-P13-4 single-fan-out design",
+        "sync/handler contracts",
+        "P13-T2 attach path"
       ],
       "outputs": [
-        "planner/priming verification suite",
-        "probe record with pass conclusion"
+        "single fan-out at change point",
+        "pin + dedupe test suite"
       ],
       "status": "done",
       "size": "S",
@@ -257,109 +369,294 @@
         "read_files": [
           {
             "path": "ui/ticker_session.py",
-            "lines": "1169-1230",
-            "why": "add the 30 mins row to the priming docstring table"
+            "lines": "680-710",
+            "why": "dedupe reload_drawings and commit paths to one sync per change"
           },
           {
-            "path": "services/backfill_service.py",
-            "lines": "117-145",
-            "why": "read-only: floor gate and bar_period_seconds contracts under verification"
+            "path": "ui/popout_window.py",
+            "lines": "420-445",
+            "why": "reduce _on_drawings_changed to single-view refresh"
           },
           {
-            "path": "tests/test_d48_planner_probe.py",
-            "lines": "1-60",
-            "why": "planner-probe test structure precedent"
-          },
-          {
-            "path": "docs/d48_probe_record.md",
-            "lines": "1-40",
-            "why": "read-only: probe record format precedent"
+            "path": "tests/test_d24_popouts.py",
+            "lines": "1-80",
+            "why": "multi-pop-out offscreen-test conventions"
           }
         ],
         "contracts": [
           {
-            "ref": "services/backfill_service.py:find_missing_spans",
+            "ref": "ui/ticker_session.py:sync_drawings_to_views",
             "status": "existing"
           },
           {
-            "ref": "services/backfill_service.py:plan_requests",
+            "ref": "ui/ticker_session.py:reload_drawings",
             "status": "existing"
           },
           {
-            "ref": "services/backfill_service.py:bar_period_seconds",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
+            "ref": "ui/popout_window.py:_on_drawings_changed",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
-        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
         "requirement_ids": [
-          "D52.3",
-          "D52.6",
-          "D52.7",
-          "AC-D52.3",
-          "AC-D52.6",
-          "AC-D52.7"
+          "D49.4",
+          "AC-D49.4",
+          "Journey 42",
+          "A125"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_planner_probe.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_fanout.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P12-T4",
-      "title": "Presentation inventory: picker parity, visibility guard, minutes pin",
-      "description": "Verify the presentation-plane enumerations for 30 mins with no production change expected: picker lists 30 mins between 15 mins and 1 hour with select/load/persist parity; the drawing/alarm visibility dialog opens with every box default-checked and round-trips (Minutes unit row covers 30 mins, no new row); minutes_for_timeframe('30 mins') returns 30.0 via the existing secs/60 fallback. If any hardcoded enumeration misses the entry, fix it here. Covers S-P12-1 picker slot, S-P12-6, AC-D52.5 remainder, DG99.",
+      "id": "P13-T5",
+      "title": "Shared-hold lifecycle probe with committed verification record, no prod change (D49.5 probe)",
+      "description": "Write and run the offscreen hold-count verification probe across the shared-hold lifecycle (main-chart same-symbol reload, pop-out attach/close, zero-owner case asserting zero) and commit the verdict to docs/p13_hold_probe_record.md: whether the hold count exceeds active owners with a lasting effect (a duplicate live subscription surviving session use) or not. No production-code change in this task. Covers the W5 half of S-P13-5, AC-D49.5.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P12-T1"
+        "P13-T4"
       ],
       "acceptance_criteria": [
-        "Given the toolbar picker, when listed, then 30 mins sits between 15 mins and 1 hour and selects, loads, and persists like every other intraday timeframe.",
-        "Given the drawing/alarm visibility dialog, when opened, then every box is default-checked and the payload round-trips with the Minutes unit row covering 30 mins (no new row, no per-timeframe key).",
-        "Given minutes_for_timeframe, when called with 30 mins, then it returns 30.0 with no new mapping line."
+        "Given the shared-hold lifecycle (main-chart same-symbol reload plus pop-out attach/close, plus a zero-owner case), when the probe runs offscreen, then it records the hold count against active owners at each step and states whether a lasting over-count effect exists.",
+        "Given the completed probe, when the tree is inspected, then docs/p13_hold_probe_record.md exists with the verdict and counts, and no production file outside tests and the record is modified."
       ],
       "tests": [
         {
-          "test_id": "P12-T4-T41",
-          "linked_acceptance_criterion": "Given the toolbar picker, when listed, then 30 mins sits between 15 mins and 1 hour and selects, loads, and persists like every other intraday timeframe.",
-          "type": "unit",
-          "description": "Picker-order case (30 mins between 15 mins and 1 hour from config order) plus a select/restore round-trip case through the persisted setting.",
-          "expected_result": "Green post-P12-T1; a missing or misordered entry fails."
+          "test_id": "P13-T5-T51",
+          "linked_acceptance_criterion": "Given the shared-hold lifecycle (main-chart same-symbol reload plus pop-out attach/close, plus a zero-owner case), when the probe runs offscreen, then it records the hold count against active owners at each step and states whether a lasting over-count effect exists.",
+          "type": "integration",
+          "description": "Lifecycle probe: main-chart same-symbol reload, pop-out attach/close, and a zero-owner case asserting hold zero; assert hold count versus active owners at each step and write the lasting-effect-or-clean verdict. Always lands (the probe is the deliverable).",
+          "expected_result": "Green with a committed verdict either way; a missing verdict or unasserted zero-owner case fails."
         },
         {
-          "test_id": "P12-T4-T42",
-          "linked_acceptance_criterion": "Given the drawing/alarm visibility dialog, when opened, then every box is default-checked and the payload round-trips with the Minutes unit row covering 30 mins (no new row, no per-timeframe key).",
+          "test_id": "P13-T5-T52",
+          "linked_acceptance_criterion": "Given the completed probe, when the tree is inspected, then docs/p13_hold_probe_record.md exists with the verdict and counts, and no production file outside tests and the record is modified.",
           "type": "unit",
-          "description": "VisibilityTab default-on guard plus get/set round-trip asserting the Minutes unit row shape is unchanged and covers 30 mins.",
-          "expected_result": "Green; a new row or an unchecked default fails."
-        },
-        {
-          "test_id": "P12-T4-T43",
-          "linked_acceptance_criterion": "Given minutes_for_timeframe, when called with 30 mins, then it returns 30.0 with no new mapping line.",
-          "type": "unit",
-          "description": "Assert minutes_for_timeframe('30 mins') == 30.0 and that no explicit 30.0 mapping line exists (fallback owns it).",
-          "expected_result": "Green via the secs/60 fallback; any other value fails."
+          "description": "Assert the record file exists naming per-step hold/owner counts and the explicit verdict line (lasting effect confirmed vs no lasting effect), and that the verdict vocabulary matches exactly one of the two specified outcomes.",
+          "expected_result": "Green once the record is committed; missing file, missing counts, or an ambiguous verdict fails."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p12_presentation.py (new)"
+        "tests/test_p13_hold_probe.py (new)",
+        "docs/p13_hold_probe_record.md (new)"
       ],
       "touches_files": [
-        "tests/test_p12_presentation.py"
+        "tests/test_p13_hold_probe.py",
+        "docs/p13_hold_probe_record.md"
       ],
       "doc_required": false,
       "inputs": [
-        "TIMEFRAME_CONFIG 30 mins row (P12-T1)",
-        "A140 picker order + default-visible"
+        "S-P13-5 verify-first gate",
+        "hold acquire/release contracts",
+        "P13-T4 session state"
       ],
       "outputs": [
-        "picker/visibility/minutes inventory suite"
+        "hold verification probe suite",
+        "committed probe record (P13-T6 gate input)"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "300-340",
+            "why": "read-only: ensure_rt_subscribed / release_rt hold accounting under probe"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "875-915",
+            "why": "read-only: main-chart reload and pop-out open paths the probe drives"
+          },
+          {
+            "path": "ui/popout_window.py",
+            "lines": "280-300",
+            "why": "read-only: attach entry the probe drives"
+          },
+          {
+            "path": "tests/test_d24_popouts.py",
+            "lines": "1-80",
+            "why": "pop-out lifecycle test conventions"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/ticker_session.py:ensure_rt_subscribed",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:release_rt",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/popout_window.py:attach",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
+        "requirement_ids": [
+          "D49.5",
+          "AC-D49.5",
+          "Journey 42",
+          "A126",
+          "R98"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_hold_probe.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P13-T6",
+      "title": "Conditional per-owner hold fix, else verified-close on the probe record (D49.5 fix)",
+      "description": "Read docs/p13_hold_probe_record.md (P13-T5) and act exactly on its verdict: if it confirms a lasting over-count effect, implement idempotent per-owner acquire/release (owners: main chart, each pop-out, alarm monitor) so the hold count equals active owners across the probe lifecycle; if it records no lasting effect, make NO production change and close D49.5 as verified (A126) citing the record. A diff here with no probe record fails review (R98). Covers the W6 half of S-P13-5, AC-D49.5.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P13-T5"
+      ],
+      "acceptance_criteria": [
+        "Given the P13-T5 probe record verdict, when the tree is inspected, then the tree state matches the verdict: a confirmed lasting effect yields idempotent per-owner acquire/release with the hold count equal to active owners across the probe lifecycle, while a clean verdict yields no production-code change to the hold accounting.",
+        "Given the final tree, when the hold lifecycle suites re-run, then they are green with no skips or xfails in any P13 hold test."
+      ],
+      "tests": [
+        {
+          "test_id": "P13-T6-T61",
+          "linked_acceptance_criterion": "Given the P13-T5 probe record verdict, when the tree is inspected, then the tree state matches the verdict: a confirmed lasting effect yields idempotent per-owner acquire/release with the hold count equal to active owners across the probe lifecycle, while a clean verdict yields no production-code change to the hold accounting.",
+          "type": "integration",
+          "description": "Read the record verdict inside the test: on confirmed, re-run the probe lifecycle and assert hold equals active owners with idempotent double-acquire/release safety; on clean, assert the hold-accounting code paths are unchanged from the probed baseline. No skip in either branch.",
+          "expected_result": "Fails if the tree contradicts the record verdict in either direction; green when tree and verdict agree."
+        },
+        {
+          "test_id": "P13-T6-T62",
+          "linked_acceptance_criterion": "Given the final tree, when the hold lifecycle suites re-run, then they are green with no skips or xfails in any P13 hold test.",
+          "type": "integration",
+          "description": "Re-run the P13-T5 probe suites plus this task's fix suites against the final tree and scan the P13 hold test files for skip/xfail markers.",
+          "expected_result": "Green re-run with zero markers; any red suite or marker fails."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/ticker_session.py (conditional fix only)",
+        "tests/test_p13_hold_fix.py (new)"
+      ],
+      "touches_files": [
+        "ui/ticker_session.py",
+        "tests/test_p13_hold_fix.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "probe record verdict (P13-T5)",
+        "S-P13-5 gated-fix rule",
+        "hold lifecycle suites"
+      ],
+      "outputs": [
+        "per-owner fix iff confirmed, else verified-close",
+        "hold fix test suite"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "300-340",
+            "why": "conditional edit site for per-owner acquire/release"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "875-915",
+            "why": "read-only: owner paths (main chart, pop-out open) the fix keys on"
+          },
+          {
+            "path": "ui/popout_window.py",
+            "lines": "280-300",
+            "why": "read-only: pop-out owner path the fix keys on"
+          },
+          {
+            "path": "tests/test_d24_popouts.py",
+            "lines": "1-80",
+            "why": "hold lifecycle test conventions"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/ticker_session.py:ensure_rt_subscribed",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:release_rt",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
+        "requirement_ids": [
+          "D49.5",
+          "AC-D49.5",
+          "Journey 42",
+          "A126",
+          "R98"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_hold_fix.py tests/test_p13_hold_probe.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P13-T7",
+      "title": "Thread the main-chart timezone offset into pop-out creation (D49.6 create)",
+      "description": "Change ui/main_window.py _open_popout to pass the main chart's current self._tz_offset into the new PopoutChartWindow (removing the hardcoded tz_offset=0.0 at the creation call site in ui/popout_window.py), so the new view is constructed with the main chart's offset through the unchanged create_chart_view seam. Covers the create half of S-P13-6, AC-D49.6.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P13-T6"
+      ],
+      "acceptance_criteria": [
+        "Given a main chart with a non-zero timezone offset, when a pop-out is created offscreen, then the new view is constructed with the main chart's current offset and never the hardcoded 0.0.",
+        "Given the chart-view seam and the main-chart offset source, when inspected, then the create_chart_view signature is unchanged and self._tz_offset remains the single offset source (no new timezone source introduced)."
+      ],
+      "tests": [
+        {
+          "test_id": "P13-T7-T71",
+          "linked_acceptance_criterion": "Given a main chart with a non-zero timezone offset, when a pop-out is created offscreen, then the new view is constructed with the main chart's current offset and never the hardcoded 0.0.",
+          "type": "integration",
+          "description": "Configure a non-zero main-chart offset, create a pop-out offscreen, assert the new view tz_offset equals the main chart offset. Red pre-fix (hardcoded 0.0).",
+          "expected_result": "Fails pre-fix; passes post-fix."
+        },
+        {
+          "test_id": "P13-T7-T72",
+          "linked_acceptance_criterion": "Given the chart-view seam and the main-chart offset source, when inspected, then the create_chart_view signature is unchanged and self._tz_offset remains the single offset source (no new timezone source introduced).",
+          "type": "unit",
+          "description": "Assert create_chart_view keeps its (tz_offset, editable) signature and the creation call site passes self._tz_offset with no new offset source symbol introduced.",
+          "expected_result": "Green post-fix; a changed seam or second source fails it."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py (offset threading)",
+        "ui/popout_window.py (hardcoded 0.0 removed)",
+        "tests/test_p13_tz_create.py (new)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/popout_window.py",
+        "tests/test_p13_tz_create.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P13-6 create threading",
+        "seam + offset-source contracts",
+        "P13-T2 attach path"
+      ],
+      "outputs": [
+        "offset-threaded creation",
+        "create test suite"
       ],
       "status": "done",
       "size": "S",
@@ -367,230 +664,250 @@
         "read_files": [
           {
             "path": "ui/main_window.py",
-            "lines": "238-250",
-            "why": "read-only: picker construction under parity test"
+            "lines": "875-900",
+            "why": "thread self._tz_offset through _open_popout"
           },
           {
-            "path": "services/volume_baseline.py",
-            "lines": "100-125",
-            "why": "read-only: minutes_for_timeframe fallback under pin test"
+            "path": "ui/popout_window.py",
+            "lines": "60-100",
+            "why": "remove the hardcoded tz_offset=0.0 at the creation call site"
           },
           {
-            "path": "ui/drawing_settings_common.py",
-            "lines": "15-60",
-            "why": "read-only: VISIBILITY_ROWS unit-row shape under guard test"
+            "path": "ui/chart_view.py",
+            "lines": "115-130",
+            "why": "read-only: create_chart_view seam contract, unchanged"
           },
           {
-            "path": "tests/test_d48_presentation.py",
-            "lines": "1-60",
-            "why": "parity-test structure precedent"
+            "path": "ui/lwc_view.py",
+            "lines": "1920-1930",
+            "why": "read-only: tz_offset storage the created view carries"
           }
         ],
         "contracts": [
           {
-            "ref": "services/volume_baseline.py:minutes_for_timeframe",
+            "ref": "ui/main_window.py:_open_popout",
             "status": "existing"
           },
           {
-            "ref": "ui/drawing_settings_common.py:VISIBILITY_ROWS",
+            "ref": "ui/popout_window.py:popout_view",
             "status": "existing"
           },
           {
-            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
+            "ref": "ui/chart_view.py:create_chart_view",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_view.py:tz_offset",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
-        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
         "requirement_ids": [
-          "D52.5",
-          "D52.8",
-          "AC-D52.5",
-          "AC-D52.8"
+          "D49.6",
+          "AC-D49.6",
+          "Journey 42",
+          "A133"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_presentation.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_tz_create.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P12-T5",
-      "title": "Intraday mode parity: distinct RTH/ETH sets, bands and collapse",
-      "description": "Verify 30 mins keeps the intraday contract: RTH and ETH loads return their mode's bars (not identical sets) under the existing mode-aware cache, and D1 session bands plus D21.4 collapse apply as for the other intraday timeframes (no canonical-mode change, no predicate change). Covers S-P12-4, D52.4, AC-D52.4.",
+      "id": "P13-T8",
+      "title": "Persist the offset with the pop-out set and restore it with fallback (D49.6 persist/restore)",
+      "description": "Persist tz_offset in data/popout_store.py PopoutStore via an additive nullable column (pre-change rows read back without the field), thread it through save/load_all, and apply the stored offset at restore in _restore_popouts with the A134 fallback: a pre-change save without the field restores with the main chart's current offset, never silent UTC. Restored views render identical time labels for the same seeded bars. Covers the persist/restore half of S-P13-6, AC-D49.6.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P12-T1",
-        "P12-T2"
+        "P13-T7"
       ],
       "acceptance_criteria": [
-        "Given 30 mins under each mode, when loaded, then the RTH and ETH bar sets are each mode's own bars (not identical sets) under distinct mode-aware cache keys.",
-        "Given 30 mins bars, when session bands and the collapse map are built, then bands and collapse apply exactly as for the other intraday timeframes (1800 s stays intraday under the shared daily-or-coarser predicate)."
+        "Given a saved pop-out set carrying a persisted offset, when it is restored offscreen, then the restored view carries the stored offset and renders identical time labels for the same seeded bars as the main chart.",
+        "Given a pre-change saved pop-out set without the offset field, when it is restored offscreen, then the restored view carries the main chart's current offset and never a silent UTC default."
       ],
       "tests": [
         {
-          "test_id": "P12-T5-T51",
-          "linked_acceptance_criterion": "Given 30 mins under each mode, when loaded, then the RTH and ETH bar sets are each mode's own bars (not identical sets) under distinct mode-aware cache keys.",
-          "type": "unit",
-          "description": "Mode-split case: same symbol/timeframe under ext_hours False/True returns differing bar sets keyed per mode (mirrors the D48 mode-parity structure for the intraday polarity).",
-          "expected_result": "Green; identical sets or a shared cache key fails."
+          "test_id": "P13-T8-T81",
+          "linked_acceptance_criterion": "Given a saved pop-out set carrying a persisted offset, when it is restored offscreen, then the restored view carries the stored offset and renders identical time labels for the same seeded bars as the main chart.",
+          "type": "integration",
+          "description": "Save a pop-out set with a non-zero offset, restore offscreen, assert the restored view offset equals the stored value and its formatted time labels for seeded bars equal the main chart labels. Red pre-fix (no persisted field).",
+          "expected_result": "Fails pre-fix; passes post-fix with label equality."
         },
         {
-          "test_id": "P12-T5-T52",
-          "linked_acceptance_criterion": "Given 30 mins bars, when session bands and the collapse map are built, then bands and collapse apply exactly as for the other intraday timeframes (1800 s stays intraday under the shared daily-or-coarser predicate).",
-          "type": "unit",
-          "description": "Bands-applied and collapse-applied assertions for 30 mins plus is_daily_or_coarser('30 mins') is False and session_regions parity with 15 mins.",
-          "expected_result": "Green with no predicate or region change; a daily-or-coarser classification fails."
+          "test_id": "P13-T8-T82",
+          "linked_acceptance_criterion": "Given a pre-change saved pop-out set without the offset field, when it is restored offscreen, then the restored view carries the main chart's current offset and never a silent UTC default.",
+          "type": "integration",
+          "description": "Restore a legacy record lacking the field (migration read-back), assert the restored offset equals the main chart current offset and is not 0.0-under-a-nonzero-main.",
+          "expected_result": "Green post-fix; silent-UTC fallback fails it."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p12_mode_parity.py (new)"
+        "data/popout_store.py (additive tz_offset column)",
+        "ui/main_window.py (restore apply + fallback)",
+        "tests/test_p13_tz_restore.py (new)"
       ],
       "touches_files": [
-        "tests/test_p12_mode_parity.py"
+        "data/popout_store.py",
+        "ui/main_window.py",
+        "tests/test_p13_tz_restore.py"
       ],
       "doc_required": false,
       "inputs": [
-        "TIMEFRAME_CONFIG 30 mins row (P12-T1)",
-        "1800 s period key (P12-T2)",
-        "A139 intraday mode relevance"
+        "S-P13-6 persist/restore + A134 fallback",
+        "PopoutStore save/load contracts",
+        "P13-T7 threaded creation"
       ],
       "outputs": [
-        "mode-parity verification suite"
+        "offset persistence + restore with fallback",
+        "restore test suite"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "services/session_service.py",
-            "lines": "39-60",
-            "why": "read-only: session_bands intraday path under test"
+            "path": "data/popout_store.py",
+            "lines": "1-100",
+            "why": "add the additive nullable tz_offset column + save/load threading"
           },
           {
-            "path": "services/time_collapse_service.py",
-            "lines": "45-70",
-            "why": "read-only: daily-or-coarser predicate under test"
+            "path": "ui/main_window.py",
+            "lines": "900-980",
+            "why": "apply the stored offset at restore with the A134 fallback"
           },
           {
             "path": "ui/lwc_view.py",
-            "lines": "1190-1210",
-            "why": "read-only: session_regions parity reference"
+            "lines": "315-335",
+            "why": "read-only: time-label formatting the equality assertion compares"
           },
           {
-            "path": "tests/test_d48_mode_parity.py",
-            "lines": "1-60",
-            "why": "mode-parity test structure precedent"
+            "path": "tests/test_d24_9_popout_persistence.py",
+            "lines": "1-80",
+            "why": "save/load round-trip test conventions"
           }
         ],
         "contracts": [
           {
-            "ref": "services/session_service.py:session_bands",
+            "ref": "data/popout_store.py:PopoutStore",
             "status": "existing"
           },
           {
-            "ref": "services/time_collapse_service.py:is_daily_or_coarser",
+            "ref": "data/popout_store.py:save",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_view.py:session_regions",
+            "ref": "data/popout_store.py:load_all",
             "status": "existing"
           },
           {
-            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
+            "ref": "ui/main_window.py:_restore_popouts",
             "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "popouts.tz_offset REAL NULL (additive; NULL = pre-change save -> main-chart current offset fallback)",
+            "module": "data/popout_store.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
-        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
         "requirement_ids": [
-          "D52.4",
-          "AC-D52.4"
+          "D49.6",
+          "AC-D49.6",
+          "Journey 42",
+          "A133",
+          "A134",
+          "R102"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_mode_parity.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p13_tz_restore.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P12-T6",
-      "title": "Batch gate: probe record, history intact, suite green",
-      "description": "Close-out gate for P12: the T3 probe record is present with a pass conclusion, requirements history is intact (marker sentence, D41-D51 sections with reversals, only the recorded enumeration extension touched), every AC-D52 item is observably satisfied, no skips/xfails in P12 tests, and the full offscreen suite is green. Covers AC-D52.7 record side and AC-D52.8. Never re-probes (no live contact); suite-green is verified by running the suite itself.",
+      "id": "P13-T9",
+      "title": "Batch gate: D49 checklist, history intact, no order code, suite green",
+      "description": "Close-out gate for P13: every AC-D49.1-AC-D49.6 check is green (D49.5 by fix or by verified-close citing the P13-T5 record), AC-D49.7 history is intact (D41-D48 sections with reversals, Existing Repository marker plus Current Tech Stack, no pre-D49 wording touched), and there is no order code, no new dependency, and no skipped/xfailed tests. Never re-probes and never re-derives; suite-green is verified by running the suite itself. Covers AC-D49.7 and the W8 gate.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P12-T3",
-        "P12-T4",
-        "P12-T5"
+        "P13-T8"
       ],
       "acceptance_criteria": [
-        "Given docs/d52_probe_record.md, when read, then it names the (30 D, 30 mins) combo with completed bars, states no 321-class rejection, and concludes the probe gate passes.",
-        "Given docs/requirements/requirements.md, when inspected, then the Existing Repository marker sentence and Current Tech Stack are intact, the D41-D51 sections with reversals are present, and the only pre-D52 wording touched is the recorded enumeration extension (AC-D16.1 nine timeframes, AC-D16.8 six intraday, D43/AC-D27.9 per-span 30 mins row).",
-        "Given the P12 test files and the full offscreen suite, when checked, then no P12 test carries a skip/xfail marker and the full suite run is green."
+        "Given the P13 suites and the hold probe record, when checked, then AC-D49.1-AC-D49.4 and AC-D49.6 assertions are green and D49.5 is either fixed-and-green or verified-closed with the probe record cited.",
+        "Given docs/requirements/requirements.md, when inspected, then the Existing Repository marker sentence and Current Tech Stack are intact, the D41-D48 sections with reversals are present, and no pre-D49 criterion wording is touched.",
+        "Given the P13 test files and the full offscreen suite, when checked, then no P13 test carries a skip/xfail marker, no order-code token is reintroduced, and the full suite run is green."
       ],
       "tests": [
         {
-          "test_id": "P12-T6-T61",
-          "linked_acceptance_criterion": "Given docs/d52_probe_record.md, when read, then it names the (30 D, 30 mins) combo with completed bars, states no 321-class rejection, and concludes the probe gate passes.",
+          "test_id": "P13-T9-T91",
+          "linked_acceptance_criterion": "Given the P13 suites and the hold probe record, when checked, then AC-D49.1-AC-D49.4 and AC-D49.6 assertions are green and D49.5 is either fixed-and-green or verified-closed with the probe record cited.",
           "type": "unit",
-          "description": "Assert the probe record file exists and contains the combo, a no-321 statement, and a pass conclusion (mirrors the D48 gate record checks).",
-          "expected_result": "Green once T3 writes the record; missing record or conclusion fails."
+          "description": "Assert each P13 suite file exists with its AC assertions green-required, and that D49.5 resolves exactly one way: the hold-fix suite green, or the probe record present with its explicit verified-close verdict cited.",
+          "expected_result": "Green once T1-T8 land; a missing suite, missing record, or neither-branch D49.5 fails."
         },
         {
-          "test_id": "P12-T6-T62",
-          "linked_acceptance_criterion": "Given docs/requirements/requirements.md, when inspected, then the Existing Repository marker sentence and Current Tech Stack are intact, the D41-D51 sections with reversals are present, and the only pre-D52 wording touched is the recorded enumeration extension (AC-D16.1 nine timeframes, AC-D16.8 six intraday, D43/AC-D27.9 per-span 30 mins row).",
+          "test_id": "P13-T9-T92",
+          "linked_acceptance_criterion": "Given docs/requirements/requirements.md, when inspected, then the Existing Repository marker sentence and Current Tech Stack are intact, the D41-D48 sections with reversals are present, and no pre-D49 criterion wording is touched.",
           "type": "unit",
-          "description": "Marker grep plus presence checks for the D41-D51 sections and the three enumeration-extension wordings.",
-          "expected_result": "Green; any missing section or marker fails."
+          "description": "Marker grep plus presence checks for the D41-D48 sections with their reversals and the marker/Tech Stack sentences.",
+          "expected_result": "Green; any missing section, marker, or reversal fails."
         },
         {
-          "test_id": "P12-T6-T63",
-          "linked_acceptance_criterion": "Given the P12 test files and the full offscreen suite, when checked, then no P12 test carries a skip/xfail marker and the full suite run is green.",
+          "test_id": "P13-T9-T93",
+          "linked_acceptance_criterion": "Given the P13 test files and the full offscreen suite, when checked, then no P13 test carries a skip/xfail marker, no order-code token is reintroduced, and the full suite run is green.",
           "type": "unit",
-          "description": "Scan the P12 test files for skip/xfail markers (batch rule: none allowed); suite-green itself is verified by this task's full-suite test_command, not by a case in the file (a gate case shelling out to the whole suite would recurse).",
-          "expected_result": "Green when no markers are found and the task's full-suite run passes."
+          "description": "Scan P13 test files for skip/xfail markers and order-code tokens (orders/placeOrder/cancelOrder/reqGlobalCancel); suite-green itself is verified by this task's full-suite test_command, not by a case in the file.",
+          "expected_result": "Green when no markers or tokens are found and the task's full-suite run passes."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p12_gate.py (new)"
+        "tests/test_p13_gate.py (new)"
       ],
       "touches_files": [
-        "tests/test_p12_gate.py"
+        "tests/test_p13_gate.py"
       ],
       "doc_required": false,
       "inputs": [
-        "probe record (P12-T3)",
-        "presentation + mode suites (P12-T4, P12-T5)"
+        "P13 suites + probe record (T1-T8)",
+        "requirements history",
+        "batch hard constraints"
       ],
       "outputs": [
         "batch gate suite",
-        "P12 close-out verdict"
+        "P13 close-out verdict"
       ],
-      "status": "in_progress",
+      "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "tests/test_d48_gate.py",
+            "path": "tests/test_p12_gate.py",
             "lines": "1-88",
             "why": "gate-test structure precedent"
           },
           {
-            "path": "docs/d48_probe_record.md",
-            "lines": "1-40",
-            "why": "read-only: record shape this gate asserts on the T3 artifact"
+            "path": "tests/test_d48_gate.py",
+            "lines": "1-60",
+            "why": "read-only: earlier batch-gate AC-checklist shape"
           }
         ],
         "contracts": [],
-        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
-        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "architecture_ref": "docs/architecture.md#Phase P13",
+        "plan_ref": "docs/plan.md#Phase P13",
         "requirement_ids": [
-          "D52.7",
-          "D52.8",
-          "AC-D52.7",
-          "AC-D52.8"
+          "D49.1",
+          "D49.2",
+          "D49.3",
+          "D49.4",
+          "D49.5",
+          "D49.6",
+          "D49.7",
+          "AC-D49.7"
         ],
         "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts=\"\" -q",
         "memory_refs": [],

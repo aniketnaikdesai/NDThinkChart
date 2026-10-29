@@ -3746,3 +3746,91 @@ ESC-079 (open, PLAN-routed) is P7 scope, already answered by S-P7-1 — it is no
   wording, not Plan reinterpretation.
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P13 — D49 pop-out robustness (Batch 24 + D49.6 timezone handoff) — drafted 2026-10-29
+
+> Companion: `docs/architecture.md` § *Phase P13* (Codebase Summary, S-P13-1…S-P13-6, frozen
+> interfaces, non-functional, AR-P13-1…AR-P13-4). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Batch 24 (D49), Journey 42, `AC-D49.1`–`AC-D49.7`, A121–A126/A133–A134
+> (Q64–Q66 answered 2026-10-28), R96–R98/R102. Hard constraints: **no order code anywhere**
+> (D45/D46); offscreen-first acceptance (Q65: no live step named); **full offscreen suite green
+> is the gate**; waves S/M only; no skips/xfails; no fine-grained task breakdown (Task Manager's
+> job); no per-task tests prescribed. Existing-repo run: every wave modifies existing modules in
+> place; **no new module, no new dependency**. One phase only — nothing past the P13 build waves
+> is planned. D1–D48 are NOT reopened; D24's criteria stand and are not re-planned.
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. Every
+wave lands its repro/pinning test **red-first** (failing on the current tree) before the fix,
+except where noted (W4 pins green-first by design; W6 is conditional). Waves are S/M only.
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P13-W1 | M | **Cold restore through the data path (D49.1; S-P13-1).** Session-less restore ensures cached bars + timeframe aggregator + realtime subscribe, with the existing history/backfill/pacing path where cache is incomplete. | (1) Repro-first failing test (empty session + saved pop-out → bars present + aggregator exists + subscribed; gapped-cache case issues the backfill request) red on the current tree, green after; (2) already-loaded main-chart symbol adds no second aggregator/subscription; (3) disconnected restore stays a D14-style no-op; (4) full offscreen suite green. | Offscreen restore suites with seeded `BarCache` + failure-injection + full suite. |
+| P13-W2 | M | **Transactional attach (D49.2; S-P13-2).** `attach()` unwound exactly on any failure with explicit acquisition-state tracking. | (1) Per-injection-point cases (sync raise, registration raise, save raise) red-first, green after: no stale session view, hold count unchanged by the failed attach, pop-out unregistered, signals disconnected; (2) a failed attach on a shared live session never disturbs other views; (3) full offscreen suite green. | Offscreen injection suites asserting session-view membership + hold count + registry + full suite. |
+| P13-W3 | S | **Host-failure error state (D49.3; S-P13-3).** A chart-host that raises on startup shows an in-pop-out error state on the ESC-070 model with the diagnostic log retained. | (1) Broken-host case red-first (blank chart today), green after: error state visible and unambiguous vs no-data, log capture retains the diagnostic entry; (2) copy/layout follows the Q64 owner-confirmed default (no new visual decision); (3) full offscreen suite green. | Offscreen broken-host suites + log-capture assertions + full suite. |
+| P13-W4 | S | **Single drawing fan-out (D49.4; S-P13-4).** Pin current behavior first, then de-duplicate at the change point without changing update semantics. | (1) Pinning tests land FIRST on the current tree (fan-out count + end state recorded); (2) post-fix: all-view sync executes exactly once per change with end-state equality to the pinned baseline; (3) signal + per-pop-out wiring kept; (4) full offscreen suite green. | Fan-out-count spies + end-state-equality suites + full suite. |
+| P13-W5 | S | **Hold-count verification probe (D49.5 probe half; S-P13-5).** The shared-hold lifecycle probe runs offscreen and its record is committed. | (1) Probe covers main-chart same-symbol reload + pop-out attach/close (+ zero-owner case asserting zero) and records whether the hold count exceeds active owners with a lasting effect; (2) the verification record exists in-repo either way; (3) **no production-code change in this wave**; (4) full offscreen suite green. | Offscreen lifecycle probe + committed record + full suite. |
+| P13-W6 | S | **Conditional per-owner fix (D49.5 fix half; S-P13-5).** Lands ONLY if W5 confirms a lasting effect; otherwise no code change. | (1) If confirmed: idempotent per-owner acquire/release (owners: main chart, each pop-out, alarm monitor) with hold count equal to active owners across the W5 lifecycle, green suite; (2) if not confirmed: wave closes with NO code change and the W5 record closes D49.5 as verified (A126/Q66 — verified-close counts as delivered, not dropped); (3) a W6 diff with no W5 probe record fails review (R98). | The W5 lifecycle suites re-run against the fix (or the untouched tree) + full suite. |
+| P13-W7 | S | **Timezone handoff create + persist + restore (D49.6; S-P13-6).** Main-chart offset threaded at creation, persisted with the set, applied at restore with the pre-change fallback. | (1) Creation case red-first (hardcoded `0.0` today): new view carries the main chart's non-zero offset; (2) persisted set round-trips the offset; restored view carries it and renders identical time labels for the same seeded bars; (3) pre-change save without the field falls back to the main chart's current offset (never silent UTC); (4) full offscreen suite green. | Offscreen create/restore/label-equality suites + migration read-back cases + full suite. |
+| P13-W8 | S | **Batch gate: close-out.** Every D49 criterion observably satisfied, history intact, nothing else changed, suite green. | (1) `AC-D49.1`–`AC-D49.6` checks green (or verified-close with record for D49.5); (2) `AC-D49.7`: `### D41`–`### D48` with reversals, the Existing Repository marker + Current Tech Stack intact, no pre-D49 wording touched; (3) no order code, no new dependency, no skipped/xfailed tests; (4) **full offscreen suite green**. | Full suite + the AC checklist. A red suite fails the wave. |
+
+**What stays untouched by every P13 wave:** D24's pop-out criteria (behavior corrected, criteria
+not re-planned); the `bars`/`alarms`/`drawings` schemas (except the one additive
+`popouts.tz_offset` column in W7); the `ChartView` seam and LWC renderer; pacing tunables and
+the port guard; error ingress/classification; the order-code absence (D45/D46); the Qt-free
+`data/` + `services/` import boundary.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / input | Architecture section | Wave |
+|---|---|---|
+| D49.1 / `AC-D49.1` (restore through data path; repro-first) | S-P13-1; Frozen (`BarCache`, planner) | P13-W1 |
+| D49.2 / `AC-D49.2` (transactional attach; per-injection cases) | S-P13-2; Frozen (`detach_view`) | P13-W2 |
+| D49.3 / `AC-D49.3` (error state; log retained; Q64 copy) | S-P13-3; Frozen (`chart_engine_failure_message`) | P13-W3 |
+| D49.4 / `AC-D49.4` (single fan-out; pin-first; semantics unchanged) | S-P13-4; Frozen (signal contracts) | P13-W4 |
+| D49.5 / `AC-D49.5` (verify-first; conditional fix; verified-close) | S-P13-5 | P13-W5 (probe) + P13-W6 (gated fix) |
+| D49.6 / `AC-D49.6` (tz handoff create + persist/restore + fallback) | S-P13-6; Frozen (`create_chart_view` seam) | P13-W7 |
+| D49.7 / `AC-D49.7` (history intact) | Frozen (all `[existing]` rows) | P13-W8 |
+| Journey 42 (cold restore, attach/host survival, drawing/hold exactness, tz) | S-P13-1…S-P13-6 | P13-W1…P13-W8 |
+| A121–A126/A133–A134 (analyst defaults; A124/A126 owner-confirmed) | S-P13-1…S-P13-6 (each default cited at its decision) | P13-W1…P13-W7 |
+| R96 (cold-start pacing pressure) | AR-P13-1; S-P13-1 | P13-W1 (cache-first + stagger note) |
+| R97 (cleanup vs concurrent update) | AR-P13-2; S-P13-2 | P13-W2 (disconnect-first + under-update case) |
+| R98 (verify read as build license) | AR-P13-3; S-P13-5 | P13-W5/W6 (probe-record gate) |
+| R102 (pre-change saves lack the offset field) | AR-P13-4; S-P13-6 | P13-W7 (fallback cases) |
+| Hard constraints: no order code (D45/D46); offscreen-only (Q65); suite-green gate | S-P13-1…S-P13-6; Frozen (order absence, seam) | Every wave |
+
+Every D49 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+D49.5's conditional wave is a gated decision the requirements specify (A126/Q66), not a gap.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P13-1 | AC-G.1 (visual reference gate) is satisfied by owner confirmation: D49.3's copy/layout is the Q64-accepted ESC-070-model default, and D49 has no other UI-visual decision | Q64 accepted the standing default verbatim; all D49.3 outcomes (visible, unambiguous, log retained) are probe-measurable without pixel details |
+| AP-P13-2 | "Hold actually acquired" (A122) means `ensure_rt_subscribed` returned without raising — whether it created the subscription or bumped the refcount — and a raise means no hold was acquired | Matches the refcount contract in source (`_rt_holders += 1` vs subscribe-and-set-1); the flag is set at the single call site, so cleanup can never misattribute another view's hold |
+| AP-P13-3 | The conditional per-owner fix (if W5 confirms) keys acquire/release by owner identity (main chart, each pop-out, alarm monitor) with idempotent release; the exact key type is a Task Manager/Build detail | `AC-D49.5` fixes the owner set and the idempotence property; the mechanism is standard refcount-by-owner and needs no architectural invention |
+| AP-P13-4 | The `popouts.tz_offset` column follows the existing additive-migration precedent (nullable/additive, old rows readable, A134 fallback in code — never silent UTC) | Same pattern as the D24.9 additive `popouts` table and the D39 `Alarm.params` additive migration; no destructive schema step |
+| AP-P13-5 | Disconnected restore stays a D14-style no-op (status message, no request) and a mid-session host crash stays outside D49.3 (existing crash handling owns it) | Both are Journey 42 edge cases carried verbatim; neither wave re-litigates them |
+
+### Flagged Issues
+
+**None.** Every D49 item is satisfiable as written on the existing stack:
+
+- Cold restore reuses the standing cache/aggregator/RT/backfill machinery (A121) with
+  repro-first measurables (`AC-D49.1`); pacing pressure has a specified handling (R96),
+  not a gap.
+- Transactional attach is mechanical step-flagging with per-injection-point measurables
+  (`AC-D49.2`); the race has a specified ordering (R97).
+- The error state reuses the owner-confirmed ESC-070 model at a new site (A123/A124, Q64).
+- Single fan-out is call-site dedupe with pin-first semantics preservation (A125).
+- The hold-count item is explicitly verify-first with verified-close as a legitimate
+  delivered outcome (A126, Q66) — the gate is specified (R98), not missing.
+- The timezone handoff threads an existing value through creation/persistence/restore
+  with a stated fallback (A133/A134); the pre-change-save case has a specified handling
+  (R102).
+
+Status: READY_FOR_TASK_MANAGER
