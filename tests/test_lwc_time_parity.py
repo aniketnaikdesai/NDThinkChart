@@ -341,7 +341,11 @@ class TestRendererBoundary:
         for mode in LV.MODES:
             ops = LV.series_ops(mode, [ns], TF, True)
             for op in ops:
-                assert set(op) <= {"op", "series", "cols", "mode"}, op
+                # S-P11-3 legitimately adds a same_symbol routing key to
+                # set_bars envelopes (the page needs it per-envelope for
+                # preserve-vs-fit); anything beyond the five keys still fails.
+                assert set(op) <= {"op", "series", "cols", "mode",
+                                   "same_symbol"}, op
             candles, volume = ops
             assert set(candles["cols"]) == {
                 "ts", "open", "high", "low", "close"}

@@ -53,23 +53,32 @@ class TestHistoryIntact:
     def test_current_tech_stack_present(self):
         assert "Current Tech Stack" in _read(REQUIREMENTS)
 
-    def test_ac_d16_1_enumeration_reads_eight_timeframes(self):
+    def test_ac_d16_1_enumeration_reads_nine_timeframes(self):
         text = _read(REQUIREMENTS)
-        assert "eight timeframes" in text, "AC-D16.1 still does not read eight"
-        anchor = text.index("parameterized over all eight timeframes")
+        assert "nine timeframes" in text, "AC-D16.1 still does not read nine"
+        anchor = text.index("parameterized over all nine timeframes")
         window = text[anchor:anchor + 500]
         assert "`1 week`" in window and "`1 month`" in window, (
             "new timeframes missing from the AC-D16.1 enumeration"
         )
-        # Any surviving "all six timeframes" wording must only appear inside the
-        # recorded D48 extension notes that quote the old wording to describe the
-        # change ("now reads eight") — never as a live enumeration.
+        # Any surviving old enumeration wording ("all six timeframes" from the
+        # pre-D48 text, "all eight timeframes" from the pre-D52 text) must only
+        # appear inside a recorded extension note that quotes the old wording
+        # to describe the change ("now reads eight" for D48, "now reads nine"
+        # for D52) — never as a live enumeration.
         for lineno, line in enumerate(text.splitlines(), start=1):
-            if "all six timeframes" in line:
-                assert "now reads eight" in line, (
-                    f"stale six-timeframe wording at line {lineno}: "
+            if "all six timeframes" in line or "all eight timeframes" in line:
+                assert ("now reads eight" in line
+                        or "now reads nine" in line), (
+                    f"stale timeframe wording at line {lineno}: "
                     f"{line.strip()[:160]}"
                 )
+
+    # Back-compat alias: the dispatch test command still addresses the pre-D52
+    # node id; both names execute the nine-timeframe assertion above.
+    test_ac_d16_1_enumeration_reads_eight_timeframes = (
+        test_ac_d16_1_enumeration_reads_nine_timeframes
+    )
 
     def test_ac_d27_9_table_carries_two_added_rows(self):
         text = _read(PRIME_TABLE_OWNER)
