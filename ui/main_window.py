@@ -902,25 +902,82 @@ class MainWindow(QMainWindow):
             extended_hours=self.ext_hours_btn.isChecked(),
             host=self,
             parent=self,
+            tz_offset=self._tz_offset,
         )
         popout.attach()
         popout.show()
+        # D49.6: persist the threaded offset with the set. attach()'s own
+        # save predates the offset (passes none, which preserves); this
+        # upsert stamps the main chart's current offset on the same row.
+        from data.popout_store import PopoutStore
+
+        PopoutStore.save(
+            popout.symbol,
+            popout.timeframe,
+            popout.mode,
+            popout.extended_hours,
+            popout._geometry_dict(),
+            tz_offset=self._tz_offset,
+        )
         self.status_bar.showMessage(
             f"Popped out {self._current_symbol} [{self._current_tf}].", 3000
         )
+
+    def _ensure_restore_data_path(self, record: dict) -> None:
+        """D49.1: cold-restore data-path ensure for one saved pop-out.
+
+        Cache-first (R96): for a symbol with no in-memory session, load the
+        cached bars, create the timeframe aggregator, and issue the existing
+        history/backfill wave where coverage is incomplete (A121). A symbol
+        with a live session already owns all three — nothing is recreated
+        (no second aggregator, no second subscription). The realtime hold
+        itself rides the pop-out's normal attach() (refcounted: one IBKR
+        subscription per symbol).
+        """
+        symbol = str(record["symbol"]).upper()
+        timeframe = record["timeframe"]
+        ext_hours = bool(record.get("ext_hours", True))
+        if self._sessions.get(symbol) is not None:
+            return
+        session = self.get_or_create_session(symbol)
+        session.prepare_load(timeframe)
+        cached = BarCache.get_bars(symbol, timeframe, ext_hours=ext_hours)
+        session.set_bars(timeframe, cached)
+        now_ts = self._now_ts()
+        cached_ts = [b.ts for b in cached]
+        missing_spans = find_missing_spans(
+            cached_ts,
+            now_ts,
+            timeframe,
+            ext_hours=ext_hours,
+            min_sessions=settings.MIN_INTRADAY_SESSIONS,
+        )
+        plans = plan_requests(missing_spans, timeframe)
+        session._backfill_missing_spans = list(missing_spans)
+        if plans:
+            contract = get_contract_for_symbol(symbol)
+            session.queue_wave_plans(plans, contract, timeframe, ext_hours)
 
     def _restore_popouts(self) -> None:
         """D24.9: re-open persisted pop-outs after connect.
 
         Lazy attach, cache-first render: the session syncs from cache on
         attach; the RT subscription follows the normal pacing path.
+        D49.1: session-less symbols are ensured through the cached-bars →
+        aggregator → realtime/backfill data path before the window opens.
 
         Runs on every (re)connect: records whose symbol/timeframe/mode is
         already open are skipped so a reconnect never duplicates windows
-        or breaches the pop-out cap.
+        or breaches the pop-out cap. Disconnected restore stays a D14-style
+        no-op (status message, no request).
         """
         from ui.popout_window import PopoutChartWindow
 
+        if not self._ibkr_connected:
+            self.status_bar.showMessage(
+                "Pop-out restore skipped — disconnected from IBKR.", 5000
+            )
+            return
         try:
             from data.popout_store import PopoutStore
 
@@ -942,6 +999,12 @@ class MainWindow(QMainWindow):
             if key in open_keys:
                 continue
             try:
+                self._ensure_restore_data_path(record)
+                # D49.6 (A134): apply the stored offset; a pre-change save
+                # without the field (NULL/missing) falls back to the main
+                # chart's current offset — never a silent UTC default.
+                stored = record.get("tz_offset", None)
+                offset = stored if stored is not None else self._tz_offset
                 popout = PopoutChartWindow(
                     symbol=record["symbol"],
                     timeframe=record["timeframe"],
@@ -949,6 +1012,7 @@ class MainWindow(QMainWindow):
                     extended_hours=record["ext_hours"],
                     host=self,
                     parent=self,
+                    tz_offset=offset,
                 )
                 popout.attach()
                 popout.apply_geometry(record["geometry"])

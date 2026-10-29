@@ -283,6 +283,20 @@ class TickerSession(QObject):
     def alarms(self) -> list:
         return self._alarms
 
+    @property
+    def drawings(self) -> list:
+        """Current drawings (read-only view of the session's records).
+
+        D49.4: the pop-out single-view refresh reads through here so the
+        handler never touches the session's private lists.
+        """
+        return self._drawings
+
+    @property
+    def drawing_groups(self) -> list:
+        """Current drawing groups (read-only view of the session's records)."""
+        return self._drawing_groups
+
     def attach_view(self, view, timeframe: str, sync: bool = True) -> None:
         """Register a view on this session. No RT side effects.
 
@@ -685,7 +699,16 @@ class TickerSession(QObject):
     # ── Drawings ─────────────────────────────────────────────────────
 
     def reload_drawings(self) -> None:
-        """Reload drawings + groups from the store (chart (re)load)."""
+        """Reload drawings + groups from the store (chart (re)load).
+
+        D49.4/S-P13-4: emit-only change point. The single all-view sync
+        per change is the caller's direct ``sync_drawings_to_views()``
+        (the drawing-commit paths pair reload + one sync); the
+        ``drawings_changed`` signal keeps its notification role while
+        handlers refresh only their receiving view, so one change costs
+        one all-view pass no matter how many pop-outs are open. Update
+        semantics are unchanged.
+        """
         from data.drawing_store import DrawingStore
 
         self._drawings = DrawingStore.drawings_for_symbol(self.symbol)
