@@ -65,6 +65,7 @@ page call                    payload keys                 bridge signal
 ``alarmDeleted()``           id                           ``pageAlarmDeleted``
 ``zoomRefused()``            trigger                      ``pageZoomRefused``
 ``keyPressed()``             key                          ``pageKeyPressed``
+``viewportReport()``         range, following             ``pageViewportReport``
 ============================ ============================ =======================
 
 Mirroring convention follows ``ibkr/bridge.py::IBBridge`` (Qt signals on a
@@ -266,6 +267,10 @@ class LwBridge(QObject):
     pageAlarmDeleted = pyqtSignal(dict)
     pageZoomRefused = pyqtSignal(dict)
     pageKeyPressed = pyqtSignal(dict)
+    #: S-P11-5: throttled page → Python visible-range report (gesture-end +
+    #: post-update only, AP-P11-3). Payload ``{"range": {"from", "to"},
+    #: "following"}`` — the freshest report wins at save time (AR-P11-2).
+    pageViewportReport = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -515,6 +520,16 @@ class LwBridge(QObject):
     def keyPressed(self, payload: str = "") -> None:
         """JS slot: a chart keyboard gesture the page handled."""
         self.pageKeyPressed.emit(self._payload(payload))
+
+    @pyqtSlot(str)
+    def viewportReport(self, payload: str = "") -> None:
+        """JS slot: throttled visible-range report (gesture-end/post-update).
+
+        S-P11-5 (AP-P11-3): the only new page → Python traffic this phase;
+        the view's ``report_viewport`` sink keeps the freshest report for the
+        switch-away save (AR-P11-2).
+        """
+        self.pageViewportReport.emit(self._payload(payload))
 
     # ── recovery / replay ──────────────────────────────────────────────
 

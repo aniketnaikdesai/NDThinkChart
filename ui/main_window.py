@@ -2033,7 +2033,42 @@ class MainWindow(QMainWindow):
             session.reload_drawings()
             session.sync_drawings_to_views()
 
+    def _drawing_group_locked(self, drawing_id: int) -> bool:
+        """Whether the drawing's group is locked — the delete-path lock read.
+
+        S-P10-4: ``DrawingGroup.locked`` is the source of truth, read here at
+        the operation surface (never cached on the drawing row). Un grouped
+        drawings and unknown ids are unlocked; a lookup failure fails open
+        so a transient store hiccup cannot wedge the delete path. Color and
+        style edits intentionally bypass this guard (Q69).
+        """
+        try:
+            cursor = db.conn.cursor()
+            cursor.execute(
+                "SELECT group_id FROM drawings WHERE id=?", (int(drawing_id),)
+            )
+            row = cursor.fetchone()
+            if row is None or row[0] is None:
+                return False
+            cursor.execute(
+                "SELECT locked FROM drawing_groups WHERE id=?", (row[0],)
+            )
+            group = cursor.fetchone()
+        except Exception:
+            _LOG.warning("lock lookup failed for drawing %r", drawing_id,
+                         exc_info=True)
+            return False
+        return bool(group is not None and group[0])
+
     def _on_drawing_deleted(self, drawing_id: int):
+        # S-P10-4: a locked drawing refuses the delete — the store row and
+        # the rendered geometry stay intact (no delete, no reload, no
+        # fan-out). Color/style edits bypass this guard.
+        if self._drawing_group_locked(drawing_id):
+            self.status_bar.showMessage(
+                "Drawing is locked — unlock its set to delete.", 2000
+            )
+            return
         DrawingStore.delete_drawing(drawing_id)
         session = self._session_for_facade()
         if session is not None:
@@ -2046,8 +2081,18 @@ class MainWindow(QMainWindow):
 
     def _delete_selected_drawing(self):
         drawing_actions = self._drawing_actions()
-        if drawing_actions is not None:
-            drawing_actions.delete_selected()
+        delete = getattr(drawing_actions, "delete_selected", None)
+        if callable(delete):
+            delete()
+            return
+        # LWC surface (no imperative delete_selected): route the toolbar Del
+        # button through the guarded delete path (S-P10-4). A locked
+        # selection is refused with the row and geometry intact; nothing
+        # selected is a no-op.
+        selected_id = getattr(self.chart_panel, "selected_drawing", None)
+        if selected_id is None:
+            return
+        self._on_drawing_deleted(int(selected_id))
 
     def _open_drawing_groups_dialog(self):
         if not self._current_symbol:

@@ -225,10 +225,41 @@ class DrawingGroupsDialog(QDialog):
             DrawingStore.assign_groups(ids, None)
             self._commit()
 
+    def _locked_drawing_ids(self, ids: list[int]) -> set[int]:
+        """Ids whose group is locked — the delete-path lock read (S-P10-4).
+
+        Mirrors ``MainWindow._drawing_group_locked``: ``DrawingGroup.locked``
+        is the source of truth, read here at the operation surface. Ungrouped
+        drawings and unknown ids count as unlocked; a lookup failure fails
+        open so a transient store hiccup cannot wedge the delete path.
+        Color/style paths (recolor, repaint, assign) intentionally bypass
+        this guard (Q69).
+        """
+        try:
+            groups = {g.id: g for g in self._groups()}
+            drawings = {d.id: d for d in self._drawings()}
+        except Exception:
+            return set()
+        locked = set()
+        for did in ids:
+            drawing = drawings.get(did)
+            if drawing is None or drawing.group_id is None:
+                continue
+            group = groups.get(drawing.group_id)
+            if group is not None and group.locked:
+                locked.add(did)
+        return locked
+
     def _delete_selected_drawings(self):
         ids = self._selected_drawing_ids()
-        if ids:
-            DrawingStore.delete_drawings(ids)
+        if not ids:
+            return
+        # S-P10-4: locked-group members refuse the delete — they are excluded
+        # so the store row and geometry stay intact. An all-locked selection
+        # is a no-op (no delete, no reload, no fan-out).
+        deletable = [i for i in ids if i not in self._locked_drawing_ids(ids)]
+        if deletable:
+            DrawingStore.delete_drawings(deletable)
             self._commit()
 
     # ── Table checkbox toggles ────────────────────────────────────────────────

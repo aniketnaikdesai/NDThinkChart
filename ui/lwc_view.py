@@ -138,6 +138,7 @@ from __future__ import annotations
 
 import bisect
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Sequence
 
@@ -1464,7 +1465,7 @@ def ict_regions(result, window: Sequence, plotted: Sequence,
 
 
 def series_ops(mode: str, bars: Sequence, timeframe: str | None,
-               ext_hours: bool) -> list:
+               ext_hours: bool, same_symbol: bool = False) -> list:
     """Build the ``set_bars`` / ``set_volume`` ops for one full series.
 
     ``rows`` are the loaded bars (any mode); RTH filtering, the
@@ -1473,6 +1474,9 @@ def series_ops(mode: str, bars: Sequence, timeframe: str | None,
     side renders values without trading logic. The candles op carries
     the optional ``mode`` key the P6-04 validators accept; volume
     colours are derived JS-side from the candle snapshot.
+
+    ``same_symbol`` (S-P11-3) stamps the continuity directive both ops
+    carry; the default (new symbol, no viewport) follows the live edge.
     """
     if mode not in MODES:
         raise ValueError(f"unknown mode: {mode!r}")
@@ -1486,11 +1490,12 @@ def series_ops(mode: str, bars: Sequence, timeframe: str | None,
     else:
         indices = logical_indices_from_display(
             chart_model.display_xs(plotted, cmap), period)
-    return build_series_ops(mode, plotted, cmap, indices, period)
+    return build_series_ops(mode, plotted, cmap, indices, period,
+                            same_symbol=same_symbol)
 
 
 def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
-                     period=None) -> list:
+                     period=None, same_symbol: bool = False) -> list:
     """Column ops for already-filtered rows, their collapse map and indices.
 
     Shared by the public :func:`series_ops` wrapper and the live driver
@@ -1505,6 +1510,12 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
     jump. Those placeholders cross as ``None`` value slots (the page renders
     ``{time}`` only), so a hole keeps its empty slots (AC-D21.4.4) while a
     non-trading or between-session gap stays adjacent (AC-D21.4.1).
+
+    ``same_symbol`` (S-P11-3 / D51.5) is the continuity directive the page
+    applies the replace with: true re-applies the preserved viewport
+    (no jump while scrolled back), false fits to the live edge. It rides
+    both ops exactly like the ``mode`` key — accepted and otherwise
+    ignored by the envelope validators.
     """
     times, whitespace = series_times(
         plotted, indices, period, getattr(cmap, "ext_hours", True))
@@ -1550,6 +1561,7 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
             "close": close_col,
         },
         "mode": mode,
+        "same_symbol": bool(same_symbol),
     }
     # Q-9 / AC-D21.2.1: the raw volumes cross unchanged — the D21.2 ceiling
     # (1.10 x the visible max, the 100 floor, Y minimum 0) is a render-time
@@ -1560,8 +1572,44 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
         "op": "set_volume",
         "series": "volume",
         "cols": {"ts": list(ts_col), "value": volume_col},
+        "same_symbol": bool(same_symbol),
     }
     return [candles_op, volume_op]
+
+
+# ── P11 per-symbol viewport memory (S-P11-5 / D51.4) ────────────────────
+#
+# In-memory session state only (AP-P11-2): ``symbol -> {range, following}``
+# keyed by upper-cased symbol. Fed by throttled page range reports
+# (gesture-end + post-update, AP-P11-3) through ``report_viewport``; saved on
+# switch-away by ``set_symbol`` and restored on switch-back via a
+# ``set_visible_range`` interaction-channel op the page applies with
+# ``setVisibleLogicalRange``. No persistence, no schema change — a fresh view
+# starts empty.
+
+
+def viewport_restore_op(view_range: dict, following: bool) -> dict:
+    """The ``set_visible_range`` range op restoring one remembered viewport."""
+    return {
+        "op": "set_visible_range",
+        "range": {"from": float(view_range["from"]),
+                  "to": float(view_range["to"])},
+        "following": bool(following),
+    }
+
+
+def _coerce_viewport_range(view_range) -> dict | None:
+    """``{"from", "to"}`` with finite floats, or ``None`` when unusable."""
+    if not isinstance(view_range, dict):
+        return None
+    try:
+        from_ = float(view_range.get("from"))
+        to = float(view_range.get("to"))
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(from_) and math.isfinite(to)):
+        return None
+    return {"from": from_, "to": to}
 
 
 class PageDrawing:
@@ -1780,6 +1828,16 @@ class LwcChartView(QWidget):
         self._editable = editable
         self._bars: list = []
         self._symbol: str = ""
+        # S-P11-5: per-symbol viewport memory (in-memory session state,
+        # upper-cased symbol -> {"range": {"from", "to"}, "following"}).
+        self._viewport_memory: dict = {}
+        # Freshest throttled page range report for the current symbol
+        # (last write wins, AR-P11-2); saved on switch-away.
+        self._pending_viewport: dict | None = None
+        # S-P11-3: the symbol owning the last full-series replace (None
+        # before the first). Compared against the current symbol in
+        # ``set_series`` to stamp the same-vs-new continuity directive.
+        self._series_symbol: str | None = None
         self._timeframe = None
         self._ext_hours = True
         self._mode = DEFAULT_MODE
@@ -1808,6 +1866,8 @@ class LwcChartView(QWidget):
         self._bridge.pageAlarmDeleted.connect(self._on_page_alarm_deleted)
         self._bridge.pageZoomRefused.connect(self._on_page_zoom_refused)
         self._bridge.pageKeyPressed.connect(self._on_page_key_pressed)
+        self._bridge.pageViewportReport.connect(
+            self._on_page_viewport_report)
         self._plotted: list = []
         self._logical: list = []
         self._cmap = None
@@ -2023,6 +2083,18 @@ class LwcChartView(QWidget):
         self.update_live_bar(bar)
 
     def set_symbol(self, symbol: str) -> None:
+        # S-P11-5: save the freshest throttled range report under the
+        # switch-away symbol (upper-cased key; last write wins, AR-P11-2).
+        # A same-symbol call is not a switch: the pending report already
+        # belongs to this symbol, so there is nothing to save or restore.
+        previous = str(self._symbol or "")
+        new_key = str(symbol or "").upper()
+        if (previous and previous.upper() != new_key
+                and self._pending_viewport is not None):
+            self._viewport_memory[previous.upper()] = {
+                "range": dict(self._pending_viewport["range"]),
+                "following": bool(self._pending_viewport["following"]),
+            }
         self._symbol = symbol
         # TR-17: a symbol change mid-gesture resets the interaction state.
         self.reset_interaction()
@@ -2033,6 +2105,51 @@ class LwcChartView(QWidget):
         if self._bars:
             self._render_studies()
             self._render_overlays()
+        # S-P11-5: restore on switch-back via a range op. A symbol with no
+        # memory starts with no pending report, so no stale range leaks
+        # across symbols.
+        if not new_key or previous.upper() == new_key:
+            return
+        remembered = self._viewport_memory.get(new_key)
+        if remembered is not None:
+            self._pending_viewport = {
+                "range": dict(remembered["range"]),
+                "following": bool(remembered["following"]),
+            }
+            self._publish_interaction_op(viewport_restore_op(
+                remembered["range"], remembered["following"]))
+        else:
+            self._pending_viewport = None
+
+    @property
+    def viewport_memory(self) -> dict:
+        """Saved per-symbol viewports (upper-cased symbol -> {range, following}).
+
+        A copy: mutating it never touches the session store (S-P11-5).
+        """
+        return {symbol: {"range": dict(entry["range"]),
+                         "following": entry["following"]}
+                for symbol, entry in self._viewport_memory.items()}
+
+    def report_viewport(self, view_range, following: bool = False) -> bool:
+        """Sink for throttled page range reports (gesture-end + post-update).
+
+        Keeps the freshest report for the current symbol (last write wins,
+        AR-P11-2); ``set_symbol`` saves it on switch-away. Returns ``True``
+        when the report was usable, ``False`` (ignored) otherwise.
+        """
+        coerced = _coerce_viewport_range(view_range)
+        if coerced is None:
+            return False
+        self._pending_viewport = {"range": coerced,
+                                  "following": bool(following)}
+        return True
+
+    def _on_page_viewport_report(self, payload: dict) -> None:
+        """A throttled page range report → the pending viewport (S-P11-5)."""
+        data = payload if isinstance(payload, dict) else {}
+        self.report_viewport(data.get("range"),
+                             data.get("following", False))
 
     def set_timeframe(self, timeframe: str) -> None:
         self._timeframe = timeframe
@@ -2068,6 +2185,20 @@ class LwcChartView(QWidget):
             raise ValueError(f"unknown mode: {mode!r}")
         self._mode = mode
         self._bars = list(rows or [])
+        # S-P11-3 (D51.5): same-vs-new continuity for the full replace. A
+        # replace for the same symbol preserves the viewport — the page
+        # re-applies its own pre-replace range (fresher than any throttled
+        # report, so no stale-range yank, AR-P11-2); a new symbol's load
+        # follows the live edge. A symbol with a pending viewport also
+        # preserves: after a switch-back restore (S-P11-5) the live range
+        # already is the remembered one. First load (no prior replace and
+        # no report) follows.
+        current_key = str(self._symbol or "").upper()
+        stored = self._series_symbol
+        same_symbol = (stored is not None
+                       and str(stored or "").upper() == current_key)
+        continuity = bool(same_symbol or self._pending_viewport is not None)
+        self._series_symbol = self._symbol
         # Q-54: a wholesale replacement rebuilds the map — re-arm the
         # extend-failure warning for the new series.
         self._extend_fallback_warned = False
@@ -2082,7 +2213,8 @@ class LwcChartView(QWidget):
             self._logical = logical_indices_from_display(
                 chart_model.display_xs(self._plotted, self._cmap), period)
         self._bridge.send_ops(build_series_ops(
-            mode, self._plotted, self._cmap, self._logical, period))
+            mode, self._plotted, self._cmap, self._logical, period,
+            same_symbol=continuity))
         # A wholesale bar replacement invalidates the study cache (the
         # incremental path assumes the same series), exactly as the default
         # engine's chart panel does on a load.
@@ -2175,10 +2307,12 @@ class LwcChartView(QWidget):
             if opened_hole:
                 # A within-session hole opened live: republish the series so
                 # the missing periods keep their whitespace slots. The tick's
-                # single update_bar cannot carry placeholders.
+                # single update_bar cannot carry placeholders. Same-symbol
+                # live extension, so the replace preserves (S-P11-3).
                 self._bridge.send_ops(build_series_ops(
                     self._mode, self._plotted, self._cmap, self._logical,
-                    TIMEFRAME_SECONDS.get(self._timeframe or "")))
+                    TIMEFRAME_SECONDS.get(self._timeframe or ""),
+                    same_symbol=True))
                 self._render_studies()
                 self._render_overlays()
                 return

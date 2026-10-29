@@ -171,6 +171,42 @@ function describeOp(op) {
   return { action: "ignore" };
 }
 
+/* S-P11-1 (D51.1): derived follow-state predicate (pure core, node-tested).
+ * The newest bar occupies logical slot `count - 1`; the chart is "following"
+ * iff that slot lies inside the visible logical range. Any pan/zoom away —
+ * mouse, keyboard, wheel — moves the range, so a state derived from the live
+ * range reflects every gesture by construction and cannot desync the way a
+ * stored flag would on an unobserved gesture (AR-P11-1). An empty series and
+ * a missing/non-finite range (chart not laid out yet) are never following. */
+function isFollowingSlot(newestSlot, range) {
+  var slot = Number(newestSlot);
+  if (!isFinite(slot) || slot < 0) return false;
+  if (!range) return false;
+  var from = Number(range.from);
+  var to = Number(range.to);
+  if (!isFinite(from) || !isFinite(to)) return false;
+  return slot >= from && slot <= to;
+}
+
+/* S-P11-3 (D51.5): same-vs-new full-replace continuity (pure core,
+ * node-tested). A full-series replace for the same symbol preserves the
+ * viewport — the caller re-applies the pre-replace range (AR-P11-3) — while
+ * a new symbol's load follows the live edge (fit). The Python driver stamps
+ * every set_bars/set_volume op with `same_symbol`; the envelope preserves
+ * iff any op says so (a lone clear never preserves). */
+function replacePreservesViewport(ops) {
+  var list = ops || [];
+  for (var i = 0; i < list.length; i++) {
+    var op = list[i];
+    if (!op || typeof op !== "object") continue;
+    if ((op.op === "set_bars" || op.op === "set_volume") &&
+        op.same_symbol === true) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /* ── browser glue (browser only; node loads just the pure core) ─── */
 if (typeof window !== "undefined" && typeof document !== "undefined") (function () {
   "use strict";
@@ -194,6 +230,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   var moduleWarnings = {};
   var boundPriceHandle = null;
   var routerState = { mode: "IDLE", tool: "none" };
+  /* S-P11-4 (D51.3): go-to-realtime badge state — armed when live bars extend
+   * the series while scrolled back, disarmed on any resume. */
+  var newBarsSinceAway = false;
 
   /* Q-23 layout/fit policy. The page boots before the Qt host has a size in
    * the failure case: a fit then divides by a zero width, the library gets a
@@ -677,6 +716,91 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     };
   }
 
+  /* S-P11-1 (D51.1): derived follow state — following iff the newest bar's
+   * logical slot is inside the live visible logical range. Read fresh on
+   * every query, never stored: any pan/zoom — mouse, keyboard
+   * (bindKeyboard), wheel — moves the range, so the answer reflects the
+   * current viewport by construction (AR-P11-1). A chart with no bars, or
+   * with no laid-out range yet, is never following. */
+  function newestBarSlot() {
+    return snapshot.candles.length - 1;
+  }
+
+  function visibleLogicalRange() {
+    if (!chart) return null;
+    try {
+      var range = chart.timeScale().getVisibleLogicalRange();
+      if (!range) return null;
+      return { from: Number(range.from), to: Number(range.to) };
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function isFollowing() {
+    return isFollowingSlot(newestBarSlot(), visibleLogicalRange());
+  }
+
+  /* S-P11-2 (D51.2): follow the live edge through the realtime scroll path.
+   * `scrollToRealTime()` is the library's own follow (the TradingView
+   * semantic Q72 references as the model for S-P11-1); the
+   * `setVisibleLogicalRange` fallback pins the newest slot at the right edge
+   * while preserving the current span when the scroll entry is missing
+   * (offscreen harness). Called only while following — never while scrolled
+   * back, so new bars alone can never re-engage follow. */
+  function followLive() {
+    if (!chart) return false;
+    try {
+      var scale = chart.timeScale();
+      if (typeof scale.scrollToRealTime === "function") {
+        scale.scrollToRealTime();
+        return true;
+      }
+      var range = visibleLogicalRange();
+      var slot = newestBarSlot();
+      if (!range || slot < 0) return fitToWidth();
+      var span = range.to - range.from;
+      if (!isFinite(span) || span <= 0) return fitToWidth();
+      scale.setVisibleLogicalRange({ from: slot - span, to: slot });
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /* S-P11-2: explicit resume — the pan-back-to-edge / Fit / affordance path.
+   * A user pan back to the edge re-engages follow by derivation (the newest
+   * slot re-enters the live range, so `isFollowing()` flips with no call);
+   * this entry performs the same realtime scroll on demand, so the
+   * go-to-realtime affordance (S-P11-4) and scripted resume share one path.
+   * Consumes the pending badge: the bars it announces are now on screen. */
+  function goToRealtime() {
+    newBarsSinceAway = false;
+    return followLive();
+  }
+
+  /* S-P11-4 (D51.3): Fit/reset — frame all loaded bars through the existing
+   * fitToWidth framer and re-engage follow (the fit puts the newest slot back
+   * inside the visible range, so follow re-derives with no stored flag; the
+   * pending badge is consumed on a landed fit). A deferred fit (no laid-out
+   * width yet) keeps the badge until the retry lands it. */
+  function fitAndFollow() {
+    var ok = fitToWidth();
+    if (ok) newBarsSinceAway = false;
+    return ok;
+  }
+
+  /* S-P11-4 (D51.3): go-to-realtime affordance visibility — exactly (away AND
+   * new-bars-since-away) (AR-P11-4). A pan-back-to-edge re-derives following
+   * with no envelope, so the probe reconciles on query: following always
+   * disarms a stale badge, keeping a later away episode (with no new bars)
+   * hidden. */
+  function affordanceVisible() {
+    var following = isFollowing();
+    if (following) newBarsSinceAway = false;
+    return !following && newBarsSinceAway;
+  }
+
   /* Q-20: a keyboard gesture the page handled crosses to Python (the bridge's
    * `keyPressed` slot takes one JSON string, the mirror of `opsJson`). */
   function reportKey(key, bridge) {
@@ -802,6 +926,14 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
    * barcode. */
   function fitToWidth() {
     if (!chart) return false;
+    /* S-P11-3 (D51.5, Journey 44 edge): a zero-bar Fit is a no-op with no
+     * error — there is nothing to frame, and `fitContent()` on an empty
+     * series must not throw or arm a retry. A later real replace fits. */
+    if (!snapshot.candles.length) {
+      needsFit = false;
+      cancelFitRetry();
+      return true;
+    }
     var size = ensureChartSize();
     if (size.width < MIN_FIT_WIDTH_PX || size.height < 1) {
       needsFit = true;
@@ -855,12 +987,26 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     var check = window.LwEnvelope.validateEnvelope(env);
     if (!check.ok) return { applied: 0, error: check.error };
     var applied = 0;
+    var sawReplace = false;
+    /* S-P11-2: capture follow state BEFORE the upserts land — appending a new
+     * period moves the newest slot, so a post-update check would read every
+     * live edge as scrolled back and never follow. S-P11-4: the pre-update
+     * slot arms the badge — a grown series while away means new bars. */
+    var followingBefore = isFollowing();
+    var slotBefore = newestBarSlot();
+    /* S-P11-3: same-symbol replaces preserve — capture the live range BEFORE
+     * the rows land (`setData` may reset it, AR-P11-3) and re-apply it after
+     * instead of fitting. New-symbol loads fit to the live edge. */
+    var preservedRange = replacePreservesViewport(env.ops)
+      ? visibleLogicalRange()
+      : null;
     for (var i = 0; i < env.ops.length; i++) {
       var op = env.ops[i];
       var kind = describeOp(op);
       if (kind.action === "ignore") continue;
       if (kind.action === "clear") {
         applyRows(op.series, []);
+        sawReplace = true;
         applied++;
         continue;
       }
@@ -870,10 +1016,41 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
         upsertRow(op.series, rows[0]);
       } else {
         applyRows(op.series, rows);
+        sawReplace = true;
       }
       applied++;
     }
-    fitToWidth();
+    /* S-P11-2 (D51.2): the unconditional refit is gone — it was the yank. A
+     * same-symbol full replace re-applies the pre-replace range (S-P11-3);
+     * new-symbol loads frame the fresh series; live upserts follow only
+     * while following, through the realtime scroll, and leave a scrolled-back
+     * viewport bit-identical — new bars never auto-resume follow. */
+    if (sawReplace) {
+      if (preservedRange) {
+        try {
+          chart.timeScale().setVisibleLogicalRange({
+            from: preservedRange.from,
+            to: preservedRange.to,
+          });
+        } catch (err) {
+          fitToWidth();
+        }
+      } else {
+        fitToWidth();
+      }
+    } else if (applied > 0 && followingBefore) {
+      followLive();
+    }
+    /* S-P11-4 (D51.3): reconcile the badge (AR-P11-4 — visibility stays a
+     * pure function of away AND new-bars-since-away). Following now means no
+     * pending bars, so disarm; a grown series under a still-away viewport
+     * means new bars arrived while away, so arm. Forming-bar ticks grow
+     * nothing and leave a hidden badge hidden. */
+    if (isFollowing()) {
+      newBarsSinceAway = false;
+    } else if (newestBarSlot() > slotBefore) {
+      newBarsSinceAway = true;
+    }
     return { applied: applied, error: null };
   }
 
@@ -979,6 +1156,33 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   /* Q-20: the page's own answer for the time axis (real dates, rendered tick
    * labels) — the acceptance evidence the count-only test never had. */
   window.lwAxisProbe = axisProbe;
+  /* S-P11-1 (D51.1): offscreen-queryable follow-state + visible-range
+   * probes. `lwIsFollowing()` is the contract boolean; `lwFollowProbe()`
+   * bundles it with the newest slot and the live range it was derived from;
+   * `lwVisibleRange()` reports the newest slot alongside the library's own
+   * `getVisibleLogicalRange()`, so later waves can assert viewport identity
+   * without re-deriving geometry. */
+  window.lwIsFollowing = isFollowing;
+  window.lwFollowProbe = function () {
+    var range = visibleLogicalRange();
+    var slot = newestBarSlot();
+    return {
+      following: isFollowingSlot(slot, range),
+      newestSlot: slot,
+      range: range,
+    };
+  };
+  window.lwVisibleRange = function () {
+    return { newestSlot: newestBarSlot(), range: visibleLogicalRange() };
+  };
+  /* S-P11-2 (D51.2): the explicit resume entry — pan-back-to-edge, Fit and
+   * the go-to-realtime affordance (S-P11-4) share the realtime scroll path. */
+  window.lwGoToRealtime = goToRealtime;
+  /* S-P11-4 (D51.3): Fit/reset frames all loaded bars + re-engages follow;
+   * the badge is visible iff away AND new-bars-since-away, and invoking the
+   * realtime scroll (above) consumes it. */
+  window.lwFit = fitAndFollow;
+  window.lwAffordanceVisible = affordanceVisible;
   /* Q-23: the page's own bitmap, so the acceptance can look at the candles
    * instead of trusting a count. Returns a composited canvas (or null). */
   window.lwTakeScreenshot = function () {
@@ -1040,6 +1244,8 @@ if (typeof module !== "undefined" && module.exports) {
     tzLabel: tzLabel,
     barGeometry: barGeometry,
     describeOp: describeOp,
+    isFollowingSlot: isFollowingSlot,
+    replacePreservesViewport: replacePreservesViewport,
     volumeBarColor: volumeBarColor,
     visibleVolumeMax: visibleVolumeMax,
     volumeCeiling: volumeCeiling,

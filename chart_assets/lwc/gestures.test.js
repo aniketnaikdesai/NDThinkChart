@@ -579,3 +579,356 @@ describe("gestures.js — active draw group (P9-T4)", () => {
     assert.equal(item.color, "#38bdf8");
   });
 });
+
+// ---------------------------------------------------------------------------
+// P10-T2 (D50.1) — page drag initiation: body whole-move plus per-kind
+// anchor drags, locked never-start, commit/cancel.
+//
+// Harness geometry (same fakes as above): frac = clientX / 10,
+// price = 100 + (clientY - 50) / 10. The fake primitives stand in for the
+// engine (snapshot / handlePoints / dragItem / reportDrawingUpdate) and the
+// fake drag surface stands in for the `drag_drawing` validation surface:
+// every per-move delta must be addressed to its
+// (id, kind, point_index, d_frac, d_price, body) signature.
+// ---------------------------------------------------------------------------
+
+/* Engine double: holds wire items (never mutated mid-drag — the preview
+ * rides the draft only), answers the selection/handles/drag/commit calls
+ * the initiation path uses, and records every commit. */
+function fakeDragPrimitives(items) {
+  const stored = JSON.parse(JSON.stringify(items));
+  const seen = { drafts: [], cleared: 0, updates: [] };
+  const surface = {
+    calls: [],
+    dragDrawing(id, kind, point_index, d_frac, d_price, body) {
+      surface.calls.push([id, kind, point_index, d_frac, d_price, body]);
+      return true;
+    },
+  };
+  function moveItem(start, point_index, d_frac, d_price, body) {
+    const moved = JSON.parse(JSON.stringify(start));
+    const shift = (pair) => [pair[0] + d_frac, pair[1] + d_price];
+    if (moved.kind === "horizontal") {
+      moved.price = moved.price + d_price;
+      moved.handles = [[null, moved.price]];
+      return moved;
+    }
+    if (moved.kind === "zone") {
+      if (body) {
+        moved.span = [moved.span[0] + d_frac, moved.span[1] + d_frac];
+        moved.y1 = moved.y1 + d_price;
+        moved.y2 = moved.y2 + d_price;
+      } else if (point_index === 0) {
+        moved.span = [moved.span[0] + d_frac, moved.span[1]];
+        moved.y1 = moved.y1 + d_price;
+      } else {
+        moved.span = [moved.span[0], moved.span[1] + d_frac];
+        moved.y2 = moved.y2 + d_price;
+      }
+      moved.handles = [
+        [moved.span[0], moved.y1],
+        [moved.span[1], moved.y2],
+      ];
+      return moved;
+    }
+    // trendline / fibonacci / measure: two-point anchors.
+    if (body) {
+      moved.points = moved.points.map(shift);
+    } else {
+      moved.points = moved.points.map((p, i) =>
+        i === point_index ? shift(p) : p.slice());
+    }
+    moved.handles = moved.points.map((p) => p.slice());
+    if (moved.kind === "measure") {
+      const dy = moved.points[1][1] - moved.points[0][1];
+      moved.delta = {
+        dy,
+        pct: moved.points[0][1] ? (dy / moved.points[0][1]) * 100 : 0,
+      };
+    }
+    return moved;
+  }
+  return {
+    seen,
+    surface,
+    stored,
+    setDraft(item) {
+      seen.drafts.push(item ? JSON.parse(JSON.stringify(item)) : null);
+      return true;
+    },
+    clearDraft() {
+      seen.cleared += 1;
+      return true;
+    },
+    snapshot() {
+      return { items: stored, selectedId: null };
+    },
+    handlePoints(kind, item) {
+      return Array.isArray(item.handles) ?
+        item.handles.map((h) => h.slice()) : [];
+    },
+    dragItem(start, point_index, d_frac, d_price, body) {
+      return moveItem(start, point_index, d_frac, d_price, body);
+    },
+    reportDrawingUpdate(moved, bridge) {
+      seen.updates.push({
+        item: JSON.parse(JSON.stringify(moved)),
+        bridge,
+      });
+      return true;
+    },
+  };
+}
+
+/* One selected wire item per kind. Endpoints sit on the fake grid so a
+ * press lands exactly: frac = clientX / 10, price = 100 + (clientY-50)/10. */
+function dragWireItems(locked) {
+  const base = (extra) => Object.assign({
+    id: null,
+    color: "#38bdf8",
+    group_id: null,
+    locked: !!locked,
+    selected: true,
+    z: 10,
+  }, extra);
+  return [
+    base({ id: 11, kind: "trendline", points: [[20, 110], [40, 120]], handles: [[20, 110], [40, 120]] }),
+    base({ id: 12, kind: "fibonacci", points: [[20, 110], [40, 120]], handles: [[20, 110], [40, 120]], type: "retr" }),
+    base({ id: 13, kind: "measure", points: [[20, 110], [40, 120]], handles: [[20, 110], [40, 120]], delta: { dy: 10, pct: 10 } }),
+    base({ id: 14, kind: "zone", span: [20, 40], y1: 105, y2: 125, handles: [[20, 105], [40, 125]] }),
+    base({ id: 15, kind: "horizontal", price: 115, handles: [[null, 115]] }),
+  ];
+}
+
+/* Body presses: the two-point midpoint (frac 30, price 115), the zone
+ * interior, and — for horizontal — 10 px off the level (outside the 6 px
+ * handle grab but inside the 12 px body grab). */
+function bodyPressFor(kind) {
+  if (kind === "horizontal") return { clientX: 100, clientY: 210 };
+  return { clientX: 300, clientY: 200 };
+}
+
+/* Handle presses: endpoint 0 (frac 20, price 110), zone corner 0
+ * (frac 20, price 105), the horizontal price level. */
+function handlePressFor(kind) {
+  if (kind === "zone") return { clientX: 200, clientY: 100 };
+  if (kind === "horizontal") return { clientX: 100, clientY: 200 };
+  return { clientX: 200, clientY: 150 };
+}
+
+describe("gestures.js — drag initiation (P10-T2-T21)", () => {
+  it("starts a whole-move on a body press for all five kinds", () => {
+    for (const wire of dragWireItems(false)) {
+      const prim = fakeDragPrimitives([wire]);
+      const glue = bindAll({ primitives: prim, drag: prim.surface });
+      const press = bodyPressFor(wire.kind);
+      assert.equal(glue.handlers.pointerdown(press), true,
+        `${wire.kind}: a body press starts a drag`);
+      const session = LwGestures.dragState();
+      assert.ok(session, `${wire.kind}: a drag session is in flight`);
+      assert.equal(session.body, true, `${wire.kind}: body whole-move`);
+      assert.equal(session.point_index, -1, `${wire.kind}: no anchor addressed`);
+      assert.equal(session.id, wire.id);
+      assert.equal(session.kind, wire.kind);
+      // One per-move tick is addressed to the drag_drawing validation
+      // surface: (id, kind, point_index, d_frac, d_price, body).
+      assert.equal(
+        glue.handlers.pointermove(
+          { clientX: press.clientX + 10, clientY: press.clientY + 10 }), true);
+      const last = prim.surface.calls[prim.surface.calls.length - 1];
+      assert.deepEqual(last, [wire.id, wire.kind, -1, 1, 1, true],
+        `${wire.kind}: the whole-move delta is addressed to the body`);
+      assert.equal(LwGestures.cancelDrag(), true, "cleanup");
+    }
+  });
+
+  it("starts the kind's anchor drag on a handle press", () => {
+    for (const wire of dragWireItems(false)) {
+      const prim = fakeDragPrimitives([wire]);
+      const glue = bindAll({ primitives: prim, drag: prim.surface });
+      const press = handlePressFor(wire.kind);
+      assert.equal(glue.handlers.pointerdown(press), true,
+        `${wire.kind}: a handle press starts a drag`);
+      const session = LwGestures.dragState();
+      assert.ok(session, `${wire.kind}: a drag session is in flight`);
+      assert.equal(session.body, false, `${wire.kind}: anchor drag, not a move`);
+      assert.equal(session.point_index, 0, `${wire.kind}: the handle anchor`);
+      assert.equal(
+        glue.handlers.pointermove(
+          { clientX: press.clientX + 10, clientY: press.clientY + 10 }), true);
+      const last = prim.surface.calls[prim.surface.calls.length - 1];
+      assert.deepEqual(last, [wire.id, wire.kind, 0, 1, 1, false],
+        `${wire.kind}: the anchor delta is addressed to the handle`);
+      assert.equal(LwGestures.cancelDrag(), true, "cleanup");
+    }
+  });
+
+  it("addresses the zone's second corner to its own anchor", () => {
+    const wire = dragWireItems(false).find((w) => w.kind === "zone");
+    const prim = fakeDragPrimitives([wire]);
+    const glue = bindAll({ primitives: prim, drag: prim.surface });
+    // Corner 1: frac 40, price 125.
+    assert.equal(
+      glue.handlers.pointerdown({ clientX: 400, clientY: 300 }), true);
+    const session = LwGestures.dragState();
+    assert.equal(session.body, false);
+    assert.equal(session.point_index, 1);
+    assert.equal(LwGestures.cancelDrag(), true, "cleanup");
+  });
+});
+
+describe("gestures.js — locked drawings never start a drag (P10-T2-T22)", () => {
+  it("refuses body and handle presses on a locked drawing of every kind", () => {
+    for (const wire of dragWireItems(true)) {
+      for (const press of [bodyPressFor(wire.kind), handlePressFor(wire.kind)]) {
+        const prim = fakeDragPrimitives([wire]);
+        const glue = bindAll({ primitives: prim, drag: prim.surface });
+        assert.equal(glue.handlers.pointerdown(press), false,
+          `${wire.kind}: a locked press starts nothing`);
+        assert.equal(LwGestures.dragState(), null,
+          `${wire.kind}: no drag session starts`);
+        assert.deepEqual(prim.surface.calls, [],
+          `${wire.kind}: nothing routed to validation`);
+        assert.deepEqual(prim.seen.updates, [],
+          `${wire.kind}: nothing emitted`);
+      }
+    }
+  });
+});
+
+describe("gestures.js — drag commit and cancel (P10-T2-T23)", () => {
+  it("commits the dragged geometry on pointer-up past the threshold", () => {
+    const wire = dragWireItems(false).find((w) => w.kind === "trendline");
+    const before = JSON.parse(JSON.stringify(wire));
+    const prim = fakeDragPrimitives([wire]);
+    const glue = bindAll({ primitives: prim, drag: prim.surface });
+    assert.equal(glue.handlers.pointerdown({ clientX: 300, clientY: 200 }), true);
+    assert.equal(glue.handlers.pointermove({ clientX: 310, clientY: 210 }), true);
+    assert.equal(glue.handlers.pointerup({ clientX: 310, clientY: 210 }), true);
+    assert.equal(prim.seen.updates.length, 1, "one commit emitted");
+    const committed = prim.seen.updates[0].item;
+    assert.equal(committed.id, wire.id);
+    assert.deepEqual(committed.points, [[21, 111], [41, 121]],
+      "the commit carries the dragged geometry");
+    assert.deepEqual(
+      prim.surface.calls[prim.surface.calls.length - 1],
+      [wire.id, "trendline", -1, 1, 1, true]);
+    assert.deepEqual(prim.stored, [before],
+      "the engine state was never mutated mid-drag");
+    assert.equal(LwGestures.dragState(), null, "no session lingers");
+  });
+
+  it("emits nothing on cancel and keeps the pre-drag state", () => {
+    const wire = dragWireItems(false).find((w) => w.kind === "trendline");
+    const before = JSON.parse(JSON.stringify(wire));
+    const prim = fakeDragPrimitives([wire]);
+    const glue = bindAll({ primitives: prim, drag: prim.surface });
+    assert.equal(glue.handlers.pointerdown({ clientX: 300, clientY: 200 }), true);
+    assert.equal(glue.handlers.pointermove({ clientX: 310, clientY: 210 }), true);
+    assert.ok(prim.seen.drafts.length >= 1, "a preview rode the draft");
+    assert.equal(LwGestures.cancelDrag(), true);
+    assert.equal(LwGestures.dragState(), null);
+    assert.deepEqual(prim.seen.updates, [], "cancel emits no commit");
+    assert.deepEqual(prim.stored, [before],
+      "the item matches its pre-drag state");
+    assert.ok(prim.seen.cleared >= 1, "the draft preview was cleared");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ESC-091 — an orphaned in-flight drag never commits: a drag whose
+// pointer-up happens off-canvas must not commit stale geometry on a later
+// unrelated pan. Guard: orphan a drag (press, move, pointerup-less leave,
+// then an unrelated pan) and assert no drawingUpdated is emitted and the
+// draft is cleared. The T21/T23 suites above are untouched.
+// ---------------------------------------------------------------------------
+
+describe("gestures.js — orphaned drag never commits (ESC-091)", () => {
+  it("ignores moves that arrive with the button released", () => {
+    const wire = dragWireItems(false).find((w) => w.kind === "trendline");
+    const before = JSON.parse(JSON.stringify(wire));
+    const prim = fakeDragPrimitives([wire]);
+    const glue = bindAll({ primitives: prim, drag: prim.surface });
+    assert.equal(glue.handlers.pointerdown({ clientX: 300, clientY: 200 }), true);
+    assert.ok(LwGestures.dragState(), "a drag session is in flight");
+    // The button is up (its pointer-up happened off-canvas and never
+    // reached us): the move is not drag travel.
+    assert.equal(
+      glue.handlers.pointermove({ clientX: 310, clientY: 210, buttons: 0 }), false);
+    assert.deepEqual(prim.surface.calls, [], "nothing routed to validation");
+    const session = LwGestures.dragState();
+    assert.ok(session, "the session is still open (leave/cancel abandons it)");
+    assert.equal(session.moved, false);
+    assert.deepEqual([session.d_frac, session.d_price], [0, 0]);
+    // The later pointer-up is a click, not a commit.
+    assert.equal(glue.handlers.pointerup({ clientX: 310, clientY: 210 }), false);
+    assert.deepEqual(prim.seen.updates, [], "no commit emitted");
+    assert.deepEqual(prim.stored, [before]);
+    assert.equal(LwGestures.dragState(), null);
+  });
+
+  it("abandons the drag past the leave grace and never commits a later pan", () => {
+    const wire = dragWireItems(false).find((w) => w.kind === "trendline");
+    const before = JSON.parse(JSON.stringify(wire));
+    const prim = fakeDragPrimitives([wire]);
+    const glue = bindAll({ primitives: prim, drag: prim.surface });
+    assert.equal(glue.handlers.pointerdown({ clientX: 300, clientY: 200 }), true);
+    assert.equal(
+      glue.handlers.pointermove({ clientX: 310, clientY: 210, buttons: 1 }), true);
+    assert.equal(LwGestures.dragState().moved, true);
+    // The pointer leaves with the button still down; no pointer-up follows.
+    assert.equal(glue.handlers.pointerleave(), true);
+    assert.ok(LwGestures.dragState(), "grace period keeps the session");
+    const pending = glue.timers.pending;
+    assert.ok(pending.length >= 1);
+    assert.equal(pending[pending.length - 1].ms, LwGestures.LEAVE_GRACE_MS);
+    pending[pending.length - 1].fn();
+    assert.equal(LwGestures.dragState(), null, "the orphaned drag is abandoned");
+    assert.deepEqual(prim.seen.updates, [], "abandon emits nothing");
+    assert.ok(prim.seen.cleared >= 1, "the draft preview was cleared");
+    // An unrelated pan afterwards commits nothing stale.
+    assert.equal(glue.handlers.pointerdown({ clientX: 700, clientY: 500 }), false);
+    assert.equal(
+      glue.handlers.pointermove({ clientX: 720, clientY: 520, buttons: 1 }), false);
+    assert.equal(glue.handlers.pointerup({ clientX: 720, clientY: 520 }), false);
+    assert.deepEqual(prim.seen.updates, [], "no stale commit");
+    assert.equal(LwGestures.dragState(), null);
+    assert.deepEqual(prim.stored, [before]);
+  });
+
+  it("pointercancel abandons the drag and emits nothing", () => {
+    const wire = dragWireItems(false).find((w) => w.kind === "trendline");
+    const before = JSON.parse(JSON.stringify(wire));
+    const prim = fakeDragPrimitives([wire]);
+    const glue = bindAll({ primitives: prim, drag: prim.surface });
+    assert.equal(glue.handlers.pointerdown({ clientX: 300, clientY: 200 }), true);
+    assert.equal(
+      glue.handlers.pointermove({ clientX: 310, clientY: 210, buttons: 1 }), true);
+    assert.equal(glue.handlers.pointercancel(), true);
+    assert.equal(LwGestures.dragState(), null);
+    assert.deepEqual(prim.seen.updates, [], "cancel emits no commit");
+    assert.ok(prim.seen.cleared >= 1, "the draft preview was cleared");
+    assert.equal(glue.handlers.pointerup({ clientX: 310, clientY: 210 }), false);
+    assert.deepEqual(prim.seen.updates, [], "no late commit");
+    assert.deepEqual(prim.stored, [before]);
+  });
+
+  it("a non-hit press clears a stale session instead of committing it later", () => {
+    const wire = dragWireItems(false).find((w) => w.kind === "trendline");
+    const before = JSON.parse(JSON.stringify(wire));
+    const prim = fakeDragPrimitives([wire]);
+    const glue = bindAll({ primitives: prim, drag: prim.surface });
+    assert.equal(glue.handlers.pointerdown({ clientX: 300, clientY: 200 }), true);
+    assert.equal(
+      glue.handlers.pointermove({ clientX: 310, clientY: 210, buttons: 1 }), true);
+    assert.ok(LwGestures.dragState().moved);
+    // The pointer-up outside the container never arrives; the next press
+    // misses the drawing entirely.
+    assert.equal(glue.handlers.pointerdown({ clientX: 700, clientY: 500 }), false);
+    assert.equal(LwGestures.dragState(), null, "the stale session is cleared");
+    assert.ok(prim.seen.cleared >= 1, "the draft preview was cleared");
+    assert.equal(glue.handlers.pointerup({ clientX: 700, clientY: 500 }), false);
+    assert.deepEqual(prim.seen.updates, [], "no stale commit");
+    assert.deepEqual(prim.stored, [before]);
+  });
+});
