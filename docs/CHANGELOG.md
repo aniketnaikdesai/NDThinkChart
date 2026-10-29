@@ -178,3 +178,42 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 6.
 - 82ccf1a RG-P7-1: AC-D16.8 successive-loads restatement (additive annotation, history preserved)
 - 42c6474 Remove worked-through review snapshots (findings all landed)
 - 3b3d190 Q-55: gates accept the retired row-19 disposition, fail closed elsewhere
+## P13 — 2026-10-29
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P13-T1 — Cold restore routes through cached bars + aggregator + realtime/backfill; disconnected stays a no-op
+- P13-T2 — Rewrote PopoutChartWindow.attach as a transaction with per-step acquired flags (signals/view/hold-only-where-ensure_rt-returned/registration/resources) and disconnect-first reverse unwind; T21 per-injection and T22 survivor tests green (4 passed, exit 0)
+- P13-T3 — P13-T3 done: pop-out shows ESC-070 error state (message area + status text, verbatim wording) when the chart host raises at startup; diagnostic debug log retained
+- P13-T4 — P13-T4 done: drawing fan-out pinned then deduped to exactly one all-view sync per change with baseline-equal end state, signal and per-pop-out wiring kept
+- P13-T5 — P13-T5 probe green: hold count tracked owners at every lifecycle step (reload coalesced into running wave); record committed with verdict 'no lasting effect'; no prod change
+- P13-T6 — P13-T6 verified-close: probe verdict is no lasting effect, so no production change; added verdict-gated hold test, full hold suites green (exit 0)
+- P13-T7 — Threaded main-chart tz offset into pop-out creation; removed hardcoded 0.0
+- P13-T8 — D49.6 persist/restore: PopoutStore persists tz_offset (additive nullable column, offset-preserving saves) and _restore_popouts applies it with main-chart fallback for pre-change saves
+- P13-T9 — P13-T9 gate re-stamped done: gate file 13/13 green (T91 checklist, T92 history, T93 no-skip/no-order) and full offscreen suite 1329 passed / 3 pre-existing webengine skips, exit 0; no code change, ESC-095 resolved at source
+
+### Blocked
+- P13-T9 — Output:
+
+### Recent commits
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
+- 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
+- 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE
+- a04fbd9 Q64-66 answered by owner (accept defaults); D50 Q70 settled to (c)
+- 281d4e8 ESC-079 addressed: AC-D16.8 restatement verified, zero open escalations
+- 61f8dff CI: restore workflow_dispatch colon (fuzzy edit ate it)
+- abd036e CI: fix workflow syntax (stray colon)
+- 73b27be CI: cancel superseded LWC parity runs on new pushes
+- 82ccf1a RG-P7-1: AC-D16.8 successive-loads restatement (additive annotation, history preserved)
