@@ -1178,9 +1178,10 @@ class TickerSession(QObject):
         (duration clamped into [60 S, 1 D]).
 
         Per-span priming table (S-P8-5/DG98 — documentation only; the
-        span-based branches below are generic over any span, so the D48
+        span-based branches below are generic over any span, so the D48/D52
         timeframes add rows here, never new branches below):
         intraday spans (<= 3600 s) ................ '5 secs' / [60 S, 3600 S]
+        '30 mins' spans (<= 1800 s) ............... '5 secs' / [60 S, 3600 S]
         '4 hours' / '1 day' spans (<= 86400 s) ..... '1 min' / [60 S, 1 D]
         '1 week' spans (<= 604800 s) .............. '1 min' / [60 S, 1 D]
         '1 month' spans (~2.6 Ms) ................. '1 min' / [60 S, 1 D]

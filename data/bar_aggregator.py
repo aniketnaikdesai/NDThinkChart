@@ -16,6 +16,7 @@ TIMEFRAME_SECONDS: Dict[str, int] = {
     "1 min":   60,
     "5 mins":  300,
     "15 mins": 900,
+    "30 mins": 1800,
     "1 hour":  3600,
     "4 hours": 14400,
     "1 day":   86400,
