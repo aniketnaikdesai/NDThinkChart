@@ -372,7 +372,7 @@ def test_residue_scan_no_out_of_scope_surface(monkeypatch, qapp):
                     if not name.startswith("_"))
     assert public == ["clear", "delete", "load_all", "save"]
     assert list(inspect.signature(PopoutStore.save).parameters) == [
-        "symbol", "timeframe", "mode", "ext_hours", "geometry",
+        "symbol", "timeframe", "mode", "ext_hours", "geometry", "tz_offset",
     ]
     store_src = inspect.getsource(popout_store)
     for token in ("lwc", "Lwc", "popout_memory", "engine"):
