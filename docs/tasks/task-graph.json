@@ -1,591 +1,598 @@
 {
   "metadata": {
-    "phase": "P11",
-    "batch": "Batch D51 (follow-live viewport for the LWC main chart)",
+    "phase": "P12",
+    "batch": "Batch 27 (D52: add 30 mins as a valid chart interval)",
     "status": "READY_FOR_BUILD",
-    "note": "P11: D51 follow-live viewport (AC-D51.1-AC-D51.5). Waves P11-W1 (T1 follow-state definition + repro probes) -> P11-W2 (T2 no-yank live path, then T3 Fit/reset + affordance) -> P11-W3 (T4 per-symbol memory, then T5 same/new replacement) -> P11-W4 (T6 batch gate). Repro-first every wave; no skips/xfails; no new module, no migration, no order-code touch, Qt-free boundary held."
+    "note": "P12: D52 30-min timeframe (AC-D52.1-AC-D52.8). W1 (T1 config row + T2 1800 bucketing in parallel, then T3 planner/priming verification + live probe) -> W2 (T4 picker/inventory + T5 mode parity, parallel after T1/T2) -> W3 (T6 batch gate). All S; repro-first bucketing cases; no skips/xfails; no order code; Qt-free boundary held; full suite green."
   },
   "tasks": [
     {
-      "id": "P11-T1",
-      "title": "Follow-state definition + repro probes (D51.1; S-P11-1)",
-      "description": "Add a page-side derived isFollowing() to chart_assets/lwc/chart.js (following iff the newest bar's logical slot is inside getVisibleLogicalRange()), expose offscreen-queryable follow-state and visible-range probes, and land repro-first tests proving the current tree has no follow surface and refits unconditionally.",
+      "id": "P12-T1",
+      "title": "Config row: TIMEFRAME_CONFIG gains 30 mins -> 30 D / 30 mins",
+      "description": "Add exactly one row (30 mins -> duration 30 D, bar_size 30 mins) to TIMEFRAME_CONFIG in ibkr/market_data.py, inserted between 15 mins and 1 hour so the picker (built from list(TIMEFRAME_CONFIG.keys())) orders it per A140 with no picker code change. Covers S-P12-1, D52.1, AC-D52.1 and the DG99 picker slot.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given a loaded main chart at the live edge and a chart scrolled back by scripted pan/zoom, when the follow-state probe is queried offscreen, then the former reports following (newest bar's slot inside the visible range) and the latter reports scrolled back.",
-        "Given a seeded series offscreen, when the visible-range probe is queried, then it reports the newest bar's logical slot and the current visible logical range consistently with the library timeScale, so later waves can assert viewport identity without re-deriving geometry."
+        "Given TIMEFRAME_CONFIG, when read, then it contains exactly one 30 mins row mapping to duration 30 D and bar_size 30 mins, positioned between 15 mins and 1 hour.",
+        "Given the eight pre-existing TIMEFRAME_CONFIG rows, when compared, then their values and order are byte-identical to before (only one row added)."
       ],
       "tests": [
         {
-          "test_id": "P11-T1-T11",
-          "linked_acceptance_criterion": "AC1",
+          "test_id": "P12-T1-T11",
+          "linked_acceptance_criterion": "Given TIMEFRAME_CONFIG, when read, then it contains exactly one 30 mins row mapping to duration 30 D and bar_size 30 mins, positioned between 15 mins and 1 hour.",
           "type": "unit",
-          "description": "Seeded-series offscreen probe: chart at live edge reports following; scripted pan/zoom away reports scrolled back; keyboard/wheel-driven pan also reports scrolled back (AR-P11-1). Red pre-fix (no isFollowing surface), green post-fix.",
-          "expected_result": "Fails pre-fix (probe surface absent); passes post-fix with edge/scrolled-back distinguished."
+          "description": "Assert TIMEFRAME_CONFIG['30 mins'] == {'duration': '30 D', 'bar_size': '30 mins'} and list(keys).index('30 mins') is one past '15 mins' and one before '1 hour'.",
+          "expected_result": "Passes post-fix; fails pre-fix (KeyError on the missing row)."
         },
         {
-          "test_id": "P11-T1-T12",
-          "linked_acceptance_criterion": "AC2",
+          "test_id": "P12-T1-T12",
+          "linked_acceptance_criterion": "Given the eight pre-existing TIMEFRAME_CONFIG rows, when compared, then their values and order are byte-identical to before (only one row added).",
           "type": "unit",
-          "description": "Visible-range probe returns newest-slot + visible logical range matching the library getVisibleLogicalRange for a seeded series; plus a static assertion that pre-fix applyOps refits unconditionally (documents the yank as the repro baseline).",
-          "expected_result": "Probe assertions pass post-fix; the unconditional-refit characterization holds on the pre-fix tree."
+          "description": "Assert the full key order equals the eight known keys plus 30 mins in slot, each old row's duration/bar_size unchanged, and len(config) == 9.",
+          "expected_result": "Passes post-fix; any altered, reordered, or extra row fails it."
         }
       ],
       "expected_artifacts": [
-        "chart_assets/lwc/chart.js (isFollowing + probes)",
-        "tests/test_p11_follow_state.py",
-        "chart_assets/lwc/chart.test.js (isFollowing cases)"
+        "ibkr/market_data.py (one added row)",
+        "tests/test_p12_config.py (new)"
       ],
       "touches_files": [
-        "chart_assets/lwc/chart.js",
-        "chart_assets/lwc/chart.test.js",
-        "tests/test_p11_follow_state.py"
+        "ibkr/market_data.py",
+        "tests/test_p12_config.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P11-1 derived follow-state definition",
-        "current unconditional applyOps refit"
+        "S-P12-1 decision",
+        "A136 owner-confirmed 30 D duration"
       ],
       "outputs": [
-        "isFollowing() + range probes",
-        "repro baseline for W2/W3"
+        "TIMEFRAME_CONFIG 30 mins row",
+        "config assertion suite"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "690-730",
-            "why": "applyOps dispatch site to instrument with probes"
+            "path": "ibkr/market_data.py",
+            "lines": "1-30",
+            "why": "extend TIMEFRAME_CONFIG with the new row"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "800-880",
-            "why": "fitToWidth framer + the unconditional post-applyOps refit (the yank)"
+            "path": "ui/main_window.py",
+            "lines": "238-250",
+            "why": "read-only: picker builds from list(TIMEFRAME_CONFIG.keys()) \u2014 no picker edit"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "590-660",
-            "why": "read-only: existing range/pan helpers and getVisibleLogicalRange use"
-          },
-          {
-            "path": "chart_assets/lwc/chart.test.js",
+            "path": "tests/test_d48_data_plane.py",
             "lines": "1-60",
-            "why": "JS test conventions for the chart.js change"
-          },
-          {
-            "path": "tests/test_lwc_page_wiring.py",
-            "lines": "1-60",
-            "why": "read-only: offscreen page-probe conventions"
-          },
-          {
-            "path": "chart_assets/lwc/chart.html",
-            "lines": "1-60",
-            "why": "read-only: module load order if a new probe needs page exposure"
+            "why": "config-row assertion conventions from the D48 precedent"
           }
         ],
         "contracts": [
           {
-            "ref": "chart_assets/lwc/chart.js:fitToWidth",
-            "status": "existing"
-          },
-          {
-            "ref": "chart_assets/lwc/chart.js:getVisibleLogicalRange",
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "function isFollowing() -> boolean // true iff newest bar logical slot inside getVisibleLogicalRange(); any pan/zoom away means false",
-            "module": "chart_assets/lwc/chart.js"
+            "signature": "TIMEFRAME_CONFIG[\"30 mins\"] = {\"duration\": \"30 D\", \"bar_size\": \"30 mins\"}",
+            "module": "ibkr/market_data.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P11",
-        "plan_ref": "docs/plan.md#Phase P11",
+        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
+        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
         "requirement_ids": [
-          "AC-D51.1"
+          "D52.1",
+          "AC-D52.1"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_follow_state.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_config.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P11-T2",
-      "title": "No-yank live path (D51.2; S-P11-2)",
-      "description": "Gate every viewport movement on the live update path on isFollowing(): remove the unconditional post-applyOps fitToWidth, leave the visible range untouched on update_bar upserts while scrolled back, follow only when isFollowing(), and resume on user pan-back-to-edge via scrollToRealTime/setVisibleLogicalRange with no automatic resume on new bars.",
+      "id": "P12-T2",
+      "title": "Aggregator: TIMEFRAME_SECONDS gains the 1800 key on ET half-hours",
+      "description": "Add the 1800 key for 30 mins to TIMEFRAME_SECONDS in data/bar_aggregator.py; bucketing rides the existing UTC-epoch _period_start grid (no anchor-set change per S-P12-2). Buckets must open on ET clock half-hours across a DST fold with the 09:30 RTH open on a boundary, and the forming bar must aggregate into the current half-hour bucket. Covers D52.2, AC-D52.2.",
       "agent": "build_worker",
       "task_type": "code",
-      "dependencies": [
-        "P11-T1"
-      ],
+      "dependencies": [],
       "acceptance_criteria": [
-        "Given a scrolled-back viewport, when live bars arrive offscreen, then the visible logical range is bit-identical before and after and follow stays disengaged.",
-        "Given a scrolled-back viewport, when the user pans back to the edge, then follow resumes via the realtime scroll; new bars alone never re-engage follow."
+        "Given TIMEFRAME_SECONDS, when read, then it maps 30 mins to 1800 while the nine existing periods and the _ET_ANCHORED/_CALENDAR_BUCKETED sets are unchanged.",
+        "Given 30-minute ticks spanning a DST fold and the 09:30 RTH open, when bucketed, then every bucket opens on an ET clock half-hour (HH:00/HH:30) and 09:30 lands on a bucket boundary.",
+        "Given live ticks inside the current half-hour, when the forming bar aggregates, then it joins the current half-hour bucket (same bucket the historical bars for that half-hour land in)."
       ],
       "tests": [
         {
-          "test_id": "P11-T2-T21",
-          "linked_acceptance_criterion": "AC1",
+          "test_id": "P12-T2-T21",
+          "linked_acceptance_criterion": "Given TIMEFRAME_SECONDS, when read, then it maps 30 mins to 1800 while the nine existing periods and the _ET_ANCHORED/_CALENDAR_BUCKETED sets are unchanged.",
           "type": "unit",
-          "description": "Seeded series scrolled back offscreen; inject update_bar upserts (new periods + forming-bar ticks); assert visible-range slot identity across every injection and follow still disengaged. Red pre-fix (unconditional refit moves the viewport), green post-fix.",
-          "expected_result": "Fails pre-fix (range moves on upsert); passes post-fix with range bit-identical."
+          "description": "Assert TIMEFRAME_SECONDS['30 mins'] == 1800 and the nine existing keys plus both frozensets are unchanged.",
+          "expected_result": "Passes post-fix; fails pre-fix (KeyError / 300 s fallback)."
         },
         {
-          "test_id": "P11-T2-T22",
-          "linked_acceptance_criterion": "AC2",
+          "test_id": "P12-T2-T22",
+          "linked_acceptance_criterion": "Given 30-minute ticks spanning a DST fold and the 09:30 RTH open, when bucketed, then every bucket opens on an ET clock half-hour (HH:00/HH:30) and 09:30 lands on a bucket boundary.",
           "type": "unit",
-          "description": "While away, inject new bars and assert follow stays disengaged (no auto-resume); then script pan-back-to-edge and assert follow re-engaged through the realtime scroll path.",
-          "expected_result": "No auto-resume on bars alone; follow re-engages only on pan-back-to-edge."
+          "description": "Red-first bucket-boundary cases over a DST-fold weekend plus the 09:30 RTH open, asserting HH:00/HH:30 ET bucket starts (parametrized over fold days). Pre-fix the unknown timeframe falls back to the 300 s grid, so boundaries fail.",
+          "expected_result": "Red pre-fix (300 s fallback splits half-hours); green post-fix with every asserted boundary on HH:00/HH:30 ET."
+        },
+        {
+          "test_id": "P12-T2-T23",
+          "linked_acceptance_criterion": "Given live ticks inside the current half-hour, when the forming bar aggregates, then it joins the current half-hour bucket (same bucket the historical bars for that half-hour land in).",
+          "type": "unit",
+          "description": "Feed BarAggregator ticks for one half-hour plus a forming tick and assert the forming bar's period_start equals the historical bucket start for that half-hour.",
+          "expected_result": "Passes post-fix; fails pre-fix where the forming tick lands in a 5-minute bucket."
         }
       ],
       "expected_artifacts": [
-        "chart_assets/lwc/chart.js (gated live viewport reaction)",
-        "tests/test_p11_no_yank.py"
+        "data/bar_aggregator.py (1800 key)",
+        "tests/test_p12_buckets.py (new)"
       ],
       "touches_files": [
-        "chart_assets/lwc/chart.js",
-        "chart_assets/lwc/chart.test.js",
-        "tests/test_p11_no_yank.py"
+        "data/bar_aggregator.py",
+        "tests/test_p12_buckets.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P11-T1 isFollowing() + probes",
-        "Python update_live_bar bar-domain contract (unchanged)"
+        "S-P12-2 decision",
+        "A137 ET half-hour buckets"
       ],
       "outputs": [
-        "gated live path",
-        "no auto-resume invariant"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "850-960",
-            "why": "applyOps + upsertRow live path whose viewport reaction is gated"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "800-850",
-            "why": "fitToWidth framer reused by the resume path"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2101-2160",
-            "why": "read-only: update_live_bar bar-domain contract \u2014 Python emit side unchanged"
-          },
-          {
-            "path": "chart_assets/lwc/chart.test.js",
-            "lines": "1-60",
-            "why": "JS test conventions for the gating change"
-          },
-          {
-            "path": "chart_assets/lwc/chart.test.js",
-            "lines": "338-373",
-            "why": "edit site (T2 owns this hunk): replace the T12 pre-fix yank-baseline assertion with the gated post-fix assertion, plus the T23 live-edge fallback pin"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "chart_assets/lwc/chart.js:upsertRow",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:update_live_bar",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "live update_bar path: if (!isFollowing()) leave visible range untouched; else follow via scrollToRealTime()/setVisibleLogicalRange; never auto-resume on bars alone",
-            "module": "chart_assets/lwc/chart.js"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P11",
-        "plan_ref": "docs/plan.md#Phase P11",
-        "requirement_ids": [
-          "AC-D51.2"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_no_yank.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P11-T3",
-      "title": "Fit/reset + go-to-realtime affordance (D51.3; S-P11-4)",
-      "description": "Make Fit/reset frame all loaded bars and re-engage follow via the existing fitToWidth framer, and add a go-to-realtime affordance that appears exactly when away with new-bars-since-away and invokes the realtime scroll on activation.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P11-T1",
-        "P11-T2"
-      ],
-      "acceptance_criteria": [
-        "Given any viewport state, when Fit/reset is invoked offscreen, then the viewport frames all loaded bars and follow is re-engaged.",
-        "Given a scrolled-back viewport, when new bars arrive while away, then the go-to-realtime affordance appears, and invoking it scrolls to realtime and re-engages follow; with no new bars while away, or while following, the affordance stays hidden."
-      ],
-      "tests": [
-        {
-          "test_id": "P11-T3-T31",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Seeded series in scrolled-back and following states; invoke Fit/reset offscreen; assert range frames all loaded bars and follow reports engaged in both cases.",
-          "expected_result": "Fit frames all bars and re-engages follow from any starting state."
-        },
-        {
-          "test_id": "P11-T3-T32",
-          "linked_acceptance_criterion": "AC2",
-          "type": "unit",
-          "description": "Scrolled back + injected new bars shows the affordance; invoking it scrolls to realtime and re-engages follow; following state and away-without-new-bars keep it hidden (both show/hide transitions asserted, AR-P11-4).",
-          "expected_result": "Affordance visibility is exactly (away AND new-bars-since-away); invocation re-engages follow."
-        }
-      ],
-      "expected_artifacts": [
-        "chart_assets/lwc/chart.js (Fit re-engage + affordance)",
-        "tests/test_p11_fit_affordance.py"
-      ],
-      "touches_files": [
-        "chart_assets/lwc/chart.js",
-        "tests/test_p11_fit_affordance.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P11-T1 follow probes",
-        "P11-T2 no-yank live path"
-      ],
-      "outputs": [
-        "explicit re-engage path",
-        "go-to-realtime affordance"
+        "1800 s period key",
+        "DST-fold + forming-bar bucket suite"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "800-850",
-            "why": "existing fitToWidth framer reused by Fit/reset"
+            "path": "data/bar_aggregator.py",
+            "lines": "14-115",
+            "why": "add the 1800 key beside _period_start/_bucket_start grid"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "590-660",
-            "why": "existing in-chart control/pan helpers the affordance composes with (D3 idiom)"
+            "path": "services/backfill_service.py",
+            "lines": "117-145",
+            "why": "read-only: bar_period_seconds fallback contract the planner relies on"
           },
           {
-            "path": "ui/lwc_view.py",
-            "lines": "2013-2060",
-            "why": "read-only: set_symbol lifecycle \u2014 Fit/reset must not disturb the symbol lifecycle"
+            "path": "tests/test_bar_aggregator.py",
+            "lines": "1-50",
+            "why": "aggregator test conventions"
           }
         ],
         "contracts": [
           {
-            "ref": "chart_assets/lwc/chart.js:fitToWidth",
+            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_aggregator.py:_period_start",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "go-to-realtime affordance: visible iff (away AND new-bars-since-away); on invoke calls scrollToRealTime()/setVisibleLogicalRange and re-engages follow",
-            "module": "chart_assets/lwc/chart.js"
+            "signature": "TIMEFRAME_SECONDS[\"30 mins\"] = 1800",
+            "module": "data/bar_aggregator.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P11",
-        "plan_ref": "docs/plan.md#Phase P11",
+        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
+        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
         "requirement_ids": [
-          "AC-D51.3"
+          "D52.2",
+          "AC-D52.2"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_fit_affordance.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_buckets.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P11-T4",
-      "title": "Per-symbol viewport memory (D51.4; S-P11-5)",
-      "description": "Add an in-memory Python-side symbol-to-{range, following} store on the LWC view fed by throttled page range reports (gesture-end + post-update only); save on switch-away via the existing set_symbol lifecycle and restore on switch-back via a range op, with no persistence and no schema change.",
+      "id": "P12-T3",
+      "title": "Planner verification + priming row + standalone IBKR probe",
+      "description": "Verify (no logic change) that the planner treats 30 mins as intraday: configured-duration chunking, the AC-D16.8 floor mode-aware, bar-granular holes. Add the 30 mins row to the prime_aggregator docstring per-span table (5 secs group). Run the standalone read-only probe of the 30 mins / 30 D combo against live TWS and record it in docs/d52_probe_record.md; a 321-class rejection fails and escalates per R104, never a silent shrink. Covers S-P12-3, S-P12-5, AC-D52.3, AC-D52.6, AC-D52.7.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P11-T1"
+        "P12-T1",
+        "P12-T2"
       ],
       "acceptance_criteria": [
-        "Given symbols switched offscreen and back, when the follow/scroll state is queried, then the restored symbol shows its remembered viewport range and follow state.",
-        "Given the per-symbol store, when inspected, then it is in-memory session state keyed by upper-cased symbol with no persistence and no schema change (a fresh view starts empty)."
+        "Given a 30 mins load, when the planner runs, then it requests the configured duration (chunked newest-first when one window cannot cover the span), applies the AC-D16.8 floor mode-aware per AC-D16.9, and detects a hole in the middle of cached coverage at bar granularity.",
+        "Given a fresh 30 mins load mid-period, when priming runs, then it uses bar_size 5 secs with duration inside [60 S, 3600 S] (never outside that range, never the 1 min coarse branch), and the docstring per-span table names the 30 mins row in the 5 secs group.",
+        "Given live TWS, when the standalone probe issues the 30 mins / 30 D historical request, then it completes with no 321-class rejection and docs/d52_probe_record.md names the combo with a pass conclusion; a rejection fails the task and escalates instead of shrinking the duration."
       ],
       "tests": [
         {
-          "test_id": "P11-T4-T41",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Offscreen view: load symbol A, scroll back, switch to B, switch back to A; assert A's remembered range + follow state restored exactly (freshest gesture-end/post-update report wins, AR-P11-2).",
-          "expected_result": "Switch-back restores the remembered viewport + follow state for each symbol."
-        },
-        {
-          "test_id": "P11-T4-T42",
-          "linked_acceptance_criterion": "AC2",
+          "test_id": "P12-T3-T31",
+          "linked_acceptance_criterion": "Given a 30 mins load, when the planner runs, then it requests the configured duration (chunked newest-first when one window cannot cover the span), applies the AC-D16.8 floor mode-aware per AC-D16.9, and detects a hole in the middle of cached coverage at bar granularity.",
           "type": "unit",
-          "description": "Store keyed by upper-cased symbol (lowercase set_symbol lands on the upper-cased key); fresh view holds no entries; bars/drawings/alarms schemas and migrations untouched.",
-          "expected_result": "Upper-case keying holds; no persistence and no migration exist."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/lwc_view.py (per-symbol store + report sink)",
-        "ui/lwc_bridge.py (range-report transport if needed)",
-        "tests/test_p11_symbol_memory.py"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "ui/lwc_bridge.py",
-        "tests/test_p11_symbol_memory.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P11-T1 range probes",
-        "set_symbol lifecycle (D28.2 sole-writer)"
-      ],
-      "outputs": [
-        "in-memory per-symbol store",
-        "throttled range-report sink"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2025-2060",
-            "why": "set_symbol lifecycle where save/restore hooks in"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "314-340",
-            "why": "send_ops transport the range op reuses"
-          },
-          {
-            "path": "ui/lwc_bridge.py",
-            "lines": "386-434",
-            "why": "channel send path if the range report needs a channel"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "590-660",
-            "why": "read-only: page range source the throttled reports read"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_view.py:set_symbol",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_bridge.py:send_ops",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "LwcView._viewport_memory: dict[str, dict] // upper-cased symbol -> {range: {from, to}, following: bool}; in-memory only, saved on switch-away, restored on switch-back",
-            "module": "ui/lwc_view.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P11",
-        "plan_ref": "docs/plan.md#Phase P11",
-        "requirement_ids": [
-          "AC-D51.4"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_symbol_memory.py -q -o addopts=\"\"",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P11-T5",
-      "title": "Same/new full-series replacement (D51.5; S-P11-3)",
-      "description": "Carry a same-vs-new continuity directive on full-series replaces: same symbol re-applies the preserved viewport range and follow state after the replace (no visible jump while scrolled back), new symbol starts following the live edge; zero-bar Fit stays a no-op with no error.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P11-T1",
-        "P11-T4"
-      ],
-      "acceptance_criteria": [
-        "Given a scrolled-back viewport, when a full-series replacement for the same symbol lands offscreen, then viewport range and follow state are preserved (slot-identical, no jump).",
-        "Given a full-series replacement for a new symbol, when it lands offscreen, then the chart starts following the live edge; and given a zero-bar series, when Fit is invoked, then it is a no-op with no error."
-      ],
-      "tests": [
-        {
-          "test_id": "P11-T5-T51",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Scrolled-back seeded chart; same-symbol full replace (backfill-shaped); assert range slot identity and follow state preserved across the replace (AR-P11-3).",
-          "expected_result": "Same-symbol replace preserves viewport + follow with no jump."
+          "description": "Qt-free planner cases for 30 mins: full-span single chunk, wider-than-window chunking newest-first, per-mode 30-session floor session count, and hole-in-middle bar-granular detection (mirrors the D48 planner-probe structure).",
+          "expected_result": "Green post-fix (planner is generic); any chunking, floor, or hole-detection deviation fails."
         },
         {
-          "test_id": "P11-T5-T52",
-          "linked_acceptance_criterion": "AC2",
-          "type": "integration",
-          "description": "New-symbol full replace starts following the live edge; zero-bar series Fit is a no-op with no error (Journey 44 edge).",
-          "expected_result": "New symbol follows; zero-bar Fit neither errors nor moves."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/lwc_view.py (continuity directive on replaces)",
-        "chart_assets/lwc/chart.js (preserve/re-apply range)",
-        "tests/test_p11_replace.py"
-      ],
-      "touches_files": [
-        "ui/lwc_view.py",
-        "chart_assets/lwc/chart.js",
-        "tests/test_p11_replace.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P11-T1 follow probes",
-        "P11-T4 per-symbol store + report channel"
-      ],
-      "outputs": [
-        "continuity directive",
-        "zero-bar Fit guard"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2060-2101",
-            "why": "set_series full-replace path emitting the continuity directive"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "850-894",
-            "why": "applyRows/setData path re-applying the preserved range"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "800-850",
-            "why": "read-only: fitToWidth framer the new-symbol path reuses"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_view.py:set_series",
-            "status": "existing"
-          },
-          {
-            "ref": "chart_assets/lwc/chart.js:applyRows",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "full-replace continuity: {same_symbol: bool} // same symbol re-applies preserved {range, following}; new symbol fits to the live edge",
-            "module": "ui/lwc_view.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P11",
-        "plan_ref": "docs/plan.md#Phase P11",
-        "requirement_ids": [
-          "AC-D51.5"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p11_replace.py -q -o addopts=\"\" && node --test chart_assets/lwc/chart.test.js",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P11-T6",
-      "title": "Batch gate: close-out (P11-W4)",
-      "description": "Verify every D51 criterion observably satisfied: re-run the five AC checks, review the production diff (chart.js viewport path + view update path only; pop-out/data/order paths untouched), confirm no skipped/xfailed tests added, and run the full offscreen suite green.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P11-T1",
-        "P11-T2",
-        "P11-T3",
-        "P11-T4",
-        "P11-T5"
-      ],
-      "acceptance_criteria": [
-        "Given all P11 tasks done, when the five AC checks (follow query, no-yank, Fit/affordance, per-symbol restore, same/new replacement) are re-run, then every one is green.",
-        "Given the P11 production diff, when reviewed, then it touches only the viewport path (chart.js viewport gating + view update wiring) with pop-out/data/order paths untouched, no skipped or xfailed tests added, and the full offscreen suite green."
-      ],
-      "tests": [
-        {
-          "test_id": "P11-T6-T61",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Re-run the five AC suites (test_p11_follow_state, test_p11_no_yank, test_p11_fit_affordance, test_p11_symbol_memory, test_p11_replace) plus the JS chart tests; all green.",
-          "expected_result": "All five AC suites and the JS tests pass."
+          "test_id": "P12-T3-T32",
+          "linked_acceptance_criterion": "Given a fresh 30 mins load mid-period, when priming runs, then it uses bar_size 5 secs with duration inside [60 S, 3600 S] (never outside that range, never the 1 min coarse branch), and the docstring per-span table names the 30 mins row in the 5 secs group.",
+          "type": "unit",
+          "description": "Priming-shape case for a mid-period 30 mins load (elapsed span 1800 s -> 5 secs branch, duration clamped into [60 S, 3600 S]) plus a docstring assertion that the per-span table names the 30 mins row in the 5 secs group. Red-first at the table assertion (no 30 mins row pre-fix).",
+          "expected_result": "Red pre-fix on the table assertion; green post-fix on both shape and table."
         },
         {
-          "test_id": "P11-T6-T62",
-          "linked_acceptance_criterion": "AC2",
+          "test_id": "P12-T3-T33",
+          "linked_acceptance_criterion": "Given live TWS, when the standalone probe issues the 30 mins / 30 D historical request, then it completes with no 321-class rejection and docs/d52_probe_record.md names the combo with a pass conclusion; a rejection fails the task and escalates instead of shrinking the duration.",
           "type": "manual",
-          "description": "Diff review of the P11 production change (chart.js viewport path + view update path only), grep for skip/xfail markers in the new suites, and one full offscreen suite run; a red suite fails the wave.",
-          "expected_result": "Diff confined to the viewport path, no skips/xfails, full suite green."
+          "description": "Assert docs/d52_probe_record.md exists, names the (30 D, 30 mins) combo with completed bars, states no 321-class rejection, and concludes the probe gate passes (same record shape as docs/d48_probe_record.md).",
+          "expected_result": "Passes once the worker runs the read-only live probe and writes the record; a rejection or missing record fails."
         }
       ],
       "expected_artifacts": [
-        "docs/build/results/P11-T6.json"
+        "ui/ticker_session.py (docstring row only)",
+        "tests/test_p12_planner_probe.py (new)",
+        "docs/d52_probe_record.md (new)"
       ],
       "touches_files": [
-        "docs/build/results/P11-T6.json"
+        "ui/ticker_session.py",
+        "tests/test_p12_planner_probe.py",
+        "docs/d52_probe_record.md"
       ],
       "doc_required": false,
       "inputs": [
-        "P11-T1..P11-T5 results and suites"
+        "TIMEFRAME_CONFIG 30 mins row (P12-T1)",
+        "1800 s period key (P12-T2)",
+        "A138 intraday floor",
+        "A141 5 secs branch"
       ],
       "outputs": [
-        "five-AC checklist verdict",
-        "batch gate verdict"
+        "planner/priming verification suite",
+        "probe record with pass conclusion"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "800-880",
-            "why": "read-only: review the gated viewport path is the only chart.js behaviour change"
+            "path": "ui/ticker_session.py",
+            "lines": "1169-1230",
+            "why": "add the 30 mins row to the priming docstring table"
           },
           {
-            "path": "ui/lwc_view.py",
-            "lines": "2013-2060",
-            "why": "read-only: review the store/directive wiring is the only view behaviour change"
+            "path": "services/backfill_service.py",
+            "lines": "117-145",
+            "why": "read-only: floor gate and bar_period_seconds contracts under verification"
           },
           {
-            "path": "tests/test_lwc_page_wiring.py",
+            "path": "tests/test_d48_planner_probe.py",
+            "lines": "1-60",
+            "why": "planner-probe test structure precedent"
+          },
+          {
+            "path": "docs/d48_probe_record.md",
             "lines": "1-40",
-            "why": "read-only: probe-convention reference for the gate review"
+            "why": "read-only: probe record format precedent"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/lwc_view.py:update_live_bar",
+            "ref": "services/backfill_service.py:find_missing_spans",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_view.py:set_symbol",
+            "ref": "services/backfill_service.py:plan_requests",
+            "status": "existing"
+          },
+          {
+            "ref": "services/backfill_service.py:bar_period_seconds",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P11",
-        "plan_ref": "docs/plan.md#Phase P11",
+        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
+        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
         "requirement_ids": [
-          "AC-D51.1",
-          "AC-D51.2",
-          "AC-D51.3",
-          "AC-D51.4",
-          "AC-D51.5"
+          "D52.3",
+          "D52.6",
+          "D52.7",
+          "AC-D52.3",
+          "AC-D52.6",
+          "AC-D52.7"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q -o addopts=\"\"",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_planner_probe.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P12-T4",
+      "title": "Presentation inventory: picker parity, visibility guard, minutes pin",
+      "description": "Verify the presentation-plane enumerations for 30 mins with no production change expected: picker lists 30 mins between 15 mins and 1 hour with select/load/persist parity; the drawing/alarm visibility dialog opens with every box default-checked and round-trips (Minutes unit row covers 30 mins, no new row); minutes_for_timeframe('30 mins') returns 30.0 via the existing secs/60 fallback. If any hardcoded enumeration misses the entry, fix it here. Covers S-P12-1 picker slot, S-P12-6, AC-D52.5 remainder, DG99.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P12-T1"
+      ],
+      "acceptance_criteria": [
+        "Given the toolbar picker, when listed, then 30 mins sits between 15 mins and 1 hour and selects, loads, and persists like every other intraday timeframe.",
+        "Given the drawing/alarm visibility dialog, when opened, then every box is default-checked and the payload round-trips with the Minutes unit row covering 30 mins (no new row, no per-timeframe key).",
+        "Given minutes_for_timeframe, when called with 30 mins, then it returns 30.0 with no new mapping line."
+      ],
+      "tests": [
+        {
+          "test_id": "P12-T4-T41",
+          "linked_acceptance_criterion": "Given the toolbar picker, when listed, then 30 mins sits between 15 mins and 1 hour and selects, loads, and persists like every other intraday timeframe.",
+          "type": "unit",
+          "description": "Picker-order case (30 mins between 15 mins and 1 hour from config order) plus a select/restore round-trip case through the persisted setting.",
+          "expected_result": "Green post-P12-T1; a missing or misordered entry fails."
+        },
+        {
+          "test_id": "P12-T4-T42",
+          "linked_acceptance_criterion": "Given the drawing/alarm visibility dialog, when opened, then every box is default-checked and the payload round-trips with the Minutes unit row covering 30 mins (no new row, no per-timeframe key).",
+          "type": "unit",
+          "description": "VisibilityTab default-on guard plus get/set round-trip asserting the Minutes unit row shape is unchanged and covers 30 mins.",
+          "expected_result": "Green; a new row or an unchecked default fails."
+        },
+        {
+          "test_id": "P12-T4-T43",
+          "linked_acceptance_criterion": "Given minutes_for_timeframe, when called with 30 mins, then it returns 30.0 with no new mapping line.",
+          "type": "unit",
+          "description": "Assert minutes_for_timeframe('30 mins') == 30.0 and that no explicit 30.0 mapping line exists (fallback owns it).",
+          "expected_result": "Green via the secs/60 fallback; any other value fails."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p12_presentation.py (new)"
+      ],
+      "touches_files": [
+        "tests/test_p12_presentation.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "TIMEFRAME_CONFIG 30 mins row (P12-T1)",
+        "A140 picker order + default-visible"
+      ],
+      "outputs": [
+        "picker/visibility/minutes inventory suite"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "238-250",
+            "why": "read-only: picker construction under parity test"
+          },
+          {
+            "path": "services/volume_baseline.py",
+            "lines": "100-125",
+            "why": "read-only: minutes_for_timeframe fallback under pin test"
+          },
+          {
+            "path": "ui/drawing_settings_common.py",
+            "lines": "15-60",
+            "why": "read-only: VISIBILITY_ROWS unit-row shape under guard test"
+          },
+          {
+            "path": "tests/test_d48_presentation.py",
+            "lines": "1-60",
+            "why": "parity-test structure precedent"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/volume_baseline.py:minutes_for_timeframe",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/drawing_settings_common.py:VISIBILITY_ROWS",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
+        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "requirement_ids": [
+          "D52.5",
+          "D52.8",
+          "AC-D52.5",
+          "AC-D52.8"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_presentation.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P12-T5",
+      "title": "Intraday mode parity: distinct RTH/ETH sets, bands and collapse",
+      "description": "Verify 30 mins keeps the intraday contract: RTH and ETH loads return their mode's bars (not identical sets) under the existing mode-aware cache, and D1 session bands plus D21.4 collapse apply as for the other intraday timeframes (no canonical-mode change, no predicate change). Covers S-P12-4, D52.4, AC-D52.4.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P12-T1",
+        "P12-T2"
+      ],
+      "acceptance_criteria": [
+        "Given 30 mins under each mode, when loaded, then the RTH and ETH bar sets are each mode's own bars (not identical sets) under distinct mode-aware cache keys.",
+        "Given 30 mins bars, when session bands and the collapse map are built, then bands and collapse apply exactly as for the other intraday timeframes (1800 s stays intraday under the shared daily-or-coarser predicate)."
+      ],
+      "tests": [
+        {
+          "test_id": "P12-T5-T51",
+          "linked_acceptance_criterion": "Given 30 mins under each mode, when loaded, then the RTH and ETH bar sets are each mode's own bars (not identical sets) under distinct mode-aware cache keys.",
+          "type": "unit",
+          "description": "Mode-split case: same symbol/timeframe under ext_hours False/True returns differing bar sets keyed per mode (mirrors the D48 mode-parity structure for the intraday polarity).",
+          "expected_result": "Green; identical sets or a shared cache key fails."
+        },
+        {
+          "test_id": "P12-T5-T52",
+          "linked_acceptance_criterion": "Given 30 mins bars, when session bands and the collapse map are built, then bands and collapse apply exactly as for the other intraday timeframes (1800 s stays intraday under the shared daily-or-coarser predicate).",
+          "type": "unit",
+          "description": "Bands-applied and collapse-applied assertions for 30 mins plus is_daily_or_coarser('30 mins') is False and session_regions parity with 15 mins.",
+          "expected_result": "Green with no predicate or region change; a daily-or-coarser classification fails."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p12_mode_parity.py (new)"
+      ],
+      "touches_files": [
+        "tests/test_p12_mode_parity.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "TIMEFRAME_CONFIG 30 mins row (P12-T1)",
+        "1800 s period key (P12-T2)",
+        "A139 intraday mode relevance"
+      ],
+      "outputs": [
+        "mode-parity verification suite"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/session_service.py",
+            "lines": "39-60",
+            "why": "read-only: session_bands intraday path under test"
+          },
+          {
+            "path": "services/time_collapse_service.py",
+            "lines": "45-70",
+            "why": "read-only: daily-or-coarser predicate under test"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "1190-1210",
+            "why": "read-only: session_regions parity reference"
+          },
+          {
+            "path": "tests/test_d48_mode_parity.py",
+            "lines": "1-60",
+            "why": "mode-parity test structure precedent"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/session_service.py:session_bands",
+            "status": "existing"
+          },
+          {
+            "ref": "services/time_collapse_service.py:is_daily_or_coarser",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_view.py:session_regions",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
+        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "requirement_ids": [
+          "D52.4",
+          "AC-D52.4"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p12_mode_parity.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P12-T6",
+      "title": "Batch gate: probe record, history intact, suite green",
+      "description": "Close-out gate for P12: the T3 probe record is present with a pass conclusion, requirements history is intact (marker sentence, D41-D51 sections with reversals, only the recorded enumeration extension touched), every AC-D52 item is observably satisfied, no skips/xfails in P12 tests, and the full offscreen suite is green. Covers AC-D52.7 record side and AC-D52.8. Never re-probes (no live contact); suite-green is verified by running the suite itself.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P12-T3",
+        "P12-T4",
+        "P12-T5"
+      ],
+      "acceptance_criteria": [
+        "Given docs/d52_probe_record.md, when read, then it names the (30 D, 30 mins) combo with completed bars, states no 321-class rejection, and concludes the probe gate passes.",
+        "Given docs/requirements/requirements.md, when inspected, then the Existing Repository marker sentence and Current Tech Stack are intact, the D41-D51 sections with reversals are present, and the only pre-D52 wording touched is the recorded enumeration extension (AC-D16.1 nine timeframes, AC-D16.8 six intraday, D43/AC-D27.9 per-span 30 mins row).",
+        "Given the P12 test files and the full offscreen suite, when checked, then no P12 test carries a skip/xfail marker and the full suite run is green."
+      ],
+      "tests": [
+        {
+          "test_id": "P12-T6-T61",
+          "linked_acceptance_criterion": "Given docs/d52_probe_record.md, when read, then it names the (30 D, 30 mins) combo with completed bars, states no 321-class rejection, and concludes the probe gate passes.",
+          "type": "unit",
+          "description": "Assert the probe record file exists and contains the combo, a no-321 statement, and a pass conclusion (mirrors the D48 gate record checks).",
+          "expected_result": "Green once T3 writes the record; missing record or conclusion fails."
+        },
+        {
+          "test_id": "P12-T6-T62",
+          "linked_acceptance_criterion": "Given docs/requirements/requirements.md, when inspected, then the Existing Repository marker sentence and Current Tech Stack are intact, the D41-D51 sections with reversals are present, and the only pre-D52 wording touched is the recorded enumeration extension (AC-D16.1 nine timeframes, AC-D16.8 six intraday, D43/AC-D27.9 per-span 30 mins row).",
+          "type": "unit",
+          "description": "Marker grep plus presence checks for the D41-D51 sections and the three enumeration-extension wordings.",
+          "expected_result": "Green; any missing section or marker fails."
+        },
+        {
+          "test_id": "P12-T6-T63",
+          "linked_acceptance_criterion": "Given the P12 test files and the full offscreen suite, when checked, then no P12 test carries a skip/xfail marker and the full suite run is green.",
+          "type": "unit",
+          "description": "Scan the P12 test files for skip/xfail markers (batch rule: none allowed); suite-green itself is verified by this task's full-suite test_command, not by a case in the file (a gate case shelling out to the whole suite would recurse).",
+          "expected_result": "Green when no markers are found and the task's full-suite run passes."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p12_gate.py (new)"
+      ],
+      "touches_files": [
+        "tests/test_p12_gate.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "probe record (P12-T3)",
+        "presentation + mode suites (P12-T4, P12-T5)"
+      ],
+      "outputs": [
+        "batch gate suite",
+        "P12 close-out verdict"
+      ],
+      "status": "in_progress",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d48_gate.py",
+            "lines": "1-88",
+            "why": "gate-test structure precedent"
+          },
+          {
+            "path": "docs/d48_probe_record.md",
+            "lines": "1-40",
+            "why": "read-only: record shape this gate asserts on the T3 artifact"
+          }
+        ],
+        "contracts": [],
+        "architecture_ref": "docs/architecture.md#Phase P12 \u2014 D52 increment",
+        "plan_ref": "docs/plan.md#Phase P12 \u2014 D52 (Batch 27)",
+        "requirement_ids": [
+          "D52.7",
+          "D52.8",
+          "AC-D52.7",
+          "AC-D52.8"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts=\"\" -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"

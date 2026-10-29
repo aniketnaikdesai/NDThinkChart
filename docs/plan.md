@@ -3745,4 +3745,4 @@ ESC-079 (open, PLAN-routed) is P7 scope, already answered by S-P7-1 — it is no
 - The `AC-D16.1` / `AC-D16.8` enumeration extension and the `AC-D27.9` table row are recorded analyst-side
   wording, not Plan reinterpretation.
 
-Status: READY_FOR_VALIDATION
+Status: READY_FOR_TASK_MANAGER
