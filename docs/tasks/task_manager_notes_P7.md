@@ -56,3 +56,11 @@ budget owner (AR-P7-4: pre-issue cancels only).
   prose named here, not silently chosen; the fraction-based invariant holds under either value.
 - **AC-D16.8** stays open Analyst debt (RG-P7-1) — no P7 task rewrites requirements; if the Analyst
   restates it, P7-T01's AC2 already matches the satisfiable reading.
+
+## Addendum 2026-11-04 (P16-D55.6 coordinated — appended delta, no task or requirement changed)
+
+This section is appended; the decomposition record above is untouched.
+
+- **Per-load cap = maximum, never a target (S-P7-1 / P7-W1 reading):** a load issues at most `min(needed, floor(B/4))` (`B` = current `MAX_HISTORICAL_PER_600S`); the cap never creates work. Examples at cap 25: need 1 -> issue 1 and stop; need 10 -> at most 10; need 40 -> at most 25 this load, persist and resume later. Per-load = one wave for one symbol + timeframe + mode; same-chart reloads coalesce and share the allocation; refunds cover pre-issue cancels only (AP-P7-2 / AP-P7-3 / AR-P7-4).
+- **50-vs-100 reconciled with cited evidence (DG102 / A154):** tree = 100 (`config/settings.py`, owner-set); ESC-075's 50 is stale prose named here, not silently chosen; the fraction-based invariant holds under either value. Decided from `config/settings.py` plus the P7 wave assertions (P7-W1 request-count caps); no open item remains on this point.
+- **AC-D16.8** stays open Analyst debt (RG-P7-1) — cited by reference (`docs/requirements/requirements.md`) and restated nowhere in this addendum.

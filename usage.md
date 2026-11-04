@@ -13,7 +13,7 @@ A PyQt6 trading terminal for Interactive Brokers TWS with the **Lightweight Char
 - **macOS 11+ (Big Sur)** on Apple Silicon (ARM64)
 - **Python 3.11+** (managed via pyenv recommended)
 - **Interactive Brokers TWS** installed and running
-- **TWS API port 7496** enabled (the app refuses any other port; account type comes from the TWS login)
+- **TWS API port 7496** enabled with a **live** TWS login (the app refuses any other port and trades live only — paper-trading logins are not supported)
 
 ---
 
@@ -94,6 +94,8 @@ no engine switch and no opt-in — one engine, always on.
 
 - `PyQt6-WebEngine` is **required** (it hosts the chart) and must match the installed `PyQt6` version.
 - A `NDT_CHART_ENGINE` value left over from an older version is **ignored** — it cannot blank the chart.
+- The persisted `chart/engine` QSettings value likewise selects nothing: the `create_chart_view`
+  factory always returns the LWC view, the only engine (`ui/chart_view.py::create_chart_view`).
 - The LWC assets ship vendored (`chart_assets/lwc/`, v5.2.1) and are bundled with the app, so the chart
   works fully offline.
 
@@ -102,9 +104,10 @@ no engine switch and no opt-in — one engine, always on.
 ## TWS Setup Checklist
 
 1. **Install TWS** from IBKR website (not IB Gateway)
-2. **Login** — live account for live trading. The app connects only to `127.0.0.1:7496` and refuses
-   any other port; a paper (DU) TWS login on that same port works too (connection badge shows amber
-   `Paper`), since the guard is on the port, not the account type
+2. **Login** — live account only. The app connects only to `127.0.0.1:7496` and refuses
+   any other port; NDThinkChart trades live only (`config/settings.py::check_live_port`
+   fails fast on any other port). Paper-trading logins are not supported — log in with
+   your live TWS login
 3. **Enable API**:
    - Edit → Global Configuration → API → Settings
    - ✅ Enable ActiveX and Socket Clients
@@ -195,6 +198,7 @@ no engine switch and no opt-in — one engine, always on.
 
 - **Dev**: `./charting_app.sqlite3` (project root)
 - **Bundle**: `~/Library/Application Support/NDThinkChart/charting_app.sqlite3`
+- **Override**: set the `DB_PATH` env var to point at another SQLite file (honoured via `config/paths.py::get_db_path`)
 
 Tables:
 - `bars` — cached historical data
@@ -254,7 +258,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 
 ## Safety
 
-- **Port guard: only 7496** — the app refuses to start on any other port (live TWS port; a paper TWS login on the same port shows amber `Paper`)
+- **Port guard: only 7496** — the app refuses to start on any other port (live TWS port only; paper-trading logins are not supported — see `config/settings.py::check_live_port`)
 - **No order entry in the app** — the app places, cancels and closes nothing; place, cancel and close orders in TWS
 - **Read-Only API** recommended in TWS for extra safety
 
@@ -264,5 +268,7 @@ All tests run **offscreen** (no display required) and **without TWS**.
 
 - Check `docs/phase-changelog.md` for the phase-by-phase change record
   (`PENDING_IMPLEMENTATION_PLAN.md`, the old Phases 1-10 roadmap, was deleted 2026-10-15)
+- For the current status of known limitations, see the Troubleshooting table above
+  and `docs/phase-changelog.md`
 - Run `.venv/bin/python -m pytest` to verify environment
 - TWS must be running before app launch

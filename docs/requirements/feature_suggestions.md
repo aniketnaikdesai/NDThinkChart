@@ -138,3 +138,9 @@
 - **Why not in the original ask:** the owner asked to remove D36/D37, not to rename shared survivors; a rename
   touches D39 call sites, `services/volume_baseline.py` docstrings and tests, i.e. beyond the removal.
 - **Suggested priority:** low (cosmetic/naming; no behaviour change). Defer until after D41 lands.
+
+
+## FS18 — Generated static doc-index page from the README authority table
+- **Gap/opportunity:** `docs/README.md` is the navigation index, but it is still a markdown file a newcomer must know to open; a tiny generated index page (built from the same authority table, never hand-maintained) would make "which doc owns my question" clickable from the repo root.
+- **Why not in the original ask:** the owner ordered consolidation of existing docs, not a new navigational surface; D55's navigation goal is satisfied by the README + metadata without new tooling.
+- **Suggested priority:** low

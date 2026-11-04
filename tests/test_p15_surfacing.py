@@ -59,12 +59,13 @@ CLAIM_PHRASES = (
     "all caught up",
 )
 
-# P14-recorded snapshot (tests/test_p14_cache_guard.py::PRE_D53_SHA256):
-# sha256 of requirements.md text before "\n### D53 ", taken when the batch
-# diff was verified purely additive. Reproving it here shows no pre-D53
-# wording moved under P15 either.
-PRE_D53_SHA256 = (
-    "c51a84fd55e080bd564db0c8a9028584fc77c1a2b912a77f451a55457a774b88"
+# P16-narrowed snapshot (tests/test_p14_cache_guard.py::PROTECTED_SPAN_SHA256):
+# sha256 of the protected span only — from the Existing Repository marker
+# sentence through the end of the D52 section (up to "\n### D53 ").
+# Top-of-file navigation/baseline blocks sit outside the pin by design.
+# Reproving it here shows no protected wording moved under P15 either.
+PROTECTED_SPAN_SHA256 = (
+    "b11d9da3e1eb0505855c9eb59e99e93795b79ab0e25645d5543dcab08fddba41"
 )
 
 
@@ -425,10 +426,12 @@ def test_t33_history_markers_intact():
     assert "AC-D54.4" in text
     assert "A148" in text
     assert "R108" in text
-    # No pre-P15 wording touched: the D41–D52 region still matches the
-    # P14-recorded snapshot.
+    # No protected wording touched: the marker-through-D52 span still matches
+    # the P16-narrowed snapshot.
     head, sep, _tail = text.partition("\n### D53 ")
     assert sep
+    start = text.index("This is an existing repository.")
+    span = text[start : text.index("\n### D53 ")]
     assert (
-        hashlib.sha256(head.encode()).hexdigest() == PRE_D53_SHA256
-    ), "pre-D53 requirements text changed"
+        hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256
+    ), "protected requirements history span changed"

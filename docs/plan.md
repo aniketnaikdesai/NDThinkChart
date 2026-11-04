@@ -1,5 +1,9 @@
 # Implementation Plan — NDThinkChart Batch 17 (D23: two D22 post-build quality corrections)
 
+> **Current baseline (P16-T7 navigation block, 2026-11-04 — navigation only, no phase re-planned).** Current architecture: PyQt6 + Lightweight-Charts-only terminal (live TWS 7496, SQLite, PyInstaller .app), as-built through P8 (D48); see `docs/architecture.md` § *Phase P16*. Active phase: **Phase P16 — Documentation consolidation (D55, docs-only)**, waves P16-W1…P16-W4 (`Status: READY_FOR_TASK_MANAGER`; this task P16-T7 = D55.7 navigation, P16-W3). Unresolved requirements: ESC-079 only (`AC-D16.8` restatement, Analyst debt RG-P7-1); Q84–Q87 answered; 50-vs-100 settled per the P16-D55.6 addendum below. As-built changelog: `docs/phase-changelog.md` (indexed by `docs/CHANGELOG.md`).
+>
+> **Link/reference audit (P16-T7, 2026-11-04): pass.** Filename/heading/phase-ID/commit/status checks across the canonical files; the only non-resolving hits are recorded history/absence, not dangling links (`dev_docs/delta.md` §3 = removed-per-Q86 true history; `docs/pending_doc_sync.md` = recorded absent). Repeated summaries are cross-references (R112), never duplicated prose. Archive candidates (pre-move check done, **zero moves executed here** — moves run under P16-T8): `docs/architecture_proposal.md`, `docs/plan_proposal.md` (superseded D45 pair; only historical/do-not-read pointers reference them — pre-move check passes).
+
 > **Current baseline (appended 2026-10-28, Q-53 - navigation only, no phase re-planned).** As-built through **P8 (D48)** (P7 feature commit `7cba534`, P8 feature commit `09761fb`, both landed 2026-10-28; LWC-only tree; live-session sign-off waived-not-satisfied per `docs/build/gate_P6_T13.md`). **Phase P7: BUILT. Phase P8: BUILT** (per-section status lines below are the authority). Open debt: ESC-079 only (`AC-D16.8` restatement, Analyst debt RG-P7-1); ESC-070 and ESC-075-078 are addressed - see `docs/phase-changelog.md` Phase P6/P7 entries. Authority: `docs/README.md`. As-built history: `docs/phase-changelog.md` (indexed by `docs/CHANGELOG.md`).
 
 > **Document state (2026-10-15).** This file is the canonical plan. Its **first section** is the
@@ -3375,6 +3379,15 @@ Every ESC-075…079 expectation is addressed somewhere above; no expectation is 
 
 Status: BUILT - waves P7-T01 through P7-T08 + Q-46/Q-47 landed 2026-10-28 (feature commit `7cba534`, tracking `c4f2be2`); as-built record in `docs/phase-changelog.md` Phase P7. ESC-075/076/077/078 addressed code-side (focused close-out 2026-10-28, `docs/code_review/review_log_P8.md`, commit `4610c35`); ESC-079 open as Requirements Analyst debt (RG-P7-1).
 
+### P16-D55.6 coordinated addendum (2026-11-04 — appended delta, approval preserved, no P7 decision changed)
+
+This subsection is appended; every line above stays byte-identical and the `Status: BUILT` record stands.
+
+- **Per-load cap = maximum, never a target (S-P7-1 / P7-W1 reading):** a single chart load issues at most `min(requests needed, floor(B/4))` historical requests (`B` = current `MAX_HISTORICAL_PER_600S`); the cap never creates work to fill itself. Worked examples at `floor(B/4) = 25`: need **1** -> issue **1** and stop; need **10** -> issue at most **10**; need **40** -> issue at most **25** this load, persist completed chunks, resume the rest on later loads (persist-and-resume / oldest-first, S-P7-2). No forced chunking, no automatic spend of reserved slots, no promise of immediate full history.
+- **Per-load defined:** one chart-load wave for one symbol + timeframe + ext-hours mode. A same-chart reload coalesces into the running wave and shares its allocation (AP-P7-2); a cancelled slot is refunded only when its request never reached TWS (AP-P7-3 / AR-P7-4).
+- **50-vs-100 reconciled with cited evidence (DG102 / A154):** the tree carries `MAX_HISTORICAL_PER_600S = 100` (`config/settings.py`, owner-set per the source comment); ESC-075's "50-slot" text is stale prose. The operative value is **100 per the source**, and the invariant is fraction-based so it holds under either value — both figures are named here, none silently chosen. Decided from `config/settings.py` plus the P7 wave assertions (P7-W1 request-count caps); no open item remains on this point.
+- **Requirement reference only:** `AC-D16.8` is cited by reference (`docs/requirements/requirements.md`, via RG-P7-1, still Analyst debt) and its text is restated nowhere in this addendum.
+
 ## Phase P8 — D48 (Batch 23): add `1 week` (2Y) and `1 month` (10Y) timeframes — drafted 2026-10-28
 
 > Companion: `docs/architecture.md` § *Phase P8 — D48 increment* (Codebase Summary, S-P8-1…S-P8-7, frozen
@@ -4003,5 +4016,230 @@ Every D54 expectation is addressed somewhere above; no expectation is narrowed o
 - Finding 1 / TWS-side causes and watchdog retuning are explicitly out of scope
   per the owner directive — recorded as the S-P15-4 scope guard, not as an
   escalation.
+
+Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P16 — Documentation consolidation (D55, docs-only) — drafted 2026-11-04
+
+> Companion: `docs/architecture.md` § *Phase P16* (Codebase Summary, S-P16-1…S-P16-4,
+> frozen interfaces, non-functional, AR-P16-1…AR-P16-4). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P16 (D55),
+> Journeys 48–50, `AC-D55.1`–`AC-D55.10` FINAL (Q84–Q87 all answered 2026-11-04; no
+> blocking item), A149–A155, R110–R113, `design_gaps.md` DG102–DG105. Full authority:
+> `docs/documentation_consolidation_plan.md` Phases 0–8 + disposition matrix + conditional
+> deletion candidates. Hard constraints: **docs-only batch** (A149) — no wave edits `ui/`,
+> `ibkr/`, `services/`, `data/`, `tests/`, packaging, or schemas; the final diff is
+> docs-only and generated/cache/vendored outputs follow the build/ignore policy; **no
+> product test run** — verification is the `AC-D55.9` docs-only review (stale-claim grep,
+> link/reference/commit/status checks), never the offscreen suite; waves S/M only; no
+> fine-grained task breakdown (Task Manager's job); no per-task tests prescribed.
+> **D1–P15 are NOT reopened** — every edit lands as an appended addendum, banner, pointer,
+> or annotation; history is never rewritten (A150, DOC-4 pattern). One phase only — nothing
+> past the D55 consolidation is planned.
+
+> **Pre-landed work (recorded, NOT re-planned).** Two owner-answered items already sit in
+> the working tree and no wave redoes them: **Q84** — `services/sound_service.py:3` is
+> already reworded to the self-contained comment-only line (numpy synthesis of the Web
+> Audio alarm chime; the `dev_docs/delta.md` §3 citation is gone); **Q86** — `dev_docs/`
+> (5 files) is already deleted. Waves below **verify** these states (reference check,
+> dangling-citation grep) but never re-edit or revert them. The Q84 edit itself travels as
+> a tracked micro-task pipeline change per the Q84 answer, never a hand-edit — and P16
+> prescribes no further source edit of any kind.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / input | Architecture section | Wave |
+|---|---|---|
+| D55.1 / `AC-D55.1` (inventory + cross-reference map, no deletions) + Journey 48 | S-P16-1; Frozen (code contracts read, never edited) | P16-W1 |
+| D55.2 / `AC-D55.2` (fact sheet, per-fact citations; Q85-dependent facts marked open) + DG103 | S-P16-1 | P16-W1 |
+| D55.3 / `AC-D55.3` (README authority blocks, per-doc metadata, map as index) + Journey 48 | S-P16-1 | P16-W1 |
+| D55.4 / `AC-D55.4` (usage.md canonical live-only; USAGE.txt pointer; parity claim qualified) + Journey 50 + Q85 + R110 | S-P16-2; Frozen (port guard, engine factory) | P16-W2 |
+| D55.5 / `AC-D55.5` (six-file P6 reconciliation) + Journey 49 + DG104 + R110 | S-P16-3; Frozen (gate disposition, parity matrix) | P16-W3 |
+| D55.6 / `AC-D55.6` (P7 cap-as-maximum addendum; 50-vs-100 reconcile-or-open) + DG102 + A154 | S-P16-3 | P16-W3 |
+| D55.7 / `AC-D55.7` (cumulative-spec navigation; archive moves with link checks) + DG105 | S-P16-3 | P16-W3 |
+| D55.8 / `AC-D55.8` (disposition ledger; Q86/Q87 end states; investigations indexed) + Journey 48 + R111 + A153 | S-P16-4 | P16-W4 |
+| D55.9 / `AC-D55.9` (final consistency review, docs-only) + R113 | S-P16-4 | P16-W4 |
+| D55.10 / `AC-D55.10` (history intact) | Frozen (all pre-P16 criteria byte-identical) | Every wave (guard) |
+| A149–A155, R110–R113, DG102–DG105, Q84–Q87 | S-P16-1…S-P16-4 | Every wave |
+| Hard constraints: no order-code/product-code touch; no suite-meaning change | S-P16-4; Frozen (order absence) | Every wave |
+
+Every D55 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Waves
+
+Each wave is a milestone-sized docs changeset, coarser than tasks; Task Manager decomposes
+each into file-level tasks with grep/measurable checks. Waves are ordered; a later wave
+depends on all earlier ones unless stated. `touches_files` notes list the doc files a wave
+touches. **No wave touches a source, test, packaging, or schema file.**
+
+### P16-W1 — Inventory + fact reconciliation + navigation/labels (D55.1–D55.3; plan Phases 0–2) — size S
+
+- **Goal:** the corpus is inventoried without deleting anything, the disputed facts are
+  pinned to source with citations, and every current doc carries short role/status metadata
+  so a new contributor lands on the canonical answer per Journey 48.
+- **Covers:** D55.1–D55.3; `AC-D55.1`–`AC-D55.3`; Journey 48; A149/A150/A151/A152/A155;
+  DG102 (opened), DG103, DG105 (opened); R112.
+- **Deliverables:**
+  - Preserved-working-state note + tracked/untracked inventory classified per the plan
+    (normative / user-guidance / navigation / historical-evidence / one-off diagnostic /
+    generated-vendored) + filename/heading cross-reference map (scripts, packaging, tests,
+    tooling readers of affected docs). **No file deleted in this wave** (`AC-D55.1`).
+  - Fact sheet with one source citation per fact: (a) LWC-only status
+    (`ui/chart_view.py::create_chart_view` + P6-T13 commit/gate, waived-not-satisfied
+    preserved per A152); (b) connection truth — host/port/client-ID per
+    `config/settings.py`, account-mode per answered Q85 (live-only); (c) P7 cap as a
+    per-load **maximum** with the three plan examples, per-load (coalesced/cancel-refund)
+    definition, and the `AC-D16.8` requirement-vs-plan-interpretation separation;
+    (d) spike labelled stub/call-shape with real-runtime evidence kept separate
+    (vendored v5.2.1, API calls, host, pixel/interaction per A155); (e) P7/P8
+    approval-vs-built dating with review/task-graph/as-built links. Unresolved facts
+    (notably 50-vs-100 per A154/DG102) stay explicitly open, never guessed.
+  - `docs/README.md` one-sentence status + authority table + current-work + historical +
+    ownership blocks; short role/status/as-of/canonical/supersedes metadata on every
+    current normative doc; `docs/codebase-map.md` reads as a module index (contradictory
+    status prose removed by append-only correction, never silent rewrite).
+- **Dependencies:** none (first wave; builds on changesets 1–2 as the executed prefix
+  per A151 — continued, never redone or reverted).
+- **`touches_files`:** `docs/README.md`, `docs/codebase-map.md` (index pass only),
+  the new inventory/fact-sheet records (location per Task Manager), per-doc metadata
+  headers. No overlap with any other wave's files except the W3/W4 addenda targets,
+  which W1 does not edit.
+- **Exit condition:** inventory + map present with zero deletions attributed to this wave;
+  every fact-sheet row carries its citation; the Journey 48 walk lands on the canonical
+  doc per question class.
+
+### P16-W2 — User-guide live-only correction (D55.4; plan Phase 3) — size S
+
+- **Goal:** `usage.md` becomes the single canonical full guide stating the Q85 live-only
+  truth, and `USAGE.txt` becomes its short pointer — never two divergent full guides.
+- **Covers:** D55.4; `AC-D55.4`; Journey 50; Q85 (answered: live-only); R110 (resolved by
+  the Q85 answer); DG103 (engine-key wording follows source).
+- **Deliverables:**
+  - `usage.md` (canonical): one engine iff source confirms P6-T13 (no false opt-in or
+    default; `NDT_CHART_ENGINE`/QSettings behaviour per source verification, never memory
+    — DG103); port/account per answered Q85 (**live-only** — the paper-on-7496 sentences
+    at `usage.md:106–107` and the port-guard bullet are corrected away); prerequisites,
+    commands, packaging, DB path (incl. `DB_PATH` override), features, limitations
+    refreshed; as-of date + troubleshooting/current-status link; any "parity complete"
+    claim removed or qualified against parity records and known rendering defects.
+  - `USAGE.txt`: short pointer/quick-start (or generated equivalent) — its paper-on-7496
+    sentences corrected identically; the two files agree by construction.
+- **Dependencies:** P16-W1 (fact sheet fixes the connection truth first; guides are never
+  corrected on a guess).
+- **`touches_files`:** `usage.md`, `USAGE.txt`. No overlap with any other wave.
+- **Exit condition:** guide claims grep-clean against source/config on engine, port,
+  account-mode, and DB path; `usage.md`/`USAGE.txt` agree (one full guide + one pointer);
+  the paper-on-7496 grep returns zero.
+
+### P16-W3 — Migration + backfill + navigation records (D55.5–D55.7; plan Phases 4–6) — size M
+
+- **Goal:** the P6 chart-engine end state, the P7 cap reading, and the cumulative-spec
+  navigation all agree in one coordinated pass — addenda only, approvals byte-identical.
+- **Covers:** D55.5–D55.7; `AC-D55.5`–`AC-D55.7`; Journey 49; DG102/DG104/DG105; A152/A154.
+- **Deliverables:**
+  - Six-file P6 reconciliation in one changeset (`AC-D55.5`): `docs/architecture.md`
+    (as-built T13 + gate disposition, plan-vs-delivered separated),
+    `docs/codebase-map.md` (LWC-only engine/paths/counts, no retained-pyqtgraph claims),
+    `docs/lwc_parity_matrix.md` (parity-vs-cutover structurally separated — distinct
+    columns/sections, never a one-time relabel per DG104; no accepted row claiming a
+    removed engine present/default; waived/retired/linked), `docs/code_review/review_log_P6.md`
+    (**dated addendum only**, original review text untouched),
+    `docs/phase-changelog.md` (P6/T13 outcome + commit + gate), `docs/CHANGELOG.md`
+    (concise P6/P7/P8 index or pointer to phase-changelog per DG105). Every T13 reference
+    preserves waived-not-satisfied (A152); Journey 49 contradiction grep returns zero.
+  - P7 backfill wording as a coordinated addendum (plan + architecture + P7 review + P7
+    task-manager notes, `AC-D55.6`): cap-as-**maximum** with the three plan examples, the
+    per-load (coalesced/cancel-refund) definition, the 50-vs-100
+    reconciliation-or-explicit-open (source `config/settings.py` + P7 assertions decide;
+    otherwise recorded open per A154/DG102 — never silently chosen), and the
+    approval-preserving delta note; `AC-D16.8` requirement text referenced, never restated
+    (RG-P7-1 stays Analyst debt).
+  - Cumulative-spec navigation (`AC-D55.7`): short current-baseline block atop each
+    canonical file (current architecture, active phase, unresolved requirements, as-built
+    changelog link); uniform status/commit/evidence/supersession metadata on increments;
+    only self-contained completed history moves to `docs/archive/` after link/tooling
+    checks; repeated full summaries become cross-references.
+- **Dependencies:** P16-W1 (fact sheet + inventory precede all reconciliation).
+- **`touches_files`:** `docs/architecture.md` (P6 addendum), `docs/codebase-map.md`,
+  `docs/lwc_parity_matrix.md`, `docs/code_review/review_log_P6.md` (addendum),
+  `docs/phase-changelog.md`, `docs/CHANGELOG.md`, `docs/plan.md` (P7 addendum),
+  `docs/plan_review_P7.md` + `docs/tasks/task_manager_notes_P7.md` (deltas),
+  canonical-file baseline blocks. No overlap with W2's files; W4 deletes nothing W3 moves.
+- **Exit condition:** the six P6 files agree per Journey 49; cap-as-target grep returns
+  zero; the approval records are byte-identical apart from appended deltas; link/reference
+  checks pass before and after any archive move.
+
+### P16-W4 — Disposition + final consistency review (D55.8–D55.9 + D55.10 guard; plan Phases 7–8) — size M
+
+- **Goal:** every in-scope file lands in exactly one disposition bucket with evidence, the
+  approved deletions execute, and the final docs-only review certifies the corpus clean —
+  with pre-P16 history byte-identical.
+- **Covers:** D55.8–D55.9; `AC-D55.8`–`AC-D55.10`; Journey 48; Q86/Q87 (answered); R111/R113;
+  A153.
+- **Deliverables:**
+  - Disposition ledger (`AC-D55.8`): every file in exactly one bucket (keep-current /
+    keep-historical-bannered / pointer-or-merge-after-audit /
+    conditional-deletion-candidate) with condition evidence; audit records preserved by
+    default; deletion only after unique content is migrated/retired AND references checked.
+  - Deletions per answered Q86/Q87: `dev_docs/` already deleted pre-landing — W4 runs the
+    reference check (cross-reference map + dangling-citation grep for the old code comment)
+    rather than re-deleting; legacy unsuffixed logs (`docs/code_review/review_log.md`,
+    `docs/tasks/task_manager_notes.md`) + generated precheck output
+    (`docs/code_review/precheck.json`, `docs/code_review/precheck.md`) deleted **without
+    archive** per Q87 (verify each has a suffixed successor carrying the live record
+    before deleting). Proposals stay historical (archive optional after link audit); the 16
+    investigation files are indexed, never destroyed (A153).
+  - Final consistency review (`AC-D55.9`, docs-only, no product test run): stale-claim grep
+    (pyqtgraph default, dual-engine, T13 undispatched, owed live session, parity-complete,
+    legacy account/port instructions incl. paper-on-7496, spike API names as runtime
+    evidence — plus paraphrase sampling per R113), link/filename/phase-ID/commit/status
+    checks, guide-vs-source-vs-plan cross-checks, historical labelling, addendum
+    discipline; the diff preserves pre-existing user edits and touches no source/test file.
+  - History guard (`AC-D55.10`): `### D41`–`### D54` with reversals, the Existing Repository
+    marker sentence, and the Current Tech Stack unchanged; no pre-P16 wording touched except
+    by explicitly recorded supersession notes.
+- **Dependencies:** P16-W1 (map precedes any deletion), P16-W2, P16-W3 (review runs last).
+- **`touches_files`:** the disposition ledger, the four Q87 deletion targets, archive moves
+  (if any), review checklists. No overlap with W2/W3 content files.
+- **Exit condition:** ledger covers every in-scope file; deletion targets gone with successor
+  records verified; the plan completion checklist ticks 1:1; the diff shows docs-only paths;
+  `AC-D55.10` marker grep passes.
+
+**Wave note.** P16-W1 runs first and alone (its map gates W4's deletions). P16-W2 and P16-W3
+touch disjoint file sets and may run in one wave; P16-W4 runs after all three.
+> **Increment metadata — uniform fields per wave (P16-T7, `AC-D55.7`):** Status / Commit / Evidence / Supersession. Active decisions stay with their requirements (traceability table above); summaries are cross-references (R112), never duplicated prose.
+>
+> - P16-W1 — Status: in progress (inventory + fact-sheet records landed); Commit: n/a, docs-only; Evidence: `docs/D55_inventory.md`, `docs/D55_fact_sheet.md`, `docs/README.md` authority blocks; Supersession: none (new records, zero deletions).
+> - P16-W2 — Status: in progress; Commit: n/a, docs-only; Evidence: `usage.md` (canonical) + `USAGE.txt` (pointer), Q85 live-only; Supersession: correction only, no approval rewritten.
+> - P16-W3 — Status: in progress (P16-T7 executing D55.7); Commit: n/a, docs-only; Evidence: six-file P6 addenda + P16-D55.6 cap addendum + baseline blocks atop both canonical files; Supersession: append-only, approvals byte-identical.
+> - P16-W4 — Status: planned (runs after W1–W3); Commit: n/a, docs-only; Evidence: disposition ledger + docs-only review checklist (P16-T8); Supersession: none (deletions only per answered Q86/Q87).
+
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P16-1 | The Q84 comment reword and Q86 `dev_docs/` deletion in the working tree are taken as landed; W4 verifies rather than redoes them | Orchestrator pre-landing record; re-editing risks clobbering the tracked micro-task change |
+| AP-P16-2 | `AC-D55.9` verification is grep/link/checklist review only — the offscreen suite is not run as a P16 gate | Owner-ordered docs-only batch; no source/test file can change, so the suite cannot discriminate |
+| AP-P16-3 | AC-G.1 (visual reference gate) does not apply — no wave makes a UI-visual decision (widget/copy choices follow standing D49.3/Q64 precedent: measurable outcome, no visual reference) | No pixel, placement, colour, or label choice is specified anywhere in D55 |
+| AP-P16-4 | Archive moves use `docs/archive/` (created if needed); proposals move only after the link audit, and the 16 investigation files never move | Plan §§6–7 boundaries; A153 |
+| AP-P16-5 | Sizes S/M only: W1/W2 are S (inventory + two-file guide fix); W3/W4 are M (six-file reconciliation + ledger + full-corpus review) | Owner scope sizes in the preamble; no wave exceeds M |
+
+### Flagged Issues
+
+**None.** Every D55 item is satisfiable as written on the existing stack:
+
+- Q84–Q87 are all answered, so no wave waits on an owner decision; the only
+  explicitly-open item (50-vs-100) has a specified handling (reconcile against
+  `config/settings.py` + P7 assertions, else record open per A154/DG102) — recorded
+  openness, not a gap.
+- No consolidation step implies product behaviour: the one live/paper contradiction is
+  settled by the Q85 answer before any guide is corrected (`AC-D55.4` gated on W1's fact
+  sheet), and anything else that would imply behaviour is escalated, never decided
+  (A149).
+- No `PLAN`-routed escalation is open (all `addressed`); no `pending_doc_sync.md` entries
+  remain unapplied (file absent); D1–P15 stay closed by the addenda-only rule.
 
 Status: READY_FOR_TASK_MANAGER

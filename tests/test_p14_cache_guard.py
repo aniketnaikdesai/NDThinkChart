@@ -61,12 +61,18 @@ CLAIM_PHRASES = (
     "all caught up",
 )
 
-# Recorded pre-batch snapshot: sha256 of requirements.md text before the
-# "\n### D53 " heading, taken when the batch diff was verified purely
-# additive (zero removed lines), so the pinned segment is the pre-batch
-# text plus only the batch's own D53 additions.
-PRE_D53_SHA256 = (
-    "c51a84fd55e080bd564db0c8a9028584fc77c1a2b912a77f451a55457a774b88"
+# P16-narrowed history pin (replaces the pre-D53 whole-head pin): sha256 of
+# the protected span only — from the Existing Repository marker sentence
+# through the end of the D52 section (up to "\n### D53 "). Top-of-file
+# navigation/baseline blocks (Q-52 baseline, P16 Batch-30 header, and future
+# index additions per AC-D55.7) sit outside the pin by design; the D41–D52
+# sections, the marker sentence, the Current Tech Stack, and the
+# reversal/supersession markers inside the span are all pinned. Value
+# recorded 2026-11-04: the span is byte-identical between the pre-P16 HEAD
+# and the P16 worktree (the P16 requirements diff is purely additive there),
+# so this re-pins history without dropping any assertion.
+PROTECTED_SPAN_SHA256 = (
+    "b11d9da3e1eb0505855c9eb59e99e93795b79ab0e25645d5543dcab08fddba41"
 )
 
 
@@ -415,9 +421,12 @@ def test_t34_history_markers_intact():
     assert "AC-D53.3" in text
     assert "A144" in text
     assert "R107" in text
-    # No pre-D53 wording touched since the recorded snapshot.
+    # No protected wording touched since the recorded snapshot: hash the
+    # protected span only (marker sentence through end of D52).
     head, sep, _tail = text.partition("\n### D53 ")
     assert sep
+    start = text.index("This is an existing repository.")
+    span = text[start : text.index("\n### D53 ")]
     assert (
-        hashlib.sha256(head.encode()).hexdigest() == PRE_D53_SHA256
-    ), "pre-D53 requirements text changed"
+        hashlib.sha256(span.encode()).hexdigest() == PROTECTED_SPAN_SHA256
+    ), "protected requirements history span changed"

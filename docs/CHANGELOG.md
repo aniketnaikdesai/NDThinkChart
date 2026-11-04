@@ -7,7 +7,7 @@
 ## P6 (D47) — 2026-10-27
 
 Chart migration to Lightweight Charts behind the `ChartView` seam, then pyqtgraph removal (P6-T13,
-commit `6e35b27`, gate owner-waived per `docs/build/gate_P6_T13.md`). Full record:
+commit `6e35b27`, gate owner-waived (live-session sign-off waived, not satisfied) per `docs/build/gate_P6_T13.md`). Full record:
 `docs/phase-changelog.md` § Phase P6 (D47). Parity: `docs/lwc_parity_matrix.md` (rows 1–18 accepted,
 row 19 retired).
 
@@ -285,3 +285,47 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 1.
 - 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE
 - a04fbd9 Q64-66 answered by owner (accept defaults); D50 Q70 settled to (c)
 - 281d4e8 ESC-079 addressed: AC-D16.8 restatement verified, zero open escalations
+## P16 — 2026-11-04
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 3.
+
+### Done
+- P16-T2 — Created docs/D55_fact_sheet.md: 13 cited fact rows (LWC-only, live-only, P7 cap maximum, spike labelling, P7/P8 dating) plus 50-vs-100 explicitly open with decider named
+- P16-T1 — D55 inventory produced (docs/D55_inventory.md): preserved-state note, 79 tracked doc files each in exactly one of six buckets, filename/heading cross-reference map with reader source locations; zero deletions
+- P16-T5 — Six-file P6 reconciliation complete: CHANGELOG P6 entry and codebase-map as-built note now carry waived-not-satisfied; architecture/parity-matrix/review-log/phase-changelog already compliant (plan-vs-delivered separated, parity-vs-cutover structural, original review text untouched). NOTE: an optional repeat of the waiver phrase in the architecture.md header was denied by tool permissions (file rejects worker edits); the file already carries waived-not-satisfied at the as-built T13 outcome and frozen-interfaces entries, so no AC is affected.
+- P16-T3 — P16-T3 done: README carries status/authority/current-work/historical/ownership blocks with Role metadata and all 7 authority targets exist; map live header states LWC-only with stale engine claims confined to superseded/as-built banners and historical prose otherwise byte-identical (P16 note appended, A152 waived-not-satisfied clarification adopted in footprint)
+- P16-T6 — P7 cap-as-maximum coordinated addendum (D55.6) appended to plan, architecture, P7 review and P7 notes; cap reads maximum-never-target with examples, per-load definition, 50-vs-100 reconciled to 100 per config/settings.py (DG102/A154), AC-D16.8 by reference only
+- P16-T7 — P16-T7 done: baseline blocks (architecture, active phase, unresolved reqs, as-built changelog link) + recorded link audit atop architecture.md/plan.md, uniform Status/Commit/Evidence/Supersession metadata on P16 increments; archive candidates listed with pre-move pass, zero moves (P16-T8); requirements/ untouched by this task (tree-wide T7_FAIL flag pre-dates this worker)
+- P16-T1 — D55 inventory present with 1:1 bucketed coverage of all 79 tracked doc files, cross-reference map with zero dangling code refs, zero deletions
+- P16-T3 — P16-T3 done: README carries status/authority/current-work/historical/ownership blocks with Role metadata; map live header states LWC-only with stale engine claims confined to superseded/as-built banners and historical prose otherwise byte-identical (P16 note appended, A152 waived-not-satisfied clarification); rework fix: result now carries task_id per schema
+- P16-T4 — P16-T4 done: USAGE.txt paper-(DU) sentence replaced with live-only pointer; usage.md canonical live-only with one LWC engine, as-of date and status links; zero paper-mode instructions and zero parity-complete claims in either file
+- P16-T8 — P16-T8 done: D55 disposition ledger placed every in-scope file in one bucket with evidence; dev_docs/ held deleted with reference check re-verified and four Q87 targets deleted without archive after successors verified live
+- P16-T9 — D55 final docs-only review certified in docs/D55_final_review.md (checklist 1:1, stale-claim greps clean, history span byte-identical); narrowed history guards pass with all protected assertions intact
+- P16-T9 — P16-T9 docs-only final review certified (docs/D55_final_review.md) and both history-markers-intact guards pass on the narrowed protected span; T9_FAIL_NON_DOCS echo is the recorded pre-landed Q84 comment-only exception, exit 0
+- P16-T4 — usage.md is the canonical live-only full guide (one LWC engine, 7496-only, as-of date, troubleshooting/status links) and USAGE.txt its agreeing short pointer; zero paper-mode instructions, zero parity-complete claims; test_command prints T4_OK
+
+### Blocked
+- P16-T4 — Output:
+- P16-T4 — Output:
+
+### Recent commits
+- 945a2b2 Scratch + evidence: D53 4-phase live probe harness (v3 logging) and TWS probe findings/reports
+- e9e5912 P15: 10-second load-chart target + graceful degradation (D54, target reading A148)
+- 2d8fabd P14: persistent backfill-state indicator + cache-current guard (D53, Finding 2)
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
+- 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
+- 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE

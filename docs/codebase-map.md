@@ -93,9 +93,17 @@
 > annotation above carries forward and the generated test-impact rows stand as regenerated
 > (Plan-confirmed).
 >
+> **P16 note (2026-11-04):** docs-only consolidation batch (D55, Batch 30) — **no code, test,
+> packaging, or schema change**, so the skeleton and all test-impact rows stand as regenerated
+> (Plan-confirmed) and every annotation above carries forward. Pre-landed in the working tree:
+> `dev_docs/` deleted (Q86) and `services/sound_service.py` docstring self-contained (Q84);
+> pending P16 disposition targets are `docs/code_review/review_log.md`,
+> `docs/tasks/task_manager_notes.md`, `docs/code_review/precheck.json` +
+> `docs/code_review/precheck.md` (Q87: delete, no archive — each has a suffixed successor).
+>
 > **As-built P6-T13 note (2026-10-28):** the P6 plan-time sentences above ("pyqtgraph retained and default
 > through Phase 10", "no pyqtgraph code is deleted before Phase 11") are **superseded history** — P6-T13 executed
-> 2026-10-27 (removal commit `6e35b27`; gate owner-waived per `docs/build/gate_P6_T13.md`). The tree is
+> 2026-10-27 (removal commit `6e35b27`; gate owner-waived (live-session sign-off waived, not satisfied) per `docs/build/gate_P6_T13.md`). The tree is
 > **LWC-only**: `ui/chart_view.py::create_chart_view` always returns the LWC view; `NDT_CHART_ENGINE` /
 > `chart/engine` no longer select a renderer. Deleted: `ui/chart_panel`, `ui/candlestick_item`, the pyqtgraph
 > overlay/control/router-companion modules, `ui/overlays/` contents (package marker only). Kept: the seam

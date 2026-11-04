@@ -1568,3 +1568,49 @@
 - **What a different answer would change:** `AC-D54.3`'s surface/wording assertions only — D53 stays referenced, not reopened.
 - **Why it is not blocking:** either reading keeps the guard testable (absence-of-claim + shortfall-presence assertions); the default avoids a D53 redesign.
 - **Affected requirement section:** Phase P15 / D54.3 / `AC-D54.3`; D53 / `AC-D53.1`–`AC-D53.3` (referenced, not reworded); Journey 47; DG101.
+
+---
+
+# Open Questions — P16 (Batch 30 / D55 — documentation consolidation; all answered 2026-11-04 — no blocking item remains)
+
+> FULL `docs/documentation_consolidation_plan.md` execution, docs-only. No product-code behaviour change: any step implying app behaviour is a question/escalation, never a silent decision. **D1–P15 are NOT reopened.** All four blocking questions answered 2026-11-04 — no blocking item remains; Phase P16 carries `Status: READY_FOR_PLAN`. (Inventory/reference-map work per `AC-D55.1` deletes nothing; the Q84 comment reword runs as a tracked micro-task pipeline change.)
+
+## Q84 — D55: what should `services/sound_service.py:3` cite once `dev_docs/delta.md` §3 is dispositioned?
+
+- **Status:** **answered 2026-11-04** — resolved; no longer blocking.
+- **Answer (owner, 2026-11-04, verbatim direction):** *"Delete + reword the comment — one comment-only line in sound_service.py, e.g. 'numpy synthesis of the Web Audio alarm chime', no behavior change."* A shorter variant of option (a), NOT the full recipe inline. Pipeline condition: the edit runs as a tracked micro-task pipeline change, never a hand-edit.
+- **Question:** the module docstring's design reference (`services/sound_service.py:3` cites `dev_docs/delta.md` §3 for the Web Audio alarm-chime recipe) dangles if `dev_docs/` is deleted or archived: should the reference become (a) the recipe inlined into the module docstring (self-contained, no doc dependency), (b) a pointer to a migrated note (e.g. `docs/archive/dev_docs/delta.md` §3 or its successor), (c) a citation to the current architecture/services note covering alert tones, or (d) an owner-named target?
+- **Recommended default:** (a) inline the recipe into the module docstring. Rationale: a code comment depending on a deleted dev doc is the exact orphan the owner forbade leaving dangling; inlining removes the cross-tree dependency entirely, survives any `dev_docs/` disposition, and changes no behaviour.
+- **What a different answer would change:** only the citation target of one comment (and whether a migration note must exist at that target) — `AC-D55.8`'s `dev_docs/` disposition follows Q86 regardless.
+- **Why it was blocking (resolved 2026-11-04):** `dev_docs/` deletion was owner-approved in principle, but executing it with a live code comment pointing into the deleted tree would have violated the owner's explicit no-dangling-reference condition; the target had to be decided before the disposition.
+- **Affected requirement section:** Phase P16 / D55.8 / `AC-D55.8`; `services/sound_service.py:3` (comment only — no code change); A149.
+
+## Q85 — D55: live-only vs paper-on-7496 — which account truth do the guides get corrected to?
+
+- **Status:** **answered 2026-11-04** — resolved; no longer blocking.
+- **Answer (owner, 2026-11-04, verbatim):** *"we only work with live account. do not send any orders"* — **live-only is the truth** (aligns with the standing zero-order-interaction constraint, D45/D46). `usage.md`'s paper-on-7496 sentences are wrong and fall under `AC-D55.4` correction scope; guides are unfrozen on this point ONLY for the live-only fix.
+- **Question:** the corpus contradicts itself on product behaviour: the stack/index lineage says **live TWS port 7496 only — no paper mode**, while `usage.md` (current canonical guide) says a **paper (DU) TWS login on that same port works** (connection badge shows amber `Paper`). Should the corrected guides state (a) live-only (paper unsupported — `usage.md`'s paper sentences are corrected away), (b) port-guard-only (paper on 7496 is supported — the stack/index "no paper mode" wording is corrected), or (c) an owner-named rule (e.g. live-only for trading surfaces, paper tolerated for charting)?
+- **Recommended default:** none — no default is safe. Rationale: this is product behaviour, not prose; either correction rewrites a user-visible claim about what the app accepts, and the consolidation batch is explicitly forbidden from deciding product behaviour by silence.
+- **What a different answer would change:** `AC-D55.2`'s connection fact row and `AC-D55.4`'s entire port/account correction (plus any stack/index wording on the losing side).
+- **Why it was blocking (resolved 2026-11-04):** `AC-D55.4` could not correct the guides until the truth was pinned; correcting toward either side on a guess risked shipping a guide that misstates what the app accepts (R110).
+- **Affected requirement section:** Phase P16 / D55.2 + D55.4 / `AC-D55.2`–`AC-D55.4`; Journey 50; R110.
+
+## Q86 — D55: after Q84 is resolved, is `dev_docs/` deleted outright or archived with a pointer?
+
+- **Status:** **answered 2026-11-04** — resolved; no longer blocking.
+- **Answer (owner, 2026-11-04):** **(a)** — delete `dev_docs/` outright post-reference-check. Reference check on record: the only live reference is `services/sound_service.py:3`, resolved by the Q84 answer above; the five historical mentions stay as true history.
+- **Question:** the owner approved `dev_docs/` deletion (5-file initial design set) subject to the sound-service reference being resolved (Q84): once Q84 lands, should the directory be (a) deleted outright (references checked, unique content migrated or intentionally retired per the disposition ledger), or (b) moved to `docs/archive/` with a HISTORICAL banner + canonical links (deletion deferred)?
+- **Recommended default:** (b) archive-with-pointer first, delete only on a later explicit instruction. Rationale: the plan's own matrix counsels against deleting the initial design set first ("deletion is not recommended until unique context and references are checked; mark legacy first"); archiving preserves decision lineage while satisfying "do not use as current guidance".
+- **What a different answer would change:** only the end state of one directory (and the ledger entry) — content treatment and reference checks are identical either way.
+- **Why it was blocking (resolved 2026-11-04):** both options satisfied the plan only with the owner's explicit pick: outright deletion destroys the original scope/design history on an inference, while archiving retains a directory the owner had already approved deleting — either direction without the owner risked violating an explicit instruction.
+- **Affected requirement section:** Phase P16 / D55.7–D55.8 / `AC-D55.7`–`AC-D55.8`; disposition matrix; R111.
+
+## Q87 — D55: legacy unsuffixed logs + generated precheck output — delete or archive?
+
+- **Status:** **answered 2026-11-04** — resolved; no longer blocking.
+- **Answer (owner, 2026-11-04, verbatim):** *"delete"* — delete the legacy unsuffixed logs + generated precheck output, no archive.
+- **Question:** the plan names the three untracked root review reports (`DEAD_CODE_REVIEW.txt`, `TEST_SUITE_RUNTIME_REPORT.txt`, `DRAWING_RENDER_DEBUG_REPORT.txt`) and generated precheck/cache text as deletion candidates (durable findings integrated or owner no longer needs the snapshots → delete; otherwise archive with date/evidence basis; generated text follows build/ignore policy and must never remove user data). Should each be (a) deleted (durable content confirmed integrated / snapshots no longer needed), or (b) archived under `docs/archive/reviews/` (or the plan's equivalent) with date + evidence basis?
+- **Recommended default:** (b) archive-with-date first. Rationale: these are untracked snapshots the plan explicitly warns not to silently overwrite or treat as canonical — archiving preserves whatever durable evidence was never integrated, at near-zero cost; deletion is irreversible without a git object.
+- **What a different answer would change:** only the end state of the named files (and their ledger entries) — the audit (durable-findings-integrated? owner-needs-snapshot?) runs identically either way.
+- **Why it was blocking (resolved 2026-11-04):** deletion destroys evidence the owner may still want; archiving retains files the owner had already classed as candidates for removal — the owner picked per file or as a set.
+- **Affected requirement section:** Phase P16 / D55.7–D55.8 / `AC-D55.7`–`AC-D55.8`; disposition matrix §6–§7; R111.

@@ -36,8 +36,9 @@ Requirements
     Port: 7496
     Client ID: 1
 
-   The app refuses to start on any other port. A paper (DU) TWS login
-   on the same port works too; the badge shows amber "Paper".
+   The app refuses to start on any other port. Live account only:
+   paper-trading logins are not supported (live-only per
+   config/settings.py::check_live_port).
 
 4. Market data entitlements for the symbols being viewed (the app opens
    without them, but live charts and ticks need them).

@@ -51,3 +51,12 @@ This section is appended; the approval record above is untouched and `Status: AP
   `NDT_CHART_ENGINE` opt-in, port/paper-live reconciliation, as-of dated); `USAGE.txt` is a short
   pointer/quick-start. Packaging/`NDThinkChart.spec` bundle no plain-text consumer (checked 2026-10-28),
   so the pointer form is safe. No source/test file changed.
+
+## P16-D55.6 coordinated addendum (2026-11-04 — appended delta, approval preserved, no P7 decision changed)
+
+This section is appended; the approval record above is untouched and `Status: APPROVED` stands.
+
+- **Per-load cap = maximum, never a target (S-P7-1 / P7-W1 reading):** a single chart load issues at most `min(requests needed, floor(B/4))` historical requests (`B` = current `MAX_HISTORICAL_PER_600S`); the cap never creates work to fill itself. Worked examples at `floor(B/4) = 25`: need **1** -> issue **1** and stop; need **10** -> issue at most **10**; need **40** -> issue at most **25** this load, persist completed chunks, resume the rest on later loads (persist-and-resume / oldest-first, S-P7-2). No forced chunking, no automatic spend of reserved slots, no promise of immediate full history.
+- **Per-load defined:** one chart-load wave for one symbol + timeframe + ext-hours mode. A same-chart reload coalesces into the running wave and shares its allocation (AP-P7-2); a cancelled slot is refunded only when its request never reached TWS (AP-P7-3 / AR-P7-4).
+- **50-vs-100 reconciled with cited evidence (DG102 / A154):** the tree carries `MAX_HISTORICAL_PER_600S = 100` (`config/settings.py`, owner-set per the source comment); ESC-075's "50-slot" text is stale prose. The operative value is **100 per the source**, and the invariant is fraction-based so it holds under either value — both figures are named here, none silently chosen. Decided from `config/settings.py` plus the P7 wave assertions (P7-W1 request-count caps); no open item remains on this point.
+- **Requirement reference only:** `AC-D16.8` is cited by reference (`docs/requirements/requirements.md`, via RG-P7-1, still Analyst debt) and its text is restated nowhere in this addendum.

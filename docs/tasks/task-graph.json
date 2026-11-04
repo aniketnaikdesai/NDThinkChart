@@ -1,434 +1,928 @@
 {
-  "phase": "P15",
-  "batch": "Batch 29 (D54 10-second target on load chart, owner-directed 2026-11-04)",
+  "phase": "P16",
+  "batch": "D55",
   "status": "READY_FOR_BUILD",
-  "note": "P15: D54.1-D54.4 over waves W1-W3. T1 T0-anchored single-shot expiry verdict at T0+10 s (M) -> T2 background-continue + disconnect/mode-switch/coalesced seams (M) -> T3 D53-surface partial-vs-complete surfacing + history/batch gate (S). Strict chain per plan wave order, one commit per wave. Repro-first where behavior is new (T1 expiry render red today, T2 continue/seams red-first, T3 distinction red-first). T0 reuses the stamped-once _backfill_wave_start baseline; no watchdog/pacing/request-shape/port/renderer/schema change (S-P15-4 read-only); no order code; offscreen with clock control only; full suite green.",
+  "note": "Docs-only consolidation (D55, owner-ordered full-plan execution). Nine doc tasks across waves P16-W1..W4: inventory+map (T1) and fact sheet (T2) in parallel; navigation/labels (T3) and guide correction (T4) next; P6 reconciliation (T5), P7 addendum (T6), navigation blocks (T7); ledger+deletions (T8); final review+history guard (T9). No source/test/packaging/schema edit in any task; verification is grep/link/checklist review, never the offscreen suite (AP-P16-2). Q84+Q86 pre-landed states are verified, never redone; requirements.md is never touched (Analyst-owned).",
   "tasks": [
     {
-      "id": "P15-T1",
-      "title": "T0-anchored single-shot expiry verdict at T0+10 s (D54.1)",
-      "description": "Add a per-wave single-shot expiry to MainWindow anchored at the stamped-once _backfill_wave_start baseline (T0 = Load Chart invocation; a coalesced same-triple reload never re-stamps it). The expiry is armed at wave raise, disarmed on every terminal path, fires once at T0+10 s, and acts only when the wave is still incomplete: it renders whatever bars have arrived plus the verbatim AC-D16.4 shortfall for the missing remainder (Q81 default (a) \u2014 never blank when data exists; zero-bar expiry lists all missing days). Completion exactly at T0+10.0 s counts as complete (single-sided bound). No 10 s cancel path, no pacing/watchdog/request-shape change.",
+      "id": "P16-T1",
+      "title": "Preserved-state note + classified inventory + cross-reference map (D55.1)",
+      "description": "Produce docs/D55_inventory.md: a preserved-working-state note, a tracked/untracked inventory classifying every doc file into exactly one of the consolidation plan's six buckets (normative / user-guidance / navigation / historical-evidence / one-off diagnostic / generated-vendored), and a filename/heading cross-reference map recording every live reader reference (scripts, packaging, tests, tooling, code comments) into affected docs. No file is deleted in this task.",
       "agent": "build_worker",
-      "task_type": "code",
+      "task_type": "doc",
       "dependencies": [],
       "acceptance_criteria": [
-        "AC1: Given a Load Chart wave still incomplete when wall-clock reaches T0+10 s, when the expiry fires, then the arrived bars render on the chart and the verbatim AC-D16.4 shortfall for the missing remainder is surfaced; with zero bars arrived the shortfall lists all missing trading days.",
-        "AC2: Given a wave that completes at or before T0+10.0 s (including a 9.9 s completion and an exact-boundary T0+10.0 s completion), when the bound passes, then the expiry render path is never taken and the wave takes the normal completion path.",
-        "AC3: Given an armed expiry, when the wave terminates first through any terminal path (normal completion or stranded finalization), then the expiry is disarmed and never fires on the dead wave."
+        "AC1: Given the checkout at task start, when the inventory is produced, then every tracked doc file appears in exactly one of the plan's six buckets plus untracked files listed separately, and this task deletes no file.",
+        "AC2: Given every script, packaging file, test, tooling reader, and code comment that references an affected doc, when the cross-reference map is produced, then each live reference is recorded with its source location, and no code-tree reference into dev_docs/ remains dangling (the Q84 sound_service docstring is self-contained)."
       ],
       "tests": [
         {
           "test_id": "T11",
           "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Offscreen MainWindow with seeded BarCache missing spans and stubbed historical feed held incomplete; clock-control T0 to T0+10 s with partial bars arrived; drive the expiry handler; assert arrived bars rendered plus the AC-D16.4 shortfall marker for the missing remainder within the bound.",
-          "expected_result": "RED on the current tree (no T0+10 s verdict exists \u2014 an incomplete wave at T0+10 s renders nothing new); GREEN after: partial bars present + shortfall marker surfaced."
+          "type": "manual",
+          "description": "List the repo tree (git ls-files plus untracked files) and diff it against the inventory's file list; assert 1:1 coverage with exactly one bucket per file and confirm git status shows no deletion made by this task.",
+          "expected_result": "docs/D55_inventory.md exists; every file is bucketed exactly once; zero deletions attributed to this task."
         },
         {
           "test_id": "T12",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Same harness with zero bars arrived at T0+10 s; drive the expiry handler; assert the shortfall lists all missing trading days and no bar is fabricated.",
-          "expected_result": "Shortfall names every missing day; chart holds no fabricated bars."
-        },
-        {
-          "test_id": "T13",
           "linked_acceptance_criterion": "AC2",
-          "type": "integration",
-          "description": "Offscreen wave completed at T0+9.9 s and, separately, completed exactly at T0+10.0 s (clock-controlled); advance past the bound; assert the normal completion path was taken and the expiry render path never ran in either case.",
-          "expected_result": "Both cases surface completion through the unchanged path; no expiry render, no shortfall."
-        },
-        {
-          "test_id": "T14",
-          "linked_acceptance_criterion": "AC3",
-          "type": "integration",
-          "description": "Offscreen wave with armed expiry terminated first via normal completion and, separately, via stranded finalization; advance the clock past T0+10 s; assert the expiry never fires afterwards on either dead wave.",
-          "expected_result": "No post-terminal expiry firing; wave state stays finalized exactly once per path."
+          "type": "manual",
+          "description": "Grep the tree for references into disposition-target docs (dev_docs/, legacy unsuffixed logs, generated precheck output); assert each is recorded in the map with its source location; assert grep -rn dev_docs across services/ tests/ packaging/ main.py returns zero hits.",
+          "expected_result": "Cross-reference map present with source locations; zero dangling code-tree references into deleted or candidate-deleted docs."
         }
       ],
       "expected_artifacts": [
-        "T0-anchored single-shot expiry hook in ui/main_window.py",
-        "tests/test_p15_expiry.py"
+        "docs/D55_inventory.md"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "tests/test_p15_expiry.py"
+        "docs/D55_inventory.md"
       ],
       "doc_required": false,
       "inputs": [
-        "Wave-raise sites in load_chart; _backfill_wave_start stamped-once baseline; session wave state; finalize funnel"
+        "docs/documentation_consolidation_plan.md phase/category definitions",
+        "current docs tree (tracked + untracked)"
       ],
       "outputs": [
-        "Armed-per-wave T0+10 s expiry that renders partial bars + shortfall only on incomplete waves"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/main_window.py",
-            "lines": "1785-1838",
-            "why": "load_chart T0 anchor + Branch-A coalesced early-return the arm hooks (read-only: signature and coalesced semantics unchanged)"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1951-1986",
-            "why": "wave-issue raise site + watchdog arm where the expiry arms"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2044-2101",
-            "why": "set/clear/raise/refresh indicator \u2014 the stamped-once _backfill_wave_start baseline T0 reuses"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2332-2351",
-            "why": "per-chunk end + wave-complete path where the expiry disarms"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2363-2392",
-            "why": "finalize head: disarm site, _wave_start_ts clearing, persist/re-read/render the expiry reuses"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2533-2553",
-            "why": "read-only: _missing_backfill_trading_days the zero-bar shortfall reuses \u2014 do not modify"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "894-919",
-            "why": "read-only: queue_wave_plans stamps _wave_start_ts once \u2014 the baseline the expiry reads"
-          },
-          {
-            "path": "tests/test_p14_lifecycle.py",
-            "lines": "1-80",
-            "why": "offscreen wave-test conventions (seeded BarCache, stubbed requests, clock-shaped NOW_TS)"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/main_window.py:load_chart",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_raise_backfill_indicator",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_history_wave",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:clear_backfill_indicator",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_missing_backfill_trading_days",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:queue_wave_plans",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_wave_start_ts",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "def _on_backfill_expiry(self) -> None",
-            "module": "ui/main_window.py"
-          },
-          {
-            "status": "new",
-            "signature": "MainWindow._backfill_expiry_timer: single-shot Qt timer, armed once per wave at raise for T0+10 s from the _backfill_wave_start baseline, disarmed on every terminal path (normal completion, stranded finalization, cancellation, disconnect); fires _on_backfill_expiry exactly once per wave",
-            "module": "ui/main_window.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P15",
-        "plan_ref": "docs/plan.md#Phase P15",
-        "requirement_ids": [
-          "D54.1",
-          "AC-D54.1",
-          "Journey 47",
-          "A145",
-          "A148",
-          "Q81"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p15_expiry.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P15-T2",
-      "title": "Background-continue past expiry with lifecycle seams (D54.2)",
-      "description": "Keep the P15-T1 expiry hook pure verdict: past T0+10 s the incomplete wave continues in the background under the unchanged D53 lifecycle \u2014 the indicator keeps running, the chart updates as further bars land, and normal completion or stranded finalization ends the wave exactly as today (Q82 default (a); no 10 s cancel path is invented). Wire the expiry into the existing seams: a disconnect at any instant wins over a pending expiry (existing disconnect finalization disarms it); a mode-switch or new-triple load cancels the old wave with its expiry and re-anchors T0 on the new wave; a coalesced same-triple reload keeps the original T0 with no extension.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P15-T1"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given a missed T0+10 s target with the wave still incomplete, when further bars land or the watchdog/stranded path finalizes, then the wave continues and updates the chart past expiry with the D53 indicator still running, and terminates through the unchanged normal/strand paths with no cancel-at-10 s behavior.",
-        "AC2: Given a pending expiry, when a transport disconnect lands at any instant (including T0+9.9 s), then the existing disconnect finalization wins and the expiry never fires on the dead wave.",
-        "AC3: Given a mid-wave mode-switch or new-triple load, when the new wave raises, then the old wave and its expiry are cancelled/disamed and T0 re-anchors on the new wave; given a mid-wave coalesced same-triple reload, when it coalesces, then the original T0 is kept with no extension and the running wave is untouched."
-      ],
-      "tests": [
-        {
-          "test_id": "T21",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Offscreen wave forced incomplete at T0+10 s (P15-T1 expiry fired); land further chunk completions afterwards and then complete normally; assert in-flight wave state continued, indicator kept running, late bars rendered, and the wave finalized through the unchanged path with no cancel.",
-          "expected_result": "RED-first on the pre-T1 tree (nothing distinguishes post-expiry background fill from the pre-expiry wave); GREEN after: continued wave state + running indicator + late-bar render + normal finalize."
-        },
-        {
-          "test_id": "T22",
-          "linked_acceptance_criterion": "AC2",
-          "type": "integration",
-          "description": "Offscreen wave with armed expiry disconnected at T0+9.9 s via the real _on_disconnected path; advance past T0+10 s; assert disconnect finalization won (stranded shortfall surfaced once) and the expiry never fired on the dead wave.",
-          "expected_result": "Disconnect funnel ran exactly once; no expiry firing after the drop."
-        },
-        {
-          "test_id": "T23",
-          "linked_acceptance_criterion": "AC3",
-          "type": "integration",
-          "description": "Offscreen mid-wave mode-switch (ext-hours toggle) and, separately, new-triple symbol load; assert the old wave cancelled with its expiry disarmed and the new wave re-anchored T0 (new baseline stamp).",
-          "expected_result": "Old expiry never fires; new wave carries a fresh T0; old reqIds fenced by generation."
-        },
-        {
-          "test_id": "T24",
-          "linked_acceptance_criterion": "AC3",
-          "type": "integration",
-          "description": "Offscreen mid-wave same-triple reload (Branch-A coalesced keep); assert no new reqIds, no generation advance, the original T0 baseline unreset, and the running wave untouched.",
-          "expected_result": "ReqIds, generation and T0 baseline unchanged; indicator keeps running without reset."
-        }
-      ],
-      "expected_artifacts": [
-        "Expiry/lifecycle seam wiring in ui/main_window.py",
-        "tests/test_p15_continue.py"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_p15_continue.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P15-T1 expiry hook + timer; disconnect/stranded/cancel/coalesced paths"
-      ],
-      "outputs": [
-        "Background-continue past expiry with disconnect-wins, re-anchor, and coalesced-keep seams pinned"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/main_window.py",
-            "lines": "1620-1668",
-            "why": "disconnect funnel that must win over a pending expiry (read the strand loop, keep semantics)"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1687-1731",
-            "why": "stranded finalize + watchdog timeout path the expiry disarms through"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1812-1886",
-            "why": "coalesced early-return (keep) vs cancel+generation block (re-anchor) the seams hook"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2072-2101",
-            "why": "raise/refresh indicator \u2014 the running-indicator reads past expiry"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2346-2351",
-            "why": "wave-complete entry that ends the continued wave as today"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "809-838",
-            "why": "read-only: _cancel_history_requests clears the elapsed baseline \u2014 the cancel semantic the seams reuse"
-          },
-          {
-            "path": "tests/test_p14_lifecycle.py",
-            "lines": "1-80",
-            "why": "offscreen terminal-path + coalesced-keep test conventions this task extends to expiry"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/main_window.py:load_chart",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_on_disconnected",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_on_session_wave_complete",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_refresh_backfill_indicator",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_cancel_history_requests",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:queue_wave_plans",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P15",
-        "plan_ref": "docs/plan.md#Phase P15",
-        "requirement_ids": [
-          "D54.2",
-          "AC-D54.2",
-          "Journey 47",
-          "A145",
-          "A148",
-          "Q82"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p15_continue.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P15-T3",
-      "title": "Expiry surfacing on the D53 indicator + history/batch gate (D54.3/D54.4)",
-      "description": "Surface the missed-target state on the existing D53 persistent indicator with an explicit partial-vs-complete distinction and no new surface: at/after a missed T0+10 s expiry with spans still missing, the indicator carries the partial marker while the verbatim AC-D16.4 shortfall stays visible and the unchanged _is_cache_current gate suppresses every current-cache claim (Q83 default; D53 referenced, not reworded). A wave complete by the bound surfaces as complete through the unchanged path. Also guards AC-D54.4 (history intact) and the full-suite-green gate.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P15-T1",
-        "P15-T2"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given a missed T0+10 s target with spans still missing, when the expiry state is surfaced, then the D53 indicator shows the partial marker, the AC-D16.4 shortfall (missing-days + reason) stays visible, and no current-cache claim from the claim family is shown.",
-        "AC2: Given a wave complete by T0+10 s, when it is surfaced, then completion reads as complete through the unchanged completion path with no partial marker and no shortfall.",
-        "AC3: Given requirements.md, then the ### D41 through ### D53 sections with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, no pre-P15 wording is touched, and the full offscreen suite is green."
-      ],
-      "tests": [
-        {
-          "test_id": "T31",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Offscreen in-flight, stranded, and post-expiry cases with missing spans; assert the indicator carries the partial marker, the shortfall line is present, and the claim family (including but not limited to the literal 'Cache current') is absent in every case.",
-          "expected_result": "RED-first on the pre-P15 tree (no partial-vs-complete distinction exists on the indicator); GREEN after: marker present + shortfall present + claim family absent."
-        },
-        {
-          "test_id": "T32",
-          "linked_acceptance_criterion": "AC2",
-          "type": "integration",
-          "description": "Offscreen wave completed by T0+10 s; assert the unchanged completion surfacing with no partial marker and no shortfall line.",
-          "expected_result": "Completion line through the existing path; no marker, no shortfall."
-        },
-        {
-          "test_id": "T33",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Static marker grep over requirements.md (### D41 through ### D53 present with reversals; Existing Repository marker sentence and Current Tech Stack intact; no pre-P15 criterion reworded) plus the full offscreen suite run as the batch gate.",
-          "expected_result": "All markers present, no pre-P15 wording touched; full offscreen suite green \u2014 a red suite fails the wave."
-        }
-      ],
-      "expected_artifacts": [
-        "Partial-vs-complete surfacing on the D53 indicator in ui/main_window.py",
-        "tests/test_p15_surfacing.py"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_p15_surfacing.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P15-T1 expiry state + P15-T2 continued wave; D53 indicator + _is_cache_current gate + shortfall wording"
-      ],
-      "outputs": [
-        "Honest miss surfacing (partial marker + shortfall, no current claim); complete-by-bound reads complete; history + suite gate"
+        "Classified inventory + cross-reference map gating all later deletions"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/main_window.py",
-            "lines": "2044-2070",
-            "why": "set/clear indicator writes the surfacing extends (partial marker lives here)"
+            "path": "docs/documentation_consolidation_plan.md",
+            "why": "phase and category definitions the inventory classifies against; scan headings, do not restructure"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "2103-2134",
-            "why": "read-only: _is_cache_current \u2014 the single predicate the surfacing routes through, never string matching"
+            "path": "docs/README.md",
+            "why": "current authority-table entries the map cross-checks, never duplicates",
+            "lines": "1-60"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "2443-2531",
-            "why": "shortfall vs completion branches the expiry surfacing reuses verbatim \u2014 read wording, do not rewrite"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "160-212",
-            "why": "read-only: session wave-state fields the surfacing reads (req ids, queue, generation, start stamp)"
-          },
-          {
-            "path": "tests/test_p14_cache_guard.py",
-            "lines": "1-60",
-            "why": "claim-family guard assertion conventions (absence over literals) this task reuses"
+            "path": "docs/codebase-map.md",
+            "why": "module index the map points at; read-only for this task, do not edit",
+            "lines": "1-60"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/main_window.py:set_backfill_state",
+            "status": "new",
+            "signature": "docs/D55_inventory.md: preserved-working-state note + classified inventory (exactly one bucket per file across normative / user-guidance / navigation / historical-evidence / one-off diagnostic / generated-vendored, plus untracked list) + filename/heading cross-reference map with reader source locations; zero deletions",
+            "module": "docs/D55_inventory.md"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.1",
+          "AC-D55.1",
+          "Journey 48",
+          "A149",
+          "A151",
+          "R111"
+        ],
+        "test_command": "test -f docs/D55_inventory.md && grep -q 'cross-reference' docs/D55_inventory.md && grep -q -i 'generated' docs/D55_inventory.md && echo T1_OK",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P16-T2",
+      "title": "Source-cited fact sheet with explicitly-open items (D55.2)",
+      "description": "Produce docs/D55_fact_sheet.md: one source citation per fact covering LWC-only status (factory + P6-T13 commit/gate, waived-not-satisfied preserved), live-only connection truth per answered Q85, the P7 cap as a per-load maximum with the three plan examples plus per-load definition and the AC-D16.8 requirement-vs-plan separation, the spike stub labelling with runtime evidence kept separate, and P7/P8 approval-vs-built dating. Facts the source does not decide (notably 50-vs-100 per A154/DG102) stay explicitly open, never guessed.",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC1: Given the source modules, gate record, and decision records, when the fact sheet states each AC-D55.2 fact, then every row carries one verifiable source citation and every P6-T13 reference preserves the waived-not-satisfied distinction verbatim.",
+        "AC2: Given any fact the source does not decide (notably the 50-vs-100 figures per A154/DG102), when reconciling, then the row stays explicitly open with its decider named and no value is picked in prose."
+      ],
+      "tests": [
+        {
+          "test_id": "T21",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "For each fact-sheet row, open the cited source location and confirm the claim; grep the sheet for 'waived, not satisfied' and for any bare 'satisfied' T13 paraphrase without 'waived'.",
+          "expected_result": "Every row cites a live source location; waived-not-satisfied preserved on all T13 references; zero collapsed paraphrases."
+        },
+        {
+          "test_id": "T22",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Read the 50-vs-100 row and any other undecided row; assert each names its decider (config/settings.py plus P7 assertions) and records open-or-reconciled-with-evidence without choosing a value in prose.",
+          "expected_result": "Undecided facts recorded open with owner/source named, or reconciled with cited evidence; nothing silently chosen."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/D55_fact_sheet.md"
+      ],
+      "touches_files": [
+        "docs/D55_fact_sheet.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "LWC factory source",
+        "connection constants",
+        "gate disposition",
+        "parity matrix state",
+        "P16-T1 inventory (for scope, read after it lands)"
+      ],
+      "outputs": [
+        "Source-cited fact sheet gating the W2 guide correction"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "config/settings.py",
+            "why": "read-only: IBKR_HOST/PORT/CLIENT_ID + LIVE_PORT guard truth the connection row cites, never edited",
+            "lines": "1-40"
+          },
+          {
+            "path": "ui/chart_view.py",
+            "why": "read-only: create_chart_view LWC-only factory the engine row cites, never edited",
+            "lines": "110-135"
+          },
+          {
+            "path": "docs/build/gate_P6_T13.md",
+            "why": "read-only: gate disposition the waived-not-satisfied row cites verbatim, never edited"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "why": "read-only: parity-vs-cutover state the spike/claims rows cite, never edited"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/chart_view.py:create_chart_view",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:clear_backfill_indicator",
+            "ref": "config/settings.py:LIVE_PORT",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:_is_cache_current",
+            "ref": "docs/build/gate_P6_T13.md:waived",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:_finalize_history_wave",
+            "ref": "docs/requirements/requirements.md:AC-D16.8",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "Backfill indicator miss marker: at/after a missed T0+10 s expiry with spans still missing, the permanent indicator text reads 'Backfill (partial): {in_flight} in flight, {queued} queued, {elapsed:.1f}s, reqIds={req_ids}' until the wave terminates; a wave complete by the bound returns it to 'Backfill: idle' via the unchanged clear path with no marker",
-            "module": "ui/main_window.py"
+            "signature": "docs/D55_fact_sheet.md: one cited row per AC-D55.2 fact (LWC-only status; live-only connection per Q85; P7 cap as per-load maximum with examples, per-load definition, AC-D16.8 separation; spike stub labelling; P7/P8 dating); undecided rows explicitly open with decider named",
+            "module": "docs/D55_fact_sheet.md"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P15",
-        "plan_ref": "docs/plan.md#Phase P15",
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
         "requirement_ids": [
-          "D54.3",
-          "D54.4",
-          "AC-D54.3",
-          "AC-D54.4",
-          "Journey 47",
-          "A144",
-          "A148",
-          "Q83"
+          "D55",
+          "D55.2",
+          "AC-D55.2",
+          "Journey 48",
+          "Q85",
+          "A152",
+          "A154",
+          "A155",
+          "DG102",
+          "DG103"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p15_surfacing.py -q",
+        "test_command": "test -f docs/D55_fact_sheet.md && grep -q 'create_chart_view' docs/D55_fact_sheet.md && grep -q 'waived, not satisfied' docs/D55_fact_sheet.md && grep -q -i 'live-only' docs/D55_fact_sheet.md && grep -q -i 'explicitly open' docs/D55_fact_sheet.md && echo T2_OK",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
+      }
+    },
+    {
+      "id": "P16-T3",
+      "title": "README authority blocks + per-doc metadata + map index pass (D55.3)",
+      "description": "Bring docs/README.md to the full authority/index shape (one-sentence status, authority table, current-work, historical, ownership blocks) with short role/status/as-of/canonical/supersedes metadata on every current normative doc header, and pass docs/codebase-map.md back to a pure module index with contradictory status prose removed by append-only correction only. Builds on the P16-T1 inventory locations and P16-T2 fact rows; requirements.md headers are explicitly out of scope (Analyst-owned, do not touch).",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P16-T1",
+        "P16-T2"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given the corpus, when labelled, then docs/README.md carries the one-sentence status, authority table, current-work, historical, and ownership blocks, and every current normative doc header carries short role/status/as-of/canonical/supersedes metadata.",
+        "AC2: Given docs/codebase-map.md, when passed as an index, then its live header states the LWC-only engine with no unbannered retained-pyqtgraph claim, and every status correction is an appended note with historical prose byte-identical."
+      ],
+      "tests": [
+        {
+          "test_id": "T31",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Walk Journey 48 (one question per question class) starting from docs/README.md; assert each lands on the canonical doc via the authority table; assert each touched normative header carries role/status/as-of metadata.",
+          "expected_result": "Journey 48 walk lands on the canonical doc per question class; all touched headers carry short metadata."
+        },
+        {
+          "test_id": "T32",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Grep the map's live header for retained-pyqtgraph/dual-engine claims outside HISTORICAL or superseded banners; assert zero; diff the map's historical sections against pre-task bytes apart from appended notes.",
+          "expected_result": "Zero unbannered stale engine claims; historical sections byte-identical apart from appended notes."
+        }
+      ],
+      "expected_artifacts": [
+        "Updated docs/README.md",
+        "Updated docs/codebase-map.md (index pass only)"
+      ],
+      "touches_files": [
+        "docs/README.md",
+        "docs/codebase-map.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P16-T1 inventory locations",
+        "P16-T2 fact rows",
+        "P16-T2 docs/D55_fact_sheet.md (read after T2 lands; ordering via dependency)"
+      ],
+      "outputs": [
+        "Authoritative navigation index + labelled corpus"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/README.md",
+            "why": "authority table + status blocks this task completes",
+            "lines": "1-60"
+          },
+          {
+            "path": "docs/codebase-map.md",
+            "why": "live header + P16 note region this task corrects by append-only notes",
+            "lines": "1-102"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.3",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.3",
+          "AC-D55.3",
+          "Journey 48",
+          "A150",
+          "R112",
+          "DG105"
+        ],
+        "test_command": "grep -q 'Authoritative document' docs/README.md && grep -q 'Role:' docs/README.md && grep -q 'Lightweight Charts' docs/codebase-map.md && echo T3_OK",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P16-T4",
+      "title": "User-guide live-only correction: canonical usage.md + USAGE.txt pointer (D55.4)",
+      "description": "Correct usage.md into the single canonical full guide stating the answered Q85 live-only truth (paper-on-7496 sentences at usage.md:106-107 and the :257 port-guard bullet corrected away; one engine per create_chart_view source with no false opt-in/default; NDT_CHART_ENGINE/QSettings behaviour per source; prerequisites, commands, packaging, DB path incl. DB_PATH override, features, limitations refreshed; as-of date plus troubleshooting/current-status link) and USAGE.txt (its :39-40 paper sentences corrected identically) into its short pointer. Gated on the P16-T2 fact sheet; guides are never corrected on a guess.",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P16-T2"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given answered Q85 (live-only), when corrected, then usage.md states exactly one engine per source, live-only port/account behaviour with every paper-on-7496 sentence gone, and carries an as-of date plus a troubleshooting/current-status link; USAGE.txt is a short pointer agreeing with usage.md by construction, never a second full guide.",
+        "AC2: Given the parity records and known rendering defects, when the guides make completeness claims, then no unqualified parity-complete sentence remains in either file: each such claim is removed or qualified against docs/lwc_parity_matrix.md and the defect record."
+      ],
+      "tests": [
+        {
+          "test_id": "T41",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Grep usage.md and USAGE.txt for the paper-on-7496 sentences (usage.md:106-107, :257 bullet; USAGE.txt:39-40) and any other paper-mode instruction; assert zero hits; diff the two files' install/port/account claims and assert agreement (one full guide plus one pointer).",
+          "expected_result": "Zero paper-on-7496 sentences in either file; the two files agree on engine, port, account mode, and DB path."
+        },
+        {
+          "test_id": "T42",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Grep both guides for parity-complete language and equivalents; for each hit assert it carries a parity-record link plus defect qualification, or assert it was removed.",
+          "expected_result": "No unqualified parity-complete claim remains in either guide."
+        }
+      ],
+      "expected_artifacts": [
+        "Corrected usage.md (canonical)",
+        "Corrected USAGE.txt (pointer)"
+      ],
+      "touches_files": [
+        "usage.md",
+        "USAGE.txt"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P16-T2 fact sheet (connection truth + engine truth)",
+        "live port-guard source behaviour"
+      ],
+      "outputs": [
+        "Single live-only user guide + agreeing pointer"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "usage.md",
+            "why": "paper-on-7496 sentences + engine/port claims this task corrects",
+            "lines": "95-115"
+          },
+          {
+            "path": "usage.md",
+            "why": "port-guard bullet + DB/features sections this task refreshes",
+            "lines": "245-260"
+          },
+          {
+            "path": "USAGE.txt",
+            "why": "paper sentences + pointer shape this task corrects",
+            "lines": "30-50"
+          },
+          {
+            "path": "config/settings.py",
+            "why": "read-only: LIVE_PORT guard truth the live-only correction cites, never edited",
+            "lines": "1-30"
+          },
+          {
+            "path": "ui/chart_view.py",
+            "why": "read-only: engine factory truth the one-engine correction cites, never edited",
+            "lines": "110-135"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "config/settings.py:LIVE_PORT",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/chart_view.py:create_chart_view",
+            "status": "existing"
+          },
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.4",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.4",
+          "AC-D55.4",
+          "Journey 50",
+          "Q85",
+          "R110",
+          "DG103"
+        ],
+        "test_command": "! grep -q 'paper (DU)' usage.md USAGE.txt && grep -q -i 'live' usage.md && grep -q '7496' usage.md USAGE.txt && echo T4_OK",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P16-T5",
+      "title": "Six-file P6 reconciliation in one changeset (D55.5)",
+      "description": "Reconcile the P6 record set in a single changeset across docs/architecture.md (as-built T13 outcome + gate disposition, plan-vs-delivered separated), docs/codebase-map.md (LWC-only engine/paths/counts, no retained-pyqtgraph claims), docs/lwc_parity_matrix.md (parity-vs-cutover structurally separated in distinct columns/sections, never a one-time relabel; no accepted row claiming a removed engine present or default; waived/retired/linked), docs/code_review/review_log_P6.md (dated addendum only, original text untouched), docs/phase-changelog.md (P6/T13 outcome + commit + gate), and docs/CHANGELOG.md (concise P6/P7/P8 index or pointer to phase-changelog). Every T13 reference preserves waived-not-satisfied per A152.",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P16-T1",
+        "P16-T2"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given the P6-T13 as-built outcome, when reconciled in one changeset, then all six files state the as-built end state with plan-vs-delivered separated, the parity matrix structurally separates parity from cutover with no accepted row claiming a removed engine present or default, and every T13 reference preserves waived-not-satisfied.",
+        "AC2: Given the original P6 review text, when the reconciliation lands, then docs/code_review/review_log_P6.md carries a dated addendum with its original text byte-identical, and docs/CHANGELOG.md indexes P6/P7/P8 through the phase-changelog pointer per DG105."
+      ],
+      "tests": [
+        {
+          "test_id": "T51",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Run the Journey-49 contradiction grep across all six files (pyqtgraph default, dual-engine, undispatched-T13, owed-live-session stated satisfied); assert zero unbannered hits; assert every T13 reference carries waived-not-satisfied; assert the parity matrix separates parity from cutover structurally.",
+          "expected_result": "Contradiction grep returns zero unbannered stale claims; waived-not-satisfied on every T13 reference; structural parity/cutover separation."
+        },
+        {
+          "test_id": "T52",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Diff review_log_P6.md original sections against pre-task bytes; assert identical apart from the appended dated addendum; assert CHANGELOG P6/P7/P8 entries resolve to live phase-changelog anchors.",
+          "expected_result": "Original review text byte-identical; addendum dated and appended; CHANGELOG entries resolve."
+        }
+      ],
+      "expected_artifacts": [
+        "Six reconciled P6 record files"
+      ],
+      "touches_files": [
+        "docs/architecture.md",
+        "docs/codebase-map.md",
+        "docs/lwc_parity_matrix.md",
+        "docs/code_review/review_log_P6.md",
+        "docs/phase-changelog.md",
+        "docs/CHANGELOG.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P16-T1 inventory",
+        "P16-T2 fact sheet",
+        "P6-T13 gate disposition"
+      ],
+      "outputs": [
+        "Single-changeset P6 record agreement per Journey 49"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/architecture.md",
+            "why": "Phase P6 as-built section this task separates plan-vs-delivered in"
+          },
+          {
+            "path": "docs/codebase-map.md",
+            "why": "engine/paths/counts header this task makes LWC-only"
+          },
+          {
+            "path": "docs/lwc_parity_matrix.md",
+            "why": "parity rows this task structurally separates from cutover"
+          },
+          {
+            "path": "docs/code_review/review_log_P6.md",
+            "why": "original review text this task appends a dated addendum to, never rewrites"
+          },
+          {
+            "path": "docs/phase-changelog.md",
+            "why": "P6/T13 outcome entry this task completes with commit + gate"
+          },
+          {
+            "path": "docs/CHANGELOG.md",
+            "why": "P6/P7/P8 index entries this task points at phase-changelog"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "docs/build/gate_P6_T13.md:waived",
+            "status": "existing"
+          },
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.5",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.5",
+          "AC-D55.5",
+          "Journey 49",
+          "A152",
+          "DG104",
+          "DG105",
+          "R110"
+        ],
+        "test_command": "for f in docs/architecture.md docs/codebase-map.md docs/lwc_parity_matrix.md docs/code_review/review_log_P6.md docs/phase-changelog.md docs/CHANGELOG.md; do grep -q -i 'P6-T13' $f || echo MISSING:$f; done; grep -q 'waived, not satisfied' docs/architecture.md && echo T5_OK",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P16-T6",
+      "title": "P7 backfill wording as a coordinated addendum (D55.6)",
+      "description": "Amend the P7 cap record as one coordinated addendum across docs/plan.md (Phase P7), docs/architecture.md (Phase P7), docs/plan_review_P7.md, and docs/tasks/task_manager_notes_P7.md: the cap reads as a per-load maximum never a target, with the three plan examples, the per-load (coalesced/cancel-refund) definition, the 50-vs-100 reconciliation-or-explicit-open note (decided from config/settings.py plus P7 assertions, else recorded open per A154/DG102, never silently chosen), and the approval-preserving delta note. AC-D16.8 requirement text is referenced, never restated (RG-P7-1 stays Analyst debt); the approved P7 record stays byte-identical apart from appended deltas.",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P16-T1",
+        "P16-T2"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given the approved P7 plan, when amended, then the cap reads as a per-load maximum never a target with the three plan examples, the per-load definition, and the approval-preserving delta note present in all four files, while the approved record stays byte-identical apart from appended deltas.",
+        "AC2: Given DG102, when the 50-vs-100 figures are checked against config/settings.py and the P7 assertions, then they are reconciled with cited evidence or the discrepancy stays explicitly open with owner and source named, never silently chosen; the AC-D16.8 requirement text appears as a reference or link only."
+      ],
+      "tests": [
+        {
+          "test_id": "T61",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Grep the four files for cap-as-target phrasing; assert zero hits; assert the maximum wording with the three plan examples, the per-load definition, and the delta note present in each; diff the approved P7 sections against pre-task bytes apart from appended deltas.",
+          "expected_result": "Zero cap-as-target hits; maximum wording plus examples, definition, and delta note in all four files; approved record otherwise byte-identical."
+        },
+        {
+          "test_id": "T62",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Read the 50-vs-100 note; assert it either reconciles against config/settings.py values plus named P7 assertions or records the discrepancy explicitly open with owner/source; assert AC-D16.8 appears only as a reference, never restated.",
+          "expected_result": "50-vs-100 reconciled with evidence or explicitly open per A154; AC-D16.8 referenced, never restated."
+        }
+      ],
+      "expected_artifacts": [
+        "P7 cap-as-maximum addenda in plan + architecture + P7 review + P7 notes"
+      ],
+      "touches_files": [
+        "docs/plan.md",
+        "docs/architecture.md",
+        "docs/plan_review_P7.md",
+        "docs/tasks/task_manager_notes_P7.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P16-T2 fact sheet (cap row)",
+        "approved P7 plan text",
+        "budget constants source"
+      ],
+      "outputs": [
+        "Coordinated P7 cap addendum with approval record intact"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/plan.md",
+            "why": "Phase P7 approved text this task appends the cap addendum to, never rewrites"
+          },
+          {
+            "path": "docs/architecture.md",
+            "why": "Phase P7 section this task appends the cap addendum to, never rewrites"
+          },
+          {
+            "path": "docs/plan_review_P7.md",
+            "why": "P7 approval record this task appends the delta note to"
+          },
+          {
+            "path": "docs/tasks/task_manager_notes_P7.md",
+            "why": "P7 decomposition record this task appends the delta note to"
+          },
+          {
+            "path": "config/settings.py",
+            "why": "read-only: budget constants the 50-vs-100 check decides from, never edited",
+            "lines": "30-45"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "config/settings.py:MAX_HISTORICAL_PER_600S",
+            "status": "existing"
+          },
+          {
+            "ref": "docs/requirements/requirements.md:AC-D16.8",
+            "status": "existing"
+          },
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.6",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.6",
+          "AC-D55.6",
+          "A154",
+          "DG102",
+          "Journey 49"
+        ],
+        "test_command": "grep -q -i 'maximum' docs/plan.md && grep -q -i 'maximum' docs/architecture.md && grep -q -i 'DG102' docs/plan.md docs/architecture.md docs/plan_review_P7.md docs/tasks/task_manager_notes_P7.md && echo T6_OK",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P16-T7",
+      "title": "Cumulative-spec navigation: baseline blocks + uniform metadata + link audit (D55.7)",
+      "description": "Make the canonical files navigable: short current-baseline blocks (current architecture, active phase, unresolved requirements, as-built changelog link) atop docs/architecture.md and docs/plan.md plus uniform status/commit/evidence/supersession metadata on increments, with link/reference checks passing and repeated full summaries replaced by cross-references (R112). Archive moves themselves execute under the P16-T8 ledger, not here. The requirements.md baseline block is explicitly out of scope (Requirements Analyst-owned; do not touch anything under docs/requirements/).",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P16-T1",
+        "P16-T2"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given the canonical files, when made navigable, then docs/architecture.md and docs/plan.md each carry a short current-baseline block and increments carry uniform status/commit/evidence/supersession metadata, with active decisions never separated from their requirements.",
+        "AC2: Given the archive option, when the link and tooling audit runs, then the pre-move reference check passes, no move is recorded without a passing post-move check, and repeated full summaries are replaced by cross-references rather than duplicated."
+      ],
+      "tests": [
+        {
+          "test_id": "T71",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Read the baseline blocks atop architecture.md and plan.md; assert each names the current architecture, active phase, unresolved requirements, and as-built changelog link; sample increments for uniform metadata; assert nothing under docs/requirements/ was modified.",
+          "expected_result": "Baseline blocks complete on both files; uniform increment metadata; docs/requirements/ untouched."
+        },
+        {
+          "test_id": "T72",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Run the filename/heading link and reference check across the canonical files and record the pass; list any archive candidates with their pre-move check result and leave the moves for P16-T8.",
+          "expected_result": "Link/reference check passes and is recorded; archive candidates listed with pre-move status; zero moves executed in this task."
+        }
+      ],
+      "expected_artifacts": [
+        "Baseline blocks + metadata on architecture.md and plan.md",
+        "Recorded link-audit pass"
+      ],
+      "touches_files": [
+        "docs/architecture.md",
+        "docs/plan.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P16-T1 inventory",
+        "P16-T2 fact sheet"
+      ],
+      "outputs": [
+        "Navigable canonical files + audited archive-candidate list"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/architecture.md",
+            "why": "canonical file this task tops with a baseline block and uniform metadata"
+          },
+          {
+            "path": "docs/plan.md",
+            "why": "canonical file this task tops with a baseline block and uniform metadata"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.7",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.7",
+          "AC-D55.7",
+          "Journey 48",
+          "R112",
+          "DG105"
+        ],
+        "test_command": "grep -q -i 'as-built changelog' docs/plan.md docs/architecture.md && git status --porcelain -- docs/requirements/ | grep -q . && echo T7_FAIL_REQS_TOUCHED || echo T7_OK",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P16-T8",
+      "title": "Disposition ledger + approved deletions + archive moves (D55.8)",
+      "description": "Produce docs/D55_disposition_ledger.md placing every in-scope file in exactly one bucket (keep-current / keep-historical-bannered / pointer-or-merge-after-audit / conditional-deletion-candidate) with condition evidence, then execute only the approved dispositions: verify-then-hold the pre-landed dev_docs/ deletion (reference check: self-contained sound_service docstring, historical mentions stay true history, zero code-tree citations) and delete the four Q87 targets without archive (legacy docs/code_review/review_log.md and docs/tasks/task_manager_notes.md plus generated docs/code_review/precheck.json and docs/code_review/precheck.md) only after each suffixed successor or generated replacement is verified live. The 16 investigation files are indexed, never destroyed (A153); proposals stay historical with archive only after the link audit.",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P16-T1",
+        "P16-T2",
+        "P16-T3",
+        "P16-T4",
+        "P16-T5",
+        "P16-T6",
+        "P16-T7"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given the disposition matrix, when applied, then the ledger places every in-scope file in exactly one bucket with condition evidence, audit records are preserved by default, and the 16 investigation files are indexed with none destroyed or merged.",
+        "AC2: Given answered Q86 and Q87, when deletions execute, then dev_docs/ stays deleted with its reference check re-verified and the four Q87 targets are deleted without archive only after each suffixed successor is verified live; proposals stay historical and any archive move runs only after the link audit passes."
+      ],
+      "tests": [
+        {
+          "test_id": "T81",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Walk the ledger against the P16-T1 inventory file list; assert 1:1 bucket coverage with evidence per row; assert audit records and proposals are preserved; list the 16 investigation files and assert each is indexed and still present.",
+          "expected_result": "Ledger covers every in-scope file exactly once with evidence; audit records preserved; all 16 investigation files indexed and present."
+        },
+        {
+          "test_id": "T82",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Re-run the dev_docs/ reference check (code-tree grep plus historical-mention review); open each suffixed successor (review_log_P15, task_manager_notes_P15, test_verification records) and confirm it carries the live record; then assert the four Q87 targets are gone and no archive copy was created.",
+          "expected_result": "Reference check passes; successors verified live; four Q87 targets deleted with no archive; proposals untouched."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/D55_disposition_ledger.md",
+        "Four deleted Q87 targets",
+        "Verified dev_docs/ end state"
+      ],
+      "touches_files": [
+        "docs/D55_disposition_ledger.md",
+        "docs/code_review/review_log.md",
+        "docs/tasks/task_manager_notes.md",
+        "docs/code_review/precheck.json",
+        "docs/code_review/precheck.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P16-T1 cross-reference map in docs/D55_inventory.md (read after T1 lands; ordering via dependency)",
+        "P16-T3 labelled corpus",
+        "Q86/Q87 answers",
+        "suffixed successor records"
+      ],
+      "outputs": [
+        "Complete disposition ledger + executed approved deletions"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/code_review/review_log.md",
+            "why": "legacy unsuffixed log this task deletes after verifying its suffixed successors carry the live record"
+          },
+          {
+            "path": "docs/tasks/task_manager_notes.md",
+            "why": "legacy unsuffixed notes this task deletes after verifying per-phase successors carry the live record"
+          },
+          {
+            "path": "docs/code_review/precheck.json",
+            "why": "generated precheck output this task deletes per Q87 (delete, no archive)"
+          },
+          {
+            "path": "docs/code_review/precheck.md",
+            "why": "generated precheck output this task deletes per Q87 (delete, no archive)"
+          },
+          {
+            "path": "docs/code_review/review_log_P15.md",
+            "why": "read-only: suffixed successor evidence the deletion precondition checks, never edited"
+          },
+          {
+            "path": "docs/tasks/task_manager_notes_P15.md",
+            "why": "read-only: per-phase successor evidence the deletion precondition checks, never edited"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/sound_service.py:numpy synthesis",
+            "status": "existing"
+          },
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.8",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.8",
+          "AC-D55.8",
+          "Journey 48",
+          "Q86",
+          "Q87",
+          "Q84",
+          "A153",
+          "R111"
+        ],
+        "test_command": "test -f docs/D55_disposition_ledger.md && test ! -e docs/code_review/review_log.md && test ! -e docs/tasks/task_manager_notes.md && test ! -e docs/code_review/precheck.json && test ! -e docs/code_review/precheck.md && ! grep -rn 'dev_docs' services/ tests/ packaging/ main.py 2>/dev/null && echo T8_OK",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P16-T9",
+      "title": "Final docs-only consistency review + history guard (D55.9/D55.10)",
+      "description": "Produce docs/D55_final_review.md certifying the consolidated tree docs-only: run the plan completion checklist 1:1 (stale-claim grep across pyqtgraph-default, dual-engine, undispatched-T13, owed-live-session, parity-complete, legacy account/port incl. paper-on-7496, and spike API names as runtime evidence, plus paraphrase sampling per R113; link/filename/phase-ID/commit/status checks; guide-vs-source-vs-plan cross-checks; historical labelling; addendum discipline), confirm pre-existing user edits are preserved and the diff touches docs-only paths, and certify the AC-D55.10 history guard (### D41 through ### D54 with reversals, Existing Repository marker sentence, Current Tech Stack byte-identical except by explicitly recorded supersession notes). No product test suite run is a gate (AP-P16-2). Plus ESC-098 BUILD rework (explicit scope, history-guard only \u2014 not a product-suite gate, AP-P16-2 intact): repair the two history-hash guards tests/test_p14_cache_guard.py::test_t34_history_markers_intact and tests/test_p15_surfacing.py::test_t33_history_markers_intact so the legitimate Analyst-owned P16 requirements additions pass \u2014 narrow each hashed region to the protected content (the D41\u2013D52 sections, the Existing Repository marker sentence, the Current Tech Stack, and the reversal/supersession markers), keeping every existing protected assertion intact; requirements.md itself is never touched (Analyst-owned).",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P16-T8"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given the consolidated tree, when the docs-only review runs, then every plan completion-checklist item ticks 1:1 with stale-claim grep plus paraphrase sampling, all link and cross checks passing, pre-existing user edits preserved, and the diff showing docs-only paths.",
+        "AC2: Given docs/requirements/requirements.md, when guarded, then the ### D41 through ### D54 sections with reversals, the Existing Repository marker sentence, and the Current Tech Stack are byte-identical except by explicitly recorded supersession notes.",
+        "AC3: Given the legitimate P16 requirements additions present in docs/requirements/requirements.md, when the two history-markers-intact guards run, then both pass while every protected-content assertion stays intact (all ### D41 through ### D52 headings, the Existing Repository marker sentence, the Current Tech Stack, and the reversal/supersession markers \u2014 no assertion removed or weakened to accommodate the additions)."
+      ],
+      "tests": [
+        {
+          "test_id": "T91",
+          "linked_acceptance_criterion": "AC1",
+          "type": "manual",
+          "description": "Execute each completion-checklist item in order (stale-claim grep classes plus paraphrase samples; link/filename/phase-ID/commit/status; guide-vs-source-vs-plan; labelling; addendum discipline); record per-item pass with the exact grep or check run; diff the worktree and assert docs-only paths plus preserved user edits.",
+          "expected_result": "Checklist ticks 1:1 with recorded evidence per item; diff shows docs-only paths; user edits preserved."
+        },
+        {
+          "test_id": "T92",
+          "linked_acceptance_criterion": "AC2",
+          "type": "manual",
+          "description": "Diff the ### D41 through ### D54 requirements sections, the Existing Repository marker sentence, and the Current Tech Stack against pre-P16 bytes; assert identical except for explicitly recorded supersession notes listed in the review.",
+          "expected_result": "Pre-P16 criteria byte-identical; any delta is an explicitly recorded supersession note."
+        },
+        {
+          "test_id": "T93",
+          "linked_acceptance_criterion": "AC3",
+          "type": "unit",
+          "description": "Narrow (or, only if narrowing cannot be expressed without dropping an assertion, re-pin) the hashed region in tests/test_p14_cache_guard.py and tests/test_p15_surfacing.py per the task description, then run QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p15_surfacing.py::test_t33_history_markers_intact -q and assert exit 0; grep both files for the protected assertions (the 41..52 heading loop, REVERSED/SUPERSEDED markers, marker sentence, Current Tech Stack) and assert none was removed or weakened.",
+          "expected_result": "Both history-markers-intact guards pass alongside the legitimate P16 requirements additions; every protected-content assertion still present and asserting."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/D55_final_review.md (1:1 checklist certification)",
+        "Repaired history-hash guards in both test files (green, no assertion weakened)"
+      ],
+      "touches_files": [
+        "docs/D55_final_review.md",
+        "tests/test_p14_cache_guard.py",
+        "tests/test_p15_surfacing.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "Consolidated docs tree",
+        "P16-T8 ledger",
+        "plan completion checklist",
+        "ESC-098 (legitimate P16 requirements additions vs over-broad pre-D53 whole-head hash)"
+      ],
+      "outputs": [
+        "Docs-only consistency certification + history-guard proof",
+        "Green history guards alongside the P16 requirements additions"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/documentation_consolidation_plan.md",
+            "why": "completion checklist this review ticks 1:1; scan, do not restructure"
+          },
+          {
+            "path": "docs/README.md",
+            "why": "read-only: authority table the guide-vs-plan cross-check verifies against, never edited here"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "60-70",
+            "why": "PRE_D53_SHA256 pin this task re-pins or replaces with a narrowed region \u2014 edited here"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "400-423",
+            "why": "T34 guard body whose hashed region this task narrows; protected assertions must stay \u2014 edited here"
+          },
+          {
+            "path": "tests/test_p15_surfacing.py",
+            "lines": "62-68",
+            "why": "PRE_D53_SHA256 pin this task re-pins or replaces with a narrowed region \u2014 edited here"
+          },
+          {
+            "path": "tests/test_p15_surfacing.py",
+            "lines": "397-434",
+            "why": "T33 guard body whose hashed region this task narrows; protected assertions must stay \u2014 edited here"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "docs/requirements/requirements.md:D41",
+            "status": "existing"
+          },
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.9",
+            "status": "existing"
+          },
+          {
+            "ref": "docs/requirements/requirements.md:AC-D55.10",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p14_cache_guard.py:PRE_D53_SHA256",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_p15_surfacing.py:PRE_D53_SHA256",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P16",
+        "plan_ref": "docs/plan.md#Phase P16",
+        "requirement_ids": [
+          "D55",
+          "D55.9",
+          "D55.10",
+          "AC-D55.9",
+          "AC-D55.10",
+          "R113",
+          "Journey 48"
+        ],
+        "test_command": "test -f docs/D55_final_review.md && git status --porcelain | grep -vE 'docs/|usage\\\\.md|USAGE\\\\.txt|tests/test_p14_cache_guard\\\\.py|tests/test_p15_surfacing\\\\.py' | grep -q . && echo T9_FAIL_NON_DOCS || echo T9_OK && QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p15_surfacing.py::test_t33_history_markers_intact -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
       }
     }
   ]

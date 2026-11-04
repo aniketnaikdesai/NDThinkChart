@@ -1552,3 +1552,32 @@ history of the choice.
 - **Why it matters:** standalone probes show legitimate single-request TWS latencies of 25–76 s for deep history (35D/45D/60D windows) and the watchdog path assumes ~120 s, so most deep loads cannot complete by a 10 s user-visible deadline. The cap therefore forces expiry semantics (partial render and/or background fill and/or visible shortfall) rather than faster fetching — and the choice changes wave-lifecycle assertions in opposite directions (Q82a continue vs Q82b cancel).
 - **Suggested resolution:** owner decides Q81–Q83; Plan treats the mechanism (page sizing, background continuation, watchdog interplay) as implementation detail against the pinned outcome. No code or D53 surface change is implied by this entry.
 - **Status:** open (non-blocking on its own; Q81–Q83 are non-blocking with defaults carried per A148).
+
+
+## DG102 — D55: the 50-vs-100 rolling-budget figures are unreconciled (left explicitly open)
+
+- **Where it shows up:** P7 backfill wording / `AC-D55.6`; `config/settings.py` rolling-budget constants and P7 assertions; plan Phase 5.4.
+- **Why it matters:** two budget figures circulate for the same rolling window; writing either into the coordinated addendum without source evidence would silently pick a capacity the waves depend on (over-claim → pacing violations; under-claim → needless throttling language).
+- **Suggested resolution:** reconcile against `config/settings.py` + the P7 assertions; if they do not decide it, record the discrepancy as explicitly open with its owner/source (A154) — never choose in prose.
+- **Status:** open (non-blocking; `AC-D55.6` is the gate).
+
+## DG103 — D55: NDT_CHART_ENGINE / QSettings engine-key wording must follow source, not memory
+
+- **Where it shows up:** user guides + index current-work block / `AC-D55.2`–`AC-D55.4`; `ui/chart_view.py::create_chart_view`.
+- **Why it matters:** the index (changesets 1–2) states the keys are read by deployment tooling but no longer select a renderer; if source shows otherwise (or nothing reads them at all), the sentence itself becomes the next stale claim.
+- **Suggested resolution:** verify against `ui/chart_view.py` + settings/deployment readers during fact reconciliation; write exactly what the code does (ignored vs compatibility-accepted vs tooling-only).
+- **Status:** open (non-blocking; `AC-D55.2` is the gate).
+
+## DG104 — D55: parity-vs-cutover separation must survive future matrix edits
+
+- **Where it shows up:** `docs/lwc_parity_matrix.md` / `AC-D55.5`; gate record `docs/build/gate_P6_T13.md`.
+- **Why it matters:** the matrix's 19 rows previously conflated feature parity with deletion/cutover status (row 19 Retired); a future row edit can re-conflate them and re-contradict the gate record's waived-not-satisfied disposition.
+- **Suggested resolution:** keep the parity-vs-deletion separation structural (distinct columns/sections, not a one-time relabelling); each row links its evidence; the gate disposition is quoted, never paraphrased (A152).
+- **Status:** open (non-blocking; `AC-D55.5` is the gate).
+
+## DG105 — D55: CHANGELOG-vs-phase-changelog roles must stay distinct after indexing
+
+- **Where it shows up:** `docs/CHANGELOG.md` + `docs/phase-changelog.md` / `AC-D55.5`; plan §§4.6/4.7.
+- **Why it matters:** two overlapping chronologies re-drift by default (each edit lands in one file); the consolidation must leave exactly one role boundary (short index → full chronology, or merge-then-remove after consumer checks).
+- **Suggested resolution:** pick one boundary in the ledger (`AC-D55.8`), enforce it with the link/reference check (`AC-D55.9`), and verify no release tooling or external reference depends on the removed role before any removal.
+- **Status:** open (non-blocking; `AC-D55.8`/`AC-D55.9` are the gates).

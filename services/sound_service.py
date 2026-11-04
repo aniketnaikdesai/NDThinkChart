@@ -1,7 +1,7 @@
 """Synthesized alert tones.
 
-Ports the Web Audio alarm chime described in dev_docs/delta.md §3 to numpy
-rendering + QSoundEffect playback:
+numpy synthesis of the Web Audio alarm chime, rendered with numpy
++ QSoundEffect playback:
 
   * Alarm chime  - three overlapping oscillators: an 880Hz sine gliding down to
                    875Hz over 0.35s, a 1318.5Hz triangle starting at +80ms, and
