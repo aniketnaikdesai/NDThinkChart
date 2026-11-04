@@ -205,6 +205,11 @@ class TickerSession(QObject):
         # uses it, so an RTH and an ETH chart (primary vs pop-out) cannot
         # cross-contaminate.
         self._wave_extended_hours: bool = False
+        # P14-W2 (S-P14-2): in-memory wave-start timestamp (wall-clock
+        # epoch). Set once when the first plan of a wave issues, cleared
+        # when the wave terminates; never reset by a coalesced reload. The
+        # indicator's elapsed is a pure read of this field.
+        self._wave_start_ts: float | None = None
         self._retried_plans: set = set()  # error-162 retry-once tracking
         self._wave_continue_timer = QTimer(self)
         self._wave_continue_timer.setSingleShot(True)
@@ -827,6 +832,10 @@ class TickerSession(QObject):
         self._history_req_issued.clear()
         self._req_bars.clear()
         self._pending_bars = []
+        # P14-W2 (S-P14-2): the wave terminated — clear the elapsed
+        # baseline so the next wave re-stamps it. A coalesced reload never
+        # cancels, so it can never clear the running baseline.
+        self._wave_start_ts = None
 
     def _history_wave_watchdog_bound_ms(self, wait_s: float = 0.0) -> int:
         """Window-relative strand bound (P7-W2, S-P7-3): max(base, wait+margin).
@@ -901,6 +910,12 @@ class TickerSession(QObject):
         self._req_bars = {}
         self._history_req_issued = set()
         self._wave_issued_this_load = 0
+        # P14-W2 (S-P14-2): stamp the wave start once. A coalesced reload
+        # never reaches here (Branch-A early-returns before the cancel), so
+        # it can never reset the running baseline; a genuine new wave
+        # re-stamps here after the load-path cancel cleared it.
+        if self._wave_start_ts is None:
+            self._wave_start_ts = time.time()
         self._issue_wave_chunks()
 
     def _issue_wave_chunks(self, max_per_wave: int | None = None) -> None:

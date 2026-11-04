@@ -546,6 +546,15 @@ class MainWindow(QMainWindow):
         # ── Status bar ────────────────────────────────────────────────────────
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+        # P14-W1 (S-P14-1): persistent backfill-state indicator. A permanent
+        # widget lives outside the transient showMessage slot by Qt
+        # construction, so unrelated showMessage traffic can neither clear
+        # nor overwrite it. The indicator is never a showMessage caller.
+        self._backfill_indicator = QLabel("Backfill: idle")
+        self._backfill_indicator.setObjectName("backfill_indicator")
+        self.status_bar.addPermanentWidget(self._backfill_indicator)
+        self._backfill_wave_start: float | None = None
+        self._backfill_state: dict | None = None
         if self.chart_engine_failed:
             # ESC-070: the blank chart says why, instead of looking empty.
             self.status_bar.showMessage(
@@ -835,7 +844,17 @@ class MainWindow(QMainWindow):
             return
         if self._primary_session is session:
             self._primary_session = None
+        # P14-T1 (S-P14-1): teardown cancels the session's wave — a live
+        # indicator for that wave dies with it, exactly once. A session with
+        # no wave never touches the indicator. Reads only pre-existing
+        # session wave state (in-flight reqIds, queued plans).
+        had_wave = (
+            bool(session._history_req_ids)
+            or bool(session._wave_plan_queue)
+        )
         session.teardown()
+        if had_wave:
+            self.clear_backfill_indicator()
         # P7-W1 (S-P7-2): the session leaves the registry, but its cancel
         # tags must survive it — merged AFTER teardown, which is what
         # populates them. See _superseded_history_reqs.
@@ -1737,6 +1756,8 @@ class MainWindow(QMainWindow):
                 )
                 return
             session.on_historical_error(reqId, errorCode, errorString)
+            # P14-W1 (S-P14-1): a failed wave member is a wave event too.
+            self._refresh_backfill_indicator(session)
             self.status_bar.showMessage(
                 f"Error [{errorCode}]: {errorString}", 8000
             )
@@ -1810,6 +1831,10 @@ class MainWindow(QMainWindow):
                 "the running wave…",
                 4000,
             )
+            # P14-W2 (S-P14-2): coalesced keep — the running indicator stays
+            # up with its elapsed baseline unreset (no cancel, no new stamp;
+            # the refresh below is a pure read of the running baseline).
+            self._refresh_backfill_indicator(new_session)
             return
         if old_session is not None and old_session is not new_session:
             old_session.release_rt()
@@ -1839,6 +1864,16 @@ class MainWindow(QMainWindow):
         new_session._history_generation += 1
         new_session._backfill_failed_req_ids = set()
         new_session._backfill_missing_spans = []
+        # P14-W1: the previous wave (if any) is cancelled here — its
+        # indicator state dies with it; a new wave below raises afresh.
+        # P14-W2: clear only when the indicator is live — a symbol switch
+        # already cleared it via the old session's teardown above, and a
+        # second clear would break the exactly-once terminal-path contract.
+        if (
+            self._backfill_state is not None
+            or self._backfill_wave_start is not None
+        ):
+            self.clear_backfill_indicator()
         new_session._wave_timeframe = timeframe
         # D42/S19 (ESC-049): establish the session's mode from THIS load before
         # the initial cached ``set_bars`` below. ``queue_wave_plans`` was the
@@ -1925,12 +1960,24 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(
                 f"{symbol} — backfilling {len(plans)} historical chunk(s)…"
             )
+            # P14-W1 (S-P14-1): raise the permanent indicator for the wave
+            # just issued (queue-only waves included — the refresh below
+            # reads in-flight AND queued counts from session state).
+            self._raise_backfill_indicator(new_session)
         else:
-            # The cache already reaches now (and the floor is filled):
-            # no redundant request is issued.
-            self.status_bar.showMessage(
-                f"{symbol} — {len(cached)} cached bars. Cache current."
-            )
+            # D53.3 (S-P14-3): only claim a current cache when the planner
+            # reports zero missing spans for this triple AND no wave is in
+            # flight. Otherwise report the honest bare count — never a
+            # freshness claim. (The stranded end state keeps the verbatim
+            # AC-D16.4 shortfall in _finalize_history_wave.)
+            if self._is_cache_current(symbol, timeframe, extended_hours):
+                self.status_bar.showMessage(
+                    f"{symbol} — {len(cached)} cached bars. Cache current."
+                )
+            else:
+                self.status_bar.showMessage(
+                    f"{symbol} — {len(cached)} cached bars."
+                )
 
         # ESC-024: bound the wave — a request that never yields an end marker
         # must not strand the chart indefinitely.
@@ -1991,6 +2038,100 @@ class MainWindow(QMainWindow):
     def _now_ts(self) -> int:
         """Wall-clock epoch seconds; a seam for deterministic load-path tests."""
         return int(time.time())
+
+    # ── P14-W1 (S-P14-1): persistent backfill-state indicator ──────────────
+
+    def set_backfill_state(self, in_flight: int, queued: int,
+                           elapsed_s: float, req_ids: list[int]) -> None:
+        """Report wave state on the permanent indicator.
+
+        Never a showMessage caller: the transient message slot is untouched.
+        """
+        req_ids = list(req_ids)
+        self._backfill_state = {
+            "in_flight": int(in_flight),
+            "queued": int(queued),
+            "elapsed_s": float(elapsed_s),
+            "req_ids": req_ids,
+        }
+        self._backfill_indicator.setText(
+            f"Backfill: {int(in_flight)} in flight, {int(queued)} queued, "
+            f"{float(elapsed_s):.1f}s, reqIds={req_ids}"
+        )
+
+    def clear_backfill_indicator(self) -> None:
+        """Return the indicator to idle (terminal wave paths only).
+
+        Clears the MainWindow-local wave-start baseline with it. Session
+        wave state itself is never touched here.
+        """
+        self._backfill_wave_start = None
+        self._backfill_state = None
+        self._backfill_indicator.setText("Backfill: idle")
+
+    def _raise_backfill_indicator(self, session: TickerSession) -> None:
+        """Raise the indicator for a newly issued wave (queue-only included).
+
+        The elapsed baseline is MainWindow-local, stamped once when the
+        wave raises, and never reset by refreshes or a coalesced keep.
+        """
+        if self._backfill_wave_start is None:
+            self._backfill_wave_start = time.time()
+        self._refresh_backfill_indicator(session)
+
+    def _refresh_backfill_indicator(self, session: TickerSession) -> None:
+        """Refresh the indicator from live session wave state.
+
+        Elapsed is a pure read of the MainWindow-local wave-start baseline;
+        counts and reqIds are pure reads of session wave state.
+        """
+        if self._backfill_wave_start is None:
+            # A refresh racing a terminal clear (the last chunk finalises
+            # synchronously inside on_historical_data_end) must not resurrect
+            # the indicator: with nothing in flight or queued, stay idle.
+            if not session._history_req_ids and not session._wave_plan_queue:
+                return
+            self._backfill_wave_start = time.time()
+        elapsed = time.time() - self._backfill_wave_start
+        self.set_backfill_state(
+            len(session._history_req_ids),
+            len(session._wave_plan_queue),
+            elapsed,
+            sorted(session._history_req_ids),
+        )
+
+    def _is_cache_current(
+        self, symbol: str, timeframe: str, extended_hours: bool
+    ) -> bool:
+        """D53.3 (S-P14-3): the single freshness gate for currency claims.
+
+        True only when the planner reports zero missing spans for the
+        current (symbol, timeframe, mode) triple AND no wave is in flight
+        for the symbol's session (no tracked reqIds, no queued plans).
+        Both call sites (the no-plans branch and the finalize path)
+        consult this predicate — never a string match — so the whole
+        claim family ("Cache current" and equivalents) is gated, never
+        one literal. The stranded-with-missing-days end state keeps the
+        verbatim AC-D16.4 shortfall instead.
+        """
+        session = self._sessions.get(symbol.upper())
+        if session is not None:
+            if session._history_req_ids or session._wave_plan_queue:
+                return False
+        cached_ts = [
+            b.ts
+            for b in BarCache.get_bars(
+                symbol, timeframe, ext_hours=extended_hours
+            )
+        ]
+        missing = find_missing_spans(
+            cached_ts,
+            self._now_ts(),
+            timeframe,
+            ext_hours=extended_hours,
+            min_sessions=settings.MIN_INTRADAY_SESSIONS,
+        )
+        return not missing
 
     # ── Drawing slots ─────────────────────────────────────────────────────────
 
@@ -2185,6 +2326,8 @@ class MainWindow(QMainWindow):
         if session is None:
             return
         session.on_historical_bar(reqId, bar)
+        # P14-W1 (S-P14-1): wave progress refreshes the permanent indicator.
+        self._refresh_backfill_indicator(session)
 
     def _on_historical_data_end(self, reqId: int):
         if self._closing:
@@ -2194,6 +2337,9 @@ class MainWindow(QMainWindow):
         if session is None:
             return
         session.on_historical_data_end(reqId)
+        # P14-W1 (S-P14-1): per-chunk completion refreshes the indicator; the
+        # last chunk finalises through _on_session_wave_complete below.
+        self._refresh_backfill_indicator(session)
 
     # ── D37 S0 routing ───────────────────────────────────────────────
 
@@ -2238,6 +2384,11 @@ class MainWindow(QMainWindow):
             if session is None:
                 return
         session._disarm_history_wave_watchdog()
+        # P14-W2 (S-P14-2): the wave terminated (normal or stranded) — clear
+        # the session elapsed baseline so the next wave re-stamps it.
+        # (Cancel paths clear it via _cancel_history_requests; the finalize
+        # funnel covers the normal-completion path, which never cancels.)
+        session._wave_start_ts = None
         new_count = len(session._pending_bars)
         # D42/S18+S19: the wave's mode scopes the save/get/prune, and the
         # retention keep is the floor-aware budget so the fetched depth floor
@@ -2320,14 +2471,64 @@ class MainWindow(QMainWindow):
                 cause,
             )
         else:
-            # D27.4: never declare "live" unconditionally — report the
-            # actual stream-health state (usually "awaiting first bar" here;
-            # the badge flips to live when the first bar arrives).
-            stream_note = session.stream_health.describe()
-            self.status_bar.showMessage(
-                f"{session.symbol} — {len(all_bars)} bars "
-                f"({new_count} new). Stream {stream_note}{cause}."
-            )
+            # D53.3 (S-P14-3): the completion line must never read as a
+            # current-cache claim while the planner still reports missing
+            # spans or a wave is in flight — consult the single predicate.
+            # A stranded-with-missing-days wave keeps the verbatim AC-D16.4
+            # shortfall above; this branch only handles the residual
+            # disagreement (a planner hole below day presence, or a wave
+            # racing finalization) with the same shortfall shape — never a
+            # fresh claim.
+            if self._is_cache_current(session.symbol, timeframe, mode):
+                # D27.4: never declare "live" unconditionally — report the
+                # actual stream-health state (usually "awaiting first bar" here;
+                # the badge flips to live when the first bar arrives).
+                stream_note = session.stream_health.describe()
+                self.status_bar.showMessage(
+                    f"{session.symbol} — {len(all_bars)} bars "
+                    f"({new_count} new). Stream {stream_note}{cause}."
+                )
+            else:
+                spans = find_missing_spans(
+                    [b.ts for b in all_bars],
+                    self._now_ts(),
+                    timeframe,
+                    ext_hours=mode,
+                    min_sessions=settings.MIN_INTRADAY_SESSIONS,
+                )
+                days = sorted(
+                    {
+                        day
+                        for span in spans
+                        for day in trading_days(span.start_ts, span.end_ts)
+                    }
+                )
+                if days:
+                    preview = ", ".join(d.isoformat() for d in days[:5])
+                    self.status_bar.showMessage(
+                        f"{session.symbol} — backfill incomplete: "
+                        f"{len(days)} trading day(s) still missing ({preview})."
+                        f"{cause}",
+                        10000,
+                    )
+                    _LOG.warning(
+                        "Historical backfill shortfall for %s [%s]: %s%s",
+                        session.symbol,
+                        timeframe,
+                        [d.isoformat() for d in days],
+                        cause,
+                    )
+                else:
+                    # Planner-clean but a wave still in flight: report the
+                    # counts with no freshness claim at all.
+                    self.status_bar.showMessage(
+                        f"{session.symbol} — {len(all_bars)} bars "
+                        f"({new_count} new). Finalized while a wave is in "
+                        f"flight{cause}."
+                    )
+        # P14-W1: the wave terminated (normal or stranded) — the indicator
+        # returns to idle. (Stranded/disconnect paths funnel through here.)
+        self.clear_backfill_indicator()
 
     def _missing_backfill_trading_days(
         self, session: TickerSession, bars
@@ -3573,6 +3774,9 @@ class MainWindow(QMainWindow):
             session._history_generation += 1
             session.teardown()
         self._primary_session = None
+        # P14-W2 (S-P14-2): teardown cancels every wave — the indicator for
+        # any of them clears exactly once here.
+        self.clear_backfill_indicator()
         # Cancel all realtime bar subscriptions across tracked symbols
         self.rt_manager.cancel_all()
         # Disconnect from IBKR, then join the reader thread with a timeout

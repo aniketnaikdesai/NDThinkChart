@@ -1504,3 +1504,37 @@
 - **Answer (owner-confirmed 2026-10-29):** `30 D` — the `30 mins` row uses duration `30 D`. `AC-D52.1`, A136 and the `AC-D52.7` probe combo read `30 mins` / `30 D`.
 - **What a different answer would change:** `AC-D52.1`'s duration, A136, and the `AC-D52.7` probe combo only — planner stepping, the floor, and aggregation are unchanged.
 - **Affected requirement section:** D52.1 / `AC-D52.1`; A136; Journey 45.
+
+---
+
+# Open Questions — 2026-11-03 (Batch 28 / D53 — persistent backfill indicator; Q78-Q80 NON-BLOCKING)
+
+> Finding 2 of `NDThinkChart_TWS_probe_findings_20261103.txt` + owner directive "fix everything approved". The scope is fully derivable from the probe evidence (D53.1-D53.4 final; A142-A144 defaults logged; Journey 46; `AC-D53.1`-`AC-D53.4`). The three items below are **non-blocking confirmations** — build proceeds on the stated defaults whether or not they are answered; an answer refines D53 in place. **No blocking question remains** and D53 carries `Status: READY_FOR_PLAN`. Finding 1 needs NO code change (watchdog/shortfall behaved correctly) — watchdog tuning and TWS-side causes are out of scope and are not asked here. **D1-D52 are NOT reopened.**
+
+## Q78 — D53.1: where should the persistent indicator live?
+
+- **Status:** open (non-blocking).
+- **Question:** should the persistent backfill indicator live as (a) a permanent status-bar widget (recommended default — closest to the overwritten message it replaces), (b) a toolbar/badge affordance, or (c) an owner-named surface?
+- **Recommended default (A142):** (a) — a dedicated, non-transient status-bar element; Plan picks the exact widget. Rationale: it replaces the transient message in the user's existing glance path and no new dock/panel is introduced for a minimal batch.
+- **What a different answer would change:** D53.1's surface clause and the `AC-D53.1` widget-identity assertion only — persistence content, lifecycle and guard are untouched.
+- **Why it is not blocking:** `AC-D53.1` asserts the persistence property and minimum content set, both derivable without a placement pick.
+- **Affected requirement section:** D53.1 / `AC-D53.1`; A142; Journey 46.
+
+## Q79 — D53.1: is the minimum content set (in-flight count, queue count, elapsed, reqIds) the right set?
+
+- **Status:** open (non-blocking).
+- **Question:** is the probe-named set (active request count, queue count, elapsed time, current reqIds) sufficient as the at-least set, or should fields be added (e.g. per-request bar counts, current symbol/timeframe/mode) or removed?
+- **Recommended default:** the probe-named set as the at-least set (A142/R106). Rationale: those are exactly the fields the probe observer had to reconstruct by hand at +60 s (queue=0, in-flight={2,5}, generation=1, 0 bars) — they are the minimum that would have made the stall legible.
+- **What a different answer would change:** `AC-D53.1`'s content assertions gain/lose fields; nothing else moves.
+- **Why it is not blocking:** the at-least set is evidence-backed; a refinement only widens or narrows it.
+- **Affected requirement section:** D53.1 / `AC-D53.1`; A142; R106.
+
+## Q80 — D53.3: is gating the "Cache current" claim class (with existing status-bar phrasing for the replacement) acceptable?
+
+- **Status:** open (non-blocking).
+- **Question:** confirm that (a) the guard covers "Cache current" plus any equivalent freshness claim (not one literal string), and (b) the replacement copy follows existing status-bar phrasing as a Plan detail rather than a user-confirmed string.
+- **Recommended default (A144):** yes to both. Rationale: the probe never observed the literal string, so pinning one string would under-guard; copy without a confirmed reference is a Plan detail per the `AC-G.1` pattern.
+- **What a different answer would change:** `AC-D53.3`'s claim wording (literal-string vs claim-class) and whether copy needs a confirmed reference.
+- **Why it is not blocking:** either reading keeps the guard testable (absence-of-claim + shortfall-presence assertions).
+- **Affected requirement section:** D53.3 / `AC-D53.3`; A144.
+

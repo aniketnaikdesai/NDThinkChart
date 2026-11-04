@@ -217,3 +217,39 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - abd036e CI: fix workflow syntax (stray colon)
 - 73b27be CI: cancel superseded LWC parity runs on new pushes
 - 82ccf1a RG-P7-1: AC-D16.8 successive-loads restatement (additive annotation, history preserved)
+## P14 — 2026-11-03
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 1.
+
+### Done
+- P14-T1 — P14-T1 done: permanent QStatusBar indicator (addPermanentWidget) raised on wave issue incl. queue-only, refreshed on wave events, cleared on finalize/cancel; all showMessage texts/timings unchanged; 3/3 new tests pass
+- P14-T2 — P14-T2 done: session wave-start baseline (set-once/cleared-on-termination) with exactly-once indicator clearing on normal, stranded, cancel/teardown, and disconnect paths; Branch-A keeps baseline unreset; mode-switch clears-and-reraises
+- P14-T3 — P14-T3 done: _is_cache_current predicate gates the no-plans branch and finalize path so no freshness claim shows while a wave is in flight or spans are missing; stranded waves keep the verbatim AC-D16.4 shortfall and history markers stay intact (8/8 guard tests green, self-check pass).
+- P14-T1 — P14-T1 done: permanent backfill indicator as addPermanentWidget child with in-flight/queue/elapsed/reqIds state, raised on wave issue incl. queue-only; elapsed baseline is MainWindow-local so no ticker_session.py change by this task (the session _wave_start_ts field belongs to the sibling lifecycle task); all showMessage texts/timings untouched; 3/3 tests pass
+- P14-T2 — P14-T2 rework: verified prior worker's zero-arg clear spies in tests/test_p14_lifecycle.py match the clear_backfill_indicator() contract; T21 (4 terminal paths, exactly-once clear), T22 (coalesced keep), T23 (mode-switch clear-and-reraise) all pass and exit cleanly, full offscreen suite green (1346 passed, 3 skipped).
+
+### Blocked
+- P14-T1 — Output:
+- P14-T2 — Output:
+
+### Recent commits
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
+- 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
+- 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE
+- a04fbd9 Q64-66 answered by owner (accept defaults); D50 Q70 settled to (c)
+- 281d4e8 ESC-079 addressed: AC-D16.8 restatement verified, zero open escalations
+- 61f8dff CI: restore workflow_dispatch colon (fuzzy edit ate it)

@@ -3834,3 +3834,86 @@ D49.5's conditional wave is a gated decision the requirements specify (A126/Q66)
   (R102).
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P14 — D53 persistent backfill-state indicator + cache-current guard (Finding 2, TWS probe 20261103) — drafted 2026-11-03
+
+> Companion: `docs/architecture.md` § *Phase P14* (Codebase Summary, S-P14-1…S-P14-4, frozen
+> interfaces, non-functional, AR-P14-1…AR-P14-4). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Batch 28 (D53), Journey 46, `AC-D53.1`–`AC-D53.4`, analyst defaults A142–A144
+> (Q78–Q80 non-blocking confirmations with logged defaults — build proceeds on them; no blocking item),
+> R106–R107, `design_gaps.md` DG100. Hard constraints: **no order code anywhere** (D45/D46);
+> offscreen-first acceptance (the probe file is evidence, never a gate); **full offscreen suite green
+> is the gate**; waves S/M only; no skips/xfails; no fine-grained task breakdown (Task Manager's
+> job); no per-task tests prescribed. Finding 1 needs NO code change — watchdog tuning and TWS-side
+> causes are out of scope and no wave touches them. Existing-repo run: every wave modifies existing
+> modules in place; **no new module, no new dependency, no schema migration**. One phase only — nothing
+> past the P14 build waves is planned. D1–D52 are NOT reopened.
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. Repro-first where
+behavior is new: the W1 separation case and the W2 per-path cases land **red on the current tree**
+(no indicator identity survives `showMessage` churn today; no per-path clearing exists) before the fix;
+the W3 guard case is red-first (the current no-plans branch claims without consulting the planner).
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P14-W1 | M | **Persistent indicator, separate surface (D53.1; S-P14-1).** Permanent status-bar widget reporting at minimum in-flight count, queue count, elapsed time, current reqIds; raised on wave issue (queue-only waves included), refreshed on wave events, immune to transient `showMessage` traffic. | (1) Repro-first: offscreen wave + injected unrelated `showMessage` (account-summary receipt shape) — indicator identity/state unchanged across the churn, red today (no such widget), green after; (2) content asserts the at-least set (counts + elapsed + reqIds) at multiple wave instants incl. the queue-only instant; (3) all existing `showMessage` texts/timings unchanged; (4) full offscreen suite green. | Offscreen indicator suites with seeded `BarCache` + message injection + full suite. |
+| P14-W2 | M | **Terminal-path lifecycle with coalesced-keep (D53.2; S-P14-2).** Indicator clears only on the four existing terminal paths; a coalesced same-triple reload keeps it with the elapsed baseline unreset. | (1) Per-path cases red-first, green after: normal completion / stranded (watchdog) finalization / cancellation (symbol switch + new-triple load) / disconnect each clear the indicator exactly once; (2) Branch-A same-triple reload mid-wave: no new reqIds, generation unchanged, indicator keeps running with elapsed unreset; (3) mode-switch mid-wave clears-and-reraises as a new wave (not a keep); (4) full offscreen suite green. | Offscreen lifecycle suites driving the real session callbacks + failure injection + full suite. |
+| P14-W3 | S | **Cache-current guard + batch gate (D53.3/D53.4; S-P14-3/S-P14-4).** No freshness claim while a wave is in flight or the planner reports missing spans; stranded end keeps the `AC-D16.4` shortfall; history intact; suite green. | (1) In-flight and planner-missing cases assert absence of the claim family (literal + equivalents); (2) stranded-with-missing-days ends on the verbatim shortfall (wording unchanged); (3) zero-missing + no-wave loads still report currency exactly as today; (4) `AC-D53.4`: `### D41`–`### D52` with reversals, the marker sentence + Current Tech Stack intact, no pre-D53 wording touched; (5) **full offscreen suite green**. | Offscreen guard suites + the AC checklist. A red suite fails the wave. |
+
+**What stays untouched by every P14 wave:** the watchdog bounds and strand timing; the pacing
+budgets and continuation/prime precedence; the `req_historical_data` / `req_mkt_data` signatures;
+the planner function contracts; `BarCache` APIs; error ingress/classification; the realtime/stream
+APIs; the port guard; the LWC renderer seam; the `bars` schema (no migration); the order-code
+absence; every existing `showMessage` text and the shortfall wording.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / input | Architecture section | Wave |
+|---|---|---|
+| D53.1 / `AC-D53.1` (persistent indicator; at-least content; survives transient traffic) | S-P14-1; Frozen (`showMessage` sites read, not reworded) | P14-W1 |
+| D53.2 / `AC-D53.2` (clears only on four terminal paths; coalesced reload keeps with baseline) | S-P14-2; Frozen (wave lifecycle hooked, not reshaped) | P14-W2 |
+| D53.3 / `AC-D53.3` (no current-claim while in flight or spans missing; stranded keeps shortfall) | S-P14-3; Frozen (planner contracts, shortfall wording) | P14-W3 |
+| D53.4 / `AC-D53.4` (history intact) | Frozen (all `[existing]` rows) | P14-W3 |
+| Journey 46 (watch a wave start-to-finish; per-path + coalesced + freshness steps; queue-only/disconnect/mode-switch/zero-bar/account-burst edges) | S-P14-1…S-P14-4 | P14-W1…P14-W3 |
+| A142 (permanent status-bar widget default; at-least content set) / Q78/Q79 | S-P14-1 | P14-W1 |
+| A143 (four clearing paths; coalesced keep with baseline) | S-P14-2 | P14-W2 |
+| A144 (claim-class guard; existing phrasing for copy) / Q80 | S-P14-3 | P14-W3 |
+| R106 (content set may refine) | AR-P14-1; S-P14-1 | P14-W1 (at-least assertions) |
+| R107 (transient-caller regression) | AR-P14-2; S-P14-1 | P14-W1 (injected-traffic case) + review check |
+| DG100 (widget + copy are Plan details) | S-P14-1/S-P14-3 | P14-W1 (widget) + P14-W3 (copy) |
+| Finding-1 boundary (no watchdog/TWS change) | S-P14-4 | Every wave (read-only relationship) |
+| Hard constraints: no order code (D45/D46); offscreen-only; suite-green gate | S-P14-1…S-P14-4; Frozen (order absence, seam) | Every wave |
+
+Every D53 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P14-1 | Q78–Q80 proceed on their logged defaults without waiting for answers: (a) permanent status-bar widget, (b) the probe-named set as the at-least set, (c) claim-class gating with existing status-bar phrasing for copy | The orchestration preamble and the requirements header both direct proceeding on defaults; every default is evidence-backed and `AC-D53.1`/`AC-D53.3` are written so a refinement cannot invalidate the build (R106) |
+| AP-P14-2 | AC-G.1 (visual reference gate) does not apply: the indicator widget and any copy follow standing defaults (A142/A144, DG100) with measurable persistence/content/lifecycle/guard assertions, never pixel or exact-string assertions | DG100 records the exact-widget-and-copy choice as a Plan detail on the D49.3/Q64 precedent; all D53 outcomes are probe-measurable without a confirmed reference |
+| AP-P14-3 | The wave-start timestamp lives on the session (in-memory, set on first plan issue, cleared on termination); the indicator's elapsed is a pure read of it | Matches the session-owned wave-state pattern (P7); persisting it would add a store for a display-only value |
+| AP-P14-4 | Existing transient `showMessage` texts and timings are kept verbatim (including the mid-wave "backfilling N chunk(s)…" and the coalesced-reload notice) — the indicator is additive, not a message replacement | `AC-D53.1` requires the indicator to survive that traffic, not to silence it; rewording live user-facing copy is unasked scope |
+| AP-P14-5 | The "Cache current" gate covers the no-plans branch and the finalize path through one predicate; a wave in flight alone (even with zero currently-known missing spans) suppresses the claim | Finding 2's +60 s instant (reqIds in flight, 0 cached bars) is precisely an in-flight claim risk, independent of what the planner last reported |
+
+### Flagged Issues
+
+**None.** Every D53 item is satisfiable as written on the existing stack:
+
+- The persistent surface is a Qt-construction property (permanent widget outside the
+  transient slot) with an injected-traffic measurable (`AC-D53.1`); the over-reading
+  risk has a specified handling (R106 at-least set; Q78/Q79 non-blocking), not a gap.
+- The four clearing paths plus the coalesced-keep case all exist as specified behaviour
+  with per-path measurables (`AC-D53.2`); the mechanism risk is specified (R107), not
+  missing.
+- The guard is a planner read plus a two-site predicate with claim-class absence
+  measurables (`AC-D53.3`); copy without a confirmed reference is a recorded default
+  (A144/Q80/DG100), not a gap.
+- Finding 1 is explicitly out of scope per the owner directive — recorded as the S-P14-4
+  scope guard, not as an escalation.
+
+Status: READY_FOR_TASK_MANAGER

@@ -933,7 +933,7 @@
     "status": "addressed",
     "source": "precheck",
     "opened": "2026-10-29T18:09:59.380614+00:00",
-    "verified": "2026-10-29 P11 review: accepted as wave-mandated pack deviation, not a code defect. Re-verified myself, not on the worker's word: (1) work green — my own spot run on the live tree: tests/test_p11_follow_state.py + test_p11_no_yank.py + test_p11_symbol_memory.py + test_p11_replace.py = 8 passed, node --test chart_assets/lwc/chart.test.js = 22 passed; independent test_verification.json verdict pass exit 0; (2) the edit is mandated by the dispatched pack itself — docs/build/wave/P11-T2.md context read_files lists chart.test.js:338-373 as 'replaced with the gated post-fix assertion, do not duplicate its fixtures' and the task test_command runs that file, so a green suite is impossible without the edit; (3) the wave-198 'separate known red' claim (test_p11_follow_state T12 failing by design) is stale on the live tree — my spot run proves that suite green. Reverting chart.test.js would break the mandated suite. No BUILD code change exists or is needed; the residual is a one-line Task Manager pack amendment tracked in ESC-093."
+    "verified": "2026-10-29 P11 review: accepted as wave-mandated pack deviation, not a code defect. Re-verified myself, not on the worker's word: (1) work green \u2014 my own spot run on the live tree: tests/test_p11_follow_state.py + test_p11_no_yank.py + test_p11_symbol_memory.py + test_p11_replace.py = 8 passed, node --test chart_assets/lwc/chart.test.js = 22 passed; independent test_verification.json verdict pass exit 0; (2) the edit is mandated by the dispatched pack itself \u2014 docs/build/wave/P11-T2.md context read_files lists chart.test.js:338-373 as 'replaced with the gated post-fix assertion, do not duplicate its fixtures' and the task test_command runs that file, so a green suite is impossible without the edit; (3) the wave-198 'separate known red' claim (test_p11_follow_state T12 failing by design) is stale on the live tree \u2014 my spot run proves that suite green. Reverting chart.test.js would break the mandated suite. No BUILD code change exists or is needed; the residual is a one-line Task Manager pack amendment tracked in ESC-093."
   },
   {
     "id": "ESC-093",
@@ -945,7 +945,7 @@
     "expected": "touches_files covers every file the dispatched pack requires the worker to edit; a task whose own test_command runs a file lists that file.",
     "suggested_direction": "Amend P11-T2 touches_files to add chart_assets/lwc/chart.test.js (pack-only change, no code edit) and re-consolidate P11-T2 to done on the existing green results; then P11-T3 (deps P11-T1+T2) becomes dispatchable and P11-T6 follows. No BUILD rework needed.",
     "status": "addressed",
-    "verified": "2026-10-29 focused P11 close-out: amendment landed in docs/tasks/task-graph.json — P11-T2 touches_files now ['chart_assets/lwc/chart.js', 'chart_assets/lwc/chart.test.js', 'tests/test_p11_no_yank.py'], covering the wave-mandated edit. Green work confirmed without re-deriving: wave202 result selfcheck tests verdict pass exit 0 (pytest 2/2, node 22/22) and test_verification.json verdict pass exit 0 on the live tree. Pack defect resolved; residual graph-status flip needs a BUILD re-dispatch (ESC-094).",
+    "verified": "2026-10-29 focused P11 close-out: amendment landed in docs/tasks/task-graph.json \u2014 P11-T2 touches_files now ['chart_assets/lwc/chart.js', 'chart_assets/lwc/chart.test.js', 'tests/test_p11_no_yank.py'], covering the wave-mandated edit. Green work confirmed without re-deriving: wave202 result selfcheck tests verdict pass exit 0 (pytest 2/2, node 22/22) and test_verification.json verdict pass exit 0 on the live tree. Pack defect resolved; residual graph-status flip needs a BUILD re-dispatch (ESC-094).",
     "opened": "2026-10-29T18:40:00+00:00"
   },
   {
@@ -959,7 +959,7 @@
     "suggested_direction": "Re-dispatch P11-T2 as a gate re-stamp on the amended pack: no code change expected, run the task test_command to confirm green, consolidate to done.",
     "status": "addressed",
     "opened": "2026-10-29T18:41:00+00:00",
-    "verified": "2026-10-29 final P11 close-out, re-verified on the live tree per entry-C (not the worker's word). (1) Graph: P11-T2 status=done, touches_files holds ['chart_assets/lwc/chart.js', 'chart_assets/lwc/chart.test.js', 'tests/test_p11_no_yank.py'] — the ESC-093 pack amendment survived. (2) Gate re-stamp landed twice: archived results wave206_P11-T2.json and wave207_P11-T2.json both status=done, footprint_flags=[], selfcheck verdict=pass exit_code=0 (pytest 2/2, node 22/22). (3) My own live-tree node run: 22/22 pass. (4) Full offscreen suite green per test_verification.json (verdict pass, exit 0). The unblock chain fired as predicted: P11-T3 done (wave208, pytest 2/2 + node 22/22) and P11-T6 done (wave209, full suite 1258 passed, 3 pre-existing webengine skips). Gate re-stamp only, no code change — as predicted."
+    "verified": "2026-10-29 final P11 close-out, re-verified on the live tree per entry-C (not the worker's word). (1) Graph: P11-T2 status=done, touches_files holds ['chart_assets/lwc/chart.js', 'chart_assets/lwc/chart.test.js', 'tests/test_p11_no_yank.py'] \u2014 the ESC-093 pack amendment survived. (2) Gate re-stamp landed twice: archived results wave206_P11-T2.json and wave207_P11-T2.json both status=done, footprint_flags=[], selfcheck verdict=pass exit_code=0 (pytest 2/2, node 22/22). (3) My own live-tree node run: 22/22 pass. (4) Full offscreen suite green per test_verification.json (verdict pass, exit 0). The unblock chain fired as predicted: P11-T3 done (wave208, pytest 2/2 + node 22/22) and P11-T6 done (wave209, full suite 1258 passed, 3 pre-existing webengine skips). Gate re-stamp only, no code change \u2014 as predicted."
   },
   {
     "id": "ESC-095",
@@ -973,5 +973,46 @@
     "status": "addressed",
     "opened": "2026-10-29T21:10:27+00:00",
     "verified": "2026-10-29T21:16:12+00:00 final P13 close-out, re-verified on the live tree per entry-C (not the worker's word). (1) Re-stamp landed: archived result wave225_P13-T9.json status=done, task_id=P13-T9 present, footprint_flags=[], selfcheck verdict=pass exit_code=0 (gate 13/13 + full offscreen suite 1329 passed / 3 pre-existing webengine skips in 71.67s); task-graph P13-T9 status=done; build_log ends Status: READY_FOR_REVIEW. (2) My own live-tree runs: tests/test_p13_gate.py 13/13 pass; gate + both former blockers (tests/test_lwc_popouts.py, tests/test_lwc_failure_visibility.py) 30/30 pass. (3) Full suite green per test_verification.json (verdict pass, exit 0). Gate re-stamp only, no code change - as predicted."
+  },
+  {
+    "id": "PRE-009",
+    "task_id": "P14-T1",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "[precheck] result missing or mistyped keys: task_id",
+    "expected": "result file is malformed",
+    "suggested_direction": "re-run the task so it writes a well-formed result per the schema",
+    "status": "addressed",
+    "source": "precheck",
+    "opened": "2026-11-03T19:02:12.053101+00:00",
+    "verified": "2026-11-03 P14 review: reworked result docs/build/results/_archive/wave233_P14-T1.json carries task_id=P14-T1, status=done, footprint_flags=[] (direct read) - well-formed per schema. Condition resolved."
+  },
+  {
+    "id": "PRE-010",
+    "task_id": "P14-T1",
+    "routed_to": "BUILD",
+    "category": "consistency",
+    "severity": "blocking",
+    "observed": "[precheck] changed ui/ticker_session.py outside touches_files ['ui/main_window.py', 'tests/test_p14_indicator.py']",
+    "expected": "changed files outside touches_files",
+    "suggested_direction": "keep the change inside the declared footprint or escalate the scope change",
+    "status": "addressed",
+    "source": "precheck",
+    "opened": "2026-11-03T19:04:21.924908+00:00",
+    "verified": "2026-11-03 P14 review: reworked wave233_P14-T1.json lists files_changed=[ui/main_window.py, tests/test_p14_indicator.py] with footprint_flags=[]; every ui/ticker_session.py hunk in the live diff is labeled P14-W2/S-P14-2 (session _wave_start_ts - P14-T2's declared touches_files, confirmed in task-graph.json and precheck.json files_verified). T1 footprint clean."
+  },
+  {
+    "id": "ESC-096",
+    "task_id": "P14-T2",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "tests/test_p14_lifecycle.py T21 (all 4 params) and T23 abort the pytest process (SIGABRT, exit 134) at the finally win.close(); the full suite aborts at test_t21 (test_verification.json exit -6). The spies def _spy(session_arg=None): return real_clear(session_arg) (T21 :195-199) and _spy_clear (T23 :298-300) forward a positional arg to MainWindow.clear_backfill_indicator(self) (ui/main_window.py:2062, zero-arg per the P14-T1 task-graph contract), so every terminal-path clear raises TypeError; monkeypatch is still active in finally, so the TypeError escapes closeEvent (:3774 self.clear_backfill_indicator()) and Qt aborts. Reproduced: single-param T21/T23 runs abort, T22/T1/cache_guard pass; minimal window+raising-spy+close probe shows the TypeError at closeEvent:3774; full-body probe shows the same TypeError from _finalize_history_wave. wave228_P14-T2.json claiming 6 passed is contradicted by the live tree.",
+    "expected": "Terminal-path tests verify exactly-once clearing per path and exit cleanly; the full offscreen suite runs to completion (P14 gate).",
+    "suggested_direction": "Fix the two spies to the zero-arg form (def _spy(): ... return real_clear(), keeping the counting), keeping the exactly-once assertions; then re-run the task test_command plus the full offscreen suite. No production change indicated - production conforms to the contract, so do not widen clear_backfill_indicator to satisfy the test helper.",
+    "status": "addressed",
+    "opened": "2026-11-03T19:12:05+00:00",
+    "verified": "2026-11-03 re-review (wave236): spies are zero-arg (T21 :197-199 def _spy(): clears.append(None); return real_clear(); T23 :298-300 def _spy_clear(): ... return real_clear(); _spy_raise(session_arg) correctly keeps one arg for the one-arg _raise). Re-ran task command QT_QPA_PLATFORM=offscreen pytest tests/test_p14_lifecycle.py -q: 6/6 pass, exit 0, no abort. Exactly-once counting intact (assert len(clears)==1 per path; T23 clear==1/raise==1 with clear<raise). No production change: result files_changed is test-only and ui/main_window.py:2062 is still def clear_backfill_indicator(self)->None with zero-arg call sites (:857/:1876/:2531/:3779). Full-suite ground truth test_verification.json verdict pass exit 0 (74.63s)."
   }
 ]

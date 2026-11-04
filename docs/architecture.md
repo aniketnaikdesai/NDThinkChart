@@ -6938,3 +6938,207 @@ chart's timezone offset through pop-out creation, persistence, and restore.
 | S-P13-4 | **Single fan-out at the change point (D49.4):** exactly one `sync_drawings_to_views()` per change at the session mutation point; pop-out handlers refresh only their receiving view; signal + wiring kept (A125); pin-then-dedupe order. Rationale: removing the signal would change the session contract beyond the perf fix. Alternative: handler-side dedup counting (rejected — still N handler wakeups per change; the change point is the single choke point). | `[new in P13]` — D49.4; call-site dedupe, semantics pinned first |
 | S-P13-5 | **Verify-first hold accounting (D49.5):** an offscreen lifecycle probe (main-chart same-symbol reload + pop-out attach/close) records hold-count vs active owners; the idempotent per-owner fix lands ONLY on a confirmed lasting effect, else verified-close with the record and no code change (A126, Q66). Rationale: no code on an unproven premise. Alternative: build the per-owner fix unconditionally (rejected — R98; may fix nothing while churning the refcount contract). | `[new in P13]` — D49.5; probe always lands, fix is gated |
 | S-P13-6 | **Timezone handoff create + persist + restore (D49.6):** `_open_popout`/`_restore_popouts` thread the main chart's current offset into the view (hardcoded `0.0` removed at the call site); `PopoutStore` persists it; restore applies it with the A134 fallback for pre-change saves (A133/A134). Rationale: the main chart's offset is the only correct source for "same view". Alternative: a new timezone source or per-pop-out setting (rejected — unasked surface; the main chart already owns the offset). | `[new in P13]` — D49.6; threading + additive column, no new source |
+
+---
+
+## Phase P14 — D53 persistent backfill-state indicator + cache-current guard (Finding 2, TWS probe 20261103) — drafted 2026-11-03
+
+> Companion: `docs/plan.md` § *Phase P14* (waves P14-W1…P14-W3). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Batch 28 (D53),
+> Journey 46, `AC-D53.1`–`AC-D53.4`, analyst defaults A142–A144 (Q78–Q80 are
+> non-blocking confirmations; build proceeds on the stated defaults), R106–R107,
+> `design_gaps.md` DG100. Hard constraints: **no order code anywhere** (D45/D46);
+> offscreen-first acceptance (Q65 pattern: no live-TWS step named — the probe is
+> evidence, not a gate); the **full offscreen suite green is the gate**; waves S/M
+> only; no skips/xfails. Finding 1 (watchdog/shortfall behaved correctly) needs **no
+> code change** — watchdog tuning and TWS-side causes are explicitly out of scope and
+> no wave touches them. Existing-repo run: every wave below modifies existing modules
+> in place; **no new module, no new dependency, no schema migration**. One phase only
+> — nothing past the P14 build waves is planned. D1–D52 are NOT reopened.
+
+### Codebase Summary (existing repository — the D53 surface, validated against source)
+
+> Inventory gathered from the current source files (the repository is authoritative;
+> `graphify-out/graph.json` used for discovery only). Only the parts D53 touches are
+> listed; the full layer inventory is unchanged.
+
+- `[existing] ui/main_window.py::status_bar` — a plain `QStatusBar()` (`:547`) with
+  **no permanent widget**: every backfill state today is a transient `showMessage`
+  that any later caller overwrites. The wave-issue site (`:1925–1927`,
+  `f"{symbol} — backfilling {len(plans)} historical chunk(s)…"`) is overwritten 74 ms
+  later in the probe by the account-summary receipt site (`:3301–3303`,
+  `f"Account summary received for {self._current_symbol or '—'}"`, 4000 ms) — the
+  exact Finding 2 overwrite. Other transient writers (`:1886–1888` cached-bars,
+  `:1931–1933` "Cache current", `:1808–1812` coalesced-reload, `:2296–2330`
+  finalize/shortfall) share the same single message slot.
+- `[existing] ui/ticker_session.py` wave state — the full lifecycle D53.2 must mirror
+  already lives on the session: `_history_req_ids: set[int]` (`:161`, the in-flight
+  count source), `_wave_plan_queue: list` (`:196`, the queued-plan count source),
+  `_history_generation` (`:173`, fencing), `_cancel_history_requests` /
+  `_history_req_generation` (`:805–825`), watchdog arm/disarm
+  (`_arm_history_wave_watchdog` `:848`, `_disarm_history_wave_watchdog` `:861`,
+  bound seam `_history_wave_bound_ms` `:192`), `_history_stranded_reason` (`:184`,
+  diagnostic suffix), `queue_wave_plans` + `_on_wave_continue_timeout` (queue drain),
+  `on_historical_data_end` (`:1122+`, per-chunk completion → `_on_session_wave_complete`
+  → `_finalize_history_wave` when the wave empties).
+- `[existing] ui/main_window.py` terminal paths — the four D53.2 clearing paths exist
+  as behaviour and are only missing the indicator coupling: normal completion
+  (`_finalize_history_wave` `:2217`, disarms the watchdog `:2240`), stranded
+  finalization (`_finalize_stranded_history_wave` `:1668`, via `_on_disconnected`
+  `:1636–1645` and the watchdog `_on_session_history_wave_timeout` `:1702`), new-triple
+  cancellation (`load_chart` cancel+generation block `:1830–1842`, plus teardown
+  `:3565–3573`), and the Branch-A coalesced reload early-return (`:1797–1813`, no new
+  reqIds, generation untouched). No path is invented; the indicator hooks the existing
+  ones.
+- `[existing] services/backfill_service.py` planner — `find_missing_spans`
+  (mode-aware day presence + bar-level trailing pass + intraday floor) and
+  `plan_requests` (span → chunk plans); the D53.3 guard consults the former for the
+  current triple. The "Cache current" literal lives at `:1931–1933` (no-plans branch);
+  the stranded shortfall (`AC-D16.4` wording) at `:2296–2308`.
+- Stack note (observed, inert for D53): the tree is **PyQt6 + Lightweight Charts only**
+  (P6-T13 removal `6e35b27`; `ui/chart_view.py::create_chart_view` is the LWC-only
+  factory) while `requirements.md`'s Current Tech Stack line still names pyqtgraph.
+  That line is stale but D53 touches no renderer — no wave reads or writes it, so the
+  staleness cannot misdirect this build. Recorded here so the Validator sees it is
+  known and scoped out, not silently adopted.
+
+### Summary
+
+Add a persistent backfill-state indicator as a permanent (non-transient) status-bar
+element reporting the wave's in-flight count, queued-plan count, elapsed time and
+current reqIds — raised when a wave is issued, refreshed on wave events, and cleared
+only on the four existing terminal paths, with a coalesced same-triple reload keeping
+it running without resetting elapsed. Gate every "cache current" freshness claim on
+the planner reporting zero missing spans for the current (symbol, timeframe, mode),
+leaving the stranded `AC-D16.4` shortfall as the visible end state. No new module, no
+new dependency, no schema change, no watchdog/pacing/port change.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI stack | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only | Existing-repo hard constraint; D53 is indicator + guard wiring on the existing wave machinery, not a stack change | None — no stack change is on the table |
+| Indicator surface | A permanent status-bar element (`QStatusBar.addPermanentWidget`), never a `showMessage` caller (A142 default (a)) | Permanent widgets live outside the transient message slot by Qt construction, so unrelated `showMessage` traffic cannot clear or overwrite them — the Finding 2 property by construction. It also keeps the glance path (the message it replaces) with no new dock/panel for a minimal batch | Toolbar/badge affordance (rejected — competes with toolbar real estate and needs new layout rules); separate dock/panel (rejected — heavy surface for a minimal batch); another `showMessage` call (rejected — R107: reintroduces the reported overwrite) |
+| Test harness | pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`), no live TWS | Every D53 AC names an offscreen measurable (seeded `BarCache` + injected `showMessage` + failure injection + planner assertions); the probe file is evidence, never a gate | Live-TWS validation (rejected — no AC names a live step) |
+| No new dependency / module / integration | All items land in existing files; no store change | D53 findings are in-tree wiring + gating; a new service or table would split the P7 wave semantics | New wave-state service or indicator store (rejected — the session already owns the full lifecycle; duplication risks drift) |
+
+### System Components
+
+- `[new/changed] ui/main_window.py::status_bar` — gains one permanent child widget
+  (the indicator) created once with the bar; all existing `showMessage` call sites
+  keep their text and timing untouched. The widget exposes `raise/refresh/clear`
+  driven by the wave hooks below; its identity and state survive arbitrary
+  `showMessage` churn (`AC-D53.1` pins this with the injected-traffic case).
+- `[new/changed] ui/main_window.py` wave hooks — the existing issue sites raise the
+  indicator (`load_chart` plans branch `:1922–1927`; queue-only waves included) with
+  the elapsed baseline set once; the four terminal paths clear it (normal completion
+  in `_finalize_history_wave`, stranded in `_finalize_stranded_history_wave`,
+  cancellation in the `load_chart` cancel block + teardown, disconnect in
+  `_on_disconnected`); the Branch-A early-return (`:1797–1813`) refreshes-but-keeps
+  it with the baseline unreset (A143). Refresh points ride the existing session
+  callbacks (`_on_session_wave_complete`, error ingress, continuation ticks) — no new
+  signal.
+- `[new/changed] ui/ticker_session.py` wave state — gains one in-memory field, the
+  wave-start timestamp set when the first plan of a wave issues and cleared when the
+  wave terminates; every existing field (`_history_req_ids`, `_wave_plan_queue`,
+  generation, watchdog, stranded reason) is read, not reshaped. The indicator's
+  elapsed + counts + reqIds are pure reads of this state.
+- `[new/changed] ui/main_window.py` freshness gate — the "Cache current" branch
+  (`:1931–1933`) and the finalize path consult a single `_is_cache_current`
+  predicate (planner reports zero missing spans for the current triple AND no wave in
+  flight); a stranded finalization with missing days keeps the `AC-D16.4` shortfall
+  (existing wording, unchanged) and never the current-claim. Claim-class coverage
+  (A144): the gate suppresses the literal **and** any equivalent freshness claim —
+  absence is asserted, never one string matched.
+- `[existing] services/backfill_service.py` planner — consulted by the new predicate,
+  not modified (`find_missing_spans` / `plan_requests` contracts frozen below).
+- `[existing] data/bar_cache.py::BarCache`, pacing, `id_manager`, watchdog bounds,
+  port guard, LWC renderer seam — called or left alone; not modified.
+- `[existing] Order-code absence` — P14 adds zero order interaction (D45/D46 end
+  state untouched).
+
+### Data Model
+
+- `[new/changed] TickerSession in-memory wave state` — adds one field: the wave-start
+  epoch seconds (set on first plan issue, cleared on termination; never reset by a
+  coalesced reload). All other fields keep their shape and semantics; nothing is
+  persisted, so no migration and no `bars`-table touch.
+- `[existing] `bars` table (PK `(symbol, timeframe, ts)`)` — read via `BarCache`;
+  no migration.
+- `[existing] `popouts` and all other additive tables` — untouched.
+
+### Integration Points
+
+- `[existing] IBKR historical + realtime data` — the indicator reads wave membership
+  only; no new call type, no pacing-budget change, no watchdog retune (Finding 1 is
+  explicitly out of scope).
+- `[existing] SQLite` — no new table, no new column.
+- `[existing] Qt (`QStatusBar` permanent-widget slot)` — the only "new integration"
+  is a Qt-parented widget, not an external service.
+- No new external service, endpoint, or credential.
+
+### Frozen Interfaces
+
+- `services/backfill_service.py::find_missing_spans` — contract: `def
+  find_missing_spans(cached_ts: Iterable[int], now_ts: int, timeframe: str,
+  trailing_days: int = TRAILING_BAR_GRANULARITY_DAYS, ext_hours: bool = False,
+  min_sessions: int = 0) -> List[MissingSpan]:` — consulted by the new freshness
+  predicate and (unchanged) by `load_chart`; not modified.
+  Owner: `services/backfill_service.py`.
+- `services/backfill_service.py::plan_requests` — contract: `def plan_requests(
+  missing_spans: Iterable[MissingSpan], timeframe: str) -> List[RequestPlan]:` —
+  chunking newest-first per configured duration; not modified.
+  Owner: `services/backfill_service.py`.
+- `ui/ticker_session.py` wave lifecycle (`queue_wave_plans`,
+  `_cancel_history_requests`, `_arm_history_wave_watchdog` /
+  `_disarm_history_wave_watchdog`, `_finalize_stranded_history_wave` caller-side
+  behaviour, generation fencing) — hooked by the indicator, never reshaped.
+  Owner: `ui/ticker_session.py`.
+- `ui/main_window.py::_finalize_history_wave` shortfall wording — contract: a stranded
+  or incomplete wave surfaces the `AC-D16.4` shortfall (`"{symbol} — backfill
+  incomplete: {n} trading day(s) still missing ({preview}).{cause}"`) and never a
+  current-cache claim; D53.3 keeps this wording verbatim.
+  Owner: `ui/main_window.py`.
+- `data/bar_cache.py::BarCache` read/write API — `save_bars` (`INSERT OR REPLACE`
+  on the `(symbol, timeframe, ts)` PK), `get_bars` (all cached, ascending).
+  Owner: `data/bar_cache.py`.
+- Order-code absence — contract: no `ibkr/orders` module, no `placeOrder` /
+  `cancelOrder` / `reqGlobalCancel` call site, no order UI (the P5/D45–D46 end state).
+  P14 adds zero order interaction. Owner: the P5 end state.
+
+### Non-Functional Approach
+
+- **Correctness (driven by AC-D53.1/AC-D53.2 + R107):** the persistence property holds
+  by construction (permanent widget outside the `showMessage` slot), pinned by the
+  injected-traffic case asserting indicator identity/state across churn; clearing
+  happens only on the four hooked terminal paths, and the Branch-A case asserts
+  reqIds/generation/indicator continuity with the elapsed baseline unreset.
+- **Honesty (driven by AC-D53.3 + A144):** the freshness gate asserts the *absence*
+  of any current-cache claim while spans are missing (claim-class, never one
+  literal), and the stranded end state keeps the existing `AC-D16.4` shortfall —
+  no new wording is invented, so copy review stays inside existing status-bar
+  phrasing (Q80 default).
+- **Performance:** the indicator refresh rides existing wave callbacks (no new
+  timers beyond the elapsed display tick, which touches only the widget); no
+  request-shape, pacing-budget, or watchdog-bound change — Finding 1's tuned path is
+  byte-identical.
+- **Stability gate:** the full offscreen suite stays green on every wave; no
+  skipped/xfailed tests are added; no live TWS is touched.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P14-1 — The probe-named content set is more or less than the owner wants mid-stall (R106) | L / M | `AC-D53.1` asserts at-least the named fields, never exactly-only; Q78/Q79 confirm non-blocking, so a refinement cannot invalidate the build |
+| AR-P14-2 — The indicator is built as another transient `showMessage` caller, reintroducing the overwrite (R107) | M / M | S-P14-1 permanent-widget choice + `AC-D53.1`'s injected-traffic case (identity/state unchanged across churn); review checks the widget is not transient |
+| AR-P14-3 — Elapsed baseline resets on a coalesced reload or a continuation re-arm, understating the stall | L / M | The baseline is set once at first plan issue and only the four terminal paths clear it; the Branch-A case asserts continuity without reset |
+| AR-P14-4 — A freshness claim survives under a new wording the gate does not recognise | L / M | The gate is a single predicate consulted by every claim site (claim-class suppression, not string matching); the offscreen case asserts absence of the claim family while spans are missing |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P14-1 | **Persistent indicator as a permanent status-bar element (D53.1):** `addPermanentWidget` child created once with the bar, reporting at minimum in-flight count (`len(_history_req_ids)`), queued-plan count (`len(_wave_plan_queue)`), wave elapsed, and current reqIds; never a `showMessage` caller (A142 default (a), R107). Rationale: permanence outside the transient slot is the Finding 2 property by construction. Alternative: toolbar/badge (rejected — new layout rules for a minimal batch); dock/panel (rejected — heavy surface); `showMessage` (rejected — R107, the reported defect). | `[new in P14]` — D53.1; additive widget + raise/refresh hooks, all `showMessage` sites untouched |
+| S-P14-2 | **Lifecycle mirroring the four existing terminal paths with coalesced-keep (D53.2):** raise on wave issue (queue-only waves included), clear on normal completion / stranded finalization / cancellation / disconnect, keep-with-baseline on Branch-A same-triple reload (A143). Rationale: the paths already exist as behaviour — inventing a new lifecycle would desync the indicator from the wave it reports. Alternative: indicator-owned timers/timeouts (rejected — a second lifecycle can disagree with the wave; the watchdog already bounds strands). | `[new in P14]` — D53.2; hook-only, no lifecycle invented |
+| S-P14-3 | **Claim-class cache-current guard (D53.3):** a single `_is_cache_current` predicate (planner zero-missing for the current triple AND no wave in flight) consulted by the no-plans branch and the finalize path; stranded-with-missing-days keeps the verbatim `AC-D16.4` shortfall (A144). Rationale: the probe never observed the literal, so gating one string would under-guard. Alternative: literal-string match (rejected — A144/R107 class: equivalents would slip through); new shortfall wording (rejected — Q80 default keeps existing phrasing). | `[new in P14]` — D53.3; predicate + two call sites, planner only read |
+| S-P14-4 | **No wave-machinery change (Finding 1 boundary):** watchdog bounds, pacing budgets, continuation/prime precedence, request shapes, and TWS-side behaviour are untouched; elapsed/counts are pure reads. Rationale: the owner scoped Finding 1 out — the watchdog/shortfall path behaved correctly. Alternative: none entertained — retuning is explicitly out of scope. | `[new in P14]` — scope guard; read-only relationship to the P7 wave machinery |

@@ -1538,3 +1538,10 @@ history of the choice.
 - **Why it matters:** picker order, drawing/alarm visibility grids, the backfill coverage parameterisation and the priming per-span table each enumerate timeframes explicitly; a new timeframe with no row is unselectable, invisible-on, untested, or mis-primed (the D48 DG97/DG98 class — now for an intraday entry that additionally joins the `AC-D16.8` floor).
 - **Suggested resolution:** default `30 mins` to **visible** (A140); Plan adds the picker slot (between `15 mins` and `1 hour`), the visibility-grid row, the `AC-D16.1` parameterisation entry and the priming-table row (`5 secs` group) in the D52 picker task. Task Manager covers it under `AC-D52.5` / `AC-D52.6` / `AC-D52.8`.
 - **Status:** **open (non-blocking)** — lite-lane default recorded; Plan detail.
+
+## DG100 — D53: exact indicator widget + copy are Plan details, not requirements decisions
+
+- **Where it shows up:** D53.1-D53.3 / `AC-D53.1`-`AC-D53.3`; A142/A144; Q78/Q80.
+- **Why it matters:** without a user-confirmed visual reference, pinning pixels or exact strings beyond the probe-quoted messages would let a layout-correct build fail review on wording — the D49.3/Q64 pattern (standing default + measurable outcome, no visual decision) is the precedent to follow.
+- **Suggested resolution:** ACs assert the persistence/lifecycle/guard properties (indicator identity across `showMessage` traffic; clearing only on the four terminal paths; absence of any freshness claim while spans are missing) plus the minimum content set; Plan picks the widget and copy following existing status-bar phrasing.
+- **Status:** **open (non-blocking)** — defaults recorded (A142/A144); Q78/Q80 confirm.
