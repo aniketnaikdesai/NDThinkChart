@@ -1538,3 +1538,33 @@
 - **Why it is not blocking:** either reading keeps the guard testable (absence-of-claim + shortfall-presence assertions).
 - **Affected requirement section:** D53.3 / `AC-D53.3`; A144.
 
+# Open Questions — P15 (Batch 29 / D54 — 10-second target on load chart; Q81–Q83 NON-BLOCKING — defaults carried per A148)
+
+> Owner directive (verbatim 2026-11-04): *"max waiting can be 10 seconds once user clicks load chart."* Owner clarification 2026-11-04 (verbatim): *"i would ideally like to have the chart load in 10 seconds or less.."* — analyst default **A148** (`requirements.md` Phase P15): "ideally" reads as a performance **TARGET**, not a hard cap (optimize the common path to ≤10 s; Q81–Q83 expiry semantics apply only when the target is missed — graceful degradation). The 600 s figure is the probe harness's self-terminate ceiling, not app behaviour; the app's own wave watchdog is 120 s today. Standalone probes show legitimate single-request TWS latencies of 25–76 s for deep history (35D/45D/60D windows). **D1–P14 are NOT reopened.** Finding 1 / TWS-side silence causes are out of scope. Q81–Q83 are **non-blocking confirmations** — build proceeds on the stated defaults; P15 carries `Status: READY_FOR_PLAN`.
+
+## Q81 — D54: what renders when the 10 s target is missed?
+
+- **Status:** open (non-blocking).
+- **Question:** at T0+10 s (T0 = Load Chart click / `load_chart` invocation) with the wave still incomplete, what must the user see — (a) whatever bars have arrived so far rendered on the chart plus the `AC-D16.4` shortfall marker for the missing remainder (recommended default — the chart is never blank when data exists, consistent with the no-silent-hole rule), (b) the pre-load / skeleton view held with only the shortfall + retry affordance (no partial bars), or (c) an owner-named variant (e.g. cached-bars-only render even when fresher partials exist)?
+- **Recommended default (A148):** (a) — partial bars + shortfall. Rationale: never blank when data exists; consistent with `AC-D16.4` no-silent-hole.
+- **What a different answer would change:** `AC-D54.1`'s render assertion (partial-bars-present vs skeleton-held) only — target, lifecycle and guard are untouched.
+- **Why it is not blocking:** the target-miss path is graceful degradation; `AC-D54.1` asserts the at-least default (a) testably without the owner's explicit pick.
+- **Affected requirement section:** Phase P15 / D54.1–D54.2 / `AC-D54.1`–`AC-D54.2`; Journey 47; R108.
+
+## Q82 — D54: does the wave keep filling in the background after the 10 s target is missed?
+
+- **Status:** open (non-blocking).
+- **Question:** after the 10 s miss renders per Q81, does the in-flight wave (a) continue in the background with the D53 persistent indicator still running and the chart updating as further bars land (recommended default — no user data is discarded, D53 lifecycle unchanged, completion/shortfall finalizes normally), or (b) cancel at 10 s so the user must explicitly retry/extend (indicator finalizes as cancelled per `AC-D53.2`)?
+- **Recommended default (A148):** (a) — background-continue. Rationale: no fetched data discarded; D53 lifecycle unchanged; no new 10 s cancel path invented.
+- **What a different answer would change:** `AC-D54.2`'s wave-state assertion past T0+10 s (continue vs cancel) only.
+- **Why it is not blocking:** either reading keeps the verdict testable (wave-state + indicator-state assertions); the default preserves the existing D53 lifecycle.
+- **Affected requirement section:** Phase P15 / D54.2 / `AC-D54.2`; D53 `AC-D53.2` interaction; Journey 47.
+
+## Q83 — D54: how is shortfall vs completion surfaced at/after a 10 s miss (on the D53 surface)?
+
+- **Status:** open (non-blocking).
+- **Question:** confirm that (a) the 10 s miss state is surfaced on the existing D53 persistent backfill-state indicator (no new surface — D53 is referenced, not redesigned), showing an explicit "partial @ 10 s" vs "complete" distinction, and (b) any still-missing spans at/after the miss keep the `AC-D16.4` shortfall (missing-days + reason) visible rather than any current-cache claim per `AC-D53.3` — or name the owner-preferred wording/surface if different.
+- **Recommended default (A148):** yes to both — D53 indicator + `AC-D16.4` shortfall. Rationale: reuses the shipped surface; preserves honesty without a copy redesign.
+- **What a different answer would change:** `AC-D54.3`'s surface/wording assertions only — D53 stays referenced, not reopened.
+- **Why it is not blocking:** either reading keeps the guard testable (absence-of-claim + shortfall-presence assertions); the default avoids a D53 redesign.
+- **Affected requirement section:** Phase P15 / D54.3 / `AC-D54.3`; D53 / `AC-D53.1`–`AC-D53.3` (referenced, not reworded); Journey 47; DG101.

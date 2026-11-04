@@ -253,3 +253,35 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 1.
 - a04fbd9 Q64-66 answered by owner (accept defaults); D50 Q70 settled to (c)
 - 281d4e8 ESC-079 addressed: AC-D16.8 restatement verified, zero open escalations
 - 61f8dff CI: restore workflow_dispatch colon (fuzzy edit ate it)
+## P15 — 2026-11-04
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 1.
+
+### Done
+- P15-T1 — P15-T1 done: per-wave single-shot T0+10s expiry verdict in MainWindow (armed at raise, disarmed on every terminal path, acts only when incomplete with arrived bars + verbatim AC-D16.4 shortfall); all 6 tests pass, P14 neighbor suites green
+- P15-T2 — P15-T2 done: expiry stays a pure verdict past T0+10 s (wave continues, indicator runs, normal/strand finalize unchanged); disconnect wins over pending expiry incl. queue-only waves; mode-switch/new-triple re-anchor T0, coalesced keep holds T0
+- P15-T3 — P15-T3 done: missed T0+10s expiry latches the D53 indicator to 'Backfill (partial): ...' with verbatim shortfall and no current-cache claim; complete-by-bound waves keep the unchanged idle/completion path; 6/6 new tests plus P15-W1/W2 and P14 guard/lifecycle suites green.
+- P15-T1 — P15-T1 done: single-shot T0+10s expiry verdict renders arrived bars plus verbatim AC-D16.4 shortfall on incomplete waves; all 4 task tests pass
+- P15-T2 — P15-T2 background-continue seams verified: wave continues past T0+10s expiry under unchanged D53 lifecycle, disconnect wins over pending expiry, seam loads re-anchor T0 while coalesced reload keeps it (5/5 cases pass). Rework note: no code edits needed, implementation already present; fixed the malformed/missing result file with a well-formed stamped result.
+
+### Recent commits
+- 2d8fabd P14: persistent backfill-state indicator + cache-current guard (D53, Finding 2)
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
+- 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
+- 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE
+- a04fbd9 Q64-66 answered by owner (accept defaults); D50 Q70 settled to (c)
+- 281d4e8 ESC-079 addressed: AC-D16.8 restatement verified, zero open escalations

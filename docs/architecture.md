@@ -7142,3 +7142,219 @@ new dependency, no schema change, no watchdog/pacing/port change.
 | S-P14-2 | **Lifecycle mirroring the four existing terminal paths with coalesced-keep (D53.2):** raise on wave issue (queue-only waves included), clear on normal completion / stranded finalization / cancellation / disconnect, keep-with-baseline on Branch-A same-triple reload (A143). Rationale: the paths already exist as behaviour — inventing a new lifecycle would desync the indicator from the wave it reports. Alternative: indicator-owned timers/timeouts (rejected — a second lifecycle can disagree with the wave; the watchdog already bounds strands). | `[new in P14]` — D53.2; hook-only, no lifecycle invented |
 | S-P14-3 | **Claim-class cache-current guard (D53.3):** a single `_is_cache_current` predicate (planner zero-missing for the current triple AND no wave in flight) consulted by the no-plans branch and the finalize path; stranded-with-missing-days keeps the verbatim `AC-D16.4` shortfall (A144). Rationale: the probe never observed the literal, so gating one string would under-guard. Alternative: literal-string match (rejected — A144/R107 class: equivalents would slip through); new shortfall wording (rejected — Q80 default keeps existing phrasing). | `[new in P14]` — D53.3; predicate + two call sites, planner only read |
 | S-P14-4 | **No wave-machinery change (Finding 1 boundary):** watchdog bounds, pacing budgets, continuation/prime precedence, request shapes, and TWS-side behaviour are untouched; elapsed/counts are pure reads. Rationale: the owner scoped Finding 1 out — the watchdog/shortfall path behaved correctly. Alternative: none entertained — retuning is explicitly out of scope. | `[new in P14]` — scope guard; read-only relationship to the P7 wave machinery |
+
+## Phase P15 — 10-second target on load chart (D54) — drafted 2026-11-04
+
+> Companion: `docs/plan.md` § *Phase P15* (waves P15-W1…P15-W3). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P15 (D54),
+> Journey 47, `AC-D54.1`–`AC-D54.4` (FINAL per A148; Q81–Q83 non-blocking with
+> defaults carried), analyst defaults A145–A148, R108–R109, `design_gaps.md`
+> DG101. Hard constraints: **no order code anywhere** (D45/D46); offscreen-first
+> acceptance with clock control (no live-TWS step named); the **full offscreen
+> suite green is the gate**; waves S/M only; no skips/xfails. Finding 1 /
+> TWS-side silence causes and watchdog retuning are **explicitly out of scope**
+> and no wave touches them. D53 is **referenced, not reopened** — no D53
+> criterion changes, no new surface, no copy rewrite. Existing-repo run: every
+> wave below modifies existing modules in place; **no new module, no new
+> dependency, no schema migration**. One phase only — nothing past the P15
+> build waves is planned. D1–P14 are NOT reopened.
+
+### Codebase Summary (existing repository — the D54 surface, validated against source)
+
+> Inventory gathered from the current source files (the repository is authoritative;
+> `graphify-out/graph.json` used for discovery only). Only the parts D54 touches are
+> listed; the full layer inventory is unchanged.
+
+- `[existing] ui/main_window.py::load_chart` — the T0 anchor (`def
+  load_chart(self, symbol=None, timeframe=None, extended_hours=None)`): the
+  Branch-A coalesced same-triple early-return keeps the running wave (no new
+  reqIds, generation untouched, indicator refresh-but-keep with the elapsed
+  baseline unreset per S-P14-2); the cancel+generation block terminates the old
+  wave on symbol switch / new-triple load; the plans branch raises the D53
+  indicator via `_raise_backfill_indicator` (queue-only waves included).
+- `[existing] ui/main_window.py` D53 indicator ownership — `_backfill_indicator`
+  (`QLabel`, `addPermanentWidget`, never a `showMessage` caller),
+  `_backfill_wave_start` (MainWindow-local elapsed baseline, stamped once at
+  raise, never reset by refresh or coalesced keep, cleared only with the
+  indicator), `set_backfill_state` / `_refresh_backfill_indicator` (pure reads
+  of session wave state), `clear_backfill_indicator` (terminal paths only),
+  `_is_cache_current` (the single freshness gate consulted by the no-plans
+  branch and the finalize path).
+- `[existing] ui/ticker_session.py` wave state — `_history_req_ids`,
+  `_wave_plan_queue`, `_history_generation` fencing,
+  `_cancel_history_requests`, the watchdog arm/disarm pair with
+  `_history_wave_bound_ms`, `queue_wave_plans` (stamps `_wave_start_ts` once
+  per wave), `on_historical_data_end` → `_on_session_wave_complete` →
+  `_finalize_history_wave` (single persist + re-read + render per wave).
+- `[existing] ui/main_window.py` finalize paths — `_finalize_history_wave`
+  (normal completion) and `_finalize_stranded_history_wave` (watchdog /
+  disconnect finalization) with the verbatim `AC-D16.4` shortfall and the
+  `AC-D53.3` no-current-claim guard; `_missing_backfill_trading_days`
+  (planner-backed missing-days computation for the shortfall).
+- `[existing] services/backfill_service.py` planner (`find_missing_spans` /
+  `plan_requests`, contracts frozen in P14) and `data/bar_cache.py::BarCache`
+  — consulted by the expiry render and the freshness gate, not modified.
+- Stack note (observed, inert for P15): the tree is **PyQt6 + Lightweight Charts
+  only** (P6-T13 removal `6e35b27`; `ui/chart_view.py::create_chart_view` is the
+  LWC-only factory). P15 touches no renderer — no wave reads or writes it, so
+  no renderer detail can misdirect this build.
+
+### Summary
+
+Anchor a 10-second expiry verdict at the Load Chart invocation (T0): when the
+wave is still incomplete at T0+10 s, render whatever bars have arrived plus the
+verbatim `AC-D16.4` shortfall for the missing remainder, keep the wave running
+in the background with the existing D53 indicator still live, and surface the
+partial-vs-complete distinction on that indicator with no current-cache claim
+while spans are missing. Completion at or before the bound takes the normal
+path; a mode switch, new-triple load, or disconnect re-anchors or wins over
+expiry per the existing lifecycle. No new module, no new dependency, no schema
+change, no watchdog/pacing/port/request-shape change.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI stack | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only | Existing-repo hard constraint; D54 is an expiry verdict + lifecycle interplay on the existing wave machinery, not a stack change | None — no stack change is on the table |
+| Expiry mechanism | A single-shot Qt timer (`QTimer.singleShot`-shaped) anchored at wave raise (the `_backfill_wave_start` baseline), firing once at T0+10 s and only acting when the wave is still incomplete | One firing per wave is the cheapest correct shape: no polling, no second lifecycle to drift from the wave; anchoring at the existing baseline reuses the P14 coalesced-keep semantics (a same-triple reload cannot silently extend the cap). The wave's own completion/strand/cancel/disconnect paths disarm it, so a terminal wave never expires | Polling elapsed on every wave event (rejected — per-event clock reads for a once-per-wave verdict); indicator-owned countdown timers (rejected — S-P14-2's lesson: a second lifecycle can disagree with the wave); resetting T0 on coalesced reload (rejected — silently extends the cap past the Journey 47 edge case) |
+| Test harness | pytest + pytest-qt, offscreen (`QT_QPA_PLATFORM=offscreen`) with clock control, no live TWS | Every D54 AC names an offscreen measurable (forced-incomplete wave at T0+10 s; wave/indicator state past expiry; guard + shortfall assertions); TWS latencies are context (R108), never a gate | Live-TWS validation (rejected — no AC names a live step) |
+| No new dependency / module / integration | All items land in existing files; no store change | D54 expiry state is derivable per wave (timer liveness + the existing wave/indicator state); a new service or table would split the P7/P14 wave semantics | New expiry-service module or persisted expiry state (rejected — the session + MainWindow already own the full lifecycle; duplication risks drift) |
+
+### System Components
+
+- `[new/changed] ui/main_window.py` expiry hook — T0 capture at wave raise (the
+  `_backfill_wave_start` baseline, set once, never reset by a coalesced keep);
+  a single-shot expiry armed per wave and disarmed on every terminal path
+  (normal completion, stranded finalization, cancellation, disconnect); at
+  expiry with an incomplete wave, render the arrived bars plus the verbatim
+  `AC-D16.4` shortfall for the missing remainder (`AC-D54.1`, Q81 default
+  (a)); completion exactly at T0+10.0 s counts as complete (single-sided
+  bound — the expiry acts only when the wave is still incomplete at fire time).
+- `[new/changed] ui/main_window.py` wave-hook interplay — expiry never cancels,
+  resets, or re-issues requests: past expiry the in-flight wave continues under
+  the unchanged D53 lifecycle with the indicator still running and the chart
+  updating as further bars land; normal completion/stranded finalization ends
+  the wave exactly as today (`AC-D54.2`, Q82 default (a)). Disconnect at any
+  instant (including T0+9.9 s) finalizes via the existing disconnect path and
+  wins over expiry; a mode switch / new-triple load cancels the old wave
+  (expiry disarmed with it) and re-anchors T0 on the new wave; a coalesced
+  same-triple reload keeps the original T0 (no extension).
+- `[new/changed] ui/main_window.py` expiry surfacing — the miss state is
+  surfaced on the existing D53 persistent indicator (explicit partial-vs-complete
+  distinction at/after expiry) with the `AC-D16.4` shortfall (missing-days +
+  reason) kept visible and no current-cache claim while spans are missing, via
+  the unchanged `_is_cache_current` gate (`AC-D54.3`, Q83 default; D53
+  referenced, not reworded).
+- `[existing] ui/ticker_session.py` wave state — read by the expiry hook and
+  the surfacing (in-flight/queued counts, reqIds, generation, watchdog state);
+  not reshaped.
+- `[existing] services/backfill_service.py` planner — consulted by the expiry
+  render (missing remainder) and the freshness gate; not modified.
+- `[existing] data/bar_cache.py::BarCache`, pacing, `id_manager`, watchdog
+  bounds, port guard, LWC renderer seam — called or left alone; not modified.
+- `[existing] Order-code absence` — P15 adds zero order interaction (D45/D46
+  end state untouched).
+
+### Data Model
+
+- `[existing] TickerSession in-memory wave state` — read by the expiry hook;
+  shape and semantics unchanged; nothing persisted, no migration, no
+  `bars`-table touch. Per-wave expiry liveness is derived (timer + existing
+  wave/indicator state), not a new stored field.
+- `[existing] `bars` table (PK `(symbol, timeframe, ts)`)` — read via
+  `BarCache`; no migration.
+- `[existing] `popouts` and all other additive tables` — untouched.
+
+### Integration Points
+
+- `[existing] IBKR historical + realtime data` — the expiry hook reads wave
+  membership and renders arrived bars only; no new call type, no pacing-budget
+  change, no watchdog retune, no request-shape change (Finding 1 / TWS-side
+  causes explicitly out of scope).
+- `[existing] SQLite` — no new table, no new column.
+- `[existing] Qt (single-shot timer + `QStatusBar` permanent-widget slot)` —
+  the only "new integration" is a Qt timer plus reads of the Qt-parented D53
+  widget, not an external service.
+- No new external service, endpoint, or credential.
+
+### Frozen Interfaces
+
+- `ui/main_window.py::load_chart` — contract: `def load_chart(self, symbol=None,
+  timeframe=None, extended_hours=None):` — the T0 anchor (click / invocation)
+  and the Branch-A coalesced same-triple early-return (keeps the running wave:
+  no new reqIds, generation unchanged, indicator refresh-but-keep with the
+  elapsed baseline unreset). P15 hooks the anchor; the signature and the
+  coalesced/cancel semantics are not modified.
+  Owner: `ui/main_window.py`.
+- `ui/main_window.py::set_backfill_state` — contract: `def set_backfill_state(
+  self, in_flight: int, queued: int, elapsed_s: float, req_ids: list[int])
+  -> None:` — reports wave state on the permanent indicator; never a
+  `showMessage` caller. P15 reads it for the partial-vs-complete distinction;
+  not modified.
+  Owner: `ui/main_window.py`.
+- `ui/main_window.py::clear_backfill_indicator` — contract: returns the
+  indicator to idle (`"Backfill: idle"`), clearing the wave-start baseline with
+  it; terminal wave paths only. P15 disarms expiry through these same paths;
+  not modified.
+  Owner: `ui/main_window.py`.
+- `ui/main_window.py::_is_cache_current` — contract: `def _is_cache_current(
+  self, symbol: str, timeframe: str, extended_hours: bool) -> bool:` — true
+  only when the planner reports zero missing spans for the current triple AND
+  no wave is in flight; consulted by the no-plans branch and the finalize path.
+  P15 routes the expiry surfacing through this same predicate; not modified.
+  Owner: `ui/main_window.py`.
+- `ui/main_window.py::_finalize_history_wave` shortfall wording — contract: an
+  incomplete wave surfaces the `AC-D16.4` shortfall and never a current-cache
+  claim; the expiry render reuses this wording verbatim.
+  Owner: `ui/main_window.py`.
+- `ui/ticker_session.py` wave lifecycle (`queue_wave_plans`,
+  `_cancel_history_requests`, watchdog arm/disarm, `_finalize_stranded_history_wave`
+  caller-side behaviour, generation fencing) — hooked by the expiry, never
+  reshaped.
+  Owner: `ui/ticker_session.py`.
+- Planner + cache freezes carry forward from P14 unmodified: P15 consults
+  `find_missing_spans` / `plan_requests` and the `BarCache` read/write API
+  without changing their contracts (see § *Phase P14* Frozen Interfaces).
+- Order-code absence — contract: no `ibkr/orders` module, no `placeOrder` /
+  `cancelOrder` / `reqGlobalCancel` call site, no order UI (the P5/D45–D46 end
+  state). P15 adds zero order interaction. Owner: the P5 end state.
+
+### Non-Functional Approach
+
+- **Correctness (driven by AC-D54.1/AC-D54.2 + Journey 47 edges):** the verdict
+  fires once per wave at T0+10 s and acts only when the wave is still
+  incomplete — a 9.9 s completion never takes the expiry path and an exact
+  T0+10.0 s completion counts as complete (single-sided bound); zero-bar
+  expiry lists all missing days as shortfall. Disconnect finalization wins over
+  a pending expiry; mode-switch / new-triple re-anchors T0 with the old expiry
+  disarmed; coalesced keep holds the original T0 without extension.
+- **Honesty (driven by AC-D54.3 + A144):** expiry surfacing reuses the D53
+  indicator with an explicit partial-vs-complete distinction and keeps the
+  verbatim `AC-D16.4` shortfall while spans are missing; the unchanged
+  `_is_cache_current` predicate suppresses every current-cache claim — no new
+  surface is invented and no D53 wording is rewritten (Q83 default).
+- **Performance (driven by A148):** the 10 s figure is a target for the common
+  path, not a hard cap — legitimate 25–76 s single-request TWS latencies
+  (R108) take the graceful expiry path rather than failing; the expiry itself
+  adds one timer firing per wave and pure reads otherwise, with no
+  request-shape, pacing-budget, or watchdog-bound change.
+- **Stability gate:** the full offscreen suite stays green on every wave; no
+  skipped/xfailed tests are added; no live TWS is touched.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P15-1 — Legitimate deep-history latencies (25–76 s single requests) exceed the 10 s target, so deep loads routinely take the expiry path and users may read "partial @ 10 s" as broken data (R108) | M / H | Q81–Q83 defaults pin honest partial/completion wording on the D53 surface; `AC-D54.1` renders bars whenever data exists (never blank); `AC-D54.3` keeps the shortfall visible with no current-cache claim |
+| AR-P15-2 — A background-continue wave (Q82a) that outlives the verdict surprises the chart with late updates, or a late disconnect races the armed expiry (R109 + T0+9.9 s edge) | M / L | No new cancel path: the wave finalizes through the existing terminal paths exactly as today; disconnect finalization disarms/wins over expiry; late arrivals update through the normal per-chunk path |
+| AR-P15-3 — The expiry baseline drifts from the wave it judges (T0 reset on coalesced reload, or re-armed per continuation tick) | L / M | The baseline is the existing `_backfill_wave_start` (stamped once at raise, never reset by refresh or coalesced keep); only the four terminal paths plus the new-triple cancel clear it, and the expiry is disarmed with them |
+| AR-P15-4 — A freshness claim survives expiry under a wording the gate does not recognise | L / M | Expiry surfacing routes through the single `_is_cache_current` predicate (claim-class suppression, never string matching); the offscreen case asserts absence of the claim family while spans are missing |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P15-1 | **10 s expiry verdict anchored at Load Chart T0 (D54.1):** the `_backfill_wave_start` baseline (stamped once at wave raise, never reset by coalesced keep) is T0 (A145); a single-shot expiry fires once at T0+10 s and acts only when the wave is still incomplete — rendering arrived bars plus the verbatim `AC-D16.4` shortfall for the missing remainder (Q81 default (a)). Completion exactly at T0+10.0 s counts as complete (single-sided bound per the Journey 47 edge case). Rationale: reusing the stamped-once baseline makes the coalesced no-extension rule hold by construction, and firing-only-when-incomplete makes the 9.9 s and exact-boundary edges hold without special cases. Alternative: skeleton-held render (rejected — Q81 default (a), never blank when data exists); T0 reset on coalesced reload (rejected — silently extends the cap); per-event elapsed polling (rejected — a once-per-wave verdict needs one firing, not per-event reads). | `[new in P15]` — D54.1; additive hook + expiry render, wave machinery untouched |
+| S-P15-2 | **Background-continue with unchanged D53 lifecycle (D54.2):** no 10 s cancel path exists — past expiry the in-flight wave continues, the D53 indicator keeps running, the chart updates as further bars land, and normal completion / stranded finalization ends the wave exactly as today (Q82 default (a)). Rationale: discards no fetched data and invents no lifecycle to desync from the wave. Alternative: cancel-at-10 s with explicit retry (rejected — strands the user on partial data with no path forward; Q82 default (a) adopted non-blocking). | `[new in P15]` — D54.2; hook-only, no lifecycle invented or reshaped |
+| S-P15-3 | **Expiry surfacing on the D53 surface with the `AC-D16.4` shortfall (D54.3):** the miss state shows the explicit partial-vs-complete distinction on the existing persistent indicator and keeps the shortfall (missing-days + reason) visible with no current-cache claim via the unchanged `_is_cache_current` gate (Q83 default; A144 claim-class). Rationale: reuses the shipped surface and the standing copy without a redesign. Alternative: new expiry banner / rewritten copy (rejected — D53 is referenced, not reopened; Q83 default avoids the redesign). | `[new in P15]` — D54.3; surfacing only, D53 contracts only read |
+| S-P15-4 | **No wave-machinery or boundary change:** watchdog bounds and strand timing, pacing budgets and continuation/prime precedence, request shapes, TWS-side behaviour, and the order-code absence are untouched; expiry state is derived per wave (timer liveness + existing wave/indicator state), never a new module, dependency, store, or migration (A146/A147 mechanism-is-Plan-level; A148 target-not-cap). Rationale: the owner scoped Finding 1 and TWS-side causes out, and the 10 s figure is a target with graceful-degradation semantics, not a fetch-acceleration mandate. Alternative: none entertained — retuning, re-paging, or re-priming as ends in themselves are explicitly out of scope. | `[new in P15]` — scope guard; read-only relationship to the P7/P14 wave machinery |

@@ -3917,3 +3917,91 @@ Every D53 expectation is addressed somewhere above; no expectation is narrowed o
   scope guard, not as an escalation.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P15 — 10-second target on load chart (D54) — drafted 2026-11-04
+
+> Companion: `docs/architecture.md` § *Phase P15* (Codebase Summary, S-P15-1…S-P15-4, frozen
+> interfaces, non-functional, AR-P15-1…AR-P15-4). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Phase P15 (D54), Journey 47, `AC-D54.1`–`AC-D54.4` FINAL
+> (A148 target reading; Q81–Q83 non-blocking confirmations with logged defaults — build proceeds
+> on them; no blocking item), A145–A148, R108–R109, `design_gaps.md` DG101. Hard constraints:
+> **no order code anywhere** (D45/D46); offscreen-first acceptance with clock control (no
+> live-TWS step named); **full offscreen suite green is the gate**; waves S/M only; no
+> skips/xfails; no fine-grained task breakdown (Task Manager's job); no per-task tests
+> prescribed. Finding 1 / TWS-side silence causes and watchdog retuning are out of scope and
+> no wave touches them; D53 is referenced, not reopened (no D53 criterion changes, no new
+> surface, no copy rewrite). Existing-repo run: every wave modifies existing modules in
+> place; **no new module, no new dependency, no schema migration**. One phase only — nothing
+> past the P15 build waves is planned. D1–P14 are NOT reopened.
+
+### Phases (milestones — Task Manager decomposes each wave into tasks with tests)
+
+One commit per wave. Waves run in order; a later wave depends on all earlier ones. Repro-first where
+behavior is new: the W1 expiry-render case lands **red on the current tree** (no T0+10 s verdict
+exists today — an incomplete wave at T0+10 s renders nothing new and asserts no partial/shortfall
+verdict) before the fix; the W2 continuation case is red-first (today nothing distinguishes
+post-expiry background fill from the pre-expiry wave, and no seam pins disconnect-wins or
+coalesced-T0); the W3 surfacing case is red-first (today no partial-vs-complete distinction exists
+on the indicator and the expiry instant consults no freshness gate).
+
+| Wave | Size | Goal (which inputs it delivers) | Acceptance criteria | Validation method |
+|---|---|---|---|---|
+| P15-W1 | M | **Expiry verdict at T0+10 s (D54.1; S-P15-1).** T0 anchored at Load Chart invocation (the stamped-once wave-start baseline); a single-shot expiry fires once per wave and, only when the wave is still incomplete, renders arrived bars plus the verbatim `AC-D16.4` shortfall for the missing remainder. | (1) Repro-first: offscreen clock-controlled wave forced incomplete at T0+10 s — partial bars present + shortfall marker within the bound, red today, green after; (2) a 9.9 s completion never takes the expiry path; completion exactly at T0+10.0 s counts as complete (single-sided bound); (3) zero-bar expiry lists all missing days as shortfall; (4) full offscreen suite green. | Offscreen expiry suites with clock control + seeded `BarCache` + full suite. |
+| P15-W2 | M | **Background-continue with lifecycle seams (D54.2; S-P15-2).** No 10 s cancel path: the wave continues past expiry with the D53 indicator still running and the chart updating as bars land; normal completion / stranded finalization ends the wave as today; disconnect wins over a pending expiry; mode-switch / new-triple re-anchors T0; coalesced keep holds the original T0. | (1) Wave-state + indicator-state assertions past T0+10 s (in-flight continues, indicator running, late bars render), red-first, green after; (2) disconnect at T0+9.9 s finalizes via the disconnect path (expiry never fires on the dead wave); (3) mode-switch / new-triple mid-wave cancels the old wave (old expiry disarmed) and re-anchors T0; coalesced same-triple reload keeps the original T0 without extension; (4) full offscreen suite green. | Offscreen lifecycle suites driving the real session callbacks + failure/disconnect injection + clock control + full suite. |
+| P15-W3 | S | **Expiry surfacing + batch gate (D54.3/D54.4; S-P15-3/S-P15-4).** Partial-vs-complete distinction on the existing D53 indicator at/after a miss; `AC-D16.4` shortfall visible with no current-cache claim while spans are missing; history intact; suite green. | (1) In-flight/stranded/complete expiry cases assert indicator state + shortfall presence + freshness-claim absence (claim family, never one literal), red-first, green after; (2) a wave complete by T0+10 s surfaces as complete through the unchanged path; (3) `AC-D54.4`: `### D41`–`### D53` with reversals, the marker sentence + Current Tech Stack intact, no pre-P15 wording touched; (4) **full offscreen suite green**. | Offscreen surfacing suites + the AC checklist. A red suite fails the wave. |
+
+**What stays untouched by every P15 wave:** the watchdog bounds and strand timing; the pacing
+budgets and continuation/prime precedence; the `req_historical_data` / `req_mkt_data` signatures;
+the planner function contracts; `BarCache` APIs; error ingress/classification; the realtime/stream
+APIs; the port guard; the LWC renderer seam; the `bars` schema (no migration); the order-code
+absence; every existing `showMessage` text, the D53 indicator texts, and the shortfall wording.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / input | Architecture section | Wave |
+|---|---|---|
+| D54.1 / `AC-D54.1` (10 s target verdict: partial bars + shortfall at miss; 9.9 s / exact-boundary / zero-bar edges) | S-P15-1; Frozen (`load_chart` T0/coalesced contract, shortfall wording) | P15-W1 |
+| D54.2 / `AC-D54.2` (background-continue; D53 lifecycle unchanged; no 10 s cancel) | S-P15-2; Frozen (wave lifecycle hooked, not reshaped) | P15-W2 |
+| D54.3 / `AC-D54.3` (D53 surface partial-vs-complete + `AC-D16.4` shortfall + no current-claim; completed-by-bound reads complete) | S-P15-3; Frozen (`set_backfill_state` / `clear_backfill_indicator` / `_is_cache_current`) | P15-W3 |
+| D54.4 / `AC-D54.4` (history intact) | Frozen (all `[existing]` rows + P14 carry-forward) | P15-W3 |
+| Journey 47 (load against the bound; render / background / surfacing steps; 9.9 s / zero-bar / disconnect-wins / coalesced-T0 / mode-switch-re-T0 / exact-boundary edges) | S-P15-1…S-P15-4 | P15-W1…P15-W3 |
+| A145 (T0 = click/invocation; single-sided exact-boundary bound) | S-P15-1 | P15-W1 |
+| A146 (main-chart loads; pop-out restore inherits, no separate criterion) | S-P15-4 | Every wave (same history/backfill path) |
+| A147 (mechanism is Plan-level) | S-P15-1…S-P15-4 | Every wave |
+| A148 ("ideally ≤10 s" is a target; Q81–Q83 miss semantics only on miss) / Q81/Q82/Q83 | S-P15-1 / S-P15-2 / S-P15-3 | P15-W1 / P15-W2 / P15-W3 |
+| R108 (25–76 s legitimate latencies exceed the target) | AR-P15-1; S-P15-1/S-P15-3 | P15-W1 (graceful path) + P15-W3 (honest surfacing) |
+| R109 (background-continue surprise vs cancel-strand) | AR-P15-2; S-P15-2 | P15-W2 (continue + seam cases) |
+| DG101 (cap-vs-latency tension; mechanism is Plan's job) | S-P15-1…S-P15-4 | P15-W1…P15-W3 |
+| Finding-1 / TWS-side boundary (no watchdog/TWS change) | S-P15-4 | Every wave (read-only relationship) |
+| Hard constraints: no order code (D45/D46); offscreen-only; suite-green gate | S-P15-1…S-P15-4; Frozen (order absence, seam) | Every wave |
+
+Every D54 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Assumptions (plan-level only)
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P15-1 | Q81–Q83 proceed on their logged defaults without waiting for answers: (a) partial bars + shortfall, (b) background-continue, (c) D53 indicator + `AC-D16.4` shortfall with claim-class gating | The orchestration preamble and the requirements header both direct proceeding on defaults; every default is evidence-backed and `AC-D54.1`–`AC-D54.3` are written so a refinement changes only the named assertion, never the target, lifecycle, or guard |
+| AP-P15-2 | AC-G.1 (visual reference gate) does not apply: the expiry verdict and any partial/complete distinction follow standing D53 defaults (A142/A144, DG100 carried forward) with measurable render/lifecycle/guard assertions, never pixel or exact-string assertions | DG100 records the widget-and-copy choice as a Plan detail; all D54 outcomes are clock-controlled offscreen-measurable without a confirmed reference |
+| AP-P15-3 | T0 is the stamped-once `_backfill_wave_start` baseline (set at wave raise, never reset by refresh or coalesced keep, cleared only with the indicator); the expiry is a single-shot timer armed per wave and disarmed on every terminal path | Reuses the P14 baseline semantics so the Journey 47 coalesced no-extension edge holds by construction; a per-wave single firing needs no second lifecycle that could drift from the wave |
+| AP-P15-4 | A pop-out restore riding the history/backfill path inherits the same verdict semantics with no separate criterion; no pop-out-specific wave is planned | A146 records the scope; the restore path is the same machinery, so a second cap would fork the requirement for no behavioural difference |
+| AP-P15-5 | The "10 seconds or less" owner wording is a performance target for the common path (A148), not a fetch-acceleration mandate: waves optimize the verdict path and degrade gracefully, and no wave re-pages, re-primes, retunes, or re-times fetching to chase the bound as an end in itself | A147/A148 plus the R108 latency evidence: deep loads legitimately exceed the bound, so the satisfiable reading is verdict-by-bound plus honest miss semantics |
+
+### Flagged Issues
+
+**None.** Every D54 item is satisfiable as written on the existing stack:
+
+- The expiry verdict is a T0-anchored hook plus the existing render/shortfall path
+  with clock-controlled measurables (`AC-D54.1`); the cap-vs-latency tension has a
+  specified handling (A148 target reading; Q81 non-blocking), not a gap.
+- Background-continue reuses the existing terminal paths with per-seam measurables
+  (`AC-D54.2`); the continue-vs-cancel fork is decided by default (Q82a), not
+  missing.
+- Surfacing reuses the D53 indicator and the standing shortfall/gate with
+  claim-class absence measurables (`AC-D54.3`); copy without a confirmed reference
+  is a recorded default (A144/Q83/DG100 carried forward), not a gap.
+- Finding 1 / TWS-side causes and watchdog retuning are explicitly out of scope
+  per the owner directive — recorded as the S-P15-4 scope guard, not as an
+  escalation.
+
+Status: READY_FOR_TASK_MANAGER

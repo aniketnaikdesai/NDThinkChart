@@ -94,6 +94,13 @@ _LOG = logging.getLogger(__name__)
 #: periods are covered exactly; larger periods prime the trailing window.
 _PRIME_MAX_SPAN_S = 7_200
 
+#: P15-W1 (S-P15-1): single-shot backfill-wave expiry bound (milliseconds).
+#: The verdict fires once per wave at T0+10 s from the stamped-once
+#: ``_backfill_wave_start`` baseline and acts only when the wave is still
+#: incomplete. Completion exactly at T0+10.0 s counts as complete
+#: (single-sided bound — the handler no-ops once nothing is in flight).
+_BACKFILL_EXPIRY_BOUND_MS = 10_000
+
 # Default watchlist symbols — used only on first run before DB persistence
 DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
 
@@ -555,6 +562,19 @@ class MainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self._backfill_indicator)
         self._backfill_wave_start: float | None = None
         self._backfill_state: dict | None = None
+        # P15-W3 (S-P15-3): expiry-miss latch for the D53 surfacing. Set
+        # once when the T0+10 s expiry fires on a still-incomplete wave
+        # (spans still missing), cleared only with the indicator on the
+        # unchanged terminal paths. While latched, set_backfill_state
+        # renders the explicit partial marker; a wave complete by the
+        # bound never latches, so the idle/active wording is untouched.
+        self._backfill_expiry_missed: bool = False
+        # P15-W1 (S-P15-1): single-shot T0+10 s expiry verdict. Armed once
+        # per wave at raise, disarmed on every terminal path (clear below).
+        # Fires _on_backfill_expiry exactly once per wave.
+        self._backfill_expiry_timer = QTimer(self)
+        self._backfill_expiry_timer.setSingleShot(True)
+        self._backfill_expiry_timer.timeout.connect(self._on_backfill_expiry)
         if self.chart_engine_failed:
             # ESC-070: the blank chart says why, instead of looking empty.
             self.status_bar.showMessage(
@@ -1692,11 +1712,17 @@ class MainWindow(QMainWindow):
         Used by ``_on_disconnected`` and the wave watchdog. Returns True when a
         wave was actually stranded and finalised, False when there was nothing to
         do — so callers never run ``_finalize_history_wave`` twice and never
-        fabricate a bar. Cancels every tracked reqId, advances the generation so
-        late responses for pre-drop reqIds are rejected, then finalises exactly
+        fabricate a bar. Cancels every tracked reqId, stops the continuation
+        timer, drops the queued plans, advances the generation so late
+        responses for pre-drop reqIds are rejected, then finalises exactly
         once through ``_finalize_history_wave`` so AC-D16.4's shortfall is surfaced.
         """
-        if not session._history_req_ids:
+        # P15-T2 (S-P15-2): a queue-only wave still owns the armed T0+10 s
+        # expiry — the per-load budget may have left plans queued with no
+        # reqId issued yet. Stranding covers queued plans too, so a disconnect
+        # at any instant disarms the expiry (via finalize -> clear) and the
+        # expiry can never fire on the dead wave.
+        if not session._history_req_ids and not session._wave_plan_queue:
             return False
         session._cancel_history_requests()
         # P7-W2 (S-P7-3): a finalised wave can never resume — stop the
@@ -2054,8 +2080,19 @@ class MainWindow(QMainWindow):
             "elapsed_s": float(elapsed_s),
             "req_ids": req_ids,
         }
+        # P15-W3 (S-P15-3): the explicit partial-vs-complete distinction
+        # lives here — no new surface, no D53 copy rewrite. The latch is
+        # set only by the missed-expiry path and cleared only by the
+        # terminal clear, so every refresh of a post-expiry wave keeps the
+        # marker until the wave terminates; a wave complete by the bound
+        # never latches and keeps the exact D53 wording.
+        label = (
+            "Backfill (partial)"
+            if self._backfill_expiry_missed
+            else "Backfill"
+        )
         self._backfill_indicator.setText(
-            f"Backfill: {int(in_flight)} in flight, {int(queued)} queued, "
+            f"{label}: {int(in_flight)} in flight, {int(queued)} queued, "
             f"{float(elapsed_s):.1f}s, reqIds={req_ids}"
         )
 
@@ -2065,8 +2102,17 @@ class MainWindow(QMainWindow):
         Clears the MainWindow-local wave-start baseline with it. Session
         wave state itself is never touched here.
         """
+        # P15-W1 (S-P15-1): every terminal path funnels through here (normal
+        # completion and stranded finalization via _finalize_history_wave,
+        # the load-path cancel, disconnect, teardown) — so stopping the
+        # single-shot expiry here disarms it exactly once per dead wave and
+        # it can never fire afterwards.
+        self._backfill_expiry_timer.stop()
         self._backfill_wave_start = None
         self._backfill_state = None
+        # P15-W3 (S-P15-3): the miss latch dies with the wave (terminal
+        # paths only) — the idle line itself is unchanged.
+        self._backfill_expiry_missed = False
         self._backfill_indicator.setText("Backfill: idle")
 
     def _raise_backfill_indicator(self, session: TickerSession) -> None:
@@ -2077,6 +2123,11 @@ class MainWindow(QMainWindow):
         """
         if self._backfill_wave_start is None:
             self._backfill_wave_start = time.time()
+        # P15-W1 (S-P15-1): arm the single-shot T0+10 s expiry for the wave
+        # just raised. A coalesced same-triple keep never reaches here
+        # (Branch-A early-returns in load_chart), so the original T0 is never
+        # extended; a new wave re-arms after the old wave's clear disarmed.
+        self._backfill_expiry_timer.start(_BACKFILL_EXPIRY_BOUND_MS)
         self._refresh_backfill_indicator(session)
 
     def _refresh_backfill_indicator(self, session: TickerSession) -> None:
@@ -2099,6 +2150,152 @@ class MainWindow(QMainWindow):
             elapsed,
             sorted(session._history_req_ids),
         )
+
+    def _on_backfill_expiry(self) -> None:
+        """P15-W1 (S-P15-1): single-shot T0+10 s expiry verdict (D54.1).
+
+        Armed once per wave at raise for T0+10 s from the stamped-once
+        ``_backfill_wave_start`` baseline; disarmed on every terminal path
+        via ``clear_backfill_indicator``. Acts only when the wave is still
+        incomplete (tracked reqIds or queued plans remain): whatever bars
+        have arrived are rendered and the verbatim AC-D16.4 shortfall for
+        the missing remainder is surfaced (Q81 default (a) — never blank
+        when data exists; with zero arrived bars the shortfall lists every
+        missing trading day). A wave that completed at or before T0+10.0 s
+        owns the normal completion path — the single-sided bound holds
+        because this handler no-ops once nothing is left in flight, so the
+        expiry render path never runs on a wave the bound did not catch.
+
+        The wave itself is untouched: no cancel, no re-issue, no
+        watchdog/pacing/request-shape change — it continues under the
+        unchanged D53 lifecycle (indicator still live) and finalizes
+        exactly as today. Never a current-cache claim while spans are
+        missing: the residual wording below mirrors ``_finalize_history_wave``
+        through the same ``_is_cache_current`` gate.
+        """
+        if self._closing:
+            return  # D28.5: teardown never touches cleared widgets.
+        if self._backfill_wave_start is None:
+            return  # disarmed — a terminal path already ran; dead wave.
+        session = self._session_for_facade()
+        if session is None:
+            return
+        if not session._history_req_ids and not session._wave_plan_queue:
+            return  # completed at/before the bound — normal path owns it.
+        # P15-W3 (S-P15-3): missed target with spans still missing. The
+        # wave is incomplete by construction here (tracked reqIds or queued
+        # plans remain), and _is_cache_current is False whenever a wave is
+        # in flight — so the surfacing routes through the unchanged gate
+        # and no current-cache claim can accompany the marker (never a
+        # string match). Latch the miss and refresh the existing D53
+        # indicator at once: it reads "Backfill (partial): ..." from this
+        # instant, and every post-expiry refresh keeps the marker until
+        # the wave terminates through the unchanged clear path.
+        self._backfill_expiry_missed = True
+        self._refresh_backfill_indicator(session)
+        # Persist/re-read/render head reused from _finalize_history_wave,
+        # minus every terminal effect: no watchdog disarm, no baseline
+        # clear, no indicator clear, no _pending_bars drain — the wave stays
+        # live. Saves are idempotent (INSERT OR REPLACE), so the later
+        # per-chunk and final saves change no row.
+        mode = session._wave_extended_hours
+        remaining = [
+            b for bars in session._req_bars.values() for b in bars
+        ]
+        if remaining:
+            BarCache.save_bars(remaining, ext_hours=mode)
+        timeframe = session._wave_timeframe or self._current_tf
+        all_bars = BarCache.get_bars(session.symbol, timeframe, ext_hours=mode)
+        session.set_bars(timeframe, all_bars)
+        # D27.1: same never-move-backward live-candle rule as the finalise —
+        # re-apply the aggregator's forming bar so it survives the refresh.
+        # Primary-chart only: background sessions have no live forming bar.
+        if session is self._primary_session:
+            agg = session.aggregator_for(timeframe)
+            forming = agg.current_bar() if agg is not None else None
+            if forming is not None:
+                if all_bars:
+                    self.chart_panel.update_last_bar(forming, False)
+                else:
+                    self.chart_panel.update_chart([forming])
+        if not session._rt_seen:
+            session.last_chart_price = (
+                all_bars[-1].close if all_bars else None
+            )
+        # Verbatim AC-D16.4 shortfall for the missing remainder (same shape
+        # as _finalize_history_wave; a stranded cause cannot be set here —
+        # stranding finalizes immediately — so there is no cause suffix).
+        missing_days = self._missing_backfill_trading_days(session, all_bars)
+        failed_count = len(session._backfill_failed_req_ids)
+        if missing_days:
+            preview = ", ".join(d.isoformat() for d in missing_days[:5])
+            self.status_bar.showMessage(
+                f"{session.symbol} — backfill incomplete: "
+                f"{len(missing_days)} trading day(s) still missing ({preview}).",
+                10000,
+            )
+            _LOG.warning(
+                "Historical backfill shortfall for %s [%s]: %s",
+                session.symbol,
+                timeframe,
+                [d.isoformat() for d in missing_days],
+            )
+        elif failed_count:
+            self.status_bar.showMessage(
+                f"{session.symbol} — {failed_count} historical request(s) "
+                "failed; chart may be incomplete.",
+                10000,
+            )
+            _LOG.warning(
+                "Historical backfill failed requests for %s [%s]: %s",
+                session.symbol,
+                timeframe,
+                sorted(session._backfill_failed_req_ids),
+            )
+        else:
+            # Same residual as _finalize_history_wave: a planner hole below
+            # day presence, or a wave racing finalization — report the same
+            # shortfall shape, never a freshness claim.
+            if self._is_cache_current(session.symbol, timeframe, mode):
+                self.status_bar.showMessage(
+                    f"{session.symbol} — {len(all_bars)} bars. "
+                    "Backfill still in flight.",
+                    10000,
+                )
+            else:
+                spans = find_missing_spans(
+                    [b.ts for b in all_bars],
+                    self._now_ts(),
+                    timeframe,
+                    ext_hours=mode,
+                    min_sessions=settings.MIN_INTRADAY_SESSIONS,
+                )
+                days = sorted(
+                    {
+                        day
+                        for span in spans
+                        for day in trading_days(span.start_ts, span.end_ts)
+                    }
+                )
+                if days:
+                    preview = ", ".join(d.isoformat() for d in days[:5])
+                    self.status_bar.showMessage(
+                        f"{session.symbol} — backfill incomplete: "
+                        f"{len(days)} trading day(s) still missing ({preview}).",
+                        10000,
+                    )
+                    _LOG.warning(
+                        "Historical backfill shortfall for %s [%s]: %s",
+                        session.symbol,
+                        timeframe,
+                        [d.isoformat() for d in days],
+                    )
+                else:
+                    self.status_bar.showMessage(
+                        f"{session.symbol} — {len(all_bars)} bars. "
+                        "Backfill still in flight.",
+                        10000,
+                    )
 
     def _is_cache_current(
         self, symbol: str, timeframe: str, extended_hours: bool

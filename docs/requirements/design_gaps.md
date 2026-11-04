@@ -1545,3 +1545,10 @@ history of the choice.
 - **Why it matters:** without a user-confirmed visual reference, pinning pixels or exact strings beyond the probe-quoted messages would let a layout-correct build fail review on wording — the D49.3/Q64 pattern (standing default + measurable outcome, no visual decision) is the precedent to follow.
 - **Suggested resolution:** ACs assert the persistence/lifecycle/guard properties (indicator identity across `showMessage` traffic; clearing only on the four terminal paths; absence of any freshness claim while spans are missing) plus the minimum content set; Plan picks the widget and copy following existing status-bar phrasing.
 - **Status:** **open (non-blocking)** — defaults recorded (A142/A144); Q78/Q80 confirm.
+
+## DG101 — D54: the 10 s user-visible cap vs 25–76 s legitimate single-request TWS latencies
+
+- **Where it shows up:** Phase P15 / D54 / Journey 47; D53 `AC-D53.2` lifecycle; the 120 s wave watchdog.
+- **Why it matters:** standalone probes show legitimate single-request TWS latencies of 25–76 s for deep history (35D/45D/60D windows) and the watchdog path assumes ~120 s, so most deep loads cannot complete by a 10 s user-visible deadline. The cap therefore forces expiry semantics (partial render and/or background fill and/or visible shortfall) rather than faster fetching — and the choice changes wave-lifecycle assertions in opposite directions (Q82a continue vs Q82b cancel).
+- **Suggested resolution:** owner decides Q81–Q83; Plan treats the mechanism (page sizing, background continuation, watchdog interplay) as implementation detail against the pinned outcome. No code or D53 surface change is implied by this entry.
+- **Status:** open (non-blocking on its own; Q81–Q83 are non-blocking with defaults carried per A148).

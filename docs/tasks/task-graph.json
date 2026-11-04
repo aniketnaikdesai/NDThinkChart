@@ -1,58 +1,65 @@
 {
-  "phase": "P14",
-  "batch": "Batch 28 (D53 persistent backfill-state indicator + cache-current guard, Finding 2, TWS probe 20261103)",
+  "phase": "P15",
+  "batch": "Batch 29 (D54 10-second target on load chart, owner-directed 2026-11-04)",
   "status": "READY_FOR_BUILD",
-  "note": "P14: D53.1-D53.4 over waves W1-W3. T1 persistent indicator widget (M) -> T2 terminal-path lifecycle + coalesced-keep (M) -> T3 cache-current guard + history gate (S). Strict chain per plan wave order. Repro-first where behavior is new (T1 separation, T2 per-path, T3 guard red-first). No watchdog/pacing/port/renderer/schema change (S-P14-4 read-only); no order code; offscreen only; full suite green.",
+  "note": "P15: D54.1-D54.4 over waves W1-W3. T1 T0-anchored single-shot expiry verdict at T0+10 s (M) -> T2 background-continue + disconnect/mode-switch/coalesced seams (M) -> T3 D53-surface partial-vs-complete surfacing + history/batch gate (S). Strict chain per plan wave order, one commit per wave. Repro-first where behavior is new (T1 expiry render red today, T2 continue/seams red-first, T3 distinction red-first). T0 reuses the stamped-once _backfill_wave_start baseline; no watchdog/pacing/request-shape/port/renderer/schema change (S-P15-4 read-only); no order code; offscreen with clock control only; full suite green.",
   "tasks": [
     {
-      "id": "P14-T1",
-      "title": "Persistent backfill-state indicator as a permanent status-bar widget (D53.1)",
-      "description": "Create one permanent backfill-state widget as a QStatusBar.addPermanentWidget child of MainWindow.status_bar (created once with the bar, never a showMessage caller). Raise it when a wave is issued (queue-only waves included) and refresh it on wave events from the session wave state (in-flight count, queued-plan count, elapsed, current reqIds). All existing showMessage texts and timings stay byte-identical: the indicator is purely additive.",
+      "id": "P15-T1",
+      "title": "T0-anchored single-shot expiry verdict at T0+10 s (D54.1)",
+      "description": "Add a per-wave single-shot expiry to MainWindow anchored at the stamped-once _backfill_wave_start baseline (T0 = Load Chart invocation; a coalesced same-triple reload never re-stamps it). The expiry is armed at wave raise, disarmed on every terminal path, fires once at T0+10 s, and acts only when the wave is still incomplete: it renders whatever bars have arrived plus the verbatim AC-D16.4 shortfall for the missing remainder (Q81 default (a) \u2014 never blank when data exists; zero-bar expiry lists all missing days). Completion exactly at T0+10.0 s counts as complete (single-sided bound). No 10 s cancel path, no pacing/watchdog/request-shape change.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "AC1: Given an in-flight history wave with the indicator raised, when an unrelated transient status message is issued (e.g. the account-summary receipt shape), then the indicator widget identity and its reported state (in-flight count, queue count, elapsed time, current reqIds) are unchanged.",
-        "AC2: Given a wave issue including a queue-only instant (all plans queued, zero in-flight yet), when the indicator raises and refreshes at multiple wave instants, then it reports at minimum the in-flight count, the queued-plan count, the wave elapsed time, and the current in-flight reqIds.",
-        "AC3: Given the pre-existing transient showMessage call sites, when this task lands, then every pre-existing showMessage text and timing is unchanged (the indicator adds a surface, it replaces none)."
+        "AC1: Given a Load Chart wave still incomplete when wall-clock reaches T0+10 s, when the expiry fires, then the arrived bars render on the chart and the verbatim AC-D16.4 shortfall for the missing remainder is surfaced; with zero bars arrived the shortfall lists all missing trading days.",
+        "AC2: Given a wave that completes at or before T0+10.0 s (including a 9.9 s completion and an exact-boundary T0+10.0 s completion), when the bound passes, then the expiry render path is never taken and the wave takes the normal completion path.",
+        "AC3: Given an armed expiry, when the wave terminates first through any terminal path (normal completion or stranded finalization), then the expiry is disarmed and never fires on the dead wave."
       ],
       "tests": [
         {
           "test_id": "T11",
           "linked_acceptance_criterion": "AC1",
           "type": "integration",
-          "description": "Offscreen MainWindow with a seeded BarCache missing span so load_chart issues a multi-chunk wave; capture the indicator object and its state, inject an unrelated showMessage (account-summary receipt shape), then assert the indicator is the same object with identical reported state.",
-          "expected_result": "RED on the current tree (no such permanent widget exists); GREEN after: indicator identity and state unchanged across the injected transient traffic."
+          "description": "Offscreen MainWindow with seeded BarCache missing spans and stubbed historical feed held incomplete; clock-control T0 to T0+10 s with partial bars arrived; drive the expiry handler; assert arrived bars rendered plus the AC-D16.4 shortfall marker for the missing remainder within the bound.",
+          "expected_result": "RED on the current tree (no T0+10 s verdict exists \u2014 an incomplete wave at T0+10 s renders nothing new); GREEN after: partial bars present + shortfall marker surfaced."
         },
         {
           "test_id": "T12",
-          "linked_acceptance_criterion": "AC2",
+          "linked_acceptance_criterion": "AC1",
           "type": "integration",
-          "description": "Offscreen wave driven through issue (assert the queue-only instant reports queued-plan count with zero in-flight), first-chunk progress, and continuation ticks; assert the at-least content set (in-flight count, queue count, elapsed, reqIds) at each instant.",
-          "expected_result": "Indicator reports the at-least set at every sampled instant including the queue-only instant; extra fields are permitted, missing fields fail."
+          "description": "Same harness with zero bars arrived at T0+10 s; drive the expiry handler; assert the shortfall lists all missing trading days and no bar is fabricated.",
+          "expected_result": "Shortfall names every missing day; chart holds no fabricated bars."
         },
         {
           "test_id": "T13",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Offscreen wave completed at T0+9.9 s and, separately, completed exactly at T0+10.0 s (clock-controlled); advance past the bound; assert the normal completion path was taken and the expiry render path never ran in either case.",
+          "expected_result": "Both cases surface completion through the unchanged path; no expiry render, no shortfall."
+        },
+        {
+          "test_id": "T14",
           "linked_acceptance_criterion": "AC3",
           "type": "integration",
-          "description": "Offscreen scripted wave capturing the transient showMessage sequence (wave-issue 'backfilling N historical chunk(s)' text, cached-bars text, coalesced-reload notice) and assert it equals the pre-change sequence with unchanged texts and timeouts.",
-          "expected_result": "All captured transient texts and timings match the pre-change values exactly; no showMessage call site reworded or retimed."
+          "description": "Offscreen wave with armed expiry terminated first via normal completion and, separately, via stranded finalization; advance the clock past T0+10 s; assert the expiry never fires afterwards on either dead wave.",
+          "expected_result": "No post-terminal expiry firing; wave state stays finalized exactly once per path."
         }
       ],
       "expected_artifacts": [
-        "Permanent backfill indicator widget in ui/main_window.py",
-        "tests/test_p14_indicator.py"
+        "T0-anchored single-shot expiry hook in ui/main_window.py",
+        "tests/test_p15_expiry.py"
       ],
       "touches_files": [
         "ui/main_window.py",
-        "tests/test_p14_indicator.py"
+        "tests/test_p15_expiry.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Wave-issue sites in load_chart; session wave state (_history_req_ids, _wave_plan_queue)"
+        "Wave-raise sites in load_chart; _backfill_wave_start stamped-once baseline; session wave state; finalize funnel"
       ],
       "outputs": [
-        "Raised/refreshed permanent indicator reporting counts + elapsed + reqIds"
+        "Armed-per-wave T0+10 s expiry that renders partial bars + shortfall only on incomplete waves"
       ],
       "status": "done",
       "size": "M",
@@ -60,23 +67,43 @@
         "read_files": [
           {
             "path": "ui/main_window.py",
-            "lines": "540-560",
-            "why": "status-bar creation site where the permanent child is added"
+            "lines": "1785-1838",
+            "why": "load_chart T0 anchor + Branch-A coalesced early-return the arm hooks (read-only: signature and coalesced semantics unchanged)"
           },
           {
             "path": "ui/main_window.py",
-            "lines": "1900-1945",
-            "why": "wave-issue + no-plans branch the raise hook attaches to (read the sites, do not reword them)"
+            "lines": "1951-1986",
+            "why": "wave-issue raise site + watchdog arm where the expiry arms"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2044-2101",
+            "why": "set/clear/raise/refresh indicator \u2014 the stamped-once _backfill_wave_start baseline T0 reuses"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2332-2351",
+            "why": "per-chunk end + wave-complete path where the expiry disarms"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2363-2392",
+            "why": "finalize head: disarm site, _wave_start_ts clearing, persist/re-read/render the expiry reuses"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2533-2553",
+            "why": "read-only: _missing_backfill_trading_days the zero-bar shortfall reuses \u2014 do not modify"
           },
           {
             "path": "ui/ticker_session.py",
-            "lines": "155-200",
-            "why": "read-only: wave-state fields the indicator reads (req ids, queue, generation)"
+            "lines": "894-919",
+            "why": "read-only: queue_wave_plans stamps _wave_start_ts once \u2014 the baseline the expiry reads"
           },
           {
-            "path": "tests/test_history_backfill.py",
+            "path": "tests/test_p14_lifecycle.py",
             "lines": "1-80",
-            "why": "offscreen wave-test conventions (seeded BarCache, stubbed requests)"
+            "why": "offscreen wave-test conventions (seeded BarCache, stubbed requests, clock-shaped NOW_TS)"
           }
         ],
         "contracts": [
@@ -85,147 +112,19 @@
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:status_bar",
+            "ref": "ui/main_window.py:_raise_backfill_indicator",
             "status": "existing"
           },
-          {
-            "ref": "ui/ticker_session.py:_history_req_ids",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_wave_plan_queue",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "MainWindow._backfill_indicator: QWidget - permanent QStatusBar child created once via QStatusBar.addPermanentWidget; never a showMessage caller",
-            "module": "ui/main_window.py"
-          },
-          {
-            "status": "new",
-            "signature": "def set_backfill_state(self, in_flight: int, queued: int, elapsed_s: float, req_ids: list[int]) -> None",
-            "module": "ui/main_window.py"
-          },
-          {
-            "status": "new",
-            "signature": "def clear_backfill_indicator(self) -> None",
-            "module": "ui/main_window.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P14",
-        "plan_ref": "docs/plan.md#Phase P14",
-        "requirement_ids": [
-          "D53.1",
-          "AC-D53.1",
-          "Journey 46",
-          "A142",
-          "R107"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_indicator.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P14-T2",
-      "title": "Indicator lifecycle on the four terminal paths with coalesced-keep (D53.2)",
-      "description": "Hook the P14-T1 indicator into the four existing wave-terminating paths (normal completion in _finalize_history_wave, stranded finalization in _finalize_stranded_history_wave, cancellation in the load_chart cancel block plus teardown, disconnect in _on_disconnected) so each clears it exactly once. Add the in-memory wave-start timestamp on the session (set once at first plan issue, cleared on termination) so elapsed is a pure read; the Branch-A same-triple early-return keeps the running indicator with its baseline unreset.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P14-T1"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given a live indicator, when each terminal path fires (normal completion / stranded watchdog finalization / cancellation via symbol switch or new-triple load / disconnect), then the indicator clears exactly once per path.",
-        "AC2: Given an in-flight wave, when a same-triple (symbol, timeframe, ext-hours) reload arrives mid-wave (Branch A), then no new historical reqId is issued, the generation does not advance, and the indicator keeps running with its elapsed baseline unreset.",
-        "AC3: Given an in-flight wave, when a mode-switch (ext-hours toggle) load arrives mid-wave, then the old wave cancels, the indicator clears, and a new wave re-raises it (a clear-and-reraise, not a keep)."
-      ],
-      "tests": [
-        {
-          "test_id": "T21",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Parametrized offscreen case over the four terminal paths driving the real session callbacks (per-chunk completion to empty, watchdog timeout injection, symbol-switch load, disconnect injection); assert the indicator clears exactly once on each path.",
-          "expected_result": "RED on the pre-fix tree (no per-path clearing exists); GREEN after: exactly-once clear on all four paths."
-        },
-        {
-          "test_id": "T22",
-          "linked_acceptance_criterion": "AC2",
-          "type": "integration",
-          "description": "Offscreen mid-wave same-triple reload; record issued reqIds, _history_generation, the indicator object, and the elapsed baseline before and after; assert no new reqIds, unchanged generation, same indicator object, and elapsed continuity (baseline unreset).",
-          "expected_result": "No new reqIds, generation unchanged, indicator keeps running with elapsed unreset."
-        },
-        {
-          "test_id": "T23",
-          "linked_acceptance_criterion": "AC3",
-          "type": "integration",
-          "description": "Offscreen mid-wave mode-switch load (ext-hours toggle); assert the old wave cancels (old reqIds cancelled, generation advanced) and the indicator clears then re-raises for the new wave.",
-          "expected_result": "Clear-and-reraise observed as a new wave, never a keep of the old indicator state."
-        }
-      ],
-      "expected_artifacts": [
-        "Lifecycle hooks + wave-start timestamp in ui/main_window.py and ui/ticker_session.py",
-        "tests/test_p14_lifecycle.py"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "ui/ticker_session.py",
-        "tests/test_p14_lifecycle.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P14-T1 indicator raise/refresh/clear API; existing terminal paths and Branch-A early-return"
-      ],
-      "outputs": [
-        "Indicator cleared exactly once per terminal path; coalesced reload keeps it with baseline intact"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/main_window.py",
-            "lines": "1600-1720",
-            "why": "disconnect + stranded-finalization paths to hook the clear into"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1790-1850",
-            "why": "Branch-A coalesced early-return vs the cancel+generation block below it"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2217-2290",
-            "why": "normal-completion _finalize_history_wave to hook the clear into"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "760-830",
-            "why": "cancel/history-request bookkeeping the hooks must respect"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "840-875",
-            "why": "read-only: watchdog arm/disarm bounds (S-P14-4 \u2014 untouched, for hook placement only)"
-          },
-          {
-            "path": "tests/test_history_backfill_disconnect.py",
-            "lines": "1-80",
-            "why": "offscreen disconnect/failure-injection test conventions"
-          }
-        ],
-        "contracts": [
           {
             "ref": "ui/main_window.py:_finalize_history_wave",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
+            "ref": "ui/main_window.py:clear_backfill_indicator",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:_on_disconnected",
+            "ref": "ui/main_window.py:_missing_backfill_trading_days",
             "status": "existing"
           },
           {
@@ -233,93 +132,233 @@
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:_cancel_history_requests",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_history_generation",
+            "ref": "ui/ticker_session.py:_wave_start_ts",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "TickerSession._wave_start_ts: float | None - wall-clock epoch set once when the first plan of a wave issues; cleared on wave termination; never reset by a coalesced reload",
-            "module": "ui/ticker_session.py"
+            "signature": "def _on_backfill_expiry(self) -> None",
+            "module": "ui/main_window.py"
+          },
+          {
+            "status": "new",
+            "signature": "MainWindow._backfill_expiry_timer: single-shot Qt timer, armed once per wave at raise for T0+10 s from the _backfill_wave_start baseline, disarmed on every terminal path (normal completion, stranded finalization, cancellation, disconnect); fires _on_backfill_expiry exactly once per wave",
+            "module": "ui/main_window.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P14",
-        "plan_ref": "docs/plan.md#Phase P14",
+        "architecture_ref": "docs/architecture.md#Phase P15",
+        "plan_ref": "docs/plan.md#Phase P15",
         "requirement_ids": [
-          "D53.2",
-          "AC-D53.2",
-          "Journey 46",
-          "A143"
+          "D54.1",
+          "AC-D54.1",
+          "Journey 47",
+          "A145",
+          "A148",
+          "Q81"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_lifecycle.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p15_expiry.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P14-T3",
-      "title": "Cache-current claim guard plus batch history gate (D53.3/D53.4)",
-      "description": "Add a single _is_cache_current predicate (planner reports zero missing spans for the current symbol/timeframe/mode AND no wave in flight) consulted by the no-plans branch and the finalize path, so no 'Cache current' or equivalent freshness claim shows while a wave is in flight or spans are missing; stranded-with-missing-days keeps the verbatim AC-D16.4 shortfall. Verify the D53.4 history gate (D41-D52 sections, marker sentence, Current Tech Stack intact; no pre-D53 wording touched) and the full offscreen suite green.",
+      "id": "P15-T2",
+      "title": "Background-continue past expiry with lifecycle seams (D54.2)",
+      "description": "Keep the P15-T1 expiry hook pure verdict: past T0+10 s the incomplete wave continues in the background under the unchanged D53 lifecycle \u2014 the indicator keeps running, the chart updates as further bars land, and normal completion or stranded finalization ends the wave exactly as today (Q82 default (a); no 10 s cancel path is invented). Wire the expiry into the existing seams: a disconnect at any instant wins over a pending expiry (existing disconnect finalization disarms it); a mode-switch or new-triple load cancels the old wave with its expiry and re-anchors T0 on the new wave; a coalesced same-triple reload keeps the original T0 with no extension.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P14-T1",
-        "P14-T2"
+        "P15-T1"
       ],
       "acceptance_criteria": [
-        "AC1: Given an in-flight wave or planner-reported missing spans for the current triple, when the no-plans branch or the finalize path runs, then no 'Cache current' literal and no equivalent freshness claim is visible.",
-        "AC2: Given a stranded finalization with missing days, when the wave ends, then the visible end state is the verbatim AC-D16.4 shortfall ('{symbol} - backfill incomplete: {n} trading day(s) still missing ({preview}).{cause}') with unchanged wording.",
-        "AC3: Given a load with zero missing spans and no wave in flight, when the no-plans branch runs, then currency is still reported exactly as today ('{symbol} - {n} cached bars. Cache current.').",
-        "AC4: Given docs/requirements/requirements.md, when this batch lands, then the ### D41 through ### D52 sections (with reversals), the Existing Repository marker sentence, and the Current Tech Stack are intact, and no pre-D53 wording is touched."
+        "AC1: Given a missed T0+10 s target with the wave still incomplete, when further bars land or the watchdog/stranded path finalizes, then the wave continues and updates the chart past expiry with the D53 indicator still running, and terminates through the unchanged normal/strand paths with no cancel-at-10 s behavior.",
+        "AC2: Given a pending expiry, when a transport disconnect lands at any instant (including T0+9.9 s), then the existing disconnect finalization wins and the expiry never fires on the dead wave.",
+        "AC3: Given a mid-wave mode-switch or new-triple load, when the new wave raises, then the old wave and its expiry are cancelled/disamed and T0 re-anchors on the new wave; given a mid-wave coalesced same-triple reload, when it coalesces, then the original T0 is kept with no extension and the running wave is untouched."
+      ],
+      "tests": [
+        {
+          "test_id": "T21",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Offscreen wave forced incomplete at T0+10 s (P15-T1 expiry fired); land further chunk completions afterwards and then complete normally; assert in-flight wave state continued, indicator kept running, late bars rendered, and the wave finalized through the unchanged path with no cancel.",
+          "expected_result": "RED-first on the pre-T1 tree (nothing distinguishes post-expiry background fill from the pre-expiry wave); GREEN after: continued wave state + running indicator + late-bar render + normal finalize."
+        },
+        {
+          "test_id": "T22",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Offscreen wave with armed expiry disconnected at T0+9.9 s via the real _on_disconnected path; advance past T0+10 s; assert disconnect finalization won (stranded shortfall surfaced once) and the expiry never fired on the dead wave.",
+          "expected_result": "Disconnect funnel ran exactly once; no expiry firing after the drop."
+        },
+        {
+          "test_id": "T23",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Offscreen mid-wave mode-switch (ext-hours toggle) and, separately, new-triple symbol load; assert the old wave cancelled with its expiry disarmed and the new wave re-anchored T0 (new baseline stamp).",
+          "expected_result": "Old expiry never fires; new wave carries a fresh T0; old reqIds fenced by generation."
+        },
+        {
+          "test_id": "T24",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Offscreen mid-wave same-triple reload (Branch-A coalesced keep); assert no new reqIds, no generation advance, the original T0 baseline unreset, and the running wave untouched.",
+          "expected_result": "ReqIds, generation and T0 baseline unchanged; indicator keeps running without reset."
+        }
+      ],
+      "expected_artifacts": [
+        "Expiry/lifecycle seam wiring in ui/main_window.py",
+        "tests/test_p15_continue.py"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "tests/test_p15_continue.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P15-T1 expiry hook + timer; disconnect/stranded/cancel/coalesced paths"
+      ],
+      "outputs": [
+        "Background-continue past expiry with disconnect-wins, re-anchor, and coalesced-keep seams pinned"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "1620-1668",
+            "why": "disconnect funnel that must win over a pending expiry (read the strand loop, keep semantics)"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1687-1731",
+            "why": "stranded finalize + watchdog timeout path the expiry disarms through"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1812-1886",
+            "why": "coalesced early-return (keep) vs cancel+generation block (re-anchor) the seams hook"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2072-2101",
+            "why": "raise/refresh indicator \u2014 the running-indicator reads past expiry"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2346-2351",
+            "why": "wave-complete entry that ends the continued wave as today"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "809-838",
+            "why": "read-only: _cancel_history_requests clears the elapsed baseline \u2014 the cancel semantic the seams reuse"
+          },
+          {
+            "path": "tests/test_p14_lifecycle.py",
+            "lines": "1-80",
+            "why": "offscreen terminal-path + coalesced-keep test conventions this task extends to expiry"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/main_window.py:load_chart",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_disconnected",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_session_wave_complete",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_refresh_backfill_indicator",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_cancel_history_requests",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:queue_wave_plans",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P15",
+        "plan_ref": "docs/plan.md#Phase P15",
+        "requirement_ids": [
+          "D54.2",
+          "AC-D54.2",
+          "Journey 47",
+          "A145",
+          "A148",
+          "Q82"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p15_continue.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P15-T3",
+      "title": "Expiry surfacing on the D53 indicator + history/batch gate (D54.3/D54.4)",
+      "description": "Surface the missed-target state on the existing D53 persistent indicator with an explicit partial-vs-complete distinction and no new surface: at/after a missed T0+10 s expiry with spans still missing, the indicator carries the partial marker while the verbatim AC-D16.4 shortfall stays visible and the unchanged _is_cache_current gate suppresses every current-cache claim (Q83 default; D53 referenced, not reworded). A wave complete by the bound surfaces as complete through the unchanged path. Also guards AC-D54.4 (history intact) and the full-suite-green gate.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P15-T1",
+        "P15-T2"
+      ],
+      "acceptance_criteria": [
+        "AC1: Given a missed T0+10 s target with spans still missing, when the expiry state is surfaced, then the D53 indicator shows the partial marker, the AC-D16.4 shortfall (missing-days + reason) stays visible, and no current-cache claim from the claim family is shown.",
+        "AC2: Given a wave complete by T0+10 s, when it is surfaced, then completion reads as complete through the unchanged completion path with no partial marker and no shortfall.",
+        "AC3: Given requirements.md, then the ### D41 through ### D53 sections with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, no pre-P15 wording is touched, and the full offscreen suite is green."
       ],
       "tests": [
         {
           "test_id": "T31",
           "linked_acceptance_criterion": "AC1",
           "type": "integration",
-          "description": "Offscreen in-flight wave and planner-missing-spans cases asserting the absence of the claim family (the 'Cache current' literal and equivalent freshness phrasings) at the no-plans branch and the finalize path while spans are missing or reqIds are in flight.",
-          "expected_result": "RED on the current tree (the no-plans branch claims without consulting the planner); GREEN after: no freshness claim visible in either case."
+          "description": "Offscreen in-flight, stranded, and post-expiry cases with missing spans; assert the indicator carries the partial marker, the shortfall line is present, and the claim family (including but not limited to the literal 'Cache current') is absent in every case.",
+          "expected_result": "RED-first on the pre-P15 tree (no partial-vs-complete distinction exists on the indicator); GREEN after: marker present + shortfall present + claim family absent."
         },
         {
           "test_id": "T32",
           "linked_acceptance_criterion": "AC2",
           "type": "integration",
-          "description": "Offscreen watchdog-stranded wave with missing days; assert the terminal status text equals the verbatim AC-D16.4 shortfall with the missing-days count, preview, and cause suffix.",
-          "expected_result": "Verbatim shortfall visible; no current-cache claim; wording byte-identical to the pre-change shortfall."
+          "description": "Offscreen wave completed by T0+10 s; assert the unchanged completion surfacing with no partial marker and no shortfall line.",
+          "expected_result": "Completion line through the existing path; no marker, no shortfall."
         },
         {
           "test_id": "T33",
           "linked_acceptance_criterion": "AC3",
-          "type": "integration",
-          "description": "Offscreen zero-missing no-wave load; assert the currency message reads exactly as today.",
-          "expected_result": "Currency still reported exactly as today; no regression on the covered path."
-        },
-        {
-          "test_id": "T34",
-          "linked_acceptance_criterion": "AC4",
           "type": "unit",
-          "description": "File-content assertions over docs/requirements/requirements.md: the ### D41 through ### D52 headings exist, the Existing Repository marker sentence and Current Tech Stack block are present, and no pre-D53 section text changed (checked against the recorded pre-batch snapshot).",
-          "expected_result": "All history markers present; zero pre-D53 wording changes."
+          "description": "Static marker grep over requirements.md (### D41 through ### D53 present with reversals; Existing Repository marker sentence and Current Tech Stack intact; no pre-P15 criterion reworded) plus the full offscreen suite run as the batch gate.",
+          "expected_result": "All markers present, no pre-P15 wording touched; full offscreen suite green \u2014 a red suite fails the wave."
         }
       ],
       "expected_artifacts": [
-        "_is_cache_current predicate + two call sites in ui/main_window.py",
-        "tests/test_p14_cache_guard.py"
+        "Partial-vs-complete surfacing on the D53 indicator in ui/main_window.py",
+        "tests/test_p15_surfacing.py"
       ],
       "touches_files": [
         "ui/main_window.py",
-        "tests/test_p14_cache_guard.py"
+        "tests/test_p15_surfacing.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P14-T1 claim sites; P14-T2 wave state; planner find_missing_spans contract (read-only)"
+        "P15-T1 expiry state + P15-T2 continued wave; D53 indicator + _is_cache_current gate + shortfall wording"
       ],
       "outputs": [
-        "Single freshness predicate gating all current-claims; stranded ends on the verbatim shortfall"
+        "Honest miss surfacing (partial marker + shortfall, no current claim); complete-by-bound reads complete; history + suite gate"
       ],
       "status": "done",
       "size": "S",
@@ -327,28 +366,41 @@
         "read_files": [
           {
             "path": "ui/main_window.py",
-            "lines": "1900-1945",
-            "why": "no-plans 'Cache current' branch the predicate gates (first call site)"
+            "lines": "2044-2070",
+            "why": "set/clear indicator writes the surfacing extends (partial marker lives here)"
           },
           {
             "path": "ui/main_window.py",
-            "lines": "2217-2320",
-            "why": "finalize path + AC-D16.4 shortfall wording the predicate gates (second call site; wording frozen)"
+            "lines": "2103-2134",
+            "why": "read-only: _is_cache_current \u2014 the single predicate the surfacing routes through, never string matching"
           },
           {
-            "path": "services/backfill_service.py",
-            "lines": "304-360",
-            "why": "read-only: find_missing_spans contract the predicate consults (frozen, not modified)"
+            "path": "ui/main_window.py",
+            "lines": "2443-2531",
+            "why": "shortfall vs completion branches the expiry surfacing reuses verbatim \u2014 read wording, do not rewrite"
           },
           {
-            "path": "tests/test_history_backfill.py",
-            "lines": "1-80",
-            "why": "offscreen wave-test conventions (seeded BarCache, stubbed requests)"
+            "path": "ui/ticker_session.py",
+            "lines": "160-212",
+            "why": "read-only: session wave-state fields the surfacing reads (req ids, queue, generation, start stamp)"
+          },
+          {
+            "path": "tests/test_p14_cache_guard.py",
+            "lines": "1-60",
+            "why": "claim-family guard assertion conventions (absence over literals) this task reuses"
           }
         ],
         "contracts": [
           {
-            "ref": "services/backfill_service.py:find_missing_spans",
+            "ref": "ui/main_window.py:set_backfill_state",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:clear_backfill_indicator",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_is_cache_current",
             "status": "existing"
           },
           {
@@ -356,26 +408,24 @@
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:load_chart",
-            "status": "existing"
-          },
-          {
             "status": "new",
-            "signature": "def _is_cache_current(self, symbol: str, timeframe: str, extended_hours: bool) -> bool",
+            "signature": "Backfill indicator miss marker: at/after a missed T0+10 s expiry with spans still missing, the permanent indicator text reads 'Backfill (partial): {in_flight} in flight, {queued} queued, {elapsed:.1f}s, reqIds={req_ids}' until the wave terminates; a wave complete by the bound returns it to 'Backfill: idle' via the unchanged clear path with no marker",
             "module": "ui/main_window.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P14",
-        "plan_ref": "docs/plan.md#Phase P14",
+        "architecture_ref": "docs/architecture.md#Phase P15",
+        "plan_ref": "docs/plan.md#Phase P15",
         "requirement_ids": [
-          "D53.3",
-          "D53.4",
-          "AC-D53.3",
-          "AC-D53.4",
-          "Journey 46",
-          "A144"
+          "D54.3",
+          "D54.4",
+          "AC-D54.3",
+          "AC-D54.4",
+          "Journey 47",
+          "A144",
+          "A148",
+          "Q83"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p15_surfacing.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"

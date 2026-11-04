@@ -5926,4 +5926,49 @@ Status: READY_FOR_PLAN — D24–D41 owner-decided/as-built (D24–D28 approved 
 **[NEW 2026-11-03] Batch 28 (D53) — persistent backfill indicator + cache-current guard (Finding 2) — OWNER-DIRECTED, minimal scope.** D53.1 (persistent indicator: in-flight/queue/elapsed/reqIds, separate from the transient bar), D53.2 (cleared only on the four terminal paths; coalesced reload keeps it), D53.3 (no "Cache current" until the planner reports zero missing spans; stranded ends on the `AC-D16.4` shortfall) with `AC-D53.1`–`AC-D53.4` FINAL (Journey 46, A142–A144, R106–R107, DG100); Q78–Q80 are non-blocking confirmations. Finding 1 needs NO code change (watchdog/shortfall behaved correctly) — watchdog tuning and TWS-side causes are out of scope. D53 carries `Status: READY_FOR_PLAN`. **D1–D52 are NOT reopened.**
 
 
+
+## Phase P15 — 10-second target on load chart (D54) — OWNER-DIRECTED 2026-11-04 (clarified 2026-11-04: target per A148)
+
+> Owner directive (verbatim): *"max waiting can be 10 seconds once user clicks load chart."* Owner clarification 2026-11-04 (verbatim): *"i would ideally like to have the chart load in 10 seconds or less.."* — analyst default **A148**: "ideally" reads as a performance **TARGET**, not a hard cap (see Assumptions). Context recorded, not app behaviour: the 600 s figure is the probe harness's self-terminate ceiling; the app's own wave watchdog is 120 s today. The requirement **targets a user-visible verdict by T0+10 s from Load Chart invocation, with Q81–Q83 graceful-degradation semantics applying only when the target is missed**. Known tension (requirements constraint, solution is Plan's job): standalone probes show legitimate single-request TWS latencies of 25–76 s for deep history (35D/45D/60D windows), and the wave watchdog path assumes ~120 s — so a miss implies partial-render and/or background-fill and/or visible-shortfall semantics at expiry. **D1–P14 are NOT reopened.** Finding 1 / TWS-side silence causes are out of scope; watchdog tuning and TWS-side causes stay out of scope.
+
+### Problem Statement (P15 slice)
+A deep-history load can leave the user staring at an unresolved chart for up to the 120 s watchdog horizon (with single TWS requests legitimately taking 25–76 s), while the owner targets a user-visible verdict by T0+10 s from clicking Load Chart (A148 — target, not hard cap), with graceful-degradation semantics when the target is missed.
+
+### Goals (P15)
+- Target the user-visible wait: optimize the common path so each Load Chart invocation reaches its visible verdict by T0+10 s (T0 = click / `load_chart` invocation); when the target is missed, the Q81–Q83 expiry semantics apply (graceful degradation, not a hard-cap failure).
+- Preserve honesty: whatever renders at/after expiry never masquerades as complete while spans are missing (`AC-D16.4` shortfall + `AC-D53.3` guard hold).
+- Reuse the D53 surface: expiry state is surfaced on the existing persistent backfill-state indicator (referenced, not redesigned).
+
+### Non-Goals (P15)
+- Diagnosing or fixing TWS-side silence / slow-response causes (Finding 1 — explicitly out of scope).
+- Retuning the 120 s wave watchdog or the 600 s harness ceiling as ends in themselves (mechanism is Plan-level; the 10 s user-visible cap is the requirement).
+- Any new indicator surface, copy rewrite, or D53 criterion change (D53 is referenced, not reopened).
+
+### User Journeys (P15)
+#### Journey 47 — D54: load a deep-history chart against the 10 s cap
+- **Preconditions:** IBKR connected (mocked offscreen with clock control); a seeded `BarCache` with a missing span large enough that the wave cannot complete within 10 s (e.g. a 35D/45D/60D deep-history window); the D53 persistent indicator available.
+- **Steps:** 1) Click Load Chart (T0); confirm the D53 indicator runs. 2) At T0+10 s with the wave incomplete, confirm the Q81-decided render appears. 3) Confirm the Q82-decided background/finalize behaviour past expiry as further bars land or the watchdog finalizes. 4) Confirm the Q83-decided shortfall-vs-completion surfacing on the D53 indicator, with no current-cache claim while spans are missing.
+- **Postconditions:** Every load reaches its visible verdict by T0+10 s; a completed wave ends complete; an incomplete wave ends visibly partial with the `AC-D16.4` shortfall; D53 lifecycle and guard semantics hold.
+- **Edge Cases:** a wave that completes at 9.9 s (no expiry path taken); expiry landing mid-chunk with zero bars yet arrived (shortfall lists all missing days); a disconnect at T0+9.9 s (disconnect finalization wins, not expiry); a coalesced same-triple reload mid-wave (T0 baseline per Q82 answer — does not silently extend the cap); a mode switch / new-triple load mid-wave (new T0, old wave cancelled); an exact-boundary completion at T0+10.0 s (completes, not expires — single-sided bound).
+
+### Acceptance Criteria (P15, FINAL — Q81–Q83 non-blocking, defaults carried per A148)
+- **AC-D54.1 (10 s target verdict — Q81 default (a))** Given a Load Chart invocation at T0, When wall-clock reaches T0+10 s without normal completion, Then whatever bars have arrived so far render on the chart plus the `AC-D16.4` shortfall marker for the missing remainder (Q81 default (a) — chart never blank when data exists). (Measurable: offscreen clock-controlled wave forced incomplete at T0+10 s; assert partial bars present + shortfall marker within the bound.)
+- **AC-D54.2 (expiry wave semantics — Q82 default (a) background-continue)** Given the 10 s target is missed with an incomplete wave, Then the wave continues in the background with the D53 persistent indicator still running and the chart updating as further bars land (Q82 default (a); D53 lifecycle unchanged; completion/shortfall finalizes normally — no 10 s cancel path). (Measurable: offscreen wave-state + indicator-state assertions past T0+10 s.)
+- **AC-D54.3 (shortfall vs completion surfacing — Q83 default: D53 surface + `AC-D16.4`)** Given a missed 10 s target with missing spans, Then the existing D53 persistent indicator shows the explicit partial-vs-complete distinction and the `AC-D16.4` shortfall (missing-days + reason) stays visible with no current-cache claim per `AC-D53.3` (no new surface; D53 referenced, not reworded); Given a wave complete by T0+10 s, Then completion is surfaced as complete. (Measurable: offscreen in-flight/stranded/complete cases asserting indicator state + shortfall presence + freshness-claim absence.)
+- **AC-D54.4 (history intact)** Given `requirements.md`, Then `### D41`–`### D53` with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P15 wording is touched. (Measurable: marker grep + the `### D4[1-9]` / `### D5[0-3]` sections present.)
+
+### Assumptions (P15 — Q81–Q83 non-blocking, defaults carried per A148)
+- **A145 — T0 and the 10 s target.** T0 is the Load Chart click / `load_chart` invocation (the D14 double-click path invokes the identical `load_chart`, so the same T0 applies); the bound is wall-clock T0+10 s inclusive-exclusive per the exact-boundary edge case (completion at exactly T0+10.0 s counts as complete). The 120 s watchdog and 600 s harness ceiling are context, not targets. (Rationale: owner words "once user clicks load chart"; D14 identity; avoids re-anchoring on first-byte or first-bar.)
+- **A146 — Scope: main-chart loads; pop-out restore inherits.** The target governs main-chart Load Chart invocations (including the D14 identical path); a pop-out restore riding the same history/backfill path inherits the same verdict semantics unless the owner exempts it — no separate pop-out criterion is written. (Rationale: D49 restore routes through the existing history/backfill/pacing path; writing a second cap would fork the requirement.)
+- **A147 — Mechanism is Plan-level.** Whether the 10 s target is met by partial render, bounded first-page sizing, background fill, or watchdog interplay is an implementation choice; the requirement is the outcome (verdict by T0+10 s on the common path) plus the Q81–Q83 miss semantics. (Rationale: capture the constraint honestly without designing the solution.)
+- **A148 — "Ideally ≤10 s" is a performance TARGET (analyst default, 2026-11-04).** Owner clarification (verbatim): *"i would ideally like to have the chart load in 10 seconds or less.."* — "ideally" is read as a target, not a hard cap: optimize the common path to ≤10 s; Q81–Q83 expiry semantics (Q81(a) partial+shortfall, Q82(a) background-continue, Q83 D53 indicator + `AC-D16.4`) apply only when the target is missed (graceful degradation). A hard-cap reading would contradict legitimate 25–76 s single-request TWS latencies and is not adopted without an explicit owner correction. (Rationale: owner word "ideally" does real work; preserves honesty without forcing an unsatisfiable bound.)
+
+### Risks / Unknowns (P15)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R108 — Legitimate TWS single-request latencies (25–76 s deep-history probes) exceed the 10 s target, so deep loads will often take the expiry path; users may read "partial @ 10 s" as broken data | M | H | Q81–Q83 defaults (non-blocking) pin honest partial/completion wording on the D53 surface; `AC-D54.3` pins shortfall visibility |
+| R109 — A background-continue wave (Q82a) that outlives the verdict can surprise the chart with late updates; a cancel-at-10 s wave (Q82b — not adopted) can strand users on partial data with no path forward | M | L | Q82 default (a) background-continue adopted non-blocking; Journey 47 edge cases (disconnect-wins, new-triple re-T0, exact boundary) pin the seams |
+
+Status: READY_FOR_PLAN
+
 Status: READY_FOR_PLAN
