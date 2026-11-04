@@ -1,0 +1,294 @@
+ALARM AND DRAWING CODE REVIEW
+============================
+
+Scope
+-----
+Static code review of alarm creation, editing, persistence, session ownership,
+realtime evaluation, ticker changes, drawing persistence/rendering, and drawing
+set (group) behavior. No source code was changed and no tests were run.
+
+Executive summary
+-----------------
+The normal alarm path is coherent. Alarm records are stored per symbol,
+evaluated by that symbol's TickerSession, and notifications are routed
+independently of which ticker the main chart currently shows. After changing
+the main chart ticker, an old ticker with active alarms is kept alive either
+by an attached pop-out or by the headless AlarmMonitor, provided its realtime
+feed is available.
+
+The main drawing-set defect is confirmed: selecting a set in the toolbar does
+not assign newly created LWC drawings to that set. The current LWC drawing
+surface has no active-group setter, the page creates each drawing with a null
+group_id and default color, and Python persists that payload as received.
+Existing drawings can be assigned, ungrouped, and hidden by group. Group
+recoloring does not affect current LWC drawings. Inline group-name editing can
+raise a TypeError.
+
+No tests or runtime experiments were performed; conclusions below are based
+on tracing the current source code.
+
+
+1. ALARM CODE TRACE
+===================
+
+1.1 Create, edit, rearm, mute, and delete
+----------------------------------------
+Trace:
+  MainWindow opens AlarmDialog for the current symbol.
+    -> AlarmDialog actions call AlarmStore.add/rearm/set_sound/delete.
+    -> AlarmDialog emits alarms_changed after a successful UI action.
+    -> MainWindow._reload_current_alarms loads the symbol's rows from SQLite.
+    -> The current TickerSession receives set_alarms(...).
+    -> MainWindow refreshes the alarm badge and chart overlay.
+    -> AlarmMonitor reconciles which symbols need background subscriptions.
+
+Editing an existing alarm follows AlarmEditDialog -> AlarmStore.update ->
+AlarmDialog reload -> alarms_changed -> MainWindow reload/reconcile. Price
+alarms have a price/condition editor; volume-burst alarms have a threshold
+editor. Persisted volume-burst thresholds that are invalid are sanitized by
+the evaluation service, with a warning and fallback to the default.
+
+1.2 Realtime evaluation and notification
+----------------------------------------
+Trace:
+  IB realtime-bar bridge callback
+    -> MainWindow._on_realtime_bar(reqId, ...)
+    -> reqId resolves to the owning TickerSession
+    -> TickerSession.on_realtime_bar verifies the reqId
+    -> each active timeframe BarAggregator receives the 5-second bar
+    -> TickerSession._on_aggregated_bar evaluates price alarms
+    -> _evaluate_burst_alarms evaluates active volume-burst alarms
+    -> triggered state is persisted and marked in memory
+    -> session emits alarm_triggered / alarms_changed
+    -> MainWindow displays a toast and optionally plays sound
+    -> chart views refresh their alarm overlays
+
+Price crossings use the previous and current aggregated close. A price alarm
+fires when the price crosses its level in its configured direction. Volume
+alarms use a robust z-score against the shared volume baseline; they wait when
+the baseline is unavailable or still warming up. Volume-burst alarms are not
+rendered as price lines because they have no price level.
+
+1.3 Main-chart ticker change with active alarms
+-----------------------------------------------
+Trace when switching from ticker A to ticker B:
+  MainWindow.load_chart(B)
+    -> releases the main chart's realtime hold on A
+    -> detaches the main chart view from A's session
+    -> changes the primary session to B
+    -> reloads B's alarms and refreshes B's badge/overlay
+
+Then A is kept alive through one of two paths:
+
+  If an A pop-out remains open:
+    -> A still has an attached view and realtime hold
+    -> its existing session aggregator continues receiving A bars
+    -> A alarms continue evaluating
+
+  If A has no remaining view:
+    -> detach_view calls AlarmMonitor reconciliation
+    -> active alarms keep A in the wanted-symbol set
+    -> AlarmMonitor starts A as a headless session
+    -> it seeds from cached 1-minute data when available
+    -> it creates a 1-minute aggregator and requests realtime bars
+    -> A alarms continue evaluating without the main chart showing A
+
+MainWindow's alarm-trigger callback displays notifications for background
+symbols as well. The badge intentionally reflects the current main-chart
+symbol only; after switching to B, A alarms still notify but do not change B's
+badge.
+
+This behavior depends on A's feed being available. A pacing-limited headless
+subscription is deferred for retry; disconnection or a failed subscription can
+delay monitoring until the feed resumes.
+
+1.4 Alarm robustness finding
+----------------------------
+[P2] A database error while marking an alarm triggered can interrupt the bar
+processing path.
+
+In TickerSession._on_aggregated_bar, AlarmStore.mark_triggered is called before
+the session sets alarm.triggered, emits alarm_triggered, and updates
+_last_chart_price. The store call has no local exception handling. If the
+database update or commit raises, the trigger notification and later state
+updates for that bar are skipped. A following bar may then evaluate against a
+stale previous price. This is a failure-path risk inferred from call order;
+no database fault was injected.
+
+Recommended fix:
+  Isolate persistence failures from notification and session state updates.
+  Log the persistence error with symbol/alarm context, update in-memory state,
+  and define a retry or reconciliation path for the database state.
+
+
+2. DRAWING AND DRAWING-SET TRACE
+===============================
+
+2.1 Create and persist a drawing
+--------------------------------
+Trace:
+  Toolbar selects a drawing tool
+    -> MainWindow.set_drawing_tool routes to LWC interaction state
+    -> chart_assets/lwc/gestures.js builds a drawing item
+    -> page reports drawing committed
+    -> LwcChartView converts it into a PageDrawing
+    -> drawing_controller.created emits the drawing
+    -> MainWindow._on_drawing_created calls DrawingStore.create_drawing
+    -> symbol session reloads drawings and fans them out to attached views
+
+The page-generated item currently contains group_id: null and the default
+drawing color. PageDrawing preserves the group_id received from the page, and
+MainWindow persists it without applying the toolbar's selected drawing set.
+
+2.2 Assign, ungroup, hide, lock, delete a set/group
+--------------------------------------------------
+Trace for group management:
+  MainWindow opens DrawingGroupsDialog for the current symbol
+    -> dialog reads groups and drawings from DrawingStore
+    -> action updates group/drawing rows in SQLite
+    -> dialog emits changed
+    -> MainWindow reloads drawings and groups into the session
+    -> session fans updated records/groups to attached views
+    -> LWC converts records into drawing wire items and replaces the set
+
+Assignment and ungrouping use DrawingStore.assign_groups on the selected
+drawing IDs. Group deletion first sets existing member drawings' group_id to
+NULL, then deletes the group. Those paths are consistent with the UI's
+symbol-scoped dialog.
+
+Visibility validation:
+  LWC drawing_op looks up each drawing's group. If the group exists and
+  visible=False, that drawing is omitted from the set_drawings operation.
+  Ungrouped drawings and drawings whose group is missing remain visible.
+  Group visibility is therefore implemented for the current renderer.
+
+Lock validation:
+  The LWC serializer copies a group's locked state onto each drawing item.
+  The primitive renderer suppresses selected handles for locked items.
+  However, the drag_drawing operation handler itself does not reject a locked
+  item, and gestures.js contains no drawing drag initiation path. The visual
+  lock signal is present, but operation-level lock enforcement is not proven.
+  If drag editing is enabled or added, the operation path should reject edits
+  to locked items rather than relying only on hidden handles.
+
+
+3. DRAWING-SET FINDINGS
+=======================
+
+3.1 [P1] Selected set is not assigned to new LWC drawings
+--------------------------------------------------------
+Evidence and trace:
+  1. The toolbar selection stores _active_draw_group_id and calls
+     _apply_active_draw_group() in ui/main_window.py.
+  2. _apply_active_draw_group() calls set_active_group() only if the resolved
+     drawing-actions object provides that method.
+  3. The current LWC view exposes LwcDrawingSurface for session fan-out. It
+     provides set_data() and tool_active(), not set_active_group(). Therefore
+     MainWindow._drawing_actions() returns no active-group action for LWC.
+  4. chart_assets/lwc/gestures.js creates items with group_id: null and the
+     default color.
+  5. ui/lwc_view.py passes that group_id through to PageDrawing, and
+     MainWindow._on_drawing_created persists the record as received.
+
+Impact:
+  The user can select a drawing set, draw on the chart, and have the drawing
+  saved as ungrouped. The selection appears accepted but has no effect.
+
+Recommended fix:
+  Pass the selected group ID and intended drawing color into the LWC drawing
+  tool/page state and include them in the commit payload. Persist those values
+  in _on_drawing_created. Validate that a submitted group belongs to the
+  drawing's symbol before writing it.
+
+3.2 [P2] Inline group-name editing can raise TypeError
+----------------------------------------------------
+Evidence:
+  DrawingGroupsDialog makes a name QTableWidgetItem and stores the integer
+  group ID directly in Qt.UserRole. The name item remains editable by default.
+  _on_group_item_changed assumes every non-None UserRole is a pair:
+  field, group_id = item.data(Qt.UserRole).
+
+Impact:
+  Editing a name cell directly attempts to unpack an integer and raises a
+  TypeError. The group is not renamed through that path. The separate Rename
+  button uses a valid update path.
+
+Recommended fix:
+  Make the name cell read-only and use the Rename button, or tag each item with
+  a typed/structured role and handle name edits explicitly.
+
+3.3 [P2] Group recoloring does not update LWC drawing colors
+------------------------------------------------------------
+Evidence:
+  Group recoloring changes DrawingGroup.color. LWC drawing_item sets the
+  rendered item's color from Drawing.color and does not substitute the group
+  color. The intended active-group color path also has no active-group method
+  on the current LWC surface.
+
+Impact:
+  Recoloring a group changes the group's stored swatch, but existing LWC
+  drawings retain their individual colors. New LWC drawings use the default
+  color regardless of the selected group.
+
+Recommended fix:
+  Define whether group color is a default for new drawings, an override for
+  all group members, or both. Implement that behavior consistently in the
+  active tool state and drawing serializer.
+
+3.4 [P2] Deleting the selected group leaves stale active-group state
+------------------------------------------------------------------
+Evidence:
+  Deleting a group emits changed. MainWindow refreshes the combo and visually
+  selects the Ungrouped entry with signals blocked. If the deleted group was
+  _active_draw_group_id, that state is not cleared by this refresh path.
+  Ticker changes do clear the ID when it is not present in the new symbol's
+  groups, but group deletion does not.
+
+Impact:
+  The combo can show Ungrouped while the main-window field retains the deleted
+  group ID. The current LWC active-group path is already inert, but this is an
+  inconsistent state and would affect a future/fixed active-group path.
+
+Recommended fix:
+  After group reload, verify the active ID still exists. If not, set it to
+  None and update the combo and drawing tool together.
+
+
+4. TRACE LOCATIONS
+==================
+
+Alarm flow:
+  ui/main_window.py: _open_alarm_dialog, _reload_current_alarms,
+    _refresh_alarm_badge, load_chart, _on_realtime_bar,
+    _on_session_alarm_triggered
+  ui/alarm_dialog.py: add/edit/rearm/mute/delete actions
+  ui/alarm_edit_dialog.py: save actions
+  data/alarm_store.py: load/add/update/mark_triggered/rearm/delete
+  ui/ticker_session.py: on_realtime_bar, _on_aggregated_bar,
+    _evaluate_burst_alarms, reload_alarms
+  services/alarm_service.py: evaluate_alarms, evaluate_volume_burst
+  services/alarm_monitor.py: reconcile, _start_monitoring,
+    on_session_detached
+
+Drawing flow:
+  ui/main_window.py: _drawing_actions, _refresh_drawing_groups,
+    _apply_active_draw_group, _on_active_draw_group_changed,
+    _on_drawing_created, _on_drawing_groups_changed
+  ui/drawing_groups_dialog.py: group and drawing actions
+  data/drawing_store.py: group CRUD, assignment, drawing CRUD
+  ui/lwc_view.py: LwcDrawingSurface, PageDrawing, drawing_item,
+    drawing_op, _on_page_drawing_committed
+  chart_assets/lwc/gestures.js: drawing item creation and commit
+  chart_assets/lwc/primitives.js: visibility filtering, locked-item rendering,
+    drawing operation application
+
+
+5. REVIEW LIMITS
+================
+
+This is a static trace of the checked source paths. No tests were executed,
+and no UI/runtime fault injection was performed. The drawing-set assignment,
+color, and inline rename findings follow directly from the code paths above.
+The alarm database-failure behavior and operation-level lock behavior are
+failure-path risks identified from the current call structure, not reproduced
+runtime failures.

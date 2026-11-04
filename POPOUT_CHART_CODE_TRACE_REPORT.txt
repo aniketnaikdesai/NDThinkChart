@@ -1,0 +1,149 @@
+POPOUT CHART CODE TRACE REPORT
+=============================
+
+Scope
+-----
+Read-only trace of pop-out creation, restoration, session synchronization,
+realtime routing, retry handling, and close cleanup. No source files were
+changed and no tests were run.
+
+Summary
+-------
+Pop-out charts are expected to work when opened from an already loaded main
+chart: they attach to the existing symbol session, receive its current bars,
+and share its realtime stream. The persisted-window restore path is incomplete
+for symbols without an existing in-memory session. Those windows can reopen
+empty and fail to receive chart updates. Attachment also has partial-failure
+paths that can leave stale session or window state.
+
+Findings
+--------
+
+1. CONFIRMED: Restored pop-outs can reopen empty and remain stale
+   Severity: High
+
+   Trace:
+   - MainWindow._on_connected calls _restore_popouts().
+   - _restore_popouts creates each saved PopoutChartWindow and calls attach().
+   - attach() gets or creates a TickerSession, then calls attach_view(sync=True).
+   - attach_view's initial sync reads only the session's in-memory bars.
+   - A newly created session has no bars loaded by this restore path.
+   - The restore path does not read BarCache or invoke load_chart/backfill.
+   - The restore path also does not initialize a BarAggregator for the
+     pop-out's timeframe.
+   - TickerSession.on_realtime_bar sends realtime data only to aggregators
+     already present in the session.
+
+   Impact:
+   Saved pop-outs for symbols without an existing session (for example, after
+   a cold app start when the symbol is not the main chart symbol and is not
+   being monitored for alarms) can display no bars and receive no chart-bar
+   updates. A pop-out for the already loaded main-chart symbol may work because
+   that session already has bars and an aggregator.
+
+   Recommended fix:
+   Initialize restored pop-outs through a data path that loads cached bars,
+   creates the aggregator for the pop-out timeframe, and then subscribes to
+   realtime data. Use the existing history/backfill and pacing path if cache
+   coverage is incomplete.
+
+2. CONFIRMED: Attachment is not exception-safe
+   Severity: Medium
+
+   Trace:
+   - TickerSession.attach_view appends the view to the session before running
+     its initial sync.
+   - If chart, study, drawing, or alarm synchronization raises, PopoutChart-
+     Window.attach exits partway through.
+   - The restore loop catches and logs the exception but does not detach the
+     partially attached view.
+   - The manual open path also calls attach() without a cleanup guard.
+   - Later in attach(), the pop-out is registered and memory-accounted before
+     PopoutStore.save() completes. If saving raises, setup can fail after the
+     window has already entered session/host state.
+
+   Impact:
+   A failed open or restore can leave a stale view registered in its session,
+   or a registered/attached window that was never shown. Later session updates
+   may continue targeting that stale view.
+
+   Recommended fix:
+   Make attach transactional. On any failure, disconnect any connected
+   signals, detach the view, release only a realtime hold actually acquired,
+   unregister the pop-out, and release its memory/resources. Track acquisition
+   state explicitly so cleanup cannot release another view's hold.
+
+3. CONFIRMED: Chart-host startup failure can look like missing data
+   Severity: Medium
+
+   Trace:
+   - PopoutChartWindow._ensure_engine_host catches host creation exceptions.
+   - It logs the exception at debug level, sets the host reference to None,
+     and allows the pop-out to continue opening.
+   - The user receives no explicit chart-rendering failure message from this
+     branch.
+
+   Impact:
+   A blank pop-out can be mistaken for absent market data even when its chart
+   renderer failed to initialize.
+
+   Recommended fix:
+   Display a clear error state or status message in the pop-out when the
+   rendering host cannot start, while retaining the diagnostic log.
+
+4. CONFIRMED: Drawing notifications cause repeated all-view synchronization
+   Severity: Low
+
+   Trace:
+   - Each pop-out connects to TickerSession.drawings_changed.
+   - Each pop-out handler calls sync_drawings_to_views(), which updates every
+     view attached to the session.
+   - With multiple pop-outs, the same notification repeats the full fan-out.
+   - MainWindow.load_chart also explicitly calls sync_drawings_to_views after
+     reloading drawings.
+
+   Impact:
+   Repeated drawing updates and redraw work grow with the number of open
+   pop-outs.
+
+   Recommended fix:
+   Perform the all-view synchronization once at the point where drawings are
+   changed or reloaded. Keep the signal handler as a notification, or update
+   only the receiving view.
+
+5. OBSERVATION: Shared realtime hold count can overstate active owners
+   Severity: Low / needs focused verification
+
+   Trace:
+   - ensure_rt_subscribed increments the holder count when a subscription
+     already exists.
+   - Pop-outs acquire a hold on attach and release one on close; that path is
+     balanced when attach completes successfully.
+   - MainWindow's same-symbol reload path can call ensure_rt_subscribed again
+     without an evident matching release of the previous main-chart hold.
+
+   Impact:
+   The count may exceed the number of active owners while the session remains
+   active. Session teardown when orphaned can clean this up, so the trace does
+   not establish that it causes a lasting duplicate subscription. It should
+   be checked as part of the shared session ownership model.
+
+   Recommended fix:
+   Define realtime holds by owner (main chart, each pop-out, alarm monitor) and
+   make acquire/release idempotent per owner, or verify and correct the main
+   chart's reload lifecycle.
+
+Code locations traced
+---------------------
+- ui/main_window.py: _open_popout, _restore_popouts, _on_connected,
+  get_or_create_session, load_chart, _attach_live_feed, _on_realtime_bar
+- ui/popout_window.py: attach, _retry_rt_subscribe, detach, drawing handler,
+  engine-host setup, closeEvent
+- ui/ticker_session.py: attach_view, _sync_view, ensure_rt_subscribed,
+  release_rt, aggregator_for, prepare_load, on_realtime_bar,
+  sync_drawings_to_views
+
+Validation limits
+-----------------
+This report is based on static code tracing only. No tests or runtime
+experiments were performed, per instruction.

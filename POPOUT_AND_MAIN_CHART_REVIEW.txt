@@ -1,0 +1,168 @@
+POPOUT AND MAIN CHART REVIEW
+===========================
+
+Scope
+-----
+Static review of two areas:
+  1. Pop-out chart snapshot and synchronization of bars, drawings, zones,
+     studies, and alarms.
+  2. Main chart viewport behavior when live candles arrive after the user has
+     scrolled to an earlier time.
+
+No source files were changed and no tests or runtime experiments were run.
+
+
+AREA 1: POPOUT CHART SYNC
+=========================
+
+Summary
+-------
+When a pop-out is opened from an already loaded main chart, the code is
+designed to copy the current symbol, timeframe, display mode, and extended-
+hours setting, then sync the current session's bars, studies, drawings, and
+alarms. It also subscribes to later changes. The restore path for persisted
+pop-outs is not equivalent: on a cold start, a pop-out without an initialized
+symbol session may reopen without its chart contents or a functioning live
+bar aggregator.
+
+Trace: opening a pop-out from the loaded main chart
+--------------------------------------------------
+  MainWindow._open_popout()
+    -> constructs PopoutChartWindow from current symbol/timeframe/mode/
+       extended-hours controls
+    -> PopoutChartWindow.attach()
+    -> MainWindow.get_or_create_session(symbol)
+    -> TickerSession.attach_view(chart, timeframe, sync=True)
+    -> session._sync_view sends current bars, studies, drawings/groups,
+       and alarms to the fresh pop-out view
+    -> pop-out connects to bar, refresh, drawing, and alarm signals
+    -> pop-out acquires a realtime subscription hold
+
+Live synchronization:
+  - Bars: incremental and full-series updates are forwarded to the pop-out
+    when their timeframe matches the pop-out timeframe.
+  - Drawings: the session reloads persisted drawings/groups and fans them out
+    to attached views. Zone/rectangle drawings are Drawing records of kind
+    "zone" and are included in this path.
+  - Derived chart zones/overlays: the LWC view derives session bands, gaps,
+    VIX, and ICT overlays from its bars and studies. The pop-out receives the
+    same session bars and study configuration.
+  - Alarms: the initial sync calls set_alarms; later alarm changes and
+    triggers reach the pop-out through alarms_changed.
+
+Confirmed gaps
+--------------
+
+1. [P1] Cold-restored pop-outs may be empty and fail to update
+
+   _restore_popouts creates each window and calls attach(), but a newly
+   created TickerSession starts without in-memory bars, drawings, or studies.
+   The restore path does not itself load BarCache, reload drawings/studies, or
+   call the normal load/backfill flow. It also does not initialize an
+   aggregator for the pop-out timeframe. Realtime bars are delivered only to
+   aggregators already present in the session.
+
+   Impact:
+   A persisted pop-out for a symbol without an existing initialized session
+   can show no bars/drawings/studies and may not receive chart-bar updates.
+   The exact result for alarms can depend on AlarmMonitor reconciliation;
+   inactive/triggered alarm records may not be loaded by that path.
+
+   Recommended fix:
+   Give each restored pop-out an explicit initialization flow: load cached
+   history, restore symbol studies and drawings/groups, load alarms, create
+   the aggregator for its timeframe, then subscribe to realtime. Use the
+   normal paced backfill path when cached history is insufficient.
+
+2. [P2] Pop-out timezone does not match the main chart
+
+   PopoutChartWindow creates its view with tz_offset=0.0. MainWindow passes
+   symbol, timeframe, mode, and extended-hours state when opening the window,
+   but does not pass the main chart's timezone setting.
+
+   Impact:
+   Time labels can differ between the main and pop-out charts even when they
+   show the same bars.
+
+   Recommended fix:
+   Pass the current chart timezone offset into the pop-out and persist/restore
+   it if restored windows are expected to retain the same view.
+
+3. Scope note: zone drawings and the legacy zones table differ
+
+   Drawings whose kind is "zone" are included in the drawing sync path. The
+   separate legacy SQL "zones" table does not appear to have an active read or
+   render path in the current pop-out synchronization code. If "zones" means
+   records in that table rather than rectangle drawings or derived chart
+   overlays, they are not shown to sync through this path.
+
+4. Efficiency note: drawing-change notifications repeat fan-out
+
+   Every pop-out's drawings_changed handler calls sync_drawings_to_views(),
+   which refreshes all views. With multiple pop-outs, one drawing change can
+   repeat the same all-view fan-out several times. This is redundant work, not
+   a missing-sync condition.
+
+
+AREA 2: MAIN CHART SCROLL / LIVE CANDLE BEHAVIOR
+===============================================
+
+Finding: live updates can return the viewport to the latest candles
+--------------------------------------------------------------------
+Severity: High (user-visible behavior)
+Confidence: High; directly follows from the active update path.
+
+Trace:
+  TickerSession emits a bar update
+    -> MainWindow forwards it to the main chart
+    -> LwcChartView.update_live_bar() sends candle and volume update_bar ops
+    -> LwBridge sends the envelope through opsJson
+    -> chart.js receives it and calls applyOps()
+    -> applyOps() unconditionally calls fitToWidth()
+    -> fitToWidth() sets a visible logical range ending at the newest bar,
+       or calls fitContent()
+
+The unconditional fit occurs for update_bar envelopes as well as full-series
+replacements. The code does not track whether the user has scrolled away from
+the live edge, and the update path does not preserve the previous visible
+range. As a result, incoming candles can reset the user's historical viewport
+toward current time. A full-series refresh can do the same.
+
+Recommended fix
+---------------
+Separate initial/explicit fitting from live updates:
+
+  - Fit once when initial chart data is loaded or when the user requests Fit.
+  - On live updates, preserve the viewport if the user has scrolled back.
+  - If the user was already following the latest bar, optionally advance the
+    viewport to keep following new candles.
+  - For later full-series replacements, preserve the user's visible time
+    range when the symbol/timeframe has not changed. A new symbol or an
+    explicit reset can use the initial-fit behavior.
+
+This provides an intentional follow-live mode without forcing historical
+viewers back to the current candle on every update.
+
+
+CODE LOCATIONS TRACED
+=====================
+
+Pop-out:
+  ui/main_window.py: _open_popout, _restore_popouts
+  ui/popout_window.py: constructor, attach, update handlers
+  ui/ticker_session.py: attach_view, _sync_view, set_studies,
+    reload_drawings, sync_drawings_to_views, on_realtime_bar
+  ui/lwc_view.py: drawing and alarm surfaces, update_chart,
+    update_live_bar, set_studies, _render_overlays
+
+Main chart viewport:
+  ui/lwc_view.py: update_last_bar, update_live_bar
+  ui/lwc_bridge.py: update_bar transport/coalescing
+  chart_assets/lwc/chart.js: opsJson subscription, applyOps, fitToWidth
+
+
+REVIEW LIMITS
+=============
+
+This report is based on static source tracing. No tests were executed and no
+runtime/UI checks were performed.

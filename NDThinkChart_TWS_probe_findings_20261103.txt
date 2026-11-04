@@ -1,0 +1,109 @@
+NDThinkChart — Live TWS / Historical Data Probe Findings
+Date: 2026-11-03 (America/New_York, UTC-05:00)
+Scope: observation only; no production code or repository/documentation edits.
+
+RUN INPUTS AND SAFETY
+---------------------
+SYMBOL=SPY
+TIMEFRAME=1 min
+EXT_HOURS=on
+RELOAD_AT_SECONDS=60
+TWS host=127.0.0.1, port=7496, clientId=1
+TWS account: user confirmed live account (not DU paper); Read-Only API enabled per user confirmation.
+No TWS restart was performed. No order-shaped API method was called; the probe guarded placeOrder/cancelOrder/reqGlobalCancel/exerciseOptions and recorded zero guard hits (OBS L120). The app used a disposable SQLite database outside the repository.
+
+EXPECTED_CHUNKS was derived at runtime, not hardcoded: 2 plans. At 2026-11-03 13:22:04.195, the mode-scoped cache had 0 bars; the planner found one missing span for the 30-session intraday floor in ETH mode and made two newest-first 30-day plans (reqId=-, OBS L26-L33). The requests reached TWS as reqId=2 and reqId=5, both with useRTH=0 (OBS L32-L33, L56-L57).
+
+The scenario called for a DU paper login, but the user explicitly confirmed a live account. The probe proceeded only after Read-Only API was confirmed and with order-shaped calls blocked. This is a setup deviation, not a code finding.
+
+VERDICT TABLE
+--------------
+Legend: PASS / FAIL / UNOBSERVED. Each evidence citation is a timestamped entry in the observation log unless marked APP or CONSOLE. “reqId=-” means a transport/UI-level observation without a historical request ID.
+
+Check | Verdict | Evidence
+P1 — TWS port / nextValidId handshake / UI did not claim connected early / startup reconnect attempts | PASS | 13:22:04.124 connect call to 127.0.0.1:7496; socket became up while API readiness remained false; nextValidId arrived 13:22:04.137 (~13 ms after connect call); UI “● Live” and “Connected — IBKR port 7496” followed it; reconnect attempts=0. reqId=-, OBS L5-L12, L20-L25.
+P1 — scenario’s DU login requirement | FAIL (setup deviation) | User confirmed live, not DU; Read-Only API confirmed. reqId=-, OBS L1-L2. TWS continued listening on 7496 after the probe (post-run 13:28:00; PID 1308, started 09:39:14).
+P1 — initial cache/planner/per-load invariants | PASS | At 13:22:04.196, cache=0, planner_total=2, issued=1, queued=1, generation=1, reqId=2 tracked, cap=25, remaining=24, and queue+issued=2. reqId=2, OBS L41-L42.
+P1 — remaining plan issued through pacing continuation; cap not exceeded | PASS | PacingExceeded deferred the second plan for 0.5 s; continuation tick issued reqId=5, leaving queue=0 and in-flight={2,5}. reqId=5, 13:22:04.747-04.748, OBS L34-L37, L55-L58. Two total requests are below cap 25.
+P1 — actual chunk count and ETH wire mode | PASS | Actual planner output=2 plans; both wire requests were 1 min / 30 D / useRTH=0. reqId=2 at 13:22:04.195 and reqId=5 at 13:22:04.748, OBS L30-L33, L56-L57.
+P2 — one historicalDataEnd for each issued chunk | FAIL | Neither reqId=2 nor reqId=5 produced an END before the 120 s watchdog; at +60 s, ended=[] and both remained in flight. reqId=2,5, OBS L79-L80, L100.
+P2 — per-chunk one save plus one set_bars, promptly before the other END | UNOBSERVED | No chunk END occurred, so _persist_chunk_bars could not be observed for either reqId. reqId=2,5, OBS L79-L80, L104-L110.
+P2 — END with zero bars / cache coverage afterward | UNOBSERVED | There was no END to test. Both requests had zero bars at the +60 s snapshot. reqId=2,5, OBS L80.
+P2 — bars without END: pending duration and eventual flush/drop | UNOBSERVED | No bars arrived for reqId=2 or reqId=5; req_bars were both 0 at +60 s and pending_bars=0 at strand-finalization. The partial-bars/no-END case was not exercised. OBS L80, L104.
+P2 — out-of-order ENDs / monotonic rendering | UNOBSERVED | Neither request yielded END; no cross-chunk completion ordering could be compared. reqId=2,5, OBS L79-L80, L100.
+P2 — duplicate timestamps, overwritten closes, cache-vs-historical-render row comparison | UNOBSERVED | No historical rows were delivered, so no historical series existed for the requested row-by-row comparison. The finalizer rendered an empty series; later live candles are separate data. reqId=2,5, OBS L105-L110, L116.
+P2 — priming END distinct from chunk END | PASS (not exercised) | No priming request/END was observed; the only realtime subscription was reqId=4. Therefore no prime END was available to finalize/count as a chunk END. reqId=4, OBS L39-L40, L120.
+P3 — same-triple reload Branch A coalescing | PASS | At 13:23:04.209 (+60.821 s), state was queue=0, in-flight={2,5}, generation=1. Reload issued no new historical reqIds, canceled nothing, did not advance generation, and displayed “already backfilling; reload coalesced into the running wave…”. reqId=2,5, OBS L80-L83.
+P3 — coalesced in-flight chunks complete normally afterward | FAIL | reqId=2,5 remained without END and were canceled by the watchdog at +120.607 s. OBS L100-L103.
+P3 — watchdog not fired by 60 s; bound/reason/finalization count | PASS | At reload, watchdog bound=120000 ms with about 59785 ms remaining. It fired once at +120.607 s with reason “Historical backfill timed out”; canceled remaining reqIds, advanced generation 1→2, cleared queue/timer, and finalized once. reqId=2,5, OBS L80, L100-L111.
+P3 — late old-wave bars/ENDs fenced after reload | UNOBSERVED | No late bar/END arrived after reload, so the stale-generation rejection path was not exercised. reqId=2,5, OBS L81-L83, L100-L115.
+P4 — pacing continuation resumes on its tick | PASS | A 0.5 s PacingExceeded deferral armed a timer; the tick issued reqId=5 and emptied the queue. No repeated non-issuing tick was observed. reqId=5, OBS L34-L37, L55-L58.
+P4 — Q-17 hair-early timer tick/retry behavior | UNOBSERVED | The observed tick issued a request; no hair-early/no-issue tick occurred. reqId=5, OBS L55-L58.
+P4 — per-load-cap yield and “resume next load” visibility | UNOBSERVED | Planner made only two plans against cap 25; cap exhaustion did not occur. reqId=2,5, OBS L41-L42, L58.
+P4 — natural 162 retry-once path | UNOBSERVED | No request-originated 162 occurred before finalization. TWS returned 162 cancellation acknowledgements only after watchdog cancellation; app logged them as superseded cancels, not retries. reqId=2 at 13:24:03.998 and reqId=5 at 13:24:04.098; APP L3643-L3648, L3660-L3664.
+P4 — empty/empty with no finalizer/shortfall (silent completion) | PASS (that silent condition did not occur) | Queue and in-flight became empty because _finalize_stranded_history_wave canceled the requests and _finalize_history_wave ran once; the shortfall was visible. reqId=2,5, OBS L101-L111.
+P4 — normal wave-complete drain / exact early exit condition | FAIL | _on_session_wave_complete never fired. Drain ended by watchdog-strand finalization, not normal completion. Probe reported drain duration 61.798 s from reload; first empty/empty-without-normal-completion observation was 13:24:04.008. reqId=2,5, OBS L100-L118, L120. The observer then used a 2-second diagnostic grace because normal wave-complete was absent.
+P4 — final missing-days/failed-reqIds honesty | PASS | Finalizer reported all 31 missing trading days and timeout reason; failed_req_ids=[] because no request-specific historical error occurred before cancellation. reqId=2,5, OBS L104-L111, L120; APP L3644.
+P4 — realtime feed after normal wave-complete / no historical rewind | UNOBSERVED for post-complete condition | No normal wave-complete occurred. Realtime feed did work during the stalled wave and a live candle updated after strand-finalization, but that does not establish post-complete behavior. reqId=4, OBS L50-L53, L84-L89, L116.
+V1 — suppress/delay one END past watchdog | UNOBSERVED | Optional variant not run; the ordinary live requests themselves produced no END, but no deliberate suppression was injected.
+V2 — drop TWS transport mid-wave | UNOBSERVED | Optional variant not run. App shutdown after the watchdog is not a TWS-drop injection.
+V3 — different-triple reload mid-wave | UNOBSERVED | Optional variant not run.
+
+FINDINGS, RANKED
+----------------
+
+1. Historical TWS requests produced no bars or END before the watchdog.
+What happened: The first request, reqId=2, was issued at 13:22:04.195; pacing continuation issued reqId=5 at 13:22:04.748. At +60 s both were still active with zero bars and no END. At +120.607 s the watchdog canceled both and the cache still held zero bars. The finalizer listed 31 missing trading days. Evidence: reqId=2,5; OBS L32-L37, L56-L58, L79-L80, L100-L111; APP L3644.
+Expected behavior: one historicalDataEnd per issued chunk; if none arrives, _arm_history_wave_watchdog and _finalize_stranded_history_wave should cancel, advance generation, and report the shortfall. The watchdog/shortfall path did what was expected. This finding is the live data-path failure/stall; root cause is not established.
+Severity: observability only (the history gap is real, but it was reported rather than silently presented as complete).
+Minimal reproduction: SPY / 1 min / ETH on / empty cache / live account on 127.0.0.1:7496 / two 30 D plans; at +60 s wave state queue=0, in-flight={2,5}, generation=1.
+Suggested fix / next action: Do not increase the watchdog or label the wave complete. First inspect an enabled TWS API/HMDS log or obtain the server-side trace for reqIds 2 and 5; the app observed HMDS farm “OK” at handshake (APP L135) and realtime bars worked on reqId=4, but there is no API-specific TWS log available in this run. Re-run a bounded market-data-only request after the TWS/HMDS cause is known. If the same no-bar/no-END behavior recurs, retain the watchdog and ensure the per-reqId timeout/shortfall remains visible. No code-level cause can be claimed from this evidence alone.
+
+2. In-flight backfill progress disappeared from the status bar while requests were still outstanding.
+What happened: At 13:22:04.195 the app showed “backfilling 2 historical chunk(s)…”. At 13:22:04.269, “Account summary received for SPY” replaced it (4 s timeout). At +60 s, immediately before reload, the status bar was blank while reqIds 2 and 5 were still in flight and cache count was 0. The coalesced reload then showed the expected coalesced message. Evidence: reqId=2,5; OBS L38-L49, L80-L83.
+Expected behavior: users probing a stalled history path should be able to distinguish an active backfill from a finished/cache-current chart; the status should not be the only transient indicator if unrelated status messages can overwrite it.
+Severity: observability only.
+Minimal reproduction: same inputs as finding 1; allow the first status message to be overwritten by an unrelated status while the wave remains in-flight.
+Suggested fix: Provide a persistent backfill-state indicator separate from the transient status bar (e.g. active request count, queue count, elapsed time, and current reqIds); keep the transient bar for one-shot notices. Clear the persistent indicator only on normal completion, stranded finalization, cancellation, or disconnect. Do not show “Cache current” until the cache/planner state actually supports it.
+
+TIMELINE
+--------
+13:22:04.124 — EClient.connect called for 127.0.0.1:7496, clientId=1; socket-up did not set API-ready. reqId=-, OBS L5-L9.
+13:22:04.137 — nextValidId handshake; UI became “● Live” only afterward; no reconnect attempts. reqId=-, OBS L10-L25.
+13:22:04.195 — first load; ETH cache=0; planner generated two 30 D chunks; reqId=2 issued, one plan queued. State (queue=1, in-flight={2}), generation=1. OBS L26-L42.
+13:22:04.747-04.748 — pacing continuation tick; reqId=5 issued; state (queue=0, in-flight={2,5}). OBS L55-L58.
+13:22:04.730 onward — realtime reqId=4 delivered bars and updated the forming candle while history remained pending. OBS L50-L53, L59-L78.
+13:23:04.209 (+60.821 s) — same-triple reload; Branch A; state (queue=0, in-flight={2,5}), generation remained 1; no cancel/new historical reqId. OBS L80-L83.
+13:24:03.996 (+120.607 s) — watchdog fired; at trigger state (queue=0, in-flight={2,5}); canceled reqIds 2 and 5. OBS L100-L103.
+13:24:03.997-03.999 — generation advanced to 2; finalizer reported 31 missing days and timeout reason; one stranded finalization. OBS L104-L111; APP L3644.
+13:24:04.008 — empty/empty, but only after explicit stranded finalization and visible shortfall. OBS L113.
+13:24:06.009 — observation drain loop exited after its diagnostic grace; drain duration=61.798 s; normal wave-complete count remained 0. OBS L117-L120.
+13:24:05.833 — live candle update after the timeout; this was not post-normal-completion evidence. reqId=4, OBS L116.
+13:24:06.010 — probe closed its own app/API connection after the wave was already stranded; this was not a TWS restart or a mid-wave TWS-drop variant. OBS L121-L129.
+13:28:00 — post-run check: TWS PID 1308 remained up and listening on 7496; no established API connection. reqId=N/A, terminal observation.
+
+UNKNOWNS / INSTRUMENTATION GAPS
+-------------------------------
+- No TWS API-specific request log was found. The app log and the observer log are available, but they cannot establish why TWS/HMDS did not answer reqIds 2 and 5.
+- No historicalDataEnd occurred, so per-chunk persistence, empty ENDs, out-of-order completion, duplicate historical timestamps, overwritten closes, and historical row-by-row cache/render equivalence remain unobserved.
+- No prime request was observed. The prime-END distinction was therefore not exercised; only realtime subscription reqId=4 was observed.
+- No late historical callback after reload occurred; generation fencing for a stale response remains unobserved.
+- No natural request error 162 occurred. The only 162s were cancellation echoes after watchdog cancellation, logged as superseded requests (APP L3643-L3648, L3660-L3664).
+- No per-load-cap yield occurred (2 plans vs cap 25), and no optional fault-injection variant was run.
+- No normal wave-complete event occurred, so post-complete live-feed behavior cannot be claimed. Realtime bars/candles continued during and after the stranded wave.
+- The probe ran MainWindow offscreen. QtWebEngine logged Skia/context-loss errors (CONSOLE L472-L479); widget status and data-model updates were observed, but visible pixels were not verified.
+- Phase 2 could not finish before the required +60 s reload because neither chunk ended. The reload was performed at +60.821 s to exercise Branch A. The drain observer used a 2-second diagnostic grace after observing empty/empty without normal wave-complete; the first such state was logged at 13:24:04.008.
+- The observer emitted an empty/empty-without-wave-complete marker at OBS L113/L118. It is not counted as a silent-completion defect: the stranded finalizer had already run and surfaced the missing-day report at OBS L104-L111.
+- The configured historical interval in this checkout was 0.5 s (PREFLIGHT, OBS L2; config/settings.py:44); it is not 1.0 s. This did not prevent the continuation tick from issuing reqId=5.
+- An initial harness invocation failed before importing the app because PYTHONPATH did not include the repository. It made no TWS connection or historical request. The recorded run began at 13:22:03.388.
+- No repository or documentation files were changed. Probe logs and the disposable database are outside the repository.
+
+EVIDENCE FILES
+--------------
+Observation log: /private/var/folders/5d/sz4_nqln08v7_1vs2qp9_2z40000gn/T/opencode/ndt_live_tws_probe_20261103_132203.obs.log
+App log:         /private/var/folders/5d/sz4_nqln08v7_1vs2qp9_2z40000gn/T/opencode/ndt_live_tws_probe_20261103_132203.app.log
+Console log:     /private/var/folders/5d/sz4_nqln08v7_1vs2qp9_2z40000gn/T/opencode/ndt_live_tws_probe_console.log
+Disposable DB:   /private/var/folders/5d/sz4_nqln08v7_1vs2qp9_2z40000gn/T/opencode/ndt_live_tws_probe_20261103_132203_26tkootr.sqlite3
+
+Full missing trading-day list reported by the finalizer:
+2026-09-22, 2026-09-23, 2026-09-24, 2026-09-25, 2026-09-28, 2026-09-29, 2026-09-30, 2026-10-01, 2026-10-02, 2026-10-05, 2026-10-06, 2026-10-07, 2026-10-08, 2026-10-09, 2026-10-12, 2026-10-13, 2026-10-14, 2026-10-15, 2026-10-16, 2026-10-19, 2026-10-20, 2026-10-21, 2026-10-22, 2026-10-23, 2026-10-26, 2026-10-27, 2026-10-28, 2026-10-29, 2026-10-30, 2026-11-02, 2026-11-03
