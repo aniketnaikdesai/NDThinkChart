@@ -90,6 +90,13 @@ from services.md_line_guard import assess as md_assess
 
 _LOG = logging.getLogger(__name__)
 
+#: P17-T3 (S-P17-3): inventoried historical-request error codes. Any of these
+#: arriving on a cancel-tagged superseded reqId is a cancel acknowledgement
+#: (debug-only: no status-bar, no shortfall, no pacing event). On a fresh
+#: reqId each keeps its existing handling (162 retries once via the shared
+#: allowance; 200/399/504 stay fatal per ``classify_error``).
+_SUPERSEDED_HISTORICAL_ACK_CODES = frozenset({162, 321, 200, 399, 504})
+
 #: D27.9: upper bound (seconds) on the trailing 5-sec priming fetch. Sub-2h
 #: periods are covered exactly; larger periods prime the trailing window.
 _PRIME_MAX_SPAN_S = 7_200
@@ -569,6 +576,15 @@ class MainWindow(QMainWindow):
         # renders the explicit partial marker; a wave complete by the
         # bound never latches, so the idle/active wording is untouched.
         self._backfill_expiry_missed: bool = False
+        # P17-T4 (S-P17-6): retry latch for the D53 surfacing. Set once when
+        # a refresh observes a retried plan still in flight (a silence or
+        # 162 re-issue — both record the plan in the shared _retried_plans
+        # allowance), cleared only with the indicator on the unchanged
+        # terminal paths. While latched, set_backfill_state renders the
+        # explicit retry marker; a wave with no retry never latches, so the
+        # first-issue wording is untouched.
+        self._backfill_retry_in_flight: bool = False
+        self._backfill_retry_req_ids: list[int] = []
         # P15-W1 (S-P15-1): single-shot T0+10 s expiry verdict. Armed once
         # per wave at raise, disarmed on every terminal path (clear below).
         # Fires _on_backfill_expiry exactly once per wave.
@@ -1759,15 +1775,19 @@ class MainWindow(QMainWindow):
     def _on_error(self, reqId: int, errorCode: int, errorString: str):
         if self._closing:
             return  # D28.5: teardown never touches cleared widgets.
-        # P7-W1 (S-P7-2): a 162 acknowledgement for a cancel-tagged
+        # P17-T3 (S-P17-3): a cancel acknowledgement for a cancel-tagged
         # (superseded) reqId is the expected TWS echo of our own cancel —
-        # debug-level only, never a user-facing error. A 162 on any other
-        # reqId keeps the existing warning + status-bar + retry path.
-        if errorCode == 162 and self._is_superseded_history_req(reqId):
+        # debug-level only, never a user-facing error, no shortfall entry,
+        # no pacing event. Generalised beyond the named 162: any inventoried
+        # historical-request code on a superseded reqId classifies this way.
+        # An error on any other (fresh) reqId keeps the existing warning +
+        # status-bar + retry path.
+        if (errorCode in _SUPERSEDED_HISTORICAL_ACK_CODES
+                and self._is_superseded_history_req(reqId)):
             _LOG.debug(
                 "Historical request %s superseded by cancel; "
-                "162 acknowledgement ignored (no status-bar error).",
-                reqId,
+                "%s acknowledgement ignored (no status-bar error).",
+                reqId, errorCode,
             )
             return
         # D28.2: session-owned reqIds (RT, priming, wave members) route via
@@ -1791,13 +1811,15 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)
 
     def _is_superseded_history_req(self, req_id: int) -> bool:
-        """True when a session cancel-tagged req_id (its 162 is superseded).
+        """True when a session cancel-tagged req_id (its inventoried-code
+        error is a superseded ack).
 
         P7-W1 (S-P7-2): the reqId is already unregistered from the routing
         table by the cancel, so the check reads the cancel tags instead:
         live sessions carry their own, and torn-down sessions merged theirs
         into the window set on teardown. Errors are rare; the scan cost is
-        negligible.
+        negligible. P17-T3 (S-P17-3): generalised beyond the named 162 to
+        every inventoried historical-request code.
         """
         if req_id in self._superseded_history_reqs:
             return True
@@ -2079,6 +2101,13 @@ class MainWindow(QMainWindow):
             "queued": int(queued),
             "elapsed_s": float(elapsed_s),
             "req_ids": req_ids,
+            # P17-T4 (S-P17-6): retry marker alongside the existing keys.
+            # Latched, not live: set only while a retry is in flight (see
+            # _refresh_backfill_indicator), cleared only by the terminal
+            # clear. Elapsed stays the wave-baseline read it always was —
+            # a retry never resets _backfill_wave_start.
+            "retry": bool(self._backfill_retry_in_flight),
+            "retry_req_ids": list(self._backfill_retry_req_ids),
         }
         # P15-W3 (S-P15-3): the explicit partial-vs-complete distinction
         # lives here — no new surface, no D53 copy rewrite. The latch is
@@ -2086,10 +2115,15 @@ class MainWindow(QMainWindow):
         # terminal clear, so every refresh of a post-expiry wave keeps the
         # marker until the wave terminates; a wave complete by the bound
         # never latches and keeps the exact D53 wording.
-        label = (
-            "Backfill (partial)"
-            if self._backfill_expiry_missed
-            else "Backfill"
+        # P17-T4 (S-P17-6): the same latch pattern for the retry marker —
+        # set only while a retry is in flight, cleared only terminally.
+        markers = []
+        if self._backfill_expiry_missed:
+            markers.append("partial")
+        if self._backfill_retry_in_flight:
+            markers.append("retry")
+        label = "Backfill" + (
+            f" ({', '.join(markers)})" if markers else ""
         )
         self._backfill_indicator.setText(
             f"{label}: {int(in_flight)} in flight, {int(queued)} queued, "
@@ -2113,6 +2147,10 @@ class MainWindow(QMainWindow):
         # P15-W3 (S-P15-3): the miss latch dies with the wave (terminal
         # paths only) — the idle line itself is unchanged.
         self._backfill_expiry_missed = False
+        # P17-T4 (S-P17-6): the retry latch dies with the wave (terminal
+        # paths only) — the idle line itself is unchanged.
+        self._backfill_retry_in_flight = False
+        self._backfill_retry_req_ids = []
         self._backfill_indicator.setText("Backfill: idle")
 
     def _raise_backfill_indicator(self, session: TickerSession) -> None:
@@ -2144,6 +2182,20 @@ class MainWindow(QMainWindow):
                 return
             self._backfill_wave_start = time.time()
         elapsed = time.time() - self._backfill_wave_start
+        # P17-T4 (S-P17-6): latch the retry marker the first instant a
+        # retried plan is observed still in flight. Both retry axes record
+        # the plan in the shared _retried_plans allowance (silence re-issue
+        # and 162 re-issue), so a live reqId whose plan is in that set is a
+        # retry in flight. Latched, never re-derived off: only the terminal
+        # clear drops it. Elapsed is untouched — still the pure read of the
+        # wave baseline above, never reset by the retry.
+        retry_ids = sorted(
+            req_id for req_id in session._history_req_ids
+            if session._req_to_plan.get(req_id) in session._retried_plans
+        )
+        if retry_ids:
+            self._backfill_retry_in_flight = True
+            self._backfill_retry_req_ids = retry_ids
         self.set_backfill_state(
             len(session._history_req_ids),
             len(session._wave_plan_queue),

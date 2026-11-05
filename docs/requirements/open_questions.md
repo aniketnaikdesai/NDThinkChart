@@ -1614,3 +1614,97 @@
 - **What a different answer would change:** only the end state of the named files (and their ledger entries) — the audit (durable-findings-integrated? owner-needs-snapshot?) runs identically either way.
 - **Why it was blocking (resolved 2026-11-04):** deletion destroys evidence the owner may still want; archiving retains files the owner had already classed as candidates for removal — the owner picked per file or as a set.
 - **Affected requirement section:** Phase P16 / D55.7–D55.8 / `AC-D55.7`–`AC-D55.8`; disposition matrix §6–§7; R111.
+
+---
+
+# Open Questions — P17 (Batch 31 / D56 — silence retry for historical chunks; Q88–Q91 BLOCKING)
+
+> Owner-directed batch (verbatim brief): *"Silence retry"* over TWS-log join, smaller chunks, and accept-as-environment. The retry shape is settled (cancel the silent reqId + re-issue the same chunk exactly once inside the 120 s watchdog; second silence falls through to watchdog strand-finalization). All four blocking questions (Q88–Q91) were **answered by the owner on 2026-11-05** — `AC-D56.1`–`AC-D56.7` are FINAL and Phase P17 carries `Status: READY_FOR_PLAN`. **D1–P16 are NOT reopened.**
+
+## Q88 — D56.1/D56.2: what is the silence bound N (seconds of zero-bar silence before cancel + re-issue)?
+
+- **Status:** **answered 2026-11-05 — owner chose 30 s (aggressive; NOT the analyst-recommended 45 s).**
+- **Answer (owner, 2026-11-05, verbatim):** *"30 s."* The false-retry tradeoff is accepted: legitimate 25–76 s single-request TWS latencies mean the 30 s bound will sometimes fire on merely-slow (not dead) responses, spending a pacing slot on the re-issue; the owner accepts that cost for faster recovery.
+- **Question:** for an issued chunk with zero bars, no END, and no error, how many seconds of silence trigger the cancel + re-issue — (a) **45 s** (recommended default), (b) 30 s (aggressive), or (c) 60 s (conservative), or (d) an owner-named N?
+- **Recommended default (a):** 45 s. Rationale: primes answer instantly and silence has been observed past 60 s, so 45 s fires on genuine silence without chasing normal variance; 45 s + a 45 s re-issue window + cancel/finalize margin still concludes inside the 120 s watchdog (Plan states the exact arithmetic per DG106).
+- **What a different answer would change:** `AC-D56.1`/`AC-D56.2` timing assertions, the A157 fit-inside arithmetic, and R114's margin analysis — nothing else moves.
+- **Why it is blocking:** N is the trigger predicate of the only two timing ACs; any value written without the owner is a guessed user-visible timing constant.
+- **Affected requirement section:** Phase P17 / D56.1–D56.2 / `AC-D56.1`–`AC-D56.2`; A157; R114; DG106.
+
+## Q89 — D56.1/D56.5: is the exactly-once retry budget per chunk or per wave?
+
+- **Status:** **answered 2026-11-05 — owner chose (a) per-chunk.**
+- **Answer (owner, 2026-11-05, verbatim):** *"(a) per-chunk."* Each silent chunk gets its own cancel + re-issue; no wave-level retry counter.
+- **Question:** when several chunks of one wave go silent (4 silent reqIds across 2 waves on record), does (a) **each silent chunk get its own cancel + re-issue** (recommended default — "the same chunk exactly once" applied per chunk), or (b) **the wave get a single retry budget** (first silent chunk consumes it; later silent chunks go straight to watchdog finalization), or (c) an owner-named budget?
+- **Recommended default (a):** per-chunk. Rationale: matches the brief's "re-issue the same chunk exactly once" and the evidence (multiple silent reqIds per wave would otherwise leave most of the wave unretried); pacing-gated per `AC-D56.5` so a silent wave cannot spend unboundedly.
+- **What a different answer would change:** `AC-D56.1`/`AC-D56.5` counting assertions (per-chunk issue caps vs a wave-level retry counter) and R117's starvation analysis.
+- **Why it is blocking:** the two readings assert opposite issue counts on the recorded 4-silent-reqId shape — the AC cannot be written without the pick.
+- **Affected requirement section:** Phase P17 / D56.1 + D56.5 / `AC-D56.1` + `AC-D56.5`; R117.
+
+## Q90 — D56.6: what must the D53 indicator show during a retry?
+
+- **Status:** **answered 2026-11-05 — owner chose (a) explicit retry state, elapsed continuing.**
+- **Answer (owner, 2026-11-05, verbatim):** *"(a) explicit, distinguishable retry state, elapsed continuing from wave baseline."* Exact widget/copy/layout remain Plan details per the DG100 pattern.
+- **Question:** during a retry, must the D53 persistent indicator show (a) **an explicit, distinguishable retry state** (recommended default — e.g. retry identity such as chunk/attempt markers, with elapsed continuing from the wave baseline), or (b) **a silent continuation** (in-flight counts keep running with no retry marking)?
+- **Recommended default (a):** explicit retry state with continuing elapsed. Rationale: Finding 2 was won on honesty — a retry that reads as first-issue flight hides the stall history, and one that reads as completion is worse; elapsed must continue (not reset) so the watchdog horizon stays legible. Exact widget/copy/layout remain Plan details per the DG100 pattern.
+- **What a different answer would change:** `AC-D56.6`'s distinguishability assertion only — lifecycle, guard, and surface are untouched either way.
+- **Why it is blocking:** the owner ordered the D53 honesty surface; whether a retry is explicitly visible on it is a user-visible outcome decision, not a derivable default — though the mechanism stays Plan-level.
+- **Affected requirement section:** Phase P17 / D56.6 / `AC-D56.6`; A159; R118; DG100 (pattern).
+
+## Q91 — D56 scope: zero-bar silence only, or also partial-then-stalled chunks?
+
+- **Status:** **answered 2026-11-05 — owner EXPANDED scope: partial-then-stalled chunks included.**
+- **Answer (owner, 2026-11-05, verbatim):** *"include partial-then-stalled chunks."* The trigger is two rules: the zero-bar rule stays the primary trigger, plus a trailing-silence rule for partials (no bars AND no END/error for a trailing 30 s window after the last received bar). Progress baseline is minimal and deterministic (see A156 override): per-reqId last-activity stamp derived from existing wave events only — registration/issue starts the clock, each accepted `on_historical_bar` re-stamps it (grounded in the repo's per-reqId bar counting, `TickerSession._req_bars[req_id]` + `on_historical_bar`); no new semantic tracking is invented.
+- **Question:** does the retry trigger cover (a) **zero-bar silence only** (recommended default — zero bars + no END + no error for N s; a chunk that delivered some bars then stalled keeps the watchdog path), or (b) **also partial-then-stalled chunks** (bars arrived, then nothing for N s)?
+- **Recommended default (a):** zero-bar only. Rationale: the evidence covers chunks silent from issue (server-side receipt proven by cancel-ack 162s, zero bars); a partial-stall predicate needs a per-chunk progress baseline the requirements have not defined, and widening it here would fork the trigger semantics.
+- **What a different answer would change:** `AC-D56.1`'s trigger predicate (zero-bar vs progress-stall) and Journey 51's partial-stall edge case (which would graduate into a covered path with its own exactly-once accounting).
+- **Why it is blocking:** the trigger predicate is the scope boundary of the whole batch — the AC cannot be written without it.
+- **Affected requirement section:** Phase P17 / D56 scope / `AC-D56.1`; Journey 51 edge cases; A156.
+
+# Open Questions — P18 (Batch 32 / D57 — viewport-UX: chevron + framing; Q92–Q95 BLOCKING)
+
+> Owner-directed batch (two verbatim items, one batch): **(1)** go-to-latest chevron, TradingView behavior (screenshot reference: bottom-right of price axis) — visible ONLY when scrolled into past bars, hidden while following, click re-engages follow + jumps to latest; **(2)** new-ticker framing — fresh load re-centers x/y so data is visible (1 min → last 2 sessions, 5 min → last 1 week, higher intervals per TradingView defaults). **Reconciliation verified 2026-11-05:** `AC-D51.3` already required the affordance and P11 built the headless rule set only (`chart.js::goToRealtime/affordanceVisible`, no button DOM in `chart.html`) — the visible chevron is carried forward unbuilt, not new scope. All four questions below were **answered by the owner on 2026-11-05** — `AC-D57.1`/`AC-D57.2`/`AC-D57.4`/`AC-D57.5` are FINAL and Phase P18 carries `Status: READY_FOR_PLAN`. **D1–P17 are NOT reopened.**
+
+## Q92 — D57.1: does the chevron show whenever away, or only when away AND new bars arrived?
+
+- **Status:** **answered 2026-11-05 — owner chose (a) whenever away.**
+- **Answer (owner, 2026-11-05, verbatim):** *"whenever away (your words + TradingView)."*
+- **Question:** while the viewport is scrolled into past bars, is the chevron visible (a) **whenever away** (TradingView-exact per the owner statement — visible ONLY when away, hidden while following — regardless of whether new bars have arrived since), or (b) **only when away AND new bars arrived** (keep P11's `affordanceVisible` badge rule), or (c) an owner-named third rule?
+- **Recommended default (a):** visible whenever away. Rationale: matches the owner statement verbatim and TradingView behavior; a badge-gated chevron leaves an away user with no visible way back until the next tick lands.
+- **What a different answer would change:** `AC-D57.1`'s visibility matrix (away-alone cell shown vs hidden) and whether `affordanceVisible` is superseded or confirmed.
+- **Why it is blocking:** the two readings assert opposite visibility in the away-with-no-new-bars cell — the AC cannot be written without the pick.
+- **Affected requirement section:** Phase P18 / D57.1 / `AC-D57.1` (provisional); Journey 52; A162; R119; DG109.
+
+## Q93 — D57.1: what does clicking the chevron do — scroll-to-edge preserving span, or full Fit?
+
+- **Status:** **answered 2026-11-05 — owner chose (a) scroll-to-edge.**
+- **Answer (owner, 2026-11-05, verbatim):** *"scroll to live edge preserving zoom — option (a), existing goToRealtime path."*
+- **Question:** on chevron click, does the chart (a) **scroll to the live edge preserving the current span** (the existing `goToRealtime` path — TradingView behavior, "jumps to the latest bar"), or (b) **run a full Fit** (frame all loaded bars, the `fitAndFollow` path), or (c) an owner-named action?
+- **Recommended default (a):** scroll-to-edge preserving span + follow re-engaged. Rationale: the owner said "jumps to the latest bar" (not "reframes everything"); preserves the user's zoom; reuses the built path with no new viewport math.
+- **What a different answer would change:** `AC-D57.2`'s post-click range assertion (same span shifted to the edge vs full-series frame) only — follow re-engagement and chevron-hides hold either way.
+- **Why it is blocking:** the two readings assert different post-click viewports — opposite test expectations on the same click.
+- **Affected requirement section:** Phase P18 / D57.1 / `AC-D57.2` (provisional); Journey 52.
+
+## Q94 — D57.2: what are the initial x-spans for the seven unspecified timeframes?
+
+- **Status:** **answered 2026-11-05 — owner chose (a) accept the analyst table.**
+- **Answer (owner, 2026-11-05, verbatim):** *"accept the analyst's table (15m→2w, 30m→1M, 1h→2M, 4h→6M, 1d→1Y, 1w→1Y, 1M→5Y) — option (a)."*
+- **Question:** 1 min (last 2 sessions) and 5 min (last 1 week) are owner-decided. For `15 mins` / `30 mins` / `1 hour` / `4 hours` / `1 day` / `1 week` / `1 month`, (a) **accept the A164 analyst table** (`15m` → 2 weeks; `30m` → 1 month; `1h` → 2 months; `4h` → 6 months; `1d` → 1 year; `1w` → 1 year; `1M` → 5 years), or (b) **name owner spans per timeframe** (TradingView defaults as you read them), or (c) **a timeframe-agnostic rule** (e.g. always frame the newest N bars — owner names N)?
+- **Recommended default (a):** the A164 table. Rationale: session-anchored like the two decided spans; keeps `AC-D57.4` testable per timeframe; any cell is correctable without moving the requirement shape.
+- **What a different answer would change:** `AC-D57.4`'s per-timeframe range assertions (and A164) only — memory precedence, y-framing, and the data path are untouched.
+- **Why it is blocking:** the initial window is the whole of D57.2's user-visible outcome; any span written without the owner is a guessed number on every timeframe.
+- **Affected requirement section:** Phase P18 / D57.2 / `AC-D57.4` (provisional); Journey 53; A164; R120; DG110.
+
+## Q95 — D57.2: on a switch to a previously-seen symbol, does memory or fresh framing win?
+
+- **Status:** **answered 2026-11-05 — owner chose (b) fresh framing, OVERRIDING the recommended (a).**
+- **Answer (owner, 2026-11-05, verbatim):** *"fresh framing every time — option (b)."* Scope per instruction: both symbol switches AND timeframe changes on the same symbol re-frame fresh. Lineage: Q75/`AC-D51.4` stand for **follow-state memory**; only the viewport-**range** restore is superseded (`AC-D57.5`, A165).
+- **Question:** when the target symbol already has Q75 per-symbol memory (remembered viewport + follow state), does the load (a) **restore the memory** (Q75 stands unchanged; fresh framing applies only where no memory exists for the pair), or (b) **apply fresh framing anyway** (framing wins on every new-ticker load; memory kept for follow-state only, or dropped — owner says which), or (c) an owner-named split (e.g. memory wins within-session, framing wins across restarts)? Follow-up within the same answer: does a **timeframe change on the same symbol** take fresh framing or preserve the viewport?
+- **Recommended default (a):** memory wins. Rationale: Q75 was a deliberate TradingView improvement for the multi-symbol alarm workflow; framing-wins would re-introduce a viewport yank on every switch-back that D51 removed.
+- **What a different answer would change:** `AC-D57.5`'s switch-back assertions (restored-range vs fresh-frame) and whether `AC-D51.4` needs a recorded supersession note.
+- **Why it is blocking:** the two readings assert opposite viewports on the same switch-back — and one of them rewrites a FINALISED D51 criterion, which cannot happen without an explicit owner decision.
+- **Affected requirement section:** Phase P18 / D57.2 / `AC-D57.5` (provisional); Journey 53; A165; R121; `AC-D51.4` (stands unless the answer changes it).
+
+# Open Questions — P19 (Batch 33 / D58 — scroll-triggered prefetch; analyst-decided per delegation — no blocking item)
+
+> Owner-directed (verbatim 2026-11-05): *"also current when vieweing in 1min 30 sessions are populated. the chart should backfilling more if user scrolls to past i.e. user should not see blanks in place of price bars. that means for each interval, decide a position in past when you will start downloading more historical bars. decide and update to me."* The owner explicitly delegated the per-interval trigger positions ("decide and update to me") — so no question round was opened. The trigger table (one `AC-D57.4` frame span of lookahead per timeframe) and the wave-bounds decisions are logged as A166–A170; Phase P19 carries `Status: READY_FOR_PLAN`; this reply is the report-back. Owner corrections to any threshold cell land as in-place refinements without reopening. **D1–P18 are NOT reopened.** No blocking question remains.

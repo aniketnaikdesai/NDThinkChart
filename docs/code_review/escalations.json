@@ -1138,5 +1138,31 @@
     "source": "orchestrator",
     "opened": "2026-11-04T22:19:17.628370+00:00",
     "verified": "2026-11-04 final pass. Consolidation-stamped re-run landed well-formed: docs/build/results/_archive/wave263_P16-T4.json carries top-level task_id=P16-T4 with substance re-verified (T4_OK exit 0 live) and full-suite VERIFY pass exit 0."
+  },
+  {
+    "id": "ESC-099",
+    "task_id": "P17-T4",
+    "routed_to": "TASK_MANAGER",
+    "category": "gap",
+    "severity": "blocking",
+    "observed": "P17-T4 batch gate (AC-D56.7 full-suite green) fails only on test_p14_cache_guard.py::test_t34_history_markers_intact and test_p15_surfacing.py::test_t33_history_markers_intact: sha256(marker-through-D53 span) is 47306f78... vs pinned b11d9da3.... T4's own suite is 4/4 green (reviewer re-ran all P17 suites: 19/19 pass). The only diff inside the hashed span is two P18/D57 glossary rows (Go-to-latest chevron, Initial framing) inserted by in-tree P18 analyst work mid-P17-build \u2014 front-stage overlap collision, outside T4's touches (T4 touches no requirements file; its P17 appendix lands after D55, outside the span). Reproduced by reviewer on the live tree.",
+    "expected": "Full suite green so P17-T4 can reach done: PROTECTED_SPAN_SHA256 in both P14/P15 test files reflects the settled post-P18 requirements span, with T4's 4/4 and the rest of the suite unchanged.",
+    "suggested_direction": "Scope a small follow-up task (coordinated with the P18 batch, which owns the span change \u2014 do not re-pin mid-edit): update the two pins once P18's requirements edits settle, then re-run P17-T4. No P17 code action.",
+    "status": "addressed",
+    "verified": "2026-11-05 rework pass. Re-verified on the live tree, not the worker's word: sha256(marker-sentence-through-D52 span) computed on live requirements.md == 2fe7b1ec62fa0e60c7292731e22569f616fdac95becbff8e00d4ee38cee0c139 == the new PROTECTED_SPAN_SHA256 literal in both tests/test_p14_cache_guard.py and tests/test_p15_surfacing.py (live diff is exactly one line per file, every other assertion byte-identical); the four additive rows (D57 Go-to-latest chevron + Initial framing, D58 Prefetch + Buffer zone per 2026-11-05 owner decision) confirmed present; reviewer re-ran tests/test_p14_cache_guard.py + tests/test_p15_surfacing.py + tests/test_d56_retry_indicator.py = 18/18 pass; result _archive/wave275_P17-T4.json status=done with selfcheck pass (T41-T44, full suite 1383 passed/3 skipped); independent VERIFY verdict pass exit 0.",
+    "opened": "2026-11-05T18:07:45+00:00"
+  },
+  {
+    "id": "ESC-100",
+    "task_id": null,
+    "routed_to": "TASK_MANAGER",
+    "category": "gap",
+    "severity": "should-fix",
+    "observed": "test_p7_t07_t13_prime_retry_defers_then_issues failed in the VERIFY full-suite run (_prime_req_id None after _on_prime_retry: fail-open path taken) but passes in isolation (reviewer re-ran: pass). Root cause is a wall-clock flake, not P17: _on_prime_retry re-enters prime_aggregator with int(time.time()), so a run landing in the first 5 s of a 300 s period (span_s < 5, ~1.7% of runs) returns False and fails open. P17 diff never touches the prime path (verified byte-identical). Gate noise only; will pass on re-run.",
+    "expected": "Deterministic prime-retry test that cannot fail on wall-clock period boundaries.",
+    "suggested_direction": "Scope a P7 follow-up test-hardening task (D1-P16 stay closed to P17): inject/freeze the retry clock instead of int(time.time()); do not weaken the defers-then-issues assertion.",
+    "status": "addressed",
+    "verified": "2026-11-05 rework pass. Re-verified on the live tree, not the worker's word: P17-T5 landed exactly the suggested direction test-only (tests/test_p7_w4_streaming.py only; live diff freezes ticker_session_mod.time.time at the mid-period instant in defers-then-issues with a strengthened issue-once assertion, plus a new deterministic period-boundary fail-open case; no production file touched); reviewer re-ran the module 13/13 pass and looped both clock-sensitive cases 3x green; result _archive/wave273_P17-T5.json status=done selfcheck pass; independent VERIFY verdict pass exit 0.",
+    "opened": "2026-11-05T18:07:45+00:00"
   }
 ]

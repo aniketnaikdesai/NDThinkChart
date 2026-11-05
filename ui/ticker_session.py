@@ -86,6 +86,13 @@ _CONTINUATION_MARGIN_MS = 50
 # inside its legal deferral.
 _WATCHDOG_BASE_WINDOW_FRACTION = 1 / 5
 _WATCHDOG_MARGIN_WINDOW_FRACTION = 1 / 20
+# P17-T1 (S-P17-2): silence-retry trigger — a history chunk with no END or
+# error for this long after its last activity is cancelled + re-issued
+# exactly once. Zero-bar rule primary; trailing-silence rule covers
+# partial-then-stalled chunks (Q91). Single-sided bound: activity at
+# 30 s minus epsilon restarts the window and fires no retry.
+_SILENCE_RETRY_AFTER_S = 30.0
+_SILENCE_SWEEP_INTERVAL_MS = 1000
 
 
 def per_load_historical_cap() -> int:
@@ -211,6 +218,18 @@ class TickerSession(QObject):
         # indicator's elapsed is a pure read of this field.
         self._wave_start_ts: float | None = None
         self._retried_plans: set = set()  # error-162 retry-once tracking
+        # P17-T1 (S-P17-2): per-reqId monotonic last-activity stamps for the
+        # silence sweeper. Stamped at registration/issue, re-stamped on each
+        # accepted on_historical_bar, removed when the reqId leaves
+        # _history_req_ids. Shared with the error-162 axis: a silence
+        # re-issue records its plan here too (S-P17-4 shared allowance).
+        self._history_req_last_activity: dict[int, float] = {}
+        # P17-T1 (S-P17-2): one session silence sweeper (1 s tick, armed only
+        # while history reqIds are in flight). Clock-controllable offscreen
+        # via _silence_now().
+        self._silence_timer = QTimer(self)
+        self._silence_timer.setInterval(_SILENCE_SWEEP_INTERVAL_MS)
+        self._silence_timer.timeout.connect(self._sweep_silent_chunks)
         self._wave_continue_timer = QTimer(self)
         self._wave_continue_timer.setSingleShot(True)
         self._wave_continue_timer.timeout.connect(
@@ -771,10 +790,21 @@ class TickerSession(QObject):
 
     # ── History wave (3b-2 wires these up) ─────────────────────────────
 
+    def _silence_now(self) -> float:
+        """Monotonic clock for silence stamps (P17-T1, S-P17-2 / AP-P17-2).
+
+        Separate seam (never wall-clock ``time.time``) so offscreen tests
+        can control it deterministically.
+        """
+        return time.monotonic()
+
     def _register_history_request(self, req_id: int) -> None:
         self._history_req_ids.add(req_id)
         self._history_req_generation[req_id] = self._history_generation
         self._req_bars.setdefault(req_id, [])
+        # P17-T1: stamp last activity at registration (re-stamped at issue
+        # and on each accepted bar).
+        self._history_req_last_activity[req_id] = self._silence_now()
         # A reqId re-entering the wave is live again, not superseded: a
         # stale cancel tag must never misclassify a later 162 for it.
         self._cancelled_history_req_ids.discard(req_id)
@@ -790,12 +820,17 @@ class TickerSession(QObject):
         """
         if req_id in self._history_req_ids:
             self._history_req_issued.add(req_id)
+            # P17-T1: stamp last activity at issue.
+            self._history_req_last_activity[req_id] = self._silence_now()
 
     def is_superseded(self, req_id: int) -> bool:
-        """True when reqId was cancel-tagged (its 162 is a superseded ack).
+        """True when reqId was cancel-tagged (its inventoried-code error is
+        a superseded ack).
 
-        P7-W1 (S-P7-2): read by the window's error ingress to route a 162
-        for a superseded reqId at debug with no status-bar error.
+        P7-W1 (S-P7-2): read by the window's error ingress to route an error
+        for a superseded reqId at debug with no status-bar error. P17-T3
+        (S-P17-3): generalised beyond the named 162 to every inventoried
+        historical-request code.
         """
         return req_id in self._cancelled_history_req_ids
 
@@ -832,6 +867,10 @@ class TickerSession(QObject):
         self._history_req_issued.clear()
         self._req_bars.clear()
         self._pending_bars = []
+        # P17-T1: the wave terminated — drop silence stamps and park the
+        # sweeper (a new wave re-arms it via _issue_wave_chunks).
+        self._history_req_last_activity.clear()
+        self._silence_timer.stop()
         # P14-W2 (S-P14-2): the wave terminated — clear the elapsed
         # baseline so the next wave re-stamps it. A coalesced reload never
         # cancels, so it can never clear the running baseline.
@@ -873,6 +912,109 @@ class TickerSession(QObject):
     def _on_history_wave_timeout(self) -> None:
         self._host._on_session_history_wave_timeout(self)
 
+    # ── P17-T1 silence retry (S-P17-2, S-P17-4) ──────────────────────────
+
+    def _refresh_silence_sweeper(self) -> None:
+        """Arm the sweeper only while history reqIds are in flight (AP-P17-1)."""
+        if self._history_req_ids:
+            if not self._silence_timer.isActive():
+                self._silence_timer.start(_SILENCE_SWEEP_INTERVAL_MS)
+        else:
+            self._silence_timer.stop()
+
+    def _sweep_silent_chunks(self) -> None:
+        """Fire one silence retry per still-silent, never-retried chunk."""
+        now = self._silence_now()
+        for req_id in list(self._history_req_ids):
+            plan = self._req_to_plan.get(req_id)
+            if plan is None or plan in self._retried_plans:
+                continue
+            stamp = self._history_req_last_activity.get(req_id)
+            if stamp is None:
+                continue
+            if now - stamp >= _SILENCE_RETRY_AFTER_S:
+                self._retry_silent_chunk(req_id)
+
+    def _retry_silent_chunk(self, req_id: int) -> None:
+        """Cancel one silent chunk and re-issue its identical plan exactly once.
+
+        Cancel goes through the existing ``cancel_historical_data`` path with
+        superseded tagging and the post-issue slot kept (never refunded); the
+        old reqId is dropped; the old chunk's bars are popped and removed from
+        ``_pending_bars`` by identity (exactly-once, AP-P17-4); the identical
+        plan is re-issued under the current generation with a new reqId and
+        recorded in the shared ``_retried_plans`` allowance (S-P17-4), so a
+        re-issue's own silence never re-issues (no third issue).
+        """
+        if req_id not in self._history_req_ids:
+            return
+        plan = self._req_to_plan.get(req_id)
+        if plan is None or plan in self._retried_plans:
+            return
+        # 1. Cancel via the existing path (A158); tag superseded so late
+        # arrivals on the old reqId fence at _history_event_accepted.
+        try:
+            self._host.md_manager.cancel_historical_data(req_id)
+        except Exception as exc:
+            _LOG.debug(
+                "Silence-retry cancel best-effort failed for %s reqId=%s: "
+                "%s: %s",
+                self.symbol, req_id, type(exc).__name__, exc,
+            )
+        self._cancelled_history_req_ids.add(req_id)
+        # Post-issue rule (P7-W2): the cancelled issue keeps its pacing slot
+        # — refund nothing.
+        # 2. Drop the old reqId and its per-chunk state.
+        self._history_req_ids.discard(req_id)
+        self._req_to_plan.pop(req_id, None)
+        self._history_req_issued.discard(req_id)
+        self._history_req_last_activity.pop(req_id, None)
+        # 3. Pop the old chunk's bars and identity-remove those same Bar
+        # objects from the flat wave list (bars already persisted per-chunk
+        # stay in the cache — PK-idempotent — and are re-read, never
+        # duplicated in memory).
+        chunk_bars = self._req_bars.pop(req_id, [])
+        if chunk_bars:
+            doomed = set(map(id, chunk_bars))
+            self._pending_bars = [
+                b for b in self._pending_bars if id(b) not in doomed
+            ]
+        # 4. Record the shared once-only allowance BEFORE re-issuing, so any
+        # outcome of the new issue (silence, 162) can never issue a third.
+        self._retried_plans.add(plan)
+        # 5. Paced re-issue of the identical plan at the same plan position
+        # under the current generation with a new reqId.
+        try:
+            new_req_id = self._host.md_manager.req_historical_data(
+                contract=self._wave_contract,
+                timeframe=self._wave_timeframe,
+                endDateTime=plan.endDateTime,
+                whatToShow="TRADES",
+                useRTH=1,
+                extended_hours=self._wave_extended_hours,
+                bar_size=plan.bar_size,
+                duration=plan.duration,
+            )
+        except (PacingExceeded, IBKRNotReady) as e:
+            # Queue-with-deadline (S-P17-5): wait through the existing
+            # continuation path, bounded by the unchanged watchdog.
+            wait = getattr(e, "wait_seconds", None)
+            if wait is None:
+                wait = 1.0
+            self._wave_plan_queue.insert(0, plan)
+            self._schedule_wave_continuation(wait)
+            self._refresh_silence_sweeper()
+            return
+        self._register_history_request(new_req_id)
+        self._req_to_plan[new_req_id] = plan
+        self.mark_history_request_issued(new_req_id)
+        self._wave_issued_this_load += 1
+        self._refresh_silence_sweeper()
+        _LOG.warning(
+            "Historical request %s silent %ss; retried as %s",
+            req_id, _SILENCE_RETRY_AFTER_S, new_req_id,
+        )
+
     def _on_prime_timeout(self) -> None:
         # Q-3: the backstop fired (fail open) — cancel any deferred priming
         # retry so it cannot re-enter after the live feed has attached.
@@ -909,6 +1051,8 @@ class TickerSession(QObject):
         self._retried_plans = set()
         self._req_bars = {}
         self._history_req_issued = set()
+        # P17-T1: a new wave re-stamps every chunk it issues.
+        self._history_req_last_activity = {}
         self._wave_issued_this_load = 0
         # P14-W2 (S-P14-2): stamp the wave start once. A coalesced reload
         # never reaches here (Branch-A early-returns before the cancel), so
@@ -965,6 +1109,8 @@ class TickerSession(QObject):
             self.mark_history_request_issued(req_id)
             issued += 1
             self._wave_issued_this_load += 1
+        # P17-T1: arm the silence sweeper while chunks are in flight.
+        self._refresh_silence_sweeper()
         if self._wave_plan_queue:
             if self._wave_issued_this_load >= cap:
                 # P7-W1: per-load spend exhausted — yield. The remainder stays
@@ -1079,6 +1225,8 @@ class TickerSession(QObject):
             return
         if not self._history_event_accepted(req_id):
             return
+        # P17-T1: every accepted bar re-stamps the trailing-silence window.
+        self._history_req_last_activity[req_id] = self._silence_now()
         ts = parse_ibkr_date(bar.date)
         bar_obj = Bar(
             symbol=self.symbol,
@@ -1136,6 +1284,9 @@ class TickerSession(QObject):
             return
         self._history_req_ids.discard(req_id)
         self._req_to_plan.pop(req_id, None)
+        # P17-T1: the reqId left the wave — drop its silence stamp.
+        self._history_req_last_activity.pop(req_id, None)
+        self._refresh_silence_sweeper()
         # P7-W1 (S-P7-2): per-chunk persist-and-render — this chunk's bars
         # survive a kill/reload mid-wave even though the remaining chunks
         # are still in flight. Superseded generations return above, so a
@@ -1171,6 +1322,8 @@ class TickerSession(QObject):
             if code == 162:
                 plan = self._req_to_plan.pop(req_id, None)
                 self._history_req_ids.discard(req_id)
+                # P17-T1: the reqId left the wave — drop its silence stamp.
+                self._history_req_last_activity.pop(req_id, None)
                 if plan is not None and plan not in self._retried_plans:
                     self._retried_plans.add(plan)
                     self._wave_plan_queue.insert(0, plan)
@@ -1190,6 +1343,7 @@ class TickerSession(QObject):
                     # P7-W2 (S-P7-3): cover the backoff deferral + margin so
                     # the retried chunk never trips the strand bound.
                     self._arm_history_wave_watchdog(wait)
+                    self._refresh_silence_sweeper()
                     return
                 _LOG.warning(
                     "Historical request %s failed [162] after retry; "
@@ -1197,10 +1351,13 @@ class TickerSession(QObject):
                 )
             self._history_req_ids.discard(req_id)
             self._req_to_plan.pop(req_id, None)
+            # P17-T1: the reqId left the wave — drop its silence stamp.
+            self._history_req_last_activity.pop(req_id, None)
             self._backfill_failed_req_ids.add(req_id)
             _LOG.warning(
                 "Historical request %s failed [%s]: %s", req_id, code, msg
             )
+            self._refresh_silence_sweeper()
             if self._wave_may_complete():
                 self._host._on_session_wave_complete(self)
 

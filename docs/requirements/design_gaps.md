@@ -1581,3 +1581,45 @@ history of the choice.
 - **Why it matters:** two overlapping chronologies re-drift by default (each edit lands in one file); the consolidation must leave exactly one role boundary (short index → full chronology, or merge-then-remove after consumer checks).
 - **Suggested resolution:** pick one boundary in the ledger (`AC-D55.8`), enforce it with the link/reference check (`AC-D55.9`), and verify no release tooling or external reference depends on the removed role before any removal.
 - **Status:** open (non-blocking; `AC-D55.8`/`AC-D55.9` are the gates).
+
+## DG106 — D56: retry-vs-watchdog margin arithmetic must be stated by Plan (N + re-issue window + margin vs 120 s)
+
+- **Where it shows up:** P17 / D56.1–D56.2 / `AC-D56.1`–`AC-D56.2`; A157; Q88; R114; `ui/main_window.py::_on_session_history_wave_timeout` (the 120 s watchdog backstop).
+- **Why it matters:** the requirements fix only the fit-inside constraint (everything concludes inside 120 s). Without a stated N + re-issue-window + cancel/finalize-margin decomposition, a Build can pick numbers that individually look safe but jointly overrun the watchdog (e.g. N=60 s + a 60 s re-issue window leaves zero margin for cancel-ack processing and strand finalization).
+- **Suggested resolution:** Plan states the decomposition against the answered N and asserts it in the offscreen timing cases (single-sided bound per Journey 51: silent at N−ε delivers → no retry; silent at N → retry).
+- **Status:** open (non-blocking — Plan detail; `AC-D56.1`/`AC-D56.2` are the gates).
+
+## DG107 — D56: pacing-exhaustion-at-reissue fallback seam (A160 default — fall through to watchdog)
+
+- **Where it shows up:** P17 / D56.5 / `AC-D56.5`; A160; `ibkr/pacing.py::PacingManager` (rolling budget shared by sessions/pop-outs/primes).
+- **Why it matters:** the re-issue is a new paced request, but the requirements do not define the wave-state seam it waits on: whether the re-issue queues for the next slot inside the remaining watchdog window or is abandoned immediately when no slot is free changes the wave-state assertions (queued-retry vs immediate fall-through) without changing the requirement (never violate the budget).
+- **Suggested resolution:** carry the A160 default (fall through to watchdog strand-finalization, fail-open and counted); Plan confirms the seam (queue-with-deadline vs immediate-abandon) and Task Manager covers it under `AC-D56.5`.
+- **Status:** open (non-blocking — default recorded; Plan confirms the seam).
+
+## DG108 — D56: 162 taxonomy source-of-truth (cancel-ack vs fresh-request errors beyond the named 162)
+
+- **Where it shows up:** P17 / D56.3 / `AC-D56.3`; `ibkr/error_codes.py::classify_error` (the every-error gate); probe evidence (cancel-ack 162s prove server-side receipt).
+- **Why it matters:** the evidence names only error 162, but the classification rule ("errors on the superseded reqId after cancel are cancel-acks; errors on the re-issued reqId are fresh") generalizes to whatever error codes TWS can emit on a cancelled vs a fresh historical request. If only 162 is inventoried, the first non-162 cancel-ack (or fresh error) has no stated handling and a worker must invent it.
+- **Suggested resolution:** Plan inventories the historical-request error codes against `classify_error` and states the per-code handling for superseded-reqId vs fresh-reqId arrivals; `AC-D56.3` asserts at least the 162 pair, extended per the inventory.
+- **Status:** open (non-blocking — Plan detail; `AC-D56.3` is the gate).
+
+## DG109 — D57: chevron visibility rule vs P11 badge rule (away-only per owner statement vs away-AND-new-bars per `affordanceVisible`)
+
+- **Where it shows up:** Phase P18 / D57.1 / `AC-D57.1`; `chart_assets/lwc/chart.js::affordanceVisible` (returns `!following && newBarsSinceAway`); Journey 52 edge case (away with no new bars yet).
+- **Why it matters:** the shipped headless rule hides the affordance while away until the next live bar lands; the owner statement reads as visible-whenever-away. If the visible chevron inherits the badge rule unexamined, an away user sees no way back on a quiet tape — the exact gap the chevron exists to close.
+- **Suggested resolution:** Q92 decides; either supersede `affordanceVisible` to away-only (keeping the badge state internally if any consumer needs it) or confirm the badge rule and write `AC-D57.1` to it — recorded explicitly either way.
+- **Status:** resolved 2026-11-05 (Q92 answered (a) — away-only; `AC-D57.1` FINAL with explicit supersession of the badge rule).
+
+## DG110 — D57: initial-frame spans for seven timeframes are analyst defaults pending owner confirmation
+
+- **Where it shows up:** Phase P18 / D57.2 / `AC-D57.4`; A164; Journey 53; `chart_assets/lwc/chart.js::fitToWidth` (current newest-window fallback the spans replace for fresh loads).
+- **Why it matters:** only 1 min / 5 min spans are owner-decided; the other seven cells of the span table decide every fresh load's first paint. Building on unconfirmed spans bakes guessed windows into tests across nine timeframes.
+- **Suggested resolution:** Q94 decides (accept A164, name spans, or pick the bar-count rule); `AC-D57.4` stays PROVISIONAL until then.
+- **Status:** resolved 2026-11-05 (Q94 answered (a) — A164 table owner-accepted; `AC-D57.4` FINAL). Q95 (b) additionally fixes the precedence: framing wins on every load/timeframe change (`AC-D57.5` FINAL).
+
+## DG111 — D58: prefetch re-arm / supersession seam (Plan detail)
+
+- **Where it shows up:** Phase P19 / D58.1–D58.2 / `AC-D58.2`; A167; generation-fence precedent (`test_t13_overlap_idempotent_and_generation_fence`); `_history_generation` + `_on_session_history_wave_timeout` (120 s backstop).
+- **Why it matters:** the requirements pin one-step-per-wave and one-in-flight with re-evaluation on completion + viewport change, but not the seam itself: whether a newer trigger queues behind, cancels-and-replaces, or coalesces into the in-flight prefetch, and how mode-switch/disconnect abandonment composes with chained prefetches, changes wave-state assertions without changing the requirement.
+- **Suggested resolution:** Plan states the seam (cancel-replace vs queue-with-deadline) against the generation-fencing precedent; Task Manager covers it under `AC-D58.2`; the D53-lifecycle and no-cross-contamination cases pin the abandonment paths.
+- **Status:** open (non-blocking — Plan detail; `AC-D58.2` is the gate).

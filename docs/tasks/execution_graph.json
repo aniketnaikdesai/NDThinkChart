@@ -1,126 +1,50 @@
 {
   "nodes": [
     {
-      "id": "P16-T1",
+      "id": "P17-T1",
       "type": "Task"
     },
     {
-      "id": "P16-T2",
+      "id": "P17-T2",
       "type": "Task"
     },
     {
-      "id": "P16-T3",
+      "id": "P17-T3",
       "type": "Task"
     },
     {
-      "id": "P16-T4",
+      "id": "P17-T4",
       "type": "Task"
     },
     {
-      "id": "P16-T5",
-      "type": "Task"
-    },
-    {
-      "id": "P16-T6",
-      "type": "Task"
-    },
-    {
-      "id": "P16-T7",
-      "type": "Task"
-    },
-    {
-      "id": "P16-T8",
-      "type": "Task"
-    },
-    {
-      "id": "P16-T9",
+      "id": "P17-T5",
       "type": "Task"
     }
   ],
   "edges": [
     {
-      "from": "P16-T1",
-      "to": "P16-T3",
+      "from": "P17-T1",
+      "to": "P17-T2",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P16-T2",
-      "to": "P16-T3",
+      "from": "P17-T1",
+      "to": "P17-T3",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P16-T2",
-      "to": "P16-T4",
+      "from": "P17-T1",
+      "to": "P17-T4",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P16-T1",
-      "to": "P16-T5",
+      "from": "P17-T2",
+      "to": "P17-T4",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P16-T2",
-      "to": "P16-T5",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T1",
-      "to": "P16-T6",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T2",
-      "to": "P16-T6",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T1",
-      "to": "P16-T7",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T2",
-      "to": "P16-T7",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T1",
-      "to": "P16-T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T2",
-      "to": "P16-T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T3",
-      "to": "P16-T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T4",
-      "to": "P16-T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T5",
-      "to": "P16-T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T6",
-      "to": "P16-T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T7",
-      "to": "P16-T8",
-      "type": "DEPENDS_ON"
-    },
-    {
-      "from": "P16-T8",
-      "to": "P16-T9",
+      "from": "P17-T3",
+      "to": "P17-T4",
       "type": "DEPENDS_ON"
     }
   ]

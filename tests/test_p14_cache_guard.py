@@ -72,7 +72,7 @@ CLAIM_PHRASES = (
 # and the P16 worktree (the P16 requirements diff is purely additive there),
 # so this re-pins history without dropping any assertion.
 PROTECTED_SPAN_SHA256 = (
-    "b11d9da3e1eb0505855c9eb59e99e93795b79ab0e25645d5543dcab08fddba41"
+    "2fe7b1ec62fa0e60c7292731e22569f616fdac95becbff8e00d4ee38cee0c139"
 )
 
 

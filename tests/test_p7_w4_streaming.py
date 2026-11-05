@@ -421,8 +421,14 @@ def test_p7_t07_t13_wave_continuation_defers_and_resumes():
     assert len(sess._history_req_ids) == 1
 
 
-def test_p7_t07_t13_prime_retry_defers_then_issues():
-    """Pacing-limited prime -> one singleShot retry -> issues on retry."""
+def test_p7_t07_t13_prime_retry_defers_then_issues(monkeypatch):
+    """Pacing-limited prime -> one singleShot retry -> issues on retry.
+
+    The retry re-enters prime_aggregator with int(time.time()); freezing the
+    clock at the mid-period instant makes the issue deterministic regardless
+    of the wall-clock phase (a run landing in the first 5 s of a 300 s period
+    would otherwise take the span_s<5 fail-open path).
+    """
     fired = []
     orig = QTimer.singleShot
     QTimer.singleShot = lambda ms, fn: fired.append((ms, fn))
@@ -442,12 +448,50 @@ def test_p7_t07_t13_prime_retry_defers_then_issues():
         assert getattr(fn, "__func__", None) is TickerSession._on_prime_retry
 
         host.md_manager.mode = "issue"
+        # Freeze the retry clock mid-period (span_s = 90 >= 5): the retry must
+        # issue exactly once with zero wall-clock dependence.
+        monkeypatch.setattr(
+            ticker_session_mod.time, "time", lambda: float(now)
+        )
         sess._on_prime_retry()
         assert sess._prime_req_id is not None
         assert sess._prime_reserved is False
         assert sess._prime_retry_pending is False
+        # One failed first attempt + exactly one retry transport call, and the
+        # retry is the call that issued.
+        assert len(host.md_manager.requests) == 2
     finally:
         QTimer.singleShot = orig
+
+
+def test_p7_t07_t13_prime_retry_boundary_fail_open_deterministic(monkeypatch):
+    """Retry frozen at period_start+1 s deterministically takes fail-open.
+
+    span_s = 1 < 5 hits the period-boundary guard in prime_aggregator, so the
+    retry must not issue (_prime_req_id stays None) and instead counts a skip
+    and attaches the live feed — with the transport open, proving the guard
+    (not pacing) drives the outcome. No production code is changed.
+    """
+    host = make_host()
+    sess = TickerSession("AAPL", host)
+    agg = sess.aggregator_for("5 mins")
+    now = mid_period_ts()
+
+    assert sess.prime_aggregator(object(), "5 mins", now, False) is True
+    assert sess._prime_retry_pending is True
+
+    host.md_manager.mode = "issue"  # transport open: boundary guard decides
+    frozen = agg.period_start(now) + 1
+    monkeypatch.setattr(
+        ticker_session_mod.time, "time", lambda: float(frozen)
+    )
+    sess._on_prime_retry()
+
+    assert sess._prime_req_id is None
+    assert sess._prime_skipped_count == 1
+    assert sess._prime_reserved is False
+    assert sess._prime_retry_pending is False
+    assert host.prime_completions == ["AAPL"]
 
 
 def test_p7_t07_t13_prime_retry_fail_open_counts_skip():

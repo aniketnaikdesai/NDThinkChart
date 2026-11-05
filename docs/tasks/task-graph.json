@@ -1,928 +1,637 @@
 {
-  "phase": "P16",
-  "batch": "D55",
+  "phase": "P17",
+  "batch": "D56",
   "status": "READY_FOR_BUILD",
-  "note": "Docs-only consolidation (D55, owner-ordered full-plan execution). Nine doc tasks across waves P16-W1..W4: inventory+map (T1) and fact sheet (T2) in parallel; navigation/labels (T3) and guide correction (T4) next; P6 reconciliation (T5), P7 addendum (T6), navigation blocks (T7); ledger+deletions (T8); final review+history guard (T9). No source/test/packaging/schema edit in any task; verification is grep/link/checklist review, never the offscreen suite (AP-P16-2). Q84+Q86 pre-landed states are verified, never redone; requirements.md is never touched (Analyst-owned).",
+  "note": "P17 rework wave (owner-approved code-review rework, 2026-11-05): T1-T3 done unchanged; T4 re-run scope = D53 retry-state re-verify (landed) + coordinated ESC-099 history-pin update to the settled post-P18 span (re-pin, never weaken) + batch gate; T5 = ESC-100 prime-retry wall-clock flake hardening, test-only, no production change. No D1-P16 or P18 content touched; no requirements file claimed.",
   "tasks": [
     {
-      "id": "P16-T1",
-      "title": "Preserved-state note + classified inventory + cross-reference map (D55.1)",
-      "description": "Produce docs/D55_inventory.md: a preserved-working-state note, a tracked/untracked inventory classifying every doc file into exactly one of the consolidation plan's six buckets (normative / user-guidance / navigation / historical-evidence / one-off diagnostic / generated-vendored), and a filename/heading cross-reference map recording every live reader reference (scripts, packaging, tests, tooling, code comments) into affected docs. No file is deleted in this task.",
+      "id": "P17-T1",
+      "title": "Silence detection + cancel/re-issue core with shared once-only allowance (D56.1, D56.2-guard)",
+      "description": "Add per-reqId last-activity stamps (monotonic clock, stamped at registration/issue, re-stamped on each accepted on_historical_bar), one session silence sweeper (1 s QTimer tick, armed only while history reqIds are in flight), and _retry_silent_chunk: plan lookup, cancel via the existing cancel path with superseded tagging and post-issue slot kept, drop of the old reqId, paced re-issue of the identical plan at the same plan position under the current generation with a new reqId, and recording in the shared _retried_plans allowance. Guard: plans already in _retried_plans are never silence-retried, and a re-issue's own silence never re-issues (no third issue). Zero-bar rule is primary; trailing-silence rule covers partial-then-stalled chunks (Q91).",
       "agent": "build_worker",
-      "task_type": "doc",
+      "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "AC1: Given the checkout at task start, when the inventory is produced, then every tracked doc file appears in exactly one of the plan's six buckets plus untracked files listed separately, and this task deletes no file.",
-        "AC2: Given every script, packaging file, test, tooling reader, and code comment that references an affected doc, when the cross-reference map is produced, then each live reference is recorded with its source location, and no code-tree reference into dev_docs/ remains dangling (the Q84 sound_service docstring is self-contained)."
+        "AC1: Given any issued history chunk reqId with zero bars received, no END, and no error for a continuous 30 s since issue, when the silence sweeper evaluates it, then that reqId is cancelled via the existing cancel path and the identical plan is re-issued exactly once at the same plan position under the current generation with a new reqId, and the re-issue's own 30 s window plus finalize margin conclude inside the 120 s watchdog bound.",
+        "AC2: Given any issued chunk that received at least one bar but then no further bar, END, or error for a trailing 30 s after the last accepted bar, when the bound is reached, then the same cancel plus exactly-once identical re-issue occurs; every accepted on_historical_bar re-stamps that reqId's last-activity clock, so a bar arriving at 30 s minus epsilon restarts the window and fires no retry.",
+        "AC3: Given any plan already present in the shared retry allowance (silence-retried or error-162-retried), when further 30 s silence elapses on its re-issue, then no further retry is issued for that plan \u2014 every chunk is issued at most twice per wave."
       ],
       "tests": [
         {
           "test_id": "T11",
           "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "List the repo tree (git ls-files plus untracked files) and diff it against the inventory's file list; assert 1:1 coverage with exactly one bucket per file and confirm git status shows no deletion made by this task.",
-          "expected_result": "docs/D55_inventory.md exists; every file is bucketed exactly once; zero deletions attributed to this task."
+          "type": "integration",
+          "description": "Offscreen clock-controlled wave with one zero-bar-silent chunk: advance the clock past 30 s of silence with no END/error and assert cancelHistoricalData was called with the old reqId and exactly one identical re-issue exists (same symbol/timeframe/mode/span/plan position, new reqId, current generation); assert the in-flight set drops the old reqId and tracks the new one.",
+          "expected_result": "Exactly one cancel of the silent reqId plus one identical re-issue; no third issue; wave state consistent (old reqId untracked, new reqId in flight)."
         },
         {
           "test_id": "T12",
           "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Grep the tree for references into disposition-target docs (dev_docs/, legacy unsuffixed logs, generated precheck output); assert each is recorded in the map with its source location; assert grep -rn dev_docs across services/ tests/ packaging/ main.py returns zero hits.",
-          "expected_result": "Cross-reference map present with source locations; zero dangling code-tree references into deleted or candidate-deleted docs."
+          "type": "integration",
+          "description": "Offscreen clock-controlled partial chunk (deliver 2 bars, then stall with no END/error): advance the clock 30 s past the last bar and assert the cancel plus exactly-once identical re-issue fires; in a second run deliver a bar at 29.9 s after the previous bar and assert no retry fires at 30 s from issue (trailing window restarted).",
+          "expected_result": "Stalled partial chunk retried exactly once; a bar at 30 s minus epsilon restarts the trailing window and fires no retry."
+        },
+        {
+          "test_id": "T13",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Offscreen clock-controlled wave where the re-issued chunk is itself silent past 30 s under the same trigger rules: advance the clock through both windows and assert total issues per chunk equal exactly two and the sweeper skips plans already in _retried_plans.",
+          "expected_result": "No third issue for any chunk; _retried_plans contains the retried plan and the sweeper never re-selects it."
+        },
+        {
+          "test_id": "T14",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Offscreen clock-controlled zero-bar chunk silent at 30 s minus epsilon then delivering a bar before the bound: assert no retry fires (single-sided bound) and the delivered bar is processed normally.",
+          "expected_result": "No cancel and no re-issue; the chunk proceeds on its first issue."
         }
       ],
       "expected_artifacts": [
-        "docs/D55_inventory.md"
+        "ui/ticker_session.py (stamp map, sweeper, _retry_silent_chunk, shared-allowance guard)",
+        "tests/test_d56_silence_retry.py"
       ],
       "touches_files": [
-        "docs/D55_inventory.md"
+        "ui/ticker_session.py",
+        "tests/test_d56_silence_retry.py"
       ],
       "doc_required": false,
       "inputs": [
-        "docs/documentation_consolidation_plan.md phase/category definitions",
-        "current docs tree (tracked + untracked)"
+        "P7/P14/P15 wave contracts (read-only)",
+        "AC-D56.1, AC-D56.2-guard, Journey 51 steps 1-3, Q88/Q89/Q91, A156/A157, R114, DG106"
       ],
       "outputs": [
-        "Classified inventory + cross-reference map gating all later deletions"
+        "Working silence retry path with per-chunk exactly-once cap",
+        "Offscreen clock-controlled retry cases (zero-bar, partial-stall, minus-epsilon, no-third-issue)"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "docs/documentation_consolidation_plan.md",
-            "why": "phase and category definitions the inventory classifies against; scan headings, do not restructure"
+            "path": "ui/ticker_session.py",
+            "lines": "200-230",
+            "why": "wave-state members incl _retried_plans; extend additively, change no existing shape"
           },
           {
-            "path": "docs/README.md",
-            "why": "current authority-table entries the map cross-checks, never duplicates",
-            "lines": "1-60"
+            "path": "ui/ticker_session.py",
+            "lines": "780-930",
+            "why": "issue/cancel seams, generation fence, watchdog arm; the retry reuses these, never rewrites them"
           },
           {
-            "path": "docs/codebase-map.md",
-            "why": "module index the map points at; read-only for this task, do not edit",
-            "lines": "1-60"
+            "path": "ui/ticker_session.py",
+            "lines": "1058-1210",
+            "why": "on_historical_bar/end/error handlers; re-stamp point and allowance interplay live here \u2014 read-only for this task (error path owned by P17-T3)"
+          },
+          {
+            "path": "ibkr/market_data.py",
+            "lines": "45-200",
+            "why": "paced req_historical_data + best-effort cancel_historical_data transport the retry uses; read-only, never edited"
+          },
+          {
+            "path": "tests/test_history_backfill.py",
+            "lines": "1-80",
+            "why": "offscreen wave-harness + clock-control conventions this task's new suite follows"
           }
         ],
         "contracts": [
           {
+            "ref": "ibkr/market_data.py:cancel_historical_data",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_historical_data",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:mark_history_request_issued",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_history_event_accepted",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:_history_wave_watchdog_bound_ms",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:on_historical_error",
+            "status": "existing"
+          },
+          {
             "status": "new",
-            "signature": "docs/D55_inventory.md: preserved-working-state note + classified inventory (exactly one bucket per file across normative / user-guidance / navigation / historical-evidence / one-off diagnostic / generated-vendored, plus untracked list) + filename/heading cross-reference map with reader source locations; zero deletions",
-            "module": "docs/D55_inventory.md"
+            "signature": "_history_req_last_activity: dict[int, float] (monotonic last-activity stamp per history reqId; stamped at registration/issue, re-stamped on each accepted on_historical_bar, removed when the reqId leaves _history_req_ids)",
+            "module": "ui/ticker_session.py"
+          },
+          {
+            "status": "new",
+            "signature": "_retry_silent_chunk(self, req_id: int) -> None (plan lookup via _req_to_plan; superseded tag with slot kept; drop old reqId; pop _req_bars[old] with identity-removal from _pending_bars; paced re-issue of the identical plan at the same plan position under the current generation; _retried_plans.add(plan); skip when plan already in _retried_plans)",
+            "module": "ui/ticker_session.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
+        "architecture_ref": "docs/architecture.md#Phase P17",
+        "plan_ref": "docs/plan.md#Phase P17",
         "requirement_ids": [
-          "D55",
-          "D55.1",
-          "AC-D55.1",
-          "Journey 48",
-          "A149",
-          "A151",
-          "R111"
+          "D56.1",
+          "AC-D56.1",
+          "AC-D56.2",
+          "Journey 51",
+          "Q88",
+          "Q89",
+          "Q91",
+          "A156",
+          "A157",
+          "R114",
+          "DG106"
         ],
-        "test_command": "test -f docs/D55_inventory.md && grep -q 'cross-reference' docs/D55_inventory.md && grep -q -i 'generated' docs/D55_inventory.md && echo T1_OK",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_silence_retry.py -q",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "S"
+        "size": "M"
       }
     },
     {
-      "id": "P16-T2",
-      "title": "Source-cited fact sheet with explicitly-open items (D55.2)",
-      "description": "Produce docs/D55_fact_sheet.md: one source citation per fact covering LWC-only status (factory + P6-T13 commit/gate, waived-not-satisfied preserved), live-only connection truth per answered Q85, the P7 cap as a per-load maximum with the three plan examples plus per-load definition and the AC-D16.8 requirement-vs-plan separation, the spike stub labelling with runtime evidence kept separate, and P7/P8 approval-vs-built dating. Facts the source does not decide (notably 50-vs-100 per A154/DG102) stay explicitly open, never guessed.",
+      "id": "P17-T2",
+      "title": "Generation fencing + identity-removal exactly-once counting (D56.4, D56.7-mechanism)",
+      "description": "Make the supersede path fence late arrivals and count exactly once: when _retry_silent_chunk supersedes an old reqId, pop _req_bars[old] and remove exactly those Bar objects from _pending_bars by identity; late bars or ENDs arriving on the superseded reqId die at the unchanged _history_event_accepted fence with no count, persist, render, or wave-state change. Bars already persisted per-chunk stay in the cache (INSERT OR REPLACE PK-idempotent) and are re-read, never duplicated in memory.",
       "agent": "build_worker",
-      "task_type": "doc",
-      "dependencies": [],
+      "task_type": "code",
+      "dependencies": [
+        "P17-T1"
+      ],
       "acceptance_criteria": [
-        "AC1: Given the source modules, gate record, and decision records, when the fact sheet states each AC-D55.2 fact, then every row carries one verifiable source citation and every P6-T13 reference preserves the waived-not-satisfied distinction verbatim.",
-        "AC2: Given any fact the source does not decide (notably the 50-vs-100 figures per A154/DG102), when reconciling, then the row stays explicitly open with its decider named and no value is picked in prose."
+        "AC1: Given any bar or END arriving on a superseded (cancel-tagged, dropped from the in-flight set) reqId after the re-issue, then it is fenced: no bar is appended, persisted, or counted, and wave membership, counts, cache contents, and completion state are identical to the no-late-arrival case.",
+        "AC2: Given a silence retry superseding a partial chunk, then exactly the old reqId's Bar objects are removed from the in-memory wave totals by identity; bars already persisted per-chunk remain in the cache unchanged under the mode-aware PK and are re-read rather than duplicated in memory, so every chunk's bars count exactly once across both issues."
       ],
       "tests": [
         {
           "test_id": "T21",
           "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "For each fact-sheet row, open the cited source location and confirm the claim; grep the sheet for 'waived, not satisfied' and for any bare 'satisfied' T13 paraphrase without 'waived'.",
-          "expected_result": "Every row cites a live source location; waived-not-satisfied preserved on all T13 references; zero collapsed paraphrases."
+          "type": "integration",
+          "description": "Offscreen wave: retry a silent chunk, then deliver late bars plus a late END on the superseded reqId; assert bar counts, cache contents, and wave/completion state equal a control run with no late arrivals (fenced, no resurrection, no double-count).",
+          "expected_result": "Late arrivals on the superseded reqId change nothing: counts, cache rows, and wave state match the fenced expectation."
         },
         {
           "test_id": "T22",
           "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Read the 50-vs-100 row and any other undecided row; assert each names its decider (config/settings.py plus P7 assertions) and records open-or-reconciled-with-evidence without choosing a value in prose.",
-          "expected_result": "Undecided facts recorded open with owner/source named, or reconciled with cited evidence; nothing silently chosen."
+          "type": "integration",
+          "description": "Offscreen wave: partial chunk (N bars, one per-chunk persist) retried, re-issue yields the same N bars; assert the in-memory wave total credits each bar exactly once and the cache holds one row per (symbol, timeframe, ts) with a clean re-read.",
+          "expected_result": "In-memory totals count each bar once across both issues; cache rows are PK-unique and unchanged by the identical re-fetch."
         }
       ],
       "expected_artifacts": [
-        "docs/D55_fact_sheet.md"
+        "ui/ticker_session.py (identity-removal in the supersede path; fence relies on the unchanged predicate)",
+        "tests/test_d56_fencing.py"
       ],
       "touches_files": [
-        "docs/D55_fact_sheet.md"
+        "ui/ticker_session.py",
+        "tests/test_d56_fencing.py"
       ],
       "doc_required": false,
       "inputs": [
-        "LWC factory source",
-        "connection constants",
-        "gate disposition",
-        "parity matrix state",
-        "P16-T1 inventory (for scope, read after it lands)"
+        "P17-T1 retry path (_retry_silent_chunk, cancel tags, _req_bars/_pending_bars)",
+        "AC-D56.4, AC-D56.7-mechanism, R116"
       ],
       "outputs": [
-        "Source-cited fact sheet gating the W2 guide correction"
+        "Fenced supersede path with identity-removal exactly-once counting",
+        "Offscreen late-delivery and double-delivery cases"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "config/settings.py",
-            "why": "read-only: IBKR_HOST/PORT/CLIENT_ID + LIVE_PORT guard truth the connection row cites, never edited",
-            "lines": "1-40"
+            "path": "ui/ticker_session.py",
+            "lines": "780-860",
+            "why": "cancel/tag seams the supersede path extends; predicate _history_event_accepted stays unchanged"
           },
           {
-            "path": "ui/chart_view.py",
-            "why": "read-only: create_chart_view LWC-only factory the engine row cites, never edited",
-            "lines": "110-135"
+            "path": "ui/ticker_session.py",
+            "lines": "1058-1130",
+            "why": "on_historical_bar / _persist_chunk_bars / on_historical_data_end \u2014 where the fence bites and identity-removal applies"
           },
           {
-            "path": "docs/build/gate_P6_T13.md",
-            "why": "read-only: gate disposition the waived-not-satisfied row cites verbatim, never edited"
+            "path": "data/bar_cache.py",
+            "lines": "1-60",
+            "why": "INSERT OR REPLACE PK idempotency behind exactly-once; read-only, never edited"
           },
           {
-            "path": "docs/lwc_parity_matrix.md",
-            "why": "read-only: parity-vs-cutover state the spike/claims rows cite, never edited"
+            "path": "tests/test_history_backfill.py",
+            "lines": "1-80",
+            "why": "offscreen wave-harness + clock-control conventions both the P17-T1 suite and this task's new suite follow; read-only"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/chart_view.py:create_chart_view",
+            "ref": "ui/ticker_session.py:_history_event_accepted",
             "status": "existing"
           },
           {
-            "ref": "config/settings.py:LIVE_PORT",
+            "ref": "ui/ticker_session.py:on_historical_bar",
             "status": "existing"
           },
           {
-            "ref": "docs/build/gate_P6_T13.md:waived",
+            "ref": "ui/ticker_session.py:on_historical_data_end",
             "status": "existing"
           },
           {
-            "ref": "docs/requirements/requirements.md:AC-D16.8",
+            "ref": "data/bar_cache.py:save_bars",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "docs/D55_fact_sheet.md: one cited row per AC-D55.2 fact (LWC-only status; live-only connection per Q85; P7 cap as per-load maximum with examples, per-load definition, AC-D16.8 separation; spike stub labelling; P7/P8 dating); undecided rows explicitly open with decider named",
-            "module": "docs/D55_fact_sheet.md"
+            "signature": "identity-removal in the supersede path: pop _req_bars[old] and remove exactly those Bar objects from _pending_bars; persisted per-chunk cache rows untouched (PK-idempotent re-read)",
+            "module": "ui/ticker_session.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
+        "architecture_ref": "docs/architecture.md#Phase P17",
+        "plan_ref": "docs/plan.md#Phase P17",
         "requirement_ids": [
-          "D55",
-          "D55.2",
-          "AC-D55.2",
-          "Journey 48",
-          "Q85",
-          "A152",
-          "A154",
-          "A155",
-          "DG102",
-          "DG103"
+          "D56.4",
+          "D56.7",
+          "AC-D56.4",
+          "AC-D56.7",
+          "Journey 51",
+          "R116"
         ],
-        "test_command": "test -f docs/D55_fact_sheet.md && grep -q 'create_chart_view' docs/D55_fact_sheet.md && grep -q 'waived, not satisfied' docs/D55_fact_sheet.md && grep -q -i 'live-only' docs/D55_fact_sheet.md && grep -q -i 'explicitly open' docs/D55_fact_sheet.md && echo T2_OK",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_fencing.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P16-T3",
-      "title": "README authority blocks + per-doc metadata + map index pass (D55.3)",
-      "description": "Bring docs/README.md to the full authority/index shape (one-sentence status, authority table, current-work, historical, ownership blocks) with short role/status/as-of/canonical/supersedes metadata on every current normative doc header, and pass docs/codebase-map.md back to a pure module index with contradictory status prose removed by append-only correction only. Builds on the P16-T1 inventory locations and P16-T2 fact rows; requirements.md headers are explicitly out of scope (Analyst-owned, do not touch).",
+      "id": "P17-T3",
+      "title": "Error taxonomy + pacing gate for the retry (D56.3, D56.5)",
+      "description": "Generalise the cancel-ack rule in MainWindow._on_error so an error of any inventoried historical-request code (162, 321, 200, 399, 504) arriving on a cancel-tagged superseded reqId is debug-only with no status-bar message, no shortfall entry, and no pacing event; errors on the fresh re-issued reqId keep existing semantics with the shared _retried_plans allowance checked first (a 162 on a silence-retried chunk finalizes short, never a third issue). Route the re-issue through paced req_historical_data; on PacingExceeded wait via the existing continuation path bounded by the unchanged watchdog (watchdog-first yields counted stranded fall-through, fail-open). Both reqIds consume pacing slots (post-issue cancels keep their slots; no refund).",
       "agent": "build_worker",
-      "task_type": "doc",
+      "task_type": "code",
       "dependencies": [
-        "P16-T1",
-        "P16-T2"
+        "P17-T1"
       ],
       "acceptance_criteria": [
-        "AC1: Given the corpus, when labelled, then docs/README.md carries the one-sentence status, authority table, current-work, historical, and ownership blocks, and every current normative doc header carries short role/status/as-of/canonical/supersedes metadata.",
-        "AC2: Given docs/codebase-map.md, when passed as an index, then its live header states the LWC-only engine with no unbannered retained-pyqtgraph claim, and every status correction is an appended note with historical prose byte-identical."
+        "AC1: Given an error of any inventoried historical-request code arriving on a cancel-tagged superseded reqId, then it is classified as a cancel acknowledgement (debug-level only: no status-bar message, no shortfall entry, no pacing event); given an error on the fresh re-issued reqId, then existing error semantics apply with the shared allowance checked first, so a 162 on an already-silence-retried plan finalizes short with no third issue.",
+        "AC2: Given a silence retry, then both the cancelled and the re-issued reqIds consume pacing slots (a post-issue cancel keeps its slot \u2014 no refund); given no pacing slot frees before the watchdog horizon, then the wave falls through to the unchanged watchdog strand-finalization (fail-open and counted) and no historical request is ever issued outside the pacing budget."
       ],
       "tests": [
         {
           "test_id": "T31",
           "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Walk Journey 48 (one question per question class) starting from docs/README.md; assert each lands on the canonical doc via the authority table; assert each touched normative header carries role/status/as-of metadata.",
-          "expected_result": "Journey 48 walk lands on the canonical doc per question class; all touched headers carry short metadata."
+          "type": "integration",
+          "description": "Offscreen error injection parametrized over every inventoried code (162, 321, 200, 399, 504) on a cancel-tagged superseded reqId: assert debug-only handling with no status-bar message, no shortfall entry, and no pacing event for every code.",
+          "expected_result": "Every inventoried code on a superseded reqId classifies as cancel-ack with zero user-facing or budget effect."
         },
         {
           "test_id": "T32",
+          "linked_acceptance_criterion": "AC1",
+          "type": "integration",
+          "description": "Offscreen: inject a 162 on the re-issued (silence-retried) reqId and assert the chunk finalizes short under existing error semantics with total issues per chunk staying at exactly two.",
+          "expected_result": "Fresh-reqId 162 on an already-retried plan finalizes short; no third issue."
+        },
+        {
+          "test_id": "T33",
           "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Grep the map's live header for retained-pyqtgraph/dual-engine claims outside HISTORICAL or superseded banners; assert zero; diff the map's historical sections against pre-task bytes apart from appended notes.",
-          "expected_result": "Zero unbannered stale engine claims; historical sections byte-identical apart from appended notes."
+          "type": "integration",
+          "description": "Offscreen pacing-spy wave with one silent chunk: assert both the cancelled and the re-issued reqIds consumed pacing slots and the post-issue cancel refunded nothing.",
+          "expected_result": "Two slots consumed for the retried chunk; no refund on the post-issue cancel."
+        },
+        {
+          "test_id": "T34",
+          "linked_acceptance_criterion": "AC2",
+          "type": "integration",
+          "description": "Offscreen: force PacingExceeded at re-issue time with no slot freeing before the watchdog horizon; assert the wave falls through to the unchanged watchdog strand-finalization (counted) and no unpaced request is issued.",
+          "expected_result": "Pacing exhaustion yields counted watchdog fall-through; the rolling budget is never violated."
         }
       ],
       "expected_artifacts": [
-        "Updated docs/README.md",
-        "Updated docs/codebase-map.md (index pass only)"
+        "ui/main_window.py (generalised cancel-ack branch in _on_error only)",
+        "ui/ticker_session.py (retry-adjacent pacing/allowance branches only)",
+        "tests/test_d56_taxonomy_pacing.py"
       ],
       "touches_files": [
-        "docs/README.md",
-        "docs/codebase-map.md"
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "tests/test_d56_taxonomy_pacing.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P16-T1 inventory locations",
-        "P16-T2 fact rows",
-        "P16-T2 docs/D55_fact_sheet.md (read after T2 lands; ordering via dependency)"
+        "P17-T1 retry path, cancel tags, and _retried_plans writes",
+        "AC-D56.3, AC-D56.5, A158, A160, R115, R117, DG107, DG108"
       ],
       "outputs": [
-        "Authoritative navigation index + labelled corpus"
+        "Generalised per-reqId error taxonomy with shared-allowance check",
+        "Paced re-issue with queue-with-deadline fail-open fall-through",
+        "Offscreen error-injection and pacing-spy cases"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "docs/README.md",
-            "why": "authority table + status blocks this task completes",
-            "lines": "1-60"
+            "path": "ui/main_window.py",
+            "lines": "1759-1830",
+            "why": "the _on_error 162-superseded branch this task generalises to any inventoried code; the only main_window edit"
           },
           {
-            "path": "docs/codebase-map.md",
-            "why": "live header + P16 note region this task corrects by append-only notes",
-            "lines": "1-102"
+            "path": "ui/ticker_session.py",
+            "lines": "1152-1210",
+            "why": "on_historical_error 162-retry path the shared allowance unifies with; retry-adjacent branches only"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "921-1060",
+            "why": "paced issue + _schedule_wave_continuation the re-issue waits through on PacingExceeded; read-only shape"
+          },
+          {
+            "path": "ibkr/error_codes.py",
+            "lines": "1-60",
+            "why": "classify_error gate every TWS error routes through; read-only, never edited"
           }
         ],
         "contracts": [
           {
-            "ref": "docs/requirements/requirements.md:AC-D55.3",
+            "ref": "ui/main_window.py:_on_error",
             "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_is_superseded_history_req",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:on_historical_error",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/error_codes.py:classify_error",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_historical_data",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "generalised cancel-ack: any error code on a cancel-tagged superseded reqId is debug-only (no status-bar, no shortfall, no pacing event); fresh-reqId errors keep existing semantics with the shared _retried_plans allowance checked first",
+            "module": "ui/main_window.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
+        "architecture_ref": "docs/architecture.md#Phase P17",
+        "plan_ref": "docs/plan.md#Phase P17",
         "requirement_ids": [
-          "D55",
-          "D55.3",
-          "AC-D55.3",
-          "Journey 48",
-          "A150",
-          "R112",
-          "DG105"
+          "D56.3",
+          "D56.5",
+          "AC-D56.3",
+          "AC-D56.5",
+          "A158",
+          "A160",
+          "R115",
+          "R117",
+          "DG107",
+          "DG108"
         ],
-        "test_command": "grep -q 'Authoritative document' docs/README.md && grep -q 'Role:' docs/README.md && grep -q 'Lightweight Charts' docs/codebase-map.md && echo T3_OK",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_taxonomy_pacing.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P16-T4",
-      "title": "User-guide live-only correction: canonical usage.md + USAGE.txt pointer (D55.4)",
-      "description": "Correct usage.md into the single canonical full guide stating the answered Q85 live-only truth (paper-on-7496 sentences at usage.md:106-107 and the :257 port-guard bullet corrected away; one engine per create_chart_view source with no false opt-in/default; NDT_CHART_ENGINE/QSettings behaviour per source; prerequisites, commands, packaging, DB path incl. DB_PATH override, features, limitations refreshed; as-of date plus troubleshooting/current-status link) and USAGE.txt (its :39-40 paper sentences corrected identically) into its short pointer. Gated on the P16-T2 fact sheet; guides are never corrected on a guess.",
+      "id": "P17-T4",
+      "title": "D53 retry state verification + coordinated history-pin update + batch gate (D56.6, D56.2-verify, D56.7-gate; ESC-099 rework)",
+      "description": "Re-verify the landed D53 retry marker/latch with continuing elapsed (no production change expected); then perform the coordinated ESC-099 pin update now that P18 requirements have settled (Q92-Q95 answered, P18 READY_FOR_PLAN): verify the marker-through-D52 span diff vs the b11d9da3 baseline contains ONLY the four additive glossary rows (two approved D57 + two D58 accepted-now per owner decision 2026-11-05; purely additive), set PROTECTED_SPAN_SHA256 to the live computed hash identically in both guard files keeping every other assertion byte-identical, and close the batch with the history check plus full offscreen suite green. Touches no requirements file (Analyst-owned).",
       "agent": "build_worker",
-      "task_type": "doc",
+      "task_type": "code",
       "dependencies": [
-        "P16-T2"
+        "P17-T1",
+        "P17-T2",
+        "P17-T3"
       ],
       "acceptance_criteria": [
-        "AC1: Given answered Q85 (live-only), when corrected, then usage.md states exactly one engine per source, live-only port/account behaviour with every paper-on-7496 sentence gone, and carries an as-of date plus a troubleshooting/current-status link; USAGE.txt is a short pointer agreeing with usage.md by construction, never a second full guide.",
-        "AC2: Given the parity records and known rendering defects, when the guides make completeness claims, then no unqualified parity-complete sentence remains in either file: each such claim is removed or qualified against docs/lwc_parity_matrix.md and the defect record."
+        "AC1: Given a retry in flight, then the existing D53 persistent indicator shows an explicit retry state distinguishable from first-issue flight and from completion, with elapsed continuing from the wave baseline (never reset by the retry) and no current-cache claim while spans are missing; the retry marker is set only while a retry is in flight and cleared only by the terminal funnel.",
+        "AC2: Given a re-issued chunk also silent past 30 s under the same trigger rules (zero-bar variant and partial-then-stalled variant), then no further retry is issued and the wave finalizes via the existing watchdog strand path (AC-D16.4 shortfall, AC-D53.2 lifecycle) with exactly two issues per chunk and no watchdog change.",
+        "AC3: Given P18 requirements settled (Q92-Q95 answered, P18 READY_FOR_PLAN), then PROTECTED_SPAN_SHA256 in both guard files equals sha256 of the live marker-sentence-through-D52 span, the span diff vs the b11d9da3 baseline contains only the four additive glossary rows (two approved D57 \u2014 Go-to-latest chevron, Initial framing \u2014 plus two D58 accepted-now per owner decision 2026-11-05 \u2014 Prefetch, Buffer zone; purely additive, no other wording touched), every other guard assertion is unchanged, and the full offscreen suite is green."
       ],
       "tests": [
         {
           "test_id": "T41",
           "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Grep usage.md and USAGE.txt for the paper-on-7496 sentences (usage.md:106-107, :257 bullet; USAGE.txt:39-40) and any other paper-mode instruction; assert zero hits; diff the two files' install/port/account claims and assert agreement (one full guide plus one pointer).",
-          "expected_result": "Zero paper-on-7496 sentences in either file; the two files agree on engine, port, account mode, and DB path."
+          "type": "integration",
+          "description": "Offscreen wave-state plus indicator-state assertions across first-issue flight, retry in flight, and completion: assert the retry state is distinguishable from both neighbours, elapsed continues from the wave baseline across the retry (not reset), no current-cache claim appears while spans are missing, and the marker clears only on terminal finalization.",
+          "expected_result": "Retry state distinct with continuing elapsed and no premature current-claim; marker set only in flight and cleared only terminally."
         },
         {
           "test_id": "T42",
           "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Grep both guides for parity-complete language and equivalents; for each hit assert it carries a parity-record link plus defect qualification, or assert it was removed.",
-          "expected_result": "No unqualified parity-complete claim remains in either guide."
-        }
-      ],
-      "expected_artifacts": [
-        "Corrected usage.md (canonical)",
-        "Corrected USAGE.txt (pointer)"
-      ],
-      "touches_files": [
-        "usage.md",
-        "USAGE.txt"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P16-T2 fact sheet (connection truth + engine truth)",
-        "live port-guard source behaviour"
-      ],
-      "outputs": [
-        "Single live-only user guide + agreeing pointer"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "usage.md",
-            "why": "paper-on-7496 sentences + engine/port claims this task corrects",
-            "lines": "95-115"
-          },
-          {
-            "path": "usage.md",
-            "why": "port-guard bullet + DB/features sections this task refreshes",
-            "lines": "245-260"
-          },
-          {
-            "path": "USAGE.txt",
-            "why": "paper sentences + pointer shape this task corrects",
-            "lines": "30-50"
-          },
-          {
-            "path": "config/settings.py",
-            "why": "read-only: LIVE_PORT guard truth the live-only correction cites, never edited",
-            "lines": "1-30"
-          },
-          {
-            "path": "ui/chart_view.py",
-            "why": "read-only: engine factory truth the one-engine correction cites, never edited",
-            "lines": "110-135"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "config/settings.py:LIVE_PORT",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/chart_view.py:create_chart_view",
-            "status": "existing"
-          },
-          {
-            "ref": "docs/requirements/requirements.md:AC-D55.4",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
-        "requirement_ids": [
-          "D55",
-          "D55.4",
-          "AC-D55.4",
-          "Journey 50",
-          "Q85",
-          "R110",
-          "DG103"
-        ],
-        "test_command": "! grep -q 'paper (DU)' usage.md USAGE.txt && grep -q -i 'live' usage.md && grep -q '7496' usage.md USAGE.txt && echo T4_OK",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P16-T5",
-      "title": "Six-file P6 reconciliation in one changeset (D55.5)",
-      "description": "Reconcile the P6 record set in a single changeset across docs/architecture.md (as-built T13 outcome + gate disposition, plan-vs-delivered separated), docs/codebase-map.md (LWC-only engine/paths/counts, no retained-pyqtgraph claims), docs/lwc_parity_matrix.md (parity-vs-cutover structurally separated in distinct columns/sections, never a one-time relabel; no accepted row claiming a removed engine present or default; waived/retired/linked), docs/code_review/review_log_P6.md (dated addendum only, original text untouched), docs/phase-changelog.md (P6/T13 outcome + commit + gate), and docs/CHANGELOG.md (concise P6/P7/P8 index or pointer to phase-changelog). Every T13 reference preserves waived-not-satisfied per A152.",
-      "agent": "build_worker",
-      "task_type": "doc",
-      "dependencies": [
-        "P16-T1",
-        "P16-T2"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given the P6-T13 as-built outcome, when reconciled in one changeset, then all six files state the as-built end state with plan-vs-delivered separated, the parity matrix structurally separates parity from cutover with no accepted row claiming a removed engine present or default, and every T13 reference preserves waived-not-satisfied.",
-        "AC2: Given the original P6 review text, when the reconciliation lands, then docs/code_review/review_log_P6.md carries a dated addendum with its original text byte-identical, and docs/CHANGELOG.md indexes P6/P7/P8 through the phase-changelog pointer per DG105."
-      ],
-      "tests": [
-        {
-          "test_id": "T51",
-          "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Run the Journey-49 contradiction grep across all six files (pyqtgraph default, dual-engine, undispatched-T13, owed-live-session stated satisfied); assert zero unbannered hits; assert every T13 reference carries waived-not-satisfied; assert the parity matrix separates parity from cutover structurally.",
-          "expected_result": "Contradiction grep returns zero unbannered stale claims; waived-not-satisfied on every T13 reference; structural parity/cutover separation."
+          "type": "integration",
+          "description": "Offscreen double-silent waves in both variants (zero-bar re-issue silent; partial re-issue stalled): advance the clock through both 30 s windows and assert exactly two issues per chunk plus watchdog strand-finalization state (AC-D16.4 shortfall surfaced, AC-D53.2 lifecycle honoured).",
+          "expected_result": "Exactly two issues per chunk in both variants; the wave ends via the unchanged watchdog path with no second retry."
         },
         {
-          "test_id": "T52",
-          "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Diff review_log_P6.md original sections against pre-task bytes; assert identical apart from the appended dated addendum; assert CHANGELOG P6/P7/P8 entries resolve to live phase-changelog anchors.",
-          "expected_result": "Original review text byte-identical; addendum dated and appended; CHANGELOG entries resolve."
-        }
-      ],
-      "expected_artifacts": [
-        "Six reconciled P6 record files"
-      ],
-      "touches_files": [
-        "docs/architecture.md",
-        "docs/codebase-map.md",
-        "docs/lwc_parity_matrix.md",
-        "docs/code_review/review_log_P6.md",
-        "docs/phase-changelog.md",
-        "docs/CHANGELOG.md"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P16-T1 inventory",
-        "P16-T2 fact sheet",
-        "P6-T13 gate disposition"
-      ],
-      "outputs": [
-        "Single-changeset P6 record agreement per Journey 49"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "docs/architecture.md",
-            "why": "Phase P6 as-built section this task separates plan-vs-delivered in"
-          },
-          {
-            "path": "docs/codebase-map.md",
-            "why": "engine/paths/counts header this task makes LWC-only"
-          },
-          {
-            "path": "docs/lwc_parity_matrix.md",
-            "why": "parity rows this task structurally separates from cutover"
-          },
-          {
-            "path": "docs/code_review/review_log_P6.md",
-            "why": "original review text this task appends a dated addendum to, never rewrites"
-          },
-          {
-            "path": "docs/phase-changelog.md",
-            "why": "P6/T13 outcome entry this task completes with commit + gate"
-          },
-          {
-            "path": "docs/CHANGELOG.md",
-            "why": "P6/P7/P8 index entries this task points at phase-changelog"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "docs/build/gate_P6_T13.md:waived",
-            "status": "existing"
-          },
-          {
-            "ref": "docs/requirements/requirements.md:AC-D55.5",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
-        "requirement_ids": [
-          "D55",
-          "D55.5",
-          "AC-D55.5",
-          "Journey 49",
-          "A152",
-          "DG104",
-          "DG105",
-          "R110"
-        ],
-        "test_command": "for f in docs/architecture.md docs/codebase-map.md docs/lwc_parity_matrix.md docs/code_review/review_log_P6.md docs/phase-changelog.md docs/CHANGELOG.md; do grep -q -i 'P6-T13' $f || echo MISSING:$f; done; grep -q 'waived, not satisfied' docs/architecture.md && echo T5_OK",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P16-T6",
-      "title": "P7 backfill wording as a coordinated addendum (D55.6)",
-      "description": "Amend the P7 cap record as one coordinated addendum across docs/plan.md (Phase P7), docs/architecture.md (Phase P7), docs/plan_review_P7.md, and docs/tasks/task_manager_notes_P7.md: the cap reads as a per-load maximum never a target, with the three plan examples, the per-load (coalesced/cancel-refund) definition, the 50-vs-100 reconciliation-or-explicit-open note (decided from config/settings.py plus P7 assertions, else recorded open per A154/DG102, never silently chosen), and the approval-preserving delta note. AC-D16.8 requirement text is referenced, never restated (RG-P7-1 stays Analyst debt); the approved P7 record stays byte-identical apart from appended deltas.",
-      "agent": "build_worker",
-      "task_type": "doc",
-      "dependencies": [
-        "P16-T1",
-        "P16-T2"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given the approved P7 plan, when amended, then the cap reads as a per-load maximum never a target with the three plan examples, the per-load definition, and the approval-preserving delta note present in all four files, while the approved record stays byte-identical apart from appended deltas.",
-        "AC2: Given DG102, when the 50-vs-100 figures are checked against config/settings.py and the P7 assertions, then they are reconciled with cited evidence or the discrepancy stays explicitly open with owner and source named, never silently chosen; the AC-D16.8 requirement text appears as a reference or link only."
-      ],
-      "tests": [
-        {
-          "test_id": "T61",
-          "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Grep the four files for cap-as-target phrasing; assert zero hits; assert the maximum wording with the three plan examples, the per-load definition, and the delta note present in each; diff the approved P7 sections against pre-task bytes apart from appended deltas.",
-          "expected_result": "Zero cap-as-target hits; maximum wording plus examples, definition, and delta note in all four files; approved record otherwise byte-identical."
-        },
-        {
-          "test_id": "T62",
-          "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Read the 50-vs-100 note; assert it either reconciles against config/settings.py values plus named P7 assertions or records the discrepancy explicitly open with owner/source; assert AC-D16.8 appears only as a reference, never restated.",
-          "expected_result": "50-vs-100 reconciled with evidence or explicitly open per A154; AC-D16.8 referenced, never restated."
-        }
-      ],
-      "expected_artifacts": [
-        "P7 cap-as-maximum addenda in plan + architecture + P7 review + P7 notes"
-      ],
-      "touches_files": [
-        "docs/plan.md",
-        "docs/architecture.md",
-        "docs/plan_review_P7.md",
-        "docs/tasks/task_manager_notes_P7.md"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P16-T2 fact sheet (cap row)",
-        "approved P7 plan text",
-        "budget constants source"
-      ],
-      "outputs": [
-        "Coordinated P7 cap addendum with approval record intact"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "docs/plan.md",
-            "why": "Phase P7 approved text this task appends the cap addendum to, never rewrites"
-          },
-          {
-            "path": "docs/architecture.md",
-            "why": "Phase P7 section this task appends the cap addendum to, never rewrites"
-          },
-          {
-            "path": "docs/plan_review_P7.md",
-            "why": "P7 approval record this task appends the delta note to"
-          },
-          {
-            "path": "docs/tasks/task_manager_notes_P7.md",
-            "why": "P7 decomposition record this task appends the delta note to"
-          },
-          {
-            "path": "config/settings.py",
-            "why": "read-only: budget constants the 50-vs-100 check decides from, never edited",
-            "lines": "30-45"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "config/settings.py:MAX_HISTORICAL_PER_600S",
-            "status": "existing"
-          },
-          {
-            "ref": "docs/requirements/requirements.md:AC-D16.8",
-            "status": "existing"
-          },
-          {
-            "ref": "docs/requirements/requirements.md:AC-D55.6",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
-        "requirement_ids": [
-          "D55",
-          "D55.6",
-          "AC-D55.6",
-          "A154",
-          "DG102",
-          "Journey 49"
-        ],
-        "test_command": "grep -q -i 'maximum' docs/plan.md && grep -q -i 'maximum' docs/architecture.md && grep -q -i 'DG102' docs/plan.md docs/architecture.md docs/plan_review_P7.md docs/tasks/task_manager_notes_P7.md && echo T6_OK",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P16-T7",
-      "title": "Cumulative-spec navigation: baseline blocks + uniform metadata + link audit (D55.7)",
-      "description": "Make the canonical files navigable: short current-baseline blocks (current architecture, active phase, unresolved requirements, as-built changelog link) atop docs/architecture.md and docs/plan.md plus uniform status/commit/evidence/supersession metadata on increments, with link/reference checks passing and repeated full summaries replaced by cross-references (R112). Archive moves themselves execute under the P16-T8 ledger, not here. The requirements.md baseline block is explicitly out of scope (Requirements Analyst-owned; do not touch anything under docs/requirements/).",
-      "agent": "build_worker",
-      "task_type": "doc",
-      "dependencies": [
-        "P16-T1",
-        "P16-T2"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given the canonical files, when made navigable, then docs/architecture.md and docs/plan.md each carry a short current-baseline block and increments carry uniform status/commit/evidence/supersession metadata, with active decisions never separated from their requirements.",
-        "AC2: Given the archive option, when the link and tooling audit runs, then the pre-move reference check passes, no move is recorded without a passing post-move check, and repeated full summaries are replaced by cross-references rather than duplicated."
-      ],
-      "tests": [
-        {
-          "test_id": "T71",
-          "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Read the baseline blocks atop architecture.md and plan.md; assert each names the current architecture, active phase, unresolved requirements, and as-built changelog link; sample increments for uniform metadata; assert nothing under docs/requirements/ was modified.",
-          "expected_result": "Baseline blocks complete on both files; uniform increment metadata; docs/requirements/ untouched."
-        },
-        {
-          "test_id": "T72",
-          "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Run the filename/heading link and reference check across the canonical files and record the pass; list any archive candidates with their pre-move check result and leave the moves for P16-T8.",
-          "expected_result": "Link/reference check passes and is recorded; archive candidates listed with pre-move status; zero moves executed in this task."
-        }
-      ],
-      "expected_artifacts": [
-        "Baseline blocks + metadata on architecture.md and plan.md",
-        "Recorded link-audit pass"
-      ],
-      "touches_files": [
-        "docs/architecture.md",
-        "docs/plan.md"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P16-T1 inventory",
-        "P16-T2 fact sheet"
-      ],
-      "outputs": [
-        "Navigable canonical files + audited archive-candidate list"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "docs/architecture.md",
-            "why": "canonical file this task tops with a baseline block and uniform metadata"
-          },
-          {
-            "path": "docs/plan.md",
-            "why": "canonical file this task tops with a baseline block and uniform metadata"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "docs/requirements/requirements.md:AC-D55.7",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
-        "requirement_ids": [
-          "D55",
-          "D55.7",
-          "AC-D55.7",
-          "Journey 48",
-          "R112",
-          "DG105"
-        ],
-        "test_command": "grep -q -i 'as-built changelog' docs/plan.md docs/architecture.md && git status --porcelain -- docs/requirements/ | grep -q . && echo T7_FAIL_REQS_TOUCHED || echo T7_OK",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P16-T8",
-      "title": "Disposition ledger + approved deletions + archive moves (D55.8)",
-      "description": "Produce docs/D55_disposition_ledger.md placing every in-scope file in exactly one bucket (keep-current / keep-historical-bannered / pointer-or-merge-after-audit / conditional-deletion-candidate) with condition evidence, then execute only the approved dispositions: verify-then-hold the pre-landed dev_docs/ deletion (reference check: self-contained sound_service docstring, historical mentions stay true history, zero code-tree citations) and delete the four Q87 targets without archive (legacy docs/code_review/review_log.md and docs/tasks/task_manager_notes.md plus generated docs/code_review/precheck.json and docs/code_review/precheck.md) only after each suffixed successor or generated replacement is verified live. The 16 investigation files are indexed, never destroyed (A153); proposals stay historical with archive only after the link audit.",
-      "agent": "build_worker",
-      "task_type": "doc",
-      "dependencies": [
-        "P16-T1",
-        "P16-T2",
-        "P16-T3",
-        "P16-T4",
-        "P16-T5",
-        "P16-T6",
-        "P16-T7"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given the disposition matrix, when applied, then the ledger places every in-scope file in exactly one bucket with condition evidence, audit records are preserved by default, and the 16 investigation files are indexed with none destroyed or merged.",
-        "AC2: Given answered Q86 and Q87, when deletions execute, then dev_docs/ stays deleted with its reference check re-verified and the four Q87 targets are deleted without archive only after each suffixed successor is verified live; proposals stay historical and any archive move runs only after the link audit passes."
-      ],
-      "tests": [
-        {
-          "test_id": "T81",
-          "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Walk the ledger against the P16-T1 inventory file list; assert 1:1 bucket coverage with evidence per row; assert audit records and proposals are preserved; list the 16 investigation files and assert each is indexed and still present.",
-          "expected_result": "Ledger covers every in-scope file exactly once with evidence; audit records preserved; all 16 investigation files indexed and present."
-        },
-        {
-          "test_id": "T82",
-          "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Re-run the dev_docs/ reference check (code-tree grep plus historical-mention review); open each suffixed successor (review_log_P15, task_manager_notes_P15, test_verification records) and confirm it carries the live record; then assert the four Q87 targets are gone and no archive copy was created.",
-          "expected_result": "Reference check passes; successors verified live; four Q87 targets deleted with no archive; proposals untouched."
-        }
-      ],
-      "expected_artifacts": [
-        "docs/D55_disposition_ledger.md",
-        "Four deleted Q87 targets",
-        "Verified dev_docs/ end state"
-      ],
-      "touches_files": [
-        "docs/D55_disposition_ledger.md",
-        "docs/code_review/review_log.md",
-        "docs/tasks/task_manager_notes.md",
-        "docs/code_review/precheck.json",
-        "docs/code_review/precheck.md"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P16-T1 cross-reference map in docs/D55_inventory.md (read after T1 lands; ordering via dependency)",
-        "P16-T3 labelled corpus",
-        "Q86/Q87 answers",
-        "suffixed successor records"
-      ],
-      "outputs": [
-        "Complete disposition ledger + executed approved deletions"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "docs/code_review/review_log.md",
-            "why": "legacy unsuffixed log this task deletes after verifying its suffixed successors carry the live record"
-          },
-          {
-            "path": "docs/tasks/task_manager_notes.md",
-            "why": "legacy unsuffixed notes this task deletes after verifying per-phase successors carry the live record"
-          },
-          {
-            "path": "docs/code_review/precheck.json",
-            "why": "generated precheck output this task deletes per Q87 (delete, no archive)"
-          },
-          {
-            "path": "docs/code_review/precheck.md",
-            "why": "generated precheck output this task deletes per Q87 (delete, no archive)"
-          },
-          {
-            "path": "docs/code_review/review_log_P15.md",
-            "why": "read-only: suffixed successor evidence the deletion precondition checks, never edited"
-          },
-          {
-            "path": "docs/tasks/task_manager_notes_P15.md",
-            "why": "read-only: per-phase successor evidence the deletion precondition checks, never edited"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "services/sound_service.py:numpy synthesis",
-            "status": "existing"
-          },
-          {
-            "ref": "docs/requirements/requirements.md:AC-D55.8",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
-        "requirement_ids": [
-          "D55",
-          "D55.8",
-          "AC-D55.8",
-          "Journey 48",
-          "Q86",
-          "Q87",
-          "Q84",
-          "A153",
-          "R111"
-        ],
-        "test_command": "test -f docs/D55_disposition_ledger.md && test ! -e docs/code_review/review_log.md && test ! -e docs/tasks/task_manager_notes.md && test ! -e docs/code_review/precheck.json && test ! -e docs/code_review/precheck.md && ! grep -rn 'dev_docs' services/ tests/ packaging/ main.py 2>/dev/null && echo T8_OK",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P16-T9",
-      "title": "Final docs-only consistency review + history guard (D55.9/D55.10)",
-      "description": "Produce docs/D55_final_review.md certifying the consolidated tree docs-only: run the plan completion checklist 1:1 (stale-claim grep across pyqtgraph-default, dual-engine, undispatched-T13, owed-live-session, parity-complete, legacy account/port incl. paper-on-7496, and spike API names as runtime evidence, plus paraphrase sampling per R113; link/filename/phase-ID/commit/status checks; guide-vs-source-vs-plan cross-checks; historical labelling; addendum discipline), confirm pre-existing user edits are preserved and the diff touches docs-only paths, and certify the AC-D55.10 history guard (### D41 through ### D54 with reversals, Existing Repository marker sentence, Current Tech Stack byte-identical except by explicitly recorded supersession notes). No product test suite run is a gate (AP-P16-2). Plus ESC-098 BUILD rework (explicit scope, history-guard only \u2014 not a product-suite gate, AP-P16-2 intact): repair the two history-hash guards tests/test_p14_cache_guard.py::test_t34_history_markers_intact and tests/test_p15_surfacing.py::test_t33_history_markers_intact so the legitimate Analyst-owned P16 requirements additions pass \u2014 narrow each hashed region to the protected content (the D41\u2013D52 sections, the Existing Repository marker sentence, the Current Tech Stack, and the reversal/supersession markers), keeping every existing protected assertion intact; requirements.md itself is never touched (Analyst-owned).",
-      "agent": "build_worker",
-      "task_type": "doc",
-      "dependencies": [
-        "P16-T8"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given the consolidated tree, when the docs-only review runs, then every plan completion-checklist item ticks 1:1 with stale-claim grep plus paraphrase sampling, all link and cross checks passing, pre-existing user edits preserved, and the diff showing docs-only paths.",
-        "AC2: Given docs/requirements/requirements.md, when guarded, then the ### D41 through ### D54 sections with reversals, the Existing Repository marker sentence, and the Current Tech Stack are byte-identical except by explicitly recorded supersession notes.",
-        "AC3: Given the legitimate P16 requirements additions present in docs/requirements/requirements.md, when the two history-markers-intact guards run, then both pass while every protected-content assertion stays intact (all ### D41 through ### D52 headings, the Existing Repository marker sentence, the Current Tech Stack, and the reversal/supersession markers \u2014 no assertion removed or weakened to accommodate the additions)."
-      ],
-      "tests": [
-        {
-          "test_id": "T91",
-          "linked_acceptance_criterion": "AC1",
-          "type": "manual",
-          "description": "Execute each completion-checklist item in order (stale-claim grep classes plus paraphrase samples; link/filename/phase-ID/commit/status; guide-vs-source-vs-plan; labelling; addendum discipline); record per-item pass with the exact grep or check run; diff the worktree and assert docs-only paths plus preserved user edits.",
-          "expected_result": "Checklist ticks 1:1 with recorded evidence per item; diff shows docs-only paths; user edits preserved."
-        },
-        {
-          "test_id": "T92",
-          "linked_acceptance_criterion": "AC2",
-          "type": "manual",
-          "description": "Diff the ### D41 through ### D54 requirements sections, the Existing Repository marker sentence, and the Current Tech Stack against pre-P16 bytes; assert identical except for explicitly recorded supersession notes listed in the review.",
-          "expected_result": "Pre-P16 criteria byte-identical; any delta is an explicitly recorded supersession note."
-        },
-        {
-          "test_id": "T93",
+          "test_id": "T43",
           "linked_acceptance_criterion": "AC3",
           "type": "unit",
-          "description": "Narrow (or, only if narrowing cannot be expressed without dropping an assertion, re-pin) the hashed region in tests/test_p14_cache_guard.py and tests/test_p15_surfacing.py per the task description, then run QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p15_surfacing.py::test_t33_history_markers_intact -q and assert exit 0; grep both files for the protected assertions (the 41..52 heading loop, REVERSED/SUPERSEDED markers, marker sentence, Current Tech Stack) and assert none was removed or weakened.",
-          "expected_result": "Both history-markers-intact guards pass alongside the legitimate P16 requirements additions; every protected-content assertion still present and asserting."
+          "description": "Pin re-pin mechanics in tests/test_p14_cache_guard.py and tests/test_p15_surfacing.py: compute sha256 over the live span (text from 'This is an existing repository.' to '\\n### D53 ' in docs/requirements/requirements.md); diff the live span against the HEAD-committed span and assert the only change is the four additive glossary table rows (two D57 \u2014 Go-to-latest chevron, Initial framing \u2014 plus two D58 accepted-now per owner decision 2026-11-05 \u2014 Prefetch, Buffer zone), purely additive; set PROTECTED_SPAN_SHA256 to the computed value identically in both files with no other line in either file changed; assert both guard tests pass.",
+          "expected_result": "Both files carry the identical recomputed pin; every non-pin assertion in both files is byte-identical to before; test_t34_history_markers_intact and test_t33_history_markers_intact pass."
+        },
+        {
+          "test_id": "T44",
+          "linked_acceptance_criterion": "AC3",
+          "type": "manual",
+          "description": "Grep requirements.md for the Existing Repository marker sentence and Current Tech Stack, assert ### D41 through ### D55 sections are present with reversals and no pre-P17 wording is touched except the four additive glossary rows re-pinned under T43 (two approved D57 + two D58 accepted-now); then run the full offscreen suite (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest, clean run per the shared-test-DB / stale-pytest-shebang gotchas) and assert green.",
+          "expected_result": "History-intact grep passes and the full offscreen suite is green."
         }
       ],
       "expected_artifacts": [
-        "docs/D55_final_review.md (1:1 checklist certification)",
-        "Repaired history-hash guards in both test files (green, no assertion weakened)"
+        "ui/main_window.py (D53 retry marker + latch label; landed, re-verified)",
+        "tests/test_d56_retry_indicator.py",
+        "tests/test_p14_cache_guard.py (pin literal only)",
+        "tests/test_p15_surfacing.py (pin literal only)"
       ],
       "touches_files": [
-        "docs/D55_final_review.md",
+        "ui/main_window.py",
+        "tests/test_d56_retry_indicator.py",
         "tests/test_p14_cache_guard.py",
         "tests/test_p15_surfacing.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Consolidated docs tree",
-        "P16-T8 ledger",
-        "plan completion checklist",
-        "ESC-098 (legitimate P16 requirements additions vs over-broad pre-D53 whole-head hash)"
+        "P17-T1 retry-in-flight signal the indicator reads",
+        "P17-T2 fencing and P17-T3 taxonomy/pacing behaviour the verify cases exercise",
+        "ESC-099 coordinated pin-update direction (re-pin now that P18 Q92-Q95 settled; never weaken)",
+        "AC-D56.6, AC-D56.2, AC-D56.7, Journey 51 step 4, A159, R118, DG100"
       ],
       "outputs": [
-        "Docs-only consistency certification + history-guard proof",
-        "Green history guards alongside the P16 requirements additions"
+        "Explicit D53 retry state with continuing elapsed (re-verified)",
+        "Double-silent fall-through verification (both variants)",
+        "Identical re-pinned history guards in both files",
+        "History-intact check plus full-suite green gate"
       ],
       "status": "done",
-      "size": "M",
+      "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "docs/documentation_consolidation_plan.md",
-            "why": "completion checklist this review ticks 1:1; scan, do not restructure"
-          },
-          {
-            "path": "docs/README.md",
-            "why": "read-only: authority table the guide-vs-plan cross-check verifies against, never edited here"
+            "path": "ui/main_window.py",
+            "lines": "2070-2160",
+            "why": "D53 indicator trio (set_backfill_state / refresh / clear) the retry marker rides; landed, re-verify, edit only on drift"
           },
           {
             "path": "tests/test_p14_cache_guard.py",
-            "lines": "60-70",
-            "why": "PRE_D53_SHA256 pin this task re-pins or replaces with a narrowed region \u2014 edited here"
-          },
-          {
-            "path": "tests/test_p14_cache_guard.py",
-            "lines": "400-423",
-            "why": "T34 guard body whose hashed region this task narrows; protected assertions must stay \u2014 edited here"
+            "lines": "64-80",
+            "why": "PROTECTED_SPAN_SHA256 pin literal to re-pin; T34 guard at ~409-432 keeps every assertion \u2014 read it before editing"
           },
           {
             "path": "tests/test_p15_surfacing.py",
-            "lines": "62-68",
-            "why": "PRE_D53_SHA256 pin this task re-pins or replaces with a narrowed region \u2014 edited here"
+            "lines": "60-72",
+            "why": "same pin literal to re-pin identically; T33 guard at ~401-436 keeps every assertion \u2014 read it before editing"
           },
           {
-            "path": "tests/test_p15_surfacing.py",
-            "lines": "397-434",
-            "why": "T33 guard body whose hashed region this task narrows; protected assertions must stay \u2014 edited here"
+            "path": "tests/test_backfill_progress.py",
+            "lines": "1-80",
+            "why": "existing D53 indicator-state assertion conventions this task's T41 follows"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "220-232",
+            "why": "retry-in-flight signal source (_retried_plans allowance + activity stamps + sweeper arming) the D53 retry marker reads \u2014 read-only, owned by P17-T1, do not change"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "925-984",
+            "why": "_sweep_silent_chunks trigger + _retry_silent_chunk cancel/re-issue head showing when a retry enters flight \u2014 read-only, never edited here"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2518-2600",
+            "why": "_on_historical_bar/end + wave-complete/finalize routing the indicator refresh follows; read-only shape"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1747-1760",
+            "why": "watchdog-timeout vs disconnect terminal paths the fall-through asserts; read-only, never edited"
           }
         ],
         "contracts": [
           {
-            "ref": "docs/requirements/requirements.md:D41",
+            "ref": "ui/main_window.py:set_backfill_state",
             "status": "existing"
           },
           {
-            "ref": "docs/requirements/requirements.md:AC-D55.9",
+            "ref": "ui/main_window.py:clear_backfill_indicator",
             "status": "existing"
           },
           {
-            "ref": "docs/requirements/requirements.md:AC-D55.10",
+            "ref": "ui/main_window.py:_refresh_backfill_indicator",
             "status": "existing"
           },
           {
-            "ref": "tests/test_p14_cache_guard.py:PRE_D53_SHA256",
-            "status": "existing"
+            "status": "new",
+            "signature": "_backfill_state gains a retry marker (retry count and/or retry reqIds alongside in_flight/queued/elapsed_s/req_ids); retry label set only while a retry is in flight, cleared only by the terminal funnel; elapsed stays a pure read of _backfill_wave_start",
+            "module": "ui/main_window.py"
           },
           {
-            "ref": "tests/test_p15_surfacing.py:PRE_D53_SHA256",
+            "ref": "ui/ticker_session.py:_retry_silent_chunk",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P16",
-        "plan_ref": "docs/plan.md#Phase P16",
+        "architecture_ref": "docs/architecture.md#Phase P17",
+        "plan_ref": "docs/plan.md#Phase P17",
         "requirement_ids": [
-          "D55",
-          "D55.9",
-          "D55.10",
-          "AC-D55.9",
-          "AC-D55.10",
-          "R113",
-          "Journey 48"
+          "D56.6",
+          "D56.2",
+          "D56.7",
+          "AC-D56.6",
+          "AC-D56.2",
+          "AC-D56.7",
+          "Journey 51",
+          "Q90",
+          "A159",
+          "R118",
+          "DG100",
+          "ESC-099"
         ],
-        "test_command": "test -f docs/D55_final_review.md && git status --porcelain | grep -vE 'docs/|usage\\\\.md|USAGE\\\\.txt|tests/test_p14_cache_guard\\\\.py|tests/test_p15_surfacing\\\\.py' | grep -q . && echo T9_FAIL_NON_DOCS || echo T9_OK && QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p14_cache_guard.py::test_t34_history_markers_intact tests/test_p15_surfacing.py::test_t33_history_markers_intact -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_retry_indicator.py tests/test_p14_cache_guard.py tests/test_p15_surfacing.py -q",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "M"
+        "size": "S"
+      }
+    },
+    {
+      "id": "P17-T5",
+      "title": "Prime-retry wall-clock flake hardening, test-only (ESC-100)",
+      "description": "Harden test_p7_t07_t13_prime_retry_defers_then_issues against the ~1.7% wall-clock boundary flake: _on_prime_retry re-enters prime_aggregator with int(time.time()), so a run landing in the first 5 s of a 300 s period takes the span_s<5 fail-open path and _prime_req_id stays None. Freeze the retry clock in-test and add a deterministic period-boundary case pinning the fail-open path. Test-only: no production file is modified, no assertion is weakened, P17 never touches the prime path.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "AC1: Given the prime retry deferred with pacing closed, then when _on_prime_retry runs with the clock frozen at a mid-period instant (span_s>=5 deterministically regardless of wall-clock phase) the retry issues exactly once (_prime_req_id set, pending cleared) on every run with zero wall-clock dependence; Given the clock frozen at a period-boundary instant (span_s<5), then the retry deterministically takes the existing fail-open path (no issue, skip counted, live feed attached) with no production-code change and no weakened assertion."
+      ],
+      "tests": [
+        {
+          "test_id": "T51",
+          "linked_acceptance_criterion": "AC1",
+          "type": "unit",
+          "description": "Revise test_p7_t07_t13_prime_retry_defers_then_issues to freeze the clock (monkeypatch time.time as seen by ui.ticker_session to the existing mid_period_ts() instant) across the _on_prime_retry() call and assert issue-once with _prime_req_id set and pending cleared; add test_p7_t07_t13_prime_retry_boundary_fail_open_deterministic freezing the clock at period_start+1 s (span_s<5) asserting no issue (_prime_req_id None), skip counted, fail-open completion. Run the full tests/test_p7_w4_streaming.py module green plus a 20x loop of the revised defers-then-issues test to prove determinism.",
+          "expected_result": "Revised test passes on every run regardless of wall-clock phase; boundary case deterministically pins fail-open; no other test in the module regresses."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p7_w4_streaming.py (clock-frozen retry + deterministic boundary case)"
+      ],
+      "touches_files": [
+        "tests/test_p7_w4_streaming.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "ESC-100 diagnosis (wall-clock int(time.time()) in _on_prime_retry vs span_s<5 guard in prime_aggregator)"
+      ],
+      "outputs": [
+        "Deterministic prime-retry tests with zero wall-clock dependence"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p7_w4_streaming.py",
+            "lines": "165-178",
+            "why": "mid_period_ts helper the frozen clock reuses"
+          },
+          {
+            "path": "tests/test_p7_w4_streaming.py",
+            "lines": "424-468",
+            "why": "the flaky defers-then-issues test plus the fail-open neighbour to revise"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "1523-1550",
+            "why": "read-only: _on_prime_retry wall-clock call the freeze targets \u2014 do not change"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "1405-1412",
+            "why": "read-only: span_s<5 period-boundary guard the new case pins \u2014 do not change"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/ticker_session.py:_on_prime_retry",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:prime_aggregator",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P17",
+        "plan_ref": "docs/plan.md#Phase P17",
+        "requirement_ids": [
+          "ESC-100"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_streaming.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
       }
     }
   ]

@@ -4243,3 +4243,166 @@ touch disjoint file sets and may run in one wave; P16-W4 runs after all three.
   remain unapplied (file absent); D1–P15 stay closed by the addenda-only rule.
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P17 — Silence retry for historical chunks (D56) — drafted 2026-11-05
+
+> Companion: `docs/architecture.md` § *Phase P17* (Codebase Summary, S-P17-1…S-P17-6,
+> frozen interfaces, non-functional, AR-P17-1…AR-P17-6). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P17 (D56),
+> Journey 51, `AC-D56.1`–`AC-D56.7` FINAL (Q88–Q91 all answered-owner-confirmed
+> 2026-11-05; no blocking item), A156–A160, R114–R118, `design_gaps.md` DG106–DG108.
+> Hard constraints: **D1–P16 are NOT reopened** (P17 touches P7/P14/P15-owned structures
+> only additively; the watchdog, pacing budget, terminal finalization paths and
+> `AC-D16.4`/`AC-D53.2` wording are read-only); sizes S/M only; no watchdog retuning, no
+> chunk resizing, no TWS-side diagnosis, no new indicator surface, no D53 criterion
+> change. One phase only — nothing past the D56 silence retry is planned.
+
+### Traceability (requirement → architecture → phase)
+
+| Requirement / input | Architecture section | Phase |
+|---|---|---|
+| D56.1 / `AC-D56.1` (single retry on silence — N = 30 s, per-chunk, zero-bar + trailing-silence triggers) + Journey 51 + Q88/Q89/Q91 + DG106 | S-P17-1 (fit-inside), S-P17-2 (sweeper + stamps); Frozen (cancel path, watchdog bound, generation fence) | P17-1 |
+| D56.2 / `AC-D56.2` (re-issue silence falls through — no second retry, no watchdog change) | S-P17-4 (shared allowance: re-issue silence never re-issues); Frozen (strand finalization) | P17-1 (guard mechanism) + P17-3 (fall-through verification) |
+| D56.3 / `AC-D56.3` (162 classification survives the retry) + DG108 | S-P17-3 (taxonomy); Frozen (error ingress, `classify_error`) | P17-2 |
+| D56.4 / `AC-D56.4` (generation fencing of the superseded issue) | S-P17-2 (tag + drop + re-issue under current generation); Frozen (`_history_event_accepted`, cache PK) | P17-1 |
+| D56.5 / `AC-D56.5` (pacing-slot accounting) + A160 + DG107 + Q89 | S-P17-5 (queue-with-deadline); Frozen (pacing constants, post-issue slot rule) | P17-2 |
+| D56.6 / `AC-D56.6` (D53 indicator shows the retry — Q90 outcome) + A159 + DG100 | S-P17-6 (retry marker + latch label, elapsed continuing) | P17-3 |
+| D56.7 / `AC-D56.7` (history intact + exactly-once counting) | S-P17-2 (identity-removal) + Frozen (PK idempotency, history-intact guard) | P17-1 (mechanism) + P17-3 (batch gate) |
+| A156–A160, R114–R118, DG106–DG108, Q88–Q91 | S-P17-1…S-P17-6 | Every phase (guards) |
+
+Every D56 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Phases
+
+Each phase is a milestone, coarser than tasks; the Task Manager decomposes each into tasks
+with acceptance criteria and tests. Phases are ordered; a later phase depends on earlier
+ones unless stated. `touches_files` notes list the files a phase touches and flag the
+serialisation points.
+
+### P17-1 — Silence detection + cancel/re-issue core with fencing and exactly-once (D56.1, D56.2-guard, D56.4, D56.7-mechanism) — size M
+
+- **Goal:** a chunk silent past 30 s (zero-bar primary rule or trailing-silence rule for
+  partials) is cancelled and re-issued exactly once inside the watchdog horizon; late
+  arrivals on the superseded reqId change nothing and no bar is counted twice.
+- **Covers:** D56.1; `AC-D56.1`; D56.2-guard (no-second-retry enforcement lives here);
+  `AC-D56.4`; D56.7-mechanism (identity-removal + PK idempotency); Journey 51 steps 1–3;
+  A156/A157; R114/R116 (mechanism half); DG106.
+- **Deliverables:**
+  - `[new] ui/ticker_session.py` — `_history_req_last_activity: dict[int, float]`
+    (stamped at registration/issue, re-stamped on each accepted `on_historical_bar`,
+    removed with the reqId) + one session silence sweeper (`QTimer`, 1 s tick, armed only
+    while history reqIds are in flight) + `_retry_silent_chunk(req_id)` (plan lookup,
+    `cancel_historical_data`, superseded tag with slot kept, drop old reqId, pop
+    `_req_bars[old]` with identity-removal from `_pending_bars`, paced re-issue of the
+    identical plan under the current generation with a new reqId, `_retried_plans.add`).
+    Guard: plans already in `_retried_plans` are never silence-retried; a re-issue's own
+    silence never re-issues.
+  - `[new/changed] tests` — offscreen clock-controlled cases: zero-bar-silent chunk
+    (cancel + one identical re-issue), partial-then-stalled chunk (trailing rule fires),
+    silent-at-30 s-minus-epsilon-then-delivering (no retry), late bars/END on the
+    superseded reqId (fenced: counts, cache and wave state unchanged), double-delivery
+    (count identity).
+- **Dependencies:** none (first phase; reads P7/P14/P15 contracts, changes none).
+- **`touches_files`:** `ui/ticker_session.py` + new/existing offscreen suites. No overlap
+  with any other phase's production files (`ui/main_window.py` indicator/error work is
+  P17-2/P17-3).
+- **Exit condition:** per silent chunk exactly one cancel + one identical re-issue (same
+  plan position, new reqId) concluding inside the watchdog horizon; no third issue for
+  any chunk; minus-epsilon cases fire no retry; fenced late arrivals change nothing.
+
+### P17-2 — Error taxonomy + pacing gate (D56.3, D56.5) — size S
+
+- **Goal:** errors landing during a retry classify honestly and the re-issue never
+  violates the rolling budget — exhaustion falls through to the unchanged watchdog path.
+- **Covers:** D56.3; `AC-D56.3`; D56.5; `AC-D56.5`; A158/A160; R115/R117; DG107/DG108.
+- **Deliverables:**
+  - `[new/changed] ui/ticker_session.py` (same file as P17-1, later in order) +
+    `[new/changed] ui/main_window.py::_on_error` (cancel-ack branch only) — generalise the
+    cancel-ack rule: any error code on a cancel-tagged superseded reqId is debug-only
+    (no status-bar, no shortfall, no pacing event); fresh-reqId errors keep existing
+    semantics with the shared `_retried_plans` allowance checked first (a 162 on a
+    silence-retried chunk finalizes short). Re-issue attempted immediately through
+    `req_historical_data`; on `PacingExceeded` waits via the existing continuation path
+    bounded by the unchanged watchdog (watchdog-first → stranded fall-through, fail-open
+    and counted). Both reqIds consume pacing slots (post-issue rule, no refund).
+  - `[new/changed] tests` — offscreen error-injection cases per reqId (cancel-ack 162 on
+    superseded vs fresh 162 on re-issue, plus one non-162 cancel-ack generalization case)
+    asserting classification + downstream shortfall/pacing; pacing-spy cases (slot
+    consumption on both issues; exhaustion → watchdog fall-through, never a violation).
+- **Dependencies:** P17-1 (re-uses the retry path, cancel tags, and `_retried_plans`
+  writes; serialised on `ui/ticker_session.py` — not parallel with P17-1).
+- **`touches_files`:** `ui/ticker_session.py` (retry-adjacent branches only; the P17-1
+  structures are consumers, not rewrites) + `ui/main_window.py` (the `_on_error`
+  162-superseded branch generalisation only — the `if errorCode == 162 and
+  self._is_superseded_history_req(reqId)` condition) + offscreen suites.
+- **Exit condition:** superseded-reqId errors of any inventoried code are cancel-acks
+  with no user-facing or budget effect; fresh-reqId errors follow existing semantics
+  with no third issue; pacing exhaustion yields counted fall-through, never a violation.
+
+### P17-3 — D53 retry state + fall-through verification + batch gate (D56.6, D56.2-verify, D56.7-gate) — size S
+
+- **Goal:** the retry is explicitly visible on the existing indicator with elapsed
+  continuing, the double-silent fall-through is verified end to end, and the full suite
+  stays green with history intact.
+- **Covers:** D56.6; `AC-D56.6`; D56.2-verify (double-silent cases + watchdog
+  finalization state); D56.7-gate (marker grep + full-suite green); A159; R118; DG100.
+- **Deliverables:**
+  - `[new/changed] ui/main_window.py` — retry marker in `_backfill_state`, `(retry …)`
+    label set only while a retry is in flight and cleared only by the terminal clear
+    (P15 latch pattern), elapsed a pure read of `_backfill_wave_start` (never reset by a
+    retry), `AC-D53.3` no-current-claim re-asserted. Exact widget/copy/layout are Build
+    details per DG100.
+  - `[new/changed] tests` — wave-state + indicator-state assertions across first-issue /
+    retry / completion (distinguishability, elapsed-continuity, no premature
+    current-claim); double-silent cases (zero-bar and partial variants: exactly two
+    issues per chunk + watchdog finalization state).
+  - **Batch gate** — full offscreen suite green
+    (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`, clean run per the recorded
+    shared-test-DB / stale-`pytest`-shebang gotchas); `AC-D56.7` history-intact check
+    (marker grep + `### D4[1-9]` / `### D5[0-5]` sections present, no pre-P17 wording
+    touched).
+- **Dependencies:** P17-1 (the retry-in-flight signal the indicator reads); independent
+  of P17-2's files (may share a wave with P17-2).
+- **`touches_files`:** `ui/main_window.py` (indicator only) + offscreen suites. No overlap
+  with P17-2's production edits.
+- **Exit condition:** retry state distinguishable from first-issue flight and completion
+  with continuing elapsed and no current-cache claim; double-silent waves finalize via
+  the unchanged watchdog path; suite green; history intact.
+
+**Wave note.** P17-1 runs first (it owns `ui/ticker_session.py`'s retry structures).
+P17-2 follows (same file, later branches, plus the `ui/main_window.py::_on_error`
+branch). P17-3 depends on P17-1 and P17-2 and runs after P17-2: both P17-2 and P17-3
+edit `ui/main_window.py` in disjoint regions (the `_on_error` cancel-ack branch vs
+the indicator state), so Task Manager serialises on the shared file.
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P17-1 | The silence sweeper ticks at 1 s and is armed only while history reqIds are in flight; detection latency is therefore 30 s + ≤ 1 s tick, inside the S-P17-1 arithmetic | Keeps one timer flat across multi-chunk waves and clock-controllable; the ≤ 1 s is absorbed by the ≈ 55 s headroom |
+| AP-P17-2 | Monotonic clock for the last-activity stamps (the session/window pattern), not wall-clock `time.time` deltas | Tests need clock control; wall-clock jumps would false-fire or mask silence |
+| AP-P17-3 | The re-issue reuses the plan object at the same plan position (not queue re-insertion) with a new reqId under the current generation — no generation advance, no wave restart | A generation advance would fence the re-issue itself; queue re-insertion would reorder behind pacing-deferred chunks |
+| AP-P17-4 | Identity-removal from `_pending_bars` drops exactly the old reqId's Bar objects (the same objects appended under `_req_bars[old]`); bars already persisted per-chunk stay in the cache (PK-idempotent) and are re-read, never duplicated in memory | `AC-D56.7` exactly-once counts the in-memory wave totals; the cache was already safe by PK |
+| AP-P17-5 | The `(retry …)` label copy and any widget choice are Build details following standing D53 phrasing; only distinguishability + elapsed-continuity + no-current-claim are asserted | DG100 pattern (Q90 outcome fixed the state, not the pixels); AC-G.1 does not apply — no plan-level visual decision |
+| AP-P17-6 | Disconnect mid-retry follows `AC-D53.2` (disconnect finalization wins, retry abandoned); coalesced same-triple reload mid-retry creates no new retry and advances no generation; mode switch / new-triple load starts a new wave and abandons the old retry with its wave | Journey 51 edge cases; each follows the existing terminal/coalescing/new-wave path with no new rule |
+| AP-P17-7 | Sizes: P17-1 is M (new sweeper + retry path + fencing + identity cases); P17-2/P17-3 are S (branch generalizations + scoped cases + indicator) | Owner scope sizes; no phase exceeds M |
+
+### Flagged Issues
+
+**None.** Every D56 item is satisfiable as written on the existing stack:
+
+- Q88–Q91 are all answered, so no phase waits on an owner decision; the aggressive-30 s
+  tradeoff (R114), the per-chunk budget (Q89), the explicit retry state (Q90) and the
+  expanded partial-stall scope (Q91/A156) are all pinned in ACs and mechanisms above.
+- DG106–DG108 are answered by decisions, not open questions: the fit-inside arithmetic
+  (S-P17-1), the queue-with-deadline seam (S-P17-5/DG107) and the generalized taxonomy
+  with its code inventory (S-P17-3/DG108).
+- The shared retry allowance (S-P17-4) unifies the silence axis with the pre-existing
+  error-162 retry without revising the error path's semantics — no D1–P16 criterion is
+  reinterpreted.
+- No `PLAN`-routed escalation is open (all `addressed`); no `pending_doc_sync.md`
+  entries remain unapplied (file absent); D1–P16 stay closed by the additive-only rule.
+
+Status: READY_FOR_TASK_MANAGER

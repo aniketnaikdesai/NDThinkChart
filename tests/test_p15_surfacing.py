@@ -65,7 +65,7 @@ CLAIM_PHRASES = (
 # Top-of-file navigation/baseline blocks sit outside the pin by design.
 # Reproving it here shows no protected wording moved under P15 either.
 PROTECTED_SPAN_SHA256 = (
-    "b11d9da3e1eb0505855c9eb59e99e93795b79ab0e25645d5543dcab08fddba41"
+    "2fe7b1ec62fa0e60c7292731e22569f616fdac95becbff8e00d4ee38cee0c139"
 )
 
 

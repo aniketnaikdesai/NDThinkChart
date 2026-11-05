@@ -329,3 +329,41 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 3.
 - 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
 - 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
 - 8226aef P9 alarm/drawing fixes: persistence isolation, dialog fixes, group-color pipeline with (c) Both recolor; gate green, REVIEW_COMPLETE
+## P17 — 2026-11-05
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P17-T1 — Silence sweeper + cancel/re-issue core with shared once-only allowance in TickerSession; 5 offscreen clock-controlled tests green
+- P17-T2 — P17-T2 done: production fencing + identity-removal already present via P17-T1 (_retry_silent_chunk pop + identity-removal, unchanged _history_event_accepted fence, PK-idempotent persist) verified intact; added tests/test_d56_fencing.py with T21 (late bars+END on superseded reqId change nothing vs control) and T22 (partial-chunk retry counts each bar exactly once, PK-unique cache, clean re-read); suite 2/2 pass, self-check pass.
+- P17-T3 — P17-T3 done: any inventoried code (162/321/200/399/504) on a cancel-tagged superseded reqId is debug-only with no status-bar/shortfall/pacing effect; fresh-reqId errors keep semantics with the shared _retried_plans allowance checked first; silence re-issue is paced with watchdog-bounded continuation (8/8 tests pass).
+- P17-T5 — P17-T5 test-only: froze retry clock in prime-retry defers-then-issues test and added deterministic period-boundary fail-open case; module green, 20/20 loop pass
+- P17-T4 — P17-T4 done: D53 retry state re-verified (distinguishable retry label, continuing elapsed, terminal-only clear); history pin re-pinned to live span hash 2fe7b1ec in both guard files (span diff vs b11d9da3 is exactly the four additive D57/D58 glossary rows); full offscreen suite green (1383 passed, 3 skipped)
+
+### Blocked
+- P17-T4 — Output:
+- P17-T4 — Output:
+- P17-T4 — Output:
+- P17-T4 — Output:
+
+### Recent commits
+- 2223786 P16: doc consolidation D55 batch 1 (inventory, fact sheet, navigation, live-only guides, P6/P7 reconciliation, disposition ledger + Q87 deletions, final review)
+- 945a2b2 Scratch + evidence: D53 4-phase live probe harness (v3 logging) and TWS probe findings/reports
+- e9e5912 P15: 10-second load-chart target + graceful degradation (D54, target reading A148)
+- 2d8fabd P14: persistent backfill-state indicator + cache-current guard (D53, Finding 2)
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
+- 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out

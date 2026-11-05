@@ -7530,3 +7530,233 @@ workers the contract, never the implementation.
 > - S-P16-3 — Status: in progress (P16-W3; this task P16-T7); Commit: n/a, docs-only; Evidence: six-file P6 addenda + P16-D55.6 cap addendum (`docs/plan.md`) + baseline blocks atop both canonical files; Supersession: append-only, approvals byte-identical.
 > - S-P16-4 — Status: planned (P16-W4 runs last); Commit: n/a, docs-only; Evidence: disposition ledger + docs-only review (P16-T8); Supersession: none (deletions only per answered Q86/Q87).
 
+---
+
+## Phase P17 — Silence retry for historical chunks (D56) — drafted 2026-11-05
+
+> Companion: `docs/plan.md` § *Phase P17* (traceability, three phases, assumptions,
+> flagged issues). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Phase P17 (D56), Journey 51, `AC-D56.1`–`AC-D56.7`
+> FINAL (Q88–Q91 all answered-owner-confirmed 2026-11-05), A156–A160, R114–R118,
+> `design_gaps.md` DG106–DG108. **D1–P16 are NOT reopened.** Owner overrides of analyst
+> defaults on record: N = 30 s aggressive (Q88, false-retry tradeoff accepted, R114);
+> per-chunk retry budget (Q89); explicit retry state with elapsed continuing (Q90);
+> scope expanded to partial-then-stalled chunks via the trailing-silence rule (Q91/A156).
+> Sizes S/M only; no watchdog retuning, no chunk resizing, no TWS-side diagnosis.
+
+**Relationship to prior phases:** every decision below carries one existing-repo status
+label (`[existing]` / `[new]` / `[new/changed]`). P17 builds on P7 (wave/pacing
+substrate, S-P7-1…S-P7-4), P14 (D53 persistent indicator, S-P14-1/S-P14-2) and P15
+(expiry interplay, S-P15-1/S-P15-3) without changing any of their settled contracts —
+the watchdog bound, the pacing budget, the terminal finalization paths and the
+`AC-D16.4` shortfall wording are all read-only. No `[revises]` against any prior phase:
+where P17 touches a P7/P14/P15-owned structure (retry tag set, indicator state) it does
+so additively, and the one genuine interaction (the pre-existing error-162 retry vs the
+new silence retry sharing one allowance) is resolved by a new unifying rule, not by
+revising the error path's semantics.
+
+### Codebase Summary (existing repository — P17 surface; pointer + deltas)
+
+The full module index lives in `docs/codebase-map.md` (P17 note appended; skeleton
+re-generated, annotations carried forward — P17 adds no new module). Only the surfaces
+P17 touches are inventoried here, each validated against source (repo authoritative;
+graphify used for discovery only):
+
+- `[existing] ui/ticker_session.py::TickerSession` — per-symbol wave owner. The members
+  P17 reads/writes: `_history_req_ids: set[int]`, `_history_req_generation: dict[int,
+  int]`, `_history_generation`, `_cancelled_history_req_ids: set[int]` (cancel tags;
+  `is_superseded` reads them), `_history_req_issued: set[int]` (post-issue seam;
+  `mark_history_request_issued` flips it), `_req_bars: dict[int, list[Bar]]`
+  (per-chunk bar lists; `on_historical_bar` appends, `on_historical_data_end` pops +
+  `_persist_chunk_bars`), `_req_to_plan: dict[int, plan]` / `_wave_plan_queue: list` /
+  `_retried_plans: set` (plan queue + error-162 retry-once tracking), `_pending_bars:
+  list[Bar]` (flat wave list), `_history_wave_timer` + `_history_wave_watchdog_bound_ms`
+  (window-relative bound: `base = window × 1/5`, `margin = window × 1/20` → 120 s base
+  at the 600 s window), `_wave_start_ts` (session elapsed baseline), `_wave_may_complete`
+  (empty in-flight + empty queue), `_cancel_history_requests` (cancel-tag + pre-issue-only
+  refund), `_issue_wave_chunks` / `_schedule_wave_continuation` (paced issue + deferral
+  with watchdog re-arm). D56-relevant precedent: the error-162 path in
+  `on_historical_error` retries a failed chunk's plan once via front-of-queue re-insert
+  guarded by `_retried_plans`.
+- `[existing] ui/main_window.py` — wave host. The members P17 reads/writes:
+  `_on_historical_bar` → `session.on_historical_bar` + `_refresh_backfill_indicator`;
+  `_on_historical_data_end` → `session.on_historical_data_end` + indicator refresh;
+  `_on_error` (the 162-superseded-ack debug-only branch reading
+  `_is_superseded_history_req`, which scans session cancel tags); `_on_session_wave_complete`
+  → `_finalize_history_wave`; `_on_session_history_wave_timeout` → stranded
+  finalization with `_history_stranded_reason`; the D53 indicator trio
+  `set_backfill_state(in_flight, queued, elapsed_s, req_ids)` /
+  `_refresh_backfill_indicator` (elapsed is a pure read of the MainWindow-local
+  `_backfill_wave_start`, never reset by refreshes or coalesced keeps) /
+  `clear_backfill_indicator` (every terminal path funnels through it) plus the P15
+  `(partial)` latch pattern (`_backfill_expiry_missed`, set only by the missed-expiry
+  path, cleared only by the terminal clear).
+- `[existing] ibkr/market_data.py::MarketDataManager` — `req_historical_data(...)`
+  (paced transport; raises `PacingExceeded`/`IBKRNotReady` when the budget is exhausted)
+  and `cancel_historical_data(req_id)` (best-effort containment, existing A158 path).
+- `[existing] ibkr/pacing.py::PacingManager` — rolling-budget owner
+  (`MAX_HISTORICAL_PER_600S = 100`, `HISTORICAL_MIN_INTERVAL_S = 0.5`;
+  `historical_wait_seconds()` is authoritative); `ibkr/error_codes.py::classify_error`
+  (every-TWS-error gate; 162 reads `fatal` alongside 504/200/399/100).
+- `[existing] data/bar_cache.py::BarCache.save_bars` — `INSERT OR REPLACE` on the
+  mode-aware `(symbol, timeframe, ts)` PK (idempotent; overlapping resumes change no row).
+
+### Summary
+
+A wave chunk that goes silent — zero bars or stalled mid-chunk with no END and no error
+for 30 s — gets exactly one cancel + identical re-issue inside the unchanged 120 s
+watchdog horizon, reusing the existing cancel path, pacing gate, generation fencing and
+strand-finalization backstop. Cancel-ack errors on the superseded reqId stay debug-only;
+fresh-reqId errors keep existing semantics; both retry axes (silence and error-162) draw
+from one shared per-chunk allowance so no chunk is ever issued a third time; the D53
+indicator shows an explicit retry state with elapsed continuing from the wave baseline.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained: language / UI / data stack | Unchanged: Python 3.11+, PyQt6, LWC-only chart, official `ibapi`, SQLite, offscreen pytest | Existing-repo hard constraint; D56 is wave-lifecycle logic, not stack work | None entertained |
+| Constrained: pacing owner + budget | Unchanged: `pacing_manager` owns the rolling budget (`MAX_HISTORICAL_PER_600S = 100`, `HISTORICAL_MIN_INTERVAL_S = 0.5`); the re-issue is a paced request like any other | The budget protects every session/pop-out/prime; an unpaced retry could spend what the wave does not own (`AC-D56.5`) | A retry-side private budget (rejected — two owners for one rolling window re-creates the over-count failure the P7 pre/post-issue refund rule was built to prevent) |
+| Constrained: watchdog | Unchanged: window-relative bound (`base = window × 1/5`, `margin = window × 1/20`; 120 s at the 600 s window); no retuning, no new timer type | Explicit non-goal; the watchdog is the backstop D56.2 falls through to | Any retuning (rejected — out of scope by owner order) |
+| `[new]` Silence clock: per-reqId last-activity stamps + one per-session sweeper | New `_history_req_last_activity: dict[int, float]` on the session (monotonic clock; stamped at registration/issue, re-stamped on each accepted `on_historical_bar`); one session `QTimer` sweeper (1 s tick, armed only while history reqIds are in flight) fires the retry when `now − stamp ≥ 30 s` for a still-in-flight, never-retried reqId | Minimal and deterministic per A156 (derived from existing wave events only — `_req_bars[req_id]` + `on_historical_bar` + `mark_history_request_issued` seam — no new semantic tracking); one timer scales flat with multi-chunk silent waves (4 silent reqIds on record) and is clock-controllable offscreen | Per-chunk `singleShot(30 s)` re-armed on every bar (rejected — N timers per wave, re-arm churn on each bar, harder deterministic control); wall-clock `time.time` deltas (rejected — the session/window already standardise on the monotonic-friendly pattern and tests need clock control) |
+| `[new]` Retry execution through existing seams | Cancel via existing `cancel_historical_data(req_id)` (A158, no new TWS call type); tag superseded (`_cancelled_history_req_ids.add`, slot kept — post-issue rule); drop the old reqId from `_history_req_ids`; pop `_req_bars[old]` and remove those same Bar objects from `_pending_bars` by identity; re-issue the identical plan (same symbol/timeframe/mode/span/plan position) via paced `req_historical_data` under the current generation with a new reqId | Every step reuses a proven seam (P7 cancel-tag/refund, per-chunk persist, generation check), so late bars/ENDs on the old reqId hit the existing `_history_event_accepted` fence with no new predicate; identity-removal from `_pending_bars` is what makes `AC-D56.7` exactly-once hold despite the identical re-fetch | A dedicated retry controller class (rejected — more surface for a path whose every operation already exists); leaving old partial bars in `_pending_bars` and deduping at persist (rejected — the flat list feeds counts/tests, and the PK dedupes only the cache, not the in-memory totals) |
+
+### System Components
+
+- `[existing] ui/ticker_session.py::TickerSession` — wave owner; gains the stamp map,
+  the sweeper, and the retry method. All existing wave members listed in the Codebase
+  Summary keep their contracts.
+- `[new/changed] ui/ticker_session.py::_retry_silent_chunk` — the single retry entry:
+  plan lookup via `_req_to_plan`, superseded tagging, identity-removal of old partials,
+  paced re-issue, `_retried_plans.add(plan)`, indicator nudge. The no-second-retry guard
+  (`plan in _retried_plans` → skip; re-issue silence → no further issue) lives here.
+- `[existing] ui/main_window.py` — error ingress (`_on_error` 162-superseded branch),
+  wave completion/finalization, watchdog timeout, D53 indicator trio; behaviour unchanged
+  except the retry-state extension below.
+- `[new/changed] ui/main_window.py` D53 retry state — `_backfill_state` gains a retry
+  marker (count/reqIds, shape is Build detail), the label follows the P15 `(partial)`
+  latch pattern (`Backfill (retry …)` set only when a retry is in flight, cleared only by
+  the terminal clear); elapsed stays a pure read of `_backfill_wave_start` (never reset by
+  a retry). Exact widget/copy/layout are Build details per DG100.
+- `[existing] ibkr/market_data.py::MarketDataManager` — transport; unchanged.
+- `[existing] ibkr/pacing.py::PacingManager` — budget owner; unchanged (the re-issue
+  waits through the existing continuation path when exhausted).
+- `[existing] data/bar_cache.py::BarCache` — idempotent sink; unchanged.
+
+### Data Model
+
+- `[new] TickerSession._history_req_last_activity: dict[int, float]` — per-reqId
+  monotonic last-activity stamp. Keyed by reqId like `_req_bars`; entries added at
+  registration/issue, re-stamped on each accepted `on_historical_bar`, removed when the
+  reqId leaves `_history_req_ids` (END/error/retry-supersede/teardown). No migration, no
+  persistence — in-memory wave state like its neighbours.
+- `[existing] _history_req_ids / _history_req_generation / _cancelled_history_req_ids /
+  _history_req_issued / _req_bars / _req_to_plan / _wave_plan_queue / _retried_plans /
+  _pending_bars` — all unchanged in shape; the retry path only adds/removes entries
+  through the existing transitions (register, tag, pop, re-insert at front).
+- `[new/changed] MainWindow._backfill_state: dict` — gains a retry marker (retry count
+  and/or retry reqIds alongside the existing `in_flight`/`queued`/`elapsed_s`/`req_ids`
+  keys). Read by the indicator render only; cleared with the wave.
+- `[existing] bars PK (symbol, timeframe, ts)` + `INSERT OR REPLACE` — the idempotency
+  anchor behind exactly-once counting; unchanged.
+
+### Integration Points
+
+- `[existing] TWS historical-data request/cancel pair (`reqHistoricalData` /
+  `cancelHistoricalData` via `MarketDataManager`)` — the only wire surface P17 uses;
+  no new TWS call type (A158). Rationale: the retry is a transport reuse, not new IBKR
+  surface.
+- `[existing] TWS error ingress (`error_msg` → `MainWindow._on_error` →
+  `classify_error`)` — unchanged routing; P17 only states the per-code handling for
+  superseded- vs fresh-reqId arrivals (see S-P17-3).
+- `[existing] SQLite bar cache` — unchanged sink; the identical re-fetch is idempotent
+  by PK.
+
+### Frozen Interfaces (read-only this phase — verbatim contracts, owning modules)
+
+Nothing under construction is frozen; each entry below is `[existing]` and unmodified
+by P17 (Task Manager gives workers the contract, never the implementation):
+
+- `ibkr/market_data.py::MarketDataManager.cancel_historical_data` — `def
+  cancel_historical_data(self, req_id: int | None): if req_id is None: return; try:
+  self.client.cancelHistoricalData(req_id) except Exception: pass`. P17 calls it; never
+  edits it.
+- `ui/ticker_session.py::TickerSession._history_event_accepted` — `req_id in
+  self._history_req_ids and self._history_req_generation.get(req_id) ==
+  self._history_generation`. The fence late bars/ENDs hit; predicate unchanged.
+- `ui/ticker_session.py::TickerSession._history_wave_watchdog_bound_ms` —
+  window-relative `max(base, wait + margin)` with `base = window × 1/5`, `margin =
+  window × 1/20` (120 s base at the 600 s window). Bound derivation unchanged; P17 only
+  fits inside it (DG106 arithmetic in S-P17-1).
+- `ui/ticker_session.py::TickerSession.mark_history_request_issued` — `def
+  mark_history_request_issued(self, req_id: int) -> None` flips `req_id` into
+  `_history_req_issued` (post-issue cancel keeps its slot). Seam unchanged; the retry
+  path relies on it for both the cancelled and the re-issued reqId.
+- `data/bar_cache.py::BarCache.save_bars` — `INSERT OR REPLACE` on the mode-aware
+  `(symbol, timeframe, ts)` PK. Idempotency contract unchanged; it is what makes the
+  identical re-fetch safe.
+- `ui/main_window.py` terminal funnel — every terminal path (normal completion, stranded
+  finalization, load-path cancel, disconnect, teardown) funnels through
+  `clear_backfill_indicator` / `_finalize_history_wave`; P17 adds a latch cleared there,
+  never a new terminal path.
+- `config/settings.py` pacing constants — `MAX_HISTORICAL_PER_600S = 100`,
+  `HISTORICAL_MIN_INTERVAL_S = 0.5`. Values unchanged.
+- `AC-D16.4` shortfall wording and `AC-D53.2` disconnect lifecycle — referenced,
+  never reworded or reopened.
+
+### Non-Functional Approach
+
+- **Timing (driven by `AC-D56.1`/`AC-D56.2`, DG106):** with the answered N = 30 s, the
+  worst unpaced case is detect (≤ 30 s silence + ≤ 1 s sweep tick) + cancel/re-issue
+  (≈ 1 s through a free budget) + re-issue window (30 s) + finalize (seconds) ≈ ≤ 65 s
+  « 120 s watchdog, leaving ≈ 55 s headroom for pacing deferral before the backstop
+  fires. The single-sided bound holds (silent at 30 s − ε then delivering fires no
+  retry); the re-issue's own 30 s window is the same constant, so no second timing
+  constant is introduced. Offscreen clock-controlled cases assert the fit-inside shape
+  (zero-bar, partial-stall, minus-epsilon-no-fire, double-silent fall-through).
+- **Correctness under concurrency (driven by `AC-D56.3`/`AC-D56.4`, R115/R116):** the
+  shared per-chunk allowance (`_retried_plans`, covering both the silence axis and the
+  pre-existing error-162 axis) caps every chunk at two issues — `AC-D56.1`'s "no third
+  issue" measurable is the enforcement. Superseded-reqId arrivals of any error code are
+  cancel-acks (debug-only, no status-bar, no shortfall, no pacing event); fresh-reqId
+  errors keep existing semantics, with the allowance check first so an error on a
+  silence-retried chunk finalizes short instead of reissuing. Late bars/ENDs on the old
+  reqId die at the unchanged generation fence; identity-removal keeps `_pending_bars`
+  exactly-once.
+- **Budget safety (driven by `AC-D56.5`, R117):** the re-issue is paced; on
+  `PacingExceeded` it waits through the existing continuation path bounded by the
+  unchanged watchdog (queue-with-deadline per DG107 — the watchdog firing first yields
+  the specified fail-open stranded finalization, counted). Post-issue cancels keep their
+  slots on both issues, so the budget never over-counts. No retry is ever unpaced.
+- **Honesty surface (driven by `AC-D56.6`, R118, DG100):** the retry marker rides the
+  existing D53 indicator (no second surface); the `(retry …)` label is set only while a
+  retry is in flight and cleared only terminally (the P15 latch pattern), elapsed
+  continues from `_backfill_wave_start`, and the `AC-D53.3` no-current-claim guard is
+  re-asserted across first-issue / retry / completion states including elapsed
+  continuity.
+- **Testability:** all new behaviour is offscreen-deterministic (clock control, pacing
+  spies, error injection, double-delivery identity) with no live TWS; the full
+  pre-existing suite stays green (Q8/Q9 standing pattern).
+
+### Architecture Risks
+
+| Risk | Severity (H/M/L) | Mitigation |
+|---|---|---|
+| AR-P17-1 — N = 30 s fires on merely-slow TWS responses (25–76 s legitimate latencies), spending a pacing slot per false retry (R114, owner-accepted) | M / H | Single-sided bound + per-chunk exactly-once cap + paced re-issue + watchdog fall-through; fit-inside arithmetic above keeps even a false retry inside the horizon |
+| AR-P17-2 — Cancel-ack misclassified as a fresh violation (false shortfall) or a fresh 162 swallowed as a cancel-ack (lost error) (R115) | M / M | Per-reqId classification keyed on the cancel tag (S-P17-3 inventory); `AC-D56.3` error-injection cases per reqId |
+| AR-P17-3 — Late bars/ENDs resurrect the wave or double-count into cache/strand totals (R116) | H / L | Unchanged generation fence + cancel tags + identity-removal from `_pending_bars` + PK idempotency; `AC-D56.4`/`AC-D56.7` late-delivery and double-delivery cases |
+| AR-P17-4 — A multi-chunk silent wave spends the pacing budget on retries and starves siblings/pop-outs/primes (R117) | M / M | Per-chunk exactly-once cap (Q89) + pacing gate with fail-open fall-through (`AC-D56.5`/A160); no unpaced retry |
+| AR-P17-5 — The retry state reads as completion or a fresh stall, eroding the Finding-2 honesty gain (R118) | M / L | Q90-resolved: explicit distinguishable retry state with elapsed continuing; `AC-D56.6` asserts distinguishability + continuity + no-premature-current-claim |
+| AR-P17-6 — The shared allowance subtly changes the pre-existing error-162 retry behaviour workers rely on | M / L | The error path's semantics are unchanged for never-silence-retried chunks (first 162 still retries once after backoff); the allowance only suppresses a *second* retry for an already-silence-retried plan — pinned by the no-third-issue measurable, and the full pre-existing suite (incl. the 162-retry cases) stays green |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P17-1 | **Fit-inside decomposition for N = 30 s (DG106):** detect ≤ 31 s (30 s silence + 1 s sweep tick) + cancel/re-issue ≈ 1 s + re-issue window 30 s + finalize margin ≈ 3 s ≈ ≤ 65 s worst unpaced, inside the 120 s watchdog with ≈ 55 s headroom for pacing deferral; beyond that the watchdog fires and the wave falls through per A160. Rationale: answers DG106 with numbers against the answered N instead of the constraint alone. Alternative: larger N (rejected — owner chose 30 s, Q88). | `[new in P17]` — states DG106 arithmetic; changes no bound |
+| S-P17-2 | **One sweeper + stamp map (A156 mechanism):** `_history_req_last_activity` + single 1 s session sweeper armed only while history reqIds are in flight; zero-bar rule primary, trailing-silence rule for partials, both on the same 30 s constant. Rationale: minimal deterministic baseline from existing events only. Alternative: per-chunk singleShots (rejected — timer proliferation, re-arm churn). | `[new in P17]` — new state + timer; existing wave members untouched |
+| S-P17-3 | **Error taxonomy (DG108):** any error code arriving on a cancel-tagged superseded reqId is a cancel-ack (debug-only: no status-bar, no shortfall, no pacing event) — generalising the existing 162-superseded branch beyond the named code; errors on the re-issued (fresh) reqId keep existing semantics with the shared allowance checked first. Historical-request codes inventoried: 162 (pacing/cancelled-query), 321 (rejected shape — prevented by clamps, treated as fresh-error if ever seen), 200/399/504 (existing `classify_error` fatal handling, unchanged). Rationale: the first non-162 cancel-ack must have stated handling or a worker invents it. Alternative: 162-only handling (rejected — DG108's gap). | `[new in P17]` — states handling; generalizes an existing branch, revises no semantics |
+| S-P17-4 | **Shared per-chunk retry allowance across both axes:** the silence retry and the pre-existing error-162 retry draw from one once-only allowance implemented by `_retried_plans` (silence retry adds the plan at re-issue; the sweep skips plans already in the set; a 162 on a silence-retried chunk finalizes short). Rationale: `AC-D56.1`'s "no third issue" measurable and `AC-D56.2`'s fall-through cannot both hold if each axis retries independently. Alternative: independent budgets (rejected — permits three issues per chunk). | `[new in P17]` — unifying rule; error path semantics unchanged for non-retried chunks |
+| S-P17-5 | **Pacing seam: queue-with-deadline (DG107):** the re-issue attempts immediately through `req_historical_data`; on `PacingExceeded` it waits via the existing continuation path, bounded by the unchanged watchdog (watchdog-first → stranded fall-through, fail-open and counted). Rationale: recovers through transient exhaustion within the ≈ 55 s headroom instead of abandoning the retry the owner paid the false-retry tradeoff for. Alternative: immediate-abandon (rejected — wastes retries on transient exhaustion). | `[new in P17]` — confirms the A160 seam; new timer type none |
+| S-P17-6 | **D53 retry state on the existing indicator (Q90/A159/DG100):** retry marker in `_backfill_state`, `(retry …)` label set only while a retry is in flight and cleared only terminally, elapsed continuing from `_backfill_wave_start`, `AC-D53.3` guard re-asserted. Rationale: one honesty surface; the P15 latch pattern already solved set/clear discipline. Alternative: second surface or silent continuation (rejected — Q90 chose explicit). | `[new in P17]` — additive marker + label; D53 criteria not reopened |
+
