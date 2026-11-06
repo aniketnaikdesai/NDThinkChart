@@ -169,7 +169,13 @@ class TestTimeParity:
         bars = _monday_with_hole()
         view.set_series("candles", bars)
         env = view.bridge.flush()
-        assert env is not None and len(env["ops"]) == 2
+        assert env is not None and env["v"] == 1
+        # ESC-102 / AR-P18-5 (P18-T3 re-pin, support change only): the
+        # series-less fresh-frame viewport directive rides this envelope
+        # after the rows — select the candles/volume column ops by series
+        # rather than by envelope position or count.
+        bar_ops = [op for op in env["ops"] if "series" in op]
+        assert len(bar_ops) == 2
         base = LB.apply_ops_to_bars(env["ops"])
         assert len(base) == len(bars)
         # Q-20: the series time is the bar's own UTC timestamp. The logical
@@ -207,7 +213,13 @@ class TestTimeParity:
             view.set_series(mode, bars)
             env = view.bridge.flush()
             assert env is not None and env["v"] == 1
-            candles, volume = env["ops"]
+            # ESC-102 / AR-P18-5 (P18-T3 re-pin, support change only): the
+            # series-less fresh-frame viewport directive rides this envelope
+            # after the rows — select the candles/volume column ops by
+            # series rather than by envelope position or count.
+            by_series = {op["series"]: op for op in env["ops"]
+                         if "series" in op}
+            candles, volume = by_series["candles"], by_series["volume"]
             assert candles["mode"] == mode
             assert set(candles["cols"]) == {
                 "ts", "open", "high", "low", "close"}

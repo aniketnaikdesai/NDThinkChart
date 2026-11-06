@@ -1579,13 +1579,12 @@ def build_series_ops(mode: str, plotted: Sequence, cmap, indices: Sequence,
 
 # ── P11 per-symbol viewport memory (S-P11-5 / D51.4) ────────────────────
 #
-# In-memory session state only (AP-P11-2): ``symbol -> {range, following}``
+# In-memory session state only (AP-P11-3): ``symbol -> {range, following}``
 # keyed by upper-cased symbol. Fed by throttled page range reports
-# (gesture-end + post-update, AP-P11-3) through ``report_viewport``; saved on
-# switch-away by ``set_symbol`` and restored on switch-back via a
-# ``set_visible_range`` interaction-channel op the page applies with
-# ``setVisibleLogicalRange``. No persistence, no schema change — a fresh view
-# starts empty.
+# (gesture-end + post-update, AP-P11-2) through ``report_viewport``; saved on
+# switch-away by ``set_symbol``. S-P18-4 revises the restore leg: the range
+# is never read back (fresh framing wins on loads and timeframe changes)
+# while the following leg stands (it still encodes each fresh frame).
 
 
 def viewport_restore_op(view_range: dict, following: bool) -> dict:
@@ -1596,6 +1595,70 @@ def viewport_restore_op(view_range: dict, following: bool) -> dict:
                   "to": float(view_range["to"])},
         "following": bool(following),
     }
+
+
+# ── P18 fresh per-timeframe framing (S-P18-3 / D57.2, precedence S-P18-4) ──
+#
+# Every different-symbol load and every timeframe change opens on a
+# predictable per-timeframe frame (AC-D57.4 spans), computed here from the
+# loaded bars and emitted post-``set_series`` through the existing
+# range-op wire shape (``viewport_restore_op`` above). TIMEFRAME_CONFIG
+# durations and ``session_windows`` are read-only inputs — only this
+# module's mapping (span name -> session count / calendar days) is new.
+
+#: Intraday frame spans as session counts (AP-P18-2): resolved through the
+#: mode-aware ``session_windows`` so holidays and RTH/ETH switches hold.
+FRESH_FRAME_INTRADAY_SESSIONS = {
+    "1 min": 2,
+    "5 mins": 5,
+    "15 mins": 10,
+    "30 mins": 22,
+    "1 hour": 44,
+    "4 hours": 126,
+}
+
+#: Daily+ frame spans as calendar days off the newest-bar ts.
+FRESH_FRAME_DAILY_SPAN_DAYS = {
+    "1 day": 365,
+    "1 week": 365,
+    "1 month": 5 * 365,
+}
+
+#: Newest-window right padding, mirroring the page's ``RIGHT_PADDING_BARS``.
+FRESH_FRAME_RIGHT_PADDING = 2
+
+_DAY_SECONDS = 86400
+
+
+def fresh_frame_cutoff(timeframe, newest_ts, oldest_ts, ext_hours):
+    """Cutoff epoch seconds for the fresh frame, or ``None`` when unknown.
+
+    Intraday: the start of the Nth session back through the mode-aware
+    ``session_windows``. Daily+: the newest-bar ts minus the calendar
+    span. Clamped to the oldest loaded bar (AC-D57.4 constraint: frame
+    what is loaded, never fetch). An unknown timeframe returns ``None``
+    — the frame is a silent no-op and the page fit path frames the load.
+    """
+    try:
+        newest = int(newest_ts)
+        oldest = int(oldest_ts)
+    except (TypeError, ValueError):
+        return None
+    if timeframe in FRESH_FRAME_INTRADAY_SESSIONS:
+        sessions = FRESH_FRAME_INTRADAY_SESSIONS[timeframe]
+        # Look back generously so the window list holds the Nth session
+        # back across weekends, holidays and half-days.
+        lookback = (sessions + 40) * _DAY_SECONDS
+        windows = session_windows(newest - lookback, newest, ext_hours)
+        starts = sorted(window["start_ts"] for window in windows)
+        if not starts:
+            return None
+        cutoff = starts[-sessions] if len(starts) >= sessions else starts[0]
+        return max(int(cutoff), oldest)
+    if timeframe in FRESH_FRAME_DAILY_SPAN_DAYS:
+        cutoff = newest - FRESH_FRAME_DAILY_SPAN_DAYS[timeframe] * _DAY_SECONDS
+        return max(int(cutoff), oldest)
+    return None
 
 
 def _coerce_viewport_range(view_range) -> dict | None:
@@ -1834,6 +1897,9 @@ class LwcChartView(QWidget):
         # Freshest throttled page range report for the current symbol
         # (last write wins, AR-P11-2); saved on switch-away.
         self._pending_viewport: dict | None = None
+        # S-P18-4: a different-symbol load or timeframe change arms one
+        # fresh S-P18-3 frame, consumed by the next ``set_series``.
+        self._pending_fresh_frame: bool = False
         # S-P11-3: the symbol owning the last full-series replace (None
         # before the first). Compared against the current symbol in
         # ``set_series`` to stamp the same-vs-new continuity directive.
@@ -2082,6 +2148,81 @@ class LwcChartView(QWidget):
             return
         self.update_live_bar(bar)
 
+    def fresh_frame_ops(self) -> dict | None:
+        """The fresh per-timeframe frame for the loaded bars (S-P18-3/4).
+
+        The cutoff (session-anchored intraday, calendar-anchored daily+,
+        clamped to the oldest loaded bar) maps first-ts->=cutoff to page
+        slots with the page's newest-window right padding. Zero bars (or
+        an unknown timeframe) → ``None``: the frame is a silent no-op
+        through the existing empty-series path. The live follow-state
+        still applies: a current following report (or no report, e.g. a
+        fresh switch) frames the live edge with tracking; a current
+        remembered-away report back-shifts minimally (AP-P18-3) so the
+        newest slot falls outside the range and away derives honestly
+        with maximal recency.
+        """
+        plotted = list(self._plotted or [])
+        logical = list(self._logical or [])
+        if not plotted or not logical or len(plotted) != len(logical):
+            return None
+        try:
+            newest_ts = max(int(bar.ts) for bar in plotted)
+            oldest_ts = min(int(bar.ts) for bar in plotted)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        cutoff = fresh_frame_cutoff(
+            self._timeframe, newest_ts, oldest_ts, self._ext_hours)
+        if cutoff is None:
+            return None
+        first = next((i for i, bar in enumerate(plotted)
+                      if int(bar.ts) >= cutoff), len(plotted) - 1)
+        # ESC-104: the page lays one logical position per emitted series
+        # row — bars plus within-session-hole whitespace placeholders —
+        # so the frame must be expressed in those page ordinals, not in
+        # ``_logical`` collapse-axis slots. A weekend/holiday gap jumps
+        # the collapse axis (Fri→Mon advances ~825 five-minute slots)
+        # while the page stays adjacent (80 bars at 0..79); framing the
+        # collapse units ({from: 0, to: 905}) squeezes every bar into a
+        # sliver and every drag anchor clamps to one bar. Mirror the
+        # exact ``series_times`` inputs ``build_series_ops`` emits with,
+        # so the ordinals match the landed rows one-for-one; hole-free
+        # series keep byte-identical values.
+        period = TIMEFRAME_SECONDS.get(self._timeframe or "")
+        times, whitespace = series_times(
+            plotted, logical, period,
+            getattr(self._cmap, "ext_hours", True))
+        if not times:
+            return None
+        entry = 0
+        from_slot = 0
+        for i in range(len(plotted)):
+            while entry < len(times) and whitespace[entry]:
+                entry += 1
+            if entry >= len(times):
+                return None
+            if i == first:
+                from_slot = entry
+                break
+            entry += 1
+        newest_slot = len(times) - 1
+        # S-P18-4: the Q75 range leg is retired (never restored), so the
+        # frame consults the live follow-state — the current pending
+        # report, or default-true when a fresh switch cleared it — never
+        # the per-symbol saved range. A switch-back therefore opens on a
+        # fresh live-edge frame; a timeframe change under a live away
+        # report keeps the away encoding.
+        pending = self._pending_viewport
+        following = (bool(pending["following"])
+                     if pending is not None else True)
+        if following:
+            to_slot = newest_slot + FRESH_FRAME_RIGHT_PADDING
+        else:
+            from_slot = max(0, from_slot - 1)
+            to_slot = newest_slot - 1
+        return {"range": {"from": float(from_slot), "to": float(to_slot)},
+                "following": following}
+
     def set_symbol(self, symbol: str) -> None:
         # S-P11-5: save the freshest throttled range report under the
         # switch-away symbol (upper-cased key; last write wins, AR-P11-2).
@@ -2105,21 +2246,16 @@ class LwcChartView(QWidget):
         if self._bars:
             self._render_studies()
             self._render_overlays()
-        # S-P11-5: restore on switch-back via a range op. A symbol with no
-        # memory starts with no pending report, so no stale range leaks
-        # across symbols.
+        # S-P18-4 (Q95 (b), D57.2-precedence): a different symbol always
+        # opens on a fresh S-P18-3 frame — the Q75 remembered *range* is
+        # never restored (retiring S-P11-5's range leg with lineage; the
+        # follow-state leg stands, so the memory saved above still encodes
+        # the fresh frame). A symbol with no memory starts with no pending
+        # report, so no stale range leaks across symbols.
         if not new_key or previous.upper() == new_key:
             return
-        remembered = self._viewport_memory.get(new_key)
-        if remembered is not None:
-            self._pending_viewport = {
-                "range": dict(remembered["range"]),
-                "following": bool(remembered["following"]),
-            }
-            self._publish_interaction_op(viewport_restore_op(
-                remembered["range"], remembered["following"]))
-        else:
-            self._pending_viewport = None
+        self._pending_viewport = None
+        self._pending_fresh_frame = True
 
     @property
     def viewport_memory(self) -> dict:
@@ -2152,17 +2288,38 @@ class LwcChartView(QWidget):
                              data.get("following", False))
 
     def set_timeframe(self, timeframe: str) -> None:
+        # S-P18-4: any timeframe change opens on a fresh S-P18-3 frame;
+        # re-sending the same timeframe keeps the preserve path (S-P11-3).
+        if timeframe != self._timeframe:
+            self._pending_fresh_frame = True
         self._timeframe = timeframe
         if self._bars:
-            self.set_series(self._mode, self._bars)
+            self._replot_current_bars()
 
     # ── P6-05 contract ──────────────────────────────────────────────
+
+    def _replot_current_bars(self) -> None:
+        """Re-emit the current bars without consuming an S-P18-4 request.
+
+        Mode/timeframe/ext-hours setters replot the already-loaded bars
+        so the view reflects the new mapping immediately. That replay
+        carries stale bars (the new load follows through ``update_bars``),
+        so it must neither frame them nor consume a pending fresh-frame
+        request — the next ``set_series`` with new bars frames (S-P18-4).
+        With no request pending this is exactly the legacy resend.
+        """
+        keep_pending = self._pending_fresh_frame
+        self._pending_fresh_frame = False
+        try:
+            self.set_series(self._mode, self._bars)
+        finally:
+            self._pending_fresh_frame = keep_pending
 
     def set_extended_hours(self, enabled: bool) -> None:
         """Re-derive the plotted set + logical axis for the new mode."""
         self._ext_hours = bool(enabled)
         if self._bars:
-            self.set_series(self._mode, self._bars)
+            self._replot_current_bars()
 
     def set_mode(self, mode: str) -> None:
         """Select one of the five render modes (resends when loaded)."""
@@ -2172,7 +2329,7 @@ class LwcChartView(QWidget):
             return
         self._mode = mode
         if self._bars:
-            self.set_series(mode, self._bars)
+            self._replot_current_bars()
 
     def set_series(self, mode: str, rows: list) -> None:
         """Full replace: filter, map to real UTC time, emit set ops.
@@ -2189,15 +2346,21 @@ class LwcChartView(QWidget):
         # replace for the same symbol preserves the viewport — the page
         # re-applies its own pre-replace range (fresher than any throttled
         # report, so no stale-range yank, AR-P11-2); a new symbol's load
-        # follows the live edge. A symbol with a pending viewport also
-        # preserves: after a switch-back restore (S-P11-5) the live range
-        # already is the remembered one. First load (no prior replace and
-        # no report) follows.
+        # carries an explicit S-P18-3 fresh frame instead (S-P18-4). A
+        # symbol with a pending viewport also preserves. First load (no
+        # prior replace and no report) follows.
         current_key = str(self._symbol or "").upper()
         stored = self._series_symbol
         same_symbol = (stored is not None
                        and str(stored or "").upper() == current_key)
         continuity = bool(same_symbol or self._pending_viewport is not None)
+        # S-P18-4: a requested fresh frame wins over the preserve path —
+        # stamp new-symbol so the page never re-applies a stale range
+        # under the explicit frame (S-P11-3 covers data replaces only).
+        fresh_requested = bool(self._pending_fresh_frame)
+        if fresh_requested:
+            continuity = False
+        self._pending_fresh_frame = False
         self._series_symbol = self._symbol
         # Q-54: a wholesale replacement rebuilds the map — re-arm the
         # extend-failure warning for the new series.
@@ -2212,9 +2375,17 @@ class LwcChartView(QWidget):
         else:
             self._logical = logical_indices_from_display(
                 chart_model.display_xs(self._plotted, self._cmap), period)
+        # S-P18-4: the fresh frame is computed from the newly loaded bars
+        # (post-rebuild ``_plotted``/``_logical``) — computing it before the
+        # rebuild would frame the previous series (or nothing on first load).
+        fresh_frame = (self.fresh_frame_ops()
+                       if fresh_requested else None)
         self._bridge.send_ops(build_series_ops(
             mode, self._plotted, self._cmap, self._logical, period,
-            same_symbol=continuity))
+            same_symbol=continuity) + (
+            [viewport_restore_op(
+                fresh_frame["range"], fresh_frame["following"])]
+            if fresh_frame is not None else []))
         # A wholesale bar replacement invalidates the study cache (the
         # incremental path assumes the same series), exactly as the default
         # engine's chart panel does on a load.

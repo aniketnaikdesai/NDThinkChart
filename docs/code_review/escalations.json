@@ -1164,5 +1164,70 @@
     "status": "addressed",
     "verified": "2026-11-05 rework pass. Re-verified on the live tree, not the worker's word: P17-T5 landed exactly the suggested direction test-only (tests/test_p7_w4_streaming.py only; live diff freezes ticker_session_mod.time.time at the mid-period instant in defers-then-issues with a strengthened issue-once assertion, plus a new deterministic period-boundary fail-open case; no production file touched); reviewer re-ran the module 13/13 pass and looped both clock-sensitive cases 3x green; result _archive/wave273_P17-T5.json status=done selfcheck pass; independent VERIFY verdict pass exit 0.",
     "opened": "2026-11-05T18:07:45+00:00"
+  },
+  {
+    "id": "ESC-101",
+    "task_id": "P18-T2",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "P18-T2 test T24b (test_P18_T2_T24b_page_applies_fresh_frame_over_preserve_and_defers) fails at the FIRST lone-frame check: node deepStrictEqual [undefined, undefined] vs [2, 20] (tests/test_d57_framing.py:453 via _run_node at :401). The test reads page.lwVisibleRange().from/.to, but the frozen P11 probe returns {newestSlot, range} (chart_assets/lwc/chart.js:1323-1325: `return { newestSlot: newestBarSlot(), range: visibleLogicalRange() }`), so .from/.to are always undefined. Reproduced by reviewer with the task's own command (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d57_framing.py::test_P18_T2_T24b_page_applies_fresh_frame_over_preserve_and_defers -q): same failure. Implementation is correct: the frozen-shape accessor .range is used by test_p11_no_yank.py:222,264,270,284, and the worker's same-flow .range probe passes (lone frame {2,20} lands, explicit {30,41} wins).",
+    "expected": "Both T24b assertions read the frozen probe shape page.lwVisibleRange().range (i.e. assert.deepEqual(before.range, {from:2,to:20}) and assert.deepEqual(framed.range, {from:30,to:41})), and T24b passes with no production change.",
+    "suggested_direction": "Two-line test-only edit in tests/test_d57_framing.py (in P18-T2's touches_files; fix on T2's re-run). Do not touch chart.js probe shape or P11 suites.",
+    "status": "addressed",
+    "opened": "2026-11-05T19:56:00+00:00",
+    "verified": "2026-11-05 P18 final review, re-verified on the live tree (not the worker's word). tests/test_d57_framing.py:432/450 read the frozen probe shape (before.range / framed.range); T24b passes in my own targeted re-run alongside the trendline e2e; full framing suite green per wave280 selfcheck (exit 0) and the independent VERIFY verdict pass exit 0."
+  },
+  {
+    "id": "ESC-102",
+    "task_id": "P18-T2",
+    "routed_to": "TASK_MANAGER",
+    "category": "gap",
+    "severity": "blocking",
+    "observed": "Six pre-existing tests fail because P18 appends a series-less viewport directive {op:'set_visible_range', range, following} into the BAR envelope (ui/lwc_view.py set_series fresh-frame append; ui/lwc_bridge.py _check_op_shape special-case; chart_assets/lwc/envelope.js acceptance): (1-4) TestRendererBoundary KeyError 'series' at tests/test_lwc_alarms.py:428, tests/test_lwc_drawings.py:600, tests/test_lwc_overlays.py:540, tests/test_lwc_studies.py:362 from `all(op['series'] in {'candles','volume'} for op in log)`; (5) tests/test_lwc_time_parity.py:172 `len(env['ops']) == 2` now 3; (6) same file :201-210 `candles, volume = env['ops']` unpacks 3. Adjudicated FALLOUT, not a renderer regression: no alarm/drawing/overlay/study op rides the bar transport; the assertion trips on the new legitimate envelope member. None of these 5 files is in P18-T2's or P18-T3's touches_files, so no dispatched task can legally touch them.",
+    "expected": "The six assertions tolerate the series-less viewport directive (e.g. skip ops where op.get('op')=='set_visible_range' / require 'series' in op) while keeping the renderer-exclusion intent (no candles/volume-external renderer series in the bar envelope).",
+    "suggested_direction": "One small churn task (or widen P18-T3 touches_files to include the 5 files). Do NOT move the frame off the bar envelope to 'fix' the tests: same-envelope ordering is what AR-P18-5 requires and the envelope validation + page lifting are landed and functional (T21/T22/T23/T25/T26 pass).",
+    "status": "addressed",
+    "opened": "2026-11-05T19:56:00+00:00",
+    "verified": "2026-11-05 P18 final review, re-verified on the live tree. All six re-pins reviewed via git diff: the four renderer-boundary cases exclude only ops with op=='set_visible_range' (asserting 'series' not in op for frames) while the renderer-exclusion assert (no alarm/drawing/overlay/study series on the bar transport) is intact; the two time-parity cells select candles/volume ops by series key, keeping the 2-op and mode assertions. P18-T3 (whose touches_files own all five files) is done green; the independent VERIFY verdict pass exit 0 covers all six suites."
+  },
+  {
+    "id": "ESC-103",
+    "task_id": "P18-T2",
+    "routed_to": "TASK_MANAGER",
+    "category": "gap",
+    "severity": "blocking",
+    "observed": "tests/test_p11_symbol_memory.py::test_p11_t4_t41_switch_away_and_back_restores_viewport fails (assert 0 == 1 restore op at :77) because S-P18-4 deliberately retires the switch-back RANGE restore (ui/lwc_view.py set_symbol now clears _pending_viewport and arms a fresh frame instead of publishing viewport_restore_op). Intended behavior change with lineage (AC-D57.5/A165), but the file is in neither P18-T2's nor P18-T3's touches_files (P18-T3/T32 covers only tests/test_p11_fit_affordance.py), so the churn has no owner.",
+    "expected": "The switch-back case asserts fresh-frame-wins (no range-restore op; fresh AC-D57.4 frame applied; remembered following still encoded) with S-P18-4 lineage recorded, keeping the follow-state assertions.",
+    "suggested_direction": "Widen P18-T3 to include tests/test_p11_symbol_memory.py or add a sibling churn task. Do not restore the range-restore path (that would violate AC-D57.5/Q95(b)).",
+    "status": "addressed",
+    "opened": "2026-11-05T19:56:00+00:00",
+    "verified": "2026-11-05 P18 final review, re-verified on the live tree. The switch-back case is rewritten to fresh-frame-wins with S-P18-4 lineage recorded: asserts zero set_visible_range restore ops plus one fresh frame op (range != remembered {2,20}) with tracking, follow-state assertions kept; P18-T3 (owning the file) done green; independent VERIFY verdict pass exit 0."
+  },
+  {
+    "id": "ESC-104",
+    "task_id": "P18-T2",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "tests/test_lwc_e2e_data.py::test_the_toolbar_trendline_draws_through_the_real_page fails consistently (full suite AND isolated re-run): the 30%-to-70% drag's anchors collapse onto one bar (assert p1['x'] != p2['x']; both == 1792762200, each inside [first_ts, last_ts]). Bisected as P18-caused: with P18's tracked edits stashed (pre-P18 tree e50a759 + untracked d57 suites only) the test passes (1 passed); with them restored it fails. Mechanism: _channel_view does set_symbol('AAPL') + set_timeframe('5 mins') then update_chart->set_series, which now consumes the armed fresh frame, so the page lands the explicit frame instead of fitToWidth; the drag's pixel-to-bar mapping then resolves both ends to the same bar. Both fix sites (frame computation in ui/lwc_view.py, frame landing / visible-range geometry in chart_assets/lwc/chart.js) are inside P18-T2's touches_files.",
+    "expected": "The drag anchors resolve to distinct bars as on the pre-P18 tree (p1['x'] != p2['x'], both within the loaded range).",
+    "suggested_direction": "Debug the framed load on the drawing-view path: compare the landed frame's from/to slots and landing timing (needsFit/defer vs layout) against the old fitToWidth range; fix where the mapping collapses (frame computation vs page geometry). Repro: QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_e2e_data.py::test_the_toolbar_trendline_draws_through_the_real_page -q.",
+    "status": "addressed",
+    "opened": "2026-11-05T19:56:00+00:00",
+    "verified": "2026-11-05 P18 final review, re-verified on the live tree. chart.js ResizeObserver re-asserts the current logical range on resize (guarded isFinite + try/catch, slots unchanged so viewport-preserving) plus landDeferred ordering; my own targeted re-run of the trendline e2e passes (anchors distinct) and T2 result reports 105/105 node green; independent VERIFY verdict pass exit 0 with no e2e failure."
+  },
+  {
+    "id": "ESC-105",
+    "task_id": "P18-T1",
+    "status": "addressed",
+    "verified": "2026-11-05 P18 final review, re-verified on the live tree. chart.js updateChevron() returns hidden when newestBarSlot() < 0 with the pure chevronVisible matrix untouched; new empty-chart case test_p18_t1_t14_empty_chart_chevron_hidden exists and passes in my own re-run (chevron suite + joint suite green); independent VERIFY verdict pass exit 0.",
+    "routed_to": "BUILD",
+    "category": "quality",
+    "severity": "nice-to-have",
+    "observed": "The chevron shows on an empty chart: updateChevron() derives visible = !isFollowing(), and with no data newestBarSlot() == -1 makes isFollowingSlot return false (chart_assets/lwc/chart.js:181-189 null-guards the range but an empty snapshot reads as away). init calls updateChevron() right after ensureChevronButton(), so first paint (empty) unhides the button despite the hidden-by-default markup and AC1/AC3 ('visible only while away'). Transient (correct once bars land) and uncovered by T14 (seeds before asserting).",
+    "expected": "No bars -> chevron hidden, without changing the pure chevronVisible(following, newBars) matrix (node cases seed candles first, so a snapshot-length guard cannot break them).",
+    "suggested_direction": "Page-side guard in chart.js (e.g. hide when newestBarSlot() < 0) inside updateChevron, covered by one empty-chart case in tests/test_d57_chevron.py.",
+    "opened": "2026-11-05T19:56:00+00:00"
   }
 ]

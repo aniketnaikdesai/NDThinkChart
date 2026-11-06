@@ -7760,3 +7760,214 @@ by P17 (Task Manager gives workers the contract, never the implementation):
 | S-P17-5 | **Pacing seam: queue-with-deadline (DG107):** the re-issue attempts immediately through `req_historical_data`; on `PacingExceeded` it waits via the existing continuation path, bounded by the unchanged watchdog (watchdog-first → stranded fall-through, fail-open and counted). Rationale: recovers through transient exhaustion within the ≈ 55 s headroom instead of abandoning the retry the owner paid the false-retry tradeoff for. Alternative: immediate-abandon (rejected — wastes retries on transient exhaustion). | `[new in P17]` — confirms the A160 seam; new timer type none |
 | S-P17-6 | **D53 retry state on the existing indicator (Q90/A159/DG100):** retry marker in `_backfill_state`, `(retry …)` label set only while a retry is in flight and cleared only terminally, elapsed continuing from `_backfill_wave_start`, `AC-D53.3` guard re-asserted. Rationale: one honesty surface; the P15 latch pattern already solved set/clear discipline. Alternative: second surface or silent continuation (rejected — Q90 chose explicit). | `[new in P17]` — additive marker + label; D53 criteria not reopened |
 
+## Phase P18 — Viewport UX: visible go-to-latest chevron + fresh per-timeframe framing (D57) — drafted 2026-11-05
+
+> Companion: `docs/plan.md` § *Phase P18* (traceability, three phases, assumptions,
+> flagged issues). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Phase P18 (D57), Journeys 52–53, `AC-D57.1`–`AC-D57.7`
+> FINAL (Q92–Q95 all answered-owner-confirmed 2026-11-05), A161–A165 (A165 overridden
+> with lineage), R119–R121 (all resolved), `design_gaps.md` DG109–DG110 (resolved;
+> DG111 is P19-owned). **D1–P17 are NOT reopened** (P18 touches P11-owned viewport
+> structures only as recorded revisions below; the Q72–Q76 follow/away semantics, the
+> pan-back-to-edge resume path, Fit/reset behaviour, fetch windows, pacing, watchdog,
+> D53 indicator and D56 retry are all read-only). Sizes S/M only; no new module, no new
+> dependency, no schema migration, no live-TWS dependency, no order code. One phase
+> only — P19 (D58 prefetch) is a separate phase and is not planned here.
+
+**Relationship to prior phases:** every decision below carries one existing-repo status
+label (`[existing]` / `[new]` / `[new/changed]`). P18 builds on P11 (follow-live
+viewport, S-P11-1…S-P11-5) with **two recorded revisions and no silent ones**:
+S-P18-1 **revises S-P11-4's visibility rule** (away-only supersedes away-AND-new-bars
+for the visible control; the badge state stays internal); S-P18-4 **revises S-P11-5's
+range-restore** (fresh framing wins on different-symbol loads and timeframe changes;
+follow-state memory stands). Everything else composes: the derivation model (S-P11-1),
+the no-yank live path (S-P11-2), same-vs-new continuity for data replaces (S-P11-3),
+and the `goToRealtime`/`fitToWidth` scroll paths (S-P11-4 mechanics) are reused
+unchanged.
+
+### Codebase Summary (existing repository — P18 surface; pointer + deltas)
+
+The full module index lives in `docs/codebase-map.md` (P18 note appended; skeleton
+re-generated at 253 code files, annotations carried forward — P18 adds no new module).
+Only the surfaces P18 touches are inventoried here, each validated against source (repo
+authoritative; graphify used for discovery only):
+
+- `[existing] chart_assets/lwc/chart.html` (38 lines) — host page: vendored
+  lightweight-charts + envelope/interaction/alarms/primitives/overlays/studies/
+  gestures modules + qrc webchannel shim + `#chart` container. It carries **no button
+  DOM** — verified by grep (`chevron|goTo|affordance` absent) — confirming the
+  requirements reconciliation: D51/P11 shipped the headless rule set only
+  (`window.lwGoToRealtime`/`lwAffordanceVisible`/`lwFit`), so the visible chevron is a
+  carried-forward unbuilt requirement, not new scope.
+- `[existing] chart_assets/lwc/chart.js` — the follow/frame core P18 reuses and
+  extends: `isFollowingSlot(newestSlot, range)` (slot inside `[from, to]`),
+  `isFollowing()`, `followLive()` (`scrollToRealTime` with a `setVisibleLogicalRange`
+  fallback preserving span), `goToRealtime()` (consumes `newBarsSinceAway`, calls
+  `followLive`), `fitAndFollow()` (`fitToWidth` + consume), `affordanceVisible()`
+  (currently `!following && newBarsSinceAway`), `fitToWidth()` (frame-all via
+  `fitContent`, newest-window fallback below `MIN_FIT_SPACING_PX`, deferred
+  `scheduleFitRetry` for zero-width boots), `replacePreservesViewport(ops)`
+  (`same_symbol === true` on any `set_bars`/`set_volume` op), `applyOps` (pre-update
+  follow capture, preserved-range re-apply vs fit, badge reconcile), probes
+  `lwIsFollowing`/`lwFollowProbe`/`lwVisibleRange`/`lwGoToRealtime`/`lwFit`/
+  `lwAffordanceVisible`. Price-pane autoscale is library-default (no `autoScale: false`
+  anywhere; the only custom provider is the volume pane's `autoscaleInfoProvider`).
+- `[existing] ui/lwc_view.py::LWCView` — the Python side P18 extends: `_viewport_memory:
+  dict` + `set_symbol` (save-on-switch-away, restore-on-switch-back via
+  `viewport_restore_op`), `report_viewport` / `_on_page_viewport_report` (throttled
+  gesture-end + post-update sink), `set_timeframe` (currently bare: sets the field and
+  calls `set_series`, no memory interaction), `set_series` continuity
+  (`same_symbol or _pending_viewport` → `same_symbol` op flag → page
+  `replacePreservesViewport`), `build_series_ops(..., same_symbol=False)`, `_logical`
+  index space parallel to `_plotted` rows whose `ts` column is real UTC epoch seconds.
+- `[existing] services/market_calendar.py::session_windows` + `trading_days` — the
+  mode-aware (RTH/ETH) session windows the frame cutoffs anchor to; `[existing]
+  ibkr/market_data.py::TIMEFRAME_CONFIG` — durations read by framing only as the
+  "frame what is loaded" bound (1 min/5 mins/15 mins/30 mins → 30 D; 1 hour/4 hours →
+  60 D; 1 day → 1 Y; 1 week → 2 Y; 1 month → 10 Y). Neither is modified.
+
+### Summary
+
+The main chart gains the one visible control D51 assumed but never built: a chevron
+glyph at the bottom-right of the price axis, shown whenever the viewport is away and
+hidden while following, whose click runs the existing `goToRealtime` scroll path. Every
+fresh load (different symbol) and every timeframe change opens on a predictable
+per-timeframe frame — session-anchored for intraday, calendar-anchored for daily+ —
+computed Python-side from the loaded bars and applied through the existing
+range-application path, with library autoscale covering the price axis. The Q95
+precedence is explicit: fresh framing wins on loads and timeframe changes while Q75
+follow-state memory still decides whether the fresh frame tracks the edge.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained: language / UI / engine / store | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only (vendored v5.2.x, LWC-only tree per P6-T13), SQLite, `ibapi-latest==10.51.1` untouched | Existing-repo hard constraint; P18 is viewport-presentation logic, not stack work | None entertained |
+| Constrained: follow model | Unchanged: page-side derivation (`isFollowingSlot`: newest slot inside the visible logical range), no stored follow flag | Q72 locked the model in P11 (S-P11-1); a stored flag would desync on unobserved gestures (AR-P11-1) | Any re-derivation of follow state (rejected — out of scope; D51 stands) |
+| Constrained: data path | Unchanged: fetch windows, planner steps, pacing budget, watchdog, D53 indicator, D56 retry — framing reads loaded bars only, never requests more | Explicit non-goal; framing chooses the initial visible window over already-loaded bars (`AC-D57.4` constraint) | Any fetch-window coupling (rejected — P19 owns scroll-triggered fetch) |
+| `[new]` Chevron home (S-P18-1) | In-page HTML `<button>` in `chart.html`, styled glyph-only, driven by `chart.js` through the existing viewport-change path; no Qt widget, no toolbar entry (A161) | D51's affordance was specified against the LWC page's headless entry points and the tree is LWC-only since P6-T13 — there is no other surface to put it on | Qt overlay widget (rejected — crosses the Qt-free geometry boundary P10 set; needs position sync with the library's price axis) |
+| `[new]` Frame computation home (S-P18-3) | Python-side in `ui/lwc_view.py`: cutoff from `market_calendar` session windows (intraday, mode-aware) or calendar arithmetic (daily+), mapped to logical slots via `_logical`; page applies the range, nothing more | Session anchoring needs calendar + mode + timeframe knowledge that lives Python-side; the page has no bar-count-per-session mapping and hardcoding one in JS would duplicate the calendar | Page-side framing from snapshot length (rejected — the page cannot resolve "last 2 sessions" to bars without the calendar/mode; count-based spans would drift across holidays and RTH/ETH switches) |
+| `[new]` Test harnesses | Offscreen pytest (page-DOM + viewport-slot assertions) + `node --test` for the `chart.js` pure core; seeded-series cases per timeframe | Repo standard; every D57 criterion is offscreen-measurable (Journeys 52–53) | Live-TWS validation (rejected — no live session needed for viewport logic) |
+
+### System Components
+
+- `[new/changed] chart_assets/lwc/chart.html` — gains the chevron button DOM (single
+  glyph element inside the page; hidden by default). No asset, module-order, or
+  offline-policy change (vendored-relative-only rule stands).
+- `[new/changed] chart_assets/lwc/chart.js` — gains the chevron visibility control
+  (away-only rule, S-P18-1) + click wiring to the existing `goToRealtime`, and a
+  frame-range application branch for fresh-load/timeframe-change replaces (S-P18-3).
+  Follow derivation, live-path gating, badge bookkeeping internals, and `fitToWidth`
+  are unchanged.
+- `[new/changed] ui/lwc_view.py` — gains the session-anchored frame computation
+  (cutoff → logical `{from, to}` + `following`, emitted post-`set_series` through the
+  existing range-op wire shape) and the fresh-frame precedence in `set_symbol`
+  (different symbol) and `set_timeframe` (any change). Bar-domain emit behaviour and
+  the viewport-report sink are unchanged.
+- `[existing] ui/main_window.py` — load/switch lifecycle flows through the existing
+  `set_symbol` / `set_series` calls unchanged; no new wiring (the frame is a
+  view-internal consequence of those calls).
+- `[existing] ui/lwc_bridge.py` — reused op/signal transport; no new channel type
+  (frame travels the existing interaction-op path Task Manager details).
+- `[existing] services/market_calendar.py`, `services/chart_model.py`,
+  `ibkr/market_data.py` — read-only inputs (sessions, plotted rows, durations).
+
+### Data Model
+
+- `[existing] LWCView._viewport_memory: dict` (`symbol → {range, following}`,
+  in-memory session state, upper-cased keys) — write path unchanged (the throttled
+  report sink keeps feeding it); the **range component is no longer read on restore**
+  (S-P18-4 revises S-P11-5 — recorded, not silent). No field added or removed; no
+  migration — viewport position stays session state (AP-P11-2 stands).
+- `[new] Fresh-frame directive` — per-load `{range, following}` computed from the
+  plotted bars + cutoff (S-P18-3/S-P18-4). In-memory session state like the memory
+  store; no persistence, no schema change.
+- `[existing] Bar` / `bars` table, `Drawing` / `DrawingGroup`, `Alarm` + `alarms`
+  table — untouched.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths, SQLite, Qt signals and
+`pacing_manager` are untouched — P18 issues no new request type, changes no
+subscription behaviour, and adds no indicator surface.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen).
+Task Manager gives workers the contract, never the implementation.
+
+- `chart_assets/lwc/chart.js::goToRealtime` — verbatim contract: scroll to the live
+  edge preserving the current span (`followLive`: library `scrollToRealTime`, else
+  `setVisibleLogicalRange({from: slot − span, to: slot})`), re-engage follow, consume
+  the pending badge (`newBarsSinceAway = false`), return the `followLive` boolean.
+  S-P18-2 adds a caller (the chevron); the function body is unchanged.
+- `chart_assets/lwc/chart.js::fitToWidth` — verbatim contract: zero bars → no-op
+  `true`; width below `MIN_FIT_WIDTH_PX` → arm `needsFit` + bounded retry, return
+  `false`; barcode regime → newest window at `WINDOW_SPACING_PX` with
+  `RIGHT_PADDING_BARS`; else `fitContent()`. Unchanged (still the Fit/reset path and
+  the clamp-below-span fallback).
+- `chart_assets/lwc/chart.js::isFollowingSlot` — verbatim contract: following iff
+  `Number(newestSlot)` is finite, `≥ 0`, and inside `[Number(range.from),
+  Number(range.to)]`; empty series or missing/non-finite range is never following.
+  Unchanged (S-P18-1's visibility rule is a new consumer of this derivation).
+- `ui/lwc_view.py::update_live_bar` bar-domain contract — verbatim: same-timestamp
+  tick replaces the forming bar, newer timestamp appends, out-of-order tick ignored;
+  only the tick's ops cross, history never resent. Unchanged.
+- `chart_assets/lwc` envelope op validation (`window.LwEnvelope.validateEnvelope`,
+  `same_symbol` stamping on `set_bars`/`set_volume`) — the wire shape the frame
+  directive reuses is unchanged; only a new producer fills it.
+- `ibkr/market_data.py::TIMEFRAME_CONFIG` durations — read-only bound for the
+  clamp-below-span rule; no duration or bar size changes.
+- `services/market_calendar.py::session_windows` / `::trading_days` — read-only
+  session anchoring; calendar semantics unchanged.
+- `ui/chart_view.py::DrawingController` signals, `data/drawing_store.py` /
+  `data/alarm_store.py` contracts, the D28.2 sole-writer rule (P11 § Frozen
+  Interfaces) — untouched.
+
+NOT frozen (revised this phase, so no worker may assume the old contract):
+`affordanceVisible`'s away-AND-new-bars rule (superseded by S-P18-1) and
+`set_symbol`'s range-restore on switch-back (superseded by S-P18-4).
+
+### Non-Functional Approach
+
+- **Correctness over coverage:** each wave lands its repro test red-first —
+  viewport-state × new-bars matrix for the chevron (away-alone cell visible proves the
+  supersession), click-case post-click range + follow + hidden assertions, and
+  per-timeframe seeded-series frame assertions (cutoff-anchored, clamped, zero-bar
+  no-op) plus switch-back/timeframe-change fresh-frame + follow-state cases.
+- **Performance:** chevron visibility is O(1) per viewport-change notification (pure
+  range compare, no timer/poll); framing is computed once per load/timeframe-change
+  over the plotted rows (no per-tick work); no new Python↔page round-trip beyond the
+  single post-`set_series` frame op.
+- **Safety:** the Qt-free geometry boundary holds — viewport math stays in page JS,
+  lifecycle + calendar in Python; the bar-domain and data paths are untouched so the
+  P7/P14/P15 behaviour cannot regress; no order-code surface touched (D45/D46
+  invariants hold); no live TWS needed.
+- **Visual gate:** the chevron reuses the proven in-chart control idiom (D3, P11
+  AP-P11-4); presence + behaviour gating only — exact pixels, offsets and dark-theme
+  values are Build details asserted tolerantly (placement region + glyph-only +
+  visibility coupling per `AC-D57.3`).
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P18-1 — chevron overlaps price-axis labels or the time scale at narrow widths | M / L | Absolute-positioned in the `#chart` container with the price-scale allowance convention (`PRICE_SCALE_ALLOWANCE_PX`); placement asserted as a region (bottom-right of the price axis), not exact pixels; keyboard-focusable `<button>` with aria-label so it is reachable even if visually tight |
+| AR-P18-2 — frame lands before layout completes (zero-width boot) and is lost | M / L | Frame application reuses the `needsFit`/`scheduleFitRetry` deferred path: a frame that cannot land arms the retry instead of dropping; the deferred-fit backstop (Journey 52 edge) is asserted offscreen |
+| AR-P18-3 — span wider than loaded history frames an empty window | M / M | Cutoff clamps to the oldest loaded bar (`AC-D57.4` constraint: frame what is loaded, no fetch change); clamped and zero-bar cases are explicit seeded-series assertions |
+| AR-P18-4 — P11 offscreen suites asserting away-alone-hidden go red under the superseded badge rule | M / H | Expected, declared churn (not a regression): S-P18-1 names the supersession so Task Manager updates those assertions to away-only instead of "fixing" the code back; the P18-3 gate requires the updated suite green |
+| AR-P18-5 — timeframe change mid-flight applies a stale frame over the wrong series | M / M | Frame op is emitted post-`set_series` for the current (symbol, timeframe, mode) triple and ordered after the rows; a newer load/switch abandons the old frame with its wave per the existing lifecycle (Journey 53 rapid-switch edge) |
+| AR-P18-6 — remembered-away frame misplaces the newest slot inside the range and follow re-derives true | M / M | S-P18-4's minimal back-shift rule (frame excludes the newest slot iff remembered following is false) keeps the derivation honest; asserted as `following == false` + recency on the seeded switch-back cases |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P18-1 | **Chevron visibility: away-only (Q92 (a), D57.1).** A new page-side `chevronVisible()` returns `!isFollowing()` — visible whenever the viewport is scrolled into past bars regardless of whether new bars arrived, hidden while following. It supersedes `affordanceVisible`'s away-AND-new-bars rule for the visible control; `newBarsSinceAway` bookkeeping stays internal (still armed/disarmed on the same transitions, still probe-observable). The chevron is a glyph-only `<button>` (no text label) absolute-positioned bottom-right of the price axis (owner-decided placement, A161), toggled on the existing viewport-change notification path — no polling. Rationale: owner verbatim ("whenever away") + TradingView-exact; a badge-gated chevron leaves an away user with no way back on a quiet tape (DG109). Alternative: keep the badge rule for the chevron (rejected — Q92 (a) decided against it; it preserves the exact gap D57.1 exists to close). | `[revises P11: S-P11-4]` — visibility rule only; `goToRealtime`/`fitAndFollow` mechanics untouched |
+| S-P18-2 | **Chevron click = existing `goToRealtime` (Q93 (a), D57.2-click).** Click invokes `goToRealtime()` unchanged: scroll to the live edge preserving span, newest bar at the edge, follow re-engaged, badge consumed, chevron hides by derivation. No new viewport math, no Fit. Rationale: owner verbatim ("scroll to live edge preserving zoom — existing goToRealtime path"); preserves the user's zoom (Q93 default). Alternative: click runs full Fit (rejected — Q93 (b) declined; reframes what the user deliberately zoomed). | `[extends P11: S-P11-4]` — new caller of the frozen path |
+| S-P18-3 | **Fresh-frame computation: Python-side, session/calendar-anchored (D57.2).** Per load or timeframe change, `ui/lwc_view.py` computes a cutoff — intraday: start of the Nth session back via `market_calendar` mode-aware windows (1 min → 2 sessions; 5 mins → 5; 15 mins → 10; 30 mins → ~22; 1 hour → ~44; 4 hours → ~126); daily+: newest-bar ts minus span (1 day → 1 Y; 1 week → 1 Y; 1 month → 5 Y) — clamps the cutoff to the oldest loaded bar, maps first-ts-≥-cutoff to `_logical` slots mirroring the page's newest-window padding convention, and emits the frame post-`set_series` through the existing range-op wire shape. Zero bars → no-op (existing empty-series path). Rationale: `AC-D57.4` spans are session-anchored like the two owner-decided cells; only Python holds calendar + mode + timeframe together. Alternative: page-side count-based window (rejected — drifts across holidays and RTH/ETH switches; duplicates the calendar in JS). | `[new in P18]` — no prior phase decided load framing; composes with P11 S-P11-3 (data-replace continuity untouched) |
+| S-P18-4 | **Fresh-framing precedence with follow-state memory (Q95 (b), D57.2-precedence).** `set_symbol` to a different symbol and `set_timeframe` to any change always apply a fresh S-P18-3 frame — the Q75 remembered **range** is never restored (retiring S-P11-5's restore leg with explicit lineage on `AC-D57.5`/A165). The remembered **following** still applies: following (or default-true for no memory) → frame ends at the live edge; remembered-away → frame back-shifts minimally so the newest slot falls outside the range and away derives honestly. Same-symbol data replaces (backfill waves, mode switches) keep S-P11-3 preserve behaviour — Q95 covers loads and timeframe changes only, so D51.2's no-yank path is intact. Rationale: owner verbatim ("fresh framing every time"); keeps the deliberate Q75 multi-symbol improvement for the component that matters (follow) while the range — the part that yanked — goes fresh. Alternative: memory-wins everywhere (rejected — Q95 (b) overrode the (a) default explicitly). | `[revises P11: S-P11-5]` — range leg retired; follow-state leg stands |
+| S-P18-5 | **Y-framing: library autoscale, no code (D57.2-y, A163).** The frame sets only the time axis; the price pane autoscales over the framed bars by library default (verified: no `autoScale: false` in the page; the sole custom provider is the volume pane's, untouched). Rationale: the owner's "data is visible" ask is an x-frame problem once y follows the window; adding explicit y-math would duplicate the library. Alternative: explicit y-range op (rejected — second source of truth for what the library already derives; asserted instead by the `AC-D57.6` visible-price-range cases). | `[new in P18]` — assertion-only; no production y-path |
+| S-P18-6 | **Verification order: repro-first per wave, declared P11 churn, batch gate last.** P18-1 proves the chevron against the viewport × new-bars matrix (the away-alone-visible cell is the supersession proof) and the click case; P18-2 proves per-timeframe frames, clamping, zero-bar, switch-back and timeframe-change freshness with follow-state encoding. P11 suites asserting away-alone-hidden are updated to away-only as declared churn under S-P18-1 (AR-P18-4), not treated as regressions. Rationale: each D57 expectation is offscreen-measurable today via the P11 probes; the gate (P18-3) requires the full suite green with history intact. | `[new in P18]` — process decision; pins AR-P18-4 handling |
+
+

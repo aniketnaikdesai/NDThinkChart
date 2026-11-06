@@ -207,6 +207,18 @@ function replacePreservesViewport(ops) {
   return false;
 }
 
+/* S-P18-1 (D57.1): away-only chevron visibility (pure core, node-tested).
+ * The visible chevron is shown whenever the viewport is away, with or
+ * without newly arrived bars, and hidden while following — superseding
+ * `affordanceVisible`'s away-AND-new-bars rule for the visible control
+ * (recorded, not silent). The `newBarsSinceAway` parameter is therefore
+ * intentionally ignored: the flag stays internal (still armed/disarmed on
+ * the same transitions, still probe-observable) but no longer gates the
+ * visible control. */
+function chevronVisible(following, newBarsSinceAway) {
+  return !following;
+}
+
 /* ── browser glue (browser only; node loads just the pure core) ─── */
 if (typeof window !== "undefined" && typeof document !== "undefined") (function () {
   "use strict";
@@ -214,6 +226,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   var chart = null;
   var chartEl = null; // the #chart container (for the width-aware fit)
   var needsFit = false; // data arrived before the container had a width
+  /* S-P18-3 (D57.2): a fresh-frame directive that arrived before the
+   * container had a width — landed by the needsFit retry / resize path
+   * before any fit fallback, so the frame is never dropped. */
+  var pendingFrame = null;
   var priceSeries = {}; // mode -> series handle (candles/hollow share one)
   var candleSeries = null; // active candlestick handle (candles + hollow)
   var lineSeries = null;
@@ -233,6 +249,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   /* S-P11-4 (D51.3): go-to-realtime badge state — armed when live bars extend
    * the series while scrolled back, disarmed on any resume. */
   var newBarsSinceAway = false;
+  /* S-P18-1 (D57.1): the visible chevron button handle — the static
+   * #goToLatest element from chart.html when present, otherwise created
+   * once at init with the same attributes (harness path). Null until init
+   * wires it, and on page stubs without button DOM (older harnesses). */
+  var chevronBtn = null;
 
   /* Q-23 layout/fit policy. The page boots before the Qt host has a size in
    * the failure case: a fit then divides by a zero width, the library gets a
@@ -617,14 +638,35 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     if (typeof ResizeObserver !== "undefined") {
       new ResizeObserver(function () {
         var size = ensureChartSize();
+        if (size.width < MIN_FIT_WIDTH_PX || size.height < 1) return;
         if (needsFit && size.width >= MIN_FIT_WIDTH_PX && size.height >= 1) {
-          fitToWidth();
+          landDeferred();
+          return;
         }
+        /* S-P18-4 (ESC-104): the library preserves bar spacing across a
+         * container resize, so a range landed at boot width strands the
+         * viewport in empty space at full width (framed 0..81 at 1.6px
+         * extends to -472 — every drag anchor clamps to bar 0). Re-assert
+         * the current range so spacing rescales to the new width. The
+         * slots are unchanged, so this is viewport-preserving, never a
+         * yank: follow/away derivation reads slots, not pixels. */
+        var cur = null;
+        try { cur = chart.timeScale().getVisibleLogicalRange(); } catch (err) { cur = null; }
+        if (cur && isFinite(Number(cur.from)) && isFinite(Number(cur.to)) &&
+            Number(cur.to) > Number(cur.from)) {
+          try {
+            chart.timeScale().setVisibleLogicalRange(
+              { from: Number(cur.from), to: Number(cur.to) });
+          } catch (err) { /* keep the pre-resize range */ }
+        }
+        updateChevron(); // S-P18-1: a resize may move follow/away geometry
       }).observe(el);
     }
     ensureChartSize();
     if (needsFit) fitToWidth();
     bindKeyboard(el);
+    ensureChevronButton(); // S-P18-1: wire the chevron (hidden by default)
+    updateChevron();
     bindChannel();
   }
 
@@ -657,6 +699,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
         reportKey(ev.key);
         ev.preventDefault();
       }
+      updateChevron(); // S-P18-1: pan/zoom is a viewport change — re-derive
     });
   }
 
@@ -776,7 +819,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
    * Consumes the pending badge: the bars it announces are now on screen. */
   function goToRealtime() {
     newBarsSinceAway = false;
-    return followLive();
+    var ok = followLive();
+    updateChevron();
+    return ok;
   }
 
   /* S-P11-4 (D51.3): Fit/reset — frame all loaded bars through the existing
@@ -787,6 +832,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   function fitAndFollow() {
     var ok = fitToWidth();
     if (ok) newBarsSinceAway = false;
+    updateChevron();
     return ok;
   }
 
@@ -799,6 +845,70 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     var following = isFollowing();
     if (following) newBarsSinceAway = false;
     return !following && newBarsSinceAway;
+  }
+
+  /* S-P18-1 (D57.1): the visible go-to-latest chevron — away-only
+   * visibility + goToRealtime click. `updateChevron()` derives the visible
+   * state (`!isFollowing()`, the pure `chevronVisible` rule) and toggles
+   * the glyph-only #goToLatest button; it runs only on the viewport-change
+   * paths (keyboard pan/zoom, goToRealtime, fitAndFollow, applyOps, the
+   * deferred landing, init) — never on a timer (no polling). The badge
+   * bookkeeping above stays internal and probe-observable. */
+  function configureChevronButton(btn) {
+    if (!btn || btn.tagName !== "BUTTON") return null;
+    if (typeof btn.setAttribute === "function") {
+      btn.setAttribute("type", "button");
+      btn.setAttribute("aria-label", "Go to latest");
+    }
+    btn.textContent = "❯"; // glyph only — no text label
+    if (btn.style) {
+      btn.style.position = "absolute";
+      btn.style.right = "80px"; // clear of the right price scale
+      btn.style.bottom = "30px"; // clear of the time axis
+      btn.style.zIndex = "5";
+    }
+    btn.hidden = true; // hidden by default; updateChevron derives the state
+    if (typeof btn.addEventListener === "function") {
+      btn.addEventListener("click", function () {
+        goToRealtime();
+        updateChevron();
+      });
+    }
+    return btn;
+  }
+
+  function ensureChevronButton() {
+    if (chevronBtn) return chevronBtn;
+    var found = null;
+    try {
+      found = document.getElementById("goToLatest");
+    } catch (err) {
+      found = null;
+    }
+    if (found && found.tagName === "BUTTON") {
+      chevronBtn = configureChevronButton(found);
+    } else if (typeof document.createElement === "function" && chartEl &&
+        typeof chartEl.appendChild === "function") {
+      chevronBtn = configureChevronButton(document.createElement("button"));
+      if (chevronBtn) chartEl.appendChild(chevronBtn);
+    }
+    return chevronBtn;
+  }
+
+  function updateChevron() {
+    /* ESC-105: an empty chart is never "away" — with no bars the newest
+     * slot (-1) fails the isFollowingSlot range check, which reads as away
+     * and would unhide the chevron on first paint despite the
+     * hidden-by-default markup. No bars -> hidden. The pure
+     * chevronVisible(following, newBars) matrix is untouched: every live
+     * path seeds candles first, so this guard cannot change it. */
+    if (newestBarSlot() < 0) {
+      if (chevronBtn) chevronBtn.hidden = true;
+      return false;
+    }
+    var visible = !isFollowing();
+    if (chevronBtn) chevronBtn.hidden = !visible;
+    return visible;
   }
 
   /* Q-20: a keyboard gesture the page handled crosses to Python (the bridge's
@@ -965,7 +1075,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       fitRetryTimer = null;
       fitRetryCount += 1;
       if (!needsFit) return;
-      if (!fitToWidth()) scheduleFitRetry();
+      if (!landDeferred()) scheduleFitRetry();
     }, 100);
   }
 
@@ -975,6 +1085,55 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       fitRetryTimer = null;
     }
     fitRetryCount = 0;
+  }
+
+  /* S-P18-3 (D57.2): apply one explicit fresh frame over the
+   * preserved-range path. `false` when unlaid-out (or on no chart /
+   * junk range) — the caller defers via the needsFit retry instead of
+   * dropping the frame (AR-P18-2). */
+  function applyFreshFrame(range) {
+    if (!chart || !range) return false;
+    var from = Number(range.from);
+    var to = Number(range.to);
+    if (!isFinite(from) || !isFinite(to)) return false;
+    try {
+      var size = ensureChartSize();
+      if (size.width < MIN_FIT_WIDTH_PX || size.height < 1) return false;
+      chart.timeScale().setVisibleLogicalRange({ from: from, to: to });
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /* S-P18-3: land one fresh-frame directive now, or stash it for the
+   * needsFit retry when it cannot land yet. */
+  function landFreshFrame(frameOp) {
+    pendingFrame = null;
+    var range = (frameOp && frameOp.range) || {};
+    if (applyFreshFrame(range)) return true;
+    pendingFrame = { from: Number(range.from), to: Number(range.to) };
+    needsFit = true;
+    scheduleFitRetry();
+    return false;
+  }
+
+  /* S-P18-3: land one deferred request — a pending fresh frame wins over
+   * the fit fallback, mirroring the retry ordering below. */
+  function landDeferred() {
+    if (pendingFrame) {
+      if (applyFreshFrame(pendingFrame)) {
+        pendingFrame = null;
+        needsFit = false;
+        cancelFitRetry();
+        updateChevron(); // S-P18-1: the deferred frame moved the viewport
+        return true;
+      }
+      return false;
+    }
+    var ok = fitToWidth();
+    updateChevron(); // S-P18-1: the deferred fit moved the viewport
+    return ok;
   }
 
   /* Apply one envelope idempotently; returns { applied, error }.
@@ -988,6 +1147,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     if (!check.ok) return { applied: 0, error: check.error };
     var applied = 0;
     var sawReplace = false;
+    /* S-P18-3: the fresh-frame directive rides the bar envelope after the
+     * rows in the existing range-op wire shape — it is not a replace. */
+    var freshFrame = null;
     /* S-P11-2: capture follow state BEFORE the upserts land — appending a new
      * period moves the newest slot, so a post-update check would read every
      * live edge as scrolled back and never follow. S-P11-4: the pre-update
@@ -1002,6 +1164,12 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       : null;
     for (var i = 0; i < env.ops.length; i++) {
       var op = env.ops[i];
+      if (op && typeof op === "object" && op.op === "set_visible_range" &&
+          op.range && typeof op.range === "object") {
+        freshFrame = op;
+        applied++;
+        continue;
+      }
       var kind = describeOp(op);
       if (kind.action === "ignore") continue;
       if (kind.action === "clear") {
@@ -1026,7 +1194,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
      * while following, through the realtime scroll, and leave a scrolled-back
      * viewport bit-identical — new bars never auto-resume follow. */
     if (sawReplace) {
-      if (preservedRange) {
+      if (freshFrame) {
+        /* S-P18-3: an explicit fresh frame wins over the preserved-range
+         * path, ordered after the rows. Unlaid-out → defer via needsFit. */
+        landFreshFrame(freshFrame);
+      } else if (preservedRange) {
         try {
           chart.timeScale().setVisibleLogicalRange({
             from: preservedRange.from,
@@ -1038,6 +1210,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       } else {
         fitToWidth();
       }
+    } else if (freshFrame) {
+      /* Defensive: a lone frame directive (the Python driver always
+       * appends it to a replace) still lands or defers. */
+      landFreshFrame(freshFrame);
     } else if (applied > 0 && followingBefore) {
       followLive();
     }
@@ -1051,6 +1227,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     } else if (newestBarSlot() > slotBefore) {
       newBarsSinceAway = true;
     }
+    updateChevron(); // S-P18-1: the envelope moved the viewport — re-derive
     return { applied: applied, error: null };
   }
 
@@ -1183,6 +1360,13 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
    * realtime scroll (above) consumes it. */
   window.lwFit = fitAndFollow;
   window.lwAffordanceVisible = affordanceVisible;
+  /* S-P18-1 (D57.1): the away-only chevron probe — returns !isFollowing()
+   * and toggles the chevron <button> to match (badge bookkeeping stays
+   * internal, still observable through lwAffordanceVisible). ESC-105: an
+   * empty chart answers hidden (never away). */
+  window.lwChevronVisible = function () {
+    return updateChevron();
+  };
   /* Q-23: the page's own bitmap, so the acceptance can look at the candles
    * instead of trusting a count. Returns a composited canvas (or null). */
   window.lwTakeScreenshot = function () {
@@ -1246,6 +1430,7 @@ if (typeof module !== "undefined" && module.exports) {
     describeOp: describeOp,
     isFollowingSlot: isFollowingSlot,
     replacePreservesViewport: replacePreservesViewport,
+    chevronVisible: chevronVisible,
     volumeBarColor: volumeBarColor,
     visibleVolumeMax: visibleVolumeMax,
     volumeCeiling: volumeCeiling,

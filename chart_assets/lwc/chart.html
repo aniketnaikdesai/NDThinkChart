@@ -25,6 +25,27 @@
   html, body { margin: 0; padding: 0; background: #0d0f14; height: 100%; }
   #chart { width: 100%; height: 100%; }
   #chart:focus { outline: 1px solid #4b5563; }
+  /* S-P18-1 (D57.2-click target, D57.1): the visible go-to-latest chevron.
+   * Glyph-only <button> (no text label), keyboard-focusable with an
+   * aria-label, hidden by default; chart.js toggles `hidden` on the
+   * viewport-change path only (no polling). Bottom-right of the price axis:
+   * clear of the right price scale (~70px allowance) and the time axis. */
+  #goToLatest {
+    position: absolute;
+    right: 80px;
+    bottom: 30px;
+    z-index: 5;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid #4b5563;
+    background: rgba(17, 24, 39, 0.9);
+    color: #e5e7eb;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #goToLatest[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -33,6 +54,11 @@
      +/- zoom, Esc releases focus back to the Qt focus chain. -->
 <div id="chart" tabindex="0" role="application"
      aria-label="Price chart. Arrow keys pan, plus and minus zoom, Escape returns focus."></div>
+<!-- S-P18-1 (D57.1): the visible go-to-latest chevron — a glyph-only button
+     (no text label), keyboard-focusable with an aria-label, hidden by
+     default. chart.js owns the visibility (away-only) and the click wiring;
+     no asset, module-order, or offline-policy change (no new scripts). -->
+<button id="goToLatest" type="button" aria-label="Go to latest" hidden>❯</button>
 <script src="./chart.js"></script>
 </body>
 </html>

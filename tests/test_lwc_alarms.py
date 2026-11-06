@@ -413,6 +413,13 @@ class TestRendererBoundary:
                            for p in op["cols"]["price"])
 
     def test_P6_T08_T12_alarms_never_ride_the_bar_transport(self, qapp):
+        # ESC-102 / AR-P18-5 (P18-T3 re-pin, support change only): the
+        # series-less fresh-frame viewport directive ({op:
+        # set_visible_range, ...}) rides the bar envelope ordered after the
+        # rows by design — excluded from the renderer-series membership
+        # check. The renderer-exclusion intent stands: any op carrying a
+        # series key on this transport must still be a bar op, so an alarm
+        # op riding the bars still fails.
         from datetime import datetime, timezone
 
         from data.models import Bar
@@ -425,7 +432,11 @@ class TestRendererBoundary:
         view.set_series("candles", [bar])
         log = view.bridge.replay_log()
         assert log, "the bar transport carries the candles/volume ops"
-        assert all(op["series"] in {"candles", "volume"} for op in log)
-        assert [op for op in log if op["series"] == "alarms"] == []
+        frames = [op for op in log if op.get("op") == "set_visible_range"]
+        assert all("series" not in op for op in frames)
+        bar_ops = [op for op in log if op.get("op") != "set_visible_range"]
+        assert bar_ops, "the bar transport carries the candles/volume ops"
+        assert all(op.get("series") in {"candles", "volume"} for op in bar_ops)
+        assert [op for op in log if op.get("series") == "alarms"] == []
         # And the alarm channel carries no bar op.
         assert all(op["series"] == "alarms" for op in view.alarm_ops)

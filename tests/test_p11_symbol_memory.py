@@ -44,14 +44,16 @@ def _view(qapp):
     return view
 
 
-def test_p11_t4_t41_switch_away_and_back_restores_viewport(qapp):
-    """P11-T4-T41 (AC1): switch-back restores the remembered viewport.
+def test_p11_t4_t41_switch_away_and_back_applies_fresh_frame(qapp):
+    """P11-T4-T41 (AC1) as revised by S-P18-4/ESC-103 (P18-T3 declared churn).
 
-    Symbol A scrolled back (two reports — the freshest gesture-end /
-    post-update report wins, AR-P11-2); switch to B; switch back to A
-    (mixed case). A's remembered range + follow state is restored exactly
-    via one ``set_visible_range`` range op, and B's own report is saved
-    under its key.
+    Switch-back never restores the remembered range (the S-P11-5 range leg
+    is retired with lineage): the switch itself emits no ``set_visible_range``
+    op, and the next load carries a fresh S-P18-3 frame instead — with the
+    remembered *following* values still encoded in the store and the live
+    follow-state on the fresh frame (default-true tracking on a fresh switch,
+    S-P18-4; the remembered-away back-shift leg is pinned by P18-T2-T24).
+    The upper-cased save path and the in-memory store are unchanged.
     """
     view = _view(qapp)
     marked = len(view.interaction_ops)
@@ -67,20 +69,34 @@ def test_p11_t4_t41_switch_away_and_back_restores_viewport(qapp):
     # JSON slot, the mirror of opsJson) into the same sink.
     view.bridge.viewportReport(json.dumps(
         {"range": {"from": 0.0, "to": 30.0}, "following": True}))
-    # Switch back to A (mixed case): one range op restores A exactly, and
-    # B's report is saved under its own key.
+    # Switch back to A (mixed case): the remembered range is NOT restored —
+    # the switch emits no range op — and B's report is saved under its key.
     view.set_symbol("aAa")
     assert view.viewport_memory["BBB"] == {
         "range": {"from": 0.0, "to": 30.0}, "following": True}
     restores = [op for op in view.interaction_ops[marked:]
                 if op.get("op") == "set_visible_range"]
-    assert len(restores) == 1
-    assert restores[0]["range"] == {"from": 2.0, "to": 20.0}
-    assert restores[0]["following"] is False
-    # The restore rides the existing interaction channel (no new channel
-    # type, no bar-transport change).
+    assert restores == [], "S-P18-4: no range-restore op on switch-back"
+    # The next load carries a fresh frame instead (S-P18-3 wire shape on the
+    # bar transport, ordered after the rows per AR-P18-5) — never the
+    # remembered {from 2, to 20} range — with tracking (a fresh switch
+    # starts with no live pending report, so default-true applies).
+    before = len(view.bridge.replay_log())
+    view.set_series("candles", _bars("AAA"))
+    fresh = view.bridge.replay_log()[before:]
+    frames = [op for op in fresh if op.get("op") == "set_visible_range"]
+    assert len(frames) == 1, f"one fresh frame op, got {frames}"
+    frame = frames[0]
+    assert frame["range"] != {"from": 2.0, "to": 20.0}
+    assert frame["following"] is True
+    assert "series" not in frame, "the frame directive is series-less"
+    kinds = [op.get("op") for op in fresh]
+    assert kinds.index("set_bars") < kinds.index("set_visible_range")
+    # And the interaction channel carries no restore either (no new channel
+    # type, no bar-transport change — the frame rides the bar envelope).
     channel_ops = view.bridge._channel_logs["interaction"]
-    assert restores[0] in channel_ops
+    assert [op for op in channel_ops
+            if op.get("op") == "set_visible_range"] == []
 
 
 def test_p11_t4_t42_upper_case_keying_no_persistence(qapp):

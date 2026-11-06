@@ -4406,3 +4406,163 @@ the indicator state), so Task Manager serialises on the shared file.
   entries remain unapplied (file absent); D1–P16 stay closed by the additive-only rule.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P18 — Viewport UX: visible go-to-latest chevron + fresh per-timeframe framing (D57) — drafted 2026-11-05
+
+> Companion: `docs/architecture.md` § *Phase P18* (Codebase Summary, S-P18-1…S-P18-6,
+> frozen interfaces, non-functional, AR-P18-1…AR-P18-6). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P18 (D57),
+> Journeys 52–53, `AC-D57.1`–`AC-D57.7` FINAL (Q92–Q95 answered-owner-confirmed
+> 2026-11-05; no blocking item), A161–A165 (A165 overridden with lineage), R119–R121
+> (resolved), `design_gaps.md` DG109–DG110 (resolved; DG111 is P19-owned).
+> Hard constraints: **D1–P17 are NOT reopened** (the two P11 revisions — visibility
+> rule S-P11-4 → S-P18-1, range-restore S-P11-5 → S-P18-4 — are recorded revisions with
+> lineage, not silent reopens); sizes S/M only; no watchdog retuning, no chunk
+> resizing, no TWS-side diagnosis, no new indicator surface, no fetch-window change, no
+> D51 criterion change beyond the two recorded supersessions. One phase only — nothing
+> past the D57 viewport UX is planned (P19 prefetch is separate).
+
+### Traceability (requirement → architecture → phase)
+
+| Requirement / input | Architecture section | Phase |
+|---|---|---|
+| D57.1 / `AC-D57.1` (chevron visible whenever away — Q92 (a)) + Journey 52 + DG109 + R119 | S-P18-1 (away-only rule, supersedes badge rule); Frozen (`isFollowingSlot`, everything else untouched) | P18-1 |
+| D57.1 / `AC-D57.2` (click = scroll-to-edge preserving span — Q93 (a)) + Journey 52 | S-P18-2 (existing `goToRealtime` caller); Frozen (`goToRealtime`/`followLive`) | P18-1 |
+| D57.1 / `AC-D57.3` (glyph-only, bottom-right of price axis, visibility-coupled) | S-P18-1 (DOM shape + placement region + toggle path); Non-Functional (visual gate) | P18-1 |
+| D57.2 / `AC-D57.4` (per-timeframe x-spans — 1 min/5 min decided + Q94 (a) table) + Journey 53 + DG110 + R120 | S-P18-3 (cutoff rule + clamp + zero-bar no-op); Frozen (`TIMEFRAME_CONFIG`, `session_windows`) | P18-2 |
+| D57.2 / `AC-D57.5` (framing always fresh; follow-state memory stands — Q95 (b)) + Journey 53 + A165 + R121 | S-P18-4 (precedence + minimal back-shift); Data Model (range no longer read) | P18-2 |
+| D57.2 / `AC-D57.6` (autoscale y over the framed window — A163) | S-P18-5 (library default, assertion-only) | P18-2 |
+| D57.7 (history intact) | Frozen Interfaces + S-P18-6 (gate) | P18-3 |
+| A161–A165, R119–R121, DG109–DG110, Q92–Q95 | S-P18-1…S-P18-6 | Every phase (guards) |
+
+Every D57 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Phases
+
+Each phase is a milestone, coarser than tasks; the Task Manager decomposes each into
+tasks with acceptance criteria and tests. Phases are ordered; a later phase depends on
+earlier ones unless stated. `touches_files` notes list the files a phase touches and
+flag the serialisation points.
+
+### P18-1 — Visible chevron: away-only visibility + go-to-realtime click (D57.1) — size S
+
+- **Goal:** the main chart shows a glyph-only chevron at the bottom-right of the price
+  axis whenever the viewport is away and hides it while following; one click scrolls
+  to the live edge preserving span and re-engages follow.
+- **Covers:** D57.1; `AC-D57.1` (away-alone-visible matrix incl. the supersession
+  proof); `AC-D57.2` (post-click range + follow + chevron-hidden); `AC-D57.3`
+  (placement + glyph-only + visibility coupling); Journey 52 incl. the deferred-fit,
+  pan-back-to-edge and Fit/reset edges; A161/A162; R119; DG109.
+- **Deliverables:**
+  - `[new/changed] chart_assets/lwc/chart.html` — the chevron `<button>` DOM
+    (glyph-only, keyboard-focusable with aria-label, hidden by default; no asset,
+    module-order or offline-policy change).
+  - `[new/changed] chart_assets/lwc/chart.js` — the away-only visibility control
+    (`!isFollowing()`, superseding the badge rule per S-P18-1; badge bookkeeping
+    stays internal), click wiring to the unchanged `goToRealtime`, and toggle on the
+    existing viewport-change notification path (no polling). `followLive`,
+    `fitAndFollow`, `fitToWidth` and the derivation itself are untouched.
+  - `[new/changed] tests` — offscreen viewport-state × new-bars matrix (away-alone
+    cells visible is the red-first proof against the old rule), click cases, and
+    page-DOM placement/glyph/visibility-coupling cases; `node --test` core cases for
+    the visibility predicate.
+- **Dependencies:** none (first phase; reads P11 contracts, changes only the two
+  recorded revisions).
+- **`touches_files`:** `chart_assets/lwc/chart.html` + `chart_assets/lwc/chart.js` +
+  new/existing offscreen + `node --test` suites. No overlap with any other phase's
+  production files (`ui/lwc_view.py` framing work is P18-2).
+- **Exit condition:** chevron visible in every away cell (with and without new bars),
+  hidden in every following cell; click lands the span-preserved live edge with follow
+  re-engaged and the chevron hidden; placement/glyph assertions hold.
+
+### P18-2 — Fresh per-timeframe framing with follow-state memory (D57.2) — size M
+
+- **Goal:** every different-symbol load and every timeframe change opens on the
+  `AC-D57.4` frame with autoscaled y; remembered follow-state still decides whether
+  the fresh frame tracks the edge; same-symbol data replaces keep preserving.
+- **Covers:** D57.2; `AC-D57.4` (nine per-timeframe seeded-series frames incl. clamp
+  and zero-bar); `AC-D57.5` (switch-back + timeframe-change freshness with follow-state
+  encoding); `AC-D57.6` (visible price range covers the framed bars); Journey 53
+  incl. rapid-switch, narrower-than-span and mode-switch edges; A163/A164/A165; R120/R121; DG110.
+- **Deliverables:**
+  - `[new/changed] ui/lwc_view.py` — the session-anchored frame computation (cutoff →
+    logical `{from, to}` + `following`, clamped to loaded bars, zero-bar no-op),
+    emission post-`set_series` through the existing range-op wire shape, and the
+    precedence change (`set_symbol` to a different symbol and any `set_timeframe`
+    change request a fresh frame; remembered `following` applied per S-P18-4 with the
+    minimal back-shift for remembered-away; same-symbol replaces preserve per S-P11-3).
+    Bar-domain emit behaviour and the report sink are unchanged.
+  - `[new/changed] chart_assets/lwc/chart.js` (frame-application branch only) —
+    apply an explicit fresh frame over the preserved-range path when the replace
+    carries the fresh-frame directive (ordering after the rows; deferred-landing via
+    the existing `needsFit` retry when unlaid-out). No derivation, live-path or
+    chevron-logic change.
+  - `[new/changed] tests` — per-timeframe seeded-series frame cases (session- and
+    calendar-anchored cutoffs, clamping, zero-bar), switch-back freshness +
+    follow-state cases (following → edge frame + tracking; remembered-away → fresh
+    recent frame deriving away), timeframe-change freshness cases, and y-coverage
+    cases.
+- **Dependencies:** none on P18-1's production files (disjoint: page visibility logic
+  vs Python framing + frame-application branch); shares the P18-3 gate. May share a
+  wave with P18-1; Task Manager serialises only on `chart.js` if both waves touch it.
+- **`touches_files`:** `ui/lwc_view.py` + `chart_assets/lwc/chart.js` (frame branch
+  only — disjoint from P18-1's visibility/click hunks) + offscreen suites.
+- **Exit condition:** all nine timeframes frame to their spans (or to loaded bars when
+  narrower); switch-back and timeframe-change cases show fresh frames with the
+  remembered follow-state honoured; same-symbol replaces still preserve; y covers the
+  framed bars whenever bars exist.
+
+### P18-3 — Cross-state verification + batch gate — size S
+
+- **Goal:** chevron × framing interactions hold jointly and the full suite stays green
+  with history intact.
+- **Covers:** D57.7; cross-AC interactions (fresh frame while following hides the
+  chevron; fresh frame while remembered-away shows it; chevron click after a fresh
+  frame; Fit/reset consistency after framing); the declared P11 churn (away-alone
+  assertions updated to away-only per S-P18-1/AR-P18-4); A161–A165 guards; R119–R121.
+- **Deliverables:**
+  - `[new/changed] tests` — joint chevron/frame state cases across both follow states
+    plus the updated P11 away-alone assertions (rewritten to the superseded rule,
+    recorded as churn, never silently weakened).
+  - **Batch gate** — full offscreen suite green
+    (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`, clean run per the recorded
+    shared-test-DB / stale-`pytest`-shebang gotchas) + `node --test` for the page
+    core; `AC-D57.7` history-intact check (marker grep + the `### D4[1-9]` /
+    `### D5[0-6]` sections present, no pre-P18 wording touched).
+- **Dependencies:** P18-1 and P18-2 (verifies their joint behaviour; runs after both).
+- **`touches_files`:** offscreen + `node --test` suites only (no production edits).
+- **Exit condition:** joint-state cases green; full suite green; history intact.
+
+**Wave note.** P18-1 and P18-2 touch disjoint production surfaces except for two
+hunks in `chart_assets/lwc/chart.js` (visibility/click vs frame-application branch)
+that neither reads from the other — Task Manager may run them in one wave with the
+file serialised, or in two waves. P18-3 depends on both and runs last; it edits no
+production files.
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P18-1 | The chevron is a native page `<button>` (focusable, aria-labelled); exact pixels, offsets and dark-theme values are Build details asserted tolerantly as placement-region + glyph-only + visibility-coupling | `AC-D57.3` names placement and glyph, not pixels; the D3/P11 visual-gate precedent (behaviour gating, tolerant geometry) already covers this idiom |
+| AP-P18-2 | Intraday session counts derive from the span names (1 wk → 5 sessions, 2 wks → 10, 1 M → ~22, 2 M → ~44, 6 M → ~126) resolved through `market_calendar` mode-aware windows, so holidays and RTH/ETH switches need no special case | The spans are session-anchored by owner acceptance (A164); the calendar already encodes genuine closures (ESC-023) and mode windows (`AC-D16.9`) |
+| AP-P18-3 | A remembered-away fresh frame back-shifts minimally — the newest slot falls just outside the framed range — so `following == false` derives honestly while recency is maximal; the exact back-shift is asserted only as `following == false` + newest-window recency | The Q72 derivation model (P11 S-P11-1) leaves no other honest encoding: an explicit away flag would bifurcate the follow model, and a full-span retreat would bury the recent action the owner asked to see |
+| AP-P18-4 | Same-symbol data replaces (backfill continuations, mode switches) and pop-out views keep existing behaviour — Q95 covers different-symbol loads and timeframe changes only | `AC-D57.5` scopes the supersession explicitly; widening it to every replace would re-open D51.2/D51.5, which are FINAL and untouched |
+| AP-P18-5 | Sizes: P18-1 is S (one DOM element + visibility predicate + click wiring + matrix cases); P18-2 is M (cutoff computation across nine timeframes + precedence + frame-application branch + seeded matrices); P18-3 is S (joint cases + gate) | Owner scope sizes; no phase exceeds M |
+
+### Flagged Issues
+
+**None.** Every D57 item is satisfiable as written on the existing stack:
+
+- Q92–Q95 are all answered, so no phase waits on an owner decision; the three
+  recorded supersessions (badge rule → away-only per Q92; span table per Q94;
+  range-restore → fresh framing per Q95 with follow-state memory standing) are all
+  owner-decided with lineage on `AC-D57.1`/`AC-D57.4`/`AC-D57.5` and A165.
+- DG109–DG110 are resolved by those answers (DG111 is P19-owned and untouched).
+- The one genuine interaction the requirements leave to Plan — how remembered-away
+  composes with a fresh frame under a pure-derivation follow model — is decided by
+  S-P18-4/AP-P18-3 (minimal back-shift), not left for Task Manager to invent.
+- No `PLAN`-routed escalation is open (all `addressed`); no `pending_doc_sync.md`
+  entries remain unapplied (file absent); D1–P17 stay closed by the additive-only rule
+  plus the two recorded P11 revisions.
+
+Status: READY_FOR_TASK_MANAGER

@@ -252,26 +252,33 @@ console.log(JSON.stringify({
 
 
 def test_p11_t3_t32_affordance_visibility_and_invoke():
-    """P11-T3-T32 (AC2): badge iff away AND new-bars-since-away (AR-P11-4).
+    """P11-T3-T32 (AC2) as revised by S-P18-1/AR-P18-4 (P18-T3 declared churn).
 
-    Scrolled back + injected new bars shows the affordance; invoking it
-    scrolls to realtime (through the realtime scroll path) and re-engages
-    follow; the following state and the away-without-new-bars state keep it
-    hidden — both show/hide transitions asserted.
+    The badge (``lwAffordanceVisible``) keeps away-AND-new-bars internally
+    (still armed/disarmed on the same transitions, still probe-observable),
+    while the *visible* control (``lwChevronVisible``) is away-only — so the
+    two away-alone cells (no new bars; forming-bar ticks only) now assert the
+    chevron SHOWN where the badge stays hidden. Every other assertion is
+    unchanged: invoking still scrolls to realtime and re-engages follow, and
+    a manual pan-back-to-edge still hides both.
     """
     payload = _run_node(r"""
 assert.equal(typeof page.lwAffordanceVisible, "function", "badge probe exists");
+assert.equal(typeof page.lwChevronVisible, "function", "chevron probe exists");
 assert.equal(typeof page.lwGoToRealtime, "function", "resume entry exists");
 const N = 60;
 seedCandles(N);
-// Following: badge hidden (nothing to announce).
+// Following: badge and chevron both hidden (nothing to announce).
 assert.equal(page.lwIsFollowing(), true, "seeded edge follows");
 assert.equal(page.lwAffordanceVisible(), false, "hidden while following");
-// Away with no new bars: badge stays hidden.
+assert.equal(page.lwChevronVisible(), false, "chevron hidden while following");
+// Away with no new bars: the badge stays hidden internally, but the
+// visible chevron shows (S-P18-1 supersession of the badge rule).
 for (let i = 0; i < 6; i++) pressKey("ArrowLeft");
 assert.equal(page.lwIsFollowing(), false, "panned away");
-assert.equal(page.lwAffordanceVisible(), false, "hidden: away, no new bars");
-// Away + new bars: badge shows.
+assert.equal(page.lwAffordanceVisible(), false, "badge hidden: away, no new bars");
+assert.equal(page.lwChevronVisible(), true, "chevron shown: away, no new bars");
+// Away + new bars: both show.
 let lastT = BASE + (N - 1) * 300;
 for (let k = 0; k < 3; k++) {
   lastT += 300;
@@ -279,34 +286,41 @@ for (let k = 0; k < 3; k++) {
 }
 assert.equal(page.lwIsFollowing(), false, "bars alone never resume");
 assert.equal(page.lwAffordanceVisible(), true, "shown: away + new bars");
-// Invoke: realtime scroll re-engages follow and consumes the badge.
+assert.equal(page.lwChevronVisible(), true, "chevron shown: away + new bars");
+// Invoke: realtime scroll re-engages follow and consumes the badge;
+// the chevron hides by derivation.
 page.lwGoToRealtime();
 assert.ok(_scrollCalls >= 1, "invoke went through the realtime scroll path");
 assert.equal(page.lwIsFollowing(), true, "invoke re-engaged follow");
 assert.equal(page.lwAffordanceVisible(), false, "hidden after invoke resumes");
-// Away again + forming-bar ticks only (no new bars): stays hidden.
+assert.equal(page.lwChevronVisible(), false, "chevron hidden after invoke resumes");
+// Away again + forming-bar ticks only (no new bars): the badge stays
+// hidden internally, but the away-only chevron shows.
 for (let i = 0; i < 6; i++) pressKey("ArrowLeft");
 assert.equal(page.lwIsFollowing(), false, "away again");
 for (let k = 0; k < 3; k++) {
   liveTick(lastT, 106.0 + k * 0.01, 106.25, 105.75, 106.05, 1200);
 }
-assert.equal(page.lwAffordanceVisible(), false, "hidden: ticks are not bars");
+assert.equal(page.lwAffordanceVisible(), false, "badge hidden: ticks are not bars");
+assert.equal(page.lwChevronVisible(), true, "chevron shown: away, ticks are not bars");
 // Two new periods while away: badge shows again; a user pan-back-to-edge
-// (derivation, no invoke call) hides it.
+// (derivation, no invoke call) hides both.
 lastT += 300;
 liveTick(lastT, 106.0, 106.25, 105.75, 106.05, 1200);
 lastT += 300;
 liveTick(lastT, 106.1, 106.35, 105.85, 106.15, 1300);
 assert.equal(page.lwAffordanceVisible(), true, "shown again on new bars");
+assert.equal(page.lwChevronVisible(), true, "chevron shown again on new bars");
 let pans = 0;
 while (!page.lwIsFollowing() && pans < 40) { pressKey("ArrowRight"); pans++; }
 assert.equal(page.lwIsFollowing(), true, "user pan-back-to-edge resumes");
 assert.equal(page.lwAffordanceVisible(), false, "hidden after manual pan-back");
+assert.equal(page.lwChevronVisible(), false, "chevron hidden after manual pan-back");
 console.log(JSON.stringify({
   test: "T32", scrollCalls: _scrollCalls, userPans: pans,
   newestSlot: page.lwVisibleRange().newestSlot,
   range: page.lwVisibleRange().range, following: page.lwIsFollowing(),
-  badge: page.lwAffordanceVisible(),
+  badge: page.lwAffordanceVisible(), chevron: page.lwChevronVisible(),
 }));
 """)
     assert payload["test"] == "T32"
@@ -314,5 +328,6 @@ console.log(JSON.stringify({
     assert payload["newestSlot"] == 60 + 3 + 2 - 1
     assert payload["following"] is True
     assert payload["badge"] is False
+    assert payload["chevron"] is False
     rng = payload["range"]
     assert rng["from"] <= payload["newestSlot"] <= rng["to"]

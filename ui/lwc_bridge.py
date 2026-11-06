@@ -74,6 +74,7 @@ Mirroring convention follows ``ibkr/bridge.py::IBBridge`` (Qt signals on a
 """
 
 import json
+import math
 
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, QTimer, QCoreApplication
 
@@ -106,6 +107,23 @@ def _check_op_shape(op) -> None:
     series = op.get("series")
     if not isinstance(kind, str) or not kind:
         raise ValueError("op['op'] must be a non-empty string")
+    if kind == "set_visible_range":
+        # S-P18-3 (D57.2): the fresh-frame directive rides the bar
+        # envelope after the rows in the existing range-op wire shape
+        # (``viewport_restore_op``) — no series, no cols. Accepted here
+        # so ``send_ops`` stages rows + frame in one envelope; the page's
+        # ``applyOps`` lifts the frame out before the series application.
+        range_ = op.get("range")
+        if not isinstance(range_, dict):
+            raise ValueError("op['range'] must be a dict")
+        try:
+            from_ = float(range_.get("from"))
+            to = float(range_.get("to"))
+        except (TypeError, ValueError):
+            raise ValueError("op['range'] from/to must be numbers")
+        if not (math.isfinite(from_) and math.isfinite(to)):
+            raise ValueError("op['range'] from/to must be finite")
+        return
     if not isinstance(series, str) or not series:
         raise ValueError("op['series'] must be a non-empty string")
     if kind == "clear":

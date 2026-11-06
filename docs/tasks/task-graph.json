@@ -1,637 +1,492 @@
 {
-  "phase": "P17",
-  "batch": "D56",
+  "phase": "P18",
+  "batch": "D57",
   "status": "READY_FOR_BUILD",
-  "note": "P17 rework wave (owner-approved code-review rework, 2026-11-05): T1-T3 done unchanged; T4 re-run scope = D53 retry-state re-verify (landed) + coordinated ESC-099 history-pin update to the settled post-P18 span (re-pin, never weaken) + batch gate; T5 = ESC-100 prime-retry wall-clock flake hardening, test-only, no production change. No D1-P16 or P18 content touched; no requirements file claimed.",
+  "note": "P18 viewport UX (D57): P18-T1 chevron (S), P18-T2 fresh framing (M), P18-T3 joint verification + gate (S). T1/T2 disjoint production surfaces except chart.js (visibility/click hunks vs frame-application branch) \u2014 serialized on touches_files overlap, no logical edge. No open TASK_MANAGER escalations; no approved feature suggestions in scope; Q92-Q95 answered-owner-confirmed.",
   "tasks": [
     {
-      "id": "P17-T1",
-      "title": "Silence detection + cancel/re-issue core with shared once-only allowance (D56.1, D56.2-guard)",
-      "description": "Add per-reqId last-activity stamps (monotonic clock, stamped at registration/issue, re-stamped on each accepted on_historical_bar), one session silence sweeper (1 s QTimer tick, armed only while history reqIds are in flight), and _retry_silent_chunk: plan lookup, cancel via the existing cancel path with superseded tagging and post-issue slot kept, drop of the old reqId, paced re-issue of the identical plan at the same plan position under the current generation with a new reqId, and recording in the shared _retried_plans allowance. Guard: plans already in _retried_plans are never silence-retried, and a re-issue's own silence never re-issues (no third issue). Zero-bar rule is primary; trailing-silence rule covers partial-then-stalled chunks (Q91).",
+      "id": "P18-T1",
+      "title": "Visible go-to-latest chevron: away-only visibility + goToRealtime click (D57.1)",
+      "description": "Add the glyph-only chevron <button> to chart_assets/lwc/chart.html (hidden by default, keyboard-focusable with aria-label, absolute-positioned bottom-right of the price axis) and drive it from chart_assets/lwc/chart.js: a new chevronVisible() returning !isFollowing() (visible whenever the viewport is away, with or without new bars; hidden while following), superseding affordanceVisible's away-AND-new-bars rule for the visible control per S-P18-1 (newBarsSinceAway bookkeeping stays internal, still probe-observable); click wiring calls the unchanged goToRealtime(); visibility toggles on the existing viewport-change notification path only (no polling). followLive, fitAndFollow, fitToWidth and the follow derivation itself are untouched. Repro-first: the away-without-new-bars visible cell is the red proof against the old rule.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "AC1: Given any issued history chunk reqId with zero bars received, no END, and no error for a continuous 30 s since issue, when the silence sweeper evaluates it, then that reqId is cancelled via the existing cancel path and the identical plan is re-issued exactly once at the same plan position under the current generation with a new reqId, and the re-issue's own 30 s window plus finalize margin conclude inside the 120 s watchdog bound.",
-        "AC2: Given any issued chunk that received at least one bar but then no further bar, END, or error for a trailing 30 s after the last accepted bar, when the bound is reached, then the same cancel plus exactly-once identical re-issue occurs; every accepted on_historical_bar re-stamps that reqId's last-activity clock, so a bar arriving at 30 s minus epsilon restarts the window and fires no retry.",
-        "AC3: Given any plan already present in the shared retry allowance (silence-retried or error-162-retried), when further 30 s silence elapses on its re-issue, then no further retry is issued for that plan \u2014 every chunk is issued at most twice per wave."
+        "AC1: Given a main-chart viewport either away from the newest bar or following it, with or without newly arrived bars, when the visibility rule is queried, then the chevron is visible if and only if the viewport is away \u2014 visible in every away cell including away-without-new-bars, hidden in every following cell. This supersedes P11's affordanceVisible away-AND-new-bars rule (recorded, not silent).",
+        "AC2: Given the chevron visible while away, when it is clicked, then the existing goToRealtime scroll-to-edge action runs unchanged \u2014 span preserved, newest bar at the edge, follow re-engaged, badge consumed \u2014 and the chevron hides by derivation.",
+        "AC3: Given any viewport state, then the chevron renders as a glyph with no text label at the bottom-right of the price axis, is keyboard-focusable with an aria-label, is hidden by default, and is toggled only on the viewport-change notification path (no polling), visible only while away per AC1."
       ],
       "tests": [
         {
           "test_id": "T11",
           "linked_acceptance_criterion": "AC1",
           "type": "integration",
-          "description": "Offscreen clock-controlled wave with one zero-bar-silent chunk: advance the clock past 30 s of silence with no END/error and assert cancelHistoricalData was called with the old reqId and exactly one identical re-issue exists (same symbol/timeframe/mode/span/plan position, new reqId, current generation); assert the in-flight set drops the old reqId and tracks the new one.",
-          "expected_result": "Exactly one cancel of the silent reqId plus one identical re-issue; no third issue; wave state consistent (old reqId untracked, new reqId in flight)."
+          "description": "Offscreen viewport-state x new-bars matrix driving the page probes: away+new-bars, away+no-new-bars assert chevron visible; following+new-bars, following+no-new-bars assert hidden. The away+no-new-bars cell is the pre-fix-red proof (fails against the old badge rule, passes after).",
+          "expected_result": "All four matrix cells assert as stated; the away-alone cell is red on the pre-fix tree and green after."
         },
         {
           "test_id": "T12",
-          "linked_acceptance_criterion": "AC2",
-          "type": "integration",
-          "description": "Offscreen clock-controlled partial chunk (deliver 2 bars, then stall with no END/error): advance the clock 30 s past the last bar and assert the cancel plus exactly-once identical re-issue fires; in a second run deliver a bar at 29.9 s after the previous bar and assert no retry fires at 30 s from issue (trailing window restarted).",
-          "expected_result": "Stalled partial chunk retried exactly once; a bar at 30 s minus epsilon restarts the trailing window and fires no retry."
+          "linked_acceptance_criterion": "AC1",
+          "type": "unit",
+          "description": "node --test cases for the chevronVisible() pure predicate in chart_assets/lwc/chart.test.js over (following, newBarsSinceAway) pairs, including away-without-new-bars asserting true.",
+          "expected_result": "Predicate returns true exactly when away, regardless of the new-bars flag; all node cases pass."
         },
         {
           "test_id": "T13",
-          "linked_acceptance_criterion": "AC3",
+          "linked_acceptance_criterion": "AC2",
           "type": "integration",
-          "description": "Offscreen clock-controlled wave where the re-issued chunk is itself silent past 30 s under the same trigger rules: advance the clock through both windows and assert total issues per chunk equal exactly two and the sweeper skips plans already in _retried_plans.",
-          "expected_result": "No third issue for any chunk; _retried_plans contains the retried plan and the sweeper never re-selects it."
+          "description": "Offscreen chevron click while away: click the chevron button, then assert the post-click logical range is the span-preserved live edge, follow re-derived true, badge consumed, and the chevron hidden.",
+          "expected_result": "Post-click range, follow state, badge and chevron-hidden assertions all hold; no new viewport math beyond the existing goToRealtime path."
         },
         {
           "test_id": "T14",
-          "linked_acceptance_criterion": "AC1",
+          "linked_acceptance_criterion": "AC3",
           "type": "integration",
-          "description": "Offscreen clock-controlled zero-bar chunk silent at 30 s minus epsilon then delivering a bar before the bound: assert no retry fires (single-sided bound) and the delivered bar is processed normally.",
-          "expected_result": "No cancel and no re-issue; the chunk proceeds on its first issue."
+          "description": "Offscreen page-DOM case: the chevron button exists with no text label, carries an aria-label, is focusable, sits in the bottom-right region of the price axis, is hidden while following and shown while away (visibility coupling), and no timer/poll drives it (visibility changes only follow viewport-change notifications).",
+          "expected_result": "Placement, glyph-only, focusability and visibility-coupling assertions hold; exact pixels/offsets asserted tolerantly as a region, not exact values."
         }
       ],
       "expected_artifacts": [
-        "ui/ticker_session.py (stamp map, sweeper, _retry_silent_chunk, shared-allowance guard)",
-        "tests/test_d56_silence_retry.py"
+        "chevron <button> DOM in chart_assets/lwc/chart.html",
+        "chevronVisible() + click wiring in chart_assets/lwc/chart.js",
+        "tests/test_d57_chevron.py",
+        "chevronVisible node cases in chart_assets/lwc/chart.test.js"
       ],
       "touches_files": [
-        "ui/ticker_session.py",
-        "tests/test_d56_silence_retry.py"
+        "chart_assets/lwc/chart.html",
+        "chart_assets/lwc/chart.js",
+        "tests/test_d57_chevron.py",
+        "chart_assets/lwc/chart.test.js"
       ],
       "doc_required": false,
       "inputs": [
-        "P7/P14/P15 wave contracts (read-only)",
-        "AC-D56.1, AC-D56.2-guard, Journey 51 steps 1-3, Q88/Q89/Q91, A156/A157, R114, DG106"
+        "S-P18-1/S-P18-2 frozen goToRealtime + isFollowing derivation",
+        "AC-D57.1/AC-D57.2/AC-D57.3 FINAL"
       ],
       "outputs": [
-        "Working silence retry path with per-chunk exactly-once cap",
-        "Offscreen clock-controlled retry cases (zero-bar, partial-stall, minus-epsilon, no-third-issue)"
+        "visible chevron with away-only rule + goToRealtime click",
+        "offscreen matrix/click/DOM suites + node predicate cases"
       ],
       "status": "done",
-      "size": "M",
+      "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/ticker_session.py",
-            "lines": "200-230",
-            "why": "wave-state members incl _retried_plans; extend additively, change no existing shape"
+            "path": "chart_assets/lwc/chart.html",
+            "lines": "1-38",
+            "why": "chevron button home; verify the vendored-relative offline rule and the #chart placement container"
           },
           {
-            "path": "ui/ticker_session.py",
-            "lines": "780-930",
-            "why": "issue/cancel seams, generation fence, watchdog arm; the retry reuses these, never rewrites them"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "740-830",
+            "why": "follow core (isFollowing/followLive/goToRealtime/fitAndFollow/affordanceVisible) the chevron reuses \u2014 read-only except the visibility/click hunks"
           },
           {
-            "path": "ui/ticker_session.py",
-            "lines": "1058-1210",
-            "why": "on_historical_bar/end/error handlers; re-stamp point and allowance interplay live here \u2014 read-only for this task (error path owned by P17-T3)"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "1160-1190",
+            "why": "read-only: probe surface (lwIsFollowing/lwGoToRealtime/lwAffordanceVisible) the offscreen matrix drives"
           },
           {
-            "path": "ibkr/market_data.py",
-            "lines": "45-200",
-            "why": "paced req_historical_data + best-effort cancel_historical_data transport the retry uses; read-only, never edited"
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "1-60",
+            "why": "node --test conventions the new chevronVisible predicate cases follow"
           },
           {
-            "path": "tests/test_history_backfill.py",
-            "lines": "1-80",
-            "why": "offscreen wave-harness + clock-control conventions this task's new suite follows"
+            "path": "tests/test_p11_fit_affordance.py",
+            "lines": "250-290",
+            "why": "read-only: existing away/new-bars matrix harness conventions; its away-alone-hidden assertions are P18-T3-owned churn, never edited here"
           }
         ],
         "contracts": [
           {
-            "ref": "ibkr/market_data.py:cancel_historical_data",
+            "ref": "chart_assets/lwc/chart.js:goToRealtime",
             "status": "existing"
           },
           {
-            "ref": "ibkr/market_data.py:req_historical_data",
+            "ref": "chart_assets/lwc/chart.js:isFollowingSlot",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:mark_history_request_issued",
+            "ref": "chart_assets/lwc/chart.js:followLive",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:_history_event_accepted",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:_history_wave_watchdog_bound_ms",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:on_historical_error",
+            "ref": "chart_assets/lwc/chart.js:affordanceVisible",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "_history_req_last_activity: dict[int, float] (monotonic last-activity stamp per history reqId; stamped at registration/issue, re-stamped on each accepted on_historical_bar, removed when the reqId leaves _history_req_ids)",
-            "module": "ui/ticker_session.py"
-          },
-          {
-            "status": "new",
-            "signature": "_retry_silent_chunk(self, req_id: int) -> None (plan lookup via _req_to_plan; superseded tag with slot kept; drop old reqId; pop _req_bars[old] with identity-removal from _pending_bars; paced re-issue of the identical plan at the same plan position under the current generation; _retried_plans.add(plan); skip when plan already in _retried_plans)",
-            "module": "ui/ticker_session.py"
+            "signature": "chevronVisible() -> boolean (returns !isFollowing(); toggles the chevron <button>; newBarsSinceAway bookkeeping stays internal and probe-observable)",
+            "module": "chart_assets/lwc/chart.js"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P17",
-        "plan_ref": "docs/plan.md#Phase P17",
+        "architecture_ref": "docs/architecture.md#Phase P18",
+        "plan_ref": "docs/plan.md#Phase P18",
         "requirement_ids": [
-          "D56.1",
-          "AC-D56.1",
-          "AC-D56.2",
-          "Journey 51",
-          "Q88",
-          "Q89",
-          "Q91",
-          "A156",
-          "A157",
-          "R114",
-          "DG106"
+          "D57.1",
+          "AC-D57.1",
+          "AC-D57.2",
+          "AC-D57.3",
+          "Journey 52",
+          "Q92",
+          "Q93",
+          "A161",
+          "A162",
+          "R119",
+          "DG109"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_silence_retry.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d57_chevron.py -q && node --test chart_assets/lwc/chart.test.js",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "M"
+        "size": "S"
       }
     },
     {
-      "id": "P17-T2",
-      "title": "Generation fencing + identity-removal exactly-once counting (D56.4, D56.7-mechanism)",
-      "description": "Make the supersede path fence late arrivals and count exactly once: when _retry_silent_chunk supersedes an old reqId, pop _req_bars[old] and remove exactly those Bar objects from _pending_bars by identity; late bars or ENDs arriving on the superseded reqId die at the unchanged _history_event_accepted fence with no count, persist, render, or wave-state change. Bars already persisted per-chunk stay in the cache (INSERT OR REPLACE PK-idempotent) and are re-read, never duplicated in memory.",
+      "id": "P18-T2",
+      "title": "Fresh per-timeframe framing with follow-state memory (D57.2)",
+      "description": "Compute the fresh-frame Python-side in ui/lwc_view.py (LwcChartView): per load for a different symbol and per set_timeframe change, derive a cutoff \u2014 intraday session-anchored via market_calendar mode-aware windows (1 min to start of 2 sessions back; 5 mins 5; 15 mins 10; 30 mins ~22; 1 hour ~44; 4 hours ~126) or daily+ calendar-anchored (1 day minus 1Y, 1 week minus 1Y, 1 month minus 5Y off the newest-bar ts) \u2014 clamp the cutoff to the oldest loaded bar, map first-ts->=cutoff to _logical slots mirroring the page's newest-window padding convention, and emit the {range, following} frame post-set_series through the existing range-op wire shape (zero bars is a no-op via the existing empty-series path). Q95 (b) precedence with lineage: set_symbol to a different symbol and any set_timeframe change always request a fresh frame \u2014 the Q75 remembered range is never restored (retiring S-P11-5's range leg, follow-state leg stands); remembered following still applies (following or default-true for no memory frames the live edge; remembered-away back-shifts minimally so the newest slot falls outside the range and away derives honestly). Same-symbol data replaces (backfill waves, mode switches) keep S-P11-3 preserve behaviour; TIMEFRAME_CONFIG durations and session_windows are read-only. chart.js gains only the frame-application branch applying an explicit fresh frame over the preserved-range path (ordered after the rows, deferred via the existing needsFit retry when unlaid-out). Y-framing is library autoscale, assertion-only (S-P18-5, A163).",
       "agent": "build_worker",
       "task_type": "code",
-      "dependencies": [
-        "P17-T1"
-      ],
+      "dependencies": [],
       "acceptance_criteria": [
-        "AC1: Given any bar or END arriving on a superseded (cancel-tagged, dropped from the in-flight set) reqId after the re-issue, then it is fenced: no bar is appended, persisted, or counted, and wave membership, counts, cache contents, and completion state are identical to the no-late-arrival case.",
-        "AC2: Given a silence retry superseding a partial chunk, then exactly the old reqId's Bar objects are removed from the in-memory wave totals by identity; bars already persisted per-chunk remain in the cache unchanged under the mode-aware PK and are re-read rather than duplicated in memory, so every chunk's bars count exactly once across both issues."
+        "AC1: Given a fresh load for a different ticker with loaded bars on each of the nine timeframes, when the series lands, then the initial visible x-range equals the AC-D57.4 span for that timeframe (1 min last 2 sessions; 5 mins last 1 week; 15 mins last 2 weeks; 30 mins last 1 month; 1 hour last 2 months; 4 hours last 6 months; 1 day last 1 year; 1 week last 1 year; 1 month last 5 years).",
+        "AC2: Given loaded bars narrower than the AC-D57.4 span, when the frame applies, then the cutoff clamps to the oldest loaded bar so the frame covers what is loaded with no fetch change; given a zero-bar load, then the frame is a no-op through the existing empty-series path with no error.",
+        "AC3: Given a switch back to a previously-seen symbol or a timeframe change on the same symbol, when its bars land, then a fresh per-AC1 frame applies and the Q75 remembered range is not restored; the remembered following still applies \u2014 following (or no memory) frames the live edge with tracking, remembered-away back-shifts minimally with following==false deriving honestly and maximal recency \u2014 while same-symbol data replaces (backfill continuations, mode switches) still preserve the viewport per S-P11-3.",
+        "AC4: Given framed bars exist, then the visible price range covers the framed bars' low-to-high (library autoscale over the framed window); no explicit y-range op is emitted."
       ],
       "tests": [
         {
           "test_id": "T21",
           "linked_acceptance_criterion": "AC1",
           "type": "integration",
-          "description": "Offscreen wave: retry a silent chunk, then deliver late bars plus a late END on the superseded reqId; assert bar counts, cache contents, and wave/completion state equal a control run with no late arrivals (fenced, no resurrection, no double-count).",
-          "expected_result": "Late arrivals on the superseded reqId change nothing: counts, cache rows, and wave state match the fenced expectation."
+          "description": "Parametrized offscreen seeded-series frame cases, one per timeframe (nine cells: session-anchored intraday cutoffs and calendar-anchored daily+ cutoffs), asserting the emitted initial logical range matches the AC-D57.4 span.",
+          "expected_result": "All nine timeframe cells frame to their spans; session anchoring holds across holidays and RTH/ETH switches via the calendar."
         },
         {
           "test_id": "T22",
           "linked_acceptance_criterion": "AC2",
           "type": "integration",
-          "description": "Offscreen wave: partial chunk (N bars, one per-chunk persist) retried, re-issue yields the same N bars; assert the in-memory wave total credits each bar exactly once and the cache holds one row per (symbol, timeframe, ts) with a clean re-read.",
-          "expected_result": "In-memory totals count each bar once across both issues; cache rows are PK-unique and unchanged by the identical re-fetch."
+          "description": "Offscreen clamp case (loaded bars narrower than the span: frame covers the oldest loaded bar, no extra request issued) and zero-bar case (no crash, empty-series path, no frame op).",
+          "expected_result": "Clamped frame covers all loaded bars with zero fetch change; zero-bar load is a silent no-op."
+        },
+        {
+          "test_id": "T23",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Offscreen switch-back case: symbol A (following) to B and back to A asserts a fresh AC1 frame on A (remembered range not restored) ending at the live edge with tracking; covers Q95 (b) overriding the Q75 range memory with lineage.",
+          "expected_result": "Fresh frame on switch-back; remembered following honoured; no range-restore op emitted."
+        },
+        {
+          "test_id": "T24",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Offscreen timeframe-change freshness plus remembered-away encoding: change timeframe on the same symbol asserts a fresh frame (no viewport preserve), and a remembered-away fresh frame asserts following==false with the newest slot outside the range and maximal recency (minimal back-shift).",
+          "expected_result": "Timeframe change re-frames fresh; remembered-away frame derives away honestly without burying recent action."
+        },
+        {
+          "test_id": "T25",
+          "linked_acceptance_criterion": "AC3",
+          "type": "integration",
+          "description": "Offscreen same-symbol replace cases (backfill continuation wave, RTH/ETH mode switch) asserting the viewport is preserved per S-P11-3 \u2014 Q95 covers loads and timeframe changes only.",
+          "expected_result": "Same-symbol replaces preserve; D51.2 no-yank path intact."
+        },
+        {
+          "test_id": "T26",
+          "linked_acceptance_criterion": "AC4",
+          "type": "integration",
+          "description": "Offscreen y-coverage cases over the framed window asserting the visible price range covers the framed bars' low-to-high whenever bars exist.",
+          "expected_result": "Visible price range covers framed bars; no explicit y op asserted (library autoscale)."
         }
       ],
       "expected_artifacts": [
-        "ui/ticker_session.py (identity-removal in the supersede path; fence relies on the unchanged predicate)",
-        "tests/test_d56_fencing.py"
+        "frame computation + Q95 precedence in ui/lwc_view.py",
+        "frame-application branch in chart_assets/lwc/chart.js",
+        "tests/test_d57_framing.py"
       ],
       "touches_files": [
-        "ui/ticker_session.py",
-        "tests/test_d56_fencing.py"
+        "ui/lwc_view.py",
+        "chart_assets/lwc/chart.js",
+        "tests/test_d57_framing.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P17-T1 retry path (_retry_silent_chunk, cancel tags, _req_bars/_pending_bars)",
-        "AC-D56.4, AC-D56.7-mechanism, R116"
+        "S-P18-3/S-P18-4/S-P18-5 + Q95 (b) lineage (range retired, follow-state stands)",
+        "AC-D57.4/AC-D57.5/AC-D57.6 FINAL + A164 span table"
       ],
       "outputs": [
-        "Fenced supersede path with identity-removal exactly-once counting",
-        "Offscreen late-delivery and double-delivery cases"
+        "session/calendar-anchored fresh framing with follow-state memory",
+        "seeded-series + precedence + y-coverage suites"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/ticker_session.py",
-            "lines": "780-860",
-            "why": "cancel/tag seams the supersede path extends; predicate _history_event_accepted stays unchanged"
+            "path": "ui/lwc_view.py",
+            "lines": "2085-2180",
+            "why": "set_symbol memory/restore (the S-P11-5 range leg retired here) + report sink; the Q95 precedence edit site"
           },
           {
-            "path": "ui/ticker_session.py",
-            "lines": "1058-1130",
-            "why": "on_historical_bar / _persist_chunk_bars / on_historical_data_end \u2014 where the fence bites and identity-removal applies"
+            "path": "ui/lwc_view.py",
+            "lines": "2177-2290",
+            "why": "set_series continuity + _logical mapping + op-emit site; the post-set_series frame emission lands here"
           },
           {
-            "path": "data/bar_cache.py",
-            "lines": "1-60",
-            "why": "INSERT OR REPLACE PK idempotency behind exactly-once; read-only, never edited"
+            "path": "ui/lwc_view.py",
+            "lines": "1591-1660",
+            "why": "read-only: viewport_restore_op + _coerce_viewport_range wire shape the frame directive reuses"
           },
           {
-            "path": "tests/test_history_backfill.py",
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "190-260",
+            "why": "read-only: replacePreservesViewport + newest-window padding convention the logical mapping mirrors"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "920-990",
+            "why": "read-only: fitToWidth + needsFit/scheduleFitRetry deferred path reused when a frame lands pre-layout"
+          },
+          {
+            "path": "tests/test_p11_no_yank.py",
             "lines": "1-80",
-            "why": "offscreen wave-harness + clock-control conventions both the P17-T1 suite and this task's new suite follow; read-only"
+            "why": "offscreen viewport-slot harness + follow-state assertion conventions this task's suites follow"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/ticker_session.py:_history_event_accepted",
+            "ref": "ui/lwc_view.py:set_series",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:on_historical_bar",
+            "ref": "ui/lwc_view.py:set_symbol",
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:on_historical_data_end",
+            "ref": "ui/lwc_view.py:report_viewport",
             "status": "existing"
           },
           {
-            "ref": "data/bar_cache.py:save_bars",
+            "ref": "ui/lwc_view.py:build_series_ops",
+            "status": "existing"
+          },
+          {
+            "ref": "services/market_calendar.py:session_windows",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:fitToWidth",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:replacePreservesViewport",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "identity-removal in the supersede path: pop _req_bars[old] and remove exactly those Bar objects from _pending_bars; persisted per-chunk cache rows untouched (PK-idempotent re-read)",
-            "module": "ui/ticker_session.py"
+            "signature": "fresh_frame_ops(self) -> dict | None ({range: {from, to}, following: bool}; cutoff = Nth-session start via session_windows for intraday else newest_ts minus span for daily+; clamped to oldest loaded bar; zero bars -> None; emitted post-set_series)",
+            "module": "ui/lwc_view.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P17",
-        "plan_ref": "docs/plan.md#Phase P17",
+        "architecture_ref": "docs/architecture.md#Phase P18",
+        "plan_ref": "docs/plan.md#Phase P18",
         "requirement_ids": [
-          "D56.4",
-          "D56.7",
-          "AC-D56.4",
-          "AC-D56.7",
-          "Journey 51",
-          "R116"
+          "D57.2",
+          "AC-D57.4",
+          "AC-D57.5",
+          "AC-D57.6",
+          "Journey 53",
+          "Q94",
+          "Q95",
+          "A163",
+          "A164",
+          "A165",
+          "R120",
+          "R121",
+          "DG110"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_fencing.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d57_framing.py -q",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "S"
+        "size": "M"
       }
     },
     {
-      "id": "P17-T3",
-      "title": "Error taxonomy + pacing gate for the retry (D56.3, D56.5)",
-      "description": "Generalise the cancel-ack rule in MainWindow._on_error so an error of any inventoried historical-request code (162, 321, 200, 399, 504) arriving on a cancel-tagged superseded reqId is debug-only with no status-bar message, no shortfall entry, and no pacing event; errors on the fresh re-issued reqId keep existing semantics with the shared _retried_plans allowance checked first (a 162 on a silence-retried chunk finalizes short, never a third issue). Route the re-issue through paced req_historical_data; on PacingExceeded wait via the existing continuation path bounded by the unchanged watchdog (watchdog-first yields counted stranded fall-through, fail-open). Both reqIds consume pacing slots (post-issue cancels keep their slots; no refund).",
+      "id": "P18-T3",
+      "title": "Joint chevron x framing verification + declared P11/LWC churn + batch gate (D57.7; ESC-102/ESC-103 rework scope)",
+      "description": "Verify chevron x framing jointly (fresh frame while following hides the chevron; fresh frame while remembered-away shows it; chevron click after a fresh frame lands the live edge; Fit/reset consistency holds afterwards), re-pin the six superseded series-only envelope assertions to tolerate the series-less viewport directive as adjudicated fallout per ESC-102 (AR-P18-5 same-envelope ordering stands; renderer-exclusion intent kept), rewrite the P11 offscreen assertions that pin the superseded rules to their intended behaviour as declared churn per S-P18-1/AR-P18-4 (fit-affordance away-only) and S-P18-4 (symbol-memory fresh-frame-wins) per ESC-103 (rewrites recorded, never silently weakened, every protected assertion kept), and run the batch gate: full offscreen suite green plus node --test for the page core plus the AC-D57.7 history-intact check (marker grep + the ### D4[1-9] / ### D5[0-6] sections present, no pre-P18 wording touched). Depends on P18-T1 (chevronVisible) and P18-T2 (fresh-frame directive) \u2014 verifies their joint behaviour only, edits no production files. Test files only.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P17-T1"
+        "P18-T1",
+        "P18-T2"
       ],
       "acceptance_criteria": [
-        "AC1: Given an error of any inventoried historical-request code arriving on a cancel-tagged superseded reqId, then it is classified as a cancel acknowledgement (debug-level only: no status-bar message, no shortfall entry, no pacing event); given an error on the fresh re-issued reqId, then existing error semantics apply with the shared allowance checked first, so a 162 on an already-silence-retried plan finalizes short with no third issue.",
-        "AC2: Given a silence retry, then both the cancelled and the re-issued reqIds consume pacing slots (a post-issue cancel keeps its slot \u2014 no refund); given no pacing slot frees before the watchdog horizon, then the wave falls through to the unchanged watchdog strand-finalization (fail-open and counted) and no historical request is ever issued outside the pacing budget."
+        "AC1: Given a fresh frame applied under each follow state, then while following the chevron is hidden, while remembered-away the chevron is visible; a chevron click after a fresh frame lands the span-preserved live edge with follow re-engaged; Fit/reset after framing leaves chevron state consistent via the existing fitAndFollow path.",
+        "AC2: Given the P11 suite pinning the superseded badge rule, then its away-alone-hidden assertions are rewritten to away-only (visible) with the supersession recorded as declared churn; no protected assertion is weakened or deleted.",
+        "AC3: Given the completed P18 work, then the full offscreen suite is green, node --test for the page core is green, and requirements history is intact (Existing Repository marker + Current Tech Stack unchanged, ### D41\u2013### D56 sections present, no pre-P18 wording touched).",
+        "AC4 (ESC-102): Given any bar-envelope op list that contains the series-less viewport directive {op: set_visible_range, range, following} ordered after the rows (AR-P18-5), when the renderer-boundary and column-op assertions evaluate, then every op lacking a series key (op == set_visible_range) is excluded from the renderer-series membership check while the exclusion intent holds for every op carrying a series key (no alarm/drawing/overlay/study op rides the bar envelope), and the time-parity shape assertions select the candles/volume column ops by series rather than by envelope position or count.",
+        "AC5 (ESC-103): Given a switch back to a previously-seen symbol under S-P18-4 (Q75 remembered range never restored), when the A-to-B-and-back drive runs, then no set_visible_range restore op is emitted for the remembered range, a fresh AC-D57.4 frame applies instead, and the remembered following state remains encoded; the S-P18-4 lineage is recorded at the rewritten assertion."
       ],
       "tests": [
         {
           "test_id": "T31",
           "linked_acceptance_criterion": "AC1",
           "type": "integration",
-          "description": "Offscreen error injection parametrized over every inventoried code (162, 321, 200, 399, 504) on a cancel-tagged superseded reqId: assert debug-only handling with no status-bar message, no shortfall entry, and no pacing event for every code.",
-          "expected_result": "Every inventoried code on a superseded reqId classifies as cancel-ack with zero user-facing or budget effect."
+          "description": "Offscreen joint-state cases in tests/test_d57_joint.py across both follow states: fresh-frame-while-following (chevron hidden), fresh-frame-while-remembered-away (chevron visible), chevron click after a fresh frame (live edge + follow + hidden), Fit/reset after framing (consistent chevron).",
+          "expected_result": "All joint-state assertions hold; chevron and framing compose with no interaction defect."
         },
         {
           "test_id": "T32",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Offscreen: inject a 162 on the re-issued (silence-retried) reqId and assert the chunk finalizes short under existing error semantics with total issues per chunk staying at exactly two.",
-          "expected_result": "Fresh-reqId 162 on an already-retried plan finalizes short; no third issue."
+          "linked_acceptance_criterion": "AC2",
+          "type": "unit",
+          "description": "Support change, not new behaviour: rewrite the away-alone-hidden assertions in tests/test_p11_fit_affordance.py to away-only-visible per the superseded rule; asserts the rewritten file passes. RED pre-exists as declared churn under S-P18-1/AR-P18-4, so no RED-to-GREEN language applies beyond the churn record.",
+          "expected_result": "Rewritten away-alone cells assert visible and pass; every other protected assertion in the file is byte-identical and green."
         },
         {
           "test_id": "T33",
-          "linked_acceptance_criterion": "AC2",
+          "linked_acceptance_criterion": "AC3",
           "type": "integration",
-          "description": "Offscreen pacing-spy wave with one silent chunk: assert both the cancelled and the re-issued reqIds consumed pacing slots and the post-issue cancel refunded nothing.",
-          "expected_result": "Two slots consumed for the retried chunk; no refund on the post-issue cancel."
+          "description": "Batch gate: clean full offscreen suite run (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest per the shared-test-DB / stale-pytest-shebang gotchas) plus node --test chart_assets/lwc/chart.test.js plus the history-intact marker/section grep.",
+          "expected_result": "Full suite green, node core green, marker grep and ### D4[1-9] / ### D5[0-6] sections present with no pre-P18 wording touched."
         },
         {
           "test_id": "T34",
-          "linked_acceptance_criterion": "AC2",
+          "linked_acceptance_criterion": "AC4",
           "type": "integration",
-          "description": "Offscreen: force PacingExceeded at re-issue time with no slot freeing before the watchdog horizon; assert the wave falls through to the unchanged watchdog strand-finalization (counted) and no unpaced request is issued.",
-          "expected_result": "Pacing exhaustion yields counted watchdog fall-through; the rolling budget is never violated."
+          "description": "Support change, not new behaviour: re-pin the six superseded series-only assertions (renderer-boundary cells in tests/test_lwc_alarms.py, tests/test_lwc_drawings.py, tests/test_lwc_overlays.py, tests/test_lwc_studies.py; count + unpack cells in tests/test_lwc_time_parity.py) to skip the series-less viewport directive while keeping the renderer-exclusion intent. RED pre-exists as adjudicated fallout under ESC-102 (AR-P18-5 same-envelope ordering stands), so no RED-to-GREEN language applies beyond the re-pin record.",
+          "expected_result": "All six re-pinned assertions pass with the frame directive in the envelope; any alarm/drawing/overlay/study op carrying a series key in the bar envelope still fails the check."
+        },
+        {
+          "test_id": "T35",
+          "linked_acceptance_criterion": "AC5",
+          "type": "integration",
+          "description": "Support change, not new behaviour: rewrite the switch-back case in tests/test_p11_symbol_memory.py to fresh-frame-wins (no range-restore op; fresh AC-D57.4 frame applied; remembered following still encoded; S-P18-4 lineage recorded); asserts the rewritten file passes. RED pre-exists as declared churn under ESC-103, so no RED-to-GREEN language applies beyond the churn record.",
+          "expected_result": "Rewritten switch-back case asserts zero restore ops plus the fresh frame and passes; every follow-state assertion in the file is kept and green."
         }
       ],
       "expected_artifacts": [
-        "ui/main_window.py (generalised cancel-ack branch in _on_error only)",
-        "ui/ticker_session.py (retry-adjacent pacing/allowance branches only)",
-        "tests/test_d56_taxonomy_pacing.py"
+        "tests/test_d57_joint.py",
+        "updated tests/test_p11_fit_affordance.py (away-only churn)",
+        "updated tests/test_lwc_alarms.py, tests/test_lwc_drawings.py, tests/test_lwc_overlays.py, tests/test_lwc_studies.py (ESC-102 renderer-boundary re-pin)",
+        "updated tests/test_lwc_time_parity.py (ESC-102 column-op re-pin)",
+        "updated tests/test_p11_symbol_memory.py (ESC-103 fresh-frame-wins churn)",
+        "batch gate evidence (full suite + node + history grep)"
       ],
       "touches_files": [
-        "ui/ticker_session.py",
-        "ui/main_window.py",
-        "tests/test_d56_taxonomy_pacing.py"
+        "tests/test_d57_joint.py",
+        "tests/test_p11_fit_affordance.py",
+        "tests/test_lwc_alarms.py",
+        "tests/test_lwc_drawings.py",
+        "tests/test_lwc_overlays.py",
+        "tests/test_lwc_studies.py",
+        "tests/test_lwc_time_parity.py",
+        "tests/test_p11_symbol_memory.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P17-T1 retry path, cancel tags, and _retried_plans writes",
-        "AC-D56.3, AC-D56.5, A158, A160, R115, R117, DG107, DG108"
+        "P18-T1 chevronVisible + click behaviour",
+        "P18-T2 fresh-frame directive + follow-state encoding",
+        "ESC-102 adjudicated fallout (series-less viewport directive in the bar envelope)",
+        "ESC-103 declared churn (S-P18-4 retires switch-back range restore)"
       ],
       "outputs": [
-        "Generalised per-reqId error taxonomy with shared-allowance check",
-        "Paced re-issue with queue-with-deadline fail-open fall-through",
-        "Offscreen error-injection and pacing-spy cases"
+        "joint chevron/frame verification",
+        "P11 churn recorded as away-only (fit-affordance) and fresh-frame-wins (symbol-memory)",
+        "renderer-boundary + time-parity assertions re-pinned to the intended envelope shape",
+        "green batch gate with history intact"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/main_window.py",
-            "lines": "1759-1830",
-            "why": "the _on_error 162-superseded branch this task generalises to any inventoried code; the only main_window edit"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "1152-1210",
-            "why": "on_historical_error 162-retry path the shared allowance unifies with; retry-adjacent branches only"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "921-1060",
-            "why": "paced issue + _schedule_wave_continuation the re-issue waits through on PacingExceeded; read-only shape"
-          },
-          {
-            "path": "ibkr/error_codes.py",
+            "path": "tests/test_p11_fit_affordance.py",
             "lines": "1-60",
-            "why": "classify_error gate every TWS error routes through; read-only, never edited"
+            "why": "harness + probe conventions the joint suite reuses"
+          },
+          {
+            "path": "tests/test_p11_fit_affordance.py",
+            "lines": "240-290",
+            "why": "away-alone-hidden cells rewritten to away-only here \u2014 the declared-churn edit site"
+          },
+          {
+            "path": "tests/test_lwc_alarms.py",
+            "lines": "418-431",
+            "why": "renderer-boundary assertion re-pin site: skip the series-less viewport directive, keep the candles/volume-exclusion intent"
+          },
+          {
+            "path": "tests/test_lwc_drawings.py",
+            "lines": "591-601",
+            "why": "renderer-boundary assertion re-pin site: skip the series-less viewport directive, keep the drawings-exclusion intent"
+          },
+          {
+            "path": "tests/test_lwc_overlays.py",
+            "lines": "536-541",
+            "why": "renderer-boundary assertion re-pin site: skip the series-less viewport directive, keep the overlays-exclusion intent"
+          },
+          {
+            "path": "tests/test_lwc_studies.py",
+            "lines": "358-363",
+            "why": "renderer-boundary assertion re-pin site: skip the series-less viewport directive, keep the studies-exclusion intent"
+          },
+          {
+            "path": "tests/test_lwc_time_parity.py",
+            "lines": "163-215",
+            "why": "column-op assertion re-pin sites: op-count (T11) and candles/volume unpack (T12) select ops by series, not position"
+          },
+          {
+            "path": "tests/test_p11_symbol_memory.py",
+            "lines": "60-84",
+            "why": "switch-back restore block rewritten to fresh-frame-wins here \u2014 the ESC-103 declared-churn edit site"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/main_window.py:_on_error",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_is_superseded_history_req",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:on_historical_error",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/error_codes.py:classify_error",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/market_data.py:req_historical_data",
-            "status": "existing"
+            "status": "new",
+            "signature": "chevronVisible() -> boolean (returns !isFollowing(); produced by P18-T1; joint cases assume it, never reimplement it)",
+            "module": "chart_assets/lwc/chart.js"
           },
           {
             "status": "new",
-            "signature": "generalised cancel-ack: any error code on a cancel-tagged superseded reqId is debug-only (no status-bar, no shortfall, no pacing event); fresh-reqId errors keep existing semantics with the shared _retried_plans allowance checked first",
-            "module": "ui/main_window.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P17",
-        "plan_ref": "docs/plan.md#Phase P17",
-        "requirement_ids": [
-          "D56.3",
-          "D56.5",
-          "AC-D56.3",
-          "AC-D56.5",
-          "A158",
-          "A160",
-          "R115",
-          "R117",
-          "DG107",
-          "DG108"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_taxonomy_pacing.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P17-T4",
-      "title": "D53 retry state verification + coordinated history-pin update + batch gate (D56.6, D56.2-verify, D56.7-gate; ESC-099 rework)",
-      "description": "Re-verify the landed D53 retry marker/latch with continuing elapsed (no production change expected); then perform the coordinated ESC-099 pin update now that P18 requirements have settled (Q92-Q95 answered, P18 READY_FOR_PLAN): verify the marker-through-D52 span diff vs the b11d9da3 baseline contains ONLY the four additive glossary rows (two approved D57 + two D58 accepted-now per owner decision 2026-11-05; purely additive), set PROTECTED_SPAN_SHA256 to the live computed hash identically in both guard files keeping every other assertion byte-identical, and close the batch with the history check plus full offscreen suite green. Touches no requirements file (Analyst-owned).",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P17-T1",
-        "P17-T2",
-        "P17-T3"
-      ],
-      "acceptance_criteria": [
-        "AC1: Given a retry in flight, then the existing D53 persistent indicator shows an explicit retry state distinguishable from first-issue flight and from completion, with elapsed continuing from the wave baseline (never reset by the retry) and no current-cache claim while spans are missing; the retry marker is set only while a retry is in flight and cleared only by the terminal funnel.",
-        "AC2: Given a re-issued chunk also silent past 30 s under the same trigger rules (zero-bar variant and partial-then-stalled variant), then no further retry is issued and the wave finalizes via the existing watchdog strand path (AC-D16.4 shortfall, AC-D53.2 lifecycle) with exactly two issues per chunk and no watchdog change.",
-        "AC3: Given P18 requirements settled (Q92-Q95 answered, P18 READY_FOR_PLAN), then PROTECTED_SPAN_SHA256 in both guard files equals sha256 of the live marker-sentence-through-D52 span, the span diff vs the b11d9da3 baseline contains only the four additive glossary rows (two approved D57 \u2014 Go-to-latest chevron, Initial framing \u2014 plus two D58 accepted-now per owner decision 2026-11-05 \u2014 Prefetch, Buffer zone; purely additive, no other wording touched), every other guard assertion is unchanged, and the full offscreen suite is green."
-      ],
-      "tests": [
-        {
-          "test_id": "T41",
-          "linked_acceptance_criterion": "AC1",
-          "type": "integration",
-          "description": "Offscreen wave-state plus indicator-state assertions across first-issue flight, retry in flight, and completion: assert the retry state is distinguishable from both neighbours, elapsed continues from the wave baseline across the retry (not reset), no current-cache claim appears while spans are missing, and the marker clears only on terminal finalization.",
-          "expected_result": "Retry state distinct with continuing elapsed and no premature current-claim; marker set only in flight and cleared only terminally."
-        },
-        {
-          "test_id": "T42",
-          "linked_acceptance_criterion": "AC2",
-          "type": "integration",
-          "description": "Offscreen double-silent waves in both variants (zero-bar re-issue silent; partial re-issue stalled): advance the clock through both 30 s windows and assert exactly two issues per chunk plus watchdog strand-finalization state (AC-D16.4 shortfall surfaced, AC-D53.2 lifecycle honoured).",
-          "expected_result": "Exactly two issues per chunk in both variants; the wave ends via the unchanged watchdog path with no second retry."
-        },
-        {
-          "test_id": "T43",
-          "linked_acceptance_criterion": "AC3",
-          "type": "unit",
-          "description": "Pin re-pin mechanics in tests/test_p14_cache_guard.py and tests/test_p15_surfacing.py: compute sha256 over the live span (text from 'This is an existing repository.' to '\\n### D53 ' in docs/requirements/requirements.md); diff the live span against the HEAD-committed span and assert the only change is the four additive glossary table rows (two D57 \u2014 Go-to-latest chevron, Initial framing \u2014 plus two D58 accepted-now per owner decision 2026-11-05 \u2014 Prefetch, Buffer zone), purely additive; set PROTECTED_SPAN_SHA256 to the computed value identically in both files with no other line in either file changed; assert both guard tests pass.",
-          "expected_result": "Both files carry the identical recomputed pin; every non-pin assertion in both files is byte-identical to before; test_t34_history_markers_intact and test_t33_history_markers_intact pass."
-        },
-        {
-          "test_id": "T44",
-          "linked_acceptance_criterion": "AC3",
-          "type": "manual",
-          "description": "Grep requirements.md for the Existing Repository marker sentence and Current Tech Stack, assert ### D41 through ### D55 sections are present with reversals and no pre-P17 wording is touched except the four additive glossary rows re-pinned under T43 (two approved D57 + two D58 accepted-now); then run the full offscreen suite (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest, clean run per the shared-test-DB / stale-pytest-shebang gotchas) and assert green.",
-          "expected_result": "History-intact grep passes and the full offscreen suite is green."
-        }
-      ],
-      "expected_artifacts": [
-        "ui/main_window.py (D53 retry marker + latch label; landed, re-verified)",
-        "tests/test_d56_retry_indicator.py",
-        "tests/test_p14_cache_guard.py (pin literal only)",
-        "tests/test_p15_surfacing.py (pin literal only)"
-      ],
-      "touches_files": [
-        "ui/main_window.py",
-        "tests/test_d56_retry_indicator.py",
-        "tests/test_p14_cache_guard.py",
-        "tests/test_p15_surfacing.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P17-T1 retry-in-flight signal the indicator reads",
-        "P17-T2 fencing and P17-T3 taxonomy/pacing behaviour the verify cases exercise",
-        "ESC-099 coordinated pin-update direction (re-pin now that P18 Q92-Q95 settled; never weaken)",
-        "AC-D56.6, AC-D56.2, AC-D56.7, Journey 51 step 4, A159, R118, DG100"
-      ],
-      "outputs": [
-        "Explicit D53 retry state with continuing elapsed (re-verified)",
-        "Double-silent fall-through verification (both variants)",
-        "Identical re-pinned history guards in both files",
-        "History-intact check plus full-suite green gate"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/main_window.py",
-            "lines": "2070-2160",
-            "why": "D53 indicator trio (set_backfill_state / refresh / clear) the retry marker rides; landed, re-verify, edit only on drift"
-          },
-          {
-            "path": "tests/test_p14_cache_guard.py",
-            "lines": "64-80",
-            "why": "PROTECTED_SPAN_SHA256 pin literal to re-pin; T34 guard at ~409-432 keeps every assertion \u2014 read it before editing"
-          },
-          {
-            "path": "tests/test_p15_surfacing.py",
-            "lines": "60-72",
-            "why": "same pin literal to re-pin identically; T33 guard at ~401-436 keeps every assertion \u2014 read it before editing"
-          },
-          {
-            "path": "tests/test_backfill_progress.py",
-            "lines": "1-80",
-            "why": "existing D53 indicator-state assertion conventions this task's T41 follows"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "220-232",
-            "why": "retry-in-flight signal source (_retried_plans allowance + activity stamps + sweeper arming) the D53 retry marker reads \u2014 read-only, owned by P17-T1, do not change"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "925-984",
-            "why": "_sweep_silent_chunks trigger + _retry_silent_chunk cancel/re-issue head showing when a retry enters flight \u2014 read-only, never edited here"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "2518-2600",
-            "why": "_on_historical_bar/end + wave-complete/finalize routing the indicator refresh follows; read-only shape"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1747-1760",
-            "why": "watchdog-timeout vs disconnect terminal paths the fall-through asserts; read-only, never edited"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/main_window.py:set_backfill_state",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:clear_backfill_indicator",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_refresh_backfill_indicator",
-            "status": "existing"
+            "signature": "fresh_frame_ops(self) -> dict | None ({range: {from, to}, following: bool}; produced by P18-T2; joint cases assume its emission, never recompute it)",
+            "module": "ui/lwc_view.py"
           },
           {
             "status": "new",
-            "signature": "_backfill_state gains a retry marker (retry count and/or retry reqIds alongside in_flight/queued/elapsed_s/req_ids); retry label set only while a retry is in flight, cleared only by the terminal funnel; elapsed stays a pure read of _backfill_wave_start",
-            "module": "ui/main_window.py"
-          },
-          {
-            "ref": "ui/ticker_session.py:_retry_silent_chunk",
-            "status": "existing"
+            "signature": "set_visible_range frame directive ({op: 'set_visible_range', range: {from, to}, following: bool}) rides the bar envelope ordered after the rows (AR-P18-5); series-less by design \u2014 envelope assertions exclude ops with op == 'set_visible_range' from series-membership checks",
+            "module": "ui/lwc_view.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P17",
-        "plan_ref": "docs/plan.md#Phase P17",
+        "architecture_ref": "docs/architecture.md#Phase P18",
+        "plan_ref": "docs/plan.md#Phase P18",
         "requirement_ids": [
-          "D56.6",
-          "D56.2",
-          "D56.7",
-          "AC-D56.6",
-          "AC-D56.2",
-          "AC-D56.7",
-          "Journey 51",
-          "Q90",
-          "A159",
-          "R118",
-          "DG100",
-          "ESC-099"
+          "D57.1",
+          "D57.2",
+          "D57.7",
+          "AC-D57.1",
+          "AC-D57.2",
+          "AC-D57.3",
+          "AC-D57.4",
+          "AC-D57.5",
+          "AC-D57.6",
+          "AC-D57.7",
+          "Journeys 52-53",
+          "A161-A165",
+          "R119-R121",
+          "AR-P18-5",
+          "S-P18-4",
+          "S-P11-5",
+          "ESC-102",
+          "ESC-103"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d56_retry_indicator.py tests/test_p14_cache_guard.py tests/test_p15_surfacing.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d57_joint.py tests/test_p11_fit_affordance.py tests/test_p11_symbol_memory.py tests/test_lwc_alarms.py tests/test_lwc_drawings.py tests/test_lwc_overlays.py tests/test_lwc_studies.py tests/test_lwc_time_parity.py -q && node --test chart_assets/lwc/chart.test.js",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P17-T5",
-      "title": "Prime-retry wall-clock flake hardening, test-only (ESC-100)",
-      "description": "Harden test_p7_t07_t13_prime_retry_defers_then_issues against the ~1.7% wall-clock boundary flake: _on_prime_retry re-enters prime_aggregator with int(time.time()), so a run landing in the first 5 s of a 300 s period takes the span_s<5 fail-open path and _prime_req_id stays None. Freeze the retry clock in-test and add a deterministic period-boundary case pinning the fail-open path. Test-only: no production file is modified, no assertion is weakened, P17 never touches the prime path.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [],
-      "acceptance_criteria": [
-        "AC1: Given the prime retry deferred with pacing closed, then when _on_prime_retry runs with the clock frozen at a mid-period instant (span_s>=5 deterministically regardless of wall-clock phase) the retry issues exactly once (_prime_req_id set, pending cleared) on every run with zero wall-clock dependence; Given the clock frozen at a period-boundary instant (span_s<5), then the retry deterministically takes the existing fail-open path (no issue, skip counted, live feed attached) with no production-code change and no weakened assertion."
-      ],
-      "tests": [
-        {
-          "test_id": "T51",
-          "linked_acceptance_criterion": "AC1",
-          "type": "unit",
-          "description": "Revise test_p7_t07_t13_prime_retry_defers_then_issues to freeze the clock (monkeypatch time.time as seen by ui.ticker_session to the existing mid_period_ts() instant) across the _on_prime_retry() call and assert issue-once with _prime_req_id set and pending cleared; add test_p7_t07_t13_prime_retry_boundary_fail_open_deterministic freezing the clock at period_start+1 s (span_s<5) asserting no issue (_prime_req_id None), skip counted, fail-open completion. Run the full tests/test_p7_w4_streaming.py module green plus a 20x loop of the revised defers-then-issues test to prove determinism.",
-          "expected_result": "Revised test passes on every run regardless of wall-clock phase; boundary case deterministically pins fail-open; no other test in the module regresses."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_p7_w4_streaming.py (clock-frozen retry + deterministic boundary case)"
-      ],
-      "touches_files": [
-        "tests/test_p7_w4_streaming.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "ESC-100 diagnosis (wall-clock int(time.time()) in _on_prime_retry vs span_s<5 guard in prime_aggregator)"
-      ],
-      "outputs": [
-        "Deterministic prime-retry tests with zero wall-clock dependence"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "tests/test_p7_w4_streaming.py",
-            "lines": "165-178",
-            "why": "mid_period_ts helper the frozen clock reuses"
-          },
-          {
-            "path": "tests/test_p7_w4_streaming.py",
-            "lines": "424-468",
-            "why": "the flaky defers-then-issues test plus the fail-open neighbour to revise"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "1523-1550",
-            "why": "read-only: _on_prime_retry wall-clock call the freeze targets \u2014 do not change"
-          },
-          {
-            "path": "ui/ticker_session.py",
-            "lines": "1405-1412",
-            "why": "read-only: span_s<5 period-boundary guard the new case pins \u2014 do not change"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/ticker_session.py:_on_prime_retry",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/ticker_session.py:prime_aggregator",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P17",
-        "plan_ref": "docs/plan.md#Phase P17",
-        "requirement_ids": [
-          "ESC-100"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w4_streaming.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
+        "size": "M"
       }
     }
   ]

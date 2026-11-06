@@ -394,3 +394,77 @@ describe("S-P11-1 follow-state probes (P11-T1)", () => {
     assert.equal(page.lwIsFollowing(), true, "live edge keeps following");
   });
 });
+
+// S-P18-1 chevron visibility: away-only (D57.1; P18-T1-T12).
+// The visible chevron supersedes the badge rule: visible whenever the
+// viewport is away, hidden while following — including the
+// away-without-new-bars cell that stays hidden under the old
+// affordanceVisible rule (red-proof cell, asserted below).
+describe("S-P18-1 chevron visibility: away-only (P18-T1-T12)", () => {
+  const N = 60;
+  const seedCandles = (n) => {
+    const ts = [], open = [], high = [], low = [], close = [];
+    for (let i = 0; i < n; i++) {
+      ts.push(1700000000 + i * 300);
+      open.push(100 + i * 0.1);
+      high.push(100 + i * 0.1 + 0.25);
+      low.push(100 + i * 0.1 - 0.25);
+      close.push(100 + i * 0.1 + 0.05);
+    }
+    const res = page.lwApplyOps({
+      v: 1,
+      ops: [{
+        op: "set_bars", series: "candles",
+        cols: { ts, open, high, low, close },
+      }],
+    });
+    assert.equal(res.error, null, "seed envelope applies");
+  };
+  const pressKey = (k) => _fakeEl._listeners["keydown"]({
+    key: k, preventDefault() {},
+  });
+  const liveBar = (t) => page.lwApplyOps({
+    v: 1,
+    ops: [{
+      op: "update_bar", series: "candles",
+      cols: {
+        ts: [t], open: [106], high: [106.25], low: [105.75], close: [106.05],
+      },
+    }],
+  });
+
+  it("P18-T1-T12: pure chevronVisible() is true exactly when away", () => {
+    assert.equal(LwChart.chevronVisible(false, false), true, "away, no new bars");
+    assert.equal(LwChart.chevronVisible(false, true), true, "away + new bars");
+    assert.equal(LwChart.chevronVisible(true, false), false, "following, no new bars");
+    assert.equal(LwChart.chevronVisible(true, true), false, "following + new bars");
+  });
+
+  it("P18-T1-T12: page probe hides while following, shows whenever away", () => {
+    seedCandles(N);
+    assert.equal(page.lwIsFollowing(), true);
+    assert.equal(page.lwChevronVisible(), false, "hidden while following");
+    for (let i = 0; i < 6; i++) pressKey("ArrowLeft"); // real pan path
+    assert.equal(page.lwIsFollowing(), false);
+    assert.equal(page.lwChevronVisible(), true, "away without new bars shows");
+    const t1 = 1700000000 + N * 300;
+    assert.equal(liveBar(t1).error, null);
+    assert.equal(page.lwIsFollowing(), false, "bars alone never resume");
+    assert.equal(page.lwChevronVisible(), true, "away + new bars shows");
+    assert.equal(page.lwAffordanceVisible(), true, "badge arms internally (unchanged)");
+    page.lwGoToRealtime();
+    assert.equal(page.lwIsFollowing(), true, "resume re-engages follow");
+    assert.equal(page.lwChevronVisible(), false, "hidden after resume");
+    assert.equal(page.lwAffordanceVisible(), false, "badge consumed (unchanged)");
+  });
+
+  it("P18-T1-T12: following absorbs new bars with the chevron hidden", () => {
+    seedCandles(N);
+    assert.equal(page.lwIsFollowing(), true);
+    const t1 = 1700000000 + N * 300;
+    assert.equal(liveBar(t1).error, null);
+    assert.equal(page.lwIsFollowing(), true, "live edge keeps following");
+    assert.equal(page.lwChevronVisible(), false, "hidden: following + new bars");
+    assert.equal(page.lwAffordanceVisible(), false, "badge disarmed (unchanged)");
+  });
+});

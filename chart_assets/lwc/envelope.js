@@ -57,6 +57,23 @@
       return "op must be an object";
     }
     if (typeof op.op !== "string") return "op.op must be a string";
+    /* S-P18-3 (D57.2): the fresh-frame directive rides the bar envelope
+     * after the rows in the existing range-op wire shape — it is not a
+     * series op, so it carries no ``series``/``cols``. Accepted here so
+     * the envelope carrying rows + frame still validates; chart.js
+     * ``applyOps`` lifts it out before the series application. */
+    if (op.op === "set_visible_range") {
+      if (op.range === null || typeof op.range !== "object" ||
+          isArray(op.range)) {
+        return "range must be an object";
+      }
+      if (typeof op.range.from !== "number" ||
+          typeof op.range.to !== "number" ||
+          !isFinite(op.range.from) || !isFinite(op.range.to)) {
+        return "range.from/to must be finite numbers";
+      }
+      return null;
+    }
     if (typeof op.series !== "string" || op.series.length === 0) {
       return "op.series must be a non-empty string";
     }

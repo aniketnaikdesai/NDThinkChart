@@ -534,8 +534,19 @@ class TestRendererBoundary:
                     assert abs(item["x"]) <= len(view.plotted_bars) + 1
 
     def test_P6_T10_T12_overlays_never_ride_the_bar_transport(self, qapp):
+        # ESC-102 / AR-P18-5 (P18-T3 re-pin, support change only): the
+        # series-less fresh-frame viewport directive ({op:
+        # set_visible_range, ...}) rides the bar envelope ordered after the
+        # rows by design — excluded from the renderer-series membership
+        # check. The renderer-exclusion intent stands: any op carrying a
+        # series key on this transport must still be a bar op, so an overlay
+        # op riding the bars still fails.
         view = _view()
         log = view.bridge.replay_log()
         assert log, "the bar transport carries the candles/volume ops"
-        assert all(op["series"] in {"candles", "volume"} for op in log)
+        frames = [op for op in log if op.get("op") == "set_visible_range"]
+        assert all("series" not in op for op in frames)
+        bar_ops = [op for op in log if op.get("op") != "set_visible_range"]
+        assert bar_ops, "the bar transport carries the candles/volume ops"
+        assert all(op.get("series") in {"candles", "volume"} for op in bar_ops)
         assert all(op["series"] == "overlays" for op in view.overlay_ops)

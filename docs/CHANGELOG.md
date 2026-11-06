@@ -367,3 +367,37 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
 - 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
 - 4438068 P9 tracking: plan/architecture activation, TM graph, reviewer close-out
+## P18 — 2026-11-05
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P18-T1 — P18-T1 done: glyph-only go-to-latest chevron in chart.html (hidden, aria-labelled, bottom-right) driven by chart.js away-only chevronVisible with goToRealtime click; T11/T13/T14 offscreen green, T12 node cases green (25/25), P11 suite unregressed
+- P18-T2 — P18-T2 done by orchestrator under owner exception (dispatch repeatedly failed). ESC-104 trendline collapse fixed in chart.js ResizeObserver (re-assert current range on resize; verified 0..81 @10.9px post-resize, anchors distinct). ESC-101 T24b fixed (probe .range shape + True->true). 15/15 framing, trendline e2e, 105/105 node green.
+- P18-T1 — ESC-105 fixed: updateChevron() hides the chevron when newestBarSlot() < 0 (empty chart never reads as away); pure chevronVisible matrix untouched; new empty-chart case in test_d57_chevron.py. All task tests pass (4 pytest + 25 node).
+- P18-T3 — P18-T3 verified green with no edits needed: joint chevron x framing cases hold, declared P11/LWC churn already in place and passing, full offscreen suite green (1415 tests, exit 0), node core 25/25, requirements history intact.
+
+### Blocked
+- P18-T2 — Output:
+
+### Recent commits
+- e50a759 P17: silence retry for historical chunks (D56, Q88-91 answered)
+- 2223786 P16: doc consolidation D55 batch 1 (inventory, fact sheet, navigation, live-only guides, P6/P7 reconciliation, disposition ledger + Q87 deletions, final review)
+- 945a2b2 Scratch + evidence: D53 4-phase live probe harness (v3 logging) and TWS probe findings/reports
+- e9e5912 P15: 10-second load-chart target + graceful degradation (D54, target reading A148)
+- 2d8fabd P14: persistent backfill-state indicator + cache-current guard (D53, Finding 2)
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+- de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+- 9282e5a Q-57: fix 6 validated usage-doc defects (D38 removal, drag-edit, pop-out cap, test times)
