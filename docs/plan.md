@@ -4566,3 +4566,349 @@ production files.
   plus the two recorded P11 revisions.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P19 — Scroll-triggered backfill prefetch (D58) — drafted 2026-11-09
+
+> Companion: `docs/architecture.md` § *Phase P19* (Codebase Summary, S-P19-1…S-P19-7,
+> frozen interfaces, non-functional, AR-P19-1…AR-P19-6). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P19 (D58),
+> Journey 54, `AC-D58.1`–`AC-D58.6` FINAL (analyst-decided per owner delegation
+> 2026-11-05; owner corrections land as refinements), A166–A170 (A167's seam left to
+> Plan — decided as S-P19-4/DG111), R122–R124 (mitigated),
+> `design_gaps.md` DG111 (resolved by S-P19-4; Task Manager covers it under
+> `AC-D58.2`).
+> Hard constraints: **D1–P18 are NOT reopened** (P18 has no Plan yet — additive-only,
+> no P11/P18 revision beyond the recorded S-P18-1/S-P18-4 lineage which P19 only
+> reads); sizes S/M only; no watchdog retuning, no chunk resizing, no TWS-side
+> diagnosis, no new indicator surface, no fetch-window or load-path change, no D51
+> criterion change. One phase only — nothing past the D58 prefetch is planned (P20
+> index/futures is separate).
+
+### Traceability (requirement → architecture → phase)
+
+| Requirement / input | Architecture section | Phase |
+|---|---|---|
+| D58.1 / `AC-D58.1` (trigger rule + per-timeframe table, settled viewports, mode-aware) + Journey 54 + A166 | S-P19-1 (Python settled-report host, never per tick); S-P19-2 (slot→ts distance, T = one `AC-D57.4` span); Frozen (`report_viewport`, `session_windows`, `TIMEFRAME_CONFIG`) | P19-1 |
+| D58.2 / `AC-D58.2` (ordinary wave: one step, pacing, 120 s watchdog, D53, D56 retry, fencing, one in flight) + A167 + DG111 + Journey 54 | S-P19-3 (ordinary wave, one step/one in flight); S-P19-4 (DG111 coalesce seam); Frozen (`find_missing_spans`, `plan_requests`, `queue_wave_plans`, wave lifecycle) | P19-2 |
+| D58.3 (incremental render, in-flight honesty, `AC-D16.4` shortfall, closures empty) + R123 + Journey 54 | S-P19-3 (ordinary-wave honesty inheritance); Non-Functional (honesty) | P19-3 |
+| D58.4 (viewport untouched in both follow states; Q95 loads-only) + Journey 54 | S-P19-5 (preserve-path arrivals, no frame, no range op); Frozen (S-P11-3 preserve path) | P19-3 |
+| D58.5 (chain while fetchable; closure stop; single shortfall; pacing fall-through) + A169 + R122 + Journey 54 | S-P19-3 (chaining) + S-P19-4 (pending-marker re-evaluation); S-P19-6 (per-view); Non-Functional (performance) | P19-2 |
+| D58.6 (history intact) | Frozen Interfaces + S-P19-7 (gate) | P19-3 |
+| A166–A170, R122–R124, DG111, Q75/Q95/D51/D53/D56 precedents | S-P19-1…S-P19-7 | Every phase (guards) |
+
+Every D58 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Phases
+
+Each phase is a milestone, coarser than tasks; the Task Manager decomposes each into
+tasks with acceptance criteria and tests. Phases are ordered; a later phase depends on
+earlier ones unless stated. `touches_files` notes list the files a phase touches and
+flag the serialisation points.
+
+### P19-1 — Settled-viewport trigger evaluation with per-timeframe thresholds (D58.1) — size S
+
+- **Goal:** every settled viewport change (gesture-end / programmatic frame, including
+  the initial frame) is evaluated against the trigger table and fires exactly when the
+  oldest visible bar is within T(timeframe) of the oldest cached bar — mode-aware —
+  staying silent otherwise.
+- **Covers:** D58.1; `AC-D58.1` (per-timeframe fire/silent matrix incl. the
+  single-sided boundary cell); Journey 54 trigger steps; A166 (settled-only) + A170
+  (per-view evaluation); R122 rate bound (one-frame threshold).
+- **Deliverables:**
+  - `[new/changed] ui/lwc_view.py` — the trigger evaluation entry on the settled-report
+    path: oldest-visible logical slot → real bar ts through the existing
+    `_logical`/`_plotted` mapping, exposing the (oldest-visible-ts, following) reading.
+    `report_viewport`'s store contract, `set_series` continuity and S-P18-4 precedence
+    are untouched.
+  - `[new/changed] ui/main_window.py` — the prefetch evaluator: gap (oldest-visible-ts
+    vs oldest-cached-ts for the current triple) against T(timeframe) from the S-P19-2
+    table (intraday session counts via `session_windows`, daily+ calendar spans),
+    consulting `find_missing_spans` for the next older step. No wave issuance here —
+    issuance is P19-2; this phase proves the fire/silent decision.
+  - `[new/changed] tests` — offscreen per-timeframe viewport-matrix cases
+    (within-T fires / beyond-T silent incl. the boundary, all nine timeframes,
+    RTH + ETH mode-awareness, weekend-closure silence, pop-out per-view evaluation,
+    following-at-edge no-op).
+- **Dependencies:** none (first phase; reads P11/P18 contracts, changes only the two
+  recorded NOT-frozen seams).
+- **`touches_files`:** `ui/lwc_view.py` + `ui/main_window.py` (evaluation hunks only —
+    disjoint from P19-2's issuance/state hunks by function, serialised if Task Manager
+    shares a wave) + offscreen suites.
+- **Exit condition:** the matrix is red-first against the no-trigger baseline and green
+  after; boundary cell asserts single-sidedness (within fires, beyond silent); no wave
+  is issued by this phase's code paths.
+
+### P19-2 — Ordinary-wave prefetch with coalesce seam + fetch-while-fetchable (D58.2/D58.5) — size M
+
+- **Goal:** a fired trigger moves exactly one older planner step through the existing
+  wave lifecycle (pacing, watchdog, indicator, retry, fencing, one in flight), newer
+  triggers coalesce instead of cancelling, and deep scrolls chain while the planner
+  reports missing sessions — stopping honestly at closures, retention end, or pacing
+  fall-through.
+- **Covers:** D58.2 (`AC-D58.2`: one step, pacing gate, 120 s watchdog, D53 state, D56
+  retry, fencing, one in flight, re-evaluation on completion + viewport change);
+  D58.5 (`AC-D58.5`: chaining, closure stop, single shortfall, pacing fall-through);
+  Journey 54 chaining/retention/pacing steps; A167 (one-step/one-in-flight) + A169
+  (fetch while fetchable) + A170 (per-view); DG111 (S-P19-4 seam); R122/R124.
+- **Deliverables:**
+  - `[new/changed] ui/main_window.py` — single-step issuance: the fired trigger takes
+    the next older step from `find_missing_spans`/`plan_requests` and issues it via
+    the existing `queue_wave_plans` path when no wave is in flight for the triple;
+    mode-switch/disconnect abandonment reuses the existing generation-bump + cancel
+    paths (Branch-A coalesced reload keeps the running wave).
+  - `[new/changed] ui/ticker_session.py` — the pending-prefetch marker (set on a newer
+    trigger arriving mid-wave; consumed on completion with a fresh-viewport
+    re-evaluation; cleared on every terminal path). All existing wave fields are read,
+    not reshaped.
+  - `[new/changed] tests` — offscreen wave-lifecycle cases (step size = one planner
+    window, in-flight cap, pacing deferral, watchdog strand, D53 indicator state, D56
+    exactly-once retry, generation fencing, coalesce-no-cancel + completion
+    re-evaluation, mode-switch/disconnect abandonment with no cross-contamination),
+    deep-scroll chaining cases (multi-step chain, weekend-closure stop with emptiness,
+    beyond-retention single shortfall with no retry loop, pacing-exhaustion
+    fail-open fall-through).
+- **Dependencies:** P19-1 (consumes the fire decision; proves issuance against the
+  matrix the trigger phase pinned).
+- **`touches_files`:** `ui/main_window.py` (issuance hunks) + `ui/ticker_session.py`
+  (marker + lifecycle reads) + offscreen suites. Serialised against P19-1 only on
+  `ui/main_window.py` if waved together.
+- **Exit condition:** one-step/one-in-flight lifecycle green; a mid-wave second trigger
+  never cancels the running wave and re-evaluates on completion; chains extend while
+  fetchable and stop honestly; full P7/P14/P15/P17 wave suites stay green.
+
+### P19-3 — Honesty + viewport stability + batch gate — size S
+
+- **Goal:** prefetch arrivals render incrementally without ever presenting in-flight
+  regions as complete, the viewport never moves on arrival in either follow state, and
+  the full suite stays green with history intact.
+- **Covers:** D58.3 (`AC-D58.3`: incremental render, D53 in-flight state, `AC-D16.4`
+  shortfall, closures empty); D58.4 (`AC-D58.4`: slot-stability in both follow states,
+  Q95 loads-only); D58.6 (history intact); Journey 54 honesty/viewport steps; A168
+  (load-neutrality incl. the daily+ background wave); R123.
+- **Deliverables:**
+  - `[new/changed] tests` — offscreen in-flight/stranded/closure cases (incremental
+    per-chunk render assertions, D53-running-never-complete assertions, verbatim
+    `AC-D16.4` shortfall at strand finalization, genuine-closure emptiness) and
+    viewport-slot cases (identical range across landings while away; live-edge
+    extension only via the D51 path while following; no fresh frame and no range op
+    on any prefetch arrival).
+  - **Batch gate** — full offscreen suite green
+    (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`, clean run per the recorded
+    shared-test-DB / stale-`pytest`-shebang gotchas); `AC-D58.6` history-intact check
+    (marker grep + the `### D4[1-9]` / `### D5[0-8]` sections present, no pre-P19 wording
+    touched).
+- **Dependencies:** P19-1 and P19-2 (verifies their joint behaviour; runs after both).
+- **`touches_files`:** offscreen suites only (no production edits).
+- **Exit condition:** honesty + viewport-stability cases green; full suite green; history
+  intact; no D51/P15/D53/D56 wording or behaviour regressed.
+
+**Wave note.** P19-1 and P19-2 touch overlapping production surfaces only in
+`ui/main_window.py` (evaluation vs issuance hunks, disjoint by function) — Task Manager
+may run them in one wave with the file serialised, or in two waves. P19-3 depends on
+both and runs last; it edits no production files.
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P19-1 | The evaluator lives host-side in `ui/main_window.py` next to the load/backfill orchestration, reading the stored settled report; `report_viewport` itself keeps its store-only contract | The host already owns the planner consult + `queue_wave_plans` call sites + generation proxy; splitting the evaluator into a new module would fork the P7 wave semantics |
+| AP-P19-2 | Oldest-visible resolves through the same `_logical`/`_plotted`/`_cmap` mapping the S-P18-3 frame computation uses; collapsed (weekend-folded) windows are covered by seeded-series slot→ts cases, not by new mapping code | Reusing the proven mapping bounds AR-P19-3; a second mapping would drift from what the page actually shows |
+| AP-P19-3 | One planner step = one `TIMEFRAME_CONFIG` duration window older under the existing stepping rule (e.g. `1 min`→`1 D` steps, `30 mins`→`30 D`, weekly→`2 Y`); per-wave chunk sizes are unchanged from load-time waves | `AC-D58.2` names one planner step; the stepping rule is the existing chunking the pacing/watchdog budgets were tuned against |
+| AP-P19-4 | Load-time behaviour is byte-identical except that a daily+ initial frame within T fires one ordinary background wave; P15 T0 semantics are asserted unchanged around it (A168) | The load path is untouched — only the settled-report evaluation (which the initial frame also emits) can fire, and it runs as a background wave |
+| AP-P19-5 | Sizes: P19-1 is S (evaluation entry + gap-vs-table decision + viewport matrix); P19-2 is M (single-step issuance + marker lifecycle + chaining/stop/fall-through matrices); P19-3 is S (honesty + slot-stability cases + gate) | Owner scope sizes; no phase exceeds M |
+
+### Flagged Issues
+
+**None.** Every D58 item is satisfiable as written on the existing stack:
+
+- The trigger table is analyst-decidable from the settled `AC-D57.4` spans (owner
+  delegation "decide and update to me") — S-P19-2 reuses the anchored P18 tables, so
+  no new measurement or owner round is needed; owner corrections to any cell land as
+  refinements without reopening the phase.
+- DG111 (the one genuine Plan seam — cancel-replace vs queue-with-deadline) is decided
+  by S-P19-4 (coalesce, never cancel) with rationale recorded, not left for Task
+  Manager to invent; Task Manager covers the marker lifecycle under `AC-D58.2`.
+- R122–R124 are mitigated by construction (one-step/one-in-flight + pacing gate,
+  in-flight honesty + incremental render, ordinary background waves).
+- No `PLAN`-routed escalation is open (all `addressed`); no `pending_doc_sync.md`
+  entries remain unapplied (file absent); D1–P18 stay closed by the additive-only rule
+  plus the recorded P11/P18 revisions, which P19 only reads.
+
+Status: READY_FOR_TASK_MANAGER
+
+## Phase P20 — Index + futures contract support (D59) — drafted 2026-11-09
+
+> Companion: `docs/architecture.md` § *Phase P20* (Codebase Summary, S-P20-1…S-P20-7,
+> frozen interfaces, non-functional, AR-P20-1…AR-P20-6). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P20 (D59),
+> Journeys 55–56, `AC-D59.1`–`AC-D59.6` FINAL (Q96–Q99 answered-owner-confirmed
+> 2026-11-09; Q99 is an owner override of the analyst default — one extra TWS
+> round-trip on unknown symbols only, cost recorded in R128), A171–A174
+> (CONFIRMED), R125–R129 (R128 RESOLVED), `design_gaps.md` DG112 (Plan-scoped as
+> suppress in S-P20-5) + DG113 (resolved by the S-P20-3 probe seam).
+> Hard constraints: **D1–P19 are NOT reopened** (P19 prefetch is in flight —
+> read-only; the planner/wave/machinery P20 touches is only extended with
+> default-preserving flags, never reshaped); sizes S/M only; no TWS-side-silence
+> diagnosis, no prefetch change, no pacing/watchdog/D53/D56 retuning, no new tape
+> feature, no continuous/back-adjusted series, no options support. One phase only —
+> nothing past the D59 build waves is planned (P21 follow-offset is separate).
+
+### Traceability (requirement → architecture → phase)
+
+| Requirement / input | Architecture section | Phase |
+|---|---|---|
+| D59.1 / `AC-D59.1` (IND resolution: SPX+NDX+DJI+RUT, never STK/SMART) + Journey 55 + A171 + Q96 | S-P20-1 (IND table + rule order); Frozen (`get_stock_contract`, proxy path) | P20-1 |
+| D59.4-unknown / `AC-D59.2` (probe-first: exactly one probe, then refuse-or-adopt) + Journeys 55–56 edge cases + A174 + Q99 + DG113 | S-P20-2 (STK pattern) + S-P20-3/S-P20-3a (probe seam + adopt); Frozen (`req_contract_details`, lookup lifecycle) | P20-1 |
+| D59.2 / `AC-D59.3` (futures: ES+NQ+YM+RTY, CME/USD, `_front_month` auto-roll) + Journey 56 + A172 + Q97 | S-P20-1 (rule order; FUT leg unchanged); Frozen (`get_futures_contract`) | P20-1 |
+| D59.3 / `AC-D59.4` (futures timestamps as-is ET; mode-empty never deletes) + Journey 56 + A173 + Q98 + R127 | S-P20-4 (canonical full-session mode) + S-P20-5 (presence bypass, collapse/band scoping); Frozen (`session_windows`, `plan_requests`) | P20-2 |
+| D59.5 / `AC-D59.5` (proxy never for price) + Journey 55 edge cases + R129 | S-P20-6 (structural guard); Frozen (tape-only proxy path) | P20-3 |
+| D59.6 / `AC-D59.6` (history intact) | Frozen Interfaces + S-P20-7 (gate) | P20-3 |
+| A171–A174, R125–R129, DG112, Q96–Q99 precedents | S-P20-1…S-P20-7 | Every phase (guards) |
+
+Every D59 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Phases
+
+Each phase is a milestone, coarser than tasks; the Task Manager decomposes each into
+tasks with acceptance criteria and tests. Phases are ordered; a later phase depends on
+earlier ones unless stated. `touches_files` notes list the files a phase touches and
+flag the serialisation points.
+
+### P20-1 — Contract resolution + probe-first seam + error-200 honesty — size M
+
+- **Goal:** every load resolves through the IND → FUT → STK-pattern → unknown
+  order; unknowns probe exactly once before refuse-or-adopt; any error-200 leg
+  ends honestly with no dead realtime attach.
+- **Covers:** D59.1 (`AC-D59.1`: per-symbol IND capture matrix, never STK/SMART);
+  D59.4-unknown (`AC-D59.2`: one probe reqId + refuse honesty / adopt-on-success);
+  D59.2 (`AC-D59.3`: CME/USD/front-month capture); Journey 55 steps + Journey 56
+  resolution step; A171/A172/A174; Q96/Q97/Q99; R125/R126/R128; DG113.
+- **Deliverables:**
+  - `[new/changed] ibkr/contracts.py` — the `IND_CONTRACTS` table (S-P20-1),
+    `is_index_symbol` / `is_futures_root` predicates, rule-ordered
+    `get_contract_for_symbol` (IND → FUTURES_SCHEDULE → STK pattern → unknown/None).
+    `get_stock_contract` / `get_futures_contract` / `_front_month` bodies unchanged.
+  - `[new/changed] ui/main_window.py` + `[new/changed] ui/ticker_session.py` —
+    the probe-first seam (unknown → one `ContractLookupService.request` →
+    adopt-first-details on ok / Q99 refuse on not-ok, all before prime/wave/realtime)
+    and the error-200 leg gate (prime/wave 200 → verbatim `AC-D16.4` shortfall,
+    realtime never attached on rejected contracts). Branch-A coalescing and the
+    wave machinery otherwise unchanged.
+  - `[new/changed] services/contract_lookup_service.py` — pending entries retain
+    the first `contract_details` payload (adopt source); timeout/exactly-once/cancel
+    semantics unchanged.
+  - `[new/changed] tests` — offscreen per-symbol contract-capture matrices (IND ×
+    4 + FUT × 4 asserting secType/exchange/currency/expiry; STK controls
+    SPY/QQQ/DIA/IWM + AAPL untouched), unknown-symbol probe-once cases (exactly one
+    probe reqId + refuse message + nothing persisted + zero prime/wave/realtime
+    reqIds; adopt-on-success case), error-200 honesty cases (full-span shortfall,
+    no realtime attach, no 300 s hang).
+- **Dependencies:** none (first phase; reads P7/P14/P17 wave contracts, changes
+  only the recorded NOT-frozen seams).
+- **`touches_files`:** `ibkr/contracts.py` + `ui/main_window.py` +
+  `ui/ticker_session.py` + `services/contract_lookup_service.py` + offscreen suites.
+- **Exit condition:** the IND capture matrix is red-first against the current
+  STK/SMART fallthrough and green after; unknown-symbol cases assert exactly one
+  probe reqId; error-200 legs never attach realtime; per-symbol capture precedes
+  any wave test (R125).
+
+### P20-2 — Futures session scoping: canonical mode + presence bypass + visual scoping — size M
+
+- **Goal:** futures charts run the full near-24 h session with TWS timestamps
+  as-is in ET in both modes; no equity rule deletes, folds, or mis-shades
+  overnight bars.
+- **Covers:** D59.3 (`AC-D59.4`: as-is-ET positions both modes, mode-empty
+  vacuous); Journey 56 overnight/mode-switch/rollover/weekend/pop-out steps;
+  A173; Q98; R127; DG112 (bands suppressed).
+- **Deliverables:**
+  - `[new/changed] ui/main_window.py` + `[new/changed] ui/ticker_session.py` —
+    futures roots forced onto the canonical full-session mode (S-P20-4, S-P8-4
+    pattern): one shared cache, toggle as pure cache hit.
+  - `[new/changed] services/backfill_service.py` — `present_days` /
+    `find_missing_spans` gain defaulted `is_futures` (existing callers
+    byte-identical); futures presence = calendar-day presence, Saturday-only
+    closure (S-P20-5).
+  - `[new/changed] services/time_collapse_service.py` + LWC session-band path
+    (`ui/lwc_view.py`, `chart_assets/lwc/`) — collapse folding skipped and D1
+    bands suppressed for futures roots (DG112).
+  - `[new/changed] tests` — offscreen overnight-span matrix (seeded futures bars
+    across the overnight session × RTH/ETH asserting as-is-ET slot equality +
+    non-deletion), collapse/band scoping cases, canonical-mode toggle cases
+    (identical bars, pure cache hit), rollover/weekend/pop-out edge cases.
+  - **Standalone live probe (owner-run, D48/D52 precedent)** — IND table rows
+    accepted by TWS (no error 200), ES price + as-is-ET time correct; recorded,
+    not a suite gate.
+- **Dependencies:** P20-1 (consumes the resolved FUT contract; proves scoping
+  against the resolution the contract phase pinned).
+- **`touches_files`:** `services/backfill_service.py` +
+  `services/time_collapse_service.py` + `ui/main_window.py` +
+  `ui/ticker_session.py` + `ui/lwc_view.py` + `chart_assets/lwc/` + offscreen
+  suites. Serialised against P20-1 only on `ui/main_window.py` /
+  `ui/ticker_session.py` if waved together.
+- **Exit condition:** the overnight matrix is red-first against the current
+  equity-mapped path and green after the bypasses; RTH/ETH render identical
+  positions; no overnight bar is deleted, folded, or band-shaded; Q98 needs no
+  new session model.
+
+### P20-3 — Proxy guard + batch gate — size S
+
+- **Goal:** INDEX_PROXY is structurally tape-only, and the full suite stays green
+  with history intact.
+- **Covers:** D59.5 (`AC-D59.5`: chart-series provenance, tape-only proxy);
+  D59.6 (`AC-D59.6`: history intact); Journey 55 proxy edge cases; R129.
+- **Deliverables:**
+  - `[new/changed] tests` — offscreen provenance cases (index chart-series source
+    ≠ futures across the IND family), a source-shape assertion (chart
+    load/history path `INDEX_PROXY`-free), and the existing burst-proxy tests
+    re-green (tape-only use preserved).
+  - **Batch gate** — full offscreen suite green
+    (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`, clean run per the
+    recorded shared-test-DB / stale-`pytest`-shebang gotchas); `AC-D59.6`
+    history-intact check (marker grep + the `### D4[1-9]` / `### D5[0-9]` sections
+    present, no pre-P20 wording touched); standalone probe results recorded.
+- **Dependencies:** P20-1 and P20-2 (verifies their joint behaviour; runs after both).
+- **`touches_files`:** offscreen suites only (no production edits).
+- **Exit condition:** provenance + shape cases green; burst-proxy tests green;
+  full suite green; history intact; no D51/P15/D53/D56 wording or behaviour
+  regressed.
+
+**Wave note.** P20-1 and P20-2 touch overlapping production surfaces only in
+`ui/main_window.py` / `ui/ticker_session.py` (resolution/leg-gating hunks vs
+canonical-mode hunks, disjoint by function) — Task Manager may run them in one
+wave with those files serialised, or in two waves. P20-3 depends on both and runs
+last; it edits no production files.
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P20-1 | The IND table rows are Plan-stated per the TWS IND spec: SPX→(IND,CBOE,USD) highest confidence; NDX→(IND,NASDAQ,USD), DJI→(IND,CME,USD), RUT→(IND,CME,USD) medium; all rows confirmed by the owner-run standalone probe (D48/D52 precedent) | Q96 named symbols, not venues; TWS accepts/rejects per (exchange, currency), so values must be stated with rationale — Plan states them and the probe verifies; a rejected row keeps honest shortfall (Journey 55 step 3) and the correction lands as a table refinement without reopening |
+| AP-P20-2 | STK = ticker-charset match (uppercase letters/digits/dot/dash, ≤8 chars — covers `BRK.B`/`BF-B`) AND not an IND/FUT root; SPY/QQQ/DIA/IWM stay STK regardless | Gives `AC-D59.2`'s "no STK rule" cell a real trigger while keeping every stock load probe-free (DG113 cost); errs toward STK so live stocks never pay the probe |
+| AP-P20-3 | Probe-adopt uses the first returned `ContractDetails` payload's contract for that load only; nothing is persisted | TWS is session truth for unknowns; persisting risks stale contracts at listing changes, and the probe's point is discovery (S-P20-3a) |
+| AP-P20-4 | Futures week = Sun–Fri for presence (Saturday the only futures closure); equity holidays are fetched, not assumed — an empty fetch ends in honest `AC-D16.4` shortfall | Futures trade through most equity holidays, so the equity calendar would wrongly close real sessions; the zero-bar-except-Saturday rule is self-correcting via fetch |
+| AP-P20-5 | Sizes: P20-1 is M (IND table + rule order + probe seam + adopt + error-200 gating + matrices); P20-2 is M (canonical mode + planner flag + collapse/band scoping + overnight matrix + probe record); P20-3 is S (provenance + shape + gate) | Owner scope sizes; no phase exceeds M |
+| AP-P20-6 | Q98 interaction note only: collapse/band scoping touches session-boundary geometry but Q98's as-is-ET rule is untouched — the math is slot-based and session-agnostic | P21's recorded reading; P20 changes which bars exist, never how a timestamp maps to ET |
+| AP-P20-7 | The error-200 refuse path reuses the existing stranded/shortfall finalization wording (`AC-D16.4`) rather than a new status vocabulary | D53's indicator + shortfall language already covers failed waves; a second vocabulary would fork the honesty contract |
+
+### Flagged Issues
+
+**None.** Every D59 item is satisfiable as written on the existing stack:
+
+- IND/FUT resolution is a table + rule order on the existing one-function seam
+  (`get_contract_for_symbol`); the per-symbol venue uncertainty (R125) is a
+  Plan-stated detail verified by the D48/D52-precedent standalone probe, not a
+  requirements gap — the capture-case mitigation + honest-shortfall backstop hold
+  for any row.
+- The Q99 probe seam reuses the proven D22 lookup service (paced, 5 s bound,
+  exactly-once); DG113 is decided by S-P20-3 (probe-before-legs, never parallel)
+  with rationale recorded, not left for Task Manager to invent.
+- The futures timestamp fix bypasses equity rules (canonical mode, presence flag,
+  collapse/band scoping) without inventing the session model Q98 forbids; R127's
+  cause-uncertainty is handled by repro-first ordering (S-P20-7), not guessing.
+- DG112 is scoped (suppress) with rationale + rejected alternative; R126/R129 are
+  mitigated by construction (existing roll behaviour; provenance + shape pins).
+- No `PLAN`-routed escalation is open (all `addressed`); no `pending_doc_sync.md`
+  entries remain unapplied (file absent); D1–P19 stay closed by the additive-only
+  rule plus the recorded P8/P11/P18 revisions, which P20 only reads.
+
+Status: READY_FOR_TASK_MANAGER

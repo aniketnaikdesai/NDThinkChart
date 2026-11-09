@@ -144,3 +144,8 @@
 - **Gap/opportunity:** `docs/README.md` is the navigation index, but it is still a markdown file a newcomer must know to open; a tiny generated index page (built from the same authority table, never hand-maintained) would make "which doc owns my question" clickable from the repo root.
 - **Why not in the original ask:** the owner ordered consolidation of existing docs, not a new navigational surface; D55's navigation goal is satisfied by the README + metadata without new tooling.
 - **Suggested priority:** low
+
+## FS19 — Continuous (back-adjusted) futures series
+- **Gap/opportunity:** P20 pins per-load front-month auto-roll with rollover gap/overlap per existing `_front_month` behaviour (Q97). A scrolled-back futures chart will therefore show a splice at each roll (price-level step, volume break) rather than a stitched continuous series.
+- **Why not in the original ask:** the owner accepted rollover per existing behaviour; a back-adjusted continuous series (ratio/difference adjustment, roll-date markers) is new product scope with its own honesty rules (adjusted vs actual prices).
+- **Suggested priority:** low

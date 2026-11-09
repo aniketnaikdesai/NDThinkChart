@@ -1,27 +1,41 @@
 {
   "nodes": [
     {
-      "id": "P18-T1",
+      "id": "P19-T1",
       "type": "Task"
     },
     {
-      "id": "P18-T2",
+      "id": "P19-T2",
       "type": "Task"
     },
     {
-      "id": "P18-T3",
+      "id": "P19-T3",
+      "type": "Task"
+    },
+    {
+      "id": "P19-T4",
       "type": "Task"
     }
   ],
   "edges": [
     {
-      "from": "P18-T1",
-      "to": "P18-T3",
+      "from": "P19-T1",
+      "to": "P19-T2",
       "type": "DEPENDS_ON"
     },
     {
-      "from": "P18-T2",
-      "to": "P18-T3",
+      "from": "P19-T2",
+      "to": "P19-T3",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P19-T2",
+      "to": "P19-T4",
+      "type": "DEPENDS_ON"
+    },
+    {
+      "from": "P19-T3",
+      "to": "P19-T4",
       "type": "DEPENDS_ON"
     }
   ]

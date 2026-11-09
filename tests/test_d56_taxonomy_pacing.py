@@ -197,8 +197,11 @@ def test_t32_fresh_req_id_162_after_silence_retry_finalizes_short(monkeypatch, q
         assert new_id not in session._history_req_ids
         assert new_id in session._backfill_failed_req_ids
         assert plan in session._retried_plans
-        # ... existing semantics still surface the fresh error ...
-        assert "162" in win.status_bar.currentMessage()
+        # ... the terminal failed-requests message stands — a wave-terminating
+        # error must not overwrite the finalise surfacing with a transient
+        # error line (P19-T2: terminal state wins over transient errors).
+        assert "failed" in win.status_bar.currentMessage()
+        assert "162" not in win.status_bar.currentMessage()
         # ... and the wave finalised (fail-open, nothing left in flight).
         assert session._history_req_ids == set()
         assert session._wave_plan_queue == []

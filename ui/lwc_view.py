@@ -1884,6 +1884,14 @@ class LwcChartView(QWidget):
     #: own surface rather than a controller re-emit.
     key_pressed = pyqtSignal(str)
 
+    #: P19-T1 (S-P19-1): a settled viewport report resolved to its oldest
+    #: visible bar ts. Emitted by ``_on_page_viewport_report`` after the
+    #: report is stored; on a view nobody hooked (e.g. a pop-out without a
+    #: host connection) it is a no-op. Carries
+    #: ``(oldest_visible_ts, following)`` — the exact reading
+    #: ``MainWindow.maybe_prefetch`` evaluates.
+    viewport_settled = pyqtSignal(int, bool)
+
     def __init__(self, tz_offset: float = 0.0, editable: bool = True,
                  parent=None):
         super().__init__(parent)
@@ -2286,6 +2294,52 @@ class LwcChartView(QWidget):
         data = payload if isinstance(payload, dict) else {}
         self.report_viewport(data.get("range"),
                              data.get("following", False))
+        # P19-T1 (S-P19-1): host-side trigger fan-out — the stored report
+        # resolved to its oldest visible bar. Silent when nothing usable is
+        # stored yet (no bars, unusable range); unconnected views just store.
+        oldest_ts = self.oldest_visible_ts()
+        if oldest_ts is not None:
+            self.viewport_settled.emit(int(oldest_ts),
+                                       bool(data.get("following", False)))
+
+    def oldest_visible_ts(self) -> int | None:
+        """Oldest visible bar ts from the stored settled report (S-P19-2).
+
+        Resolves the stored report's ``from`` slot — a page ordinal over the
+        emitted series rows (bars plus within-session-hole whitespace
+        placeholders, ESC-104) — through the same ``series_times`` mapping
+        ``fresh_frame_ops`` frames with: the entry is clamped into range and
+        advanced past whitespace placeholders to the next real bar, so a
+        report opening on a hole resolves to the first visible bar. Returns
+        ``None`` when no settled report is stored, when no bars are loaded,
+        or when the axis is empty; a report past the last bar resolves to
+        the last real bar.
+        """
+        pending = self._pending_viewport
+        if pending is None:
+            return None
+        try:
+            from_slot = int(math.floor(float(pending["range"]["from"])))
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return None
+        plotted = list(self._plotted or [])
+        logical = list(self._logical or [])
+        if not plotted or not logical or len(plotted) != len(logical):
+            return None
+        period = TIMEFRAME_SECONDS.get(self._timeframe or "")
+        ext_hours = getattr(self._cmap, "ext_hours", True)
+        times, whitespace = series_times(plotted, logical, period, ext_hours)
+        if not times:
+            return None
+        entry = max(0, min(int(from_slot), len(times) - 1))
+        while entry < len(times) and whitespace[entry]:
+            entry += 1
+        if entry >= len(times):
+            for entry in range(len(times) - 1, -1, -1):
+                if not whitespace[entry]:
+                    return int(times[entry])
+            return None
+        return int(times[entry])
 
     def set_timeframe(self, timeframe: str) -> None:
         # S-P18-4: any timeframe change opens on a fresh S-P18-3 frame;

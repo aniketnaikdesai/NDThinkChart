@@ -7971,3 +7971,466 @@ NOT frozen (revised this phase, so no worker may assume the old contract):
 | S-P18-6 | **Verification order: repro-first per wave, declared P11 churn, batch gate last.** P18-1 proves the chevron against the viewport × new-bars matrix (the away-alone-visible cell is the supersession proof) and the click case; P18-2 proves per-timeframe frames, clamping, zero-bar, switch-back and timeframe-change freshness with follow-state encoding. P11 suites asserting away-alone-hidden are updated to away-only as declared churn under S-P18-1 (AR-P18-4), not treated as regressions. Rationale: each D57 expectation is offscreen-measurable today via the P11 probes; the gate (P18-3) requires the full suite green with history intact. | `[new in P18]` — process decision; pins AR-P18-4 handling |
 
 
+
+## Phase P19 — Scroll-triggered backfill prefetch (D58) — drafted 2026-11-09
+
+> Companion: `docs/plan.md` § *Phase P19* (traceability, three phases, assumptions,
+> flagged issues). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P19 (D58),
+> Journey 54, `AC-D58.1`–`AC-D58.6` FINAL (analyst-decided per owner delegation
+> 2026-11-05; owner corrections land as refinements), A166–A170, R122–R124,
+> `design_gaps.md` DG111 (Plan-owned; resolved by S-P19-4 below). Hard constraints:
+> **no order code anywhere** (D45/D46); offscreen-first acceptance with clock control
+> (no live-TWS step named); the **full offscreen suite green is the gate**; phases S/M
+> only; no skips/xfails. Load path unchanged (P15 T0 untouched — A168); no planner /
+> pacing / watchdog / D53 / D56 retuning — all referenced, none reopened. Existing-repo
+> run: every decision below modifies existing modules in place; **no new module, no new
+> dependency, no schema migration**. One phase only — nothing past the P19 build waves
+> is planned (P20 index/futures is separate). D1–P18 are NOT reopened.
+
+### Codebase Summary (existing repository — the D58 surface, validated against source)
+
+> Inventory gathered from the current source files (the repository is authoritative;
+> `graphify-out/graph.json` used for discovery only). Only the parts D58 touches are
+> listed; the full layer inventory is unchanged. Pointer: `docs/codebase-map.md` (P19
+> note) is the module index; what follows is this phase's delta.
+
+- `[existing] ui/lwc_view.py::report_viewport` — the settled-report sink
+  (`def report_viewport(self, view_range, following: bool = False) -> bool`): keeps
+  the freshest gesture-end / programmatic-frame report in `_pending_viewport` (last
+  write wins); fed by `_on_page_viewport_report` from the throttled page channel.
+  The view also owns the series state the distance needs: `_bars`, `_plotted`,
+  `_logical`, `_cmap` plus the P18 span tables (`FRESH_FRAME_INTRADAY_SESSIONS`,
+  daily+ calendar spans) — the same mapping the fresh-frame computation resolves
+  slot→bar through.
+- `[existing] ui/main_window.py` load/backfill orchestration — the branch that turns
+  planner output into waves (`queue_wave_plans` call site `:1014`), the
+  `_history_generation` proxy (`:1213`), stranded finalization
+  (`_finalize_stranded_history_wave` `:1723`, watchdog `:1763`), and the D53
+  indicator + `_is_cache_current` freshness gate (P14). The prefetch evaluator
+  hooks this orchestration; no hook site is reshaped.
+- `[existing] ui/ticker_session.py` wave state — `_history_req_ids`, `_wave_plan_queue`
+  (`:203`), `_history_generation` (`:180`), `queue_wave_plans` (`:1036`, stamps
+  `_wave_start_ts` once per wave), `_issue_wave_chunks` (pacing-gated, per-load cap),
+  generation-fenced late arrivals, the P17 silence sweeper + `_retried_plans`
+  exactly-once allowance. The wave lifecycle D58.2 mirrors is entirely here.
+- `[existing] services/backfill_service.py` planner — `find_missing_spans`
+  (mode-aware day presence + bar-level trailing pass + intraday floor) and
+  `plan_requests` (span → chunk plans, newest-first per configured duration);
+  consulted by the trigger and the one-step issuance, modified by neither.
+- `[existing] services/market_calendar.py::session_windows` — mode-aware session
+  anchoring for the intraday thresholds; read-only input.
+
+### Summary
+
+On every settled viewport change (gesture-end / programmatic frame, including the
+initial frame), Python compares the oldest visible bar against the oldest cached bar
+for the current (symbol, timeframe, mode) and — when the gap is within one
+`AC-D57.4` initial-frame span — issues a prefetch wave for the next older planner
+step as an ordinary history wave (one step, pacing-gated, 120 s watchdog, D53
+indicator, D56 retry, generation-fenced, one in flight). Arrivals render
+incrementally through the same-symbol preserve path and never move the viewport;
+fetching chains while the planner reports missing sessions and stops honestly at
+closures, beyond-retention shortfall, or pacing-exhaustion fall-through.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI stack (constrained) | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only | Existing-repo hard constraint; D58 is trigger + wave-issuance wiring on the proven P7/P14/P15/P17 machinery | None — no stack change is on the table |
+| Broker / pacing / watchdog (constrained) | Unchanged: `ibapi-latest==10.51.1`, live TWS 7496, rolling pacing budget, 120 s watchdog, D56 exactly-once retry | The requirements fence every prefetch inside the existing wave envelope (`AC-D58.2`); retuning is explicitly out of scope | None entertained — retuning is out of scope per Non-Goals |
+| Persistence (constrained) | Unchanged SQLite; no migration | Prefetch state is in-memory session state like the viewport memory (AP-P11-3 precedent); the `bars` PK already dedupes chained-step overlap | A prefetch cursor table (rejected — the planner recomputes from the cache each wave; persisted cursors would desync from evicted/re-fetched bars) |
+| Trigger host: Python settled-report path | Evaluate on the Python side, hooked off the settled viewport-report fan-out (the same reports `report_viewport` consumes), never per tick and never page-side | Only Python holds cache + planner + wave state + mode/timeframe together; the settled channel already exists and already excludes per-tick traffic (A166). A page-side trigger would duplicate cache/planner knowledge in JS and need new wire traffic | Page-JS distance check (rejected — no cache/planner/calendar there; duplicates the P18-anchored mapping); per-tick evaluation (rejected — A166, re-fires on every live update) |
+| Test harness | pytest + pytest-qt, offscreen with clock control, no live TWS | Every D58 AC names an offscreen measurable (viewport-matrix, wave-lifecycle, in-flight/stranded/closure, slot-assertion, chaining/stop cases) | Live-TWS validation (rejected — no AC names a live step) |
+| No new module / dependency / integration | All items land in existing files; no store change | The session already owns the full wave lifecycle and the view already owns the series mapping; a new service would split the P7 wave semantics | New prefetch service or trigger store (rejected — duplication/drift risk against the P7/P14 session state) |
+
+### System Components
+
+- `[new/changed] ui/lwc_view.py` settled-report path — gains the trigger evaluation
+  entry: resolving the oldest-visible logical slot through the existing
+  `_logical`/`_plotted` mapping to a real bar ts (the same mapping the S-P18-3 frame
+  computation uses), and exposing the (oldest-visible-ts, following) reading the
+  evaluator consumes. `report_viewport`'s store contract, `set_series` continuity,
+  and the fresh-frame precedence (S-P18-4) are untouched.
+- `[new/changed] ui/main_window.py` prefetch evaluator — the new decision point,
+  hosted alongside the load/backfill orchestration: per settled report, compute the
+  gap (oldest-visible-ts vs oldest-cached-ts for the current triple), compare
+  against T(timeframe) (S-P19-2), consult `find_missing_spans` for the next older
+  planner step, and issue exactly one step via the existing `queue_wave_plans` path
+  when no wave is in flight for the triple. Mode-switch / disconnect abandonment
+  reuses the existing generation-bump + cancel paths; a coalesced same-triple reload
+  keeps the running wave per Branch-A.
+- `[new/changed] ui/ticker_session.py` wave state — gains one in-memory field: the
+  pending-prefetch re-evaluation marker (set when a newer trigger arrives while a
+  wave is in flight; consumed on wave completion). Every existing field
+  (`_history_req_ids`, `_wave_plan_queue`, generation, watchdog, stranded reason,
+  `_retried_plans`, D53 wave-start stamp) is read, not reshaped.
+- `[existing] services/backfill_service.py` planner — consulted by the trigger and
+  the one-step issuance (`find_missing_spans` / `plan_requests` contracts frozen
+  below); not modified.
+- `[existing] services/market_calendar.py`, `data/bar_cache.py::BarCache`, pacing,
+  `id_manager`, watchdog bounds, D53 indicator, D56 retry, port guard, LWC renderer
+  seam — called or left alone; not modified.
+- `[existing] Order-code absence` — P19 adds zero order interaction (D45/D46 end
+  state untouched).
+
+### Data Model
+
+- `[new] Pending-prefetch marker` — per-session in-memory flag (set on a newer
+  settled trigger arriving mid-wave, cleared when consumed on wave completion or
+  abandoned on generation bump). Nothing persisted, no migration; viewport position
+  itself stays session state per AP-P11-3.
+- `[existing] TickerSession in-memory wave state` (`_history_req_ids`,
+  `_wave_plan_queue`, `_history_generation`, `_wave_start_ts`, `_retried_plans`) —
+  read by the evaluator/indicator; shape and semantics unchanged.
+- `[existing] bars` table (PK `(symbol, timeframe, ts)`) — read via `BarCache`;
+  chained-step overlap dedupes by `INSERT OR REPLACE`. No migration.
+- `[existing] LWCView._viewport_memory`, fresh-frame directive, Bar/Drawing/Alarm
+  stores — untouched.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths (one planner step per
+wave through the existing request shape), SQLite (reads + idempotent per-chunk
+persists), Qt signals, `pacing_manager`, and the LWC range-op wire (prefetch emits
+no range op at all — arrivals travel the data-replace path) are reused as-is.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen).
+Task Manager gives workers the contract, never the implementation.
+
+- `services/backfill_service.py::find_missing_spans` — verbatim contract: `def
+  find_missing_spans(cached_ts: Iterable[int], now_ts: int, timeframe: str,
+  trailing_days: int = TRAILING_BAR_GRANULARITY_DAYS, ext_hours: bool = False,
+  min_sessions: int = 0) -> List[MissingSpan]:` — consulted by the trigger and the
+  freshness predicate; not modified. Owner: `services/backfill_service.py`.
+- `services/backfill_service.py::plan_requests` — verbatim contract: `def
+  plan_requests(missing_spans: Iterable[MissingSpan], timeframe: str) ->
+  List[RequestPlan]:` — chunking newest-first per configured duration; P19 issues
+  exactly one (the oldest-next) step per wave. Owner: `services/backfill_service.py`.
+- `ui/ticker_session.py::queue_wave_plans` — verbatim contract: `def
+  queue_wave_plans(self, plans, contract, timeframe: str, extended_hours: bool):`
+  — replaces the queue, stamps `_wave_start_ts` once, issues the first wave
+  through `_issue_wave_chunks`. P19 is a new caller with single-step plan lists;
+  the body is unchanged. Owner: `ui/ticker_session.py`.
+- `ui/ticker_session.py` wave lifecycle (pacing-gated `_issue_wave_chunks`,
+  120 s watchdog arm/disarm, generation fencing, D56 exactly-once `_retried_plans`,
+  stranded finalization) — hooked and read by the prefetch, never reshaped.
+  Owner: `ui/ticker_session.py`.
+- `ui/lwc_view.py::report_viewport` — verbatim contract: `def report_viewport(self,
+  view_range, following: bool = False) -> bool:` — keeps the freshest settled report
+  (last write wins), returns `True` when usable, `False` (ignored) otherwise. P19
+  adds a reader of the stored report; the sink itself is unchanged.
+  Owner: `ui/lwc_view.py`.
+- `ui/lwc_view.py` same-symbol preserve path (S-P11-3) — data replaces re-apply the
+  page's pre-replace range with no fresh frame and no range op; prefetch arrivals
+  travel exactly this path (S-P19-5). Owner: `ui/lwc_view.py`.
+- D53 indicator lifecycle + `_is_cache_current` gate, D56 retry, `TIMEFRAME_CONFIG`
+  durations, `session_windows` calendar semantics, `BarCache` read/write API,
+  order-code absence — all read, none modified (see § Phase P14 Frozen Interfaces).
+
+NOT frozen (changed this phase, so no worker may assume the old contract): the
+host-side settled-report fan-out (gains the prefetch evaluation call) and the
+per-session wave state (gains the pending-prefetch marker).
+
+### Non-Functional Approach
+
+- **Correctness (driven by AC-D58.1/AC-D58.2 + R122):** each wave lands its repro
+  test red-first — the per-timeframe viewport-matrix (within-T fires / beyond-T
+  silent, incl. the single-sided boundary cell) and the one-step / one-in-flight /
+  pacing-cap lifecycle cases. The one-frame threshold keeps the steady-scroller rate
+  at ~1 wave per frame scrolled (R122).
+- **Honesty (driven by AC-D58.3/AC-D58.5 + R123):** arrivals render incrementally
+  per chunk (P7 per-chunk persist+render precedent); a still-missing region under a
+  running wave stays in-flight via D53, never presented as complete; strand
+  finalization keeps the verbatim `AC-D16.4` shortfall; genuine closures stay empty.
+  The requirement bans blanks-presented-as-data, not the honestly-loading state.
+- **Viewport stability (driven by AC-D58.4):** prefetch completions emit no range op
+  and request no fresh frame — away stays away with an identical range, following
+  extends only via the existing D51 live-update path. Asserted as viewport-slot
+  equality across landings in both follow states.
+- **Performance:** evaluation is O(plotted-window) per settled report (one gap
+  computation + one planner consult, no per-tick work); each wave moves exactly one
+  planner step inside the proven wave/pacing/watchdog envelope, so budgets hold
+  unchanged. Load-time behaviour is byte-identical except for the A168 ordinary
+  background wave on daily+ (P15 T0 untouched).
+- **Stability gate:** the full offscreen suite stays green on every wave; no
+  skipped/xfailed tests; no live TWS.
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P19-1 — Steady scroller churns pacing slots shared with live sessions/pop-outs (R122) | M / M | One step per wave + one in flight (S-P19-3) + pacing gate with fail-open fall-through (`AC-D58.5`); one-frame threshold bounds the rate; pacing-exhaustion cases assert the fall-through |
+| AR-P19-2 — Fast scroll outruns fetch; the transient unfilled region reads as the banned blanks (R123) | M / H | Incremental per-chunk render + D53 in-flight honesty (`AC-D58.3`); shortfall only at finalization; chained waves close the gap while fetch keeps up |
+| AR-P19-3 — Oldest-visible slot mis-maps to ts through the collapse mapping | M / M | The distance resolves through the same `_logical`/`_plotted`/`_cmap` mapping the S-P18-3 frame computation uses (S-P19-2); seeded-series cases assert slot→ts on collapsed (weekend-folded) windows |
+| AR-P19-4 — Stale trigger fires against a replaced series (mode switch / symbol switch mid-flight) | M / M | Every issuance re-validates the current triple + generation before issuing; mode-switch/disconnect abandon via the existing generation-bump + cancel paths (S-P19-4); no-cross-contamination cases pin the abandonment |
+| AR-P19-5 — Daily+ initial frame sits within T of the oldest cached bar and adds load-time background waves (R124) | L / M | Ordinary paced background waves per A168; P15 verdict semantics unchanged; asserted as background-wave (not load-verdict) cases |
+| AR-P19-6 — Pending-prefetch marker leaks across waves (stale re-evaluation re-fires after the need passed) | L / M | The marker is consumed-or-cleared on every terminal path (completion, strand, cancel, disconnect) and re-validated against the fresh viewport before issuing (S-P19-4) |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P19-1 | **Trigger host: Python settled-report path, never per tick, never page-side (D58.1/D58.2-seam, A166).** Evaluation hooks the host-side fan-out of the settled viewport reports the page already sends (gesture-end + programmatic frame, including the initial frame) — the same reports `report_viewport` stores. No new channel, no polling, no per-tick path. Rationale: only Python holds cache + planner + wave state + mode/timeframe; the settled channel already excludes live-update traffic. Alternative: page-side check (rejected — duplicates cache/planner/calendar in JS); per-tick evaluation (rejected — A166, re-fires on every live update and per P11 the following-at-edge case is a no-op anyway). | `[new in P19]` — hook-only; the report sink, wire shape and throttle are untouched |
+| S-P19-2 | **Distance = oldest-visible-bar ts vs oldest-cached-bar ts; T(timeframe) = one `AC-D57.4` initial-frame span (D58.1).** The oldest-visible logical slot resolves to a real bar ts through the existing `_logical`/`_plotted` mapping; the gap compares against the trigger table (intraday: 2 / 5 / 10 / ~22 / ~44 / ~126 mode-aware sessions via `session_windows`; daily+: 1 Y / 1 Y / 5 Y calendar spans) — the same anchored spans S-P18-3 frames, reused as lookahead so ≥1 full screen of history sits beyond the viewport whenever fetch keeps up. Rationale: session-anchored like the two owner-decided cells; holidays and RTH/ETH switches hold without special cases. Alternative: raw bar-count distance (rejected — drifts across holidays and mode switches); time-duration distance (rejected — a 2-session window is 2 sessions only via the calendar). | `[extends P18: S-P18-3]` — reuses the anchored span tables as lookahead; no new calendar logic |
+| S-P19-3 | **Prefetch = ordinary history wave, one step, one in flight (D58.2, A167).** A fired trigger consults `find_missing_spans` for the current triple and issues exactly one planner step (the next older `TIMEFRAME_CONFIG` window) via `queue_wave_plans` — pacing-gated, 120 s watchdog, D53 indicator state, D56 exactly-once retry, generation-fenced late arrivals; at most one prefetch wave in flight per (symbol, timeframe, mode). Deep scrolls chain wave-after-wave while the planner reports missing sessions. Rationale: every wave stays inside the proven wave/pacing/watchdog envelope — no new fetch path, no budget change. Alternative: multi-step waves (rejected — breaks the per-load cap and pacing precedent; chaining covers depth). | `[new in P19]` — new caller of the frozen P7/P14/P17 wave machinery; composes with S-P14-2/S-P14-3 (indicator + freshness) and S-P17-5 (retry) unchanged |
+| S-P19-4 | **DG111 seam: coalesce, never cancel (D58.2-seam).** A newer settled trigger arriving while a prefetch wave is in flight does NOT cancel the running wave (its chunks already spent pacing budget under the current generation) — it sets the pending-prefetch marker; on wave completion the marker re-runs the evaluator from the fresh viewport and cache. Mode-switch / disconnect / symbol-switch abandon the wave AND the marker through the existing generation-bump + cancel paths. This satisfies A167 as written: re-evaluation on completion + on viewport change, one in flight, and the newer trigger supersedes the stale one (the pending evaluation replaces it) under generation fencing. Rationale: cancelling issued chunks wastes pacing slots and the next-older step from a scrolled viewport is usually the same or adjacent step — chaining covers it without churn. Alternative: cancel-replace (rejected — burns pacing budget on abandoned chunks and risks 162 churn for no coverage gain). | `[new in P19]` — resolves DG111; Task Manager covers the marker lifecycle under `AC-D58.2` |
+| S-P19-5 | **Arrivals never move the viewport (D58.4).** Prefetch completions travel the same-symbol data-replace preserve path (S-P11-3): no fresh-frame request, no range op emitted — the page keeps its pre-replace range. The Q95 fresh-frame rule applies to loads/timeframe-changes only, never to prefetch arrivals. Rationale: `AC-D58.4` + D51 no-yank FINAL; a prefetch that reframed would re-introduce the exact yank D51/P18 removed. Alternative: re-frame on large arrivals (rejected — `AC-D58.4` forbids it explicitly). | `[extends P11: S-P11-3]` — prefetch arrivals are data replaces; composes with S-P18-4 (fresh-frame precedence untouched) |
+| S-P19-6 | **Per view, shared cache; load-neutral (D58-scope, A168/A170).** The rule evaluates per chart view (main + pop-outs), each against its own viewport and the shared mode-aware cache; arrivals never move any viewport. Where the initial frame already sits within T of the oldest cached bar (daily+, where frame ≈ window), the resulting wave runs as an ordinary background wave with no P15 load-verdict change. Rationale: pop-outs share the history/backfill path (D49.1) and deserve the same no-blank treatment; P15's 10 s verdict measures the load path, which is unchanged. Alternative: main-chart-only (rejected — A170, scrolled-back pop-outs would keep the exact gap D58 closes). | `[new in P19]` — scoping decision; no load-path, verdict, or D51/Q95 change |
+| S-P19-7 | **Verification order: repro-first per wave, chaining + abandonment pinned, batch gate last.** P19-1 proves the trigger matrix (within-T fires / beyond-T silent incl. the single-sided boundary, per timeframe, mode-aware); P19-2 proves one-step/one-in-flight lifecycle, the DG111 coalesce seam, chaining, closure-stop, single shortfall and pacing fall-through; P19-3 proves in-flight honesty, viewport-slot stability in both follow states, and the full-suite green + history-intact gate. Rationale: each D58 expectation is offscreen-measurable today via the P11/P14 probes with clock control. | `[new in P19]` — process decision; pins DG111 and R122–R124 handling |
+
+## Phase P20 — Index + futures contract support (D59) — drafted 2026-11-09
+
+> Companion: `docs/plan.md` § *Phase P20* (traceability, three phases, assumptions,
+> flagged issues). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P20 (D59),
+> Journeys 55–56, `AC-D59.1`–`AC-D59.6` FINAL (Q96–Q99 answered-owner-confirmed
+> 2026-11-09; Q99 is an owner override of the analyst default, cost recorded in
+> R128), A171–A174 (all CONFIRMED), R125–R129 (R128 RESOLVED),
+> `design_gaps.md` DG112 (shading; Plan-scoped below) + DG113 (probe seam;
+> resolved by S-P20-3 below). Hard constraints: **no order code anywhere**
+> (D45/D46); offscreen-first acceptance with clock control; the **full offscreen
+> suite green is the gate**; sizes S/M only; no TWS-side-silence diagnosis, no P19
+> prefetch change, no pacing/watchdog/D53/D56 retuning, no new tape feature, no
+> continuous/back-adjusted futures series, no options support. Existing-repo run:
+> every decision below modifies existing modules in place; **no new module, no new
+> dependency, no schema migration**. One phase only — nothing past the P20 build
+> waves is planned (P21 follow-offset is separate). D1–P19 are NOT reopened.
+
+### Codebase Summary (existing repository — the D59 surface, validated against source)
+
+> Inventory gathered from the current source files (the repository is authoritative;
+> `graphify-out/graph.json` used for discovery only). Only the parts D59 touches are
+> listed; the full layer inventory is unchanged. Pointer: `docs/codebase-map.md` (P20
+> note) is the module index; what follows is this phase's delta.
+
+- `[existing] ibkr/contracts.py` contract resolution — `FUTURES_SCHEDULE`
+  (ES/NQ/YM/RTY → `("FUT", "CME", "USD", "quarterly")`), `_front_month`
+  (quarterly rollover, Thursday-before-3rd-Friday minus 7 days), `get_stock_contract`
+  (`STK/SMART/USD` default), `get_futures_contract` (FUT + `lastTradeDateOrContractMonth`
+  + CME/USD + multiplier/tradingClass specs), and `get_contract_for_symbol` whose
+  fallthrough is **STK for anything not in `FUTURES_SCHEDULE`** — the SPX defect
+  (STK/SMART → TWS error 200 on prime + wave + realtime). `INDEX_PROXY`
+  (SPX→ES, NDX→NQ, DJI→YM, RUT→RTY) is tape-only (footprint/burst), never consulted
+  by the chart path today.
+- `[existing] ui/main_window.py::load_chart` — builds `contract =
+  get_contract_for_symbol(symbol)`, consults `find_missing_spans` /
+  `plan_requests`, issues via `queue_wave_plans`, primes the aggregator, then
+  attaches realtime. No error-200 leg discrimination and no realtime-attach gate:
+  a rejected contract strands dead realtime reqIds (the observed 300 s hang).
+  Daily+ loads already use one canonical full-session mode (ETH) per S-P8-4.
+- `[existing] services/backfill_service.py` planner — `present_days` (mode-aware
+  day presence via `session_windows`: RTH 09:30–16:00 / ETH 04:00–20:00 ET),
+  `find_missing_spans` (mode-aware presence + trailing bar-level pass + `min_sessions`
+  floor), `plan_requests` (newest-first chunking per configured duration).
+- `[existing] services/market_calendar.py::session_windows` — one intraday window
+  per ET trading day (09:30–16:00 RTH / 04:00–20:00 ETH); weekends/holidays yield
+  no window. Equity-scoped by construction.
+- `[existing] services/contract_lookup_service.py` — bounded (5 s
+  `CONTRACT_LOOKUP_TIMEOUT_MS`), exactly-once `ContractLookupService`
+  (`request` → paced `req_contract_details` → `lookup_finished(reqId, symbol, ok,
+  reason)`; `cancel`/`cancel_all` invalidate silently; late/unknown reqIds ignored).
+  Owns the D22 add-symbol probe path; reused for the Q99 probe-first seam.
+- `[existing] ibkr/market_data.py::req_contract_details` — paced
+  (`_require_api_ready` + `throttle`), returns the reqId; the probe rides the
+  existing pacing envelope (DG113).
+- `[existing] services/alarm_monitor.py::_proxy_targets` — the tape-only proxy use
+  (volume-burst alarms on an index reroute to the `INDEX_PROXY` tape); price alarms
+  stay with their own symbol. Chart bars never flow through this path.
+- `[existing] ui/lwc_view.py` (`tz_offset`, `format_tz_label`) + D49.6 handoff
+  (`MainWindow._tz_offset` → main + pop-out views) — the label side of the
+  timestamp path; the slot side is the `_logical`/`_plotted` mapping plus the
+  D21.4 collapse service (`services/time_collapse_service.py`) and D1 session
+  bands. All equity-session-shaped — the suspected futures mis-map surface (R127).
+
+### Summary
+
+SPX/NDX/DJI/RUT resolve to their own IND contracts via a per-symbol table (never
+STK/SMART, never the futures proxy); ES/NQ/YM/RTY keep the existing
+`_front_month` FUT path; symbols matching no rule probe once via live
+`reqContractDetails` before the honest refuse; futures charts run the full
+session under one canonical mode with equity presence/collapse/shading rules
+bypassed and TWS timestamps rendered as-is in ET; error 200 on any leg ends in an
+honest shortfall with no dead realtime attach. INDEX_PROXY stays tape-only,
+pinned structurally.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / UI stack (constrained) | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only (P6-T13) | Existing-repo hard constraint; D59 is contract-resolution + session-scoping wiring on the proven P7 wave machinery | None — no stack change is on the table |
+| Broker / pacing / watchdog (constrained) | Unchanged: `ibapi-latest==10.51.1`, live TWS 7496, rolling pacing budget, 120 s watchdog, D53 lifecycle, D56 retry | Every D59 leg (probe included) stays inside the existing wave/pacing/watchdog envelope (`AC-D59` constraints); retuning is explicitly out of scope | None entertained — retuning is out of scope per Non-Goals |
+| Persistence (constrained) | Unchanged SQLite; no migration | Resolution state is in-memory (pending-lookup map, per-load contract); the `bars` PK already dedupes front-month overlap | A contract-resolution table (rejected — resolution is deterministic from symbol + clock; persisted rows would desync at roll) |
+| IND exchange/currency source | Plan-stated per-symbol table (S-P20-1), verified by a one-time live standalone probe (D48/D52 precedent) | Q96 named the symbols, not the venues; TWS accepts or rejects (exchange, currency) per symbol, so the values must be stated somewhere — Plan states them per the TWS IND spec with confidence noted, and the probe (owner-run, no suite dependency) confirms TWS acceptance before live reliance | Leave venues to Task Manager (rejected — TWS-rejected values are exactly the SPX failure class; the decision needs rationale + probe, i.e. architecture); refuse to state them / flag as requirements gap (rejected — R125 already provides the per-symbol capture-case mitigation; the values are Plan-decidable with probe verification) |
+| Test harness | pytest + pytest-qt, offscreen with clock control, no live TWS in the gate | Every `AC-D59` measurable is an offscreen contract-capture / overnight-feed / provenance case; the live probe is an owner-run confirmation, not a gate test (D48/D52 precedent) | Live-TWS gate tests (rejected — no AC names a live step; Q9 stands) |
+| No new module / dependency / integration | All items land in existing files; no store change | Resolution is a table + branch in `ibkr/contracts.py`; the probe reuses the D22 lookup service; futures scoping is flags on existing paths | A resolver service or contract store (rejected — splits the one-function resolution seam; duplication/drift risk) |
+
+### System Components
+
+- `[new/changed] ibkr/contracts.py` resolution — gains the IND table + rule order
+  (IND table → `FUTURES_SCHEDULE` → STK pattern → unknown/None): new
+  `IND_CONTRACTS` per-symbol (secType IND + exchange/currency) map, `is_futures_root`
+  / `is_index_symbol` predicates for the session-scoping call sites, and the
+  fallthrough now returns unknown (no contract) instead of STK for pattern-failing
+  symbols. `get_stock_contract` / `get_futures_contract` / `_front_month` /
+  `FUTURES_SCHEDULE` bodies unchanged.
+- `[new/changed] ui/main_window.py` load orchestration — the probe-first seam
+  (unknown → one `ContractLookupService.request` → adopt-first-details on ok /
+  honest refuse on not-ok, both before any prime/wave/realtime leg) and the
+  error-200 leg gate (prime/wave error 200 → honest full-span shortfall, no
+  realtime attach). Planner consult, wave issuance, and Branch-A coalescing
+  otherwise unchanged.
+- `[new/changed] ui/ticker_session.py` session legs — futures loads run the
+  canonical full-session mode (S-P20-4, extends the S-P8-4 daily+ precedent);
+  error-200 surfacing reuses the existing honest-shortfall finalization.
+- `[new/changed] services/backfill_service.py` planner — `present_days` /
+  `find_missing_spans` gain `is_futures: bool = False` (default preserves every
+  existing caller byte-for-byte); `True` switches to futures presence
+  (calendar-day presence, Saturday-only closure). `plan_requests` untouched.
+- `[new/changed] services/contract_lookup_service.py` — pending entries additionally
+  retain the first `contract_details` payload so a successful Q99 probe can adopt
+  the TWS-resolved contract; exactly-once / timeout / cancel semantics unchanged.
+- `[new/changed] services/time_collapse_service.py` + LWC session-band path
+  (`ui/lwc_view.py`, `chart_assets/lwc/`) — collapse folding and D1 pre/post
+  bands are skipped/suppressed for futures roots (DG112 resolved as suppress).
+- `[existing] services/alarm_monitor.py::_proxy_targets`,
+  `ibkr/contracts.py::footprint_cache_key` / `INDEX_PROXY` — tape-only proxy use,
+  untouched and frozen below.
+- `[existing] Order-code absence` — P20 adds zero order interaction (D45/D46 end
+  state untouched).
+
+### Data Model
+
+- `[new] IND contract table` — in-memory per-symbol map in `ibkr/contracts.py`
+  (`IND_CONTRACTS`: SPX→(IND,CBOE,USD), NDX→(IND,NASDAQ,USD), DJI→(IND,CME,USD),
+  RUT→(IND,CME,USD) — Plan-stated per TWS spec, probe-verified; AP-P20-1) plus
+  `is_futures_root` / `is_index_symbol` predicates. Code, not storage; no
+  migration.
+- `[new/changed] PendingLookup entry` — additionally carries the first received
+  contract-details payload (for probe-adopt); lifecycle (timeout, exactly-once,
+  cancel) unchanged. In-memory only.
+- `[existing] bars` table (PK `(symbol, timeframe, ts)`) — read via `BarCache`;
+  futures canonical-mode reads/writes converge on one mode cache (S-P8-4 pattern),
+  so RTH/ETH toggle is a pure cache hit. No migration.
+- `[existing] TickerSession` wave state, `LWCView._viewport_memory`, Bar/Drawing/Alarm
+  stores — read, not reshaped.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths (same request shapes;
+futures legs carry the existing `_front_month` FUT contract, index legs the new
+IND contract), `[existing]` `reqContractDetails` (probe reuses the D22 paced
+shape — one extra round-trip on unknown symbols only, R128), SQLite (reads +
+idempotent persists), Qt signals, `pacing_manager`, and the LWC range-op wire
+are reused as-is.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen).
+Task Manager gives workers the contract, never the implementation.
+
+- `ibkr/contracts.py::get_stock_contract` — verbatim contract: `def
+  get_stock_contract(symbol: str, exchange: str = "SMART", currency: str = "USD")
+  -> Contract:` — the STK leg for pattern-matching non-index, non-futures symbols.
+  Owner: `ibkr/contracts.py`. (The fallthrough *caller* changes — unknown no longer
+  falls here — the function body does not.)
+- `ibkr/contracts.py::get_futures_contract` — verbatim contract: `def
+  get_futures_contract(symbol: str, lastTradeDateOrContractMonth: str, exchange:
+  str, currency: str = "USD") -> Contract:` — unchanged; the Q97 CME/USD/front-month
+  legs call it exactly as today. Owner: `ibkr/contracts.py`.
+- `ibkr/contracts.py::INDEX_PROXY` + `footprint_cache_key` + 
+  `services/alarm_monitor.py::_proxy_targets` — the tape-only proxy path: burst
+  evaluation may resolve an index to its futures tape; the chart series never
+  does (`AC-D59.5`). Bodies unchanged. Owner: `ibkr/contracts.py` /
+  `services/alarm_monitor.py`.
+- `ibkr/market_data.py::req_contract_details` — verbatim contract: `def
+  req_contract_details(self, contract: Contract) -> int:` — paced
+  (`_require_api_ready` + `throttle`), returns the reqId. The Q99 probe is a new
+  caller; the shape is unchanged. Owner: `ibkr/market_data.py`.
+- `ibkr/market_data.py::req_historical_data` / `req_mkt_data` — request shapes,
+  pacing envelope (`PacingExceeded` deferral), and reqId allocation unchanged;
+  P20 only changes *which contract* is passed and *whether* the legs fire.
+  Owner: `ibkr/market_data.py`.
+- `services/backfill_service.py::plan_requests` — verbatim contract: `def
+  plan_requests(missing_spans: Iterable[MissingSpan], timeframe: str) ->
+  List[RequestPlan]:` — newest-first chunking per configured duration; P20 issues
+  through it unchanged. Owner: `services/backfill_service.py`.
+- `services/market_calendar.py::session_windows` — verbatim contract: `def
+  session_windows(start_ts: int, end_ts: int, ext_hours: bool) -> List[Dict[str,
+  int]]:` — 09:30–16:00 RTH / 04:00–20:00 ETH per ET trading day; futures bypass
+  it via the `is_futures` planner flag, never by changing it. Owner:
+  `services/market_calendar.py`.
+- `services/contract_lookup_service.py` timeout + exactly-once + cancel semantics —
+  `CONTRACT_LOOKUP_TIMEOUT_MS` (5 s bound), drop-before-emit, late/unknown-reqId
+  ignore, `cancel`/`cancel_all` silence. Entries additionally retain first details;
+  the lifecycle contract is unchanged. Owner: `services/contract_lookup_service.py`.
+- `ui/ticker_session.py` wave lifecycle (pacing-gated `_issue_wave_chunks`,
+  120 s watchdog arm/disarm, generation fencing, D56 exactly-once `_retried_plans`,
+  stranded finalization, D53 indicator) — P20 gates leg entry, never reshapes the
+  wave. Owner: `ui/ticker_session.py`.
+- D53 indicator lifecycle + `_is_cache_current` freshness gate, `TIMEFRAME_CONFIG`
+  durations, `BarCache` read/write API, S-P8-4 daily+ canonical mode, order-code
+  absence — all read, none modified.
+
+NOT frozen (changed this phase, so no worker may assume the old contract): the
+`get_contract_for_symbol` fallthrough (IND branch + unknown-None), the
+`present_days` / `find_missing_spans` signature (gains defaulted `is_futures`),
+the `PendingLookup` payload (gains first details), the load path's leg gating
+(probe seam + error-200 realtime gate), and the collapse/band paths for futures
+roots.
+
+### Non-Functional Approach
+
+- **Correctness (driven by AC-D59.1/AC-D59.3 + R125):** every resolution row lands
+  its repro test red-first — SPX/NDX/DJI/RUT capture cases asserting IND +
+  table exchange/currency (red today: STK/SMART fallthrough), ES/NQ/YM/RTY cases
+  asserting CME/USD/front-month. Per-symbol capture precedes any wave test (R125).
+- **Correctness (driven by AC-D59.4 + R127):** the overnight futures repro
+  (bars spanning the near-24 h session, both modes) is red-first against the
+  current equity-mapped path and green after the futures bypasses; bar positions
+  assert as-is ET slot equality. If the bypass set does not flip the repro, the
+  remaining site (label path vs aggregation) is diagnosed from the code in the
+  same wave — no new session model is invented (Q98).
+- **Honesty (driven by AC-D59.2/Journey 55 + R128):** unknown → exactly one probe
+  reqId, then the Q99 refuse (status message, nothing persisted, zero
+  prime/wave/realtime reqIds); error 200 on any leg → verbatim `AC-D16.4`
+  shortfall, never a dead realtime hang. The probe cost is bounded to unknowns
+  only (R128 RESOLVED).
+- **Isolation (driven by AC-D59.5 + R129):** chart-series provenance cases assert
+  no index bar originates from a futures contract; a source-shape assertion pins
+  the chart load/history path as `INDEX_PROXY`-free; the existing burst-proxy
+  tests stay green (tape-only use preserved).
+- **Performance:** no new per-tick work; resolution is a dict lookup per load;
+  the probe adds one paced reqId on unknown symbols only (DG113 seam: probe runs
+  before prime/wave, never parallel). Pacing/watchdog budgets hold unchanged.
+- **Stability gate:** the full offscreen suite stays green on every wave; no
+  skipped/xfailed tests; no live TWS in the gate; the owner-run standalone probe
+  (IND rows accepted, ES price + as-is-ET time) confirms TWS acceptance
+  (D48/D52 precedent).
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P20-1 — One IND table row names a wrong venue (R125: e.g. DJI vs SPX exchange differs) and error 200 persists for that symbol | M / M | Per-symbol contract-capture cases before any wave test (R125); the standalone live probe confirms TWS acceptance per row; a rejected row keeps the honest shortfall (Journey 55 step 3) and the correction lands as a table refinement without reopening |
+| AR-P20-2 — Expiry-roll surprise (R126: gap/overlap or wrong month at roll) | M / M | Rollover follows the existing `_front_month` behaviour with no new promise (A172); Journey 56 rollover edge case; no continuous-series claim |
+| AR-P20-3 — The ES timestamp cause is not the equity calendar (R127) and the bypass set misses the real site | H / M | Repro-first ordering: the overnight matrix must flip green on the bypasses; candidate sites enumerated (collapse folding, mode-window filtering, tz-offset labels, ET-anchored aggregation); Q98 defines "correct" independent of the site, so scope stays bounded |
+| AR-P20-4 — Probe-first extra reqId strains the rolling budget (R128/DG113) | L / M | RESOLVED by owner choice: one probe, unknowns only, paced via the existing `req_contract_details` shape, 5 s bound (not the 120 s watchdog); DG113 seam orders probe-before-legs, never parallel |
+| AR-P20-5 — A future change re-couples the chart series to INDEX_PROXY (R129) | M / L | `AC-D59.5` provenance cases pin chart-series source ≠ futures; the source-shape assertion pins the chart path `INDEX_PROXY`-free; burst-proxy tests pin the tape-only use |
+| AR-P20-6 — STK-pattern misclassifies a real symbol as unknown (extra probe) or vice versa (STK leg → error 200) | L / L | Both directions degrade honestly: unknown → one probe then refuse-or-adopt; STK-but-bogus → error-200 shortfall with no dead realtime. The pattern (AP-P20-2) errs toward STK for ticker-shaped input, so live stocks never pay the probe |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P20-1 | **IND table + rule order (D59.1, A171).** `ibkr/contracts.py` gains `IND_CONTRACTS`: SPX→(IND,CBOE,USD), NDX→(IND,NASDAQ,USD), DJI→(IND,CME,USD), RUT→(IND,CME,USD) — Plan-stated per the TWS IND spec (SPX/CBOE highest confidence; NDX/NASDAQ, DJI/CME, RUT/CME medium — AP-P20-1), probe-verified live. Resolution order: IND table → `FUTURES_SCHEDULE` → STK pattern (AP-P20-2) → unknown (no contract, never STK fallthrough). STK/SMART is never emitted for an index symbol. Rationale: the observed failure is exactly the STK/SMART fallthrough; explicit order makes each rule's winner auditable per symbol. Alternative: keep STK fallthrough + probe-on-200 (rejected — re-creates the prime+wave+realtime waste Q99 exists to prevent); exchange SMART for IND (rejected — TWS IND legs require the listing venue; SMART risks the same error-200 class). | `[new in P20]` — new table + predicates; `get_stock_contract` / `get_futures_contract` / `_front_month` bodies untouched |
+| S-P20-2 | **STK pattern rule (D59.4-seam).** A non-IND, non-FUT symbol is STK iff it matches the ticker charset (uppercase letters/digits/dot/dash, ≤8 chars — covers `BRK.B`/`BF-B`); SPY/QQQ/DIA/IWM stay STK regardless (A171). Charset failures (and nothing else) are "unknown" for the Q99 probe. Rationale: without an STK rule every stock load would pay a probe round-trip (DG113 cost), and without the probe cell `AC-D59.2` is unimplementable — the pattern gives both a trigger. Alternative: probe every non-IND/non-FUT load (rejected — pacing cost on every stock load for zero information); no STK rule / probe-on-error-200 only (rejected — contradicts the DG113 probe-before-legs order). | `[new in P20]` — Plan assumption AP-P20-2; keeps stock loads probe-free |
+| S-P20-3 | **DG113 seam: probe-first, legs gated on resolution (D59.4, A174).** An unknown symbol issues exactly one live `reqContractDetails` via the existing `ContractLookupService` (paced, 5 s bound, exactly-once) BEFORE any prime/wave/realtime leg. ok=True → adopt the first returned contract for this load's legs (S-P20-3a); ok=False/timeout → the Q99 refuse (status message, nothing persisted, zero further reqIds). Probe failure ends the load; probe and legs never run in parallel. Rationale: the SPX waste (prime + wave + 300 s dead realtime on an unfillable contract) must be structurally impossible for unknowns. Alternative: refuse-in-place with no request (rejected — the analyst default the owner overrode in Q99); parallel probe + legs (rejected — DG113, re-creates the waste). | `[new in P20]` — resolves DG113; reuses the D22 lookup service (extended with first-details retention) |
+| S-P20-3a | **Probe-adopt: first returned contract wins (D59.4).** When the Q99 probe succeeds, the load proceeds with the first `ContractDetails` payload's contract (TWS itself resolved it). Rationale: refusing a TWS-confirmed symbol would make the probe pointless; adopting keeps one resolution source (TWS) instead of a second local table for unknowns. Alternative: refuse regardless of probe outcome (rejected — probe becomes a pure cost with no discovery value); adopt-and-persist a mapping (rejected — TWS answers are session truth; persisting risks stale contracts at listing changes). | `[new in P20]` — sub-decision of S-P20-3; Task Manager covers the adopt path under `AC-D59.2` |
+| S-P20-4 | **Futures canonical full-session mode (D59.3/D59.4, A173).** Futures-root loads force the S-P8-4 canonical mode (ETH) for the cache read/write, planner call, wave, and prime — the RTH/ETH toggle converges with identical bars from one shared cache, and a cached toggle reload is a pure cache hit. Rationale: a near-24 h session has no meaningful RTH/ETH split; canonical mode makes the `AC-D16.9` mode-empty rule vacuous for futures (nothing to delete) with zero new calendar logic, reusing the proven daily+ precedent. Alternative: mode-aware futures windows (rejected — invents a futures session model Q98 forbids); RTH-filtered reads (rejected — deletes overnight bars, the exact `AC-D59.4` violation). | `[extends P8: S-P8-4]` — reuses the canonical-mode precedent for futures roots; no calendar change |
+| S-P20-5 | **Futures presence bypass + equity-visual scoping (D59.3/D59.4, A173, DG112).** `present_days` / `find_missing_spans` gain `is_futures: bool = False` (default preserves all existing callers byte-for-byte); `True` → calendar-day presence (any bar on the ET date counts, no window filter) with Saturday as the only futures closure (Sun–Fri trade; equity holidays are fetched, not assumed — an empty fetch ends in honest shortfall, never a silent hole). Collapse folding (D21.4) and D1 pre/post bands are skipped/suppressed for futures roots (DG112 resolved as suppress: the bands mark equity sessions and would mis-shade the overnight range Q98 makes visible). Rationale: every suspected mis-map site is equity-session-shaped; bypassing (not remodelling) satisfies Q98's as-is rule with the smallest honest change. Alternative: per-contract futures session map (rejected — DG1-deferred, owner-unnamed, out of scope); keep bands as clock markers (rejected — bands imply non-trading time on a trading session). | `[new in P20]` — planner default preserves the frozen contract; resolves DG112; Q98 stays the only definition of "correct" |
+| S-P20-6 | **Proxy-never-for-price guard (D59.5).** The chart load/history path resolves chart contracts exclusively through the S-P20-1 table (IND/FUT/STK) and never consults `INDEX_PROXY`; the proxy stays reachable only from tape-dependent paths (burst `_proxy_targets`, `footprint_cache_key`). Pinned by offscreen provenance cases (index chart-series source ≠ futures) + a source-shape assertion (chart path `INDEX_PROXY`-free) + the existing burst-proxy tests staying green. Rationale: the owner's binding correction ("never substitute futures data for an index price series") must hold structurally, not by convention. Alternative: runtime contract check per bar (rejected — per-tick cost for a load-time invariant; the shape assertion + provenance cases pin it at the seam). | `[new in P20]` — structural guard; tape-only proxy use frozen, not moved |
+| S-P20-7 | **Verification order: contracts first, overnight repro second, provenance + gate last.** P20-1 proves the per-symbol resolution matrix red-first (SPX STK/SMART today → IND after) + probe-once + error-200/no-dead-realtime honesty; P20-2 proves the overnight futures matrix red-first then green (as-is ET both modes, collapse/bands scoped, mode-empty vacuous) + the standalone live probe (owner-run: IND rows accepted, ES price + time correct); P20-3 proves provenance + full-suite green + history intact. Rationale: each D59 expectation is offscreen-measurable today via contract capture + seeded overnight feeds with clock control. | `[new in P20]` — process decision; pins R125–R129 handling |
+

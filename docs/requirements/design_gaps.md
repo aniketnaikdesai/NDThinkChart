@@ -1623,3 +1623,15 @@ history of the choice.
 - **Why it matters:** the requirements pin one-step-per-wave and one-in-flight with re-evaluation on completion + viewport change, but not the seam itself: whether a newer trigger queues behind, cancels-and-replaces, or coalesces into the in-flight prefetch, and how mode-switch/disconnect abandonment composes with chained prefetches, changes wave-state assertions without changing the requirement.
 - **Suggested resolution:** Plan states the seam (cancel-replace vs queue-with-deadline) against the generation-fencing precedent; Task Manager covers it under `AC-D58.2`; the D53-lifecycle and no-cross-contamination cases pin the abandonment paths.
 - **Status:** open (non-blocking — Plan detail; `AC-D58.2` is the gate).
+
+## DG112 — P20: equity session shading (D1/DG1) on near-24 h futures charts is undefined
+- **Where it shows up:** Phase P20 / Journeys 55–56; DG1 (equity `04:00–20:00 ET` bands applied to every symbol); Q98 (timestamps + presence only — shading not covered).
+- **Why it matters:** with ES/NQ/YM/RTY now chartable, the D1 pre/post bands will shade a near-24 h session with equity bands, mis-shading the overnight range Q98 just made visible.
+- **Suggested resolution:** Plan scopes whether futures charts suppress the D1 bands, keep them as ET-clock markers, or take a per-contract session map (DG1's deferred map); `AC-D59.3`/`AC-D59.4` assert timestamps/presence either way — shading is the open visual.
+- **Status:** open (non-blocking; shading only — `AC-D59.4` is the gate).
+
+## DG113 — P20: Q99 probe-first extra reqId vs rolling pacing budget (Plan seam)
+- **Where it shows up:** Phase P20 / D59.4 / `AC-D59.2`; A174 (one extra `reqContractDetails` round-trip on unknown symbols only); pacing rolling budget shared by sessions/pop-outs/primes.
+- **Why it matters:** the probe is a new paced request that must run BEFORE prime/wave legs; without an ordered seam (probe → gate prime/wave on probe success, probe failure ends the load with the Q99 message), a Build could fire prime/wave in parallel with the probe and re-create the SPX 300 s waste Q99 exists to prevent.
+- **Suggested resolution:** Plan orders the seam (probe first, prime/wave gated on resolution; probe failure = honest refuse with no further legs) and Task Manager covers it under `AC-D59.2`; the D53-lifecycle and 120 s backstop treat the probe as part of the load's wave.
+- **Status:** open (non-blocking — Plan detail; `AC-D59.2` is the gate).

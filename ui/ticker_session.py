@@ -189,6 +189,12 @@ class TickerSession(QObject):
         self._backfill_missing_spans: list = []
         self._backfill_failed_req_ids: set[int] = set()
         self._history_stranded_reason: str = ""
+        # P19-T2 (S-P19-4): pending-prefetch re-evaluation marker (DG111
+        # coalesce seam). Set when a fired trigger arrives while a wave is
+        # in flight — the running wave is never cancelled for it. Consumed
+        # on wave completion with a fresh-viewport re-evaluation; cleared
+        # on every terminal path via _cancel_history_requests.
+        self._pending_prefetch: bool = False
         self._wave_timeframe: str | None = None
         self._history_wave_timer = QTimer(self)
         self._history_wave_timer.setSingleShot(True)
@@ -875,6 +881,12 @@ class TickerSession(QObject):
         # baseline so the next wave re-stamps it. A coalesced reload never
         # cancels, so it can never clear the running baseline.
         self._wave_start_ts = None
+        # P19-T2 (S-P19-4): the wave terminated — the pending-prefetch
+        # marker dies with it. Every caller of this path (load-chart
+        # cancel, teardown, stranded/disconnect finalise) is an abandonment;
+        # only wave completion consumes the marker (see
+        # MainWindow._on_session_wave_complete), never this path.
+        self._pending_prefetch = False
 
     def _history_wave_watchdog_bound_ms(self, wait_s: float = 0.0) -> int:
         """Window-relative strand bound (P7-W2, S-P7-3): max(base, wait+margin).

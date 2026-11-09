@@ -1708,3 +1708,81 @@
 # Open Questions — P19 (Batch 33 / D58 — scroll-triggered prefetch; analyst-decided per delegation — no blocking item)
 
 > Owner-directed (verbatim 2026-11-05): *"also current when vieweing in 1min 30 sessions are populated. the chart should backfilling more if user scrolls to past i.e. user should not see blanks in place of price bars. that means for each interval, decide a position in past when you will start downloading more historical bars. decide and update to me."* The owner explicitly delegated the per-interval trigger positions ("decide and update to me") — so no question round was opened. The trigger table (one `AC-D57.4` frame span of lookahead per timeframe) and the wave-bounds decisions are logged as A166–A170; Phase P19 carries `Status: READY_FOR_PLAN`; this reply is the report-back. Owner corrections to any threshold cell land as in-place refinements without reopening. **D1–P18 are NOT reopened.** No blocking question remains.
+
+# Open Questions — P20 (Batch 34 / D59 — index + futures contract support; Q96–Q99 BLOCKING)
+
+> Owner-corrected scope (binding, 2026-11-09); Q96–Q99 ANSWERED 2026-11-09 — Phase P20 FINAL (`Status: READY_FOR_PLAN`). Original scope note retained below: *"SPX is S&P500 index ticker ID. why confuse it with ES futures"*. Recorded rule: **SPX (and the NDX/DJI/RUT index family) charts its OWN index data via IND-type contracts. The D36 INDEX_PROXY (SPX→ES etc.) applies ONLY to tape-dependent features (footprint/burst) and must NEVER substitute futures data for an index price series.** Observed failures: (1) SPX load builds STK/SMART (`get_contract_for_symbol` falls through), TWS answers error 200 on prime + wave + realtime, 300 s on the dead realtime reqIds, honest full-span shortfall — fix = correct IND resolution + graceful unknown-symbol handling; (2) ES loads with correct price but wrong-rendered timestamps — suspected session/timezone mapping (near-24 h futures sessions vs equity RTH calendar in `market_calendar`/`session_windows`) — diagnose from the code, do not guess. Out of scope: TWS-side silence, P19 prefetch, D1–P18 reopen. Phase P20 carries `Status: READY_FOR_PLAN` (Q96–Q99 answered 2026-11-09). **D1–P19 are NOT reopened.**
+
+## Q96 — D59.1: which index family members are in scope for IND charting?
+
+- **Status:** **answered 2026-11-09 — owner chose (b) SPX+NDX+DJI+RUT (recommended; NDX earlier-confirmed).**
+- **Answer (owner, 2026-11-09):** SPX + NDX + DJI + RUT.
+- **Question:** SPX is confirmed. Which other cash-index symbols must resolve to IND contracts and chart their own index data in this batch: (a) **SPX only**, or (b) **SPX + NDX + DJI + RUT** (the owner-named family), or (c) an owner-named list (e.g. plus VIX/SPXW/OEX — owner names each; note SPXW weekly options and VIX methodology differ from a plain price series)?
+- **Recommended default (b):** SPX + NDX + DJI + RUT. Rationale: matches the owner-named family; one IND rule covers all four; SPY/QQQ/DIA/IWM are ETFs (STK) and stay out regardless.
+- **What a different answer would change:** `AC-D59.1`'s symbol matrix (one row vs four rows vs custom list) and the unknown-symbol tests only — resolution mechanism and proxy-guard are untouched.
+- **Why it is blocking:** the acceptance matrix cannot be written without the symbol list; any list written without the owner is a guessed universe.
+- **Affected requirement section:** Phase P20 / D59.1 / `AC-D59.1` (provisional); Journey 55; A171; R125.
+
+## Q97 — D59.2: which futures roots are in scope, and what are the contract defaults (exchange / currency / expiry rule)?
+
+- **Status:** **answered 2026-11-09 — owner chose recommended: ES+NQ+YM+RTY, CME/USD, existing front-month auto-roll; rollover per existing `_front_month`.**
+- **Answer (owner, 2026-11-09):** ES + NQ + YM + RTY on CME/USD with existing front-month auto-roll; rollover gap/overlap per existing `_front_month` behaviour.
+- **Question:** (1) Which futures roots must load in this batch: (a) **ES only**, or (b) **ES + NQ + YM + RTY** (the equity-index-futures set matching Q96), or (c) an owner-named list? (2) For each in-scope root, confirm the TWS contract defaults: exchange (e.g. ES→CME — owner confirms vs analyst default), currency (e.g. USD), and expiry rule (e.g. **front-month auto-roll via `_front_month`** vs owner-pinned month vs continuous)? What should a load do at/after expiry-roll (roll to the new front month, and is a one-bar gap/overlap at roll acceptable)?
+- **Recommended default:** (1)(b) ES + NQ + YM + RTY; (2) exchange CME, currency USD, front-month auto-roll (existing `_front_month` precedent per graph `ibkr/contracts.py::get_futures_contract` / `_front_month`). Rationale: reuses the repo's stated futures path; roll behaviour is the only honest default without a continuous-series requirement.
+- **What a different answer would change:** `AC-D59.3`'s root matrix + contract-field assertions and the rollover edge case only — timestamp fix and proxy-guard are untouched.
+- **Why it is blocking:** exchange/currency/expiry are TWS-rejected-or-accepted fields; any value written without the owner is an invented contract that TWS can refuse (the SPX STK/SMART failure is exactly this class).
+- **Affected requirement section:** Phase P20 / D59.2 / `AC-D59.3` (provisional); Journey 56; A172; R126.
+
+## Q98 — D59.3: what is "correct time" for overnight futures sessions?
+
+- **Status:** **answered 2026-11-09 — owner chose recommended (a): render TWS timestamps as-is in ET; equity calendar never deletes overnight bars.**
+- **Answer (owner, 2026-11-09):** render TWS timestamps as-is in ET; equity calendar never deletes overnight futures bars.
+- **Question:** ES trades a near-24 h session while the equity calendar (`market_calendar` / `session_windows`) models RTH days. For a futures chart, what does correct mean: (a) **render every TWS timestamp as-is in ET** (full overnight session shown; equity RTH shading/bands and the `AC-D16.8`/`AC-D16.9` session-presence rules stay equity-scoped and do not delete overnight futures bars), or (b) **attribute overnight bars to the equity trading date** (e.g. Sunday-evening futures bars render under Monday — owner defines the session-boundary rule), or (c) an owner-named rule (e.g. CME 17:00–16:00 CT day split — owner names the boundary + timezone)?
+- **Recommended default (a):** timestamps as-is in ET; no equity-calendar deletion of overnight bars. Rationale: the smallest honest fix (stop mis-mapping); any date-attribution rule is a new session model that must be owner-named.
+- **What a different answer would change:** `AC-D59.4`'s timestamp assertions + which calendar/session module owns the futures rule only — contract resolution is untouched.
+- **Why it is blocking:** (a) vs (b) assert opposite bar placement for the same overnight span — the AC cannot be written without the pick, and the suspected cause (equity calendar applied to futures sessions) must be confirmed by code diagnosis, not guessed.
+- **Affected requirement section:** Phase P20 / D59.3 / `AC-D59.4` (provisional); Journey 56 edge cases; A173; R127.
+
+## Q99 — D59.4: what must an unknown symbol do (matches no STK / IND / FUT rule)?
+
+- **Status:** **answered 2026-11-09 — owner overrode the recommended (a): probe-first via live `reqContractDetails` (option (b)). Lineage + cost recorded.**
+- **Answer (owner, 2026-11-09, override):** probe first via live `reqContractDetails` (NOT refuse-in-place). Exactly one probe before refusing; cost: one extra TWS round-trip on unknown symbols only (prime/wave/realtime legs still never fire for unknowns).
+- **Question:** when a symbol matches nothing known (not a stock/ETF pattern, not a Q96 index, not a Q97 futures root), must the app (a) **refuse in place with no TWS request** (e.g. status-bar "Unknown symbol — no contract found", nothing persisted, no reqId spent), or (b) **attempt a live `reqContractDetails` probe first** and only refuse if TWS returns nothing, or (c) an owner-named behaviour (owner defines message/persistence/retry)?
+- **Recommended default (a):** refuse in place, no request. Rationale: the SPX failure spent prime + wave + realtime reqIds plus 300 s on a contract TWS could never fill (error 200); a known-unknown must not burn pacing/watchdog budget.
+- **What a different answer would change:** `AC-D59.2`'s no-request vs probe-first assertion only — IND/FUT resolution rows are untouched.
+- **Why it is blocking:** no-request vs probe-first assert opposite wire behaviour (reqId count, pacing spend, error path) — the test cannot be written without the pick.
+- **Affected requirement section:** Phase P20 / D59.4 / `AC-D59.2` (provisional); Journeys 55–56 edge cases; A174; R128.
+
+# Open Questions — P21 (Batch 35 / D60 — follow-offset preservation on new-bar arrival; Q100–Q102 ANSWERED 2026-11-09)
+
+> Owner-observed defect (binding, 2026-11-09, screenshots on record): SPY 5 min live — (image 1) last bar floating with empty space to its right while following; (image 2) when the next bar plots, the chart re-positions so the latest bar sits at the right edge. Owner: *"I don't want you to scroll the chart to right edge."* Required behavior (TradingView-like): while following with a right-edge gap, a new bar shifts the viewport by exactly the new-bar width — the gap is preserved, the chart never snaps the latest bar to the edge. Distinct from the no-yank rule (D51/`AC-D51.2`, scrolled-back case) and from P15's 10 s expiry framing — this is the FOLLOWING live path. Related evidence in the same screenshots (ES 5 min overnight session labels — 11/08 23:00, 11/09 05:35/06:15 gaps): the Q98 as-is-ET rendering is live in production; if the offset work touches session-boundary geometry, the interaction is noted but **Q98 is NOT reopened**. Phase P21 carries `Status: READY_FOR_PLAN` (Q100–Q102 answered 2026-11-09). **D1–P20 are NOT reopened.**
+
+## Q100 — D60: do explicit return-to-edge actions still snap the latest bar to the edge, or do they preserve the gap?
+
+- **Status:** **answered 2026-11-09 — owner chose (b) preserve (OVERRIDE of the recommended (a)).**
+- **Answer (owner, 2026-11-09):** preserve gap on explicit return-to-edge actions — Fit/reset, chevron click, and right-edge double-click all preserve the current gap. Reasoning implication: "take me to live" means "resume following in place", and the ONLY way to zero the gap is manual scroll/pinch to the edge.
+- **Question:** the following-path fix preserves the right-edge gap on new-bar arrival. When the user explicitly returns to the edge — Fit/reset (`fitAndFollow`), the P18 chevron click (`goToRealtime` scroll-to-edge per Q93), or a manual right-edge double-click/Fit gesture — does the chart (a) **snap the latest bar to the right edge** (gap zeroed — the explicit action means "take me to the edge"), or (b) **preserve the existing gap** (shift by the same offset rule, so an explicit action never changes the gap either), or (c) an owner-named split (e.g. Fit zeroes the gap, chevron preserves it)?
+- **Recommended default (a):** snap-to-edge on explicit actions. Rationale: an explicit return-to-edge gesture is the user asking for the edge; TradingView's go-to-realtime lands the latest bar at the edge; the gap-preservation rule governs unsolicited live arrivals, not deliberate navigation.
+- **What a different answer would change:** `AC-D60.2`'s post-action range assertions (gap-zeroed vs gap-preserved) only — the new-bar-arrival rule (`AC-D60.1`) is untouched.
+- **Why it is blocking:** snap vs preserve assert opposite viewports after the same click — the test cannot be written without the pick.
+- **Affected requirement section:** Phase P21 / D60 / `AC-D60.2` (FINAL per this answer); Journey 57; A178 (overridden default recorded with lineage).
+
+## Q101 — D60: at session open (or any fresh frame) where the carried gap is huge, is the gap preserved as-is or clamped?
+
+- **Status:** **answered 2026-11-09 — owner chose (c) reset (recommended default CONFIRMED).**
+- **Answer (owner, 2026-11-09):** reset to the fresh-frame default at session open — no stale gap is carried across the open.
+- **Question:** follow-state memory (Q75/`AC-D51.4`, follow-state component stands per Q95 lineage) can carry a right-edge gap across a session boundary into a fresh frame (`AC-D57.4` initial framing). When the carried gap is huge relative to the fresh frame (e.g. wider than the frame itself, or so large the newest bars would paint outside the visible window), does the chart (a) **preserve the gap as-is** (viewport = frame shifted by the full gap, even if newest bars start off-window), or (b) **clamp the gap to fit** (e.g. cap at N bars / a fraction of the frame — owner names the bound), or (c) **reset the gap to the fresh-frame default** at session open (gap applies only to intraday live arrivals, never carried across the open)?
+- **Recommended default (c):** reset at session open / fresh frame. Rationale: the fresh frame (`AC-D57.4`) is defined to show recent action; carrying a stale multi-screen gap into it re-buries exactly what the frame was built to show — while intraday preservation keeps the reported defect fixed.
+- **What a different answer would change:** `AC-D60.3`'s session-open assertions (gap value after open) and whether a clamp bound enters the criteria — nothing else moves.
+- **Why it is blocking:** preserve vs clamp vs reset assert different first-paint viewports at the open — a user-visible framing decision that cannot be derived from the defect report (which covers only intraday live arrivals).
+- **Affected requirement section:** Phase P21 / D60 / `AC-D60.3` (FINAL per this answer); Journey 57 edge cases; A179 (confirmed).
+
+## Q102 — D60: does the preserve-offset rule apply to pop-out views, or main chart only?
+
+- **Status:** **answered 2026-11-09 — owner chose (b) every view (recommended default CONFIRMED).**
+- **Answer (owner, 2026-11-09):** every view, each with its own gap — main + each pop-out evaluates its own viewport and preserves its own gap per view.
+- **Question:** D51 scoped the follow/away rules to the main-chart viewport only. Does the P21 preserve-offset rule on new-bar arrival apply (a) **main chart only** (pop-outs keep their current snap-to-edge following behaviour), or (b) **every chart view** (main + each pop-out evaluates its own viewport and preserves its own gap per view), or (c) an owner-named scope?
+- **Recommended default (b):** every view, per-view gap. Rationale: P19 already evaluates prefetch per view against the shared cache (A170); a scrolled pop-out following with its own gap deserves the same no-snap treatment, and per-view state avoids cross-view interference.
+- **What a different answer would change:** `AC-D60.1`'s view matrix (main-only cases vs per-view cases) and whether pop-out viewport cases enter the suite — the offset rule itself is untouched.
+- **Why it is blocking:** main-only vs per-view is a scope boundary that changes which views the build touches and which tests are written; it cannot be assumed without the owner (D51's precedent was main-only).
+- **Affected requirement section:** Phase P21 / D60 / `AC-D60.1` (FINAL per this answer); Journey 57; A177 (confirmed).

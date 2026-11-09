@@ -6261,3 +6261,136 @@ Rationale: the lookahead equals what the user just framed, so ≥1 full screen o
 | R124 — The daily+ load-time trigger adds background waves at load, surprising load-time budgets | L | M | Ordinary paced background waves (A168); P15 verdict semantics unchanged; no load-path change |
 
 Status: READY_FOR_PLAN
+
+## Phase P20 — Index + futures contract support (D59) — OWNER-DIRECTED 2026-11-09 (FINAL 2026-11-09 — Q96–Q99 answered — READY_FOR_PLAN)
+
+> Owner-corrected scope (binding, verbatim): *"SPX is S&P500 index ticker ID. why confuse it with ES futures"*. Recorded rule: **SPX (and the NDX/DJI/RUT index family) charts its OWN index data via IND-type contracts. The D36 INDEX_PROXY (SPX→ES etc.) applies ONLY to tape-dependent features (footprint/burst) and must NEVER substitute futures data for an index price series. Do not propose proxying as the charting fix.** Observed failures: (1) SPX load builds STK/SMART (`get_contract_for_symbol` falls through — graph: `ibkr/contracts.py::get_contract_for_symbol` calls `get_stock_contract` / `get_futures_contract`), TWS answers error 200 on prime + wave + realtime, 300 s on the dead realtime reqIds, honest full-span shortfall — fix = correct IND resolution (exchange/currency per TWS spec) + graceful unknown-symbol handling if a symbol matches nothing known; (2) ES loads with correct price but wrong-rendered timestamps — suspected session/timezone mapping (near-24 h futures sessions vs equity RTH calendar in `market_calendar`/`session_windows`) — diagnose from the code (do not guess), scope the fix. Out of scope: TWS-side silence, P19 prefetch (separate phase), D1–P18 reopen. **D1–P19 are NOT reopened.** Phase P20 carries `Status: READY_FOR_PLAN` (Q96–Q99 answered 2026-11-09).
+
+### Problem Statement (P20 slice)
+SPX cannot chart at all (wrong contract type → TWS error 200 on every leg → full-span shortfall), and ES charts the right price at the wrong times (suspected equity-session mapping applied to a near-24 h futures session). Both are contract/session-resolution defects, not data-availability defects, and both must be fixed without ever substituting futures tape for an index price series.
+
+### Goals (P20)
+- SPX (plus the Q96 family) resolves to an IND contract with TWS-correct exchange/currency and charts its own index bars on every timeframe/mode (D59.1).
+- Unknown symbols probe once via live `reqContractDetails` before refusing (Q99 owner override of the refuse-in-place default — one extra TWS round-trip on unknown symbols only) (D59.4).
+- In-scope futures roots (Q97) resolve to their own futures contracts (front-month rule per Q97) with correct price AND correct timestamps per the Q98 definition (D59.2–D59.3).
+- INDEX_PROXY stays tape-only: no index price series is ever sourced from futures (D59.5).
+
+### Non-Goals (P20)
+- No fix for TWS-side silence (no error, no bars) — out of scope per owner context; only the app-side contract/session mapping is in scope.
+- No change to P19 prefetch triggers/thresholds, D53 indicator, D56 retry, pacing budgets, or watchdog tuning — referenced, not reopened.
+- No new tape features, no continuous/back-adjusted futures series, no options (SPXW) support unless Q96/Q97 explicitly adds them.
+- No reopening of D1–P19 criteria, parity rows, or approval records.
+
+### Constraints (P20, requirements-level — mechanism is Plan's job)
+- IND resolution must satisfy the TWS contract spec for indices (secType IND + correct exchange/currency per Q96/Q97 answers); STK/SMART must never be emitted for an index symbol.
+- An index price series is sourced ONLY from its own IND contract; D36 INDEX_PROXY targets (graph: `services/alarm_monitor.py::_proxy_targets`, `ibkr/contracts.py::footprint_cache_key`) remain usable ONLY for tape-dependent features (burst evaluation), never for chart bars.
+- Futures timestamp correction must be diagnosed from the repo's session/timezone path (`market_calendar` / `session_windows` / tz-offset handoff D49.6); no new timezone assumption is invented — Q98 names the rule.
+- Every new resolution path fits the existing wave envelope: one planner step per wave, pacing-gated, 120 s watchdog, D53 lifecycle, D56 exactly-once retry.
+
+### Glossary (P20 additions)
+- **IND:** TWS contract secType for cash indices (e.g. SPX on CBOE); distinct from STK (stocks/ETFs) and FUT (futures).
+- **INDEX_PROXY (D36, tape-only):** the SPX→ES style mapping used ONLY where a tape (tick stream) is required (footprint/burst); NEVER a price-series source.
+- **Front-month:** the nearest-expiry futures contract per the repo's `_front_month` rule unless Q97 pins otherwise; roll behaviour per Q97.
+- **Futures session:** the near-24 h trading session of an index future (e.g. ES), distinct from the equity RTH session modelled by the equity calendar.
+
+### User Journeys (P20)
+#### Journey 55 — D59: load SPX and see the S&P 500 index series
+- **Preconditions:** IBKR connected (mocked offscreen with contract capture + error-200 injection); cache empty for (SPX, timeframe, mode).
+- **Steps:** 1) Load SPX on an intraday timeframe; confirm the historical request carries secType IND with the Q96/Q97-answered exchange/currency (never STK/SMART). 2) Feed index bars; confirm price + volume render from the IND series. 3) Inject TWS error 200 on a bad contract (regression of the observed failure); confirm the honest `AC-D16.4` shortfall, no 300 s dead-realtime hang billed as data.
+- **Postconditions:** SPX shows its own index data on every timeframe/mode; no futures bars ever appear in the SPX series.
+- **Edge Cases:** NDX/DJI/RUT per Q96 (same IND rule, own series); SPY/QQQ/DIA/IWM remain STK (ETF, untouched); unknown symbol per Q99 probe-first (exactly one `reqContractDetails` probe, then refuse with nothing persisted); INDEX_PROXY untouched (burst-on-SPX still uses the ES tape per D39, chart does not).
+
+#### Journey 56 — D59: load ES and see correct price at correct times
+- **Preconditions:** IBKR connected (mocked offscreen); cache empty for (ES, timeframe, mode).
+- **Steps:** 1) Load ES; confirm the contract carries the Q97-answered exchange/currency/expiry (e.g. CME/USD/front-month). 2) Feed futures bars spanning the overnight session; confirm timestamps render per the Q98 definition (as-is ET vs date-attributed per answer). 3) Switch RTH/ETH modes; confirm overnight futures bars are never deleted as "mode-empty" by the equity `AC-D16.9` rule unless Q98 says otherwise.
+- **Postconditions:** ES price matches the futures series and every bar sits at its Q98-correct time in both modes.
+- **Edge Cases:** rollover (front-month switch per Q97 — gap/overlap tolerance per answer); weekend closure (genuine closure stays empty per `AC-D16.3`); NQ/YM/RTY per Q97; pop-out ES view (same rule per view).
+
+### Acceptance Criteria (P20, FINAL — Q96–Q99 answered 2026-11-09)
+- **AC-D59.1 (index IND resolution — FINAL per Q96: SPX+NDX+DJI+RUT)** Given a load of SPX, NDX, DJI or RUT, When the contract is built, Then secType is IND with the TWS-correct exchange/currency (never STK/SMART); Given bars from that IND contract, Then the chart series renders them on every timeframe/mode. (Measurable: offscreen contract-capture cases per symbol (4) × mode asserting secType/exchange/currency + render-from-IND cases.)
+- **AC-D59.2 (unknown-symbol handling — FINAL per Q99: probe-first, owner override)** Given a symbol matching no STK/IND/FUT rule, Then the app issues exactly one live `reqContractDetails` probe and only refuses (status message, nothing persisted, no prime/wave/realtime leg) when TWS returns nothing. Lineage: analyst default was refuse-in-place (no request); owner overrode to probe-first 2026-11-09 — cost recorded: one extra TWS round-trip before prime/wave on unknown symbols only. (Measurable: offscreen unknown-symbol cases asserting exactly one probe reqId + status message + nothing persisted + zero prime/wave/realtime reqIds.)
+- **AC-D59.3 (futures resolution — FINAL per Q97: ES+NQ+YM+RTY, CME/USD, front-month auto-roll)** Given a load of ES, NQ, YM or RTY, When the contract is built, Then it carries exchange CME, currency USD and the existing `_front_month` auto-roll expiry; Given bars, Then price renders from that futures series. Rollover gap/overlap follows existing `_front_month` behaviour. (Measurable: offscreen contract-capture cases per root (4) asserting CME/USD/front-month + price-render cases.)
+- **AC-D59.4 (futures timestamps — FINAL per Q98: as-is ET)** Given futures bars spanning the overnight session, Then each bar renders at its TWS timestamp as-is in ET in both RTH and ETH modes; the equity `AC-D16.9` present-but-mode-empty rule never deletes overnight futures bars. (Measurable: offscreen overnight-span cases asserting bar positions per mode + non-deletion cases.)
+- **AC-D59.5 (proxy-never-for-price guard)** Given any index load (SPX/Q96 family), Then no bar in the chart series originates from a futures contract; INDEX_PROXY use remains confined to tape-dependent paths (burst evaluation per D39). (Measurable: offscreen provenance cases asserting chart-series source ≠ futures + existing burst-proxy tests still green.)
+- **AC-D59.6 (history intact)** Given `requirements.md`, Then `### D41`–`### D58` with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P20 wording is touched. (Measurable: marker grep + the `### D4[1-9]` / `### D5[0-8]` sections present.)
+
+### Assumptions (P20 — CONFIRMED 2026-11-09 per Q96–Q99 answers)
+- **A171 — index family CONFIRMED (Q96, 2026-11-09).** SPX + NDX + DJI + RUT (owner chose recommended (b); NDX earlier-confirmed). SPY/QQQ/DIA/IWM stay STK regardless. (Rationale: owner-named family; ETFs are stocks by secType.)
+- **A172 — futures CONFIRMED (Q97, 2026-11-09).** ES + NQ + YM + RTY on CME/USD with existing `_front_month` auto-roll; rollover gap/overlap per existing `_front_month` behaviour. Reuses the repo's `_front_month` precedent (graph `ibkr/contracts.py::_front_month`, `get_futures_contract`).
+- **A173 — timestamp rule CONFIRMED (Q98, 2026-11-09).** TWS timestamps render as-is in ET; equity calendar never deletes overnight futures bars. (Rationale: owner chose recommended (a); stops the suspected mis-map without inventing a new session model.)
+- **A174 — probe-first CONFIRMED by owner override (Q99, 2026-11-09).** Analyst default was refuse-in-place (no request); owner overrode to exactly-one live `reqContractDetails` probe before refuse. Cost: one extra TWS round-trip on unknown symbols only; prime/wave/realtime legs still never fire for unknowns.
+
+### Risks / Unknowns (P20)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R125 — Q96 adds an index whose TWS IND exchange differs (e.g. DJI vs SPX) and one row's exchange is wrong → error 200 persists for that symbol | M | M | Per-symbol exchange in the AC matrix (Q96 names each); contract-capture case per symbol before any wave test |
+| R126 — Q97 expiry rule (front-month auto-roll) surprises at roll (gap/overlap or wrong month) | M | M | Rollover edge case in Journey 56 + Q97 names the tolerance; no continuous-series promise |
+| R127 — The ES timestamp cause is NOT the equity calendar (suspected but undiagnosed) and the Q98 rule papers over the real path | H | M | Plan diagnoses from the code path first (tz-offset handoff, `session_windows`, collapse service) and scopes the fix to the diagnosed site; Q98 only defines "correct" |
+| R128 — Probe-first (Q99 override) spends one extra TWS round-trip on every unknown symbol before prime/wave ~~| L | M | RESOLVED 2026-11-09: owner chose probe-first over refuse-in-place; cost bounded to unknowns only (one probe reqId, prime/wave/realtime still gated) |
+| R129 — INDEX_PROXY tape-only guard is asserted structurally and a future change re-couples chart series to the proxy | M | L | `AC-D59.5` provenance cases pin chart-series source ≠ futures; burst-proxy tests pin the tape-only use |
+
+Status: READY_FOR_PLAN
+
+## Phase P21 — Follow-offset preservation on new-bar arrival (D60) — OWNER-OBSERVED DEFECT 2026-11-09 (FINAL 2026-11-09 — Q100–Q102 answered — READY_FOR_PLAN)
+
+> Owner-observed defect (binding, verbatim in part): SPY 5 min live — *"last bar floating with empty space to its right"* (image 1); *"when the next bar plots, the chart re-positions so the latest bar sits at the right edge"* (image 2). Owner: *"I don't want you to scroll the chart to right edge."* Required behavior (TradingView-like): while FOLLOWING with a right-edge gap, a new bar shifts the viewport by exactly the new-bar width — the gap is preserved, the chart never snaps the latest bar to the edge. Distinct from the no-yank rule (D51/`AC-D51.2`, scrolled-back case) and from P15's 10 s expiry framing — this is the FOLLOWING live path. Related evidence in the same screenshots (ES 5 min overnight session labels — 11/08 23:00, 11/09 05:35/06:15 gaps): the Q98 as-is-ET rendering is live in production; if the offset work touches session-boundary geometry, the interaction is noted but **Q98 is NOT reopened**. **D1–P20 are NOT reopened.** Phase P21 carries `Status: READY_FOR_PLAN` (Q100–Q102 answered 2026-11-09).
+
+### Problem Statement (P21 slice)
+While following the live edge with empty space between the latest bar and the right edge, the arrival of a new bar re-positions the chart so the newest bar sits exactly at the right edge — destroying the gap the user was holding. The following path must instead carry the offset forward: each new bar moves the viewport by exactly one bar width, so the gap the user sees stays the gap the user keeps.
+
+### Goals (P21)
+- While FOLLOWING (Q72 definition stands), each new-bar arrival shifts the visible range by exactly the new-bar width, preserving the pre-arrival right-edge gap (D60.1).
+- The scrolled-back path stays exactly as decided: no auto-scroll, no viewport move, resume only via pan-back-to-edge or explicit action (D51/`AC-D51.2` untouched) (D60.4).
+- Explicit return-to-edge actions behave per the owner answer to Q100 (D60.2).
+- Session-open / fresh-frame gap handling behaves per the owner answer to Q101 (D60.3).
+- Scope (main-only vs per-view) behaves per the owner answer to Q102 (D60.5).
+
+### Non-Goals (P21)
+- No change to the follow-vs-away derivation (Q72–Q76 stand — away still means no auto-scroll at all; only the following path changes: preserve offset instead of snap-to-edge).
+- No change to Fit/reset, chevron, or `goToRealtime` mechanics beyond the Q100 gap question — their scroll paths are reused, not redesigned.
+- No change to D53 indicator, D56 retry, or P19 prefetch triggers/thresholds — read-only context (a preserved offset never triggers or suppresses a prefetch; prefetch arrivals never move any viewport per `AC-D58.4`).
+- No change to session-boundary geometry (Q98 stands; interaction noted only) and no reopening of D1–P20 criteria, parity rows, or approval records.
+
+### Constraints (P21, requirements-level — mechanism is Plan's job)
+- LWC-only tree (P6-T13): the fix lives in the LWC follow path (`chart_assets/lwc/` + page↔Python channel); no pyqtgraph surface exists to update.
+- The offset is measured in logical bar units (the library's logical-index range), never in pixels — pixel-parity across densities/widths is not promised.
+- The rule fires on new-bar (new-slot) arrivals only; in-place forming-bar growth (same slot updating) never shifts the viewport (A175).
+- One new slot shifts the viewport by exactly one slot; a multi-bar batch arrival shifts by exactly the batch width (no partial snap, no over-shift).
+
+### Glossary (P21 additions)
+- **Follow-offset (D60):** the right-edge gap held while following — the logical-bar distance between the newest bar's slot and the right edge of the visible range at the moment before a new-bar arrival.
+- **Snap-to-edge:** the current (defective) behaviour under D60 — a new-bar arrival re-positions the viewport so the newest bar sits exactly at the right edge, zeroing the follow-offset.
+
+### User Journeys (P21)
+#### Journey 57 — D60: following with a gap across a new-bar arrival
+- **Preconditions:** IBKR connected (mocked offscreen with bar injection + viewport control); SPY 5 min loaded; viewport following with a non-zero right-edge gap (e.g. newest bar 3 slots left of the right edge).
+- **Steps:** 1) Inject one new bar; confirm the visible range shifts right by exactly one slot and the gap is unchanged (newest bar still 3 slots left of the edge). 2) Inject a 3-bar batch; confirm the range shifts by exactly 3 slots with the gap still unchanged. 3) Scroll back (away), inject a bar, and confirm the range does not move at all (D51 rule). 4) Invoke the explicit action named by Q100; confirm the post-action gap per the owner's answer.
+- **Postconditions:** While following, the gap survives every new-bar arrival; while away, no arrival moves the viewport; explicit actions behave per Q100; session-open behaves per Q101.
+- **Edge Cases:** zero gap while following (shift-by-one keeps newest at edge — identical to snap, no observable change); forming-bar tick with no new slot (no shift); multi-bar batch arrival (shift by batch width); session open with a carried gap (per Q101); mode switch mid-follow (existing lifecycle; gap re-evaluated on the new mode's frame); disconnect mid-follow (no arrival, no shift); pop-out following with its own gap (per Q102); prefetch landing while following (viewport governed by D60 for the live bar and by `AC-D58.4` for the prefetch — neither snaps); ES overnight session labels in view (Q98 rendering untouched — gap math is slot-based, session-agnostic); wave-chunk landing while away — backfill continuation, realtime update, or prefetch arrival landing with the viewport scrolled into the past leaves the away viewport bit-identical (no re-follow, no re-frame, no edge snap) per `AC-D60.7`.
+
+### Acceptance Criteria (P21, FINAL — Q100–Q102 answered 2026-11-09)
+- **AC-D60.1 (preserve offset on new-bar arrival — FINAL, core rule owner-stated + Q102 answered (b) 2026-11-09)** Given a following viewport with right-edge gap G (logical slots, G ≥ 0), When N new bar slots arrive (N ≥ 1), Then the visible range shifts right by exactly N slots and the post-arrival gap equals G. Given G = 0, Then the newest bar remains at the edge (degenerate case, no observable change). Evaluated on every chart view against its own viewport and gap (main + each pop-out, per-view state, never shared or copied). (Measurable: offscreen viewport-slot cases asserting pre/post ranges and gap equality for G ∈ {0, 1, 3} × N ∈ {1, 3} on the main view and on a pop-out view with a different gap.)
+- **AC-D60.2 (explicit return-to-edge preserves gap — FINAL, Q100 answered (b) 2026-11-09, OVERRIDING the (a) default)** Given any viewport state, When an explicit return-to-edge action fires (Fit/reset, chevron/`goToRealtime` click, manual right-edge double-click/Fit), Then the action resumes following in place with the current gap unchanged — it never zeroes the gap. The ONLY way to zero the gap is manual scroll/pinch to the edge. (Measurable: offscreen per-action cases asserting post-action gap equals pre-action gap + follow re-engaged.)
+- **AC-D60.3 (session open resets gap — FINAL, Q101 answered (c) 2026-11-09, recommended default CONFIRMED)** Given a carried follow-offset at session open / fresh frame, When the fresh frame lands, Then the gap is reset to the fresh-frame default — no stale gap is carried across the open. (Measurable: offscreen session-open cases with a non-zero carried gap asserting the post-open gap equals the fresh-frame default.)
+- **AC-D60.4 (away path untouched)** Given a scrolled-back viewport, When live bars arrive, Then the visible range is unchanged and follow stays disengaged until pan-back-to-edge or an explicit action — exactly `AC-D51.2`, re-asserted as a regression guard. (Measurable: offscreen away-arrival cases asserting identical ranges + disengaged follow.)
+- **AC-D60.5 (every view, per-view gap — FINAL, Q102 answered (b) 2026-11-09, recommended default CONFIRMED)** Given a main view and a pop-out view each following with its own gap, When new bars arrive, Then each view shifts its own range by the arrival width and preserves its own gap; views never share or copy gaps. (Measurable: offscreen two-view cases with different gaps asserting independent preservation.)
+- **AC-D60.7 (wave landing while away preserves viewport — FINAL, owner-observed 2026-11-09: ES 5 min scrolled into the past intraday with a backfill wave in flight, chunks landed and yanked the viewport to the edge)** Given an away (scrolled-back) viewport with the latest bar off-screen, When a wave chunk lands — backfill continuation, realtime update, or prefetch arrival — Then the visible range is bit-identical before and after the landing: no re-follow, no re-frame, no edge snap; follow stays disengaged until pan-back-to-edge or an explicit action. (Measurable: offscreen ES 5-min repro — scroll into the past intraday with a wave in flight, land chunks, assert viewport bit-identical + follow disengaged; per landing-leg cases: backfill / realtime / prefetch.)
+- **AC-D60.6 (history intact)** Given `requirements.md`, Then `### D41`–`### D59` with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P21 wording is touched. (Measurable: marker grep + the `### D4[1-9]` / `### D5[0-9]` sections present.)
+
+### Assumptions (P21 — A175–A177 + A180 analyst defaults; A178 overridden + A179 confirmed per Q100/Q101 answers 2026-11-09)
+- **A175 — forming-bar growth never shifts.** In-place updates to the forming bar (same slot, price/volume changing, no new slot) never move the viewport in either follow state. (Rationale: no new slot means no new width to compensate; shifting on ticks would jitter the chart on every trade.)
+- **A176 — gap is slot-based, session-agnostic.** The preserved quantity is the logical-slot distance newest-slot → right edge; session-boundary geometry (overnight gaps, Q98 as-is-ET labels) does not enter the math. (Rationale: keeps D60 orthogonal to Q98; a slot shift is correct whether or not a session boundary is in view.)
+- **A177 — per-view state if scope extends (default (b) per Q102).** If the owner extends scope to all views, each view holds its own gap evaluated against its own viewport; views never share or copy gaps. (Rationale: mirrors A170 per-view prefetch; avoids cross-view interference.)
+- **A178 — OVERRIDDEN 2026-11-09 by Q100 (b) — explicit actions preserve; original default kept for lineage.** As first written, the default was (a) snap (an explicit return-to-edge gesture asks for the edge). **Override:** the owner chose (b) preserve — Fit/reset, chevron/`goToRealtime`, and manual right-edge double-click/Fit resume following in place with the gap unchanged; the ONLY way to zero the gap is manual scroll/pinch to the edge. (Rationale for recording: the override reverses the analyst default, so the assumed → decided trail must read explicitly.)
+- **A179 — CONFIRMED 2026-11-09 by Q101 (c) — gap resets at session open.** A fresh frame (`AC-D57.4`) opens on its defined span with the default gap; no stale gap is carried across the open. (Rationale: protects the fresh frame's "recent action visible" purpose; intraday preservation still fixes the reported defect.)
+- **A180 — wave landings are viewport-neutral while away (default, owner-observed case 2026-11-09).** A landing chunk never itself moves, re-frames, or re-follows any viewport: while away the range stays bit-identical (`AC-D60.7`); while following, the live-bar rule (`AC-D60.1`) and the prefetch-neutrality rule (`AC-D58.4`) govern — the chunk carries no independent viewport instruction. (Rationale: the ES 5-min yank was a landing path re-following an away user; landings deliver bars, never navigation.)
+
+### Risks / Unknowns (P21)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R130 — Explicit-action tests assert the wrong post-click viewport ~~| M | M | RESOLVED 2026-11-09: owner chose Q100 (b) preserve (override) — `AC-D60.2` FINAL (preserve + follow-in-place); the ONLY gap-zero path is manual scroll/pinch, pinned in Journey 57 |
+| R131 — Stale gap carried across the open buries the newest bars at first paint ~~| M | L | RESOLVED 2026-11-09: owner chose Q101 (c) reset (recommended default confirmed) — `AC-D60.3` FINAL; no clamp bound enters the criteria |
+| R132 — The current snap lives inside the vendored LWC `shiftVisibleRangeOnNewBar` semantic and a slot-shift conflicts with it | H | M | Requirements assert the outcome (shift-by-N, gap preserved) without naming the mechanism; Plan diagnoses the library seam (graph: `chart_assets/lwc/chart.js::followLive`, `isFollowing`, `goToRealtime`) and scopes the fix there |
+| R133 — Preserved offset interacts with P19 prefetch evaluation (oldest-visible distance) on the same arrival | L | M | P19 triggers evaluate on settled viewport changes, never per tick; a D60 shift is a settled change evaluated normally — no special coupling; `AC-D58.4` already pins prefetch arrivals as viewport-neutral |
+
+Status: READY_FOR_PLAN

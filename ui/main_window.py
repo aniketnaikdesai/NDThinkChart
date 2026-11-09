@@ -84,7 +84,10 @@ from services.backfill_service import (
     find_missing_spans, floor_bar_budget, plan_requests, present_days,
 )
 from services.time_collapse_service import is_daily_or_coarser
-from services.market_calendar import trading_days
+from services.market_calendar import (
+    session_windows,
+    trading_days,
+)
 from services.contract_lookup_service import ContractLookupService
 from services.md_line_guard import assess as md_assess
 
@@ -585,6 +588,10 @@ class MainWindow(QMainWindow):
         # first-issue wording is untouched.
         self._backfill_retry_in_flight: bool = False
         self._backfill_retry_req_ids: list[int] = []
+        # P19-T1 (S-P19-1): last settled-viewport trigger verdict
+        # (``{"oldest_visible_ts", "following", "fire"}``). Decision only —
+        # issuance belongs to P19-2.
+        self._last_prefetch_decision: dict | None = None
         # P15-W1 (S-P15-1): single-shot T0+10 s expiry verdict. Armed once
         # per wave at raise, disarmed on every terminal path (clear below).
         # Fires _on_backfill_expiry exactly once per wave.
@@ -673,6 +680,18 @@ class MainWindow(QMainWindow):
                     "Finish or cancel alarm placement before zooming", 4000
                 )
             )
+
+        # P19-T1 (S-P19-1): settled-viewport prefetch trigger fan-out. The
+        # view resolves each stored settled report to its oldest visible bar
+        # and emits it here; the host evaluates the fire/silent decision
+        # (no issuance — P19-2). Views without the signal (other engines)
+        # simply never trigger.
+        _settled = getattr(self.chart_panel, "viewport_settled", None)
+        if _settled is not None:
+            try:
+                _settled.connect(self._on_viewport_settled)
+            except (AttributeError, TypeError, RuntimeError):
+                pass
 
         # Alarm overlay wiring — same seam rule as drawings.
         aov = self._view_signal_source("alarm_controller", "alarm_overlay")
@@ -1012,6 +1031,244 @@ class MainWindow(QMainWindow):
         if plans:
             contract = get_contract_for_symbol(symbol)
             session.queue_wave_plans(plans, contract, timeframe, ext_hours)
+
+    def _on_viewport_settled(self, oldest_visible_ts: int,
+                             following: bool) -> None:
+        """P19-T1 (S-P19-1): settled-report fan-out → trigger evaluation.
+
+        Records the fire/silent verdict for the P19-2 issuance seam; issues
+        nothing (this phase proves the decision only).
+        """
+        fire = self.maybe_prefetch(oldest_visible_ts, following)
+        self._last_prefetch_decision = {
+            "oldest_visible_ts": oldest_visible_ts,
+            "following": bool(following),
+            "fire": bool(fire),
+        }
+        # P19-T2 (S-P19-3/S-P19-4): a fired trigger issues exactly one older
+        # planner step as an ordinary wave; a mid-wave arrival coalesces via
+        # the pending marker instead of cancelling. No session yet issues
+        # nothing — the T1 decision-only contract holds wherever no wave can
+        # be issued.
+        if fire:
+            self.maybe_issue_prefetch_wave(
+                oldest_visible_ts, following, fire=True
+            )
+
+    def maybe_issue_prefetch_wave(self, oldest_visible_ts: int,
+                                  following: bool = False,
+                                  fire: bool | None = None) -> bool:
+        """Single-step ordinary-wave issuance for a fired trigger (S-P19-3).
+
+        Issues exactly one older planner step through the existing
+        ``queue_wave_plans`` path — pacing-gated, 120 s watchdog, D53
+        indicator state, D56 exactly-once retry, generation-fenced late
+        arrivals — for the current (symbol, timeframe, mode) triple. At most
+        one wave is ever in flight per triple: a fired trigger arriving
+        mid-wave (the DG111 coalesce seam, S-P19-4) never cancels the running
+        wave — it sets the session's pending-prefetch marker, consumed on
+        completion with a fresh-viewport re-evaluation.
+
+        Returns True when a wave was issued, False otherwise (silent verdict,
+        wave already in flight, nothing fetchable, or no session/triple).
+        ``fire`` carries an already-computed trigger verdict (the settled
+        fan-out above); None re-evaluates from the fresh viewport.
+        """
+        try:
+            visible_ts = int(oldest_visible_ts)
+        except (TypeError, ValueError):
+            return False
+        symbol = self._current_symbol
+        timeframe = self._current_tf
+        if not symbol or not timeframe:
+            return False
+        try:
+            extended_hours = bool(self.ext_hours_btn.isChecked())
+        except (AttributeError, RuntimeError):
+            extended_hours = True
+        # S-P8-4: daily-and-coarser reads one canonical (ETH) cache, like the
+        # load path and the trigger evaluation.
+        if is_daily_or_coarser(timeframe):
+            extended_hours = True
+        session = self._sessions.get(symbol.upper())
+        if session is None:
+            return False
+        # Triple re-validation: a session still on another triple's wave is
+        # never repurposed — a load owns triple changes (cancel + generation).
+        if (session._wave_timeframe is not None
+                and (session._wave_timeframe != timeframe
+                     or session._wave_extended_hours != extended_hours)):
+            return False
+        if fire is None:
+            fire = self.maybe_prefetch(visible_ts, following)
+        if not fire:
+            return False
+        # DG111 seam: coalesce, never cancel. The running wave keeps its
+        # pacing budget and generation; the marker re-runs the evaluator
+        # from the fresh viewport on completion.
+        if session._history_req_ids or session._wave_plan_queue:
+            session._pending_prefetch = True
+            return False
+        try:
+            cached = BarCache.get_bars(symbol, timeframe,
+                                       ext_hours=extended_hours)
+        except Exception:
+            _LOG.warning("prefetch issuance: cache read failed for %s [%s]",
+                         symbol, timeframe)
+            return False
+        cached_ts = [b.ts for b in cached or []]
+        if not cached_ts:
+            # Empty cache: the load path owns the first fill, never a prefetch.
+            return False
+        now_ts = self._now_ts()
+        # The trigger consults the planner over the whole cached span (not
+        # just the default trailing window) — mirrored here so issuance and
+        # the fire decision cannot disagree about what is fetchable.
+        span_days = len(trading_days(min(cached_ts), now_ts))
+        spans = find_missing_spans(cached_ts, now_ts, timeframe,
+                                   trailing_days=span_days,
+                                   ext_hours=extended_hours)
+        plans = plan_requests(spans, timeframe)
+        if not plans:
+            return False
+        # One step: the newest pending chunk — the single
+        # TIMEFRAME_CONFIG-duration window adjacent to current coverage — so
+        # successive waves extend the frontier monotonically while fetchable.
+        session._backfill_missing_spans = list(spans)
+        contract = get_contract_for_symbol(symbol)
+        session.queue_wave_plans(plans[:1], contract, timeframe,
+                                 extended_hours)
+        self._raise_backfill_indicator(session)
+        # ESC-024: bound the wave exactly like a load wave.
+        if session._history_req_ids:
+            session._arm_history_wave_watchdog()
+        self.status_bar.showMessage(
+            f"{symbol} — prefetching 1 historical chunk…", 8000
+        )
+        return True
+
+    def _consume_pending_prefetch(self, session: TickerSession) -> None:
+        """Re-run the evaluator from the fresh viewport (S-P19-4).
+
+        Runs only for the current triple's session: a completed background
+        session never issues for a triple the chart has moved past. The
+        stored settled reading is re-validated through the normal issuance
+        gate (triple + fire + in-flight), so a stale need simply stays silent.
+        """
+        if session.symbol != self._current_symbol:
+            return
+        timeframe = self._current_tf
+        try:
+            extended_hours = bool(self.ext_hours_btn.isChecked())
+        except (AttributeError, RuntimeError):
+            extended_hours = True
+        if is_daily_or_coarser(timeframe):
+            extended_hours = True
+        if (session._wave_timeframe != timeframe
+                or session._wave_extended_hours != extended_hours):
+            return
+        reading = self._last_prefetch_decision or {}
+        self.maybe_issue_prefetch_wave(
+            reading.get("oldest_visible_ts"), reading.get("following", False)
+        )
+
+    def maybe_prefetch(self, oldest_visible_ts: int,
+                       following: bool = False) -> bool:
+        """Settled-viewport prefetch trigger evaluation (S-P19-2, D58.1).
+
+        Fire/silent decision only — no wave is issued here (P19-2). Fires
+        iff ALL hold: the reading is usable; the current (symbol, timeframe,
+        mode) triple has cached bars; the mode-aware distance from the oldest
+        visible bar to the oldest cached bar is within T(timeframe) — the
+        S-P18-3 initial-frame span (intraday session counts via
+        ``session_windows``, daily+ calendar spans), measured back from the
+        oldest visible bar with a single-sided boundary (within fires, beyond
+        is silent); and the planner reports missing data at or older than
+        the visible edge (the next older step is fetchable — a
+        weekend-closure-only gap has nothing to fetch, so the planner
+        consult stays silent there).
+
+        ``following`` is recorded for the P19-2 issuance seam, not decided
+        on: a following-at-edge report over a full buffer is beyond T by
+        distance, while a following initial frame within T (daily+) fires as
+        an ordinary background wave (AP-P19-4).
+        """
+        try:
+            visible_ts = int(oldest_visible_ts)
+        except (TypeError, ValueError):
+            return False
+        symbol = self._current_symbol
+        timeframe = self._current_tf
+        if not symbol or not timeframe:
+            return False
+        # S-P19-2 trigger table: the S-P18-3 spans reused as lookahead.
+        from ui.lwc_view import (FRESH_FRAME_DAILY_SPAN_DAYS,
+                                 FRESH_FRAME_INTRADAY_SESSIONS)
+        if timeframe in FRESH_FRAME_INTRADAY_SESSIONS:
+            sessions = FRESH_FRAME_INTRADAY_SESSIONS[timeframe]
+        elif timeframe in FRESH_FRAME_DAILY_SPAN_DAYS:
+            sessions = None
+        else:
+            return False
+        try:
+            extended_hours = bool(self.ext_hours_btn.isChecked())
+        except (AttributeError, RuntimeError):
+            extended_hours = True
+        # S-P8-4: daily+ reads one canonical (ETH) cache, like the load path.
+        if is_daily_or_coarser(timeframe):
+            extended_hours = True
+        try:
+            cached = BarCache.get_bars(symbol, timeframe,
+                                       ext_hours=extended_hours)
+        except Exception:
+            _LOG.warning("maybe_prefetch: cache read failed for %s [%s]",
+                         symbol, timeframe)
+            return False
+        cached_ts: list[int] = []
+        for bar in cached or []:
+            try:
+                cached_ts.append(int(bar.ts))
+            except (AttributeError, TypeError, ValueError):
+                continue
+        if not cached_ts:
+            # Empty cache: the load path owns the first fill, never a prefetch.
+            return False
+        oldest_cached = min(cached_ts)
+        if sessions is not None:
+            # Intraday: the Nth session start back from the oldest visible
+            # bar (mode-aware via session_windows, mirroring
+            # fresh_frame_cutoff without its oldest-loaded clamp — the clamp
+            # would pin the cutoff to the cache edge and always fire). The
+            # range end includes the visible bar's own session: a settled
+            # report opening exactly at a session open would otherwise drop
+            # its own window from the clip and shift the single-sided
+            # boundary by one session. The padding holds the Nth session
+            # back across weekends, holidays and half-days even for the
+            # widest table entry (doubled sessions plus margin).
+            lookback = (sessions * 2 + 40) * 86400
+            windows = session_windows(visible_ts - lookback, visible_ts + 1,
+                                      extended_hours)
+            starts = sorted(win["start_ts"] for win in windows)
+            if not starts:
+                return False
+            cutoff = (starts[-sessions] if len(starts) >= sessions
+                      else starts[0])
+        else:
+            cutoff = (visible_ts
+                      - FRESH_FRAME_DAILY_SPAN_DAYS[timeframe] * 86400)
+        if oldest_cached < cutoff:
+            return False
+        now_ts = self._now_ts()
+        # The trigger consults the planner over the whole cached span (not
+        # just the default trailing window): day presence already spans the
+        # cache, and the bar-level pass must too, so a cached hole at or
+        # older than the visible edge — the next older step this trigger
+        # exists to fetch — is fetchable wherever it sits in the cache.
+        span_days = len(trading_days(oldest_cached, now_ts))
+        spans = find_missing_spans(cached_ts, now_ts, timeframe,
+                                   trailing_days=span_days,
+                                   ext_hours=extended_hours)
+        return any(span.start_ts <= visible_ts for span in spans)
 
     def _restore_popouts(self) -> None:
         """D24.9: re-open persisted pop-outs after connect.
@@ -1804,9 +2061,15 @@ class MainWindow(QMainWindow):
             session.on_historical_error(reqId, errorCode, errorString)
             # P14-W1 (S-P14-1): a failed wave member is a wave event too.
             self._refresh_backfill_indicator(session)
-            self.status_bar.showMessage(
-                f"Error [{errorCode}]: {errorString}", 8000
-            )
+            # P19-T2 (D56.3): a wave-terminating error already surfaced its
+            # terminal message via finalization (shortfall / failed-requests)
+            # — do not overwrite it with the transient error line. While the
+            # wave is still alive the error line stands (no terminal message
+            # was shown for it yet).
+            if session._history_req_ids or session._wave_plan_queue:
+                self.status_bar.showMessage(
+                    f"Error [{errorCode}]: {errorString}", 8000
+                )
             return
         self.status_bar.showMessage(f"Error [{errorCode}]: {errorString}", 8000)
 
@@ -2597,6 +2860,13 @@ class MainWindow(QMainWindow):
         # In 3b only the primary session backfills; a non-primary completion
         # still persists (its data is real) but doesn't drive the chart.
         self._finalize_history_wave(session)
+        # P19-T2 (S-P19-4): consume the pending-prefetch marker with a
+        # fresh-viewport re-evaluation. Finalize runs first so the indicator
+        # and elapsed baseline are terminally cleared before any chained wave
+        # raises them afresh; without a marker this is a no-op.
+        if session._pending_prefetch:
+            session._pending_prefetch = False
+            self._consume_pending_prefetch(session)
 
     def _on_session_prime_complete(self, session: TickerSession) -> None:
         """A session's priming finished (or failed open) — attach live feed."""
