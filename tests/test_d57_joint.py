@@ -4,10 +4,10 @@ Composes the P18-T1 chevron (``lwChevronVisible`` / go-to-realtime click)
 with the P18-T2 fresh frame (the ``set_visible_range`` directive applied
 post-``set_series`` through the existing range-op wire shape): a fresh
 frame while following hides the chevron, a fresh frame while
-remembered-away shows it, a chevron click after a fresh frame lands the
-span-preserved live edge with follow re-engaged, and Fit/reset after
-framing leaves the chevron state consistent via the existing
-``fitAndFollow`` path.
+remembered-away shows it, a chevron click after a fresh frame preserves
+the remembered gap with follow re-engaged (P21-T4), and Fit/reset after
+framing frames all bars plus the gap and leaves the chevron state
+consistent via the existing ``fitAndFollow`` path.
 
 Each case shells out to ``node`` with the same self-contained harness
 ``test_d57_chevron.py`` uses: the REAL page glue (``chart.js`` +
@@ -309,16 +309,23 @@ console.log(JSON.stringify({
 
 
 def test_p18_t3_t31_chevron_click_after_fresh_frame_lands_live_edge():
-    """P18-T3-T31 (AC1): chevron click after a fresh frame lands the edge.
+    """P18-T3-T31 (AC1) as re-pinned by P21-T4 (S-P21-2 preserve semantics).
 
     From a fresh remembered-away frame with new bars on board, invoking the
-    chevron's own click wiring scrolls to the span-preserved live edge,
+    chevron's own click wiring preserves the remembered gap (established by
+    a gap-carrying tracking frame before the away frame): the post-click
+    range keeps the pre-click span and lands the newest bar at gap G,
     re-engages follow, consumes the badge and hides the chevron — through
-    the unchanged ``goToRealtime`` path.
+    the preserve ``goToRealtime`` path, not the retired edge-pin scroll.
     """
     payload = _run_node(r"""
 const N = 60;
 seedCandles(N);
+// Establish the remembered gap (G) through a frame-carrying envelope
+// before going away: a tracking frame with right padding.
+const G = 2;
+applyFrame(N - 15, N - 1 + G, true);
+assert.equal(page.lwIsFollowing(), true, "framed tracking follows");
 for (let i = 0; i < 6; i++) pressKey("ArrowLeft");
 assert.equal(page.lwIsFollowing(), false, "panned away");
 let lastT = BASE + (N - 1) * 300;
@@ -327,60 +334,67 @@ for (let k = 0; k < 3; k++) {
   liveTick(lastT, 106.0, 106.25, 105.75, 106.05, 1200);
 }
 // A fresh remembered-away frame over the grown series (minimal
-// back-shift, away encoded) — the joint state under test.
+// back-shift, away encoded) — the joint state under test. The remembered
+// gap survives the away frame (only following ranges refresh it).
 const newest = page.lwVisibleRange().newestSlot;
 applyFrame(newest - 17, newest - 1, false);
 assert.equal(page.lwIsFollowing(), false, "framed away");
 assert.equal(page.lwChevronVisible(), true, "chevron shown on the fresh away frame");
 const before = page.lwVisibleRange().range;
 const span = before.to - before.from;
-const scrollBefore = _scrollCalls;
 // Click the chevron itself — the wired goToRealtime path, not the probe.
 chevronButton()._listeners["click"]();
-assert.ok(_scrollCalls > scrollBefore, "click went through the realtime scroll path");
 const after = page.lwVisibleRange();
 assert.equal(after.newestSlot, newest, "series unchanged by the click");
-assert.equal(after.range.to, after.newestSlot, "post-click edge at the newest bar");
-assert.equal(after.range.from, after.newestSlot - span, "post-click span preserved");
+assert.equal(after.range.to - after.newestSlot, G,
+  "post-click gap equals the remembered gap");
+assert.equal(after.range.to - after.range.from, span,
+  "post-click span preserved");
 assert.equal(page.lwIsFollowing(), true, "click re-engaged follow");
 assert.equal(page.lwAffordanceVisible(), false, "badge consumed");
 assert.equal(page.lwChevronVisible(), false, "chevron hidden by derivation");
 console.log(JSON.stringify({
-  test: "T31-click", scrollCalls: _scrollCalls,
+  test: "T31-click",
   newestSlot: after.newestSlot, range: after.range,
   following: page.lwIsFollowing(), chevron: page.lwChevronVisible(),
 }));
 """)
     assert payload["test"] == "T31-click"
     assert payload["newestSlot"] == 60 + 3 - 1
-    assert payload["range"]["to"] == 60 + 3 - 1
+    assert payload["range"] == {"from": 60 + 3 - 1 + 2 - 16, "to": 60 + 3 - 1 + 2}
     assert payload["following"] is True
     assert payload["chevron"] is False
 
 
 def test_p18_t3_t31_fit_after_framing_keeps_chevron_consistent():
-    """P18-T3-T31 (AC1): Fit/reset after framing is chevron-consistent.
+    """P18-T3-T31 (AC1) as re-pinned by P21-T4 (S-P21-2 preserve semantics).
 
     From a fresh remembered-away frame, Fit/reset frames all loaded bars
-    and re-engages follow through the existing ``fitAndFollow`` path, so
-    the chevron hides by derivation — no stuck-visible or stuck-hidden
-    state survives the framing.
+    and extends ``to`` by the remembered gap (established by a
+    gap-carrying tracking frame before the away frame), so the post-Fit
+    range is ``{0, newest+G}`` with follow re-engaged and the chevron
+    hidden by derivation — no stuck-visible or stuck-hidden state.
     """
     payload = _run_node(r"""
 assert.equal(typeof page.lwFit, "function", "Fit entry exists");
 const N = 60;
 seedCandles(N);
-// A fresh remembered-away frame first (minimal back-shift, away encoded).
+// Establish the remembered gap (G) through a frame-carrying envelope,
+// then take the fresh remembered-away frame (minimal back-shift, away
+// encoded). The gap survives the away frame.
+const G = 2;
+applyFrame(N - 15, N - 1 + G, true);
+assert.equal(page.lwIsFollowing(), true, "framed tracking follows");
 applyFrame(N - 16, N - 2, false);
 assert.equal(page.lwIsFollowing(), false, "framed away");
 assert.equal(page.lwChevronVisible(), true, "chevron shown on the fresh away frame");
-// Fit/reset after the frame: all bars framed, follow re-engaged,
-// chevron consistent via the existing fitAndFollow path.
+// Fit/reset after the frame: all bars framed, gap preserved,
+// follow re-engaged, chevron consistent via the existing fitAndFollow path.
 assert.equal(page.lwFit(), true, "Fit lands after framing");
 const probe = page.lwVisibleRange();
 assert.equal(probe.newestSlot, N - 1, "series unchanged by Fit");
 assert.equal(probe.range.from, 0, "fit frames from slot 0");
-assert.equal(probe.range.to, probe.newestSlot, "fit frames the newest bar");
+assert.equal(probe.range.to, probe.newestSlot + G, "fit preserves the remembered gap");
 assert.equal(page.lwIsFollowing(), true, "follow re-engaged");
 assert.equal(page.lwChevronVisible(), false, "chevron hidden after Fit");
 assert.equal(chevronButton().hidden, true, "button hidden after Fit");
@@ -391,6 +405,6 @@ console.log(JSON.stringify({
 }));
 """)
     assert payload["test"] == "T31-fit"
-    assert payload["range"] == {"from": 0, "to": 60 - 1}
+    assert payload["range"] == {"from": 0, "to": 60 - 1 + 2}
     assert payload["following"] is True
     assert payload["chevron"] is False

@@ -3,7 +3,7 @@
 // Covers the pure core exported by chart.js (MODES, tzLabel, barGeometry,
 // describeOp, volumeBarColor) plus the envelope forward-compat the mode
 // key relies on: P6-04 validators must accept mode-carrying set_bars ops.
-const { describe, it } = require("node:test");
+const { describe, it, beforeEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
@@ -263,6 +263,11 @@ describe("volume colours follow the candle (price-coloured bars)", () => {
 // live upserts, and the edge keeps following.
 describe("S-P11-1 follow-state probes (P11-T1)", () => {
   const N = 60;
+  // S-P21-5 isolation: production first/new-symbol loads always carry an
+  // explicit fresh frame, so every seed opens from a known live edge
+  // instead of inheriting the previous test's away range (frameless
+  // re-seeds preserve while away and would leak it across tests).
+  beforeEach(() => seedCandles(N));
   const seedCandles = (n) => {
     const ts = [], open = [], high = [], low = [], close = [];
     for (let i = 0; i < n; i++) {
@@ -274,10 +279,16 @@ describe("S-P11-1 follow-state probes (P11-T1)", () => {
     }
     const res = page.lwApplyOps({
       v: 1,
-      ops: [{
-        op: "set_bars", series: "candles",
-        cols: { ts, open, high, low, close },
-      }],
+      ops: [
+        {
+          op: "set_bars", series: "candles",
+          cols: { ts, open, high, low, close },
+        },
+        {
+          op: "set_visible_range", range: { from: 0, to: n - 1 },
+          following: true,
+        },
+      ],
     });
     assert.equal(res.error, null, "seed envelope applies");
     return res;
@@ -402,6 +413,10 @@ describe("S-P11-1 follow-state probes (P11-T1)", () => {
 // affordanceVisible rule (red-proof cell, asserted below).
 describe("S-P18-1 chevron visibility: away-only (P18-T1-T12)", () => {
   const N = 60;
+  // S-P21-5 isolation: same production-framed seed idiom as the S-P11-1
+  // suite — each test opens from a known live edge (badge disarmed,
+  // chevron hidden) instead of inheriting leftover away state.
+  beforeEach(() => seedCandles(N));
   const seedCandles = (n) => {
     const ts = [], open = [], high = [], low = [], close = [];
     for (let i = 0; i < n; i++) {
@@ -413,10 +428,16 @@ describe("S-P18-1 chevron visibility: away-only (P18-T1-T12)", () => {
     }
     const res = page.lwApplyOps({
       v: 1,
-      ops: [{
-        op: "set_bars", series: "candles",
-        cols: { ts, open, high, low, close },
-      }],
+      ops: [
+        {
+          op: "set_bars", series: "candles",
+          cols: { ts, open, high, low, close },
+        },
+        {
+          op: "set_visible_range", range: { from: 0, to: n - 1 },
+          following: true,
+        },
+      ],
     });
     assert.equal(res.error, null, "seed envelope applies");
   };

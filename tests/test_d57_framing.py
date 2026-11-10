@@ -404,8 +404,15 @@ def _run_node(flow: str) -> dict:
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
-def test_P18_T2_T24b_page_applies_fresh_frame_over_preserve_and_defers():
-    """P18-T2-T24 (page half): explicit frame wins; unlaid-out defers."""
+def test_P18_T2_T24b_page_holds_same_symbol_frame_while_away():
+    """P18-T2-T24 (page half, S-P21-5): same-symbol + frame holds; fresh wins.
+
+    Landing neutrality: the driver never emits same_symbol + frame (continuity
+    stamping), so a same-symbol replace carrying a frame while away holds the
+    away range with follow disengaged (consistent with T2 legD) instead of
+    re-framing. A fresh (new-symbol) load carrying an explicit frame still
+    frames: the frame wins over the preserved-range path.
+    """
     flow = r"""
 const BASE = 1700000000;
 function seed(n) {
@@ -423,7 +430,8 @@ function seed(n) {
   assert.equal(res.error, null);
 }
 // A scrolled-back viewport, then a same-symbol replace carrying an
-// explicit fresh frame: the frame wins over the preserved-range path.
+// explicit fresh frame: S-P21-5 landing neutrality — the away range
+// holds with follow disengaged instead of re-framing.
 seed(40);
 page.lwApplyOps({ v: 1, ops: [
   { op: "set_visible_range", range: { from: 2, to: 20 }, following: false },
@@ -441,6 +449,27 @@ assert.deepEqual([before.range.from, before.range.to], [2, 20]);
   }
   const res = page.lwApplyOps({ v: 1, ops: [
     { op: "set_bars", series: "candles", same_symbol: true,
+      cols: { ts, open, high, low, close } },
+    { op: "set_visible_range", range: { from: 30, to: 41 }, following: true },
+  ]});
+  assert.equal(res.error, null);
+}
+const held = page.lwVisibleRange();
+assert.deepEqual([held.range.from, held.range.to], [2, 20]);
+assert.equal(page.lwIsFollowing(), false);
+// A fresh (new-symbol) load carrying an explicit frame still frames:
+// the frame wins over the preserved-range path.
+{
+  const ts = [], open = [], high = [], low = [], close = [];
+  for (let i = 0; i < 40; i++) {
+    ts.push(BASE + i * 300);
+    open.push(100 + i * 0.1);
+    high.push(100 + i * 0.1 + 0.25);
+    low.push(100 + i * 0.1 - 0.25);
+    close.push(100 + i * 0.1 + 0.05);
+  }
+  const res = page.lwApplyOps({ v: 1, ops: [
+    { op: "set_bars", series: "candles",
       cols: { ts, open, high, low, close } },
     { op: "set_visible_range", range: { from: 30, to: 41 }, following: true },
   ]});

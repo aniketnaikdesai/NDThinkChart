@@ -249,6 +249,24 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   /* S-P11-4 (D51.3): go-to-realtime badge state — armed when live bars extend
    * the series while scrolled back, disarmed on any resume. */
   var newBarsSinceAway = false;
+  /* S-P21-2 (D60.2) + S-P21-4 (D60.5): per chart-page-instance remembered
+   * follow offset, in logical slots — the last observed following gap (the
+   * distance from the newest bar's slot to the right edge of the visible
+   * range). Default FRESH_FRAME_RIGHT_PADDING mirrors ui/lwc_view.py (the
+   * fresh frame lands newest at exactly this offset, so a view that never
+   * followed preserves the frame it opened on). Per-instance state is
+   * per-view by construction: pop-outs are separate create_chart_view
+   * instances, so no gap ever crosses views — and none crosses the Python
+   * bridge (gap state is only ever read for range math, never emitted). */
+  var FRESH_FRAME_RIGHT_PADDING = 2;
+  var rememberedGap = FRESH_FRAME_RIGHT_PADDING;
+  /* S-P21-1 (D60.1): pre-envelope base for the slot-delta shift — captured
+   * in applyOps BEFORE the ops land (appending a period moves the newest
+   * slot, so a post-update read cannot reconstruct the arrival width).
+   * followLive() consumes this base; the replace path reads the same
+   * envelope delta off its own before/after snapshots. */
+  var shiftBaseRange = null;
+  var shiftBaseSlot = -1;
   /* S-P18-1 (D57.1): the visible chevron button handle — the static
    * #goToLatest element from chart.html when present, otherwise created
    * once at init with the same attributes (harness path). Null until init
@@ -781,57 +799,102 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   }
 
   function isFollowing() {
-    return isFollowingSlot(newestBarSlot(), visibleLogicalRange());
+    var range = visibleLogicalRange();
+    var slot = newestBarSlot();
+    var following = isFollowingSlot(slot, range);
+    /* S-P21-2: refresh the remembered gap on every observed following
+     * range (AP-P21-2). Away ranges never refresh — an away view holds no
+     * live gap, so the last following gap survives the away episode. A
+     * manual scroll/pinch that parks the newest bar at the edge observes a
+     * zero gap here: that gesture path is the ONLY way the remembered gap
+     * zeroes (no explicit action ever writes zero). */
+    if (following) rememberedGap = Number(range.to) - slot;
+    return following;
   }
 
-  /* S-P11-2 (D51.2): follow the live edge through the realtime scroll path.
-   * `scrollToRealTime()` is the library's own follow (the TradingView
-   * semantic Q72 references as the model for S-P11-1); the
-   * `setVisibleLogicalRange` fallback pins the newest slot at the right edge
-   * while preserving the current span when the scroll entry is missing
-   * (offscreen harness). Called only while following — never while scrolled
-   * back, so new bars alone can never re-engage follow. */
+  /* S-P21-1 (D60.1): follow the live edge through the envelope slot-delta
+   * shift — revises S-P11-2's edge-pin (`scrollToRealTime()` snapped the
+   * newest bar to the edge and zeroed the held gap; the `{slot - span,
+   * slot}` fallback did the same). The shift is the newest-slot movement
+   * across the whole landed envelope (after minus the pre-envelope base
+   * above) applied once over the pre-update range: span preserved, gap
+   * preserved. N new slots shift by exactly N; forming-bar ticks (delta 0)
+   * shift nothing, so there is no per-tick jitter (A175). Called only while
+   * following — never while scrolled back, so new bars alone can never
+   * re-engage follow. */
   function followLive() {
     if (!chart) return false;
+    var delta = newestBarSlot() - shiftBaseSlot;
+    if (!(delta > 0)) return true;
+    var r = shiftBaseRange;
+    if (!r || !isFinite(Number(r.from)) || !isFinite(Number(r.to)) ||
+        !(Number(r.to) > Number(r.from))) {
+      return fitToWidth();
+    }
     try {
-      var scale = chart.timeScale();
-      if (typeof scale.scrollToRealTime === "function") {
-        scale.scrollToRealTime();
-        return true;
-      }
-      var range = visibleLogicalRange();
-      var slot = newestBarSlot();
-      if (!range || slot < 0) return fitToWidth();
-      var span = range.to - range.from;
-      if (!isFinite(span) || span <= 0) return fitToWidth();
-      scale.setVisibleLogicalRange({ from: slot - span, to: slot });
+      chart.timeScale().setVisibleLogicalRange({
+        from: Number(r.from) + delta,
+        to: Number(r.to) + delta,
+      });
       return true;
     } catch (err) {
       return false;
     }
   }
 
-  /* S-P11-2: explicit resume — the pan-back-to-edge / Fit / affordance path.
-   * A user pan back to the edge re-engages follow by derivation (the newest
-   * slot re-enters the live range, so `isFollowing()` flips with no call);
-   * this entry performs the same realtime scroll on demand, so the
-   * go-to-realtime affordance (S-P11-4) and scripted resume share one path.
-   * Consumes the pending badge: the bars it announces are now on screen. */
+  /* S-P21-2 (D60.2): explicit resume — chevron click / go-to-realtime.
+   * Revises S-P11-4's resume (edge-pin) to resume-in-place: keep the current
+   * span and land the newest bar `rememberedGap` slots inside the right edge,
+   * so the post-action gap equals the remembered gap. Manual scroll/pinch is
+   * the ONLY path that zeroes the gap (it moves the range itself; this entry
+   * never snaps to the edge). Consumes the pending badge: the bars it
+   * announces are now on screen. */
   function goToRealtime() {
     newBarsSinceAway = false;
-    var ok = followLive();
+    var slot = newestBarSlot();
+    var range = visibleLogicalRange();
+    var span = range ? Number(range.to) - Number(range.from) : NaN;
+    var ok = false;
+    if (slot >= 0 && isFinite(span) && span > 0) {
+      try {
+        chart.timeScale().setVisibleLogicalRange({
+          from: slot + rememberedGap - span,
+          to: slot + rememberedGap,
+        });
+        ok = true;
+      } catch (err) {
+        ok = false;
+      }
+    } else {
+      ok = fitToWidth();
+    }
     updateChevron();
     return ok;
   }
 
-  /* S-P11-4 (D51.3): Fit/reset — frame all loaded bars through the existing
-   * fitToWidth framer and re-engage follow (the fit puts the newest slot back
-   * inside the visible range, so follow re-derives with no stored flag; the
-   * pending badge is consumed on a landed fit). A deferred fit (no laid-out
-   * width yet) keeps the badge until the retry lands it. */
+  /* S-P21-2 (D60.2): Fit/reset — frame all loaded bars through the existing
+   * fitToWidth framer, then extend `to` by the remembered gap so the
+   * frame-all promise and the gap hold together; follow re-engages by
+   * derivation and the pending badge is consumed on a landed fit. A deferred
+   * fit (no laid-out width yet) keeps the badge until the retry lands it. */
   function fitAndFollow() {
     var ok = fitToWidth();
-    if (ok) newBarsSinceAway = false;
+    if (ok) {
+      newBarsSinceAway = false;
+      if (rememberedGap > 0) {
+        var landed = visibleLogicalRange();
+        if (landed && isFinite(Number(landed.from)) &&
+            isFinite(Number(landed.to)) &&
+            Number(landed.to) > Number(landed.from)) {
+          try {
+            chart.timeScale().setVisibleLogicalRange({
+              from: Number(landed.from),
+              to: Number(landed.to) + rememberedGap,
+            });
+          } catch (err) { /* keep the fitted range */ }
+        }
+      }
+    }
     updateChevron();
     return ok;
   }
@@ -1156,6 +1219,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
      * slot arms the badge — a grown series while away means new bars. */
     var followingBefore = isFollowing();
     var slotBefore = newestBarSlot();
+    /* S-P21-1: pre-envelope shift base — the visible range alongside the
+     * slot, BEFORE the ops land. followLive() shifts this range by the
+     * envelope newest-slot delta. */
+    shiftBaseRange = visibleLogicalRange();
+    shiftBaseSlot = slotBefore;
     /* S-P11-3: same-symbol replaces preserve — capture the live range BEFORE
      * the rows land (`setData` may reset it, AR-P11-3) and re-apply it after
      * instead of fitting. New-symbol loads fit to the live edge. */
@@ -1188,28 +1256,91 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       }
       applied++;
     }
-    /* S-P11-2 (D51.2): the unconditional refit is gone — it was the yank. A
-     * same-symbol full replace re-applies the pre-replace range (S-P11-3);
-     * new-symbol loads frame the fresh series; live upserts follow only
-     * while following, through the realtime scroll, and leave a scrolled-back
-     * viewport bit-identical — new bars never auto-resume follow. */
+    /* S-P21-1 (D60.1): the unconditional refit is gone — it was the yank. A
+     * same-symbol full replace re-applies the pre-replace range (S-P11-3),
+     * shifted right by the envelope newest-slot delta while following so the
+     * held gap survives (a hole-republish appending N slots shifts exactly
+     * N — envelope-level delta accounting is exactly-once by construction,
+     * AR-P21-1 — and an away viewport stays bit-identical); new-symbol loads
+     * frame the fresh series; live upserts follow only while following,
+     * through the slot-delta shift, and leave a scrolled-back viewport
+     * bit-identical — new bars never auto-resume follow. */
+    var slotDelta = newestBarSlot() - slotBefore;
+    /* S-P21-5 (D60.7): away-landing neutrality — landings deliver bars,
+     * never navigation. While away over an existing series (a usable
+     * pre-envelope range is showing), a data landing re-applies that range
+     * and nothing else: a fresh frame riding a same-symbol chunk is not
+     * re-landed, a chunk without continuity holds the pre-envelope range
+     * instead of fitting, and a failed re-apply never falls back to fit —
+     * the range stays bit-identical and follow stays disengaged. A
+     * first load (no prior series) and a new-symbol load carrying its own
+     * explicit fresh frame still frame (S-P18-4 precedence stands); the
+     * follow path below is unchanged. */
+    var awayBase = preservedRange || shiftBaseRange;
+    var awayUsable = !!(awayBase && isFinite(Number(awayBase.from)) &&
+      isFinite(Number(awayBase.to)) &&
+      Number(awayBase.to) > Number(awayBase.from));
+    var awayLanding = !followingBefore && slotBefore >= 0 && awayUsable;
     if (sawReplace) {
-      if (freshFrame) {
+      if (freshFrame && !(awayLanding && preservedRange)) {
         /* S-P18-3: an explicit fresh frame wins over the preserved-range
-         * path, ordered after the rows. Unlaid-out → defer via needsFit. */
+         * path, ordered after the rows. Unlaid-out → defer via needsFit.
+         * Reached while away only by a load carrying its own frame (a
+         * new-symbol or timeframe load has no preserved range) — a
+         * same-symbol chunk's frame is consumed by the hold below. */
         landFreshFrame(freshFrame);
-      } else if (preservedRange) {
-        try {
-          chart.timeScale().setVisibleLogicalRange({
-            from: preservedRange.from,
-            to: preservedRange.to,
-          });
-        } catch (err) {
+      } else {
+        /* S-P21-5 (D60.7): away-landing neutrality — landings deliver bars,
+         * never navigation. While away over an existing series (a usable
+         * pre-envelope range is showing), a data landing re-applies that
+         * range and nothing else: a fresh frame riding a same-symbol chunk
+         * is not re-landed, a chunk without continuity holds the
+         * pre-envelope range instead of fitting, and a failed re-apply
+         * never falls back to fit — the range stays bit-identical and
+         * follow stays disengaged. A first load (no prior series) and a
+         * new-symbol load carrying its own explicit fresh frame still frame
+         * (S-P18-4 precedence stands); the follow path below is unchanged.
+         * One range application per envelope (exactly-once, AR-P21-1): the
+         * mutually exclusive landing legs above compute a single target and
+         * fall through to the one apply below, so a replace never moves
+         * the viewport twice. */
+        var landTarget = null;
+        var landFitFallback = false;
+        if (awayLanding && preservedRange) {
+          /* Same-symbol data landing while away: the preserve path, with no
+           * fresh-frame re-land and no fit fallback (hold on failure). */
+          landTarget = preservedRange;
+        } else if (awayLanding) {
+          /* Chunk without continuity landing over an away viewport: hold the
+           * pre-envelope range instead of fitting to the live edge. */
+          landTarget = awayBase;
+        } else if (preservedRange) {
+          var shiftTarget = preservedRange;
+          if (followingBefore && slotDelta > 0) {
+            shiftTarget = {
+              from: preservedRange.from + slotDelta,
+              to: preservedRange.to + slotDelta,
+            };
+          }
+          landTarget = shiftTarget;
+          landFitFallback = true;
+        }
+        if (landTarget) {
+          try {
+            chart.timeScale().setVisibleLogicalRange({
+              from: Number(landTarget.from),
+              to: Number(landTarget.to),
+            });
+          } catch (err) {
+            if (landFitFallback) fitToWidth();
+          }
+        } else {
           fitToWidth();
         }
-      } else {
-        fitToWidth();
       }
+    } else if (awayLanding) {
+      /* Upsert-only (or empty) envelope while away: the data already
+       * landed above — no follow (already gated), no frame, no fit. */
     } else if (freshFrame) {
       /* Defensive: a lone frame directive (the Python driver always
        * appends it to a replace) still lands or defers. */
@@ -1352,8 +1483,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   window.lwVisibleRange = function () {
     return { newestSlot: newestBarSlot(), range: visibleLogicalRange() };
   };
-  /* S-P11-2 (D51.2): the explicit resume entry — pan-back-to-edge, Fit and
-   * the go-to-realtime affordance (S-P11-4) share the realtime scroll path. */
+  /* S-P21-2 (D60.2): the explicit resume entries — pan-back-to-edge, Fit and
+   * the go-to-realtime affordance (S-P11-4) share the remembered-gap preserve
+   * path (resume-in-place / frame-all-then-extend), never the edge-pin. */
   window.lwGoToRealtime = goToRealtime;
   /* S-P11-4 (D51.3): Fit/reset frames all loaded bars + re-engages follow;
    * the badge is visible iff away AND new-bars-since-away, and invoking the
@@ -1366,6 +1498,13 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
    * empty chart answers hidden (never away). */
   window.lwChevronVisible = function () {
     return updateChevron();
+  };
+  /* S-P21-4 (D60.5): per-instance remembered-gap probe — offscreen only.
+   * The gap is never sent over the bridge (report/emit payloads carry no
+   * gap field), so each page instance holding its own value is what keeps
+   * views independent. */
+  window.lwRememberedGap = function () {
+    return rememberedGap;
   };
   /* Q-23: the page's own bitmap, so the acceptance can look at the candles
    * instead of trusting a count. Returns a composited canvas (or null). */

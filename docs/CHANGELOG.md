@@ -480,3 +480,39 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 2.
 - d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
 - bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
 - 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
+## P21 — 2026-11-10
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P21-T1 — Follow-offset live path in chart.js: envelope slot-delta shift replaces the followLive edge-pin, goToRealtime/fitAndFollow preserve the per-view remembered gap (default 2), manual scroll/pinch stays the only zero-gap path; 4 pytest + 15 node tests green, red-first verified (13 node + 3 pytest fail pre-fix).
+- P21-T2 — P21-T2 rework: wave setup seeds a genuine one-day interior hole with a slot-mapped settled report so _on_viewport_settled issues 1 wave (P19 shape), and the page seed carries a fresh frame so the remembered gap holds its default; all 11 away-landing suites pass
+- P21-T4 — P21-T4 test-only preserve migration green: T13/T31-click/T22/T32 assert post-action gap==remembered gap (G=2 via frame-carrying envelope) with span preserved, follow re-engaged, badge consumed/chevron hidden, no scrollToRealTime pins; T31 fit re-pinned to {0, newest+G} in both cases; diff touches only the four test files
+- P21-T5 — P21-T5 done: T24b page half restated to hold (same_symbol+frame while away keeps [2,20], follow off; fresh new-symbol frame still wins [30,41]); chart.test.js seeds carry production-style frames + beforeEach isolation (25/25 node green, pytest framing + parity guard green); diff touches only the two test files
+- P21-T3 — P21 batch gate green: full offscreen suite 1518 passed/3 skipped, node page-core 105 pass, D51/P18/P19 suites 78 pass, D60 follow-offset/away suites green incl. new AC-D60.6 history-intact test; requirements marker, tech stack, D41-D60 sections and reversals intact, requirements.md byte-identical to HEAD
+
+### Blocked
+- P21-T2 — Output:
+- P21-T2 — Output:
+
+### Recent commits
+- 5a8307b P20: index + futures contract support (D59, Q96-99 answered)
+- 65bc3e7 P19: scroll-triggered backfill prefetch (D58, owner-accepted trigger table)
+- b39fdf2 P18: go-to-latest chevron + fresh per-timeframe framing (D57, Q92-95 answered)
+- e50a759 P17: silence retry for historical chunks (D56, Q88-91 answered)
+- 2223786 P16: doc consolidation D55 batch 1 (inventory, fact sheet, navigation, live-only guides, P6/P7 reconciliation, disposition ledger + Q87 deletions, final review)
+- 945a2b2 Scratch + evidence: D53 4-phase live probe harness (v3 logging) and TWS probe findings/reports
+- e9e5912 P15: 10-second load-chart target + graceful degradation (D54, target reading A148)
+- 2d8fabd P14: persistent backfill-state indicator + cache-current guard (D53, Finding 2)
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open

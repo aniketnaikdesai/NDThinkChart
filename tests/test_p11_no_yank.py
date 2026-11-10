@@ -12,8 +12,10 @@ as a call-counted edge-pin, so T22 proves the resume went through that path.
 
 Red pre-fix (the unconditional post-``applyOps`` refit moves the viewport on
 every upsert), green post-fix (upserts leave a scrolled-back viewport
-bit-identical; follow re-engages only via the realtime scroll, never on new
-bars alone).
+bit-identical; follow re-engages via the preserve resume entry, never on new
+bars alone). P21-T4: the resume half (T22) asserts the S-P21-2 preserve
+semantics (post-resume gap equals the remembered gap, span preserved) — no
+case pins the retired ``scrollToRealTime`` edge-pin or its call count.
 """
 
 from __future__ import annotations
@@ -28,7 +30,9 @@ REPO = Path(__file__).resolve().parent.parent
 # The harness prelude: stub document + fake 5.x tree, then boot the real page.
 # Mirrors chart.test.js (same library behaviours: setData frames the fresh
 # series, update leaves the visible range untouched, fitContent frames all
-# loaded bars) plus a call-counted scrollToRealTime the page resumes through.
+# loaded bars) plus the call-counted scrollToRealTime fake the page resumed
+# through pre-P21 (P21-T4: the resume preserves the remembered gap; the
+# counter pins no path and no test asserts on it).
 _PRELUDE = r"""
 const { readFileSync } = require("node:fs");
 const assert = require("node:assert/strict");
@@ -249,16 +253,31 @@ console.log(JSON.stringify({
 
 
 def test_p11_t2_t22_no_auto_resume_pan_back_resume():
-    """P11-T2-T22 (AC-D51.2 resume rule): bars never auto-resume.
+    """P11-T2-T22 (AC-D51.2 resume rule) as re-pinned by P21-T4 (preserve).
 
-    While away, new bars arrive and follow stays disengaged; then
-    pan-back-to-edge re-engages follow — once via the explicit realtime
-    scroll entry (asserted through the scrollToRealTime call count) and once
-    via the user's own ArrowRight pans (derivation needs no call).
+    While away, new bars arrive and follow stays disengaged; then the
+    explicit pan-back-to-edge entry (``lwGoToRealtime``) resumes follow in
+    place — the post-resume range keeps the pre-resume span and lands the
+    newest bar at the remembered gap (established here by a frame-carrying
+    envelope), with no call through the retired scrollToRealTime edge-pin.
+    A second leg proves the user's own ArrowRight pans still resume via
+    derivation (no entry call needed).
     """
     payload = _run_node(r"""
 const N = 60;
 seedCandles(N);
+// Establish the remembered gap through a frame-carrying envelope: a
+// tracking frame with right padding (gap G), still following.
+const G = 2;
+{
+  const res = page.lwApplyOps({
+    v: 1,
+    ops: [{ op: "set_visible_range",
+            range: { from: N - 15, to: N - 1 + G }, following: true }],
+  });
+  assert.equal(res.error, null, "gap-carrying frame applies");
+}
+assert.equal(page.lwIsFollowing(), true, "framed tracking follows");
 for (let i = 0; i < 6; i++) pressKey("ArrowLeft");
 assert.equal(page.lwIsFollowing(), false, "panned away");
 const frozen = page.lwVisibleRange().range;
@@ -270,8 +289,16 @@ for (let k = 0; k < 3; k++) {
 assert.deepEqual(page.lwVisibleRange().range, frozen, "bars moved the away view");
 assert.equal(page.lwIsFollowing(), false, "bars alone re-engaged follow");
 assert.equal(typeof page.lwGoToRealtime, "function", "resume entry exists");
-page.lwGoToRealtime(); // scripted pan-back-to-edge through the realtime scroll
-assert.ok(_scrollCalls >= 1, "resume went through the realtime scroll path");
+const span = frozen.to - frozen.from;
+page.lwGoToRealtime(); // scripted pan-back-to-edge through the preserve entry
+{
+  const after = page.lwVisibleRange();
+  assert.equal(after.newestSlot, N + 3 - 1, "series grew under the away view");
+  assert.equal(after.range.to - after.newestSlot, G,
+    "post-resume gap equals the remembered gap");
+  assert.equal(after.range.to - after.range.from, span,
+    "post-resume span preserved");
+}
 assert.equal(page.lwIsFollowing(), true, "resume re-engaged follow");
 for (let i = 0; i < 6; i++) pressKey("ArrowLeft");
 assert.equal(page.lwIsFollowing(), false, "away again");
@@ -279,13 +306,12 @@ let pans = 0;
 while (!page.lwIsFollowing() && pans < 40) { pressKey("ArrowRight"); pans++; }
 assert.equal(page.lwIsFollowing(), true, "user pan-back-to-edge resumes follow");
 console.log(JSON.stringify({
-  test: "T22", scrollCalls: _scrollCalls, userPans: pans,
+  test: "T22", userPans: pans,
   newestSlot: page.lwVisibleRange().newestSlot,
   range: page.lwVisibleRange().range, following: page.lwIsFollowing(),
 }));
 """)
     assert payload["test"] == "T22"
-    assert payload["scrollCalls"] >= 1, "resume must use the realtime scroll path"
     assert payload["following"] is True
     assert payload["newestSlot"] == 60 + 3 - 1  # 3 new periods on a 60-bar seed
     rng = payload["range"]

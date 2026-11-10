@@ -5070,4 +5070,4 @@ together. P21-3 depends on both and edits no production files.
 - No `PLAN`-routed escalation is open (all `addressed`); no `pending_doc_sync.md`
   entries remain unapplied (file absent); the P19/P20 wave machinery is only read.
 
-Status: READY_FOR_VALIDATION
+Status: READY_FOR_TASK_MANAGER

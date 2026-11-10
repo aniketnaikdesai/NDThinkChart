@@ -279,16 +279,29 @@ console.log(JSON.stringify({
 
 
 def test_p18_t1_t13_chevron_click_goes_realtime():
-    """P18-T1-T13 (AC2): clicking the chevron runs the goToRealtime path.
+    """P18-T1-T13 (AC2) as re-pinned by P21-T4 (S-P21-2 preserve semantics).
 
-    While away, invoke the button's own click wiring; the post-click range
-    is the span-preserved live edge, follow re-derives true, the badge is
-    consumed, and the chevron hides — through the unchanged
-    ``goToRealtime`` scroll (the scroll entry is called, no new math).
+    While away, clicking the chevron runs the goToRealtime preserve path:
+    the post-click range keeps the pre-click span and lands the newest bar
+    at the remembered gap (established here by a frame-carrying envelope),
+    follow re-derives true, the badge is consumed and the chevron hides —
+    with no call through the retired scrollToRealTime edge-pin.
     """
     payload = _run_node(r"""
 const N = 60;
 seedCandles(N);
+// Establish the remembered gap through a frame-carrying envelope: a
+// tracking frame with right padding (gap G), still following.
+const G = 2;
+{
+  const res = page.lwApplyOps({
+    v: 1,
+    ops: [{ op: "set_visible_range",
+            range: { from: N - 15, to: N - 1 + G }, following: true }],
+  });
+  assert.equal(res.error, null, "gap-carrying frame applies");
+}
+assert.equal(page.lwIsFollowing(), true, "framed tracking follows");
 for (let i = 0; i < 6; i++) pressKey("ArrowLeft");
 assert.equal(page.lwIsFollowing(), false, "panned away");
 let lastT = BASE + (N - 1) * 300;
@@ -299,26 +312,26 @@ for (let k = 0; k < 3; k++) {
 assert.equal(page.lwChevronVisible(), true, "chevron shown while away");
 const before = page.lwVisibleRange().range;
 const span = before.to - before.from;
-const scrollBefore = _scrollCalls;
 // Click the chevron itself — the wired goToRealtime path, not the probe.
 chevronButton()._listeners["click"]();
-assert.ok(_scrollCalls > scrollBefore, "click went through the realtime scroll path");
 const after = page.lwVisibleRange();
 assert.equal(after.newestSlot, N + 3 - 1, "series grew under the away view");
-assert.equal(after.range.to, after.newestSlot, "post-click edge at the newest bar");
-assert.equal(after.range.from, after.newestSlot - span, "post-click span preserved");
+assert.equal(after.range.to - after.newestSlot, G,
+  "post-click gap equals the remembered gap");
+assert.equal(after.range.to - after.range.from, span,
+  "post-click span preserved");
 assert.equal(page.lwIsFollowing(), true, "click re-engaged follow");
 assert.equal(page.lwAffordanceVisible(), false, "badge consumed");
 assert.equal(page.lwChevronVisible(), false, "chevron hidden by derivation");
 console.log(JSON.stringify({
-  test: "T13", scrollCalls: _scrollCalls,
+  test: "T13",
   newestSlot: after.newestSlot, range: after.range,
   following: page.lwIsFollowing(),
 }));
 """)
     assert payload["test"] == "T13"
     assert payload["newestSlot"] == 60 + 3 - 1
-    assert payload["range"]["to"] == 60 + 3 - 1
+    assert payload["range"] == {"from": 60 + 3 - 1 + 2 - 16, "to": 60 + 3 - 1 + 2}
     assert payload["following"] is True
 
 
