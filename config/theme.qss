@@ -86,6 +86,24 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     background: none;
 }
 
+QScrollBar:horizontal {
+    border: none;
+    background: #0d0f14;
+    height: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background: #2b3345;
+    min-width: 20px;
+    border-radius: 4px;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+}
+
 /* Group boxes and check boxes */
 QGroupBox {
     border: 1px solid #2b3345;
