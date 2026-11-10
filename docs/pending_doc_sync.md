@@ -1,0 +1,1 @@
+- 2026-11-10T22:17:18+00:00 via Q-64: ui/main_window.py: toolbar row height now derives from the tallest child's sizeHint (36px floor) instead of a fixed constant, so the Symbol field never clips under substituted font metrics

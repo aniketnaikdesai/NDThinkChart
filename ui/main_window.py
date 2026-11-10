@@ -155,10 +155,15 @@ def read_persisted_timezone() -> str:
         return DEFAULT_TIMEZONE_MODE
     return raw if raw in TIMEZONE_MODES else DEFAULT_TIMEZONE_MODE
 
-# Single source of truth for the toolbar content row height (px). The
-# ToolbarScroll wrapper is sized as this content height PLUS the horizontal
-# scrollbar's own height, so the scrollbar gets a reserved lane entirely below
-# the content instead of overlapping the label descenders (D20).
+# Baseline minimum for the toolbar content row height (px). The actual row
+# height is DERIVED from the content's sizeHint (see
+# ``derived_toolbar_content_height``): the tallest child plus the row's
+# vertical margins, never less than this baseline. A fixed 36 px assumed the
+# default font metrics, so when the theme's "Sans Serif" family resolved to a
+# fallback with taller metrics the row clipped the symbol input at the bottom.
+# The ToolbarScroll wrapper is sized as the derived content height PLUS the
+# horizontal scrollbar's own height, so the scrollbar still gets a reserved
+# lane entirely below the content instead of overlapping descenders (D20).
 TOOLBAR_CONTENT_HEIGHT = 36
 
 #: D21.13 — baseline minimum width of the right region once BOTH of its panels
@@ -250,6 +255,27 @@ def build_main_chart_view(tz_offset: float, editable: bool = True):
     return LwcDriverView(tz_offset=tz_offset, editable=editable)
 
 
+def derived_toolbar_content_height(toolbar: QWidget) -> int:
+    """Derive the toolbar content-row height (px) from its own children.
+
+    D61 follow-up: the row must fit the tallest control, whatever font family
+    the theme's fallback resolves to. Returns the max child ``sizeHint`` height
+    plus the layout's top/bottom margins, floored at ``TOOLBAR_CONTENT_HEIGHT``
+    so a short-metric platform keeps the established single-row baseline (and
+    the D19/D20 fixed-height invariants). Never shrinks below the baseline.
+    """
+    layout = toolbar.layout()
+    if layout is None:
+        return TOOLBAR_CONTENT_HEIGHT
+    margins = layout.contentsMargins()
+    tallest = 0
+    for index in range(layout.count()):
+        widget = layout.itemAt(index).widget()
+        if widget is not None:
+            tallest = max(tallest, widget.sizeHint().height())
+    return max(TOOLBAR_CONTENT_HEIGHT, tallest + margins.top() + margins.bottom())
+
+
 def _toolbar_caption(text: str) -> QLabel:
     """Build a static toolbar caption that keeps room for its full text.
 
@@ -281,7 +307,8 @@ class MainWindow(QMainWindow):
         # ── Toolbar ───────────────────────────────────────────────────────────
         toolbar = QWidget()
         toolbar.setObjectName("MainToolbar")
-        toolbar.setFixedHeight(TOOLBAR_CONTENT_HEIGHT)
+        # Height is derived from the finished content row below (D61 follow-up)
+        # instead of a fixed 36 px cap that clipped taller fallback metrics.
         # The base look is scoped with the #MainToolbar selector so it composes
         # with the VIS-D21.2 shared stylesheet below into one parseable sheet
         # (a bare declaration list fails to parse once further rules are added).
@@ -425,6 +452,12 @@ class MainWindow(QMainWindow):
         tb_layout.addStretch()
         tb_layout.addWidget(self.stream_badge)
         tb_layout.addWidget(self.conn_badge)
+        # D61 follow-up: the row's height comes from the children that were just
+        # built (tallest sizeHint + vertical margins), floored at the 36 px
+        # single-row baseline. This is the height the scroll viewport and the
+        # wrapper below use, so no control can be clipped by a short constant.
+        toolbar_row_height = derived_toolbar_content_height(toolbar)
+        toolbar.setFixedHeight(toolbar_row_height)
 
         # ── Central chart area ────────────────────────────────────────────────
         # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000.
@@ -464,10 +497,10 @@ class MainWindow(QMainWindow):
         # ~1716px minimumSizeHint from pinning the central widget. A frameless
         # horizontal QScrollArea holds the full-natural-width toolbar so it stays
         # a single row and scrolls horizontally when the window is too narrow to
-        # show every control at once. Its height is DERIVED (D20): the 36px
-        # content row plus the horizontal scrollbar's own height, so the
-        # scrollbar gets a reserved lane below the content and never covers the
-        # label descenders.
+        # show every control at once. Its height is DERIVED (D20): the content
+        # row height (itself derived from the children, D61 follow-up) plus the
+        # horizontal scrollbar's own height, so the scrollbar gets a reserved
+        # lane below the content and never covers the label descenders.
         toolbar_scroll = QScrollArea()
         toolbar_scroll.setObjectName("ToolbarScroll")
         toolbar_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -479,7 +512,7 @@ class MainWindow(QMainWindow):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         toolbar_scroll.setFixedHeight(
-            TOOLBAR_CONTENT_HEIGHT
+            toolbar_row_height
             + toolbar_scroll.horizontalScrollBar().sizeHint().height()
         )
         toolbar_scroll.setWidget(toolbar)
