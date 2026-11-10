@@ -8,8 +8,8 @@
 >
 > **This is an existing repository** (`requirements.md` carries the marker). **Current tree (2026-10-28):**
 > PyQt6 + Lightweight Charts **only** — no pyqtgraph. P6-T13 executed the removal 2026-10-27 (commit
-> `6e35b27`); `ui/chart_view.py::create_chart_view` is the LWC-only factory (`NDT_CHART_ENGINE` /
-> `chart/engine` no longer select a renderer); live-session sign-off waived-not-satisfied per
+> `6e35b27`); `ui/chart_view.py`::create_chart_view is the LWC-only factory (`NDT_CHART_ENGINE` /
+> chart/engine no longer select a renderer); live-session sign-off waived-not-satisfied per
 > `docs/build/gate_P6_T13.md`. **P7 BUILT** (data-path batch, feature commit `7cba534`, 2026-10-28) and
 > **P8 BUILT** (D48 weekly/monthly timeframes, feature commit `09761fb`, 2026-10-28). Detail lives in
 > `docs/phase-changelog.md` (Phase P6/P7/P8) and `docs/lwc_parity_matrix.md`. Skeleton figures are current:
@@ -29,7 +29,7 @@
 > ("pyqtgraph stays default through Phase 10", "no pyqtgraph code is deleted before Phase 11", P6-T13
 > separately gated); two new production modules would land (the ChartView seam + the shared chart model),
 > plus one new web-asset tree + bridge, one throwaway spike directory (never imported), and two docs (parity
-> matrix + spike results), with `ui/chart_panel` edited for delegation only. P6-T13 executed the removal
+> matrix + spike results), with ui/chart_panel edited for delegation only. P6-T13 executed the removal
 > instead (2026-10-27, commit `6e35b27`), so those sentences are superseded. Plan-time baseline was post-P5
 > (D46 built — ibkr/orders + tests/test_order_builders + tests/test_stop_loss_target deleted; skeleton
 > 2026-10-26: 205 code files, 24 test-impact rows; annotations carried forward from P5 and extended for P6).
@@ -39,10 +39,10 @@
 >
 > **D45 record (delivered, not re-opened in P5).** Batch 20 removed the News Digest dock (+ the `View` menubar),
 > the Trade Context Menu, the **Kill switch** and the **SL/TP dialog**: five deleted production modules
-> (`ui/news_digest_dock`, `ibkr/news`, `ui/trade_context_menu`, `ui/stop_loss_target_dialog`, `ibkr/validation`),
+> (ui/news_digest_dock, ibkr/news, ui/trade_context_menu, ui/stop_loss_target_dialog, ibkr/validation),
 > **three** edited production modules (`ui/main_window.py`, `ui/ticker_session.py`,
 > `ui/active_portfolio_panel.py`), **five deleted** test files, **seven adjusted** test files and **one added**
-> (`tests/test_d45_removal` — the static/behavioural removal guard), two docs cleaned. *(This line read
+> (`tests/test_d45_removal.py` — the static/behavioural removal guard), two docs cleaned. *(This line read
 > "adjusts six" until 2026-10-25; corrected with the addition of the added suite per `ESC-063`.)*
 >
 > **P6 note (2026-10-26):** the skeleton is regenerated from the post-P5 tree, so it no longer lists the P5-deleted
@@ -96,7 +96,7 @@
 > **P16 note (2026-11-04):** docs-only consolidation batch (D55, Batch 30) — **no code, test,
 > packaging, or schema change**, so the skeleton and all test-impact rows stand as regenerated
 > (Plan-confirmed) and every annotation above carries forward. Pre-landed in the working tree:
-> `dev_docs/` deleted (Q86) and `services/sound_service.py` docstring self-contained (Q84);
+> dev_docs/ deleted (Q86) and `services/sound_service.py` docstring self-contained (Q84);
 > pending P16 disposition targets are `docs/code_review/review_log.md`,
 > `docs/tasks/task_manager_notes.md`, `docs/code_review/precheck.json` +
 > `docs/code_review/precheck.md` (Q87: delete, no archive — each has a suffixed successor).
@@ -143,11 +143,21 @@
 > suites) — so every annotation above carries forward and the generated test-impact
 > rows stand as regenerated (Plan-confirmed).
 >
+> **P22 note (2026-11-10):** toolbar/timezone/crosshair/time-axis batch (D61–D64, Batch 36 —
+> toolbar label-field room, live timezone apply path + per-view fan-out + persistence,
+> zone-aware page formatting, library-crosshair free-tracking pin) — **no new module**;
+> every change lands in existing files in place (`ui/main_window.py` for the toolbar label
+> field + `_on_tz_changed` fan-out/persistence, `ui/lwc_view.py` for the new `set_timezone`
+> view method, `ui/lwc_bridge.py` for the tz op channel, `chart_assets/lwc/chart.js` for
+> the tz apply + zone-aware formatter + crosshair Normal re-assertion, plus offscreen +
+> `node --test` suites) — so every annotation above carries forward and the generated
+> test-impact rows stand as regenerated (Plan-confirmed).
+>
 > **As-built P6-T13 note (2026-10-28):** the P6 plan-time sentences above ("pyqtgraph retained and default
 > through Phase 10", "no pyqtgraph code is deleted before Phase 11") are **superseded history** — P6-T13 executed
 > 2026-10-27 (removal commit `6e35b27`; gate owner-waived (live-session sign-off waived, not satisfied) per `docs/build/gate_P6_T13.md`). The tree is
-> **LWC-only**: `ui/chart_view.py::create_chart_view` always returns the LWC view; `NDT_CHART_ENGINE` /
-> `chart/engine` no longer select a renderer. Deleted: `ui/chart_panel`, `ui/candlestick_item`, the pyqtgraph
+> **LWC-only**: `ui/chart_view.py`::create_chart_view always returns the LWC view; `NDT_CHART_ENGINE` /
+> chart/engine no longer select a renderer. Deleted: ui/chart_panel, ui/candlestick_item, the pyqtgraph
 > overlay/control/router-companion modules, `ui/overlays/` contents (package marker only). Kept: the seam
 > (`ui/chart_view.py`), the shared model (`services/chart_model.py`), the LWC host/view/bridge
 > (`ui/lwc_host.py`, `ui/lwc_view.py`, `ui/lwc_bridge.py`), `chart_assets/lwc/`, `spikes/lwc/` (never imported).
@@ -182,16 +192,16 @@
 |---|---|---|---|
 | `ui/main_window.py` (3,4xx L) | The window: docks, toolbar, load path, sessions, **error routing**, close teardown. | `[existing]` — P5 changed this file; P6 does not | Dock wiring `::__init__`, `::_apply_dock_widths` (the **single** dock-width apply point), `::_plan_dock_widths`, `::_chart_area_width`, `::eventFilter`, `::resizeEvent`, `::closeEvent`. P6 note: the load path keeps feeding the ChartView seam (renderer-only migration); no dock/toolbar/session change |
 | `ui/watchlist_panel.py` (1,003 L) | The watchlist: header strip + table, tick cells, D21.5 columns, D22 add/remove, D39 search, D21.11/D44 collapse. | `[existing]` | `WatchlistPanel.header_bar`, `::header_button`, `::add_button`, `::search_box`, `::table` / `::body`, `::is_collapsed` / `::set_collapsed` / `::toggle_collapsed`, `::add_symbol` / `::remove_symbol` / `::clear`; pure helpers `watchlist_max_width`, `clamp_watchlist_width`, `load_watchlist_width`, `save_watchlist_width`, `should_load_on_double_click`, `normalise_symbol`, `symbol_in_list`, `ensure_symbol_present`, `sanitise_watchlist_columns`; constants aliased from `dock_layout`. **Unaffected by D45** — the D21.5 column popup and D22 add/remove are *not* the removed Portfolio menu |
-| `ui/dock_layout.py` (139 L) | **Pure, Qt-free** single source of truth for dock widths (D17/D18/B3 cross-clamp, D44 collapsed width). | `[existing]` | `CHART_MIN_WIDTH=400`, `WATCHLIST_MIN_WIDTH=150`, `DEFAULT_WATCHLIST_WIDTH=220`, `RIGHT_DOCK_MIN_WIDTH=200`, `WATCHLIST_COLLAPSED_WIDTH=30`, `plan_watchlist_width`, `watchlist_max_width`, `right_dock_max_width`, `plan_dock_widths`. **`CHART_MIN_WIDTH` must equal `ui/watchlist_panel.CHART_MIN_WIDTH`** |
+| `ui/dock_layout.py` (139 L) | **Pure, Qt-free** single source of truth for dock widths (D17/D18/B3 cross-clamp, D44 collapsed width). | `[existing]` | `CHART_MIN_WIDTH=400`, `WATCHLIST_MIN_WIDTH=150`, `DEFAULT_WATCHLIST_WIDTH=220`, `RIGHT_DOCK_MIN_WIDTH=200`, `WATCHLIST_COLLAPSED_WIDTH=30`, `plan_watchlist_width`, `watchlist_max_width`, `right_dock_max_width`, `plan_dock_widths`. **`CHART_MIN_WIDTH` must equal `ui/watchlist_panel.py` CHART_MIN_WIDTH** |
 | `ui/visual_conventions.py` (203 L) | The shared VIS-D21 conventions: `DiagonalStrikeButton` (VIS-D21.1) + `set_button_active` / the active stylesheet (VIS-D21.2). | `[existing]` | `set_button_active(button, active)`, `ACTIVE_PROPERTY="active"`, `DiagonalStrikeButton.struck`, `VIS_D21_2_STYLESHEET` |
-| `ui/chart_panel` (deleted by the P6 LWC build) | Was the pyqtgraph chart (panes, candles, volume, studies, overlays). | **deleted in P6** | Replaced by the ChartView seam (`ui/chart_view.py`) + LWC host (`ui/lwc_host.py`/`ui/lwc_view.py`); `services/chart_model.py` is the shared value source. Do not restore. |
-| `ui/candlestick_item` (deleted by the P6 LWC build) | Was the candle `QPicture` renderer (+ the D42 `capped_body_half_width`). | **deleted in P6** | Rendering now lives in the LWC layer; the D42 density-cap wording is retired per D47/Q60 (`S56`). Do not restore. |
+| ui/chart_panel (deleted by the P6 LWC build) | Was the pyqtgraph chart (panes, candles, volume, studies, overlays). | **deleted in P6** | Replaced by the ChartView seam (`ui/chart_view.py`) + LWC host (`ui/lwc_host.py`/`ui/lwc_view.py`); `services/chart_model.py` is the shared value source. Do not restore. |
+| ui/candlestick_item (deleted by the P6 LWC build) | Was the candle `QPicture` renderer (+ the D42 `capped_body_half_width`). | **deleted in P6** | Rendering now lives in the LWC layer; the D42 density-cap wording is retired per D47/Q60 (`S56`). Do not restore. |
 | `ui/ticker_session.py` (1,1xx L) | Per-symbol session: bars, waves, pacing, live bars, the S0 generic-tick substrate. | `[existing]` — **D45 changed this file; P5 does not** | `TickerSession.get_bars`, `::set_bars`, `::attach_view`, `::s0_register` / `::s0_register_many` / `::s0_deregister*`, `::on_s0_tick_string` (tick 59), `::dividend_info`, `::queue_wave_plans`; **D45 removes** the news `"292"` need registration, `::on_s0_tick_news`, `::add_news_push_listener` / `::remove_news_push_listener`, `::set_s0_headless`, the `_s0_headless` attribute **and the two `or self._s0_headless` clauses** in `::_s0_resync` / `::_s0_reissue`. **Retained verbatim:** the `"456"` dividend registration, tick 59, `_dividend_info`, `dividend_updated`, `_merge_ibkr_dividend_event`, `_merge_events`, `events`/`events_unavailable` |
 | `ui/active_portfolio_panel.py` (4xx L) | The right dock's Portfolio panel (D41/D21.13); **view-only after D45**. | `[existing]` — **D45 changed this file; P5 does not** | `ActivePortfolioPanel.summary_label` (the right dock's title-bar toggle), `::is_collapsed`/`::set_collapsed`/`::toggle_collapsed`, `::refresh`, `::set_positions`/`::add_position`, the account-summary/positions render path, `::_group_and_render`/`::_render_table` (now **8 columns**); **D45 removes** the `TradeContextMenu` + `StopLossTargetDialog` imports/members, `::_show_context_menu`, `::_on_close_position`, `::_on_close_group`, `::_on_ungroup`, `::_on_flatten_all`, `::_on_set_sltp`, `::_on_sltp_confirmed`, `::update_position_sltp`, `::update_group_sltp`, `::_sltp_dialog`, the menu-only selection tracking (`_selected_row`/`_selected_position`/`::_on_selection_changed`), the `CustomContextMenu` policy, the five signals (`position_close_requested` / `group_close_requested` / `flatten_all_requested` / `position_sltp_changed` / `group_sltp_changed`), and the `Stop`/`Target` columns. **Storage note (D45 history, superseded):** D45 kept the `stop_loss`/`take_profit` model fields and DB columns (A87) — **P5 DROPS the columns and the fields by a guarded migration** (A99/`D46.12`, `S47`); this panel is not edited, and its 8 columns are unchanged |
-| `ui/popout_window.py`, `ui/chart_mouse_router.py` | Pop-out charts, mouse-mode router. | `[existing]` | P6 re-hosts these surfaces per phase — the Python `RouterMode` TR-1…TR-17 contract is frozen. The pyqtgraph overlay companions (`ui/drawing_overlay`, `ui/alarm_overlay`, `ui/event_marker_overlay`, `ui/zoom_overlay`) were **deleted by the P6 LWC build** (drawings/alarms/markers now render through the LWC primitives/library layers); do not restore. |
+| `ui/popout_window.py`, `ui/chart_mouse_router.py` | Pop-out charts, mouse-mode router. | `[existing]` | P6 re-hosts these surfaces per phase — the Python `RouterMode` TR-1…TR-17 contract is frozen. The pyqtgraph overlay companions (ui/drawing_overlay, ui/alarm_overlay, ui/event_marker_overlay, ui/zoom_overlay) were **deleted by the P6 LWC build** (drawings/alarms/markers now render through the LWC primitives/library layers); do not restore. |
 | ChartView seam module (ui/chart_view.py — lands P6-02), shared chart-model module (services/chart_model.py — lands P6-03), LWC host + bridge assets (land P6-04), spike directory spikes/lwc (lands P6-01, never imported), parity-matrix doc docs/lwc_parity_matrix.md + spike-results doc docs/lwc_spike_results.md (land P6-01) | Strangler seam + single value source + offline host + throwaway evidence + gate record. **Named without backticks until they land.** | **`[new in P6]`** | Factory `create_chart_view(tz_offset, editable)`; `DrawingController`/`AlarmController` exact signal signatures; model value objects; `LwBridge` batched ops; matrix row dispositions |
 | `ui/*_dialog.py`, `ui/toast.py`, `ui/chart_controls.py`, `ui/add_symbol_dialog.py` | Retained dialogs, toast, toolbar controls. | `[existing]` | `AddSymbolDialog` (D22), alarm/drawing/study dialogs — **none is an order or SL/TP surface** |
-| **deleted in D45** — `ui/news_digest_dock`, `ui/trade_context_menu`, `ui/stop_loss_target_dialog` | The digest dock, the Portfolio context menu, the local-only SL/TP dialog. | **deleted** | not importable after D45; no replacement widget, menu or dialog exists (`AC-D45.1`/`.3`/`.6`) |
+| **deleted in D45** — ui/news_digest_dock, ui/trade_context_menu, ui/stop_loss_target_dialog | The digest dock, the Portfolio context menu, the local-only SL/TP dialog. | **deleted** | not importable after D45; no replacement widget, menu or dialog exists (`AC-D45.1`/`.3`/`.6`) |
 | `ui/overlays/` (`__init__.py` only) | Was the pyqtgraph overlay package. | **gutted in P6** | `base.py`, `session_overlay.py`, `gap_overlay.py`, `ict_overlay.py`, `vix_overlay.py` were **deleted by the P6 LWC build** (overlays now render on LWC); only the package marker remains. Do not restore. |
 
 ## `services/` — pure services (Qt-free unless noted)
@@ -212,22 +222,22 @@
 | Module | Responsibility | Status | Key entry points |
 |---|---|---|---|
 | `data/db.py` (318 L) | SQLite schema + migrations (`bars`, `watchlist`, `alarms`, `zones`, `drawings*`, `studies`, `popouts`, `positions`, `trade_groups`, `position_group_map`, `yfinance_events_cache`, `volume_baseline`). | **`[changed in P5]`** | `DB._init_schema`, `::_migrate_schema`, `::_table_columns`. **P5 wave 7** removes `stop_loss`/`take_profit` from both `CREATE TABLE` blocks and adds one guarded block to `_migrate_schema()` **after** the `idx_positions_symbol_con_id` statement: `_table_columns(table)` once, then `ALTER TABLE … DROP COLUMN` per column when present. Idempotent on a fresh DB (nothing to drop) and on every later open; each `DROP` is one atomic statement, so an interrupted open is completed by the next. Every row, the unique index, the FK and `sqlite_sequence` survive (measured 2026-10-25). No other table, index or migration touched. |
-| `data/models.py` | `Bar` and the other row dataclasses (`Alarm`, `Study`, `Drawing`, `DrawingGroup`, `Position`, `TradeGroup`). | **`[changed in P5]`** | `Bar`; **P5 wave 3 deletes the unused `UserOrder` dataclass** (zero consumers; its only reference was `tests/test_ui_smoke.py:48`), and **wave 7 deletes `Position.stop_loss`/`take_profit` and `TradeGroup.stop_loss`/`take_profit`** — the storage is dropped (`A99`, reversing A87). `dataclass`/`field` stay (used by `Study`); every other dataclass and field untouched. |
+| `data/models.py` | `Bar` and the other row dataclasses (`Alarm`, `Study`, `Drawing`, `DrawingGroup`, `Position`, `TradeGroup`). | **`[changed in P5]`** | `Bar`; **P5 wave 3 deletes the unused `UserOrder` dataclass** (zero consumers; its only reference was `tests/test_ui_smoke.py`:48), and **wave 7 deletes `Position.stop_loss`/`take_profit` and `TradeGroup.stop_loss`/`take_profit`** — the storage is dropped (`A99`, reversing A87). `dataclass`/`field` stay (used by `Study`); every other dataclass and field untouched. |
 | `data/bar_cache.py` | Bar persistence + retention (`RETENTION_BARS`), D42 mode-aware key. | `[existing]` | `BarCache.save_bars` / `::get_bars` / `::prune` |
 | `data/bar_aggregator.py` | Tick → bar aggregation. | `[existing]` | `BarAggregator` |
 | `data/alarm_store.py`, `drawing_store.py`, `study_store.py`, `popout_store.py` | Per-feature stores. | `[existing]` | — |
-| `data/events/` (**deleted** — directory absent from the tree) | Was the `EventProvider` ABC + the D38 event source. | **deleted** (removal landed before P7; recorded here so nothing re-plans it) | `data/events/provider` no longer exists; the D38 dividend/marker surface it fed is gone with the P6 render migration. Do not restore without a new requirement. |
+| data/events/ (**deleted** — directory absent from the tree) | Was the `EventProvider` ABC + the D38 event source. | **deleted** (removal landed before P7; recorded here so nothing re-plans it) | data/events/provider no longer exists; the D38 dividend/marker surface it fed is gone with the P6 render migration. Do not restore without a new requirement. |
 
 ## `ibkr/` — the broker boundary
 
 | Module | Responsibility | Status | Key entry points |
 |---|---|---|---|
-| `ibkr/client.py` | `IBApiClient(EWrapper, EClient)`: the `ibapi` wrapper + reader thread + reconnect/teardown. | **`[changed in P5]`** | `IBApiClient.connect`, `::connected`, `::_on_disconnected`/`::_do_reconnect`; the fail-fast live-port check lives in `config/settings.py::check_live_port`. **P5 wave 2 deletes the `orderStatus` / `openOrder` / `execDetails` overrides** (the chain's only emitters) — the inherited `EWrapper` no-ops are what TWS then reaches. **Frozen and unchanged (`S46`):** `::error` — the `classify_error` severity gate, the D40.1 `502` backoff suppression and the `error_msg` emit — plus the lifecycle/account/position callbacks, and the news-boundary overrides (D45 `S35`). **Order transmit/cancel remain inherited from `EClient`** (`placeOrder`/`cancelOrder`/`reqGlobalCancel` are **not** defined here; D45's zero-call invariant stands, now enforced from the guard's forbidden set). **No `placeOrder` definition may be added.** |
+| `ibkr/client.py` | `IBApiClient(EWrapper, EClient)`: the `ibapi` wrapper + reader thread + reconnect/teardown. | **`[changed in P5]`** | `IBApiClient.connect`, `::connected`, `::_on_disconnected`/`::_do_reconnect`; the fail-fast live-port check lives in `config/settings.py`::check_live_port. **P5 wave 2 deletes the `orderStatus` / `openOrder` / `execDetails` overrides** (the chain's only emitters) — the inherited `EWrapper` no-ops are what TWS then reaches. **Frozen and unchanged (`S46`):** `::error` — the `classify_error` severity gate, the D40.1 `502` backoff suppression and the `error_msg` emit — plus the lifecycle/account/position callbacks, and the news-boundary overrides (D45 `S35`). **Order transmit/cancel remain inherited from `EClient`** (`placeOrder`/`cancelOrder`/`reqGlobalCancel` are **not** defined here; D45's zero-call invariant stands, now enforced from the guard's forbidden set). **No `placeOrder` definition may be added.** |
 | `ibkr/market_data.py` | Historical/RT market-data requests + `TIMEFRAME_CONFIG`. | `[existing]` | `MarketDataManager.req_historical_data`, `req_mkt_data(contract, generic_ticks=…)`, `TIMEFRAME_CONFIG` |
 | `ibkr/account.py`, `ibkr/contracts.py` | Account/position rows and contract helpers. | **`[changed in P5]`** — `account.py`; `contracts.py` `[existing]`, untouched | `Position` row build, `get_contract_for_symbol`. **P5 wave 7** deletes `ibkr.account.Position.stop_loss`/`take_profit` and `build_position_from_ib`'s two parameters, and rewords the `Position.id` comment to justify `id` by strategy grouping only (`ESC-062`). Nothing else in either module changes. |
-| **deleted in P5** — ibkr/orders (`UserOrder`, `Orders` + the four builders, the registry, the `orders` singleton) | The order builders and the in-memory open-order registry. | **deleted in P5** | not importable after P5 (`import ibkr.orders` raises `ModuleNotFoundError`); its only importer was `ui/main_window.py:36` and its registry was never written, so every read returned `None`. **The D45 decision to keep this module is OVERTURNED (A91/`S39`): it is deleted, nothing may restore it, and a future order path needs a new requirement rather than an un-comment.** |
+| **deleted in P5** — ibkr/orders (`UserOrder`, `Orders` + the four builders, the registry, the `orders` singleton) | The order builders and the in-memory open-order registry. | **deleted in P5** | not importable after P5 (`import ibkr.orders` raises `ModuleNotFoundError`); its only importer was `ui/main_window.py`:36 and its registry was never written, so every read returned `None`. **The D45 decision to keep this module is OVERTURNED (A91/`S39`): it is deleted, nothing may restore it, and a future order path needs a new requirement rather than an un-comment.** |
 | `ibkr/bridge.py`, `realtime_bars.py`, `pacing.py`, `id_manager.py`, `subscription_manager.py`, `stream_health.py`, `error_codes.py`, `utils.py` | Qt-signal bridge, RT bars, pacing, reqId allocation, the D27.3 subscription registry, stream health, error codes. | **`[changed in P5]`** — `bridge.py` (signals) and `error_codes.py` (**comment only**); `realtime_bars.py`, `pacing.py`, `id_manager.py`, `subscription_manager.py`, `stream_health.py`, `utils.py` are **`[existing]`, untouched** | `pacing_manager`, `MARKET_DATA`; **P5 wave 2 deletes the `order_status` / `open_order` / `exec_details` bridge signals** (with their client emitters); **wave 4 deletes `pacing.OrderRateLimiter` + `order_limiter`** (and `config/settings.py`'s `MAX_ORDER_NOTIONAL`); **wave 6 deletes `id_manager.reserve`** while `IdManager`, `get_id` and `set_next_valid_id` **stay** (six `get_id()` callers, incl. `ui/main_window.py`). The news signals (`tick_news`, `news_providers`, `historical_news`, `historical_news_end`, `news_article`) stay as the ibapi boundary mirror (D45 `S35`). **Frozen and unchanged:** `error_msg`; `::classify_error` in `ibkr/error_codes.py` (it gates **every** TWS error — only its 202 **comment** is reworded in wave 9, no code line); `PacingManager`/`PacingExceeded`; `IBApiClient.nextValidId`. |
-| **deleted in D45** — `ibkr/news`, `ibkr/validation` | The news API client (`NewsManager`) and the order-validation gate (`validate_order`). | **deleted** | not importable after D45; `"292"` is never requested, and nothing builds an order for the gate to judge (`AC-D45.7`/`D26.7` moot) |
+| **deleted in D45** — ibkr/news, ibkr/validation | The news API client (`NewsManager`) and the order-validation gate (`validate_order`). | **deleted** | not importable after D45; `"292"` is never requested, and nothing builds an order for the gate to judge (`AC-D45.7`/`D26.7` moot) |
 
 ## `config/`, `packaging/`, root
 
@@ -241,18 +251,18 @@
 
 ## `tests/` — the offscreen suite (131 modules)
 
-**Invocation:** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest` (the `pytest` entry point has a stale
+**Invocation:** QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest (the pytest entry point has a stale
 shebang — use `-m pytest`). Any **non-pytest** probe that can reach a DB-writing path must export `DB_PATH` to a
 temp file. No test connects to live TWS or transmits an order.
 
 | Group | Suites | Status |
 |---|---|---|
-| **D45 removal book** — **deleted (5, whole files):** `tests/test_d28_6_close_contracts`, `tests/test_d41_retained_order_path`, `tests/test_order_validation`, `tests/test_kill_switch`, `tests/test_sltp_honesty`. **Adjusted (6 + 1 deleted):** `tests/test_dock_d18_region.py` (`:147` dock filter; the five-signal receiver loop **deleted** — no signal survives), `tests/test_order_rejections.py` (the disconnected-close case; the observer cases kept), `tests/test_d28_pacing.py` (the close-deferral case; historical pacing kept), `tests/test_d27_position_id.py` (the SL/TP row-addressing case removed **in wave 2**; `8`/`9` → `6`/`7` **in wave 3**), `tests/test_d27_flat_rows.py` (the AC3 `_selected_position` tail dropped with the selection tracker; the index-alignment assertions kept), `tests/test_d27_position_prices.py` (`8`/`9` → `6`/`7`). **Kept unchanged (verified):** tests/test_stop_loss_target (model fields only), `tests/test_d41_removal.py` (`queue_depth` is an allow-list string), tests/test_order_builders (the retained ibkr/orders unit coverage — *D45's decision; **P5 deletes both the module and this suite**, see the P5 row above*). **New:** `tests/test_d45_removal` (static token scan + mocked-client zero-transmit walkthrough) | `[existing]` — **the delivered D45 record; P5 supersedes its `ibkr/orders` half** (see the P5 row below) |
-| **P5 removal book (D46, revision 2)** — **deleted (2, whole files):** `tests/test_order_builders` (17 cases; the builders/registry), `tests/test_stop_loss_target` (3 cases; the four model fields). **Adjusted (13):** `tests/test_order_rejections` (two registry cases + their helpers removed; the third repointed **and renamed** at the generic line; the two `classify_error` cases kept; **one parametrised 201/103/202 surfacing case added** — 3 of the original 5 survive), `tests/test_d45_removal` (wave 1: the walkthrough's `_on_order_error` call repointed at `_on_error`; wave 8: the **ten** names moved from `_SURVIVORS` to the forbidden set — `_FORBIDDEN` 53 → 80 with **`orders`/`Orders` exact-matched** — plus the two absence pools, the end-state test (chain, module, `UserOrder`, `reserve`, the utilities, the four fields, the schema + idempotence) and the guard's own prose), `tests/test_ui_smoke` (`UserOrder` `hasattr`), `tests/test_account` (4 kwargs + 2 asserts), `tests/test_strategy_detection` (`:30`–`:31`), `tests/test_d27_position_id` (seeder + **one new case** seeding a non-null `trade_group_id`), `tests/test_d27_account_partial_window` and `tests/test_d27_account_scoping` (seeders), `tests/conftest` (the two `order_limiter` resets), `tests/test_d28_pacing` (`OrderRateLimiter` case + import), `tests/test_sound_service` (`TestFillBlip` + `:57` + **`paths["fill"]` at `:76`**), `tests/test_id_manager` (4 deleted, **2 rewritten**), `tests/test_dock_d18_region` (`ESC-062` rename + two docstrings). **Kept unchanged (verified):** `tests/test_d40_tws_lifecycle`, `tests/test_port_guard`, `tests/test_d41_removal`, `tests/test_db_schema`, every other suite. **Added:** none (the guard is reused, not duplicated) | **`[changed in P5]`** |
+| **D45 removal book** — **deleted (5, whole files):** tests/test_d28_6_close_contracts, tests/test_d41_retained_order_path, tests/test_order_validation, tests/test_kill_switch, tests/test_sltp_honesty. **Adjusted (6 + 1 deleted):** `tests/test_dock_d18_region.py` (`:147` dock filter; the five-signal receiver loop **deleted** — no signal survives), `tests/test_order_rejections.py` (the disconnected-close case; the observer cases kept), `tests/test_d28_pacing.py` (the close-deferral case; historical pacing kept), `tests/test_d27_position_id.py` (the SL/TP row-addressing case removed **in wave 2**; `8`/`9` → `6`/`7` **in wave 3**), `tests/test_d27_flat_rows.py` (the AC3 `_selected_position` tail dropped with the selection tracker; the index-alignment assertions kept), `tests/test_d27_position_prices.py` (`8`/`9` → `6`/`7`). **Kept unchanged (verified):** tests/test_stop_loss_target (model fields only), `tests/test_d41_removal.py` (`queue_depth` is an allow-list string), tests/test_order_builders (the retained ibkr/orders unit coverage — *D45's decision; **P5 deletes both the module and this suite**, see the P5 row above*). **New:** `tests/test_d45_removal.py` (static token scan + mocked-client zero-transmit walkthrough) | `[existing]` — **the delivered D45 record; P5 supersedes its ibkr/orders half** (see the P5 row below) |
+| **P5 removal book (D46, revision 2)** — **deleted (2, whole files):** tests/test_order_builders (17 cases; the builders/registry), tests/test_stop_loss_target (3 cases; the four model fields). **Adjusted (13):** `tests/test_order_rejections.py` (two registry cases + their helpers removed; the third repointed **and renamed** at the generic line; the two `classify_error` cases kept; **one parametrised 201/103/202 surfacing case added** — 3 of the original 5 survive), `tests/test_d45_removal.py` (wave 1: the walkthrough's `_on_order_error` call repointed at `_on_error`; wave 8: the **ten** names moved from `_SURVIVORS` to the forbidden set — `_FORBIDDEN` 53 → 80 with **`orders`/`Orders` exact-matched** — plus the two absence pools, the end-state test (chain, module, `UserOrder`, `reserve`, the utilities, the four fields, the schema + idempotence) and the guard's own prose), `tests/test_ui_smoke.py` (`UserOrder` `hasattr`), `tests/test_account.py` (4 kwargs + 2 asserts), `tests/test_strategy_detection.py` (`:30`–`:31`), `tests/test_d27_position_id.py` (seeder + **one new case** seeding a non-null `trade_group_id`), `tests/test_d27_account_partial_window.py` and `tests/test_d27_account_scoping.py` (seeders), `tests/conftest.py` (the two `order_limiter` resets), `tests/test_d28_pacing.py` (`OrderRateLimiter` case + import), `tests/test_sound_service.py` (`TestFillBlip` + `:57` + **`paths["fill"]` at `:76`**), `tests/test_id_manager.py` (4 deleted, **2 rewritten**), `tests/test_dock_d18_region.py` (`ESC-062` rename + two docstrings). **Kept unchanged (verified):** `tests/test_d40_tws_lifecycle.py`, `tests/test_port_guard.py`, `tests/test_d41_removal.py`, `tests/test_db_schema.py`, every other suite. **Added:** none (the guard is reused, not duplicated) | **`[changed in P5]`** |
 | Dock layout / widths (D13/D17/D18/D19/D21.13/D44) | `test_dock_layout.py`, `test_dock_widths_d17.py`, `test_dock_widths_d18.py`, `test_dock_widths_d18_impl.py`, `test_right_dock_d21.py`, `test_dock_d18_region.py`, `test_d10_d13_integration.py`, `test_watchlist.py`, `test_toolbar_scroll_d19.py`, `test_d41_portfolio_dock.py`, `test_d41_removal.py`, `test_dock_widths_collapsed_d44.py`, `test_watchlist_collapsed_bar_d44.py` | `[existing]` (untouched by P5) |
 | Watchlist panel (D14/D21.5/D21.11/D22/D39) | `test_watchlist_columns_d21.py`, `test_watchlist_add_remove_d22.py`, `test_watchlist_nonregression_d22.py`, `test_watchlist_d14_midrag.py`, `test_watchlist.py` | `[existing]` |
 | Chart / render (D1–D12, D28.4, D42 width — pyqtgraph suites deleted by the P6 LWC build) | `test_candle_spacing.py`, `test_volume_width.py`, `test_chart_dpi.py`, `test_d28_4a_render_layers.py`, `test_volume_*.py`, `test_drawing_*.py`, `test_time_collapse_d21.py`, `test_collapse_resync_fix.py` — **all deleted in P6**; LWC parity suites (`test_lwc_*.py`, `test_chart_model.py`, `test_chart_view_seam.py`) are the current render coverage | **deleted in P6** |
-| Data / planner (D16, D27, D28, D39, D42) | `test_backfill_service.py`, `test_history_backfill*.py`, `test_d27_*`, `test_d28_*`, `test_d39_*`, `test_d42_*`, `test_db_schema.py`, `test_market_calendar.py` | `[existing]` (the D38 event/news suite `test_d38_events_news.py` was deleted with `data/events/`; dividend/marker coverage now lives in the LWC overlay suites) |
+| Data / planner (D16, D27, D28, D39, D42) | `test_backfill_service.py`, `test_history_backfill*.py`, `test_d27_*`, `test_d28_*`, `test_d39_*`, `test_d42_*`, `test_db_schema.py`, `test_market_calendar.py` | `[existing]` (the D38 event/news suite `test_d38_events_news.py` was deleted with data/events/; dividend/marker coverage now lives in the LWC overlay suites) |
 | Alarm / account / orders / lifecycle (D25, D26, D40, D41) | `test_d25_*`, `test_d26_*`, `test_d27_account_scoping.py`, `test_d40_tws_lifecycle.py`, `test_d41_*`, `test_account.py` | `[existing]` — **after D45 there is no close/flatten/kill-switch/SL-TP coverage left, and after P5 no order-builder/registry coverage either** (both suites deleted); `test_order_rejections.py` keeps the **surfacing** proof (201/103/202 + `classify_error`), `test_d40_*`/`test_port_guard` keep the connection/error half (badge, port guard, 502 suppression) |
 | Smoke / lifecycle harnesses | `test_d24_popouts.py`, `test_phase3_fixpass.py`, `test_d24_alarm_full_chain.py`, `test_d24_smoke_gate.py`, `test_d24_9_popout_persistence.py`, `test_d28_tick_burst_baseline.py`, `test_port_guard.py` | `[existing]` (these **drive** `MainWindow` — the `ESC-050` class; D45 does not touch the load path, and every one of them must stay green after the three window waves) |
 
@@ -285,9 +295,9 @@ surfaces they name are removed by P5** (see § *P5 touch summary*).
 |---|---|
 | `ui/main_window.py` | Digest dock block + `menuBar()`/`View`/`_on_news_digest_visibility` + the `NewsManager` use + `b.tick_news.connect` + `_on_s0_tick_news`. The window then creates **no `QMenuBar`** |
 | `ui/ticker_session.py` | The `"292"` need, `on_s0_tick_news`, the listener API, `set_s0_headless`/`_s0_headless` **and the two `or self._s0_headless` clauses**. **`"456"`/tick 59/`_dividend_info`/`dividend_updated`/`_merge_events` stay** |
-| `tests/test_d38_events_news` | NewsManager + digest sections removed; **event-marker/dividend cases kept**; module docstring + the md-line docstring's `"292"` reference corrected |
+| tests/test_d38_events_news | NewsManager + digest sections removed; **event-marker/dividend cases kept**; module docstring + the md-line docstring's `"292"` reference corrected |
 | `tests/test_dock_d18_region.py` | `:147` `objectName() != "NewsDigest"` filter dropped |
-| deleted | `ui/news_digest_dock`, `ibkr/news` |
+| deleted | ui/news_digest_dock, ibkr/news |
 
 **Group B — Trade Context Menu + the whole order path + the SL/TP dialog (`AC-D45.3`/`.4`/`.5`/`.10`, A80/A87/A89/A90, R69/R70/R75).**
 
@@ -297,7 +307,7 @@ surfaces they name are removed by P5** (see § *P5 touch summary*).
 | `ui/active_portfolio_panel.py` | The menu member/import and policy, `_show_context_menu`, the close/close-group/ungroup/flatten handlers, the SL/TP chain (`_on_set_sltp`, `_on_sltp_confirmed`, `update_position_sltp`, `update_group_sltp`, `_sltp_dialog`), the five signals, the menu-only selection tracking, and the **Stop/Target columns (10 → 8)**. **Retained:** the account-summary/positions render path, the D21.13 header, `_unrealized_pnl`, and the SL/TP **model fields/DB columns** (A87 — **SUPERSEDED by P5: dropped, A99/`D46.12`**) |
 | `tests/test_dock_d18_region.py` | The five-signal receiver loop deleted; the wiring comment restated |
 | `tests/*` | `test_d28_6_close_contracts`, `test_d41_retained_order_path`, `test_order_validation`, `test_sltp_honesty` deleted; `test_order_rejections`, `test_d28_pacing`, `test_d27_position_id` (AC3 case, **wave 2**), `test_d27_flat_rows` (**wave 3**), `test_d27_position_prices` adjusted; `test_stop_loss_target`, `test_d41_removal`, `test_order_builders` kept unchanged *(D45's decision — **P5 deletes `test_order_builders`**, because its subject is deleted too)* |
-| deleted | `ui/trade_context_menu`, `ui/stop_loss_target_dialog`, `ibkr/validation` |
+| deleted | ui/trade_context_menu, ui/stop_loss_target_dialog, ibkr/validation |
 
 **Group C — Kill switch / the cancel path (`AC-D45.6`, A88, R73/R74).**
 
@@ -309,9 +319,9 @@ surfaces they name are removed by P5** (see § *P5 touch summary*).
 
 **Retained by decision after D45** (do **not** "clean up"): the bridge's news signals and the client's ibapi news
 overrides (the ibapi boundary mirror, D45 `S35`), `MainWindow._symbol_last_prices` (feeds the Portfolio P/L), and
-`tests/test_d41_removal` verbatim. **Overturned by P5:** the old "ibkr/orders retained + inert observers" row —
-both are **deleted**; the three leftovers D45 named as out of scope — `config/settings.MAX_ORDER_NOTIONAL`,
-`ibkr/pacing.order_limiter` and `ibkr/id_manager`'s `reserve` — are **tasks** in P5 (waves 4 and 6), with the module
+`tests/test_d41_removal.py` verbatim. **Overturned by P5:** the old "ibkr/orders retained + inert observers" row —
+both are **deleted**; the three leftovers D45 named as out of scope — config/settings.MAX_ORDER_NOTIONAL,
+`ibkr/pacing.py` order_limiter and `ibkr/id_manager.py`'s `reserve` — are **tasks** in P5 (waves 4 and 6), with the module
 and `get_id` retained; and **A87's `stop_loss`/`take_profit` storage is DROPPED** (A99, wave 7) — the D45 sentence
 "columns and fields stay" is history, not the end state (see the P5 groups below).
 
@@ -324,7 +334,7 @@ and `get_id` retained; and **A87's `stop_loss`/`take_profit` storage is DROPPED*
 `P5-T06` `IdManager.reserve` → `P5-T07` **stop/target storage (schema + every reader)** → `P5-T08` the instrument →
 `P5-T09` surviving prose → `P5-T10` the batch gate.
 `ui/main_window.py` is edited **twice** (waves 1 and 7); `data/models.py` twice (3 and 7);
-`tests/test_d45_removal` twice (waves 1 and 8, different lines).
+`tests/test_d45_removal.py` twice (waves 1 and 8, different lines).
 **Ordering is forced, not stylistic:** the consumer half goes first, each signal dies **with** its only emitters, the
 module dies after its importers, and the schema lands **with** its readers — a signal deleted one wave before its
 emitter raises `AttributeError` only on a live TWS order callback, and a skipped index shift silently puts a stop
@@ -350,9 +360,9 @@ last** among the removals, because a token may only name code that is already go
 
 | Module | What P5 changes |
 |---|---|
-| `ibkr/orders` | **deleted** (whole file). No replacement, no dormant helper |
+| ibkr/orders | **deleted** (whole file). No replacement, no dormant helper |
 | `data/models.py` | the unused `UserOrder` dataclass **deleted** (wave 3); the four stop/target fields go in **wave 7** |
-| `tests/test_order_builders` | **deleted** (17 cases, all for the deleted builders/registry) |
+| tests/test_order_builders | **deleted** (17 cases, all for the deleted builders/registry) |
 | `tests/test_ui_smoke.py` | the `UserOrder` `hasattr` dropped; `Position`/`Drawing` kept |
 
 **Group 4 — pacing + notional cap (`D46.11`, wave 4).** `ibkr/pacing.py` loses `OrderRateLimiter` + `order_limiter`
@@ -383,18 +393,18 @@ upsert's columns/placeholders/`DO UPDATE`/values) — plus the whole test book (
 three classes, the schema + a no-op second open), and the guard's own prose.
 
 **Prose (wave 9, `AC-D46.6`/`D46.13`).** `ibkr/error_codes.py` — reword only `classify_error`'s 202 comment (no code,
-no threshold); `usage.md` — drop `tests/test_order_builders` from the pytest example **and** rewrite the Database
+no threshold); `usage.md` — drop tests/test_order_builders from the pytest example **and** rewrite the Database
 bullet (the SL/TP columns are **dropped by a one-time migration**); `USAGE.txt` — rewrite the stop/target bullet the
 same way, **keeping** its status-bar sentence verbatim; `tests/test_dock_d18_region.py` — the `ESC-062` rename and two
 docstrings.
 
-**Removed by P5 (nothing replaces them):** `ibkr/orders` (`UserOrder`, `Orders`, four builders, registry,
+**Removed by P5 (nothing replaces them):** ibkr/orders (`UserOrder`, `Orders`, four builders, registry,
 singleton) · the three `orderStatus`/`openOrder`/`execDetails` overrides · the three `order_status`/`open_order`/
 `exec_details` bridge signals · `MainWindow._on_open_order` / `::_on_order_status` / `::_on_exec_details` /
 `::_update_order_status` / `::_on_order_error` + the `_on_error` registry branch + the `order_registry` import ·
 `data.models.UserOrder` · `pacing.OrderRateLimiter` + `order_limiter` · `settings.MAX_ORDER_NOTIONAL` ·
 `sound_service`'s order-fill path · `IdManager.reserve` · **the `positions`/`trade_groups` `stop_loss`/`take_profit`
-columns and the four model fields** · `tests/test_order_builders` · `tests/test_stop_loss_target`.
+columns and the four model fields** · tests/test_order_builders · tests/test_stop_loss_target.
 
 **Survivors after P5 (must NOT be reported as residue, and must NOT be "tidied"):** `classify_error` · `_on_error` ·
 `error_msg` · `IBApiClient.error` (gate + D40.1 `502`) · `check_live_port` · the connection badge ·
@@ -427,28 +437,28 @@ the modules whose changes can affect the named suites:
 | `ibkr/pacing.py`, `config/settings.py` | `test_d28_pacing`, `test_d45_removal` (conftest's pacing fixture runs everywhere) |
 | `services/sound_service.py` | `test_sound_service`, `test_d24_alarm_full_chain` |
 | `ibkr/id_manager.py` | `test_id_manager`, `test_d45_removal` |
-| `ibkr/orders` (deleted), `tests/test_order_builders`, `tests/test_stop_loss_target` (deleted) | `test_d45_removal` (the guard asserts the absence) |
+| ibkr/orders (deleted), tests/test_order_builders, tests/test_stop_loss_target (deleted) | `test_d45_removal` (the guard asserts the absence) |
 
 **P6 test-impact (Plan-confirmed):** the generated rows above stand. P6 adds: the chart-model module → the
 chart/render suites (candles, volume, collapse, bands, crosshair, drawings, alarms, overlays) + a delegation probe;
 the ChartView seam module → new factory/signal-signature suites; the LWC host/bridge → batch-shape, replay-identity,
 offline/interceptor suites + `node --test` JS suites; webengine-gated suites report `@pytest.mark.webengine`
-(skip-never-red) with named manual-checklist counterparts. `select_tests.py` should treat `ui/chart_panel`
+(skip-never-red) with named manual-checklist counterparts. `select_tests.py` should treat ui/chart_panel
 delegation as affecting every chart/render suite (they must stay green unmodified per `AC-D47.2`).
 
 
 <!-- MAP-SKELETON:BEGIN -->
 ## Module index (generated — do not hand-edit inside the skeleton markers)
 
-- `(root)/` — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
-- `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, volume_scale.test.js
+- (root)/ — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
+- `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, follow_offset.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, volume_scale.test.js
 - `config/` — __init__.py, paths.py, settings.py
 - `data/` — __init__.py, alarm_store.py, bar_aggregator.py, bar_cache.py, db.py, drawing_store.py, models.py, popout_store.py, study_store.py
 - `ibkr/` — __init__.py, account.py, bridge.py, client.py, contracts.py, error_codes.py, id_manager.py, market_data.py, pacing.py, realtime_bars.py, stream_health.py, subscription_manager.py, utils.py
 - `packaging/` — __init__.py
 - `services/` — __init__.py, alarm_monitor.py, alarm_service.py, backfill_service.py, chart_model.py, contract_lookup_service.py, drawing_service.py, gap_vix_service.py, ict_service.py, indicator_service.py, market_calendar.py, md_line_guard.py, session_service.py, sound_service.py, strategy_detection.py, symbol_search.py, time_collapse_service.py, volume_baseline.py
 - `spikes/lwc/` — spike_probe.py
-- `tests/` — conftest.py, test_account.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_account_partial_window.py, test_d27_account_scoping.py, test_d27_account_subs.py, test_d27_aggregator_priming.py … (+151 more)
+- `tests/` — conftest.py, test_account.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_account_partial_window.py, test_d27_account_scoping.py, test_d27_account_subs.py, test_d27_aggregator_priming.py … (+153 more)
 - `ui/` — __init__.py, active_portfolio_panel.py, add_symbol_dialog.py, alarm_dialog.py, alarm_edit_dialog.py, chart_controls.py, chart_mouse_router.py, chart_view.py, dock_layout.py, drawing_groups_dialog.py, drawing_settings_common.py, drawing_tools.py, horizontal_line_settings_dialog.py, lwc_bridge.py, lwc_host.py, lwc_view.py, main_window.py, popout_window.py, studies_dialog.py, ticker_session.py, toast.py, visual_conventions.py, watchlist_panel.py, zone_settings_dialog.py
 - `ui/overlays/` — __init__.py
 
@@ -481,5 +491,5 @@ delegation as affecting every chart/render suite (they must stay green unmodifie
 
 ## Graph summary (generated)
 
-- graphify-out/graph.json: 7761 nodes, 16683 edges
+- graphify-out/graph.json: 8352 nodes, 17940 edges
 <!-- MAP-SKELETON:END -->

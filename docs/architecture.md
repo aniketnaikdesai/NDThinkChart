@@ -8657,3 +8657,231 @@ and any chunk-render call site the S-P21-5 diagnosis routes through continuity.
 | S-P21-5 | **Landings deliver bars, never navigation (D60.7, A180).** Repro-first: the ES away-repro (scrolled into the past, wave in flight, land one chunk per leg — backfill / realtime / prefetch) must fail on the current tree, and the trace must name the moving call among the candidate sites (chunk render without same-symbol continuity → `fitToWidth`; fresh-frame re-land on chunk; `fitToWidth` fallback on a failed range re-apply) before the gate lands. The fix routes every landing through the preserve path (S-P11-3/S-P19-5: re-apply pre-replace range, no fresh frame, no range op) while away — bit-identical range, follow stays disengaged. While following, the live-bar rule (S-P21-1) and the prefetch-neutrality rule (`AC-D58.4`) govern; the chunk carries no independent viewport instruction. Rationale: the observed yank is a landing path re-following an away user; gating at the landing (not per leg) covers all three legs at once. Alternative: per-leg viewport flags (rejected — three flags for one invariant; the preserve path already exists). | `[extends P11: S-P11-3]` — landings are data replaces; composes with S-P19-5 unchanged |
 | S-P21-6 | **Verification order: follow matrices first, away repro second, gate last.** P21-1 proves the G×N shift matrices + per-action preserve + two-view independence red-first; P21-2 proves the away-repro-per-leg + session-open reset + `AC-D51.2` guard; P21-3 proves the full suites + history intact. Rationale: each D60 expectation is offscreen-measurable today via the P11/P14 probes with seeded injection. | `[new in P21]` — process decision; pins R132/R133 handling |
 
+---
+
+## Phase P22 — Toolbar / timezone-toggle / crosshair / time-axis fixes (D61–D64) — drafted 2026-11-10
+
+> Companion: `docs/plan.md` § *Phase P22* (traceability, four phases, assumptions,
+> flagged issues). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P22 (D61–D64),
+> Journeys 58–61, `AC-D61.1`–`AC-D64.3` FINAL (Q103–Q105 answered-owner-confirmed
+> 2026-11-10, all (a) recommended defaults), A181–A185 (A182/A183/A184 CONFIRMED),
+> R134–R137, `design_gaps.md` DG114–DG116 (all open, non-blocking, Plan-scoped below),
+> `open_questions.md` Q103–Q105. **D1–P21 are NOT reopened** (P21 follow-offset is in
+> flight — read-only: the viewport contracts P22's toggle re-render must not disturb are
+> consulted, never reshaped; the P19/P20 wave machinery is only read). Existing-repo run:
+> every decision below carries one status label relative to the codebase — `[existing]`
+> (present, unmodified this phase), `[new]` (introduced), `[new/changed]` (present and
+> modified). No new module, no new dependency, no schema migration, no live-TWS
+> dependency, no order code, no new timezone beyond UTC/ET, no magnet control (FS20
+> stays a suggestion). Sizes S/M only. One phase only — nothing past the D64 batch gate
+> is planned.
+
+### Relationship to prior phases
+
+P22 builds on the D49.6 creation-time offset threading, the D19/D20 toolbar geometry,
+the P6 library-native crosshair, and the QSettings persistence precedents, with **one
+recorded extension and no silent revisions**: S-P22-2 **extends D49.6** (creation-time
+threading stands; P22 adds the live-update path it lacked); S-P22-4 **extends P6**
+(Q63/A108 library-native crosshair stands; P22 pins its Normal-mode application).
+Everything else composes: the D19 scroll/elide wrapper, the D20 ~50–52px strip, the
+Q98 as-is-ET futures rendering, the A185 display-vs-storage separation, and the
+order-code absence are reused unchanged. An unlabeled decision below is `[new in P22]`.
+
+### Codebase Summary (existing repository — P22 surface; pointer + deltas)
+
+The full module index lives in `docs/codebase-map.md` (P22 note appended; skeleton
+re-generated — P22 adds no new module). Only the surfaces P22 touches are inventoried
+here, each validated against source (repo authoritative; graphify used for discovery
+only; all cache entries for these files were `new`, so every claim below was
+re-verified by direct read):
+
+- `[existing] ui/main_window.py` toolbar row — `QLabel("Symbol:")` at `:347` beside
+  fixed-width siblings (`tz_combo` 110px at `:318`, `draw_combo` 110px, `draw_set_combo`
+  140px, `del` 38px) inside the D19 `QScrollArea` (`ToolbarScroll`, NoFrame,
+  `setWidgetResizable(False)`, horizontal AsNeeded, vertical AlwaysOff, fixed height
+  `TOOLBAR_CONTENT_HEIGHT` + scrollbar lane ≈ 50–52px total, `:416–430`). The `SY`
+  clip is a label-field room defect, not a rename ask (A181).
+- `[existing] ui/main_window.py` timezone path — `tz_combo` (`UTC` / `Eastern Time`,
+  `:316–321`) → `_on_tz_changed` (`:4120–4127`) → `_chart_call("set_timezone", ...)`
+  (`:4126`) → dispatch (`:860–865`: `getattr(self.chart_panel, name, None)`, silent
+  `None` when not callable). **Verified absent: no `set_timezone` exists anywhere in
+  `ui/`** — the toggle is a silent no-op on the main chart (the D62 apply-leg break,
+  diagnosed from source, not guessed). `_eastern_offset()` (`:14–20`) is a now-based
+  scalar (EDT 14400 / EST 18000). `_popouts` registry (`:769`, `:960–965`);
+  `_restore_popouts` seeds the creation offset (`:1347–1348`, D49.6); `QSettings`
+  precedent at `:487` (`QSettings("NDThinkChart", "NDThinkChart")`, cf. `watchlist/width`).
+- `[existing] ui/lwc_view.py::LWCView` — `_tz_offset` is construction-only (`:1955`)
+  with a getter and no setter (`:2055–2056`); `format_tz_label` (`local = t - offset`,
+  `:370–379`) has **no production callers** (Python-side mirror only); the page
+  transport is `LwBridge.send_ops` / `send_channel` (QWebChannel batched envelopes,
+  no `runJavaScript` path) and **no tz op or channel exists**.
+- `[existing] chart_assets/lwc/chart.js` — `tzLabel(t, offsetSeconds)` is UTC math
+  (`:65–80`); the `tzOffset` page var (`:239`) is set only via `window.lwConfigure`
+  at boot (`:1453–1460`); both `localization.timeFormatter` and
+  `timeScale.tickMarkFormatter` close over it (`:592–611`); `recordTick` /
+  `axisProbe` expose the rendered labels + the live `tzOffset` echo (`:737–...`).
+  No `subscribeCrosshairMove` handler exists in `chart.js`.
+- `[existing] chart_assets/lwc/interaction.js` — `CROSSHAIR_OPTIONS.mode = 0`
+  (Normal), both lines visible with axis labels (`:225–243`); `applyCrosshair`
+  defined and exported (`:265–270`, `:365`); whether it reaches the live chart is
+  the D63 diagnosis target (repro-first, not assumed).
+- `[existing] ui/popout_window.py` — D49.6 creation threading intact
+  (`popout_view(tz_offset=...)`, `:195–197`); pop-outs are separate page instances,
+  so per-view fan-out needs one call per open view.
+
+### Summary
+
+The toolbar keeps its D19/D20 geometry while the `Symbol:` field stops clipping; the
+UTC↔ET toggle gains the live apply path it never had (new view method → bridge
+channel → page re-format + re-render, fanned out to every open view and persisted);
+page-side formatting becomes zone-aware so DST-boundary bars label date-correctly; and
+the crosshair horizontal line is pinned to free cursor-price tracking with the snap
+source removed after a repro-first diagnosis. All time math stays display-only — no
+cached timestamp is ever rewritten (A185).
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained: language / UI / engine / store | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only (vendored v5.2.x, LWC-only tree per P6-T13), SQLite, `ibapi-latest==10.51.1` untouched | Existing-repo hard constraint; D61–D64 are chrome/presentation fixes, no stack change | None entertained |
+| Constrained: persistence mechanism | Unchanged: `QSettings("NDThinkChart", "NDThinkChart")` for the timezone choice (precedent `watchlist/width`, `AC-D18.7`) | Owner chose persistence (Q103(a)); QSettings is the established per-user channel — no SQLite migration for a display preference | New `chart_prefs` table (rejected — schema migration for one scalar; the watchlist/timeframe precedents are QSettings) |
+| Constrained: page transport | Unchanged: `LwBridge.send_ops` / `send_channel` QWebChannel envelopes | The tz apply travels the existing bridge; no `runJavaScript` path exists and none is added | Ad-hoc `runJavaScript` eval (rejected — bypasses the batched/replayable transport and its probes) |
+| `[new]` Zone-aware ET formatting home (S-P22-3) | Page-side: each tick formatted from its UTC epoch as America/New_York wall time (date-correct across DST); UTC mode is plain UTC math | AC-D62.1's DST edge ("offset is date-correct per bar, not a fixed 5h") is unsatisfiable with the single now-based scalar (`_eastern_offset`) — one scalar cannot label both sides of a DST boundary; page-side keeps per-tick math out of Python and is `node --test`-able | Scalar-offset threading for all ticks (rejected — violates the DST edge by construction); Python per-tick offsets in the bar ops (rejected — per-bar wire bloat + Python date math on the render path) |
+| `[new]` Test harness | Offscreen pytest (real `MainWindow` + LWC view, injected bars, simulated toggle/hover, `lwAxisProbe` label assertions) + `node --test` for the page formatter core | Repo standard; every P22 criterion is offscreen-measurable (Journeys 58–61); the axis probe already echoes rendered labels + `tzOffset` | Live-TWS timestamp confirmation as a gate (rejected — requirements keep it owner-named manual, never a suite gate) |
+
+### System Components
+
+- `[new/changed] ui/main_window.py` — toolbar label field sizing (S-P22-1, D61);
+  `_on_tz_changed` fans the choice out to the main view + every `self._popouts` entry
+  and persists it (S-P22-2, D62); startup restores the persisted choice for the main
+  view and the pop-out creation seed. No other lifecycle change.
+- `[new/changed] ui/lwc_view.py` — gains `LwcChartView.set_timezone` (the method
+  `_chart_call` already names; S-P22-2), publishing a tz op on the existing bridge;
+  `_tz_offset` construction default, `format_tz_label` mirror, and all bar/update
+  paths otherwise unchanged.
+- `[new/changed] ui/lwc_bridge.py` — gains the tz op channel/envelope shape (wire
+  detail for Task Manager); `send_ops` / replay semantics unchanged.
+- `[new/changed] chart_assets/lwc/chart.js` — gains the tz apply (set `tzOffset`,
+  re-apply both formatters, force tick re-render) + the zone-aware ET formatter
+  (S-P22-3); crosshair Normal-mode application pinned (S-P22-4). Series data,
+  viewport, and study paths unchanged.
+- `[new/changed] chart_assets/lwc/interaction.js` — only if the S-P22-4 diagnosis
+  routes the snap there (e.g. Normal mode never applied); otherwise `[existing]`.
+- `[existing] ui/popout_window.py` — D49.6 creation threading unchanged; receives
+  fan-out `set_timezone` calls, no structural change.
+- `[existing] ui/chart_view.py::create_chart_view` seam, `services/backfill_service.py`,
+  `services/market_calendar.py` + Q98 as-is-ET futures rendering, `TIMEFRAME_CONFIG`,
+  `BarCache` read/write API, session/collapse geometry — read-only inputs, not modified.
+- `[existing] Order-code absence` — P22 adds zero order interaction (D45/D46 end
+  state untouched).
+
+### Data Model
+
+- `[new]` Persisted timezone choice — one `QSettings` scalar (`chart/timezone`-shaped
+  key per the `watchlist/width` precedent; Task Manager's key detail), holding the mode
+  (`UTC` / `Eastern Time`), read at startup, written on every flip. No SQLite change;
+  no migration.
+- `[existing] Bar` / `bars` table, drawings, alarms, studies, `_viewport_memory` —
+  untouched. Stored bar timestamps are never rewritten by the toggle (A185); the offset
+  applies at label/tooltip render time only.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths, SQLite, Qt signals, and the
+pacing/watchdog/D53/D56 machinery are untouched — P22 issues no new request type,
+changes no subscription behaviour, and needs no live TWS.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen).
+Task Manager gives workers the contract, never the implementation.
+
+- `ui/main_window.py::_chart_call` dispatch — verbatim: `method =
+  getattr(self.chart_panel, name, None); if not callable(method): return None; return
+  method(*args, **kwargs)`. P22 adds the long-missing callee; the dispatch is unchanged.
+  Owner: `ui/main_window.py`.
+- `ui/lwc_view.py::format_tz_label` — verbatim contract: `def format_tz_label(t,
+  `tz_offset` to str:` — `local = t - offset` with a positive offset for zones behind
+  UTC (18000 EST, 14400 EDT), rendered as MM/DD HH:MM; `t` is the bar's real UTC epoch
+  time (Q-20). Python-side reference mirror; consulted, not modified.
+  Owner: `ui/lwc_view.py`.
+- `chart_assets/lwc/chart.js::lwConfigure` + `axisProbe` — verbatim contracts:
+  `window.lwConfigure({tzOffset}) -> {tzOffset}` (boot seeding; P22 adds live callers,
+  the shape stands); `window.lwAxisProbe()` returns `{from, to, logical, barSpacing,
+  ..., firstTime, lastTime, firstLabel, ticks, tzOffset}` — the offscreen evidence
+  surface P22 asserts against. Owner: `chart_assets/lwc/`.
+- D19/D20 toolbar geometry — verbatim: content row `TOOLBAR_CONTENT_HEIGHT` (~36px),
+  total strip = content + scrollbar lane (~50–52px), horizontal AsNeeded / vertical
+  AlwaysOff, `setWidgetResizable(False)`; scroll/elide reachability of every control
+  (AC-D19.4 as superseded by D20, AC-D20.1–D20.6). P22 changes no asserted dimension.
+  Owner: `ui/main_window.py`.
+- `MainWindow._popouts` registry + D49.6 creation threading — verbatim: pop-outs
+  register/unregister in `self._popouts`; each is created with the main chart's live
+  offset (never hardcoded `0.0`) and persisted/restored with the saved set
+  (`AC-D49.7`). P22 calls into open views; the registry and creation path are
+  unchanged. Owners: `ui/main_window.py`, `ui/popout_window.py`.
+- `series_times` UTC-second basis + A185 display-vs-storage separation — verbatim:
+  series `time` values are UTC epoch seconds; the offset is a display transform only;
+  cache timestamps, backfill math, and session-presence checks stay in their existing
+  basis. Owner: `ui/lwc_view.py`.
+- `feature_suggestions.md::FS20` magnet — stays a suggestion; Q104(a) builds no
+  magnet control anywhere. Owner: `docs/requirements/feature_suggestions.md`.
+
+NOT frozen (changed this phase, so no worker may assume the old contract): the new
+`LwcChartView.set_timezone` method, the tz bridge op/channel shape, the page tz apply
++ formatter internals (`tzOffset` liveness, ET zone-awareness), the crosshair apply
+call sites, the toolbar label-field sizing, and the toggle persistence wiring.
+
+### Non-Functional Approach
+
+- **Correctness (driven by AC-D61.1/AC-D61.2):** the `SY` clip reproduces red-first
+  (offscreen narrow-width toolbar case asserting the label reads `Symbol:` in full at
+  wide + scrolling widths); D19/D20 suites stay green unmodified as the regression
+  guard; HiDPI legibility follows the existing D21 probe precedent.
+- **Correctness (driven by AC-D62.1/AC-D62.2/AC-D62.3):** post-flip label text is
+  asserted, never internal state (R134): injected bars with known ET timestamps,
+  per-tick equality against independently formatted expected strings, crosshair/tooltip
+  text before/after the flip, per-view matrices over main + pop-outs, and a restart
+  case asserting the persisted choice restores — all red-first on the current no-op
+  path. Mid-backfill-flip settling (Journey 59 edge) lands on the existing wave-landing
+  path; labels settle when the wave lands, never a mix.
+- **Correctness (driven by AC-D63.1):** between-close hover cases assert line price ==
+  cursor price at rest and across live ticks (R136); the snap source is named by the
+  red-first repro before removal; no snap path remains anywhere (magnet stays FS20).
+- **Correctness (driven by AC-D64.1/AC-D64.2):** equity + futures tick matrices assert
+  labels against independently computed zone strings in both modes; the user-control
+  matrix asserts no non-toggle control mutates the axis; the DG114 shared cause is
+  confirmed-or-refuted from the diagnosed seam — one fix closing both ACs and two
+  independent fixes are both accepted.
+- **Performance:** the toggle is O(open views) option re-applies with zero refetch;
+  formatting is O(visible ticks); no per-tick Python round-trip; pacing/watchdog
+  budgets hold unchanged.
+- **Safety:** the Qt-free geometry boundary holds (formatting math stays in page JS);
+  the bar-domain, wave, and prefetch contracts are untouched; no order-code surface
+  touched (D45/D46 invariants hold); no live TWS needed.
+- **Visual gate:** no new control, glyph, colour, or placement — `Symbol:` keeps its
+  text/font/style (only its field stops clipping); the toggle, crosshair, and axis
+  keep their visuals (AP-P22-5, same reuse precedent as AP-P21-6).
+
+### Architecture Risks
+
+| Risk | Severity (H/M/L) | Mitigation |
+|---|---|---|
+| AR-P22-1 — Flip-but-no-rerender (R134): the offset reaches the page var yet tick labels stay stale (formatter cache / no re-render) while plumbing looks correct | M / M | AC-D62.1/AC-D62.2 assert post-flip label text from `axisProbe`, not internal state — a correct-plumbing/no-rerender build still fails honestly; S-P22-2 separates the apply leg from the render leg |
+| AR-P22-2 — Double-fix divergence (R135): D62 and D64 fixed through divergent formatter paths that re-break each other | M / M | S-P22-2 forces one diagnosed seam; the toggle matrix (axis × crosshair × tooltip) is asserted together in one suite; AC-D64.2 accepts one fix or two but both prove the same matrix |
+| AR-P22-3 — Free-tracking reads as jittery on live forming-bar ticks (R136) | L / M | AC-D63.1 pins line == cursor at rest and during ticks; any smoothing is a Plan-detail that must not reintroduce close-snapping |
+| AR-P22-4 — Toolbar fix re-pinches the central widget (R137, D19 regression) | M / L | AC-D61.2 keeps the D19/D20 suites green unmodified; the fix is measured against the dock-drag clamps, not just the label; the scroll wrapper stays the overflow mechanism (never widen the strip to fit) |
+| AR-P22-5 — DG116/AC-D61.2 tension: the clip diagnosis requires changing an intrinsic width a D19/D20 fixture asserts | M / L | AP-P22-4 tripwire: the fix stays label-field-local; if diagnosis proves a fixture-asserted width must move, the fixtures are re-baselined (values, never weakened assertions) only on Analyst sign-off — never assumed by Build |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P22-1 | **Toolbar label-field room (D61, A181).** Diagnose the actual clip (label field width vs fixed-width siblings vs `setWidgetResizable(False)` container) from the offscreen repro, then give the `Symbol:` field room through sizing/minimum/overflow behaviour — text, font, and style unchanged. The D19 scroll wrapper stays the overflow mechanism; content row ~36px, strip ~50–52px, every control reachable (AC-D61.2). Rationale: the owner reported clipping, not wording — renaming answers an unasked question; field-local room keeps every asserted D19/D20 dimension stable (DG116 addressed without touching fixtures). Alternative: rename/shorten the label (rejected — A181); widen the strip to fit (rejected — D20's reserved-lane rule + R137). | `[new in P22]` |
+| S-P22-2 | **Live timezone apply path (D62 + D64 shared leg, DG114).** Add the missing callee the `_chart_call("set_timezone")` site already names: `LwcChartView.set_timezone` publishes a tz op over the existing bridge; each page sets its `tzOffset`, re-applies `tickMarkFormatter` + `localization.timeFormatter`, and forces tick re-render. `MainWindow._on_tz_changed` fans out to the main view + every `self._popouts` entry (Q103(a) every view) and persists the mode in QSettings; startup restores it for the main view and the D49.6 creation seed. Diagnosed root (verified, not guessed): no `set_timezone` in `ui/`, construction-only `_tz_offset`, boot-only `lwConfigure` — the toggle is a silent no-op today, which is also the leading shared-cause candidate for D64 (confirmed-or-refuted in-phase per AC-D64.2). Rationale: one seam, both outcomes; per-view fan-out matches the per-instance page precedent (S-P21-4); QSettings matches the watchlist/timeframe precedents. Alternative: per-view toggle state (rejected — Q103(a) chose every view + persisted); re-`set_series` on flip to force re-render (rejected — full history resend for a label change; wasteful and risks viewport churn against P21). | `[extends D49.6: creation-time offset threading]` — the handoff stands; P22 adds the live-update path it lacked |
+| S-P22-3 | **Zone-aware page formatting (D62 DST edge, D64 correctness).** ET mode formats each tick from its UTC epoch as America/New_York wall time (date-correct across DST boundaries); UTC mode is plain UTC math; the crosshair/tooltip time path uses the same formatter so AC-D62.2 follows AC-D62.1 by construction. Stored bars are never touched (A185). Rationale: the now-based scalar cannot satisfy the DST edge — the requirement names per-bar-date correctness, so the formatter must see the date (DG114 mechanism detail, Plan's job). Alternative: scalar offset for all ticks (rejected — mislabels one side of every DST boundary by 1h); Python per-tick offsets (rejected — wire bloat + render-path date math in the wrong layer). | `[new in P22]` |
+| S-P22-4 | **Free cursor-price tracking pin (D63, Q104(a), DG115).** Repro-first: a between-close hover repro names the snapping primitive (candidate: library Magnet default because the Normal-mode `applyCrosshair` never reaches the live chart — verify, don't assume). Then pin `CrosshairMode.Normal` application at creation and on every crosshair-touching `applyOptions`, and remove/retarget the snapping source so the horizontal line renders at the cursor price continuously. Vertical line (DG115): stays the library Normal line (cursor-time, label via the S-P22-2 formatter path); if diagnosis shows slot-snapping that contradicts D64, escalate as a Q104/Q105 follow-up rather than assuming — the AC asserts the horizontal line only. No magnet control is added anywhere (FS20 stays a suggestion). Rationale: the owner explicitly asked for magnet-off behaviour; the AC's "no snap exists anywhere" is proved by asserting absence (no Magnet mode id, no snap subscriber) as well as position. Alternative: magnet toggle (rejected — Q104(a) free-only; new UI scope). | `[extends P6: library-native crosshair (Q63/A108)]` — the native crosshair stands; P22 pins its free-tracking application |
+| S-P22-5 | **D64 basis check inside the toggle phase (D64, DG114).** Before closing, the `axisProbe` evidence (`firstTime`/`firstLabel`/`ticks` vs independently computed zone strings) confirms the series-time basis once: if the basis itself is off (not just the offset plumbing), that is the accepted second fix under AC-D64.2 — still display-layer, still no stored-timestamp rewrite. Rationale: "all wrong" may exceed a dead toggle; AC-D64.2 explicitly budgets one fix or two so the phase cannot stall on cause-counting. | `[new in P22]` — process decision; pins DG114 handling |
+| S-P22-6 | **Verification order: toolbar first, toggle matrix second, crosshair third, gate last.** P22-1 proves the label-field cases red-first; P22-2 proves the toggle matrix (axis × crosshair × tooltip × per-view × restart) red-first on the current no-op path; P22-3 proves the free-tracking cases red-first; P22-4 proves the full suites + history intact. Rationale: each D61–D64 expectation is offscreen-measurable today via the existing probes with seeded injection. | `[new in P22]` — process decision; pins R134–R137 handling |
+

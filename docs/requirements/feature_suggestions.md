@@ -149,3 +149,8 @@
 - **Gap/opportunity:** P20 pins per-load front-month auto-roll with rollover gap/overlap per existing `_front_month` behaviour (Q97). A scrolled-back futures chart will therefore show a splice at each roll (price-level step, volume break) rather than a stitched continuous series.
 - **Why not in the original ask:** the owner accepted rollover per existing behaviour; a back-adjusted continuous series (ratio/difference adjustment, roll-date markers) is new product scope with its own honesty rules (adjusted vs actual prices).
 - **Suggested priority:** low
+
+## FS20 — Magnet snap mode for the crosshair (TradingView magnet)
+- **Gap/opportunity:** if Q104 is answered (a) free-only, the TradingView-style magnet (snap crosshair to OHLC on demand) remains unavailable — some users rely on it for exact level placement.
+- **Why not in the original ask:** the owner explicitly asked for free cursor-price tracking (magnet-off behaviour); a snap toggle is additional UI scope beyond the defect.
+- **Suggested priority:** low

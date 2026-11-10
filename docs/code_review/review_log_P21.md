@@ -223,3 +223,37 @@ No open escalations remain.
 ## Escalations opened this pass: none.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Code Review — Phase P21 re-confirmation pass (2026-11-10, post-P22 analyst edits)
+
+Tier: LIGHT (incremental scope is empty — precheck.json scope 0 tasks, 0 fail_fast,
+0 overlaps, 0 unattributed changes; every P21 result already consumed and archived
+as wave312/313/314/316/317; nothing is newer than the last REVIEW_COMPLETE marker).
+Entry A/B: no-op (no scoped tasks — nothing to diff, reproduce, or quality-review).
+Entry C: no-op (escalations.json: 104 total, 0 open; precheck escalation_updates empty).
+
+Verification note (no finding, no escalation — out-of-scope tree dirt, recorded so
+the FAIL is not mistaken for a P21 regression): test_verification.json verdict FAIL
+exit 1 is exactly 2 failures, both history-intact guards —
+test_p21_t3_ac2_history_intact and test_p20_t3_ac2_history_intact — each asserting
+docs/requirements/requirements.md is byte-identical to HEAD (commit 5b3ec66, the P21
+feature commit). The working tree carries P22's uncommitted analyst additions
+(+83 requirements lines incl. the R133 row, +228 architecture, +182 plan — D61–D64
+per the P22 map note), so the byte-identity assertion fails by construction. Every
+other suite passes (progress shows only those 2 F's across the full offscreen run).
+This is P22 in-flight requirements work tripping P21/P20 guards that pin committed
+prose — adjudication (re-pin vs narrow, never weaken) belongs to P22's own gate,
+not to P21: scope guard holds (D60 only; P21 code untouched — git status shows
+docs-only modifications, P21 production/test files identical to the reviewed
+commit). failures.json carries no blocked tasks; build_log.md terminal state remains
+READY_FOR_REVIEW with P21-T1..T5 all done. Prior findings stand closed: ESC-112,
+ESC-113, ESC-114 all verified addressed in the preceding passes. Mock-endpoint and
+usage-doc gates were discharged on the full passes; nothing in this empty scope
+reopens them.
+
+## Escalations opened this pass: none (the 2 history-guard reds are P22's gate
+concern, not a P21 defect — no route from this review).
+
+Status: REVIEW_COMPLETE

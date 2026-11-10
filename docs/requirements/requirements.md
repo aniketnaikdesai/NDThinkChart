@@ -6394,3 +6394,86 @@ While following the live edge with empty space between the latest bar and the ri
 | R133 — Preserved offset interacts with P19 prefetch evaluation (oldest-visible distance) on the same arrival | L | M | P19 triggers evaluate on settled viewport changes, never per tick; a D60 shift is a settled change evaluated normally — no special coupling; `AC-D58.4` already pins prefetch arrivals as viewport-neutral |
 
 Status: READY_FOR_PLAN
+
+## Phase P22 — Toolbar / timezone-toggle / crosshair / time-axis fixes (D61–D64) — OWNER-REPORTED 2026-11-10 (FINAL 2026-11-10 — Q103–Q105 answered — READY_FOR_PLAN)
+
+> Four owner-reported issues (verbatim, with orchestrator notes; screenshots referenced but not visible — text is sufficient): **(1)** toolbar label clipped — top-left `Symbol:` renders as `SY` (suspected fixed-width/`minimumSizeHint` issue in the toolbar row); **(2)** the UTC↔ET timezone toggle has no visible effect, chart appears stuck in UTC — expected TradingView behaviour: switching re-labels the time axis AND crosshair/tooltip times (suspect either the toggle never reaches the chart — `tz_offset` not applied to labels/formatters — or labels never re-render); **(3)** the crosshair horizontal line snaps to the candle close (owner at 7530, dashed line on the candle close) instead of tracking the mouse-cursor price — owner explicitly wants free cursor-price tracking (check TradingView magnet-off = free crosshair); **(4)** the time axis is "all wrong" and not user-changeable — suspected session-calendar mapping / `tz_offset` plumbing into the `timeScale` tick formatting, possibly sharing a root cause with (2) — Plan diagnoses from the code, no guessed cause is recorded here. **D1–P21 are NOT reopened.** All three blocking questions answered 2026-11-10 (all recommended defaults, recorded verbatim in `open_questions.md` Q103–Q105); `AC-D62.3`/`AC-D63.1`/`AC-D64.1` are FINAL and Phase P22 carries `Status: READY_FOR_PLAN`.
+
+### Problem Statement (P22 slice)
+Four owner-observed chart-chrome defects: the toolbar hides its own `Symbol:` label (`SY`); the UTC↔ET toggle changes nothing visible; the crosshair horizontal line reports the candle close instead of the cursor price; and the time axis labels are wrong with no user control beyond the (currently inert) toggle. Each is independently reproducible offscreen except live-timestamp confirmation, which stays owner-named.
+
+### Goals (P22)
+- The full `Symbol:` label (and every other toolbar label) is readable at every window width without breaking the D19 scroll/elide + D20 ~50–52px strip rules (D61).
+- Flipping UTC↔ET visibly re-labels chart times per the Q103 scope decision (D62).
+- The crosshair horizontal line tracks the cursor price per the Q104 mode decision (D63).
+- The time axis shows correct times per the Q105 decision, with the user control the owner picks (D64).
+
+### Non-Goals (P22)
+- No new timezone beyond UTC/ET (a third zone or free IANA picker is new scope — see Q105).
+- No magnet/snap-mode feature beyond the Q104 decision (a magnet toggle, if not chosen, is a future `feature_suggestions.md` item, not this batch).
+- No change to session-calendar rules (Q98 as-is-ET for futures; equity calendar for stocks) beyond displaying them correctly.
+- No reopening of D1–P21 criteria, parity rows, or approval records.
+
+### Constraints (P22, requirements-level — mechanism is Plan's job)
+- LWC-only tree (P6-T13): all four fixes live in the toolbar / LWC-view / `chart_assets/lwc/` seam; no pyqtgraph surface exists to update.
+- Time is displayed in whole labels derived from bar timestamps plus the active offset; the offset is a display transform only — cached bar timestamps are never rewritten.
+- Offscreen-first measurables (real `MainWindow` + LWC view, injected bars, simulated toggle/hover); any live-TWS timestamp confirmation is an owner-named manual step, never a suite gate.
+- D62 and D64 share a suspected root cause (offset plumbing into tick formatters); the requirements assert outcomes on both and let Plan confirm or refute the shared cause — no guessed mechanism is recorded as fact.
+
+### Glossary (P22 additions)
+- **tz_offset:** the active display offset (UTC vs ET) applied to time-axis tick labels and crosshair/tooltip times. Display-only; never mutates stored bar timestamps.
+- **Free cursor-price tracking:** the crosshair horizontal line renders at the exact price under the mouse cursor, continuously, independent of any bar's OHLC.
+- **Snap-to-OHLC:** the current (defective) D63 behaviour — the horizontal line jumps to the hovered candle's close (or other OHLC field) instead of the cursor price.
+
+### User Journeys (P22)
+#### Journey 58 — D61: read the full toolbar labels at any width
+- **Preconditions:** App running offscreen with the toolbar visible; window wide, then narrowed until the toolbar scrolls.
+- **Steps:** 1) At a wide width, read the top-left label. 2) Narrow the window until the horizontal scrollbar appears; read the label again. 3) Scroll the toolbar horizontally and confirm every control stays reachable.
+- **Postconditions:** The label reads `Symbol:` in full (never `SY`) at both widths; no other label is clipped by its container; D19 scroll/elide reachability and the D20 ~50–52px strip hold.
+- **Edge Cases:** extremely narrow window (chart-minimum/dock rules still win; toolbar scrolls, never wraps or pins layout); HiDPI scale (label fully rendered at DPR 2).
+
+#### Journey 59 — D62: flip UTC↔ET and watch chart times follow
+- **Preconditions:** Chart loaded (offscreen, injected bars with known ET timestamps); timezone toggle in a known state.
+- **Steps:** 1) Note the time-axis tick labels and hover the crosshair to read its time. 2) Flip the toggle. 3) Re-read the axis labels and the crosshair/tooltip time for the same bar/cursor position.
+- **Postconditions:** Every visible time label shifts by exactly the UTC↔ET delta (5 or 4 hours depending on DST) with no relayout breakage; flipping back restores the original labels.
+- **Edge Cases:** DST boundary bars (offset is date-correct per bar, not a fixed 5h); pop-out views (per Q103 scope); app restart (per Q103 persistence); toggle mid-backfill-wave (labels settle to the new offset when the wave lands, never a mix).
+
+#### Journey 60 — D63: hold the cursor between prices and read the crosshair line
+- **Preconditions:** Chart loaded (offscreen, injected bars); cursor over the pane at a price that matches no candle close (e.g. cursor at 7530 with the candle close elsewhere).
+- **Steps:** 1) Move the cursor to a between-closes price. 2) Read the horizontal line's price vs the cursor price. 3) Move vertically and confirm continuous tracking.
+- **Postconditions:** The horizontal line renders at the cursor price at every position (within the pane's price range); it never jumps to a candle close on hover or on live-tick update.
+- **Edge Cases:** cursor outside the price range (line clamps to the pane edge, per existing behaviour); magnet mode if Q104 chooses (b) — snapped state only while the magnet option is on.
+
+#### Journey 61 — D64: read correct times on the time axis
+- **Preconditions:** Equity chart (e.g. SPY intraday) and, if available, a futures chart (ES) loaded offscreen with known timestamps.
+- **Steps:** 1) Compare each visible tick label against the bar timestamps under the active offset. 2) Flip UTC↔ET and compare again. 3) Confirm which user controls affect the axis.
+- **Postconditions:** Every tick label equals its bar time rendered in the active zone (equity per the session calendar, futures as-is ET per Q98); no control other than the Q105-decided set changes the axis.
+- **Edge Cases:** overnight futures sessions (Q98 as-is-ET rendering untouched); collapsed non-trading gaps (D21.4 — gaps stay collapsed, labels on either side stay correct); empty intraday stretches (no fabricated labels).
+
+### Acceptance Criteria (P22, FINAL — Q103–Q105 answered 2026-11-10)
+- **AC-D61.1 (full label visible)** Given the toolbar visible at any window width (wide and narrow-enough-to-scroll), When the top-left label renders, Then it reads `Symbol:` in full — never truncated to `SY` — and no other toolbar label is clipped by its container. (Measurable: offscreen toolbar cases at wide + scrolling widths asserting the label text/width fits its field + the D21 Journey-21 legibility probe still green.)
+- **AC-D61.2 (D19/D20 geometry intact)** Given the D61 fix, When the toolbar strip renders with and without overflow, Then the content row stays a single ~36px row, the total strip stays ~50–52px, and all controls stay reachable via scroll/elide — `AC-D19.4` (as superseded by D20), `AC-D20.1`–`AC-D20.6` unchanged. (Measurable: existing D19/D20 suites green unmodified.)
+- **AC-D62.1 (toggle re-labels the time axis)** Given a loaded chart, When the UTC↔ET toggle flips, Then every time-axis tick label shifts by exactly the zone delta for its bar date (DST-correct) with no overlap/clipping regression. (Measurable: offscreen toggle cases on injected bars asserting per-tick label equality against independently formatted expected strings.)
+- **AC-D62.2 (toggle re-labels cursor times)** Given the crosshair/tooltip visible, When the toggle flips, Then the crosshair/tooltip time for the same cursor position shifts by exactly the same delta as the axis. (Measurable: offscreen hover cases asserting crosshair/tooltip text before/after flip.)
+- **AC-D62.3 (toggle scope + persistence — FINAL, Q103 answered (a) 2026-11-10)** Given the UTC↔ET toggle, When it flips, Then main + every pop-out view re-renders against the new offset and the choice persists across restarts. (Measurable: offscreen per-view cases asserting every view's labels shift + restart case asserting the persisted choice restores.)
+- **AC-D63.1 (horizontal line tracks the cursor — FINAL, Q104 answered (a) 2026-11-10)** Given the cursor over the pane at a price P that equals no visible candle close, When the crosshair renders, Then the horizontal line price equals P (within one rendering step), not any bar's close — free-only, no snap exists anywhere (FS20 magnet stays a suggestion only). (Measurable: offscreen hover cases at between-close prices asserting line price == cursor price; live-tick cases asserting no snap on update.)
+- **AC-D64.1 (time axis correct — FINAL, Q105 answered (a) 2026-11-10)** Given equity bars under the session calendar (or futures bars per Q98 as-is-ET), When the axis renders in the active zone, Then each tick label equals its bar time in that zone; the ONLY user control that changes the rendering is the UTC/ET toggle — no formatting UI. (Measurable: offscreen equity + futures cases asserting tick labels against independently computed zone strings; user-control matrix asserting no other control mutates the axis.)
+- **AC-D64.2 (shared-cause diagnosis is Plan's, not a requirement fact)** Given D62 and D64 both implicate offset-to-formatter plumbing, When Plan investigates, Then it confirms or refutes the shared root from the code (session-calendar mapping, `tz_offset` into `timeScale`/tick formatters, re-render path) and scopes one or two fixes — the requirements assert both outcomes regardless and record no mechanism. (Measurable: plan traceability cites the diagnosed seam; one fix closing both ACs is accepted, two independent fixes are accepted.)
+- **AC-D64.3 (history intact)** Given `requirements.md`, Then `### D41`–`### D60` with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P22 wording is touched. (Measurable: marker grep + the `### D4[1-9]` / `### D5[0-9]` / `### D60` sections present.)
+
+### Assumptions (P22 — A181 + A185 analyst defaults; A182/A183/A184 CONFIRMED per Q103/Q104/Q105 answers 2026-11-10)
+- **A181 — D61 is a layout fix, not a label rename.** The label text stays `Symbol:`; the fix gives its field room (sizing/minimum/overflow behaviour), whatever the mechanism. (Rationale: the owner reported clipping, not wording — renaming the label would answer a question nobody asked.)
+- **A182 — CONFIRMED 2026-11-10 by Q103 (a) — every view + persisted.** The toggle re-labels main + every pop-out (each view re-rendered against the same offset) and the choice persists across restarts. (Rationale: D49.6 already threads the offset into pop-outs, so per-view divergence would be a regression; persistence matches the watchlist/timeframe persistence precedents.)
+- **A183 — CONFIRMED 2026-11-10 by Q104 (a) — free-only, no snap.** Free cursor-price tracking is the only mode — no snap, no magnet toggle. (Rationale: the owner's statement is explicit — cursor-price, magnet-off behaviour — so the default follows the report verbatim.)
+- **A184 — CONFIRMED 2026-11-10 by Q105 (a) — toggle only, no formatting UI.** The UTC/ET toggle is the only user-facing time control; tick formatting (order, locale, granularity) stays as the chart library renders it. (Rationale: the owner asked for correct + toggle-responsive labels, not a formatting UI — anything more is new scope.)
+- **A185 — Time display never rewrites stored bars.** The offset applies at label/tooltip render time only; cache timestamps, backfill math, and session-presence checks stay in their existing (UTC) basis. (Rationale: display-vs-storage separation keeps D62/D64 orthogonal to D16/D42 backfill correctness.)
+
+### Risks / Unknowns (P22)
+| risk | severity (H/M/L) | likelihood (H/M/L) | mitigation |
+|---|---|---|---|
+| R134 — Toggle flips but labels don't re-render (stale formatter cache) while plumbing is correct | M | M | `AC-D62.1`/`AC-D62.2` assert post-flip label text, not internal state — a correct-plumbing/no-rerender build still fails honestly; Plan separates the apply path from the render path |
+| R135 — D62/D64 share one root and the fix lands twice (divergent formatters re-break each other) | M | M | `AC-D64.2` forces a single diagnosed seam; the toggle matrix (axis × crosshair × tooltip) is asserted together in one suite |
+| R136 — Free-tracking line reads as "jittery" next to live forming-bar updates | L | M | `AC-D63.1` pins line == cursor at rest and during ticks; any smoothing is a Plan detail that must not reintroduce close-snapping |
+| R137 — Toolbar label fix re-pinches the central widget (D19 regression) | M | L | `AC-D61.2` keeps the D19/D20 suites green unmodified; the fix is measured against the dock-drag clamps, not just the label |
+
+Status: READY_FOR_PLAN

@@ -1635,3 +1635,21 @@ history of the choice.
 - **Why it matters:** the probe is a new paced request that must run BEFORE prime/wave legs; without an ordered seam (probe → gate prime/wave on probe success, probe failure ends the load with the Q99 message), a Build could fire prime/wave in parallel with the probe and re-create the SPX 300 s waste Q99 exists to prevent.
 - **Suggested resolution:** Plan orders the seam (probe first, prime/wave gated on resolution; probe failure = honest refuse with no further legs) and Task Manager covers it under `AC-D59.2`; the D53-lifecycle and 120 s backstop treat the probe as part of the load's wave.
 - **Status:** open (non-blocking — Plan detail; `AC-D59.2` is the gate).
+
+## DG114 — P22: D62/D64 shared root cause is suspected, not established
+- **Where it shows up:** Phase P22 / D62 + D64 / `AC-D64.2`; Constraints (P22 shared-cause paragraph).
+- **Why it matters:** the toggle-no-effect and the wrong-axis reports plausibly share one plumbing defect (`tz_offset` into `timeScale`/tick formatters, or a missing re-render), but neither the report nor the graph output proves it — recording a shared cause as fact would scope one fix where two may be needed (or vice versa).
+- **Suggested resolution:** Plan diagnoses from the code and records the seam; `AC-D64.2` accepts one fix or two. No requirements change either way.
+- **Status:** open (non-blocking — Plan detail; Q103–Q105 answered 2026-11-10, mechanism still Plan's job; `AC-D62.1`/`AC-D62.2`/`AC-D64.1` are the gates).
+
+## DG115 — P22: crosshair VERTICAL line (time) behaviour is unspecified
+- **Where it shows up:** Phase P22 / D63 / Journey 60; `AC-D63.1` covers the horizontal (price) line only.
+- **Why it matters:** if the time axis is mis-mapped (D64), the vertical line's slot/time may also be off, and free-price tracking says nothing about whether the vertical line snaps to bar slots or tracks cursor time continuously.
+- **Suggested resolution:** Plan states the vertical-line behaviour against the library's crosshair mode while fixing D63/D64; if it needs an owner decision (snap-to-slot vs free-time), escalate as a Q104/Q105 follow-up rather than assuming.
+- **Status:** open (non-blocking; `AC-D63.1` is the gate).
+
+## DG116 — P22: toolbar label fix must reconcile with the D19/D20 geometry fixtures
+- **Where it shows up:** Phase P22 / D61 / `AC-D61.2`; D19/D20 offscreen width fixtures (fixed 36px row, ~52px strip, 2,600px wide size).
+- **Why it matters:** giving the `Symbol:` field room changes toolbar intrinsic widths, which the D19/D20 offscreen fixtures assert against — a correct fix can turn a stale width assumption red without breaking any behaviour.
+- **Suggested resolution:** Plan reconciles the fixtures with the new intrinsic widths (re-baseline, not weaken); `AC-D61.2` keeps the D19/D20 suites' assertions behavioural.
+- **Status:** open (non-blocking — Plan detail; `AC-D61.2` is the gate).

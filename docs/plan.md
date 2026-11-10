@@ -5071,3 +5071,185 @@ together. P21-3 depends on both and edits no production files.
   entries remain unapplied (file absent); the P19/P20 wave machinery is only read.
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P22 — Toolbar / timezone-toggle / crosshair / time-axis fixes (D61–D64) — drafted 2026-11-10
+
+> Companion: `docs/architecture.md` § *Phase P22* (Codebase Summary, S-P22-1…S-P22-6,
+> frozen interfaces, non-functional, AR-P22-1…AR-P22-5). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P22 (D61–D64),
+> Journeys 58–61, `AC-D61.1`–`AC-D64.3` FINAL (Q103–Q105 answered-owner-confirmed
+> 2026-11-10, all (a) recommended defaults), A181–A185, R134–R137, `open_questions.md`
+> Q103–Q105. Hard constraints: **D1–P21 are NOT reopened** (P21 follow-offset in flight
+> is read-only — P22's toggle re-render must preserve the P11/P18/P21 viewport contracts;
+> the P19 prefetch and P20 contract machinery are only read); LWC-only tree (no
+> pyqtgraph surface exists to update); display-only time math (A185 — cached timestamps
+> never rewritten); no new module, no new dependency, no schema migration, no live-TWS
+> dependency, no order code, no third timezone, no magnet control; sizes S/M only. One
+> phase only — nothing past the D64 batch gate is planned.
+
+### Traceability (requirement → architecture → phase)
+
+| Requirement / input | Architecture section | Phase |
+|---|---|---|
+| D61 / `AC-D61.1` (full `Symbol:` label at any width) + Journey 58 + A181 | S-P22-1 (label-field room); Frozen (D19/D20 geometry) | P22-1 |
+| D61 / `AC-D61.2` (D19/D20 geometry intact, suites green unmodified) + DG116 | S-P22-1 + AP-P22-4 tripwire; Frozen (toolbar geometry) | P22-1 (P22-4 gate) |
+| D62 / `AC-D62.1` (axis re-labels, DST-correct) + Journey 59 axis steps + R134 + DG114 | S-P22-2 (apply path) + S-P22-3 (zone-aware formatting); Frozen (`_chart_call`, `axisProbe`) | P22-2 |
+| D62 / `AC-D62.2` (crosshair/tooltip re-label) + Journey 59 hover steps | S-P22-2 + S-P22-3 (shared formatter path) | P22-2 |
+| D62 / `AC-D62.3` (every view + persisted — Q103(a) FINAL) + A182 + Journey 59 pop-out/restart edges | S-P22-2 (fan-out + QSettings); Frozen (`_popouts`, D49.6 threading) | P22-2 |
+| D63 / `AC-D63.1` (free-only, no snap — Q104(a) FINAL) + Journey 60 + A183 + R136 + FS20 | S-P22-4 (Normal pin, repro-first); Frozen (FS20 stays suggestion) | P22-3 |
+| D63 vertical line (DG115, unspecified) + Journey 60 | S-P22-4 (library Normal line; escalate-not-assume tripwire) | P22-3 |
+| D64 / `AC-D64.1` (correct labels, toggle-only control — Q105(a) FINAL) + Journey 61 + A184 | S-P22-2 + S-P22-3 + S-P22-5 (basis check) | P22-2 |
+| D64 / `AC-D64.2` (shared-cause diagnosis is Plan's) + DG114 | S-P22-2 + S-P22-5; R135 via AR-P22-2 | P22-2 |
+| D64 / `AC-D64.3` (history intact) | Frozen Interfaces + S-P22-6 (gate) | P22-4 |
+| A185 (display never rewrites stored bars) + R134/R135/R136/R137 | S-P22-3/S-P22-6; Frozen (UTC basis); AR-P22-1…AR-P22-4 | P22-2/P22-3 (R137 via P22-1) |
+| A181 (layout fix), A182/A183/A184 (confirmed), Q103/Q104/Q105 answers | Recorded in S-P22-1…S-P22-4 | No phase (no work; resolutions recorded) |
+
+Every D61–D64 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Phases
+
+Each phase is a milestone, coarser than tasks; the Task Manager decomposes each into
+tasks with acceptance criteria and tests. Phases are ordered; a later phase depends
+on all earlier ones unless stated. `touches_files` notes list the files a phase
+touches and flag the serialisation points.
+
+### P22-1 — Toolbar label-field room — size S
+
+- **Goal:** the `Symbol:` label (and every other toolbar label) renders in full at
+  wide and scrolling widths while the D19/D20 strip rules hold exactly.
+- **Covers:** D61 (`AC-D61.1`: full-label cases at wide + scrolling widths; `AC-D61.2`:
+  content row ~36px, strip ~50–52px, scroll/elide reachability, existing D19/D20
+  suites green unmodified); Journey 58 (incl. narrow + HiDPI edges); A181; R137;
+  DG116 via the AP-P22-4 tripwire.
+- **Deliverables:**
+  - `[new/changed] ui/main_window.py` — the S-P22-1 label-field fix (sizing/minimum/
+    overflow behaviour around the `Symbol:` field; text/font/style unchanged).
+  - `[new/changed] tests` — offscreen wide + scrolling-width label cases (red-first
+    on the current `SY` clip) plus the untouched D19/D20 suites as the guard.
+- **Dependencies:** none (first phase; reads the frozen D19/D20 geometry, changes
+  only the label field).
+- **`touches_files`:** `ui/main_window.py` (toolbar block only) + offscreen suites.
+  No overlap with any other phase's production edits.
+- **Exit condition:** the narrow-width case is red-first on the current tree and
+  green after the fix; D19/D20 suites green unmodified; scroll/elide reachability
+  holds at every width.
+
+### P22-2 — Timezone apply path + zone-aware formatting (D62 + D64 shared leg) — size M
+
+- **Goal:** flipping UTC↔ET visibly re-labels the axis and cursor times on every open
+  view with DST-date-correct labels, persists across restarts, and settles the D64
+  axis (one fix or two, per `AC-D64.2`).
+- **Covers:** D62 (`AC-D62.1`: per-tick equality vs independently formatted strings
+  incl. DST-boundary bars; `AC-D62.2`: crosshair/tooltip text before/after;
+  `AC-D62.3`: per-view matrices over main + pop-outs + restart-restore cases);
+  D64 (`AC-D64.1`: equity + futures tick matrices in both modes + toggle-only control
+  matrix; `AC-D64.2`: the confirmed-or-refuted shared-cause record); Journey 59
+  (incl. mid-backfill-flip settling) + Journey 61; A182/A184/A185; R134/R135; DG114
+  via S-P22-5.
+- **Deliverables:**
+  - `[new/changed] ui/lwc_view.py` — `LwcChartView.set_timezone` publishing the tz
+    op (S-P22-2); nothing else on the view changes.
+  - `[new/changed] ui/lwc_bridge.py` — the tz op channel/envelope shape.
+  - `[new/changed] chart_assets/lwc/chart.js` — the tz apply (set var, re-apply both
+    formatters, force re-render) + the zone-aware ET formatter (S-P22-3) + the
+    S-P22-5 basis confirmation (probe evidence; second display-layer fix only if the
+    basis itself is off).
+  - `[new/changed] ui/main_window.py` — `_on_tz_changed` fan-out (main + every
+    `self._popouts` entry) + QSettings persist/restore (S-P22-2).
+  - `[new/changed] tests` — the toggle matrix suites (all red-first on the current
+    silent-no-op path) + offscreen + `node --test` formatter cases.
+- **Dependencies:** none on P22-1 (disjoint files except `ui/main_window.py`'s
+  separate blocks — serialized on that file if waved together); P22-3 consumes its
+  formatter path for cursor-time labels.
+- **`touches_files`:** `ui/lwc_view.py` + `ui/lwc_bridge.py` +
+  `chart_assets/lwc/chart.js` + `ui/main_window.py` (tz block only) + suites.
+  Serialised against P22-1 on `ui/main_window.py` and against P22-3 on `chart.js`.
+- **Exit condition:** every toggle-matrix case is red-first today (labels don't move)
+  and green after (axis × crosshair × tooltip shift by the date-correct delta on all
+  views; restart restores); the DG114 record names one seam or two; no stored
+  timestamp changes; P21 viewport suites stay green.
+
+### P22-3 — Crosshair free-tracking pin — size S
+
+- **Goal:** the horizontal crosshair line tracks the cursor price continuously with
+  no snap anywhere; the vertical line's behaviour is stated, not assumed.
+- **Covers:** D63 (`AC-D63.1`: between-close hover cases at rest + during live ticks
+  asserting line == cursor; absence cases asserting no Magnet mode id and no snap
+  subscriber); Journey 60 (incl. out-of-range clamp edge); A183; R136; FS20 (stays
+  a suggestion — nothing built); DG115 via the escalate-not-assume tripwire.
+- **Deliverables:**
+  - `[new/changed] chart_assets/lwc/chart.js` and/or `[new/changed]
+    chart_assets/lwc/interaction.js` — the S-P22-4 pin (Normal-mode application at
+    creation + on every crosshair-touching `applyOptions`; snap-source removal after
+    the repro names it). Whichever file the diagnosis clears stays `[existing]`.
+  - `[new/changed] tests` — the free-tracking suites, red-first on the current
+    snap-to-close tree.
+- **Dependencies:** P22-2 (consumes the S-P22-2/S-P22-3 formatter path for the time
+  label leg; serialized on `chart.js` if waved together).
+- **`touches_files`:** `chart_assets/lwc/chart.js` and/or `interaction.js` + suites.
+- **Exit condition:** the between-close repro is red-first and green after (line ==
+  cursor at every position, never a bar close); absence cases hold; if the vertical
+  line needs an owner decision, the phase escalates instead of assuming
+  (no silent Q104/Q105 follow-up scope).
+
+### P22-4 — Batch gate — size S
+
+- **Goal:** every `AC-D61.*`–`AC-D64.*` criterion observably satisfied, nothing else
+  changed, suite green.
+- **Covers:** D64 (`AC-D64.3`: history intact); the full-suite green gate; the
+  DG114/DG115/DG116 closure record.
+- **Deliverables:**
+  - **Batch gate** — full offscreen suite green
+    (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`, clean run per the
+    recorded shared-test-DB / stale-`pytest`-shebang gotchas) + `node --test`
+    for the page formatter core green; `AC-D64.3` history-intact check (marker grep +
+    the `### D4[1-9]` / `### D5[0-9]` / `### D60` sections present, no pre-P22
+    wording touched).
+- **Dependencies:** P22-1, P22-2, and P22-3 (verifies their joint behaviour; runs
+  after all three).
+- **`touches_files`:** offscreen + `node --test` suites only (no production edits).
+- **Exit condition:** full suites green; every `AC-D61.*`–`AC-D64.*` observably
+  satisfied; no D1–P21 behaviour or wording regressed.
+
+**Wave note.** P22-1 touches only the toolbar block + suites; P22-2 touches the tz
+path + suites; P22-3 touches the crosshair path + suites — Task Manager runs P22-2
+after P22-1 only as far as the shared `ui/main_window.py` file requires (separate
+blocks), and serializes P22-2/P22-3 on `chart_assets/lwc/chart.js`. P22-4 depends on
+all three and edits no production files.
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P22-1 | The new `set_timezone` view method publishes a tz op over the existing `LwBridge` envelopes (same batching/replay semantics as `set_series`); no `runJavaScript` eval path is added | The bridge is the established page transport with probe surfaces; an ad-hoc eval would bypass batching and replay (`handle_page_ready`) |
+| AP-P22-2 | The persisted choice holds the mode (`UTC` / `Eastern Time`), and `_eastern_offset()` remains the construction-time scalar seed (D49.6 creation threading unchanged); per-tick date-correctness lives page-side, not in the persisted value | Q103(a) persists the choice, not per-bar offsets; the DST edge forces date-aware formatting at render time, which a scalar seed cannot carry — the seed stays for compat, the formatter owns correctness |
+| AP-P22-3 | The toggle never refetches: re-label is a format + re-render pass over already-landed bars; a mid-backfill flip settles when the in-flight wave lands on the new offset (never a label mix) | AC-D62.3 promises re-render, not reload; refetching on a label change would waste pacing budget and risk P21 viewport churn |
+| AP-P22-4 | The D61 fix stays label-field-local: no D19/D20-fixture-asserted width moves. If diagnosis proves otherwise, the fixtures are re-baselined (values only, assertions never weakened) solely on Analyst sign-off — Build never assumes it | DG116 and `AC-D61.2` ("suites green unmodified") collide exactly when an asserted width must move; the tripwire keeps the collision an Analyst decision, not a silent Build reinterpretation |
+| AP-P22-5 | AC-G.1 (visual reference gate) is satisfied by reuse: no new control, glyph, colour, or placement — `Symbol:` keeps text/font/style, the toggle/crosshair/axis keep their visuals; only label correctness and viewport-neutral re-renders change | Same precedent as AP-P21-6/AP-P18 assumptions: presence-gating, not visual language, so no confirmed reference is needed |
+| AP-P22-6 | Sizes: P22-2 is M (apply path + fan-out + persistence + zone-aware formatter + basis check + matrices); P22-1/P22-3/P22-4 are S (single-surface fix + suites; snap pin + suites; gate only) | Owner scope sizes; no phase exceeds M |
+
+### Flagged Issues
+
+**None.** Every D61–D64 item is satisfiable as written on the existing stack:
+
+- D61 is a layout fix inside the existing scroll wrapper with a red-first width case
+  and an unmodified-suite guard (A181; DG116 handled by the AP-P22-4 tripwire, which
+  is a decision rule, not a gap).
+- D62's break is diagnosed from source (the `_chart_call("set_timezone")` site names
+  a method that exists nowhere in `ui/`; construction-only `_tz_offset`; boot-only
+  `lwConfigure`) — the fix is additive plumbing with probe measurables (R134 closed
+  by asserting rendered text, not state).
+- D63's mechanism is repro-first inside the phase (the AC pins the outcome; the
+  snap source is named by the failing repro, with the Magnet-default hypothesis
+  recorded but not assumed); DG115's vertical line is stated-then-escalated, never
+  assumed.
+- D64's "shared cause" is explicitly budgeted by `AC-D64.2` (one fix or two), so
+  cause-counting cannot stall the phase; the basis check is display-layer either way
+  (A185 holds — no stored timestamp is ever rewritten).
+- No `PLAN`-routed escalation is open (all `addressed` — verified 2026-11-10, 104
+  entries, zero open/PLAN); no `pending_doc_sync.md` entries remain unapplied (file
+  absent); the P21 wave machinery is only read.
+
+Status: READY_FOR_VALIDATION

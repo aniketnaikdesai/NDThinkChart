@@ -1786,3 +1786,37 @@
 - **What a different answer would change:** `AC-D60.1`'s view matrix (main-only cases vs per-view cases) and whether pop-out viewport cases enter the suite — the offset rule itself is untouched.
 - **Why it is blocking:** main-only vs per-view is a scope boundary that changes which views the build touches and which tests are written; it cannot be assumed without the owner (D51's precedent was main-only).
 - **Affected requirement section:** Phase P21 / D60 / `AC-D60.1` (FINAL per this answer); Journey 57; A177 (confirmed).
+
+# Open Questions — P22 (Batch 36 / D61–D64 — toolbar / timezone / crosshair / time-axis; Q103–Q105 BLOCKING)
+
+> Owner-reported 2026-11-10 — **Q103–Q105 ANSWERED 2026-11-10 (all recommended defaults)** — Phase P22 FINAL (`Status: READY_FOR_PLAN`). Original scope note retained below: (1) toolbar `Symbol:` clipped to `SY`; (2) UTC↔ET toggle with no visible effect; (3) crosshair horizontal line snaps to candle close, owner explicitly wants cursor-price; (4) time axis "all wrong", not user-changeable, possibly sharing a root cause with (2). D61 needed no question (layout fix, A181). **D1–P21 are NOT reopened.** No blocking question remains.
+
+## Q103 — D62: timezone-toggle scope — which surfaces re-label, and does the choice persist?
+
+- **Status:** **answered 2026-11-10 — owner chose (a) every view re-labels (main + pop-outs) and the choice persists across restarts (recommended default CONFIRMED).**
+- **Answer (owner, 2026-11-10, verbatim):** *"every view re-labels (main + pop-outs) and the choice persists across restarts."*
+- **Question:** when the UTC↔ET toggle flips, must (a) **every chart view re-label and the choice persist** (main + each pop-out re-rendered against the new offset; choice persisted across restarts), or (b) **main chart only** (pop-outs keep the offset they were created with per D49.6 handoff; no persistence — toggle resets on launch), or (c) an owner-named split (e.g. all views re-label but no persistence)?
+- **Recommended default (a):** every view + persisted. Rationale: D49.6 already threads the offset into pop-outs, so per-view divergence would be a regression; persistence matches the watchlist/timeframe precedents.
+- **What a different answer would change:** `AC-D62.3`'s view matrix (main-only vs per-view cases) and whether a persistence case enters the suite — `AC-D62.1`/`AC-D62.2` (axis + cursor relabel) are untouched.
+- **Why it is blocking:** per-view vs main-only assert different pop-out labels after the same flip, and persisted vs reset assert different labels after a restart — the tests cannot be written without the pick.
+- **Affected requirement section:** Phase P22 / D62 / `AC-D62.3` (provisional); Journey 59 edge cases; A182 (provisional default).
+
+## Q104 — D63: free cursor-price only, or free-default with a magnet snap option?
+
+- **Status:** **answered 2026-11-10 — owner chose (a) free cursor-price only, no snap anywhere (recommended default CONFIRMED; owner's explicit statement; FS20 magnet stays a suggestion only).**
+- **Answer (owner, 2026-11-10, verbatim):** *"free cursor-price only, no snap anywhere."*
+- **Question:** the owner explicitly wants cursor-price tracking (magnet-off behaviour). Is that (a) **the only mode** — the horizontal line always tracks the cursor, no snap exists anywhere, or (b) **the default with an optional magnet** — free tracking normally, plus a user-facing toggle that snaps the line to OHLC (TradingView magnet), or (c) an owner-named behaviour (e.g. snap only while a modifier key is held)?
+- **Recommended default (a):** free-only. Rationale: follows the owner's explicit statement verbatim; a magnet is new UI scope that belongs in `feature_suggestions.md` unless asked for here.
+- **What a different answer would change:** `AC-D63.1`'s mode matrix (one free case vs free + snapped cases) and whether a magnet control enters the toolbar — the free-tracking assertion itself is untouched.
+- **Why it is blocking:** free-only vs magnet-option assert opposite line positions while the option is on — one suite cannot cover both without the pick, and (b) adds toolbar/screen scope.
+- **Affected requirement section:** Phase P22 / D63 / `AC-D63.1` (provisional); Journey 60 edge cases; A183 (provisional default); `feature_suggestions.md` FS20 (magnet fallback if (a) wins).
+
+## Q105 — D64: is the UTC/ET toggle the only user-facing time control, or should the time axis be user-formattable?
+
+- **Status:** **answered 2026-11-10 — owner chose (a) toggle only, no formatting UI (recommended default CONFIRMED).**
+- **Answer (owner, 2026-11-10, verbatim):** *"toggle only — no formatting UI."*
+- **Question:** once the axis is correct and toggle-responsive, may the user (a) **only flip UTC↔ET** (tick format, locale, and granularity stay as the chart renders them), or (b) **also format the axis** (owner names which: e.g. 12h/24h clock, date-order/locale, intraday tick density), or (c) an owner-named control set?
+- **Recommended default (a):** toggle only. Rationale: the report asks for correct + toggle-responsive labels, not a formatting UI — anything more is new scope with its own persistence and locale questions.
+- **What a different answer would change:** `AC-D64.1`'s user-control matrix (toggle-only cases vs per-format cases) and whether formatting controls enter the toolbar — the correctness assertion (labels == bar times in the active zone) is untouched.
+- **Why it is blocking:** toggle-only vs formattable is a scope boundary that changes which controls the build adds and which cases the suite writes; it cannot be assumed without the owner.
+- **Affected requirement section:** Phase P22 / D64 / `AC-D64.1` (provisional); Journey 61; A184 (provisional default).
