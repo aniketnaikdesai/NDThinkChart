@@ -166,6 +166,10 @@ _PACING_PATH_FILES = [
 
 _BLOCKING_TOKENS = ("time.sleep", "msleep", "QThread.sleep", "QEventLoop")
 
+# P20 (S-P20-3/DG113, approved deviation): the Q99 probe refuses honestly on
+# pacing instead of deferring — status message, nothing persisted, zero legs.
+_PROBE_REFUSE_ALLOWLIST = frozenset({"ui/main_window.py:_start_probe_load"})
+
 
 def _pacing_functions(path: Path):
     """Yield (node, source) for functions that touch the pacing contract."""
@@ -190,8 +194,9 @@ def _except_pacing_handlers(seg_src: str, path: Path, func_name: str):
 
 
 def test_t12_q41_source_scan_defers_never_sleeps():
-    """Every PacingExceeded handler defers; no pacing path blocks."""
+    """Every PacingExceeded handler defers, except the allowlisted probe refuse; no pacing path blocks."""
     handler_sites: list[str] = []
+    refused_sites: list[str] = []
     for rel in _PACING_PATH_FILES:
         path = REPO_ROOT / rel
         assert path.exists(), f"scan target missing: {rel}"
@@ -201,6 +206,17 @@ def test_t12_q41_source_scan_defers_never_sleeps():
                     f"{rel}:{node.name} uses blocking primitive {token!r}"
                 )
             for handler in _except_pacing_handlers(seg, path, node.name):
+                site = f"{rel}:{node.name}"
+                handler_sites.append(site)
+                if site in _PROBE_REFUSE_ALLOWLIST:
+                    # Approved refuse-on-pacing (P20 T1): must refuse
+                    # honestly, never defer, never block (blocking asserted
+                    # above for every site including this one).
+                    assert "load refused" in handler, (
+                        f"{site} must refuse honestly on pacing"
+                    )
+                    refused_sites.append(site)
+                    continue
                 assert ("singleShot" in handler
                         or "_schedule_wave_continuation" in handler), (
                     f"{rel}:{node.name} handles PacingExceeded without "
@@ -209,7 +225,10 @@ def test_t12_q41_source_scan_defers_never_sleeps():
                 assert "wait_seconds" in handler or "wait" in handler, (
                     f"{rel}:{node.name} defers without the reported wait"
                 )
-                handler_sites.append(f"{rel}:{node.name}")
+    # Exactly the approved probe site refuses; every other site defers.
+    assert set(refused_sites) == set(_PROBE_REFUSE_ALLOWLIST), (
+        f"probe refuse allowlist mismatch: {refused_sites}"
+    )
     # All three pacing paths (wave, prime, watchlist/live-feed) represented.
     assert any(s.startswith("ui/watchlist_panel.py") for s in handler_sites)
     assert any(s.startswith("ui/ticker_session.py") for s in handler_sites)
@@ -241,6 +260,10 @@ def test_t12_drive_live_feed_attach_throttled(monkeypatch, tmp_path):
     badged: list[bool] = []
 
     class _Session:
+        # T1 latch: the attach path consults ``session._contract_rejected_200``
+        # before subscribing; the double carries it as False (not rejected).
+        _contract_rejected_200 = False
+
         def ensure_rt_subscribed(self):
             raise PacingExceeded(3.0)
 

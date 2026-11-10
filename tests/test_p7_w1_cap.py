@@ -346,10 +346,12 @@ def test_t13_planner_contracts_and_scoped_suites():
 
     from services import backfill_service as bf
 
-    # Planner contracts unchanged: same pure signatures ...
+    # Planner contracts: same pure signatures plus the approved P20
+    # is_futures flag (S-P20-5; defaults False so equity callers are
+    # byte-identical) ...
     assert list(inspect.signature(bf.find_missing_spans).parameters) == [
         "cached_ts", "now_ts", "timeframe", "trailing_days",
-        "ext_hours", "min_sessions",
+        "ext_hours", "min_sessions", "is_futures",
     ]
     assert list(inspect.signature(bf.plan_requests).parameters) == [
         "missing_spans", "timeframe",

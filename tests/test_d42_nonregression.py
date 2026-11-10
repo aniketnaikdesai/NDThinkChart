@@ -74,11 +74,16 @@ class _Bar:
 
 
 class _FakeSession:
-    """Minimal stand-in for ``TickerSession`` (the report reads two fields)."""
+    """Minimal stand-in for ``TickerSession`` (the report reads these fields)."""
 
-    def __init__(self, spans, ext_hours: bool) -> None:
+    def __init__(self, spans, ext_hours: bool, symbol: str = "D42NR") -> None:
         self._backfill_missing_spans = list(spans)
         self._wave_extended_hours = ext_hours
+        # T2 consult: the shortfall report reads ``session.symbol`` (an
+        # equity-shaped name, so the futures branch stays off).
+        self.symbol = symbol
+        # T1 latch: carried as False so the double matches the session shape.
+        self._contract_rejected_200 = False
 
 
 # ---------------------------------------------------------------------------

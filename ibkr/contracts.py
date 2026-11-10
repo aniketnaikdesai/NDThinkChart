@@ -1,5 +1,6 @@
 from ibapi.contract import Contract
 from datetime import datetime
+import re
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
@@ -127,6 +128,68 @@ def _front_month(symbol: str, now: datetime | None = None) -> tuple[int, int]:
     return (next_year, months[0])
 
 
+# ── Index contracts (S-P20-1) ────────────────────────────────────────────
+# Per-symbol IND table, Plan-stated per the TWS IND spec (AP-P20-1):
+# SPX/CBOE highest confidence; NDX/NASDAQ, DJI/CME, RUT/CME medium.
+# Each entry is (secType, exchange, currency). Index symbols NEVER resolve
+# to STK/SMART (the SPX error-200 failure class) and never to the D36
+# futures proxy — INDEX_PROXY stays tape-only.
+IND_CONTRACTS = {
+    "SPX": ("IND", "CBOE", "USD"),
+    "NDX": ("IND", "NASDAQ", "USD"),
+    "DJI": ("IND", "CME", "USD"),
+    "RUT": ("IND", "CME", "USD"),
+}
+
+# ── STK ticker-charset pattern (S-P20-2 / AP-P20-2) ───────────────────────
+# A non-IND, non-FUT symbol is STK iff it matches the ticker charset
+# (uppercase letters/digits/dot/dash, <= 8 chars — covers ``BRK.B``/``BF-B``).
+# Charset failures (and nothing else) are "unknown" for the Q99 probe.
+_STK_SYMBOL_RE = re.compile(r"^[A-Z0-9.\-]{1,8}$")
+
+
+def _base_symbol(symbol: str) -> str:
+    """Uppercase root token (strips any trailing contract suffix)."""
+    return symbol.split()[0].upper()
+
+
+def is_index_symbol(symbol: str) -> bool:
+    """True when the symbol names a P20 index row (IND table hit)."""
+    return _base_symbol(symbol) in IND_CONTRACTS
+
+
+def is_futures_root(symbol: str) -> bool:
+    """True when the symbol names a futures root in FUTURES_SCHEDULE."""
+    return _base_symbol(symbol) in FUTURES_SCHEDULE
+
+
+def get_index_contract(symbol: str) -> Contract:
+    """Build the IND contract for an index symbol (S-P20-1 table row)."""
+    base = _base_symbol(symbol)
+    entry = IND_CONTRACTS.get(base)
+    if entry is None:
+        raise ValueError(f"Unknown index symbol: {symbol}")
+    secType, exchange, currency = entry
+    contract = Contract()
+    contract.symbol = base
+    contract.secType = secType
+    contract.exchange = exchange
+    contract.currency = currency
+    return contract
+
+
+def get_probe_contract(symbol: str) -> Contract:
+    """Build the bare symbol-only contract for the Q99 unknown-symbol probe.
+
+    No secType/exchange assumption — TWS itself resolves the symbol from
+    the bare name (the probe-adopt path takes the first returned
+    ``ContractDetails`` payload's contract for that load only).
+    """
+    contract = Contract()
+    contract.symbol = _base_symbol(symbol)
+    return contract
+
+
 # ── D36 footprint: index → futures-tape proxy ────────────────────────────────
 # Indices have no tape. Footprint/burst features resolve an index to its
 # front-month futures contract and label the output accordingly.
@@ -196,24 +259,33 @@ def get_futures_contract(symbol: str, lastTradeDateOrContractMonth: str, exchang
     return contract
 
 
-def get_contract_for_symbol(symbol: str, now: datetime | None = None) -> Contract:
-    """Auto-detect stock vs futures by symbol.
+def get_contract_for_symbol(symbol: str, now: datetime | None = None):
+    """Auto-detect index / futures / stock by symbol (S-P20-1 rule order).
+
+    Resolution order: IND table → FUTURES_SCHEDULE → STK ticker-charset
+    pattern → unknown (``None``, never the STK fallthrough).
 
     For futures, the front-month contract is computed dynamically from the
     current date using proper rollover dates (US Eastern time), so the contract
     rolls forward automatically without manual updates to the symbol table.
 
     Args:
-        symbol: e.g. "ES", "NQ", "CL", or "AAPL"
+        symbol: e.g. "SPX", "ES", "NQ", "CL", or "AAPL"
         now: optional datetime for testing; defaults to datetime.now(US/Eastern)
 
     Returns:
-        Contract with secType, exchange, currency, and lastTradeDateOrContractMonth set.
+        Contract with secType, exchange, currency, and
+        lastTradeDateOrContractMonth set — or ``None`` when the symbol
+        matches no rule (the Q99 probe seam resolves it live, or refuses).
     """
-    base = symbol.split()[0].upper()
+    base = _base_symbol(symbol)
+    if base in IND_CONTRACTS:
+        return get_index_contract(base)
     schedule = FUTURES_SCHEDULE.get(base)
     if schedule is None:
-        return get_stock_contract(symbol)
+        if _STK_SYMBOL_RE.match(base):
+            return get_stock_contract(symbol)
+        return None
 
     secType, exchange, currency, _rollover = schedule
     year, month = _front_month(base, now)

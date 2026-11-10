@@ -4912,3 +4912,162 @@ last; it edits no production files.
   rule plus the recorded P8/P11/P18 revisions, which P20 only reads.
 
 Status: READY_FOR_TASK_MANAGER
+
+---
+
+## Phase P21 — Follow-offset preservation on new-bar arrival (D60) — drafted 2026-11-09
+
+> Companion: `docs/architecture.md` § *Phase P21* (Codebase Summary, S-P21-1…S-P21-6,
+> frozen interfaces, non-functional, AR-P21-1…AR-P21-5). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P21 (D60),
+> Journey 57, `AC-D60.1`–`AC-D60.7` FINAL (Q100–Q102 answered-owner-confirmed
+> 2026-11-09; Q100 is an owner override of the analyst default — explicit actions
+> preserve, recorded with lineage in A178), A175–A180 (A177/Q102 and A179/Q101
+> CONFIRMED), R130–R133 (R130/R131 RESOLVED by the answers; R132/R133 Plan-scoped
+> below), `open_questions.md` Q100–Q102. Hard constraints: **D1–P20 are NOT
+> reopened** (P20 index/futures is in flight — read-only; the contract/planner/wave
+> machinery P21 reads is never reshaped); the Q72–Q76 follow/away derivation, the
+> S-P11-1 slot rule, the P19 prefetch trigger/thresholds, D53/D56, and the Q98
+> as-is-ET rendering are all read-only; sizes S/M only; no new module, no new
+> dependency, no schema migration, no live-TWS dependency, no order code. One phase
+> only — nothing past the D60 build waves is planned.
+
+### Traceability (requirement → architecture → phase)
+
+| Requirement / input | Architecture section | Phase |
+|---|---|---|
+| D60.1 / `AC-D60.1` (preserve offset on new-bar arrival, G×N matrix, per-view evaluation) + Journey 57 steps 1–2 + A175/A176 + Q102 | S-P21-1 (envelope slot-delta shift); Frozen (`update_live_bar` emit, `isFollowingSlot`) | P21-1 |
+| D60.2 / `AC-D60.2` (explicit return-to-edge preserves gap; ONLY manual scroll/pinch zeroes) + Journey 57 step 4 + Q100 + A178-override | S-P21-2 (remembered gap + preserve actions) | P21-1 |
+| D60.5 / `AC-D60.5` (every view, per-view gap, never shared) + Journey 57 pop-out step + Q102 + A177 | S-P21-4 (per chart-page instance state) | P21-1 |
+| D60.7 / `AC-D60.7` (wave landing while away bit-identical: backfill / realtime / prefetch legs) + Journey 57 away edge + A180 | S-P21-5 (landing neutrality, repro-first diagnosis) | P21-2 |
+| D60.4 / `AC-D60.4` (away path untouched — `AC-D51.2` regression guard) + Journey 57 step 3 | S-P11-2 (read-only) + S-P21-5 | P21-2 |
+| D60.3 / `AC-D60.3` (session open resets gap to fresh-frame default) + Journey 57 edge + Q101 + A179 | S-P21-3 (fresh-frame default wins; `fresh_frame_ops` frozen) | P21-2 |
+| D60.6 / `AC-D60.6` (history intact) | Frozen Interfaces + S-P21-6 (gate) | P21-3 |
+| A175/A176 (slot-based, forming-bar no-shift), R132 (library-seam cause), R133 (prefetch interplay) | S-P21-1/S-P21-6 | P21-1 (R132/R133 closed there) |
+| A178 (overridden default, lineage), A179/A177 (confirmed), R130/R131 (resolved by answers) | Recorded in S-P21-2/S-P21-3/S-P21-4 | No phase (no work; resolution recorded) |
+
+Every D60 expectation is addressed somewhere above; no expectation is narrowed or reinterpreted.
+
+### Phases
+
+Each phase is a milestone, coarser than tasks; the Task Manager decomposes each into
+tasks with acceptance criteria and tests. Phases are ordered; a later phase depends
+on all earlier ones unless stated. `touches_files` notes list the files a phase
+touches and flag the serialisation points.
+
+### P21-1 — Follow-offset live path + explicit-action preserve + per-view — size M
+
+- **Goal:** while following, every new-slot arrival shifts the visible range right
+  by exactly the arrival width (gap preserved, never snapped); every explicit
+  return-to-edge action resumes follow in place with the remembered gap; each view
+  holds its own gap.
+- **Covers:** D60.1 (`AC-D60.1`: G ∈ {0,1,3} × N ∈ {1,3} matrices, main + pop-out
+  with different gaps); D60.2 (`AC-D60.2`: per-action preserve cases for
+  Fit/reset, chevron/`goToRealtime`, right-edge double-click/Fit + the ONLY-zero
+  path pinned on manual scroll/pinch); D60.5 (`AC-D60.5`: two-view independence);
+  Journey 57 steps 1–2 + 4; A175/A176/A178; Q100/Q102; R130/R132/R133.
+- **Deliverables:**
+  - `[new/changed] chart_assets/lwc/chart.js` — the envelope slot-delta shift
+    (S-P21-1): newest-slot delta across the envelope → one right-shift by the
+    delta while following; forming-bar-only envelopes shift nothing; G = 0
+    degenerates to the current edge outcome. Explicit actions (S-P21-2):
+    `goToRealtime`/chevron keeps span and lands newest at remembered-gap offset;
+    `fitAndFollow` frames all then extends `to` by the remembered gap; manual
+    scroll/pinch stays the only zero path. Per-instance remembered gap (S-P21-4).
+  - `[new/changed] tests` — offscreen viewport-slot matrices (pre/post ranges +
+    gap equality), per-action preserve cases, two-view independence cases, and
+    the G = 0 degeneracy — all red-first against the current snap-to-edge path.
+  - `node --test` for the page pure core alongside the offscreen suites.
+- **Dependencies:** none (first phase; reads the P11/P18 viewport contracts
+  frozen below, changes only the recorded NOT-frozen page paths).
+- **`touches_files`:** `chart_assets/lwc/chart.js` + offscreen/`node --test`
+  suites. No Python production file is touched in this phase.
+- **Exit condition:** the G×N matrices are red-first on the current
+  `scrollToRealTime` path and green after the shift; per-action cases assert
+  post-action gap == remembered gap + follow re-engaged; two-view cases assert
+  independent preservation; manual scroll/pinch is the only asserted zero path.
+
+### P21-2 — Away-landing neutrality + session-open reset — size M
+
+- **Goal:** no landing (wave chunk, realtime update, prefetch arrival) ever moves
+  an away viewport, and no stale gap survives a session open.
+- **Covers:** D60.7 (`AC-D60.7`: ES 5-min away repro — scroll into the past with
+  a wave in flight, land chunks per leg, assert bit-identical range + follow
+  disengaged); D60.4 (`AC-D60.4`: away-arrival identity + disengaged follow as
+  the `AC-D51.2` regression guard); D60.3 (`AC-D60.3`: carried-gap session-open
+  cases asserting the post-open gap equals the fresh-frame default); Journey 57
+  step 3 + away edge; A179/A180.
+- **Deliverables:**
+  - `[new/changed] chart_assets/lwc/chart.js` + `[new/changed] ui/lwc_view.py`
+    (S-P21-5) — repro-first diagnosis of the away mover among the enumerated
+    candidate sites (chunk render without same-symbol continuity, fresh-frame
+    re-land on chunk, `fitToWidth` fallback on a failed range re-apply), then
+    the gate: landings deliver bars only, never navigation. Session-open reset
+    (S-P21-3): no Python gap is carried — the fresh frame lands on its default;
+    pinned by carried-gap open cases (may land as tests-only if the reset is
+    already structural).
+  - `[new/changed] tests` — the ES away-repro per leg (backfill / realtime /
+    prefetch), away-arrival identity suites, and session-open reset suites —
+    the repro failing on the current tree before the fix.
+- **Dependencies:** P21-1 (consumes the shift helper + remembered-gap state it
+  pins; serialized on `chart.js` if waved together).
+- **`touches_files`:** `chart_assets/lwc/chart.js` + `ui/lwc_view.py` + offscreen
+  suites. Serialised against P21-1 on `chart.js`.
+- **Exit condition:** the away repro is red-first and green after the gate (range
+  bit-identical across every landing leg, follow stays disengaged);
+  session-open cases assert default gap with a non-zero carried gap; `AC-D51.2`
+  suites stay green.
+
+### P21-3 — Batch gate — size S
+
+- **Goal:** every `AC-D60.*` criterion observably satisfied, nothing else changed,
+  suite green.
+- **Covers:** D60.6 (`AC-D60.6`: history intact); the full-suite green gate; the
+  R132/R133 closure record.
+- **Deliverables:**
+  - **Batch gate** — full offscreen suite green
+    (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`, clean run per the
+    recorded shared-test-DB / stale-`pytest`-shebang gotchas) + `node --test`
+    for the page core green; `AC-D60.6` history-intact check (marker grep + the
+    `### D4[1-9]` / `### D5[0-9]` sections present, no pre-P21 wording touched).
+- **Dependencies:** P21-1 and P21-2 (verifies their joint behaviour; runs after both).
+- **`touches_files`:** offscreen suites only (no production edits).
+- **Exit condition:** full suites green; every `AC-D60.*` observably satisfied;
+  no D51/P15/P18/P19 behaviour or wording regressed.
+
+**Wave note.** P21-1 touches only the page + suites; P21-2 touches the page +
+`ui/lwc_view.py` + suites — Task Manager runs P21-2 after P21-1 (it consumes the
+shift helper), or serializes the two on `chart_assets/lwc/chart.js` if waved
+together. P21-3 depends on both and edits no production files.
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P21-1 | The shift unit is the page logical slot (the library's logical-index range), never pixels; the window span is preserved (shift, not rescale) | The constraints fix slot-based measurement; a shift preserves span by construction, so density/width never enter the math (A176) |
+| AP-P21-2 | Each view remembers its last following gap page-side (default = `FRESH_FRAME_RIGHT_PADDING` for views that never followed); explicit actions restore follow with that gap | `AC-D60.2` promises "current gap unchanged" from any viewport state — an away view holds no live gap, so the last following gap is the only honest reading; the default matches the fresh frame a never-followed view opens on |
+| AP-P21-3 | Forming-bar growth is a no-shift structural consequence (same slot → zero envelope delta), not a separate branch | A175 + the envelope-delta design: no new slot means no new width to compensate, so tick-time jitter is impossible by construction |
+| AP-P21-4 | The within-session hole-open live republish (`update_live_bar` opened-hole branch) travels the same envelope-delta shift, applied exactly once per envelope | The republish appends a new slot like any arrival; envelope-level delta accounting (not per-op shifting) makes double-shift structurally impossible |
+| AP-P21-5 | Sizes: P21-1 is M (envelope shift + three explicit actions + per-view matrices + node core), P21-2 is M (away-mover diagnosis + landing gate + session-open pins), P21-3 is S (gate only) | Owner scope sizes; no phase exceeds M |
+| AP-P21-6 | AC-G.1 (visual reference gate) is satisfied by reuse: no new control, glyph, colour, or placement — the chevron, Fit/reset, and double-click/Fit gestures keep their P18/D3 visuals; only post-action viewports change | Same precedent as AP-P11-4/AP-P18 assumptions: presence-gating, not visual language, so no confirmed reference is needed |
+
+### Flagged Issues
+
+**None.** Every D60 item is satisfiable as written on the existing stack:
+
+- The defect is our own page call (`followLive` → `scrollToRealTime` snaps newest
+  to edge; the fallback pins `{from: slot − span, to: slot}`) — replacing the
+  edge-pin with an envelope slot-delta shift is additive page logic with
+  probe measurables (R132 resolved as a scoped fix, not a gap).
+- Q100/Q101/Q102 are all owner-answered FINAL; the override (Q100) is recorded
+  with lineage in A178 and changes only assertions, not satisfiability.
+- The away-landing yank (D60.7) is an owner-observed repro with enumerated
+  candidate sites and a repro-first gate — diagnosis inside the phase, not a
+  requirements gap (A180).
+- R133 is closed by construction: D60 shifts evaluate as settled viewport
+  changes like any pan (P19 evaluates settled reports only), and `AC-D58.4`
+  already pins prefetch arrivals as viewport-neutral.
+- No `PLAN`-routed escalation is open (all `addressed`); no `pending_doc_sync.md`
+  entries remain unapplied (file absent); the P19/P20 wave machinery is only read.
+
+Status: READY_FOR_VALIDATION

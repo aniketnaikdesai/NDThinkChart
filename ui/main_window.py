@@ -30,7 +30,12 @@ from config import settings
 from ibkr.client import IBApiClient, ConnectionState, DisconnectClass
 from ibkr.market_data import MarketDataManager, TIMEFRAME_CONFIG
 from ibkr.realtime_bars import RealtimeBarsManager
-from ibkr.contracts import get_contract_for_symbol
+from ibkr.contracts import (
+    get_contract_for_symbol,
+    get_probe_contract,
+    is_futures_root,
+)
+from ibkr.error_codes import IBKRNotReady
 from ibkr.utils import parse_ibkr_date
 from ibkr.id_manager import id_manager
 from ibkr.pacing import PacingExceeded
@@ -81,7 +86,8 @@ from services.alarm_service import evaluate_alarms
 from services.drawing_service import DEFAULT_DRAWING_COLOR
 from services.sound_service import SoundService
 from services.backfill_service import (
-    find_missing_spans, floor_bar_budget, plan_requests, present_days,
+    find_missing_spans, floor_bar_budget, futures_trading_days, plan_requests,
+    present_days,
 )
 from services.time_collapse_service import is_daily_or_coarser
 from services.market_calendar import (
@@ -467,6 +473,11 @@ class MainWindow(QMainWindow):
         # map to correlate a resolution *and* to reject a mid-flight add on a
         # transport drop (AC-D22.8.4).
         self._pending_watchlist_add: dict[int, str] = {}
+        # S-P20-3: in-flight Q99 probe-first requests, keyed by reqId, each
+        # holding (symbol, timeframe, extended_hours) for the deferred load.
+        # Unknown symbols resolve (or refuse) before any prime/wave/realtime
+        # leg issues — exactly one probe reqId per unknown load.
+        self._pending_probes: dict[int, tuple[str, str, bool]] = {}
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.watchlist_dock)
         # D17 Phase 2: live clamp plumbing. ``_apply_dock_widths`` is the single
         # shared entry point that reads the *chart area* (central widget width)
@@ -1025,11 +1036,21 @@ class MainWindow(QMainWindow):
             timeframe,
             ext_hours=ext_hours,
             min_sessions=settings.MIN_INTRADAY_SESSIONS,
+            is_futures=is_futures_root(symbol),
         )
         plans = plan_requests(missing_spans, timeframe)
         session._backfill_missing_spans = list(missing_spans)
         if plans:
-            contract = get_contract_for_symbol(symbol)
+            # ESC-108: an adopted probe contract (per-load, never persisted)
+            # survives the restore wave — the freshly resolved symbol has no
+            # table row for ``get_contract_for_symbol`` to return. A symbol
+            # with neither adoption nor table row queues no wave: a None
+            # contract must never reach req_historical_data.
+            contract = (
+                session._wave_contract or get_contract_for_symbol(symbol)
+            )
+            if contract is None:
+                return
             session.queue_wave_plans(plans, contract, timeframe, ext_hours)
 
     def _on_viewport_settled(self, oldest_visible_ts: int,
@@ -1127,7 +1148,8 @@ class MainWindow(QMainWindow):
         span_days = len(trading_days(min(cached_ts), now_ts))
         spans = find_missing_spans(cached_ts, now_ts, timeframe,
                                    trailing_days=span_days,
-                                   ext_hours=extended_hours)
+                                   ext_hours=extended_hours,
+                                   is_futures=is_futures_root(symbol))
         plans = plan_requests(spans, timeframe)
         if not plans:
             return False
@@ -1135,7 +1157,13 @@ class MainWindow(QMainWindow):
         # TIMEFRAME_CONFIG-duration window adjacent to current coverage — so
         # successive waves extend the frontier monotonically while fetchable.
         session._backfill_missing_spans = list(spans)
-        contract = get_contract_for_symbol(symbol)
+        # ESC-108: the adopted probe contract survives the prefetch wave —
+        # same ``session._wave_contract`` fallback as the realtime attach
+        # (``_attach_live_feed_if_current``). A symbol with neither adoption
+        # nor table row issues no wave: a None contract is never queued.
+        contract = session._wave_contract or get_contract_for_symbol(symbol)
+        if contract is None:
+            return False
         session.queue_wave_plans(plans[:1], contract, timeframe,
                                  extended_hours)
         self._raise_backfill_indicator(session)
@@ -1267,7 +1295,8 @@ class MainWindow(QMainWindow):
         span_days = len(trading_days(oldest_cached, now_ts))
         spans = find_missing_spans(cached_ts, now_ts, timeframe,
                                    trailing_days=span_days,
-                                   ext_hours=extended_hours)
+                                   ext_hours=extended_hours,
+                                   is_futures=is_futures_root(symbol))
         return any(span.start_ts <= visible_ts for span in spans)
 
     def _restore_popouts(self) -> None:
@@ -1623,7 +1652,9 @@ class MainWindow(QMainWindow):
             db.set_watchlist(symbols)
             self._settings.setValue(WATCHLIST_CONFIGURED_KEY, True)
         for sym in symbols:
-            self.watchlist_panel.add_symbol(sym, get_contract_for_symbol(sym))
+            self.watchlist_panel.add_symbol(
+                sym, get_contract_for_symbol(sym) or get_probe_contract(sym)
+            )
 
     def _on_contract_lookup_finished(
         self, request_id: int, symbol: str, ok: bool, reason: str
@@ -1638,6 +1669,9 @@ class MainWindow(QMainWindow):
         D39.1: search-result selections share the bounded lookup; they are
         keyed in ``_pending_search_select`` and branch to chart loading.
         """
+        if request_id in self._pending_probes:
+            self._on_probe_lookup_finished(request_id, symbol, ok, reason)
+            return
         if request_id in self._pending_search_select:
             self._on_search_sample_validated(request_id, ok, reason)
             return
@@ -1735,7 +1769,9 @@ class MainWindow(QMainWindow):
                 f"{sym} is already in the watchlist.", 3000
             )
             return
-        req_id = self._contract_lookup.request(sym, get_contract_for_symbol(sym))
+        req_id = self._contract_lookup.request(
+            sym, get_contract_for_symbol(sym) or get_probe_contract(sym)
+        )
         self._pending_watchlist_add[req_id] = sym
         self.status_bar.showMessage(f"Validating {sym}…", 3000)
 
@@ -1764,7 +1800,19 @@ class MainWindow(QMainWindow):
                 f"Could not add {sym}: disconnected.", 5000
             )
             return
-        self.watchlist_panel.add_symbol(sym, get_contract_for_symbol(sym))
+        # S-P20-3a: an unknown symbol validated ok carries the TWS-resolved
+        # contract in the lookup's retained first details (no table row).
+        _validated_details = self._contract_lookup.take_details(request_id)
+        _validated_contract = (
+            getattr(_validated_details, "contract", None)
+            if _validated_details is not None else None
+        )
+        self.watchlist_panel.add_symbol(
+            sym,
+            get_contract_for_symbol(sym)
+            or _validated_contract
+            or get_probe_contract(sym),
+        )
         db.add_watchlist_symbol(sym)
         self._settings.setValue(WATCHLIST_CONFIGURED_KEY, True)
         self.status_bar.showMessage(f"Added {sym}.", 3000)
@@ -2104,6 +2152,9 @@ class MainWindow(QMainWindow):
             timeframe = self.tf_combo.currentText()
         if extended_hours is None:
             extended_hours = self.ext_hours_btn.isChecked()
+        if not symbol:
+            self.status_bar.showMessage("Enter a symbol first.", 3000)
+            return
         # S-P8-4 / D48.4: daily-and-coarser loads use one canonical
         # full-session mode (ETH) for the cache read/write, the planner call,
         # the wave, and the prime below — the RTH/ETH toggle then converges
@@ -2111,10 +2162,106 @@ class MainWindow(QMainWindow):
         # reload is a pure cache hit (no extra historical requests).
         if is_daily_or_coarser(timeframe):
             extended_hours = True
-        if not symbol:
-            self.status_bar.showMessage("Enter a symbol first.", 3000)
+        # S-P20-4: futures-root loads run the canonical full-session mode
+        # (ETH) for the cache read/write, planner call, wave, and prime
+        # below — a near-24 h session has no meaningful RTH/ETH split, so
+        # the toggle converges with identical as-is-ET bars from one shared
+        # cache, and a cached toggle reload is a pure cache hit. The
+        # canonical owner is this load path; TickerSession only consumes the
+        # mode it is given (never re-decides it). The empty-symbol guard
+        # above owns this hunk: is_futures_root splits on whitespace, so an
+        # empty symbol would raise IndexError before the honest refuse.
+        if is_futures_root(symbol):
+            extended_hours = True
+
+        # S-P20-3 (DG113) probe-first seam: an unknown symbol (no IND/FUT
+        # row, STK-charset miss — ``get_contract_for_symbol`` returns None)
+        # resolves live via exactly one paced ``reqContractDetails`` BEFORE
+        # any prime/wave/realtime leg issues. The legs run only from the
+        # probe result (adopt-on-ok, honest refuse otherwise — see
+        # ``_on_probe_lookup_finished``), so an unfillable symbol can never
+        # accrue prime+wave+dead-realtime waste.
+        contract = get_contract_for_symbol(symbol)
+        if contract is None:
+            self._start_probe_load(symbol, timeframe, extended_hours)
             return
 
+        self._load_chart_resolved(symbol, timeframe, extended_hours, contract)
+
+    def _start_probe_load(
+        self, symbol: str, timeframe: str, extended_hours: bool
+    ) -> None:
+        """Issue the single Q99 probe for an unknown symbol's deferred load.
+
+        Exactly one ``ContractLookupService.request`` (paced, 5 s bound,
+        exactly-once) carrying the bare ``get_probe_contract`` — no
+        secType/exchange assumption. The (symbol, timeframe, extended_hours)
+        triple is parked in ``_pending_probes`` for the result slot; a
+        pacing-limited probe refuses honestly here (status message, nothing
+        persisted, zero leg reqIds) rather than queuing a retry.
+        """
+        try:
+            req_id = self._contract_lookup.request(
+                symbol, get_probe_contract(symbol)
+            )
+        except (PacingExceeded, IBKRNotReady) as e:
+            wait = getattr(e, "wait_seconds", None)
+            hint = f" (retry in {wait:.0f}s)" if wait else ""
+            self.status_bar.showMessage(
+                f"Could not resolve {symbol}: lookup pacing-limited{hint} "
+                "— load refused, nothing requested.",
+                8000,
+            )
+            return
+        self._pending_probes[req_id] = (symbol, timeframe, extended_hours)
+        self.status_bar.showMessage(f"Resolving {symbol}…", 3000)
+
+    def _on_probe_lookup_finished(
+        self, request_id: int, symbol: str, ok: bool, reason: str
+    ) -> None:
+        """Apply a Q99 probe result: adopt-on-ok, honest refuse otherwise.
+
+        ok=True → the load proceeds with the first returned
+        ``ContractDetails`` payload's contract (``take_details``) for this
+        load only; nothing is persisted. ok=False/timeout (or a payload
+        without a contract) → the load refuses with a status message,
+        persists nothing, and issues zero prime/wave/realtime reqIds.
+        """
+        pending = self._pending_probes.pop(request_id, None)
+        if pending is None:
+            return  # late / unknown — never mutate state
+        sym, timeframe, extended_hours = pending
+        if not ok:
+            self.status_bar.showMessage(
+                f"Could not resolve {sym}: {reason or 'contract not found'} "
+                "— load refused, nothing requested.",
+                8000,
+            )
+            return
+        details = self._contract_lookup.take_details(request_id)
+        contract = (
+            getattr(details, "contract", None)
+            if details is not None else None
+        )
+        if contract is None:
+            self.status_bar.showMessage(
+                f"Could not resolve {sym}: no contract details "
+                "— load refused, nothing requested.",
+                8000,
+            )
+            return
+        self._load_chart_resolved(sym, timeframe, extended_hours, contract)
+
+    def _load_chart_resolved(
+        self, symbol: str, timeframe: str, extended_hours: bool, contract
+    ) -> None:
+        """Chart-load body for an already-resolved contract.
+
+        ``load_chart`` resolves table symbols inline and unknown symbols via
+        the probe seam; both converge here so the legs (planner consult,
+        wave issuance, prime, realtime attach) run exactly once per load
+        against one contract — table row or adopted probe payload.
+        """
         # D28.2: move the primary view to the symbol's session. The old
         # session loses the primary's RT hold and view; it tears down when
         # orphaned (no views and not monitored).
@@ -2253,11 +2400,10 @@ class MainWindow(QMainWindow):
             cached_ts, now_ts, timeframe,
             ext_hours=extended_hours,
             min_sessions=min_sessions,
+            is_futures=is_futures_root(symbol),
         )
         plans = plan_requests(missing_spans, timeframe)
         new_session._backfill_missing_spans = list(missing_spans)
-
-        contract = get_contract_for_symbol(symbol)
 
         if plans:
             # P7-W1 (S-P7-1): the session issues at most
@@ -2312,7 +2458,11 @@ class MainWindow(QMainWindow):
         # sub_manager type-tagged registration, reqId routing table, and
         # stream-health transition all happen inside the session.
         # D28.1: pacing-limited subscribes defer via singleShot — never sleep.
+        # S-P20-3: a 200-rejected contract never attaches realtime (no dead
+        # realtime reqIds on an unfillable contract).
         session = self.get_or_create_session(symbol)
+        if session._contract_rejected_200:
+            return
         try:
             session.ensure_rt_subscribed()
         except PacingExceeded as e:
@@ -2342,8 +2492,15 @@ class MainWindow(QMainWindow):
         """Attach the live feed for the primed session if still current."""
         if session.symbol != self._current_symbol:
             return
+        # S-P20-3: never attach realtime to a 200-rejected contract. An
+        # adopted probe contract (per-load, never persisted) drives the
+        # attach exactly like the wave legs — the freshly resolved symbol
+        # has no table row for ``get_contract_for_symbol`` to return.
+        if session._contract_rejected_200:
+            return
         self._attach_live_feed(
-            session.symbol, get_contract_for_symbol(session.symbol)
+            session.symbol,
+            session._wave_contract or get_contract_for_symbol(session.symbol),
         )
 
     def _now_ts(self) -> int:
@@ -2584,12 +2741,17 @@ class MainWindow(QMainWindow):
                     timeframe,
                     ext_hours=mode,
                     min_sessions=settings.MIN_INTRADAY_SESSIONS,
+                    is_futures=is_futures_root(session.symbol),
                 )
                 days = sorted(
                     {
                         day
                         for span in spans
-                        for day in trading_days(span.start_ts, span.end_ts)
+                        for day in (
+                            futures_trading_days(span.start_ts, span.end_ts)
+                            if is_futures_root(session.symbol)
+                            else trading_days(span.start_ts, span.end_ts)
+                        )
                     }
                 )
                 if days:
@@ -2642,6 +2804,7 @@ class MainWindow(QMainWindow):
             timeframe,
             ext_hours=extended_hours,
             min_sessions=settings.MIN_INTRADAY_SESSIONS,
+            is_futures=is_futures_root(symbol),
         )
         return not missing
 
@@ -2870,6 +3033,9 @@ class MainWindow(QMainWindow):
 
     def _on_session_prime_complete(self, session: TickerSession) -> None:
         """A session's priming finished (or failed open) — attach live feed."""
+        # S-P20-3: a 200-rejected contract never fails open to the live feed.
+        if session._contract_rejected_200:
+            return
         if session.symbol == self._current_symbol:
             self._attach_live_feed_if_current(session)
 
@@ -3014,12 +3180,17 @@ class MainWindow(QMainWindow):
                     timeframe,
                     ext_hours=mode,
                     min_sessions=settings.MIN_INTRADAY_SESSIONS,
+                    is_futures=is_futures_root(session.symbol),
                 )
                 days = sorted(
                     {
                         day
                         for span in spans
-                        for day in trading_days(span.start_ts, span.end_ts)
+                        for day in (
+                            futures_trading_days(span.start_ts, span.end_ts)
+                            if is_futures_root(session.symbol)
+                            else trading_days(span.start_ts, span.end_ts)
+                        )
                     }
                 )
                 if days:
@@ -3059,14 +3230,21 @@ class MainWindow(QMainWindow):
         cached bars all lie outside the current mode's session window (a
         present-but-mode-empty day) is reported as missing, so the planner and
         the AC-D16.4 shortfall report cannot disagree about presence.
+        S-P20-5: futures roots use calendar-day presence (Saturday the only
+        closure) and futures day enumeration, matching the planner's
+        ``is_futures`` consult.
         """
         if not session._backfill_missing_spans:
             return []
         mode = session._wave_extended_hours
-        present = present_days((b.ts for b in bars), mode)
+        is_fut = is_futures_root(session.symbol)
+        present = present_days((b.ts for b in bars), mode, is_futures=is_fut)
+        enumerate_days = (
+            futures_trading_days if is_fut else trading_days
+        )
         missing = []
         for span in session._backfill_missing_spans:
-            for day in trading_days(span.start_ts, span.end_ts):
+            for day in enumerate_days(span.start_ts, span.end_ts):
                 if day not in present:
                     missing.append(day)
         return missing

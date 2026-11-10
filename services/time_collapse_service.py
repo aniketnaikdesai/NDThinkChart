@@ -219,18 +219,37 @@ class TimeCollapseMap:
         )
 
 
-def build_collapse_map(bars: Iterable, timeframe: str, ext_hours: bool) -> TimeCollapseMap:
+def build_collapse_map(bars: Iterable, timeframe: str, ext_hours: bool,
+                       is_futures: bool = False) -> TimeCollapseMap:
     """Build the display-x collapse map for ``bars`` on ``timeframe``.
 
     ``bars`` is an iterable of objects exposing ``.ts`` (or plain ints). The
     input objects are only read — never mutated — and no bar is dropped: the
     returned ``x_values`` has exactly one entry per input bar, in input order.
     ``1 day`` yields the identity map.
+
+    S-P20-5: ``is_futures=True`` skips D21.4 collapse folding for futures
+    roots and returns the identity map — the near-24 h overnight session is
+    trading time, so no overnight gap collapses. Defaults to ``False`` so
+    every existing caller is byte-identical.
     """
     bar_period = TIMEFRAME_SECONDS[timeframe]
     ts_seq = [_bar_ts(bar) for bar in bars]
 
     if is_daily_or_coarser(timeframe):
+        return TimeCollapseMap(
+            timeframe=timeframe,
+            bar_period=bar_period,
+            ext_hours=ext_hours,
+            is_identity=True,
+            x_values=list(ts_seq),
+            ts_to_display={ts: ts for ts in ts_seq},
+            ts_sorted=sorted(set(ts_seq)),
+            display_sorted=sorted(set(ts_seq)),
+        )
+
+    if is_futures:
+        # S-P20-5: futures skip collapse folding — identity on real ts.
         return TimeCollapseMap(
             timeframe=timeframe,
             bar_period=bar_period,

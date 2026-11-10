@@ -248,6 +248,12 @@ class TickerSession(QObject):
         # D27.9 aggregator priming state (per load).
         self._prime_req_id: int | None = None
         self._prime_symbol: str = ""
+        # S-P20-3 / AC-D16.4: TWS error 200 on any prime or wave leg rejects
+        # the load's contract. While latched, the host never attaches realtime
+        # to the rejected contract (no dead realtime reqIds) and the wave
+        # finalizes with the verbatim AC-D16.4 shortfall. Reset by
+        # prepare_load (each load starts unrejected).
+        self._contract_rejected_200: bool = False
         self._prime_timeframe: str | None = None
         # ESC-036: the current period's start, so priming bars returned from
         # before it (the clamp can over-reach) are not replayed.
@@ -451,7 +457,10 @@ class TickerSession(QObject):
 
     def _subscribe_rt(self, reset_backoff: bool = True) -> None:
         """Subscribe the 5-sec realtime bars. May raise PacingExceeded."""
-        contract = get_contract_for_symbol(self.symbol)
+        # S-P20-1: an adopted probe contract (per-load, never persisted)
+        # drives realtime exactly like the wave legs — the freshly resolved
+        # symbol has no table row for get_contract_for_symbol to return.
+        contract = self._wave_contract or get_contract_for_symbol(self.symbol)
         req_id = self._host.rt_manager.subscribe(self.symbol, contract)
         self._rt_req_id = req_id
         self._host._register_req_id(req_id, self)
@@ -487,7 +496,7 @@ class TickerSession(QObject):
         """Reconnect replay hook: re-subscribe, return the new reqId."""
         if self._rt_req_id is not None:
             self._host._unregister_req_id(self._rt_req_id)
-        contract = get_contract_for_symbol(self.symbol)
+        contract = self._wave_contract or get_contract_for_symbol(self.symbol)
         req_id = self._host.rt_manager.subscribe(self.symbol, contract)
         self._rt_req_id = req_id
         self._host._register_req_id(req_id, self)
@@ -782,6 +791,9 @@ class TickerSession(QObject):
         # P7-W2 (S-P7-4): a reload supersedes the previous load's reservation
         # with the rest of its priming state.
         self._prime_reserved = False
+        # S-P20-3: each load starts with an unrejected contract — a previous
+        # load's error-200 latch must never gate this load's realtime attach.
+        self._contract_rejected_200 = False
         self.reload_alarms()
 
     def reset_aggregator(self, timeframe: str) -> BarAggregator:
@@ -1323,6 +1335,18 @@ class TickerSession(QObject):
             self._prime_req_id = None
             self._prime_period_start = None
             self._prime_timer.stop()
+            if code == 200:
+                # S-P20-3: error 200 rejects the contract — never fail open
+                # to the live feed (no dead realtime on a rejected contract).
+                # The host skips the attach; when no wave leg remains, the
+                # wave finalizes with the verbatim AC-D16.4 shortfall.
+                self._contract_rejected_200 = True
+                self._backfill_failed_req_ids.add(req_id)
+                if self._wave_may_complete():
+                    self._host._on_session_wave_complete(self)
+                else:
+                    self._host._on_session_prime_complete(self)
+                return
             # Fail open: attach the live feed rather than strand the chart.
             self._host._on_session_prime_complete(self)
             return
@@ -1361,6 +1385,11 @@ class TickerSession(QObject):
                     "Historical request %s failed [162] after retry; "
                     "finalising short", req_id,
                 )
+            # S-P20-3: TWS error 200 rejects the load's contract — latch it so
+            # the host never attaches realtime to it and the wave finalizes
+            # with the verbatim AC-D16.4 shortfall (no dead realtime reqIds).
+            if code == 200:
+                self._contract_rejected_200 = True
             self._history_req_ids.discard(req_id)
             self._req_to_plan.pop(req_id, None)
             # P17-T1: the reqId left the wave — drop its silence stamp.

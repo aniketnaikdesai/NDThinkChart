@@ -360,6 +360,11 @@ def test_p7_t07_t12_burst_keeps_priming_with_exact_once_ordering():
 PACING_PATH_FILES = ("ui/ticker_session.py", "ui/main_window.py")
 _DEFERRAL_MARKERS = ("singleShot", ".start(", "_schedule_wave_continuation")
 
+# P20 (S-P20-3/DG113, approved deviation): the Q99 probe refuses honestly on
+# pacing instead of deferring — status message, nothing persisted, zero legs.
+# Mirrors tests/test_p7_w4_deferral.py::_PROBE_REFUSE_ALLOWLIST.
+_PROBE_REFUSE_ALLOWLIST = frozenset({"ui/main_window.py::_start_probe_load"})
+
 
 def _repo_path(rel):
     root = os.path.dirname(os.path.dirname(
@@ -389,15 +394,30 @@ def test_p7_t07_t13_no_blocking_sleep_on_any_pacing_path():
 
 
 def test_p7_t07_t13_every_pacing_handler_defers_without_blocking():
-    """Each PacingExceeded handler defers (singleShot/timer/continuation)."""
+    """Each PacingExceeded handler defers, except the allowlisted probe refuse."""
     unpaced = []
+    refused_sites: list[str] = []
     for rel in PACING_PATH_FILES:
         for name, src in _function_sources(_repo_path(rel)).items():
             if ("PacingExceeded" in src and "except" in src
                     and "import" not in src.splitlines()[0]):
+                site = f"{rel}::{name}"
+                if site in _PROBE_REFUSE_ALLOWLIST:
+                    # Approved refuse-on-pacing (P20 T1): must refuse
+                    # honestly, never defer, never block (blocking asserted
+                    # above for every site including this one).
+                    assert "load refused" in src, (
+                        f"{site} must refuse honestly on pacing"
+                    )
+                    refused_sites.append(site)
+                    continue
                 if not any(m in src for m in _DEFERRAL_MARKERS):
-                    unpaced.append(f"{rel}::{name}")
+                    unpaced.append(site)
     assert unpaced == []
+    # Exactly the approved probe site refuses; every other site defers.
+    assert set(refused_sites) == set(_PROBE_REFUSE_ALLOWLIST), (
+        f"probe refuse allowlist mismatch: {refused_sites}"
+    )
 
 
 def test_p7_t07_t13_wave_continuation_defers_and_resumes():
@@ -520,6 +540,9 @@ def test_p7_t07_t13_live_feed_attach_defers_via_singleshot():
     try:
         session = SimpleNamespace()
         session.ensure_rt_subscribed_calls = 0
+        # T1 latch: the attach path consults ``session._contract_rejected_200``
+        # before subscribing; the double carries it as False (not rejected).
+        session._contract_rejected_200 = False
 
         def _raise():
             session.ensure_rt_subscribed_calls += 1

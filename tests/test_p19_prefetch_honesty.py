@@ -249,7 +249,7 @@ def test_t01_per_chunk_incremental_render_and_in_flight_honesty(
     """
     from services.backfill_service import plan_requests
 
-    symbol = "P19H_A"
+    symbol = "P19HA"
     now_ts = _et_ts(2026, 10, 2, 20, 0)  # Friday
     win, stub, session = _setup(monkeypatch, qapp, symbol, now_ts, CHAIN_TF)
     try:
@@ -321,7 +321,7 @@ def test_t01_per_chunk_incremental_render_and_in_flight_honesty(
 def test_t01_strand_finalization_keeps_verbatim_shortfall(
         monkeypatch, qapp, caplog):
     """T01: a stranded prefetch wave keeps the verbatim AC-D16.4 shortfall."""
-    symbol = "P19H_B"
+    symbol = "P19HB"
     now_ts = _et_ts(2026, 10, 2, 20, 0)  # Friday
     win, stub, session = _setup(monkeypatch, qapp, symbol, now_ts)
     try:
@@ -368,7 +368,7 @@ def test_t01_genuine_closures_stay_empty(monkeypatch, qapp):
     now_ts = _et_ts(monday.year, monday.month, monday.day, 20, 0)
 
     # A weekend-only gap: the planner reports nothing, the trigger is silent.
-    symbol = "P19H_C"
+    symbol = "P19HC"
     win, stub, session = _setup(monkeypatch, qapp, symbol, now_ts)
     try:
         cache_bars = (_session_bars(symbol, friday)
@@ -389,7 +389,7 @@ def test_t01_genuine_closures_stay_empty(monkeypatch, qapp):
 
     # An empty chunk answer (genuine closure): one shortfall, no retry loop,
     # and no fabricated bars for the missing days.
-    symbol2 = "P19H_D"
+    symbol2 = "P19HD"
     win, stub, session = _setup(monkeypatch, qapp, symbol2, now_ts)
     try:
         hole, recent, _ = _hole_fixture(symbol2, now_ts, hole_days=1,

@@ -1,223 +1,137 @@
 {
-  "metadata": {
-    "phase": "P19",
+  "meta": {
+    "phase": "P20",
+    "plan_ref": "docs/plan.md#Phase P20",
+    "architecture_ref": "docs/architecture.md#Phase P20",
+    "requirements_ref": "docs/requirements/requirements.md#Phase P20",
     "status": "READY_FOR_BUILD"
   },
   "tasks": [
     {
-      "id": "P19-T1",
-      "title": "Settled-viewport prefetch trigger evaluation with per-timeframe thresholds",
-      "description": "Add the settled-report trigger evaluation: expose the oldest-visible bar ts from the LWC view through the existing _logical/_plotted mapping, and add the host-side evaluator in MainWindow that compares the gap (oldest-visible-ts vs oldest-cached-ts) against T(timeframe) from the S-P19-2 table via session_windows, consulting find_missing_spans for the next older step. This task proves only the fire/silent decision; wave issuance belongs to P19-T2 and no wave is issued by this task's code paths.",
+      "id": "P20-T1",
+      "title": "Contract resolution + probe-first seam + error-200 honesty",
+      "description": "Implement rule-ordered contract resolution (IND table, then FUTURES_SCHEDULE, then STK ticker-charset pattern, then unknown/None) in ibkr/contracts.py; extend ContractLookupService pending entries to retain the first contract_details payload; add the probe-first seam in the load path (unknown symbols issue exactly one paced reqContractDetails before any prime/wave/realtime leg, adopting the first-details contract on success or refusing honestly on failure); gate realtime attach so an error-200 leg ends in verbatim AC-D16.4 shortfall with no dead realtime reqIds.",
       "agent": "build_worker",
-      "task_type": "feature",
+      "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given a settled viewport report (gesture-end, programmatic frame, or initial frame) for any of the nine timeframes in either RTH or ETH mode, when the mode-aware distance between the oldest visible bar ts and the oldest cached bar ts is within T(timeframe) per the trigger table, then a prefetch fire decision is produced, and when the distance exceeds T, then silence is produced, with the boundary single-sided (within fires, beyond does not).",
-        "Given live tick traffic or a following-at-edge viewport whose buffer is full, when no new settled report arrives, then no trigger evaluation runs; given a settled report from any chart view (main or pop-out), when evaluated, then the decision is computed per that view against the shared mode-aware cache, and a weekend-closure-only gap produces silence."
+        "Given a load of any index symbol in {SPX, NDX, DJI, RUT} in either RTH or ETH mode, when the contract is built, then secType is IND with the Plan-stated exchange/currency (SPX/CBOE, NDX/NASDAQ, DJI/CME, RUT/CME, all USD) and never STK/SMART.",
+        "Given a load of any futures root in {ES, NQ, YM, RTY}, when the contract is built, then it carries exchange CME, currency USD and the existing _front_month auto-roll expiry; and given SPY/QQQ/DIA/IWM or any ordinary ticker-shaped symbol, then it still resolves STK with no probe issued.",
+        "Given a symbol matching no IND/FUT rule and failing the STK ticker-charset pattern, then the load issues exactly one probe reqId before any prime/wave/realtime leg; when the probe fails or times out, then the load refuses with a status message, persists nothing, and issues zero prime/wave/realtime reqIds; when the probe succeeds, then the load proceeds with the first returned ContractDetails payload's contract for that load only and persists no mapping.",
+        "Given TWS error 200 on any prime or wave leg, then the load finalizes with the verbatim AC-D16.4 shortfall wording, never attaches realtime to the rejected contract, and never strands a dead realtime subscription."
       ],
       "tests": [
         {
-          "test_id": "P19-T1-T01",
-          "linked_acceptance_criterion": "Given a settled viewport report (gesture-end, programmatic frame, or initial frame) for any of the nine timeframes in either RTH or ETH mode, when the mode-aware distance between the oldest visible bar ts and the oldest cached bar ts is within T(timeframe) per the trigger table, then a prefetch fire decision is produced, and when the distance exceeds T, then silence is produced, with the boundary single-sided (within fires, beyond does not).",
+          "test_id": "P20-T1-AC1",
+          "linked_acceptance_criterion": "Given a load of any index symbol in {SPX, NDX, DJI, RUT} in either RTH or ETH mode, when the contract is built, then secType is IND with the Plan-stated exchange/currency (SPX/CBOE, NDX/NASDAQ, DJI/CME, RUT/CME, all USD) and never STK/SMART.",
           "type": "unit",
-          "description": "Offscreen parametrized viewport matrix over all nine timeframes (1 min, 5 mins, 15 mins, 30 mins, 1 hour, 4 hours, 1 day, 1 week, 1 month) in RTH and ETH modes asserting fire when within T and silence when beyond T, including the single-sided boundary cell per timeframe, seeded series with clock control and stubbed cache reads; asserts the evaluator's fire/silent decision only, never wave issuance.",
-          "expected_result": "Within-T cells produce a fire decision, beyond-T cells produce silence, and the boundary cell fires on the within side and stays silent on the beyond side, for every timeframe in both modes."
+          "description": "Offscreen contract-capture matrix: 4 index symbols x 2 modes asserting secType/exchange/currency via get_contract_for_symbol. Red-first against the current STK/SMART fallthrough.",
+          "expected_result": "All 8 cells assert IND with the table exchange/currency; no cell yields STK or SMART."
         },
         {
-          "test_id": "P19-T1-T02",
-          "linked_acceptance_criterion": "Given live tick traffic or a following-at-edge viewport whose buffer is full, when no new settled report arrives, then no trigger evaluation runs; given a settled report from any chart view (main or pop-out), when evaluated, then the decision is computed per that view against the shared mode-aware cache, and a weekend-closure-only gap produces silence.",
+          "test_id": "P20-T1-AC2",
+          "linked_acceptance_criterion": "Given a load of any futures root in {ES, NQ, YM, RTY}, when the contract is built, then it carries exchange CME, currency USD and the existing _front_month auto-roll expiry; and given SPY/QQQ/DIA/IWM or any ordinary ticker-shaped symbol, then it still resolves STK with no probe issued.",
           "type": "unit",
-          "description": "Offscreen cases asserting the evaluator is not invoked on the live-tick path, a following-at-edge settled report with a full buffer yields silence, per-view reports (main vs pop-out viewports) are evaluated independently against the shared cache, and a gap spanning only a weekend closure yields silence.",
-          "expected_result": "No evaluation on live ticks; following-at-edge is a no-op; each view evaluates independently; closure-only gaps stay silent."
+          "description": "Offscreen capture: 4 futures roots asserting FUT/CME/USD/front-month expiry; STK controls (SPY, QQQ, DIA, IWM, AAPL, BRK.B) asserting STK resolution with zero probe reqIds issued.",
+          "expected_result": "Futures roots resolve FUT/CME/USD with a _front_month expiry; STK controls resolve STK and the probe path is never entered."
+        },
+        {
+          "test_id": "P20-T1-AC3a",
+          "linked_acceptance_criterion": "Given a symbol matching no IND/FUT rule and failing the STK ticker-charset pattern, then the load issues exactly one probe reqId before any prime/wave/realtime leg; when the probe fails or times out, then the load refuses with a status message, persists nothing, and issues zero prime/wave/realtime reqIds; when the probe succeeds, then the load proceeds with the first returned ContractDetails payload's contract for that load only and persists no mapping.",
+          "type": "integration",
+          "description": "Offscreen unknown-symbol load with a failing probe (timeout/empty): count probe reqIds, prime/wave/realtime reqIds, and assert the refuse status message plus no persistence.",
+          "expected_result": "Exactly one probe reqId; zero prime/wave/realtime reqIds; refuse status shown; nothing persisted."
+        },
+        {
+          "test_id": "P20-T1-AC3b",
+          "linked_acceptance_criterion": "Given a symbol matching no IND/FUT rule and failing the STK ticker-charset pattern, then the load issues exactly one probe reqId before any prime/wave/realtime leg; when the probe fails or times out, then the load refuses with a status message, persists nothing, and issues zero prime/wave/realtime reqIds; when the probe succeeds, then the load proceeds with the first returned ContractDetails payload's contract for that load only and persists no mapping.",
+          "type": "integration",
+          "description": "Offscreen unknown-symbol load with a succeeding probe: the first ContractDetails payload's contract drives the legs for that load only, with no mapping persisted.",
+          "expected_result": "Legs proceed on the adopted TWS-resolved contract; exactly one probe reqId precedes them; no persisted mapping exists after the load."
+        },
+        {
+          "test_id": "P20-T1-AC4",
+          "linked_acceptance_criterion": "Given TWS error 200 on any prime or wave leg, then the load finalizes with the verbatim AC-D16.4 shortfall wording, never attaches realtime to the rejected contract, and never strands a dead realtime subscription.",
+          "type": "integration",
+          "description": "Offscreen load against a contract that draws error 200 on prime/wave: assert shortfall finalization wording, no realtime attach, and no lingering realtime reqIds.",
+          "expected_result": "AC-D16.4 shortfall wording surfaced; zero realtime reqIds attached for the rejected contract."
         }
       ],
       "expected_artifacts": [
-        "Trigger evaluation entry in ui/lwc_view.py",
-        "Prefetch evaluator in ui/main_window.py",
-        "tests/test_p19_prefetch_trigger.py green"
+        "ibkr/contracts.py IND_CONTRACTS table, predicates, rule-ordered get_contract_for_symbol",
+        "services/contract_lookup_service.py first-details retention",
+        "ui/main_window.py + ui/ticker_session.py probe seam and error-200 realtime gate",
+        "tests/test_p20_resolution_probe.py"
       ],
       "touches_files": [
-        "ui/lwc_view.py",
-        "ui/main_window.py",
-        "tests/test_p19_prefetch_trigger.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "Settled viewport reports stored by report_viewport",
-        "BarCache oldest-cached-ts for the current triple",
-        "S-P19-2 trigger table spans"
-      ],
-      "outputs": [
-        "Fire/silent prefetch decision consumed by P19-T2 issuance"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2270-2300",
-            "why": "extend: report_viewport store contract + _on_page_viewport_report fan-out \u2014 add a reader, do not reshape the sink"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "1611-1670",
-            "why": "read-only: FRESH_FRAME span tables reused as the S-P19-2 lookahead \u2014 copy no logic out of them"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1000-1030",
-            "why": "extend: host anchor near the planner consult + queue_wave_plans call site \u2014 evaluator hunk only, no issuance here"
-          },
-          {
-            "path": "services/backfill_service.py",
-            "lines": "304-360",
-            "why": "read-only: find_missing_spans contract the trigger consults \u2014 do not modify the planner"
-          },
-          {
-            "path": "services/market_calendar.py",
-            "lines": "195-240",
-            "why": "read-only: session_windows mode-aware anchoring for intraday thresholds"
-          },
-          {
-            "path": "tests/test_history_backfill.py",
-            "lines": "302-345",
-            "why": "read-only: offscreen MainWindow + stubbed-history conventions this task's new suites follow"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_view.py:report_viewport",
-            "status": "existing"
-          },
-          {
-            "ref": "services/backfill_service.py:find_missing_spans",
-            "status": "existing"
-          },
-          {
-            "ref": "services/market_calendar.py:session_windows",
-            "status": "existing"
-          },
-          {
-            "ref": "ibkr/market_data.py:TIMEFRAME_CONFIG",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "signature": "def oldest_visible_ts(self) -> int | None",
-            "module": "ui/lwc_view.py"
-          },
-          {
-            "status": "new",
-            "signature": "def maybe_prefetch(self, oldest_visible_ts: int, following: bool) -> bool",
-            "module": "ui/main_window.py"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P19",
-        "plan_ref": "docs/plan.md#Phase P19",
-        "requirement_ids": [
-          "AC-D58.1"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p19_prefetch_trigger.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P19-T2",
-      "title": "Ordinary-wave prefetch issuance with coalesce seam and pending marker",
-      "description": "Wire a fired trigger to single-step issuance through the existing queue_wave_plans path (exactly one older planner step, pacing-gated, 120 s watchdog, D53 indicator, D56 exactly-once retry, generation fencing, at most one prefetch wave in flight per triple), with the DG111 coalesce seam: a newer trigger arriving mid-wave sets the pending-prefetch marker in TickerSession instead of cancelling, consumed on completion with a fresh re-evaluation and cleared on every terminal path. Mode-switch, symbol-switch and disconnect abandonment reuse the existing generation-bump and cancel paths.",
-      "agent": "build_worker",
-      "task_type": "feature",
-      "dependencies": [
-        "P19-T1"
-      ],
-      "acceptance_criteria": [
-        "Given a fired trigger for the current (symbol, timeframe, mode) with no wave in flight, when issued, then exactly one older planner step moves through the existing wave lifecycle (pacing-gated, 120 s watchdog, D53 indicator state, D56 exactly-once retry, generation-fenced late arrivals), and a second concurrent wave for the same triple is never in flight.",
-        "Given a newer settled trigger arriving while a prefetch wave is in flight, when it arrives, then the running wave is never cancelled and the pending-prefetch marker is set; given wave completion, then the marker is consumed with a fresh-viewport re-evaluation; given any terminal path (completion, strand, cancel, disconnect), then the marker ends cleared; given a mode, symbol, or connection change mid-wave, then the wave and marker are abandoned through the existing generation-bump and cancel paths with no cross-contamination."
-      ],
-      "tests": [
-        {
-          "test_id": "P19-T2-T01",
-          "linked_acceptance_criterion": "Given a fired trigger for the current (symbol, timeframe, mode) with no wave in flight, when issued, then exactly one older planner step moves through the existing wave lifecycle (pacing-gated, 120 s watchdog, D53 indicator state, D56 exactly-once retry, generation-fenced late arrivals), and a second concurrent wave for the same triple is never in flight.",
-          "type": "unit",
-          "description": "Offscreen wave-lifecycle cases with stubbed transport and clock control asserting the issued plan list holds exactly one planner window, the in-flight cap holds under a second trigger, pacing deferral engages, watchdog strand finalizes, D53 indicator states transition, D56 retry fires exactly once per chunk, and generation-fenced late arrivals are ignored; consumes the P19-T1 fire decision.",
-          "expected_result": "One step per wave, at most one wave in flight per triple, and every ordinary-wave lifecycle behaviour holds under the stubbed transport."
-        },
-        {
-          "test_id": "P19-T2-T02",
-          "linked_acceptance_criterion": "Given a newer settled trigger arriving while a prefetch wave is in flight, when it arrives, then the running wave is never cancelled and the pending-prefetch marker is set; given wave completion, then the marker is consumed with a fresh-viewport re-evaluation; given any terminal path (completion, strand, cancel, disconnect), then the marker ends cleared; given a mode, symbol, or connection change mid-wave, then the wave and marker are abandoned through the existing generation-bump and cancel paths with no cross-contamination.",
-          "type": "unit",
-          "description": "Offscreen coalesce-seam cases asserting a mid-wave second trigger never cancels issued chunks and sets the marker, completion consumes the marker with a fresh-viewport re-evaluation, the marker is cleared on completion/strand/cancel/disconnect paths, and mode-switch/symbol-switch/disconnect abandon the wave plus marker with no bars leaking across triples.",
-          "expected_result": "Coalesce-never-cancel holds, the marker lifecycle is consume-or-clear on every terminal path, and abandonment leaves no cross-contamination."
-        }
-      ],
-      "expected_artifacts": [
-        "Single-step issuance hunk in ui/main_window.py",
-        "Pending-prefetch marker in ui/ticker_session.py",
-        "tests/test_p19_prefetch_wave.py green",
-        "Full P7/P14/P15/P17 wave suites stay green"
-      ],
-      "touches_files": [
+        "ibkr/contracts.py",
+        "services/contract_lookup_service.py",
         "ui/main_window.py",
         "ui/ticker_session.py",
-        "tests/test_p19_prefetch_wave.py",
-        "tests/test_d56_taxonomy_pacing.py"
+        "tests/test_p20_resolution_probe.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Fire decision from P19-T1",
-        "find_missing_spans next-older step",
-        "Existing generation-bump and cancel paths"
+        "S-P20-1 IND table",
+        "S-P20-2 STK pattern",
+        "S-P20-3/S-P20-3a probe seam"
       ],
       "outputs": [
-        "One-step ordinary prefetch waves with coalesce seam",
-        "Pending-marker lifecycle consumed by P19-T3 chaining"
+        "Pinned IND/FUT/STK/unknown resolution contract set consumed by P20-T2"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/ticker_session.py",
-            "lines": "1036-1130",
-            "why": "extend: queue_wave_plans + _issue_wave_chunks issuance path \u2014 new caller with single-step lists, body unchanged"
+            "path": "ibkr/contracts.py",
+            "lines": "17-221",
+            "why": "extend: add IND_CONTRACTS + predicates, reorder get_contract_for_symbol fallthrough"
           },
           {
-            "path": "ui/ticker_session.py",
-            "lines": "160-230",
-            "why": "extend: wave-state field block where the pending-prefetch marker lands \u2014 read existing fields, reshape none"
-          },
-          {
-            "path": "ui/main_window.py",
-            "lines": "1000-1030",
-            "why": "extend: issuance hunk calling queue_wave_plans for the fired trigger \u2014 disjoint from the P19-T1 evaluator hunk"
+            "path": "services/contract_lookup_service.py",
+            "lines": "41-176",
+            "why": "extend: retain first contract_details payload in pending entries"
           },
           {
             "path": "ui/main_window.py",
-            "lines": "1723-1790",
-            "why": "read-only: stranded finalization + watchdog terminal paths that must also clear the marker"
+            "lines": "2096-2200",
+            "why": "extend: probe-first seam + error-200 leg gate in load_chart"
           },
           {
-            "path": "services/backfill_service.py",
-            "lines": "459-510",
-            "why": "read-only: plan_requests one-step chunking the issuance consumes \u2014 do not modify"
+            "path": "ui/ticker_session.py",
+            "lines": "1048-1150",
+            "why": "extend: gate realtime attach on rejected contracts (queue_wave_plans region)"
           },
           {
-            "path": "tests/test_history_backfill.py",
-            "lines": "302-345",
-            "why": "read-only: offscreen MainWindow + stubbed-history conventions this task's new suites follow"
+            "path": "ibkr/market_data.py",
+            "lines": "1-192",
+            "why": "read-only: req_contract_details paced shape reused by the probe \u2014 do not change"
           },
           {
-            "path": "tests/test_d56_taxonomy_pacing.py",
-            "lines": "182-209",
-            "why": "update: t32 terminal-message expectation (terminal state wins over transient error lines on wave-terminating errors) required by this task's _on_error ordering fix"
+            "path": "tests/test_contract_lookup_d22.py",
+            "why": "read-only: lookup timeout/exactly-once conventions the probe seam must keep"
+          },
+          {
+            "path": "tests/test_ibkr_contract_details_d22.py",
+            "why": "read-only: contract-details test conventions for this module"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/ticker_session.py:queue_wave_plans",
+            "ref": "ibkr/contracts.py:get_stock_contract",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/contracts.py:get_futures_contract",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_contract_details",
+            "status": "existing"
+          },
+          {
+            "ref": "services/contract_lookup_service.py:CONTRACT_LOOKUP_TIMEOUT_MS",
             "status": "existing"
           },
           {
@@ -225,104 +139,509 @@
             "status": "existing"
           },
           {
-            "ref": "services/backfill_service.py:find_missing_spans",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
-            "status": "existing"
+            "status": "new",
+            "signature": "IND_CONTRACTS: dict[str, tuple[str, str, str]] = {'SPX': ('IND', 'CBOE', 'USD'), 'NDX': ('IND', 'NASDAQ', 'USD'), 'DJI': ('IND', 'CME', 'USD'), 'RUT': ('IND', 'CME', 'USD')}",
+            "module": "ibkr/contracts.py"
           },
           {
             "status": "new",
-            "signature": "_pending_prefetch: bool",
-            "module": "ui/ticker_session.py"
+            "signature": "def is_index_symbol(symbol: str) -> bool: ... / def is_futures_root(symbol: str) -> bool: ...",
+            "module": "ibkr/contracts.py"
+          },
+          {
+            "status": "new",
+            "signature": "get_contract_for_symbol order: IND table -> FUTURES_SCHEDULE -> STK ticker-charset pattern (uppercase letters/digits/dot/dash, <=8 chars; SPY/QQQ/DIA/IWM always STK) -> unknown returns None, never STK fallthrough",
+            "module": "ibkr/contracts.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P19",
-        "plan_ref": "docs/plan.md#Phase P19",
+        "architecture_ref": "docs/architecture.md#Phase P20",
+        "plan_ref": "docs/plan.md#Phase P20",
         "requirement_ids": [
-          "AC-D58.2"
+          "AC-D59.1",
+          "AC-D59.2",
+          "AC-D59.3"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p19_prefetch_wave.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p20_resolution_probe.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P19-T3",
-      "title": "Fetch-while-fetchable chaining with honest stops",
-      "description": "Extend the prefetch loop so continued scrolling chains wave-after-wave while find_missing_spans reports missing trading-session spans (no arbitrary depth cap, one in flight maintained across the chain via the P19-T2 marker), stopping honestly: no wave when only genuine closures remain, a single AC-D16.4 shortfall with no retry loop beyond D56 per-chunk exactly-once when spans run past retention, and fail-open fall-through to watchdog strand-finalization on pacing exhaustion at fire time.",
+      "id": "P20-T2",
+      "title": "Futures session scoping: canonical mode + presence bypass + visual scoping",
+      "description": "Force futures-root loads onto the canonical full-session mode (S-P8-4 pattern: one shared cache, toggle is a pure cache hit) in MainWindow/TickerSession; add defaulted is_futures flag to present_days/find_missing_spans (calendar-day presence, Saturday-only closure, equity holidays fetched not assumed); skip D21.4 collapse folding and suppress D1 pre/post bands for futures roots in the collapse service and LWC band path; standalone live probe WAIVED per owner decision 2026-11-09 verbatim \"Waive it\" (P6 live-session-waiver precedent) \u2014 record the waiver and finalize on automated evidence plus honest-shortfall backstop; IND venue risk stays explicitly open (probe never claimed as run).",
       "agent": "build_worker",
-      "task_type": "feature",
+      "task_type": "code",
       "dependencies": [
-        "P19-T2"
+        "P20-T1"
       ],
       "acceptance_criteria": [
-        "Given continued scrolling into the past while the planner reports missing trading-session spans, when each wave completes, then the next older step chains (one wave in flight at a time) until the cache covers the viewport, with no arbitrary depth cap.",
-        "Given only genuine closures remain, when the evaluator re-runs, then no further wave fires and the closures stay empty; given beyond-retention spans, when the wave strand-finalizes, then the AC-D16.4 shortfall surfaces once with no retry loop beyond D56 per-chunk exactly-once; given pacing exhaustion at fire time, when the trigger fires, then the wave falls through to watchdog strand-finalization fail-open."
+        "Given a futures-root load in either RTH or ETH mode, then cache read/write, planner call, wave and prime all run the canonical full-session mode, both modes render identical as-is-ET bar positions from one shared cache, and a cached mode toggle issues no new historical request.",
+        "Given the planner is_futures flag, then existing callers are byte-identical (default False preserves mode-aware equity presence); when True, then any bar on the ET calendar date counts as present, Saturday is the only closure, equity holidays are fetched rather than assumed, and an empty fetch ends in honest AC-D16.4 shortfall rather than a silent hole.",
+        "Given futures bars spanning the overnight session in either mode, then no overnight bar is deleted by the mode-empty rule, folded by collapse, or shaded by session bands; equity symbols keep collapse folding and band shading unchanged."
       ],
       "tests": [
         {
-          "test_id": "P19-T3-T01",
-          "linked_acceptance_criterion": "Given continued scrolling into the past while the planner reports missing trading-session spans, when each wave completes, then the next older step chains (one wave in flight at a time) until the cache covers the viewport, with no arbitrary depth cap.",
-          "type": "unit",
-          "description": "Offscreen deep-scroll cases driving several successive settled reports across multiple planner steps with stubbed transport, asserting each completion chains exactly one older step, the in-flight cap holds across the chain, and coverage extends window by window; builds on the P19-T2 issuance and marker.",
-          "expected_result": "Chains extend step by step while spans are fetchable, never exceeding one wave in flight, with no depth cap cutting the chain short."
+          "test_id": "P20-T2-AC1",
+          "linked_acceptance_criterion": "Given a futures-root load in either RTH or ETH mode, then cache read/write, planner call, wave and prime all run the canonical full-session mode, both modes render identical as-is-ET bar positions from one shared cache, and a cached mode toggle issues no new historical request.",
+          "type": "integration",
+          "description": "Offscreen seeded overnight futures feed x RTH/ETH asserting as-is-ET slot equality, single shared cache, and toggle-as-pure-cache-hit (no new historical reqIds). Red-first against the current equity-mapped path.",
+          "expected_result": "RTH and ETH render identical bar positions; the toggle issues zero historical requests on a warm cache."
         },
         {
-          "test_id": "P19-T3-T02",
-          "linked_acceptance_criterion": "Given only genuine closures remain, when the evaluator re-runs, then no further wave fires and the closures stay empty; given beyond-retention spans, when the wave strand-finalizes, then the AC-D16.4 shortfall surfaces once with no retry loop beyond D56 per-chunk exactly-once; given pacing exhaustion at fire time, when the trigger fires, then the wave falls through to watchdog strand-finalization fail-open.",
+          "test_id": "P20-T2-AC2",
+          "linked_acceptance_criterion": "Given the planner is_futures flag, then existing callers are byte-identical (default False preserves mode-aware equity presence); when True, then any bar on the ET calendar date counts as present, Saturday is the only closure, equity holidays are fetched rather than assumed, and an empty fetch ends in honest AC-D16.4 shortfall rather than a silent hole.",
           "type": "unit",
-          "description": "Offscreen honest-stop cases: weekend-closure scroll asserts no wave fires and the span stays empty; beyond-retention scroll asserts the AC-D16.4 shortfall surfaces exactly once with chunk retries bounded by D56 exactly-once; pacing-exhausted fire asserts the wave falls through to watchdog strand-finalization without blocking bar delivery.",
-          "expected_result": "Closure stop stays empty and silent, retention end yields exactly one shortfall with no retry loop, and pacing exhaustion falls through fail-open."
+          "description": "Offscreen planner cases: equity defaults unchanged (existing suite green), futures calendar-day presence, Saturday closure, equity-holiday fetch-not-assumed, empty-fetch shortfall.",
+          "expected_result": "Futures presence follows calendar-day/Saturday-only rules; equity behaviour unchanged; empty futures fetch surfaces shortfall."
+        },
+        {
+          "test_id": "P20-T2-AC3",
+          "linked_acceptance_criterion": "Given futures bars spanning the overnight session in either mode, then no overnight bar is deleted by the mode-empty rule, folded by collapse, or shaded by session bands; equity symbols keep collapse folding and band shading unchanged.",
+          "type": "integration",
+          "description": "Offscreen collapse/band scoping cases: futures overnight bars survive mode-empty, collapse and band paths in both modes; equity controls still fold/shade.",
+          "expected_result": "Zero overnight futures bars deleted, folded, or band-shaded; equity folding/shading unchanged."
+        },
+        {
+          "test_id": "P20-T2-PROBE",
+          "linked_acceptance_criterion": "Given a futures-root load in either RTH or ETH mode, then cache read/write, planner call, wave and prime all run the canonical full-session mode, both modes render identical as-is-ET bar positions from one shared cache, and a cached mode toggle issues no new historical request.",
+          "type": "manual",
+          "description": "Waived-documented step, NOT run (owner decision 2026-11-09 verbatim \"Waive it\"; P6 live-session-waiver precedent; D48/D52 probe NOT executed): assert the waiver record exists and the automated passing set (P20-T2-AC1/AC2/AC3) is green; never claim the standalone live probe (SPX/NDX/DJI/RUT + ES) ran; IND venue risk stays explicitly open.",
+          "expected_result": "Waiver recorded (owner \"Waive it\" 2026-11-09, P6 precedent cited); automated tests P20-T2-AC1/AC2/AC3 passing; probe explicitly NOT claimed as run; IND venue risk noted open; no suite dependency."
         }
       ],
       "expected_artifacts": [
-        "Chaining and honest-stop hunks in ui/main_window.py and ui/ticker_session.py",
-        "tests/test_p19_prefetch_depth.py green"
+        "Canonical full-session mode forcing for futures roots in ui/main_window.py + ui/ticker_session.py",
+        "is_futures flag on present_days/find_missing_spans in services/backfill_service.py",
+        "Futures collapse/band suppression in services/time_collapse_service.py + ui/lwc_view.py + chart_assets/lwc/",
+        "tests/test_p20_futures_scoping.py + waiver record for the WAIVED standalone probe (probe NOT run; automated evidence + honest-shortfall backstop; IND venue risk open)"
       ],
       "touches_files": [
+        "services/backfill_service.py",
+        "services/time_collapse_service.py",
+        "ui/lwc_view.py",
+        "chart_assets/lwc/chart.js",
         "ui/main_window.py",
         "ui/ticker_session.py",
-        "tests/test_p19_prefetch_depth.py"
+        "tests/test_p20_futures_scoping.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P19-T2 issuance and pending-marker lifecycle",
-        "Planner missing-span reports across deep scrolls"
+        "Resolved FUT contract set from P20-T1",
+        "S-P20-4 canonical mode",
+        "S-P20-5 presence bypass"
       ],
       "outputs": [
-        "Chained fetch-while-fetchable prefetch with honest stops"
+        "Scoped futures session behaviour verified by P20-T3 gate"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
+            "path": "services/backfill_service.py",
+            "lines": "201-493",
+            "why": "extend: add defaulted is_futures to present_days/find_missing_spans"
+          },
+          {
+            "path": "services/time_collapse_service.py",
+            "lines": "53-215",
+            "why": "extend: skip collapse folding for futures roots"
+          },
+          {
             "path": "ui/main_window.py",
-            "lines": "1000-1030",
-            "why": "extend: chaining hunk re-running the evaluator on completion \u2014 disjoint from the P19-T1/T2 hunks"
+            "lines": "2096-2200",
+            "why": "extend: force canonical full-session mode for futures roots in load path (canonical owner of mode forcing)"
           },
           {
             "path": "ui/ticker_session.py",
-            "lines": "1036-1130",
-            "why": "read-only: issuance path the chain re-enters \u2014 behaviour unchanged, chain via the marker"
+            "lines": "1048-1150",
+            "why": "extend: consume canonical mode in wave legs (delegated-to, not re-decided)"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "1-120",
+            "why": "extend: suppress D1 session bands for futures roots (band path entry)"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "1-80",
+            "why": "read-only: band/collapse render entry to scope \u2014 keep edits minimal"
+          },
+          {
+            "path": "services/market_calendar.py",
+            "lines": "1-60",
+            "why": "read-only: session_windows stays unchanged; futures bypass it via the planner flag"
+          },
+          {
+            "path": "tests/test_backfill_service.py",
+            "why": "read-only: planner test conventions the new flag cases must follow"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/backfill_service.py:plan_requests",
+            "status": "existing"
+          },
+          {
+            "ref": "services/market_calendar.py:session_windows",
+            "status": "existing"
+          },
+          {
+            "ref": "services/time_collapse_service.py:TimeCollapseMap",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/contracts.py:get_futures_contract",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "def present_days(cached_ts: Iterable[int], ext_hours: bool = False, is_futures: bool = False) -> Set[date]",
+            "module": "services/backfill_service.py"
+          },
+          {
+            "status": "new",
+            "signature": "def find_missing_spans(..., is_futures: bool = False) -> ... # True: calendar-day presence, Saturday-only closure",
+            "module": "services/backfill_service.py"
+          },
+          {
+            "status": "new",
+            "signature": "Canonical owner ui/main_window.py::load_chart forces canonical full-session mode for futures roots; ui/ticker_session.py consumes it; collapse/band sites are suppressed, never remodeled",
+            "module": "ui/main_window.py"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P20",
+        "plan_ref": "docs/plan.md#Phase P20",
+        "requirement_ids": [
+          "AC-D59.3",
+          "AC-D59.4"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p20_futures_scoping.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P20-T3",
+      "title": "Proxy-never-for-price guard + P20 batch gate",
+      "description": "Pin INDEX_PROXY as structurally tape-only with offscreen provenance cases (no index chart-series bar originates from a futures contract) plus a source-shape assertion that the chart load/history path is INDEX_PROXY-free, keeping the existing burst-proxy tests green; then run the full offscreen suite green and verify history intact (D41-D58 sections and markers present, no pre-P20 wording touched). No production edits in this task.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P20-T1",
+        "P20-T2",
+        "P20-T4",
+        "P20-T5",
+        "P20-T6"
+      ],
+      "acceptance_criteria": [
+        "Given any index load across the IND family, then no bar in the chart series originates from a futures contract, the chart load/history path contains no INDEX_PROXY reference, and the existing burst-proxy tests stay green with tape-only use preserved.",
+        "Given the P20 batch, then the full offscreen suite is green on a clean run and requirements history is intact (D41-D58 sections with reversals, Existing Repository marker sentence, Current Tech Stack unchanged; no pre-P20 wording touched)."
+      ],
+      "tests": [
+        {
+          "test_id": "P20-T3-AC1a",
+          "linked_acceptance_criterion": "Given any index load across the IND family, then no bar in the chart series originates from a futures contract, the chart load/history path contains no INDEX_PROXY reference, and the existing burst-proxy tests stay green with tape-only use preserved.",
+          "type": "integration",
+          "description": "Offscreen provenance cases: index chart-series source is never a futures contract across SPX/NDX/DJI/RUT, with burst-proxy tests re-green.",
+          "expected_result": "Every index chart-series bar traces to its IND contract; burst-proxy tape use preserved and green."
+        },
+        {
+          "test_id": "P20-T3-AC1b",
+          "linked_acceptance_criterion": "Given any index load across the IND family, then no bar in the chart series originates from a futures contract, the chart load/history path contains no INDEX_PROXY reference, and the existing burst-proxy tests stay green with tape-only use preserved.",
+          "type": "unit",
+          "description": "Source-shape assertion: the chart load/history path (contracts resolution plus load_chart history legs) contains no INDEX_PROXY reference.",
+          "expected_result": "Zero INDEX_PROXY references in the chart load/history path; assertion fails if a future change re-couples them."
+        },
+        {
+          "test_id": "P20-T3-AC2",
+          "linked_acceptance_criterion": "Given the P20 batch, then the full offscreen suite is green on a clean run and requirements history is intact (D41-D58 sections with reversals, Existing Repository marker sentence, Current Tech Stack unchanged; no pre-P20 wording touched).",
+          "type": "integration",
+          "description": "Clean full offscreen suite run plus history-intact grep (D41-D58 sections, Existing Repository marker, Current Tech Stack) confirming no pre-P20 wording touched.",
+          "expected_result": "Full suite green on a clean run; all history markers present; no pre-P20 wording modified."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p20_proxy_guard.py (provenance + shape + gate cases)"
+      ],
+      "touches_files": [
+        "tests/test_p20_proxy_guard.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "Joint P20-T1 + P20-T2 behaviour",
+        "S-P20-6 proxy guard",
+        "S-P20-7 verification order"
+      ],
+      "outputs": [
+        "Pinned tape-only proxy invariant + green batch gate"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ibkr/contracts.py",
+            "lines": "133-160",
+            "why": "read-only: INDEX_PROXY + footprint_cache_key tape-only path to pin \u2014 do not change"
+          },
+          {
+            "path": "services/alarm_monitor.py",
+            "lines": "1-60",
+            "why": "read-only: _proxy_targets tape-only burst use to preserve \u2014 do not change"
+          },
+          {
+            "path": "tests/test_d39_burst_search.py",
+            "why": "read-only: burst-proxy conventions the guard cases must keep green"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/contracts.py:INDEX_PROXY",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/contracts.py:footprint_cache_key",
+            "status": "existing"
+          },
+          {
+            "ref": "services/alarm_monitor.py:_proxy_targets",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P20",
+        "plan_ref": "docs/plan.md#Phase P20",
+        "requirement_ids": [
+          "AC-D59.5",
+          "AC-D59.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p20_proxy_guard.py tests/test_d39_burst_search.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P20-T4",
+      "title": "ESC-109: migrate out-of-scope suites to the approved charset rule + new session/attach attrs (test-only)",
+      "description": "Decision (a) migrate-tests: the P20 STK-charset/probe-trigger rule stands and D1-P19 are not reopened. Rename the non-charset synthetic symbols in the p10/p19/d42 suites to STK-charset-conforming names preserving each test's intent, and carry the T1/T2-consulted attrs (session.symbol, session._contract_rejected_200) on the d42-shortfall and p7-attach doubles. No production file and no D1-P19 criteria wording is modified. Rework scope (owner-approved scan ruling 2026-11-09): reconcile the blanket-deferral source scans in this task's files with the approved probe honest-refuse path \u2014 re-verify the deferral-file scan against the landed P20-T5 allowlist and migrate the streaming-twin scan to the same allowlist shape; pacing assertions stay absolute, test-only.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P20-T1",
+        "P20-T2"
+      ],
+      "acceptance_criteria": [
+        "Given the approved STK ticker-charset rule (uppercase letters/digits/dot/dash, at most 8 chars; anything else probes), when the p10 lock/recolor, p19 prefetch-wave, and d42 depth-floor suites run, then every synthetic symbol they load is charset-conforming so no load diverts into _pending_probes, and each suite's original assertion intent (cancel semantics, floor spans, budgets) is preserved.",
+        "Given the T1 error-200 latch (session._contract_rejected_200) and the T2 session consult (session.symbol), when the d42 shortfall report and the p7 attach paths are driven by test doubles, then those doubles carry the consulted attrs and the production latch/consult code plus all D1-P19 criteria stay untouched (no getattr-default masking added in production).",
+        "Given the ESC-109 failure set, then all 16 named cases pass and the change set is test-only: only the six listed test files are modified, with zero production files and zero D1-P19 criteria or contract files touched.",
+        "Given the approved S-P20-3 probe honest-refuse path (Q99/AC-D59.2: a pacing-limited probe refuses with a status message, zero legs, never defers), when any blanket-deferral source scan in this task's files runs, then the scan accepts exactly the allowlisted refuse site (ui/main_window.py::_start_probe_load) while every other PacingExceeded handler still defers with its reported wait and no pacing path on any site uses a blocking primitive."
+      ],
+      "tests": [
+        {
+          "test_id": "P20-T4-AC1a",
+          "linked_acceptance_criterion": "Given the approved STK ticker-charset rule (uppercase letters/digits/dot/dash, at most 8 chars; anything else probes), when the p10 lock/recolor, p19 prefetch-wave, and d42 depth-floor suites run, then every synthetic symbol they load is charset-conforming so no load diverts into _pending_probes, and each suite's original assertion intent (cancel semantics, floor spans, budgets) is preserved.",
+          "type": "integration",
+          "description": "Offscreen runs of tests/test_p10_lock_recolor.py and the tests/test_p19_prefetch_wave.py marker test after migrating P10T4_*/P19W_G2 symbols to charset-conforming names.",
+          "expected_result": "Both files green; the p19 load-cancel path performs a synchronous cancel (marker cleared, generation bumped, old reqId cancelled) with nothing parked in _pending_probes."
+        },
+        {
+          "test_id": "P20-T4-AC1b",
+          "linked_acceptance_criterion": "Given the approved STK ticker-charset rule (uppercase letters/digits/dot/dash, at most 8 chars; anything else probes), when the p10 lock/recolor, p19 prefetch-wave, and d42 depth-floor suites run, then every synthetic symbol they load is charset-conforming so no load diverts into _pending_probes, and each suite's original assertion intent (cancel semantics, floor spans, budgets) is preserved.",
+          "type": "integration",
+          "description": "Offscreen run of tests/test_d42_depth_floor.py after migrating the 9-char P22* symbols to at-most-8 charset names.",
+          "expected_result": "All depth-floor cases green (including the 0-session and no-wave-ETH legs); loads proceed with no probe issued."
+        },
+        {
+          "test_id": "P20-T4-AC2",
+          "linked_acceptance_criterion": "Given the T1 error-200 latch (session._contract_rejected_200) and the T2 session consult (session.symbol), when the d42 shortfall report and the p7 attach paths are driven by test doubles, then those doubles carry the consulted attrs and the production latch/consult code plus all D1-P19 criteria stay untouched (no getattr-default masking added in production).",
+          "type": "integration",
+          "description": "Offscreen runs of the tests/test_d42_nonregression.py shortfall case and the p7 attach drives (tests/test_p7_w4_deferral.py, tests/test_p7_w4_streaming.py) after the doubles carry symbol and _contract_rejected_200=False.",
+          "expected_result": "Shortfall report and attach paths green with no AttributeError; production latch/consult code byte-identical."
+        },
+        {
+          "test_id": "P20-T4-AC3",
+          "linked_acceptance_criterion": "Given the ESC-109 failure set, then all 16 named cases pass and the change set is test-only: only the six listed test files are modified, with zero production files and zero D1-P19 criteria or contract files touched.",
+          "type": "unit",
+          "description": "Scope check via git diff --name-only over the task's change set, plus a combined green run of the six migrated files.",
+          "expected_result": "Only the six listed test files appear in the diff; combined run green across all 16 ESC-109 cases."
+        },
+        {
+          "test_id": "P20-T4-AC4a",
+          "linked_acceptance_criterion": "Given the approved S-P20-3 probe honest-refuse path (Q99/AC-D59.2: a pacing-limited probe refuses with a status message, zero legs, never defers), when any blanket-deferral source scan in this task's files runs, then the scan accepts exactly the allowlisted refuse site (ui/main_window.py::_start_probe_load) while every other PacingExceeded handler still defers with its reported wait and no pacing path on any site uses a blocking primitive.",
+          "type": "integration",
+          "description": "Re-run tests/test_p7_w4_deferral.py::test_t12_q41_source_scan_defers_never_sleeps against the landed P20-T5 allowlist (no edit expected unless the tree regressed); confirm the allowlist names exactly the approved refuse site.",
+          "expected_result": "Scan green; refused_sites equals exactly the approved probe refuse site; the no-blocking-token and every-other-site-defers assertions pass untouched."
+        },
+        {
+          "test_id": "P20-T4-AC4b",
+          "linked_acceptance_criterion": "Given the approved S-P20-3 probe honest-refuse path (Q99/AC-D59.2: a pacing-limited probe refuses with a status message, zero legs, never defers), when any blanket-deferral source scan in this task's files runs, then the scan accepts exactly the allowlisted refuse site (ui/main_window.py::_start_probe_load) while every other PacingExceeded handler still defers with its reported wait and no pacing path on any site uses a blocking primitive.",
+          "type": "integration",
+          "description": "Migrate tests/test_p7_w4_streaming.py::test_p7_t07_t13_every_pacing_handler_defers_without_blocking to the approved-refuse allowlist, mirroring the landed deferral-file shape (named frozenset allowlist, honest-refuse wording assertion on the allowlisted site, exact-match allowlist assertion, blocking/defer assertions absolute), then run the streaming file.",
+          "expected_result": "Scan green with only ui/main_window.py::_start_probe_load allowlisted; every non-allowlisted handler still asserts defer-with-wait; zero blocking sleeps; no production file touched."
+        }
+      ],
+      "expected_artifacts": [
+        "Migrated suites green: tests/test_p10_lock_recolor.py, tests/test_p19_prefetch_wave.py, tests/test_d42_depth_floor.py, tests/test_d42_nonregression.py, tests/test_p7_w4_deferral.py, tests/test_p7_w4_streaming.py"
+      ],
+      "touches_files": [
+        "tests/test_p10_lock_recolor.py",
+        "tests/test_p19_prefetch_wave.py",
+        "tests/test_d42_depth_floor.py",
+        "tests/test_d42_nonregression.py",
+        "tests/test_p7_w4_deferral.py",
+        "tests/test_p7_w4_streaming.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P20-T1 STK-charset/probe rule and 200-latch",
+        "P20-T2 session consult (session.symbol)",
+        "ESC-109 failure set (16 cases)",
+        "Owner-approved scan ruling 2026-11-09 (refuse-site allowlist; landed P20-T5 deferral pattern as mirror source)"
+      ],
+      "outputs": [
+        "Charset-conforming synthetic symbols; doubles carrying consulted attrs; test-only diff",
+        "Streaming-twin scan allowlisted to the approved refuse site; both scans green with pacing assertions absolute"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d42_depth_floor.py",
+            "lines": "95-115",
+            "why": "migrate: 9-char P22* symbols to at-most-8 charset names (0-session + no-wave cases)"
+          },
+          {
+            "path": "tests/test_p19_prefetch_wave.py",
+            "lines": "565-595",
+            "why": "migrate: P19W_G2 load-cancel symbol to charset-conforming, keep cancel semantics"
+          },
+          {
+            "path": "tests/test_p10_lock_recolor.py",
+            "lines": "20-40",
+            "why": "migrate: P10T4_ underscore BASE_SYMBOL to charset-conforming"
+          },
+          {
+            "path": "tests/test_d42_nonregression.py",
+            "lines": "70-90",
+            "why": "migrate: _FakeSession gains symbol attr for the T2 consult"
+          },
+          {
+            "path": "tests/test_p7_w4_deferral.py",
+            "lines": "165-280",
+            "why": "allowlist pattern (169-237, mirror source for the streaming twin) + attach doubles (260+) \u2014 do not change prod"
+          },
+          {
+            "path": "tests/test_p7_w4_streaming.py",
+            "lines": "385-545",
+            "why": "stale scan (391-405) to migrate + attach doubles (515+) carrying the T1 latch"
           },
           {
             "path": "ui/main_window.py",
-            "lines": "1723-1790",
-            "why": "read-only: strand-finalization terminal path the fall-through and single-shortfall cases exercise"
+            "lines": "2440-2450",
+            "why": "read-only: T1 200-latch attr name the doubles must carry \u2014 do not change"
+          },
+          {
+            "path": "ibkr/contracts.py",
+            "lines": "144-160",
+            "why": "read-only: STK ticker-charset rule the symbols must satisfy \u2014 do not change"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/contracts.py:get_contract_for_symbol",
+            "status": "existing"
+          },
+          {
+            "ref": "services/backfill_service.py:find_missing_spans",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P20",
+        "plan_ref": "docs/plan.md#Phase P20",
+        "requirement_ids": [
+          "AC-D59.2",
+          "AC-D59.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p10_lock_recolor.py tests/test_p19_prefetch_wave.py tests/test_d42_depth_floor.py tests/test_d42_nonregression.py tests/test_p7_w4_deferral.py tests/test_p7_w4_streaming.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P20-T5",
+      "title": "ESC-110: reconcile P7 signature pin + deferral scans with the approved P20 deviations (test-only)",
+      "description": "Update the P7 planner-contract pin to name the full find_missing_spans signature including the approved is_futures parameter, and allowlist exactly the approved probe refuse-on-pacing site (_start_probe_load) in both P7 deferral scans. Equity-default behaviour assertions and the defer-with-wait invariant for all non-P20 paths stay unchanged.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P20-T1",
+        "P20-T2"
+      ],
+      "acceptance_criteria": [
+        "Given the approved is_futures planner parameter, then the P7 planner-contract pin lists the full find_missing_spans signature including is_futures, while the equity-default behaviour assertions stay unchanged.",
+        "Given the approved probe refuse-on-pacing deviation (_start_probe_load refuses instead of deferring, per the T1 task text), then both P7 deferral scans allowlist exactly that site, and every other pacing path in the scan scope still must defer with the reported wait and never block."
+      ],
+      "tests": [
+        {
+          "test_id": "P20-T5-AC1",
+          "linked_acceptance_criterion": "Given the approved is_futures planner parameter, then the P7 planner-contract pin lists the full find_missing_spans signature including is_futures, while the equity-default behaviour assertions stay unchanged.",
+          "type": "unit",
+          "description": "Offscreen run of the tests/test_p7_w1_cap.py planner-contracts pin after adding is_futures to the expected parameter list.",
+          "expected_result": "Pin green with is_futures named; equity-default behaviour assertions unchanged and green."
+        },
+        {
+          "test_id": "P20-T5-AC2",
+          "linked_acceptance_criterion": "Given the approved probe refuse-on-pacing deviation (_start_probe_load refuses instead of deferring, per the T1 task text), then both P7 deferral scans allowlist exactly that site, and every other pacing path in the scan scope still must defer with the reported wait and never block.",
+          "type": "unit",
+          "description": "Offscreen run of the tests/test_p7_w4_deferral.py Q-41 scans after allowlisting the probe refuse site.",
+          "expected_result": "Scans green with exactly the probe site allowlisted; all other handlers still pinned to defer-with-wait and blocking tokens still forbidden."
+        }
+      ],
+      "expected_artifacts": [
+        "Updated pin + scans: tests/test_p7_w1_cap.py, tests/test_p7_w4_deferral.py"
+      ],
+      "touches_files": [
+        "tests/test_p7_w1_cap.py",
+        "tests/test_p7_w4_deferral.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P20-T2 is_futures planner parameter",
+        "P20-T1 probe refuse-on-pacing deviation",
+        "ESC-110 debt set (1 pin + 2 scans)"
+      ],
+      "outputs": [
+        "Reconciled P7 pins/scans; non-P20 invariants unweakened"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_p7_w1_cap.py",
+            "lines": "340-365",
+            "why": "update: signature pin gains is_futures; equity-default assertions unchanged"
+          },
+          {
+            "path": "tests/test_p7_w4_deferral.py",
+            "lines": "160-230",
+            "why": "update: both scans allowlist the probe refuse site; all other handlers still pinned"
           },
           {
             "path": "services/backfill_service.py",
-            "lines": "304-360",
-            "why": "read-only: find_missing_spans fetchable-vs-closure reports driving chain/stop"
+            "lines": "201-280",
+            "why": "read-only: authoritative is_futures signature the pin must name \u2014 do not change"
           },
           {
-            "path": "tests/test_history_backfill.py",
-            "lines": "302-345",
-            "why": "read-only: offscreen MainWindow + stubbed-history conventions this task's new suites follow"
+            "path": "ui/main_window.py",
+            "lines": "2174-2212",
+            "why": "read-only: _start_probe_load refuse-by-design the scans allowlist \u2014 do not change"
           }
         ],
         "contracts": [
@@ -331,124 +650,113 @@
             "status": "existing"
           },
           {
-            "ref": "ui/ticker_session.py:queue_wave_plans",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
+            "ref": "ui/main_window.py:_start_probe_load",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P19",
-        "plan_ref": "docs/plan.md#Phase P19",
+        "architecture_ref": "docs/architecture.md#Phase P20",
+        "plan_ref": "docs/plan.md#Phase P20",
         "requirement_ids": [
-          "AC-D58.5"
+          "AC-D59.3",
+          "AC-D59.4"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p19_prefetch_depth.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p7_w1_cap.py tests/test_p7_w4_deferral.py -q",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "M"
+        "size": "S"
       }
     },
     {
-      "id": "P19-T4",
-      "title": "Prefetch honesty, viewport stability, and batch gate",
-      "description": "Verify the joint behaviour of the trigger and wave work without production edits: prefetch arrivals render incrementally per chunk with in-flight regions never presented as complete, strand-finalization keeps the verbatim AC-D16.4 shortfall and closures stay empty, the viewport never moves on any prefetch arrival in either follow state, and the batch gate (full offscreen suite green plus AC-D58.6 history-intact check) passes with no D51/P15/D53/D56 regression.",
+      "id": "P20-T6",
+      "title": "ESC-111: migrate P19 prefetch suites to the approved charset rule (test-only)",
+      "description": "Decision (a) migrate-tests (ESC-111, same invariant as ESC-109): the approved STK-charset/probe-trigger rule stands and D1-P19 criteria are untouched. Rename every underscore-carrying synthetic symbol in the three P19 prefetch suites (P19D_CHAIN/P19D_CLOSE/P19D_RET/P19D_PACE, P19H_A/B/C/D, P19V_A/B) to STK-charset-conforming names (uppercase letters/digits/dot/dash only, at most 8 chars), preserving each test's intent (depth chaining/retention/pacing-exhaustion, honesty incremental-render/finalization/genuine-closures, viewport away/following stability). No production file and no D1-P19 criteria wording is modified; wave-issue assertions stay assertive (no weakening, no getattr-default masking in production).",
       "agent": "build_worker",
-      "task_type": "verification",
+      "task_type": "code",
       "dependencies": [
-        "P19-T2",
-        "P19-T3"
+        "P20-T1",
+        "P20-T2"
       ],
       "acceptance_criteria": [
-        "Given an in-flight prefetch whose chunks land, when bars arrive, then they render incrementally per chunk while the still-missing region stays in-flight via D53 (never presented as complete); given strand-finalization with missing days, then the verbatim AC-D16.4 shortfall is visible; given genuine closures, then they stay empty.",
-        "Given prefetch arrivals under either follow state, when they land, then the visible range is unchanged by the arrival itself (away stays away with an identical range; following extends only via the existing D51 live-update path, never via prefetch), with no fresh-frame request and no range op emitted on any prefetch arrival.",
-        "Given the completed batch, when the gate runs, then the full offscreen suite is green and requirements history is intact (marker sentence, Current Tech Stack, and the ### D41 through ### D58 sections with reversals unchanged, no pre-P19 wording touched)."
+        "Given the approved STK ticker-charset rule (uppercase letters/digits/dot/dash, at most 8 chars; anything else probes), when the P19 depth/honesty/viewport prefetch suites run, then every synthetic symbol they load is charset-conforming so no load diverts into _pending_probes, and each suite's original assertion intent (chaining/retention/pacing, incremental-honesty/finalization, away/following stability) is preserved.",
+        "Given the ESC-111 failure set, then all 8 named cases pass and the change set is test-only: only the three listed test files are modified, with zero production files and zero D1-P19 criteria or contract files touched."
       ],
       "tests": [
         {
-          "test_id": "P19-T4-T01",
-          "linked_acceptance_criterion": "Given an in-flight prefetch whose chunks land, when bars arrive, then they render incrementally per chunk while the still-missing region stays in-flight via D53 (never presented as complete); given strand-finalization with missing days, then the verbatim AC-D16.4 shortfall is visible; given genuine closures, then they stay empty.",
+          "test_id": "P20-T6-AC1a",
+          "linked_acceptance_criterion": "Given the approved STK ticker-charset rule (uppercase letters/digits/dot/dash, at most 8 chars; anything else probes), when the P19 depth/honesty/viewport prefetch suites run, then every synthetic symbol they load is charset-conforming so no load diverts into _pending_probes, and each suite's original assertion intent (chaining/retention/pacing, incremental-honesty/finalization, away/following stability) is preserved.",
           "type": "integration",
-          "description": "Offscreen in-flight/stranded/closure cases asserting per-chunk incremental render counts grow as chunks land, the D53 running state (never complete) holds while the wave runs, the verbatim AC-D16.4 shortfall text appears at strand finalization, and genuine-closure spans render empty; exercises the joint P19-T2/P19-T3 behaviour with no production edits.",
-          "expected_result": "Incremental render per chunk, in-flight honesty throughout, verbatim shortfall at strand finalization, closures empty."
+          "description": "Offscreen run of tests/test_p19_prefetch_depth.py after migrating all four P19D_* symbols to charset-conforming names.",
+          "expected_result": "All depth cases green (deep-scroll chaining, retention-edge shortfall, pacing-exhaustion watchdog); waves issue (stub.calls non-empty at wave points) with nothing parked in _pending_probes."
         },
         {
-          "test_id": "P19-T4-T02",
-          "linked_acceptance_criterion": "Given prefetch arrivals under either follow state, when they land, then the visible range is unchanged by the arrival itself (away stays away with an identical range; following extends only via the existing D51 live-update path, never via prefetch), with no fresh-frame request and no range op emitted on any prefetch arrival.",
+          "test_id": "P20-T6-AC1b",
+          "linked_acceptance_criterion": "Given the approved STK ticker-charset rule (uppercase letters/digits/dot/dash, at most 8 chars; anything else probes), when the P19 depth/honesty/viewport prefetch suites run, then every synthetic symbol they load is charset-conforming so no load diverts into _pending_probes, and each suite's original assertion intent (chaining/retention/pacing, incremental-honesty/finalization, away/following stability) is preserved.",
           "type": "integration",
-          "description": "Offscreen viewport-slot cases capturing the visible range before and after prefetch landings in away and following states, asserting identical slots across landings while away, extension only via the D51 live-update path while following, and zero fresh-frame requests plus zero range ops attributable to any prefetch arrival.",
-          "expected_result": "Viewport slots identical across every prefetch landing in both follow states, with no prefetch-attributed frame or range op."
+          "description": "Offscreen runs of tests/test_p19_prefetch_honesty.py and tests/test_p19_prefetch_viewport.py after migrating P19H_* and P19V_* symbols to charset-conforming names.",
+          "expected_result": "All 5 honesty/viewport cases green with chaining, honesty, and viewport-stability intents preserved; no load diverted into _pending_probes."
         },
         {
-          "test_id": "P19-T4-T03",
-          "linked_acceptance_criterion": "Given the completed batch, when the gate runs, then the full offscreen suite is green and requirements history is intact (marker sentence, Current Tech Stack, and the ### D41 through ### D58 sections with reversals unchanged, no pre-P19 wording touched).",
-          "type": "manual",
-          "description": "Batch gate: run the marker grep over docs/requirements/requirements.md for the Existing Repository sentence, Current Tech Stack, and the ### D41 through ### D58 sections, then run the full offscreen suite QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -o addopts= -q to green on a clean run.",
-          "expected_result": "History-intact grep passes with no pre-P19 wording touched and the full offscreen suite is green."
+          "test_id": "P20-T6-AC2",
+          "linked_acceptance_criterion": "Given the ESC-111 failure set, then all 8 named cases pass and the change set is test-only: only the three listed test files are modified, with zero production files and zero D1-P19 criteria or contract files touched.",
+          "type": "unit",
+          "description": "Scope check via git diff --name-only over the task's change set, plus a combined green run of the three migrated files.",
+          "expected_result": "Only the three listed test files appear in the diff; combined run green across all 8 ESC-111 cases."
         }
       ],
       "expected_artifacts": [
-        "tests/test_p19_prefetch_honesty.py green",
-        "tests/test_p19_prefetch_viewport.py green",
-        "Batch gate: full suite green + history intact"
+        "Migrated suites green: tests/test_p19_prefetch_depth.py, tests/test_p19_prefetch_honesty.py, tests/test_p19_prefetch_viewport.py"
       ],
       "touches_files": [
+        "tests/test_p19_prefetch_depth.py",
         "tests/test_p19_prefetch_honesty.py",
         "tests/test_p19_prefetch_viewport.py"
       ],
       "doc_required": false,
       "inputs": [
-        "Joint P19-T1/T2/T3 behaviour",
-        "D53 indicator lifecycle and D51 follow/away paths"
+        "P20-T1 STK-charset/probe rule",
+        "ESC-111 failure set (8 cases in 3 files)"
       ],
       "outputs": [
-        "Verified honesty and viewport stability",
-        "Batch gate for Code Reviewer"
+        "Charset-conforming synthetic symbols; test-only diff"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "ui/lwc_view.py",
-            "lines": "2270-2300",
-            "why": "read-only: report_viewport + preserve-path contracts the slot-stability cases assert against \u2014 do not edit"
+            "path": "tests/test_p19_prefetch_depth.py",
+            "lines": "261-280",
+            "why": "migrate: P19D_CHAIN site (also P19D_CLOSE ~372, P19D_RET ~412, P19D_PACE ~464) to charset-conforming names"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "1723-1790",
-            "why": "read-only: strand-finalization terminal path the shortfall cases assert against \u2014 do not edit"
+            "path": "tests/test_p19_prefetch_honesty.py",
+            "lines": "245-260",
+            "why": "migrate: P19H_A site (also P19H_B ~324, P19H_C ~371, P19H_D ~392) to charset-conforming names"
           },
           {
-            "path": "services/backfill_service.py",
-            "lines": "304-360",
-            "why": "read-only: planner honesty semantics the closure cases assert against \u2014 do not edit"
+            "path": "tests/test_p19_prefetch_viewport.py",
+            "lines": "160-290",
+            "why": "migrate: _run_landing_case helper plus P19V_A/P19V_B landing call sites to charset-conforming names"
           },
           {
-            "path": "tests/test_history_backfill.py",
-            "lines": "302-345",
-            "why": "read-only: offscreen MainWindow + stubbed-history conventions this task's new suites follow"
+            "path": "ibkr/contracts.py",
+            "lines": "144-160",
+            "why": "read-only: STK ticker-charset rule the symbols must satisfy \u2014 do not change"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/lwc_view.py:report_viewport",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/main_window.py:_finalize_stranded_history_wave",
+            "ref": "ibkr/contracts.py:get_contract_for_symbol",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P19",
-        "plan_ref": "docs/plan.md#Phase P19",
+        "architecture_ref": "docs/architecture.md#Phase P20",
+        "plan_ref": "docs/plan.md#Phase P20",
         "requirement_ids": [
-          "AC-D58.3",
-          "AC-D58.4",
-          "AC-D58.6"
+          "AC-D59.2",
+          "AC-D59.3"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p19_prefetch_honesty.py tests/test_p19_prefetch_viewport.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p19_prefetch_depth.py tests/test_p19_prefetch_honesty.py tests/test_p19_prefetch_viewport.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"

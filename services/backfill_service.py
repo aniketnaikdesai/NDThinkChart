@@ -82,6 +82,7 @@ __all__ = [
     "bar_period_seconds",
     "find_missing_spans",
     "floor_bar_budget",
+    "futures_trading_days",
     "plan_requests",
     "present_days",
 ]
@@ -198,7 +199,9 @@ def _day_session_window(day: date, ext_hours: bool) -> tuple[int, int] | None:
     return windows[0]["start_ts"], windows[0]["end_ts"]
 
 
-def present_days(cached_ts: Iterable[int], ext_hours: bool = False) -> Set[date]:
+def present_days(
+    cached_ts: Iterable[int], ext_hours: bool = False, is_futures: bool = False
+) -> Set[date]:
     """Return the ET dates the cached series covers **in the current mode** (S15).
 
     The exported mode-aware presence predicate (AC-D16.9): a day is *present* iff
@@ -218,7 +221,22 @@ def present_days(cached_ts: Iterable[int], ext_hours: bool = False) -> Set[date]
     Qt-free, and is reused verbatim by
     ``MainWindow._missing_backfill_trading_days`` (the AC-D16.4 shortfall report)
     so the planner and the report cannot disagree about presence.
+
+    S-P20-5: ``is_futures=True`` switches to futures calendar-day presence —
+    any bar on the ET calendar date counts (no window filter), Saturday is the
+    only closure, and equity holidays are fetched rather than assumed (an empty
+    fetch ends in honest shortfall, never a silent hole). Defaults to ``False``
+    so every existing caller is byte-identical.
     """
+    if is_futures:
+        # Calendar-day presence: the near-24 h session has no meaningful
+        # RTH/ETH split, so any bar on the ET date counts. Saturday alone is
+        # closed (Sun-Fri trade); equity holidays stay open for futures.
+        return {
+            day
+            for day in (_et_date(ts) for ts in cached_ts)
+            if not _is_futures_closure(day)
+        }
     by_day: dict[date, List[int]] = {}
     for ts in cached_ts:
         by_day.setdefault(_et_date(ts), []).append(ts)
@@ -245,6 +263,34 @@ def _trading_days(start_day: date, end_day: date) -> List[date]:
     return days
 
 
+def _is_futures_closure(day: date) -> bool:
+    """True only for Saturday — the single futures closure (S-P20-5, AP-P20-4).
+
+    Futures trade Sun-Fri; the futures week has no weekend pair and no equity
+    holiday (those sessions are fetched, never assumed — an empty fetch ends
+    in honest shortfall, never a silent hole).
+    """
+    return day.weekday() == 5  # Saturday
+
+
+def futures_trading_days(start_ts: int, end_ts: int) -> List[date]:
+    """Return the ET futures-trading days in the inclusive range, ascending.
+
+    Every ET calendar day except Saturday (S-P20-5): Sun-Fri trade, including
+    US-equity holidays. Returns ``[]`` when ``end_ts < start_ts``.
+    """
+    if end_ts < start_ts:
+        return []
+    days: List[date] = []
+    current = _et_date(start_ts)
+    end = _et_date(end_ts)
+    while current <= end:
+        if not _is_futures_closure(current):
+            days.append(current)
+        current += timedelta(days=1)
+    return days
+
+
 def _build_span(first_day: date, last_day: date, now_ts: int) -> MissingSpan:
     start_ts = _et_day_start_ts(first_day)
     end_ts = min(now_ts, _et_day_start_ts(last_day + timedelta(days=1)))
@@ -253,22 +299,30 @@ def _build_span(first_day: date, last_day: date, now_ts: int) -> MissingSpan:
     return MissingSpan(start_ts=start_ts, end_ts=end_ts)
 
 
-def _floor_day(now_day: date, min_sessions: int) -> date:
+def _floor_day(
+    now_day: date, min_sessions: int, is_futures: bool = False
+) -> date:
     """The ``min_sessions``-th trading day before the current session (S17).
 
     The current session is *now*'s ET day when it is a trading day, otherwise the
     most recent trading day at or before it (a weekend/holiday *now* still has a
     current session). The returned day is that many trading days earlier, so the
-    caller can request the floor **backwards**.
+    caller can request the floor **backwards**. With ``is_futures`` (S-P20-5)
+    the futures week applies (Saturday the only closure).
     """
+    is_open = (
+        (lambda day: not _is_futures_closure(day))
+        if is_futures
+        else is_trading_day
+    )
     day = now_day
-    while not is_trading_day(day):
+    while not is_open(day):
         day -= timedelta(days=1)
     floor = day
     remaining = min_sessions
     while remaining > 0:
         day -= timedelta(days=1)
-        if is_trading_day(day):
+        if is_open(day):
             remaining -= 1
             floor = day
     return floor
@@ -279,6 +333,7 @@ def _floor_missing_span(
     min_sessions: int,
     present: Set[date],
     now_ts: int,
+    is_futures: bool = False,
 ) -> MissingSpan | None:
     """The single backwards floor span, or ``None`` once the floor is filled (S17).
 
@@ -288,7 +343,9 @@ def _floor_missing_span(
     (including the empty-cache case). Returns ``None`` when the span would be
     empty.
     """
-    start_ts = _et_day_start_ts(_floor_day(now_day, min_sessions))
+    start_ts = _et_day_start_ts(
+        _floor_day(now_day, min_sessions, is_futures=is_futures)
+    )
     if present:
         end_ts = min(_et_day_start_ts(min(present)), now_ts)
     else:
@@ -308,6 +365,7 @@ def find_missing_spans(
     trailing_days: int = TRAILING_BAR_GRANULARITY_DAYS,
     ext_hours: bool = False,
     min_sessions: int = 0,
+    is_futures: bool = False,
 ) -> List[MissingSpan]:
     """Return the trading sessions missing between the cached series and *now*.
 
@@ -330,6 +388,13 @@ def find_missing_spans(
     that floor span rather than ``[]``). The span is fetched backwards and
     collapses to empty once the earliest present day reaches the floor day. The
     default ``0`` keeps every existing caller's semantics exactly (``AP-D42-2``).
+
+    S-P20-5: ``is_futures=True`` (default ``False``, preserving every existing
+    caller byte-for-byte) switches to futures presence — calendar-day presence
+    (any bar on the ET date counts, Saturday the only closure) with the
+    futures week for the floor and the trailing-day enumeration, and full-day
+    windows for the bar-level pass. Equity holidays are fetched, not assumed:
+    an empty fetch ends in honest shortfall, never a silent hole.
 
     Bar-level detection is gap-based (it uses the cached timestamps, never
     assumed slot positions, so it is agnostic to bar anchoring): within each
@@ -358,21 +423,33 @@ def find_missing_spans(
         # S17: bypass the empty-cache early return when the floor is requested —
         # an empty cache becomes one span from the floor day to *now*.
         if floor_enabled:
-            floor_span = _floor_missing_span(now_day, min_sessions, set(), now_ts)
+            floor_span = _floor_missing_span(
+                now_day, min_sessions, set(), now_ts, is_futures=is_futures
+            )
             return [floor_span] if floor_span is not None else []
         return []
 
-    present = present_days(ts_values, ext_hours)
+    present = present_days(ts_values, ext_hours, is_futures=is_futures)
     first_day = min(_et_date(ts) for ts in ts_values)
 
     spans: List[MissingSpan] = []
     if floor_enabled:
-        floor_span = _floor_missing_span(now_day, min_sessions, present, now_ts)
+        floor_span = _floor_missing_span(
+            now_day, min_sessions, present, now_ts, is_futures=is_futures
+        )
         if floor_span is not None:
             spans.append(floor_span)
 
     if now_day >= first_day:
-        trading = _trading_days(first_day, now_day)
+        if is_futures:
+            # S-P20-5: the futures week — every ET day except Saturday.
+            trading = [
+                first_day + timedelta(days=n)
+                for n in range((now_day - first_day).days + 1)
+                if not _is_futures_closure(first_day + timedelta(days=n))
+            ]
+        else:
+            trading = _trading_days(first_day, now_day)
         missing = [day for day in trading if day not in present]
 
         # Merge runs of consecutive *trading* days (holidays/weekends between them
@@ -390,7 +467,8 @@ def find_missing_spans(
 
         spans.extend(
             _bar_level_missing_spans(
-                ts_values, now_ts, timeframe, trailing_days, ext_hours
+                ts_values, now_ts, timeframe, trailing_days, ext_hours,
+                is_futures=is_futures,
             )
         )
     return spans
@@ -402,12 +480,18 @@ def _bar_level_missing_spans(
     timeframe: str,
     trailing_days: int,
     ext_hours: bool,
+    is_futures: bool = False,
 ) -> List[MissingSpan]:
     """D27.7: intraday holes in the trailing ``trailing_days`` trading days.
 
     Gap-based: for each trailing day with cached bars, a gap of more than 1.5
     bar periods between consecutive cached bars (or a session edge and the
     nearest bar) becomes a MissingSpan. See :func:`find_missing_spans`.
+
+    S-P20-5: with ``is_futures`` the trailing enumeration uses the futures
+    week (Saturday the only closure) and each day's window is the full ET
+    calendar day — overnight futures bars sit inside the window, so the
+    overnight session is never reported as a hole.
     """
     period = bar_period_seconds(timeframe)
     if period >= 86_400 or trailing_days <= 0:
@@ -418,7 +502,8 @@ def _bar_level_missing_spans(
     days: List[date] = []
     day = now_day
     while len(days) < trailing_days:
-        if is_trading_day(day):
+        is_open = not _is_futures_closure(day) if is_futures else is_trading_day(day)
+        if is_open:
             days.append(day)
         day -= timedelta(days=1)
 
@@ -433,7 +518,13 @@ def _bar_level_missing_spans(
             continue  # owned by the day-presence pass
         day_start = _et_day_start_ts(day)
         day_end = _et_day_start_ts(day + timedelta(days=1))
-        for window in session_windows(day_start, day_end, ext_hours):
+        if is_futures:
+            # S-P20-5: the near-24 h session is one full-day window — the
+            # overnight range is trading time, never a hole.
+            windows = [{"start_ts": day_start, "end_ts": day_end}]
+        else:
+            windows = session_windows(day_start, day_end, ext_hours)
+        for window in windows:
             ws, we = window["start_ts"], window["end_ts"]
             bound = min(we, now_ts)
             in_window = sorted(t for t in day_ts if ws <= t <= bound)

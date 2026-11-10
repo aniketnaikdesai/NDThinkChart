@@ -437,3 +437,46 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 1.
 - bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
 - 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view
 - de01dfa ESC-086: reconcile S-P10-2 decision record with as-built drag flow (record only)
+## P20 — 2026-11-10
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 2.
+
+### Done
+- P20-T1 — P20-T1 done: probe-first seam (unknown symbols issue exactly one probe before any leg; adopt-on-ok, honest refuse otherwise) + error-200 realtime gate with AC-D16.4 shortfall; 21/21 new tests pass, neighbors green
+- P20-T2 — P20-T2 done: futures roots run canonical full-session mode (one shared cache, toggle is pure cache hit), planner is_futures flag with Saturday-only closure, collapse/band suppression for futures; 13 pass + 1 skipped (owner-run live probe, still PENDING). Note: corrected one unsatisfiable equity-collapse control in the in-flight test (contiguous overnight feed cannot fold under the frozen gap-based collapse contract; equity folding still pinned via the weekend-gap control). chart.js needed no change (read-only scope confirmed).
+- P20-T3 — P20-T3 proxy-never-for-price guard green: IND provenance + INDEX_PROXY-free chart path pinned, burst suite green, history intact
+- P20-T2 — P20-T2 futures session scoping verified green: canonical full-session mode for futures roots, planner is_futures flag, collapse/band suppression; PROBE owner-waived 2026-11-09 ('Waive it', P6 precedent), never claimed as run; IND venue risk stays open.
+- P20-T1 — ESC-108 fixed: adopted probe contract survives restore and prefetch waves via session._wave_contract fallback, and a None contract is never queued (wave skipped instead); two regression tests added, all 23 pass
+- P20-T2 — P20-T2 rework done: dropped the ibkr import from ui/lwc_view.py (renderer-local futures root set + bool passthrough, futures visual scoping intact); task suite 13 passed + PROBE skipped-as-waived, boundary AST-clean, chart_model suite green
+- P20-T5 — P7 planner pin now names full find_missing_spans signature incl. is_futures; deferral scan allowlists exactly _start_probe_load refuse site, all other pacing paths still defer-with-wait
+- P20-T4 — P20-T4 done: synthetic symbols charset-conforming, doubles carry T1/T2 attrs, streaming scan migrated to probe-refuse allowlist; 52 passed, test-only
+- P20-T2 — P20-T2 rework: empty-symbol guard moved above futures canonical-mode hunk (IndexError fixed, verified); PROBE skip converted to passing assert-waiver (owner Waive it 2026-11-09, P6 precedent, IND risk open); 14/14 green
+- P20-T3 — P20 proxy-never-for-price guard: index chart-series provenance + INDEX_PROXY-free chart path pinned, burst-proxy tape use preserved
+- P20-T6 — Migrated 10 P19 prefetch synthetic symbols to STK-charset names (P19DCHN/P19DCLS/P19DRET/P19DPACE, P19HA–P19HD, P19VA/P19VB); all 9 prefetch cases green, change set test-only
+- P20-T3 — P20 proxy-never-for-price guard green (14 guard cases + burst suite: 54 passed); history intact; batch gate NOT green: 8 failures confined to out-of-scope tests/test_p19_prefetch_{depth,honesty,viewport}.py in a tree dirty with sibling in-flight edits — left untouched per out-of-scope rule
+
+### Blocked
+- P20-T4 — Output:
+- P20-T3 — Output:
+
+### Recent commits
+- 65bc3e7 P19: scroll-triggered backfill prefetch (D58, owner-accepted trigger table)
+- b39fdf2 P18: go-to-latest chevron + fresh per-timeframe framing (D57, Q92-95 answered)
+- e50a759 P17: silence retry for historical chunks (D56, Q88-91 answered)
+- 2223786 P16: doc consolidation D55 batch 1 (inventory, fact sheet, navigation, live-only guides, P6/P7 reconciliation, disposition ledger + Q87 deletions, final review)
+- 945a2b2 Scratch + evidence: D53 4-phase live probe harness (v3 logging) and TWS probe findings/reports
+- e9e5912 P15: 10-second load-chart target + graceful degradation (D54, target reading A148)
+- 2d8fabd P14: persistent backfill-state indicator + cache-current guard (D53, Finding 2)
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
+- d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
+- bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+- 550ba8a Q-59: renderer-owned color index replaces data.db read in LWC view

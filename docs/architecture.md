@@ -8434,3 +8434,226 @@ roots.
 | S-P20-6 | **Proxy-never-for-price guard (D59.5).** The chart load/history path resolves chart contracts exclusively through the S-P20-1 table (IND/FUT/STK) and never consults `INDEX_PROXY`; the proxy stays reachable only from tape-dependent paths (burst `_proxy_targets`, `footprint_cache_key`). Pinned by offscreen provenance cases (index chart-series source ≠ futures) + a source-shape assertion (chart path `INDEX_PROXY`-free) + the existing burst-proxy tests staying green. Rationale: the owner's binding correction ("never substitute futures data for an index price series") must hold structurally, not by convention. Alternative: runtime contract check per bar (rejected — per-tick cost for a load-time invariant; the shape assertion + provenance cases pin it at the seam). | `[new in P20]` — structural guard; tape-only proxy use frozen, not moved |
 | S-P20-7 | **Verification order: contracts first, overnight repro second, provenance + gate last.** P20-1 proves the per-symbol resolution matrix red-first (SPX STK/SMART today → IND after) + probe-once + error-200/no-dead-realtime honesty; P20-2 proves the overnight futures matrix red-first then green (as-is ET both modes, collapse/bands scoped, mode-empty vacuous) + the standalone live probe (owner-run: IND rows accepted, ES price + time correct); P20-3 proves provenance + full-suite green + history intact. Rationale: each D59 expectation is offscreen-measurable today via contract capture + seeded overnight feeds with clock control. | `[new in P20]` — process decision; pins R125–R129 handling |
 
+---
+
+## Phase P21 — Follow-offset preservation on new-bar arrival (D60) — drafted 2026-11-09
+
+> Companion: `docs/plan.md` § *Phase P21* (traceability, three phases, assumptions,
+> flagged issues). Requirements input:
+> `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P21 (D60),
+> Journey 57, `AC-D60.1`–`AC-D60.7` FINAL (Q100–Q102 answered-owner-confirmed
+> 2026-11-09; Q100 overrides the analyst default with lineage in A178),
+> A175–A180, R130–R133, `design_gaps.md` (no new gap — R132/R133 are Plan-scoped
+> below). **D1–P20 are NOT reopened** (P20 index/futures is in flight —
+> read-only; the contract/planner/wave machinery is consulted, never reshaped).
+> Existing-repo run: every decision below carries one status label relative to the
+> codebase — `[existing]` (present, unmodified this phase), `[new]` (introduced),
+> `[new/changed]` (present and modified). No new module, no new dependency, no
+> schema migration, no live-TWS dependency, no order code. One phase only —
+> nothing past the D60 build waves is planned.
+
+### Relationship to prior phases
+
+P21 builds on the P11 follow model (S-P11-1…S-P11-5) and the P18 explicit-action
+/ fresh-frame rules (S-P18-1…S-P18-4), with **two recorded revisions and no
+silent ones**: S-P21-1 **revises S-P11-2's follow mechanism** (edge-pin scroll →
+envelope slot-delta shift); S-P21-2 **revises S-P11-4's explicit-action
+behaviour** (edge-pin resume → remembered-gap preserve). Everything else
+composes: the follow-state derivation (S-P11-1), the no-yank away rule
+(S-P11-2 away leg), same-vs-new continuity (S-P11-3), the per-symbol store
+(S-P11-5), chevron visibility (S-P18-1), the fresh-frame computation + precedence
+(S-P18-3/S-P18-4), and the prefetch viewport-neutrality (S-P19-5) are reused
+unchanged. An unlabeled decision below is `[new in P21]`.
+
+### Codebase Summary (existing repository — P21 surface; pointer + deltas)
+
+The full module index lives in `docs/codebase-map.md` (P21 note appended;
+skeleton re-generated — P21 adds no new module). Only the surfaces P21 touches
+are inventoried here, each validated against source (repo authoritative; graphify
+used for discovery only):
+
+- `[existing] chart_assets/lwc/chart.js` — the follow/frame core P21 revises:
+  `followLive()` (edge-pin: `scrollToRealTime()` with a `setVisibleLogicalRange`
+  `{from: slot − span, to: slot}` fallback — the snap that zeroes the gap),
+  `goToRealtime()` (consumes badge → `followLive`), `fitAndFollow()`
+  (`fitToWidth` + consume), `applyOps` (captures `followingBefore`/`slotBefore`,
+  live-upsert branch calls `followLive()` when following, replace branch
+  re-applies `preservedRange` or fits). Derivation (`isFollowingSlot`,
+  `isFollowing`), badge bookkeeping, and `fitToWidth` are untouched surfaces.
+- `[existing] ui/lwc_view.py::LWCView` — the Python side P21 reads and narrowly
+  touches: `update_live_bar` (same-timestamp replace / newer append /
+  out-of-order ignore; opened-hole same-symbol republish), `update_bars` /
+  `set_series` (continuity directive), `fresh_frame_ops` (fresh-frame
+  `{range, following}` directive — already gap-free: it consults only the
+  `following` leg of the pending report, never a carried range), `report_viewport`
+  (settled-report sink, P19 trigger reader). Pop-out views are separate
+  `create_chart_view` instances (`ui/popout_window.py` → `ui/chart_view.py`),
+  so per-page-instance state is per-view by construction.
+- `[existing] ui/ticker_session.py` wave machinery + `services/backfill_service.py`
+  planner + P19 prefetch evaluator — read-only inputs (landing legs whose
+  viewport effect P21 gates; trigger/threshold/finalization contracts frozen).
+
+### Summary
+
+The following path stops snapping: every envelope's newest-slot delta shifts the
+visible range right by exactly the arrival width, so the held right-edge gap
+survives each new bar (and each batch). Explicit return-to-edge actions resume
+follow in place with the view's remembered gap — manual scroll/pinch is the only
+gap-zero path — each view remembers its own gap, session opens reset to the
+fresh-frame default, and no landing (wave chunk, realtime update, prefetch
+arrival) ever moves an away viewport. All viewport math stays page-side behind
+the Qt-free geometry boundary; the bar-domain, wave, and prefetch contracts are
+untouched.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained: language / UI / engine / store | Unchanged: Python 3.11+, PyQt6, Lightweight Charts only (vendored v5.2.x, LWC-only tree per P6-T13), SQLite, `ibapi-latest==10.51.1` untouched | Existing-repo hard constraint; D60 is viewport-presentation logic, no stack change | None entertained |
+| Constrained: follow model | Unchanged: page-side derivation (`isFollowingSlot`: newest slot inside the visible logical range), no stored follow flag | Q72 locked the model in P11 (S-P11-1); derivation cannot desync on unobserved gestures (AR-P11-1) | Any re-derivation of follow state (rejected — D51 stands, read-only) |
+| Constrained: data / wave / prefetch path | Unchanged: prime/wave/realtime legs, planner steps, pacing budget, watchdog, D53 indicator, D56 retry, P19 trigger/thresholds — P21 reads them, reshapes none | Explicit non-goals; the shift consumes arrivals, it never refetches or reorders them | Any fetch-window or trigger coupling (rejected — R133 closes by construction) |
+| `[new]` Shift mechanism (S-P21-1) | Envelope newest-slot delta → one `setVisibleLogicalRange` right-shift by the delta while following | The yank is our own edge-pin call, not the library: the delta is O(1), exact for batches (N slots → N shift), and zero for forming-bar ticks (A175 falls out — no separate branch, no per-tick jitter) | Library `shiftVisibleRangeOnNewBar` option (rejected — the full-replace yank, the hole-republish path, and the explicit-action preserve rule all need explicit control regardless; the option's semantic is the reference, not the mechanism) |
+| `[new]` Remembered-gap home (S-P21-2/S-P21-4) | Page-side per chart-page instance (alongside `newBarsSinceAway`), default `FRESH_FRAME_RIGHT_PADDING`, never shared cross-view | The page owns geometry (Qt-free boundary, P10 precedent); per-instance state is per-view by construction since pop-outs are separate `create_chart_view` instances; no Python store, no migration, no wire traffic | Python-side per-symbol gap store (rejected — gap is live viewport session state like the range itself, which P18 deliberately stopped restoring; persisting it re-buries fresh frames) |
+| `[new]` Test harness | Offscreen pytest (page-DOM + viewport-slot assertions, seeded bar injection, clock control) + `node --test` for the `chart.js` pure core | Repo standard; every D60 criterion is offscreen-measurable (Journey 57) | Live-TWS validation (rejected — no AC names a live step) |
+
+### System Components
+
+- `[new/changed] chart_assets/lwc/chart.js` — gains the envelope slot-delta
+  shift on the live path (S-P21-1), the preserve semantics on `goToRealtime` /
+  `fitAndFollow` + chevron/double-click wiring (S-P21-2), and the per-instance
+  remembered gap (S-P21-4). Derivation, badge internals, `fitToWidth` framer,
+  and the fresh-frame landing branch are unchanged.
+- `[new/changed] ui/lwc_view.py` — gains only what the away-landing diagnosis
+  (S-P21-5) requires so chunk renders travel the same-symbol preserve path and
+  never fit while away; `update_live_bar` emit shape, `set_series` continuity,
+  `fresh_frame_ops`, and the report sink are otherwise unchanged.
+- `[existing] ui/chart_view.py::DrawingController`, `drag_drawing_item` /
+  `drawing_handle_points`, `data/drawing_store.py`, `data/alarm_store.py`,
+  `ui/ticker_session.py` fan-out — untouched surfaces (frozen where listed below).
+- `[existing] ui/main_window.py` — load/switch lifecycle flows through the
+  existing `set_symbol` / `set_series` calls unchanged; no new wiring (the gap
+  is a view-internal consequence of arrivals).
+- `[existing] ui/lwc_bridge.py` — reused op/signal transport; no new channel
+  type (arrivals and explicit actions travel existing paths; Task Manager's
+  wire-shape detail).
+- `[existing] ui/popout_window.py` — each pop-out hosts its own
+  `create_chart_view` instance, so S-P21-4 holds without cross-view plumbing.
+- `[existing] services/backfill_service.py`, `services/market_calendar.py`,
+  `ibkr/market_data.py`, pacing/watchdog/D53/D56 — read-only inputs, not modified.
+- `[existing] Order-code absence` — P21 adds zero order interaction (D45/D46 end
+  state untouched).
+
+### Data Model
+
+- `[new]` Per-view remembered follow-offset — in-memory page-side session state
+  per chart instance (last following gap in logical slots; default
+  `FRESH_FRAME_RIGHT_PADDING`; updated whenever a following range is observed,
+  read by the explicit actions). No field added/removed anywhere in Python; no
+  migration — viewport position stays session state (AP-P11-2 stands, extended
+  to the gap).
+- `[existing] LWCView._viewport_memory` (`symbol → {range, following}`) —
+  write path unchanged (the throttled report sink keeps feeding it); the range
+  leg stays unrestored per S-P18-4. No field change; no migration.
+- `[existing] Fresh-frame directive` — per-load `{range, following}` computed
+  from plotted bars + cutoff; lands on its default gap with no carried state.
+  Unchanged.
+- `[existing] Bar` / `bars` table, `Drawing` / `DrawingGroup`, `Alarm` +
+  `alarms` table — untouched.
+
+### Integration Points
+
+No new integration. `[existing]` IBKR historical/RT paths, SQLite, Qt signals,
+`pacing_manager` are untouched — P21 issues no new request type and changes no
+subscription behaviour.
+
+### Frozen Interfaces
+
+Every entry below is `[existing]` and unmodified this phase (nothing new is frozen).
+Task Manager gives workers the contract, never the implementation.
+
+- `ui/lwc_view.py::update_live_bar` bar-domain contract — verbatim: a
+  same-timestamp tick replaces the forming bar, a newer timestamp appends a new
+  period, an out-of-order tick is ignored (history never rewritten by a stale
+  tick); only the tick's ops cross, history never resent (S-P11-2 § P11 Frozen
+  Interfaces). Owner: `ui/lwc_view.py`.
+- `chart_assets/lwc/chart.js::isFollowingSlot` — verbatim contract:
+  `isFollowingSlot(newestSlot, range)` — following iff the newest bar's logical
+  slot is inside `getVisibleLogicalRange()` (S-P11-1). The derivation is read,
+  never redefined. Owner: `chart_assets/lwc/`.
+- `ui/lwc_view.py::fresh_frame_ops` — verbatim contract: `def fresh_frame_ops(self)
+  -> dict | None:` — returns the `{"range": {"from", "to"}, "following"}`
+  directive or `None` (zero bars / unknown timeframe → silent no-op); the frame
+  consults only the `following` leg of the pending report, never a carried
+  range (S-P18-4). P21 pins it with tests; the body is unchanged.
+  Owner: `ui/lwc_view.py`.
+- `ui/lwc_view.py::report_viewport` — verbatim contract: `def report_viewport(self,
+  view_range, following: bool = False) -> bool:` — keeps the freshest settled
+  report (last write wins). P21 adds a reader of the shift outcome at most; the
+  sink is unchanged. Owner: `ui/lwc_view.py`.
+- `services/backfill_service.py::find_missing_spans` — verbatim contract: `def
+  find_missing_spans(cached_ts: Iterable[int], now_ts: int, timeframe: str,
+  trailing_days: int = TRAILING_BAR_GRANULARITY_DAYS, ext_hours: bool = False,
+  min_sessions: int = 0) -> List[MissingSpan]:` — consulted, not modified.
+  Owner: `services/backfill_service.py`.
+- `services/backfill_service.py::plan_requests` — verbatim contract: `def
+  plan_requests(missing_spans: Iterable[MissingSpan], timeframe: str) ->
+  List[RequestPlan]:` — consulted, not modified. Owner: `services/backfill_service.py`.
+- `ui/ticker_session.py::queue_wave_plans` + wave lifecycle (pacing-gated
+  `_issue_wave_chunks`, 120 s watchdog arm/disarm, generation fencing, D56
+  exactly-once `_retried_plans`, stranded finalization) — hooked and read by the
+  landing gate, never reshaped. Owner: `ui/ticker_session.py`.
+- S-P19-5 prefetch arrival path (same-symbol preserve, no range op, no fresh
+  frame) + D53 indicator lifecycle + `_is_cache_current` gate + `TIMEFRAME_CONFIG`
+  durations + `BarCache` read/write API + order-code absence — all read, none
+  modified.
+
+NOT frozen (changed this phase, so no worker may assume the old contract):
+`followLive` (edge-pin → shift), `goToRealtime` / `fitAndFollow` (resume →
+preserve), the `applyOps` live-upsert branch (calls the shift), chevron /
+double-click wiring (preserve targets), the page per-instance gap state (new),
+and any chunk-render call site the S-P21-5 diagnosis routes through continuity.
+
+### Non-Functional Approach
+
+- **Correctness (driven by AC-D60.1/AC-D60.2/AC-D60.5):** each expectation lands
+  its repro test red-first — the G ∈ {0, 1, 3} × N ∈ {1, 3} viewport-slot
+  matrices on main and pop-out (red today: post-arrival gap zeroed by
+  `scrollToRealTime`), the per-action preserve cases (red today: post-action gap
+  zeroed), and the two-view independence cases. G = 0 pins the degenerate
+  equivalence (shift-by-N keeps newest at edge — no observable change).
+- **Correctness (driven by AC-D60.7/AC-D60.3/AC-D60.4):** the ES away-repro per
+  landing leg is red-first (range moves on the current tree) and green after the
+  gate; carried-gap session-open cases assert the fresh-frame default; the
+  `AC-D51.2` away suites stay green as the regression guard.
+- **Performance:** the shift is O(1) per envelope (two slot reads + one range
+  set); no per-tick Python round-trip; the remembered gap is a scalar per page
+  instance; no new per-bar work. Pacing/watchdog budgets hold unchanged.
+- **Safety:** the Qt-free geometry boundary holds — viewport math stays in page
+  JS, symbol lifecycle in Python; the bar-domain emit contract is untouched so
+  the data path cannot regress; no order-code surface touched (D45/D46
+  invariants hold); no live TWS needed.
+- **Visual gate:** no new control, glyph, colour, or placement — the chevron,
+  Fit/reset, and double-click/Fit gestures keep their P18/D3 visuals; only
+  post-action viewports change (AP-P21-6, same precedent as AP-P11-4).
+
+### Architecture Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| AR-P21-1 — Double-shift on the hole-republish envelope (same-symbol replace + upsert in one crossing each shift) | M / M | Envelope-level delta accounting: newest-slot delta is computed once across the whole envelope and applied once; the opened-hole branch returns after the republish so no second shift fires — pinned by a hole-open arrival case asserting exactly-N shift |
+| AR-P21-2 — Remembered gap goes stale (view away for a session, symbol switched, timeframe changed) and an explicit action restores a nonsense offset | M / L | The gap refreshes on every observed following range; session open resets to the fresh-frame default (S-P21-3); symbol/timeframe loads land fresh frames whose follow leg re-derives — staleness cannot survive a fresh frame |
+| AR-P21-3 — The away mover is not at a candidate site (S-P21-5 diagnosis misses: e.g. a Python re-`set_series` without continuity, or a deferred-fit landing) | M / M | Repro-first ordering: the ES away-repro must fail on the current tree *and* the diagnosis must name the moving call in the repro trace before the gate lands — a gate that greens without a failing-first repro is rejected |
+| AR-P21-4 — Interleaved forming ticks inside a multi-bar batch envelope shift short (delta read mid-envelope) | L / M | Delta is newest-after minus newest-before across the *landed* envelope (snapshot before upserts, snapshot after) — intra-envelope ticks are part of the delta by construction; the N = 3 batch case pins it |
+| AR-P21-5 — A future change re-couples follow to the edge-pin (calls `followLive`-as-scroll or adds a new fit-on-arrival) | M / L | The G×N matrices pin shift semantics at the `applyOps` live branch (the only arrival-to-viewport path); any new edge-pin breaks them loudly |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P21-1 | **Envelope slot-delta shift (D60.1, A175/A176).** `applyOps` snapshots `newestBarSlot()` before and after the envelope lands; when `followingBefore` is true and the delta N > 0, the page sets `{from: r.from + N, to: r.to + N}` over the pre-update range (span preserved, gap preserved). N = 0 (forming-bar ticks, same-slot updates) shifts nothing; multi-bar batches shift by the batch width in one step. Rationale: the defect is exactly the edge-pin (`scrollToRealTime` / `{slot − span, slot}` fallback); the delta is the minimal exact compensation — G = 0 degenerates to the current outcome, so no special case. Alternative: shift per-op inside the envelope (rejected — the hole-republish envelope would double-shift; envelope-level is exactly-once); pixel-based compensation (rejected — constraints fix logical slots). | `[revises P11: S-P11-2]` — the follow mechanism changes from edge-pin scroll to delta shift; the away leg (no move while scrolled back) stands |
+| S-P21-2 | **Explicit actions preserve the remembered gap (D60.2, Q100(b) override, A178).** Each view holds its last following gap (default `FRESH_FRAME_RIGHT_PADDING`); chevron/`goToRealtime` keeps the current span and lands `{from: newest + G − span, to: newest + G}`; Fit/reset (`fitAndFollow`) frames all loaded bars then extends `to` by G so the frame-all promise and the gap hold together; both re-engage follow by derivation. Manual scroll/pinch is the ONLY path that zeroes G (user-driven range, no preservation). Rationale: the owner chose (b) preserve — "take me to live" means resume-in-place, and a preserve rule with one deliberate zero path is simpler to hold than a per-action split. Alternative: Q100(a) snap on explicit actions (rejected — the owner overrode it); per-action split (rejected — owner named no split). | `[revises P11: S-P11-4]` — resume changes from edge-pin to gap preserve; the affordance visibility rule and the frame-all-then-follow shape stand |
+| S-P21-3 | **Session open resets to the fresh-frame default (D60.3, Q101(c), A179).** No change to `fresh_frame_ops` or its precedence: the fresh frame already consults only the `following` leg and lands on `FRESH_FRAME_RIGHT_PADDING` — a carried gap has no channel to survive the open. Pinned by carried-gap session-open cases (non-zero carried gap → post-open gap equals the default); lands as tests-only if the reset verifies as already structural. Rationale: protects the fresh frame's "recent action visible" purpose; intraday preservation still fixes the reported defect. Alternative: clamp the carried gap (rejected — owner chose reset, no bound enters the criteria). | `[extends P18: S-P18-3 / S-P18-4]` — reuses the fresh-frame computation and precedence unchanged |
+| S-P21-4 | **Per-view gap, never shared (D60.5, Q102(b), A177).** The remembered gap lives per chart-page instance (main + each pop-out evaluates its own viewport and preserves its own gap); views never read or write each other's gap and no gap crosses the Python bridge. Rationale: mirrors the A170 per-view prefetch precedent; pop-outs are separate `create_chart_view` instances so instance state is view state by construction. Alternative: main-only scope (rejected — owner chose every view); shared gap (rejected — cross-view interference). | `[extends P11: S-P11-1]` — derivation unchanged; gap storage follows the same per-instance home |
+| S-P21-5 | **Landings deliver bars, never navigation (D60.7, A180).** Repro-first: the ES away-repro (scrolled into the past, wave in flight, land one chunk per leg — backfill / realtime / prefetch) must fail on the current tree, and the trace must name the moving call among the candidate sites (chunk render without same-symbol continuity → `fitToWidth`; fresh-frame re-land on chunk; `fitToWidth` fallback on a failed range re-apply) before the gate lands. The fix routes every landing through the preserve path (S-P11-3/S-P19-5: re-apply pre-replace range, no fresh frame, no range op) while away — bit-identical range, follow stays disengaged. While following, the live-bar rule (S-P21-1) and the prefetch-neutrality rule (`AC-D58.4`) govern; the chunk carries no independent viewport instruction. Rationale: the observed yank is a landing path re-following an away user; gating at the landing (not per leg) covers all three legs at once. Alternative: per-leg viewport flags (rejected — three flags for one invariant; the preserve path already exists). | `[extends P11: S-P11-3]` — landings are data replaces; composes with S-P19-5 unchanged |
+| S-P21-6 | **Verification order: follow matrices first, away repro second, gate last.** P21-1 proves the G×N shift matrices + per-action preserve + two-view independence red-first; P21-2 proves the away-repro-per-leg + session-open reset + `AC-D51.2` guard; P21-3 proves the full suites + history intact. Rationale: each D60 expectation is offscreen-measurable today via the P11/P14 probes with seeded injection. | `[new in P21]` — process decision; pins R132/R133 handling |
+

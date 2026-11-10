@@ -65,10 +65,14 @@ class PendingLookup:
     ``contract_details_end`` handler can distinguish a real match (>= 1 detail)
     from a zero-detail rejection. ``timer`` is the single-shot bounded-wait timer
     armed at request time and disarmed on every resolution/cancellation.
+    ``first_details`` retains the first ``contract_details`` payload (S-P20-3a)
+    so a successful Q99 probe can adopt the TWS-resolved contract; it is
+    never consulted by the ok/not-ok verdict itself.
     """
 
     symbol: str
     got_any: bool = False
+    first_details: object = None
     timer: Optional[QTimer] = field(default=None, repr=False)
 
 
@@ -83,6 +87,10 @@ class ContractLookupService(QObject):
         self._md_manager = md_manager
         self._bridge = bridge
         self._pending: dict[int, PendingLookup] = {}
+        # S-P20-3a: resolved first-details payloads, keyed by reqId, for the
+        # Q99 probe-adopt path. Populated on ok-resolve only, drained via
+        # take_details (bounded — the oldest entry is dropped past the cap).
+        self._resolved: dict[int, object] = {}
 
         if bridge is not None:
             bridge.contract_details.connect(self.on_contract_details)
@@ -135,6 +143,15 @@ class ContractLookupService(QObject):
     def pending_count(self) -> int:
         return len(self._pending)
 
+    def take_details(self, req_id: int) -> Optional[object]:
+        """Pop the retained first-details payload for a resolved reqId.
+
+        Returns the first ``contract_details`` payload when the lookup
+        resolved ok, else None. Exactly-once like the verdict itself: a
+        second take for the same reqId returns None.
+        """
+        return self._resolved.pop(req_id, None)
+
     # ------------------------------------------------------------- handlers
     def on_contract_details(self, req_id: int, details) -> None:
         """Record that at least one matching contract arrived (no resolution)."""
@@ -142,6 +159,10 @@ class ContractLookupService(QObject):
         if pending is None:
             return  # late / unknown reqId
         pending.got_any = True
+        # S-P20-3a: retain the FIRST payload only — the probe adopts the
+        # first returned contract, never a later duplicate.
+        if pending.first_details is None:
+            pending.first_details = details
 
     def on_contract_details_end(self, req_id: int) -> None:
         """Terminate a lookup: success iff >= 1 detail preceded the end."""
@@ -173,4 +194,11 @@ class ContractLookupService(QObject):
             return
         if pending.timer is not None:
             pending.timer.stop()
+        if ok and pending.first_details is not None:
+            # S-P20-3a: stash the adopted payload for take_details. Bounded
+            # (one entry per ok-lookup until taken) so a long-lived process
+            # with many validations cannot accumulate resolved payloads.
+            self._resolved[req_id] = pending.first_details
+            while len(self._resolved) > 64:
+                self._resolved.pop(next(iter(self._resolved)))
         self.lookup_finished.emit(req_id, pending.symbol, ok, reason)

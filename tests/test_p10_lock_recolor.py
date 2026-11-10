@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from data.drawing_store import DrawingStore
 from data.models import Bar, Drawing
 
-BASE_SYMBOL = f"P10T4_{os.getpid()}"
+BASE_SYMBOL = f"P10T{os.getpid() % 1000}"
 TF = "5 mins"
 START_COLOR = "#e11d48"
 RECOLORED = "#0ea5e9"
@@ -87,7 +87,7 @@ def _sync(win, symbol):
 
 def test_t41_locked_delete_refused_color_allowed(monkeypatch, qapp):
     """P10-T4-T41: locked deletes refused on both paths; color still applies."""
-    symbol = BASE_SYMBOL + "_T41"
+    symbol = BASE_SYMBOL + "A"
     win = _make_window(monkeypatch, qapp, symbol)
     try:
         gid, did = _seed_locked(symbol)
@@ -145,7 +145,7 @@ def test_t41_locked_delete_refused_color_allowed(monkeypatch, qapp):
 
 def test_t42_recolor_interplay_pins(monkeypatch, qapp):
     """P10-T4-T42: geometry-only commits, mid-drag recolour, leave-group."""
-    symbol = BASE_SYMBOL + "_T42"
+    symbol = BASE_SYMBOL + "B"
     win = _make_window(monkeypatch, qapp, symbol)
     try:
         bars = _bars(symbol)

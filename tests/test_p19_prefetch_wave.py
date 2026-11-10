@@ -290,7 +290,7 @@ def test_t01_single_step_issue_and_in_flight_cap(monkeypatch, qapp):
     """T01: exactly one planner window issued; a second wave never in flight;
     D53 raises; the watchdog arms the 120 s window-relative bound."""
     win, stub, session, _now, hole, visible = _one_chunk_hole(
-        monkeypatch, qapp, "P19W_A")
+        monkeypatch, qapp, "P19WA")
     try:
         assert win.maybe_prefetch(visible, False) is True
         win._on_viewport_settled(visible, False)
@@ -318,7 +318,7 @@ def test_t01_single_step_issue_and_in_flight_cap(monkeypatch, qapp):
         # The issued plan is the planner's own step for the hole.
         from services.backfill_service import find_missing_spans, plan_requests
 
-        cached_ts = [b.ts for b in BarCache.get_bars("P19W_A", TF)]
+        cached_ts = [b.ts for b in BarCache.get_bars("P19WA", TF)]
         spans = find_missing_spans(
             cached_ts, _now, TF, trailing_days=60, ext_hours=True)
         plans = plan_requests(spans, TF)
@@ -326,7 +326,7 @@ def test_t01_single_step_issue_and_in_flight_cap(monkeypatch, qapp):
         assert session._req_to_plan[rid] == plans[0]
 
         # Drive the chunk: completes, indicator idles, marker stays clear.
-        expected = _expected_bars("P19W_A", hole)
+        expected = _expected_bars("P19WA", hole)
         delivered = _drive_new_calls(win, stub, expected, stub.calls)
         assert delivered == {b.ts for b in expected}
         assert session._history_req_ids == set()
@@ -345,7 +345,7 @@ def test_t01_pacing_defers_with_watchdog_cover(monkeypatch, qapp):
     from ibkr.pacing import PacingExceeded
 
     win, stub, session, _now, hole, visible = _one_chunk_hole(
-        monkeypatch, qapp, "P19W_B")
+        monkeypatch, qapp, "P19WB")
     try:
         stub.fail_next = PacingExceeded(200.0)
         win._on_viewport_settled(visible, False)
@@ -372,7 +372,7 @@ def test_t01_162_retries_exactly_once(monkeypatch, qapp):
     """T01: D56 162 axis — one retry of the identical plan, then a short
     finalise with no third issue."""
     win, stub, session, _now, hole, visible = _one_chunk_hole(
-        monkeypatch, qapp, "P19W_C")
+        monkeypatch, qapp, "P19WC")
     try:
         win._on_viewport_settled(visible, False)
         assert len(stub.calls) == 1
@@ -403,7 +403,7 @@ def test_t01_silence_retries_exactly_once(monkeypatch, qapp):
     """T01: D56 silence axis — one retry per still-silent chunk (clock
     controlled), never a third issue for the retried plan."""
     win, stub, session, _now, hole, visible = _one_chunk_hole(
-        monkeypatch, qapp, "P19W_D")
+        monkeypatch, qapp, "P19WD")
     try:
         clock = [1000.0]
         monkeypatch.setattr(session, "_silence_now", lambda: clock[0])
@@ -434,7 +434,7 @@ def test_t01_watchdog_strand_fences_late_arrivals(monkeypatch, qapp):
     generation advance, marker cleared) and late bars for the dead reqId
     are fenced."""
     win, stub, session, _now, hole, visible = _one_chunk_hole(
-        monkeypatch, qapp, "P19W_E")
+        monkeypatch, qapp, "P19WE")
     try:
         win._on_viewport_settled(visible, False)
         assert len(stub.calls) == 1
@@ -489,11 +489,11 @@ def test_t02_mid_wave_trigger_coalesces_then_chains(monkeypatch, qapp):
     consumes the marker with a fresh re-evaluation and chains exactly one
     more wave while fetchable, then stops."""
     win, stub, session, now_ts, hole, visible = _two_chunk_fixture(
-        monkeypatch, qapp, "P19W_F")
+        monkeypatch, qapp, "P19WF")
     try:
         from services.backfill_service import find_missing_spans, plan_requests
 
-        cached_ts = [b.ts for b in BarCache.get_bars("P19W_F", CHAIN_TF)]
+        cached_ts = [b.ts for b in BarCache.get_bars("P19WF", CHAIN_TF)]
         plans = plan_requests(
             find_missing_spans(cached_ts, now_ts, CHAIN_TF,
                                trailing_days=260,
@@ -506,7 +506,7 @@ def test_t02_mid_wave_trigger_coalesces_then_chains(monkeypatch, qapp):
         assert session._req_to_plan[rid1] == plans[0]
         # The user scrolls further while wave 1 is in flight: the running
         # wave is never cancelled, the marker is set instead.
-        expected = _expected_bars("P19W_F", hole, CHAIN_TF)
+        expected = _expected_bars("P19WF", hole, CHAIN_TF)
         first_anchor = _parse_end(stub.calls[0]["endDateTime"])
         first_window = {b.ts for b in expected
                         if first_anchor - _duration_seconds(
@@ -539,7 +539,7 @@ def test_t02_mid_wave_trigger_coalesces_then_chains(monkeypatch, qapp):
         assert session._history_req_ids == set()
         assert session._pending_prefetch is False
         assert win._backfill_indicator.text() == "Backfill: idle"
-        cached = BarCache.get_bars("P19W_F", CHAIN_TF)
+        cached = BarCache.get_bars("P19WF", CHAIN_TF)
         by_day: dict[date, list] = {}
         for b in cached:
             by_day.setdefault(_et_date(b.ts), []).append(b)
@@ -554,11 +554,11 @@ def test_t02_marker_cleared_on_terminal_paths(monkeypatch, qapp):
     disconnect — never leaking into the next wave."""
     now_ts = _et_ts(2026, 10, 2, 20, 0)
     # Strand path.
-    win, stub, session = _setup(monkeypatch, qapp, "P19W_G1", now_ts)
+    win, stub, session = _setup(monkeypatch, qapp, "P19WG1", now_ts)
     try:
-        _, recent, _ = _hole_fixture("P19W_G1", now_ts, hole_days=1,
+        _, recent, _ = _hole_fixture("P19WG1", now_ts, hole_days=1,
                        older_days=3)
-        visible = _recent_edge("P19W_G1", recent)
+        visible = _recent_edge("P19WG1", recent)
         win._on_viewport_settled(visible, False)
         assert len(stub.calls) == 1
         win._on_viewport_settled(visible, False)
@@ -569,18 +569,18 @@ def test_t02_marker_cleared_on_terminal_paths(monkeypatch, qapp):
     finally:
         win.close()
     # Load-cancel path (same session, new triple).
-    win, stub, session = _setup(monkeypatch, qapp, "P19W_G2", now_ts)
+    win, stub, session = _setup(monkeypatch, qapp, "P19WG2", now_ts)
     try:
-        _, recent, _ = _hole_fixture("P19W_G2", now_ts, hole_days=1,
+        _, recent, _ = _hole_fixture("P19WG2", now_ts, hole_days=1,
                        older_days=3)
-        visible = _recent_edge("P19W_G2", recent)
+        visible = _recent_edge("P19WG2", recent)
         win._on_viewport_settled(visible, False)
         assert len(stub.calls) == 1
         (rid,) = tuple(session._history_req_ids)
         win._on_viewport_settled(visible, False)
         assert session._pending_prefetch is True
         gen = session._history_generation
-        win.load_chart("P19W_G2", "15 mins")
+        win.load_chart("P19WG2", "15 mins")
         assert session._pending_prefetch is False
         assert session._history_generation == gen + 1
         assert rid in stub.cancelled
@@ -592,11 +592,11 @@ def test_t02_marker_cleared_on_terminal_paths(monkeypatch, qapp):
     finally:
         win.close()
     # Disconnect path.
-    win, stub, session = _setup(monkeypatch, qapp, "P19W_G3", now_ts)
+    win, stub, session = _setup(monkeypatch, qapp, "P19WG3", now_ts)
     try:
-        _, recent, _ = _hole_fixture("P19W_G3", now_ts, hole_days=1,
+        _, recent, _ = _hole_fixture("P19WG3", now_ts, hole_days=1,
                        older_days=3)
-        visible = _recent_edge("P19W_G3", recent)
+        visible = _recent_edge("P19WG3", recent)
         win._on_viewport_settled(visible, False)
         assert len(stub.calls) == 1
         win._on_viewport_settled(visible, False)
@@ -618,11 +618,11 @@ def test_t02_switch_abandonment_has_no_cross_contamination(monkeypatch, qapp):
     # The A session must be the primary with the chart view attached —
     # production only ever shows sessions that arrived via load_chart —
     # otherwise the switch path has no old session to detach and teardown.
-    win, stub, session_a = _setup(monkeypatch, qapp, "P19W_HA", now_ts)
+    win, stub, session_a = _setup(monkeypatch, qapp, "P19WHA", now_ts)
     try:
-        _, recent_a, _ = _hole_fixture("P19W_HA", now_ts, hole_days=1,
+        _, recent_a, _ = _hole_fixture("P19WHA", now_ts, hole_days=1,
                        older_days=3)
-        visible_a = _recent_edge("P19W_HA", recent_a)
+        visible_a = _recent_edge("P19WHA", recent_a)
         win._primary_session = session_a
         session_a.attach_view(win.chart_panel, TF, sync=False)
         win._on_viewport_settled(visible_a, False)
@@ -631,32 +631,32 @@ def test_t02_switch_abandonment_has_no_cross_contamination(monkeypatch, qapp):
         win._on_viewport_settled(visible_a, False)
         assert session_a._pending_prefetch is True
         gen_a = session_a._history_generation
-        win.load_chart("P19W_HB", TF)
+        win.load_chart("P19WHB", TF)
         assert session_a._pending_prefetch is False
         # Cross-symbol abandonment is detach→teardown (registry removal +
         # cancel tags), not a generation bump — fencing holds without one.
         assert session_a._history_generation == gen_a
         assert rid_a in stub.cancelled
-        assert "P19W_HA" not in win._sessions
-        assert win._current_symbol == "P19W_HB"
+        assert "P19WHA" not in win._sessions
+        assert win._current_symbol == "P19WHB"
         # A's late bars are fenced at the window and the session.
         win._on_historical_bar(rid_a, _FakeIbBar(visible_a))
         session_a.on_historical_bar(rid_a, _FakeIbBar(visible_a))
         assert session_a._pending_bars == []
         # B's chart carries only B bars.
-        session_b = win.get_or_create_session("P19W_HB")
+        session_b = win.get_or_create_session("P19WHB")
         for b in session_b.get_bars(TF):
-            assert b.symbol == "P19W_HB"
+            assert b.symbol == "P19WHB"
         assert visible_a not in {b.ts for b in BarCache.get_bars(
-            "P19W_HB", TF)}
+            "P19WHB", TF)}
     finally:
         win.close()
     # Mode switch (ext-hours toggle): same session, new triple, marker dies.
-    win, stub, session = _setup(monkeypatch, qapp, "P19W_HC", now_ts)
+    win, stub, session = _setup(monkeypatch, qapp, "P19WHC", now_ts)
     try:
-        _, recent, _ = _hole_fixture("P19W_HC", now_ts, hole_days=1,
+        _, recent, _ = _hole_fixture("P19WHC", now_ts, hole_days=1,
                        older_days=3)
-        visible = _recent_edge("P19W_HC", recent)
+        visible = _recent_edge("P19WHC", recent)
         win._on_viewport_settled(visible, False)
         assert len(stub.calls) == 1
         (rid,) = tuple(session._history_req_ids)
@@ -675,11 +675,11 @@ def test_t02_stops_honestly(monkeypatch, qapp):
     shortfall with no retry loop."""
     now_ts = _et_ts(2026, 10, 2, 20, 0)
     # Complete cache: silent verdict, no wave, no marker.
-    win, stub, session = _setup(monkeypatch, qapp, "P19W_J1", now_ts)
+    win, stub, session = _setup(monkeypatch, qapp, "P19WJ1", now_ts)
     try:
         recent = _trading_days_back(_et_date(now_ts), 5)
-        _seed_days("P19W_J1", recent)
-        visible = min(b.ts for b in BarCache.get_bars("P19W_J1", TF))
+        _seed_days("P19WJ1", recent)
+        visible = min(b.ts for b in BarCache.get_bars("P19WJ1", TF))
         assert win.maybe_prefetch(visible, False) is False
         assert win.maybe_issue_prefetch_wave(visible, False) is False
         assert stub.calls == []
@@ -688,11 +688,11 @@ def test_t02_stops_honestly(monkeypatch, qapp):
     finally:
         win.close()
     # Empty answer: one shortfall, no re-issue, no loop.
-    win, stub, session = _setup(monkeypatch, qapp, "P19W_J2", now_ts)
+    win, stub, session = _setup(monkeypatch, qapp, "P19WJ2", now_ts)
     try:
-        _, recent, _ = _hole_fixture("P19W_J2", now_ts, hole_days=1,
+        _, recent, _ = _hole_fixture("P19WJ2", now_ts, hole_days=1,
                        older_days=3)
-        visible = _recent_edge("P19W_J2", recent)
+        visible = _recent_edge("P19WJ2", recent)
         win._on_viewport_settled(visible, False)
         assert len(stub.calls) == 1
         (rid,) = tuple(session._history_req_ids)

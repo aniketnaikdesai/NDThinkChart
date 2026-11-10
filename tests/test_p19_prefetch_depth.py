@@ -265,7 +265,7 @@ def test_t01_deep_scroll_chains_step_by_step_no_cap(monkeypatch, qapp):
     from services.backfill_service import find_missing_spans, plan_requests
 
     now_ts = _et_ts(2026, 10, 2, 20, 0)  # Friday
-    symbol = "P19D_CHAIN"
+    symbol = "P19DCHN"
     win, stub, session = _setup(monkeypatch, qapp, symbol, now_ts,
                                 CHAIN_TF)
     try:
@@ -374,7 +374,7 @@ def test_t02_closure_gap_stays_empty_and_silent(monkeypatch, qapp):
     from services.backfill_service import find_missing_spans
 
     now_ts = _et_ts(2026, 10, 2, 20, 0)  # Friday
-    symbol = "P19D_CLOSE"
+    symbol = "P19DCLS"
     win, stub, session = _setup(monkeypatch, qapp, symbol, now_ts)
     try:
         # Two complete Mon-Fri blocks with only a weekend between them.
@@ -409,7 +409,7 @@ def test_t02_retention_edge_single_shortfall_no_retry_loop(monkeypatch, qapp):
     """T02: the beyond-retention (oldest, empty-answer) chunk finalizes one
     AC-D16.4 shortfall with no re-issue and no D56 allowance consumed."""
     now_ts = _et_ts(2026, 10, 2, 20, 0)
-    symbol = "P19D_RET"
+    symbol = "P19DRET"
     win, stub, session = _setup(monkeypatch, qapp, symbol, now_ts,
                                 CHAIN_TF)
     try:
@@ -461,7 +461,7 @@ def test_t02_pacing_exhaustion_falls_through_to_watchdog(monkeypatch, qapp):
     from ibkr.pacing import PacingExceeded
 
     now_ts = _et_ts(2026, 10, 2, 20, 0)
-    symbol = "P19D_PACE"
+    symbol = "P19DPACE"
     win, stub, session = _setup(monkeypatch, qapp, symbol, now_ts)
     try:
         _, recent, _ = _hole_fixture(symbol, now_ts, hole_days=1,

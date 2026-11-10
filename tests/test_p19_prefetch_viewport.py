@@ -277,10 +277,10 @@ def _run_landing_case(monkeypatch, qapp, symbol: str, following: bool) -> None:
 
 def test_t02_away_range_identical_across_landings(monkeypatch, qapp):
     """T02 (away): every prefetch arrival leaves the settled range alone."""
-    _run_landing_case(monkeypatch, qapp, "P19V_A", following=False)
+    _run_landing_case(monkeypatch, qapp, "P19VA", following=False)
 
 
 def test_t02_following_range_identical_across_landings(monkeypatch, qapp):
     """T02 (following): arrivals never extend the range — only the D51 live
     path (not driven here) may move the live edge."""
-    _run_landing_case(monkeypatch, qapp, "P19V_B", following=True)
+    _run_landing_case(monkeypatch, qapp, "P19VB", following=True)

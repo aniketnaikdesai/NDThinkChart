@@ -161,7 +161,11 @@ from services.gap_vix_service import (
 from services.ict_service import calculate_ict_concepts
 from services.market_calendar import session_windows
 from services.session_service import session_bands
-from services.time_collapse_service import gap_is_non_trading, is_daily_or_coarser
+from services.time_collapse_service import (
+    build_collapse_map,
+    gap_is_non_trading,
+    is_daily_or_coarser,
+)
 from ui import lwc_bridge as LB
 from ui.chart_mouse_router import ChartMouseRouter, RouterMode
 from ui.drawing_tools import DRAWING_TOOLS, TOOL_CURSOR
@@ -184,8 +188,12 @@ BODY_FRACTION = 0.65
 
 
 def logical_indices(bars: Sequence, timeframe: str | None,
-                    ext_hours: bool) -> list:
+                    ext_hours: bool, symbol=None) -> list:
     """Logical-index positions for ``bars`` in plotted order.
+
+    ``symbol`` (S-P20-5) routes futures roots through the collapse
+    service's identity map; ``None`` keeps the shared chart-model
+    authority byte-identical.
 
     Index 0 starts the series; consecutive bars with no hole advance by
     1; a within-session hole of ``k`` missing bars advances by ``1 + k``
@@ -202,7 +210,7 @@ def logical_indices(bars: Sequence, timeframe: str | None,
     if not rows:
         return []
     period = TIMEFRAME_SECONDS.get(timeframe or "")
-    cmap = chart_model.collapse_for_bars(rows, timeframe, ext_hours)
+    cmap = _collapse_for_view(rows, timeframe, ext_hours, symbol)
     if cmap is None or not period:
         return list(range(len(rows)))
     return logical_indices_from_display(chart_model.display_xs(rows, cmap),
@@ -239,6 +247,47 @@ def hole_spans(indices: Sequence) -> list:
         if cur - prev > 1:
             spans.append((prev, cur - prev - 1))
     return spans
+
+
+#: Futures roots whose charts run the full near-24 h session as-is
+#: (S-P20-5 visual scoping). Mirrors the ``FUTURES_SCHEDULE`` keys owned by
+#: the broker boundary — that module stays the source of truth; this
+#: renderer-local copy exists only so the view never imports it (the
+#: renderer-only import boundary forbids any broker import here).
+_FUTURES_ROOTS = frozenset({"ES", "NQ", "YM", "RTY"})
+
+
+def _is_futures_symbol(symbol) -> bool:
+    """True when the symbol names a futures root (S-P20-5 visual scoping).
+
+    Futures roots render the full near-24 h session as-is: no RTH filtering,
+    no D21.4 collapse folding, no D1 pre/post bands — in either toggle mode.
+
+    Accepts a plain bool (already-resolved futures-ness, passed straight
+    through) or a symbol string (resolved against the renderer-local root
+    set above — never via the broker boundary).
+    """
+    if isinstance(symbol, bool):
+        return symbol
+    try:
+        return bool(symbol) and str(symbol).upper() in _FUTURES_ROOTS
+    except Exception:
+        return False
+
+
+def _collapse_for_view(plotted: Sequence, timeframe: str | None,
+                       ext_hours: bool, symbol) -> object:
+    """Collapse map for one view's plotted rows (S-P20-5 scoped).
+
+    Futures roots skip D21.4 folding via the collapse service's identity map;
+    every other symbol keeps the shared chart-model authority byte-identical.
+    """
+    if _is_futures_symbol(symbol):
+        if timeframe is None or timeframe not in TIMEFRAME_SECONDS:
+            return None
+        return build_collapse_map(
+            list(plotted), timeframe, True, is_futures=True)
+    return chart_model.collapse_for_bars(plotted, timeframe, ext_hours)
 
 
 def gap_is_within_session(a, b, ext_hours: bool) -> bool:
@@ -755,7 +804,7 @@ def _edge_pair(xs: Sequence, indices: Sequence, at_start: bool):
 
 
 def drawing_axis(plotted: Sequence, timeframe: str | None,
-                 ext_hours: bool) -> tuple[list, list, object]:
+                 ext_hours: bool, symbol=None) -> tuple[list, list, object]:
     """``(display_xs, logical_indices, collapse_map)`` for the plotted rows.
 
     The same two arrays ``set_series`` builds for the candles, from the one
@@ -766,7 +815,7 @@ def drawing_axis(plotted: Sequence, timeframe: str | None,
     loaded range rather than extrapolating.
     """
     rows = list(plotted or [])
-    cmap = chart_model.collapse_for_bars(rows, timeframe, ext_hours)
+    cmap = _collapse_for_view(rows, timeframe, ext_hours, symbol)
     xs = chart_model.display_xs(rows, cmap)
     period = TIMEFRAME_SECONDS.get(timeframe or "")
     if cmap is None or not period:
@@ -896,7 +945,7 @@ def _drawing_frac(xs: Sequence, indices: Sequence, ts, cmap=None) -> float:
 
 
 def fractional_index_for_ts(ts, plotted: Sequence, timeframe: str | None,
-                            ext_hours: bool) -> float:
+                            ext_hours: bool, symbol=None) -> float:
     """Public one-shot mapping: a drawing timestamp's fractional index.
 
     The pair ``fractional_index_for_ts`` + ``display_from_fractional_index``
@@ -904,7 +953,7 @@ def fractional_index_for_ts(ts, plotted: Sequence, timeframe: str | None,
     fractional logical index and the inverse recovers the reference
     overlay's display-x exactly.
     """
-    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours, symbol)
     return _drawing_frac(xs, indices, ts, cmap)
 
 
@@ -1117,8 +1166,8 @@ def drag_drawing_item(kind: str, item: dict, point_index: int,
 # ``session_bands``, ``calculate_rth_gaps``,
 # ``calculate_vix_standard_deviation``, ``calculate_ict_concepts`` — mapped
 # through the one display-x axis (``drawing_axis``) into the candles'
-# fractional logical index. No service signature, no store, no ``ibkr`` module
-# and no order surface is touched: the same inputs render the same visuals on
+# fractional logical index. No service signature, no store, no broker
+# module and no order surface is touched: the same inputs render the same visuals on
 # both engines, and JS receives fractional indices and prices only — it
 # composes glyphs and labels itself.
 #
@@ -1193,7 +1242,7 @@ def clear_overlay_op(name: str) -> dict:
 
 
 def session_regions(bars: Sequence, plotted: Sequence, timeframe: str | None,
-                    ext_hours: bool) -> list:
+                    ext_hours: bool, symbol=None) -> list:
     """Session pre/post bands as engine regions (fractional indices).
 
     Mirrors ``ChartPanel._render_sessions``: nothing without extended hours,
@@ -1207,7 +1256,12 @@ def session_regions(bars: Sequence, plotted: Sequence, timeframe: str | None,
     """
     if not ext_hours or not bars or is_daily_or_coarser(timeframe):
         return []
-    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    if _is_futures_symbol(symbol):
+        # S-P20-5 (DG112 suppress): the D1 pre/post bands mark equity
+        # sessions and would mis-shade the overnight range — futures
+        # roots render no session bands in either toggle mode.
+        return []
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours, symbol)
     regions: list = []
     for band in session_bands(bars, timeframe or ""):
         kind = band.get("kind")
@@ -1224,7 +1278,8 @@ def session_regions(bars: Sequence, plotted: Sequence, timeframe: str | None,
 
 
 def gap_regions(gaps: Sequence, bars: Sequence, plotted: Sequence,
-                timeframe: str | None, ext_hours: bool) -> list:
+                timeframe: str | None, ext_hours: bool,
+                symbol=None) -> list:
     """RTH gap staircase steps as engine bands.
 
     Mirrors ``RthGapOverlay.render``: one band per gap *step*, its x range
@@ -1237,7 +1292,7 @@ def gap_regions(gaps: Sequence, bars: Sequence, plotted: Sequence,
     rows = list(bars or [])
     if not rows:
         return []
-    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours, symbol)
     last = len(rows) - 1
 
     def _bar_frac(index) -> float | None:
@@ -1291,7 +1346,7 @@ def vix_label(sigma, price) -> str:
 
 
 def vix_levels(result, plotted: Sequence, timeframe: str | None,
-               ext_hours: bool) -> list:
+               ext_hours: bool, symbol=None) -> list:
     """VIX sigma lines with right-edge labels (the reference ``add_hline``).
 
     One horizontal line per level from the unchanged
@@ -1303,7 +1358,7 @@ def vix_levels(result, plotted: Sequence, timeframe: str | None,
     levels = list(levels or [])
     if not levels:
         return []
-    _xs, indices, _cmap = drawing_axis(plotted, timeframe, ext_hours)
+    _xs, indices, _cmap = drawing_axis(plotted, timeframe, ext_hours, symbol)
     label_from = float(indices[-1]) if indices else 0.0
     rows: list = []
     for level in levels:
@@ -1323,7 +1378,8 @@ def vix_levels(result, plotted: Sequence, timeframe: str | None,
 
 
 def ict_regions(result, window: Sequence, plotted: Sequence,
-                timeframe: str | None, ext_hours: bool) -> list:
+                timeframe: str | None, ext_hours: bool,
+                symbol=None) -> list:
     """ICT concepts as engine regions, in the reference draw order.
 
     Mirrors ``ICTStudyOverlay.render`` one concept at a time — market
@@ -1339,7 +1395,7 @@ def ict_regions(result, window: Sequence, plotted: Sequence,
     rows = list(window or [])
     if not rows:
         return []
-    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours)
+    xs, indices, cmap = drawing_axis(plotted, timeframe, ext_hours, symbol)
     last_index = len(rows) - 1
 
     def _x(index) -> float | None:
@@ -1465,7 +1521,8 @@ def ict_regions(result, window: Sequence, plotted: Sequence,
 
 
 def series_ops(mode: str, bars: Sequence, timeframe: str | None,
-               ext_hours: bool, same_symbol: bool = False) -> list:
+               ext_hours: bool, same_symbol: bool = False,
+               symbol=None) -> list:
     """Build the ``set_bars`` / ``set_volume`` ops for one full series.
 
     ``rows`` are the loaded bars (any mode); RTH filtering, the
@@ -1483,7 +1540,7 @@ def series_ops(mode: str, bars: Sequence, timeframe: str | None,
     rows = list(bars or [])
     plotted = [rows[i] for i in
                chart_model.plotted_index_rows(rows, timeframe, ext_hours)]
-    cmap = chart_model.collapse_for_bars(plotted, timeframe, ext_hours)
+    cmap = _collapse_for_view(plotted, timeframe, ext_hours, symbol)
     period = TIMEFRAME_SECONDS.get(timeframe or "")
     if cmap is None or not period:
         indices = list(range(len(plotted)))
@@ -2421,8 +2478,8 @@ class LwcChartView(QWidget):
         self._extend_fallback_warned = False
         self._plotted = [self._bars[i] for i in chart_model.plotted_index_rows(
             self._bars, self._timeframe, self._ext_hours)]
-        self._cmap = chart_model.collapse_for_bars(
-            self._plotted, self._timeframe, self._ext_hours)
+        self._cmap = _collapse_for_view(
+            self._plotted, self._timeframe, self._ext_hours, self._symbol)
         period = TIMEFRAME_SECONDS.get(self._timeframe or "")
         if self._cmap is None or not period:
             self._logical = list(range(len(self._plotted)))
@@ -2486,10 +2543,12 @@ class LwcChartView(QWidget):
                                  self._bars, self._timeframe,
                                  self._ext_hours)]
             if self._plotted:
-                self._cmap = chart_model.collapse_for_bars(
-                    self._plotted, self._timeframe, self._ext_hours)
+                self._cmap = _collapse_for_view(
+                    self._plotted, self._timeframe, self._ext_hours,
+                    self._symbol)
                 self._logical = logical_indices(
-                    self._plotted, self._timeframe, self._ext_hours)
+                    self._plotted, self._timeframe, self._ext_hours,
+                    self._symbol)
             return
         if new_period:
             previous_index = self._logical[-1] if self._logical else None
@@ -2522,10 +2581,12 @@ class LwcChartView(QWidget):
                 if extended:
                     self._extend_fallback_warned = False
             if not extended:
-                self._cmap = chart_model.collapse_for_bars(
-                    self._plotted, self._timeframe, self._ext_hours)
+                self._cmap = _collapse_for_view(
+                    self._plotted, self._timeframe, self._ext_hours,
+                    self._symbol)
             self._logical = logical_indices(
-                self._plotted, self._timeframe, self._ext_hours)
+                self._plotted, self._timeframe, self._ext_hours,
+                self._symbol)
             opened_hole = (previous_index is not None
                            and self._logical
                            and self._logical[-1] - previous_index > 1)
@@ -3033,7 +3094,8 @@ class LwcChartView(QWidget):
 
     def drawing_axis(self) -> tuple[list, list, object]:
         """``(display_xs, logical_indices, collapse_map)`` for the plotted rows."""
-        return drawing_axis(self._plotted, self._timeframe, self._ext_hours)
+        return drawing_axis(self._plotted, self._timeframe, self._ext_hours,
+                            self._symbol)
 
     def set_drawings(self, drawings: list, groups: list | None = None) -> None:
         """Render the unchanged drawing records as LWC primitives.
@@ -3207,7 +3269,8 @@ class LwcChartView(QWidget):
         wanted: dict = {name: [] for name in OVERLAY_NAMES}
         if self._bars and self._plotted:
             wanted["session"] = session_regions(
-                self._bars, self._plotted, self._timeframe, self._ext_hours)
+                self._bars, self._plotted, self._timeframe, self._ext_hours,
+                self._symbol)
             for study in self._studies:
                 if not study.get("enabled"):
                     continue
@@ -3218,20 +3281,22 @@ class LwcChartView(QWidget):
                     wanted["rth_gaps"] = gap_regions(
                         calculate_rth_gaps(self._bars, ticker, params),
                         self._bars, self._plotted, self._timeframe,
-                        self._ext_hours)
+                        self._ext_hours, self._symbol)
                 elif stype == "vix_sd":
                     ticker = infer_ticker_context(self._symbol, self._bars)
                     wanted["vix_sd"] = vix_levels(
                         calculate_vix_standard_deviation(
                             ticker, self._bars, params),
-                        self._plotted, self._timeframe, self._ext_hours)
+                        self._plotted, self._timeframe, self._ext_hours,
+                        self._symbol)
                 elif stype == "ict":
                     ticker = infer_ticker_context(self._symbol, self._bars)
                     window = chart_model.trailing_bars(
                         self._bars, ICT_TRAILING_BARS)
                     wanted["ict"] = ict_regions(
                         calculate_ict_concepts(window, ticker, params), window,
-                        self._plotted, self._timeframe, self._ext_hours)
+                        self._plotted, self._timeframe, self._ext_hours,
+                        self._symbol)
         ops: list = []
         for name in OVERLAY_NAMES:
             rows = wanted[name]

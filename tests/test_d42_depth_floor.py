@@ -96,11 +96,22 @@ def _before_current(present: set[date], current: date) -> set[date]:
     return {day for day in present if day < current}
 
 
+# Abbreviated timeframe tags: every synthetic symbol must satisfy the STK
+# ticker-charset rule (uppercase letters/digits/dot/dash, at most 8 chars)
+# so no load diverts into ``_pending_probes``.
+_TF_ABBR = {
+    "1 min": "1M",
+    "5 mins": "5M",
+    "15 mins": "15M",
+    "1 hour": "1H",
+    "4 hours": "4H",
+}
+
+
 def _symbol_for(tf: str, mode: bool) -> str:
     # Uppercased: ``load_chart`` upper-cases the symbol, so the cache key the
     # test reads must match the one the load path wrote.
-    tag = "".join(ch for ch in tf if ch.isalnum())
-    return f"P22{tag}{'E' if mode else 'R'}".upper()
+    return f"P22{_TF_ABBR[tf]}{'E' if mode else 'R'}"
 
 
 # ---------------------------------------------------------------------------
