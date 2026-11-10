@@ -5252,4 +5252,4 @@ all three and edits no production files.
   entries, zero open/PLAN); no `pending_doc_sync.md` entries remain unapplied (file
   absent); the P21 wave machinery is only read.
 
-Status: READY_FOR_VALIDATION
+Status: READY_FOR_TASK_MANAGER

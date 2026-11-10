@@ -516,3 +516,35 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)
 - d65b52f Q-60: gates track approved behavior (nine timeframes, same_symbol key, follow gating present)
 - bc6d84a P10 rework close-out: ESC-088/089/091/092 + PRE-007 verified addressed, zero open
+## P22 — 2026-11-10
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P22-T2 — P22-T2 rework done: docstring no longer names ui.main_window; task suite (7 tests) and the residue guard both green
+- P22-T3 — P22-T3 done: live tz apply (applyTz sets tzMode/tzOffset, re-applies shared tick/time formatters, forces tick re-render) plus zone-aware ET formatting (etLabel via America/New_York, UTC stays plain math); pytest 4 passed, node 14 passed
+- P22-T1 — P22-T1 done: static toolbar captions (Symbol:/TF/Mode/Draw/separators) given Minimum-policy room via _toolbar_caption helper so full-text width is the floor and overflow stays with the D19 scroll wrapper; new D61 suite plus untouched D19/D20 suites green (16 passed). NOTE: the SY clip did not reproduce pre-fix in this offscreen env — the Symbol: caption is allocated exactly its text advance (42/42px with theme.qss, 48/47 without), i.e. zero room, confirming the defect class; the fix adds structural room and holds full width under font-drift pressure. Noticed-not-fixed (out of scope): the dynamic conn_badge ("Connecting" etc.) can still squeeze when its runtime text outgrows its construction width — separate dynamic-sizing issue, badges left untouched per AP-P22-4 label-field-local rule.
+- P22-T4 — P22-T4 done: Normal crosshair pinned at creation + tz re-apply (snap source was the unapplied Magnet default); 4/4 d63 tests pass, incl. red-first AC1
+- P22-T5 — P22-T5 batch gate green: history-intact narrowed pins hold, DG114 confirmed one shared tz-apply seam with DG115/DG116 closed, guards re-pinned and full offscreen plus node suites pass
+
+### Recent commits (unscoped)
+- 6ea3293 P21: follow-offset preservation + away-hold viewport (D60, Q100-102 answered)
+- 5b3ec66 P21: follow-offset preservation + away-hold viewport (D60, Q100-102 answered)
+- 5a8307b P20: index + futures contract support (D59, Q96-99 answered)
+- 65bc3e7 P19: scroll-triggered backfill prefetch (D58, owner-accepted trigger table)
+- b39fdf2 P18: go-to-latest chevron + fresh per-timeframe framing (D57, Q92-95 answered)
+- e50a759 P17: silence retry for historical chunks (D56, Q88-91 answered)
+- 2223786 P16: doc consolidation D55 batch 1 (inventory, fact sheet, navigation, live-only guides, P6/P7 reconciliation, disposition ledger + Q87 deletions, final review)
+- 945a2b2 Scratch + evidence: D53 4-phase live probe harness (v3 logging) and TWS probe findings/reports
+- e9e5912 P15: 10-second load-chart target + graceful degradation (D54, target reading A148)
+- 2d8fabd P14: persistent backfill-state indicator + cache-current guard (D53, Finding 2)
+- e93fa47 P12 final review record (REVIEW_COMPLETE)
+- 5fd5416 Q-62: popouts residue scan expects tz_offset column
+- e6288ff Changelog: P13 as-built entry
+- 19fd7cd P13 tracking: plan/architecture activation, validator + reviewer records, task graph
+- 95f593b P13 popout robustness + timezone handoff (T01-T09, gate green, REVIEW_COMPLETE)
+- 4f888aa P12 tracking: plan activation, validator approval, task graph
+- 968dfdf Q-61: recompute pinned counts for the approved 9-row 30-min config
+- 817ca2b P12 30-min timeframe: config row, 1800s buckets, priming table row, probe record
+- 7a9a06f P10/P11 + D50/D51/D52 requirements, plans, reviews, task graphs, usage docs
+- 0abd1fc P10 drag-editing + P11 follow-live implementation (interleaved in chart.js/gestures.js/lwc_view.py; green suite, both REVIEW_COMPLETE)

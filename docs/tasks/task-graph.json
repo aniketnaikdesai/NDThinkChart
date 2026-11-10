@@ -1,546 +1,576 @@
 {
   "meta": {
-    "phase": "P21",
-    "plan_ref": "docs/plan.md#Phase P21",
-    "architecture_ref": "docs/architecture.md#Phase P21",
-    "requirements_ref": "docs/requirements/requirements.md#Phase P21",
+    "phase": "P22",
+    "plan_ref": "docs/plan.md#Phase P22",
+    "architecture_ref": "docs/architecture.md#Phase P22",
+    "requirements_ref": "docs/requirements/requirements.md#Phase P22",
     "status": "READY_FOR_BUILD"
   },
   "tasks": [
     {
-      "id": "P21-T1",
-      "title": "Follow-offset live path: envelope slot-delta shift + explicit-action preserve + per-view gap",
-      "description": "In chart_assets/lwc/chart.js, replace the followLive edge-pin (scrollToRealTime / {slot-span, slot} fallback) with an envelope slot-delta shift: snapshot newestBarSlot() before and after the applyOps envelope lands and, when followingBefore is true and delta N > 0, set {from: r.from + N, to: r.to + N} over the pre-update range. Add per chart-page-instance remembered gap state (default FRESH_FRAME_RIGHT_PADDING, refreshed on every observed following range, never shared cross-view); goToRealtime/chevron keeps span and lands newest at the remembered-gap offset, fitAndFollow frames all loaded bars then extends to by the remembered gap, and manual scroll/pinch stays the only zero-gap path.",
+      "id": "P22-T1",
+      "title": "Toolbar Symbol: label-field room (D61, field-local)",
+      "description": "Give the toolbar Symbol: label field room (sizing/minimum/overflow behaviour around the field at ui/main_window.py:347) so it renders in full at wide and scrolling widths. Text, font and style unchanged; the D19 scroll wrapper stays the overflow mechanism. Stays label-field-local per AP-P22-4: if diagnosis proves a D19/D20-fixture-asserted width must move, stop and escalate for Analyst sign-off instead of re-baselining \u2014 never weaken an assertion to green.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given a following viewport with right-edge gap G logical slots where G is 0, 1, or 3, when an envelope landing exactly N new bar slots where N is 1 or 3 arrives while still following, then the visible logical range becomes {from + N, to + N} (span preserved) and the post-arrival gap equals G; G = 0 keeps the newest bar at the edge with no observable change.",
-        "Given any viewport state holding remembered gap G, when Fit/reset, chevron/goToRealtime click, or right-edge double-click/Fit fires, then follow re-engages with the post-action gap equal to G (span preserved; fit frames all loaded bars then extends to by G); and given any viewport, then a zero gap is observed only after a manual scroll/pinch to the edge.",
-        "Given a main view and a pop-out view each following with a different gap, when new bar slots arrive, then each view shifts its own range by the arrival width and preserves its own gap, and no gap value crosses between views or over the Python bridge.",
-        "Given a forming-bar tick envelope with zero new slots, or a hole-republish envelope appending N new slots, landing while following, then the visible range shifts by exactly the envelope newest-slot delta (zero for forming ticks so no per-tick jitter; exactly N once for a republish, never twice)."
+        "Given the toolbar visible at any window width (wide and narrow-enough-to-scroll), When the top-left label renders, Then it reads Symbol: in full \u2014 never truncated to SY \u2014 and no other toolbar label is clipped by its container.",
+        "Given the D61 fix, When the toolbar strip renders with and without overflow, Then the content row stays a single ~36px row, the total strip stays ~50\u201352px, and all controls stay reachable via scroll/elide \u2014 AC-D19.4 (as superseded by D20), AC-D20.1\u2013AC-D20.6 unchanged with existing D19/D20 suites green unmodified."
       ],
       "tests": [
         {
-          "test_id": "P21-T1-AC1",
-          "linked_acceptance_criterion": "Given a following viewport with right-edge gap G logical slots where G is 0, 1, or 3, when an envelope landing exactly N new bar slots where N is 1 or 3 arrives while still following, then the visible logical range becomes {from + N, to + N} (span preserved) and the post-arrival gap equals G; G = 0 keeps the newest bar at the edge with no observable change.",
+          "test_id": "P22-T1-AC1",
+          "linked_acceptance_criterion": "Given the toolbar visible at any window width (wide and narrow-enough-to-scroll), When the top-left label renders, Then it reads Symbol: in full \u2014 never truncated to SY \u2014 and no other toolbar label is clipped by its container.",
           "type": "integration",
-          "description": "Offscreen page-DOM viewport-slot matrix plus node --test core: seeded series, set a following range with gap G in {0,1,3}, inject N in {1,3} new slots through lwApplyOps, assert pre/post ranges and gap equality for all 6 cells on the main view. Red-first against the current scrollToRealTime snap path.",
-          "expected_result": "All 6 GxN cells shift by exactly N with post-arrival gap equal to G; the G=0 cells are unchanged from the current edge outcome."
+          "description": "Offscreen MainWindow toolbar cases at a wide width and at a narrowed scrolling width asserting the label text reads Symbol: in full (red-first on the current SY clip) plus a sweep asserting no other toolbar label is clipped by its container.",
+          "expected_result": "Label reads Symbol: in full at both widths on the fixed tree (red before the fix, green after); no other label clipped."
         },
         {
-          "test_id": "P21-T1-AC2",
-          "linked_acceptance_criterion": "Given any viewport state holding remembered gap G, when Fit/reset, chevron/goToRealtime click, or right-edge double-click/Fit fires, then follow re-engages with the post-action gap equal to G (span preserved; fit frames all loaded bars then extends to by G); and given any viewport, then a zero gap is observed only after a manual scroll/pinch to the edge.",
+          "test_id": "P22-T1-AC2",
+          "linked_acceptance_criterion": "Given the D61 fix, When the toolbar strip renders with and without overflow, Then the content row stays a single ~36px row, the total strip stays ~50\u201352px, and all controls stay reachable via scroll/elide \u2014 AC-D19.4 (as superseded by D20), AC-D20.1\u2013AC-D20.6 unchanged with existing D19/D20 suites green unmodified.",
           "type": "integration",
-          "description": "Offscreen per-action preserve cases: from away and from following states with a known remembered gap, fire goToRealtime, fitAndFollow, and the double-click/Fit path, asserting post-action gap equals the remembered gap and follow re-engaged (isFollowing true); plus a manual scroll/pinch-to-edge case asserting the gap zeroes only there.",
-          "expected_result": "Every explicit action lands with gap equal to the remembered gap and follow re-engaged; only the manual scroll/pinch case shows a zero gap."
-        },
-        {
-          "test_id": "P21-T1-AC3",
-          "linked_acceptance_criterion": "Given a main view and a pop-out view each following with a different gap, when new bar slots arrive, then each view shifts its own range by the arrival width and preserves its own gap, and no gap value crosses between views or over the Python bridge.",
-          "type": "integration",
-          "description": "Offscreen two-view case: two separate chart page instances following with different gaps (e.g. 1 and 3), inject the same new-slot arrival into each, asserting each preserves its own gap and that neither page instance exposes gap state to Python (no gap field on the bridge payload).",
-          "expected_result": "Each view shifts by the arrival width with its own gap intact; the two gaps never equalize and no gap crosses the bridge."
-        },
-        {
-          "test_id": "P21-T1-AC4",
-          "linked_acceptance_criterion": "Given a forming-bar tick envelope with zero new slots, or a hole-republish envelope appending N new slots, landing while following, then the visible range shifts by exactly the envelope newest-slot delta (zero for forming ticks so no per-tick jitter; exactly N once for a republish, never twice).",
-          "type": "unit",
-          "description": "node --test envelope-delta cases plus one offscreen republish case: forming-tick-only envelopes assert zero range movement across repeated ticks; an opened-hole republish envelope appending N slots asserts exactly-N shift (AR-P21-1 double-shift guard).",
-          "expected_result": "Forming ticks move nothing; the republish envelope shifts exactly N with no second shift."
+          "description": "Run the untouched D19/D20 suites plus strip-height and scroll-reachability assertions against dock-drag clamps.",
+          "expected_result": "Existing D19/D20 suites green unmodified; content row ~36px, strip ~50\u201352px, every control reachable with and without overflow."
         }
       ],
       "expected_artifacts": [
-        "Envelope slot-delta shift + remembered-gap preserve logic in chart_assets/lwc/chart.js",
-        "tests/test_d60_follow_offset.py (GxN matrix, per-action preserve, two-view, G=0 degeneracy)",
-        "chart_assets/lwc/follow_offset.test.js (envelope-delta core, forming-tick, republish exactly-once)"
+        "Label-field sizing fix in ui/main_window.py (toolbar block only)",
+        "tests/test_d61_toolbar_label.py (wide + scrolling-width label cases)"
       ],
       "touches_files": [
-        "chart_assets/lwc/chart.js",
-        "tests/test_d60_follow_offset.py",
-        "chart_assets/lwc/follow_offset.test.js"
+        "ui/main_window.py",
+        "tests/test_d61_toolbar_label.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P11/P18 follow and explicit-action contracts (frozen, read-only)",
-        "S-P21-1/S-P21-2/S-P21-4"
+        "S-P22-1",
+        "Frozen D19/D20 geometry"
       ],
       "outputs": [
-        "Shift helper + per-instance remembered gap consumed by P21-T2",
-        "GxN matrices green"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "780-880",
-            "why": "edit: followLive edge-pin plus goToRealtime/fitAndFollow/chevron wiring to convert to preserve"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1140-1235",
-            "why": "edit: applyOps live-upsert branch and preservedRange replace branch where the envelope delta lands"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "175-260",
-            "why": "read-only: isFollowingSlot derivation and chevronVisible/newBarsSinceAway home the gap state joins \u2014 do not redefine"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2216-2290",
-            "why": "read-only: fresh_frame_ops frozen contract already lands on FRESH_FRAME_RIGHT_PADDING \u2014 do not change"
-          },
-          {
-            "path": "tests/test_p11_follow_state.py",
-            "lines": "1-60",
-            "why": "conventions: page-probe surface plus static/source-assertion pattern this task reuses"
-          },
-          {
-            "path": "tests/test_p19_prefetch_viewport.py",
-            "lines": "160-290",
-            "why": "read-only: landing-case helper pattern for viewport assertions \u2014 do not change"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "chart_assets/lwc/chart.js:isFollowingSlot",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:fresh_frame_ops",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:report_viewport",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P21",
-        "plan_ref": "docs/plan.md#Phase P21",
-        "requirement_ids": [
-          "D60",
-          "AC-D60.1",
-          "AC-D60.2",
-          "AC-D60.5"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d60_follow_offset.py -q && node --test chart_assets/lwc/follow_offset.test.js",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P21-T2",
-      "title": "Away-landing neutrality gate + session-open gap reset",
-      "description": "Repro-first: drive the ES 5-min away repro (scrolled into the past with a wave in flight, land one chunk per leg) and confirm it fails on the current tree, then diagnose the moving call among the candidate sites (chunk render without same-symbol continuity, fresh-frame re-land on chunk, fitToWidth fallback on failed range re-apply). Route every landing through the preserve path (re-apply pre-replace range, no fresh frame, no range op) while away so the range stays bit-identical and follow stays disengaged; pin the session-open reset (carried gap never survives; fresh frame lands on its default) with carried-gap open cases, landing as tests-only if the reset verifies as already structural.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P21-T1"
-      ],
-      "acceptance_criteria": [
-        "Given an away viewport with the latest bar off-screen and a wave in flight, when a chunk lands via backfill continuation, via realtime update, and via prefetch arrival, then the visible range is bit-identical before and after each landing and follow stays disengaged; the repro fails on the pre-fix tree and the diagnosis names the moving call in the repro trace.",
-        "Given a scrolled-back viewport, when live bars arrive, then the visible range is unchanged and follow stays disengaged until pan-back-to-edge or an explicit action (AC-D51.2 regression guard stays green).",
-        "Given a carried non-zero follow-offset at session open, when the fresh frame lands, then the post-open gap equals the FRESH_FRAME_RIGHT_PADDING default with no stale gap carried across the open."
-      ],
-      "tests": [
-        {
-          "test_id": "P21-T2-AC1",
-          "linked_acceptance_criterion": "Given an away viewport with the latest bar off-screen and a wave in flight, when a chunk lands via backfill continuation, via realtime update, and via prefetch arrival, then the visible range is bit-identical before and after each landing and follow stays disengaged; the repro fails on the pre-fix tree and the diagnosis names the moving call in the repro trace.",
-          "type": "integration",
-          "description": "Offscreen ES 5-min away repro per landing leg: scroll into the past intraday with a wave in flight, land one chunk per leg (backfill continuation, realtime update, prefetch arrival), asserting bit-identical visible range plus disengaged follow per leg; the repro is recorded failing pre-fix with the moving call named before the gate lands.",
-          "expected_result": "Repro fails pre-fix with the mover named; post-fix all three legs leave the away range bit-identical and follow disengaged."
-        },
-        {
-          "test_id": "P21-T2-AC2",
-          "linked_acceptance_criterion": "Given a scrolled-back viewport, when live bars arrive, then the visible range is unchanged and follow stays disengaged until pan-back-to-edge or an explicit action (AC-D51.2 regression guard stays green).",
-          "type": "integration",
-          "description": "Offscreen away-arrival identity suites: scrolled-back viewports receiving live-bar arrivals assert unchanged ranges and disengaged follow; the existing AC-D51.2 suites are re-run unchanged as the regression guard.",
-          "expected_result": "Away arrivals move nothing and follow stays disengaged; all AC-D51.2 suites stay green."
-        },
-        {
-          "test_id": "P21-T2-AC3",
-          "linked_acceptance_criterion": "Given a carried non-zero follow-offset at session open, when the fresh frame lands, then the post-open gap equals the FRESH_FRAME_RIGHT_PADDING default with no stale gap carried across the open.",
-          "type": "integration",
-          "description": "Offscreen carried-gap session-open cases: seed a non-zero remembered gap, drive a session open / fresh-frame land, assert the post-open gap equals the fresh-frame default; if the reset verifies as already structural, these land as tests-only with no production edit claimed.",
-          "expected_result": "Post-open gap equals FRESH_FRAME_RIGHT_PADDING regardless of the carried gap."
-        }
-      ],
-      "expected_artifacts": [
-        "Away-landing gate in chart_assets/lwc/chart.js and/or ui/lwc_view.py (landings deliver bars only, never navigation)",
-        "tests/test_d60_away_landing.py (per-leg away repro, away-arrival identity, session-open reset)"
-      ],
-      "touches_files": [
-        "chart_assets/lwc/chart.js",
-        "ui/lwc_view.py",
-        "tests/test_d60_away_landing.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P21-T1 shift helper + remembered-gap state",
-        "S-P21-5 candidate sites",
-        "S-P21-3 fresh-frame default"
-      ],
-      "outputs": [
-        "Away-neutral landings on all three legs",
-        "Session-open reset pinned"
-      ],
-      "status": "done",
-      "size": "M",
-      "context": {
-        "read_files": [
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1140-1235",
-            "why": "edit: applyOps replace/preserve branch \u2014 the landing path the S-P21-5 diagnosis gates"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1300-1360",
-            "why": "read-only: page probe/report surface (lwApplyOps, lwGoToRealtime, lwFit, follow probe) the repro drives \u2014 do not change"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2445-2560",
-            "why": "edit only what the diagnosis names: set_series continuity and update_live_bar emit shape; the bar-domain contract itself stays"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "2326-2400",
-            "why": "read-only: viewport_memory plus report_viewport sink the gate must not reshape \u2014 do not change"
-          },
-          {
-            "path": "ui/lwc_view.py",
-            "lines": "1680-1700",
-            "why": "read-only: FRESH_FRAME_RIGHT_PADDING default the reset asserts \u2014 do not change"
-          },
-          {
-            "path": "tests/test_p19_prefetch_viewport.py",
-            "lines": "160-290",
-            "why": "read-only: landing-case helper pattern for per-leg viewport assertions \u2014 do not change"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "ui/lwc_view.py:update_live_bar",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:set_series",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:fresh_frame_ops",
-            "status": "existing"
-          },
-          {
-            "ref": "services/backfill_service.py:find_missing_spans",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P21",
-        "plan_ref": "docs/plan.md#Phase P21",
-        "requirement_ids": [
-          "D60",
-          "AC-D60.7",
-          "AC-D60.4",
-          "AC-D60.3"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d60_away_landing.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
-      }
-    },
-    {
-      "id": "P21-T3",
-      "title": "P21 batch gate: full suites green + history intact",
-      "description": "Verify the joint P21-T1/P21-T2 behaviour: run the full offscreen suite plus the node page-core suites green, re-run the D60 follow and away suites together, and perform the AC-D60.6 history-intact check (Existing Repository marker sentence and Current Tech Stack unchanged; requirements ### D41 through ### D59 sections present with reversals; no pre-P21 wording touched). No production edits; no D51/P15/P18/P19 behaviour or wording regressed.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P21-T1",
-        "P21-T2",
-        "P21-T4",
-        "P21-T5"
-      ],
-      "acceptance_criteria": [
-        "Given the completed P21-T1 and P21-T2 changes, when the full offscreen suite and the node page-core suites run clean, then every suite is green with no D51/P18/P19 regression.",
-        "Given docs/requirements/requirements.md after P21, then the Existing Repository marker sentence and Current Tech Stack are unchanged, the ### D41 through ### D59 sections are present with their reversals, and no pre-P21 wording is touched."
-      ],
-      "tests": [
-        {
-          "test_id": "P21-T3-AC1",
-          "linked_acceptance_criterion": "Given the completed P21-T1 and P21-T2 changes, when the full offscreen suite and the node page-core suites run clean, then every suite is green with no D51/P18/P19 regression.",
-          "type": "integration",
-          "description": "Clean full offscreen run (QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest, DB_PATH to a temp file for any non-pytest probe) plus node --test for the page core including follow_offset.test.js; explicitly confirms the D51/P18/P19 suites green.",
-          "expected_result": "Full offscreen suite green, node page-core suites green, D51/P18/P19 suites green."
-        },
-        {
-          "test_id": "P21-T3-AC2",
-          "linked_acceptance_criterion": "Given docs/requirements/requirements.md after P21, then the Existing Repository marker sentence and Current Tech Stack are unchanged, the ### D41 through ### D59 sections are present with their reversals, and no pre-P21 wording is touched.",
-          "type": "unit",
-          "description": "History-intact check: marker grep plus presence of the ### D41 through ### D59 sections, asserting no pre-P21 wording was modified (added as assertions in a D60 suite file if not already covered).",
-          "expected_result": "Marker sentence and tech stack unchanged; all ### D41-### D59 sections present; pre-P21 wording untouched."
-        }
-      ],
-      "expected_artifacts": [
-        "Green full-suite evidence plus AC-D60.6 history-intact assertions"
-      ],
-      "touches_files": [
-        "tests/test_d60_follow_offset.py",
-        "tests/test_d60_away_landing.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P21-T1 and P21-T2 joint behaviour",
-        "P21-T4 and P21-T5 migrated suites green",
-        "S-P21-6 verification order"
-      ],
-      "outputs": [
-        "Batch gate: every AC-D60.* observably satisfied, suite green"
+        "Full Symbol: label at every width; D19/D20 suites green"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "tests/test_p11_follow_state.py",
-            "lines": "1-60",
-            "why": "run-only: follow-state suites that must stay green under the gate \u2014 do not change"
+            "path": "ui/main_window.py",
+            "lines": "300-360",
+            "why": "edit: Symbol: label field plus fixed-width siblings \u2014 give the field room"
           },
           {
-            "path": "tests/test_p19_prefetch_viewport.py",
-            "lines": "160-290",
-            "why": "run-only: prefetch landing suites that must stay green under the gate \u2014 do not change"
+            "path": "ui/main_window.py",
+            "lines": "125-160",
+            "why": "read-only: ToolbarScroll wrapper mechanics stay the overflow mechanism \u2014 do not change"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "416-430",
+            "why": "read-only: strip-height constants (~36px content plus scrollbar lane) \u2014 do not change"
+          },
+          {
+            "path": "tests/test_toolbar_scroll_d19.py",
+            "lines": "1-60",
+            "why": "conventions: toolbar offscreen scroll/reachability pattern this task reuses"
+          },
+          {
+            "path": "tests/test_toolbar_d20.py",
+            "lines": "1-60",
+            "why": "guard: reserved-lane suites stay green unmodified \u2014 never weaken an assertion"
+          },
+          {
+            "path": "ui/dock_layout.py",
+            "lines": "1-139",
+            "why": "read-only: dock-drag clamps the fix is measured against (R137) \u2014 do not change"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/lwc_view.py:fresh_frame_ops",
+            "ref": "ui/main_window.py:TOOLBAR_CONTENT_HEIGHT",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P21",
-        "plan_ref": "docs/plan.md#Phase P21",
+        "architecture_ref": "docs/architecture.md#Phase P22",
+        "plan_ref": "docs/plan.md#Phase P22",
         "requirement_ids": [
-          "D60",
-          "AC-D60.6",
-          "AC-D60.1",
-          "AC-D60.7"
+          "AC-D61.1",
+          "AC-D61.2"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d61_toolbar_label.py tests/test_toolbar_scroll_d19.py tests/test_toolbar_d20.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "S"
       }
     },
     {
-      "id": "P21-T4",
-      "title": "Test-only preserve migration: chevron/joint/no-yank/affordance suites + latent fit_frames_all",
-      "description": "Test-only migration of four pre-P21 suites to the owner-approved Q100(b) preserve semantics (S-P21-2, delivered by P21-T1): tests/test_d57_chevron.py T13, tests/test_d57_joint.py T31, tests/test_p11_no_yank.py T22, tests/test_p11_fit_affordance.py T32, plus the latent tests/test_p11_fit_affordance.py T31 fit_frames_all re-pin to {0, newest+G} under faithful (frame-carrying) seeds. Restate every follow/badge/chevron outcome without pinning the retired scrollToRealTime mechanism or edge-pin to==newest outcomes. No production file is touched.",
+      "id": "P22-T2",
+      "title": "Live timezone apply path: set_timezone plus fan-out plus persistence (D62 leg)",
+      "description": "Add the missing callee the _chart_call(set_timezone) site already names: LwcChartView.set_timezone(mode) publishing a tz op on the existing interaction channel, and rewire MainWindow._on_tz_changed to fan out to the main view plus every self._popouts entry and persist the mode in QSettings with startup restore. The toggle never refetches: re-label is a format plus re-render pass settled by P22-T3. Test T2-AC1 pins the op this task emits; test P22-T2-AC2 pins the fan-out this task performs; test P22-T2-AC3 pins the persistence round-trip \u2014 label-shift correctness is P22-T3's tests, not these.",
       "agent": "build_worker",
       "task_type": "code",
-      "dependencies": [
-        "P21-T1"
-      ],
+      "dependencies": [],
       "acceptance_criteria": [
-        "Given the chevron, joint, no-yank, and affordance suites asserting retired scrollToRealTime call counts or edge-pin to==newest outcomes, when migrated to the Q100(b) preserve semantics, then every case asserts post-action gap equal to the remembered gap with span preserved, follow re-engaged, and badge consumed/chevron hidden, and no case pins scrollToRealTime call counts or a to==newest edge outcome.",
-        "Given the latent fit_frames_all case asserting fit lands {0, newest} from a bare-fit seed with remembered gap 0, when re-pinned under a faithful frame-carrying seed with non-zero remembered gap, then fit lands {0, newest+G} with follow re-engaged.",
-        "Given the migrated suites, when the pre/post diff is inspected, then no production file is modified and every follow/badge/chevron outcome asserted pre-migration is still asserted (restated for preserve semantics, none dropped)."
+        "Given LwcChartView with the existing bridge, When set_timezone(mode) is called with UTC or Eastern Time, Then a tz op carrying the mode is published on the existing interaction channel with send_ops and replay semantics unchanged.",
+        "Given the UTC\u2194ET toggle flips, When _on_tz_changed runs, Then the main view plus every pop-out view re-renders against the new offset and the choice persists across restarts (AC-D62.3)."
       ],
       "tests": [
         {
-          "test_id": "P21-T4-AC1",
-          "linked_acceptance_criterion": "Given the chevron, joint, no-yank, and affordance suites asserting retired scrollToRealTime call counts or edge-pin to==newest outcomes, when migrated to the Q100(b) preserve semantics, then every case asserts post-action gap equal to the remembered gap with span preserved, follow re-engaged, and badge consumed/chevron hidden, and no case pins scrollToRealTime call counts or a to==newest edge outcome.",
-          "type": "integration",
-          "description": "Offscreen runs of tests/test_d57_chevron.py T13, tests/test_d57_joint.py T31, tests/test_p11_no_yank.py T22, and tests/test_p11_fit_affordance.py T32 against the P21-T1 tree, asserting preserve outcomes (gap == remembered gap, span preserved, follow re-engaged, badge/chevron settled); retired-mechanism pins are gone by construction of the migrated assertions.",
-          "expected_result": "All four suites green with post-action gap equal to the remembered gap and follow re-engaged; no scrollToRealTime call-count or to==newest assertion remains."
-        },
-        {
-          "test_id": "P21-T4-AC2",
-          "linked_acceptance_criterion": "Given the latent fit_frames_all case asserting fit lands {0, newest} from a bare-fit seed with remembered gap 0, when re-pinned under a faithful frame-carrying seed with non-zero remembered gap, then fit lands {0, newest+G} with follow re-engaged.",
-          "type": "integration",
-          "description": "Offscreen tests/test_p11_fit_affordance.py T31 case re-seeded through a frame-carrying envelope with non-zero remembered gap, asserting fit lands {0, newest+G}.",
-          "expected_result": "Fit lands {0, newest+G} with follow re-engaged; the bare-seed {0, newest} shape no longer asserted."
-        },
-        {
-          "test_id": "P21-T4-AC3",
-          "linked_acceptance_criterion": "Given the migrated suites, when the pre/post diff is inspected, then no production file is modified and every follow/badge/chevron outcome asserted pre-migration is still asserted (restated for preserve semantics, none dropped).",
+          "test_id": "P22-T2-AC1",
+          "linked_acceptance_criterion": "Given LwcChartView with the existing bridge, When set_timezone(mode) is called with UTC or Eastern Time, Then a tz op carrying the mode is published on the existing interaction channel with send_ops and replay semantics unchanged.",
           "type": "unit",
-          "description": "Diff-scope check over the task footprint: git diff --stat shows only the four test files, and each pre-migration follow/badge/chevron outcome maps to a restated preserve assertion in the migrated files.",
-          "expected_result": "Diff touches only the four test files; no outcome assertion is dropped, only restated."
+          "description": "Call set_timezone on the view with a stubbed bridge and assert the emitted op shape and channel; assert replay still carries it after page-ready.",
+          "expected_result": "Op {op: set_timezone, mode} emitted on the interaction channel for both modes; replay preserves it; no runJavaScript path added."
+        },
+        {
+          "test_id": "P22-T2-AC2",
+          "linked_acceptance_criterion": "Given the UTC\u2194ET toggle flips, When _on_tz_changed runs, Then the main view plus every pop-out view re-renders against the new offset and the choice persists across restarts (AC-D62.3).",
+          "type": "integration",
+          "description": "Offscreen flip with one main view plus two pop-out views asserting set_timezone reached every open view (red-first on the current silent no-op where no set_timezone exists).",
+          "expected_result": "Main plus every pop-out received the new mode; no view keeps a stale offset."
+        },
+        {
+          "test_id": "P22-T2-AC3",
+          "linked_acceptance_criterion": "Given the UTC\u2194ET toggle flips, When _on_tz_changed runs, Then the main view plus every pop-out view re-renders against the new offset and the choice persists across restarts (AC-D62.3).",
+          "type": "integration",
+          "description": "Flip, restart the offscreen window, and assert the persisted choice restores for the main view and seeds pop-out creation.",
+          "expected_result": "Restarted window renders the persisted mode; new pop-outs are created with it (D49.6 threading intact)."
         }
       ],
       "expected_artifacts": [
-        "Migrated tests/test_d57_chevron.py, tests/test_d57_joint.py, tests/test_p11_no_yank.py, tests/test_p11_fit_affordance.py (preserve re-pins, T31 newest+G)"
+        "LwcChartView.set_timezone in ui/lwc_view.py",
+        "tz op on the interaction channel in ui/lwc_bridge.py",
+        "_on_tz_changed fan-out plus QSettings persist/restore in ui/main_window.py",
+        "tests/test_d62_timezone_toggle.py (op-shape, fan-out, persistence cases)"
       ],
       "touches_files": [
-        "tests/test_d57_chevron.py",
-        "tests/test_d57_joint.py",
-        "tests/test_p11_no_yank.py",
-        "tests/test_p11_fit_affordance.py"
+        "ui/lwc_view.py",
+        "ui/lwc_bridge.py",
+        "ui/main_window.py",
+        "tests/test_d62_timezone_toggle.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P21-T1 remembered-gap preserve semantics (S-P21-2/Q100(b))",
-        "ESC-114 observed pre/post shapes"
+        "S-P22-2",
+        "Frozen _chart_call dispatch and _popouts registry",
+        "D49.6 creation threading (read-only)"
       ],
       "outputs": [
-        "Four suites green under preserve semantics",
-        "Batch gate input for P21-T3"
+        "tz op shape consumed by P22-T3",
+        "per-view fan-out plus persisted mode"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "tests/test_d57_chevron.py",
-            "lines": "281-404",
-            "why": "edit: T13 chevron preserve re-pin"
+            "path": "ui/main_window.py",
+            "lines": "4115-4130",
+            "why": "edit: _on_tz_changed fan-out to main plus every _popouts entry plus persist"
           },
           {
-            "path": "tests/test_d57_joint.py",
-            "lines": "311-396",
-            "why": "edit: T31 joint chevron preserve re-pin"
+            "path": "ui/main_window.py",
+            "lines": "855-870",
+            "why": "read-only: _chart_call dispatch already names set_timezone \u2014 unchanged, gains its callee"
           },
           {
-            "path": "tests/test_p11_no_yank.py",
-            "lines": "251-292",
-            "why": "edit: T22 no-auto-resume preserve re-pin"
+            "path": "ui/main_window.py",
+            "lines": "480-495",
+            "why": "read-only: QSettings precedent whose key shape the timezone choice follows"
           },
           {
-            "path": "tests/test_p11_fit_affordance.py",
-            "lines": "208-333",
-            "why": "edit: T32 affordance plus latent T31 newest+G re-pin"
+            "path": "ui/lwc_view.py",
+            "lines": "1940-2070",
+            "why": "edit: add set_timezone beside the construction-only _tz_offset and getter"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "370-379",
+            "why": "read-only: format_tz_label mirror consulted, not modified"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "330-420",
+            "why": "edit: tz op rides send_channel on the existing interaction channel"
+          },
+          {
+            "path": "ui/popout_window.py",
+            "lines": "190-205",
+            "why": "read-only: D49.6 creation threading receives fan-out, unchanged"
+          },
+          {
+            "path": "tests/test_p13_tz_restore.py",
+            "lines": "1-60",
+            "why": "conventions: tz restore and persistence test pattern this task reuses"
           }
         ],
         "contracts": [
           {
-            "ref": "chart_assets/lwc/chart.js:isFollowingSlot",
+            "ref": "ui/main_window.py:_chart_call",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_view.py:fresh_frame_ops",
+            "ref": "ui/main_window.py:_popouts",
             "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:send_channel",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "def set_timezone(self, mode: str) -> None",
+            "module": "ui/lwc_view.py"
+          },
+          {
+            "status": "new",
+            "signature": "send_channel('interaction', [{'op': 'set_timezone', 'mode': mode}])",
+            "module": "ui/lwc_bridge.py"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P21",
-        "plan_ref": "docs/plan.md#Phase P21",
+        "architecture_ref": "docs/architecture.md#Phase P22",
+        "plan_ref": "docs/plan.md#Phase P22",
         "requirement_ids": [
-          "D60",
-          "AC-D60.1",
-          "AC-D60.2",
-          "AC-D60.5"
+          "AC-D62.3"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d57_chevron.py tests/test_d57_joint.py tests/test_p11_no_yank.py tests/test_p11_fit_affordance.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d62_timezone_toggle.py tests/test_p13_tz_create.py tests/test_p13_tz_restore.py -q",
         "memory_refs": [],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P21-T5",
-      "title": "Test-only migration: framing T24b hold expectation + chart.test.js page isolation",
-      "description": "Test-only migration of the two remaining ESC-114 reds to S-P21-5 landing-neutrality semantics (delivered by P21-T1/P21-T2): the tests/test_d57_framing.py T24b page half is restated from frame-wins to hold (same_symbol:true + frame while away holds the away range, matching passing legD; driver never emits same_symbol+frame per ui/lwc_view.py continuity stamping), and chart_assets/lwc/chart.test.js gets isolated page state per node test so frameless re-seeds no longer inherit leftover away state, keeping the tests/test_lwc_time_parity.py geometry guard green. No production file is touched.",
+      "id": "P22-T3",
+      "title": "Page tz apply plus zone-aware formatting (D62 labels plus D64 shared leg)",
+      "description": "In chart_assets/lwc/chart.js add the live tz apply (set tzOffset from the P22-T2 op, re-apply tickMarkFormatter plus localization.timeFormatter, force tick re-render) and make ET mode zone-aware: each tick formats from its UTC epoch as America/New_York wall time so DST-boundary bars label date-correctly; UTC mode stays plain UTC math. The crosshair and tooltip time path uses the same formatter so AC-D62.2 follows AC-D62.1 by construction. Stored bars are never touched (A185). Test P22-T3-AC1 pins axis re-labels; test P22-T3-AC2 pins DST date-correctness; test P22-T3-AC3 pins cursor-time re-labels; test P22-T3-AC4 pins futures plus toggle-only control.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P21-T1"
+        "P22-T2"
       ],
       "acceptance_criteria": [
-        "Given the framing T24b page half asserting same_symbol:true + frame while away yields frame-wins [30,41], when migrated to the S-P21-5 decision, then it asserts the away range holds with follow disengaged, while the Python-half and new-symbol/timeframe frame-wins assertions stay unchanged.",
-        "Given chart.test.js re-seeding over shared leftover page state, when each node test gets isolated page state and production first/new-symbol loads carry frames, then all node suites are green and the test_lwc_time_parity.py geometry guard is green.",
-        "Given the migrated suites, when the pre/post diff is inspected, then no production file is modified and no assertion is weakened to green (frame/hold/follow outcomes restated, none dropped)."
+        "Given a loaded chart, When the UTC\u2194ET toggle flips, Then every time-axis tick label shifts by exactly the zone delta for its bar date (DST-correct) with no overlap/clipping regression (AC-D62.1).",
+        "Given the crosshair/tooltip visible, When the toggle flips, Then the crosshair/tooltip time for the same cursor position shifts by exactly the same delta as the axis (AC-D62.2).",
+        "Given equity bars under the session calendar (or futures bars per Q98 as-is-ET), When the axis renders in the active zone, Then each tick label equals its bar time in that zone; the ONLY user control that changes the rendering is the UTC/ET toggle \u2014 no formatting UI (AC-D64.1)."
       ],
       "tests": [
         {
-          "test_id": "P21-T5-AC1",
-          "linked_acceptance_criterion": "Given the framing T24b page half asserting same_symbol:true + frame while away yields frame-wins [30,41], when migrated to the S-P21-5 decision, then it asserts the away range holds with follow disengaged, while the Python-half and new-symbol/timeframe frame-wins assertions stay unchanged.",
+          "test_id": "P22-T3-AC1",
+          "linked_acceptance_criterion": "Given a loaded chart, When the UTC\u2194ET toggle flips, Then every time-axis tick label shifts by exactly the zone delta for its bar date (DST-correct) with no overlap/clipping regression (AC-D62.1).",
           "type": "integration",
-          "description": "Offscreen tests/test_d57_framing.py T24b run asserting the page half holds the away range with follow disengaged (consistent with T2 legD) and the Python-half plus freshWins frame cases still assert frame-wins.",
-          "expected_result": "T24b page half holds with follow disengaged; Python-half and new-symbol frame-wins assertions unchanged and green."
+          "description": "Offscreen toggle on injected bars asserting per-tick label equality against independently formatted expected strings before and after the flip (red-first on the current no-op path where labels never move).",
+          "expected_result": "Every tick shifts by the date-correct delta; flipping back restores the original labels with no overlap or clipping regression."
         },
         {
-          "test_id": "P21-T5-AC2",
-          "linked_acceptance_criterion": "Given chart.test.js re-seeding over shared leftover page state, when each node test gets isolated page state and production first/new-symbol loads carry frames, then all node suites are green and the test_lwc_time_parity.py geometry guard is green.",
+          "test_id": "P22-T3-AC2",
+          "linked_acceptance_criterion": "Given a loaded chart, When the UTC\u2194ET toggle flips, Then every time-axis tick label shifts by exactly the zone delta for its bar date (DST-correct) with no overlap/clipping regression (AC-D62.1).",
           "type": "unit",
-          "description": "node --test run over chart_assets/lwc/chart.test.js with per-test page isolation plus the pytest geometry guard tests/test_lwc_time_parity.py.",
-          "expected_result": "All node suites green (25/25 shape) and the parity geometry guard green."
+          "description": "node --test formatter core on UTC epochs straddling a DST boundary asserting America/New_York wall times on both sides (a fixed 5h scalar would mislabel one side by 1h).",
+          "expected_result": "Both sides of the boundary format date-correctly in ET mode; UTC mode is plain UTC math."
         },
         {
-          "test_id": "P21-T5-AC3",
-          "linked_acceptance_criterion": "Given the migrated suites, when the pre/post diff is inspected, then no production file is modified and no assertion is weakened to green (frame/hold/follow outcomes restated, none dropped).",
-          "type": "unit",
-          "description": "Diff-scope check over the task footprint: git diff --stat shows only the three touched files, and every pre-migration frame/hold/follow outcome maps to a restated assertion.",
-          "expected_result": "Diff touches only the three test files; no outcome assertion is dropped or weakened."
+          "test_id": "P22-T3-AC3",
+          "linked_acceptance_criterion": "Given the crosshair/tooltip visible, When the toggle flips, Then the crosshair/tooltip time for the same cursor position shifts by exactly the same delta as the axis (AC-D62.2).",
+          "type": "integration",
+          "description": "Offscreen hover cases asserting crosshair and tooltip text before and after the flip for the same cursor position.",
+          "expected_result": "Crosshair and tooltip times shift by exactly the axis delta."
+        },
+        {
+          "test_id": "P22-T3-AC4",
+          "linked_acceptance_criterion": "Given equity bars under the session calendar (or futures bars per Q98 as-is-ET), When the axis renders in the active zone, Then each tick label equals its bar time in that zone; the ONLY user control that changes the rendering is the UTC/ET toggle \u2014 no formatting UI (AC-D64.1).",
+          "type": "integration",
+          "description": "Offscreen equity plus futures tick matrices in both modes against independently computed zone strings, plus a user-control matrix asserting no non-toggle control mutates the axis.",
+          "expected_result": "All tick labels equal bar times in the active zone; only the UTC/ET toggle changes the rendering."
         }
       ],
       "expected_artifacts": [
-        "Migrated tests/test_d57_framing.py (T24b hold expectation)",
-        "Isolated-page-state chart_assets/lwc/chart.test.js",
-        "Green tests/test_lwc_time_parity.py geometry guard"
+        "tz apply plus zone-aware ET formatter in chart_assets/lwc/chart.js",
+        "chart_assets/lwc/tz_format.test.js (DST-straddling formatter core)",
+        "tests/test_d62_d64_tick_labels.py (toggle matrices: axis, cursor, futures, control)"
       ],
       "touches_files": [
-        "tests/test_d57_framing.py",
-        "chart_assets/lwc/chart.test.js",
-        "tests/test_lwc_time_parity.py"
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/tz_format.test.js",
+        "tests/test_d62_d64_tick_labels.py"
       ],
       "doc_required": false,
       "inputs": [
-        "P21-T1 preserve semantics + P21-T2 legD hold precedent (S-P21-5)",
-        "ESC-114 observed pre/post shapes"
+        "tz op shape from P22-T2",
+        "S-P22-3",
+        "S-P22-5 basis check"
       ],
       "outputs": [
-        "Framing + node suites green under landing-neutrality",
-        "Batch gate input for P21-T3"
+        "DST-correct formatter path consumed by P22-T4 time-label leg",
+        "DG114 confirmed-or-refuted seam evidence"
       ],
       "status": "done",
-      "size": "M",
+      "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "tests/test_d57_framing.py",
-            "lines": "380-453",
-            "why": "edit: T24b page-half hold restatement"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "55-90",
+            "why": "edit: tzLabel UTC math becomes zone-aware ET per-tick formatting"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "585-615",
+            "why": "edit: tickMarkFormatter plus timeFormatter closures re-applied on tz apply"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "230-250",
+            "why": "edit: tzOffset page var gains the live apply path"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "730-780",
+            "why": "read-only: recordTick and axisProbe evidence surface asserted against \u2014 do not change"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "1445-1470",
+            "why": "read-only: lwConfigure boot seeding shape stands \u2014 live callers added, shape unchanged"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "370-379",
+            "why": "read-only: format_tz_label mirror the page formatter must agree with \u2014 do not change"
           },
           {
             "path": "chart_assets/lwc/chart.test.js",
-            "lines": "1-470",
-            "why": "edit: per-test page isolation for frameless-seed idiom"
-          },
-          {
-            "path": "tests/test_lwc_time_parity.py",
-            "lines": "1-364",
-            "why": "run/guard: geometry assertions cascading from chart.test.js \u2014 edit only if the guard pins frameless-seed outcomes"
+            "lines": "1-60",
+            "why": "conventions: node page-test idiom this task reuses"
           }
         ],
         "contracts": [
           {
-            "ref": "chart_assets/lwc/chart.js:isFollowingSlot",
+            "ref": "chart_assets/lwc/chart.js:tzLabel",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_view.py:fresh_frame_ops",
+            "ref": "chart_assets/lwc/chart.js:lwConfigure",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/chart.js:lwAxisProbe",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_view.py:format_tz_label",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "signature": "applyTz(mode: 'UTC' | 'Eastern Time'): set tzOffset, re-apply tickMarkFormatter + localization.timeFormatter, force tick re-render",
+            "module": "chart_assets/lwc/chart.js"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P22",
+        "plan_ref": "docs/plan.md#Phase P22",
+        "requirement_ids": [
+          "AC-D62.1",
+          "AC-D62.2",
+          "AC-D64.1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d62_d64_tick_labels.py -q && node --test chart_assets/lwc/tz_format.test.js",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P22-T4",
+      "title": "Crosshair free cursor-price tracking pin (D63)",
+      "description": "Repro-first: a between-close hover repro on the current tree names the snapping primitive (candidate: library Magnet default because the Normal-mode applyCrosshair never reaches the live chart \u2014 verify from the repro, do not assume). Then pin CrosshairMode.Normal application at creation and on every crosshair-touching applyOptions, and remove or retarget the snapping source so the horizontal line renders at the cursor price continuously with no snap anywhere (FS20 magnet stays a suggestion only \u2014 no magnet control built). Vertical line (DG115) stays the library Normal line (cursor-time, label via the P22-T3 formatter path); if diagnosis shows slot-snapping on the vertical line that contradicts D64, escalate instead of assuming \u2014 the AC asserts the horizontal line only. Test P22-T4-AC1 pins line-equals-cursor; test P22-T4-AC2 pins absence of every snap path.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P22-T3"
+      ],
+      "acceptance_criteria": [
+        "Given the cursor over the pane at a price P that equals no visible candle close, When the crosshair renders, Then the horizontal line price equals P (within one rendering step), not any bar's close \u2014 free-only, no snap exists anywhere (AC-D63.1).",
+        "Given the built tree, When the crosshair mode and subscribers are inspected, Then no Magnet mode id and no snap subscriber exists anywhere (AC-D63.1 absence half)."
+      ],
+      "tests": [
+        {
+          "test_id": "P22-T4-AC1",
+          "linked_acceptance_criterion": "Given the cursor over the pane at a price P that equals no visible candle close, When the crosshair renders, Then the horizontal line price equals P (within one rendering step), not any bar's close \u2014 free-only, no snap exists anywhere (AC-D63.1).",
+          "type": "integration",
+          "description": "Offscreen between-close hover cases asserting line price equals cursor price at rest and across live forming-bar ticks (red-first on the current snap-to-close tree), plus out-of-range clamp edge.",
+          "expected_result": "Line equals cursor at every position, never a bar close, at rest and during ticks; out-of-range clamps per existing behaviour."
+        },
+        {
+          "test_id": "P22-T4-AC2",
+          "linked_acceptance_criterion": "Given the built tree, When the crosshair mode and subscribers are inspected, Then no Magnet mode id and no snap subscriber exists anywhere (AC-D63.1 absence half).",
+          "type": "unit",
+          "description": "Source and page-state assertions that no Magnet mode id is applied and no snap subscriber is registered on any crosshair-touching path.",
+          "expected_result": "No Magnet mode id and no snap subscriber anywhere; Normal mode pinned at creation and on every crosshair-touching applyOptions."
+        }
+      ],
+      "expected_artifacts": [
+        "Normal-mode pin plus snap-source removal in chart_assets/lwc/chart.js and/or chart_assets/lwc/interaction.js",
+        "tests/test_d63_crosshair_free.py (between-close tracking plus absence cases)"
+      ],
+      "touches_files": [
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/interaction.js",
+        "tests/test_d63_crosshair_free.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "S-P22-4",
+        "Formatter path from P22-T3 (time-label leg, read-only)",
+        "FS20 stays a suggestion (frozen)"
+      ],
+      "outputs": [
+        "Free-tracking horizontal line; DG115 stated-or-escalated"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "chart_assets/lwc/interaction.js",
+            "lines": "220-270",
+            "why": "edit-or-clear: CROSSHAIR_OPTIONS mode plus applyCrosshair definition the repro diagnoses"
+          },
+          {
+            "path": "chart_assets/lwc/interaction.js",
+            "lines": "360-370",
+            "why": "read-only: applyCrosshair export and call-site wiring \u2014 pin here if the snap routes through it"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "585-615",
+            "why": "read-only: P22-T3 formatter path for the time-label leg \u2014 consume, do not change"
+          },
+          {
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "1-60",
+            "why": "conventions: node page-test idiom for the absence assertions"
+          },
+          {
+            "path": "tests/test_lwc_time_parity.py",
+            "lines": "1-60",
+            "why": "conventions: offscreen probe-assertion pattern this task reuses"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "chart_assets/lwc/interaction.js:applyCrosshair",
+            "status": "existing"
+          },
+          {
+            "ref": "chart_assets/lwc/interaction.js:CROSSHAIR_OPTIONS",
             "status": "existing"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P21",
-        "plan_ref": "docs/plan.md#Phase P21",
+        "architecture_ref": "docs/architecture.md#Phase P22",
+        "plan_ref": "docs/plan.md#Phase P22",
         "requirement_ids": [
-          "D60",
-          "AC-D60.7",
-          "AC-D60.4",
-          "AC-D60.3"
+          "AC-D63.1"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d57_framing.py tests/test_lwc_time_parity.py -q && node --test chart_assets/lwc/chart.test.js",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d63_crosshair_free.py -q",
         "memory_refs": [],
         "needs_graphify": false,
-        "size": "M"
+        "size": "S"
       }
+    },
+    {
+      "id": "P22-T5",
+      "title": "Batch gate: full suites green plus history intact plus guard adjudication (D64 gate)",
+      "description": "Verify the joint behaviour of P22-T1 through P22-T4: full offscreen suite plus node page tests green, AC-D64.3 history intact, and the DG114/DG115/DG116 closure record. Adjudicate the 2 P21-deferred guard failures as re-pin or narrow (never weaken), landing the decision as pinning cases in the gate suite. Edits no production file. Test P22-T5-AC1 pins history-intact; test P22-T5-AC2 pins the shared-seam record; test P22-T5-AC3 pins the green gate plus guard adjudication.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P22-T1",
+        "P22-T2",
+        "P22-T3",
+        "P22-T4"
+      ],
+      "acceptance_criteria": [
+        "Given requirements.md, Then the D41\u2013D60 sections with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P22 wording is touched (AC-D64.3).",
+        "Given D62 and D64 both implicated offset-to-formatter plumbing, When the shipped evidence is inspected, Then the DG114 record names the confirmed-or-refuted shared seam (one fix closing both ACs, or two independent fixes) with axisProbe evidence, and DG115/DG116 are closed or escalated with owner input \u2014 nothing assumed (AC-D64.2).",
+        "Given all P22 fixes landed, When the full offscreen plus node suites run, Then every suite is green, the 2 P21-deferred guard failures are adjudicated as re-pin or narrow with no assertion weakened, and no D1\u2013P21 behaviour regressed."
+      ],
+      "tests": [
+        {
+          "test_id": "P22-T5-AC1",
+          "linked_acceptance_criterion": "Given requirements.md, Then the D41\u2013D60 sections with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P22 wording is touched (AC-D64.3).",
+          "type": "integration",
+          "description": "Automated gate-suite case grepping the D41\u2013D60 section markers, the Existing Repository marker sentence and the Current Tech Stack block in requirements.md.",
+          "expected_result": "All markers present; no pre-P22 wording touched."
+        },
+        {
+          "test_id": "P22-T5-AC2",
+          "linked_acceptance_criterion": "Given D62 and D64 both implicated offset-to-formatter plumbing, When the shipped evidence is inspected, Then the DG114 record names the confirmed-or-refuted shared seam (one fix closing both ACs, or two independent fixes) with axisProbe evidence, and DG115/DG116 are closed or escalated with owner input \u2014 nothing assumed (AC-D64.2).",
+          "type": "manual",
+          "description": "Inspect the shipped toggle-matrix evidence and the task notes to confirm the DG114 seam record names one seam or two with probe evidence, and DG115/DG116 each closed or escalated \u2014 nothing assumed.",
+          "expected_result": "DG114 record names the confirmed-or-refuted seam with evidence; DG115/DG116 closed or escalated, none silently assumed."
+        },
+        {
+          "test_id": "P22-T5-AC3",
+          "linked_acceptance_criterion": "Given all P22 fixes landed, When the full offscreen plus node suites run, Then every suite is green, the 2 P21-deferred guard failures are adjudicated as re-pin or narrow with no assertion weakened, and no D1\u2013P21 behaviour regressed.",
+          "type": "integration",
+          "description": "Full offscreen suite plus node page tests on the joint tree, with the 2 P21-deferred guard failures adjudicated as re-pin or narrow pinning cases in the gate suite (values only, assertions never weakened).",
+          "expected_result": "Full suites green; both guards adjudicated re-pin-or-narrow with no weakened assertion; no D1\u2013P21 regression."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d64_batch_gate.py (history-intact plus guard re-pin/narrow pinning cases)",
+        "DG114/DG115/DG116 closure record in task notes"
+      ],
+      "touches_files": [
+        "tests/test_d64_batch_gate.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P22-T1..T4 joint tree",
+        "P21 review deferred guard failures (read-only)",
+        "S-P22-6 verification order"
+      ],
+      "outputs": [
+        "Green gate; history intact; guard adjudication"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/code_review/review_log_P21.md",
+            "lines": "1-80",
+            "why": "read-only: the 2 deferred guard failures to adjudicate re-pin-vs-narrow \u2014 do not weaken"
+          },
+          {
+            "path": "tests/test_p13_tz_create.py",
+            "lines": "1-60",
+            "why": "read-only: injected-bars tz evidence pattern the seam record cites \u2014 do not change"
+          },
+          {
+            "path": "tests/test_lwc_time_parity.py",
+            "lines": "1-60",
+            "why": "read-only: geometry guard that must stay green \u2014 do not change"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "chart_assets/lwc/chart.js:lwAxisProbe",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P22",
+        "plan_ref": "docs/plan.md#Phase P22",
+        "requirement_ids": [
+          "AC-D64.2",
+          "AC-D64.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q && node --test chart_assets/lwc/",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      },
+      "generation": 1
     }
   ]
 }

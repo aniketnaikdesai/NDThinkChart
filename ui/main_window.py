@@ -21,7 +21,8 @@ def _eastern_offset(now: datetime | None = None) -> int:
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QComboBox,
-    QStatusBar, QDockWidget, QSplitter, QScrollArea, QFrame
+    QStatusBar, QDockWidget, QSplitter, QScrollArea, QFrame,
+    QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QSettings, QTimer, QEvent
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -126,6 +127,34 @@ DEFAULT_WATCHLIST = ["AAPL", "TSLA", "SPY", "QQQ", "NVDA"]
 #: on the next launch.
 WATCHLIST_CONFIGURED_KEY = "watchlist/configured"
 
+#: QSettings key for the persisted chart timezone choice (S-P22-2, Q103(a)).
+#: Holds the mode string (``"UTC"`` / ``"Eastern Time"``), mirroring the
+#: ``watchlist/width`` precedent. Written on every toggle flip, read at
+#: startup for the main view and the D49.6 pop-out creation seed.
+TIMEZONE_SETTING_KEY = "chart/timezone"
+
+#: Timezone modes the toolbar toggle offers (S-P22-2).
+TIMEZONE_MODES = ("UTC", "Eastern Time")
+
+#: Startup fallback when nothing (or an unknown value) was persisted — never
+#: a silent UTC default.
+DEFAULT_TIMEZONE_MODE = "Eastern Time"
+
+
+def read_persisted_timezone() -> str:
+    """Return the persisted timezone mode, validated (S-P22-2).
+
+    Unknown/corrupt values fall back to ``DEFAULT_TIMEZONE_MODE``. Uses a
+    transient ``QSettings`` so the toolbar restores the choice before
+    ``MainWindow._settings`` exists.
+    """
+    try:
+        raw = QSettings("NDThinkChart", "NDThinkChart").value(
+            TIMEZONE_SETTING_KEY)
+    except Exception:
+        return DEFAULT_TIMEZONE_MODE
+    return raw if raw in TIMEZONE_MODES else DEFAULT_TIMEZONE_MODE
+
 # Single source of truth for the toolbar content row height (px). The
 # ToolbarScroll wrapper is sized as this content height PLUS the horizontal
 # scrollbar's own height, so the scrollbar gets a reserved lane entirely below
@@ -221,6 +250,24 @@ def build_main_chart_view(tz_offset: float, editable: bool = True):
     return LwcDriverView(tz_offset=tz_offset, editable=editable)
 
 
+def _toolbar_caption(text: str) -> QLabel:
+    """Build a static toolbar caption that keeps room for its full text.
+
+    S-P22-1 (D61): a stock ``QLabel`` is ``Preferred`` horizontally, so when
+    the toolbar content wants more width than the ``ToolbarScroll`` content
+    widget was sized for (font/fallback-metric drift after sizing, runtime
+    text growth elsewhere), the box layout squeezes the captions first and
+    ``Symbol:`` clips down toward ``SY``. ``Minimum`` makes the full-text
+    width the floor instead — the excess goes to the D19 scroll wrapper
+    (the unchanged overflow mechanism), never to squeezing captions. Text,
+    font and style are unchanged.
+    """
+    label = QLabel(text)
+    label.setSizePolicy(QSizePolicy.Policy.Minimum,
+                        QSizePolicy.Policy.Preferred)
+    return label
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -314,8 +361,11 @@ class MainWindow(QMainWindow):
 
         # Timezone selector
         self.tz_combo = QComboBox()
-        self.tz_combo.addItems(["UTC", "Eastern Time"])
-        self.tz_combo.setCurrentText("Eastern Time")
+        self.tz_combo.addItems(list(TIMEZONE_MODES))
+        # S-P22-2: restore the persisted choice before the signal is
+        # connected (no fan-out during construction — the main view is
+        # built with the restored offset below).
+        self.tz_combo.setCurrentText(read_persisted_timezone())
         self.tz_combo.setFixedWidth(110)
         self.tz_combo.setToolTip("Chart x-axis timezone")
         self.tz_combo.currentTextChanged.connect(self._on_tz_changed)
@@ -344,13 +394,13 @@ class MainWindow(QMainWindow):
         self.stream_badge = QLabel("○ Stream")
         self.stream_badge.setStyleSheet("color: #9ca3af;")
 
-        tb_layout.addWidget(QLabel("Symbol:"))
+        tb_layout.addWidget(_toolbar_caption("Symbol:"))
         tb_layout.addWidget(self.symbol_input)
-        tb_layout.addWidget(QLabel("TF:"))
+        tb_layout.addWidget(_toolbar_caption("TF:"))
         tb_layout.addWidget(self.tf_combo)
         tb_layout.addWidget(self.load_btn)
-        tb_layout.addWidget(QLabel("|"))
-        tb_layout.addWidget(QLabel("Mode:"))
+        tb_layout.addWidget(_toolbar_caption("|"))
+        tb_layout.addWidget(_toolbar_caption("Mode:"))
         tb_layout.addWidget(self.mode_combo)
         # D24: pop-out button (Ctrl/Cmd+P). Snapshots the current symbol /
         # timeframe / mode / ext-hours into a read-only pop-out window.
@@ -366,8 +416,8 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(self.sound_btn)
         tb_layout.addWidget(self.ext_hours_btn)
         tb_layout.addWidget(self.tz_combo)
-        tb_layout.addWidget(QLabel("|"))
-        tb_layout.addWidget(QLabel("Draw:"))
+        tb_layout.addWidget(_toolbar_caption("|"))
+        tb_layout.addWidget(_toolbar_caption("Draw:"))
         tb_layout.addWidget(self.draw_combo)
         tb_layout.addWidget(self.draw_set_combo)
         tb_layout.addWidget(self.draw_sets_btn)
@@ -377,8 +427,13 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(self.conn_badge)
 
         # ── Central chart area ────────────────────────────────────────────────
-        # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000
-        self._tz_offset = _eastern_offset()
+        # Dynamic Eastern offset (DST-aware): EDT=14400, EST=18000.
+        # S-P22-2: the restored toggle choice seeds the construction offset
+        # (UTC starts at 0); live flips re-derive it in _on_tz_changed.
+        if self.tz_combo.currentText() == "UTC":
+            self._tz_offset = 0
+        else:
+            self._tz_offset = _eastern_offset()
         self.chart_panel = build_main_chart_view(
             tz_offset=self._tz_offset, editable=True
         )
@@ -4118,12 +4173,24 @@ class MainWindow(QMainWindow):
             self.load_chart()
 
     def _on_tz_changed(self, label: str):
-        """Change chart x-axis timezone."""
+        """Change chart x-axis timezone (S-P22-2 live apply leg).
+
+        The choice fans out to the main view plus every open pop-out view
+        (one ``set_timezone`` call per view — pop-outs are separate page
+        instances) and persists in QSettings for startup restore. The
+        toggle never refetches: re-label is T3's format + re-render pass.
+        """
         if label == "Eastern Time":
             self._tz_offset = _eastern_offset()
         else:  # UTC
             self._tz_offset = 0
-        self._chart_call("set_timezone", self._tz_offset)
+        self._chart_call("set_timezone", label)
+        for popout in list(self._popouts):
+            setter = getattr(
+                getattr(popout, "chart", None), "set_timezone", None)
+            if callable(setter):
+                setter(label)
+        self._settings.setValue(TIMEZONE_SETTING_KEY, label)
         self.status_bar.showMessage(f"Timezone: {label}", 3000)
 
     # ── Alarm overlay slots ───────────────────────────────────────────────────

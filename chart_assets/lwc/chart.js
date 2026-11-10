@@ -14,8 +14,10 @@
  *   placeholders (a row whose OHLC/value slots are null — `seriesRows` turns
  *   it into `{time}` only), so the hole keeps its empty slots (AC-D21.4.4).
  *   `lwSnapshot()` keeps the real bars only: a placeholder is not a bar.
- * - custom tz formatters: `local = t - offset` (`tzLabel`, wired as the
- *   localisation timeFormatter and the time-scale tickMarkFormatter).
+ * - custom tz formatters: ET mode formats each tick from its UTC epoch
+ *   as America/New_York wall time (`etLabel`, DST date-correct per tick);
+ *   UTC mode is plain UTC math (`tzLabel`, the localisation timeFormatter
+ *   and the time-scale tickMarkFormatter share one `formatTick` path).
  * - per-mode series: `candles` / `hollow` / `heikin` / `line` / `area`.
  *   The mode travels on the candles `set_bars` op as an optional `mode`
  *   key (accepted-and-ignored by the P6-04 validators, so the wire
@@ -42,8 +44,9 @@
  *   `chart.timeScale().getVisibleLogicalRange()`, so load/pan/zoom re-price
  *   engine-side with no per-gesture round-trip to Python.
  *
- * Node note: the pure core below (MODES, tzLabel, barGeometry,
- * describeOp, volumeBarColor, volumeScaleRange) has no DOM dependency and is exported for
+ * Node note: the pure core below (MODES, tzLabel, etLabel,
+ * formatTickWith, barGeometry, describeOp, volumeBarColor,
+ * volumeCeiling, volumeScaleRange) has no DOM dependency and is exported for
  * `node --test` when loaded as a module; the browser boot at the bottom
  * runs only where `document` exists.
  */
@@ -77,6 +80,75 @@ function tzLabel(t, offsetSeconds) {
     ":" +
     pad(d.getUTCMinutes())
   );
+}
+
+/* S-P22-3 (D62 DST edge, D64 correctness): zone-aware ET formatter. Each
+ * tick is formatted from its own UTC epoch as America/New_York wall time,
+ * so DST-boundary bars label date-correctly — a single now-based scalar
+ * (14400/18000) cannot label both sides of a boundary (AC-D62.1). UTC mode
+ * stays plain UTC math. Stored bars are never touched (A185).
+ * Node note: `Intl` with `timeZone` needs full ICU — present in the repo's
+ * node and every modern browser; without it the formatter falls back to
+ * the EDT scalar rather than throwing. */
+var EASTERN_TZ = "America/New_York";
+var EASTERN_EDT_OFFSET = 14400;
+
+function etLabel(t) {
+  try {
+    var parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: EASTERN_TZ,
+      hourCycle: "h23",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(new Date(Number(t) * 1000));
+    var get = function (type) {
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].type === type) return parts[i].value;
+      }
+      return null;
+    };
+    var month = get("month");
+    var day = get("day");
+    var hour = get("hour");
+    var minute = get("minute");
+    if (month && day && hour && minute) {
+      return month + "/" + day + " " + hour + ":" + minute;
+    }
+  } catch (err) { /* fall through to the scalar fallback */ }
+  return tzLabel(t, EASTERN_EDT_OFFSET);
+}
+
+/* S-P22-3: the one formatter every time-text path uses — the axis tick
+ * marks, the crosshair/tooltip time (`localization.timeFormatter`) and the
+ * axis probe — so AC-D62.2 follows AC-D62.1 by construction. */
+function formatTickWith(t, mode, offsetSeconds) {
+  if (mode === "Eastern Time") return etLabel(t);
+  return tzLabel(t, offsetSeconds || 0);
+}
+
+/* S-P22-4 (D63 free cursor-price tracking, Q104(a) FINAL): Normal-mode
+ * horizontal-line mapping. With CrosshairMode.Normal the library renders
+ * the horizontal line at the cursor price, so the page mapping is the
+ * identity — the only adjustment is the library's own out-of-range clamp
+ * into the visible price range (a cursor above/below the scale pins to the
+ * edge, never to a bar close). Magnet snapping (the vendored default,
+ * mode 1) has no mapping here because no Magnet path remains anywhere. */
+function freeLinePrice(price, lo, hi) {
+  var p = Number(price);
+  if (!isFinite(p)) return NaN;
+  var low = Number(lo);
+  var high = Number(hi);
+  if (!isFinite(low) || !isFinite(high)) return p;
+  if (high < low) {
+    var swap = low;
+    low = high;
+    high = swap;
+  }
+  if (p < low) return low;
+  if (p > high) return high;
+  return p;
 }
 
 /* DG94 restatement: with library spacing S (px per bar) the body is
@@ -237,6 +309,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   var volumeSeries = null;
   var activeMode = "candles";
   var tzOffset = 0; // seconds behind UTC (18000 EST, 14400 EDT)
+  /* S-P22-3 (D62/D64): the live toggle state — 'UTC' | 'Eastern Time'.
+   * ET mode formats zone-aware per tick (ignores the scalar); UTC mode is
+   * plain UTC math through the scalar (boot seed compatible). */
+  var tzMode = "UTC";
   var snapshot = { candles: [], volume: [] }; // last applied rows per series
   /* Q-20 probe state: the labels the axis formatter actually produced. */
   var lastTickLabels = [];
@@ -496,6 +572,16 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
         var gestures = moduleHandle("LwGestures");
         for (var i = 0; i < ops.length; i++) {
           var op = ops[i] || {};
+          /* S-P22-3 (D62/D64 shared leg): the live tz apply — consumed
+           * here, never forwarded to the gesture layer (a tz op is not a
+           * router op; note its `mode` key must not reach the routerState
+           * assignment below). */
+          if (op.op === "set_timezone") {
+            if (!applyTz(op.mode)) {
+              return { applied: i, error: "unknown timezone mode: " + op.mode };
+            }
+            continue;
+          }
           if (op.op === "reset_view") {
             routerState.mode = "IDLE";
             routerState.tool = "cursor";
@@ -569,6 +655,78 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     return addSeries("HistogramSeries", options, "addHistogramSeries");
   }
 
+  /* S-P22-3: named formatter entries so the live tz apply re-applies
+   * the same functions (axis and cursor time move together by
+   * construction — never two divergent closures). */
+  function timeFormatterFn(t) {
+    return formatTick(t);
+  }
+
+  function tickMarkFormatterFn(t) {
+    var label = formatTick(t);
+    recordTick(t, label);
+    return label;
+  }
+
+  /* S-P22-4 (D63 free cursor-price tracking, Q104(a) FINAL): Normal-mode
+   * pin. Repro diagnosis, verified on this tree (not assumed): `init()`
+   * built the chart with no `crosshair` key, so the vendored default
+   * (Magnet, mode 1) governed the live chart while
+   * `LwInteraction.applyCrosshair` (Normal, mode 0) was never called from
+   * any page path — the horizontal line snapped to bar OHLC instead of
+   * tracking the cursor price. The pin applies Normal at creation and
+   * re-asserts it on every chart-level applyOptions that re-touches chart
+   * chrome (today: the S-P22-3 tz re-render), so no Magnet default and no
+   * snap subscriber can govern the line anywhere. The single source of
+   * truth is `LwInteraction.crosshairOptions()` (loaded before this file
+   * per chart.html); the inline literal is the fallback only. The vertical
+   * line stays the library Normal line (DG115 — cursor-time, labelled via
+   * the S-P22-3 formatter path). FS20 stays a suggestion: no magnet
+   * control is built anywhere. */
+  function crosshairPageOptions() {
+    var li = moduleHandle("LwInteraction");
+    if (li && typeof li.crosshairOptions === "function") {
+      return li.crosshairOptions();
+    }
+    return {
+      mode: 0,
+      vertLine: {
+        color: "rgba(148,163,184,0.55)",
+        width: 1,
+        style: 0,
+        visible: true,
+        labelVisible: true,
+        labelBackgroundColor: "#1f2937",
+      },
+      horzLine: {
+        color: "rgba(148,163,184,0.55)",
+        width: 1,
+        style: 0,
+        visible: true,
+        labelVisible: true,
+        labelBackgroundColor: "#1f2937",
+      },
+    };
+  }
+
+  /* Re-assert Normal on the live chart through the existing
+   * `LwInteraction.applyCrosshair` (the call that never reached the chart
+   * pre-fix). Returns false with no chart (offscreen/harness boot order). */
+  function pinCrosshair() {
+    if (!chart) return false;
+    try {
+      var li = moduleHandle("LwInteraction");
+      if (li && typeof li.applyCrosshair === "function") {
+        li.applyCrosshair(chart);
+        return true;
+      }
+      chart.applyOptions({ crosshair: crosshairPageOptions() });
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   function init() {
     if (typeof LightweightCharts === "undefined") {
       document.title = "LWC runtime missing (vendored asset not served)";
@@ -589,10 +747,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       },
       rightPriceScale: { borderVisible: false },
       timeScale: { timeVisible: true, secondsVisible: false, barSpacing: 8 },
+      /* S-P22-4: Normal pinned at creation — without this key the vendored
+       * Magnet default (mode 1) governs the live chart. */
+      crosshair: crosshairPageOptions(),
       localization: {
-        timeFormatter: function (t) {
-          return tzLabel(t, tzOffset);
-        },
+        timeFormatter: timeFormatterFn,
       },
     };
     if (initialSize.width >= 1 && initialSize.height >= 1) {
@@ -602,12 +761,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       chartHeightPx = initialSize.height;
     }
     chart = LightweightCharts.createChart(el, chartOptions);
+    /* S-P22-4: wire the existing Normal-mode applyCrosshair to the live
+     * chart (the call that never ran pre-fix). */
+    pinCrosshair();
     chart.timeScale().applyOptions({
-      tickMarkFormatter: function (t) {
-        var label = tzLabel(t, tzOffset);
-        recordTick(t, label);
-        return label;
-      },
+      tickMarkFormatter: tickMarkFormatterFn,
     });
     // Price pane (per-mode series) + volume pane (own scale).
     candleSeries = addSeries("CandlestickSeries", {}, "addCandlestickSeries");
@@ -771,10 +929,93 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       needsFit: needsFit,
       firstTime: first,
       lastTime: last,
-      firstLabel: first === null ? null : tzLabel(first, tzOffset),
+      firstLabel: first === null ? null : formatTick(first),
       ticks: lastTickLabels.slice(0),
       tzOffset: tzOffset,
+      tzMode: tzMode,
     };
+  }
+
+  /* S-P22-3 (D62/D64 shared leg): the one formatter every time-text path
+   * uses — axis ticks, crosshair/tooltip time and the probe above. */
+  function formatTick(t) {
+    return formatTickWith(t, tzMode, tzOffset);
+  }
+
+  /* S-P22-3: the live Eastern scalar for the probe echo — the offset behind
+   * UTC for *now* (EDT 14400 / EST 18000). Per-tick date-correctness never
+   * reads this scalar (ET ticks format zone-aware); it keeps the
+   * `tzOffset` echo and the `lwConfigure` boot seed meaningful. */
+  function easternOffsetSeconds(nowMs) {
+    try {
+      var at = new Date(typeof nowMs === "number" ? nowMs : Date.now());
+      var dtf = new Intl.DateTimeFormat("en-US", {
+        timeZone: EASTERN_TZ,
+        hourCycle: "h23",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      var parts = dtf.formatToParts(at);
+      var get = function (type) {
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i].type === type) return parts[i].value;
+        }
+        return null;
+      };
+      var asUTC = Date.UTC(
+        Number(get("year")), Number(get("month")) - 1, Number(get("day")),
+        Number(get("hour")), Number(get("minute")), Number(get("second")));
+      if (!isFinite(asUTC)) return EASTERN_EDT_OFFSET;
+      return Math.round((at.getTime() - asUTC) / 1000);
+    } catch (err) {
+      return EASTERN_EDT_OFFSET;
+    }
+  }
+
+  /* S-P22-3: live tz apply — the P22-T2 `set_timezone` op's page leg.
+   * Contract: set tzOffset, re-apply tickMarkFormatter +
+   * localization.timeFormatter, force tick re-render. Both formatters are
+   * the shared `formatTick` path, so axis and cursor time move together.
+   * The re-render forces the library to re-run the formatters by
+   * re-asserting the current logical range (same from/to — viewport
+   * preserving, follow/away geometry untouched). Unknown modes are refused
+   * (`false`, no state touched). Stored bars are never touched (A185). */
+  function applyTz(mode) {
+    if (mode !== "UTC" && mode !== "Eastern Time") return false;
+    tzMode = mode;
+    tzOffset = (mode === "UTC") ? 0 : easternOffsetSeconds(Date.now());
+    /* Stale evidence must not linger: labels produced under the previous
+     * mode are dropped so the probe only reports the active zone. */
+    lastTickLabels = [];
+    if (chart) {
+      try {
+        chart.timeScale().applyOptions({
+          tickMarkFormatter: tickMarkFormatterFn,
+        });
+        /* S-P22-4: the toggle re-render re-touches chart chrome, so it
+         * re-asserts the Normal pin too — a tz flip must never drop the
+         * chart back to the Magnet default (or any snap path). */
+        chart.applyOptions({
+          localization: { timeFormatter: timeFormatterFn },
+          crosshair: crosshairPageOptions(),
+        });
+      } catch (err) { /* formatters stay; the range re-assert still re-renders */ }
+      try {
+        var range = chart.timeScale().getVisibleLogicalRange();
+        if (range && isFinite(Number(range.from)) &&
+            isFinite(Number(range.to)) &&
+            Number(range.to) > Number(range.from)) {
+          chart.timeScale().setVisibleLogicalRange({
+            from: Number(range.from), to: Number(range.to),
+          });
+        }
+      } catch (err) { /* re-render is best-effort only */ }
+    }
+    return true;
   }
 
   /* S-P11-1 (D51.1): derived follow state — following iff the newest bar's
@@ -1438,6 +1679,32 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   window.lwDescribeOp = describeOp;
   window.lwApplyMode = applyMode;
   window.lwTzLabel = tzLabel;
+  /* S-P22-3: the live tz apply + the shared formatter (offscreen/node
+   * evidence surface for the D62/D64 toggle matrix). */
+  window.lwApplyTz = applyTz;
+  window.lwFormatTick = formatTick;
+  window.lwTzMode = function () {
+    return tzMode;
+  };
+  /* S-P22-4 (D63): offscreen evidence for the free-tracking pin — the live
+   * crosshair mode governing the chart (0 = Normal/free; null = no chart
+   * yet). The AC-D63.1 absence half asserts against this probe (plus the
+   * source scans): no Magnet mode id may ever govern the live chart. */
+  window.lwCrosshairProbe = function () {
+    if (!chart || typeof chart.options !== "function") return null;
+    var cross = null;
+    try {
+      cross = chart.options().crosshair || null;
+    } catch (err) {
+      cross = null;
+    }
+    if (!cross) return { mode: null, vertVisible: null, horzVisible: null };
+    return {
+      mode: (typeof cross.mode === "number") ? cross.mode : null,
+      vertVisible: cross.vertLine ? !!cross.vertLine.visible : null,
+      horzVisible: cross.horzLine ? !!cross.horzLine.visible : null,
+    };
+  };
   /* Q-23: the geometry probe never throws on a zero pitch — a probe reports
    * the real state (``null`` = no usable spacing yet) while the pure
    * ``barGeometry`` keeps its strict contract for the renderer and the node
@@ -1565,6 +1832,11 @@ if (typeof module !== "undefined" && module.exports) {
     MODES: LwChartModes,
     isMode: lwIsMode,
     tzLabel: tzLabel,
+    etLabel: etLabel,
+    formatTickWith: formatTickWith,
+    freeLinePrice: freeLinePrice,
+    EASTERN_TZ: EASTERN_TZ,
+    EASTERN_EDT_OFFSET: EASTERN_EDT_OFFSET,
     barGeometry: barGeometry,
     describeOp: describeOp,
     isFollowingSlot: isFollowingSlot,

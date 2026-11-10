@@ -178,6 +178,30 @@ MODES = ("candles", "hollow", "heikin", "line", "area")
 #: Mode used before any explicit selection.
 DEFAULT_MODE = "candles"
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover
+    from backports.zoneinfo import ZoneInfo
+
+#: Timezone modes the toolbar toggle offers (S-P22-2). The persisted choice
+#: and the tz op both carry the mode string; the numeric offset is derived
+#: per mode at apply time.
+TZ_MODES = ("UTC", "Eastern Time")
+
+_EASTERN = ZoneInfo("America/New_York")
+
+
+def _live_eastern_offset(now: datetime | None = None) -> int:
+    """Return the live Eastern offset, positive = behind UTC (S-P22-2).
+
+    EDT (UTC-4) -> 14400, EST (UTC-5) -> 18000. Mirrors
+    the main-window ``_eastern_offset`` helper without importing the window
+    (this module must never import the window — the window imports
+    this module).
+    """
+    ts = now if now is not None else datetime.now(_EASTERN)
+    return -int(ts.utcoffset().total_seconds())  # type: ignore[union-attr]
+
 #: Legibility floor carried into the ``barSpacing`` restatement (DG94),
 #: in ViewBox logical pixels — the same unit the shipped floor used.
 FLOOR_PX = 4.0
@@ -2054,6 +2078,28 @@ class LwcChartView(QWidget):
     @property
     def tz_offset(self) -> float:
         return self._tz_offset
+
+    def set_timezone(self, mode: str) -> None:
+        """Live timezone apply (S-P22-2): track the offset, publish the op.
+
+        The missing callee ``MainWindow._chart_call("set_timezone", ...)``
+        names: ``mode`` is ``"UTC"`` or ``"Eastern Time"`` (anything else
+        raises ``ValueError``). The offset is tracked here — UTC is 0, ET is
+        the live DST-aware value — so the Python-side state (and the D49.6
+        pop-out creation seed) stays consistent, and one
+        ``{"op": "set_timezone", "mode": mode}`` op is published on the
+        existing ``interaction`` channel: same batching/replay semantics as
+        every other interaction op, no ``runJavaScript`` path. The
+        page-side re-format + re-render is P22-T3's leg.
+        """
+        if mode == "UTC":
+            offset: float = 0
+        elif mode == "Eastern Time":
+            offset = _live_eastern_offset()
+        else:
+            raise ValueError(f"unknown timezone mode: {mode!r}")
+        self._tz_offset = offset
+        self._publish_interaction_op({"op": "set_timezone", "mode": mode})
 
     @property
     def editable(self) -> bool:
