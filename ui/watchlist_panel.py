@@ -599,11 +599,18 @@ class WatchlistPanel(QWidget):
         and the thin ``collapsed_bar`` is shown as the panel's full-height body.
         On expand the reverse. No masking: the widgets are really hidden/shown
         (D19), not merely made geometry-invisible.
+
+        Q-67: ``collapsed_handle`` is parented to the panel but never added to
+        a layout, so Qt parks it at (0, 0) — over the column-header row once
+        ``MainWindow`` promotes ``header_bar`` to the dock's title bar. It must
+        therefore only be visible in the collapsed state, where the expanded
+        header/table are hidden and it is the dock's title-bar widget.
         """
         collapsed = self._collapsed
         self.header_bar.setVisible(not collapsed)
         self.table.setVisible(not collapsed)
         self.collapsed_bar.setVisible(collapsed)
+        self.collapsed_handle.setVisible(collapsed)
 
     def _on_collapsed_bar_expand(self) -> None:
         """D44: a click on the collapsed bar restores the panel."""

@@ -22,9 +22,10 @@ import os
 import re
 
 import pytest
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtCore import QPoint, QRect, QSettings, Qt
 from PyQt6.QtGui import QImage
 from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QDockWidget, QMainWindow
 
 import ui.dock_layout as dock_layout
 import ui.visual_conventions as visual_conventions
@@ -235,3 +236,91 @@ def test_P3_T03_T71_collapsed_handle_size(panel, qapp):
     assert handle.maximumWidth() == 30
     assert handle.minimumHeight() == 28
     assert handle.maximumHeight() == 28
+
+
+# ── Q-67 — the handle is visible only while collapsed, never over the header ─
+#
+# Regression: ``collapsed_handle`` is parented to the panel but never added to
+# a layout, so Qt parks it at (0, 0). Left visible while expanded it paints over
+# the column-header row's top-left 30px — once ``MainWindow`` promotes
+# ``header_bar`` to the dock's title bar, that row is the table's horizontal
+# header at the panel's top, so the centred "Symbol" label loses its "Sy".
+
+
+def _global_rect(widget) -> QRect:
+    """The widget's rect in global coordinates (works while hidden)."""
+    return QRect(widget.mapToGlobal(QPoint(0, 0)), widget.size())
+
+
+def test_Q_67_handle_visible_only_while_collapsed(panel, qapp):
+    panel.show()
+    qapp.processEvents()
+    handle = panel.collapsed_handle
+
+    # Expanded — including the initial state, the one covered on every launch.
+    assert not handle.isVisible()
+
+    panel.set_collapsed(True)
+    qapp.processEvents()
+    # Collapsed — the handle is the dock's title-bar widget, so it must show.
+    assert handle.isVisible()
+
+    panel.set_collapsed(False)
+    qapp.processEvents()
+    assert not handle.isVisible()
+
+
+def test_Q_67_handle_clear_of_header_row_after_title_bar_swap(panel, qapp):
+    """After ``MainWindow``'s title-bar swap the hidden handle leaves the
+    column-header row uncovered, and the collapsed handle stays usable."""
+    win = QMainWindow()
+    dock = QDockWidget("Watchlist", win)
+    dock.setObjectName("WatchlistDock")
+    dock.setWidget(panel)
+    win.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
+    handle = panel.collapsed_handle
+    try:
+        # Mirrors MainWindow's expanded wiring: the header strip is the dock's
+        # title-bar widget, so the panel's top row is the table header.
+        dock.setTitleBarWidget(panel.header_bar)
+        win.resize(400, 600)
+        win.show()
+        for _ in range(3):
+            qapp.processEvents()
+
+        header = panel.table.horizontalHeader()
+
+        # Sanity: the parked handle's geometry does overlap the header row, so
+        # the visibility toggle (not the geometry) is what keeps it uncovered.
+        assert handle.geometry().intersects(
+            QRect(header.mapTo(panel, QPoint(0, 0)), header.size()))
+        # Expanded: hidden, hence nothing paints over the header row.
+        assert not handle.isVisible()
+        assert not (handle.isVisible()
+                    and _global_rect(handle).intersects(_global_rect(header)))
+
+        # Collapse: MainWindow swaps the handle into the title-bar slot.
+        panel.set_collapsed(True)
+        qapp.processEvents()
+        dock.setTitleBarWidget(handle)
+        qapp.processEvents()
+        assert handle.isVisible()
+
+        # Expand: MainWindow restores the header strip and the handle hides.
+        panel.set_collapsed(False)
+        qapp.processEvents()
+        dock.setTitleBarWidget(panel.header_bar)
+        qapp.processEvents()
+        assert not handle.isVisible()
+        assert not (handle.isVisible()
+                    and _global_rect(handle).intersects(_global_rect(header)))
+    finally:
+        # Detach the panel from the host window before it is destroyed so the
+        # fixture's ``panel.close()`` teardown still has a live widget.
+        dock.setTitleBarWidget(None)
+        panel.header_bar.setParent(panel)
+        handle.setParent(panel)
+        panel.setParent(None)
+        win.close()
+        win.deleteLater()
+        qapp.processEvents()
