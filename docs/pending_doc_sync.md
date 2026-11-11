@@ -1,2 +1,3 @@
 - 2026-11-10T22:17:18+00:00 via Q-64: ui/main_window.py: toolbar row height now derives from the tallest child's sizeHint (36px floor) instead of a fixed constant, so the Symbol field never clips under substituted font metrics
 - 2026-11-10T22:46:55+00:00 via Q-65: config/theme.qss: horizontal scrollbar now styled dark and 8px (was unstyled/light, read as a stray input under the toolbar)
+- 2026-11-11T00:12:23+00:00 via Q-66: ui/main_window.py: toolbar scroll now always opens at its left edge; a deliberate user scroll is preserved across resizes

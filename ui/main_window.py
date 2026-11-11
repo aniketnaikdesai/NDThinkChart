@@ -516,6 +516,20 @@ class MainWindow(QMainWindow):
             + toolbar_scroll.horizontalScrollBar().sizeHint().height()
         )
         toolbar_scroll.setWidget(toolbar)
+        # Q-66: QScrollArea can scroll itself to keep a focused child visible
+        # during the early layout pass (the viewport is still tiny before the
+        # deferred dock restore) and nothing used to reset the offset, so the
+        # window opened a few px in with "Sy" of "Symbol:" hidden. Track only
+        # *deliberate* user scrolling (slider drags, scrollbar commands, wheel)
+        # and force the bar back to its left edge on the deferred/resize/clamp
+        # paths until then — see ``_reset_toolbar_scroll_if_untouched``.
+        self.toolbar_scroll = toolbar_scroll
+        self._toolbar_user_scrolled = False
+        _toolbar_hbar = toolbar_scroll.horizontalScrollBar()
+        _toolbar_hbar.sliderPressed.connect(self._mark_toolbar_user_scrolled)
+        _toolbar_hbar.actionTriggered.connect(self._mark_toolbar_user_scrolled)
+        self._toolbar_viewport = toolbar_scroll.viewport()
+        self._toolbar_viewport.installEventFilter(self)
 
         central = QWidget()
         vbox = QVBoxLayout(central)
@@ -3779,6 +3793,40 @@ class MainWindow(QMainWindow):
             _LOG.debug("Watchlist collapse transition failed: %s: %s",
                        type(exc).__name__, exc)
 
+    def _mark_toolbar_user_scrolled(self, *_args) -> None:
+        """Q-66: record that the user deliberately scrolled the toolbar.
+
+        Connected to the horizontal scrollbar's ``sliderPressed`` /
+        ``actionTriggered`` and set from the viewport wheel filter. Programmatic
+        ``setValue`` calls emit neither signal, so startup normalization can
+        never be mistaken for a user scroll.
+        """
+        self._toolbar_user_scrolled = True
+
+    def _reset_toolbar_scroll_if_untouched(self) -> None:
+        """Q-66: pin ``ToolbarScroll`` to its left edge until the user scrolls.
+
+        The scroll area can scroll itself to keep a focused child visible
+        during the early layout pass (the viewport is still tiny before the
+        deferred dock restore) and nothing used to reset the offset, so the
+        toolbar opened a few pixels in, hiding "Sy" of "Symbol:". Until a
+        deliberate user scroll happens, every deferred/resize/clamp pass
+        forces the horizontal value back to 0. A user scroll is never undone.
+        """
+        if getattr(self, "_toolbar_user_scrolled", True):
+            return
+        scroll = getattr(self, "toolbar_scroll", None)
+        if scroll is None:
+            return
+        try:
+            bar = scroll.horizontalScrollBar()
+            if bar.value() != 0:
+                bar.setValue(0)
+        except Exception as exc:
+            # Q-66: scroll normalization best-effort — logged.
+            _LOG.debug("Toolbar scroll reset failed: %s: %s",
+                       type(exc).__name__, exc)
+
     def _apply_dock_widths(self, requested_left: int | None = None,
                            requested_right: int | None = None) -> int:
         """Shared, idempotent dock-width clamp (D17 watchlist + D18 right region).
@@ -3803,6 +3851,9 @@ class MainWindow(QMainWindow):
 
         Returns the applied (clamped) watchlist width. Never raises.
         """
+        # Q-66: every deferred/resize/clamp entry point also normalizes the
+        # toolbar's horizontal offset (unless the user deliberately scrolled).
+        self._reset_toolbar_scroll_if_untouched()
         if getattr(self, "_applying_dock_widths", False):
             return getattr(self, "_watchlist_width", WATCHLIST_MIN_WIDTH)
         dock = getattr(self, "watchlist_dock", None)
@@ -3999,6 +4050,9 @@ class MainWindow(QMainWindow):
                     self, "_persisted_watchlist_width", DEFAULT_WATCHLIST_WIDTH
                 )
             )
+            # Q-66: the layout is now real — force the toolbar back to its left
+            # edge unless the user has deliberately scrolled it.
+            self._reset_toolbar_scroll_if_untouched()
         except Exception as exc:
             # Q-43: deferred setup best-effort — logged, start-up continues.
             _LOG.debug("Deferred dock setup failed: %s: %s",
@@ -4131,6 +4185,11 @@ class MainWindow(QMainWindow):
         # regions. ``resizeDocks`` cannot re-enter us (guard), and this only
         # observes — never consumes — the drag events.
         try:
+            if obj is getattr(self, "_toolbar_viewport", None):
+                if event.type() == QEvent.Type.Wheel:
+                    # Q-66: wheel input on the toolbar is deliberate scrolling;
+                    # never undo it on a later resize.
+                    self._mark_toolbar_user_scrolled()
             if obj is getattr(self, "watchlist_dock", None) or obj is getattr(
                 self, "right_dock", None
             ):
