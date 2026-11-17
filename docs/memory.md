@@ -248,3 +248,18 @@
 **Category:** Technical Note
 **Finding:** SPY 1-min 60 D completed: 23,400 bars across 60 Eastern sessions (08-04→10-27) in 76 s, no errors. Together with the earlier table (30 D/1.1 s, 35 D/74 s, 45 D/25 s), single-shot wide requests work up to at least 60 D but latency past ~30 D is tens of seconds and highly variable — plan wide windows at ~30 D per request and chain for deeper history rather than one giant request.
 **Source:** Owner standalone run 2026-10-28; feeds P7-W3/T06 owner decision
+
+### 2026-11-17 — discovered during Requirements (owner standing rule)
+**Category:** Technical Note
+**Finding:** Owner rule: the app must not keep unused code or functions. Any feature that displaces existing code must delete it in the same batch rather than leaving it dormant; new work must not add functions nothing calls. Applies to every phase from P23 onward, including test helpers and superseded UI panels.
+**Source:** Owner message, P23 scoping
+
+### 2026-11-17 — discovered during Requirements (owner process change)
+**Category:** Technical Note
+**Finding:** Owner review gate: once the Validator approves a phase plan, the pipeline must produce a human-readable implementation plan (`docs/implementation_plan_P<n>.md`) and stop for owner review. Task Manager / build only start after that document is approved.
+**Source:** Owner message, P23 scoping
+
+### 2026-11-17 — correction (supersedes the entry above)
+**Category:** Technical Note
+**Finding:** The implementation-plan review gate is NOT a standing process change. It was a one-time owner request for P23 only: the Orchestrator writes `docs/implementation_plan_P23.md` itself (no agent) after Plan + Validator approve, then pauses for review. The pipeline contract is unchanged — P24 onward go Validator → Task Manager as normal.
+**Source:** Owner message, P23 scoping

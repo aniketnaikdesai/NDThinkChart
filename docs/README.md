@@ -35,7 +35,7 @@ Global rules (binding on every doc edit):
 
 - `docs/architecture_proposal.md`, `docs/plan_proposal.md` — superseded proposal lineage; canonical docs are `docs/architecture.md` / `docs/plan.md`.
 - `dev_docs/` initial design set — original scope/design history, superseded.
-- Older phase reviews (`docs/plan_review.md`, P5 and earlier) and older code-review logs — decision evidence; the pre-T13 P6 review scope sentence ("T13 not dispatched") is superseded by the 2026-10-28 addendum in `docs/code_review/review_log_P6.md`.
+- Older phase reviews (`docs/archive/plan_reviews/`, P5–P22 and the legacy unsuffixed review) and older code-review logs — decision evidence; the pre-T13 P6 review scope sentence ("T13 not dispatched") is superseded by the 2026-10-28 addendum in `docs/archive/code_reviews/review_log_P6.md`.
 - `docs/lwc_spike_results.md`, `spikes/lwc/` — Phase 0 history: stub/call-shape checks, not v5.2.1 runtime proof.
 - P6-era "pyqtgraph retained and default" sentences in `docs/architecture.md` § Phase P6 and `docs/codebase-map.md` header — plan-time wording, superseded by the as-built T13 outcome records appended in place.
 
