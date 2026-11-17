@@ -218,7 +218,8 @@ def _parity_rows(text: str) -> dict:
 
 class TestParityMatrixSeamRecord:
     def test_seam_rows_reflect_this_wave_without_regression(self):
-        path = os.path.join("docs", "lwc_parity_matrix.md")
+        path = os.path.join(
+            "docs", "archive", "reference", "lwc_parity_matrix.md")
         with open(path, encoding="utf-8") as handle:
             text = handle.read()
         assert "P6-02" in text

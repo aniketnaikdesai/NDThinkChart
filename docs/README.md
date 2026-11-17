@@ -26,7 +26,7 @@ Global rules (binding on every doc edit):
 
 ## Current work (as of 2026-10-28)
 
-- **Chart engine:** Lightweight Charts only. `ui/chart_view.py::create_chart_view` always returns the LWC view; `NDT_CHART_ENGINE` / `QSettings chart/engine` are read by deployment tooling but no longer select a renderer. Evidence: `docs/build/gate_P6_T13.md`, `docs/lwc_parity_matrix.md` (P6-T13 as-built note), `docs/architecture.md` § Phase P6 (as-built T13 outcome).
+- **Chart engine:** Lightweight Charts only. `ui/chart_view.py::create_chart_view` always returns the LWC view; `NDT_CHART_ENGINE` / `QSettings chart/engine` are read by deployment tooling but no longer select a renderer. Evidence: `docs/build/gate_P6_T13.md`, `docs/archive/reference/lwc_parity_matrix.md` (P6-T13 as-built note; archived — historical evidence), `docs/architecture.md` § Phase P6 (as-built T13 outcome).
 - **P7 data-path batch:** historical backfill + streaming correctness (see `docs/plan.md` § Phase P7, `docs/architecture.md` § Phase P7).
 - **P8 (D48):** `1 week` (2Y) and `1 month` (10Y) timeframes, drafted 2026-10-28 (see `docs/architecture.md` § Phase P8).
 - **Open Analyst debt (not rewritten here):** the `AC-D16.8` restatement — per-load cap vs 30-session floor (see `docs/architecture.md` S-P7-1, `docs/tasks/task_manager_notes_P7.md` RG-P7-1, `docs/plan_notes.md` 2026-10-27 note). The plan's proposed satisfiable reading stays separate from the requirement until the Analyst restates it.
@@ -36,11 +36,12 @@ Global rules (binding on every doc edit):
 - `docs/architecture_proposal.md`, `docs/plan_proposal.md` — superseded proposal lineage; canonical docs are `docs/architecture.md` / `docs/plan.md`.
 - `dev_docs/` initial design set — original scope/design history, superseded.
 - Older phase reviews (`docs/archive/plan_reviews/`, P5–P22 and the legacy unsuffixed review) and older code-review logs — decision evidence; the pre-T13 P6 review scope sentence ("T13 not dispatched") is superseded by the 2026-10-28 addendum in `docs/archive/code_reviews/review_log_P6.md`.
-- `docs/lwc_spike_results.md`, `spikes/lwc/` — Phase 0 history: stub/call-shape checks, not v5.2.1 runtime proof.
+- `docs/archive/reference/` — archived reference/research records (index: `docs/archive/reference/INDEX.md`): the executed documentation-consolidation plan, the LWC parity matrix (P6 gate record), the Phase 0 spike results, the dated ThinkOrSwim gap analysis, and the dated IBKR API data inventory. All are **archived — historical evidence**, not current instructions.
+- `docs/archive/reference/lwc_spike_results.md`, `spikes/lwc/` — Phase 0 history: stub/call-shape checks, not v5.2.1 runtime proof.
 - P6-era "pyqtgraph retained and default" sentences in `docs/architecture.md` § Phase P6 and `docs/codebase-map.md` header — plan-time wording, superseded by the as-built T13 outcome records appended in place.
 
 ## Ownership / update rules
 
-- This index is owned by the doc-consolidation changesets (`docs/documentation_consolidation_plan.md`, changesets 1–2 applied 2026-10-28); keep it short — link, don't duplicate.
+- This index is owned by the doc-consolidation changesets (`docs/archive/reference/documentation_consolidation_plan.md`, changesets 1–2 applied 2026-10-28); keep it short — link, don't duplicate.
 - Corrections to approval/gate records go in dated addenda appended to the record, never as rewrites of what the reviewer knew at the time.
 - No product source/test change rides a documentation edit.

@@ -47,7 +47,7 @@ from ui import lwc_view as LV
 
 REPO = Path(__file__).resolve().parent.parent
 PRIMITIVES_JS = REPO / "chart_assets" / "lwc" / "primitives.js"
-MATRIX = REPO / "docs" / "lwc_parity_matrix.md"
+MATRIX = REPO / "docs" / "archive" / "reference" / "lwc_parity_matrix.md"
 
 _NODE = shutil.which("node")
 

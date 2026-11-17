@@ -6,7 +6,7 @@ rather than being discovered in the running app.
 
 Scope note: this is a static/import gate. It deliberately does not assert chart
 behaviour — that lives in the LWC suites. The coverage this phase retired is
-recorded in docs/lwc_parity_matrix.md under "Retired coverage (P6-T13)".
+recorded in docs/archive/reference/lwc_parity_matrix.md under "Retired coverage (P6-T13)".
 """
 
 from __future__ import annotations

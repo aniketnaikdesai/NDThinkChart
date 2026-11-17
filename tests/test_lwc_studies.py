@@ -29,7 +29,7 @@ from ui import lwc_view as LV
 
 REPO = Path(__file__).resolve().parent.parent
 STUDIES_JS = REPO / "chart_assets" / "lwc" / "studies.js"
-MATRIX = REPO / "docs" / "lwc_parity_matrix.md"
+MATRIX = REPO / "docs" / "archive" / "reference" / "lwc_parity_matrix.md"
 
 SYMBOL = "LWC-STUDY"
 TF = "5 mins"

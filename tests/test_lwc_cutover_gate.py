@@ -9,7 +9,7 @@ The cutover gate is three independent proofs plus a boundary proof, because
    modules as ``hiddenimports`` (AC-D47.6). Parsed with ``ast`` from the spec
    source, so a spec that merely mentions the words in a comment fails;
 2. **the size/signing disposition would be invented** — the record must recite
-   the *measured* P6-01 delta (``docs/lwc_spike_results.md``, Q61/A109) and the
+   the *measured* P6-01 delta (``docs/archive/reference/lwc_spike_results.md``, Q61/A109) and the
    tree it now absorbs, with no fixed budget and no fabricated Chromium figure
    (measure-first);
 3. **CI would not run the suite** — ``.github/workflows/lwc_parity.yml`` must
@@ -51,8 +51,8 @@ _PACKAGED_SPEC = "packaging/build.spec"
 _SPECS = (_ROOT_SPEC, _PACKAGED_SPEC)
 
 _WORKFLOW = ".github/workflows/lwc_parity.yml"
-_MATRIX = "docs/lwc_parity_matrix.md"
-_SPIKE_RESULTS = "docs/lwc_spike_results.md"
+_MATRIX = "docs/archive/reference/lwc_parity_matrix.md"
+_SPIKE_RESULTS = "docs/archive/reference/lwc_spike_results.md"
 
 #: Destination the LWC tree must land at inside the bundle — the same relative
 #: path ``ui/lwc_host.ASSET_DIR`` serves through ``ndt://lwc/``.
@@ -77,7 +77,7 @@ _REQUIRED_ASSETS = (
 )
 
 #: Phase-0 measured baseline, pinned here so a silent relaxation of the record
-#: fails the gate (values live in ``docs/lwc_spike_results.md``).
+#: fails the gate (values live in ``docs/archive/reference/lwc_spike_results.md``).
 _BASELINE_BUNDLE_KB = "378,400"
 _BASELINE_BUILD_MS = "1.3 ms"
 _BASELINE_PAYLOAD_BYTES = "533,265"
@@ -177,14 +177,15 @@ def _p612_section() -> str:
     """The P6-12 wave-exit note (from its heading to the next ``### ``)."""
     text = _read(_MATRIX)
     match = re.search(r"\n### P6-12 .*?(?=\n### |\Z)", text, re.DOTALL)
-    assert match, "docs/lwc_parity_matrix.md has no P6-12 wave-exit note"
+    assert match, "docs/archive/reference/lwc_parity_matrix.md has no P6-12 wave-exit note"
     return match.group(0)
 
 
 def _rule10_section() -> str:
     text = _read(_MATRIX)
     match = re.search(r"\n## Rule-10 entries.*?(?=\n## |\n### |\Z)", text, re.DOTALL)
-    assert match, "docs/lwc_parity_matrix.md has no '## Rule-10 entries' section"
+    assert match, ("docs/archive/reference/lwc_parity_matrix.md has no "
+                   "'## Rule-10 entries' section")
     return match.group(0)
 
 
@@ -246,11 +247,11 @@ def test_size_delta_and_signing_disposition_are_measured() -> None:
         "Signing-flow finding",
     ):
         assert pinned in spike, (
-            f"docs/lwc_spike_results.md no longer holds the Phase-0 baseline "
+            f"docs/archive/reference/lwc_spike_results.md no longer holds the Phase-0 baseline "
             f"token {pinned!r} — the gate's floor was silently changed"
         )
     assert re.search(r"no fixed (size )?budget", spike, re.I), (
-        "docs/lwc_spike_results.md no longer states the measure-first policy"
+        "docs/archive/reference/lwc_spike_results.md no longer states the measure-first policy"
     )
     assert "measure-first" in spike.lower()
 

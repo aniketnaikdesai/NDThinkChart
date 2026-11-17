@@ -33,7 +33,7 @@ from ui.chart_mouse_router import RouterMode
 
 REPO = Path(__file__).resolve().parent.parent
 ALARMS_JS = REPO / "chart_assets" / "lwc" / "alarms.js"
-MATRIX = REPO / "docs" / "lwc_parity_matrix.md"
+MATRIX = REPO / "docs" / "archive" / "reference" / "lwc_parity_matrix.md"
 
 _NODE = shutil.which("node")
 

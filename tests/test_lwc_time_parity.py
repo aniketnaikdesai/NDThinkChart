@@ -34,7 +34,7 @@ from ui import lwc_bridge as LB
 
 REPO = Path(__file__).resolve().parent.parent
 LWC_DIR = REPO / "chart_assets" / "lwc"
-MATRIX = REPO / "docs" / "lwc_parity_matrix.md"
+MATRIX = REPO / "docs" / "archive" / "reference" / "lwc_parity_matrix.md"
 
 EST = 18000
 EDT = 14400
