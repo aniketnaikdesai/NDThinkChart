@@ -154,3 +154,33 @@
 - **Gap/opportunity:** if Q104 is answered (a) free-only, the TradingView-style magnet (snap crosshair to OHLC on demand) remains unavailable — some users rely on it for exact level placement.
 - **Why not in the original ask:** the owner explicitly asked for free cursor-price tracking (magnet-off behaviour); a snap toggle is additional UI scope beyond the defect.
 - **Suggested priority:** low
+
+## FS21 — Per-row spread economics (credit, max risk, breakeven, distance from spot)
+- **Gap/opportunity:** the eight rows show `ASK`, `BID`, `Delta`, `Gamma` and the instrument name — enough to place the ladder, not enough to judge it. The credit at each rung, the 20-wide max risk, the breakeven and the distance from the underlying's last price are all derivable from data the panel already streams.
+- **Why not in the original ask:** the owner named exactly five columns and a Target; adding computed risk columns is new display scope with its own formatting and rounding decisions.
+- **Suggested priority:** med (after D65 ships and the owner has used the ladder live)
+
+## FS22 — Underlying spot price and Target-vs-actual readout in the panel header
+- **Gap/opportunity:** spread 3 is matched to the Target numerically, but the user cannot see *which* rung was chosen or how far it sits from the Target without reading the ASK/BID columns and doing the arithmetic. A header line — underlying last, spread 3's current mid, the delta to Target, and the strike pair chosen — makes the panel self-explaining.
+- **Why not in the original ask:** the owner specified the panel's table, Target field and toggle only; a status line is new layout in a dock that already has a narrow default width.
+- **Suggested priority:** med
+
+## FS23 — Ladder shape as a user setting (spread count, width, step)
+- **Gap/opportunity:** "4 spreads, all 20 wide, ±5/±10" is hard-coded by the spec. A trader running a different width (10 or 25) or a longer ladder (5–6 rungs) has to edit the code; exposing the three numbers turns one fixed layout into a small but genuinely more useful tool.
+- **Why not in the original ask:** the owner gave exact numbers (four spreads, 20 wide, 5-point steps); making them settings adds validation, persistence and layout questions.
+- **Suggested priority:** low
+
+## FS24 — Copy / export the ladder as text
+- **Gap/opportunity:** the panel's output is a table the user will re-key into TWS. A "copy ladder" action (`SPX Nov17 7435/7455  ask 1.15  bid 1.05  Δ −0.04  Γ −0.002`) removes the transcription step.
+- **Why not in the original ask:** the owner asked for display and maintenance, not export; clipboard format is its own small design.
+- **Suggested priority:** med (cheap, and the app has no other export surface)
+
+## FS25 — Persist the Target (per underlying) across restarts
+- **Gap/opportunity:** A192 deliberately does not persist the Target or the ON state, so every launch starts at `1.00`/OFF. A trader who always works a `0.80` or `1.20` target re-types it daily; remembering the last Target (per underlying) with OFF on launch is the low-risk half of persistence.
+- **Why not in the original ask:** persistence was not mentioned, and a stale ON state would subscribe 16 lines at startup before the user looks — so the safe default is "persist nothing".
+- **Suggested priority:** low
+
+## FS26 — A positions/account view again (tab or pop-out), if losing it proves painful
+- **Gap/opportunity:** Q110(a) replaces the Portfolio panel with Option Spreads, and the owner's no-unused-code rule then deletes the whole account/position stack with it (A198/A200) — so the app shows **no** positions, P/L or account summary anywhere. If the owner misses that view, it has to come back as a deliberate feature rather than by keeping dead code alive.
+- **Why not in the original ask:** the owner asked for the right dock to become Option Spreads and chose "replace" over a tab; per the same rule, a view with no home cannot be parked "for later".
+- **Suggested priority:** low (revisit only if the owner asks; the cheapest shape is a read-only tab that re-establishes `reqPositions` + a table, with no order surface)

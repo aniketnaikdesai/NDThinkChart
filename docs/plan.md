@@ -5253,3 +5253,835 @@ all three and edits no production files.
   absent); the P21 wave machinery is only read.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P23 — Option Spreads panel in the right dock (D65) — drafted 2026-11-17
+
+> Companion: `docs/architecture.md` § *Phase P23* (Codebase Summary, tech-stack decisions,
+> S-P23-1…S-P23-16, frozen interfaces, non-functional approach, AR-P23-1…AR-P23-15).
+> Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) —
+> Phase P23 (D65), Journeys 62–63, `AC-D65.1`–`AC-D65.13` FINAL (Q106–Q110 answered
+> 2026-11-17; `AC-D65.9` amended by A201 with `AC-D65.11`), `### Direction Rule (Q108(b))`,
+> `### Unused-Code Rule`, A186–A201, R138–R149, `design_gaps.md` DG117–DG123,
+> `open_questions.md` Q106–Q110. Hard constraints: **D1–P22 are NOT reopened** (the
+> D18/D21.13/D44 dock model — **with the single recorded exception of D18's *launch* width,
+> A201** — the P6 LWC chart, the P19/P20/P21 viewport and contract machinery, and the
+> D45/D46 order-code absence are read-only inputs); **no order code of any kind**;
+> display-only option data; no second network client; ≤16 option lines; **sizes S/M only**;
+> one phase only — nothing past the P23 batch gate is planned. **DG122 (the P22 orphan
+> sweep) is out of scope**: it is a standalone follow-up, scheduled by the analyst, not part
+> of P23's build.
+>
+> **Implementation-plan handoff.** After the Validator approves this section, the
+> Orchestrator produces a human-reviewable implementation plan for the owner instead of
+> invoking Task Manager (owner process change, `docs/memory.md` 2026-11-17). The waves below
+> are ordered, sized, file-scoped and each carries its tests, deletion inventory and exit
+> condition so the document restates without re-planning.
+>
+> **Revision notes (pass 2, 2026-11-17 — against `docs/plan_review_P23.md`).**
+> `RG-P23-1` answered by the owner (`A201`; `AC-D65.9` amended: 360 px preferred launch
+> width, clamped) — **`FI-P23-1` is resolved**, so the dock-width work is executable and
+> the "held assertion" wording is gone (*Flagged Issues* records the resolution, nothing is
+> open). Per Required Change: **RC-1** — `tests/conftest.py` joins **P23-07** (its autouse
+> teardown wipes the three dropped tables after every test) with an exit-condition line;
+> **RC-2** — `tests/test_d45_removal.py` is now split per wave **by test function**
+> (`test_removed_panel_members_absent` → P23-01; the `ibkr.account` half of
+> `test_p5_end_state_all_removed_members_absent` → P23-06; its schema half → P23-07) and
+> is no longer described as a title re-point — **superseded in part by pass 3's RC-7/RC-8
+> assignment below, which is the operative one**; **RC-3** — `tests/test_p13_gate.py`'s
+> `ui/*.py` allowlist edit is its own deliverable (add `option_spreads_panel.py`, drop
+> `active_portfolio_panel.py`), and every other file in P23-01's test book now carries its
+> real edit instead of "title/`objectName` only"; **RC-4** — five Frozen Interfaces entries
+> in `docs/architecture.md` now carry literal signatures and two consumed ones are frozen
+> (`PacingManager.throttle`/`PacingExceeded`, `market_calendar.is_trading_day`);
+> **RC-5** — the scan is designed to carry overlap: **one movement primitive** (a
+> `reqId`-preserving window step) and a **monotone sweep** for the chain scan, with the
+> 16-line accounting in `docs/architecture.md` § *Non-Functional* and **S-P23-5**;
+> **AP-P23-6** is rewritten (the pass-1 step-path narrowing is retired); **RC-6** —
+> `S-P23-12` group (c) drops `ui/active_portfolio_panel.py` (that is P23-01's). The
+> `AC-D65.9` re-derivation is in **P23-01**: preferred width, the launch clamp through the
+> existing plan, the two owner-authorised re-baselines, and the wide/narrow fixture
+> assertions.
+>
+> **Revision notes (pass 3, 2026-11-17 — against `docs/plan_review_P23.md`, retry 1).**
+> **RC-7** — `tests/test_d45_removal.py`'s third affected group (the `walkthrough` fixture,
+> `test_zero_transmit_walkthrough`, `test_positions_table_is_eight_columns`) is now assigned
+> per wave: **P23-01** reworks the walkthrough onto the new panel (probe repointed, Portfolio
+> half dropped, the one surviving collapse affordance retained) and deletes the eight-column
+> test; **P23-05** removes `_stub_account_calls` and its call site in the same wave that
+> deletes the account subscription that justified them. The same defect class surfaces one
+> file group further and is fixed here as well: **the six D27 account/position suites are
+> deleted in P23-01, not P23-05**, because every one of them reads `win.portfolio_panel` (or
+> imports `ActivePortfolioPanel`) and therefore dies with the panel, not with the window path
+> — with them still present, P23-01's "no `portfolio_panel` reference in `tests/`" could not
+> hold for four waves. P23-01's exit condition now names the reworked walkthrough and that
+> token-free state. **RC-8** — block (d) of `test_p5_end_state_all_removed_members_absent` is
+> **rewritten in P23-06**, the wave that deletes its three subject classes: the existence loop
+> (`:914-919`) and the `build_position_from_ib` paragraph become
+> `data.models.Position`/`TradeGroup` **absence** assertions, and the then-unused
+> `import inspect` goes with them; P23-06's exit condition names it, and P23-07 keeps only
+> block (g), its fixtures and the carve-out. **RC-9** — the last artefacts of the withdrawn
+> probe design are gone: `scan_anchor(...)`/`next_step(...)` leave the ladder's surface in
+> `docs/architecture.md` (replaced by `window_legs(anchor_short)`), "Per scan: O(log n)" is
+> restated as `O(k)` window steps, and `ui/ticker_session.py`'s
+> `get_bars(self, timeframe: str) -> list[Bar]` joins Frozen Interfaces (tie-break 3's only
+> price source). **RC-10** — the `AC-D65.9` narrow fixture moves from 1100×700 (352 px cap,
+> 8 px under the preferred width) to **900×700** (272 px cap, ≈84 px name column), so the
+> elide + tooltip path is asserted with real margin.
+>
+> **Revision notes (pass 4, 2026-11-17 — against `docs/plan_review_P23.md` retry 2,
+> `RC-11`–`RC-13`).**
+> **RC-11** — the rename's whole lookup surface is scheduled, not just the two files that
+> assert: **twenty** surviving modules key a right-dock lookup on the retired identity and
+> **all twenty are edited in P23-01**, the rename's own wave, by file and line in
+> P23-01's test book. The predicate becomes `dock.objectName() in ("Option Spreads",)` —
+> `objectName`, not the new title string — and the three sentinel assertions keep their
+> `assert` on the new key. P23-01's exit condition and P23-08's batch gate now state the
+> absence as exact greps over `tests/` (with one documented carve-out) instead of a prose
+> claim. *(The review's list of nineteen missed
+> the third hard-fail site: `test_dock_widths_d17.py` asserts `hidden == 1` and is a hard
+> failure at P23-01 on its module constant, not a silent no-op.)*
+> **RC-12** — `tests/test_dock_d18_region.py`'s entry is re-anchored: the `:32` module
+> import, four groups, `T48-T03` (`:154-181`) named explicitly, the `:133` collapsed-floor
+> assertion corrected (it is inside `T48-T02`, not `:150-172`), and `_receiver_count`'s
+> removal scheduled with its only call site.
+> **RC-13** — P23-05 now **deletes** the five inert `_record_symbol_price` fake-host stubs, so
+> its tree-wide exit claim is literally true rather than narrowed.
+> **Root-cause sweep (same defect class, two more sites found and fixed here):**
+> P23-06's `tests/test_ui_smoke.py:48` edit is made mandatory (the `hasattr(data.models,
+> "Position")` assertion hard-fails the moment P23-06 lands, and the previous "re-pointed if
+> it guards the smoke surface" was not decidable), and P23-04's stream suite now schedules
+> the fake client's two account-call recorders for deletion in P23-05 with the calls they
+> absorb. The audit these fixes rest on is the **exit-condition audit** table below the
+> eight waves. It also caught a conflict the three required changes did not name: P23-07 and
+> P23-08 **spell** the retired tokens inside `tests/` (the forbidden-token tables), so a
+> "grep `tests/` returns nothing" exit would redden on the gate itself two waves later.
+> P23-01's exit and P23-08's re-run therefore carry an explicit, documented carve-out for
+> those literal-string tables — and for nothing else.
+
+### Traceability (requirement → architecture → phase)
+
+| Requirement / input | Architecture section | Phase |
+|---|---|---|
+| `AC-D65.1` (panel shell, sub-headers, columns, Target, red/green toggle, **and the title/`objectName` search asserting no `Portfolio` dock remains**) + Journey 62 steps 1–3 + A194 | S-P23-1, S-P23-11; Tech stack (toggle colour); Frozen (VIS-D21, `dock_layout`) | P23-01 (shell + the 20 dock lookups), P23-08 (re-run on the finished tree) |
+| `AC-D65.2` (20-wide ladder, one offset formula, short-leg-first naming, listed strikes, SPX not the charted symbol, today's expiry) + Journey 62 steps 5,7 + A186/A187 + DG120 | S-P23-2, S-P23-6, S-P23-14; Data Model (`OptionSeries`) | P23-01 (geometry/naming), P23-02 (chain/expiry) |
+| `AC-D65.3` (anchor minimises three-basis `d`, three tie-breaks) + Journey 62 step 5 + A188 | S-P23-3, S-P23-5, S-P23-13 | P23-03 |
+| `AC-D65.4` (one 5-point step both legs, decided direction, stop rules, no oscillation, chain-edge message) + Journey 62 step 6 + A189/A191 + R139 + DG117 | S-P23-4; Non-functional (cadence) | P23-03 |
+| `AC-D65.5` (streamed, honestly derived ASK/BID/Delta/Gamma, `—` on partial legs, no polling) + A190 + DG118 | S-P23-8, S-P23-3; Non-functional (streaming fidelity) | P23-02 (intake), P23-04 (render) |
+| `AC-D65.6` (≤16 lines, drop/cancel timing, shared legs, guard) + Journey 62 postconditions + A196 + R138 + DG123 | S-P23-5 (one window-step primitive; scan = monotone sweep), S-P23-9; Non-functional (16-line accounting); Frozen (`assess`, `req_mkt_data`) | P23-03 (primitive + sweep), P23-04 (issuance) |
+| `AC-D65.7` (maintenance semantics; zero orders in any state) + D45/D46 | S-P23-9, S-P23-15; Frozen (order absence) | P23-04, P23-08 |
+| `AC-D65.8` (degraded states, one message per cause, `No 0DTE expiry today`, after-close, recovery) + Journey 63 + Q107(b) + A193 + R140/R144 | S-P23-10, S-P23-6, S-P23-9; AR-P23-6/AR-P23-11 | P23-03 (latches), P23-04 (surfacing) |
+| `AC-D65.9` (360 px preferred launch width = `clamp(360, 200, right_dock_max_width(chart_area))`, names legible at launch, elide + tooltip below it, every dock rule intact, the two owner-authorised D18 re-baselines) + A201 + DG119 + A194 | S-P23-16, S-P23-1; Frozen (`dock_layout`, `right_dock_max_width`) | P23-01 (launch width, shell, elide), P23-08 (gate) |
+| `AC-D65.10` (coalesced repaint, no GUI-thread stalls) | S-P23-11; Non-functional (threading) | P23-04 |
+| `AC-D65.11` (history intact; only the three recorded pre-P23 edits — the D41 title re-points, A194's supersession, and A201's D18 launch-width amendment with its two re-baselines) | Frozen Interfaces; no new decision | P23-08 |
+| `AC-D65.12` (no unused residue — standing gate, seeded-fixture-proven) + A197 | S-P23-15; AR-P23-10 | P23-08 |
+| `AC-D65.13` (displaced stack absent; KEEP reasons present; schema dropped) + A198/A200 + DG121 + R146 | S-P23-12, S-P23-13, S-P23-15 | P23-01 (panel + the six D27 suites + the title-keyed lookup surface), P23-05, P23-06, P23-07, P23-08 |
+| DG117 (chain edge) / DG118 (price-only ladder) / DG119 (D41 supersession) / DG120 (strike grid) / DG121 (data drop + `_symbol_last_prices`) | S-P23-4 / S-P23-3+8 / S-P23-1 / S-P23-14 / S-P23-12+13 | P23-03 / P23-03–04 / P23-01 / P23-01–02 / P23-05–07 |
+| DG123 (single-consumer code must not be born dead) | S-P23-7, S-P23-15; Tech stack (payload minimalism) | P23-01…P23-04 |
+| DG122 (P22 orphan sweep) | **not planned** — standalone follow-up (out of P23 scope) | — |
+| R147 (naive scan vs name-invoked callbacks) / R149 (empty on weekends) | S-P23-15 / S-P23-6 | P23-08 / P23-02+04 |
+
+Every `AC-D65.*` expectation is addressed somewhere above; nothing is narrowed or
+reinterpreted. The one criterion that contradicted a shipped D18 default (`AC-D65.9`) was
+escalated as **FI-P23-1**, and the owner's answer (`A201`) is now folded into the criterion
+and into P23-01 — no Plan assumption replaces it.
+
+### Phases
+
+Eight waves, milestone-level; Task Manager decomposes each into tasks with acceptance
+criteria and tests. Waves are ordered and each depends on its predecessors unless stated.
+Sizes S/M only — no wave is L. `Touches` lists production files and flags serialisation
+points.
+
+### P23-01 — Panel shell + ladder math + dock swap + launch width — size M
+
+- **Goal:** the right dock hosts an `Option Spreads` panel with the specified shell, ladder
+  geometry and naming, **opening at the panel's preferred width clamped inside the existing
+  cap**, and the Portfolio panel and its module are gone.
+- **Covers:** `AC-D65.1` (shell, column tuple, row counts, Target default, toggle placement
+  and colour states); `AC-D65.2`'s geometry/naming half; **`AC-D65.9` in full** — the 360 px
+  preferred width, the `clamp(360, 200, cap)` launch, elide + tooltip below it, every D18 /
+  D21.13 / D44 rule untouched, and the **two** owner-authorised D18 re-baselines (A201);
+  Journey 62 steps 1–2, 5 (structure only); A187; DG120's snap helper; DG123.
+- **Deliverables:**
+  - `[new] ui/option_spreads_panel.py` — `OptionSpreadsPanel` per S-P23-1: header
+    `DiagonalStrikeButton("Option Spreads")` (exposed as `header_button`), controls row
+    (`Target` + validated field defaulting to `1.00`, ON/OFF toggle right-aligned with the
+    `spread_state` property and the two colour constants), status label, `CCS`/`PCS`
+    sub-headers, two 4×5 tables with the exact header tuple (held as `ccs_table`/`pcs_table`
+    — the members `apply_snapshot` writes and the shell/walkthrough tests read), empty-state
+    label,
+    tooltip-carrying name cells eliding with an ellipsis under a narrowed column,
+    `PREFERRED_WIDTH = 360` + `preferred_width() -> int` + a `sizeHint()` whose width is the
+    preferred width, `apply_snapshot`, `set_status`, `set_empty_state`,
+    `target_value`/`set_target_value`, `toggle_state`/`set_toggle_state`,
+    `toggle_clicked`/`target_committed` signals,
+    `is_collapsed`/`set_collapsed`/`toggle_collapsed`.
+    *(Note: the panel's `toggle_clicked`/`target_committed` signals are declared here and
+    receive their engine receivers in P23-04; the residue gate that asserts
+    emitted-and-connected runs in P23-08, at batch end, so no mid-batch state is left
+    dormant.)*
+  - `[new] services/option_ladder.py` — geometry (`SPREAD_WIDTH`, `STRIKE_STEP`, rung
+    offsets, `ladder_pairs`), naming (`format_instrument`), three-basis metric
+    (`net_bases`/`distance`), `net_greeks`, `snap_rung`, `window_legs(anchor)`, and the cell
+    formatters (ASK/BID 2 dp, Delta 3 dp, Gamma 4 significant digits).
+  - `[new/changed] ui/main_window.py` — dock block only: `OptionSpreadsPanel`; dock title
+    **and** `objectName` `Option Spreads`; title-bar widget = the panel's `header_button`;
+    `setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)` unchanged; the window attribute renamed
+    `portfolio_panel` → `option_spreads_panel` (the old name is a displaced token — S-P23-15);
+    the three collapse-probe re-points; the `toggled` connection; **the launch width per
+    S-P23-16**: `self._right_launch_width = OptionSpreadsPanel.PREFERRED_WIDTH` at
+    construction (a *remembered launch request*, in-memory only, no new key — the
+    `_persisted_watchlist_width` analogue, D17.4) and `_deferred_dock_setup` passing
+    `requested_right=self._right_launch_width` alongside the persisted watchlist request, so
+    the first real-chart-area apply clamps 360 through `plan_dock_widths` to
+    `clamp(360, 200, right_dock_max_width(ca))` and leaves `_right_dock_width` holding the
+    clamped plan value (every later apply keeps tracking the live dock width);
+    the panel's two signals are connected in P23-04, so this wave wires only the header
+    collapse state.
+  - **Unchanged:** `ui/dock_layout.py` (its minimum, cap, cross-clamp and
+    `plan_dock_widths` are the frozen contract; **no new constant is added there** — the
+    preferred width belongs to the panel, per `AC-D65.9`(i)).
+  - **Deleted:** `ui/active_portfolio_panel.py` (whole file) and
+    `tests/test_d41_portfolio_dock.py` (its subject).
+  - **Test book — every file's real edit, nothing is "title only":**
+    - `tests/test_right_dock_d21.py` — imports/references `OptionSpreadsPanel`; dock
+      title/`objectName` `Option Spreads`; `win.portfolio_panel` →
+      `win.option_spreads_panel`; `summary_label` → `header_button` with the text
+      `Option Spreads`; the collapse/expand, `body.isVisible()` and
+      `minimumWidth() == RIGHT_DOCK_MIN_WIDTH` assertions follow the renamed members
+      (behaviour unchanged).
+    - `tests/test_dock_d18_region.py` — re-pointed in all four of its groups, its module
+      import removed, and its docstring (`:1-16`) rewritten; this is the rename's most
+      load-bearing single file:
+      1. **`:32` `from ui.active_portfolio_panel import ActivePortfolioPanel` is deleted** —
+         left in place it is a **collection error** for the whole file once the module goes,
+         so "no `ActivePortfolioPanel` in `tests/`" cannot hold without it.
+      2. **`test_T48_T01` (`:77-101`, "the panel fills the region")** — `win.portfolio_panel`
+         → `win.option_spreads_panel` at `:84` and `:91`; the three width relations
+         (`:97-99`) are unchanged assertions on renamed members.
+      3. **`test_T48_T02` (`:106-149`)** — `findChild(QDockWidget, "Portfolio")` →
+         `"Option Spreads"` (`:110`), `objectName() == "Portfolio"` → `"Option Spreads"`
+         (`:113`); the title-keyed probe at `:118-121` (AR-D41-3's "the lookup the
+         dock-hiding helpers use still resolves the real region — a stale key would leave
+         them hiding nothing") becomes **`objectName()`-keyed** and **keeps that job**: it is
+         the sentinel for the twenty lookups edited in this wave; `header =
+         win.portfolio_panel.summary_label` → `header_button` (`:126`), and the collapse
+         assertions at `:129-138` follow `is_collapsed`/`body` (behaviour unchanged).
+         **The collapsed-width floor is `:133`** —
+         `assert region.width() <= win._right_dock_collapsed_min_width + 2` — inside this
+         test; it is **not** `:150-172` (the previous entry's anchor was wrong), it reads no
+         launch width, and its value is unchanged.
+      4. **`test_T48_T03` (`:154-181`) — the group the previous entry omitted.** `:158`
+         `isinstance(win.portfolio_panel, ActivePortfolioPanel)` →
+         `isinstance(win.option_spreads_panel, OptionSpreadsPanel)`; `:161-163` (the panel
+         **is** the dock's widget) is the group's real surviving assertion and is kept
+         as written; `:165-179` — the `hasattr(..., "account_summary_changed")` and
+         `hasattr(..., "positions_changed")` probes and the zero-receiver sanity check —
+         **are deleted with the signals they name** (neither exists on the new panel), and
+         **`_receiver_count` (`:184-194`) goes with them**: `:177` is its only call site, so
+         leaving it would be an unused helper that P23-08's gate clause (ii) reddens.
+      What the file asserts after this wave: the dock resolves by its new `objectName` and
+      that lookup is the one the helper suites use; the panel fills the region within 1 px;
+      the header toggle collapses to the strip and restores; exactly one right-area dock; the
+      dock's widget *is* the panel. Nothing in the module then names `Portfolio`,
+      `ActivePortfolioPanel`, `portfolio_panel` or `positions_table`.
+    - `tests/test_dock_widths_d18.py` — dock title/`objectName` (:180-182), the
+      panel-fills case (:291-296), **the "wide content" AC-D18.6 case (:370-380) rebuilt on
+      the new panel's tables** (`positions_table` no longer exists), the docstring prose,
+      and **the re-baselines at :437-438** (see *D18 re-baseline* below).
+    - `tests/test_dock_widths_d18_impl.py` — the wide-content case (:265-270) rebuilt on the
+      new panel's table and **the re-baselines at :328-329** (see below).
+    - `tests/test_watchlist_nonregression_d22.py` — the D21.13 header/collapse probe
+      (:147-180) renamed to the new panel (`header_button`, `is_collapsed`, `body`).
+      *(Not touched: `tests/test_dock_widths_collapsed_d44.py` — it exercises the **left**
+      watchlist dock only, and its strip/restore assertions are unaffected by the right
+      dock's launch width.)*
+    - `tests/test_d41_removal.py` — `win.portfolio_panel` → `win.option_spreads_panel` and
+      the dock title (:315-316).
+    - `tests/test_p13_gate.py::test_no_new_dependency` (:199-217) — **the `ui/*.py`
+      allowlist gains `option_spreads_panel.py` and loses `active_portfolio_panel.py`**;
+      that is the file's whole change (no behavioural assertion moves).
+    - `tests/test_d45_removal.py` — **three changes in this wave, all in the walkthrough's
+      group** (the file's prose is re-pointed with the code, since `tests/` is covered by
+      neither static instrument):
+      1. **Delete `test_removed_panel_members_absent` (:710) and the
+         `_REMOVED_PANEL_MEMBERS` tuple with its only subject** — it imports the module this
+         wave deletes.
+      2. **Rework the `walkthrough` fixture (:522) onto the new panel** instead of leaving a
+         dead Portfolio probe: `_snapshot` (:501) reads `win.option_spreads_panel`'s
+         `ccs_table`/`pcs_table` (row counts, the five-column header tuple, `is_collapsed`)
+         for its per-step record instead of `positions_table`; the three `positions_table`
+         lines (:610-613) become `win.option_spreads_panel.toggle_collapsed()` twice (the
+         collapse handle is the one affordance this file drove that survives — the new
+         panel's `refresh()`/`selectRow()` do not exist, `apply_snapshot` is the replacement);
+         **both `bridge.position_update` emits (:605-608, :617-620), the `record["positions"]`
+         dict (:607, :619) and the `:650-664` Portfolio-render assertions are removed** — the
+         renderer they asserted dies in this wave, and its replacement is asserted in
+         `tests/test_d65_option_panel.py` (same wave) and, once live, in P23-04's stream
+         suite. `test_zero_transmit_walkthrough` keeps its zero-transmit/cancel assertion,
+         its per-step constructibility assertion (re-pointed to the new panel's four-row,
+         five-column shape) and its unhandled-`AttributeError`/`TypeError` assertion, and
+         loses only the Portfolio half.
+      3. **Delete `test_positions_table_is_eight_columns` (:669)** — its subject (the
+         eight-column `positions_table`, its `Strategy`/`Group` headers included) dies here;
+         the shell's own header tuple and row counts are asserted in
+         `tests/test_d65_option_panel.py` in this same wave, so no criterion loses its
+         measure.
+      `_stub_account_calls` (:492) **stays** in this wave — its subject
+      (`_subscribe_account_data`'s `reqPositions`/`reqAccountSummary` calls) is P23-05's, and
+      it is removed there with its call site. *(Wave 1 of four: `_stub_account_calls` →
+      P23-05, block (d) → P23-06, block (g) → P23-07.)* The P5 precedent (`AP-D46-6`, §
+      *Phase P5*) split this same file across waves for exactly this reason: a test that
+      references a name a wave deletes must move with it.
+    - **The six D27 account/position suites are deleted in this wave, not in P23-05** —
+      `tests/test_d27_account_subs.py`, `tests/test_d27_account_scoping.py`,
+      `tests/test_d27_account_partial_window.py`, `tests/test_d27_flat_rows.py`,
+      `tests/test_d27_position_id.py`, `tests/test_d27_position_prices.py`. Each one reads
+      `win.portfolio_panel` (its `positions_table`, `account_detail` or `_positions`) or
+      imports `ActivePortfolioPanel`, so **their subject is the panel this wave deletes**, not
+      the window path P23-05 removes: `test_d27_flat_rows.py:17` imports the module directly
+      and the rest assert rendered rows (e.g. `test_d27_account_subs.py:101-102`,
+      `test_d27_position_id.py:129-134`). Leaving them for P23-05 would leave this wave's
+      exit condition ("no `portfolio_panel` reference left in `tests/`") false for four waves
+      by construction. The account-path *behaviour* they also touched (`_account_subscribed`,
+      the reqId bookkeeping) does survive until P23-05, but it is scheduled for deletion
+      there, nothing in P23-02…P23-04 changes it, and its own removal gate is P23-05's
+      residue grep — so no live behaviour goes unguarded in between. Recorded as
+      subject-follows-test on the P5 precedent (`AP-D46-6`).
+    - **The dock-lookup surface — twenty surviving modules, all edited in this wave (RC-11).**
+      `S-P23-1` renames the dock's title **and** `objectName`; `A198`'s DELETE list already
+      covers "the dock title `Portfolio` **plus every title-keyed lookup resolving it**", so
+      this surface is part of the panel member group, not a follow-up. Every module below
+      locates the right dock by the retired identity today and is re-pointed here, by line,
+      to **`dock.objectName() in ("Option Spreads",)`**:
+
+      | # | File | Site | Today | Bites at P23-01 as |
+      |---|---|---|---|---|
+      | 1 | `tests/test_history_backfill.py` | `:223-225` | `windowTitle() in ("Portfolio",)` hide loop | silent no-op |
+      | 2 | `tests/test_history_backfill_disconnect.py` | `:136-138` | same | silent no-op |
+      | 3 | `tests/test_d27_phantom_alarms.py` | `:55-57` | same | silent no-op |
+      | 4 | `tests/test_d27_reconnect.py` | `:170-172` | same | silent no-op |
+      | 5 | `tests/test_d27_stream_health.py` | `:66-68` | same | silent no-op |
+      | 6 | `tests/test_p7_w1_persist.py` | `:197-199` | same | silent no-op |
+      | 7 | `tests/test_p7_w2_prime.py` | `:44-46` | same | silent no-op |
+      | 8 | `tests/test_p7_w2_watchdog.py` | `:42-44` | same | silent no-op |
+      | 9 | `tests/test_p14_indicator.py` | `:139-141` | same | silent no-op |
+      | 10 | `tests/test_p14_cache_guard.py` | `:182-184` | same | silent no-op |
+      | 11 | `tests/test_p14_lifecycle.py` | `:140-142` | same | silent no-op |
+      | 12 | `tests/test_p15_surfacing.py` | `:166-168` | same | silent no-op |
+      | 13 | `tests/test_p15_expiry.py` | `:149-151` | same | silent no-op |
+      | 14 | `tests/test_p15_continue.py` | `:150-152` | same | silent no-op |
+      | 15 | `tests/test_p20_resolution_probe.py` | `:90-92` | same | silent no-op |
+      | 16 | `tests/test_history_backfill_loadpath.py` | `:174-177` | list + `assert right_docks` | **hard fail** |
+      | 17 | `tests/test_d42_depth_floor.py` | `:186-189` | list + `assert right_docks` | **hard fail** |
+      | 18 | `tests/test_d10_d13_integration.py` | `:42` const, `:60` predicate | `_RIGHT_DOCKS = ("Portfolio",)` | silent no-op |
+      | 19 | `tests/test_watchlist_columns_d21.py` | `:309` const, `:323` predicate | `_RIGHT_DOCK_TITLES = ("Portfolio",)` → `_RIGHT_DOCK_NAMES` | silent no-op |
+      | 20 | `tests/test_dock_widths_d17.py` | `:40` const, `:77` predicate, `:83` assert | `_RIGHT_DOCKS = ("Portfolio",)` + `assert hidden == 1` | **hard fail** |
+
+      Rows 1–15 are one identical three-line loop each, so the edit is the **predicate
+      only** (`dock.objectName() in ("Option Spreads",)`); every one of those fifteen files
+      imports `QDockWidget` for that loop alone, so rewriting the loop instead of the
+      predicate would leave an unused import each. Rows 16–17 keep their `assert` (reworded
+      to name `Option Spreads`) — they are the D19-trap sentinels
+      (`tests/test_dock_d18_region.py:115-121`), and row 20 is a third one by accident: it
+      counts what it hid and fails if the count is not 1. Rows 18–20 also re-point the
+      predicate that consumes the constant and the comment above it; row 19 renames the
+      constant because "titles" would then be false. **Three of the twenty hard-fail, not
+      two** — `test_history_backfill_loadpath.py:177`, `test_d42_depth_floor.py:189` and
+      `test_dock_widths_d17.py:83` — and the other seventeen are silent: the dock they no
+      longer hide now launches at 360 px, so a width-sensitive suite measures a wider window
+      than it intends rather than erroring. That is exactly the failure the three sentinel
+      assertions exist to convert into a loud one, which is why every one of the twenty is
+      scheduled here and none is left "for the suite to notice".
+      **Why `objectName` and not the new title:** once `setTitleBarWidget(header_button)`
+      replaces the dock's title bar the title string is not rendered at all — it is chrome —
+      while `objectName` is the identity `findChild(QDockWidget, …)` already resolves the
+      dock by in `test_dock_d18_region.py:110` and
+      `test_watchlist_nonregression_d22.py:151`. Re-keying to the new title string would
+      re-create the coupling that made this rename break twenty files, and the next header
+      rewording would desync them a third time. **Why one wave and not its own wave:** the
+      rename and the lookups cannot be separated — a wave *after* the rename leaves the
+      rename's own wave red, and a wave *before* it would have to key on an identity that
+      does not exist yet (a two-title tuple, which leaves `Portfolio` in the tree and
+      contradicts this wave's exit). **Sizing:** still M (`AP-P23-8`) — twenty one-line
+      predicate edits plus three constant-and-comment edits in the **same member group** the
+      dock swap already owns; no new assertion is introduced and no numeric expectation
+      moves.
+  - **D18 re-baseline (A201, owner-authorised — not drift).** Exactly two sites, each
+    changing **only its expected constant**: `tests/test_dock_widths_d18.py:437-438`
+    (`test_T50_T06_restart_returns_default_not_persisted`) and
+    `tests/test_dock_widths_d18_impl.py:328-329` (`test_T49_T06_right_region_not_persisted`).
+    Both compare the tracked value and the rendered width against a module constant; both
+    take `expected = max(RIGHT_DOCK_MIN_WIDTH, min(OptionSpreadsPanel.PREFERRED_WIDTH,
+    right_dock_max_width(win2._chart_area_width())))`. Their "default restored, not
+    persisted" semantics are unchanged, the "no right-region QSettings key" loop above them
+    is untouched, and **no third assertion in either file changes**. Every other
+    `RIGHT_DOCK_MIN_WIDTH` assertion in the D18/D21/D44 suites is a *below-minimum drag*
+    case (`_apply_dock_widths(None, 0)`) or a collapsed-strip case, so it still holds at the
+    new launch width and is not touched.
+  - **New tests:** `tests/test_d65_option_panel.py` — shell assertions (title, sub-headers,
+    header tuple, row counts, Target default/invalid-edit rejection, toggle x-position >
+    Target's right edge, colour property + stylesheet per state, empty state, elide +
+    tooltip at narrow widths) **plus the `AC-D65.9` group**: the exact tracked assertion
+    (`win._right_dock_width == max(200, min(360, right_dock_max_width(ca)))`) at launch
+    **and** in a freshly rebuilt window (the "restart returns the launch width, never the
+    last dragged width" case), a tolerant rendered assertion at the
+    1600×900 fixture (dock width ≥ 340 px and no name's text width exceeds its column
+    width), a **900×700** narrow case where the cap wins outright — chart area ≈680 px, so
+    `right_dock_max_width` = `min(int(0.40 × 680), 680 − 400)` = **272 px**, 88 px below the
+    360 px preferred width, leaving the elastic name column ≈84 px against the ≈140 px
+    longest instrument name — so the elide + tooltip path is taken on real margin rather than
+    by 8 px, and `preferred_width() == 360`; plus
+    `tests/test_d65_option_ladder.py` (all eight strike pairs per side, width 20, offset
+    table, name strings, three-basis arithmetic, snapping, `window_legs(anchor_short)` per
+    anchor).
+- **Dependencies:** none (first wave).
+- **Touches:** `ui/option_spreads_panel.py` (new), `services/option_ladder.py` (new),
+  `ui/main_window.py` (dock block + the launch-width line + `_deferred_dock_setup`'s one
+  added argument), `ui/active_portfolio_panel.py` (delete) + the eight book test files, the
+  **twenty lookup modules** in the table above, and the six D27 suites (delete).
+  Serialisation: `ui/main_window.py` (later waves edit other blocks).
+- **Exit condition:** the shell, ladder-math and `AC-D65.9` groups are green; the two D18
+  re-baselines pass and a diff of the two suites shows **only** the four lines of those two
+  assertions; **the retired dock identity is gone from `tests/` as code** — all of these
+  return nothing over `tests/ --include='*.py'`: the keyed-lookup forms
+  `windowTitle() in ("Portfolio"`, `windowTitle() == "Portfolio"`,
+  `findChild(QDockWidget, "Portfolio")`, `objectName() == "Portfolio"` and `("Portfolio",)`;
+  and the symbols `portfolio_panel`, `positions_table`, `ActivePortfolioPanel` — with **one
+  documented carve-out**: the **forbidden-token tables** (`tests/test_d45_removal.py`'s
+  `_FORBIDDEN`/`_SURVIVORS`, and from P23-08 `tests/test_d65_residue.py`'s displaced-token
+  list) are the only place those spellings may survive, because a token that is forbidden has
+  to be spelled to be forbidden. They are literal-string tables — never an import, an
+  attribute access or an assertion subject — so the carve-out cannot hide a live use; without
+  it, P23-07's own token additions would make P23-08's re-run of this exit false. The twenty
+  lookups, the eight book files and the seven deletions **together cover every file that holds
+  the old identity today** (verified by grep; `test_dock_d18_region.py` and the two D18 suites
+  are in both the book and the coverage set); the twenty lookups
+  carry `objectName() in ("Option Spreads",)` (rows 18–20 carry the constant and its
+  consumer) and the three sentinels still assert their lookup resolved;
+  `tests/test_dock_d18_region.py` is green with `T48-T03` re-pointed, its `:32` import gone
+  and `_receiver_count` gone with it; the reworked walkthrough is green — a real window driven
+  through every surviving affordance, recording every step with zero transmit/cancel and no
+  unhandled slot exception; `tests/test_p13_gate.py` is green with the repaired allowlist;
+  `import ui.main_window` is clean. **No expectation outside the two A201 re-baseline sites
+  moves** — if any of the twenty suites needs a numeric change to go green, that is a
+  stop-and-escalate, not an in-wave re-baseline (owner authorisation covers exactly those two
+  sites).
+
+### P23-02 — Chain discovery, option contracts and the greek/quote boundary — size M
+
+- **Goal:** the app can resolve SPX's 0DTE SPXW series, build per-leg contracts, and receive
+  streamed quotes and greeks for a leg, with none of it reachable from the panel yet.
+- **Covers:** `AC-D65.2`'s expiry/strike half (`SPX` regardless of the charted symbol;
+  today's expiry only; listed strikes) + Q106(a)/Q107(b)/A186; `AC-D65.5`'s intake half
+  (quotes + greeks per leg, no polling); `AC-D65.8`'s chain-level empty state and the
+  sentinel/rejection inputs; R141/R149; DG123.
+- **Deliverables:**
+  - `[new/changed] ibkr/contracts.py` — `get_option_contract`, `today_expiry_yyyymmdd`,
+    `select_zero_dte_series`, `option_chain_strikes`, `OptionSeries`. The S-P20-1 rule
+    order and every existing function untouched.
+  - `[new/changed] ibkr/market_data.py` — `req_sec_def_opt_params` (readiness check,
+    `id_manager.get_id`, `pacing_manager.throttle`, never sleeps).
+  - `[new/changed] ibkr/client.py` — `tickOptionComputation`,
+    `securityDefinitionOptionParameter`, `securityDefinitionOptionParameterEnd` overrides
+    emitting the three new bridge signals with only the fields used. **No deletion in this
+    wave** (the account overrides die in P23-06).
+  - `[new/changed] ibkr/bridge.py` — `option_params`, `option_params_end`,
+    `option_computation`.
+  - **New tests:** `tests/test_d65_option_chain.py` — option-contract attribute shape per
+    right/multiplier/tradingClass; `today_expiry_yyyymmdd` across ET dates;
+    `select_zero_dte_series` (SPXW with today; a later expiry present but ignored; no 0DTE →
+    empty-state signal); strike-list extraction; `req_sec_def_opt_params` request shape +
+    `PacingExceeded`/`IBKRNotReady` behaviour; and override→bridge routing with a fake client
+    (including `None`/`-1`/NaN delta/gamma passthrough).
+- **Dependencies:** P23-01 (the ladder module's `LegKey`/`SpreadRow` shapes are its
+  consumer).
+- **Touches:** `ibkr/contracts.py`, `ibkr/market_data.py`, `ibkr/client.py`,
+  `ibkr/bridge.py` + the new suite. Serialisation: `ibkr/client.py`/`ibkr/bridge.py` (P23-06
+  edits the same files for deletions).
+- **Exit condition:** the chain suite is green and no production code outside `ibkr/` calls
+  the new helpers yet (they are called by P23-03/04 and by tests — the residue gate's
+  caller census for this wave names those); the four account overrides are still present
+  (they are P23-06's).
+
+### P23-03 — Spread engine: window steps, monotone sweep and once-only faults — size M
+
+- **Goal:** a pure engine that, fed a chain and leg data, selects the anchor, maintains both
+  ladders, decides movement, and emits subscriber/cancel/row/message actions — testable with
+  no Qt, no window and no network. **One movement primitive** (a `reqId`-preserving window
+  step) serves the maintenance walk *and* the chain scan, per S-P23-5.
+- **Covers:** `AC-D65.3` (all three tie-break cases; the chain scan as a monotone sweep from
+  the seed), `AC-D65.4` (ordered step sequences, matched-on-ask-only stays, chain-edge
+  message, stationary feed, the two-rung oscillation case), `AC-D65.5`'s arithmetic (exact
+  per-row values from known leg inputs, partial-leg `—`), **`AC-D65.6`'s planning half** (the
+  16-line window, the leaving/arriving diff, and the shared-leg rule on every anchor change),
+  `AC-D65.8`'s latches (one per cause), Journey 62 step 6 edges and Journey 63 steps 1–4, 6;
+  DG117/DG118/DG123.
+- **Deliverables:**
+  - `[new] services/option_spread_engine.py` — the state machine per S-P23-3…S-P23-10:
+    `toggle_on`/`toggle_off`, `set_target`, `on_chain`, `on_no_expiry`, `on_quote`,
+    `on_greek`, `on_leg_error`, `on_disconnected`, `on_reconnected`, `evaluate(now)`,
+    `live_legs`, `seed_window(chain)`, **`window_step(target_anchor)` → `Actions`
+    (`cancels` before `subscribes`, never both halves of a shared leg)**, the sweep state
+    (`sweep_actions()` producing one window step per call while a scan is in progress), the
+    step rule (S-P23-4), the rung snap/omit rule (S-P23-14), the once-only latch table and
+    the deterministic issue order. No `probe` concept exists: a scan is the sweep, and every
+    action it emits is an ordinary window step.
+  - **New tests:** `tests/test_d65_spread_engine.py` — pure pytest: scan cases whose only
+    mid / only ask / only bid touches the Target; one case per tie-break; the ordered step
+    sequences per side with the decided sign convention; the matched-on-the-ask-only case
+    that must not move; the chain-edge message; zero moves on a stationary feed; the
+    oscillation guard; **line accounting** (a step emits exactly 2 cancels then 2 subscribes
+    per side, both sides in one turn, so `|live|` never exceeds 16 and dips to 14 mid-step —
+    asserted on the emitted action order, with no action ever cancelling a leg the target
+    window also holds); **the shared-leg case** (a Target change from a settled ladder: a
+    leg in both the pre-change and the final window produces **no** cancel and **no**
+    subscribe, asserted on leg keys); **the sweep** (anchors are visited in one direction
+    only; a median-strike seed reaches the fixture minimiser; the non-unimodal fixture
+    switches to the full ordered sweep, which visits every window in one direction and
+    still never cancels a surviving leg); sentinel/partial-leg/shortfall/empty-state cases;
+    the per-cause latch counts.
+- **Dependencies:** P23-02 (`OptionSeries`, `LegKey`) and P23-01 (`option_ladder`).
+- **Touches:** `services/option_spread_engine.py` (new) + its suite. No production file
+  outside `services/`.
+- **Exit condition:** the engine suite is green; the shared-leg and 16-line accounting cases
+  are red-first against the pre-P23 tree (the module does not exist) and green after; no
+  module in the engine suite imports PyQt6 or `ibapi` (asserted).
+
+### P23-04 — Live wiring: ON/OFF lifecycle, line budget, coalescing, fault surfacing — size M
+
+- **Goal:** with a fake client on the real `MainWindow`, switching the panel ON populates
+  both ladders from streamed values inside the line budget, moves the ladder when the Target
+  drifts, and every fault produces exactly one message — and OFF releases every line.
+- **Covers:** `AC-D65.1`'s toggle behaviour in a live window; `AC-D65.5` render half;
+  `AC-D65.6` issuance/cancel/guard-refusal; `AC-D65.7` (ON→move→OFF→ON, zero orders);
+  `AC-D65.8` in-window (injected faults, reconnect while ON, empty state, after-close);
+  `AC-D65.10`; `AC-D65.9`'s collapse-while-ON edge; Journey 62 steps 3–7, Journey 63
+  steps 4–5, 7; R138/R139/R140/R144.
+- **Deliverables:**
+  - `[new/changed] ui/main_window.py` — the option wiring per S-P23-9…S-P23-11: engine
+    construction, `OptionSpreadsPanel.toggle_clicked`/`target_committed` →
+    `engine.toggle_on`/`toggle_off`/`set_target`; chain request issuance via
+    `ContractLookupService` + `req_sec_def_opt_params`; leg subscribe/cancel application of
+    the engine's `Actions`; `self._option_req_ids` routing for `tick_price` and
+    `option_computation`; the 1 s evaluation `QTimer`; the coalesced
+    `_refresh_option_panel`; `_md_line_count` += live option lines; the `_on_error`
+    option-owned-reqId branch; connect/disconnect hooks; the SPX-last-price read for
+    tie-break 3 (existing session only).
+  - **New tests:** `tests/test_d65_option_stream.py` — offscreen with a fake client:
+    ON → 8 rows with exact values; partial-leg `—`; **a Target change from a settled ladder
+    lands on the new minimiser with every leg present in both ladders keeping its original
+    `reqId`** (asserted on the fake client's `(reqId, action, leg)` recorder — never
+    cancelled-and-re-requested), the leaving legs cancelled before the arriving ones are
+    subscribed and the live count never above 16; OFF → zero option reqIds and all `—`;
+    guard refusal at the cap (one message, tail rows `—`); burst-coalescing refresh count;
+    injected faults (greeks absent/sentineled, rejected leg, disconnect, reconnect while ON,
+    invalid Target, no-0DTE day, after-close) each counted once; a fake-client recording
+    assertion that no order call is made; collapse-while-ON keeps streaming.
+    **One cross-wave obligation, stated so it is not discovered at build:** the fake client
+    also carries `reqPositions()` and `reqAccountSummary(...)` as no-op recorders, because
+    `_subscribe_account_data` still runs on connect until P23-05 deletes it; **P23-05 deletes
+    those two recorders with `_stub_account_calls`** (same subject-follows-test rule), so
+    P23-08's gate finds no dead fake method and no later wave inherits a live-looking stub.
+- **Dependencies:** P23-01, P23-02, P23-03 (all of them).
+- **Touches:** `ui/main_window.py` (option blocks) + the new suite. Serialisation:
+  `ui/main_window.py` against P23-05.
+- **Exit condition:** the stream suite is green; `AC-D65.6`'s reqId-set assertions hold
+  exactly (16 after ON, the same `reqId` for every shared leg across a re-anchor, the
+  expected diff on the leaving legs, 0 after OFF, ≤16 at every recorded step); the burst
+  case shows one refresh per event-loop turn; a fresh `import main` is clean.
+
+### P23-05 — Account/position window path removal — size S
+
+- **Goal:** the window no longer subscribes to, receives, persists or renders account or
+  position data — the panel that consumed it is already gone (P23-01) and the new panel is
+  live (P23-04), so the dock is never empty mid-batch.
+- **Covers:** `AC-D65.13`'s window-consumer group; `AC-D65.11`'s "no behavioural assertion
+  weakened" bookkeeping; DG121.
+- **Deliverables (delete only):** `ui/main_window.py` — the four `b.*` connects and the
+  panel initialisers (`:842-854`); `_subscribe_account_data` and its connect-time call
+  (`:1676`); `_on_account_summary` / `_on_account_summary_end` / `_on_position_update` /
+  `_on_position_end` / `_prune_foreign_positions` / `_upsert_position` and the bulk DB read;
+  the state (`_account_subscribed`, `_account_summary_req_id`, `_account_summary`,
+  `_live_accounts`, `_account_summary_complete`, `_positions_rendered`, `_positions_*`);
+  the disconnect-time clears; the "Account summary received for …" status line; the dead
+  imports at `:80` (`Position`) and `:4403`; `_symbol_last_prices`, `_record_symbol_price`
+  and its `set_price_sink` registration (`:767`); `ui/watchlist_panel.py`'s `_price_sink`/
+  `set_price_sink` and its call site; `ui/ticker_session.py:562`'s host call.
+  **Suites:** the six D27 account/position suites (`test_d27_account_subs`,
+  `test_d27_account_scoping`, `test_d27_account_partial_window`, `test_d27_flat_rows`,
+  `test_d27_position_id`, `test_d27_position_prices`) are **already gone — P23-01 deleted
+  them with the panel they render into**, so this wave deletes behaviour with no test file
+  left to edit *for those suites*. The test-side edits this wave does own are the
+  `_stub_account_calls` removal, the five `_record_symbol_price` stubs and the stream
+  suite's two account recorders — all below.
+  - `[new/changed] tests/test_d45_removal.py` — **`_stub_account_calls` (:492-498) and its
+    call site (:555) leave in this wave**: their only purpose was to keep `_on_connected`'s
+    `reqPositions`/`reqAccountSummary` calls off the mocked socket, and this wave deletes the
+    `_subscribe_account_data` call that made them. Left in place they are a test helper with
+    no consumer — exactly what P23-08's residue gate clause (ii) reddens.
+  - **Five inert `_record_symbol_price` fake-host stubs leave in this wave (RC-13).**
+    `ui/ticker_session.py:562` is the only caller of `_host._record_symbol_price` in the
+    tree, and five surviving suites keep a stub for it. None asserts on the recorded value,
+    so they are inert rather than red today — but each names a token this wave deletes, and
+    the exit below is a tree-wide claim, so they go with the call:
+    `tests/test_p7_w4_streaming.py:140-141` (`host.prices = {}` + the recording lambda —
+    `host.prices` has no other reader in the file), `tests/test_d39_burst_search.py:332-335`
+    (`_StubHost.recorded` + the method — `recorded` has no other reader),
+    `tests/test_lwc_popouts.py:129-130`, `tests/test_p13_fanout.py:104-105` (method-only in
+    both), and `tests/test_p9_alarm_persistence.py:39` (`_stub_host()`'s only argument, so
+    its namespace becomes empty). One line each; nothing is re-pointed.
+  - **The stream suite's two account recorders** (`tests/test_d65_option_stream.py`, added in
+    P23-04 because the window still subscribed on connect) leave here with the calls they
+    absorb.
+- **Dependencies:** P23-04 (the panel must be live first).
+- **Touches:** `ui/main_window.py`, `ui/watchlist_panel.py`, `ui/ticker_session.py`,
+  `tests/test_d45_removal.py`, `tests/test_d65_option_stream.py`,
+  `tests/test_p7_w4_streaming.py`, `tests/test_d39_burst_search.py`,
+  `tests/test_lwc_popouts.py`, `tests/test_p13_fanout.py`,
+  `tests/test_p9_alarm_persistence.py`. Serialisation: `ui/main_window.py` against
+  P23-01/04 (separate blocks).
+- **Exit condition:** a residue grep for the wave's own tokens (`account_summary`,
+  `position_update`, `_upsert_position`, `reqPositions`, `reqAccountSummary`,
+  `_live_accounts`, `_positions_rendered`, `_symbol_last_prices`, `_record_symbol_price`,
+  `set_price_sink`, `_price_sink`) over `ui/`, `ibkr/`, `services/`, `data/` **and `tests/`**
+  is empty — the five stub deletions above are why that is literally true rather than true
+  of production only, and `_price_sink`/`set_price_sink` appear in no test file at all
+  (verified, which is why no watchlist test needs editing); `_md_line_count` still returns
+  RT + watchlist; the watchlist suite is green unchanged; `import main` is clean.
+
+### P23-06 — Broker boundary, modules and models removal — size S
+
+- **Goal:** the transport and data-model half of the displaced stack is gone, with each
+  signal dying in the same wave as its only emitter.
+- **Covers:** `AC-D65.13`'s broker-boundary and module groups.
+- **Deliverables (delete only):** `ibkr/client.py` — `accountSummary`, `accountSummaryEnd`,
+  `position`, `positionEnd`; `ibkr/bridge.py` — `account_summary`, `account_summary_end`,
+  `position_update`, `position_end`; `ibkr/account.py` (whole file);
+  `services/strategy_detection.py` (whole file); `data/models.py` — `Position`, `TradeGroup`;
+  **deleted suites:** `tests/test_account.py`, `tests/test_strategy_detection.py`; and
+  **`tests/test_ui_smoke.py:48` is a mandatory edit in this wave, not a conditional one** —
+  `assert hasattr(data.models, "Position")` hard-fails the moment the dataclass goes, so it
+  becomes `assert not hasattr(data.models, "Position")` and
+  `assert not hasattr(data.models, "TradeGroup")` (the file is the import-surface smoke, and
+  the absence assertion is the measure the retired symbol needs), with
+  `assert hasattr(data.models, "Drawing")` at `:49` untouched.
+  - `[new/changed] tests/test_d45_removal.py` — **block (d) is rewritten in this wave, not
+    deferred**: all three of its subject classes (`data.models.Position`,
+    `data.models.TradeGroup`, `ibkr.account.Position`) die here, so the existence-and-field
+    loop (`:914-919`, which asserts `cls.__dataclass_fields__` is non-empty and that
+    `stop_loss`/`take_profit` are absent from it) and the `build_position_from_ib` signature
+    paragraph (`:920-923`) are **replaced by absence assertions** —
+    `assert not hasattr(models, "Position")` and `assert not hasattr(models, "TradeGroup")`,
+    the measure the deleted half needed all along — with `data.models.UserOrder`'s existing
+    absence assertion (`:913`) untouched, and `data/models.py`'s stop/target field removal
+    covered by them rather than by a field loop over classes that no longer exist. The
+    `ibkr.account` imports (`:880-881`) go with the same wave, and the now-unused
+    `import inspect` (`:48`) plus the docstring's `__dataclass_fields__`/`inspect.signature`
+    sentence are removed with their only user. The schema block (g) and its
+    `_PRE_P5_DDL`/`_write_pre_p5_db` fixtures stay for P23-07, which is where the
+    column-absence half of the D46 retirement lands.
+- **Dependencies:** P23-05 (consumers first — the four signals must have no receiver left).
+- **Touches:** `ibkr/client.py`, `ibkr/bridge.py`, `ibkr/account.py` (delete),
+  `services/strategy_detection.py` (delete), `data/models.py`, `tests/test_ui_smoke.py`,
+  `tests/test_d45_removal.py`, the two deleted suites. Serialisation:
+  `ibkr/client.py`/`ibkr/bridge.py` against P23-02 (different members).
+- **Exit condition:** `import ibkr.account` raises `ModuleNotFoundError`;
+  `import services.strategy_detection` raises `ModuleNotFoundError`; no module imports either;
+  `data.models` exports no `Position`/`TradeGroup`; **`tests/test_ui_smoke.py:48-49` asserts
+  those two absences and still asserts `Drawing`'s presence**; no `tests/` module contains
+  `ibkr.account`, `build_position_from_ib`, `strategy_detection`, `detect_and_group` or
+  `OptionLeg` (today's carriers are `tests/test_account.py` and
+  `tests/test_strategy_detection.py` — the two suites this wave deletes — plus
+  `tests/test_d27_position_id.py`, deleted in P23-01 with the panel, and
+  `tests/test_d45_removal.py`, whose `ibkr.account` imports and block (d) go in this wave;
+  the forbidden-token
+  tables are excluded, per the convention in the exit-condition audit); the four bridge
+  signals and four overrides are absent; block (d) of
+  `test_p5_end_state_all_removed_members_absent` is green with its
+  `models.Position`/`models.TradeGroup` absence assertions and no existence loop left; the
+  suite is green.
+
+### P23-07 — Schema drop and residue-instrument re-baseline — size S
+
+- **Goal:** `positions`, `trade_groups` and `position_group_map` no longer exist in a fresh
+  DB or an existing one, and the residue instrument describes the new tree.
+- **Covers:** `AC-D65.13`'s data group (A200); `AC-D65.12`'s displaced-token half.
+- **Deliverables:**
+  - `[new/changed] data/db.py` — the three `CREATE TABLE`s and the `idx_positions_symbol_con_id`
+    creation removed; one guarded block in `_migrate_schema()`:
+    `DROP TABLE IF EXISTS position_group_map` → `positions` → `trade_groups` (child first),
+    idempotent on a fresh DB and on every later open; the D46 stop/target `ALTER TABLE …
+    DROP COLUMN` loop deleted with its only subject.
+  - `[new/changed] tests/test_db_schema.py` — `EXPECTED_TABLES` (`:15-26`) loses **all
+    three** names (`positions`, `trade_groups`, `position_group_map`) and gains an absence
+    assertion for each plus a second-open no-op case (rows dropped once); the
+    "ten tables" wording becomes the seven that remain.
+  - `[new/changed] tests/conftest.py` — **the autouse `_isolate_test_db` teardown
+    (`:105-124`) loses `position_group_map`, `positions` and `trade_groups` from its wipe
+    list**, keeping the FK-child-first comment coherent for the tables that remain. Without
+    this the whole suite raises `sqlite3.OperationalError: no such table: positions` at
+    teardown of **every** test once the DROP lands.
+  - `[new/changed] tests/test_d45_removal.py` — the schema half of
+    `test_p5_end_state_all_removed_members_absent` (block (g), `:939-1001`, plus its
+    `_PRE_P5_DDL` / `_write_pre_p5_db` fixtures at `:803`/`:837`) is **replaced by the
+    table-absence case**: `sqlite_master` holds none of the three tables; a legacy DB built
+    with the pre-P23 `_PRE_P5_DDL` loses them all on first open; a second open is a no-op.
+    (Block (d)'s models half is already P23-06's — nothing of it is deferred to this wave.)
+    `_SURVIVORS` loses `Position`/`positions`/`TradeGroup`/
+    `trade_groups`; the `_ALLOWED_IN_FILE` stop/target carve-out (`:220`), its `_allowed_in`
+    helper (`:271`), the `_drop_column_subject_nodes` AST helper (`:1013-1046`),
+    `_EXEMPT_TOKENS` (`:1010`) and `test_allowed_in_file_is_narrow_and_named_not_used`
+    (`:1047+`) are **deleted with the columns they existed to migrate**; the new displaced
+    tokens join `_FORBIDDEN`.
+- **Dependencies:** P23-06 (nothing may read the tables when they drop).
+- **Touches:** `data/db.py`, `tests/test_db_schema.py`, `tests/conftest.py`,
+  `tests/test_d45_removal.py`.
+- **Exit condition:** a fresh DB has none of the three tables (nor the unique index); a
+  legacy DB with rows loses all three tables on first open and a second open is a no-op;
+  `tests/conftest.py` names no dropped table; `test_db_schema` and the re-baselined
+  instrument are green; **the full suite runs clean at teardown** (no
+  `no such table` error from any test); no `stop_loss`/`take_profit` carve-out remains.
+
+### P23-08 — Standing residue gate + batch gate — size S
+
+- **Goal:** the standing Unused-Code Rule is machine-checked from now on, and every
+  `AC-D65.*` criterion is observably satisfied with nothing else changed.
+- **Covers:** `AC-D65.12` (the gate, proven red on a seeded dead-symbol fixture);
+  `AC-D65.11` (history intact); the full-suite gate; `AC-D65.7`'s order-absence sweep;
+  A197's inheritance.
+- **Deliverables:**
+  - `[new] tests/test_d65_residue.py` — S-P23-15's five clauses plus the seeded dead-symbol
+    fixture (a temp module with an uncalled function must make the gate red), the new-symbol
+    caller census with its allowlist carrying each registration site, the emitted-and-connected
+    signal check, and the displaced-token absence sweep (P23-07's tokens).
+  - **Batch gate:** full offscreen suite green
+    (`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest`); `AC-D65.11` marker grep +
+    `### D41`–`### D64` section presence; the record of **all three** owner-authorised
+    pre-P23 edits (the D41 title re-points, A194's supersession, **A201's D18 launch-width
+    amendment with its two re-baselines** — asserted by a `git log`/diff note in the gate
+    record, not by a test); **`AC-D65.9` observably closed** (the P23-01 group green: exact
+    tracked launch width, the two re-baselines, the wide-fixture legibility and the narrow
+    elide case); the bookkeeping checks — `tests/conftest.py` names no dropped table,
+    `tests/test_p13_gate.py`'s allowlist holds `option_spreads_panel.py` and not
+    `active_portfolio_panel.py`, and `tests/test_d45_removal.py` holds no test whose subject
+    is deleted; **`AC-D65.1`'s own measurable re-run against the finished tree** — a
+    `tests/`-wide search finds no `Portfolio` dock title/`objectName` and no title-keyed
+    right-dock lookup, using **P23-01's greps and its documented carve-out** (the
+    forbidden-token tables of `test_d45_removal.py` and this wave's `test_d65_residue.py`);
+    `USAGE.txt`/`docs/README` check that no text still advertises a
+    Portfolio/Account Summary panel (the file names the right dock only as chrome today —
+    verify, and correct only if it claims a Portfolio view).
+- **Dependencies:** P23-01…P23-07 (verifies their joint end state).
+- **Touches:** `tests/test_d65_residue.py` (new) + docs prose only if the check above finds a
+  stale claim. No production edits.
+- **Exit condition:** the gate is green on the tree and red on the seeded fixture; the full
+  suite is green at teardown (conftest clean); every `AC-D65.*` observably satisfied,
+  including `AC-D65.9`; no D1–P22 behaviour or wording regressed beyond the three recorded
+  edits; no `PLAN`-routed escalation open.
+
+**Wave note (serialisation).** `ui/main_window.py` is edited in **P23-01** (dock block +
+the launch-width seed and `_deferred_dock_setup`'s one added argument), **P23-04** (option
+wiring) and **P23-05** (account path) — distinct blocks, serialised in that order.
+`ibkr/client.py` and `ibkr/bridge.py` are edited in **P23-02** (additions) and **P23-06**
+(deletions); `data/models.py` only in P23-06; `data/db.py` only in P23-07;
+`tests/conftest.py` only in P23-07; `tests/test_d45_removal.py` in **P23-01** (the
+walkthrough group), **P23-05** (`_stub_account_calls`), **P23-06** (block (d)) and
+**P23-07** (block (g) + the carve-out), each wave touching only its own functions. **Ordering is forced, not stylistic:** the
+new panel must be live before the account path dies (else the dock is empty mid-batch and a
+worker death leaves an unusable window); each signal dies in the same wave as its only
+emitter; a test dies in the same wave as the subject it reads (the six D27 suites with the
+panel, `_stub_account_calls` with the subscription call, block (d) with the two model classes,
+block (g) with the tables); the schema drop lands after its last reader; and the token set
+lands last because a token may only name code that is already gone (the P5 lesson).
+
+### Exit-condition audit (wave → dependency → ownership → verdict)
+
+Every wave's exit condition was re-read against the tree, listing each test module and
+production symbol it depends on, and each was checked to be either **owned by that wave** or
+**untouched until the wave that does own it**. This is the check the last three reviews had to
+re-derive; it is recorded so it can be verified instead.
+
+**The token-grep convention, stated once.** P23-05's and P23-06's token greps are *wave-local*
+— they are run at the end of their wave and are not re-run afterwards. P23-01's dock-identity
+greps are *re-run at P23-08* on the finished tree, and they therefore carry a documented
+carve-out: the forbidden-token tables (`tests/test_d45_removal.py`'s `_FORBIDDEN`/`_SURVIVORS`,
+which P23-07 extends, and `tests/test_d65_residue.py`'s displaced-token list, which P23-08
+creates) are the only places a retired spelling may survive — a forbidden token has to be
+spelled to be forbidden, and those tables are literal strings, never imports, attribute
+accesses or assertion subjects. Without the carve-out the gate would redden on itself.
+
+| Wave | What its exit condition reads | Owner of that subject | Verdict |
+|---|---|---|---|
+| **P23-01** | `test_d65_option_panel.py`, `test_d65_option_ladder.py` (new); the 8 edited book suites (incl. `test_dock_d18_region.py` and `T48-T03`); the **20** lookup modules; the 2 D18 re-baseline sites; `test_d41_portfolio_dock.py` + the 6 D27 suites (deleted); `test_d45_removal.py`'s walkthrough group; `OptionSpreadsPanel`, `option_ladder`, `main_window`'s dock block, `active_portfolio_panel.py` (deleted) | **all of them, this wave** | **PASS** — the exit's greps are satisfiable exactly because the 20 lookups, the 8 book files and the 7 deletions are all here; nothing it names is renamed later |
+| **P23-02** | `test_d65_option_chain.py` (new); the **persistence** of the four account `EWrapper` overrides; "no production caller outside `ibkr/`" | new suite here; overrides are **P23-06**'s, untouched | **PASS** — the exit asserts they still exist, which is true until P23-06, and no test it reads dies later |
+| **P23-03** | `test_d65_spread_engine.py` (new); `option_ladder` (P23-01), `OptionSeries`/`LegKey` (P23-02) | new here; earlier waves, unmodified | **PASS** — pure engine, reads no test that moves |
+| **P23-04** | `test_d65_option_stream.py` (new); `main_window`'s option blocks; the **still-live account path** (`reqPositions`/`reqAccountSummary` issued on connect) | option blocks here; account calls and the fake client's two recorders **P23-05** | **PASS** — the one cross-wave test surface is retired in the wave that deletes its subject (named in P23-05 now) |
+| **P23-05** | the 11 window/price-sink tokens; `_stub_account_calls`; the **5 inert `_record_symbol_price` stubs**; the 2 stream-suite account recorders | **all here** | **PASS** — the tree-wide grep claim is now literally true; a worker's residue grep cannot hit a surviving stub |
+| **P23-06** | block (d) + `import inspect`; **`test_ui_smoke.py:48`** (mandatory); `test_account.py`/`test_strategy_detection.py` (deleted); `Position`/`TradeGroup`; `ibkr/account.py`; `services/strategy_detection.py`; the instrument's token lists naming P23-06 tokens | **all here** | **PASS** — the smoke edit is an edit, not a judgement call |
+| **P23-07** | `tests/conftest.py`; `test_db_schema.py` `EXPECTED_TABLES`; block (g) + `_PRE_P5_DDL`/`_write_pre_p5_db`; `_ALLOWED_IN_FILE`, `_allowed_in`, `_drop_column_subject_nodes`, `_EXEMPT_TOKENS`, `test_allowed_in_file_is_narrow_and_named_not_used` | **all here** | **PASS** — verified the three tables' only other readers were the 6 deleted D27 suites + `test_d45_removal.py`, so no surviving suite breaks at teardown |
+| **P23-08** | the full suite; `test_d65_residue.py` (new); P23-01's `AC-D65.9` group and its dock-identity greps **plus their token-table carve-out**; the conftest/p13/d45 bookkeeping | owned here / artifacts of earlier waves | **PASS** — a verification wave owns no subject it outlives, and the one place it *writes* a retired token (its own forbidden list, and P23-07's additions to `test_d45_removal.py`'s) is excluded from the greps by the carve-out stated in P23-01's exit — otherwise the gate would redden on itself |
+
+**The invariant this table checks.** A wave's exit may only assert on (i) files it edits or
+deletes in that wave, (ii) symbols it introduces or removes in that wave, or (iii) state whose
+*persistence* it is the point of the wave to confirm (P23-02's four overrides). Where a later
+wave changes something an earlier wave's test touches — P23-05 deleting the account calls
+under P23-04's fake client, P23-07 dropping tables under the shared `conftest.py` — the
+dependent edit is scheduled in that later wave and named in its deliverables, never left for
+the build to discover.
+
+### Deletion inventory (member groups → wave → end-state token)
+
+| Member group | Members | Wave | Absence token(s) asserted |
+|---|---|---|---|
+| Panel module + dock wiring | `ui/active_portfolio_panel.py`; dock title/`objectName` `Portfolio`; title-bar widget; the three collapse probes' panel references; **the 20 surviving title-keyed dock lookups (re-pointed to `objectName()`)**; `tests/test_d41_portfolio_dock.py`; the six D27 account/position suites (every one reads `win.portfolio_panel` or imports the module) | P23-01 | `ActivePortfolioPanel`, `portfolio_panel`, `Portfolio` (dock title and any lookup keyed on it), `Account Summary` |
+| Window consumers | 4 connects + 2 initialisers; `_subscribe_account_data`; `_on_account_summary`/`_on_account_summary_end`/`_on_position_update`/`_on_position_end`/`_prune_foreign_positions`/`_upsert_position`; bulk DB read; 6 state fields; disconnect clears; the account status line; 2 dead imports | P23-05 | `account_summary`, `position_update`, `_upsert_position`, `reqPositions`, `reqAccountSummary`, `_live_accounts`, `_positions_rendered` |
+| Displacement chain | `_symbol_last_prices`; `_record_symbol_price`; `set_price_sink`/`_price_sink`; the `ticker_session` host call | P23-05 | `_symbol_last_prices`, `_record_symbol_price`, `set_price_sink`, `_price_sink` |
+| Broker boundary | 4 `EWrapper` overrides; 4 bridge signals | P23-06 | `accountSummary`, `accountSummaryEnd`, `positionEnd`, `account_summary_end`, `position_end` |
+| Modules + models | `ibkr/account.py`; `services/strategy_detection.py`; `data.models.Position`/`TradeGroup`; `tests/test_account.py`; `tests/test_strategy_detection.py` | P23-06 | `build_position_from_ib`, `_parse_contract_type`, `detect_and_group`, `OptionLeg`, `TradeGroup`, `strategy_detection` |
+| Data path | `positions`/`trade_groups`/`position_group_map` DDL + rows; the unique index; the D46 column-drop loop; `test_db_schema` expectations; the instrument carve-out | P23-07 | `trade_groups`, `position_group_map`, `idx_positions_symbol_con_id`, the `stop_loss`/`take_profit` carve-out |
+| Test bookkeeping (suite-wide) | `tests/conftest.py`'s autouse wipe list; `tests/test_p13_gate.py`'s `ui/*.py` allowlist entry; the per-wave splits of `tests/test_d45_removal.py` | P23-01 (the panel-member test + its tuple, the walkthrough rework, the eight-column test), P23-05 (`_stub_account_calls` + its call site), P23-06 (block (d) → the two model-absence assertions), P23-07 (the `conftest.py` wipe list, block (g) → the table-absence case, the carve-out) | `position_group_map` absent from `conftest.py`, `active_portfolio_panel.py` absent from the p13 allowlist, `_REMOVED_PANEL_MEMBERS`, `_ALLOWED_IN_FILE`, `_stub_account_calls`, `test_positions_table_is_eight_columns` and any `portfolio_panel`/`positions_table` reference in `tests/` all absent (forbidden-token tables excepted, as above) |
+
+**KEEP (with the surviving consumer, and why):** `IdManager.get_id` (six market-data callers
+plus P23's legs); the generic TWS-error status path and `classify_error` (the only error
+surface, and P23's option branch reads it); the right dock itself (it hosts `Option
+Spreads`); `ui/dock_layout.py` (the width model); `ui/visual_conventions.py` (the collapse
+header and the toggle-state shape); `services/md_line_guard.py` (the budget the panel is
+built on); the bar/session/chart stack (untouched). **Nothing is retained-and-inert.**
+
+### Assumptions
+
+| # | Assumption | Rationale |
+|---|---|---|
+| AP-P23-1 | Both sides use the **same** rung offsets (1 = +10, 2 = +5, 3 = anchor, 4 = −5) with the short leg written first, so PCS row 1 is `anchor+10` (`7350/7330` in the owner's example) | A187/Q109(a): only this reading makes all eight worked numbers the same four 20-wide spreads; the mirrored reading is the typo the owner's own example contradicts |
+| AP-P23-2 | Tie-break 3 (short strike nearer the underlying's last price) uses the last bar close of an **existing** SPX session only; when the app holds no SPX price the tie-break is skipped and the lower short strike wins | No new subscription (16-line cap) and no revival of `_symbol_last_prices` (A198); it is the last of three tie-breaks and its AC cases feed the price, so measurability is unaffected. S-P23-13 / AR-P23-12 |
+| AP-P23-3 | Greek sentinels are screened as `None`, `-1` **and** NaN before use | The pinned client and older `ibapi` shapes differ on the "no value" encoding; screening all three is the only version-proof reading of AC-D65.8 |
+| AP-P23-4 | Launch state is Target `1.00`, toggle OFF, no persisted value, no QSettings key, no chain cache across restarts | A192; a persisted ON state would subscribe lines before the user looks (FS25 remains the persistence suggestion) |
+| AP-P23-5 | Option-owned TWS errors are routed by `_on_error` into the engine's latch and surfaced on the **panel** status label, not the window status bar; every other reqId keeps the generic line | AC-D65.8 counts one message per cause; two surfaces would read as two errors. The generic path is otherwise untouched (A198 KEEP) |
+| AP-P23-6 | Every anchor change — a maintenance step, a Target change, the OFF→ON seed, an unusable-anchor correction — is **one window step**: the leaving leg pair is cancelled *before* the arriving pair is subscribed (2 + 2 per side), so the live count is 16 → 14 → 16 and a leg held by both windows is never cancelled. The chain scan is the **same primitive as a monotone sweep** from the seed window, stopping at the winner, so `AC-D65.6`'s shared-leg rule holds on a re-anchor (the pass-1 "step path only" reading is retired) | The only shape that satisfies the shared-leg rule *and* the 16-line cap: any design that probes far candidates while the ladder is live must cancel live legs to make room, and re-subscribing them later is exactly the churn the criterion forbids. `S-P23-5` states the contiguity argument (a leg belongs to a contiguous range of anchors) |
+| AP-P23-7 | The visual gate (AC-G.1) needs no new reference: the only new visual is the red/green toggle the owner specified, and every other control reuses VIS-D21 | Same reuse precedent as AP-P22-5/AP-P21-6 |
+| AP-P23-8 | Sizes: P23-01…P23-04 are M (panel + chain + engine + wiring); P23-05…P23-08 are S. P23-01 also carries the dock identity's **twenty-lookup surface** (A198's "every title-keyed lookup" clause) | Each wave is bounded by one member group; no wave exceeds M, which is what keeps the delete-only waves inside a worker's step budget (R146). The twenty lookups are one predicate line each inside the panel-swap member group the wave already owns — no new assertion, no numeric expectation — so the wave stays M; splitting them into their own wave is impossible in either order (after the rename it leaves the rename's wave red; before it, the key does not exist yet) |
+| AP-P23-9 | `position_group_map` and the `_symbol_last_prices` price-sink chain are **inventory completions** under A198 clause 3 ("every helper only it called"), not scope expansion | Verified: `position_group_map` has zero readers/writers and is a FK child of a dropped table; the price sink's only reader is the deleted position render. Leaving either would violate the rule P23 is gated on |
+| AP-P23-10 | The residue-instrument re-baseline touches only `tests/test_d45_removal.py`'s declared token lists, its per-wave test removals and the schema case; no behavioural assertion is weakened | AC-D65.11/AC-D65.13; the P5 precedent (re-baseline recorded, not softened) |
+| AP-P23-11 | `AC-D65.3`'s "full scan" is read as the ordered candidate list explored **by a monotone sweep** (the minimiser found by the neighbour rule), which is exact because a 20-wide credit vertical's net bid/ask are monotone in strike distance from the money (`d` quasi-convex); a chain observed to break that switches to the full ordered sweep, which visits every window in one direction | Reaching a better pair *past* a plateau would require re-requesting legs of the previous ladder, which `AC-D65.6` forbids — so the two criteria are jointly satisfiable only under quasi-convexity, which the plan states instead of hiding. The ordered sweep is the exact-coverage fallback and keeps the same accounting |
+| AP-P23-12 | A scan is a bounded, explicitly triggered sequence, not a tick loop: its sweep steps run one per event-loop turn, paced by `PacingManager.throttle()`; the 1 s cadence (A191) governs **maintenance** decisions. A Target change far from the current ladder therefore lands over `k` window steps, with live correct values at every intermediate window | A191's 1 s debounce exists to stop tick-driven thrash; a scan is triggered by ON / a Target change / an unusable anchor. The alternative — an atomic wholesale cancel+refill — is the `AC-D65.6` violation RC-5 removed. Blank rows are never shown: every intermediate window is a real, quoted ladder |
+| AP-P23-13 | The `AC-D65.9` launch width is derived, never stored: `_right_launch_width` holds the panel's preferred width from construction and `_deferred_dock_setup` applies it once (the D17.4 pattern), clamped through `plan_dock_widths`; no QSettings key is added and `_right_dock_width` keeps tracking the live width | `A201`/`A192`; "nothing is persisted — a restart returns the launch width" is asserted on the tracked value at launch and after a rebuild. The two D18 re-baseline sites change only their expected constant (A201), and the rendered line keeps the file's existing `+1` slack-distribution convention |
+
+### Flagged Issues
+
+**None open.** `FI-P23-1` (the `AC-D65.9` default-width contradiction) was **resolved
+2026-11-17** by the owner (`A201`, recorded in `docs/plan_notes.md` as `RG-P23-1`
+*addressed*): the right dock's **launch** width becomes the panel's preferred 360 px clamped
+to `[200, right_dock_max_width(chart_area)]`, with the minimum, the 40 % cap, the 400 px
+chart minimum, the D21.13 collapse and the D44 strip unchanged, and exactly two D18
+assertions re-baselined by owner authorisation (`tests/test_dock_widths_d18.py:437`,
+`tests/test_dock_widths_d18_impl.py:328`) — their not-persisted semantics untouched. The
+criterion's ellipsis + tooltip case now has a real meaning (any width below 360 px), and the
+plan's work for it is P23-01's `AC-D65.9` group. No requirement is left unsatisfiable as
+written.
+
+The one interpretive reading the plan records rather than hides is **AP-P23-11** (the scan's
+quasi-convexity basis and its ordered-sweep fallback) — it changes no criterion's outcome and
+is a property of a 20-wide credit vertical, not a re-scope.
+
+Status: READY_FOR_TASK_MANAGER

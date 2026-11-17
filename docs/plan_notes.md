@@ -793,3 +793,87 @@ depends on the wording.
 
 **Escalation:** none this cycle — no analyst decision is needed before build (owner
 already decided; cf. RG-D46-2…RG-D46-9 precedent).
+
+---
+
+- Issue: **RG-P23-1** (`docs/plan.md` § *Phase P23* Flagged Issue **FI-P23-1**)
+
+**Requirement/Journey:** `AC-D65.9` ("Given the panel inside the right dock, Then **at
+the dock's default width** every instrument name renders in full, at narrower widths the
+name elides with an ellipsis and exposes the full name as a tooltip, and the
+D18/D21.13/D44 min/cap/collapse behaviour … **are unchanged**") against the owner's
+column spec (`Financial instrument | ASK | BID | Delta | Gamma`) and the shipped D18
+right dock, whose launch width **is** `RIGHT_DOCK_MIN_WIDTH = 200`
+(`ui/main_window.py:654`, `ui/dock_layout.py:34`, never persisted — `AC-D18.7`/A36).
+
+**Problem:** at 200 px the four numeric columns leave the name column ~30 px, so
+`SPX Nov17 7435/7455` cannot render in full at the default width, and there is no
+"narrower width" for the ellipsis case to describe. The criterion and the shipped D18
+default cannot both hold. Two resolutions exist and **both change owner-approved
+material**:
+
+1. **Widen this panel's launch default** (Plan's preferred direction: the panel
+   advertises a preferred width that `MainWindow` applies at launch inside the existing
+   40 % cap; minimum 200 px and the collapse/cap behaviour untouched). This satisfies
+   `AC-D65.9` as literally written and stays inside the cap, but it changes the shipped
+   D18 default behaviour that Phase P23's own Non-Goals forbid reopening ("No reopening
+   of D1–P22 criteria (including the D18/D21.13/D44 dock-width and collapse rules)"),
+   and it invalidates two closed-phase assertions that pin the default numerically:
+   `tests/test_dock_widths_d18.py::test_T50_T06_restart_returns_default_not_persisted`
+   (`:437`, `win2._right_dock_width == RIGHT_DOCK_MIN_WIDTH`) and
+   `tests/test_dock_widths_d18_impl.py:328` — against `AC-D65.9`'s "no behavioural
+   assertion weakened".
+2. **Keep 200 px** and re-word `AC-D65.9` so the full-name assertion is made at a named
+   legible width while 200 px is the eliding case — i.e. rewrite the owner's criterion.
+
+**Why it cannot be satisfied as currently written:** neither resolution is available to
+Plan. Resolution 2 edits an acceptance criterion the owner wrote; resolution 1 amends a
+D1–P22-recorded default behaviour and requires re-baselining two approved-phase test
+assertions. Both are product decisions about what the panel looks like at first paint
+(and which historical behaviour is allowed to change), and Plan may neither rewrite a
+criterion nor amend D18 — so the choice is the owner's/analyst's, not architecture's.
+The panel's column set and the dock's width model are both fixed, so no architectural
+choice exists that satisfies `AC-D65.9` under the phase's own "D18 unchanged" clause.
+
+**Suggested Direction:** ask the owner one question — *for the Option Spreads panel,
+should the right dock open wider than its 200 px minimum so `SPX Nov17 7435/7455`
+renders in full (with 200 px still the minimum and the ellipsis+tooltip case), or does
+the criterion mean "full names at whatever width the panel is given, ellipsis at 200
+px"?* If the owner widens the default, record it as an explicit `AC-D18.7`/D18
+default-width amendment ("the default launch width is a panel-provided preferred width,
+clamped by the existing 40 % cap and the 400 px chart minimum; the minimum stays
+200 px; nothing is persisted") **and** authorise the two D18 assertion re-baselines
+recorded, not weakened. If the owner keeps 200 px, re-word `AC-D65.9`'s first clause to
+name the legible width. Either answer unblocks `P23-01`'s held assertion and `P23-08`'s
+batch gate.
+
+**Status:** **addressed 2026-11-17** — owner decision recorded; Plan may revise.
+
+**Resolution (Requirements Analyst, 2026-11-17):** the owner was asked the question in
+*Suggested Direction* and chose **resolution 1**, verbatim: *"Widen the right dock's launch
+width to fit the spread names (amend D18 default, re-baseline its two assertions
+explicitly)"*. Recorded in `requirements.md` Phase P23 as:
+
+- **`AC-D65.9` rewritten** — the panel advertises a **preferred width of 360 px** (derived
+  from its five-column model: ≈140 px name + ASK 38 + BID 38 + Delta 52 + Gamma 60 + ≈12 px
+  frame ≈ 340 px of content, rounded to 8 and given ≈16 px font/DPI headroom); the dock
+  launches at `clamp(360, RIGHT_DOCK_MIN_WIDTH = 200, right_dock_max_width(chart_area))`, so
+  full names render at launch whenever the 40 % cap permits it (≈1480 px window with the
+  default watchlist), with ellipsis + tooltip everywhere narrower (cap-parked small windows,
+  a user drag, a collapse→expand round trip).
+- **`A201`** records the D18 amendment and names the two re-baselines as
+  **owner-authorised, not drift**: `tests/test_dock_widths_d18.py:437`
+  (`test_T50_T06_restart_returns_default_not_persisted`) and
+  `tests/test_dock_widths_d18_impl.py:328` change **only their expected constant** to
+  `clamp(preferred, 200, cap)`; their "default restored, not persisted" semantics are
+  unchanged and **no third assertion may move**. The 200 px minimum, the 40 % cap, the
+  400 px chart minimum, the D21.13 collapse and the D44 collapsed strip are unchanged.
+- **`AC-D65.11`** now lists this as the third recorded (owner-authorised) pre-P23 edit, so a
+  reviewer cannot read the re-baselines as silent drift.
+
+**Unblocked:** `P23-01`'s held "full name at default width" assertion and `P23-08`'s closure
+of `AC-D65.9` — write the assertion against the **tracked** value
+(`win._right_dock_width == clamp(360, 200, cap)`) plus a tolerant rendered bound (≥340 px,
+no name wider than its column), never a rendered-width echo (ESC-057 / D44 precedent).
+
+**Escalation:** ESCALATED_TO_REQUIREMENTS — **addressed 2026-11-17** (A201; `AC-D65.9`/`AC-D65.11` amended).

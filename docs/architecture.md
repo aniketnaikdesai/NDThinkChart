@@ -8885,3 +8885,717 @@ call sites, the toolbar label-field sizing, and the toggle persistence wiring.
 | S-P22-5 | **D64 basis check inside the toggle phase (D64, DG114).** Before closing, the `axisProbe` evidence (`firstTime`/`firstLabel`/`ticks` vs independently computed zone strings) confirms the series-time basis once: if the basis itself is off (not just the offset plumbing), that is the accepted second fix under AC-D64.2 — still display-layer, still no stored-timestamp rewrite. Rationale: "all wrong" may exceed a dead toggle; AC-D64.2 explicitly budgets one fix or two so the phase cannot stall on cause-counting. | `[new in P22]` — process decision; pins DG114 handling |
 | S-P22-6 | **Verification order: toolbar first, toggle matrix second, crosshair third, gate last.** P22-1 proves the label-field cases red-first; P22-2 proves the toggle matrix (axis × crosshair × tooltip × per-view × restart) red-first on the current no-op path; P22-3 proves the free-tracking cases red-first; P22-4 proves the full suites + history intact. Rationale: each D61–D64 expectation is offscreen-measurable today via the existing probes with seeded injection. | `[new in P22]` — process decision; pins R134–R137 handling |
 
+## Phase P23 — Option Spreads panel in the right dock (D65) — drafted 2026-11-17
+
+> Companion: `docs/plan.md` § *Phase P23* (traceability, eight waves, assumptions, the one
+> flagged issue). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — Phase P23 (D65), Journeys 62–63, `AC-D65.1`–`AC-D65.13`
+> FINAL (Q106–Q110 answered 2026-11-17; `AC-D65.9` amended by A201 with `AC-D65.11`),
+> `### Direction Rule (Q108(b))`, `### Unused-Code Rule`, A186–A201, R138–R149,
+> `design_gaps.md` DG117–DG123, `open_questions.md` Q106–Q110. **D1–P22 are NOT
+> reopened** — the D18/D21.13/D44 dock model (with A201's single recorded *launch-width*
+> exception), the P6 LWC chart, the P19/P20/P21 viewport + contract machinery, and the
+> D45/D46 order-code absence are read-only inputs. Existing-repo run: every
+> component/entity/integration below carries `[existing]`, `[new]` or `[new/changed]`; every
+> decision in the final table carries `[new in P23]`, `[revises …]` or `[extends …]`. Hard
+> constraints honoured: **no order code of any kind** (D65.7), **display-only** option data,
+> **no second network client**, no blocking socket work on the GUI thread, **≤16 option
+> lines**, sizes S/M.
+>
+> **Build-time facts this design stands on (verified in the tree 2026-11-17, not
+> re-derived):** there is **no** option infrastructure today — no `tickOptionComputation`
+> override, no `securityDefinitionOptionParameter`, no OPT contract builder, no chain
+> lookup anywhere in `ibkr/`, `services/` or `ui/` (grep-verified against the full EWrapper
+> override list). Greeks arrive only on the option contract's own `reqMktData` line
+> (`tickOptionComputation`); the chain skeleton comes from `reqSecDefOptParams` (per
+> `docs/ibkr-api-data-inventory.md` §3/§5 — never `reqContractDetails` enumeration of a
+> large chain). SPX 0DTE lives on the **SPXW** weekly series; near-the-money SPX strikes are
+> a **5-point** grid.
+>
+> **Implementation-plan handoff (recorded here, not this phase's artifact).** After the
+> Validator approves, the Orchestrator produces a human-reviewable implementation plan for
+> the owner instead of going straight to Task Manager (owner process change, `docs/memory.md`
+> 2026-11-17). The eight waves below are therefore shaped to restate as a reviewable
+> document: ordered, per-wave file scope, per-wave tests, deletion inventory, risks.
+>
+> **Revision (pass 2, 2026-11-17 — against `docs/plan_review_P23.md`).** `RG-P23-1` is
+> answered by the owner (`A201`): the D18 **launch** width becomes the panel's 360 px
+> preferred width clamped to `[200, right_dock_max_width(chart_area)]` — recorded in
+> **S-P23-16** and in the `[revises D18]` relationship bullet. **S-P23-5 is rewritten**: one
+> movement primitive (a `reqId`-preserving window step) and a monotone sweep replace the
+> pass-1 bounded probe scan, so `AC-D65.6`'s shared-leg rule holds on a re-anchor (the
+> 16-line accounting is in *Non-Functional*). **RC-4** is applied throughout *Frozen
+> Interfaces* (literal signatures, plus `PacingManager`/`PacingExceeded` and
+> `market_calendar.is_trading_day`), and **RC-6** in S-P23-12's group list.
+>
+> **Revision (pass 4, 2026-11-17 — against `docs/plan_review_P23.md` retry 2, `RC-11`–`RC-13`).**
+> **`RC-11`** — the dock rename's lookup surface is designed here, not left to the build: the
+> `[revises D41]` bullet and S-P23-1 now state that twenty surviving suites locate the right
+> dock by its `Portfolio` title and are re-pointed to `objectName()` **in the rename's own
+> wave**, S-P23-12's wave (0) lists them as part of the panel member group, and the Codebase
+> Summary inventories all twenty by file and line (three hard-fail sites, seventeen silent
+> no-ops, the `QDockWidget`-import consequence of each loop). **`RC-12`** — the Codebase
+> Summary now inventories `tests/test_dock_d18_region.py` as the rename's most load-bearing
+> single file: the `:32` module import, all four of its groups, and `T48-T03`'s
+> signals-and-receiver group with `_receiver_count`'s only call site. **`RC-13`** — the
+> `_record_symbol_price` fake-host stubs are inventoried as five inert test-side carriers of
+> a token P23-05 deletes.
+
+### Relationship to prior phases
+
+P23 **replaces the right dock's only panel and deletes the stack it displaces**, and
+**adds an options data path beside the existing market-data path**. Nothing else moves.
+Composition, stated once so nothing is silently revised:
+
+- **`[revises D41: "the right dock is Portfolio-only"]`** — Q110(a)/A194. The dock's
+  **minimum**, its 40 % cap, its title-bar-toggle collapse and its D44 strip behaviour are
+  **unchanged**; only the widget inside it changes and the title becomes `Option Spreads`.
+  The D41 title-keyed assertions are re-pointed (AC-D65.9/AC-D65.11), behaviour untouched
+  (DG119 resolved). **The rename's lookup surface is part of this decision, not a follow-up**
+  (`A198`: "the dock title `Portfolio` **plus every title-keyed lookup resolving it**"):
+  twenty surviving suites locate the right dock to hide it, three of them asserting that the
+  lookup resolved, and all twenty are re-pointed in the **same wave** as the rename — to
+  `dock.objectName() in ("Option Spreads",)`, not to the new title string (see S-P23-1).
+- **`[revises D18: the right dock's launch width is RIGHT_DOCK_MIN_WIDTH]`** — A201 (owner,
+  2026-11-17; resolves FI-P23-1/RG-P23-1). The launch width becomes the panel's preferred
+  360 px clamped to `[200, right_dock_max_width(chart_area)]`; everything else in the dock
+  model (the 200 px minimum, the 40 % cap, the 400 px chart minimum / B3 cross-clamp, the
+  D21.13 collapse, the D44 strip, "nothing is persisted — a restart returns the launch
+  width") is untouched, and exactly two closed-phase assertions are re-baselined by owner
+  authorisation (`tests/test_dock_widths_d18.py:437`,
+  `tests/test_dock_widths_d18_impl.py:328` — expected constant only). S-P23-16.
+- **`[extends P20: IND contract resolution]`** — SPX resolves through the existing
+  `ibkr/contracts.py` IND table / `get_index_contract`; P23 adds OPT construction *beside*
+  `get_contract_for_symbol` and does not touch the S-P20-1 rule order or the
+  index-never-futures rule.
+- **`[extends A196 / the D37 request path]`** — option legs extend
+  `MarketDataManager.req_mkt_data` (one subscribe path), never a parallel one; every leg is
+  counted by the same `services/md_line_guard.py` budget via `MainWindow._guard_md_lines`.
+- **`[extends P5/D46: guarded one-time migration]`** — the `positions`/`trade_groups` drop
+  uses D46's `PRAGMA`-guarded, idempotent migration idiom in the same `_migrate_schema()`
+  position, and the D45 residue instrument is re-baselined rather than left to rot (DG121).
+- **`[extends VIS-D21]`** — the dock collapse header stays a `DiagonalStrikeButton`; the
+  ON/OFF colour uses the same dynamic-property + stylesheet shape as `set_button_active`.
+- **Unchanged and consulted, never reshaped:** the P6 LWC-only chart, the P19 prefetch,
+  P21 follow-offset and P22 timezone/crosshair contracts, `IBApiClient.error`'s
+  `classify_error` gate + D40.1 502 suppression, `PacingManager`, `IdManager.get_id`,
+  `ContractLookupService` (the conId source), and the D45/D46 order-code absence.
+
+An unlabeled decision below is `[new in P23]`.
+
+### Codebase Summary (existing repository — P23 surface; pointer + deltas)
+
+The full module index lives in `docs/codebase-map.md` (P23 note appended; skeleton
+re-generated 2026-11-17: 273 code files, 24 test-impact rows). Only the surfaces P23 touches
+are inventoried here, each validated against source (the repo is authoritative; graphify was
+used for discovery only — its graph is 2026-11-10-stale and lists the pre-P23 tree). **Every
+claim below was re-verified by direct read/grep.**
+
+**The right dock and the panel that is replaced**
+
+- `[existing] ui/main_window.py:630-674` — the single right dock: `QDockWidget("Portfolio")`
+  with `setObjectName("Portfolio")`, widget `ActivePortfolioPanel()`,
+  `setTitleBarWidget(portfolio_panel.summary_label)`,
+  `setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)`, `_right_dock_width = RIGHT_DOCK_MIN_WIDTH`
+  (**in-memory only, never persisted** — AC-D18.7/A36), `_right_region_collapsed = False`,
+  `_right_dock_collapsed_min_width = _compute_right_dock_collapsed_min_width()`,
+  `summary_label.toggled → _on_right_panel_toggled`, plus the dock event filter and
+  `visibilityChanged`.
+- `[existing] ui/main_window.py:3582-3661` — the collapse machinery, coupled to the panel in
+  exactly three places: `_compute_right_dock_collapsed_min_width` reads
+  `self.portfolio_panel.summary_label.sizeHint().width()` (`:3591`);
+  `_right_region_is_collapsed` reads `self.portfolio_panel.is_collapsed()` (`:3606`);
+  `_sync_right_dock_collapse`'s `widgets` tuple is `(right_dock, portfolio_panel)`
+  (`:3636-3639`). `_apply_dock_widths` (`:3830`), `_plan_dock_widths` (`:3663`),
+  `_on_right_dock_visibility_changed` (`:4061`) and `ui/dock_layout.py` are
+  **panel-agnostic** and need no change.
+- `[existing] ui/active_portfolio_panel.py` (292 L) — `ActivePortfolioPanel`: `summary_label`
+  (`DiagonalStrikeButton("Account Summary")`, objectName `AccountSummaryHeaderButton`),
+  `body`, `account_detail`, `positions_table` (8 columns), `refresh_btn`,
+  `is_collapsed`/`set_collapsed`/`toggle_collapsed`, `set_account_summary`/`set_account_id`/
+  `set_account_unavailable`/`set_positions`/`add_position`/`refresh`, `_render_summary`/
+  `_group_and_render`/`_render_table`/`_unrealized_pnl`, signals `account_summary_changed`/
+  `positions_changed`; imports `data.models.Position`, `services.strategy_detection`,
+  `ui.visual_conventions.DiagonalStrikeButton`. **Imported only by
+  `ui/main_window.py:76`** plus three test modules.
+
+**The launch-width path (verified for S-P23-16; `AC-D65.9`/A201)**
+
+- `[existing] ui/main_window.py:654` — `self._right_dock_width = RIGHT_DOCK_MIN_WIDTH`
+  (in-memory only) is today's launch width; the dock's minimum is pinned at `:650`
+  (`setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)`), and `:638-642` builds the widget, the dock
+  title/`objectName` and the title-bar widget.
+- `[existing] ui/main_window.py:588-609` + `:4035-4058` — the **D17.4 pattern** P23 mirrors:
+  the raw persisted watchlist request is remembered at construction and re-applied by
+  `_deferred_dock_setup` once the real chart area exists. That deferred apply is the seam
+  S-P23-16 adds `requested_right=` to.
+- `[existing] ui/main_window.py:3830-3930` — `_apply_dock_widths` (`requested_right=None`
+  means "clamp the dock's current width"; a value means "clamp this request") and
+  `_plan_dock_widths` (`:3663-3720`), which iterates the pure helper to a fixed point
+  against the **post-resize** chart area.
+- `[existing] ui/dock_layout.py:34,56-63,92-131` — `RIGHT_DOCK_MIN_WIDTH = 200`,
+  `RIGHT_DOCK_CAP_FRACTION = 0.40`, `def right_dock_max_width(chart_area_w: int) -> int:`
+  (`max(200, min(int(0.40 × ca), ca − 400))`) and
+  `def plan_dock_widths(chart_area_w: int, requested_left: int, requested_right: int,
+  left_collapsed: bool = False) -> tuple:`. **Unchanged by P23.**
+- `[existing]` the two re-baseline sites — `tests/test_dock_widths_d18.py:437-438` and
+  `tests/test_dock_widths_d18_impl.py:328-329` — each assert the tracked value *and* the
+  rendered width against `RIGHT_DOCK_MIN_WIDTH`. **Every other** `RIGHT_DOCK_MIN_WIDTH`
+  equality in the D18/D21.13/D44 suites is a below-minimum-drag case (`_apply_dock_widths(None,
+  0)` → floors at 200) or a collapsed-width case, so it is launch-width-independent and must
+  not move: `test_dock_widths_d18.py:264,398`; `test_dock_widths_d18_impl.py:167,293,373`;
+  `test_dock_layout.py:344`; `test_right_dock_d21.py:153,164,172`.
+
+**P23's test book (verified, load-bearing — RC-1/RC-2/RC-3)**
+
+- `[existing] tests/conftest.py:105-124` — the **autouse** `_isolate_test_db` fixture wipes
+  `position_group_map`, `bars`, `watchlist`, `alarms`, `zones`, `drawing_groups`, `drawings`,
+  `studies`, `popouts`, `positions`, `trade_groups` and `volume_baseline` after **every**
+  test; the three dropped tables must leave this list in the same wave that drops them, or
+  the whole suite errors at teardown.
+- `[existing] tests/test_p13_gate.py:199-217` — `test_no_new_dependency` admits `ui/*.py`
+  only from a literal allowlist that **includes** `active_portfolio_panel.py` and does not
+  include `option_spreads_panel.py`. Its `REPO_ROOT.glob("ui/*.py")` is the only module-glob
+  in the gate (`tests/test_p13_*.py` is the only test-glob), so `services/option_ladder.py`
+  and `services/option_spread_engine.py` need no allowlist entry.
+- `[existing]` the **twenty surviving title-keyed dock lookups** — every one locates the
+  right dock by its `Portfolio` title (or a module constant holding it) to hide it, so the
+  rename re-points twenty files, not just the ones with assertions:
+  `test_history_backfill.py:223-225`, `test_history_backfill_disconnect.py:136-138`,
+  `test_d27_phantom_alarms.py:55-57`, `test_d27_reconnect.py:170-172`,
+  `test_d27_stream_health.py:66-68`, `test_p7_w1_persist.py:197-199`,
+  `test_p7_w2_prime.py:44-46`, `test_p7_w2_watchdog.py:42-44`, `test_p14_indicator.py:139-141`,
+  `test_p14_cache_guard.py:182-184`, `test_p14_lifecycle.py:140-142`,
+  `test_p15_surfacing.py:166-168`, `test_p15_expiry.py:149-151`,
+  `test_p15_continue.py:150-152`, `test_p20_resolution_probe.py:90-92` (a uniform
+  `for dock in win.findChildren(QDockWidget): if dock.windowTitle() in ("Portfolio",):
+  dock.hide()` loop), plus three module-constant forms —
+  `test_d10_d13_integration.py:42,60` (`_RIGHT_DOCKS`), `test_dock_widths_d17.py:40,77`
+  (`_RIGHT_DOCKS`) and `test_watchlist_columns_d21.py:309,323` (`_RIGHT_DOCK_TITLES`) — and
+  two list-plus-assert forms, `test_history_backfill_loadpath.py:174-177` and
+  `test_d42_depth_floor.py:186-189` (`assert right_docks, "expected … right dock to exist"`).
+  **Three hard-fail at the rename** (`test_history_backfill_loadpath.py:177`,
+  `test_d42_depth_floor.py:189`, and `test_dock_widths_d17.py:83`'s `assert hidden == 1`);
+  **the other seventeen silently stop hiding** — the D19 masking trap
+  `tests/test_dock_d18_region.py:115-121` names — now with a 360 px dock left visible in
+  width-sensitive suites. In every one of the fifteen uniform loops the `QDockWidget` import
+  has this loop as its only other user, which is why the edit is the predicate (objectName),
+  not the loop.
+- `[existing] tests/test_dock_d18_region.py` — the rename's most load-bearing single file:
+  `:32` `from ui.active_portfolio_panel import ActivePortfolioPanel` (a **collection error**
+  once the module is deleted), `:84,91` `win.portfolio_panel` in `T48-T01`, `:110,113` the
+  `findChild`/`objectName` assertions in `T48-T02`, `:118-121` the title-keyed probe that is
+  the sentinel for the twenty lookups above, `:126-138` the collapse assertions on
+  `summary_label`/`body`, and `T48-T03` (`:154-181`) — `:158`
+  `isinstance(win.portfolio_panel, ActivePortfolioPanel)`, `:161-163` the panel-is-the-widget
+  assertion, `:172-179` the `account_summary_changed`/`positions_changed` probes and
+  `_receiver_count` (`:184-194`, its only call site). The last group cannot survive the swap
+  and is rewritten with the panel.
+- `[existing] tests/test_d45_removal.py` — the residue instrument holds tests whose
+  subjects die in four different waves (P23-01, -05, -06, -07): `test_removed_panel_members_absent`
+  (`:710`, `_REMOVED_PANEL_MEMBERS` at `:692`) imports `ui.active_portfolio_panel`; the
+  `walkthrough` fixture (`:522`) reads `win.portfolio_panel.positions_table` on every step
+  (`_snapshot` `:501-512`, `:502`), drives `selectRow`/`refresh`/`toggle_collapsed`
+  (`:610-613`), emits `bridge.position_update` twice (`:605-608`, `:617-620`) and stubs
+  `reqPositions`/`reqAccountSummary` through `_stub_account_calls` (`:492-498`, called at
+  `:555`), with `test_zero_transmit_walkthrough` (`:635`) asserting the 8-column snapshot
+  (`:643-647`) and the live/closed rows (`:650-664`) and
+  `test_positions_table_is_eight_columns` (`:669`) reading the same table;
+  `test_p5_end_state_all_removed_members_absent` (`:860`) is one function that imports
+  `ibkr.account.Position` / `build_position_from_ib` (`:880-881`) and whose block (d)
+  (`:912-923`) asserts `models.Position`/`TradeGroup`/`AccountPosition` **exist** via
+  `__dataclass_fields__`, then runs the block-(g) schema case (`:939-1001`) over
+  `_PRE_P5_DDL` (`:803`) / `_write_pre_p5_db` (`:837`); and `_ALLOWED_IN_FILE` (`:220`) with
+  `test_allowed_in_file_is_narrow_and_named_not_used` (`:1047`) exists only for the D46
+  column-drop carve-out the drop retires. The per-wave assignment is: walkthrough group +
+  eight-column test → P23-01, `_stub_account_calls` → P23-05, block (d) → P23-06, block (g)
+  → P23-07.
+- `[existing]` the six D27 account/position suites (`test_d27_account_subs`,
+  `test_d27_account_scoping`, `test_d27_account_partial_window`, `test_d27_flat_rows`,
+  `test_d27_position_id`, `test_d27_position_prices`) all read `window.portfolio_panel`
+  (`positions_table`, `account_detail`, `_positions`) or import `ActivePortfolioPanel`
+  (`test_d27_flat_rows.py:17`) — so their subject is the **panel**, and they die with it in
+  P23-01, not with the window account path in P23-05.
+- `[existing] tests/test_db_schema.py:15-26` — `EXPECTED_TABLES` names all three tables;
+  `tests/test_ui_smoke.py:48` asserts `hasattr(data.models, "Position")`.
+- `[existing] tests/test_watchlist_nonregression_d22.py:147-180` — the D21.13 right-dock
+  header/collapse probe over `window.portfolio_panel`; `tests/test_dock_widths_collapsed_d44.py`
+  exercises only the **left** dock (no P23 change).
+- `[existing]` the window attribute `self.portfolio_panel` (`ui/main_window.py:638`) is
+  asserted by **fourteen** test modules — the seven P23-01 edits that read the attribute,
+  `test_d41_portfolio_dock.py` (deleted with the panel), and the six D27 suites P23-01
+  deletes; the dock swap renames it, and `portfolio_panel` is a
+  displaced token (S-P23-15).
+
+**The account/position data path (deleted with the panel)**
+
+- `[existing] ibkr/bridge.py:40-44` — `account_summary`, `account_summary_end`,
+  `position_update`, `position_end`.
+- `[existing] ibkr/client.py:453-466` — the four matching `EWrapper` overrides
+  (`accountSummary`, `accountSummaryEnd`, `position`, `positionEnd`).
+- `[existing] ui/main_window.py` — connects at `:842-854` (+ two panel initialisers and
+  `set_account_unavailable`); `_subscribe_account_data` at `:1701-1731` (`reqPositions()` +
+  `reqAccountSummary(id_manager.get_id(), "All", …)`); state at `:891-913`
+  (`_account_subscribed`, `_account_summary_req_id`, `_live_accounts`,
+  `_account_summary_complete`, `_positions_rendered`); handlers `_on_account_summary`
+  (`:4334`), `_on_account_summary_end` (`:4353`), `_on_position_update` (`:4399`),
+  `_on_position_end` (`:4470`, incl. the bulk DB read at `:4488-4539`),
+  `_prune_foreign_positions` (`:4377`), `_upsert_position` (`:4541-4591`); the disconnect
+  clear at `:2063-2072`; dead imports at `:80` (`from data.models import Bar, Position`) and
+  `:4403` (`from ibkr.account import build_position_from_ib`).
+- `[existing] ibkr/account.py` (78 L) — `Account`, `Position`, `_parse_contract_type`,
+  `build_position_from_ib` (called only from `ui/main_window.py:4445`).
+- `[existing] data/models.py:74-96` — the `Position` and `TradeGroup` dataclasses.
+- `[existing] data/db.py:115-143` — `positions`, `trade_groups`, `position_group_map` DDL;
+  `:192-195` the `idx_positions_symbol_con_id` unique index; `:196-212` the D46
+  `ALTER TABLE … DROP COLUMN` loop (its only remaining subject). **No positions upsert or
+  read helper lives in `data/db.py`** — both are `MainWindow` methods (A198's "db upsert/read
+  helpers" wording is corrected here).
+- `[existing] services/strategy_detection.py` (198 L) — `detect_and_group`, `OptionLeg`,
+  `_same_expiry`, `_detect_vertical_spread`, `_detect_iron_condor`; imported only by the
+  panel (`:23`) and its own suite.
+
+**The displacement chain A198 lists under `_symbol_last_prices` (inventory completion —
+clause 3's "every helper only it called")**
+
+- `[existing] ui/main_window.py:893` `_symbol_last_prices`, `:3382-3385`
+  `_record_symbol_price`, `:767` `watchlist_panel.set_price_sink(self._record_symbol_price)`;
+  `[existing] ui/watchlist_panel.py:391,954-956,1149-1152` (`_price_sink`,
+  `set_price_sink`, the call site); `[existing] ui/ticker_session.py:562`
+  (`self._host._record_symbol_price(self.symbol, bar.close)`). **Verified: the only reader is
+  `ui/main_window.py:4460`** (position `market_price`) — so the whole chain dies with the
+  panel. It is **not** revived for the D65 tie-break (S-P23-13); no SPX price field returns.
+
+**The market-data / contract surfaces P23 extends (all `[existing]`)**
+
+- `ibkr/market_data.py` (192 L) — `MarketDataManager.req_mkt_data(contract,
+  generic_ticks="")` (`_require_api_ready` → `id_manager.get_id()` →
+  `pacing_manager.throttle()` → `client.reqMktData(..., [])`), `cancel_mkt_data(req_id)`,
+  `req_contract_details`, `req_matching_symbols`, `cancel_contract_details`,
+  `cancel_historical_data`. The module never sleeps (`PacingExceeded` is raised for the
+  caller to defer).
+- `ibkr/contracts.py` (293 L) — `IND_CONTRACTS` (`SPX → IND/CBOE/USD`), `get_index_contract`,
+  `is_index_symbol`, `get_stock_contract`, `get_futures_contract`,
+  `get_contract_for_symbol` (S-P20-1 order IND → FUT → STK-charset → `None`),
+  `INDEX_PROXY`/`footprint_cache_key`, `_EASTERN = ZoneInfo("America/New_York")`.
+  **No OPT branch.**
+- `ibkr/id_manager.py` (20 L) — `IdManager.get_id`, the app's only reqId source.
+- `services/md_line_guard.py` (36 L) — `assess(projected_count, symbol, purpose) ->
+  (level, message)`, `MD_LINE_CAP = 100`, `MD_LINE_WARN_AT = 90`.
+- `ui/main_window.py:1037-1057` — `_md_line_count()` = RT sessions + watchlist active rows
+  (**option lines are not counted today**) and `_guard_md_lines(symbol, purpose)`, which
+  **has had no production caller** (two test doubles override it) — the panel gives it its
+  first.
+- `services/contract_lookup_service.py` (198 L) — `ContractLookupService.request(symbol,
+  contract) -> int` → `req_contract_details` → `contract_details` /
+  `contract_details_end` / `error_msg`; `first_details` retained (S-P20-3a). The only
+  in-process conId source.
+- `ibkr/client.py:269-319` — `error()`: `classify_error` severity gate, the D40.1 502
+  suppression, `error_msg.emit(reqId, errorCode, errorString)`.
+- `ui/main_window.py:2182-2224` — `_on_error(reqId, errorCode, errorString)`: superseded-ack
+  debug path → session routing → generic `Error [code]: …` status line. **`reqId` is
+  available**, which is what makes an option-owned branch possible.
+- `ui/visual_conventions.py` — `DiagonalStrikeButton`, `set_button_active(button, active)`,
+  `ACTIVE_PROPERTY = "active"` (the dynamic-property + stylesheet shape the ON/OFF colour
+  reuses).
+- Stationary inputs: `services/market_calendar.py`, `ibkr/pacing.py`, `ibkr/error_codes.py`.
+
+**Folded unbatched quick-session changes (`docs/pending_doc_sync.md`, Q-64…Q-67; file
+deleted after folding).** Four owner-visible UI changes landed through the quick lane since
+P22 and are recorded here as the canonical architectural record: (1) `ui/main_window.py` —
+the toolbar row height now derives from the tallest child's `sizeHint` (36 px floor) instead
+of a fixed constant, so the `Symbol:` field never clips under substituted font metrics;
+(2) `config/theme.qss` — the horizontal scrollbar is styled dark and 8 px (previously
+unstyled and read as a stray input under the toolbar); (3) `ui/main_window.py` — the toolbar
+scroll opens at its left edge and a deliberate user scroll survives resizes;
+(4) `ui/watchlist_panel.py` — the collapsed-watchlist handle is hidden while the panel is
+expanded (it covered the `Sy` of the Symbol header at every launch). None of the four names
+a user-doc path, so none is folded into `USAGE.txt`; all four touch files P23 does not edit,
+except `ui/main_window.py`'s toolbar block (P23 edits only dock/option/account blocks).
+
+### Summary
+
+The right dock's Portfolio panel is replaced by an **Option Spreads** panel — opening at its
+own **360 px preferred width** clamped inside the unchanged D18 40 % cap (A201) — with two
+4-row ladders (CCS above PCS) of 20-wide SPX/SPXW **0DTE** credit spreads, a `Target` field
+(default `1.00`) and a red/green ON/OFF toggle. While ON, a pure, Qt-free ladder engine finds
+the anchor pair whose net **mid, ask or bid** is within `0.05` of the Target, holds four rungs
+at its +10/+5/0/−5 offsets on both legs, and walks the ladder one 5-point step at a time —
+comparing `d` at the two neighbours it is **already displaying**, so a step costs two line
+swaps and no extra subscriptions. **One movement primitive serves everything**: every anchor
+change (a maintenance step, a Target change, the OFF→ON seed) is a *window step* that cancels
+the leaving leg pair before subscribing the arriving one, so a leg held by both windows keeps
+its `reqId`, and the chain scan is that same primitive run as a **monotone sweep** — which is
+what makes `AC-D65.6`'s shared-leg rule hold on a re-anchor inside a 16-line cap. All 16
+option legs stream on their own `reqMktData` lines (quotes via `tickPrice`, greeks via
+`tickOptionComputation`), counted by the existing 90/100-line guard and cancelled the moment
+a leg leaves the window. Every TWS gap is a once-only message plus `—` placeholders. The
+displaced Portfolio stack — module, dock wiring, account/position signals and overrides, the
+persistence path and the `positions`/`trade_groups` tables and rows — is **deleted**, not
+unhooked, in waves split by member group, closed by a standing residue gate. No order code
+exists anywhere.
+
+### Tech Stack Decisions
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Constrained: language / UI / chart / store / broker client | Unchanged: Python 3.11+, PyQt6 widgets, LWC-only chart tree, SQLite, `ibapi-latest==10.51.1` against live TWS 7496 | Existing-repo hard constraint; P23 is a panel plus one options data path, no stack change | None entertained |
+| Constrained: transport | Unchanged: `IBApiClient` reader thread → `IBBridge` Qt signals → widgets; `MarketDataManager` is the only request path; no second client, no socket work on the GUI thread | Requirements constraint; the bridge already carries every inbound class P23 needs, and it is the one place a new callback is cheap | A direct `EClient` in the panel (rejected — second path, bypasses `classify_error`, reqId allocation, teardown) |
+| Constrained: subscription accounting | Unchanged: `services/md_line_guard.py::assess` (90 warn / 100 refuse) driven by `MainWindow._guard_md_lines` / `_md_line_count` | AC-D65.6 requires every projection through the existing guard; the guard exists and (verified) has **no production caller yet** | A panel-local counter (rejected — two truths for one pool) |
+| Constrained: persistence | Nothing new: Target `1.00` and toggle OFF at launch; no QSettings key, no SQLite table | A192; a stale ON state would subscribe 16 lines before the user looks | QSettings for Target/toggle (rejected — A192 explicit; FS25) |
+| `[new]` Right-dock launch width | The panel advertises `PREFERRED_WIDTH = 360` (`preferred_width()` plus a `sizeHint` of that width); `MainWindow` remembers it as `_right_launch_width` and re-applies it **once** through `_apply_dock_widths(requested_right=…)` in `_deferred_dock_setup`, which clamps via `plan_dock_widths` to `clamp(360, RIGHT_DOCK_MIN_WIDTH, right_dock_max_width(ca))`; `_right_dock_width` keeps tracking the live dock width thereafter. No new constant in `ui/dock_layout.py`, no persistence | `AC-D65.9`(i)–(iv)/A201: the width is a property of the panel's five columns, so the panel owns it; routing it through the existing clamp keeps one source of truth for the minimum, the 40 % cap and the B3 cross-clamp; remembering the raw request and re-applying it post-layout is exactly the D17.4 pattern already used for the watchlist width (a construction-time width would be overwritten before the chart area exists) | A constant in `dock_layout.py` (rejected — the dock model is frozen and the width belongs to the panel); setting the dock's width at construction (rejected — no real chart area yet, and Qt's layout would override it); persisting the last dragged width (rejected — A201 "nothing is persisted; a restart returns the launch width") |
+| `[new]` Chain skeleton source | `reqSecDefOptParams` against **SPX's IND conId**, resolved once per session through the existing `ContractLookupService.request` (contract-details) → `securityDefinitionOptionParameter` / `…End` | Requirements constraint + inventory §3/§5; per-leg `reqContractDetails` enumeration of a large chain is throttled (R141) | `reqContractDetails` enumeration (rejected — throttled, hundreds of legs); a hardcoded strike table (rejected — silently wrong when the grid changes) |
+| `[new]` Per-leg contract construction | Build `ibapi` `Contract` objects **by attributes** (`symbol="SPX"`, `secType="OPT"`, `exchange="SMART"`, `currency="USD"`, `lastTradeDateOrContractMonth=YYYYMMDD`, `strike`, `right`, `multiplier="100"`, `tradingClass="SPXW"`) — no per-leg conId lookup | TWS resolves attribute-complete OPT contracts on `reqMktData`; 16 per-leg `reqContractDetails` round-trips per re-anchor would be paced and slow | Per-leg conId resolution (rejected — cost above); conId from the chain response (the chain carries no per-strike conIds) |
+| `[new]` Greek intake | `tickOptionComputation` override → bridge `option_computation(reqId, tickType, delta, gamma)`; only delta/gamma carried (IV/vega/theta are not displayed) | Inventory §1/§3 (greeks only on the option's own line); DG123 forbids carrying unused fields | The full computation payload (rejected — unused, DG123); `calculateImpliedVolatility` polling (rejected — AC-D65.5 forbids polling) |
+| `[new]` Ladder logic placement | Pure Qt-free, `ibapi`-free `services/option_ladder.py` (stateless math) + `services/option_spread_engine.py` (stateful, action-emitting); `ui/main_window.py` is the only I/O glue | Repo convention (pure services + window wiring); AC-D65.3/.4/.5's exact numbers are cheapest to prove with no Qt and no event loop; DG123: one consumer each, today | Logic in the panel widget (rejected — untestable without a window, view and policy mixed); logic in `main_window.py` (rejected — 4,649 lines already) |
+| `[new]` Repaint strategy | Ticks mutate engine state only; one dirty flag schedules a single `QTimer.singleShot(0, …)` refresh per event-loop turn | AC-D65.10 (coalesced update, no per-tick rebuild, no GUI-thread sleep); the repo already uses this idiom (`_schedule_dock_widths_apply`) | Per-tick table rebuild (rejected — AC-D65.10); a fixed-interval repaint timer (rejected — latency plus a second clock) |
+| `[new]` Toggle colour mechanism | Dynamic Qt property (`spread_state` ∈ `off`/`on`) + a state-keyed stylesheet with two named colour constants, repolished on change — the `set_button_active`/VIS-D21.2 precedent | AC-D65.1 asserts the rendered colour in both states offscreen; property and stylesheet are both assertable and one mechanism serves both | A painted icon (rejected — not assertable without pixel capture); swapping two QIcons (rejected — colour truth lives in an asset) |
+| `[new]` Test harness | Offscreen pytest (real `MainWindow` + panel with a fake client feeding chain/quotes/greeks/errors) + pure-pytest suites for ladder/engine + a residue gate in the `test_d45_removal.py` instrument shape | Requirements: every criterion assertable offscreen with a fake client; live greek delivery is an owner-named manual check, never a gate | Live-TWS greek confirmation as a gate (rejected — repo rule + R144) |
+
+### System Components
+
+- `[new] ui/option_spreads_panel.py` — `OptionSpreadsPanel(QWidget)`: header
+  `DiagonalStrikeButton("Option Spreads")` (exposed as `header_button`) used as the dock's
+  **title-bar widget** (so the D21.13/D44 collapse handle survives verbatim), body with a
+  controls row (`Target` label + validated numeric field defaulting to `1.00`, and the
+  checkable ON/OFF toggle right-aligned after it), a status label, `CCS` sub-header + 4×5
+  table, `PCS` sub-header + 4×5 table (the two tables are held as `ccs_table`/`pcs_table` —
+  the members `apply_snapshot` writes and the shell/walkthrough tests read; headers exactly
+  `Financial instrument | ASK | BID | Delta | Gamma`), an empty-state label, and the
+  D18-bounded sizing (`Ignored` horizontal policy, `RIGHT_DOCK_MIN_WIDTH` minimum) the
+  deleted panel used, plus **`PREFERRED_WIDTH = 360` / `preferred_width() -> int` and a
+  `sizeHint().width()` equal to it** (`AC-D65.9`(i): the panel advertises the width its five
+  columns need; S-P23-16 owns how the window applies it). Public surface (all called by the
+  window): `preferred_width()`, `is_collapsed`/`set_collapsed`/`toggle_collapsed`,
+  `apply_snapshot(ccs_rows, pcs_rows)` (one coalesced repaint), `set_status(text)`,
+  `set_empty_state(text|None)`, `target_value()`, `set_target_value(x)`, `toggle_state()`,
+  `set_toggle_state(on)`, plus the signals `toggle_clicked(bool)` and
+  `target_committed(float)`. Name cells always carry the full string as a tooltip and elide
+  with an ellipsis when the column is narrower than the text.
+- `[new] services/option_ladder.py` — pure, Qt-free, `ibapi`-free: `SPREAD_WIDTH = 20`,
+  `STRIKE_STEP = 5`, rung offsets `{1: +10, 2: +5, 3: 0, 4: −5}` (one formula, both sides —
+  A187), `ladder_pairs(anchor_short)`, `format_instrument(symbol, expiry, short, long)`
+  (`SPX Nov17 7435/7455`, short leg first), `net_bases(bid_s, ask_s, bid_l, ask_l) ->
+  (bid, mid, ask)`, `distance(target, bases)`, `net_greeks(...)`, `snap_rung(...)`,
+  `window_legs(anchor_short)`, plus the cell-format helpers (ASK/BID 2 dp, Delta
+  3 dp, Gamma 4 significant digits). Geometry and arithmetic only: there is **no**
+  `scan_anchor`/`next_step` helper — the scan is the engine's sweep of window steps
+  (S-P23-5), so nothing here searches or steps.
+- `[new] services/option_spread_engine.py` — pure, Qt-free, `ibapi`-free state machine: owns
+  per-side anchor, per-leg quote/greek state, the subscription set (as `LegKey`s), the
+  once-only message latches, the chain-cache key and the ON/OFF/Target state. Exposes
+  `toggle_on()`/`toggle_off()`, `set_target(t)`, `on_chain(...)`, `on_no_expiry()`,
+  `on_quote(leg, bid, ask)`, `on_greek(leg, delta, gamma)`, `on_leg_error(leg, code)`,
+  `on_disconnected()`, `on_reconnected()`, `evaluate(now)`, `live_legs()`, each accumulating
+  into an `Actions` value — `subscribes` (leg keys), `cancels` (leg keys), `rows` (per side),
+  `messages` (once-only text), `empty_state`, `status`, plus the chain/conId requests it
+  needs. It never touches the network, a timer or a widget.
+- `[new/changed] ibkr/contracts.py` — gains `get_option_contract(...)`,
+  `today_expiry_yyyymmdd(now)`, `select_zero_dte_series(params, today)` (trading-class
+  preference `SPXW`; `None` when no series carries today), and `option_chain_strikes(series)`
+  returning per-right sorted strike lists. The S-P20-1 rule order and every existing function
+  are untouched.
+- `[new/changed] ibkr/market_data.py` — gains
+  `req_sec_def_opt_params(underlying_symbol, fut_fop_exchange, underlying_sec_type,
+  underlying_con_id) -> int` shaped like `req_contract_details` (readiness check,
+  `id_manager.get_id`, `pacing_manager.throttle`, never sleeps).
+- `[new/changed] ibkr/client.py` — adds `tickOptionComputation(reqId, tickType, tickAttrib,
+  impliedVol, delta, optPrice, pvDividend, gamma, vega, theta, undPrice)`,
+  `securityDefinitionOptionParameter(reqId, exchange, underlyingConId, tradingClass,
+  multiplier, expirations, strikes)` and `securityDefinitionOptionParameterEnd(reqId)`, each
+  emitting its bridge signal with only the fields the panel uses. **Deletes**
+  `accountSummary`, `accountSummaryEnd`, `position`, `positionEnd`.
+- `[new/changed] ibkr/bridge.py` — adds `option_params = pyqtSignal(int, object)`,
+  `option_params_end = pyqtSignal(int)`,
+  `option_computation = pyqtSignal(int, int, object, object)`; **deletes** the four
+  account/position signals. `error_msg`, `connected`, `disconnected` and every chart/tick
+  signal are untouched.
+- `[new/changed] ui/main_window.py` — dock swap (`OptionSpreadsPanel`, title **and**
+  objectName `Option Spreads`, title-bar widget = the panel's `header_button`, same minimum
+  width, the window attribute renamed `portfolio_panel` → `option_spreads_panel`), **the
+  launch width of S-P23-16** (`_right_launch_width = OptionSpreadsPanel.PREFERRED_WIDTH` at
+  construction and `_deferred_dock_setup` passing `requested_right=` — one added argument, no
+  new key), the three collapse-probe re-points, the option wiring (chain request, leg
+  request/cancel by window diff, tick routing by reqId, the 1 s evaluation timer, the
+  coalesced refresh, the `_on_error` option branch, `_md_line_count` += live option lines,
+  connect/disconnect hooks), and the whole account/position path deletion.
+- `[new/changed] ui/watchlist_panel.py`, `[new/changed] ui/ticker_session.py` — the D27.5
+  price-sink chain deleted (`_price_sink`, `set_price_sink`, its call site,
+  `_record_symbol_price` and the `ticker_session` host call). No other change.
+- `[new/changed] data/db.py` — the three `CREATE TABLE`s deleted; one guarded block in
+  `_migrate_schema()` drops `position_group_map`, `positions`, `trade_groups` (child first)
+  when present; the `idx_positions_symbol_con_id` creation and the D46 stop/target
+  `DROP COLUMN` loop are deleted with their only subject.
+- `[new/changed] data/models.py` — `Position` and `TradeGroup` deleted.
+- **Deleted by this phase** (each was `[existing]` at P23 start; nothing may import them
+  afterwards): ui/active_portfolio_panel.py, ibkr/account.py,
+  services/strategy_detection.py.
+- `[existing]`, unmodified, consumed: `services/md_line_guard.py`,
+  `services/contract_lookup_service.py`, `ibkr/id_manager.py`, `ibkr/error_codes.py`,
+  `ibkr/pacing.py`, `ui/dock_layout.py`, `ui/visual_conventions.py`,
+  `services/market_calendar.py`, `ui/chart_view.py` / `ui/lwc_view.py` (untouched). The panel
+  uses its own status label, not `ui/toast.py`.
+- `[existing] Order-code absence` — P23 adds zero order interaction; `placeOrder` /
+  `cancelOrder` / `reqGlobalCancel` remain inherited-only and unused (D45/D46).
+
+### Data Model
+
+- `[new]` In-memory only — no table, no QSettings (A192): `LegKey(right, strike)` with
+  per-leg `Quote(bid, ask)` / `Greeks(delta, gamma)` in the engine;
+  `OptionSeries(trading_class, exchange, expiry, con_id, strikes_by_right)` in
+  `ibkr/contracts.py`; per-rung `SpreadRow` (rung, short, long, display name, ASK, BID, Delta,
+  Gamma, matched flag) built by the ladder module and handed to the panel. The **window**
+  (the four-rung leg set around one anchor) is the engine's unit of subscription state — the
+  live leg set *is* the window, and there is no probe/carry set beside it.
+- `[new]` The **launch width** is derived, never stored: `OptionSpreadsPanel.PREFERRED_WIDTH`
+  (360) flows through `plan_dock_widths` to `_right_dock_width` on every launch, so there is
+  no width row, no key and no column anywhere (A192/A201).
+- `[new/changed] positions`, `trade_groups`, `position_group_map` — **dropped**: DDL removed,
+  rows discarded by a one-time `DROP TABLE IF EXISTS` migration in `data/db.py`. Authorisation
+  and rationale: A200 (owner: *"Drop tables + rows"*). `position_group_map` is included
+  because it is a foreign-key child of `trade_groups` with **zero readers and zero writers**
+  (verified) — leaving it would be a dead table pointing at a table that no longer exists,
+  which clause 1 of the Unused-Code Rule forbids.
+- `[existing]` `data.models.Position` / `TradeGroup` and `ibkr.account.Position` — deleted
+  dataclasses (no surviving consumer).
+- `[existing]` `bars`, `watchlist`, `alarms`, `zones`, `drawings*`, `studies`, `popouts`,
+  `yfinance_events_cache`, `volume_baseline` — untouched; no migration touches them.
+
+### Integration Points
+
+- `[new]` `reqSecDefOptParams` → `securityDefinitionOptionParameter`(+`End`) — the chain
+  skeleton (expirations + strikes per trading class/exchange), requested **once per
+  (session day, underlying)** and cached in-process. Needs SPX's IND `conId`, obtained once
+  through the existing `ContractLookupService` path (`reqContractDetails` on
+  `get_index_contract("SPX")`).
+- `[new]` Option `reqMktData` lines → `tickPrice` (bid/ask: tick types 1/2 and the delayed
+  66/67 pair) and `tickOptionComputation` (delta/gamma) — one line per displayed leg, at most
+  16, issued through `MarketDataManager.req_mkt_data` and cancelled through
+  `cancel_mkt_data`.
+- `[new/changed]` Market-data budget — `MainWindow._md_line_count` adds the live option-line
+  count; every leg issuance passes `_guard_md_lines("SPX", "option spread leg")` (the guard's
+  first production caller).
+- `[existing]` `IBBridge.error_msg` → `MainWindow._on_error` (the single error surface, with a
+  new option-owned-reqId branch); `IBBridge.connected` / `disconnected` → engine re-issue /
+  clear. `classify_error`, the D40.1 502 suppression and the connection badge are reused
+  unchanged.
+- `[existing]` `IdManager.get_id` (every new reqId), `PacingManager.throttle` (chain request),
+  `ContractLookupService` (conId), `services/market_calendar.py` (trading-day predicates for
+  the "no 0DTE today" state).
+- `[deleted]` `reqPositions`, `reqAccountSummary`, `accountSummary`/`accountSummaryEnd`,
+  `position`/`positionEnd`, the four bridge signals, the position DB writes/reads.
+- **No order integration of any kind** — proved by the existing D45 instrument plus a
+  fake-client recording assertion in the new stream suite.
+
+### Frozen Interfaces
+
+Every entry is `[existing]` and **unmodified by this phase** (nothing new is frozen). Task
+Manager gives workers these contracts verbatim, never the implementation.
+
+- `ibkr/market_data.py` — `MarketDataManager.req_mkt_data`, verbatim:
+  `def req_mkt_data(self, contract: Contract, generic_ticks: str = "") -> int:` — allocates
+  the reqId via `id_manager.get_id()`, calls `pacing_manager.throttle()` (raises
+  `PacingExceeded` for the caller to defer; never sleeps), then
+  `client.reqMktData(req_id, contract, generic_ticks, False, False, [])`, returning `req_id`;
+  `_require_api_ready()` runs first and raises `IBKRNotReady`. Owner: `ibkr/market_data.py`.
+- `ibkr/market_data.py` — `MarketDataManager.cancel_mkt_data`, verbatim:
+  `def cancel_mkt_data(self, req_id: int | None):` — `None` is a no-op; the
+  `client.cancelMktData(req_id)` call is wrapped in a bare `try`/`except Exception` that
+  swallows every failure.
+- `services/md_line_guard.py` — `assess`, verbatim:
+  `def assess(projected_count: int, symbol: str, purpose: str) -> tuple[str, str]:` returning
+  `(level, message)` with level in `{"ok", "approaching", "exceeded"}`; `MD_LINE_CAP = 100`,
+  `MD_LINE_WARN_AT = 90`; `exceeded` is a refusal, never a silent drop.
+- `ibkr/id_manager.py` — verbatim: the `id_manager` singleton with `get_id() -> int`
+  (monotonic; `set_next_valid_id` fed by `nextValidId`). The app's only reqId source.
+- `ibkr/error_codes.py` — `classify_error`, verbatim:
+  `def classify_error(error_code: int) -> str:` returning exactly one of **`'info'`**,
+  **`'warning'`** or **`'fatal'`** (not `'error'`), and it **gates every TWS error**
+  (`IBApiClient.error` emits `error_msg` only when the severity is not `'info'`). Owner:
+  `ibkr/error_codes.py`.
+- `ibkr/client.py` — `IBApiClient.error`, verbatim signature:
+  `def error(self, *args, **kwargs):` — the tolerant unpacking **is** the contract (3-, 4-
+  and 5-argument callback forms across `ibapi` versions), followed by the frozen behaviour:
+  the `super().error(...)` mirror, the `classify_error` severity gate, the D40.1
+  `502`-while-`TWS_GONE` debug-only suppression, then
+  `self.bridge.error_msg.emit(reqId, errorCode, errorString)`. P23 adds a **consumer** branch
+  in `MainWindow._on_error`, never a change here. Owner: `ibkr/client.py`.
+- `ibkr/pacing.py` — `PacingManager.throttle`, verbatim:
+  `def throttle(self):` — `wait = self.request_wait_seconds()`; raises
+  `PacingExceeded(wait)` when `wait > 0`, otherwise stamps `record_request_slot()` and
+  returns. **It never sleeps.** `class PacingExceeded(Exception):` with
+  `def __init__(self, wait_seconds: float):` and the attribute
+  `self.wait_seconds = max(0.0, float(wait_seconds))`. The module-level singleton is
+  `pacing_manager = PacingManager()`. P23's `req_sec_def_opt_params` calls it and defers on
+  `PacingExceeded`. Owner: `ibkr/pacing.py`.
+- `services/market_calendar.py` — `is_trading_day`, verbatim:
+  `def is_trading_day(value) -> bool:` — `value` may be a `datetime.date` or a
+  `datetime.datetime` (tz-aware or naive: the wall date is used as-is). The module is the
+  source of the trading-day predicates behind the "no 0DTE today" / after-close states.
+  Owner: `services/market_calendar.py`.
+- `ui/dock_layout.py` — verbatim:
+  `CHART_MIN_WIDTH = 400`, `RIGHT_DOCK_MIN_WIDTH = 200`,
+  `RIGHT_DOCK_CAP_FRACTION = 0.40`,
+  `def right_dock_max_width(chart_area_w: int) -> int:` (returns
+  `max(RIGHT_DOCK_MIN_WIDTH, min(int(chart_area_w * RIGHT_DOCK_CAP_FRACTION), chart_area_w - CHART_MIN_WIDTH))`)
+  and
+  `def plan_dock_widths(chart_area_w: int, requested_left: int, requested_right: int, left_collapsed: bool = False) -> tuple:`
+  (B3 cross-clamp; the chart minimum yields before any dock minimum). **The dock model is not
+  re-opened**: only the *requested* launch value changes (S-P23-16), and every clamp,
+  minimum and collapse rule is this file's unchanged contract (`AC-D65.9`(iv)).
+- `ui/visual_conventions.py` — `DiagonalStrikeButton` and `set_button_active`, verbatim:
+  `DiagonalStrikeButton(text)` strikes itself while checkable-and-unchecked;
+  `set_button_active(button, active)` sets the `active` dynamic property and repolishes;
+  `ACTIVE_PROPERTY = "active"`. Reused for the collapse header and the toggle-colour shape.
+- `services/contract_lookup_service.py` — `ContractLookupService.request`, verbatim:
+  `def request(self, symbol: str, contract) -> int:` → `req_contract_details`, with a bounded
+  timeout and `first_details` retained (S-P20-3a); `cancel_all()` on disconnect. The conId
+  source P23 calls once per session.
+- `ibkr/contracts.py` — verbatim signatures (S-P20-1 is the frozen resolution order):
+  `def get_index_contract(symbol: str) -> Contract:` and
+  `def get_contract_for_symbol(symbol: str, now: datetime | None = None):` — note the second
+  carries **no annotated return**; its order is IND table → `FUTURES_SCHEDULE` front month →
+  STK ticker-charset → `None`, and `SPX` resolves to `IND`/`CBOE`/`USD` and **never** to STK
+  or the D36 proxy. P23 adds OPT construction beside it and changes none of these branches.
+  Owner: `ibkr/contracts.py`.
+- `ui/ticker_session.py` — `TickerSession.get_bars`, verbatim:
+  `def get_bars(self, timeframe: str) -> list[Bar]:` — returns
+  `self._bars.get(timeframe, [])`, i.e. an empty list for a timeframe with no session data.
+  P23 **reads only** (tie-break 3, S-P23-13): no `set_bars`, no aggregation change, no new
+  field. Owner: `ui/ticker_session.py`. *(The one `[existing]` contract P23 consumes without
+  owning in that module — P23-05 deletes the price-sink chain beside it, not this.)*
+- `IBBridge.connected` / `IBBridge.disconnected` / `IBBridge.error_msg` — verbatim signal
+  shapes (`pyqtSignal()`, `pyqtSignal()`, `pyqtSignal(int, int, str)`); the only lifecycle
+  and error transport the panel uses.
+
+**NOT frozen (changed or created this phase; no worker may assume an old contract):** the
+`Option Spreads` dock wiring, the renamed `option_spreads_panel` attribute and the three
+collapse probes; the **launch-width request** (`OptionSpreadsPanel.PREFERRED_WIDTH` /
+`preferred_width()`, `MainWindow._right_launch_width`, and `_deferred_dock_setup`'s new
+`requested_right=` argument); `OptionSpreadsPanel` in full;
+the new option-ladder module and the new option-spread-engine module (service layer);
+the OPT/chain helpers in `ibkr/contracts.py`; `req_sec_def_opt_params`; the three new
+`client.py` overrides and the three new bridge signals; `_md_line_count` / `_on_error` / the
+option wiring in `ui/main_window.py`; the `data/db.py` drop migration; the re-baselined
+residue instrument.
+**Deleted this phase, therefore not contract-bearing:** `ActivePortfolioPanel` and
+`ui/active_portfolio_panel.py`, the four account/position bridge signals and their client
+overrides, `ibkr/account.py`, `data.models.Position`/`TradeGroup`,
+`services/strategy_detection.py`, `_symbol_last_prices`, `_record_symbol_price`,
+`set_price_sink`.
+
+### Non-Functional Approach
+
+- **Cadence and churn (A191, AC-D65.4, R139).** Evaluation runs on a 1 s repeating timer while
+  ON. The step decision compares `d` at the two neighbours, which are *already displayed* as
+  spreads 2 and 4 — so a decision costs **zero** extra subscriptions and a step costs exactly
+  2 cancels + 2 subscribes per side (legs shared with the new ladder are kept). A stationary
+  feed produces one evaluation and no move. A Target change does **not** blank the panel and
+  does not cancel its side first: the walk resumes from the current window under the new
+  Target, so the pre-change and post-change ladders share every leg the path never left
+  (AP-P23-12).
+- **16-line accounting — one window, one primitive (AC-D65.6, R138).** Steady state is the
+  whole budget: 8 legs per side × 2 sides = **16** lines, the hard cap. There is **no second
+  line pool** — no probe set, no carry set, no transient subscription beside the ladder. Every
+  anchor change is a *window step* issued as a diff: the leaving leg pair is cancelled
+  **first** and the arriving pair subscribed after, per side (both sides in the same turn), so
+  the live count runs **16 → 14 → 16** and never exceeds 16 at any instant. A leg present in
+  both the old and the new window is never in the leaving set, so it is never cancelled or
+  re-requested — that is `AC-D65.6`'s shared-leg rule, and it holds on a **scan** because a
+  scan is nothing but a sequence of window steps. Issue order within a window is
+  deterministic (CCS spread 3, 2, 4, 1 then PCS spread 3, 2, 4, 1) so a guard refusal
+  truncates the tail predictably; refused legs render `—` and one message names the budget.
+  Every projection goes through `_guard_md_lines`; nothing subscribes around it. OFF cancels
+  all 16.
+- **The chain scan is a monotone sweep, not a probe search (AC-D65.3 with AC-D65.6).** A
+  binary probe search has to cancel live legs to make room for far candidates and re-request
+  them afterwards — exactly the churn `AC-D65.6` forbids (pass 1's design did that; S-P23-5
+  records the withdrawal). Instead the scan walks the ordered candidate list one window step
+  at a time in the improving direction and **stops at the winner**, under the same rules as a
+  maintenance step. Shared-leg preservation follows from contiguity: a leg belongs to the
+  windows whose anchors lie in a contiguous range (a short strike `S` for `anchor ∈
+  {S−10 … S+5}`, a long strike for `anchor ∈ {S+10 … S+25}`), so a monotone sweep that ends at
+  the winner never drops a leg the winner also holds. A 20-wide credit vertical's net bid/ask
+  are monotone in strike distance from the money, so `d` is quasi-convex along the ordered
+  list and the improving-direction sweep terminates **on** the minimiser; a chain observed to
+  break that switches to the **full ordered sweep** (every window, one direction, same
+  accounting, `n` steps), which is the exact-coverage fallback (AP-P23-11). Nothing stale is
+  shown as live (A193): every intermediate window is a real, quoted ladder.
+- **Right-dock width and name legibility (AC-D65.9, A201).** At launch the dock is
+  `clamp(360, 200, right_dock_max_width(chart_area))`, so on any window wide enough for the
+  cap the five columns render `SPX Nov17 7435/7455` in full (the 360 px budget is ≈140 px name
+  + ≈38/38/52/60 px numeric + ≈12 px frame, rounded up to a multiple of 8 with ≈16 px of
+  font/DPI headroom). Every narrower state — the cap on a small window, a user drag below
+  360, a collapse→expand round trip — takes the **elide + tooltip** path, never a silently
+  clipped cell. The name column is the elastic one and the numeric columns are fixed, so a
+  resize only re-elides (no repaint storm, no re-subscription), and nothing is persisted: the
+  next launch recomputes the same clamp.
+- **Streaming fidelity (AC-D65.5).** Quotes update per tick into the engine; the panel repaints
+  once per event-loop turn. A row needs both legs quoted on both sides before it shows a
+  number, otherwise `—`. Greeks are per-leg values screened for `None`, `-1` and NaN, combined
+  as net position greeks (short leg negated) and rendered `Delta` 3 dp / `Gamma` 4 significant
+  digits (A190); greeks never gate selection or movement (DG118).
+- **Fault model (AC-D65.8, AC-D65.7).** One latch per cause (no greeks, sentineled greeks,
+  rejected leg contract, no option entitlement, connection lost, invalid Target, no 0DTE
+  today, after-close no quotes, budget refusal, chain edge, rung shortfall): first occurrence
+  sets the panel status line, later occurrences are silent. The panel status label is the
+  message surface; `_on_error` routes option-owned reqIds there instead of the generic
+  status-bar line, so one cause yields exactly one user-visible message. Values clear to `—`
+  on OFF, disconnect and empty state; row names remain. Recovery: the next good value clears
+  its latch; reconnect while ON re-issues the current leg set (the full chain sequence only
+  when the chain was never resolved).
+- **Display-only safety (D45/D46).** No `placeOrder`/`cancelOrder`/bracket/validation symbol is
+  added or called; the existing tree-wide residue instrument proves the absence and the new
+  stream suite adds a fake-client recording assertion over the panel's own path.
+- **Threading and stalls (AC-D65.10).** All panel work happens on the GUI thread from bridge
+  signals; no `sleep`, no blocking read, no socket call, no synchronous wait for a quote (the
+  scan is asynchronous — it waits for ticks or a bounded timer).
+- **Performance.** Per tick: one dict write + a dirty flag. Per evaluation: O(4) rung
+  computations per side. Per step: 2 cancels + 2 subscribes per side. Per scan: **`O(k)`**
+  window steps — one per event-loop turn, each an ordinary step (2 cancels + 2 subscribes per
+  side) paced through `PacingManager`, where `k` is the number of anchors between the seed and
+  the winner (the full ordered sweep's `n` when the quasi-convexity fallback is taken) — plus
+  one chain request per session day. Nothing is O(log n): the scan is a monotone sweep, not a
+  probe search (S-P23-5, AP-P23-13).
+
+### Architecture Risks
+
+| Risk | Severity (H/M/L) | Mitigation |
+|---|---|---|
+| AR-P23-1 — TWS refuses attribute-built OPT contracts (error 200), so no leg ever quotes (R141-adjacent) | M / M | The contract is attribute-complete (symbol/secType/exchange/currency/expiry/strike/right/multiplier/tradingClass); a rejection becomes that leg's `—` + one message and excludes it from the scan; the failure shows up in the first unit of build work (fake client, then one owner-named live check) rather than at the end |
+| AR-P23-2 — Chain discovery slow/throttled, or several trading classes without `SPXW`/today (R141) | M / M | One `reqSecDefOptParams` per session day, one conId lookup, cached; `select_zero_dte_series` requires `SPXW`-with-today and otherwise yields the explicit `No 0DTE expiry today` state; no fallback expiry, no polling |
+| AR-P23-3 — Re-anchoring thrashes TWS / blanks rows (R139) | M / M | 1 s cadence + 0.05 band; neighbour evaluation costs no subscriptions; shared legs kept (2 swaps per step per side); the **scan is a monotone window sweep** — no wholesale cancel/refill, so a shared leg keeps its `reqId` and a row never blanks; the stationary-feed case asserts zero moves |
+| AR-P23-4 — The 16-line panel pushes a large watchlist past 90/100 (R138) | M / M | Cap 16 + deterministic issue order + guard-refusal semantics (`—` plus a once-only message naming the budget); OFF is the release path |
+| AR-P23-5 — 16 option lines add unbounded tick volume; a per-tick rebuild would jank the UI (AC-D65.10) | M / M | Ticks mutate state only; one `singleShot(0)` refresh per turn; the burst case counts refreshes for N ticks; no blocking sleep on the GUI path |
+| AR-P23-6 — No option entitlement → price-only or empty panel (R140, R144) | M / M | `—` cells + one "not subscribed"/no-greeks message naming the missing entitlement; greeks never gate the ladder (DG118); offscreen mocks passing while live delivers no greeks is accepted, and the live check is owner-named, never a gate |
+| AR-P23-7 — The three-basis window lets a rung read *matched* on the ask while its mid sits well below Target (R148) | M / M | The literal owner rule (A188); ASK/BID are displayed so the user can see it; mid remains the tie-break; a mid-only match is a one-line rule change later |
+| AR-P23-8 — ±5/±10 offsets land between listed strikes at the wings (R145, DG120) | L / M | `snap_rung` snaps to the nearest listed strike (tie → the strike nearer the anchor); a rung that cannot be a listed 20-wide pair renders `—` with a once-only shortfall message; `AC-D65.2` asserts listed strikes only |
+| AR-P23-9 — The Q110(a) deletion is far larger than the panel; a delete-only worker dies mid-edit (R146, D41 lesson) | M / M | Waves split by **member group** (module / wiring / broker boundary / data path / tests), each with a residue-token end state and a fresh import check; each wave S/M, never L |
+| AR-P23-10 — A naive dead-code scan flags framework-invoked callbacks, so the build either silences real dead code or deletes live callbacks (R147) | M / M | `AC-D65.12`(v): explicit allowlist with the registration site cited (`EWrapper` overrides in `ibkr/client.py`, the `_on_error` dispatch, `pyqtSignal.connect` sites); the gate is a seeded-fixture suite test, never a vulture report |
+| AR-P23-11 — ibapi version drift in greek sentinels (`None` vs `-1` vs NaN) yields phantom greeks | L / M | Screen all three per leg before use; the sentinel case is an explicit AC-D65.8 measurable |
+| AR-P23-12 — Tie-break 3 ("short strike nearer the underlying's last price") has no SPX price in-process when the chart shows ES/SPY | L / M | Read an **existing** SPX session's last bar close only (no new line, no new field); when absent, fall back to the lower short strike deterministically (S-P23-13, AP-P23-2); the AC's tie-break cases feed the price, so measurability holds |
+| AR-P23-13 — A far Target jump (or a cold seed far from the money) makes the sweep take `k` window steps, so the ladder visibly walks instead of snapping | L / M | One step per event-loop turn, paced by `PacingManager`; every intermediate window is a real, quoted ladder (never blank); the median-strike seed puts a cold start within a few steps; a Target jump is a deliberate user action and OFF is the instant release. The visible walk is the price of `AC-D65.6` — AR-P23-3's alternative (wholesale cancel/refill) is barred |
+| AR-P23-14 — The D18 launch-width change leaks beyond the two authorised re-baselines (a third assertion or a downstream suite pins the old 200 px default) | M / L | Enumerated and verified: the only launch-width equalities are `test_dock_widths_d18.py:437-438` and `test_dock_widths_d18_impl.py:328-329`; every other `RIGHT_DOCK_MIN_WIDTH` equality follows a below-minimum drag or asserts a collapsed width (list in the Codebase Summary). P23-01's exit condition makes "a diff of the two suites shows only those four lines" a byte-checkable gate, and P23-08 re-checks it |
+| AR-P23-15 — One of the twenty re-pointed dock lookups turns out to need more than its predicate line: a width-sensitive harness (D10/D13 clamp, watchlist columns, D17 clamp, depth floor, history backfill) measures differently now that the dock it hides launches at 360 px rather than 200 px | M / M | The hide happens before each harness's own measurements and re-fires the clamp, so the intended geometry is unchanged — but the risk is real and is not papered over: **any numeric change needed in those twenty files is a stop-and-escalate, not an in-wave re-baseline** (owner authorisation covers exactly the two A201 sites), and P23-01's exit says so explicitly. The three sentinel assertions (`test_history_backfill_loadpath.py:177`, `test_d42_depth_floor.py:189`, `test_dock_widths_d17.py:83`) convert a desynced key from a silent measurement change into a red test |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P23-1 | **Panel swap, dock model untouched, launch width from the panel.** `ActivePortfolioPanel` → `OptionSpreadsPanel`; dock title **and** `objectName` become `Option Spreads`; the panel's `DiagonalStrikeButton("Option Spreads")` (`header_button`) becomes the dock's title-bar widget; the window attribute is renamed `portfolio_panel` → `option_spreads_panel`; the three panel-coupled collapse probes (`_compute_right_dock_collapsed_min_width`, `_right_region_is_collapsed`, `_sync_right_dock_collapse`'s widget tuple) are re-pointed; every other dock width/collapse/visibility path is untouched, and the **launch width is S-P23-16's** one-line request through the unchanged clamp. **The rename also re-points the twenty surviving dock lookups** (Codebase Summary) in the same wave, to `dock.objectName() in ("Option Spreads",)` — `objectName`, not the title, because once `setTitleBarWidget(header_button)` replaces the title bar the title string is not rendered at all (it is chrome), while `objectName` is the identity `findChild(QDockWidget, …)` already resolves the dock by in the two asserting suites; the three sentinel assertions (`test_history_backfill_loadpath.py:177`, `test_d42_depth_floor.py:189`, `test_dock_widths_d17.py:83`) keep theirs on the new key so a future rename fails loudly instead of silently. Rationale: D18/D21.13/D44 keep working with zero behavioural change beyond the owner-authorised launch width (AC-D65.9) and the collapse strip keeps a visible handle, and `A198`'s "every title-keyed lookup resolving it" is satisfied in the wave that creates the need. Alternative: a QTabWidget with two panels (rejected — Q110(a)); a plain dock title with no title-bar widget (rejected — the D44 strip and D21.13 strike would have to be rebuilt); re-keying the twenty lookups to the new title string (rejected — it re-creates the same coupling that made this rename break them, and a later header rewording would desync them a third time); `win.right_dock.hide()` in all twenty (rejected — it would make the `QDockWidget` import unused in fifteen files for no gain, and it would leave the three D19 sentinel assertions with no key to test). | `[revises D41: "the right dock is Portfolio-only"]` (A194/DG119) + `[extends D21.13/D44: panel-provided collapse header]` |
+| S-P23-2 | **Ladder geometry and naming: one formula, both sides.** Rung 1 = anchor + 10, rung 2 = +5, rung 3 = anchor, rung 4 = −5, applied to **both** legs so every spread stays 20 wide; the short leg is always written first; names read `SPX MmmDD short/long` from the expiry traded. Rationale: only this reading makes all eight of the owner's worked numbers the same four spreads (A187); one formula means one implementation and one test table. Alternative: per-side mirrored offsets (rejected — that is the typo reading Q109(a) resolved); per-side name formats (rejected — A187). | `[new in P23]` — implements A187 |
+| S-P23-3 | **Three-basis metric and anchor scan.** `bid = bid_s − ask_l`, `ask = ask_s − bid_l`, `mid = (bid + ask)/2`; `d = min(|mid−T|, |ask−T|, |bid−T|)`; matched iff `d ≤ 0.05`; the anchor is the listed 20-wide pair minimising `d`, ties broken (1) smaller `|mid−T|`, (2) `mid ≥ T`, (3) short strike nearer the underlying's last price. Rationale: the owner's test is three-basis, so the *same* quantity must drive match and movement — otherwise the ladder declares a match and walks away from it; one function, or AC-D65.3 and AC-D65.4 could disagree. Alternative: mid-only (rejected — Q108(b) overrode it); steering on mid while testing on three bases (rejected — the circularity above). | `[new in P23]` — implements Q108(b)/A188/A189 |
+| S-P23-4 | **The two neighbours are already displayed — a step costs two swaps.** The pairs one 5-point step either side of the anchor are exactly rungs 2 and 4, so both neighbours' `d` is computed from legs already streamed: a step decision needs **no** new subscription, and a step cancels the rung that leaves the window and subscribes the rung that enters it (2 + 2 per side; shared legs untouched). Direction: toward the toward-the-money rung when all three bases are below `T` (CCS strikes **down**, PCS **up**), the reverse when all are above; stop when matched, when no neighbour improves `d` by more than `0.05`, or when the improving neighbour is not a listed pair (once-only chain-edge message naming the best reachable value); equal-`d` neighbours break on the mid closer to `T`, then stay. One 5-point step per evaluation on **both** legs, evaluations ≤ 1/s. Rationale: this is what makes AC-D65.4 affordable under a 16-line cap and makes AC-D65.6's shared-leg rule exact; credit is monotone in strike distance, so each rung has one improving direction and a stationary feed cannot oscillate. Alternative: subscribing the neighbours as extra pairs (rejected — 4 more lines and churn for information the ladder already streams); re-scanning on every move (rejected — violates A191/R139). | `[new in P23]` — implements the `### Direction Rule (Q108(b))`/A189 |
+| S-P23-5 | **One movement primitive — a `reqId`-preserving window step — and the chain scan as a monotone sweep of window steps.** A *window* is the four-rung ladder around one anchor (8 legs per side, 16 for both sides = the whole cap). Every anchor change — a maintenance step, a Target change, an OFF→ON seed, an unusable-anchor correction — is a **window step**: the engine diffs the target window against the live window and issues the leaving leg pair's cancels **before** the arriving pair's subscribes (2 cancels + 2 subscribes per side, 4 each for both sides in one turn), so the live count runs 16 → 14 → 16 and never exceeds 16 at any instant. **A leg in both the old and the new window is never cancelled** — it is not in the leaving set by construction, so it keeps its `reqId`. The chain scan is therefore *not* a probe search: it is a **monotone sweep** of window steps from the seed window, one step per turn, that **stops at the winner**, so `AC-D65.6`'s shared-leg rule holds on a re-anchor. Shared-leg preservation is a contiguity property: a leg (right, strike `S`) belongs to a **contiguous** range of anchors (a short strike to `anchor ∈ {S−10 … S+5}`, a long strike to `anchor ∈ {S+10 … S+25}`), so a sweep that visits anchors in one direction and ends at the winner never drops a leg the winner also holds. The OFF→ON seed is deterministic — the listed 20-wide pair whose short strike is nearest the chain's **median** listed strike (no live legs exist yet, so the shared-leg rule is vacuous) — and afterwards the sweep direction is the maintenance rule's (compare `d` at the two displayed neighbours). Coverage: a 20-wide credit vertical's net bid/ask are monotone in strike distance from the money, so `d` is quasi-convex along the ordered candidate list and the improving-direction sweep terminates **on** the minimiser; a chain observed to break that (the walk stops with a still-improving neighbour one plateau over) switches the session to the **full ordered sweep**, which visits every window in one direction — exact coverage with the same accounting, at `n` steps, bounded by the chain's width. Rationale: this is the only shape that satisfies both `AC-D65.6`'s shared-leg rule and the 16-line cap — any design that probes far candidates while the ladder is live must cancel live legs to make room, and re-requesting them later is exactly the churn the criterion forbids (pass 1's bounded probe scan did that; it is withdrawn). Alternative: bounded binary probe with wholesale cancel/refill (rejected — the `AC-D65.6` violation above); a local walk with no chain seed (rejected — `AC-D65.3` requires the scan, and a walk from a far guess can stall on a plateau); `calculateOptionPrice`/IV model pricing (rejected — `AC-D65.5` forbids polling, and the owner asked for TWS quotes). | `[new in P23]` — mechanism for AC-D65.3 *with* AC-D65.6 (supersedes pass 1's probe scan) |
+| S-P23-6 | **Chain discovery via the existing conId path + `reqSecDefOptParams`.** SPX's IND `conId` is resolved once per session through `ContractLookupService.request("SPX", get_index_contract("SPX"))`; the chain comes from `reqSecDefOptParams("SPX", "", "IND", conId)`; `select_zero_dte_series` prefers trading class `SPXW` and requires today's ET date in its expiration set, else `No 0DTE expiry today` with zero rows and zero lines; the series (strikes per right, exchange) is cached for the session day and invalidated on reconnect. Rationale: `reqSecDefOptParams` needs the underlying conId and the tree already has exactly one async conId resolver; no fallback expiry (Q107(b)). Alternative: a hardcoded SPX conId/strike table (rejected — silently wrong when the grid changes); `reqContractDetails` enumeration (rejected — throttled, R141). | `[new in P23]` + `[extends P20: IND contract resolution]` |
+| S-P23-7 | **Per-leg contracts built by attributes.** `get_option_contract(symbol, expiry, strike, right, trading_class, exchange, multiplier="100", currency="USD")` returns an `ibapi` `Contract` with no `conId`; TWS resolves it on `reqMktData`. Rationale: 16 legs × a paced round-trip per re-anchor is neither pacing-safe nor needed — the chain skeleton already guarantees the strike is listed. Alternative: per-leg `reqContractDetails` (rejected — R141/pacing); conId from the chain (not provided). | `[new in P23]` |
+| S-P23-8 | **Greek and quote intake on the leg's own line.** `tickOptionComputation` carries only `delta`/`gamma` to the bridge; `tickPrice` provides bid/ask (1/2 and the delayed 66/67 pair). Per-leg greeks are chosen by tick-type priority **13 (model) > 12 (last) > 11 (ask) > 10 (bid) > delayed variants**, screened for `None`/`-1`/NaN; spread greeks are net position values with the short leg negated. Rationale: inventory §1/§3 (greeks only on the option's own line) and DG123 (carry nothing unused); model greeks are what TWS displays, while last-trade computations can be stale. Alternative: carrying IV/vega/theta (rejected — not displayed); first-writer-wins regardless of tick type (rejected — a stale last-trade computation could outlive the model value). | `[extends A196: the panel owns its leg subscriptions]` |
+| S-P23-9 | **Subscription lifecycle and budget semantics.** The engine is the single owner of the leg set; every addition/removal is diffed into subscribe/cancel actions; the panel's own maximum is 16; `MainWindow._md_line_count` counts them; issuance goes through `_guard_md_lines` and `MarketDataManager.req_mkt_data`; a refusal yields `—` for the affected rows and one message naming the budget, never a silent drop or an over-cap subscribe; OFF cancels every leg. Rationale: AC-D65.6 + R138, and the guard has no production caller today (its only users were test doubles). Alternative: a panel-local counter (rejected — two truths); snapshot ticks (rejected — not streaming, AC-D65.5). | `[new in P23]` + `[extends the D37 market-data path]` |
+| S-P23-10 | **One message per cause, one surface.** The engine keeps a latch per cause; the panel status label is the option message surface; `_on_error` gains an option-owned-reqId branch **before** its generic fallback that forwards `(reqId, code, text)` to the engine instead of printing `Error [code]: …`. The generic path, `classify_error`, the D40.1 502 suppression and the connection badge are unchanged. Rationale: AC-D65.8 counts messages per cause; two surfaces for one cause would read as two errors. Alternative: let the generic status line fire and add a panel message (rejected — doubles every cause); suppressing `_on_error` wholesale (rejected — it is the only error surface, KEEP per A198). | `[new in P23]` — mechanism for AC-D65.8 |
+| S-P23-11 | **Tick coalescing and repaint.** Ticks mutate engine state and set a dirty flag; one `QTimer.singleShot(0, self._refresh_option_panel)` per turn applies the whole snapshot; the refresh reads the engine only. Rationale: AC-D65.10 (one coalesced update per event-loop turn, no per-tick rebuild, no GUI-thread sleep); the repo already uses this idiom for dock widths. Alternative: rebuilding both tables per tick (rejected — AC-D65.10 measures it); a second repaint timer (rejected — two clocks for one surface). | `[new in P23]` |
+| S-P23-12 | **Deletion by member group, verified per wave — and a test dies with the subject it reads.** The displaced stack is deleted in five waves, each with a byte-checkable end state: (0) **the panel module, its dock wiring, the dock identity's whole lookup surface and the six D27 account/position suites that render into it** (`ui/active_portfolio_panel.py`, `tests/test_d41_portfolio_dock.py`, the dock title/`objectName` **and the twenty surviving title-keyed lookups that resolve it**, `tests/test_d27_*`) in the **panel-swap wave**, which must precede every deletion so the dock is never empty and never hosts an unhooked widget; (a) window consumers (the account/position window path and the price-sink chain — the D27 suites are already gone by then, their subject having been the panel's render path); (b) broker boundary (four client overrides + four bridge signals) with their emitters; (c) the remaining modules + models (`ibkr/account.py`, `services/strategy_detection.py`, `data.models.Position`/`TradeGroup`) with their suites; (d) the schema drop (DDL + child-first `DROP TABLE IF EXISTS` + the residue instrument re-baseline). A single test file may be split by function across waves (`tests/test_d45_removal.py`: P23-01, -05, -06, -07), but each of its functions moves in the wave that deletes what it reads. Each wave ends with a fresh import check and a residue grep for its own tokens. Rationale: R146/D41 (three workers died on L-size delete-only tasks); the member-group split keeps each wave S/M and its end state provable, and a wave's "suite is green" exit can only hold if no surviving test still names a symbol it deleted. Alternative: one big delete wave (rejected — R146); deleting by file (rejected — the D41 lesson); leaving the D27 suites to the account-path wave (rejected — they read `window.portfolio_panel`, which wave 0 renames away, so they would be red for four waves). | `[extends P5/D46: guarded one-time migration + residue instrument]` |
+| S-P23-13 | **Tie-break 3's underlying price comes from existing state only.** The scan's tie-break uses the last bar close of an **existing** SPX `TickerSession` (read-only: `self._sessions.get("SPX")` → `get_bars()`); when no SPX session exists the tie-break is skipped and the lower short strike wins deterministically. `_symbol_last_prices` is **not** revived — the whole price-sink chain dies with the panel (verified single reader: position `market_price`). Rationale: DG121 asked for exactly this check; adding an SPX line would spend budget and need its own lifecycle for a last-resort tie-break. Alternative: keep `_symbol_last_prices` for the tie-break (rejected — contradicts A198's DELETE and leaves a map whose only consumer vanishes); subscribe an SPX IND line (rejected — budget and lifecycle for a tie-break). | `[new in P23]` — resolves DG121's `_symbol_last_prices` sub-item |
+| S-P23-14 | **Non-uniform grids: snap, then omit.** Each offset rung snaps to the nearest listed strike of that expiry/side (tie → the strike nearer the anchor), keeping the pair exactly 20 wide and monotonically ordered; a rung that cannot be a listed 20-wide pair renders its row with `—` and a once-only shortfall message, so four rows always exist and no unlisted strike is ever requested. Rationale: DG120 + AC-D65.2 ("every displayed strike is a listed strike", "a missing-strike case asserting the snap rule"); the ladder's neighbour logic depends on rungs 2/4 being exactly one 5-point step away, which snapping preserves by construction. Alternative: request the unlisted strike (rejected — guaranteed error 200); drop the row (rejected — the panel's shape must stay four rows; `—` is the honest absence). | `[new in P23]` — resolves DG120 |
+| S-P23-15 | **The standing unused-code gate is a suite test in the `test_d45_removal.py` shape.** `tests/test_d65_residue.py` asserts (i) every symbol added by P23 has a production caller or a cited framework registration site, (ii) every new test helper is used in its file, (iii) no unused import / unreached branch / `if False` / `# noqa` / commented-out implementation block / `__all__`-only export / "keep for later" module in touched files, (iv) every new signal is emitted **and** connected, (v) the allowlist cites its registration site — and it must go **red on a seeded dead-symbol fixture** and green on the tree. The displaced tokens (`ActivePortfolioPanel`, `portfolio_panel`, `Account Summary`, `account_summary`, `position_update`, `build_position_from_ib`, `detect_and_group`, `strategy_detection`, `TradeGroup`, `trade_groups`, `_upsert_position`, `_symbol_last_prices`, `set_price_sink`, `_record_symbol_price`, `reqAccountSummary`, `reqPositions`) join the forbidden set with a documented survivor list. Rationale: AC-D65.12/.13 require a suite gate, not an opinion, and the repo already has the instrument shape (with the D46 carve-out to retire). Alternative: a vulture report as the gate (rejected — AC-D65.12(v)); a review checklist (rejected — decays, A197). | `[extends P5/D46: the residue instrument]` |
+| S-P23-16 | **The launch width is the panel's preferred width, clamped by the existing plan.** `OptionSpreadsPanel.PREFERRED_WIDTH = 360` (with `preferred_width()` and a matching `sizeHint`); `MainWindow.__init__` remembers it as `self._right_launch_width` (mirroring `_persisted_watchlist_width`, D17.4 — `_right_dock_width` keeps tracking the live dock width) and `_deferred_dock_setup` re-applies it **once** as `requested_right=`, where `_apply_dock_widths` → `_plan_dock_widths` → `plan_dock_widths` clamps it to `clamp(360, RIGHT_DOCK_MIN_WIDTH, right_dock_max_width(chart_area))` against the real chart area. No QSettings key, no constant added to `ui/dock_layout.py`, and no change to the 200 px minimum, the 40 % cap, the 400 px chart minimum, the D21.13 collapse or the D44 strip. Rationale: `AC-D65.9`(i)–(iv)/A201 — the width is a property of the panel's five columns, so the panel advertises it; routing it as a *request* through the one existing clamp keeps a single source of truth for every D18/D21.13/D44 rule (a small window caps it, a user drag overrides it, a restart recomputes it identically). Alternative: a `RIGHT_DOCK_PREFERRED_WIDTH` constant in `ui/dock_layout.py` (rejected — frozen dock model, and the width would become a global dock fact rather than the panel's); applying the width at construction (rejected — the chart area does not exist yet and Qt's layout would override it, which is why D17.4 defers); persisting the last width (rejected — A192/A201 forbid it). | `[revises D18: the right dock's launch width is RIGHT_DOCK_MIN_WIDTH]` (A201, resolves FI-P23-1) + `[extends D17.4: deferred request re-application]` |
+

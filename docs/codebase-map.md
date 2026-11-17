@@ -153,6 +153,27 @@
 > `node --test` suites) — so every annotation above carries forward and the generated
 > test-impact rows stand as regenerated (Plan-confirmed).
 >
+> **P23 note (2026-11-17):** Option Spreads panel batch (D65, Batch 37 — right-dock panel replacement,
+> SPX/SPXW 0DTE chain discovery, per-leg quote/greek streaming, the 16-line option budget, and the
+> Portfolio/account-position stack deletion under the standing Unused-Code Rule). Skeleton re-run
+> 2026-11-17 (273 code files, 24 test-impact rows). **New modules (named without backticks until they
+> land, per the map lint rule):** ui/option_spreads_panel.py (dock panel: header collapse button, Target
+> field, ON/OFF toggle, two 4×5 tables, status label), services/option_ladder.py (pure ladder geometry,
+> naming, three-basis metric, net greeks, rung snapping and the window leg set — no scan/step helper:
+> the scan is the engine's window-step sweep), services/option_spread_engine.py (pure Qt-free state
+> machine: chain state, leg subscriptions, once-only fault latches, window steps and the sweep).
+> **Changed:** `ui/main_window.py` (dock swap + option wiring, account path deleted),
+> `ibkr/contracts.py` (OPT contract builder + SPXW/0DTE series selection), `ibkr/market_data.py`
+> (reqSecDefOptParams), `ibkr/client.py` (tickOptionComputation + securityDefinitionOptionParameter
+> overrides added; the four account/position overrides deleted), `ibkr/bridge.py` (option signals added;
+> the four account/position signals deleted), `data/db.py` (positions/trade_groups/position_group_map
+> dropped), `data/models.py` (Position/TradeGroup deleted), `ui/watchlist_panel.py` +
+> `ui/ticker_session.py` (the D27.5 price-sink chain deleted with `_symbol_last_prices`).
+> **Deleted:** `ui/active_portfolio_panel.py`, `ibkr/account.py`, `services/strategy_detection.py`; the
+> rows for those three and for the account/position data path read as **history** once P23 lands —
+> nothing may re-plan them. `services/md_line_guard.py` becomes live (its guard
+> `MainWindow._guard_md_lines` has had no production caller until this panel).
+>
 > **As-built P6-T13 note (2026-10-28):** the P6 plan-time sentences above ("pyqtgraph retained and default
 > through Phase 10", "no pyqtgraph code is deleted before Phase 11") are **superseded history** — P6-T13 executed
 > 2026-10-27 (removal commit `6e35b27`; gate owner-waived (live-session sign-off waived, not satisfied) per `docs/build/gate_P6_T13.md`). The tree is
@@ -447,18 +468,37 @@ offline/interceptor suites + `node --test` JS suites; webengine-gated suites rep
 delegation as affecting every chart/render suite (they must stay green unmodified per `AC-D47.2`).
 
 
+**P23 test-impact (Plan-confirmed, outside the generated rows)** — `select_tests.py` should treat these as
+the modules whose changes can affect the named suites:
+
+| Changed module | Test modules to select |
+|---|---|
+| `ui/main_window.py` (dock swap + launch width + option wiring + account path) | `test_d65_option_panel`, `test_d65_option_stream`, `test_d65_residue`, `test_d41_removal`, `test_right_dock_d21`, `test_dock_d18_region`, `test_dock_widths_d18`, `test_dock_widths_d18_impl`, `test_dock_widths_collapsed_d44`, `test_watchlist_nonregression_d22`, `test_p13_gate`, `test_d45_removal`, `test_d24_smoke_gate`, `test_phase3_fixpass`, `test_ui_smoke`, `test_db_schema` |
+| `ibkr/client.py`, `ibkr/bridge.py` | `test_d65_option_chain`, `test_d65_option_stream`, `test_d65_residue`, `test_d40_tws_lifecycle`, `test_d45_removal`, `test_d27_stream_health` |
+| `ibkr/contracts.py`, `ibkr/market_data.py` | `test_d65_option_chain`, `test_d65_spread_engine`, `test_contract_lookup_d22`, `test_p20_futures_scoping`, `test_d28_pacing` |
+| `data/db.py`, `data/models.py` | `test_db_schema`, `test_d45_removal`, `test_d65_residue`, `test_ui_smoke` |
+| `ui/watchlist_panel.py`, `ui/ticker_session.py` | `test_watchlist`, `test_watchlist_columns_d21`, `test_watchlist_add_remove_d22`, `test_d28_2_sessions`, `test_p13_fanout`, `test_d17_d18_*` (dock widths) |
+| ui/option_spreads_panel.py, services/option_ladder.py, services/option_spread_engine.py (new) | `test_d65_option_panel`, `test_d65_option_ladder`, `test_d65_spread_engine`, `test_d65_option_stream` |
+| deleted (ui/active_portfolio_panel.py, ibkr/account.py, services/strategy_detection.py) | `test_d65_residue` (absence), `test_d41_removal`, `test_right_dock_d21`, `test_dock_d18_region` (re-pointed) |
+
+P23's **`tests/conftest.py`** edit (dropping the three dropped tables from the autouse teardown wipe list) affects **every** suite at teardown, so `select_tests.py` should treat that file as suite-wide rather than mapping it to a list. `tests/test_db_schema.py` and `tests/test_ui_smoke.py` are reached through the `data/` and `main_window` rows above; `tests/test_dock_widths_collapsed_d44.py` is selected only for regression (it exercises the **left** watchlist dock and takes no P23 edit).
+
+**P23-01 deletes six suites, so drop them from selection once that wave lands** — `test_d27_account_subs`, `test_d27_account_scoping`, `test_d27_account_partial_window`, `test_d27_flat_rows`, `test_d27_position_id`, `test_d27_position_prices`. Each one reads `win.portfolio_panel` (its `positions_table`, `account_detail` or `_positions`) or imports `ui.active_portfolio_panel`, so its subject is the **panel** P23-01 swaps out, not the window account path P23-05 removes; they cannot outlive wave 1. `tests/test_d45_removal.py` survives and is edited in four waves (P23-01, -05, -06, -07) — `select_tests.py` should select it for every P23 wave.
+
+**P23-01 also re-points twenty surviving dock-lookup harnesses** — `test_history_backfill`, `test_history_backfill_disconnect`, `test_history_backfill_loadpath`, `test_d42_depth_floor`, `test_d27_phantom_alarms`, `test_d27_reconnect`, `test_d27_stream_health`, `test_p7_w1_persist`, `test_p7_w2_prime`, `test_p7_w2_watchdog`, `test_p14_indicator`, `test_p14_cache_guard`, `test_p14_lifecycle`, `test_p15_surfacing`, `test_p15_expiry`, `test_p15_continue`, `test_p20_resolution_probe`, `test_d10_d13_integration`, `test_watchlist_columns_d21`, `test_dock_widths_d17`. Each hides the right dock by its `Portfolio` title today (three assert the lookup resolved and hard-fail at the rename; the rest silently stop hiding), and all twenty are edited to `objectName()` in the rename's own wave — select them for P23-01, and for no other P23 wave.
+
 <!-- MAP-SKELETON:BEGIN -->
 ## Module index (generated — do not hand-edit inside the skeleton markers)
 
 - (root)/ — main.py, probe_D53_4phase.py, probe_deep.py, probe_live_backfill.py
-- `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, follow_offset.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, volume_scale.test.js
+- `chart_assets/lwc/` — alarms.js, all.js, chart.js, chart.test.js, envelope.js, envelope.test.js, follow_offset.test.js, gestures.js, gestures.test.js, interaction.js, lightweight-charts.standalone.production.js, overlays.js, primitives.js, studies.js, tz_format.test.js, volume_scale.test.js
 - `config/` — __init__.py, paths.py, settings.py
 - `data/` — __init__.py, alarm_store.py, bar_aggregator.py, bar_cache.py, db.py, drawing_store.py, models.py, popout_store.py, study_store.py
 - `ibkr/` — __init__.py, account.py, bridge.py, client.py, contracts.py, error_codes.py, id_manager.py, market_data.py, pacing.py, realtime_bars.py, stream_health.py, subscription_manager.py, utils.py
 - `packaging/` — __init__.py
 - `services/` — __init__.py, alarm_monitor.py, alarm_service.py, backfill_service.py, chart_model.py, contract_lookup_service.py, drawing_service.py, gap_vix_service.py, ict_service.py, indicator_service.py, market_calendar.py, md_line_guard.py, session_service.py, sound_service.py, strategy_detection.py, symbol_search.py, time_collapse_service.py, volume_baseline.py
 - `spikes/lwc/` — spike_probe.py
-- `tests/` — conftest.py, test_account.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_account_partial_window.py, test_d27_account_scoping.py, test_d27_account_subs.py, test_d27_aggregator_priming.py … (+153 more)
+- `tests/` — conftest.py, test_account.py, test_add_symbol_dialog_d22.py, test_alarm_d21.py, test_alarm_service.py, test_alarm_store.py, test_backfill_progress.py, test_backfill_service.py, test_bar_aggregator.py, test_chart_model.py, test_chart_mouse_router.py, test_chart_view_seam.py, test_contract_lookup_d22.py, test_d10_d13_integration.py, test_d21_flash_lifetime.py, test_d23_nonregression.py, test_d24_9_popout_persistence.py, test_d24_alarm_full_chain.py, test_d24_popouts.py, test_d24_smoke_gate.py, test_d25_alarm_monitor.py, test_d27_account_partial_window.py, test_d27_account_scoping.py, test_d27_account_subs.py, test_d27_aggregator_priming.py … (+158 more)
 - `ui/` — __init__.py, active_portfolio_panel.py, add_symbol_dialog.py, alarm_dialog.py, alarm_edit_dialog.py, chart_controls.py, chart_mouse_router.py, chart_view.py, dock_layout.py, drawing_groups_dialog.py, drawing_settings_common.py, drawing_tools.py, horizontal_line_settings_dialog.py, lwc_bridge.py, lwc_host.py, lwc_view.py, main_window.py, popout_window.py, studies_dialog.py, ticker_session.py, toast.py, visual_conventions.py, watchlist_panel.py, zone_settings_dialog.py
 - `ui/overlays/` — __init__.py
 
@@ -491,5 +531,5 @@ delegation as affecting every chart/render suite (they must stay green unmodifie
 
 ## Graph summary (generated)
 
-- graphify-out/graph.json: 8352 nodes, 17940 edges
+- graphify-out/graph.json: 8497 nodes, 18172 edges
 <!-- MAP-SKELETON:END -->
