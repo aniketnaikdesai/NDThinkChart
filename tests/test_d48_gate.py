@@ -12,7 +12,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS = REPO_ROOT / "docs" / "requirements" / "requirements.md"
-PROBE_RECORD = REPO_ROOT / "docs" / "d48_probe_record.md"
+PROBE_RECORD = (REPO_ROOT / "docs" / "archive" / "probe_records"
+                / "d48_probe_record.md")
 PRIME_TABLE_OWNER = REPO_ROOT / "ui" / "ticker_session.py"
 
 MARKER_SENTENCE = "This is an existing repository."
@@ -25,7 +26,9 @@ def _read(path: Path) -> str:
 # P8-T05-T11 — probe record names both combos with clean completion.
 class TestProbeRecord:
     def test_probe_record_exists(self):
-        assert PROBE_RECORD.is_file(), "docs/d48_probe_record.md missing"
+        assert PROBE_RECORD.is_file(), (
+            "docs/archive/probe_records/d48_probe_record.md missing"
+        )
 
     def test_probe_record_names_both_combos(self):
         text = _read(PROBE_RECORD)

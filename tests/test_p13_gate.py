@@ -15,7 +15,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS = REPO_ROOT / "docs" / "requirements" / "requirements.md"
-PROBE_RECORD = REPO_ROOT / "docs" / "p13_hold_probe_record.md"
+PROBE_RECORD = (REPO_ROOT / "docs" / "archive" / "probe_records"
+                / "p13_hold_probe_record.md")
 
 MARKER_SENTENCE = "This is an existing repository."
 
@@ -69,7 +70,9 @@ class TestChecklist:
         assert not missing, f"missing ACs: {missing}"
 
     def test_d49_5_resolves_exactly_one_way(self):
-        assert PROBE_RECORD.is_file(), "docs/p13_hold_probe_record.md missing"
+        assert PROBE_RECORD.is_file(), (
+            "docs/archive/probe_records/p13_hold_probe_record.md missing"
+        )
         record = _read(PROBE_RECORD)
         lasting = "lasting effect confirmed" in record
         no_effect = "no lasting effect" in record

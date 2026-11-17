@@ -5,7 +5,7 @@ lifecycle — main-chart same-symbol reload, pop-out attach/close, plus a
 zero-owner case — records the RT hold count (``TickerSession._rt_holders``)
 against active owners (attached views, plus the alarm monitor when it holds
 the session) at each step, and commits the verdict to
-``docs/p13_hold_probe_record.md``:
+``docs/archive/probe_records/p13_hold_probe_record.md``:
 
 - ``lasting effect confirmed`` — the hold count exceeds active owners and
   the excess survives continued session use;
@@ -31,7 +31,8 @@ BASE_TS = 1_760_000_000
 NOW_TS = (BASE_TS // 300) * 300
 
 RECORD_PATH = (
-    Path(__file__).resolve().parents[1] / "docs" / "p13_hold_probe_record.md"
+    Path(__file__).resolve().parents[1]
+    / "docs" / "archive" / "probe_records" / "p13_hold_probe_record.md"
 )
 
 VERDICT_CONFIRMED = "lasting effect confirmed"

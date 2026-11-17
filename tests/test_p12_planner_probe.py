@@ -51,7 +51,8 @@ D_SECONDS = 86_400
 WINDOW_SECONDS = 30 * D_SECONDS  # the configured 30 D chunk
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROBE_RECORD = REPO_ROOT / "docs" / "d52_probe_record.md"
+PROBE_RECORD = (REPO_ROOT / "docs" / "archive" / "probe_records"
+                / "d52_probe_record.md")
 PRIME_TABLE_OWNER = REPO_ROOT / "ui" / "ticker_session.py"
 
 
@@ -270,7 +271,9 @@ def test_priming_docstring_names_thirty_min_row():
 # ---------------------------------------------------------------------------
 class TestProbeRecord:
     def test_probe_record_exists(self):
-        assert PROBE_RECORD.is_file(), "docs/d52_probe_record.md missing"
+        assert PROBE_RECORD.is_file(), (
+            "docs/archive/probe_records/d52_probe_record.md missing"
+        )
 
     def test_probe_record_names_the_combo(self):
         text = PROBE_RECORD.read_text(encoding="utf-8")

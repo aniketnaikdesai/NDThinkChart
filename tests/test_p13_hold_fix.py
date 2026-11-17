@@ -1,7 +1,7 @@
 """P13-T6 — conditional per-owner hold fix, else verified-close (D49.5 fix half).
 
 Record-gated task (S-P13-5, wave W6 half): reads the P13-T5 probe verdict in
-``docs/p13_hold_probe_record.md`` and acts exactly on it.
+``docs/archive/probe_records/p13_hold_probe_record.md`` and acts exactly on it.
 
 - Verdict ``lasting effect confirmed`` → the idempotent per-owner
   acquire/release fix must be present (owners: main chart, each pop-out,
@@ -30,7 +30,8 @@ BASE_TS = 1_760_000_000
 NOW_TS = (BASE_TS // 300) * 300
 
 RECORD_PATH = (
-    Path(__file__).resolve().parents[1] / "docs" / "p13_hold_probe_record.md"
+    Path(__file__).resolve().parents[1]
+    / "docs" / "archive" / "probe_records" / "p13_hold_probe_record.md"
 )
 
 VERDICT_CONFIRMED = "lasting effect confirmed"
