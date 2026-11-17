@@ -8900,7 +8900,7 @@ call sites, the toolbar label-field sizing, and the toggle persistence wiring.
 > decision in the final table carries `[new in P23]`, `[revises …]` or `[extends …]`. Hard
 > constraints honoured: **no order code of any kind** (D65.7), **display-only** option data,
 > **no second network client**, no blocking socket work on the GUI thread, **≤16 option
-> lines**, sizes S/M.
+> lines plus at most one SPX spot line (17 total)**, sizes S/M.
 >
 > **Build-time facts this design stands on (verified in the tree 2026-11-17, not
 > re-derived):** there is **no** option infrastructure today — no `tickOptionComputation`
@@ -8915,7 +8915,7 @@ call sites, the toolbar label-field sizing, and the toggle persistence wiring.
 > **Implementation-plan handoff (recorded here, not this phase's artifact).** After the
 > Validator approves, the Orchestrator produces a human-reviewable implementation plan for
 > the owner instead of going straight to Task Manager (owner process change, `docs/memory.md`
-> 2026-11-17). The eight waves below are therefore shaped to restate as a reviewable
+> 2026-11-17). The ten waves below are therefore shaped to restate as a reviewable
 > document: ordered, per-wave file scope, per-wave tests, deletion inventory, risks.
 >
 > **Revision (pass 2, 2026-11-17 — against `docs/plan_review_P23.md`).** `RG-P23-1` is
@@ -8939,7 +8939,38 @@ call sites, the toolbar label-field sizing, and the toggle persistence wiring.
 > single file: the `:32` module import, all four of its groups, and `T48-T03`'s
 > signals-and-receiver group with `_receiver_count`'s only call site. **`RC-13`** — the
 > `_record_symbol_price` fake-host stubs are inventoried as five inert test-side carriers of
-> a token P23-05 deletes.
+> a token P23-06 deletes.
+>
+> **Revision (pass 5, 2026-11-17 — owner-driven, against the amended `AC-D65.14`–`AC-D65.19`,
+> A202–A212, R150–R153).** The owner reviewed the derived implementation plan
+> (`docs/implementation_plan_P23.md`) and the analyst re-cut D65; all ten findings are folded in,
+> one architecture decision each. **(A) connection lifecycle** — **S-P23-17**: legs register in
+> the existing `SubscriptionManager` under their **own type tag** with `reissue`/`rebind` hooks,
+> disconnect marks `STALE` and freezes the walk, reconnect replays through `replay_all`, and each
+> per-line error class has its own semantics (200 drop + one-step re-seat, 10197/354 no re-seat,
+> 162 transient, other `—`). **(B) seeding** — **S-P23-18**: session anchor → ≤6 coarse probes per
+> side at 20-pt spacing (leased, scored, released) → 5-pt refine; spot is an accelerator with **at
+> most one** dedicated SPX line, so the ceiling is **16 option + 1 spot = 17**; a 3 s leg timeout
+> marks the row *pending* and match-ineligible; a sweep is bounded at **10 s or 12 scored pairs**.
+> **(C) signs** — **S-P23-3** rewritten: the owner's displayed formulas (`ASK = long.ask −
+> short.bid`, `BID = long.bid − short.ask`, `Δ/Γ = long − short`, negative by design) sit beside
+> the credit bases the Target measures, with the ASK↔credit_bid label swap stated once.
+> **(D) quote validity** — **S-P23-19**: a zero bid is live, `-1` / `1.7976931348623157e+308` /
+> the no-tick zero are absent, a one-sided pair never matches. **(E) band** —
+> `h = max(0.05, one_tick)` with `one_tick = option_tick(T)`, both levels pinned in the suite.
+> **(F) Target validation** — **S-P23-23**: `0.05 ≤ T ≤ 19.95`, rejection changes no ladder state.
+> **(G) pre-drop backup** — **S-P23-21**: `[new] data/db_backup.py`, verified copy, drop aborts on
+> failure. **(H)** the deletion's file set is `AC-D65.18`'s full list (watchlist price sink +
+> `ui/ticker_session.py` included) and is now asserted by a **file-set-wide** residue grep in the
+> schema wave. **(I) the paper-TWS acceptance run** — **S-P23-22**, its own owner-run wave, record
+> in `docs/archive/probe_records/`. **(J) fixture convention** — `AC-D65.2`'s canonical
+> `SPX Nov17 7425/7445` (CCS) and `SPX Nov17 7340/7320` (PCS) with a guard that rejects any
+> 10-wide pair and any PCS row whose long strike is above its short. **Two literal-vs-tree
+> conflicts are surfaced, not papered over:** **FI-P23-2** (`AC-D65.15`'s spot tier 2 names
+> `_symbol_last_prices`, which `AC-D65.13`/`AC-D65.18`/A198 delete) and **FI-P23-3**
+> (`AC-D65.14`(ii)'s `MARKET_DATA` tag would double-subscribe every watchlist row under the pinned
+> AC-D22.7.2 replay exclusion). Both carry a recommended resolution, and the waves are written
+> against it so the build never has to guess.
 
 ### Relationship to prior phases
 
@@ -8974,6 +9005,18 @@ Composition, stated once so nothing is silently revised:
 - **`[extends P5/D46: guarded one-time migration]`** — the `positions`/`trade_groups` drop
   uses D46's `PRAGMA`-guarded, idempotent migration idiom in the same `_migrate_schema()`
   position, and the D45 residue instrument is re-baselined rather than left to rot (DG121).
+  **`[revises the D46 drop's reversibility posture]`** — `AC-D65.18`/A210 put a **verified
+  SQLite backup in front of the drop** (`data/db_backup.py`), which D46 never required: the
+  migration now aborts rather than proceeding when the copy cannot be verified. The drop stays
+  one-time and irreversible for rows written after the copy — the backup is a safety net, not a
+  restore path (S-P23-21).
+- **`[revises D27.3: reconnect replay covers rt_bars + s0_ticks only]`** — the panel's leg lines
+  join the same registry replay, but under **their own type tag** rather than `MARKET_DATA`,
+  because every watchlist row already carries `MARKET_DATA` *with* a `reissue` hook (`ui/watchlist_panel.py:1003-1015`)
+  and is re-issued by `_restore_watchlist`'s pinned clear+re-add (`AC-D22.7.2`) — adding
+  MARKET_DATA to `_replay_subscriptions`'s include set would double-subscribe every row. Nothing
+  about the watchlist, chart or S0 replay changes; the only edit is one tag constant plus the
+  include set (S-P23-17, FI-P23-3).
 - **`[extends VIS-D21]`** — the dock collapse header stays a `DiagonalStrikeButton`; the
   ON/OFF colour uses the same dynamic-property + stylesheet shape as `set_button_active`.
 - **Unchanged and consulted, never reshaped:** the P6 LWC-only chart, the P19 prefetch,
@@ -9046,6 +9089,49 @@ claim below was re-verified by direct read/grep.**
   not move: `test_dock_widths_d18.py:264,398`; `test_dock_widths_d18_impl.py:167,293,373`;
   `test_dock_layout.py:344`; `test_right_dock_d21.py:153,164,172`.
 
+**The reconnect registry, the app-support path and the migration seam (verified this pass —
+AC-D65.14/-18/-19; `S-P23-17`, `S-P23-21`)**
+
+- `[existing] ibkr/subscription_manager.py` (143 L) — `subscribe(symbol, req_id,
+  req_type=MARKET_DATA, *, reissue=None, rebind=None)`, `unsubscribe(req_id)`,
+  `unsubscribe_all_of_type(req_type)`, `has_subscription`, `entries_of_type`, and
+  `replay_all(include_types: Optional[set[str]] = None) -> list[tuple[int, int]]` at **`:94`**:
+  it selects entries whose type is in `include_types` **and** whose `reissue is not None`,
+  raises `PacingExceeded` up front for the RT-bar budget (D28.1 all-or-nothing), then
+  `new_id = entry.reissue()`, `entry.rebind(new_id)`, and moves the registry bookkeeping.
+  Tags at `:33-36`: `RT_BARS`, `MARKET_DATA`, `S0_TICKS`. **Replay is type-tagged, so the tag —
+  not the module — decides who is replayed.**
+- `[existing] ui/main_window.py:1958-1983` — `_replay_subscriptions` calls
+  `sub_manager.replay_all(include_types={RT_BARS, S0_TICKS})` and defers the whole replay via
+  `QTimer.singleShot` on `PacingExceeded`; its docstring records the reason MARKET_DATA is
+  excluded (the watchlist's clear+re-add).
+- `[existing] ui/watchlist_panel.py:1003-1015` — every watchlist row registers `MARKET_DATA`
+  **with both hooks** (`reissue=lambda: req_mkt_data(contract)`, `rebind=…`), and `clear()` at
+  `:1122` drops its MARKET_DATA entries. Adding MARKET_DATA to the include set would therefore
+  re-issue every row **as well as** `_restore_watchlist`'s pinned re-add. This is the fact
+  behind **FI-P23-3**.
+- `[existing] ui/main_window.py:1544-1551` — `_last_chart_price` is a property over
+  `_session_for_facade().last_chart_price`, i.e. the **charted** symbol's price (which is why
+  spot tier 1 is conditioned on the chart showing SPX); `:862` `self._sessions`,
+  `:2409` `self._current_symbol`, `:893` `_symbol_last_prices` written only at `:3385` and read
+  only at `:4460` (the deleted position `market_price`).
+- `[existing] config/paths.py:32,40,90-116` — `_USER_APP_SUPPORT_DIR`
+  (`~/Library/Application Support/NDThinkChart`, created at import), `get_user_data_path(filename=None)
+  -> Path`, `get_db_path() -> Path`, and the ESC-043 gate (`opt_in_production_db`,
+  `is_production_db_opted_in`) that guards **opening** the production DB. The pre-drop backup
+  copies the file and verifies the copy read-only, so it never opens the production DB through
+  `DB` and does not need the opt-in.
+- `[existing] data/db.py:175` `_migrate_schema` (the drop block's home, between the D27 unique
+  index at `:192-195` and the D46 column loop at `:196-212`), `:262` `_table_columns` (the
+  `PRAGMA table_info` guard idiom the drop and the backup trigger reuse).
+- `[existing] services/market_calendar.py:37-40` — `_EXT_OPEN (4,0)`, `_EXT_CLOSE (20,0)`,
+  `_RTH_OPEN (9,30)`, `_RTH_CLOSE (16,0)`; **no option-session model**, so A205's 16:15 ET cutoff
+  is a panel constant today and the calendar cannot win until one exists.
+- `[existing] docs/archive/probe_records/` — `d48_probe_record.md`, `d52_probe_record.md`,
+  `p13_hold_probe_record.md`: the recorded-probe shape `AC-D65.19` names. The D65 record lands
+  beside them (`AC-D65.19` cites the legacy `docs/d48_probe_record.md` path; the archive is where
+  these records actually live).
+
 **P23's test book (verified, load-bearing — RC-1/RC-2/RC-3)**
 
 - `[existing] tests/conftest.py:105-124` — the **autouse** `_isolate_test_db` fixture wipes
@@ -9092,7 +9178,7 @@ claim below was re-verified by direct read/grep.**
   `_receiver_count` (`:184-194`, its only call site). The last group cannot survive the swap
   and is rewritten with the panel.
 - `[existing] tests/test_d45_removal.py` — the residue instrument holds tests whose
-  subjects die in four different waves (P23-01, -05, -06, -07): `test_removed_panel_members_absent`
+  subjects die in four different waves (P23-01, -06, -07, -08): `test_removed_panel_members_absent`
   (`:710`, `_REMOVED_PANEL_MEMBERS` at `:692`) imports `ui.active_portfolio_panel`; the
   `walkthrough` fixture (`:522`) reads `win.portfolio_panel.positions_table` on every step
   (`_snapshot` `:501-512`, `:502`), drives `selectRow`/`refresh`/`toggle_collapsed`
@@ -9108,14 +9194,14 @@ claim below was re-verified by direct read/grep.**
   `_PRE_P5_DDL` (`:803`) / `_write_pre_p5_db` (`:837`); and `_ALLOWED_IN_FILE` (`:220`) with
   `test_allowed_in_file_is_narrow_and_named_not_used` (`:1047`) exists only for the D46
   column-drop carve-out the drop retires. The per-wave assignment is: walkthrough group +
-  eight-column test → P23-01, `_stub_account_calls` → P23-05, block (d) → P23-06, block (g)
-  → P23-07.
+  eight-column test → P23-01, `_stub_account_calls` → P23-06, block (d) → P23-07, block (g)
+  → P23-08.
 - `[existing]` the six D27 account/position suites (`test_d27_account_subs`,
   `test_d27_account_scoping`, `test_d27_account_partial_window`, `test_d27_flat_rows`,
   `test_d27_position_id`, `test_d27_position_prices`) all read `window.portfolio_panel`
   (`positions_table`, `account_detail`, `_positions`) or import `ActivePortfolioPanel`
   (`test_d27_flat_rows.py:17`) — so their subject is the **panel**, and they die with it in
-  P23-01, not with the window account path in P23-05.
+  P23-01, not with the window account path in P23-06.
 - `[existing] tests/test_db_schema.py:15-26` — `EXPECTED_TABLES` names all three tables;
   `tests/test_ui_smoke.py:48` asserts `hasattr(data.models, "Position")`.
 - `[existing] tests/test_watchlist_nonregression_d22.py:147-180` — the D21.13 right-dock
@@ -9218,21 +9304,27 @@ except `ui/main_window.py`'s toolbar block (P23 edits only dock/option/account b
 The right dock's Portfolio panel is replaced by an **Option Spreads** panel — opening at its
 own **360 px preferred width** clamped inside the unchanged D18 40 % cap (A201) — with two
 4-row ladders (CCS above PCS) of 20-wide SPX/SPXW **0DTE** credit spreads, a `Target` field
-(default `1.00`) and a red/green ON/OFF toggle. While ON, a pure, Qt-free ladder engine finds
-the anchor pair whose net **mid, ask or bid** is within `0.05` of the Target, holds four rungs
-at its +10/+5/0/−5 offsets on both legs, and walks the ladder one 5-point step at a time —
-comparing `d` at the two neighbours it is **already displaying**, so a step costs two line
-swaps and no extra subscriptions. **One movement primitive serves everything**: every anchor
-change (a maintenance step, a Target change, the OFF→ON seed) is a *window step* that cancels
-the leaving leg pair before subscribing the arriving one, so a leg held by both windows keeps
-its `reqId`, and the chain scan is that same primitive run as a **monotone sweep** — which is
-what makes `AC-D65.6`'s shared-leg rule hold on a re-anchor inside a 16-line cap. All 16
-option legs stream on their own `reqMktData` lines (quotes via `tickPrice`, greeks via
-`tickOptionComputation`), counted by the existing 90/100-line guard and cancelled the moment
-a leg leaves the window. Every TWS gap is a once-only message plus `—` placeholders. The
-displaced Portfolio stack — module, dock wiring, account/position signals and overrides, the
-persistence path and the `positions`/`trade_groups` tables and rows — is **deleted**, not
-unhooked, in waves split by member group, closed by a standing residue gate. No order code
+(validated **`0.05 ≤ T ≤ 19.95`**, default `1.00`) and a red/green ON/OFF toggle. While ON, a
+pure, Qt-free ladder engine **finds** the anchor by measurement — a session anchor first, else
+≤6 coarse probes per side at 20-point spacing leased and released inside the same line budget,
+then a 5-point refine, with **one** dedicated SPX spot line at most, so the ceiling is
+**16 option + 1 spot = 17** — and **holds** it: a pair is matched when its three-basis credit
+distance `d` is inside `h = max(0.05, one_tick)`, and one 5-point step per evaluation moves both
+legs toward the pair with the smaller `d`. Rows show the owner's displayed values
+(**`ASK = long.ask − short.bid`**, **`BID = long.bid − short.ask`**, **`Δ/Γ = long − short`** —
+negative for a credit spread by design) while every comparison runs on the **credit** bases, so
+the two can never be mixed. A quote is usable only when it is real (a zero bid is live; `-1`,
+`1.7976931348623157e+308` and the no-tick zero are absent; a one-sided pair never matches), a
+leg silent for 3 s is *pending* and match-ineligible, and a sweep is bounded at **10 s or 12
+scored pairs**. The ladder survives the connection: legs live in the existing
+`SubscriptionManager` (**one new type tag**, `reissue`/`rebind` hooks), so a disconnect marks
+every value **`STALE`** and freezes the walk, a reconnect replays the same lines through
+`replay_all` and resumes from the same anchor, and each per-line TWS error (200 / 10197 / 354 /
+162 / other) has its own defined state. The displaced Portfolio stack — module, dock wiring,
+account/position signals and overrides, the persistence path and the
+`positions`/`trade_groups`/`position_group_map` tables and rows — is **deleted**, not unhooked,
+behind a **verified pre-drop SQLite backup**, in waves split by member group, closed by a
+standing residue gate and then by an **owner-run paper-TWS acceptance record**. No order code
 exists anywhere.
 
 ### Tech Stack Decisions
@@ -9250,7 +9342,15 @@ exists anywhere.
 | `[new]` Ladder logic placement | Pure Qt-free, `ibapi`-free `services/option_ladder.py` (stateless math) + `services/option_spread_engine.py` (stateful, action-emitting); `ui/main_window.py` is the only I/O glue | Repo convention (pure services + window wiring); AC-D65.3/.4/.5's exact numbers are cheapest to prove with no Qt and no event loop; DG123: one consumer each, today | Logic in the panel widget (rejected — untestable without a window, view and policy mixed); logic in `main_window.py` (rejected — 4,649 lines already) |
 | `[new]` Repaint strategy | Ticks mutate engine state only; one dirty flag schedules a single `QTimer.singleShot(0, …)` refresh per event-loop turn | AC-D65.10 (coalesced update, no per-tick rebuild, no GUI-thread sleep); the repo already uses this idiom (`_schedule_dock_widths_apply`) | Per-tick table rebuild (rejected — AC-D65.10); a fixed-interval repaint timer (rejected — latency plus a second clock) |
 | `[new]` Toggle colour mechanism | Dynamic Qt property (`spread_state` ∈ `off`/`on`) + a state-keyed stylesheet with two named colour constants, repolished on change — the `set_button_active`/VIS-D21.2 precedent | AC-D65.1 asserts the rendered colour in both states offscreen; property and stylesheet are both assertable and one mechanism serves both | A painted icon (rejected — not assertable without pixel capture); swapping two QIcons (rejected — colour truth lives in an asset) |
-| `[new]` Test harness | Offscreen pytest (real `MainWindow` + panel with a fake client feeding chain/quotes/greeks/errors) + pure-pytest suites for ladder/engine + a residue gate in the `test_d45_removal.py` instrument shape | Requirements: every criterion assertable offscreen with a fake client; live greek delivery is an owner-named manual check, never a gate | Live-TWS greek confirmation as a gate (rejected — repo rule + R144) |
+| `[new]` Test harness | Offscreen pytest (real `MainWindow` + panel with a fake client feeding chain/quotes/greeks/errors) + pure-pytest suites for ladder/engine + a residue gate in the `test_d45_removal.py` instrument shape + a **fixture-convention guard** | Requirements: every criterion assertable offscreen with a fake client; live greek delivery is an owner-named manual check, never a gate. The guard is `AC-D65.2`'s own measure against a 10-wide or inverted-PCS fixture creeping back in | Live-TWS greek confirmation as a gate (rejected — repo rule + R144) |
+| `[new]` Reconnect replay for option legs | Legs register in the existing `SubscriptionManager` under **one new type tag** (`OPTION_LEGS`) with `reissue` (re-issues through `MarketDataManager.req_mkt_data`, returns the new reqId) and `rebind` (points the engine's `LegKey → reqId` map at it); `MainWindow._replay_subscriptions` adds the tag to its `include_types`. No panel-local reconnect path | `AC-D65.14`(ii) requires the existing registry, and `replay_all` is **type-tagged**, so the tag decides who replays; every watchlist row already carries `MARKET_DATA` **with** a reissue hook (`ui/watchlist_panel.py:1003-1015`) and is re-issued by `_restore_watchlist`'s pinned clear+re-add, so adding `MARKET_DATA` would double-subscribe every row (AC-D22.7.2). One constant + one include-set entry is the whole change | `req_type=MARKET_DATA` verbatim (rejected as written — double-subscribes the watchlist; **FI-P23-3**); a panel-local reconnect (rejected — forbidden by the AC, and it would double-subscribe); re-issuing option legs from `_restore_watchlist` (rejected — that is the watchlist's path, not the panel's) |
+| `[new]` Anchor seeding | Session anchor → **bounded coarse probe** (≤6 pairs per side, 20-point spacing, each pair leased for 2 lines, scored and immediately cancelled) → **5-point refine** by window steps. Hard bound: **10 s wall clock or 12 scored pairs**, then best-known pair + one message | `AC-D65.15`/A207: a per-step crawl from spot to a 1.00 credit can take many seconds and a large Target change longer; measuring bounds the cold start. Leasing inside the 16-line budget is what keeps `AC-D65.6` true while probing | Crawling 5 points at a time from spot (rejected — A207's exact complaint); a parallel probe pool (rejected — exceeds the line budget and violates the shared-leg rule); binary search over strikes without a live line (rejected — no prices to search on) |
+| `[new]` Spot source | Precedence: the chart's `_last_chart_price` **when the chart shows SPX** → an existing SPX `TickerSession`'s last bar close → the engine's own in-memory `last_spot_price` → **at most one** dedicated SPX IND line (counted; ceiling **16 + 1 = 17**), cancelled when the seed completes; the seed still completes if that line is refused | `AC-D65.15`(ii)/A206/Q112: spot is an accelerator, never a dependency, and tier 3 costs a line so it is paid only when memory has nothing | Always subscribing a spot line (rejected — spends a line on most launches for nothing); requiring spot (rejected — the seed must complete without it); keeping `_symbol_last_prices` alive for it (rejected — `AC-D65.13`/`AC-D65.18` delete the chain; **FI-P23-2**) |
+| `[new]` Sign convention | **Displayed** (A202): `ASK = long.ask − short.bid`, `BID = long.bid − short.ask`, `Δ/Γ = long − short` — negative for a credit spread by design. **Credit** bases for the match and the walk: `credit_bid = −ASK = short.bid − long.ask`, `credit_ask = −BID = short.ask − long.bid`, `credit_mid = −mid_displayed`. Every comparison, message and `d` uses credit; only the cells show displayed | The owner stated the formulas from their own screenshot; adopting them verbatim removes the sign ambiguity. A **label swap** is the whole trap: the ASK cell pairs with `credit_bid`, the BID cell with `credit_ask`, so one named helper per direction is the only safe shape | A positive-credit display (rejected — contradicts A202 and the screenshot); two ad-hoc negations at the call sites (rejected — the swap makes that unverifiable) |
+| `[new]` Quote validity and leg timeout | A leg is *quoted* only once a price tick has arrived for that side; a received `0` bid is live; `-1`, `1.7976931348623157e+308`, NaN/±inf are absent; `0 ≤ bid ≤ ask` must hold; a one-sided pair shows `—` and **cannot match**. A leg silent for **3 s** is *pending* and its pair match-ineligible | `AC-D65.16`/A208: far-OTM 0DTE legs legitimately quote a zero bid, while TWS's missing-data convention would otherwise render as a price; a partial quote must never be scored, because a one-sided pair invents a credit | Treating any `0` as missing (rejected — kills far-OTM rungs); treating a sentinel as a price (rejected — a `1.79e308` credit is not a number); scoring on one side (rejected — invents the credit) |
+| `[new]` Match band | `h = max(0.05, one_tick)` with `one_tick = option_tick(T)` (0.05 below 3.00, 0.10 at or above) — one pure function, both levels pinned | `AC-D65.4`/A204: a 0.05 band above 3.00 is **narrower than a tick**, so the ladder could never settle. Deriving from `T` (not from a wobbling quote) keeps the band stable, and `T` is exactly what the AC's measurable pins | Deriving `one_tick` from `reqMarketRule` (not available — attribute-built OPT contracts carry no `marketRuleIds`, and a per-leg details round-trip is the throttling R141 warns about); a flat 0.05 (rejected — the AC's ≥3.00 case fails); a flat 0.10 (rejected — too coarse for a 1.00 default target) |
+| `[new]` Pre-drop backup | `[new] data/db_backup.py::backup_before_drop(db_path, now=None, backup_dir=None) -> Path`: copy into `get_user_data_path("backups")` as `charting_app_pre-D65_<YYYYMMDD-HHMMSS>.sqlite3`, verify the **copy** read-only (`PRAGMA integrity_check` == `ok`, all three tables present with row counts recorded), raise on any failure so `_migrate_schema` aborts before the drop | `AC-D65.18`/A210: the drop is irreversible and the owner asked for the safeguard; a file copy plus a read-only open never touches the production DB through `DB`, so it respects the ESC-043 opt-in gate | Restoring through the app DB handle (rejected — the opt-in gate is for the application); a `VACUUM INTO` (rejected — needs a writer connection on the live DB, and SQLite's backup API adds nothing here); skipping verification (rejected — an unverified copy is not a backup) |
+| `[new]` Acceptance evidence | A separate **owner-run** wave records `docs/archive/probe_records/d65_paper_tws_acceptance.md` (the D48/D52 shape) with per-item evidence and TWS's own line count before/after OFF | `AC-D65.19`/A211: every automated test uses fakes, so a real gateway is the only proof that quotes/greeks arrive and that OFF releases lines; the record is the gate, the suite is the floor | Treating the fake-client suite as proof (rejected — R144's exact failure mode); a gating live test in CI (rejected — repo rule) |
 
 ### System Components
 
@@ -9270,26 +9370,41 @@ exists anywhere.
   `apply_snapshot(ccs_rows, pcs_rows)` (one coalesced repaint), `set_status(text)`,
   `set_empty_state(text|None)`, `target_value()`, `set_target_value(x)`, `toggle_state()`,
   `set_toggle_state(on)`, plus the signals `toggle_clicked(bool)` and
-  `target_committed(float)`. Name cells always carry the full string as a tooltip and elide
+  `target_committed(float)`. **Target validation is the panel's own** (`AC-D65.17`): the commit
+  path accepts `0.05 ≤ T ≤ 19.95` only, rejects blank/unparsable/`0`/negative/`NaN`/`Inf`/
+  `≥ 20.00` with **one** message stating the accepted range in the status label, restores the
+  last valid value in the field, and **emits no `target_committed`** — so no ladder state can
+  move on a bad edit. Name cells always carry the full string as a tooltip and elide
   with an ellipsis when the column is narrower than the text.
 - `[new] services/option_ladder.py` — pure, Qt-free, `ibapi`-free: `SPREAD_WIDTH = 20`,
   `STRIKE_STEP = 5`, rung offsets `{1: +10, 2: +5, 3: 0, 4: −5}` (one formula, both sides —
   A187), `ladder_pairs(anchor_short)`, `format_instrument(symbol, expiry, short, long)`
-  (`SPX Nov17 7435/7455`, short leg first), `net_bases(bid_s, ask_s, bid_l, ask_l) ->
-  (bid, mid, ask)`, `distance(target, bases)`, `net_greeks(...)`, `snap_rung(...)`,
-  `window_legs(anchor_short)`, plus the cell-format helpers (ASK/BID 2 dp, Delta
-  3 dp, Gamma 4 significant digits). Geometry and arithmetic only: there is **no**
-  `scan_anchor`/`next_step` helper — the scan is the engine's sweep of window steps
-  (S-P23-5), so nothing here searches or steps.
+  (`SPX Nov17 7425/7445`, short leg first, **exactly 20 wide** — A212), **the two basis pairs,
+  named so they cannot be mixed**: `display_bases(bid_s, ask_s, bid_l, ask_l) ->
+  (display_ask, display_bid)` (A202: `long.ask − short.bid`, `long.bid − short.ask` — negative
+  for a credit spread, by design) and `credit_bases(bid_s, ask_s, bid_l, ask_l) ->
+  (credit_bid, credit_ask, credit_mid)` (`−display_ask`, `−display_bid`, their mean);
+  `distance(target, credits)`, **`option_tick(target) -> float`** and **`match_band(target) ->
+  float`** (`h = max(0.05, option_tick(target))`, A204), **`usable_quote(bid, ask, received_bid,
+  received_ask) -> tuple[float | None, float | None]`** (the `AC-D65.16` sentinel/ordering
+  screen), `net_greeks(...)`, `snap_rung(...)`, `window_legs(anchor_short)`, plus the
+  cell-format helpers (ASK/BID 2 dp, Delta 3 dp, Gamma 4 significant digits). Geometry and
+  arithmetic only: there is **no** `scan_anchor`/`next_step` helper — the seed is the engine's
+  (S-P23-18) and the walk is the engine's window steps (S-P23-5), so nothing here searches or
+  steps.
 - `[new] services/option_spread_engine.py` — pure, Qt-free, `ibapi`-free state machine: owns
-  per-side anchor, per-leg quote/greek state, the subscription set (as `LegKey`s), the
-  once-only message latches, the chain-cache key and the ON/OFF/Target state. Exposes
-  `toggle_on()`/`toggle_off()`, `set_target(t)`, `on_chain(...)`, `on_no_expiry()`,
-  `on_quote(leg, bid, ask)`, `on_greek(leg, delta, gamma)`, `on_leg_error(leg, code)`,
-  `on_disconnected()`, `on_reconnected()`, `evaluate(now)`, `live_legs()`, each accumulating
-  into an `Actions` value — `subscribes` (leg keys), `cancels` (leg keys), `rows` (per side),
-  `messages` (once-only text), `empty_state`, `status`, plus the chain/conId requests it
-  needs. It never touches the network, a timer or a widget.
+  per-side anchor, per-leg quote/greek state (`Quote` with per-side *received* flags and an
+  arrival stamp), the subscription set (as `LegKey`s), the **`LegKey → reqId` map the registry
+  rebind writes**, the lease accounting, the seed sweep state, the once-only message latches,
+  the rejected-pair set, the frozen-walk flag, `last_spot_price`, the chain-cache key and the
+  ON/OFF/Target state. Exposes `toggle_on()`/`toggle_off()`, `set_target(t)`, `on_chain(...)`,
+  `on_no_expiry()`, `on_quote(leg, bid, ask, received_bid, received_ask)`,
+  `on_spot(price)`, `on_greek(leg, tick_type, delta, gamma)`, `on_leg_error(leg, code)`,
+  `on_disconnected()`, `on_reconnected()`, `rebind_leg(leg, new_req_id)`, `evaluate(now)`,
+  `begin_seed(now)`, `seed_actions()`, `seed_state()`, `live_legs()`, each accumulating into an
+  `Actions` value — `subscribes`/`cancels` (leg keys), `spot_subscribe`/`spot_cancel`, `rows`
+  (per side), `messages` (once-only text), `empty_state`, `status`, plus the chain/conId
+  requests it needs. It never touches the network, a timer or a widget.
 - `[new/changed] ibkr/contracts.py` — gains `get_option_contract(...)`,
   `today_expiry_yyyymmdd(now)`, `select_zero_dte_series(params, today)` (trading-class
   preference `SPXW`; `None` when no series carries today), and `option_chain_strikes(series)`
@@ -9310,15 +9425,30 @@ exists anywhere.
   `option_computation = pyqtSignal(int, int, object, object)`; **deletes** the four
   account/position signals. `error_msg`, `connected`, `disconnected` and every chart/tick
   signal are untouched.
+- `[new/changed] ibkr/subscription_manager.py` — **one added module-level type tag**
+  (`OPTION_LEGS`, name and placement per FI-P23-3's recommendation) beside `RT_BARS` /
+  `MARKET_DATA` / `S0_TICKS`. `subscribe`, `unsubscribe`, `unsubscribe_all_of_type`,
+  `entries_of_type` and `replay_all` are **unmodified** (they are frozen below); the tag is the
+  whole change, and it is what lets replay cover the panel without touching the watchlist.
+- `[new] data/db_backup.py` — `backup_before_drop(db_path: Path, now: datetime | None = None,
+  backup_dir: Path | None = None) -> Path` plus its failure type: copies the SQLite file with
+  `shutil.copy2` (never through `DB`, so the ESC-043 opt-in gate is untouched), then opens the
+  **copy** read-only (`sqlite3.connect("file:…?mode=ro", uri=True)`), requires
+  `PRAGMA integrity_check` == `ok` and the presence of `positions`, `trade_groups` and
+  `position_group_map` with row counts, and raises if any check fails. Its single production
+  caller is `DB._migrate_schema`, which runs it before the `DROP TABLE` block — so the drop
+  cannot execute without a verified copy (S-P23-21).
 - `[new/changed] ui/main_window.py` — dock swap (`OptionSpreadsPanel`, title **and**
   objectName `Option Spreads`, title-bar widget = the panel's `header_button`, same minimum
   width, the window attribute renamed `portfolio_panel` → `option_spreads_panel`), **the
   launch width of S-P23-16** (`_right_launch_width = OptionSpreadsPanel.PREFERRED_WIDTH` at
   construction and `_deferred_dock_setup` passing `requested_right=` — one added argument, no
   new key), the three collapse-probe re-points, the option wiring (chain request, leg
-  request/cancel by window diff, tick routing by reqId, the 1 s evaluation timer, the
-  coalesced refresh, the `_on_error` option branch, `_md_line_count` += live option lines,
-  connect/disconnect hooks), and the whole account/position path deletion.
+  request/cancel by window diff, **per-leg registry registration with `reissue`/`rebind`**,
+  tick routing by reqId, **the one SPX spot line and its routing**, the 1 s evaluation timer,
+  the coalesced refresh, the `_on_error` option branch, `_md_line_count` += live option lines
+  **and the spot line**, connect/disconnect hooks), **the one added tag in
+  `_replay_subscriptions`'s `include_types`**, and the whole account/position path deletion.
 - `[new/changed] ui/watchlist_panel.py`, `[new/changed] ui/ticker_session.py` — the D27.5
   price-sink chain deleted (`_price_sink`, `set_price_sink`, its call site,
   `_record_symbol_price` and the `ticker_session` host call). No other change.
@@ -9333,20 +9463,29 @@ exists anywhere.
 - `[existing]`, unmodified, consumed: `services/md_line_guard.py`,
   `services/contract_lookup_service.py`, `ibkr/id_manager.py`, `ibkr/error_codes.py`,
   `ibkr/pacing.py`, `ui/dock_layout.py`, `ui/visual_conventions.py`,
-  `services/market_calendar.py`, `ui/chart_view.py` / `ui/lwc_view.py` (untouched). The panel
-  uses its own status label, not `ui/toast.py`.
+  `services/market_calendar.py`, `config/paths.py` (`get_user_data_path` for the backup
+  directory — read-only consumption), `ui/chart_view.py` / `ui/lwc_view.py` (untouched). The
+  panel uses its own status label, not `ui/toast.py`.
 - `[existing] Order-code absence` — P23 adds zero order interaction; `placeOrder` /
   `cancelOrder` / `reqGlobalCancel` remain inherited-only and unused (D45/D46).
 
 ### Data Model
 
 - `[new]` In-memory only — no table, no QSettings (A192): `LegKey(right, strike)` with
-  per-leg `Quote(bid, ask)` / `Greeks(delta, gamma)` in the engine;
-  `OptionSeries(trading_class, exchange, expiry, con_id, strikes_by_right)` in
-  `ibkr/contracts.py`; per-rung `SpreadRow` (rung, short, long, display name, ASK, BID, Delta,
-  Gamma, matched flag) built by the ladder module and handed to the panel. The **window**
-  (the four-rung leg set around one anchor) is the engine's unit of subscription state — the
-  live leg set *is* the window, and there is no probe/carry set beside it.
+  per-leg `Quote(bid, ask, received_bid, received_ask, at)` — the *received* flags are what
+  separate a live zero bid from TWS's no-tick zero (`AC-D65.16`) — and `Greeks(delta, gamma,
+  source)` where `source ∈ {model, last, bidask_mean}`; `OptionSeries(trading_class, exchange,
+  expiry, con_id, strikes_by_right)` in `ibkr/contracts.py`; per-rung `SpreadRow` (rung, short,
+  long, display name, **displayed** ASK/BID, Delta, Gamma, matched flag) built by the ladder
+  module and handed to the panel; the engine's `leg → reqId` map, `SeedSweep(started_at,
+  scored, best_pair, bounded)` and `last_spot_price`. The **window** (the four-rung leg set
+  around one anchor) is the engine's unit of subscription state — the live leg set *is* the
+  window; probe pairs are **leases** against the free part of the same 16-line capacity and are
+  released when scored, so no probe ever outlives its score (S-P23-18).
+- `[new]` A **filesystem artefact**, not a row: the pre-drop copy
+  `…/backups/charting_app_pre-D65_<YYYYMMDD-HHMMSS>.sqlite3` with its verified `integrity_check`
+  and three row counts (returned by `backup_before_drop`, recorded in the build result). Nothing
+  reads it at runtime; it is the audit trail the owner asked for (`AC-D65.18`/A210).
 - `[new]` The **launch width** is derived, never stored: `OptionSpreadsPanel.PREFERRED_WIDTH`
   (360) flows through `plan_dock_widths` to `_right_dock_width` on every launch, so there is
   no width row, no key and no column anywhere (A192/A201).
@@ -9370,15 +9509,31 @@ exists anywhere.
   `get_index_contract("SPX")`).
 - `[new]` Option `reqMktData` lines → `tickPrice` (bid/ask: tick types 1/2 and the delayed
   66/67 pair) and `tickOptionComputation` (delta/gamma) — one line per displayed leg, at most
-  16, issued through `MarketDataManager.req_mkt_data` and cancelled through
-  `cancel_mkt_data`.
+  16 option lines, issued through `MarketDataManager.req_mkt_data` and cancelled through
+  `cancel_mkt_data`. **Each leg is registered in `ibkr/subscription_manager.py`** (`subscribe`
+  with the panel's own type tag, a `reissue` that re-issues the same contract and returns the
+  new reqId, and a `rebind` that repoints the engine's `leg → reqId` entry), so the existing
+  `replay_all` covers it and the panel owns **no** reconnect logic of its own
+  (`AC-D65.14`(ii), S-P23-17).
+- `[new]` **One SPX spot line, only when memory has no SPX price** (A206): `get_index_contract("SPX")`
+  → `req_mkt_data` → `tickPrice` last → `engine.on_spot(price)`. It is counted in
+  `_md_line_count`, registered in the same registry, cancelled when the seed completes, and
+  refused-lines are tolerated (the seed runs without a starting region). This is the only
+  circumstance in which the panel's footprint reaches **17** lines.
+- `[new]` **Per-line TWS errors** (`AC-D65.14`(iii)) — `IBBridge.error_msg` → `_on_error` →
+  the engine's `on_leg_error(leg, code)`, which classifies **200** (pair dropped for the session,
+  row `n/a`, one message naming the strike, one-step toward-the-money re-seat if it was the
+  anchor), **10197 / 354** (row `—`, one message naming the missing subscription, **no**
+  re-seat), **162** (transient: no line dropped, values `STALE` after the timeout, one message,
+  retry at the next cadence) and **anything else** (row `—`, one message, no re-seat).
 - `[new/changed]` Market-data budget — `MainWindow._md_line_count` adds the live option-line
-  count; every leg issuance passes `_guard_md_lines("SPX", "option spread leg")` (the guard's
-  first production caller).
+  count **and the spot line when open**; every leg and the spot issuance pass
+  `_guard_md_lines("SPX", "option spread leg")` (the guard's first production caller).
 - `[existing]` `IBBridge.error_msg` → `MainWindow._on_error` (the single error surface, with a
-  new option-owned-reqId branch); `IBBridge.connected` / `disconnected` → engine re-issue /
-  clear. `classify_error`, the D40.1 502 suppression and the connection badge are reused
-  unchanged.
+  new option-owned-reqId branch); `IBBridge.disconnected` → `engine.on_disconnected()` (`STALE` +
+  frozen walk, no cancels); `IBBridge.connected` → the existing `_replay_subscriptions`
+  (`replay_all` with the panel's tag included) → `engine.on_reconnected()`. `classify_error`, the
+  D40.1 502 suppression and the connection badge are reused unchanged.
 - `[existing]` `IdManager.get_id` (every new reqId), `PacingManager.throttle` (chain request),
   `ContractLookupService` (conId), `services/market_calendar.py` (trading-day predicates for
   the "no 0DTE today" state).
@@ -9463,21 +9618,41 @@ Manager gives workers these contracts verbatim, never the implementation.
   `self._bars.get(timeframe, [])`, i.e. an empty list for a timeframe with no session data.
   P23 **reads only** (tie-break 3, S-P23-13): no `set_bars`, no aggregation change, no new
   field. Owner: `ui/ticker_session.py`. *(The one `[existing]` contract P23 consumes without
-  owning in that module — P23-05 deletes the price-sink chain beside it, not this.)*
+  owning in that module — P23-06 deletes the price-sink chain beside it, not this.)*
+- `ibkr/subscription_manager.py` — the registry's API, verbatim, **unmodified by this phase**
+  (P23 adds one module-level tag constant and nothing else):
+  `def subscribe(self, symbol: str, req_id: int, req_type: str = MARKET_DATA, *, reissue: Optional[Callable[[], int]] = None, rebind: Optional[Callable[[int], None]] = None) -> None:`
+  · `def unsubscribe(self, req_id: int) -> None:` (idempotent) ·
+  `def unsubscribe_all_of_type(self, req_type: str) -> None:` ·
+  `def has_subscription(self, symbol: str, req_type: str | None = None) -> bool:` ·
+  `def entries_of_type(self, req_type: str) -> list[tuple[int, str]]:` ·
+  `def replay_all(self, include_types: Optional[set[str]] = None) -> list[tuple[int, int]]:`
+  — replays only entries whose type is included **and** whose `reissue is not None`, raises
+  `PacingExceeded` up front for the RT-bar budget (D28.1 all-or-nothing), then
+  `new_id = entry.reissue()`, `entry.rebind(new_id)`, moving the registry bookkeeping and
+  returning `[(old, new)]`. Owner: `ibkr/subscription_manager.py`.
+- `config/paths.py` — verbatim: `def get_user_data_path(filename: str | None = None) -> Path:`
+  (`None` returns the app-support directory itself, created at import) and
+  `def get_db_path() -> Path:` (always `get_user_data_path(_DB_FILENAME)`). The app-support
+  directory is what the backup path is derived from — no hardcoded path, no second source of
+  truth. Owner: `config/paths.py`.
 - `IBBridge.connected` / `IBBridge.disconnected` / `IBBridge.error_msg` — verbatim signal
   shapes (`pyqtSignal()`, `pyqtSignal()`, `pyqtSignal(int, int, str)`); the only lifecycle
-  and error transport the panel uses.
+  and error transport the panel uses. P23 **consumes** them (a new option-owned-reqId branch in
+  `_on_error`, new connect/disconnect handlers) and changes none of them.
 
 **NOT frozen (changed or created this phase; no worker may assume an old contract):** the
 `Option Spreads` dock wiring, the renamed `option_spreads_panel` attribute and the three
 collapse probes; the **launch-width request** (`OptionSpreadsPanel.PREFERRED_WIDTH` /
 `preferred_width()`, `MainWindow._right_launch_width`, and `_deferred_dock_setup`'s new
-`requested_right=` argument); `OptionSpreadsPanel` in full;
-the new option-ladder module and the new option-spread-engine module (service layer);
-the OPT/chain helpers in `ibkr/contracts.py`; `req_sec_def_opt_params`; the three new
+`requested_right=` argument); `OptionSpreadsPanel` in full; the new option-ladder module and
+the new option-spread-engine module (service layer); the new pre-drop backup module
+(data/db_backup.py — named without backticks until it lands); the **one added type
+tag** in `ibkr/subscription_manager.py`; `_replay_subscriptions`'s include set; the OPT/chain
+helpers in `ibkr/contracts.py`; `req_sec_def_opt_params`; the three new
 `client.py` overrides and the three new bridge signals; `_md_line_count` / `_on_error` / the
-option wiring in `ui/main_window.py`; the `data/db.py` drop migration; the re-baselined
-residue instrument.
+option wiring in `ui/main_window.py`; the `data/db.py` drop migration and its backup call; the
+re-baselined residue instrument.
 **Deleted this phase, therefore not contract-bearing:** `ActivePortfolioPanel` and
 `ui/active_portfolio_panel.py`, the four account/position bridge signals and their client
 overrides, `ibkr/account.py`, `data.models.Position`/`TradeGroup`,
@@ -9486,77 +9661,121 @@ overrides, `ibkr/account.py`, `data.models.Position`/`TradeGroup`,
 
 ### Non-Functional Approach
 
-- **Cadence and churn (A191, AC-D65.4, R139).** Evaluation runs on a 1 s repeating timer while
-  ON. The step decision compares `d` at the two neighbours, which are *already displayed* as
-  spreads 2 and 4 — so a decision costs **zero** extra subscriptions and a step costs exactly
-  2 cancels + 2 subscribes per side (legs shared with the new ladder are kept). A stationary
-  feed produces one evaluation and no move. A Target change does **not** blank the panel and
-  does not cancel its side first: the walk resumes from the current window under the new
-  Target, so the pre-change and post-change ladders share every leg the path never left
-  (AP-P23-12).
-- **16-line accounting — one window, one primitive (AC-D65.6, R138).** Steady state is the
-  whole budget: 8 legs per side × 2 sides = **16** lines, the hard cap. There is **no second
-  line pool** — no probe set, no carry set, no transient subscription beside the ladder. Every
-  anchor change is a *window step* issued as a diff: the leaving leg pair is cancelled
-  **first** and the arriving pair subscribed after, per side (both sides in the same turn), so
-  the live count runs **16 → 14 → 16** and never exceeds 16 at any instant. A leg present in
-  both the old and the new window is never in the leaving set, so it is never cancelled or
-  re-requested — that is `AC-D65.6`'s shared-leg rule, and it holds on a **scan** because a
-  scan is nothing but a sequence of window steps. Issue order within a window is
-  deterministic (CCS spread 3, 2, 4, 1 then PCS spread 3, 2, 4, 1) so a guard refusal
-  truncates the tail predictably; refused legs render `—` and one message names the budget.
-  Every projection goes through `_guard_md_lines`; nothing subscribes around it. OFF cancels
-  all 16.
-- **The chain scan is a monotone sweep, not a probe search (AC-D65.3 with AC-D65.6).** A
-  binary probe search has to cancel live legs to make room for far candidates and re-request
-  them afterwards — exactly the churn `AC-D65.6` forbids (pass 1's design did that; S-P23-5
-  records the withdrawal). Instead the scan walks the ordered candidate list one window step
-  at a time in the improving direction and **stops at the winner**, under the same rules as a
-  maintenance step. Shared-leg preservation follows from contiguity: a leg belongs to the
-  windows whose anchors lie in a contiguous range (a short strike `S` for `anchor ∈
-  {S−10 … S+5}`, a long strike for `anchor ∈ {S+10 … S+25}`), so a monotone sweep that ends at
-  the winner never drops a leg the winner also holds. A 20-wide credit vertical's net bid/ask
-  are monotone in strike distance from the money, so `d` is quasi-convex along the ordered
-  list and the improving-direction sweep terminates **on** the minimiser; a chain observed to
-  break that switches to the **full ordered sweep** (every window, one direction, same
-  accounting, `n` steps), which is the exact-coverage fallback (AP-P23-11). Nothing stale is
-  shown as live (A193): every intermediate window is a real, quoted ladder.
+- **Cadence and churn (A191, AC-D65.4, AC-D65.15, R139).** Evaluation runs on a 1 s repeating
+  timer while ON. The step decision compares `d` at the two neighbours, which are *already
+  displayed* as spreads 2 and 4 — so a decision costs **zero** extra subscriptions and a step
+  costs exactly 2 cancels + 2 subscribes per side (legs shared with the new ladder are kept). A
+  stationary feed produces one evaluation and no move. A Target change does **not** blank the
+  panel and does not cancel its side first: the seed starts from the session anchor and the walk
+  resumes, so the pre-change and post-change ladders share every leg the path never left
+  (AP-P23-12). A seed that hit its bound re-arms at the *next* cadence tick, never in a loop.
+- **Line accounting — 16 option lines plus at most 1 spot line (AC-D65.6, AC-D65.15, R138,
+  R150).** Steady state is the whole option budget: 8 legs per side × 2 sides = **16** option
+  lines, the hard cap. **The one exception is a spot line**: the seed may open **at most one**
+  SPX IND line, and only when no SPX price is already in memory (A206), so the panel's total
+  footprint is **17** at most and the guard counts both. Probe pairs are **leases** against the
+  free part of the 16 option slots — they are never extra capacity — so the option count never
+  exceeds 16 even mid-seed, and each lease is released the moment the pair is scored. There is
+  **no second line pool**: no probe set that survives its score, no carry set. Every anchor
+  change is a *window step* issued as a diff: the leaving leg pair is cancelled **first** and
+  the arriving pair subscribed after, per side (both sides in the same turn), so the live option
+  count runs **16 → 14 → 16** and never exceeds 16 at any instant. A leg present in both the old
+  and the new window is never in the leaving set, so it is never cancelled or re-requested — that
+  is `AC-D65.6`'s shared-leg rule, and it holds on a seed because the refine phase is nothing but
+  window steps; a leg already in the live window is **never leased as a probe**. Issue order
+  within a window is deterministic (CCS spread 3, 2, 4, 1 then PCS spread 3, 2, 4, 1) so a guard
+  refusal truncates the tail predictably; refused legs render `—` and one message names the
+  budget. Every projection goes through `_guard_md_lines`; nothing subscribes around it. OFF
+  cancels all option lines **and** the spot line if it is still open.
+- **Seeding by measurement, bounded (AC-D65.3 with AC-D65.6, AC-D65.15; A207).** The anchor is
+  found in three tiers, in order: **(1) session anchor** — the pair this session last anchored,
+  in memory; **(2) coarse probe** — at most **6 candidate pairs per side**, spaced **20 points**
+  (4 × the 5-point grid), each leased (2 lines), scored and released, then interpolated to the
+  nearest 5-point rung; **(3) refine** — one 5-point window step at a time toward the smaller
+  `d`, exactly the maintenance rule. Spot chooses the probe's starting region only: the chart's
+  `_last_chart_price` when the chart shows SPX, else an existing SPX session's last close, else
+  the engine's `last_spot_price`, else **one** SPX line; if that line is refused or never quotes,
+  the probe starts from the chain's median strike and the seed still completes. Hard bound:
+  **10 s wall clock or 12 scored pairs, whichever comes first** — then the ladder stays at the
+  best-known pair, one message names the bound and the value, and the seed re-arms at the next
+  cadence tick. A pair whose legs have not both quoted is **pending** and cannot be scored, so a
+  slow leg lengthens the sweep but never fakes a winner. Shared-leg preservation on the refine
+  walk follows from contiguity: a leg belongs to the windows whose anchors lie in a contiguous
+  range (a short strike `S` for `anchor ∈ {S−10 … S+5}`, a long strike for `anchor ∈
+  {S+10 … S+25}`), so a one-directional walk that ends at the winner never drops a leg the winner
+  also holds; a 20-wide credit vertical's net bid/ask are monotone in strike distance from the
+  money, so `d` is quasi-convex and the improving-direction walk terminates **on** the minimiser,
+  with the full ordered sweep as the exact-coverage fallback (AP-P23-11). Nothing stale is shown
+  as live (A193): every intermediate window is a real, quoted ladder.
 - **Right-dock width and name legibility (AC-D65.9, A201).** At launch the dock is
   `clamp(360, 200, right_dock_max_width(chart_area))`, so on any window wide enough for the
-  cap the five columns render `SPX Nov17 7435/7455` in full (the 360 px budget is ≈140 px name
+  cap the five columns render `SPX Nov17 7425/7445` in full (the 360 px budget is ≈140 px name
   + ≈38/38/52/60 px numeric + ≈12 px frame, rounded up to a multiple of 8 with ≈16 px of
   font/DPI headroom). Every narrower state — the cap on a small window, a user drag below
   360, a collapse→expand round trip — takes the **elide + tooltip** path, never a silently
   clipped cell. The name column is the elastic one and the numeric columns are fixed, so a
   resize only re-elides (no repaint storm, no re-subscription), and nothing is persisted: the
   next launch recomputes the same clamp.
-- **Streaming fidelity (AC-D65.5).** Quotes update per tick into the engine; the panel repaints
-  once per event-loop turn. A row needs both legs quoted on both sides before it shows a
-  number, otherwise `—`. Greeks are per-leg values screened for `None`, `-1` and NaN, combined
-  as net position greeks (short leg negated) and rendered `Delta` 3 dp / `Gamma` 4 significant
-  digits (A190); greeks never gate selection or movement (DG118).
-- **Fault model (AC-D65.8, AC-D65.7).** One latch per cause (no greeks, sentineled greeks,
-  rejected leg contract, no option entitlement, connection lost, invalid Target, no 0DTE
-  today, after-close no quotes, budget refusal, chain edge, rung shortfall): first occurrence
-  sets the panel status line, later occurrences are silent. The panel status label is the
-  message surface; `_on_error` routes option-owned reqIds there instead of the generic
-  status-bar line, so one cause yields exactly one user-visible message. Values clear to `—`
-  on OFF, disconnect and empty state; row names remain. Recovery: the next good value clears
-  its latch; reconnect while ON re-issues the current leg set (the full chain sequence only
-  when the chain was never resolved).
+- **Streaming fidelity: honest values, one sign convention (AC-D65.5, AC-D65.16; A202/A203).**
+  Quotes update per tick into the engine; the panel repaints once per event-loop turn. A cell
+  shows a number only when that leg's quote is **usable**: a received tick, finite, `0 ≤ bid ≤
+  ask`, not `-1` / `1.7976931348623157e+308` (a received `0` bid *is* usable — far-OTM 0DTE);
+  otherwise `—`, and a one-sided pair is never matched or scored. Rows render the **displayed**
+  values `ASK = long.ask − short.bid`, `BID = long.bid − short.ask`, `Δ/Γ = long − short`
+  (negative for a credit spread, by design); the match and the walk use only the **credit**
+  bases from the same function pair, so a sign can never be mixed. Greeks resolve per leg in the
+  order **model (13) → last (12) → mean of bid (10)/ask (11)**; a row whose two legs resolve to
+  **different** sources shows `—` with one message instead of a mixed number. Greeks never gate
+  selection or movement (DG118). `Delta` 3 dp, `Gamma` 4 significant digits, ASK/BID 2 dp.
+- **Connection lifecycle (AC-D65.14, A193/A209; S-P23-17).** **Disconnect** keeps every value
+  on screen marked **`STALE`**, **freezes** the walk (no evaluation may move the ladder, nothing
+  new is subscribed) and emits one message; nothing is cancelled, because the registry entries
+  are what the replay needs. **Reconnect** replays through the registry (`replay_all` with the
+  panel's type tag included): each leg is re-issued and rebound to its new reqId, `STALE` clears
+  as fresh quotes arrive, and the ladder resumes **from the same anchor** — re-seeding only when
+  a leg fails the 3 s timeout. Per-line errors are distinct: **200** drops the pair for the
+  session (`n/a`, one message naming the strike; an anchor pair re-seats one step toward the
+  money and retries once before stopping), **10197/354** show `—` with one message and **never**
+  re-seat (an entitlement cannot be fixed by moving), **162** keeps the line and goes `STALE`
+  after the timeout with one message and a next-cadence retry, anything else shows `—` with one
+  message and no re-seat. **OFF is the only clearing path**: it cancels the lines and clears to
+  `—`. ON/OFF and the Target never survive a restart (A192/A209, Q111): launch is always OFF at
+  `1.00`.
+- **Fault model (AC-D65.8, AC-D65.7, AC-D65.17).** One latch per cause (no greeks, sentineled
+  greeks, mixed-source greeks, rejected leg contract, no option entitlement, connection lost,
+  throttled line, invalid Target, no 0DTE today, after-close no quotes, budget refusal, chain
+  edge, rung shortfall, sweep bound): first occurrence sets the panel status line, later
+  occurrences are silent. The panel status label is the message surface; `_on_error` routes
+  option-owned reqIds there instead of the generic status-bar line, so one cause yields exactly
+  one user-visible message. Values clear to `—` on OFF and on the empty state, go `STALE` on
+  disconnect, and row names remain throughout. Recovery: the next good value clears its latch.
+  The **post-cutoff** state (≥ 16:15 ET on the expiry date — A205; `market_calendar` models no
+  option session today, so the panel owns the constant) keeps its rows with `—`/`STALE` and one
+  `no live quotes` message rather than inventing an expiry or a price.
+- **Target input is a gate, not a hint (AC-D65.17).** `0.05 ≤ T ≤ 19.95` — the range a 20-wide
+  spread can actually be worth. Blank, unparsable, `0`, negative, `NaN`/`Inf` and `≥ 20.00` are
+  rejected in the panel with one message stating the range and the field restored to the last
+  valid value; **no signal is emitted**, so no re-seed, no line change and no walk can follow
+  from a bad edit.
+- **Durability before a destructive migration (AC-D65.18, A210; S-P23-21).** The drop is
+  preceded by a verified file copy (`data/db_backup.py`): copied with `shutil.copy2`, verified
+  read-only (`PRAGMA integrity_check`, all three tables present, row counts recorded), and the
+  migration **aborts** on any failure — an unverified copy is never treated as a backup. Nothing
+  opens the production DB outside the app's own opt-in gate.
 - **Display-only safety (D45/D46).** No `placeOrder`/`cancelOrder`/bracket/validation symbol is
   added or called; the existing tree-wide residue instrument proves the absence and the new
   stream suite adds a fake-client recording assertion over the panel's own path.
-- **Threading and stalls (AC-D65.10).** All panel work happens on the GUI thread from bridge
-  signals; no `sleep`, no blocking read, no socket call, no synchronous wait for a quote (the
-  scan is asynchronous — it waits for ticks or a bounded timer).
+- **Threading and stalls (AC-D65.10, AC-D65.15).** All panel work happens on the GUI thread from
+  bridge signals; no `sleep`, no blocking read, no socket call, no synchronous wait for a quote.
+  The seed is asynchronous and **bounded** (one probe per event-loop turn, 10 s / 12-pair ceiling)
+  so a cold start can never look hung, and the 3 s leg timeout is a timestamp comparison on the
+  cadence tick, never a wait.
 - **Performance.** Per tick: one dict write + a dirty flag. Per evaluation: O(4) rung
-  computations per side. Per step: 2 cancels + 2 subscribes per side. Per scan: **`O(k)`**
-  window steps — one per event-loop turn, each an ordinary step (2 cancels + 2 subscribes per
-  side) paced through `PacingManager`, where `k` is the number of anchors between the seed and
-  the winner (the full ordered sweep's `n` when the quasi-convexity fallback is taken) — plus
-  one chain request per session day. Nothing is O(log n): the scan is a monotone sweep, not a
-  probe search (S-P23-5, AP-P23-13).
+  computations per side. Per step: 2 cancels + 2 subscribes per side. Per seed: ≤12 scored
+  pairs (≤2 leased lines at a time) plus `O(k)` refine window steps — one per event-loop turn,
+  each an ordinary step paced through `PacingManager` — plus one chain request and at most one
+  spot line per session. Nothing is O(log n): the scan is a bounded measurement followed by a
+  monotone sweep, not a probe search (S-P23-5/S-P23-18, AP-P23-13).
 
 ### Architecture Risks
 
@@ -9564,8 +9783,8 @@ overrides, `ibkr/account.py`, `data.models.Position`/`TradeGroup`,
 |---|---|---|
 | AR-P23-1 — TWS refuses attribute-built OPT contracts (error 200), so no leg ever quotes (R141-adjacent) | M / M | The contract is attribute-complete (symbol/secType/exchange/currency/expiry/strike/right/multiplier/tradingClass); a rejection becomes that leg's `—` + one message and excludes it from the scan; the failure shows up in the first unit of build work (fake client, then one owner-named live check) rather than at the end |
 | AR-P23-2 — Chain discovery slow/throttled, or several trading classes without `SPXW`/today (R141) | M / M | One `reqSecDefOptParams` per session day, one conId lookup, cached; `select_zero_dte_series` requires `SPXW`-with-today and otherwise yields the explicit `No 0DTE expiry today` state; no fallback expiry, no polling |
-| AR-P23-3 — Re-anchoring thrashes TWS / blanks rows (R139) | M / M | 1 s cadence + 0.05 band; neighbour evaluation costs no subscriptions; shared legs kept (2 swaps per step per side); the **scan is a monotone window sweep** — no wholesale cancel/refill, so a shared leg keeps its `reqId` and a row never blanks; the stationary-feed case asserts zero moves |
-| AR-P23-4 — The 16-line panel pushes a large watchlist past 90/100 (R138) | M / M | Cap 16 + deterministic issue order + guard-refusal semantics (`—` plus a once-only message naming the budget); OFF is the release path |
+| AR-P23-3 — Re-anchoring thrashes TWS / blanks rows (R139) | M / M | 1 s cadence + tick-derived band; neighbour evaluation costs no subscriptions; shared legs kept (2 swaps per step per side); the **seed is bounded** (≤6 probes/side, 10 s / 12 scored pairs) and its refine phase is a monotone window sweep — no wholesale cancel/refill, so a shared leg keeps its `reqId` and a row never blanks; the stationary-feed case asserts zero moves |
+| AR-P23-4 — The 16 option lines (17 with the spot line) push a large watchlist past 90/100 (R138, R150) | M / M | Cap 16 option lines + at most 1 spot line + deterministic issue order + guard-refusal semantics (`—` plus a once-only message naming the budget); the spot line is paid only when memory has no SPX price (A206) and is cancelled when the seed ends; OFF is the release path |
 | AR-P23-5 — 16 option lines add unbounded tick volume; a per-tick rebuild would jank the UI (AC-D65.10) | M / M | Ticks mutate state only; one `singleShot(0)` refresh per turn; the burst case counts refreshes for N ticks; no blocking sleep on the GUI path |
 | AR-P23-6 — No option entitlement → price-only or empty panel (R140, R144) | M / M | `—` cells + one "not subscribed"/no-greeks message naming the missing entitlement; greeks never gate the ladder (DG118); offscreen mocks passing while live delivers no greeks is accepted, and the live check is owner-named, never a gate |
 | AR-P23-7 — The three-basis window lets a rung read *matched* on the ask while its mid sits well below Target (R148) | M / M | The literal owner rule (A188); ASK/BID are displayed so the user can see it; mid remains the tie-break; a mid-only match is a one-line rule change later |
@@ -9573,29 +9792,43 @@ overrides, `ibkr/account.py`, `data.models.Position`/`TradeGroup`,
 | AR-P23-9 — The Q110(a) deletion is far larger than the panel; a delete-only worker dies mid-edit (R146, D41 lesson) | M / M | Waves split by **member group** (module / wiring / broker boundary / data path / tests), each with a residue-token end state and a fresh import check; each wave S/M, never L |
 | AR-P23-10 — A naive dead-code scan flags framework-invoked callbacks, so the build either silences real dead code or deletes live callbacks (R147) | M / M | `AC-D65.12`(v): explicit allowlist with the registration site cited (`EWrapper` overrides in `ibkr/client.py`, the `_on_error` dispatch, `pyqtSignal.connect` sites); the gate is a seeded-fixture suite test, never a vulture report |
 | AR-P23-11 — ibapi version drift in greek sentinels (`None` vs `-1` vs NaN) yields phantom greeks | L / M | Screen all three per leg before use; the sentinel case is an explicit AC-D65.8 measurable |
-| AR-P23-12 — Tie-break 3 ("short strike nearer the underlying's last price") has no SPX price in-process when the chart shows ES/SPY | L / M | Read an **existing** SPX session's last bar close only (no new line, no new field); when absent, fall back to the lower short strike deterministically (S-P23-13, AP-P23-2); the AC's tie-break cases feed the price, so measurability holds |
+| AR-P23-12 — Tie-break 3 ("short strike nearer the underlying's last price") has no SPX price in process when the chart shows ES/SPY | L / M | Read an **existing** SPX session's last bar close, or the engine's `last_spot_price` cached from an earlier seed, or — only when both are absent — the **one** dedicated spot line (A206); when none yields a price the tie-break is skipped, deterministically keeping the lower short strike (S-P23-13, AP-P23-2). `_symbol_last_prices` is **not** revived (FI-P23-2); the AC's tie-break cases feed the price, so measurability holds |
 | AR-P23-13 — A far Target jump (or a cold seed far from the money) makes the sweep take `k` window steps, so the ladder visibly walks instead of snapping | L / M | One step per event-loop turn, paced by `PacingManager`; every intermediate window is a real, quoted ladder (never blank); the median-strike seed puts a cold start within a few steps; a Target jump is a deliberate user action and OFF is the instant release. The visible walk is the price of `AC-D65.6` — AR-P23-3's alternative (wholesale cancel/refill) is barred |
-| AR-P23-14 — The D18 launch-width change leaks beyond the two authorised re-baselines (a third assertion or a downstream suite pins the old 200 px default) | M / L | Enumerated and verified: the only launch-width equalities are `test_dock_widths_d18.py:437-438` and `test_dock_widths_d18_impl.py:328-329`; every other `RIGHT_DOCK_MIN_WIDTH` equality follows a below-minimum drag or asserts a collapsed width (list in the Codebase Summary). P23-01's exit condition makes "a diff of the two suites shows only those four lines" a byte-checkable gate, and P23-08 re-checks it |
+| AR-P23-14 — The D18 launch-width change leaks beyond the two authorised re-baselines (a third assertion or a downstream suite pins the old 200 px default) | M / L | Enumerated and verified: the only launch-width equalities are `test_dock_widths_d18.py:437-438` and `test_dock_widths_d18_impl.py:328-329`; every other `RIGHT_DOCK_MIN_WIDTH` equality follows a below-minimum drag or asserts a collapsed width (list in the Codebase Summary). P23-01's exit condition makes "a diff of the two suites shows only those four lines" a byte-checkable gate, and P23-09 re-checks it |
 | AR-P23-15 — One of the twenty re-pointed dock lookups turns out to need more than its predicate line: a width-sensitive harness (D10/D13 clamp, watchlist columns, D17 clamp, depth floor, history backfill) measures differently now that the dock it hides launches at 360 px rather than 200 px | M / M | The hide happens before each harness's own measurements and re-fires the clamp, so the intended geometry is unchanged — but the risk is real and is not papered over: **any numeric change needed in those twenty files is a stop-and-escalate, not an in-wave re-baseline** (owner authorisation covers exactly the two A201 sites), and P23-01's exit says so explicitly. The three sentinel assertions (`test_history_backfill_loadpath.py:177`, `test_d42_depth_floor.py:189`, `test_dock_widths_d17.py:83`) convert a desynced key from a silent measurement change into a red test |
+| AR-P23-16 — The reconnect replay silently double-subscribes: a leg registered under the **same tag the watchlist uses** gets re-issued twice (once by `replay_all`, once by `_restore_watchlist`'s clear+re-add), spending lines and corrupting the count (R150-adjacent; FI-P23-3) | H / M | S-P23-17 registers legs under their **own** tag and adds only that tag to `_replay_subscriptions`'s include set; the stream suite asserts **one** replay per leg and **no** duplicate `reqMktData` for any contract, and the watchlist suite is asserted green unchanged. If the tag reading is refused, the AC must be re-worded before build — not patched at the call site |
+| AR-P23-17 — A disconnect leaves the ladder "live" in the user's eyes and a stale evaluation steps it on dead data (AC-D65.14(i)) | M / M | `on_disconnected` sets `STALE` on every cell and a `walk_frozen` flag that `evaluate()` obeys unconditionally; the stream suite asserts **zero** moves while stale and **no** subscribe after a drop; `STALE` is rendered in the cell, never in a tooltip only |
+| AR-P23-18 — Error-code classification guesses: a transient 162 is treated as a dead line (or an entitlement refusal re-seats the ladder and walks it into a wall) (AC-D65.14(iii)) | M / M | The four classes are a table in the engine, one test per code per branch; re-seat is only reachable from 200 **and only for the anchor pair**, asserted by a case that proves 10197/354/other never re-seat |
+| AR-P23-19 — The 10 s / 12-pair seed bound parks the ladder on a merely-adequate pair and the owner reads it as a wrong answer (R151) | M / M | The bound emits **one** message naming both the bound and the best value it kept, the row still shows real quotes, and the seed re-arms at the next cadence tick — so the ladder converges afterwards rather than settling wrong; the warm-anchor path (ON→OFF→ON) never probes at all |
+| AR-P23-20 — The tick rule under `h` is unverified, so `h` is wrong at one level: too narrow ⇒ a move per quote, too wide ⇒ a rung parked up to one tick off target (R153) | M / M | `h = max(0.05, option_tick(T))` is one pure function, and the suite pins **both** levels (`T = 1.00` ⇒ 0.05, `T = 3.00` ⇒ 0.10) plus a `T = 2.95` boundary case; a live disagreement with TWS's displayed increment is one constant to change, not a redesign (A204 records it as unverified) |
+| AR-P23-21 — The pre-drop backup is taken but is not a backup (copy truncated, integrity fails, tables missing) yet the drop proceeds (AC-D65.18, R152) | H / L | Verification is a hard gate **before** the DROP, with the failure path injected in the suite (corrupt copy / missing table ⇒ raise ⇒ the three tables are still present afterwards); the copy is opened read-only and never through the app's `DB`, so the ESC-043 opt-in is respected; the row counts are recorded in the build result |
+| AR-P23-22 — The paper-TWS acceptance run is skipped, so a real gateway is never exercised and the phase closes on fakes alone (R144; AC-D65.19) | H / M | Its own wave with the record as the exit condition, the checklist items pre-written (so "ran it" is checkable against evidence), the TWS line counts recorded before/after OFF, and a waiver only by an explicit recorded owner statement — the gate cannot be satisfied by the suite |
 
 ### Architecture Decisions (relationship-labelled)
 
 | # | Decision | Relationship |
 |---|---|---|
 | S-P23-1 | **Panel swap, dock model untouched, launch width from the panel.** `ActivePortfolioPanel` → `OptionSpreadsPanel`; dock title **and** `objectName` become `Option Spreads`; the panel's `DiagonalStrikeButton("Option Spreads")` (`header_button`) becomes the dock's title-bar widget; the window attribute is renamed `portfolio_panel` → `option_spreads_panel`; the three panel-coupled collapse probes (`_compute_right_dock_collapsed_min_width`, `_right_region_is_collapsed`, `_sync_right_dock_collapse`'s widget tuple) are re-pointed; every other dock width/collapse/visibility path is untouched, and the **launch width is S-P23-16's** one-line request through the unchanged clamp. **The rename also re-points the twenty surviving dock lookups** (Codebase Summary) in the same wave, to `dock.objectName() in ("Option Spreads",)` — `objectName`, not the title, because once `setTitleBarWidget(header_button)` replaces the title bar the title string is not rendered at all (it is chrome), while `objectName` is the identity `findChild(QDockWidget, …)` already resolves the dock by in the two asserting suites; the three sentinel assertions (`test_history_backfill_loadpath.py:177`, `test_d42_depth_floor.py:189`, `test_dock_widths_d17.py:83`) keep theirs on the new key so a future rename fails loudly instead of silently. Rationale: D18/D21.13/D44 keep working with zero behavioural change beyond the owner-authorised launch width (AC-D65.9) and the collapse strip keeps a visible handle, and `A198`'s "every title-keyed lookup resolving it" is satisfied in the wave that creates the need. Alternative: a QTabWidget with two panels (rejected — Q110(a)); a plain dock title with no title-bar widget (rejected — the D44 strip and D21.13 strike would have to be rebuilt); re-keying the twenty lookups to the new title string (rejected — it re-creates the same coupling that made this rename break them, and a later header rewording would desync them a third time); `win.right_dock.hide()` in all twenty (rejected — it would make the `QDockWidget` import unused in fifteen files for no gain, and it would leave the three D19 sentinel assertions with no key to test). | `[revises D41: "the right dock is Portfolio-only"]` (A194/DG119) + `[extends D21.13/D44: panel-provided collapse header]` |
-| S-P23-2 | **Ladder geometry and naming: one formula, both sides.** Rung 1 = anchor + 10, rung 2 = +5, rung 3 = anchor, rung 4 = −5, applied to **both** legs so every spread stays 20 wide; the short leg is always written first; names read `SPX MmmDD short/long` from the expiry traded. Rationale: only this reading makes all eight of the owner's worked numbers the same four spreads (A187); one formula means one implementation and one test table. Alternative: per-side mirrored offsets (rejected — that is the typo reading Q109(a) resolved); per-side name formats (rejected — A187). | `[new in P23]` — implements A187 |
-| S-P23-3 | **Three-basis metric and anchor scan.** `bid = bid_s − ask_l`, `ask = ask_s − bid_l`, `mid = (bid + ask)/2`; `d = min(|mid−T|, |ask−T|, |bid−T|)`; matched iff `d ≤ 0.05`; the anchor is the listed 20-wide pair minimising `d`, ties broken (1) smaller `|mid−T|`, (2) `mid ≥ T`, (3) short strike nearer the underlying's last price. Rationale: the owner's test is three-basis, so the *same* quantity must drive match and movement — otherwise the ladder declares a match and walks away from it; one function, or AC-D65.3 and AC-D65.4 could disagree. Alternative: mid-only (rejected — Q108(b) overrode it); steering on mid while testing on three bases (rejected — the circularity above). | `[new in P23]` — implements Q108(b)/A188/A189 |
-| S-P23-4 | **The two neighbours are already displayed — a step costs two swaps.** The pairs one 5-point step either side of the anchor are exactly rungs 2 and 4, so both neighbours' `d` is computed from legs already streamed: a step decision needs **no** new subscription, and a step cancels the rung that leaves the window and subscribes the rung that enters it (2 + 2 per side; shared legs untouched). Direction: toward the toward-the-money rung when all three bases are below `T` (CCS strikes **down**, PCS **up**), the reverse when all are above; stop when matched, when no neighbour improves `d` by more than `0.05`, or when the improving neighbour is not a listed pair (once-only chain-edge message naming the best reachable value); equal-`d` neighbours break on the mid closer to `T`, then stay. One 5-point step per evaluation on **both** legs, evaluations ≤ 1/s. Rationale: this is what makes AC-D65.4 affordable under a 16-line cap and makes AC-D65.6's shared-leg rule exact; credit is monotone in strike distance, so each rung has one improving direction and a stationary feed cannot oscillate. Alternative: subscribing the neighbours as extra pairs (rejected — 4 more lines and churn for information the ladder already streams); re-scanning on every move (rejected — violates A191/R139). | `[new in P23]` — implements the `### Direction Rule (Q108(b))`/A189 |
-| S-P23-5 | **One movement primitive — a `reqId`-preserving window step — and the chain scan as a monotone sweep of window steps.** A *window* is the four-rung ladder around one anchor (8 legs per side, 16 for both sides = the whole cap). Every anchor change — a maintenance step, a Target change, an OFF→ON seed, an unusable-anchor correction — is a **window step**: the engine diffs the target window against the live window and issues the leaving leg pair's cancels **before** the arriving pair's subscribes (2 cancels + 2 subscribes per side, 4 each for both sides in one turn), so the live count runs 16 → 14 → 16 and never exceeds 16 at any instant. **A leg in both the old and the new window is never cancelled** — it is not in the leaving set by construction, so it keeps its `reqId`. The chain scan is therefore *not* a probe search: it is a **monotone sweep** of window steps from the seed window, one step per turn, that **stops at the winner**, so `AC-D65.6`'s shared-leg rule holds on a re-anchor. Shared-leg preservation is a contiguity property: a leg (right, strike `S`) belongs to a **contiguous** range of anchors (a short strike to `anchor ∈ {S−10 … S+5}`, a long strike to `anchor ∈ {S+10 … S+25}`), so a sweep that visits anchors in one direction and ends at the winner never drops a leg the winner also holds. The OFF→ON seed is deterministic — the listed 20-wide pair whose short strike is nearest the chain's **median** listed strike (no live legs exist yet, so the shared-leg rule is vacuous) — and afterwards the sweep direction is the maintenance rule's (compare `d` at the two displayed neighbours). Coverage: a 20-wide credit vertical's net bid/ask are monotone in strike distance from the money, so `d` is quasi-convex along the ordered candidate list and the improving-direction sweep terminates **on** the minimiser; a chain observed to break that (the walk stops with a still-improving neighbour one plateau over) switches the session to the **full ordered sweep**, which visits every window in one direction — exact coverage with the same accounting, at `n` steps, bounded by the chain's width. Rationale: this is the only shape that satisfies both `AC-D65.6`'s shared-leg rule and the 16-line cap — any design that probes far candidates while the ladder is live must cancel live legs to make room, and re-requesting them later is exactly the churn the criterion forbids (pass 1's bounded probe scan did that; it is withdrawn). Alternative: bounded binary probe with wholesale cancel/refill (rejected — the `AC-D65.6` violation above); a local walk with no chain seed (rejected — `AC-D65.3` requires the scan, and a walk from a far guess can stall on a plateau); `calculateOptionPrice`/IV model pricing (rejected — `AC-D65.5` forbids polling, and the owner asked for TWS quotes). | `[new in P23]` — mechanism for AC-D65.3 *with* AC-D65.6 (supersedes pass 1's probe scan) |
+| S-P23-2 | **Ladder geometry and naming: one formula, both sides, and one canonical fixture pair per side.** Rung 1 = anchor + 10, rung 2 = +5, rung 3 = anchor, rung 4 = −5, applied to **both** legs so every spread stays exactly **20** wide; the short leg is always written first; names read `SPX MmmDD short/long` from the expiry traded. Canonical fixtures (A212): **CCS `SPX Nov17 7425/7445`** = short 7425 call **below** long 7445; **PCS `SPX Nov17 7340/7320`** = short 7340 put **above** long 7320 — and a guard rejects any pair whose width is not 20 or any PCS row whose long strike is above its short, so the owner's 10-wide `7425/7435` / `7315/7435` rows can never re-enter as fixtures. Rationale: only this reading makes all eight of the owner's worked numbers the same four spreads (A187); one formula means one implementation and one test table, and one canonical pair per side means every suite (ladder, engine, stream, probe record) speaks the same strikes. Alternative: per-side mirrored offsets (rejected — that is the typo reading Q109(a) resolved); per-side name formats (rejected — A187); keeping the owner's literal example rows (rejected — A212 bans them, they are 10 wide and the PCS one is inverted). | `[new in P23]` — implements A187/A212 |
+| S-P23-3 | **Three-basis metric on the credit bases, with the owner's displayed sign stated in the same function pair.** *Credit bases* (what the Target measures and the walk steers on): `credit_bid = bid_s − ask_l`, `credit_ask = ask_s − bid_l`, `credit_mid = (credit_bid + credit_ask)/2`; `d = min(|credit_mid−T|, |credit_ask−T|, |credit_bid−T|)`; matched iff `d ≤ h` with `h = max(0.05, option_tick(T))` (S-P23-20's band: 0.05 below 3.00, 0.10 at or above). *Displayed values* (A202, what the cells show, negative for a credit spread by design): `display_ask = ask_l − bid_s = −credit_bid`, `display_bid = bid_l − ask_s = −credit_ask`, so the **ASK cell pairs with `credit_bid` and the BID cell with `credit_ask`** — a swap that is stated once here and implemented only inside `display_bases`/`credit_bases`. The anchor is the listed 20-wide pair from S-P23-19's seed minimising `d`, ties broken (1) smaller `|credit_mid−T|`, (2) `credit_mid ≥ T`, (3) short strike nearer the underlying's last price. Rationale: the owner's test is three-basis, so the *same* quantity must drive match and movement — otherwise the ladder declares a match and walks away from it; and because the display is the negative of the steering quantity, one named helper per direction is the only shape in which a sign cannot be mixed. Alternative: mid-only (rejected — Q108(b) overrode it); steering on mid while testing on three bases (rejected — the circularity above); a positive-credit display (rejected — contradicts A202 and the owner's screenshot); ad-hoc negations at each call site (rejected — the ASK/BID swap makes them unverifiable). | `[new in P23]` — implements Q108(b)/A188/A189/A202 |
+| S-P23-4 | **The two neighbours are already displayed — a step costs two swaps, and the step band is tick-derived.** The pairs one 5-point step either side of the anchor are exactly rungs 2 and 4, so both neighbours' `d` is computed from legs already streamed: a step decision needs **no** new subscription, and a step cancels the rung that leaves the window and subscribes the rung that enters it (2 + 2 per side; shared legs untouched). Direction: toward the toward-the-money rung when all three **credit** bases are below `T` (CCS strikes **down**, PCS **up**), the reverse when all are above; **move only when `d(neighbour) < d(current) − h`**, stop when matched (`d ≤ h`), when no neighbour improves by more than `h`, or when the improving neighbour is not a listed pair (once-only chain-edge message naming the best reachable value); equal-`d` neighbours break on the credit mid closer to `T`, then stay. `h = max(0.05, option_tick(T))` — **never narrower than one tick** (0.05 below 3.00, 0.10 at or above), pinned at both levels. One 5-point step per evaluation on **both** legs, evaluations ≤ 1/s. Rationale: this is what makes AC-D65.4 affordable under a 16-line option cap and makes AC-D65.6's shared-leg rule exact; credit is monotone in strike distance, so each rung has one improving direction and a stationary feed cannot oscillate; a 0.05 band above 3.00 would be narrower than a tick, so the ladder could never settle. Alternative: subscribing the neighbours as extra pairs (rejected — 4 more lines and churn for information the ladder already streams); a flat 0.05 band (rejected — AC-D65.4's ≥3.00 case fails, and a sub-tick band cannot settle); re-scanning on every move (rejected — violates A191/R139). | `[new in P23]` — implements the `### Direction Rule (Q108(b))`/A189/A204 |
+| S-P23-5 | **One movement primitive — a `reqId`-preserving window step — plus leases for the bounded seed probe.** A *window* is the four-rung ladder around one anchor (8 legs per side, 16 for both sides = the whole **option** cap). Every anchor change — a maintenance step, a Target change's refine, an OFF→ON seed's refine, an unusable-anchor correction — is a **window step**: the engine diffs the target window against the live window and issues the leaving leg pair's cancels **before** the arriving pair's subscribes (2 cancels + 2 subscribes per side, 4 each for both sides in one turn), so the live option count runs 16 → 14 → 16 and never exceeds 16 at any instant. **A leg in both the old and the new window is never cancelled** — it is not in the leaving set by construction, so it keeps its `reqId`. The seed's coarse tier (S-P23-18) is **not** a second line pool: each probe pair is a **lease of 2 lines against free capacity**, held only until the pair is scored, released immediately after, and refused outright when the live window already occupies the budget — so a leg already live is never leased, and the option count still never exceeds 16. The refine tier is then a **one-directional sweep** of window steps that **stops at the winner**, so `AC-D65.6`'s shared-leg rule holds on a re-anchor. Shared-leg preservation is a contiguity property: a leg (right, strike `S`) belongs to a **contiguous** range of anchors (a short strike to `anchor ∈ {S−10 … S+5}`, a long strike to `anchor ∈ {S+10 … S+25}`), so a sweep that visits anchors in one direction and ends at the winner never drops a leg the winner also holds. Coverage: a 20-wide credit vertical's net bid/ask are monotone in strike distance from the money, so `d` is quasi-convex along the ordered candidate list and the improving-direction sweep terminates **on** the minimiser; a chain observed to break that (the walk stops with a still-improving neighbour one plateau over) switches the session to the **full ordered sweep**, which visits every window in one direction — exact coverage with the same accounting, at `n` steps, bounded by the chain's width **and** by S-P23-18's 10 s / 12-pair bound. Rationale: this is the only shape that satisfies both `AC-D65.6`'s shared-leg rule and the option-line cap while still measuring a cold start instead of crawling to it — a lease is capacity-neutral, so the cap holds by construction rather than by luck. Alternative: a bounded binary probe with wholesale cancel/refill (rejected — the `AC-D65.6` violation above); a parallel probe pool beside the ladder (rejected — exceeds the cap and orphans live legs); a local walk with no seed measurement (rejected — A207's exact complaint, and a walk from a far guess stalls); `calculateOptionPrice`/IV model pricing (rejected — `AC-D65.5` forbids polling, and the owner asked for TWS quotes). | `[new in P23]` — mechanism for AC-D65.3 *with* AC-D65.6/AC-D65.15 (supersedes pass 1's probe scan and pass 4's median-only seed) |
 | S-P23-6 | **Chain discovery via the existing conId path + `reqSecDefOptParams`.** SPX's IND `conId` is resolved once per session through `ContractLookupService.request("SPX", get_index_contract("SPX"))`; the chain comes from `reqSecDefOptParams("SPX", "", "IND", conId)`; `select_zero_dte_series` prefers trading class `SPXW` and requires today's ET date in its expiration set, else `No 0DTE expiry today` with zero rows and zero lines; the series (strikes per right, exchange) is cached for the session day and invalidated on reconnect. Rationale: `reqSecDefOptParams` needs the underlying conId and the tree already has exactly one async conId resolver; no fallback expiry (Q107(b)). Alternative: a hardcoded SPX conId/strike table (rejected — silently wrong when the grid changes); `reqContractDetails` enumeration (rejected — throttled, R141). | `[new in P23]` + `[extends P20: IND contract resolution]` |
 | S-P23-7 | **Per-leg contracts built by attributes.** `get_option_contract(symbol, expiry, strike, right, trading_class, exchange, multiplier="100", currency="USD")` returns an `ibapi` `Contract` with no `conId`; TWS resolves it on `reqMktData`. Rationale: 16 legs × a paced round-trip per re-anchor is neither pacing-safe nor needed — the chain skeleton already guarantees the strike is listed. Alternative: per-leg `reqContractDetails` (rejected — R141/pacing); conId from the chain (not provided). | `[new in P23]` |
-| S-P23-8 | **Greek and quote intake on the leg's own line.** `tickOptionComputation` carries only `delta`/`gamma` to the bridge; `tickPrice` provides bid/ask (1/2 and the delayed 66/67 pair). Per-leg greeks are chosen by tick-type priority **13 (model) > 12 (last) > 11 (ask) > 10 (bid) > delayed variants**, screened for `None`/`-1`/NaN; spread greeks are net position values with the short leg negated. Rationale: inventory §1/§3 (greeks only on the option's own line) and DG123 (carry nothing unused); model greeks are what TWS displays, while last-trade computations can be stale. Alternative: carrying IV/vega/theta (rejected — not displayed); first-writer-wins regardless of tick type (rejected — a stale last-trade computation could outlive the model value). | `[extends A196: the panel owns its leg subscriptions]` |
-| S-P23-9 | **Subscription lifecycle and budget semantics.** The engine is the single owner of the leg set; every addition/removal is diffed into subscribe/cancel actions; the panel's own maximum is 16; `MainWindow._md_line_count` counts them; issuance goes through `_guard_md_lines` and `MarketDataManager.req_mkt_data`; a refusal yields `—` for the affected rows and one message naming the budget, never a silent drop or an over-cap subscribe; OFF cancels every leg. Rationale: AC-D65.6 + R138, and the guard has no production caller today (its only users were test doubles). Alternative: a panel-local counter (rejected — two truths); snapshot ticks (rejected — not streaming, AC-D65.5). | `[new in P23]` + `[extends the D37 market-data path]` |
-| S-P23-10 | **One message per cause, one surface.** The engine keeps a latch per cause; the panel status label is the option message surface; `_on_error` gains an option-owned-reqId branch **before** its generic fallback that forwards `(reqId, code, text)` to the engine instead of printing `Error [code]: …`. The generic path, `classify_error`, the D40.1 502 suppression and the connection badge are unchanged. Rationale: AC-D65.8 counts messages per cause; two surfaces for one cause would read as two errors. Alternative: let the generic status line fire and add a panel message (rejected — doubles every cause); suppressing `_on_error` wholesale (rejected — it is the only error surface, KEEP per A198). | `[new in P23]` — mechanism for AC-D65.8 |
+| S-P23-8 | **Greek and quote intake on the leg's own line, source-consistent per row.** `tickOptionComputation` carries only `delta`/`gamma` to the bridge; `tickPrice` provides bid/ask (1/2 and the delayed 66/67 pair). Per-leg greeks resolve in the order **model (13) → last (12) → mean of bid (10) and ask (11)**, screened for `None`/`-1`/`1.7976931348623157e+308`/NaN; spread greeks are net position values with the short leg negated (`Δ/Γ = long − short`, negative for a credit spread by design — A202). **A row's two legs must resolve to the same source**: if one leg is model and the other bid/ask, the row shows `—` with one message rather than a mixed number. Rationale: inventory §1/§3 (greeks only on the option's own line), DG123 (carry nothing unused), and A203 — bid/ask greeks are quote-side estimates that differ from the model by more than a rounding step, so mixing them yields a spread greek no model agrees with. Alternative: carrying IV/vega/theta (rejected — not displayed); first-writer-wins regardless of tick type (rejected — a stale last-trade computation could outlive the model value); per-leg independent fallback (rejected — the mixed-source number above); silently rendering the mix (rejected — AC-D65.5 requires `—` + one message). | `[extends A196: the panel owns its leg subscriptions]` — revised by A202/A203 |
+| S-P23-9 | **Subscription lifecycle and budget semantics — 16 option lines, one optional spot line, one registry.** The engine is the single owner of the leg set; every addition/removal is diffed into subscribe/cancel actions; the panel's own maximum is **16 option lines**, and the seed may add **at most one** SPX spot line (A206), so the panel's ceiling is **17** and both are counted; `MainWindow._md_line_count` counts them; issuance goes through `_guard_md_lines` and `MarketDataManager.req_mkt_data`; a refusal yields `—` for the affected rows and one message naming the budget, never a silent drop or an over-cap subscribe; OFF cancels every leg **and** the spot line. Every leg registers in `SubscriptionManager` under the panel's own type tag with a `reissue` hook, so the panel holds no reconnect logic (S-P23-17). Rationale: AC-D65.6 + AC-D65.15 + R138/R150, and the guard has no production caller today (its only users were test doubles). Alternative: a panel-local counter (rejected — two truths); a second line pool for probes (rejected — leases are capacity-neutral by construction); snapshot ticks (rejected — not streaming, AC-D65.5). | `[new in P23]` + `[extends the D37 market-data path]` + `[revises D27.3: replay covers rt_bars + s0_ticks only]` |
+| S-P23-10 | **One message per cause, one surface — and a distinct state per TWS line-error class.** The engine keeps a latch per cause; the panel status label is the option message surface; `_on_error` gains an option-owned-reqId branch **before** its generic fallback that forwards `(reqId, code, text)` to the engine instead of printing `Error [code]: …`. The engine then classifies exactly four ways (`AC-D65.14`(iii)): **200** — pair dropped for the session, row `n/a`, one message naming the strike, and a one-step toward-the-money re-seat **only** when the anchor pair was the rejected one (retried once, then a stop message); **10197 / 354** — row `—`, one message naming the missing subscription, **no** re-seat; **162** — transient, no line dropped, `STALE` after the timeout, one message, retry at the next cadence; **any other** — row `—`, one message, no re-seat. The generic path, `classify_error`, the D40.1 502 suppression and the connection badge are unchanged. Rationale: AC-D65.8/AC-D65.14 count messages per cause; two surfaces for one cause would read as two errors, and re-seating on an entitlement refusal walks the ladder into the same wall. Alternative: one generic "leg error" state (rejected — the AC distinguishes four); re-seating on every code (rejected — an entitlement cannot be fixed by moving); letting the generic status line fire and adding a panel message (rejected — doubles every cause). | `[new in P23]` — mechanism for AC-D65.8/AC-D65.14(iii) |
 | S-P23-11 | **Tick coalescing and repaint.** Ticks mutate engine state and set a dirty flag; one `QTimer.singleShot(0, self._refresh_option_panel)` per turn applies the whole snapshot; the refresh reads the engine only. Rationale: AC-D65.10 (one coalesced update per event-loop turn, no per-tick rebuild, no GUI-thread sleep); the repo already uses this idiom for dock widths. Alternative: rebuilding both tables per tick (rejected — AC-D65.10 measures it); a second repaint timer (rejected — two clocks for one surface). | `[new in P23]` |
-| S-P23-12 | **Deletion by member group, verified per wave — and a test dies with the subject it reads.** The displaced stack is deleted in five waves, each with a byte-checkable end state: (0) **the panel module, its dock wiring, the dock identity's whole lookup surface and the six D27 account/position suites that render into it** (`ui/active_portfolio_panel.py`, `tests/test_d41_portfolio_dock.py`, the dock title/`objectName` **and the twenty surviving title-keyed lookups that resolve it**, `tests/test_d27_*`) in the **panel-swap wave**, which must precede every deletion so the dock is never empty and never hosts an unhooked widget; (a) window consumers (the account/position window path and the price-sink chain — the D27 suites are already gone by then, their subject having been the panel's render path); (b) broker boundary (four client overrides + four bridge signals) with their emitters; (c) the remaining modules + models (`ibkr/account.py`, `services/strategy_detection.py`, `data.models.Position`/`TradeGroup`) with their suites; (d) the schema drop (DDL + child-first `DROP TABLE IF EXISTS` + the residue instrument re-baseline). A single test file may be split by function across waves (`tests/test_d45_removal.py`: P23-01, -05, -06, -07), but each of its functions moves in the wave that deletes what it reads. Each wave ends with a fresh import check and a residue grep for its own tokens. Rationale: R146/D41 (three workers died on L-size delete-only tasks); the member-group split keeps each wave S/M and its end state provable, and a wave's "suite is green" exit can only hold if no surviving test still names a symbol it deleted. Alternative: one big delete wave (rejected — R146); deleting by file (rejected — the D41 lesson); leaving the D27 suites to the account-path wave (rejected — they read `window.portfolio_panel`, which wave 0 renames away, so they would be red for four waves). | `[extends P5/D46: guarded one-time migration + residue instrument]` |
-| S-P23-13 | **Tie-break 3's underlying price comes from existing state only.** The scan's tie-break uses the last bar close of an **existing** SPX `TickerSession` (read-only: `self._sessions.get("SPX")` → `get_bars()`); when no SPX session exists the tie-break is skipped and the lower short strike wins deterministically. `_symbol_last_prices` is **not** revived — the whole price-sink chain dies with the panel (verified single reader: position `market_price`). Rationale: DG121 asked for exactly this check; adding an SPX line would spend budget and need its own lifecycle for a last-resort tie-break. Alternative: keep `_symbol_last_prices` for the tie-break (rejected — contradicts A198's DELETE and leaves a map whose only consumer vanishes); subscribe an SPX IND line (rejected — budget and lifecycle for a tie-break). | `[new in P23]` — resolves DG121's `_symbol_last_prices` sub-item |
+| S-P23-12 | **Deletion by member group, verified per wave — and a test dies with the subject it reads.** The displaced stack is deleted in four waves, each with a byte-checkable end state: (0) **the panel module, its dock wiring, the dock identity's whole lookup surface and the six D27 account/position suites that render into it** (`ui/active_portfolio_panel.py`, `tests/test_d41_portfolio_dock.py`, the dock title/`objectName` **and the twenty surviving title-keyed lookups that resolve it**, `tests/test_d27_*`) in the **panel-swap wave** (P23-01), which must precede every deletion so the dock is never empty and never hosts an unhooked widget; (a) window consumers (the account/position window path and the price-sink chain — `ui/main_window.py`, `ui/watchlist_panel.py`'s `set_price_sink`/`_price_sink`, `ui/ticker_session.py:562` — the D27 suites are already gone by then, their subject having been the panel's render path) in P23-06; (b) broker boundary (four client overrides + four bridge signals) with their emitters **and** the remaining modules + models (`ibkr/account.py`, `services/strategy_detection.py`, `data.models.Position`/`TradeGroup`) with their suites in P23-07; (c) the schema drop (DDL + child-first `DROP TABLE IF EXISTS` + **the verified pre-drop backup of S-P23-21** + the residue instrument re-baseline) in P23-08. A single test file may be split by function across waves (`tests/test_d45_removal.py`: P23-01, -06, -07, -08), but each of its functions moves in the wave that deletes what it reads. Each wave ends with a fresh import check and a residue grep for its own tokens — and P23-08's grep covers the **full file set `AC-D65.18` names**, not just `main_window`. Rationale: R146/D41 (three workers died on L-size delete-only tasks); the member-group split keeps each wave S/M and its end state provable, and a wave's "suite is green" exit can only hold if no surviving test still names a symbol it deleted. Alternative: one big delete wave (rejected — R146); deleting by file (rejected — the D41 lesson); leaving the D27 suites to the account-path wave (rejected — they read `window.portfolio_panel`, which wave 0 renames away, so they would be red for four waves). | `[extends P5/D46: guarded one-time migration + residue instrument]` |
+| S-P23-13 | **Tie-break 3's underlying price comes from the seed's spot chain, never from a revived side-store.** Tie-break 3 uses the same precedence the seed uses (S-P23-18): the chart's `_last_chart_price` when the chart shows SPX, else an **existing** SPX `TickerSession`'s last bar close (read-only: `self._sessions.get("SPX")` → `get_bars()`), else the engine's `last_spot_price` cached from an earlier seed; the single spot line is the last resort and only when the seed itself is otherwise memoryless. When none yields a price the tie-break is skipped and the lower short strike wins deterministically. `_symbol_last_prices` is **not** revived — the whole price-sink chain dies with the panel (verified single reader: position `market_price`); `AC-D65.15`(ii) names that map, and **FI-P23-2** records the conflict with `AC-D65.13`/`AC-D65.18` rather than resolving it silently. Rationale: DG121 asked for exactly this check, and one precedence chain shared by the seed and the tie-break means one implementation and one set of suite cases. Alternative: keep `_symbol_last_prices` for the tie-break (rejected — contradicts A198's DELETE and leaves a map whose only writer is deleted); always subscribe an SPX IND line (rejected — a line on every launch for a last-resort tie-break, and A206 makes it conditional). | `[new in P23]` — resolves DG121's `_symbol_last_prices` sub-item; see FI-P23-2 |
 | S-P23-14 | **Non-uniform grids: snap, then omit.** Each offset rung snaps to the nearest listed strike of that expiry/side (tie → the strike nearer the anchor), keeping the pair exactly 20 wide and monotonically ordered; a rung that cannot be a listed 20-wide pair renders its row with `—` and a once-only shortfall message, so four rows always exist and no unlisted strike is ever requested. Rationale: DG120 + AC-D65.2 ("every displayed strike is a listed strike", "a missing-strike case asserting the snap rule"); the ladder's neighbour logic depends on rungs 2/4 being exactly one 5-point step away, which snapping preserves by construction. Alternative: request the unlisted strike (rejected — guaranteed error 200); drop the row (rejected — the panel's shape must stay four rows; `—` is the honest absence). | `[new in P23]` — resolves DG120 |
 | S-P23-15 | **The standing unused-code gate is a suite test in the `test_d45_removal.py` shape.** `tests/test_d65_residue.py` asserts (i) every symbol added by P23 has a production caller or a cited framework registration site, (ii) every new test helper is used in its file, (iii) no unused import / unreached branch / `if False` / `# noqa` / commented-out implementation block / `__all__`-only export / "keep for later" module in touched files, (iv) every new signal is emitted **and** connected, (v) the allowlist cites its registration site — and it must go **red on a seeded dead-symbol fixture** and green on the tree. The displaced tokens (`ActivePortfolioPanel`, `portfolio_panel`, `Account Summary`, `account_summary`, `position_update`, `build_position_from_ib`, `detect_and_group`, `strategy_detection`, `TradeGroup`, `trade_groups`, `_upsert_position`, `_symbol_last_prices`, `set_price_sink`, `_record_symbol_price`, `reqAccountSummary`, `reqPositions`) join the forbidden set with a documented survivor list. Rationale: AC-D65.12/.13 require a suite gate, not an opinion, and the repo already has the instrument shape (with the D46 carve-out to retire). Alternative: a vulture report as the gate (rejected — AC-D65.12(v)); a review checklist (rejected — decays, A197). | `[extends P5/D46: the residue instrument]` |
 | S-P23-16 | **The launch width is the panel's preferred width, clamped by the existing plan.** `OptionSpreadsPanel.PREFERRED_WIDTH = 360` (with `preferred_width()` and a matching `sizeHint`); `MainWindow.__init__` remembers it as `self._right_launch_width` (mirroring `_persisted_watchlist_width`, D17.4 — `_right_dock_width` keeps tracking the live dock width) and `_deferred_dock_setup` re-applies it **once** as `requested_right=`, where `_apply_dock_widths` → `_plan_dock_widths` → `plan_dock_widths` clamps it to `clamp(360, RIGHT_DOCK_MIN_WIDTH, right_dock_max_width(chart_area))` against the real chart area. No QSettings key, no constant added to `ui/dock_layout.py`, and no change to the 200 px minimum, the 40 % cap, the 400 px chart minimum, the D21.13 collapse or the D44 strip. Rationale: `AC-D65.9`(i)–(iv)/A201 — the width is a property of the panel's five columns, so the panel advertises it; routing it as a *request* through the one existing clamp keeps a single source of truth for every D18/D21.13/D44 rule (a small window caps it, a user drag overrides it, a restart recomputes it identically). Alternative: a `RIGHT_DOCK_PREFERRED_WIDTH` constant in `ui/dock_layout.py` (rejected — frozen dock model, and the width would become a global dock fact rather than the panel's); applying the width at construction (rejected — the chart area does not exist yet and Qt's layout would override it, which is why D17.4 defers); persisting the last width (rejected — A192/A201 forbid it). | `[revises D18: the right dock's launch width is RIGHT_DOCK_MIN_WIDTH]` (A201, resolves FI-P23-1) + `[extends D17.4: deferred request re-application]` |
+| S-P23-17 | **The connection lifecycle is the registry's, per line, with the walk frozen on staleness.** Every option leg (and the one spot line) is registered in `SubscriptionManager.subscribe(symbol="SPX", req_id, req_type=<panel tag>, reissue=λ: market_data.req_mkt_data(contract), rebind=λ new_id: engine.rebind_leg(leg, new_id))`; `MainWindow._replay_subscriptions` adds the panel's tag to its `include_types`, which is the **only** change on the reconnect path (the watchlist's MARKET_DATA exclusion, its clear+re-add and AC-D22.7.2 are untouched). `engine.on_disconnected()` sets every cell `STALE`, raises `walk_frozen` and emits one message **without cancelling anything** (the registry entries are what the replay needs); `evaluate()` returns immediately while frozen. On reconnect each entry is re-issued and rebound, `STALE` clears per fresh value, and the ladder resumes from the same anchor, re-seeding only if a leg misses the 3 s timeout. Per-line errors are the four classes of S-P23-10. ON/OFF and Target never persist (A192/A209/Q111). Rationale: `AC-D65.14` forbids a panel-local reconnect path (it would double-subscribe) and requires the existing `replay_all`; freezing is what stops a stale evaluation from stepping the ladder on dead data. Alternative: `req_type=MARKET_DATA` as written (rejected — every watchlist row carries that tag **with** a reissue hook, so replay would double-subscribe them; **FI-P23-3**); a panel-owned reconnect list (rejected — the double-subscribe the AC names); clearing cells to `—` on disconnect (rejected — A193 asks for retained-and-marked values). | `[new in P23]` — implements AC-D65.14; `[revises D27.3: replay covers rt_bars + s0_ticks only]` |
+| S-P23-18 | **The seed is a bounded three-tier measurement, and spot is only an accelerator.** Tier 1 — the session anchor (in memory for today's SPXW expiry); tier 2 — a coarse probe of **≤6 pairs per side at 20-point spacing**, each pair leased (2 of the 16 option slots, only against free capacity), scored and **released immediately**, then interpolated to the nearest 5-point rung; tier 3 — the ordinary 5-point window-step refine. Hard bound: **10 s wall clock or 12 scored pairs**, whichever first — then the best-known pair is kept, **one** message names the bound and the value, and the seed re-arms at the next cadence tick. Spot precedence: `_last_chart_price` (chart on SPX) → an existing SPX session's last close → the engine's `last_spot_price` → **at most one** SPX IND line, cancelled when the seed completes and tolerated when refused. A leg with no usable quote is *pending*: cells `—`, and its pair is not scored or match-eligible, with the 3 s timeout recorded as a timestamp comparison on the cadence tick. Rationale: A207's exact complaint (a per-step crawl from spot to a 1.00 credit can take many seconds, and a Target change longer) is answered by measurement, while the bound is what stops a cold start looking hung and the lease rule is what keeps the option cap true while probing. Alternative: crawl from spot (rejected — A207); a parallel probe pool (rejected — exceeds the cap); probe with live legs held (rejected — capacity-free leases only); require spot (rejected — the seed must complete without it). | `[new in P23]` — implements AC-D65.15/A206/A207/A208 |
+| S-P23-19 | **Only real quotes are values.** A leg is *quoted* per side only once a `tickPrice` has arrived for that side; a **received `0` bid is live** (far-OTM 0DTE), while `-1`, `1.7976931348623157e+308`, NaN/±inf and the no-tick zero are **absent**; when both sides are present `0 ≤ bid ≤ ask` must hold or the leg is absent. Absent → `—` in the affected cells, the pair is not scored and **cannot match**; a pair whose credit is ≤ 0 still renders and is scored (it simply cannot match a positive Target); a good→sentinel transition flips the cell to `—` and the ladder re-evaluates at the next cadence. Rationale: AC-D65.16 — TWS's missing-data convention would otherwise render as a price, a sentinel would otherwise enter a `d` computation, and a one-sided pair would invent a credit. Alternative: treat every `0` as missing (rejected — kills far-OTM rungs the owner asked for); score on one side (rejected — invents the credit); clamp sentinels to 0 (rejected — 0 is a legitimate bid). | `[new in P23]` — implements AC-D65.16/A202 |
+| S-P23-20 | **The band is tick-derived: `h = max(0.05, option_tick(T))`.** One pure function, `option_tick(T) = 0.05 if T < 3.00 else 0.10`, with both levels pinned plus the `2.95`/`3.00` boundary. `h` serves double duty — the match threshold (`d ≤ h`) and the move threshold (`d(neighbour) < d(current) − h`). The market-rule branch of the AC's parenthetical is **not available** on this path: per-leg contracts are built by attributes (S-P23-7), so they carry no `marketRuleIds`, and a per-leg `reqContractDetails` round-trip is exactly the throttled cost R141 warns about; A204 records the increment as owner knowledge, unverified against `reqMarketRule`. Rationale: a 0.05 band above 3.00 is narrower than a tick, so the ladder could never settle; deriving from `T` (not from a wobbling quote) keeps the band stable and matches the AC's measurable. Alternative: a flat 0.05 (rejected — the ≥3.00 case fails); a flat 0.10 (rejected — too coarse for the 1.00 default); per-leg market-rule lookups (rejected — cost and not exposed on an attribute-built contract; one constant to change if TWS disagrees). | `[new in P23]` — implements AC-D65.4/A204; see AR-P23-20 |
+| S-P23-21 | **A verified copy precedes the drop.** `data/db_backup.py::backup_before_drop(db_path, now=None, backup_dir=None) -> Path` copies the SQLite file with `shutil.copy2` into `config.paths.get_user_data_path("backups")` as `charting_app_pre-D65_<YYYYMMDD-HHMMSS>.sqlite3`, then opens the **copy** read-only and requires `PRAGMA integrity_check == "ok"` plus all three tables present with their row counts recorded; any failure raises, and `DB._migrate_schema` calls it **before** the `DROP TABLE IF EXISTS` block, only when at least one table still exists, so a failed verification leaves the schema intact. The copy is a file operation, never a `DB` connection, so the ESC-043 production-DB opt-in gate is respected; the drop itself stays one-time and irreversible for rows written after the copy. Rationale: AC-D65.18/A210 — the owner asked for the safeguard and an unverified copy is not a backup. Alternative: `VACUUM INTO` (rejected — needs a writer on the live DB and adds nothing); relying on the D46-style guarded DDL alone (rejected — the AC requires the copy and the abort). | `[new in P23]` — implements AC-D65.18/A210; `[revises the D46 drop's reversibility posture]` |
+| S-P23-22 | **The acceptance run is its own owner-run wave, and the suite cannot satisfy it.** A final wave produces (and then fills) `docs/archive/probe_records/d65_paper_tws_acceptance.md` in the recorded-probe shape beside `d48`/`d52`: the six `AC-D65.19` items pre-written as checkboxes with an evidence field each, and the TWS market-data line count recorded **before and after** OFF. Its exit is the recorded run (or an explicit recorded owner waiver); no other wave may claim it, and the residue gate's "every `AC-D65.*` satisfied" statement explicitly excludes it. Rationale: every automated test uses fakes, so a real gateway is the only evidence that quotes/greeks arrive and that OFF releases lines (A211/R144). Alternative: a gating live test in CI (rejected — repo rule); treating the fake-client suite as proof (rejected — R144's exact failure mode). | `[new in P23]` — implements AC-D65.19/A211 |
+| S-P23-23 | **Target validation is a gate in the panel, not a filter in the ladder.** The panel's commit path accepts `0.05 ≤ T ≤ 19.95` (a 20-wide spread's maximum worth is 20.00, so `≥ 20.00` cannot occur) and rejects blank / unparsable / `0` / negative / `NaN` / `Inf` / `≥ 20.00` with **one** message stating the accepted range in the status label, the field restored to the last valid value, and **no `target_committed` emitted**. A valid edit emits once and is applied by re-seeding immediately (then at the next cadence). Rationale: AC-D65.17 requires "no ladder state changes" — emitting nothing is the only shape in which a downstream engine cannot move; putting the range in the widget keeps one gate instead of two. Alternative: validate in the engine too (rejected — two truths for one bound, and the engine cannot restore the field); clamp silently (rejected — "reject with a message" is the AC). | `[new in P23]` — implements AC-D65.17 |
 

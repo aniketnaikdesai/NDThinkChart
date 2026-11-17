@@ -154,20 +154,27 @@
 > test-impact rows stand as regenerated (Plan-confirmed).
 >
 > **P23 note (2026-11-17):** Option Spreads panel batch (D65, Batch 37 — right-dock panel replacement,
-> SPX/SPXW 0DTE chain discovery, per-leg quote/greek streaming, the 16-line option budget, and the
-> Portfolio/account-position stack deletion under the standing Unused-Code Rule). Skeleton re-run
-> 2026-11-17 (273 code files, 24 test-impact rows). **New modules (named without backticks until they
+> SPX/SPXW 0DTE chain discovery, per-leg quote/greek streaming, the 16-option-line budget **plus at
+> most one SPX spot line (17 total)**, a three-tier bounded seed, the D27.3 registry replay for
+> option legs, the verified pre-drop backup, and the Portfolio/account-position stack deletion under
+> the standing Unused-Code Rule). Skeleton re-run 2026-11-17 (273 code files, 24 test-impact rows).
+> **New modules (named without backticks until they
 > land, per the map lint rule):** ui/option_spreads_panel.py (dock panel: header collapse button, Target
-> field, ON/OFF toggle, two 4×5 tables, status label), services/option_ladder.py (pure ladder geometry,
-> naming, three-basis metric, net greeks, rung snapping and the window leg set — no scan/step helper:
-> the scan is the engine's window-step sweep), services/option_spread_engine.py (pure Qt-free state
-> machine: chain state, leg subscriptions, once-only fault latches, window steps and the sweep).
-> **Changed:** `ui/main_window.py` (dock swap + option wiring, account path deleted),
-> `ibkr/contracts.py` (OPT contract builder + SPXW/0DTE series selection), `ibkr/market_data.py`
+> field with its `0.05 ≤ T ≤ 19.95` gate, ON/OFF toggle, two 4×5 tables, status label),
+> services/option_ladder.py (pure ladder geometry, naming, the displayed/credit basis pair, the
+> tick-derived band, quote validity, net greeks, rung snapping and the window leg set — no
+> scan/step helper: the seed is the engine's bounded measurement and the walk is its window steps),
+> services/option_spread_engine.py (pure Qt-free state machine: chain state, leg subscriptions,
+> the three-tier seed with leases and the 10 s / 12-pair bound, pending legs, window steps,
+> disconnect/reconnect states and the four per-line error classes), data/db_backup.py (the
+> pre-drop verified copy).
+> **Changed:** `ui/main_window.py` (dock swap + option wiring + `_replay_subscriptions`'s one added
+> tag, account path deleted), `ibkr/subscription_manager.py` (one added type tag), `ibkr/contracts.py`
+> (OPT contract builder + SPXW/0DTE series selection), `ibkr/market_data.py`
 > (reqSecDefOptParams), `ibkr/client.py` (tickOptionComputation + securityDefinitionOptionParameter
 > overrides added; the four account/position overrides deleted), `ibkr/bridge.py` (option signals added;
 > the four account/position signals deleted), `data/db.py` (positions/trade_groups/position_group_map
-> dropped), `data/models.py` (Position/TradeGroup deleted), `ui/watchlist_panel.py` +
+> dropped, behind the backup call), `data/models.py` (Position/TradeGroup deleted), `ui/watchlist_panel.py` +
 > `ui/ticker_session.py` (the D27.5 price-sink chain deleted with `_symbol_last_prices`).
 > **Deleted:** `ui/active_portfolio_panel.py`, `ibkr/account.py`, `services/strategy_detection.py`; the
 > rows for those three and for the account/position data path read as **history** once P23 lands —
@@ -247,6 +254,7 @@
 | `data/bar_cache.py` | Bar persistence + retention (`RETENTION_BARS`), D42 mode-aware key. | `[existing]` | `BarCache.save_bars` / `::get_bars` / `::prune` |
 | `data/bar_aggregator.py` | Tick → bar aggregation. | `[existing]` | `BarAggregator` |
 | `data/alarm_store.py`, `drawing_store.py`, `study_store.py`, `popout_store.py` | Per-feature stores. | `[existing]` | — |
+| data/db_backup.py (**new in P23** — named without backticks until it lands, per the map lint rule) | The pre-drop SQLite backup: file copy into `config.paths`' app-support backups directory under a timestamped `charting_app_pre-D65_*.sqlite3` name, then a **read-only** verification of the copy (`PRAGMA integrity_check` + the three tables' row counts). | **`[new in P23]`** | `backup_before_drop`; its only production caller is `DB._migrate_schema` (P23-08), which aborts the drop if it raises. Never opens the app DB, so the ESC-043 opt-in gate is irrelevant to it. |
 | data/events/ (**deleted** — directory absent from the tree) | Was the `EventProvider` ABC + the D38 event source. | **deleted** (removal landed before P7; recorded here so nothing re-plans it) | data/events/provider no longer exists; the D38 dividend/marker surface it fed is gone with the P6 render migration. Do not restore without a new requirement. |
 
 ## `ibkr/` — the broker boundary
@@ -258,6 +266,7 @@
 | `ibkr/account.py`, `ibkr/contracts.py` | Account/position rows and contract helpers. | **`[changed in P5]`** — `account.py`; `contracts.py` `[existing]`, untouched | `Position` row build, `get_contract_for_symbol`. **P5 wave 7** deletes `ibkr.account.Position.stop_loss`/`take_profit` and `build_position_from_ib`'s two parameters, and rewords the `Position.id` comment to justify `id` by strategy grouping only (`ESC-062`). Nothing else in either module changes. |
 | **deleted in P5** — ibkr/orders (`UserOrder`, `Orders` + the four builders, the registry, the `orders` singleton) | The order builders and the in-memory open-order registry. | **deleted in P5** | not importable after P5 (`import ibkr.orders` raises `ModuleNotFoundError`); its only importer was `ui/main_window.py`:36 and its registry was never written, so every read returned `None`. **The D45 decision to keep this module is OVERTURNED (A91/`S39`): it is deleted, nothing may restore it, and a future order path needs a new requirement rather than an un-comment.** |
 | `ibkr/bridge.py`, `realtime_bars.py`, `pacing.py`, `id_manager.py`, `subscription_manager.py`, `stream_health.py`, `error_codes.py`, `utils.py` | Qt-signal bridge, RT bars, pacing, reqId allocation, the D27.3 subscription registry, stream health, error codes. | **`[changed in P5]`** — `bridge.py` (signals) and `error_codes.py` (**comment only**); `realtime_bars.py`, `pacing.py`, `id_manager.py`, `subscription_manager.py`, `stream_health.py`, `utils.py` are **`[existing]`, untouched** | `pacing_manager`, `MARKET_DATA`; **P5 wave 2 deletes the `order_status` / `open_order` / `exec_details` bridge signals** (with their client emitters); **wave 4 deletes `pacing.OrderRateLimiter` + `order_limiter`** (and `config/settings.py`'s `MAX_ORDER_NOTIONAL`); **wave 6 deletes `id_manager.reserve`** while `IdManager`, `get_id` and `set_next_valid_id` **stay** (six `get_id()` callers, incl. `ui/main_window.py`). The news signals (`tick_news`, `news_providers`, `historical_news`, `historical_news_end`, `news_article`) stay as the ibapi boundary mirror (D45 `S35`). **Frozen and unchanged:** `error_msg`; `::classify_error` in `ibkr/error_codes.py` (it gates **every** TWS error — only its 202 **comment** is reworded in wave 9, no code line); `PacingManager`/`PacingExceeded`; `IBApiClient.nextValidId`. |
+| `ibkr/subscription_manager.py` | The D27.3 subscription registry: type-tagged entries with `reissue`/`rebind` hooks and the reconnect replay. | **`[changed in P23]`** — **one added module-level type tag** (`option_legs`) and nothing else; `subscribe`, `unsubscribe`, `unsubscribe_all_of_type`, `entries_of_type` and `replay_all` are unmodified | `SubscriptionManager.subscribe`, `::replay_all` (`:94` — selected by tag, filters `reissue is not None`, raises `PacingExceeded` up front per D28.1). Tags `RT_BARS` / `MARKET_DATA` / `S0_TICKS`. **P23-05** adds the panel's leg tag so `_replay_subscriptions` can replay option legs without replaying the watchlist's MARKET_DATA rows (which `_restore_watchlist`'s pinned clear+re-add already re-issues, AC-D22.7.2). No method may be changed here without re-checking both call sites. |
 | **deleted in D45** — ibkr/news, ibkr/validation | The news API client (`NewsManager`) and the order-validation gate (`validate_order`). | **deleted** | not importable after D45; `"292"` is never requested, and nothing builds an order for the gate to judge (`AC-D45.7`/`D26.7` moot) |
 
 ## `config/`, `packaging/`, root

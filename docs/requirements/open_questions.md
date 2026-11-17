@@ -1888,21 +1888,21 @@
 - **Affected requirement section:** Phase P23 / D65 / `AC-D65.1`, `AC-D65.9`, `AC-D65.11`; A194; R143; `design_gaps.md` DG119.
 - **⚠ Owner constraint added 2026-11-17 (widens what this answer decides):** *"Also, I want to ensure that I don't keep unused code/functions in the app."* Under the new standing **Unused-Code Rule** (`requirements.md` P23, `### Unused-Code Rule (standing)`; A197), choosing **(a) replace** also settles the fate of the displaced stack: the whole Portfolio/account-position subsystem is production-orphaned (verified 2026-11-17: `ActivePortfolioPanel` is imported only by `ui/main_window.py`; `services/strategy_detection.py` only by that panel; `build_position_from_ib` only from `main_window`; `trade_groups` only in `data/db.py`), so the rule requires it **deleted in P23** — module, dock wiring, bridge signals, `ibkr/account.py`, `data.models.Position`/`TradeGroup`, the `positions`/`trade_groups` writes (and possibly the tables), `strategy_detection`, and the panel-scoped tests — leaving the app with **no account or position data at all**. Choosing **(b) keep as a tab** retires that whole question (everything keeps a consumer). If you want (a) but not the data-path deletion, say which part must survive and why; `design_gaps.md` **DG121** records the table/row decision that the rule cannot make for you.
 
-# Open Questions — P23 amendment (Q111–Q112 — NON-BLOCKING defaults, recorded 2026-11-17)
+# Open Questions — P23 amendment (Q111–Q112 — ANSWERED 2026-11-17, both owner-confirmed defaults)
 
-> Raised by the owner's review of the generated plan. Both are **non-blocking**: a safe default is recorded in
-> the requirements and Plan proceeds on it; either can be overridden by an explicit owner statement, which then
-> becomes the record. **P23 carries `Status: READY_FOR_PLAN`.**
+> Raised by the owner's review of the generated plan and **both answered 2026-11-17 (the recommended defaults
+> were confirmed)**: Q111 = no ON/OFF persistence, Q112 = one spot line only when nothing is in memory. **No open
+> question remains; P23 carries `Status: READY_FOR_PLAN`.**
 
 ## Q111 — D65 / A(iv): should the panel's ON/OFF state survive an app restart?
-- **Status:** **open, NON-BLOCKING — default recorded: NO persistence** (A192/A209; launch is always Target `1.00` + toggle **OFF**).
+- **Status:** **answered 2026-11-17 — owner confirmed the default. Verbatim: *"No - launch is always OFF, Target 1.00 (Recommended)"*.** ON/OFF never survives a restart (A192/A209; launch is always Target `1.00` + toggle **OFF**).
 - **Question:** when the app restarts, should the panel return to whatever state it was left in — (a) **always OFF** (default: the user turns it on each session, and no lines are subscribed at launch), or (b) **restore the last ON/OFF and Target** so a user who always runs a `0.80` target does not re-type it, or (c) an owner-named split (e.g. persist the Target only, never the ON state)?
 - **Recommended default (a):** always OFF, Target `1.00`. Rationale: a restored ON state would subscribe up to 17 lines at startup before the user looks and would resume a ladder against closed-market/stale prices; the `—`/`STALE` rules would then dominate the first paint. Persisting the Target alone is FS25.
 - **What a different answer would change:** `AC-D65.14`(iv) and A192/A209 (one clause each) plus a restart-restore case in the suite; nothing about the ladder maths.
 - **Affected requirement section:** Phase P23 / D65 / `AC-D65.14`(iv); A192, A209; FS25.
 
 ## Q112 — D65 / B: may the panel open one dedicated SPX spot line when no SPX price is already in memory?
-- **Status:** **open, NON-BLOCKING — default recorded: YES, but only when neither in-memory source exists** (A206; ceiling 17 lines).
+- **Status:** **answered 2026-11-17 — owner confirmed the default. Verbatim: *"Yes, only when nothing is in memory (Recommended)"*.** One dedicated SPX spot line, only when neither in-memory source exists (A206; ceiling 17 lines).
 - **Question:** the seed prefers a spot price already in memory (the chart's `_last_chart_price` for SPX, else `_symbol_last_prices['SPX']`). When neither exists — e.g. the chart is on ES — should the panel (a) open **one** SPX spot line (cost: 1 of the ~100 market-data lines, ceiling 16+1) to place the seed's starting region, or (b) **never** open a spot line and let the coarse probe run without a starting region (slower cold start, no extra line)?
 - **Recommended default (a):** one line, only when needed. Rationale: the cost is one line, released at OFF, and it removes the "above/below spot with no spot" gap the review found; (b) is available if the watchlist is already near the 90-line warning.
 - **What a different answer would change:** `AC-D65.15`(i)'s third seed branch and A206 (one clause) plus the line-budget ceiling in the Constraints; the probe bound and the final rung are unchanged either way.
