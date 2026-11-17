@@ -78,7 +78,7 @@ jobs:
           import sys
           from pathlib import Path
 
-          text = Path("docs/lwc_parity_matrix.md").read_text(encoding="utf-8")
+          text = Path("docs/archive/reference/lwc_parity_matrix.md").read_text(encoding="utf-8")
           rows = re.findall(r"^\|\s*(\d+)\s*\|", text, re.MULTILINE)
           print(f"parity matrix row count: {len(rows)}")
           if len(rows) != 19:
