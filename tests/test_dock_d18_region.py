@@ -1,19 +1,20 @@
-"""T48 / D18 Phase 3 (D41 re-point) — the single right dock region.
+"""T48 / D18 Phase 3 (D65 re-point) — the single right dock region.
 
 Focused offscreen integration tests for the ``ui/main_window.py`` reshape: the
 right ``RightDockWidgetArea`` region is ONE ``QDockWidget`` titled **and**
-``objectName``ed ``"Portfolio"`` (D41 / S6) whose widget is the retained
-``ActivePortfolioPanel`` directly — the D18 two-section stacked region is gone.
+``objectName``ed ``"Option Spreads"`` (D65 / S-P23-1) whose widget is the
+``OptionSpreadsPanel`` directly — the D18 two-section stacked region is gone.
 
 Acceptance criteria exercised here
-----------------------------------
+---------------------------------
 * AC-D18.3 (T48-T01): the single remaining section renders at the region's
   content width (within 1px) and never exceeds the docked region.
-* T48-T02: ``findChild(QDockWidget, "Portfolio")`` resolves the single region;
-  the region's retained header toggle collapses/restores it; exactly one
-  right-side region dock.
-* T48-T03: the retained Portfolio panel is the region's widget and its
-  summary/positions signals are present (the order signals are gone, D45).
+* T48-T02: ``findChild(QDockWidget, "Option Spreads")`` resolves the single
+  region; the objectName-keyed lookup the dock-hiding helper suites use still
+  resolves it; the region's retained header toggle collapses/restores it;
+  exactly one right-side region dock.
+* T48-T03: the Option Spreads panel is the region's widget (the order signals
+  are gone, D45).
 
 Geometry note
 -------------
@@ -29,7 +30,7 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDockWidget, QWidget
 
-from ui.active_portfolio_panel import ActivePortfolioPanel
+from ui.option_spreads_panel import OptionSpreadsPanel
 
 
 def _make_window(monkeypatch, qapp, width=1600, height=900):
@@ -48,6 +49,7 @@ def _make_window(monkeypatch, qapp, width=1600, height=900):
     win = MainWindow()
     win.resize(width, height)
     win.show()
+    qapp.processEvents()
     qapp.processEvents()
     return win
 
@@ -74,67 +76,67 @@ def test_T57_T01_toolbar_visible_and_no_masking(monkeypatch, qapp):
 
 # ── T48-T01 / AC-D18.3 — the single section fills the region ─────────────────
 
-def test_T48_T01_portfolio_section_fills_region(monkeypatch, qapp):
+def test_T48_T01_spread_section_fills_region(monkeypatch, qapp):
     """T48-T01 / AC-D18.3: the single section spans the region's content width."""
     win = _make_window(monkeypatch, qapp)
     try:
         win.right_dock.show()
         qapp.processEvents()
 
-        portfolio_w = win.portfolio_panel.width()
+        spread_w = win.option_spreads_panel.width()
         content_w = win.right_dock.widget().width()
         region_w = win.right_dock.width()
 
-        # S6: the retained Portfolio panel IS the region's widget — no wrapper
+        # S-P23-1: the Option Spreads panel IS the region's widget — no wrapper
         # container and no second stacked section remain, so the equal-width
         # guarantee now reads "the one section spans the region".
-        assert win.right_dock.widget() is win.portfolio_panel
+        assert win.right_dock.widget() is win.option_spreads_panel
         # Real, non-zero docked geometry (a masked/hidden region reports 0).
         assert region_w > 0, region_w
         assert content_w > 0, content_w
         # The section occupies the region's content width (equal within the
         # mandated 1px tolerance) and never exceeds the region hosting it.
-        assert abs(portfolio_w - content_w) <= 1, (portfolio_w, content_w)
-        assert abs(portfolio_w - region_w) <= 1, (portfolio_w, region_w)
-        assert portfolio_w <= region_w + 1, (portfolio_w, region_w)
+        assert abs(spread_w - content_w) <= 1, (spread_w, content_w)
+        assert abs(spread_w - region_w) <= 1, (spread_w, region_w)
+        assert spread_w <= region_w + 1, (spread_w, region_w)
     finally:
         win.close()
 
 
-# ── T48-T02 — title lookup, toggle, exactly one right dock ───────────────────
+# ── T48-T02 — lookup, toggle, exactly one right dock ─────────────────────────
 
 def test_T48_T02_findchild_resolves_and_toggles(monkeypatch, qapp):
     """T48-T02: ``findChild`` resolves the single region and its toggle works."""
     win = _make_window(monkeypatch, qapp)
     try:
-        region = win.findChild(QDockWidget, "Portfolio")
+        region = win.findChild(QDockWidget, "Option Spreads")
         assert region is not None
         assert region is win.right_dock
-        assert region.objectName() == "Portfolio"
+        assert region.objectName() == "Option Spreads"
 
-        # AR-D41-3 / AC2: the title-keyed lookup the dock-hiding helper suites
-        # use (``{d.windowTitle(): d ...}``) still resolves the real region — a
+        # AR-D41-3 / AC2: the objectName-keyed lookup the dock-hiding helper
+        # suites use (``{d.objectName(): d ...}``) resolves the real region — a
         # stale key would leave those helpers silently hiding nothing.
-        title_keyed = {
-            d.windowTitle(): d for d in win.findChildren(QDockWidget)
+        name_keyed = {
+            d.objectName(): d for d in win.findChildren(QDockWidget)
         }
-        assert title_keyed.get("Portfolio") is region
+        assert name_keyed.get("Option Spreads") is region
 
-        # The region's one surviving toggle is the retained Portfolio header
-        # button: it collapses the region to its button strip (D21.13) and
-        # restores it. The region itself stays visible throughout.
-        header = win.portfolio_panel.summary_label
+        # The region's one surviving toggle is the retained Option Spreads
+        # header button: it collapses the region to its button strip (D21.13)
+        # and restores it. The region itself stays visible throughout.
+        header = win.option_spreads_panel.header_button
         assert region.titleBarWidget() is header
         assert region.isVisible()
         header.click()
         qapp.processEvents()
-        assert win.portfolio_panel.is_collapsed()
-        assert not win.portfolio_panel.body.isVisible()
+        assert win.option_spreads_panel.is_collapsed()
+        assert not win.option_spreads_panel.body.isVisible()
         assert region.width() <= win._right_dock_collapsed_min_width + 2
         header.click()
         qapp.processEvents()
-        assert not win.portfolio_panel.is_collapsed()
-        assert win.portfolio_panel.body.isVisible()
+        assert not win.option_spreads_panel.is_collapsed()
+        assert win.option_spreads_panel.body.isVisible()
         assert region.isVisible()
 
         # Exactly one *region* dock lives in the right dock area.
@@ -149,46 +151,32 @@ def test_T48_T02_findchild_resolves_and_toggles(monkeypatch, qapp):
         win.close()
 
 
-# ── T48-T03 — panel present, summary signals exposed ─────────────────────────
+# ── T48-T03 — panel present, collapse round trip, one right dock ─────────────
 
-def test_T48_T03_panel_present_and_summary_signals_exposed(monkeypatch, qapp):
-    """T48-T03: the retained panel is the region's widget; summary signals exposed."""
+def test_T48_T03_panel_present_and_collapse_round_trip(monkeypatch, qapp):
+    """T48-T03: the Option Spreads panel is the region's widget."""
     win = _make_window(monkeypatch, qapp)
     try:
-        assert isinstance(win.portfolio_panel, ActivePortfolioPanel)
-        # S6: the region hosts the retained panel directly — the panel IS the
+        assert isinstance(win.option_spreads_panel, OptionSpreadsPanel)
+        # S-P23-1: the region hosts the panel directly — the panel IS the
         # dock's widget (no intermediate container remains).
         container = win.right_dock.widget()
         assert isinstance(container, QWidget)
-        assert container is win.portfolio_panel
+        assert container is win.option_spreads_panel
 
-        # D45: the panel is view-only end to end. The five order signals
-        # (close / close-group / flatten / SL-TP / group-SL-TP) have no
-        # MainWindow receiver — neither their connections nor the signals
-        # themselves survive D45 — so no receiver loop is asserted here.
-        # The panel still exposes its summary/positions signals, but nothing
-        # receives them: ``account_summary_changed`` and ``positions_changed``
-        # both have zero receivers on this window.
-        assert hasattr(win.portfolio_panel, "account_summary_changed")
-        assert hasattr(win.portfolio_panel, "positions_changed")
-
-        # Sanity: an unconnected signal on the very panel probed above reports
-        # zero, proving that probe is not a vacuous pass.
-        assert _receiver_count(
-            win.portfolio_panel, win.portfolio_panel.positions_changed
-        ) == 0
+        # A collapse/expand round trip through the panel's own header leaves
+        # exactly one right-area dock (nothing is spawned or orphaned by the
+        # title-bar swap).
+        win.option_spreads_panel.header_button.click()
+        qapp.processEvents()
+        win.option_spreads_panel.header_button.click()
+        qapp.processEvents()
+        assert not win.option_spreads_panel.is_collapsed()
+        right_docks = [
+            d for d in win.findChildren(QDockWidget)
+            if win.dockWidgetArea(d) == Qt.DockWidgetArea.RightDockWidgetArea
+        ]
+        assert len(right_docks) == 1, right_docks
+        assert right_docks[0] is win.right_dock
     finally:
         win.close()
-
-
-def _receiver_count(obj, signal) -> int:
-    """Number of live receivers of ``signal`` emitted by ``obj`` (0 if unknown).
-
-    ``QObject.receivers`` is the only reliable public measurement in PyQt6.
-    Returns -1 when the API is unavailable, so the caller's ``== 0`` assertion
-    fails loudly rather than passing vacuously.
-    """
-    try:
-        return int(obj.receivers(signal))
-    except Exception:
-        return -1

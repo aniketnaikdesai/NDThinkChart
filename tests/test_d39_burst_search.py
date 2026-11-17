@@ -329,10 +329,6 @@ class _StubHost:
         self.volume_baseline = VolumeBaselineService()
         self.alarm_monitor = None
         self.status_bar = _StubStatusBar()
-        self.recorded: list[tuple[str, float]] = []
-
-    def _record_symbol_price(self, symbol, price):
-        self.recorded.append((symbol, price))
 
 
 def _session(qapp, symbol="AAPL"):

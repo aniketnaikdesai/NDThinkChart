@@ -10,9 +10,9 @@ prior D1-D21 watchlist / dock behaviours are unchanged alongside them:
              collapsed the D44 thin bar is shown and the header strip is hidden,
              and the toggle's checked/struck state tracks the body (VIS-D21.1);
   * D14    — a double-click still emits the row's symbol, resolved by field key;
-  * D21.13 — the retained Portfolio header (the single right dock's title-bar
-             toggle) still collapses + restores its panel and stays struck iff
-             the panel is hidden.
+  * D21.13 — the retained Option Spreads header (the single right dock's
+             title-bar toggle) still collapses + restores its panel and stays
+             struck iff the panel is hidden.
 
 Harness note: mirrors the D21 / D22-07 offscreen harness — ``IBApiClient.connect``
 is monkeypatched to a no-op, the DB is a throwaway SQLite file, and the
@@ -144,39 +144,40 @@ def test_D22_09_T01_watchlist_nonregression(window, qapp):
 # ── D22-09-T01 / AC-D22.9.1 — D21.13 right-dock toggles still work ───────────
 
 def test_D22_09_T01_right_dock_toggles_nonregression(window, qapp):
-    # D41 / S6: the right region is ONE Portfolio-only dock. The title-keyed
-    # lookup follows the rename — a stale "Active Trader" handle would silently
-    # stop addressing the dock (AR-D41-3), so the new title is asserted and the
-    # old one proven absent.
-    dock = window.findChild(QDockWidget, "Portfolio")
+    # The right region is ONE Option Spreads dock. The identity-keyed lookup
+    # follows the rename — a stale handle would silently stop addressing the
+    # dock (AR-D41-3), so the new identity is asserted and the pre-D41 title
+    # proven absent.
+    dock = window.findChild(QDockWidget, "Option Spreads")
     assert dock is not None
     assert dock is window.right_dock
-    assert dock.windowTitle() == "Portfolio"
+    assert dock.windowTitle() == "Option Spreads"
     assert window.findChild(QDockWidget, "Active Trader") is None
 
-    # The retained Portfolio header IS the dock's title-bar toggle button.
-    btn = window.portfolio_panel.summary_label
+    # The Option Spreads header IS the dock's title-bar toggle button.
+    btn = window.option_spreads_panel.header_button
     assert dock.titleBarWidget() is btn
     assert isinstance(btn, DiagonalStrikeButton)
-    assert btn.text() == "Account Summary"
+    assert btn.text() == "Option Spreads"
     assert btn.isCheckable()
     assert btn.isChecked() and not btn.is_struck()
 
     # The geometry measured below is a real docked window, not a detached widget.
-    assert window.portfolio_panel.isVisible()
+    assert window.option_spreads_panel.isVisible()
     assert btn.isVisible()
     assert dock.width() > 0
 
-    # Collapse + restore the retained Portfolio panel; strike tracks hidden state.
+    # Collapse + restore the retained Option Spreads panel; strike tracks the
+    # hidden state.
     btn.click()
     qapp.processEvents()
-    assert window.portfolio_panel.is_collapsed()
-    assert not window.portfolio_panel.body.isVisible()
+    assert window.option_spreads_panel.is_collapsed()
+    assert not window.option_spreads_panel.body.isVisible()
     assert btn.is_struck() and not btn.isChecked()
 
     btn.click()
     qapp.processEvents()
-    assert not window.portfolio_panel.is_collapsed()
-    assert window.portfolio_panel.body.isVisible()
+    assert not window.option_spreads_panel.is_collapsed()
+    assert window.option_spreads_panel.body.isVisible()
     assert not btn.is_struck()
     assert btn.isChecked()

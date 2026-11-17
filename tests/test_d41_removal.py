@@ -312,8 +312,8 @@ def test_removed_controls_absent_and_retained_present(monkeypatch, qapp):
         # ...and the retained chart surfaces are still there.
         for name in ("set_alarms", "set_drawings", "set_studies"):
             assert callable(getattr(cp, name, None)), f"chart view lost {name}"
-        assert win.portfolio_panel is not None
-        assert win.right_dock.objectName() == "Portfolio"
+        assert win.option_spreads_panel is not None
+        assert win.right_dock.objectName() == "Option Spreads"
     finally:
         win.close()
 

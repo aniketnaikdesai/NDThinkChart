@@ -64,7 +64,7 @@ def _make_window(monkeypatch, qapp):
     win.show()
     qapp.processEvents()
     for dock in win.findChildren(QDockWidget):
-        if dock.windowTitle() in ("Portfolio",):
+        if dock.objectName() in ("Option Spreads",):
             dock.hide()
     qapp.processEvents()
     return win

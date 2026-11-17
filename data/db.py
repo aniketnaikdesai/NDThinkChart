@@ -7,7 +7,9 @@ reads or writes it any more.
 """
 
 import sqlite3
+
 from config import paths
+from data import db_backup
 
 
 class DB:
@@ -112,35 +114,6 @@ class DB:
             geometry TEXT NOT NULL DEFAULT '{}',
             updated_at INTEGER NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS positions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol TEXT NOT NULL,
-            account TEXT NOT NULL,
-            con_id INTEGER,
-            contract_type TEXT NOT NULL,
-            qty REAL NOT NULL,
-            avg_cost REAL,
-            local_symbol TEXT,
-            multiplier REAL DEFAULT 1,
-            expiry TEXT,
-            strike REAL,
-            right TEXT,
-            trade_group_id INTEGER REFERENCES trade_groups(id),
-            updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS trade_groups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            strategy_type TEXT NOT NULL,
-            underlying TEXT NOT NULL,
-            collapsed INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS position_group_map (
-            ibkr_position_id TEXT NOT NULL,
-            trade_group_id INTEGER NOT NULL REFERENCES trade_groups(id),
-            PRIMARY KEY (ibkr_position_id, trade_group_id)
-        );
         -- D38: yfinance event cache (38b.1). One row per symbol: JSON list of
         -- corporate events (earnings/dividends/splits), 24h TTL (6h for
         -- near-term events). failed_at marks the last failed fetch with no
@@ -186,30 +159,27 @@ class DB:
             self.conn.execute(
                 "ALTER TABLE alarms ADD COLUMN params TEXT NOT NULL DEFAULT '{}'"
             )
-        # D27.5: _upsert_position's ON CONFLICT(symbol, con_id) requires a
-        # matching unique constraint — without it every position persist
-        # raised OperationalError.
-        self.conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS "
-            "idx_positions_symbol_con_id ON positions(symbol, con_id)"
-        )
-        # D46 / A99 (reversing A87): the stop/target storage is gone — the four
-        # columns are dropped, not merely ignored. Guarded by PRAGMA table_info
-        # like every migration above: a fresh DB (already created without them)
-        # and every later open see no such column and skip all four statements,
-        # so this is idempotent and never half-builds a table. Each `DROP
-        # COLUMN` is one atomic autocommitted statement, so an open interrupted
-        # between two of them is finished by the next one. Preserved: every row
-        # (and its `trade_group_id`), `idx_positions_symbol_con_id`, the
-        # `trade_group_id -> trade_groups.id` foreign key, and `sqlite_sequence`
-        # (ids are never reissued). Only the two columns' values are lost.
-        for _table in ("positions", "trade_groups"):
-            _columns = self._table_columns(_table)
-            for _column in ("stop_loss", "take_profit"):
-                if _column in _columns:
-                    self.conn.execute(
-                        f"ALTER TABLE {_table} DROP COLUMN {_column}"
-                    )
+        # D65 / AC-D65.18: the position/trade-group substrate is retired, so
+        # its three tables are dropped once and never created again (the DDL
+        # is gone from _init_schema above). The drop is irreversible: a
+        # verified copy of the database must exist first, and a failed
+        # verification aborts the whole drop, leaving all three tables and
+        # their rows intact for a retry on the next open. Order is child
+        # first: position_group_map and positions both reference trade_groups.
+        _retired_tables = ("position_group_map", "positions", "trade_groups")
+        _existing_tables = {
+            row[0]
+            for row in self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if any(table in _existing_tables for table in _retired_tables):
+            # Commit the migrations above so the copy is a consistent snapshot
+            # of a committed database (no hot journal is needed to read it).
+            self.conn.commit()
+            db_backup.backup_before_drop(self.db_path)
+            for _table in _retired_tables:
+                self.conn.execute(f"DROP TABLE IF EXISTS {_table}")
         # D42 / S16 (AR-D42-5): mode-aware bars key. SQLite cannot alter a
         # primary key, so a legacy `bars` table (symbol, timeframe, ts) is
         # rebuilt once with the new key (symbol, timeframe, ext_hours, ts).

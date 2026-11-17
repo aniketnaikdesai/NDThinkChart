@@ -22,6 +22,13 @@ class IBBridge(QObject):
     tick_price = pyqtSignal(int, int, float)        # reqId, tickType, price
     tick_size = pyqtSignal(int, int, int)           # reqId, tickType, size
 
+    # D65: SPX 0DTE option chain discovery + per-leg greeks (strictly additive).
+    # Values are passed through UNMODIFIED — sentinel screening is the engine's.
+    option_params = pyqtSignal(int, object)         # reqId, chain-response dict
+    option_params_end = pyqtSignal(int)             # reqId
+    option_computation = pyqtSignal(int, int, object, object)
+    # reqId, tickType, delta, gamma
+
     # Generic ticks — D37 substrate S0 (shared with D38). Strictly additive.
     tick_generic = pyqtSignal(int, int, float)      # reqId, tickType, value
     tick_string = pyqtSignal(int, int, str)        # reqId, tickType, value
@@ -39,9 +46,4 @@ class IBBridge(QObject):
     realtime_bar = pyqtSignal(int, int, float, float, float, float, float, float, int)
     # reqId, time, open, high, low, close, volume, wap, count
 
-    # Account & positions
-    account_summary = pyqtSignal(int, str, str, str)  # reqId, account, tag, value
-    account_summary_end = pyqtSignal(int)             # reqId
-    position_update = pyqtSignal(str, object, float, float)  # account, Contract, pos, avgCost
-    position_end = pyqtSignal()                       # end of positions list
 

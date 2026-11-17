@@ -450,18 +450,56 @@ class IBApiClient(EWrapper, EClient):
         super().realtimeBar(reqId, time, open_, high, low, close, volume, wap, count)
         self.bridge.realtime_bar.emit(reqId, time, open_, high, low, close, volume, wap, count)
 
-    def accountSummary(self, reqId: int, account: str, tag: str, value: str, currency: str):
-        super().accountSummary(reqId, account, tag, value, currency)
-        self.bridge.account_summary.emit(reqId, account, tag, value)
+    # ── D65: option chain + per-leg greeks ───────────────────────────────
+    # Strictly additive: super() first, then the bridge signal. Values are
+    # passed through UNMODIFIED — None / -1 / DBL_MAX / NaN are the engine's
+    # screening inputs, never the bridge's (or the client's) business.
+    # Signatures verified against the 10.51.1 wheel.
 
-    def accountSummaryEnd(self, reqId: int):
-        super().accountSummaryEnd(reqId)
-        self.bridge.account_summary_end.emit(reqId)
+    def securityDefinitionOptionParameter(
+        self,
+        reqId: int,
+        exchange: str,
+        underlyingConId: int,
+        tradingClass: str,
+        multiplier: str,
+        expirations,
+        strikes,
+    ):
+        super().securityDefinitionOptionParameter(
+            reqId, exchange, underlyingConId, tradingClass, multiplier,
+            expirations, strikes,
+        )
+        # Only the fields the panel uses; `multiplier` stays on the wire.
+        self.bridge.option_params.emit(reqId, {
+            "exchange": exchange,
+            "underlying_con_id": underlyingConId,
+            "trading_class": tradingClass,
+            "expirations": list(expirations),
+            "strikes": list(strikes),
+        })
 
-    def position(self, account: str, contract, pos: float, avgCost: float):
-        super().position(account, contract, pos, avgCost)
-        self.bridge.position_update.emit(account, contract, pos, avgCost)
+    def securityDefinitionOptionParameterEnd(self, reqId: int):
+        super().securityDefinitionOptionParameterEnd(reqId)
+        self.bridge.option_params_end.emit(reqId)
 
-    def positionEnd(self):
-        super().positionEnd()
-        self.bridge.position_end.emit()
+    def tickOptionComputation(
+        self,
+        reqId: int,
+        tickType: int,
+        tickAttrib: int,
+        impliedVol: float,
+        delta: float,
+        optPrice: float,
+        pvDividend: float,
+        gamma: float,
+        vega: float,
+        theta: float,
+        undPrice: float,
+    ):
+        super().tickOptionComputation(
+            reqId, tickType, tickAttrib, impliedVol, delta, optPrice,
+            pvDividend, gamma, vega, theta, undPrice,
+        )
+        self.bridge.option_computation.emit(reqId, tickType, delta, gamma)
+

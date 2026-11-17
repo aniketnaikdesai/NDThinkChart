@@ -1,4 +1,5 @@
 from ibapi.contract import Contract
+from dataclasses import dataclass
 from datetime import datetime
 import re
 try:
@@ -291,3 +292,136 @@ def get_contract_for_symbol(symbol: str, now: datetime | None = None):
     year, month = _front_month(base, now)
     contract_month = f"{year}{month:02d}"
     return get_futures_contract(base, contract_month, exchange, currency)
+
+
+# ── D65: SPX 0DTE option chain (SPXW) ───────────────────────────────────────
+# The panel always trades SPX's same-day SPXW series (AC-D65.2): the symbol is
+# SPX no matter what is charted, the expiry is today's ET date, and the strikes
+# are the ones IBKR lists for that expiry. Nothing here is reachable from the
+# panel in this wave — P23-09 is the first caller. Screening is NOT this
+# layer's job: sentinels pass through to the engine untouched.
+
+SPX_OPTION_SYMBOL = "SPX"
+SPX_OPTION_TRADING_CLASS = "SPXW"
+SPX_OPTION_EXCHANGE = "SMART"
+SPX_OPTION_CURRENCY = "USD"
+SPX_OPTION_MULTIPLIER = "100"
+
+#: IBKR option `right` values keyed by the spellings callers may use.
+_OPTION_RIGHTS = {"C": "C", "CALL": "C", "P": "P", "PUT": "P"}
+
+
+@dataclass
+class OptionSeries:
+    """One option series returned by ``reqSecDefOptParams`` (D65).
+
+    ``con_id`` is the *underlying* conId the chain was requested for: per-leg
+    contracts are built from attributes only (no per-leg contract-details
+    lookup is ever issued).
+    """
+
+    trading_class: str
+    exchange: str
+    expiry: str                       # YYYYMMDD
+    con_id: int
+    strikes_by_right: dict[str, list[float]]
+
+
+def get_option_contract(
+    symbol: str,
+    expiry: str,
+    strike: float,
+    right: str,
+    trading_class: str = "SPXW",
+) -> Contract:
+    """Build an attribute-complete per-leg OPT contract (AC-D65.2).
+
+    Every attribute IBKR needs is set locally — symbol (SPX regardless of the
+    charted symbol), secType, exchange, currency, expiry (YYYYMMDD), strike,
+    right (C/P), multiplier and tradingClass — so no per-leg conId resolution
+    (``reqContractDetails``) is ever issued. Which strikes are *valid* is the
+    engine's call, not this builder's.
+    """
+    normalised_right = _OPTION_RIGHTS.get(str(right).strip().upper())
+    if normalised_right is None:
+        raise ValueError(f"Invalid option right: {right!r} (expected C or P)")
+
+    contract = Contract()
+    contract.symbol = _base_symbol(symbol)
+    contract.secType = "OPT"
+    contract.exchange = SPX_OPTION_EXCHANGE
+    contract.currency = SPX_OPTION_CURRENCY
+    contract.lastTradeDateOrContractMonth = str(expiry)
+    contract.strike = float(strike)
+    contract.right = normalised_right
+    contract.multiplier = SPX_OPTION_MULTIPLIER
+    contract.tradingClass = trading_class
+    return contract
+
+
+def today_expiry_yyyymmdd(now: datetime | None = None) -> str:
+    """Today's expiry in ET as ``YYYYMMDD`` (0DTE selection input).
+
+    The trading day is the US Eastern one, so a UTC (or any tz-aware) instant
+    is converted to ET first — 02:00 UTC on the 17th is still the 16th in New
+    York. A naive datetime is treated as already-ET.
+    """
+    if now is None:
+        now = datetime.now(_EASTERN)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=_EASTERN)
+    else:
+        now = now.astimezone(_EASTERN)
+    return now.strftime("%Y%m%d")
+
+
+def _series_field(entry, *names, default=None):
+    """Read a chain-response field from either a mapping or an object."""
+    for name in names:
+        if isinstance(entry, dict):
+            if name in entry:
+                return entry[name]
+        elif hasattr(entry, name):
+            return getattr(entry, name)
+    return default
+
+
+def select_zero_dte_series(params: list, today: str) -> OptionSeries | None:
+    """Pick the SPXW series carrying exactly ``today`` (AC-D65.2).
+
+    ``params`` is the list of option-parameter responses for SPX (dicts or
+    attribute objects carrying ``trading_class``/``exchange``/``expirations``/
+    ``strikes``/``underlying_con_id``). A later expiry on the same class is
+    ignored; ``None`` means "no 0DTE today" — the chain-level empty state.
+    """
+    for entry in params or []:
+        trading_class = _series_field(entry, "tradingClass", "trading_class")
+        if str(trading_class or "").upper() != SPX_OPTION_TRADING_CLASS:
+            continue
+        expirations = [
+            str(e) for e in (_series_field(entry, "expirations", default=[]) or [])
+        ]
+        if str(today) not in expirations:
+            continue
+        raw_strikes = _series_field(entry, "strikes", default=[]) or []
+        strikes = sorted(float(s) for s in raw_strikes)
+        con_id = _series_field(
+            entry, "underlyingConId", "underlying_con_id", "con_id", default=0
+        ) or 0
+        exchange = _series_field(entry, "exchange", default="") or ""
+        return OptionSeries(
+            trading_class=SPX_OPTION_TRADING_CLASS,
+            exchange=str(exchange),
+            expiry=str(today),
+            con_id=int(con_id),
+            strikes_by_right={"C": list(strikes), "P": list(strikes)},
+        )
+    return None
+
+
+def option_chain_strikes(series: OptionSeries) -> dict[str, list[float]]:
+    """Sorted strikes per right for a series (ascending, one list per right)."""
+    return {
+        right: sorted(float(s) for s in (strikes or []))
+        for right, strikes in series.strikes_by_right.items()
+    }

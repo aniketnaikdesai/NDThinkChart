@@ -37,9 +37,9 @@ from ui.watchlist_panel import (
     clamp_watchlist_width,
 )
 
-# The single right region (Portfolio only, D41 / S6) is unrelated to the
+# The single right region ("Option Spreads", D65 / S-P23-1) is unrelated to the
 # D10/D13 interaction under test.
-_RIGHT_DOCKS = ("Portfolio",)
+_RIGHT_DOCKS = ("Option Spreads",)
 
 
 def _make_main_window(monkeypatch, qapp):
@@ -57,7 +57,7 @@ def _make_main_window(monkeypatch, qapp):
     # docks are an independent horizontal consumer, so remove them from the
     # equation to test the clamp itself.
     for dock in win.findChildren(QDockWidget):
-        if dock.windowTitle() in _RIGHT_DOCKS:
+        if dock.objectName() in _RIGHT_DOCKS:
             dock.hide()
     qapp.processEvents()
     return win

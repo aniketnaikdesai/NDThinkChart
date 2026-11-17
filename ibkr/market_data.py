@@ -130,6 +130,38 @@ class MarketDataManager:
         self.client.reqContractDetails(req_id, contract)
         return req_id
 
+    def req_sec_def_opt_params(
+        self,
+        underlying_symbol: str,
+        fut_fop_exchange: str,
+        underlying_sec_type: str,
+        underlying_con_id: int,
+    ) -> int:
+        """D65: request the option chain for an underlying. Returns the reqId.
+
+        ``reqSecDefOptParams`` answers with ``securityDefinitionOptionParameter``
+        callbacks (exchange / tradingClass / expirations / strikes) ended by
+        ``securityDefinitionOptionParameterEnd``. For SPX the underlying is its
+        IND contract, so the caller passes that conId.
+
+        Order matters: readiness first (a pre-handshake request is rejected with
+        504 and must not consume a reqId or pacing budget), then ``get_id``,
+        then ``throttle``. Q-41 / D28.1: never sleeps — when the pacing budget
+        is exhausted ``PacingExceeded`` propagates for the caller to defer
+        (``QTimer.singleShot``), the same contract as historical requests.
+        """
+        self._require_api_ready()
+        req_id = id_manager.get_id()
+        pacing_manager.throttle()
+        self.client.reqSecDefOptParams(
+            req_id,
+            underlying_symbol,
+            fut_fop_exchange,
+            underlying_sec_type,
+            underlying_con_id,
+        )
+        return req_id
+
     def req_matching_symbols(self, pattern: str) -> int:
         """D39.1: debounced symbol search. Returns the reqId.
 

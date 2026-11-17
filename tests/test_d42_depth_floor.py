@@ -184,9 +184,9 @@ def _make_window(monkeypatch, qapp):
     qapp.processEvents()
     right_docks = [
         dock for dock in win.findChildren(QDockWidget)
-        if dock.windowTitle() in ("Portfolio",)
+        if dock.objectName() in ("Option Spreads",)
     ]
-    assert right_docks, "expected the 'Portfolio' right dock to exist"
+    assert right_docks, "expected the 'Option Spreads' right dock to exist"
     for dock in right_docks:
         dock.hide()
     qapp.processEvents()

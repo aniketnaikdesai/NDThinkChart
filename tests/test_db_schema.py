@@ -9,7 +9,9 @@ from pathlib import Path
 
 import config.paths as paths
 
-# ESC-001: the complete set of tables a fresh database must contain.
+# ESC-001: the complete set of tables a fresh database must contain. The D65
+# position/trade-group tables were retired with their feature — their absence
+# is asserted below, not their presence (AC-D65.18).
 EXPECTED_TABLES = {
     "bars",
     "watchlist",
@@ -18,17 +20,17 @@ EXPECTED_TABLES = {
     "drawing_groups",
     "drawings",
     "studies",
-    "positions",
-    "trade_groups",
-    "position_group_map",
 }
+
+#: The three tables D65 dropped; a fresh DB must never create them again.
+_RETIRED_TABLES = ("positions", "trade_groups", "position_group_map")
 
 # data/db.py lives one directory above this test file.
 _DB_SOURCE = Path(__file__).resolve().parent.parent / "data" / "db.py"
 
 
 def test_fresh_db_creates_full_table_set(tmp_path, monkeypatch):
-    """T26-T01: a fresh DB() against a temp path creates all ten tables."""
+    """T26-T01 / P23-T12-AC5: a fresh DB() creates all seven expected tables."""
     db_file = tmp_path / "fresh_schema_test.sqlite3"
     # Route the DB at a throwaway path so nothing touches the shared test DB.
     monkeypatch.setattr(paths, "_DB_FILENAME", str(db_file))
@@ -275,3 +277,165 @@ def test_legacy_bars_migration_is_idempotent(tmp_path, monkeypatch):
         assert rows == [("AAPL", "5 mins", 1, 1_760_000_000)]
     finally:
         second.conn.close()
+
+
+# The pre-D65 DDL: the three retired tables plus the unique index none of them
+# carries any more. Kept minimal — the migration only has to remove them.
+_LEGACY_RETIRED_DDL = """
+CREATE TABLE trade_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    strategy_type TEXT NOT NULL,
+    underlying TEXT NOT NULL,
+    stop_loss REAL,
+    take_profit REAL,
+    collapsed INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    account TEXT NOT NULL,
+    con_id INTEGER,
+    contract_type TEXT NOT NULL,
+    qty REAL NOT NULL,
+    avg_cost REAL,
+    local_symbol TEXT,
+    multiplier REAL DEFAULT 1,
+    expiry TEXT,
+    strike REAL,
+    right TEXT,
+    stop_loss REAL,
+    take_profit REAL,
+    trade_group_id INTEGER REFERENCES trade_groups(id),
+    updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_positions_symbol_con_id
+    ON positions(symbol, con_id);
+CREATE TABLE position_group_map (
+    ibkr_position_id TEXT NOT NULL,
+    trade_group_id INTEGER NOT NULL REFERENCES trade_groups(id),
+    PRIMARY KEY (ibkr_position_id, trade_group_id)
+);
+"""
+
+
+def _legacy_retired_db(path):
+    """Write a legacy DB holding one row in each retired table."""
+    import sqlite3
+
+    conn = sqlite3.connect(str(path))
+    try:
+        conn.executescript(_LEGACY_RETIRED_DDL)
+        conn.execute(
+            "INSERT INTO trade_groups (id, name, strategy_type, underlying,"
+            " stop_loss, take_profit, collapsed, created_at)"
+            " VALUES (7, 'PCS', 'PCS', 'AAPL', 1.5, 2.5, 0, 1760000000)"
+        )
+        conn.execute(
+            "INSERT INTO positions (id, symbol, account, con_id,"
+            " contract_type, qty, avg_cost, local_symbol, multiplier, expiry,"
+            " strike, right, stop_loss, take_profit, trade_group_id,"
+            " updated_at)"
+            " VALUES (1, 'AAPL', 'DU123', 1, 'stock', 10.0, 40.0, 'AAPL',"
+            " 1.0, NULL, NULL, NULL, 1.5, 2.5, 7, 1760000000)"
+        )
+        conn.execute(
+            "INSERT INTO position_group_map (ibkr_position_id, trade_group_id)"
+            " VALUES ('DU123:1', 7)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _schema_names(conn):
+    return {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'index')"
+        ).fetchall()
+    }
+
+
+def test_retired_position_tables_are_absent_and_dropped_once(tmp_path, monkeypatch):
+    """P23-T12-AC3/AC5: none of the three retired tables (nor their unique
+    index) exists in a fresh DB; a legacy DB holding rows loses all three on
+    the first open, and a second open is a no-op.
+    """
+    # Keep the pre-drop backup out of the owner's application-support dir.
+    monkeypatch.setattr(paths, "_USER_APP_SUPPORT_DIR", tmp_path / "userdata")
+
+    # (a) a fresh DB never creates them, and never creates the index.
+    fresh_file = tmp_path / "fresh_no_retired.sqlite3"
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(fresh_file))
+    from data.db import DB
+
+    fresh = DB()
+    try:
+        names = _schema_names(fresh.conn)
+        for table in _RETIRED_TABLES:
+            assert table not in names, (
+                f"a fresh DB still creates the retired table {table!r}")
+        assert "idx_positions_symbol_con_id" not in names
+    finally:
+        fresh.conn.close()
+
+    # (b) a legacy DB holding rows loses all three on the first open.
+    legacy_file = tmp_path / "legacy_retired.sqlite3"
+    _legacy_retired_db(legacy_file)
+    monkeypatch.setattr(paths, "_DB_FILENAME", str(legacy_file))
+
+    first = DB()
+    try:
+        names = _schema_names(first.conn)
+        for table in _RETIRED_TABLES:
+            assert table not in names, (
+                f"the migration left the retired table {table!r} behind")
+        assert "idx_positions_symbol_con_id" not in names, (
+            "idx_positions_symbol_con_id outlived its positions table")
+    finally:
+        first.conn.close()
+
+    # (c) a second open is a no-op — no error, still absent, no backup retaken.
+    backups_dir = tmp_path / "userdata" / "backups"
+    backup_count = len(list(backups_dir.glob("charting_app_pre-D65_*.sqlite3")))
+    second = DB()
+    try:
+        names = _schema_names(second.conn)
+        for table in _RETIRED_TABLES:
+            assert table not in names, (
+                f"a second open resurrected the retired table {table!r}")
+        assert "idx_positions_symbol_con_id" not in names
+    finally:
+        second.conn.close()
+    assert backup_count == 1, "the first open must take exactly one backup"
+    assert len(list(backups_dir.glob("charting_app_pre-D65_*.sqlite3"))) == 1, (
+        "a second open must not take another pre-drop backup")
+
+
+def test_d46_stop_target_migration_and_carveout_are_gone():
+    """P23-T12-AC3: the stop/target column loop and its exemption lost their
+    only subject, so both are deleted with the tables that carried them.
+    """
+    source = _DB_SOURCE.read_text()
+    assert "DROP COLUMN" not in source, (
+        "data/db.py still drops a column; the D46 loop lost its subject")
+    for token in ("stop_loss", "take_profit"):
+        assert token not in source, (
+            f"data/db.py still names the retired column {token!r}")
+
+    instrument = (
+        Path(__file__).resolve().parent / "test_d45_removal.py"
+    ).read_text()
+    for name in (
+        "_ALLOWED_IN_FILE",
+        "_allowed_in",
+        "_drop_column_subject_nodes",
+        "_EXEMPT_TOKENS",
+        "test_allowed_in_file_is_narrow_and_named_not_used",
+    ):
+        assert name not in instrument, (
+            f"tests/test_d45_removal.py still carries the subject-less "
+            f"stop/target carve-out member {name!r}")
+

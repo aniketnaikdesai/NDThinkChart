@@ -204,7 +204,7 @@ class TestNoSkipsNoOrders:
         # module and no requirements change ride with this batch.
         new_modules = [p for p in REPO_ROOT.glob("ui/*.py")
                        if p.name not in (
-                           "__init__.py", "active_portfolio_panel.py",
+                           "__init__.py", "option_spreads_panel.py",
                            "add_symbol_dialog.py", "alarm_dialog.py",
                            "alarm_edit_dialog.py", "chart_controls.py",
                            "chart_mouse_router.py", "chart_view.py",

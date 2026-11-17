@@ -35,6 +35,10 @@ from ibkr.pacing import pacing_manager, PacingExceeded
 RT_BARS = "rt_bars"
 MARKET_DATA = "market_data"
 S0_TICKS = "s0_ticks"  # D37 substrate: per-session generic-tick reqMktData
+#: D65: the Option Spreads panel's per-leg lines (and its single spot line).
+#: Excluded from the watchlist's MARKET_DATA tag so ``_replay_subscriptions``
+#: can re-issue option legs without replaying the AC-D22.7.2 watchlist path.
+OPTION_LEGS = "option_legs"
 
 
 @dataclass

@@ -68,30 +68,3 @@ class DrawingGroup:
     visible: bool = True
     locked: bool = False
     created_at: Optional[int] = None
-
-
-@dataclass
-class Position:
-    symbol: str
-    qty: float  # signed: positive long, negative short
-    avg_cost: float
-    contract_type: str  # 'stock' | 'future' | 'option'
-    con_id: Optional[int] = None
-    account: str = ""
-    local_symbol: str = ""
-    multiplier: float = 1.0
-    expiry: Optional[str] = None
-    strike: Optional[float] = None
-    right: Optional[str] = None
-    trade_group_id: Optional[int] = None
-    id: Optional[int] = None
-
-
-@dataclass
-class TradeGroup:
-    name: str
-    strategy_type: str  # 'PCS' | 'PDS' | 'CCS' | 'CDS' | 'IC' | 'CUSTOM'
-    underlying: str
-    id: Optional[int] = None
-    collapsed: bool = False
-    created_at: Optional[int] = None

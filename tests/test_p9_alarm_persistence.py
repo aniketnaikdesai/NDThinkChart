@@ -36,7 +36,7 @@ def _clear(symbol: str) -> None:
 
 def _stub_host():
     """Minimal host: only what the bar path touches."""
-    return types.SimpleNamespace(_record_symbol_price=lambda *a: None)
+    return types.SimpleNamespace()
 
 
 def _make_session(qapp, symbol: str):

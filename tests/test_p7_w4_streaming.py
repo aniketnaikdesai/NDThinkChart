@@ -31,7 +31,7 @@ from data.bar_aggregator import TIMEFRAME_SECONDS
 from ibkr.pacing import PacingExceeded
 from ibkr.realtime_bars import RealtimeBarsManager
 from ibkr.stream_health import StreamHealth, StreamState
-from ibkr.subscription_manager import RT_BARS, S0_TICKS
+from ibkr.subscription_manager import OPTION_LEGS, RT_BARS, S0_TICKS
 from ui import ticker_session as ticker_session_mod
 from ui.ticker_session import TickerSession
 
@@ -137,8 +137,6 @@ def make_host(symbol="AAPL"):
     host._req_to_session = {}
     host._register_req_id = lambda req_id, sess: host._req_to_session.__setitem__(req_id, sess)
     host._unregister_req_id = lambda req_id: host._req_to_session.pop(req_id, None)
-    host.prices = {}
-    host._record_symbol_price = lambda sym, px: host.prices.__setitem__(sym, px)
     host.prime_completions = []
     host._on_session_prime_complete = lambda sess: host.prime_completions.append(sess.symbol)
     host.wave_completions = []
@@ -592,7 +590,8 @@ def test_p7_t07_t13_replay_all_defers_via_singleshot():
         assert fired[0][0] == 2000
 
         MainWindow._replay_subscriptions(stub)
-        assert sub.replay_calls == [{RT_BARS, S0_TICKS}]
+        # S-P23-17: the option panel's own tag joined the reconnect replay.
+        assert sub.replay_calls == [{RT_BARS, S0_TICKS, OPTION_LEGS}]
     finally:
         QTimer.singleShot = orig
 

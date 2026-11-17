@@ -1,6 +1,6 @@
 # NDThinkChart — Usage Guide
 
-> **As of 2026-10-28.** Canonical user guide. Short version: `USAGE.txt` (pointer + quick start).
+> **As of 2026-11-17.** Canonical user guide. Short version: `USAGE.txt` (pointer + quick start).
 > Change record: `docs/phase-changelog.md`.
 
 A PyQt6 trading terminal for Interactive Brokers TWS with the **Lightweight Charts** engine
@@ -125,7 +125,7 @@ no engine switch and no opt-in — one engine, always on.
 | **Toolbar** | Symbol input, timeframe, chart mode, studies, alarms, drawing tools |
 | **Chart Panel** | Candlestick/Hollow/Heikin-Ashi/Line/Area charts with studies, drawings, alarms |
 | **Watchlist (Left Dock)** | Symbol list with live ticks; double-click to load chart; collapse to a thin vertical bar via the **Watchlist** header button, click the bar to expand |
-| **Portfolio (Right Dock)** | View-only: account summary, positions and P&L from TWS; no order entry, close or cancel controls |
+| **Option Spreads (Right Dock)** | Display-only SPX 0DTE credit-spread ladder: a Target credit field (0.05–19.95) and an **ON/OFF** switch; shows CCS and PCS rungs; no order entry, close or cancel controls |
 
 ---
 
@@ -186,11 +186,15 @@ no engine switch and no opt-in — one engine, always on.
 6. Press Esc mid-drag (or start another action) to cancel — nothing is saved
 7. Use **Sets…** to create named groups with color/lock/visibility
 
-### Portfolio (view-only)
-1. Open the **Portfolio** dock — it shows your account summary, positions and P&L
-2. The panel is a readout only — there is no right-click action, no close/flatten control and no stop/target dialog
-3. To close a position, cancel an order or close everything, do it in **TWS**: the app places, cancels and closes nothing
-4. Group positions are auto-detected by option strategy (PCS, PDS, CCS, CDS, IC) for display only
+### Option Spreads (view-only)
+1. Switch the panel **ON** — it resolves today's SPX 0DTE chain and streams the option legs behind a 16-line option budget
+   (plus at most one SPX spot line, 17 lines in total)
+2. Type a **Target** credit between 0.05 and 19.95 and press Enter — the ladder steps toward the listed 20-wide credit
+   spread in 5-point moves, one step per evaluation, and stops when the credit is inside one tick's band of the Target
+3. The two tables read out the CCS and PCS rungs (name, bid, ask, greeks) — the panel is display-only: there is no
+   right-click action, no close/flatten control and no order entry, and the ON/OFF state is never persisted
+4. Switch **OFF** to release every leg; to place, close or cancel anything, do it in **TWS** — the app places, cancels
+   and closes nothing
 
 ---
 
@@ -206,7 +210,9 @@ Tables:
 - `alarms` — price alerts
 - `drawings` / `drawing_groups` — chart annotations
 - `studies` — per-symbol study configs
-- `positions` / `trade_groups` — portfolio state. The stop-loss / take-profit (SL/TP) columns are dropped by a one-time migration the first time this version opens the database: nothing is settable, displayed or stored, and a pre-D46 database survives with every row intact and only those two values lost
+- The D65 portfolio tables (`positions`, `trade_groups`, `position_group_map`) are gone: the account/position stack was
+  removed in P23, so a pre-P23 database has them dropped the first time this version opens it (after a verified backup
+  copy is written) and a fresh database never creates them
 
 ---
 
@@ -219,7 +225,7 @@ Tables:
 # Core logic tests only (~0.2s)
 .venv/bin/python -m pytest tests/test_indicator_service.py tests/test_gap_vix_service.py \
   tests/test_ict_service.py tests/test_alarm_service.py tests/test_bar_aggregator.py \
-  tests/test_strategy_detection.py tests/test_ui_smoke.py -v
+  tests/test_ui_smoke.py -v
 ```
 
 All tests run **offscreen** (no display required) and **without TWS**.

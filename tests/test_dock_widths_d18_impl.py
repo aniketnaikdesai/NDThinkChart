@@ -6,7 +6,7 @@ the single right region wired into the shared ``MainWindow._apply_dock_widths``
 cross-clamps with the watchlist so ``chart_area >= 400px``), the
 ``changeEvent(WindowStateChange)`` / ``resizeEvent`` full-screen normalize, the
 "not persisted" default, and the panel content bound that keeps the region
-on-screen when the portfolio content is wider than the region.
+on-screen when the Option Spreads table content is wider than the region.
 
 Geometry note (deterministic offscreen harness)
 ----------------------------------------------
@@ -38,6 +38,7 @@ from ui.dock_layout import (
     right_dock_max_width,
     watchlist_max_width,
 )
+from ui.option_spreads_panel import OptionSpreadsPanel
 from ui.watchlist_panel import WATCHLIST_WIDTH_KEY
 
 _QSETTINGS_ORG = "NDThinkChart"
@@ -258,20 +259,19 @@ def test_T49_T04_fullscreen_normalize_region_on_screen(monkeypatch, qapp):
 # ── T49-T05 / AC-D18.6 — wide content must not push the region off-screen ────
 
 def test_T49_T05_wide_content_stays_within_cap_and_window(monkeypatch, qapp):
-    """T49-T05 / AC-D18.6: wide portfolio content does not overflow."""
+    """T49-T05 / AC-D18.6: wide Option Spreads content does not overflow."""
     _clean_settings()
     win = _make_window(monkeypatch, qapp, width=1600, height=900)
     try:
-        # D41 / S6: the right dock is now Portfolio-only, so the only wide
-        # widget it hosts is the Portfolio section's positions table. Fill it
-        # with wide content (rows are created first so the content is real and
-        # the probe still exercises AC-D18.6).
+        # The right dock hosts the Option Spreads panel, whose only wide widgets
+        # are its two 4x5 spread tables. Fill every cell of both with wide
+        # content so the probe still exercises AC-D18.6.
         wide = "123456789012345678901234567890"
-        table = win.portfolio_panel.positions_table
-        table.setRowCount(8)
-        for row in range(8):
-            for col in range(table.columnCount()):
-                table.setItem(row, col, QTableWidgetItem(wide))
+        panel = win.option_spreads_panel
+        for table in (panel.ccs_table, panel.pcs_table):
+            for row in range(table.rowCount()):
+                for col in range(table.columnCount()):
+                    table.setItem(row, col, QTableWidgetItem(wide))
         qapp.processEvents()
 
         win._apply_dock_widths(None, 10 ** 6)
@@ -322,11 +322,19 @@ def test_T49_T06_right_region_not_persisted(monkeypatch, qapp):
         lowered = key.lower()
         assert not any(hint in lowered for hint in _RIGHT_PERSISTENCE_HINTS), key
 
-    # Reconstructing against the same QSettings returns the region to its default.
+    # Reconstructing against the same QSettings returns the region to its launch
+    # (default) width: the panel's preferred width, clamped inside the D18 cap.
     win2 = _make_window(monkeypatch, qapp)
     try:
-        assert win2._right_dock_width == RIGHT_DOCK_MIN_WIDTH
-        assert win2.right_dock.width() == RIGHT_DOCK_MIN_WIDTH
+        expected = max(
+            RIGHT_DOCK_MIN_WIDTH,
+            min(
+                OptionSpreadsPanel.PREFERRED_WIDTH,
+                right_dock_max_width(win2._chart_area_width()),
+            ),
+        )
+        assert win2._right_dock_width == expected
+        assert win2.right_dock.width() == expected
     finally:
         win2.close()
         _clean_settings()

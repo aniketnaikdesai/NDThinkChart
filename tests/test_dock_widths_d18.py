@@ -10,12 +10,12 @@ D18 geometry end-to-end rather than the pure helpers:
 * AC-D18.2 / AC-D18.4 — the rendered region grows to the ``floor(0.40 ×
   chart_area)`` cap and shrinks to ``RIGHT_DOCK_MIN_WIDTH``, with the chart area
   moving inversely;
-* AC-D18.3 (D41 single-section form) — the Portfolio section renders at the
-  region content width (the right dock is Portfolio-only after D41 / S6);
+* AC-D18.3 (D41 single-section form) — the Option Spreads panel renders at the
+  region content width (the right dock hosts that one panel after the P23 swap);
 * AC-D18.5 — with both docks near their maxima, enlarging one keeps the rendered
   chart area ``>= 400px`` and shrinks the other;
-* AC-D18.6 — wide Portfolio content cannot push the region off-screen or past
-  the cap (content scrolls/clips internally);
+* AC-D18.6 — wide Option Spreads table content cannot push the region off-screen
+  or past the cap (content scrolls/clips internally);
 * AC-D18.7 — the right region's width/visibility returns to its default on
   restart and no right-region QSettings key is written.
 
@@ -62,6 +62,7 @@ from ui.dock_layout import (
     right_dock_max_width,
     watchlist_max_width,
 )
+from ui.option_spreads_panel import OptionSpreadsPanel
 from ui.watchlist_panel import WATCHLIST_WIDTH_KEY
 
 _QSETTINGS_ORG = "NDThinkChart"
@@ -173,13 +174,13 @@ def test_T50_T01_fullscreen_region_on_screen(monkeypatch, qapp, size):
     win = _make_window(monkeypatch, qapp, width=width, height=height)
     try:
         # The single right region exists and rendered visible, keyed by the new
-        # (D41 / S6) title. The title-keyed ``findChild`` lookup is exercised
-        # here too — a stale pre-D41 title would silently stop matching, which is
+        # (P23 / Option Spreads) identity. The ``findChild`` lookup is exercised
+        # here too — a stale title would silently stop matching, which is
         # exactly the repo's dock-lookup trap (AC2).
         assert win.right_dock.isVisible()
-        assert win.right_dock.objectName() == "Portfolio"
-        assert win.right_dock.windowTitle() == "Portfolio"
-        region = win.findChild(QDockWidget, "Portfolio")
+        assert win.right_dock.objectName() == "Option Spreads"
+        assert win.right_dock.windowTitle() == "Option Spreads"
+        region = win.findChild(QDockWidget, "Option Spreads")
         assert region is win.right_dock
         # The pre-D41 title must no longer resolve. The needle is built at
         # runtime so this guard cannot match itself and leaves no stale literal.
@@ -271,7 +272,7 @@ def test_T50_T02_rendered_cap_and_minimum(monkeypatch, qapp, size):
 
 @pytest.mark.parametrize("size", _WINDOW_SIZES, ids=lambda s: f"{s[0]}x{s[1]}")
 def test_T50_T03_sections_equal_width(monkeypatch, qapp, size):
-    """T50-T03 / AC-D18.3 (D41 single-section): the Portfolio section fills the region."""
+    """T50-T03 / AC-D18.3 (D41 single-section): the Option Spreads panel fills the region."""
     _clean_settings()
     width, height = size
     win = _make_window(monkeypatch, qapp, width=width, height=height)
@@ -284,16 +285,16 @@ def test_T50_T03_sections_equal_width(monkeypatch, qapp, size):
             drive()
             qapp.processEvents()
 
-            # D41 / S6: the right dock is Portfolio-only, so the *single*
+            # The right dock hosts the *single* Option Spreads panel, so the
             # surviving section is the dock's widget itself. AC-D18.3's "the
             # section fills the region content width" outcome is asserted over
             # that one section instead of the removed two-section pairing.
-            section_w = win.portfolio_panel.width()
+            section_w = win.option_spreads_panel.width()
             content_w = win.right_dock.widget().width()
             dock_w = win.right_dock.width()
 
             assert content_w > 0
-            assert win.right_dock.widget() is win.portfolio_panel
+            assert win.right_dock.widget() is win.option_spreads_panel
             # The section equals the region content width (equal by construction).
             assert abs(section_w - content_w) <= 1, (label, section_w, content_w)
             # And it never exceeds the region that hosts it.
@@ -367,21 +368,20 @@ def test_T50_T04_cross_clamp_keeps_chart_minimum(monkeypatch, qapp, size):
 
 @pytest.mark.parametrize("size", _WINDOW_SIZES, ids=lambda s: f"{s[0]}x{s[1]}")
 def test_T50_T05_wide_content_stays_in_cap_and_window(monkeypatch, qapp, size):
-    """T50-T05 / AC-D18.6: wide Portfolio content stays on-screen under the cap."""
+    """T50-T05 / AC-D18.6: wide Option Spreads content stays on-screen under the cap."""
     _clean_settings()
     width, height = size
     win = _make_window(monkeypatch, qapp, width=width, height=height)
     try:
         wide = "123456789012345678901234567890"
-        # D41 / S6: the ladder is gone; the wide-content probe now lives on the
-        # Portfolio section's own positions table. Rows are allocated first so
-        # the wide cells are actually populated (``setItem`` ignores rows beyond
-        # ``rowCount``), keeping AC-D18.6's probe meaningful rather than vacuous.
-        table = win.portfolio_panel.positions_table
-        table.setRowCount(8)
-        for row in range(8):
-            for col in range(table.columnCount()):
-                table.setItem(row, col, QTableWidgetItem(wide))
+        # The panel hosts the two 4x5 spread tables; fill every cell of both so
+        # the wide-content probe still exercises AC-D18.6 against real content
+        # (``setItem`` ignores cells beyond the row/column counts).
+        panel = win.option_spreads_panel
+        for table in (panel.ccs_table, panel.pcs_table):
+            for row in range(table.rowCount()):
+                for col in range(table.columnCount()):
+                    table.setItem(row, col, QTableWidgetItem(wide))
         qapp.processEvents()
 
         # Enlarge the region against wide content and assert the content did not
@@ -431,11 +431,19 @@ def test_T50_T06_restart_returns_default_not_persisted(monkeypatch, qapp):
         lowered = key.lower()
         assert not any(hint in lowered for hint in _RIGHT_PERSISTENCE_HINTS), key
 
-    # Reconstructing against the same QSettings returns the region to its default.
+    # Reconstructing against the same QSettings returns the region to its launch
+    # (default) width: the panel's preferred width, clamped inside the D18 cap.
     win2 = _make_window(monkeypatch, qapp)
     try:
-        assert win2._right_dock_width == RIGHT_DOCK_MIN_WIDTH
-        assert win2.right_dock.width() == RIGHT_DOCK_MIN_WIDTH
+        expected = max(
+            RIGHT_DOCK_MIN_WIDTH,
+            min(
+                OptionSpreadsPanel.PREFERRED_WIDTH,
+                right_dock_max_width(win2._chart_area_width()),
+            ),
+        )
+        assert win2._right_dock_width == expected
+        assert win2.right_dock.width() == expected
         _assert_on_screen(win2)
     finally:
         win2.close()

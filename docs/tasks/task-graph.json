@@ -1,163 +1,432 @@
 {
   "meta": {
-    "phase": "P22",
-    "plan_ref": "docs/plan.md#Phase P22",
-    "architecture_ref": "docs/architecture.md#Phase P22",
-    "requirements_ref": "docs/requirements/requirements.md#Phase P22",
+    "phase": "P23",
+    "plan_ref": "docs/plan.md#Phase P23",
+    "architecture_ref": "docs/architecture.md#Phase P23",
+    "requirements_ref": "docs/requirements/requirements.md#Phase P23",
+    "notes": "docs/tasks/task_manager_notes_P23.md",
     "status": "READY_FOR_BUILD"
   },
   "tasks": [
     {
-      "id": "P22-T1",
-      "title": "Toolbar Symbol: label-field room (D61, field-local)",
-      "description": "Give the toolbar Symbol: label field room (sizing/minimum/overflow behaviour around the field at ui/main_window.py:347) so it renders in full at wide and scrolling widths. Text, font and style unchanged; the D19 scroll wrapper stays the overflow mechanism. Stays label-field-local per AP-P22-4: if diagnosis proves a D19/D20-fixture-asserted width must move, stop and escalate for Analyst sign-off instead of re-baselining \u2014 never weaken an assertion to green.",
+      "id": "P23-T1",
+      "title": "Ladder math module: geometry, short-first naming, sign pair, band, quote validity",
+      "description": "Create the pure, Qt-free services/option_ladder.py holding every option-geometry and arithmetic decision (20-wide ladder from one offset formula, short-leg-first naming with the fixture guard, the displayed/credit sign pair, the tick-derived band, the quote-validity screen, distance, net greeks, snapping and window legs) and cover it with tests/test_d65_option_ladder.py. No search and no stepping live here: the seed is the engine's (P23-T7) and the walk is the engine's window step (P23-T8).",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given the toolbar visible at any window width (wide and narrow-enough-to-scroll), When the top-left label renders, Then it reads Symbol: in full \u2014 never truncated to SY \u2014 and no other toolbar label is clipped by its container.",
-        "Given the D61 fix, When the toolbar strip renders with and without overflow, Then the content row stays a single ~36px row, the total strip stays ~50\u201352px, and all controls stay reachable via scroll/elide \u2014 AC-D19.4 (as superseded by D20), AC-D20.1\u2013AC-D20.6 unchanged with existing D19/D20 suites green unmodified."
+        "Given an anchor short strike A, When ladder_pairs(A) is evaluated, Then each side yields exactly four 20-wide spreads whose both legs are offset from the anchor rung by the single offset table {1: +10, 2: +5, 3: 0, 4: -5} applied identically on both sides (one formula, never a mirrored table), SPREAD_WIDTH == 20 and STRIKE_STEP == 5, and the canonical fixtures are CCS 7425/7445 (short below long) and PCS 7340/7320 (short above long).",
+        "Given a symbol, an expiry and a (short, long) strike pair, When format_instrument renders a row name, Then it reads `SPX Nov17 7425/7445` with the SHORT leg first and a width of exactly 20 points, and the module's fixture-convention guard rejects any pair that is not 20 wide and any PCS pair whose long strike is above its short - so 7425/7435 (10-wide) and 7315/7435 (inverted PCS) are rejected while the legal 20-wide 7435/7455 is accepted.",
+        "Given one long leg and one short leg with quoted bid/ask, When display_bases and credit_bases are evaluated, Then display_bases returns (long.ask - short.bid, long.bid - short.ask) as (display_ask, display_bid), credit_bases returns their exact negatives as (credit_bid, credit_ask, credit_mid) with credit_mid their mean, so a credit pair renders negative by design, and these two helpers are the only place in the module where a sign is decided (the ASK cell pairs with credit_bid, the BID cell with credit_ask).",
+        "Given a Target T, When option_tick(T) and match_band(T) are evaluated, Then option_tick returns 0.05 for T = 1.00 and T = 2.95 and 0.10 for T = 3.00 and above, and match_band(T) == max(0.05, option_tick(T)) at every level - both levels pinned at T = 1.00, 2.95 and 3.00.",
+        "Given a leg's bid/ask and its per-side received flags, When usable_quote(bid, ask, received_bid, received_ask) screens them, Then a received 0 bid is usable, and -1, 1.7976931348623157e+308, NaN, +/-inf, an unreceived side and bid > ask each report the side absent (None); a one-sided leg returns (None, None) so no pair can be scored or matched on one side.",
+        "Given credit bases and a Target, When distance and net_greeks are evaluated, Then distance is min(|credit_mid - T|, |credit_ask - T|, |credit_bid - T|) computed on the credit bases only (never on the displayed negative values) and net_greeks returns long - short for delta and for gamma independently, with a None side propagating as None rather than as a number.",
+        "Given a listed strike grid and an anchor, When snap_rung, window_legs and the cell formatters run, Then snap_rung returns a listed strike (an equidistant tie resolves to the strike nearer the anchor) or None when no listed 20-wide pair exists, window_legs(anchor_short) returns the eight LegKey legs of the four-rung window, LegKey and SpreadRow carry exactly the fields the engine and the panel consume, and ASK/BID format to 2 dp, Delta to 3 dp and Gamma to 4 significant digits."
       ],
       "tests": [
         {
-          "test_id": "P22-T1-AC1",
-          "linked_acceptance_criterion": "Given the toolbar visible at any window width (wide and narrow-enough-to-scroll), When the top-left label renders, Then it reads Symbol: in full \u2014 never truncated to SY \u2014 and no other toolbar label is clipped by its container.",
-          "type": "integration",
-          "description": "Offscreen MainWindow toolbar cases at a wide width and at a narrowed scrolling width asserting the label text reads Symbol: in full (red-first on the current SY clip) plus a sweep asserting no other toolbar label is clipped by its container.",
-          "expected_result": "Label reads Symbol: in full at both widths on the fixed tree (red before the fix, green after); no other label clipped."
+          "test_id": "P23-T1-AC1",
+          "linked_acceptance_criterion": "Given an anchor short strike A, When ladder_pairs(A) is evaluated, Then each side yields exactly four 20-wide spreads whose both legs are offset from the anchor rung by the single offset table {1: +10, 2: +5, 3: 0, 4: -5} applied identically on both sides (one formula, never a mirrored table), SPREAD_WIDTH == 20 and STRIKE_STEP == 5, and the canonical fixtures are CCS 7425/7445 (short below long) and PCS 7340/7320 (short above long).",
+          "type": "unit",
+          "description": "Parametrized over both sides and several anchors: assert SPREAD_WIDTH, STRIKE_STEP, RUNG_OFFSETS, all eight (short, long) pairs per side, rung numbering, both legs offset per rung, and the canonical CCS 7425/7445 and PCS 7340/7320 pairs.",
+          "expected_result": "Four 20-wide pairs per side from one offset table on both sides; canonical pairs match exactly; red before services/option_ladder.py exists."
         },
         {
-          "test_id": "P22-T1-AC2",
-          "linked_acceptance_criterion": "Given the D61 fix, When the toolbar strip renders with and without overflow, Then the content row stays a single ~36px row, the total strip stays ~50\u201352px, and all controls stay reachable via scroll/elide \u2014 AC-D19.4 (as superseded by D20), AC-D20.1\u2013AC-D20.6 unchanged with existing D19/D20 suites green unmodified.",
-          "type": "integration",
-          "description": "Run the untouched D19/D20 suites plus strip-height and scroll-reachability assertions against dock-drag clamps.",
-          "expected_result": "Existing D19/D20 suites green unmodified; content row ~36px, strip ~50\u201352px, every control reachable with and without overflow."
+          "test_id": "P23-T1-AC2",
+          "linked_acceptance_criterion": "Given a symbol, an expiry and a (short, long) strike pair, When format_instrument renders a row name, Then it reads `SPX Nov17 7425/7445` with the SHORT leg first and a width of exactly 20 points, and the module's fixture-convention guard rejects any pair that is not 20 wide and any PCS pair whose long strike is above its short - so 7425/7435 (10-wide) and 7315/7435 (inverted PCS) are rejected while the legal 20-wide 7435/7455 is accepted.",
+          "type": "unit",
+          "description": "Assert format_instrument output for CCS and PCS fixtures, then the fixture guard: a 10-wide pair raises, an inverted PCS pair raises, 7435/7455 is accepted.",
+          "expected_result": "Names read short-leg-first with exact strings; the guard rejects only non-20-wide and inverted-PCS pairs."
+        },
+        {
+          "test_id": "P23-T1-AC3",
+          "linked_acceptance_criterion": "Given one long leg and one short leg with quoted bid/ask, When display_bases and credit_bases are evaluated, Then display_bases returns (long.ask - short.bid, long.bid - short.ask) as (display_ask, display_bid), credit_bases returns their exact negatives as (credit_bid, credit_ask, credit_mid) with credit_mid their mean, so a credit pair renders negative by design, and these two helpers are the only place in the module where a sign is decided (the ASK cell pairs with credit_bid, the BID cell with credit_ask).",
+          "type": "unit",
+          "description": "Sign table over quoted fixtures: display_bases and credit_bases are exact negatives of each other, credit_mid is their mean, a credit pair renders negative, and grep shows no third sign-deciding expression in the module.",
+          "expected_result": "Exact formulas as stated, all negatives, credit spread negative by design, one sign source."
+        },
+        {
+          "test_id": "P23-T1-AC4",
+          "linked_acceptance_criterion": "Given a Target T, When option_tick(T) and match_band(T) are evaluated, Then option_tick returns 0.05 for T = 1.00 and T = 2.95 and 0.10 for T = 3.00 and above, and match_band(T) == max(0.05, option_tick(T)) at every level - both levels pinned at T = 1.00, 2.95 and 3.00.",
+          "type": "unit",
+          "description": "Band table at T = 1.00, 2.95, 3.00 and 5.00 asserting option_tick and match_band.",
+          "expected_result": "0.05 at 1.00 and 2.95, 0.10 at 3.00 and 5.00, match_band == max(0.05, option_tick) everywhere."
+        },
+        {
+          "test_id": "P23-T1-AC5",
+          "linked_acceptance_criterion": "Given a leg's bid/ask and its per-side received flags, When usable_quote(bid, ask, received_bid, received_ask) screens them, Then a received 0 bid is usable, and -1, 1.7976931348623157e+308, NaN, +/-inf, an unreceived side and bid > ask each report the side absent (None); a one-sided leg returns (None, None) so no pair can be scored or matched on one side.",
+          "type": "unit",
+          "description": "Validity table: received 0 bid; -1, 1.7976931348623157e+308, NaN, +inf, -inf, received=False on one side, and bid > ask; plus a both-sides-valid case.",
+          "expected_result": "Only the received-zero and valid cases return numbers; every sentinel, unreceived side and crossed quote returns None; one-sided leg returns (None, None)."
+        },
+        {
+          "test_id": "P23-T1-AC6",
+          "linked_acceptance_criterion": "Given credit bases and a Target, When distance and net_greeks are evaluated, Then distance is min(|credit_mid - T|, |credit_ask - T|, |credit_bid - T|) computed on the credit bases only (never on the displayed negative values) and net_greeks returns long - short for delta and for gamma independently, with a None side propagating as None rather than as a number.",
+          "type": "unit",
+          "description": "Assert distance against hand-computed credit triples (mid-only, ask-only, bid-only touching T) and that passing displayed values instead of credits changes the result (proving the parameter is credit); assert net_greeks = long - short and None propagation.",
+          "expected_result": "distance equals the min of the three credit deltas in each case; net_greeks subtracts short from long; no number is invented from a None side."
+        },
+        {
+          "test_id": "P23-T1-AC7",
+          "linked_acceptance_criterion": "Given a listed strike grid and an anchor, When snap_rung, window_legs and the cell formatters run, Then snap_rung returns a listed strike (an equidistant tie resolves to the strike nearer the anchor) or None when no listed 20-wide pair exists, window_legs(anchor_short) returns the eight LegKey legs of the four-rung window, LegKey and SpreadRow carry exactly the fields the engine and the panel consume, and ASK/BID format to 2 dp, Delta to 3 dp and Gamma to 4 significant digits.",
+          "type": "unit",
+          "description": "snap_rung on a grid with an exact hit, a between-strikes hit and an equidistant tie; an anchor whose rung cannot form a listed 20-wide pair; window_legs per anchor; the four cell formatters on known values.",
+          "expected_result": "Listed-strike snaps with nearer-anchor tie, None when unlisted, eight window legs per anchor, format widths (2 dp / 3 dp / 4 significant digits)."
         }
       ],
       "expected_artifacts": [
-        "Label-field sizing fix in ui/main_window.py (toolbar block only)",
-        "tests/test_d61_toolbar_label.py (wide + scrolling-width label cases)"
+        "services/option_ladder.py (new pure module)",
+        "tests/test_d65_option_ladder.py (new suite)"
       ],
       "touches_files": [
-        "ui/main_window.py",
-        "tests/test_d61_toolbar_label.py"
+        "services/option_ladder.py",
+        "tests/test_d65_option_ladder.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P22-1",
-        "Frozen D19/D20 geometry"
+        "requirements.md AC-D65.2/.3/.4/.5/.16, A187/A202/A204/A212 (via plan_ref and the ACs above)"
       ],
       "outputs": [
-        "Full Symbol: label at every width; D19/D20 suites green"
+        "services/option_ladder.py",
+        "tests/test_d65_option_ladder.py"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "ui/main_window.py",
-            "lines": "300-360",
-            "why": "edit: Symbol: label field plus fixed-width siblings \u2014 give the field room"
+            "path": "tests/test_dock_layout.py",
+            "lines": "1-40",
+            "why": "test conventions: the repo's pure Qt-free helper suite shape this suite mirrors"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "125-160",
-            "why": "read-only: ToolbarScroll wrapper mechanics stay the overflow mechanism \u2014 do not change"
+            "path": "services/backfill_service.py",
+            "lines": "1-45",
+            "why": "read-only: precedent for a pure service module (module docstring, no ui/ or ibkr/ imports)"
           },
           {
-            "path": "ui/main_window.py",
-            "lines": "416-430",
-            "why": "read-only: strip-height constants (~36px content plus scrollbar lane) \u2014 do not change"
-          },
-          {
-            "path": "tests/test_toolbar_scroll_d19.py",
-            "lines": "1-60",
-            "why": "conventions: toolbar offscreen scroll/reachability pattern this task reuses"
-          },
-          {
-            "path": "tests/test_toolbar_d20.py",
-            "lines": "1-60",
-            "why": "guard: reserved-lane suites stay green unmodified \u2014 never weaken an assertion"
-          },
-          {
-            "path": "ui/dock_layout.py",
-            "lines": "1-139",
-            "why": "read-only: dock-drag clamps the fix is measured against (R137) \u2014 do not change"
+            "path": "tests/test_p13_gate.py",
+            "lines": "190-220",
+            "why": "read-only: the ui/*.py dependency allowlist - services/ needs no entry, which is why the new module lives there"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/main_window.py:TOOLBAR_CONTENT_HEIGHT",
-            "status": "existing"
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "SPREAD_WIDTH = 20\nSTRIKE_STEP = 5\nRUNG_OFFSETS = {1: 10, 2: 5, 3: 0, 4: -5}"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "LegKey(right: str, strike: float)"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "SpreadRow(rung: int, short: float, long: float, display_name: str, display_ask: float | None, display_bid: float | None, delta: float | None, gamma: float | None, matched: bool)"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def ladder_pairs(anchor_short: float) -> list[tuple[float, float]]"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def format_instrument(symbol: str, expiry, short: float, long: float) -> str"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def display_bases(bid_s: float, ask_s: float, bid_l: float, ask_l: float) -> tuple[float, float]"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def credit_bases(bid_s: float, ask_s: float, bid_l: float, ask_l: float) -> tuple[float, float, float]"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def option_tick(target: float) -> float\ndef match_band(target: float) -> float"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def usable_quote(bid, ask, received_bid, received_ask) -> tuple[float | None, float | None]"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def distance(target: float, credit_bid: float, credit_ask: float, credit_mid: float) -> float"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def net_greeks(delta_s, delta_l, gamma_s, gamma_l) -> tuple[float | None, float | None]"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def snap_rung(strike: float, listed: list[float], anchor: float) -> float | None\ndef window_legs(anchor_short: float) -> list[LegKey]"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P22",
-        "plan_ref": "docs/plan.md#Phase P22",
+        "architecture_ref": "docs/architecture.md#System Components",
+        "plan_ref": "docs/plan.md#P23-01",
         "requirement_ids": [
-          "AC-D61.1",
-          "AC-D61.2"
+          "AC-D65.2",
+          "AC-D65.3",
+          "AC-D65.4",
+          "AC-D65.5",
+          "AC-D65.16",
+          "A187",
+          "A202",
+          "A204",
+          "A212",
+          "DG120"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d61_toolbar_label.py tests/test_toolbar_scroll_d19.py tests/test_toolbar_d20.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_ladder.py -q",
         "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
+        "size": "M",
+        "needs_graphify": false
       }
     },
     {
-      "id": "P22-T2",
-      "title": "Live timezone apply path: set_timezone plus fan-out plus persistence (D62 leg)",
-      "description": "Add the missing callee the _chart_call(set_timezone) site already names: LwcChartView.set_timezone(mode) publishing a tz op on the existing interaction channel, and rewire MainWindow._on_tz_changed to fan out to the main view plus every self._popouts entry and persist the mode in QSettings with startup restore. The toggle never refetches: re-label is a format plus re-render pass settled by P22-T3. Test T2-AC1 pins the op this task emits; test P22-T2-AC2 pins the fan-out this task performs; test P22-T2-AC3 pins the persistence round-trip \u2014 label-shift correctness is P22-T3's tests, not these.",
+      "id": "P23-T2",
+      "title": "OptionSpreadsPanel: shell, Target gate, red/green toggle, elide, collapse",
+      "description": "Create ui/option_spreads_panel.py with the Option Spreads shell (header button, CCS/PCS sub-headers, two 4x5 tables with the exact column tuple, status label, empty state, tooltip-carrying eliding name cells), the Target field with its own validation gate, the red/green ON/OFF toggle, PREFERRED_WIDTH = 360 and the collapse contract - and cover it with a standalone offscreen suite. The panel's toggle_clicked/target_committed signals are declared here and receive their engine receivers in P23-T9, so nothing in this task wires a window or swaps a dock.",
       "agent": "build_worker",
       "task_type": "code",
-      "dependencies": [],
+      "dependencies": [
+        "P23-T1"
+      ],
       "acceptance_criteria": [
-        "Given LwcChartView with the existing bridge, When set_timezone(mode) is called with UTC or Eastern Time, Then a tz op carrying the mode is published on the existing interaction channel with send_ops and replay semantics unchanged.",
-        "Given the UTC\u2194ET toggle flips, When _on_tz_changed runs, Then the main view plus every pop-out view re-renders against the new offset and the choice persists across restarts (AC-D62.3)."
+        "Given the panel constructed offscreen, Then it exposes header_button - a DiagonalStrikeButton reading `Option Spreads` - a CCS sub-header followed by a PCS sub-header, each over a four-row table held as ccs_table / pcs_table whose column headers are exactly (`Financial instrument`, `ASK`, `BID`, `Delta`, `Gamma`) in that order, and an empty-state label that is visible while no rows are applied and hidden once apply_snapshot supplies rows.",
+        "Given the panel constructed, Then its controls row holds a numeric Target field showing `1.00` (readable through target_value()) and a checkable ON/OFF toggle whose left edge is to the RIGHT of the Target field's right edge; toggle_state()/set_toggle_state() flip the `spread_state` dynamic property between `off` and `on`, and the rendered colour follows the two named colour constants through the state-keyed stylesheet (red off, green on), repolished on every change; a click emits toggle_clicked(bool).",
+        "Given the Target field, When the user commits a value, Then the panel accepts exactly 0.05 <= T <= 19.95 - emitting target_committed once and keeping the typed value - and rejects blank, unparsable, 0, negative, NaN, Inf and 20.00 with ONE message in the status label that states the accepted range, the field restored to the last valid value, and NO target_committed emitted, so no downstream ladder state can move on a rejected edit.",
+        "Given the panel, Then PREFERRED_WIDTH == 360, preferred_width() == 360 and sizeHint().width() == 360, the panel's horizontal size policy is Ignored (the dock model keeps the clamp), every instrument name cell carries the full name as its tooltip, and when the name column is narrower than the text the cell renders an elided string with a trailing ellipsis - never a hard-truncated unreadable cell.",
+        "Given the panel in the dock, When the header toggle is clicked, Then is_collapsed/set_collapsed/toggle_collapsed flip the body's visibility and the header's checked state symmetrically (collapse then expand restores the body and every row), matching the D21.13/D44 collapse contract the dock drives."
       ],
       "tests": [
         {
-          "test_id": "P22-T2-AC1",
-          "linked_acceptance_criterion": "Given LwcChartView with the existing bridge, When set_timezone(mode) is called with UTC or Eastern Time, Then a tz op carrying the mode is published on the existing interaction channel with send_ops and replay semantics unchanged.",
-          "type": "unit",
-          "description": "Call set_timezone on the view with a stubbed bridge and assert the emitted op shape and channel; assert replay still carries it after page-ready.",
-          "expected_result": "Op {op: set_timezone, mode} emitted on the interaction channel for both modes; replay preserves it; no runJavaScript path added."
+          "test_id": "P23-T2-AC1",
+          "linked_acceptance_criterion": "Given the panel constructed offscreen, Then it exposes header_button - a DiagonalStrikeButton reading `Option Spreads` - a CCS sub-header followed by a PCS sub-header, each over a four-row table held as ccs_table / pcs_table whose column headers are exactly (`Financial instrument`, `ASK`, `BID`, `Delta`, `Gamma`) in that order, and an empty-state label that is visible while no rows are applied and hidden once apply_snapshot supplies rows.",
+          "type": "integration",
+          "description": "Offscreen OptionSpreadsPanel(): assert header_button text and type, sub-header order, the two tables' header tuples and initial four-row shape, empty-state visibility before and after apply_snapshot([\"row\"]*4, [\"row\"]*4).",
+          "expected_result": "Exact header tuple and sub-header order; both tables four rows; empty state visible only while no rows are applied."
         },
         {
-          "test_id": "P22-T2-AC2",
-          "linked_acceptance_criterion": "Given the UTC\u2194ET toggle flips, When _on_tz_changed runs, Then the main view plus every pop-out view re-renders against the new offset and the choice persists across restarts (AC-D62.3).",
+          "test_id": "P23-T2-AC2",
+          "linked_acceptance_criterion": "Given the panel constructed, Then its controls row holds a numeric Target field showing `1.00` (readable through target_value()) and a checkable ON/OFF toggle whose left edge is to the RIGHT of the Target field's right edge; toggle_state()/set_toggle_state() flip the `spread_state` dynamic property between `off` and `on`, and the rendered colour follows the two named colour constants through the state-keyed stylesheet (red off, green on), repolished on every change; a click emits toggle_clicked(bool).",
           "type": "integration",
-          "description": "Offscreen flip with one main view plus two pop-out views asserting set_timezone reached every open view (red-first on the current silent no-op where no set_timezone exists).",
-          "expected_result": "Main plus every pop-out received the new mode; no view keeps a stale offset."
+          "description": "Assert Target default and x-ordering (toggle.left() > target.right()), toggle the state via click and via set_toggle_state, and read the `spread_state` property plus the effective stylesheet colour token in both states.",
+          "expected_result": "Target shows 1.00; toggle sits right of it; property is `on`/`off` and the colour differs red vs green; toggle_clicked carries the new state."
         },
         {
-          "test_id": "P22-T2-AC3",
-          "linked_acceptance_criterion": "Given the UTC\u2194ET toggle flips, When _on_tz_changed runs, Then the main view plus every pop-out view re-renders against the new offset and the choice persists across restarts (AC-D62.3).",
+          "test_id": "P23-T2-AC3",
+          "linked_acceptance_criterion": "Given the Target field, When the user commits a value, Then the panel accepts exactly 0.05 <= T <= 19.95 - emitting target_committed once and keeping the typed value - and rejects blank, unparsable, 0, negative, NaN, Inf and 20.00 with ONE message in the status label that states the accepted range, the field restored to the last valid value, and NO target_committed emitted, so no downstream ladder state can move on a rejected edit.",
           "type": "integration",
-          "description": "Flip, restart the offscreen window, and assert the persisted choice restores for the main view and seeds pop-out creation.",
-          "expected_result": "Restarted window renders the persisted mode; new pop-outs are created with it (D49.6 threading intact)."
+          "description": "Parametrized commit cases: 0.05 and 19.95 accepted; blank, \"abc\", 0, -1, NaN, Inf, 20.00 rejected - each asserting the status text, the restored field value and the count of emitted target_committed (1 vs 0).",
+          "expected_result": "Edges accepted with one emission each; every rejected input yields exactly one message naming the accepted range, the last valid value restored, and zero emissions."
+        },
+        {
+          "test_id": "P23-T2-AC4",
+          "linked_acceptance_criterion": "Given the panel, Then PREFERRED_WIDTH == 360, preferred_width() == 360 and sizeHint().width() == 360, the panel's horizontal size policy is Ignored (the dock model keeps the clamp), every instrument name cell carries the full name as its tooltip, and when the name column is narrower than the text the cell renders an elided string with a trailing ellipsis - never a hard-truncated unreadable cell.",
+          "type": "integration",
+          "description": "Assert PREFERRED_WIDTH, preferred_width(), sizeHint().width(), the size policy, and the name cell's tooltip/elision under a narrowed column width.",
+          "expected_result": "360 everywhere it is advertised; Ignored policy; tooltip carries the full name; narrowed cell shows an ellipsis."
+        },
+        {
+          "test_id": "P23-T2-AC5",
+          "linked_acceptance_criterion": "Given the panel in the dock, When the header toggle is clicked, Then is_collapsed/set_collapsed/toggle_collapsed flip the body's visibility and the header's checked state symmetrically (collapse then expand restores the body and every row), matching the D21.13/D44 collapse contract the dock drives.",
+          "type": "integration",
+          "description": "Collapse round trip on the panel alone: is_collapsed false, toggle_collapsed hides the body, toggle again restores it and every row is still present.",
+          "expected_result": "Body visibility and header checked state flip together and restore symmetrically."
         }
       ],
       "expected_artifacts": [
-        "LwcChartView.set_timezone in ui/lwc_view.py",
-        "tz op on the interaction channel in ui/lwc_bridge.py",
-        "_on_tz_changed fan-out plus QSettings persist/restore in ui/main_window.py",
-        "tests/test_d62_timezone_toggle.py (op-shape, fan-out, persistence cases)"
+        "ui/option_spreads_panel.py (new panel widget)",
+        "tests/test_d65_option_panel.py (new suite: shell, controls, Target gate, elide, collapse)"
       ],
       "touches_files": [
-        "ui/lwc_view.py",
-        "ui/lwc_bridge.py",
-        "ui/main_window.py",
-        "tests/test_d62_timezone_toggle.py"
+        "ui/option_spreads_panel.py",
+        "tests/test_d65_option_panel.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P22-2",
-        "Frozen _chart_call dispatch and _popouts registry",
-        "D49.6 creation threading (read-only)"
+        "services/option_ladder.py (P23-T1) for the cell formatters",
+        "AC-D65.1/.9/.17"
       ],
       "outputs": [
-        "tz op shape consumed by P22-T3",
-        "per-view fan-out plus persisted mode"
+        "ui/option_spreads_panel.py",
+        "tests/test_d65_option_panel.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/visual_conventions.py",
+            "lines": "1-90",
+            "why": "read-only: DiagonalStrikeButton, set_button_active and ACTIVE_PROPERTY - the header widget and the toggle-colour mechanism"
+          },
+          {
+            "path": "ui/dock_layout.py",
+            "lines": "20-70",
+            "why": "read-only: RIGHT_DOCK_MIN_WIDTH and the 40% cap the panel's minimum must stay inside"
+          },
+          {
+            "path": "tests/test_right_dock_d21.py",
+            "lines": "1-80",
+            "why": "test conventions: offscreen right-dock/panel assertion style this suite follows (the file is edited by P23-T3, read-only here)"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/visual_conventions.py:DiagonalStrikeButton",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/visual_conventions.py:set_button_active",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/dock_layout.py:RIGHT_DOCK_MIN_WIDTH",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/option_spreads_panel.py",
+            "signature": "PREFERRED_WIDTH = 360\ndef preferred_width(self) -> int\nsizeHint(self) -> QSize"
+          },
+          {
+            "status": "new",
+            "module": "ui/option_spreads_panel.py",
+            "signature": "def apply_snapshot(self, ccs_rows, pcs_rows)\ndef set_status(self, text: str)\ndef set_empty_state(self, text: str | None)\ndef target_value(self) -> float\ndef set_target_value(self, value: float)\ndef toggle_state(self) -> bool\ndef set_toggle_state(self, on: bool)\ndef is_collapsed(self) -> bool\ndef set_collapsed(self, collapsed: bool)\ndef toggle_collapsed(self)"
+          },
+          {
+            "status": "new",
+            "module": "ui/option_spreads_panel.py",
+            "signature": "toggle_clicked = pyqtSignal(bool)\ntarget_committed = pyqtSignal(float)"
+          },
+          {
+            "status": "new",
+            "module": "ui/option_spreads_panel.py",
+            "signature": "HEADERS = (\"Financial instrument\", \"ASK\", \"BID\", \"Delta\", \"Gamma\")\nCOLOUR_OFF / COLOUR_ON  # the two named toggle colour constants; spread_state in {\"off\", \"on\"}"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#System Components",
+        "plan_ref": "docs/plan.md#P23-01",
+        "requirement_ids": [
+          "AC-D65.1",
+          "AC-D65.9",
+          "AC-D65.17",
+          "A204",
+          "A212",
+          "S-P23-23",
+          "S-P23-1"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_panel.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T3",
+      "title": "Dock swap and launch width: Option Spreads replaces the Portfolio panel",
+      "description": "Swap the right dock onto OptionSpreadsPanel in ui/main_window.py - title and objectName `Option Spreads`, title-bar widget = header_button, the window attribute renamed option_spreads_panel, the ten ActivePortfolioPanel call sites deleted (not re-pointed: the new panel has none of those methods), the three collapse probes and their docstrings re-pointed - and apply the panel's 360 px preferred width once through the unchanged plan_dock_widths clamp. Delete ui/active_portfolio_panel.py, tests/test_d41_portfolio_dock.py and the six D27 account/position suites, and repair the panel-identity suites; the twenty dock-lookup modules are P23-T4's and the D18 width suites are P23-T5's, both in this same wave.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T2"
+      ],
+      "acceptance_criteria": [
+        "Given a MainWindow constructed offscreen, Then the right dock hosts an OptionSpreadsPanel whose header_button is the dock's title-bar widget, the dock's title AND objectName are `Option Spreads` (findChild(QDockWidget, \"Option Spreads\") resolves it and no dock carries the title or objectName `Portfolio`), the dock's minimum width is still RIGHT_DOCK_MIN_WIDTH, and win.option_spreads_panel is that dock's widget.",
+        "Given the rename, Then `portfolio_panel`, `positions_table` and `ActivePortfolioPanel` are spelled nowhere under ui/, none of the five retired panel methods (set_account_summary, set_account_id, set_account_unavailable, set_positions, add_position) is spelled in ui/main_window.py, and the four account handlers still hold their own bodies - the ten panel calls are deleted, no handler is deleted in this task.",
+        "Given a MainWindow built from a clean process, Then at launch the tracked value is win._right_dock_width == max(RIGHT_DOCK_MIN_WIDTH, min(OptionSpreadsPanel.PREFERRED_WIDTH, right_dock_max_width(chart_area))) and a freshly rebuilt window reaches the same value - the launch width is derived, never persisted, and no QSettings key is added - while a below-minimum drag still floors at RIGHT_DOCK_MIN_WIDTH and the D44 collapsed strip is unchanged.",
+        "Given the cap arithmetic and a real 900x700 window, Then the cap's own contract holds as a pure unit fact - right_dock_max_width(680) == 272 (40 % of 680, since 680 - CHART_MIN_WIDTH = 280 is not the binding term) - and at the narrow fixture (900x700) D18's cross-clamp, not the 40 % cap alone, settles the window at left 150 / right 200 with a 550 px chart area, so the right dock is 200 px (RIGHT_DOCK_MIN_WIDTH, 160 px below the preferred 360 px width) and the instrument-name column is materially narrower than the same column in the 360 px preferred-width layout - at most two-thirds of its width - with the elide + tooltip path taken (the elided text differs from the full name and the cell tooltip still carries it); at the wide fixture (1600x900) the dock renders at least 340 px wide and no instrument name's text width exceeds its column width.",
+        "Given tests/test_dock_d18_region.py re-pointed, Then T48-T01, T48-T02 (including the objectName-keyed lookup sentinel and the collapsed-width floor) and T48-T03 assert on the new panel and are green, its :32 import of ui.active_portfolio_panel is gone, the two hasattr signal probes and the _receiver_count helper are gone with their only call site, and a collapse/expand round trip through the header still yields exactly one right-area dock.",
+        "Given the deletions, Then ui/active_portfolio_panel.py, tests/test_d41_portfolio_dock.py and the six D27 account/position suites no longer exist, tests/test_p13_gate.py's ui/*.py allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, `import ui.main_window` is clean, and the suites that build and walk a real window are green - test_d27_reconnect.py's _on_connected -> _on_disconnected -> _on_connected walk, test_d41_removal.py and test_d40_tws_lifecycle.py."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T3-AC1",
+          "linked_acceptance_criterion": "Given a MainWindow constructed offscreen, Then the right dock hosts an OptionSpreadsPanel whose header_button is the dock's title-bar widget, the dock's title AND objectName are `Option Spreads` (findChild(QDockWidget, \"Option Spreads\") resolves it and no dock carries the title or objectName `Portfolio`), the dock's minimum width is still RIGHT_DOCK_MIN_WIDTH, and win.option_spreads_panel is that dock's widget.",
+          "type": "integration",
+          "description": "Build a real MainWindow offscreen; assert the dock's title and objectName, that its titleBarWidget() is the panel's header_button, its minimumWidth, that findChild(QDockWidget, \"Option Spreads\") is the dock, that no child dock is titled or named `Portfolio`, and that the dock's widget is win.option_spreads_panel.",
+          "expected_result": "New identity resolves, old identity absent, header button is the title bar, minimum unchanged."
+        },
+        {
+          "test_id": "P23-T3-AC2",
+          "linked_acceptance_criterion": "Given the rename, Then `portfolio_panel`, `positions_table` and `ActivePortfolioPanel` are spelled nowhere under ui/, none of the five retired panel methods (set_account_summary, set_account_id, set_account_unavailable, set_positions, add_position) is spelled in ui/main_window.py, and the four account handlers still hold their own bodies - the ten panel calls are deleted, no handler is deleted in this task.",
+          "type": "unit",
+          "description": "Grep-style assertions over ui/ (AST identifiers plus raw text) for portfolio_panel, positions_table, ActivePortfolioPanel and the five retired method names, and a source read asserting the four account handlers are still defined.",
+          "expected_result": "Zero hits for every retired name in ui/; the four handlers still present with their account bodies; nothing under ui/ names option_spreads_panel before P23-T9 needs it."
+        },
+        {
+          "test_id": "P23-T3-AC3",
+          "linked_acceptance_criterion": "Given a MainWindow built from a clean process, Then at launch the tracked value is win._right_dock_width == max(RIGHT_DOCK_MIN_WIDTH, min(OptionSpreadsPanel.PREFERRED_WIDTH, right_dock_max_width(chart_area))) and a freshly rebuilt window reaches the same value - the launch width is derived, never persisted, and no QSettings key is added - while a below-minimum drag still floors at RIGHT_DOCK_MIN_WIDTH and the D44 collapsed strip is unchanged.",
+          "type": "integration",
+          "description": "Launch a window at a 1600x900 fixture and read win._right_dock_width against max(RIGHT_DOCK_MIN_WIDTH, min(360, right_dock_max_width(chart_area))); rebuild a second window and repeat; then drive a below-minimum drag (_apply_dock_widths(None, 0)) and assert the 200 px floor.",
+          "expected_result": "Tracked launch width equals the clamp exactly in both windows, no right-region QSettings key exists, the below-minimum drag floors at 200."
+        },
+        {
+          "test_id": "P23-T3-AC4",
+          "linked_acceptance_criterion": "Given the cap arithmetic and a real 900x700 window, Then the cap's own contract holds as a pure unit fact - right_dock_max_width(680) == 272 (40 % of 680, since 680 - CHART_MIN_WIDTH = 280 is not the binding term) - and at the narrow fixture (900x700) D18's cross-clamp, not the 40 % cap alone, settles the window at left 150 / right 200 with a 550 px chart area, so the right dock is 200 px (RIGHT_DOCK_MIN_WIDTH, 160 px below the preferred 360 px width) and the instrument-name column is materially narrower than the same column in the 360 px preferred-width layout - at most two-thirds of its width - with the elide + tooltip path taken (the elided text differs from the full name and the cell tooltip still carries it); at the wide fixture (1600x900) the dock renders at least 340 px wide and no instrument name's text width exceeds its column width.",
+          "type": "integration",
+          "description": "Wide fixture (1600x900): assert dock width >= 340, every name cell's text width <= its column width, and record the name column width. Narrow fixture (900x700): assert the cross-clamp settles left=150 / right=200 with chart area 550 and the dock is exactly 200 px, that the name column is at most two-thirds of the wide fixture's column width, and that elided_name(full_name, measured_name_column_width) differs from the full name and ends with a trailing ellipsis while the cell tooltip still carries the full name. Separately assert the pure cap contract right_dock_max_width(680) == 272. Carry this code comment in the test: '# 272-at-900x700 is unreachable: D18's cross-clamp settles the window at left 150 / right 200, chart area 550, where right_dock_max_width(550) returns 200 - 680 = 900 - 220 ignored the right dock's own 200 px.'",
+          "expected_result": "Pure cap fact holds (272 at chart area 680); at 900x700 the dock is exactly 200 px - 160 px under the preferred width - with a name column at most two-thirds the preferred layout's width, elision with a trailing ellipsis at the measured cell width and the full name in the tooltip; at 1600x900 the dock is >= 340 px with no elision."
+        },
+        {
+          "test_id": "P23-T3-AC5",
+          "linked_acceptance_criterion": "Given tests/test_dock_d18_region.py re-pointed, Then T48-T01, T48-T02 (including the objectName-keyed lookup sentinel and the collapsed-width floor) and T48-T03 assert on the new panel and are green, its :32 import of ui.active_portfolio_panel is gone, the two hasattr signal probes and the _receiver_count helper are gone with their only call site, and a collapse/expand round trip through the header still yields exactly one right-area dock.",
+          "type": "integration",
+          "description": "Run tests/test_dock_d18_region.py after the re-point, plus an explicit collapse/expand round trip through header_button and an assertion that exactly one dock sits in the right area.",
+          "expected_result": "Suite green with T48-T03 on the new panel, import and _receiver_count gone, collapse restores, one right dock."
+        },
+        {
+          "test_id": "P23-T3-AC6",
+          "linked_acceptance_criterion": "Given the deletions, Then ui/active_portfolio_panel.py, tests/test_d41_portfolio_dock.py and the six D27 account/position suites no longer exist, tests/test_p13_gate.py's ui/*.py allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, `import ui.main_window` is clean, and the suites that build and walk a real window are green - test_d27_reconnect.py's _on_connected -> _on_disconnected -> _on_connected walk, test_d41_removal.py and test_d40_tws_lifecycle.py.",
+          "type": "integration",
+          "description": "Delete-check the module and seven suites, read the p13 allowlist, import ui.main_window, and run the three real-window walk suites named in the AC.",
+          "expected_result": "Module and suites absent, allowlist repaired, import clean, the three walk suites green (so no dereference of the renamed attribute survived)."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py: dock block, renamed attribute, ten call-site deletions, three probe re-points, launch-width request",
+        "ui/active_portfolio_panel.py deleted",
+        "tests/test_d41_portfolio_dock.py and the six D27 account/position suites deleted",
+        "tests/test_dock_d18_region.py, tests/test_right_dock_d21.py, tests/test_d41_removal.py, tests/test_p13_gate.py re-pointed",
+        "tests/test_d65_option_panel.py: AC-D65.9 launch-width / wide / narrow group appended"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/active_portfolio_panel.py",
+        "tests/test_dock_d18_region.py",
+        "tests/test_right_dock_d21.py",
+        "tests/test_d41_removal.py",
+        "tests/test_p13_gate.py",
+        "tests/test_d65_option_panel.py",
+        "tests/test_d41_portfolio_dock.py",
+        "tests/test_d27_account_subs.py",
+        "tests/test_d27_account_scoping.py",
+        "tests/test_d27_account_partial_window.py",
+        "tests/test_d27_flat_rows.py",
+        "tests/test_d27_position_id.py",
+        "tests/test_d27_position_prices.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "ui/option_spreads_panel.py (P23-T2)",
+        "S-P23-1/S-P23-16 (via architecture_ref)"
+      ],
+      "outputs": [
+        "swapped dock in ui/main_window.py",
+        "deleted panel module and suites",
+        "AC-D65.9 launch-width test group"
       ],
       "status": "done",
       "size": "M",
@@ -165,412 +434,1712 @@
         "read_files": [
           {
             "path": "ui/main_window.py",
-            "lines": "4115-4130",
-            "why": "edit: _on_tz_changed fan-out to main plus every _popouts entry plus persist"
+            "lines": "630-680",
+            "why": "edit: the right dock block - panel construction, title, objectName, title-bar widget, minimum width, the panel-owned comments"
           },
           {
             "path": "ui/main_window.py",
-            "lines": "855-870",
-            "why": "read-only: _chart_call dispatch already names set_timezone \u2014 unchanged, gains its callee"
+            "lines": "840-860",
+            "why": "edit: delete the three panel initialisers and their D27.6/D45 comments; the four b.* connects stay (they are P23-T10's)"
           },
           {
             "path": "ui/main_window.py",
-            "lines": "480-495",
-            "why": "read-only: QSettings precedent whose key shape the timezone choice follows"
+            "lines": "1701-1740",
+            "why": "edit: delete only _subscribe_account_data's trailing set_account_unavailable(False); the subscription body stays"
           },
           {
-            "path": "ui/lwc_view.py",
-            "lines": "1940-2070",
-            "why": "edit: add set_timezone beside the construction-only _tz_offset and getter"
+            "path": "ui/main_window.py",
+            "lines": "2060-2080",
+            "why": "edit: delete only _on_disconnected's panel availability call; the account clears stay"
           },
           {
-            "path": "ui/lwc_view.py",
-            "lines": "370-379",
-            "why": "read-only: format_tz_label mirror consulted, not modified"
+            "path": "ui/main_window.py",
+            "lines": "3580-3665",
+            "why": "edit: the three panel-coupled collapse probes, including the docstring at 3585-3587 that spells Account Summary - the last full-word carrier in ui/"
           },
           {
-            "path": "ui/lwc_bridge.py",
-            "lines": "330-420",
-            "why": "edit: tz op rides send_channel on the existing interaction channel"
+            "path": "ui/main_window.py",
+            "lines": "4340-4545",
+            "why": "edit: the remaining panel dereferences inside the four account handlers - delete the calls at 4349/4350/4357/4468/4538, keep every handler body"
           },
           {
-            "path": "ui/popout_window.py",
-            "lines": "190-205",
-            "why": "read-only: D49.6 creation threading receives fan-out, unchanged"
-          },
-          {
-            "path": "tests/test_p13_tz_restore.py",
-            "lines": "1-60",
-            "why": "conventions: tz restore and persistence test pattern this task reuses"
+            "path": "tests/test_dock_d18_region.py",
+            "lines": "1-194",
+            "why": "edit: the rename's most load-bearing suite - :32 import, T48-T01/T02/T03, the objectName sentinel, the :133 collapsed floor, _receiver_count"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/main_window.py:_chart_call",
+            "ref": "ui/dock_layout.py:plan_dock_widths",
             "status": "existing"
           },
           {
-            "ref": "ui/main_window.py:_popouts",
+            "ref": "ui/dock_layout.py:right_dock_max_width",
             "status": "existing"
           },
           {
-            "ref": "ui/lwc_bridge.py:send_channel",
+            "ref": "ui/main_window.py:_deferred_dock_setup",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_apply_dock_widths",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_compute_right_dock_collapsed_min_width",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "def set_timezone(self, mode: str) -> None",
-            "module": "ui/lwc_view.py"
+            "module": "ui/main_window.py",
+            "signature": "self.option_spreads_panel = OptionSpreadsPanel()\nself.right_dock = QDockWidget(\"Option Spreads\", self)\nself.right_dock.setObjectName(\"Option Spreads\")"
           },
           {
             "status": "new",
-            "signature": "send_channel('interaction', [{'op': 'set_timezone', 'mode': mode}])",
-            "module": "ui/lwc_bridge.py"
+            "module": "ui/main_window.py",
+            "signature": "self._right_launch_width = OptionSpreadsPanel.PREFERRED_WIDTH\n# _deferred_dock_setup passes requested_right=self._right_launch_width once"
+          },
+          {
+            "status": "new",
+            "module": "ui/option_spreads_panel.py",
+            "signature": "OptionSpreadsPanel.header_button  # the DiagonalStrikeButton the dock uses as its title-bar widget\nOptionSpreadsPanel.PREFERRED_WIDTH = 360\ndef preferred_width(self) -> int\ndef is_collapsed(self) -> bool"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P22",
-        "plan_ref": "docs/plan.md#Phase P22",
+        "architecture_ref": "docs/architecture.md#Frozen Interfaces",
+        "plan_ref": "docs/plan.md#P23-01",
         "requirement_ids": [
-          "AC-D62.3"
+          "AC-D65.1",
+          "AC-D65.9",
+          "AC-D65.13",
+          "A194",
+          "A198",
+          "A201",
+          "S-P23-1",
+          "S-P23-16",
+          "RC-15",
+          "RC-16"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d62_timezone_toggle.py tests/test_p13_tz_create.py tests/test_p13_tz_restore.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_dock_d18_region.py tests/test_right_dock_d21.py tests/test_d41_removal.py tests/test_d65_option_panel.py tests/test_p13_gate.py -q",
         "memory_refs": [],
-        "needs_graphify": false,
-        "size": "M"
+        "size": "M",
+        "needs_graphify": false
       }
     },
     {
-      "id": "P22-T3",
-      "title": "Page tz apply plus zone-aware formatting (D62 labels plus D64 shared leg)",
-      "description": "In chart_assets/lwc/chart.js add the live tz apply (set tzOffset from the P22-T2 op, re-apply tickMarkFormatter plus localization.timeFormatter, force tick re-render) and make ET mode zone-aware: each tick formats from its UTC epoch as America/New_York wall time so DST-boundary bars label date-correctly; UTC mode stays plain UTC math. The crosshair and tooltip time path uses the same formatter so AC-D62.2 follows AC-D62.1 by construction. Stored bars are never touched (A185). Test P22-T3-AC1 pins axis re-labels; test P22-T3-AC2 pins DST date-correctness; test P22-T3-AC3 pins cursor-time re-labels; test P22-T3-AC4 pins futures plus toggle-only control.",
+      "id": "P23-T4",
+      "title": "Dock-lookup surface: twenty suites re-keyed to objectName",
+      "description": "Re-point the twenty surviving suites that hide the right dock by its retired `Portfolio` identity to dock.objectName() in (\"Option Spreads\",): fifteen uniform loops (predicate only, imports preserved), three module-constant forms with their consumer and comment, and three sentinel assertions that must keep failing loudly on a future rename. Runs in the same wave as P23-T3, after it, so no suite observes a half-renamed dock.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P22-T2"
+        "P23-T3"
       ],
       "acceptance_criteria": [
-        "Given a loaded chart, When the UTC\u2194ET toggle flips, Then every time-axis tick label shifts by exactly the zone delta for its bar date (DST-correct) with no overlap/clipping regression (AC-D62.1).",
-        "Given the crosshair/tooltip visible, When the toggle flips, Then the crosshair/tooltip time for the same cursor position shifts by exactly the same delta as the axis (AC-D62.2).",
-        "Given equity bars under the session calendar (or futures bars per Q98 as-is-ET), When the axis renders in the active zone, Then each tick label equals its bar time in that zone; the ONLY user control that changes the rendering is the UTC/ET toggle \u2014 no formatting UI (AC-D64.1)."
+        "Given every surviving suite that locates the right dock by its retired identity, Then each locates it with dock.objectName() in (\"Option Spreads\",) - the fifteen uniform hide loops change their predicate only (their QDockWidget import is still used), and the three module-constant forms (test_d10_d13_integration._RIGHT_DOCKS, test_dock_widths_d17._RIGHT_DOCKS, test_watchlist_columns_d21 renamed _RIGHT_DOCK_TITLES -> _RIGHT_DOCK_NAMES) carry the new constant, its consuming predicate and the comment above it, because `titles` would no longer be true.",
+        "Given the three sentinel sites, Then each still asserts that its lookup resolved: test_history_backfill_loadpath's right_docks assertion, test_d42_depth_floor's right_docks assertion and test_dock_widths_d17's hidden == 1 - so a future rename fails loudly instead of silently hiding nothing.",
+        "Given the re-point, Then a tests/-wide search finds none of windowTitle() in (\"Portfolio\", windowTitle() == \"Portfolio\", findChild(QDockWidget, \"Portfolio\"), objectName() == \"Portfolio\" or the literal (\"Portfolio\",), and finds no portfolio_panel or positions_table - with the single documented carve-out that the forbidden-token tables in tests/test_d45_removal.py may spell those strings, since a token that is forbidden has to be spelled to be forbidden.",
+        "Given the re-point, Then all twenty suites are green - in particular the three that hard-fail at the rename (test_history_backfill_loadpath, test_d42_depth_floor, test_dock_widths_d17) because their sentinel assertion now resolves the new key."
       ],
       "tests": [
         {
-          "test_id": "P22-T3-AC1",
-          "linked_acceptance_criterion": "Given a loaded chart, When the UTC\u2194ET toggle flips, Then every time-axis tick label shifts by exactly the zone delta for its bar date (DST-correct) with no overlap/clipping regression (AC-D62.1).",
-          "type": "integration",
-          "description": "Offscreen toggle on injected bars asserting per-tick label equality against independently formatted expected strings before and after the flip (red-first on the current no-op path where labels never move).",
-          "expected_result": "Every tick shifts by the date-correct delta; flipping back restores the original labels with no overlap or clipping regression."
-        },
-        {
-          "test_id": "P22-T3-AC2",
-          "linked_acceptance_criterion": "Given a loaded chart, When the UTC\u2194ET toggle flips, Then every time-axis tick label shifts by exactly the zone delta for its bar date (DST-correct) with no overlap/clipping regression (AC-D62.1).",
+          "test_id": "P23-T4-AC1",
+          "linked_acceptance_criterion": "Given every surviving suite that locates the right dock by its retired identity, Then each locates it with dock.objectName() in (\"Option Spreads\",) - the fifteen uniform hide loops change their predicate only (their QDockWidget import is still used), and the three module-constant forms (test_d10_d13_integration._RIGHT_DOCKS, test_dock_widths_d17._RIGHT_DOCKS, test_watchlist_columns_d21 renamed _RIGHT_DOCK_TITLES -> _RIGHT_DOCK_NAMES) carry the new constant, its consuming predicate and the comment above it, because `titles` would no longer be true.",
           "type": "unit",
-          "description": "node --test formatter core on UTC epochs straddling a DST boundary asserting America/New_York wall times on both sides (a fixed 5h scalar would mislabel one side by 1h).",
-          "expected_result": "Both sides of the boundary format date-correctly in ET mode; UTC mode is plain UTC math."
+          "description": "Read the twenty modules and assert each predicate/constant form: 15 loops contain objectName() in (\"Option Spreads\",) and still import QDockWidget; the three constant forms define the new constant and consume it; the watchlist constant is renamed.",
+          "expected_result": "Twenty modules keyed on objectName with the new tuple; no file left the old predicate; the renamed constant has no `TITLES` spelling left."
         },
         {
-          "test_id": "P22-T3-AC3",
-          "linked_acceptance_criterion": "Given the crosshair/tooltip visible, When the toggle flips, Then the crosshair/tooltip time for the same cursor position shifts by exactly the same delta as the axis (AC-D62.2).",
+          "test_id": "P23-T4-AC2",
+          "linked_acceptance_criterion": "Given the three sentinel sites, Then each still asserts that its lookup resolved: test_history_backfill_loadpath's right_docks assertion, test_d42_depth_floor's right_docks assertion and test_dock_widths_d17's hidden == 1 - so a future rename fails loudly instead of silently hiding nothing.",
           "type": "integration",
-          "description": "Offscreen hover cases asserting crosshair and tooltip text before and after the flip for the same cursor position.",
-          "expected_result": "Crosshair and tooltip times shift by exactly the axis delta."
+          "description": "Run the three sentinel suites and assert each sentinel line still carries its assertion (right_docks truthy twice, hidden == 1 once).",
+          "expected_result": "All three sentinels present and green; the dock they resolve is the Option Spreads dock."
         },
         {
-          "test_id": "P22-T3-AC4",
-          "linked_acceptance_criterion": "Given equity bars under the session calendar (or futures bars per Q98 as-is-ET), When the axis renders in the active zone, Then each tick label equals its bar time in that zone; the ONLY user control that changes the rendering is the UTC/ET toggle \u2014 no formatting UI (AC-D64.1).",
+          "test_id": "P23-T4-AC3",
+          "linked_acceptance_criterion": "Given the re-point, Then a tests/-wide search finds none of windowTitle() in (\"Portfolio\", windowTitle() == \"Portfolio\", findChild(QDockWidget, \"Portfolio\"), objectName() == \"Portfolio\" or the literal (\"Portfolio\",), and finds no portfolio_panel or positions_table - with the single documented carve-out that the forbidden-token tables in tests/test_d45_removal.py may spell those strings, since a token that is forbidden has to be spelled to be forbidden.",
+          "type": "unit",
+          "description": "Grep tests/ for the five keyed-lookup forms and the two symbol names, allowing only the forbidden-token tables carve-out, and assert the carve-out hits are literal strings in _FORBIDDEN/_SURVIVORS.",
+          "expected_result": "Zero hits outside the carve-out; every carve-out hit is a literal string table entry."
+        },
+        {
+          "test_id": "P23-T4-AC4",
+          "linked_acceptance_criterion": "Given the re-point, Then all twenty suites are green - in particular the three that hard-fail at the rename (test_history_backfill_loadpath, test_d42_depth_floor, test_dock_widths_d17) because their sentinel assertion now resolves the new key.",
           "type": "integration",
-          "description": "Offscreen equity plus futures tick matrices in both modes against independently computed zone strings, plus a user-control matrix asserting no non-toggle control mutates the axis.",
-          "expected_result": "All tick labels equal bar times in the active zone; only the UTC/ET toggle changes the rendering."
+          "description": "Run the twenty suites (select_tests.py mapping per docs/codebase-map.md's P23 test-impact row).",
+          "expected_result": "All twenty green; none regressed to a silent no-op."
         }
       ],
       "expected_artifacts": [
-        "tz apply plus zone-aware ET formatter in chart_assets/lwc/chart.js",
-        "chart_assets/lwc/tz_format.test.js (DST-straddling formatter core)",
-        "tests/test_d62_d64_tick_labels.py (toggle matrices: axis, cursor, futures, control)"
+        "Twenty suites keyed on objectName instead of the retired Portfolio title"
       ],
       "touches_files": [
-        "chart_assets/lwc/chart.js",
-        "chart_assets/lwc/tz_format.test.js",
-        "tests/test_d62_d64_tick_labels.py"
+        "tests/test_history_backfill.py",
+        "tests/test_history_backfill_disconnect.py",
+        "tests/test_history_backfill_loadpath.py",
+        "tests/test_d42_depth_floor.py",
+        "tests/test_d27_phantom_alarms.py",
+        "tests/test_d27_reconnect.py",
+        "tests/test_d27_stream_health.py",
+        "tests/test_p7_w1_persist.py",
+        "tests/test_p7_w2_prime.py",
+        "tests/test_p7_w2_watchdog.py",
+        "tests/test_p14_indicator.py",
+        "tests/test_p14_cache_guard.py",
+        "tests/test_p14_lifecycle.py",
+        "tests/test_p15_surfacing.py",
+        "tests/test_p15_expiry.py",
+        "tests/test_p15_continue.py",
+        "tests/test_p20_resolution_probe.py",
+        "tests/test_d10_d13_integration.py",
+        "tests/test_watchlist_columns_d21.py",
+        "tests/test_dock_widths_d17.py"
       ],
       "doc_required": false,
       "inputs": [
-        "tz op shape from P22-T2",
-        "S-P22-3",
-        "S-P22-5 basis check"
+        "the renamed dock identity (P23-T3)"
       ],
       "outputs": [
-        "DST-correct formatter path consumed by P22-T4 time-label leg",
-        "DG114 confirmed-or-refuted seam evidence"
+        "twenty re-keyed suites"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "55-90",
-            "why": "edit: tzLabel UTC math becomes zone-aware ET per-tick formatting"
+            "path": "tests/test_history_backfill.py",
+            "lines": "218-230",
+            "why": "edit: the representative uniform hide loop - the predicate is the whole change (rows 1-15 all match this shape)"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "585-615",
-            "why": "edit: tickMarkFormatter plus timeFormatter closures re-applied on tz apply"
+            "path": "tests/test_d10_d13_integration.py",
+            "lines": "35-65",
+            "why": "edit: module-constant form - _RIGHT_DOCKS plus the predicate that consumes it"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "230-250",
-            "why": "edit: tzOffset page var gains the live apply path"
+            "path": "tests/test_watchlist_columns_d21.py",
+            "lines": "300-330",
+            "why": "edit: _RIGHT_DOCK_TITLES renamed to _RIGHT_DOCK_NAMES with its consumer and comment"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "730-780",
-            "why": "read-only: recordTick and axisProbe evidence surface asserted against \u2014 do not change"
+            "path": "tests/test_dock_widths_d17.py",
+            "lines": "35-90",
+            "why": "edit: constant, predicate and the `assert hidden == 1` sentinel"
           },
           {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "1445-1470",
-            "why": "read-only: lwConfigure boot seeding shape stands \u2014 live callers added, shape unchanged"
+            "path": "tests/test_history_backfill_loadpath.py",
+            "lines": "168-182",
+            "why": "edit: list-plus-assert sentinel form"
           },
           {
-            "path": "ui/lwc_view.py",
-            "lines": "370-379",
-            "why": "read-only: format_tz_label mirror the page formatter must agree with \u2014 do not change"
+            "path": "tests/test_d42_depth_floor.py",
+            "lines": "180-195",
+            "why": "edit: the second list-plus-assert sentinel form"
           },
           {
-            "path": "chart_assets/lwc/chart.test.js",
-            "lines": "1-60",
-            "why": "conventions: node page-test idiom this task reuses"
+            "path": "ui/main_window.py",
+            "lines": "636-646",
+            "why": "read-only: the dock's objectName the new predicate keys on - do not change it here"
+          }
+        ],
+        "contracts": [],
+        "architecture_ref": "docs/architecture.md#Codebase Summary",
+        "plan_ref": "docs/plan.md#P23-01",
+        "requirement_ids": [
+          "AC-D65.1",
+          "A194",
+          "A198",
+          "S-P23-1",
+          "RC-11",
+          "RC-12"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_dock_widths_d17.py tests/test_d10_d13_integration.py tests/test_watchlist_columns_d21.py tests/test_history_backfill_loadpath.py tests/test_d42_depth_floor.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T5",
+      "title": "Width suites, the two A201 re-baselines, D21.13 probe and the walkthrough rework",
+      "description": "Rebuild the D18/D18-impl width suites and the D21.13/D22 header probe on the new panel, apply exactly the two owner-authorised A201 re-baselines (expected constant only), and rework tests/test_d45_removal.py's walkthrough onto the new panel while deleting the eight-column and panel-member tests whose subjects die with the Portfolio panel.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T3"
+      ],
+      "acceptance_criteria": [
+        "Given the two owner-authorised A201 re-baselines (tests/test_dock_widths_d18.py:437-438 and tests/test_dock_widths_d18_impl.py:328-329), Then each asserts expected = max(RIGHT_DOCK_MIN_WIDTH, min(OptionSpreadsPanel.PREFERRED_WIDTH, right_dock_max_width(win2._chart_area_width()))) for both the tracked value and the rendered width, changing ONLY its expected constant - the \"default restored, not persisted\" semantics, the no-QSettings loop above them and every other assertion in either file are unchanged, and a diff of the two files shows exactly those four lines.",
+        "Given the D18 suites re-pointed, Then their dock title/objectName assertions read `Option Spreads`, their panel-fills cases follow the renamed members, and the AC-D18.6 wide-content case is rebuilt on the new panel's ccs_table/pcs_table (positions_table no longer exists) with its own prose re-pointed - all green with no numeric expectation moved except the two re-baselines.",
+        "Given tests/test_watchlist_nonregression_d22.py's D21.13/D22 header/collapse probe re-pointed to header_button, is_collapsed, body and the text `Option Spreads`, Then the probe asserts the same behaviour as before (collapse hides the body, expand restores it, the header button is the dock's title bar) and tests/test_dock_widths_collapsed_d44.py - which exercises the LEFT watchlist dock only - is untouched and green.",
+        "Given the reworked walkthrough in tests/test_d45_removal.py, Then _snapshot records the panel's ccs_table/pcs_table row counts, header tuple and collapse state instead of positions_table, both bridge.position_update emits along with the record[\"positions\"] dict and the Portfolio render assertions are gone, the collapse affordance is driven via toggle_collapsed(), and test_zero_transmit_walkthrough still asserts zero transmit/cancel, per-step constructibility and no unhandled AttributeError/TypeError - while test_removed_panel_members_absent, _REMOVED_PANEL_MEMBERS and test_positions_table_is_eight_columns are deleted with their subjects and _stub_account_calls is retained for P23-T10."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T5-AC1",
+          "linked_acceptance_criterion": "Given the two owner-authorised A201 re-baselines (tests/test_dock_widths_d18.py:437-438 and tests/test_dock_widths_d18_impl.py:328-329), Then each asserts expected = max(RIGHT_DOCK_MIN_WIDTH, min(OptionSpreadsPanel.PREFERRED_WIDTH, right_dock_max_width(win2._chart_area_width()))) for both the tracked value and the rendered width, changing ONLY its expected constant - the \"default restored, not persisted\" semantics, the no-QSettings loop above them and every other assertion in either file are unchanged, and a diff of the two files shows exactly those four lines.",
+          "type": "integration",
+          "description": "Read both re-baselined assertions and a diff of the two files; run both suites. Assert the expected expression uses the clamp over PREFERRED_WIDTH and that no other numeric expectation in either file moved.",
+          "expected_result": "Exactly four changed lines (two assertions each), both suites green, not-persisted semantics intact."
+        },
+        {
+          "test_id": "P23-T5-AC2",
+          "linked_acceptance_criterion": "Given the D18 suites re-pointed, Then their dock title/objectName assertions read `Option Spreads`, their panel-fills cases follow the renamed members, and the AC-D18.6 wide-content case is rebuilt on the new panel's ccs_table/pcs_table (positions_table no longer exists) with its own prose re-pointed - all green with no numeric expectation moved except the two re-baselines.",
+          "type": "integration",
+          "description": "Run tests/test_dock_widths_d18.py and tests/test_dock_widths_d18_impl.py: dock identity cases, panel-fills cases, and the wide-content case reading the new tables.",
+          "expected_result": "Both suites green; wide content asserted on ccs_table/pcs_table; no leftover positions_table reference."
+        },
+        {
+          "test_id": "P23-T5-AC3",
+          "linked_acceptance_criterion": "Given tests/test_watchlist_nonregression_d22.py's D21.13/D22 header/collapse probe re-pointed to header_button, is_collapsed, body and the text `Option Spreads`, Then the probe asserts the same behaviour as before (collapse hides the body, expand restores it, the header button is the dock's title bar) and tests/test_dock_widths_collapsed_d44.py - which exercises the LEFT watchlist dock only - is untouched and green.",
+          "type": "integration",
+          "description": "Run the D21.13/D22 probe and the untouched D44 left-dock suite; assert the probe's header text and collapse behaviour.",
+          "expected_result": "Probe green on header_button/is_collapsed/body with the Option Spreads text; D44 suite green unmodified."
+        },
+        {
+          "test_id": "P23-T5-AC4",
+          "linked_acceptance_criterion": "Given the reworked walkthrough in tests/test_d45_removal.py, Then _snapshot records the panel's ccs_table/pcs_table row counts, header tuple and collapse state instead of positions_table, both bridge.position_update emits along with the record[\"positions\"] dict and the Portfolio render assertions are gone, the collapse affordance is driven via toggle_collapsed(), and test_zero_transmit_walkthrough still asserts zero transmit/cancel, per-step constructibility and no unhandled AttributeError/TypeError - while test_removed_panel_members_absent, _REMOVED_PANEL_MEMBERS and test_positions_table_is_eight_columns are deleted with their subjects and _stub_account_calls is retained for P23-T10.",
+          "type": "integration",
+          "description": "Run tests/test_d45_removal.py - the reworked walkthrough, test_zero_transmit_walkthrough and the deletion assertions.",
+          "expected_result": "Walkthrough records the new panel's shape with zero transmit/cancel and no unhandled slot exception; the three deleted tests/tuples are absent; _stub_account_calls still present."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_dock_widths_d18.py and tests/test_dock_widths_d18_impl.py re-pointed, two constants re-baselined",
+        "tests/test_watchlist_nonregression_d22.py probe re-pointed",
+        "tests/test_d45_removal.py walkthrough reworked; three obsolete tests/tuples deleted"
+      ],
+      "touches_files": [
+        "tests/test_dock_widths_d18.py",
+        "tests/test_dock_widths_d18_impl.py",
+        "tests/test_watchlist_nonregression_d22.py",
+        "tests/test_d45_removal.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the swapped dock and new panel (P23-T3)"
+      ],
+      "outputs": [
+        "re-baselined and re-pointed D18/D21.13/walkthrough suites"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_dock_widths_d18.py",
+            "lines": "170-190",
+            "why": "edit: dock title/objectName assertions to re-point"
+          },
+          {
+            "path": "tests/test_dock_widths_d18.py",
+            "lines": "360-450",
+            "why": "edit: the AC-D18.6 wide-content case (positions_table) and the :437-438 re-baseline"
+          },
+          {
+            "path": "tests/test_dock_widths_d18_impl.py",
+            "lines": "255-340",
+            "why": "edit: the wide-content case and the :328-329 re-baseline"
+          },
+          {
+            "path": "tests/test_watchlist_nonregression_d22.py",
+            "lines": "140-182",
+            "why": "edit: the D21.13/D22 header/collapse probe and its :161 text assertion"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "485-560",
+            "why": "edit: _snapshot and the walkthrough fixture setup; _stub_account_calls stays"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "595-725",
+            "why": "edit: the positions_table drive lines, the two position_update emits, the render assertions, the eight-column and panel-member tests"
           }
         ],
         "contracts": [
           {
-            "ref": "chart_assets/lwc/chart.js:tzLabel",
+            "ref": "ui/dock_layout.py:RIGHT_DOCK_MIN_WIDTH",
             "status": "existing"
           },
           {
-            "ref": "chart_assets/lwc/chart.js:lwConfigure",
-            "status": "existing"
-          },
-          {
-            "ref": "chart_assets/lwc/chart.js:lwAxisProbe",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/lwc_view.py:format_tz_label",
+            "ref": "ui/dock_layout.py:right_dock_max_width",
             "status": "existing"
           },
           {
             "status": "new",
-            "signature": "applyTz(mode: 'UTC' | 'Eastern Time'): set tzOffset, re-apply tickMarkFormatter + localization.timeFormatter, force tick re-render",
-            "module": "chart_assets/lwc/chart.js"
+            "module": "ui/option_spreads_panel.py",
+            "signature": "OptionSpreadsPanel.ccs_table / pcs_table  # the two 4x5 QTableWidgets the width cases read\nOptionSpreadsPanel.header_button\ndef is_collapsed(self) -> bool\ndef toggle_collapsed(self)\nPREFERRED_WIDTH = 360"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P22",
-        "plan_ref": "docs/plan.md#Phase P22",
+        "architecture_ref": "docs/architecture.md#Frozen Interfaces",
+        "plan_ref": "docs/plan.md#P23-01",
         "requirement_ids": [
-          "AC-D62.1",
-          "AC-D62.2",
-          "AC-D64.1"
+          "AC-D65.9",
+          "A201",
+          "RC-7",
+          "RC-12"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d62_d64_tick_labels.py -q && node --test chart_assets/lwc/tz_format.test.js",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_dock_widths_d18.py tests/test_dock_widths_d18_impl.py tests/test_watchlist_nonregression_d22.py tests/test_d45_removal.py -q",
         "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
+        "size": "M",
+        "needs_graphify": false
       }
     },
     {
-      "id": "P22-T4",
-      "title": "Crosshair free cursor-price tracking pin (D63)",
-      "description": "Repro-first: a between-close hover repro on the current tree names the snapping primitive (candidate: library Magnet default because the Normal-mode applyCrosshair never reaches the live chart \u2014 verify from the repro, do not assume). Then pin CrosshairMode.Normal application at creation and on every crosshair-touching applyOptions, and remove or retarget the snapping source so the horizontal line renders at the cursor price continuously with no snap anywhere (FS20 magnet stays a suggestion only \u2014 no magnet control built). Vertical line (DG115) stays the library Normal line (cursor-time, label via the P22-T3 formatter path); if diagnosis shows slot-snapping on the vertical line that contradicts D64, escalate instead of assuming \u2014 the AC asserts the horizontal line only. Test P22-T4-AC1 pins line-equals-cursor; test P22-T4-AC2 pins absence of every snap path.",
+      "id": "P23-T6",
+      "title": "Chain discovery, option contracts and the greek/quote boundary",
+      "description": "Teach ibkr/ to resolve SPX's 0DTE SPXW series, build attribute-complete per-leg contracts, and carry streamed quotes and greeks for a leg, with none of it reachable from the panel yet: new helpers in ibkr/contracts.py and ibkr/market_data.py, three new client overrides plus three new bridge signals, and tests/test_d65_option_chain.py. Screening stays out of this boundary - sentinels pass through unmodified because the engine owns validity.",
       "agent": "build_worker",
       "task_type": "code",
       "dependencies": [
-        "P22-T3"
+        "P23-T1"
       ],
       "acceptance_criteria": [
-        "Given the cursor over the pane at a price P that equals no visible candle close, When the crosshair renders, Then the horizontal line price equals P (within one rendering step), not any bar's close \u2014 free-only, no snap exists anywhere (AC-D63.1).",
-        "Given the built tree, When the crosshair mode and subscribers are inspected, Then no Magnet mode id and no snap subscriber exists anywhere (AC-D63.1 absence half)."
+        "Given a symbol, expiry, strike, right and trading class, When get_option_contract builds a leg, Then the contract is attribute-complete - symbol SPX, secType OPT, exchange SMART, currency USD, lastTradeDateOrContractMonth YYYYMMDD, strike, right (C/P), multiplier \"100\" and tradingClass \"SPXW\" - and no per-leg conId lookup is issued.",
+        "Given SPX's option-parameter response and an ET clock, Then today_expiry_yyyymmdd returns today's ET date in YYYYMMDD, select_zero_dte_series returns the SPXW series carrying exactly that expiry (ignoring a later expiry that is also present) or None when no series carries today, OptionSeries carries trading_class/exchange/expiry/con_id/strikes_by_right, and option_chain_strikes returns sorted strike lists per right.",
+        "Given the market-data manager, When req_sec_def_opt_params is called, Then it runs the readiness check first (raising IBKRNotReady), allocates its reqId through id_manager.get_id(), calls pacing_manager.throttle() and never sleeps - PacingExceeded propagates for the caller to defer - and then issues reqSecDefOptParams for SPX's IND conId.",
+        "Given tickOptionComputation for a leg, Then the override emits option_computation with exactly the reqId, tick type and delta/gamma, passing tick types 13 (model), 12 (last) and 10/11 (bid/ask) through unchanged and passing None, -1, 1.7976931348623157e+308 and NaN delta/gamma through UNMODIFIED - no screening happens in the bridge or the client; tickPrice bid/ask sentinels likewise reach the engine untouched, and securityDefinitionOptionParameter(+End) emit option_params/option_params_end with only the fields the panel uses.",
+        "Given this wave, Then no production module outside ibkr/ calls the new helpers yet, the four account/position EWrapper overrides and their four bridge signals are still present (they are P23-T11's deletions), and no order-building or transmit call is added anywhere."
       ],
       "tests": [
         {
-          "test_id": "P22-T4-AC1",
-          "linked_acceptance_criterion": "Given the cursor over the pane at a price P that equals no visible candle close, When the crosshair renders, Then the horizontal line price equals P (within one rendering step), not any bar's close \u2014 free-only, no snap exists anywhere (AC-D63.1).",
-          "type": "integration",
-          "description": "Offscreen between-close hover cases asserting line price equals cursor price at rest and across live forming-bar ticks (red-first on the current snap-to-close tree), plus out-of-range clamp edge.",
-          "expected_result": "Line equals cursor at every position, never a bar close, at rest and during ticks; out-of-range clamps per existing behaviour."
-        },
-        {
-          "test_id": "P22-T4-AC2",
-          "linked_acceptance_criterion": "Given the built tree, When the crosshair mode and subscribers are inspected, Then no Magnet mode id and no snap subscriber exists anywhere (AC-D63.1 absence half).",
+          "test_id": "P23-T6-AC1",
+          "linked_acceptance_criterion": "Given a symbol, expiry, strike, right and trading class, When get_option_contract builds a leg, Then the contract is attribute-complete - symbol SPX, secType OPT, exchange SMART, currency USD, lastTradeDateOrContractMonth YYYYMMDD, strike, right (C/P), multiplier \"100\" and tradingClass \"SPXW\" - and no per-leg conId lookup is issued.",
           "type": "unit",
-          "description": "Source and page-state assertions that no Magnet mode id is applied and no snap subscriber is registered on any crosshair-touching path.",
-          "expected_result": "No Magnet mode id and no snap subscriber anywhere; Normal mode pinned at creation and on every crosshair-touching applyOptions."
+          "description": "Build contracts for both rights and several strikes; assert every attribute against the expected ibapi field, and assert no reqContractDetails is recorded on the fake client.",
+          "expected_result": "Attribute-complete OPT contracts per right/strike; zero contract-details round trips."
+        },
+        {
+          "test_id": "P23-T6-AC2",
+          "linked_acceptance_criterion": "Given SPX's option-parameter response and an ET clock, Then today_expiry_yyyymmdd returns today's ET date in YYYYMMDD, select_zero_dte_series returns the SPXW series carrying exactly that expiry (ignoring a later expiry that is also present) or None when no series carries today, OptionSeries carries trading_class/exchange/expiry/con_id/strikes_by_right, and option_chain_strikes returns sorted strike lists per right.",
+          "type": "unit",
+          "description": "today_expiry_yyyymmdd across ET dates (including a UTC instant that is the previous ET date); select_zero_dte_series with SPXW-today, SPXW with only a later expiry, a non-SPXW class, and no 0DTE; option_chain_strikes ordering per right.",
+          "expected_result": "Today's ET expiry chosen, later expiries ignored, None on a no-0DTE day, strikes sorted per right."
+        },
+        {
+          "test_id": "P23-T6-AC3",
+          "linked_acceptance_criterion": "Given the market-data manager, When req_sec_def_opt_params is called, Then it runs the readiness check first (raising IBKRNotReady), allocates its reqId through id_manager.get_id(), calls pacing_manager.throttle() and never sleeps - PacingExceeded propagates for the caller to defer - and then issues reqSecDefOptParams for SPX's IND conId.",
+          "type": "unit",
+          "description": "Call req_sec_def_opt_params with a ready fake client, then with an unready client, then under a PacingExceeded-arming pacing stub; assert the recorded request shape, reqId source and exception propagation, and that no sleep is used.",
+          "expected_result": "One reqSecDefOptParams for the SPX IND conId with an id_manager reqId; IBKRNotReady and PacingExceeded raise; no sleeping."
+        },
+        {
+          "test_id": "P23-T6-AC4",
+          "linked_acceptance_criterion": "Given tickOptionComputation for a leg, Then the override emits option_computation with exactly the reqId, tick type and delta/gamma, passing tick types 13 (model), 12 (last) and 10/11 (bid/ask) through unchanged and passing None, -1, 1.7976931348623157e+308 and NaN delta/gamma through UNMODIFIED - no screening happens in the bridge or the client; tickPrice bid/ask sentinels likewise reach the engine untouched, and securityDefinitionOptionParameter(+End) emit option_params/option_params_end with only the fields the panel uses.",
+          "type": "unit",
+          "description": "Fake-client routing cases: tickOptionComputation for tick types 13/12/10/11 and for each sentinel value; tickPrice bid/ask sentinels; the two chain overrides.",
+          "expected_result": "Signals carry unmodified values and only the used fields; sentinels survive to the consumer."
+        },
+        {
+          "test_id": "P23-T6-AC5",
+          "linked_acceptance_criterion": "Given this wave, Then no production module outside ibkr/ calls the new helpers yet, the four account/position EWrapper overrides and their four bridge signals are still present (they are P23-T11's deletions), and no order-building or transmit call is added anywhere.",
+          "type": "unit",
+          "description": "Import-graph assertion that only ibkr/ modules and the new test module reference the new helpers, that the four account overrides/signals still exist, and a grep for placeOrder/cancelOrder/ reqGlobalCancel additions.",
+          "expected_result": "No production caller outside ibkr/; account overrides intact; zero order calls added."
         }
       ],
       "expected_artifacts": [
-        "Normal-mode pin plus snap-source removal in chart_assets/lwc/chart.js and/or chart_assets/lwc/interaction.js",
-        "tests/test_d63_crosshair_free.py (between-close tracking plus absence cases)"
+        "ibkr/contracts.py: get_option_contract, today_expiry_yyyymmdd, select_zero_dte_series, option_chain_strikes, OptionSeries",
+        "ibkr/market_data.py: req_sec_def_opt_params",
+        "ibkr/client.py: tickOptionComputation, securityDefinitionOptionParameter, securityDefinitionOptionParameterEnd",
+        "ibkr/bridge.py: option_params, option_params_end, option_computation",
+        "tests/test_d65_option_chain.py (new suite)"
       ],
       "touches_files": [
-        "chart_assets/lwc/chart.js",
-        "chart_assets/lwc/interaction.js",
-        "tests/test_d63_crosshair_free.py"
+        "ibkr/contracts.py",
+        "ibkr/market_data.py",
+        "ibkr/client.py",
+        "ibkr/bridge.py",
+        "tests/test_d65_option_chain.py"
       ],
       "doc_required": false,
       "inputs": [
-        "S-P22-4",
-        "Formatter path from P22-T3 (time-label leg, read-only)",
-        "FS20 stays a suggestion (frozen)"
+        "services/option_ladder.py LegKey/SpreadRow shapes (P23-T1)"
       ],
       "outputs": [
-        "Free-tracking horizontal line; DG115 stated-or-escalated"
+        "chain + contract + greek/quote boundary in ibkr/",
+        "tests/test_d65_option_chain.py"
       ],
       "status": "done",
-      "size": "S",
+      "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "chart_assets/lwc/interaction.js",
-            "lines": "220-270",
-            "why": "edit-or-clear: CROSSHAIR_OPTIONS mode plus applyCrosshair definition the repro diagnoses"
-          },
-          {
-            "path": "chart_assets/lwc/interaction.js",
-            "lines": "360-370",
-            "why": "read-only: applyCrosshair export and call-site wiring \u2014 pin here if the snap routes through it"
-          },
-          {
-            "path": "chart_assets/lwc/chart.js",
-            "lines": "585-615",
-            "why": "read-only: P22-T3 formatter path for the time-label leg \u2014 consume, do not change"
-          },
-          {
-            "path": "chart_assets/lwc/chart.test.js",
-            "lines": "1-60",
-            "why": "conventions: node page-test idiom for the absence assertions"
-          },
-          {
-            "path": "tests/test_lwc_time_parity.py",
-            "lines": "1-60",
-            "why": "conventions: offscreen probe-assertion pattern this task reuses"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "chart_assets/lwc/interaction.js:applyCrosshair",
-            "status": "existing"
-          },
-          {
-            "ref": "chart_assets/lwc/interaction.js:CROSSHAIR_OPTIONS",
-            "status": "existing"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P22",
-        "plan_ref": "docs/plan.md#Phase P22",
-        "requirement_ids": [
-          "AC-D63.1"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d63_crosshair_free.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P22-T5",
-      "title": "Batch gate: full suites green plus history intact plus guard adjudication (D64 gate)",
-      "description": "Verify the joint behaviour of P22-T1 through P22-T4: full offscreen suite plus node page tests green, AC-D64.3 history intact, and the DG114/DG115/DG116 closure record. Adjudicate the 2 P21-deferred guard failures as re-pin or narrow (never weaken), landing the decision as pinning cases in the gate suite. Edits no production file. Test P22-T5-AC1 pins history-intact; test P22-T5-AC2 pins the shared-seam record; test P22-T5-AC3 pins the green gate plus guard adjudication.",
-      "agent": "build_worker",
-      "task_type": "code",
-      "dependencies": [
-        "P22-T1",
-        "P22-T2",
-        "P22-T3",
-        "P22-T4"
-      ],
-      "acceptance_criteria": [
-        "Given requirements.md, Then the D41\u2013D60 sections with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P22 wording is touched (AC-D64.3).",
-        "Given D62 and D64 both implicated offset-to-formatter plumbing, When the shipped evidence is inspected, Then the DG114 record names the confirmed-or-refuted shared seam (one fix closing both ACs, or two independent fixes) with axisProbe evidence, and DG115/DG116 are closed or escalated with owner input \u2014 nothing assumed (AC-D64.2).",
-        "Given all P22 fixes landed, When the full offscreen plus node suites run, Then every suite is green, the 2 P21-deferred guard failures are adjudicated as re-pin or narrow with no assertion weakened, and no D1\u2013P21 behaviour regressed."
-      ],
-      "tests": [
-        {
-          "test_id": "P22-T5-AC1",
-          "linked_acceptance_criterion": "Given requirements.md, Then the D41\u2013D60 sections with reversals, the Existing Repository marker sentence and the Current Tech Stack are unchanged, and no pre-P22 wording is touched (AC-D64.3).",
-          "type": "integration",
-          "description": "Automated gate-suite case grepping the D41\u2013D60 section markers, the Existing Repository marker sentence and the Current Tech Stack block in requirements.md.",
-          "expected_result": "All markers present; no pre-P22 wording touched."
-        },
-        {
-          "test_id": "P22-T5-AC2",
-          "linked_acceptance_criterion": "Given D62 and D64 both implicated offset-to-formatter plumbing, When the shipped evidence is inspected, Then the DG114 record names the confirmed-or-refuted shared seam (one fix closing both ACs, or two independent fixes) with axisProbe evidence, and DG115/DG116 are closed or escalated with owner input \u2014 nothing assumed (AC-D64.2).",
-          "type": "manual",
-          "description": "Inspect the shipped toggle-matrix evidence and the task notes to confirm the DG114 seam record names one seam or two with probe evidence, and DG115/DG116 each closed or escalated \u2014 nothing assumed.",
-          "expected_result": "DG114 record names the confirmed-or-refuted seam with evidence; DG115/DG116 closed or escalated, none silently assumed."
-        },
-        {
-          "test_id": "P22-T5-AC3",
-          "linked_acceptance_criterion": "Given all P22 fixes landed, When the full offscreen plus node suites run, Then every suite is green, the 2 P21-deferred guard failures are adjudicated as re-pin or narrow with no assertion weakened, and no D1\u2013P21 behaviour regressed.",
-          "type": "integration",
-          "description": "Full offscreen suite plus node page tests on the joint tree, with the 2 P21-deferred guard failures adjudicated as re-pin or narrow pinning cases in the gate suite (values only, assertions never weakened).",
-          "expected_result": "Full suites green; both guards adjudicated re-pin-or-narrow with no weakened assertion; no D1\u2013P21 regression."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_d64_batch_gate.py (history-intact plus guard re-pin/narrow pinning cases)",
-        "DG114/DG115/DG116 closure record in task notes"
-      ],
-      "touches_files": [
-        "tests/test_d64_batch_gate.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P22-T1..T4 joint tree",
-        "P21 review deferred guard failures (read-only)",
-        "S-P22-6 verification order"
-      ],
-      "outputs": [
-        "Green gate; history intact; guard adjudication"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "docs/code_review/review_log_P21.md",
+            "path": "ibkr/contracts.py",
             "lines": "1-80",
-            "why": "read-only: the 2 deferred guard failures to adjudicate re-pin-vs-narrow \u2014 do not weaken"
+            "why": "edit: IND_CONTRACTS, get_index_contract and the S-P20-1 resolution order the OPT helpers sit beside, untouched"
           },
           {
-            "path": "tests/test_p13_tz_create.py",
-            "lines": "1-60",
-            "why": "read-only: injected-bars tz evidence pattern the seam record cites \u2014 do not change"
+            "path": "ibkr/contracts.py",
+            "lines": "200-293",
+            "why": "edit: existing helpers and _EASTERN, which today_expiry_yyyymmdd must reuse"
           },
           {
-            "path": "tests/test_lwc_time_parity.py",
+            "path": "ibkr/market_data.py",
+            "lines": "1-90",
+            "why": "edit: req_contract_details is the shape req_sec_def_opt_params mirrors (readiness, id_manager, throttle, no sleep)"
+          },
+          {
+            "path": "ibkr/client.py",
+            "lines": "430-467",
+            "why": "read-only: the four account/position overrides this wave must leave present (P23-T11 deletes them)"
+          },
+          {
+            "path": "ibkr/bridge.py",
+            "lines": "1-47",
+            "why": "edit: the signal block the three new signals join"
+          },
+          {
+            "path": "services/contract_lookup_service.py",
             "lines": "1-60",
-            "why": "read-only: geometry guard that must stay green \u2014 do not change"
+            "why": "read-only: the conId source P23-T9 calls once per session"
+          },
+          {
+            "path": "tests/test_p20_resolution_probe.py",
+            "lines": "1-70",
+            "why": "test conventions: fake-client routing assertions for contract/chain responses"
           }
         ],
         "contracts": [
           {
-            "ref": "chart_assets/lwc/chart.js:lwAxisProbe",
+            "ref": "ibkr/contracts.py:get_index_contract",
             "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_mkt_data",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/pacing.py:throttle",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/id_manager.py:get_id",
+            "status": "existing"
+          },
+          {
+            "ref": "services/contract_lookup_service.py:request",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/contracts.py",
+            "signature": "def get_option_contract(symbol: str, expiry: str, strike: float, right: str, trading_class: str = \"SPXW\") -> Contract"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/contracts.py",
+            "signature": "def today_expiry_yyyymmdd(now: datetime | None = None) -> str\ndef select_zero_dte_series(params: list, today: str) -> OptionSeries | None\ndef option_chain_strikes(series: OptionSeries) -> dict[str, list[float]]"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/contracts.py",
+            "signature": "OptionSeries(trading_class: str, exchange: str, expiry: str, con_id: int, strikes_by_right: dict[str, list[float]])"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/market_data.py",
+            "signature": "def req_sec_def_opt_params(self, underlying_symbol: str, fut_fop_exchange: str, underlying_sec_type: str, underlying_con_id: int) -> int"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/bridge.py",
+            "signature": "option_params = pyqtSignal(int, object)\noption_params_end = pyqtSignal(int)\noption_computation = pyqtSignal(int, int, object, object)"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P22",
-        "plan_ref": "docs/plan.md#Phase P22",
+        "architecture_ref": "docs/architecture.md#Integration Points",
+        "plan_ref": "docs/plan.md#P23-02",
         "requirement_ids": [
-          "AC-D64.2",
-          "AC-D64.3"
+          "AC-D65.2",
+          "AC-D65.5",
+          "AC-D65.8",
+          "A186",
+          "A202",
+          "A203",
+          "R141",
+          "R149",
+          "DG123"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q && node --test chart_assets/lwc/",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_chain.py -q",
         "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
+        "size": "M",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T7",
+      "title": "Spread engine A: seeding by measurement, quote validity, band and anchor selection",
+      "description": "Create the pure, Qt-free and ibapi-free services/option_spread_engine.py first half: the state machine that finds the anchor by measurement (session anchor, else a bounded coarse probe with leased pairs, then a 5-point refine), scores only pairs whose legs actually quote, and emits lease/subscribe/cancel/release actions, rows and once-only messages. Testable with no Qt, no window and no network; the walk, lifecycle and error classes are P23-T8's second half of the same module.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T1",
+        "P23-T6"
+      ],
+      "acceptance_criteria": [
+        "Given the engine switched ON with today's SPXW chain, When the seed runs, Then it follows the three tiers in order - the session anchor for today's expiry when this session already produced one (no probe lease at all), otherwise at most six coarse probe pairs per side spaced 20 points (each pair leased against free capacity, scored, then released immediately) interpolated to the nearest 5-point rung, then a 5-point refine by window steps - and every seed branch reaches the same final rung against the same chain.",
+        "Given a seed in progress, Then the sweep terminates within 10 s wall clock or 12 SCORED pairs, whichever comes first; on the bound the ladder stays at the best-known pair, exactly one message names the bound and the value, and the seed re-arms only at the next cadence evaluation - asserted against an injected clock, never a real sleep.",
+        "Given a leg with no tick, When 3 s elapse, Then that leg is pending with its cells showing no value and its pair is not scored and not match-eligible, and it becomes eligible only once BOTH legs of the pair quote; a pair is never scored or matched on one side, and a received zero bid is a live price that still renders and scores.",
+        "Given leg quotes, Then a sentinel (-1, 1.7976931348623157e+308, a no-tick zero, NaN, +/-inf) or an unreceived side is absent, never enters the distance computation, and a good value turning sentinel makes the cell empty and the pair ineligible on the next evaluation.",
+        "Given credit bases and a Target, Then the anchor is the listed 20-wide pair minimising d = min(|credit_mid - T|, |credit_ask - T|, |credit_bid - T|) computed on the CREDIT bases (never on the displayed negative values), ties break in order (smaller |credit_mid - T|, then credit_mid >= T, then the short strike nearer the underlying's last price with the lower short strike winning when no price exists), and each tie-break is reachable through the seed ladder.",
+        "Given a Target, Then the band gating match and movement is h = max(0.05, option_tick(T)) - 0.05 at T = 1.00 and 2.95, 0.10 at T = 3.00 - and the engine never derives a band from a quote.",
+        "Given every emitted action sequence, Then each action is one of lease/subscribe/cancel/release, the live option-line count never exceeds 16 at any emitted step (dipping to 14 mid-step is allowed), no action ever leases or subscribes a leg the live window already holds, and each selection cause (no-0DTE, chain edge, rung shortfall, budget refusal, seed bound) latches exactly one message."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T7-AC1",
+          "linked_acceptance_criterion": "Given the engine switched ON with today's SPXW chain, When the seed runs, Then it follows the three tiers in order - the session anchor for today's expiry when this session already produced one (no probe lease at all), otherwise at most six coarse probe pairs per side spaced 20 points (each pair leased against free capacity, scored, then released immediately) interpolated to the nearest 5-point rung, then a 5-point refine by window steps - and every seed branch reaches the same final rung against the same chain.",
+          "type": "unit",
+          "description": "Warm-anchor case (assert zero lease actions); cold case (assert <=6 probe pairs per side, 20-point spacing, lease+release per pair, and the same final rung as the warm case); probe refused for capacity; spot absent; spot refused.",
+          "expected_result": "Tier order honoured, <=6 probes per side at 20-point spacing, one final rung for every branch; red before services/option_spread_engine.py exists."
+        },
+        {
+          "test_id": "P23-T7-AC2",
+          "linked_acceptance_criterion": "Given a seed in progress, Then the sweep terminates within 10 s wall clock or 12 SCORED pairs, whichever comes first; on the bound the ladder stays at the best-known pair, exactly one message names the bound and the value, and the seed re-arms only at the next cadence evaluation - asserted against an injected clock, never a real sleep.",
+          "type": "unit",
+          "description": "Injected-clock sweep: a 12-scored-pair fixture and a wall-clock fixture that crosses 10 s; assert the stopping rung, exactly one message and the re-arm condition; assert no sleep call in the module.",
+          "expected_result": "Sweep stops at the first bound, one message, stable rung, no real sleeping."
+        },
+        {
+          "test_id": "P23-T7-AC3",
+          "linked_acceptance_criterion": "Given a leg with no tick, When 3 s elapse, Then that leg is pending with its cells showing no value and its pair is not scored and not match-eligible, and it becomes eligible only once BOTH legs of the pair quote; a pair is never scored or matched on one side, and a received zero bid is a live price that still renders and scores.",
+          "type": "unit",
+          "description": "Pending cases: one leg silent at t+2.9 s and t+3.0 s; both legs quoting later; zero-bid pair that must score; one-sided pair that must not score.",
+          "expected_result": "Pending pair unscoreable until both legs quote; zero-bid pair scores; one-sided pair never scores."
+        },
+        {
+          "test_id": "P23-T7-AC4",
+          "linked_acceptance_criterion": "Given leg quotes, Then a sentinel (-1, 1.7976931348623157e+308, a no-tick zero, NaN, +/-inf) or an unreceived side is absent, never enters the distance computation, and a good value turning sentinel makes the cell empty and the pair ineligible on the next evaluation.",
+          "type": "unit",
+          "description": "Sentinel table into on_quote, then a good-to-sentinel transition followed by an evaluate; assert the cells and that no sentinel reaches the distance function (spy the helper).",
+          "expected_result": "Every sentinel yields an empty cell and no contribution to d; the transition makes the pair ineligible on the next evaluation."
+        },
+        {
+          "test_id": "P23-T7-AC5",
+          "linked_acceptance_criterion": "Given credit bases and a Target, Then the anchor is the listed 20-wide pair minimising d = min(|credit_mid - T|, |credit_ask - T|, |credit_bid - T|) computed on the CREDIT bases (never on the displayed negative values), ties break in order (smaller |credit_mid - T|, then credit_mid >= T, then the short strike nearer the underlying's last price with the lower short strike winning when no price exists), and each tie-break is reachable through the seed ladder.",
+          "type": "unit",
+          "description": "Per-Target selection cases where only the mid, only credit_ask and only credit_bid touch T; one case per tie-break; a case asserting a negative displayed value is never used as the metric input.",
+          "expected_result": "Anchor chosen on credit bases only; each tie-break resolves as ordered; displayed negatives never enter d."
+        },
+        {
+          "test_id": "P23-T7-AC6",
+          "linked_acceptance_criterion": "Given a Target, Then the band gating match and movement is h = max(0.05, option_tick(T)) - 0.05 at T = 1.00 and 2.95, 0.10 at T = 3.00 - and the engine never derives a band from a quote.",
+          "type": "unit",
+          "description": "Band cases at T = 1.00, 2.95 and 3.00 driving match/move decisions; assert the engine reads h from match_band and never from a quote.",
+          "expected_result": "0.05 at 1.00 and 2.95, 0.10 at 3.00; quote changes cannot widen or narrow h."
+        },
+        {
+          "test_id": "P23-T7-AC7",
+          "linked_acceptance_criterion": "Given every emitted action sequence, Then each action is one of lease/subscribe/cancel/release, the live option-line count never exceeds 16 at any emitted step (dipping to 14 mid-step is allowed), no action ever leases or subscribes a leg the live window already holds, and each selection cause (no-0DTE, chain edge, rung shortfall, budget refusal, seed bound) latches exactly one message.",
+          "type": "unit",
+          "description": "Drive a full cold seed and a re-anchor while recording every emitted action; assert the action vocabulary, running option-line count <=16 (14 dip observed), the no-shared-lease rule, and one message per cause with the latch counts.",
+          "expected_result": "Count never exceeds 16 at any emitted step; no leased leg is a live leg; exactly one message per cause."
+        }
+      ],
+      "expected_artifacts": [
+        "services/option_spread_engine.py (new pure engine, selection half)",
+        "tests/test_d65_spread_engine.py (new suite, selection groups)"
+      ],
+      "touches_files": [
+        "services/option_spread_engine.py",
+        "tests/test_d65_spread_engine.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "option_ladder helpers (P23-T1)",
+        "OptionSeries and chain intake (P23-T6)"
+      ],
+      "outputs": [
+        "services/option_spread_engine.py selection half",
+        "tests/test_d65_spread_engine.py part 1"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/backfill_service.py",
+            "lines": "1-50",
+            "why": "read-only: precedent for a pure planner that returns an action plan rather than performing I/O"
+          },
+          {
+            "path": "ibkr/contracts.py",
+            "lines": "1-40",
+            "why": "read-only: the OptionSeries shape P23-T6 added, which on_chain consumes"
+          },
+          {
+            "path": "tests/test_dock_layout.py",
+            "lines": "1-30",
+            "why": "test conventions: parametrized pure-helper suite style"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/market_calendar.py:is_trading_day",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "Actions(subscribes: list[LegKey], cancels: list[LegKey], spot_subscribe: bool, spot_cancel: bool, rows: dict[str, list[SpreadRow]], messages: list[str], empty_state: str | None, status: str)"
+          },
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "Quote(bid: float, ask: float, received_bid: bool, received_ask: bool, at: float)"
+          },
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "def toggle_on(self)\ndef toggle_off(self)\ndef set_target(self, target: float)\ndef on_chain(self, series)\ndef on_no_expiry(self)\ndef on_quote(self, leg: LegKey, bid, ask, received_bid, received_ask)\ndef on_spot(self, price: float)\ndef begin_seed(self, now: float)\ndef seed_actions(self) -> Actions\ndef seed_state(self)\ndef evaluate(self, now: float) -> Actions\ndef live_legs(self) -> set[LegKey]"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def credit_bases(bid_s, ask_s, bid_l, ask_l) -> tuple[float, float, float]\ndef match_band(target: float) -> float\ndef option_tick(target: float) -> float\ndef usable_quote(bid, ask, received_bid, received_ask) -> tuple[float | None, float | None]\ndef distance(target: float, credit_bid: float, credit_ask: float, credit_mid: float) -> float\ndef snap_rung(strike: float, listed: list[float], anchor: float) -> float | None\ndef window_legs(anchor_short: float) -> list[LegKey]"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#System Components",
+        "plan_ref": "docs/plan.md#P23-03",
+        "requirement_ids": [
+          "AC-D65.3",
+          "AC-D65.4",
+          "AC-D65.6",
+          "AC-D65.15",
+          "AC-D65.16",
+          "A188",
+          "A189",
+          "A204",
+          "A206",
+          "A207",
+          "A208",
+          "R150",
+          "R151",
+          "DG117",
+          "DG123"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_spread_engine.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T8",
+      "title": "Spread engine B: window-step maintenance, connection lifecycle and per-line error classes",
+      "description": "Extend the same pure engine module with the second half: the reqId-preserving window step for both ladders, the greek source precedence with the never-mixed rule, the disconnect/reconnect lifecycle (STALE plus frozen walk, resume from the same anchor) and the four per-line error classes - all still with no Qt, no window and no network, and all appended to the same suite P23-T7 created.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T7"
+      ],
+      "acceptance_criteria": [
+        "Given a target anchor different from the live one, When window_step runs, Then it emits exactly one 5-point step on BOTH legs of each side, in the AC-D65.4 direction (toward the money when all three credit bases sit below T, away when all three sit above), with the leaving pair's cancels ordered before the arriving pair's subscribes, and it stops when the pair is matched, when no neighbour improves d by more than h, or when the improving neighbour is not a listed pair (one chain-edge message naming the best reachable value) - so equal-d neighbours resolve by credit mid then stay, a stationary feed moves nothing, and no two-rung oscillation occurs.",
+        "Given a re-anchor, Then a leg present in both the old and the new window produces NO cancel and NO subscribe and keeps its reqId, while a leg leaving is cancelled and a leg arriving is subscribed - and the live option count never exceeds 16 at any emitted step.",
+        "Given greeks arriving for both legs of a row, Then the row's source is the model greek (tick type 13) when both legs have one, else tick type 12 for both, else the mean of bid (10) and ask (11) for both - model -> last -> bid/ask mean, never mixed across the two legs - and a pair whose legs resolve to different sources shows no Delta/Gamma value with exactly one message.",
+        "Given a disconnect while ON, Then every cell keeps its last value marked STALE, evaluate() emits nothing (no move, no subscribe, no cancel) while the walk is frozen, and one message names the loss; on reconnect the ladder resumes from the SAME anchor with no re-seed while the legs recover, and re-seeds exactly once if a leg is still silent past the 3 s timeout; the engine adds no reconnect mechanism of its own.",
+        "Given a per-line TWS error, Then each class has its own state and exactly one message: 200 on a non-anchor pair drops that pair for the session (row n/a, no re-seat), 200 on the anchor pair re-seats exactly one step toward the money and retries once before stopping with a message, 10197 and 354 show no value with no re-seat, 162 keeps the line with values STALE after the timeout and no cancel, and an unclassified code shows no value with no re-seat."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T8-AC1",
+          "linked_acceptance_criterion": "Given a target anchor different from the live one, When window_step runs, Then it emits exactly one 5-point step on BOTH legs of each side, in the AC-D65.4 direction (toward the money when all three credit bases sit below T, away when all three sit above), with the leaving pair's cancels ordered before the arriving pair's subscribes, and it stops when the pair is matched, when no neighbour improves d by more than h, or when the improving neighbour is not a listed pair (one chain-edge message naming the best reachable value) - so equal-d neighbours resolve by credit mid then stay, a stationary feed moves nothing, and no two-rung oscillation occurs.",
+          "type": "unit",
+          "description": "Scripted per-side quote sequences asserting the ordered step sequence and stopping rung; a matched-on-the-ask-only case that must not move; equal-d tie-break then stay; the chain-edge message; a stationary feed producing zero moves; a two-rung oscillation case that must not occur.",
+          "expected_result": "One 5-point step per evaluation in the decided direction, ordered cancels-then-subscribes, and every stop rule honoured; no oscillation."
+        },
+        {
+          "test_id": "P23-T8-AC2",
+          "linked_acceptance_criterion": "Given a re-anchor, Then a leg present in both the old and the new window produces NO cancel and NO subscribe and keeps its reqId, while a leg leaving is cancelled and a leg arriving is subscribed - and the live option count never exceeds 16 at any emitted step.",
+          "type": "unit",
+          "description": "Shared-leg case: a leg in both pre- and post-change windows; assert zero cancel and zero subscribe for it, its reqId unchanged, and the leaving/arriving legs' diff exactly as expected.",
+          "expected_result": "Shared legs untouched with their reqId; only the diff is cancelled/subscribed."
+        },
+        {
+          "test_id": "P23-T8-AC3",
+          "linked_acceptance_criterion": "Given greeks arriving for both legs of a row, Then the row's source is the model greek (tick type 13) when both legs have one, else tick type 12 for both, else the mean of bid (10) and ask (11) for both - model -> last -> bid/ask mean, never mixed across the two legs - and a pair whose legs resolve to different sources shows no Delta/Gamma value with exactly one message.",
+          "type": "unit",
+          "description": "Greek source cases: model-only, last-only, bid/ask-mean, and a mixed-source pair; assert the row values and the message count.",
+          "expected_result": "Precedence model -> last -> bid/ask mean applied per row; mixed sources yield no value plus one message."
+        },
+        {
+          "test_id": "P23-T8-AC4",
+          "linked_acceptance_criterion": "Given a disconnect while ON, Then every cell keeps its last value marked STALE, evaluate() emits nothing (no move, no subscribe, no cancel) while the walk is frozen, and one message names the loss; on reconnect the ladder resumes from the SAME anchor with no re-seed while the legs recover, and re-seeds exactly once if a leg is still silent past the 3 s timeout; the engine adds no reconnect mechanism of its own.",
+          "type": "unit",
+          "description": "Disconnect then reconnect: assert every cell STALE, evaluate() emits nothing while frozen and nothing is cancelled, then reconnect resumes the same anchor with no re-seed; a leg silent past 3 s after reconnect triggers exactly one re-seed.",
+          "expected_result": "Frozen walk with no emissions, resume-from-same-anchor, one re-seed at most."
+        },
+        {
+          "test_id": "P23-T8-AC5",
+          "linked_acceptance_criterion": "Given a per-line TWS error, Then each class has its own state and exactly one message: 200 on a non-anchor pair drops that pair for the session (row n/a, no re-seat), 200 on the anchor pair re-seats exactly one step toward the money and retries once before stopping with a message, 10197 and 354 show no value with no re-seat, 162 keeps the line with values STALE after the timeout and no cancel, and an unclassified code shows no value with no re-seat.",
+          "type": "unit",
+          "description": "One case per error class (200 non-anchor, 200 anchor, 10197, 354, 162, other) asserting the row, the single message and the re-seat count.",
+          "expected_result": "Exact row state and one message per class; only the anchor-200 case re-seats, exactly once."
+        }
+      ],
+      "expected_artifacts": [
+        "services/option_spread_engine.py maintenance/lifecycle half",
+        "tests/test_d65_spread_engine.py part 2 (steps, shared legs, greeks, lifecycle, error classes)"
+      ],
+      "touches_files": [
+        "services/option_spread_engine.py",
+        "tests/test_d65_spread_engine.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the engine selection half (P23-T7)"
+      ],
+      "outputs": [
+        "engine maintenance/lifecycle half",
+        "suite part 2"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/backfill_service.py",
+            "lines": "1-50",
+            "why": "read-only: precedent for a pure planner/action-list service module"
+          },
+          {
+            "path": "tests/test_dock_layout.py",
+            "lines": "1-30",
+            "why": "test conventions: parametrized pure-helper suite style"
+          }
+        ],
+        "contracts": [
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "def window_step(self, target_anchor: float) -> Actions\ndef on_greek(self, leg: LegKey, tick_type: int, delta, gamma)\ndef on_leg_error(self, leg: LegKey, code: int)\ndef on_disconnected(self)\ndef on_reconnected(self)\ndef rebind_leg(self, leg: LegKey, new_req_id: int)"
+          },
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "Greeks(delta: float | None, gamma: float | None, source: str)  # source in {\"model\", \"last\", \"bidask_mean\"}"
+          },
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "class OptionSpreadEngine:  # created by P23-T7 - extend, do not rewrite\n    # existing surface: toggle_on, toggle_off, set_target, on_chain, on_no_expiry, on_quote,\n    # on_spot, begin_seed, seed_actions, seed_state, evaluate, live_legs, Actions, Quote, LegKey map\ndef window_step(self, target_anchor: float) -> Actions\ndef on_greek(self, leg: LegKey, tick_type: int, delta, gamma)\ndef on_leg_error(self, leg: LegKey, code: int)\ndef on_disconnected(self)\ndef on_reconnected(self)\ndef rebind_leg(self, leg: LegKey, new_req_id: int)\nGreeks(delta, gamma, source)"
+          },
+          {
+            "status": "new",
+            "module": "services/option_ladder.py",
+            "signature": "def window_legs(anchor_short: float) -> list[LegKey]"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Integration Points",
+        "plan_ref": "docs/plan.md#P23-04",
+        "requirement_ids": [
+          "AC-D65.4",
+          "AC-D65.5",
+          "AC-D65.6",
+          "AC-D65.8",
+          "AC-D65.14",
+          "A193",
+          "A203",
+          "R139",
+          "R148"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_spread_engine.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T9",
+      "title": "Live wiring: ON/OFF lifecycle, registry replay, the spot line, line budget, coalescing, fault surfacing",
+      "description": "Wire the pure engine and the panel into the real MainWindow against a fake client: engine construction, toggle/Target wiring, chain request, leg subscribe/cancel application, per-leg registry registration under the one new OPTION_LEGS tag with reissue/rebind, the tag added to _replay_subscriptions, the single SPX spot line and its three tiers, reqId routing, the 1 s evaluation timer, the coalesced refresh, _md_line_count and the option-owned error branch. No orders, ever: option data is display-only.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T3",
+        "P23-T6",
+        "P23-T7",
+        "P23-T8"
+      ],
+      "acceptance_criteria": [
+        "Given a real MainWindow with a fake client and the panel OFF, When the toggle is switched ON, Then both ladders populate from streamed leg values - eight rows showing the owner's displayed values (ASK = long.ask - short.bid, BID = long.bid - short.ask, Delta/Gamma = long - short, so a credit spread renders negative by design) refreshed on stream, a partial leg showing no value, and no polling or historical request issued while ON.",
+        "Given ON, a Target change and OFF, Then every leg is registered in self.sub_manager under the OPTION_LEGS tag (value \"option_legs\") with a reissue hook and a rebind hook that repoints the engine's leg-to-reqId map, the live option count never exceeds 16 at any recorded step, a leg in both the old and the new window keeps its original reqId (never cancelled and re-requested), leaving legs are cancelled before arriving ones are subscribed, OFF cancels every option line and the spot line (zero reqIds remain), and a guard refusal yields one message naming the budget with empty tail rows rather than an over-cap subscribe.",
+        "Given _replay_subscriptions, Then its include set is exactly replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS}) - option legs are NEVER registered as MARKET_DATA and AC-D22.7.2's exclusion is untouched - so a simulated disconnect marks every cell STALE and freezes the walk (no evaluation moves the ladder and nothing is cancelled), and a reconnect re-issues exactly one reqMktData per leg with no duplicate subscription, resuming from the same anchor.",
+        "Given the spot chain, Then a chart on SPX WITH a last price opens ZERO spot lines (tier 3a), a chart on any other symbol - including one holding a live SPX TickerSession, which is not a spot source - opens EXACTLY ONE dedicated SPX line that is counted in _md_line_count, routed to engine.on_spot and cancelled when the seed completes (tier 3b), and a refused or never-quoting line leaves no spot while the seed still completes (tier 3c) - so the total is at most 16 option lines + 1 spot line = 17 at every recorded step.",
+        "Given injected faults, Then each cause produces exactly one message and its defined cell state: greeks absent or sentineled, a mixed-source pair, a rejected leg, a refused leg (200/10197/354/162/ other routed end-to-end through _on_error), no-0DTE (empty state, zero rows, zero option reqIds) and the post-16:15-ET cutoff state; every non-option reqId keeps the existing generic error line.",
+        "Given the Target field, Then a rejected Target changes no anchor and no line in a live window, an accepted edit emits once and starts an immediate re-seed, collapse-while-ON keeps streaming, a restart launches OFF at Target 1.00 with zero option and zero spot lines, a burst of ticks produces one coalesced refresh per event-loop turn with no blocking sleep on the GUI path, and no order call is ever recorded by the fake client in any state."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T9-AC1",
+          "linked_acceptance_criterion": "Given a real MainWindow with a fake client and the panel OFF, When the toggle is switched ON, Then both ladders populate from streamed leg values - eight rows showing the owner's displayed values (ASK = long.ask - short.bid, BID = long.bid - short.ask, Delta/Gamma = long - short, so a credit spread renders negative by design) refreshed on stream, a partial leg showing no value, and no polling or historical request issued while ON.",
+          "type": "integration",
+          "description": "Offscreen window + fake client: toggle ON, feed chain/quotes/greeks, assert the eight rows' exact displayed values (negative), the empty cell on a partial leg, and a recorder showing no polling/historical request.",
+          "expected_result": "Exact displayed values on both sides, no value on partial legs, zero polls."
+        },
+        {
+          "test_id": "P23-T9-AC2",
+          "linked_acceptance_criterion": "Given ON, a Target change and OFF, Then every leg is registered in self.sub_manager under the OPTION_LEGS tag (value \"option_legs\") with a reissue hook and a rebind hook that repoints the engine's leg-to-reqId map, the live option count never exceeds 16 at any recorded step, a leg in both the old and the new window keeps its original reqId (never cancelled and re-requested), leaving legs are cancelled before arriving ones are subscribed, OFF cancels every option line and the spot line (zero reqIds remain), and a guard refusal yields one message naming the budget with empty tail rows rather than an over-cap subscribe.",
+          "type": "integration",
+          "description": "Drive ON, a Target change that moves the anchor, then OFF against the fake client's (reqId, action, leg) recorder; assert the reqId-set diff, the shared-leg reqId stability, cancels-before-subscribes ordering, the <=16 running count, OFF releasing everything, and a guard-refusal case at the cap.",
+          "expected_result": "Shared legs keep their reqId, the diff matches the plan, count never exceeds 16, OFF leaves zero option/spot reqIds, refusal yields one message and empty tails."
+        },
+        {
+          "test_id": "P23-T9-AC3",
+          "linked_acceptance_criterion": "Given _replay_subscriptions, Then its include set is exactly replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS}) - option legs are NEVER registered as MARKET_DATA and AC-D22.7.2's exclusion is untouched - so a simulated disconnect marks every cell STALE and freezes the walk (no evaluation moves the ladder and nothing is cancelled), and a reconnect re-issues exactly one reqMktData per leg with no duplicate subscription, resuming from the same anchor.",
+          "type": "integration",
+          "description": "Simulated drop and reconnect: assert STALE marking, zero evaluations moving the ladder, no cancels, then exactly one reqMktData per leg on replay and resume from the same anchor; assert the include set read from _replay_subscriptions.",
+          "expected_result": "STALE plus frozen walk, one replay per leg with no duplicate, same-anchor resume, include set exactly {RT_BARS, S0_TICKS, OPTION_LEGS}."
+        },
+        {
+          "test_id": "P23-T9-AC4",
+          "linked_acceptance_criterion": "Given the spot chain, Then a chart on SPX WITH a last price opens ZERO spot lines (tier 3a), a chart on any other symbol - including one holding a live SPX TickerSession, which is not a spot source - opens EXACTLY ONE dedicated SPX line that is counted in _md_line_count, routed to engine.on_spot and cancelled when the seed completes (tier 3b), and a refused or never-quoting line leaves no spot while the seed still completes (tier 3c) - so the total is at most 16 option lines + 1 spot line = 17 at every recorded step.",
+          "type": "integration",
+          "description": "Three spot cases: chart symbol SPX with a chart price (assert zero spot lines); chart on another symbol and one holding a live SPX TickerSession (assert exactly one spot line, counted, routed, cancelled after the seed); a refused line (assert no spot and a completed seed).",
+          "expected_result": "Zero / exactly one / none respectively, with the 16+1=17 total asserted at every recorded step."
+        },
+        {
+          "test_id": "P23-T9-AC5",
+          "linked_acceptance_criterion": "Given injected faults, Then each cause produces exactly one message and its defined cell state: greeks absent or sentineled, a mixed-source pair, a rejected leg, a refused leg (200/10197/354/162/ other routed end-to-end through _on_error), no-0DTE (empty state, zero rows, zero option reqIds) and the post-16:15-ET cutoff state; every non-option reqId keeps the existing generic error line.",
+          "type": "integration",
+          "description": "Inject each fault once and count messages; assert cell states, the no-0DTE empty state with zero option reqIds, the cutoff state, and that non-option errors still hit the generic status line.",
+          "expected_result": "One message per cause, defined cell states, zero rows/lines on a no-0DTE day, generic path untouched."
+        },
+        {
+          "test_id": "P23-T9-AC6",
+          "linked_acceptance_criterion": "Given the Target field, Then a rejected Target changes no anchor and no line in a live window, an accepted edit emits once and starts an immediate re-seed, collapse-while-ON keeps streaming, a restart launches OFF at Target 1.00 with zero option and zero spot lines, a burst of ticks produces one coalesced refresh per event-loop turn with no blocking sleep on the GUI path, and no order call is ever recorded by the fake client in any state.",
+          "type": "integration",
+          "description": "Rejected and accepted Target edits in a live window; collapse-while-ON streaming; a burst-coalescing refresh count; a restart case; and a fake-client assertion that no order method was called in any state.",
+          "expected_result": "Rejected edit moves nothing, accepted edit emits once and re-seeds, collapse keeps streaming, one refresh per turn, restart is OFF at 1.00 with zero lines, zero order calls."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py: option wiring, spot line, _md_line_count, _on_error branch, connect/disconnect hooks, replay include set",
+        "ibkr/subscription_manager.py: one OPTION_LEGS tag constant",
+        "tests/test_d65_option_stream.py (new window-level stream suite)"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ibkr/subscription_manager.py",
+        "tests/test_d65_option_stream.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "panel (P23-T2/T3)",
+        "chain boundary (P23-T6)",
+        "engine halves (P23-T7/T8)"
+      ],
+      "outputs": [
+        "live option wiring in ui/main_window.py",
+        "OPTION_LEGS tag",
+        "tests/test_d65_option_stream.py"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": [
+              "133-460",
+              "519-820",
+              "1018-1200",
+              "1282-1445",
+              "1622-1637"
+            ],
+            "why": "build target: the engine's public surface - module constants (incl. MAX_OPTION_LINES=16, cause codes), Quote/Action/Actions/PairScore/Greeks/SeedState, toggle_on/toggle_off, target/set_target, band, on_chain/on_no_expiry/on_quote/on_spot, pair_score/pair_eligible, live_legs, lease/release, rows/anchor, leg_state, pending_legs, begin_seed, seed_actions/seed_state, evaluate, window_step, on_greek/row_greeks, on_disconnected/on_reconnected, rebind_leg/req_id, walk_frozen/leg_stale/stale_legs, on_leg_error, take_messages"
+          },
+          {
+            "path": "ui/option_spreads_panel.py",
+            "lines": [
+              "46-92",
+              "108-235",
+              "281-450"
+            ],
+            "why": "build target: the panel shell API - OptionSpreadsPanel construction (header button, ccs_table/pcs_table, toggle, target field, collapse), PREFERRED_WIDTH and preferred_width, apply_snapshot, set_status, set_empty_state, target_value/set_target_value, toggle_state/set_toggle_state, toggle_clicked and target_committed signals, is_collapsed/set_collapsed"
+          },
+          {
+            "path": "services/option_ladder.py",
+            "lines": [
+              "58-409"
+            ],
+            "why": "build target: the ladder helpers the wiring and panel import - LegKey/SpreadRow, ladder_pairs/window_legs, validate_spread, format_instrument, display_bases/credit_bases, option_tick/match_band, usable_quote, distance, net_greeks, snap_rung, format_ask/format_bid/format_delta/format_gamma"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": [
+              "630-680",
+              "1030-1060",
+              "1950-1990"
+            ],
+            "why": "edit sites: the panel dock/attribute block the option wiring attaches to, _md_line_count and _guard_md_lines (panel lines join this count), and _replay_subscriptions (the one include-set change)"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": [
+              "2182-2224",
+              "2400-2415"
+            ],
+            "why": "edit: _on_error - the option-owned-reqId branch beside the generic path; read-only: _current_symbol, which conditions spot tier 3a"
+          },
+          {
+            "path": "ibkr/subscription_manager.py",
+            "lines": "30-128",
+            "why": "edit: the tag constants and the frozen subscribe/replay_all API the legs register through"
+          },
+          {
+            "path": "tests/test_d27_reconnect.py",
+            "lines": "180-220",
+            "why": "test conventions: the connect/disconnect walk shape this suite's lifecycle group follows"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/subscription_manager.py:subscribe",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/subscription_manager.py:replay_all",
+            "status": "existing"
+          },
+          {
+            "ref": "services/md_line_guard.py:assess",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_guard_md_lines",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_md_line_count",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_on_error",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_last_chart_price",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ibkr/subscription_manager.py",
+            "signature": "OPTION_LEGS = \"option_legs\""
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "sub_manager.replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS})"
+          },
+          {
+            "status": "new",
+            "module": "ui/option_spreads_panel.py",
+            "signature": "def apply_snapshot(self, ccs_rows, pcs_rows)\ndef set_status(self, text: str)\ndef set_empty_state(self, text: str | None)\ndef set_toggle_state(self, on: bool)\nself.toggle_clicked -> bool\nself.target_committed -> float"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Frozen Interfaces",
+        "plan_ref": "docs/plan.md#P23-05",
+        "requirement_ids": [
+          "AC-D65.1",
+          "AC-D65.5",
+          "AC-D65.6",
+          "AC-D65.7",
+          "AC-D65.8",
+          "AC-D65.10",
+          "AC-D65.14",
+          "AC-D65.15",
+          "AC-D65.17",
+          "A191",
+          "A193",
+          "A206",
+          "A209",
+          "Q111",
+          "Q112",
+          "R138",
+          "R139",
+          "R140",
+          "R144",
+          "R150",
+          "R151"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_stream.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
+      },
+      "generation": 3
+    },
+    {
+      "id": "P23-T10",
+      "title": "Account/position window path removal, including the connection badge re-point",
+      "description": "Remove the account/position residue the panel swap left in the window - the four connects, the subscription and its connect-time call, the five handlers and their helpers, the bulk DB read, the six state fields and their comment block, the disconnect-time clears, the status line, the dead imports and the whole price-sink chain across the three AC-D65.18 files - and re-point the connection badge to the connection alone (S-P23-24) so no account-typed read survives. The new panel is already live, so the dock is never empty.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T9"
+      ],
+      "acceptance_criteria": [
+        "Given the window after this task, Then the window-side tokens reqPositions, reqAccountSummary, _account_id, _account_summary (covering _account_summary_req_id and _account_summary_complete), _live_accounts, _positions_rendered, _symbol_last_prices, _record_symbol_price, set_price_sink and _price_sink appear nowhere under ui/, ibkr/, services/, data/ or tests/, and the handler/state names (_on_account_summary, _on_account_summary_end, _on_position_update, _on_position_end, _prune_foreign_positions, _upsert_position) appear nowhere under ui/ - while account_summary, account_summary_end, position_update and position_end still survive in ibkr/ (P23-T11's deletions) and data/db.py's _upsert_position comment survives for P23-T12's schema wave.",
+        "Given the connection badge re-pointed, Then conn_badge_text accepts no account parameter and returns a connected text \"Connected\" with colour #34d399 while connected and D40's unchanged paused wording (amber) while monitoring is paused; _update_conn_badge reads no account state; the \"Connecting\" construction default, _on_disconnected's \"Disconnected\" text and the fail-fast port guard are untouched; and no replacement account source is invented (a port-derived Live label is forbidden).",
+        "Given the AC-D65.18 file set, Then the price-sink chain is gone from all three of its homes - _symbol_last_prices and _record_symbol_price with their D27.5 comment in ui/main_window.py, set_price_sink/_price_sink and their call site in ui/watchlist_panel.py, and the host call at ui/ticker_session.py:562 - and no write-less state field outlives its writer.",
+        "Given the test book, Then _stub_account_calls and its call site are deleted, tests/test_port_guard.py's four badge cases are replaced by the connected/paused pair (its two port-guard cases untouched), the five inert _record_symbol_price fake-host stubs are deleted, and the stream suite's two account recorders leave with the calls they absorb.",
+        "Given the surviving machinery, Then _md_line_count still returns RT + watchlist plus the live option lines and the spot line, the watchlist suite is green unchanged, `import main` is clean, and the whole window still walks connect -> subscribe -> disconnect without touching a deleted handler."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T10-AC1",
+          "linked_acceptance_criterion": "Given the window after this task, Then the window-side tokens reqPositions, reqAccountSummary, _account_id, _account_summary (covering _account_summary_req_id and _account_summary_complete), _live_accounts, _positions_rendered, _symbol_last_prices, _record_symbol_price, set_price_sink and _price_sink appear nowhere under ui/, ibkr/, services/, data/ or tests/, and the handler/state names (_on_account_summary, _on_account_summary_end, _on_position_update, _on_position_end, _prune_foreign_positions, _upsert_position) appear nowhere under ui/ - while account_summary, account_summary_end, position_update and position_end still survive in ibkr/ (P23-T11's deletions) and data/db.py's _upsert_position comment survives for P23-T12's schema wave.",
+          "type": "unit",
+          "description": "Grep/AST sweep for the ten window-side tokens across ui/, ibkr/, services/, data/ and tests/, plus the six handler/state names over ui/; then assert the excluded tokens still exist in ibkr/ and data/db.py.",
+          "expected_result": "Zero hits for this wave's tokens tree-wide; the deliberately excluded broker-boundary and db-comment carriers still present for their own waves."
+        },
+        {
+          "test_id": "P23-T10-AC2",
+          "linked_acceptance_criterion": "Given the connection badge re-pointed, Then conn_badge_text accepts no account parameter and returns a connected text \"Connected\" with colour #34d399 while connected and D40's unchanged paused wording (amber) while monitoring is paused; _update_conn_badge reads no account state; the \"Connecting\" construction default, _on_disconnected's \"Disconnected\" text and the fail-fast port guard are untouched; and no replacement account source is invented (a port-derived Live label is forbidden).",
+          "type": "integration",
+          "description": "Run tests/test_port_guard.py's replaced badge cases: connected -> green Connected, paused -> amber D40 wording; assert the signature of conn_badge_text and that _update_conn_badge passes no account argument; assert Connecting/Disconnected texts and the port-guard cases.",
+          "expected_result": "New badge contract asserted, no account parameter, paused wording unchanged, port guard untouched."
+        },
+        {
+          "test_id": "P23-T10-AC3",
+          "linked_acceptance_criterion": "Given the AC-D65.18 file set, Then the price-sink chain is gone from all three of its homes - _symbol_last_prices and _record_symbol_price with their D27.5 comment in ui/main_window.py, set_price_sink/_price_sink and their call site in ui/watchlist_panel.py, and the host call at ui/ticker_session.py:562 - and no write-less state field outlives its writer.",
+          "type": "unit",
+          "description": "Grep the three files for the price-sink chain and assert the call sites and their readers are gone; assert no field in the deleted state block survives a grep for its name.",
+          "expected_result": "All three files clean of the chain; no write-less attribute left."
+        },
+        {
+          "test_id": "P23-T10-AC4",
+          "linked_acceptance_criterion": "Given the test book, Then _stub_account_calls and its call site are deleted, tests/test_port_guard.py's four badge cases are replaced by the connected/paused pair (its two port-guard cases untouched), the five inert _record_symbol_price fake-host stubs are deleted, and the stream suite's two account recorders leave with the calls they absorb.",
+          "type": "integration",
+          "description": "Run the affected suites (test_d45_removal.py, test_p7_w4_streaming.py, test_d39_burst_search.py, test_lwc_popouts.py, test_p13_fanout.py, test_p9_alarm_persistence.py) and assert the deleted helpers/stubs are absent.",
+          "expected_result": "Suites green with the helpers removed; no test references a deleted stub."
+        },
+        {
+          "test_id": "P23-T10-AC5",
+          "linked_acceptance_criterion": "Given the surviving machinery, Then _md_line_count still returns RT + watchlist plus the live option lines and the spot line, the watchlist suite is green unchanged, `import main` is clean, and the whole window still walks connect -> subscribe -> disconnect without touching a deleted handler.",
+          "type": "integration",
+          "description": "Assert _md_line_count's arithmetic; run the watchlist suite unchanged; import main; run the connect/disconnect walk suites.",
+          "expected_result": "Count unchanged plus option/spot lines, watchlist suite green unmodified, import clean, walks green."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/main_window.py: account/position residue removed and the badge re-pointed",
+        "ui/watchlist_panel.py and ui/ticker_session.py: price-sink chain deleted",
+        "tests/test_port_guard.py badge contract replaced",
+        "tests/test_d45_removal.py _stub_account_calls removed; five inert fake-host stubs and two stream-suite recorders deleted"
+      ],
+      "touches_files": [
+        "ui/main_window.py",
+        "ui/watchlist_panel.py",
+        "ui/ticker_session.py",
+        "tests/test_d45_removal.py",
+        "tests/test_d65_option_stream.py",
+        "tests/test_p7_w4_streaming.py",
+        "tests/test_d39_burst_search.py",
+        "tests/test_lwc_popouts.py",
+        "tests/test_p13_fanout.py",
+        "tests/test_p9_alarm_persistence.py",
+        "tests/test_port_guard.py",
+        "tests/test_d65_option_panel.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "live panel wiring (P23-T9)"
+      ],
+      "outputs": [
+        "account-path residue removed",
+        "badge stating the connection only"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/main_window.py",
+            "lines": "885-915",
+            "why": "edit: the six account/position state fields and the D27.5 comment block that spells _symbol_last_prices"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1640-1660",
+            "why": "edit: _update_conn_badge - drop the _account_summary/_account_id reads"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "195-225",
+            "why": "edit: conn_badge_text - drop the two account parameters and the DU/DEMO/PAPER branch, keep the paused wording"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "4325-4600",
+            "why": "edit: the five handlers, the prune guard, the bulk read, _upsert_position and the dead import at :4403"
+          },
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "385-395",
+            "why": "edit: _price_sink declaration"
+          },
+          {
+            "path": "ui/watchlist_panel.py",
+            "lines": "945-1160",
+            "why": "edit: set_price_sink, its call site and the sink invocation"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "555-570",
+            "why": "edit: the host price-propagation call at :562"
+          },
+          {
+            "path": "tests/test_port_guard.py",
+            "lines": "1-51",
+            "why": "edit: the four account-typed badge cases (the 13-21 port-guard cases stay)"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "485-560",
+            "why": "edit: _stub_account_calls and its call site in the walkthrough"
+          },
+          {
+            "path": "tests/test_d65_option_panel.py",
+            "lines": "386-414",
+            "why": "edit: the P23-T3-AC2 block, which must stop naming the handlers this wave deletes and stop spelling the AC-D65.13 tokens"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/bridge.py:error_msg",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_update_conn_badge",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "def conn_badge_text(monitoring_paused: bool = False) -> tuple[str, str]"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Codebase Summary",
+        "plan_ref": "docs/plan.md#P23-06",
+        "requirement_ids": [
+          "AC-D65.13",
+          "AC-D65.18",
+          "AC-D65.11",
+          "A194",
+          "A198",
+          "S-P23-24",
+          "RC-14",
+          "RC-13",
+          "DG121"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_port_guard.py tests/test_d45_removal.py tests/test_d65_option_stream.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T11",
+      "title": "Broker boundary, modules and models removal",
+      "description": "Delete the transport and data-model half of the displaced stack - the four client overrides, the four bridge signals, ibkr/account.py, services/strategy_detection.py, data.models.Position and TradeGroup, and the two suites that exist for them - while repairing the two tests that assert those subjects (the import-surface smoke and block (d) of the residue instrument). Each signal dies in the same task as its only emitter.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T10"
+      ],
+      "acceptance_criteria": [
+        "Given this task, Then the four EWrapper overrides (accountSummary, accountSummaryEnd, position, positionEnd) and the four bridge signals (account_summary, account_summary_end, position_update, position_end) are absent, so a grep for all eight spellings over ui/, ibkr/, services/, data/ and tests/ returns nothing - and the one ui/ carrier P23-T10 could not see (the badge's account read) is already gone, so this grep needs no exception.",
+        "Given deletion, Then `import ibkr.account` and `import services.strategy_detection` raise ModuleNotFoundError, no surviving module imports either, and data.models exports no Position and no TradeGroup dataclass.",
+        "Given tests/test_ui_smoke.py, Then it asserts NOT hasattr(data.models, \"Position\") and NOT hasattr(data.models, \"TradeGroup\") while still asserting hasattr(data.models, \"Drawing\"); and tests/test_account.py and tests/test_strategy_detection.py are deleted with their subjects.",
+        "Given tests/test_d45_removal.py's block (d), Then its existence-and-field loop and its build_position_from_ib paragraph are replaced by the two model-absence assertions and data.models.UserOrder's existing absence assertion is untouched - with the now-unused `import inspect` and the docstring's __dataclass_fields__/inspect.signature sentence removed - while block (g), its _PRE_P5_DDL/_write_pre_p5_db fixtures and the token tables stay for P23-T12."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T11-AC1",
+          "linked_acceptance_criterion": "Given this task, Then the four EWrapper overrides (accountSummary, accountSummaryEnd, position, positionEnd) and the four bridge signals (account_summary, account_summary_end, position_update, position_end) are absent, so a grep for all eight spellings over ui/, ibkr/, services/, data/ and tests/ returns nothing - and the one ui/ carrier P23-T10 could not see (the badge's account read) is already gone, so this grep needs no exception.",
+          "type": "unit",
+          "description": "Grep all eight spellings tree-wide; assert zero hits outside the forbidden-token tables carve-out.",
+          "expected_result": "Transport and signal half of the displaced stack gone with no exception."
+        },
+        {
+          "test_id": "P23-T11-AC2",
+          "linked_acceptance_criterion": "Given deletion, Then `import ibkr.account` and `import services.strategy_detection` raise ModuleNotFoundError, no surviving module imports either, and data.models exports no Position and no TradeGroup dataclass.",
+          "type": "unit",
+          "description": "Import both deleted modules expecting ModuleNotFoundError; import data.models and assert the two names are absent.",
+          "expected_result": "Deleted modules unimportable, models exported without Position/TradeGroup."
+        },
+        {
+          "test_id": "P23-T11-AC3",
+          "linked_acceptance_criterion": "Given tests/test_ui_smoke.py, Then it asserts NOT hasattr(data.models, \"Position\") and NOT hasattr(data.models, \"TradeGroup\") while still asserting hasattr(data.models, \"Drawing\"); and tests/test_account.py and tests/test_strategy_detection.py are deleted with their subjects.",
+          "type": "integration",
+          "description": "Run tests/test_ui_smoke.py and assert the two absence assertions plus Drawing's presence; assert the two deleted suites are gone.",
+          "expected_result": "Smoke suite green on the absence contract; deleted suites absent."
+        },
+        {
+          "test_id": "P23-T11-AC4",
+          "linked_acceptance_criterion": "Given tests/test_d45_removal.py's block (d), Then its existence-and-field loop and its build_position_from_ib paragraph are replaced by the two model-absence assertions and data.models.UserOrder's existing absence assertion is untouched - with the now-unused `import inspect` and the docstring's __dataclass_fields__/inspect.signature sentence removed - while block (g), its _PRE_P5_DDL/_write_pre_p5_db fixtures and the token tables stay for P23-T12.",
+          "type": "integration",
+          "description": "Run tests/test_d45_removal.py's rewritten block (d) and assert no existence loop or build_position_from_ib paragraph remains, no `import inspect`, and block (g) plus its fixtures are still present.",
+          "expected_result": "Block (d) asserts absences and is green; block (g) and its fixtures intact for P23-T12."
+        }
+      ],
+      "expected_artifacts": [
+        "ibkr/client.py and ibkr/bridge.py: four account/position overrides and signals deleted",
+        "ibkr/account.py and services/strategy_detection.py deleted",
+        "data/models.py: Position and TradeGroup deleted",
+        "tests/test_ui_smoke.py and tests/test_d45_removal.py block (d) rewritten; two suites deleted"
+      ],
+      "touches_files": [
+        "ibkr/client.py",
+        "ibkr/bridge.py",
+        "ibkr/account.py",
+        "services/strategy_detection.py",
+        "data/models.py",
+        "tests/test_ui_smoke.py",
+        "tests/test_d45_removal.py",
+        "tests/test_account.py",
+        "tests/test_strategy_detection.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "no surviving receiver for the four signals (P23-T10)"
+      ],
+      "outputs": [
+        "deleted transport/module/model half"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ibkr/client.py",
+            "lines": "440-467",
+            "why": "edit: the four overrides to delete"
+          },
+          {
+            "path": "ibkr/bridge.py",
+            "lines": "35-47",
+            "why": "edit: the four signals to delete; the error/connected/disconnected/tick signals stay"
+          },
+          {
+            "path": "data/models.py",
+            "lines": "70-96",
+            "why": "edit: the Position and TradeGroup dataclasses"
+          },
+          {
+            "path": "tests/test_ui_smoke.py",
+            "lines": "40-55",
+            "why": "edit: :48's hasattr(Position) becomes the absence assertion"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "855-1000",
+            "why": "edit: block (d)'s existence loop and build_position_from_ib paragraph; block (g) from :939 stays"
+          }
+        ],
+        "contracts": [],
+        "architecture_ref": "docs/architecture.md#System Components",
+        "plan_ref": "docs/plan.md#P23-07",
+        "requirement_ids": [
+          "AC-D65.13",
+          "A198",
+          "RC-8"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_ui_smoke.py tests/test_d45_removal.py -q",
+        "memory_refs": [],
+        "size": "S",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T12",
+      "title": "Pre-drop backup, schema drop and residue-instrument re-baseline",
+      "description": "Create data/db_backup.py and call it from DB._migrate_schema before anything is dropped, so a verified read-only copy (integrity_check plus the three tables' row counts) always precedes the irreversible step and a failed verification aborts it; then drop position_group_map, positions and trade_groups child-first, delete the stop/target column loop and its carve-out, repair tests/conftest.py's wipe list, and re-baseline the residue instrument's token lists.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T11"
+      ],
+      "acceptance_criteria": [
+        "Given an existing database with the three tables, Then backup_before_drop(db_path, now=None, backup_dir=None) copies the SQLite file with shutil.copy2 into get_user_data_path(\"backups\")/charting_app_pre-D65_<YYYYMMDD-HHMMSS>.sqlite3, never opens the application DB (so the ESC-043 opt-in gate is untouched), opens the COPY read-only (mode=ro URI), requires PRAGMA integrity_check == \"ok\" and the presence of positions, trade_groups and position_group_map with their row counts (returned to the caller), and raises on any failure.",
+        "Given DB._migrate_schema, Then the backup call sits before the drop and runs only when at least one of the three tables still exists; if the backup raises, the drop does not run and all three tables and their rows remain; a fresh database with no such tables skips the backup and opens clean; and the drop order is child-first (position_group_map, positions, trade_groups) and idempotent on every later open.",
+        "Given the migrated schema, Then a fresh and a legacy database both end with none of positions, trade_groups or position_group_map present and no idx_positions_symbol_con_id, while a legacy database holding rows loses all three on first open and a second open is a no-op; the D46 stop/target ALTER TABLE DROP COLUMN loop and its now-subjectless carve-out (_ALLOWED_IN_FILE, _allowed_in, _drop_column_subject_nodes, _EXEMPT_TOKENS and its test) are deleted, and data/db.py's _upsert_position comment goes with the unique index it documents.",
+        "Given tests/conftest.py, Then its autouse teardown wipe list names none of the three dropped tables, and the full suite runs clean at teardown with no \"no such table\" error from any test.",
+        "Given tests/test_db_schema.py, Then EXPECTED_TABLES no longer lists the three tables, it gains an absence assertion for each plus a second-open no-op case, and its table-count wording matches the seven that remain; and the residue instrument's _FORBIDDEN gains this phase's dead tokens (ActivePortfolioPanel, portfolio_panel, Account Summary, account_summary, account_summary_end, position_update, position_end, build_position_from_ib, _parse_contract_type, detect_and_group, OptionLeg, strategy_detection, Position, TradeGroup, _upsert_position, _symbol_last_prices, _record_symbol_price, set_price_sink, _price_sink, reqAccountSummary, reqPositions, _account_id) while the three table names stay OUT of the token lists because the migration and the absence assertions must spell them.",
+        "Given block (g) of tests/test_d45_removal.py, Then it is replaced by the table-absence case - a sqlite_master check that holds none of the three tables, a legacy database built with _PRE_P5_DDL losing them on first open, and a no-op second open - and the AC-D65.18 file-set residue grep over ui/main_window.py, ui/watchlist_panel.py, ui/ticker_session.py, ui/active_portfolio_panel.py, ibkr/account.py, ibkr/bridge.py, ibkr/client.py, data/db.py, data/models.py and services/strategy_detection.py finds no live occurrence of any displaced token (forbidden-token tables excepted)."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T12-AC1",
+          "linked_acceptance_criterion": "Given an existing database with the three tables, Then backup_before_drop(db_path, now=None, backup_dir=None) copies the SQLite file with shutil.copy2 into get_user_data_path(\"backups\")/charting_app_pre-D65_<YYYYMMDD-HHMMSS>.sqlite3, never opens the application DB (so the ESC-043 opt-in gate is untouched), opens the COPY read-only (mode=ro URI), requires PRAGMA integrity_check == \"ok\" and the presence of positions, trade_groups and position_group_map with their row counts (returned to the caller), and raises on any failure.",
+          "type": "integration",
+          "description": "Build a DB with rows in all three tables; call backup_before_drop with injected now and backup_dir; assert the exact filename, that the copy opens read-only, integrity_check == \"ok\", and the three row counts returned.",
+          "expected_result": "Backup at the expected name, verified read-only, three row counts matching the source."
+        },
+        {
+          "test_id": "P23-T12-AC2",
+          "linked_acceptance_criterion": "Given DB._migrate_schema, Then the backup call sits before the drop and runs only when at least one of the three tables still exists; if the backup raises, the drop does not run and all three tables and their rows remain; a fresh database with no such tables skips the backup and opens clean; and the drop order is child-first (position_group_map, positions, trade_groups) and idempotent on every later open.",
+          "type": "integration",
+          "description": "Failure injection: a corrupt/unreadable source and a source missing one table; assert backup_before_drop raises AND _migrate_schema leaves all three tables and rows intact. Then a fresh DB: no backup taken, clean open. Then a second open: no-op drop.",
+          "expected_result": "Abort-on-failure proven by intact tables and rows; fresh DB skips the backup; second open is a no-op."
+        },
+        {
+          "test_id": "P23-T12-AC3",
+          "linked_acceptance_criterion": "Given the migrated schema, Then a fresh and a legacy database both end with none of positions, trade_groups or position_group_map present and no idx_positions_symbol_con_id, while a legacy database holding rows loses all three on first open and a second open is a no-op; the D46 stop/target ALTER TABLE DROP COLUMN loop and its now-subjectless carve-out (_ALLOWED_IN_FILE, _allowed_in, _drop_column_subject_nodes, _EXEMPT_TOKENS and its test) are deleted, and data/db.py's _upsert_position comment goes with the unique index it documents.",
+          "type": "integration",
+          "description": "Migrate a legacy DB built with _PRE_P5_DDL plus rows in the three tables; assert sqlite_master holds none of them afterwards, no idx_positions_symbol_con_id, and the carve-out helpers/tests are absent from the instrument.",
+          "expected_result": "All three tables gone child-first with no index; stop/target carve-out has no remaining subject."
+        },
+        {
+          "test_id": "P23-T12-AC4",
+          "linked_acceptance_criterion": "Given tests/conftest.py, Then its autouse teardown wipe list names none of the three dropped tables, and the full suite runs clean at teardown with no \"no such table\" error from any test.",
+          "type": "integration",
+          "description": "Read tests/conftest.py for the three names, then run the full offscreen suite and assert no \"no such table\" teardown error occurs.",
+          "expected_result": "Wipe list clean; full suite green at teardown."
+        },
+        {
+          "test_id": "P23-T12-AC5",
+          "linked_acceptance_criterion": "Given tests/test_db_schema.py, Then EXPECTED_TABLES no longer lists the three tables, it gains an absence assertion for each plus a second-open no-op case, and its table-count wording matches the seven that remain; and the residue instrument's _FORBIDDEN gains this phase's dead tokens (ActivePortfolioPanel, portfolio_panel, Account Summary, account_summary, account_summary_end, position_update, position_end, build_position_from_ib, _parse_contract_type, detect_and_group, OptionLeg, strategy_detection, Position, TradeGroup, _upsert_position, _symbol_last_prices, _record_symbol_price, set_price_sink, _price_sink, reqAccountSummary, reqPositions, _account_id) while the three table names stay OUT of the token lists because the migration and the absence assertions must spell them.",
+          "type": "integration",
+          "description": "Run tests/test_db_schema.py and read the instrument's _FORBIDDEN/_SURVIVORS: assert the new dead tokens are listed and the three table names are not, and that the schema case measures their absence.",
+          "expected_result": "Expectations updated with absence cases; token lists carry the dead symbols and exclude the table names."
+        },
+        {
+          "test_id": "P23-T12-AC6",
+          "linked_acceptance_criterion": "Given block (g) of tests/test_d45_removal.py, Then it is replaced by the table-absence case - a sqlite_master check that holds none of the three tables, a legacy database built with _PRE_P5_DDL losing them on first open, and a no-op second open - and the AC-D65.18 file-set residue grep over ui/main_window.py, ui/watchlist_panel.py, ui/ticker_session.py, ui/active_portfolio_panel.py, ibkr/account.py, ibkr/bridge.py, ibkr/client.py, data/db.py, data/models.py and services/strategy_detection.py finds no live occurrence of any displaced token (forbidden-token tables excepted).",
+          "type": "integration",
+          "description": "Run the rewritten block (g) and the file-set residue grep.",
+          "expected_result": "Table-absence case green; zero live displaced tokens in the ten named files."
+        }
+      ],
+      "expected_artifacts": [
+        "data/db_backup.py (new: backup_before_drop)",
+        "data/db.py: backup call plus guarded drop, DDL/index/column-loop removal",
+        "tests/test_db_backup.py (new suite incl. failure injection)",
+        "tests/test_db_schema.py, tests/conftest.py, tests/test_d45_removal.py re-baselined"
+      ],
+      "touches_files": [
+        "data/db_backup.py",
+        "data/db.py",
+        "tests/test_db_backup.py",
+        "tests/test_db_schema.py",
+        "tests/conftest.py",
+        "tests/test_d45_removal.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "no reader of the three tables remains (P23-T11)"
+      ],
+      "outputs": [
+        "verified pre-drop backup",
+        "three tables dropped",
+        "re-baselined residue instrument"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "data/db.py",
+            "lines": "110-150",
+            "why": "edit: the three CREATE TABLE statements to delete"
+          },
+          {
+            "path": "data/db.py",
+            "lines": "170-220",
+            "why": "edit: _migrate_schema - the unique index, the D46 column loop and the drop block's home"
+          },
+          {
+            "path": "data/db.py",
+            "lines": "255-275",
+            "why": "read-only: the _table_columns PRAGMA guard idiom the drop and backup trigger reuse"
+          },
+          {
+            "path": "config/paths.py",
+            "lines": "25-60",
+            "why": "read-only: get_user_data_path, the app-support directory the backup path derives from"
+          },
+          {
+            "path": "config/paths.py",
+            "lines": "85-120",
+            "why": "read-only: the ESC-043 opt-in gate - the backup must never open the production DB through DB"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "100-130",
+            "why": "edit: the autouse _isolate_test_db wipe list"
+          },
+          {
+            "path": "tests/test_db_schema.py",
+            "lines": "1-40",
+            "why": "edit: EXPECTED_TABLES and the table-count wording"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "790-1010",
+            "why": "edit: block (g), _PRE_P5_DDL/_write_pre_p5_db and the carve-out helpers/tests that lose their subject"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "config/paths.py:get_user_data_path",
+            "status": "existing"
+          },
+          {
+            "ref": "data/db.py:_migrate_schema",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "data/db_backup.py",
+            "signature": "def backup_before_drop(db_path: Path, now: datetime | None = None, backup_dir: Path | None = None) -> Path"
+          },
+          {
+            "status": "new",
+            "module": "data/db_backup.py",
+            "signature": "class BackupVerificationError(RuntimeError):  # raised when the copy cannot be verified"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Tech Stack Decisions",
+        "plan_ref": "docs/plan.md#P23-08",
+        "requirement_ids": [
+          "AC-D65.18",
+          "AC-D65.12",
+          "AC-D65.13",
+          "A198",
+          "A200",
+          "A210",
+          "R146",
+          "R152"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_db_backup.py tests/test_db_schema.py tests/test_d45_removal.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
       },
       "generation": 1
+    },
+    {
+      "id": "P23-T13",
+      "title": "Standing residue gate and batch gate (AC-D65.19 explicitly left open)",
+      "description": "Make the standing Unused-Code Rule machine-checked from now on and close the phase's observable criteria: build tests/test_d65_residue.py with the five gate clauses and its seeded-red fixture, run the full suite and every bookkeeping/consistency check, record the three owner-authorised edits plus S-P23-24's consequence, correct the one stale user-facing doc, and state that AC-D65.19 is open and owned by P23-T14 rather than claiming it.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T1",
+        "P23-T2",
+        "P23-T3",
+        "P23-T4",
+        "P23-T5",
+        "P23-T6",
+        "P23-T7",
+        "P23-T8",
+        "P23-T9",
+        "P23-T10",
+        "P23-T11",
+        "P23-T12"
+      ],
+      "acceptance_criteria": [
+        "Given the finished tree, Then tests/test_d65_residue.py implements the standing gate's five clauses - every P23 symbol has a production caller or a cited registration site, every P23 test helper is referenced in its file, no unused import / unreached branch / if False / noqa-silenced import / commented-out block / __all__-only export / keep-for-later module remains, every new signal is both emitted and connected, and EWrapper/Qt name-invoked callbacks are allowlisted with their registration site - and the gate is RED on a seeded dead-symbol fixture while green on the real tree.",
+        "Given the displaced-token sweep, Then every token P23-T12 added is absent from the tree except in the forbidden-token tables carve-out (tests/test_d45_removal.py's _FORBIDDEN/_SURVIVORS and this suite's own displaced-token list), every KEEP entry carries its recorded reason naming the surviving consumer, and AC-D65.1's own measurable is re-run on the finished tree: no Portfolio dock title or objectName and no title-keyed right-dock lookup remains, with the same documented carve-out.",
+        "Given the batch gate, Then the full offscreen suite is green; AC-D65.11's marker grep and the D41-D64 section presence hold; the gate record names all three owner-authorised pre-P23 edits (the D41 title re-points, A194's supersession and A201's D18 launch-width amendment with its two re-baselines) plus S-P23-24's recorded phase-internal consequence (D26.5's paper/live badge derivation retiring with the account path, editing no requirements text); the bookkeeping checks pass (tests/conftest.py names no dropped table, the p13 allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, tests/test_d45_removal.py holds no test whose subject is deleted); and the record states explicitly that AC-D65.19 is still OPEN and owned by P23-T14.",
+        "Given the consistency re-check, Then 16 option lines, 17 with the spot line, h = max(0.05, one_tick), the credit-vs-displayed sign pair and the canonical fixtures 7425/7445 and 7340/7320 are stated identically in docs/plan.md, docs/architecture.md and the five new phase suites, no 7425/7435 or 7315/7435 example survives (7435/7455 is a legal 20-wide pair and is not banned), and no flat-0.05 band phrasing remains.",
+        "Given usage.md, Then its UI overview row and its Portfolio workflow section no longer advertise a Portfolio/Account Summary panel or the removed strategy auto-detection; they describe the Option Spreads panel (Target 0.05-19.95, ON/OFF, display-only, no order entry) instead - and no other user-facing doc still claims a Portfolio view."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T13-AC1",
+          "linked_acceptance_criterion": "Given the finished tree, Then tests/test_d65_residue.py implements the standing gate's five clauses - every P23 symbol has a production caller or a cited registration site, every P23 test helper is referenced in its file, no unused import / unreached branch / if False / noqa-silenced import / commented-out block / __all__-only export / keep-for-later module remains, every new signal is both emitted and connected, and EWrapper/Qt name-invoked callbacks are allowlisted with their registration site - and the gate is RED on a seeded dead-symbol fixture while green on the real tree.",
+          "type": "integration",
+          "description": "Run tests/test_d65_residue.py on the real tree, then on a temporary fixture module holding an uncalled function and an unconnected signal; assert green then red.",
+          "expected_result": "Gate green on the tree and red on the seeded fixture - the failing-before/passing-after rule."
+        },
+        {
+          "test_id": "P23-T13-AC2",
+          "linked_acceptance_criterion": "Given the displaced-token sweep, Then every token P23-T12 added is absent from the tree except in the forbidden-token tables carve-out (tests/test_d45_removal.py's _FORBIDDEN/_SURVIVORS and this suite's own displaced-token list), every KEEP entry carries its recorded reason naming the surviving consumer, and AC-D65.1's own measurable is re-run on the finished tree: no Portfolio dock title or objectName and no title-keyed right-dock lookup remains, with the same documented carve-out.",
+          "type": "integration",
+          "description": "Run the token sweep with the carve-out and assert the KEEP ledger names each surviving consumer; re-run AC-D65.1's dock greps over tests/.",
+          "expected_result": "Zero live displaced tokens outside the carve-out; every KEEP entry justified; no Portfolio-keyed lookup remains."
+        },
+        {
+          "test_id": "P23-T13-AC3",
+          "linked_acceptance_criterion": "Given the batch gate, Then the full offscreen suite is green; AC-D65.11's marker grep and the D41-D64 section presence hold; the gate record names all three owner-authorised pre-P23 edits (the D41 title re-points, A194's supersession and A201's D18 launch-width amendment with its two re-baselines) plus S-P23-24's recorded phase-internal consequence (D26.5's paper/live badge derivation retiring with the account path, editing no requirements text); the bookkeeping checks pass (tests/conftest.py names no dropped table, the p13 allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, tests/test_d45_removal.py holds no test whose subject is deleted); and the record states explicitly that AC-D65.19 is still OPEN and owned by P23-T14.",
+          "type": "integration",
+          "description": "Run the full offscreen suite, the marker/section greps and the three bookkeeping checks; read the gate record for the three edits plus the S-P23-24 consequence and the open AC-D65.19 statement.",
+          "expected_result": "Suite green; markers present; bookkeeping clean; record complete and AC-D65.19 declared open."
+        },
+        {
+          "test_id": "P23-T13-AC4",
+          "linked_acceptance_criterion": "Given the consistency re-check, Then 16 option lines, 17 with the spot line, h = max(0.05, one_tick), the credit-vs-displayed sign pair and the canonical fixtures 7425/7445 and 7340/7320 are stated identically in docs/plan.md, docs/architecture.md and the five new phase suites, no 7425/7435 or 7315/7435 example survives (7435/7455 is a legal 20-wide pair and is not banned), and no flat-0.05 band phrasing remains.",
+          "type": "unit",
+          "description": "Grep-driven consistency pass across docs/plan.md, docs/architecture.md and the five new suites for the line counts, the band formula, the sign pair and the canonical fixtures; assert the two banned typos are absent.",
+          "expected_result": "Identical statements everywhere; no banned example; no flat-0.05 phrasing."
+        },
+        {
+          "test_id": "P23-T13-AC5",
+          "linked_acceptance_criterion": "Given usage.md, Then its UI overview row and its Portfolio workflow section no longer advertise a Portfolio/Account Summary panel or the removed strategy auto-detection; they describe the Option Spreads panel (Target 0.05-19.95, ON/OFF, display-only, no order entry) instead - and no other user-facing doc still claims a Portfolio view.",
+          "type": "unit",
+          "description": "Read usage.md's UI overview and workflow sections and assert no Portfolio/Account Summary claim remains and that the Option Spreads behaviour is described.",
+          "expected_result": "Doc describes the panel that exists; no stale Portfolio claim anywhere user-facing."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d65_residue.py (new standing gate plus seeded-red fixture)",
+        "usage.md: Portfolio row and workflow section replaced by the Option Spreads description",
+        "gate record naming the three owner-authorised edits, S-P23-24's consequence and the open AC-D65.19"
+      ],
+      "touches_files": [
+        "tests/test_d65_residue.py",
+        "usage.md",
+        "services/option_ladder.py"
+      ],
+      "doc_required": true,
+      "inputs": [
+        "the joint end state of P23-T1..P23-T12"
+      ],
+      "outputs": [
+        "standing residue gate",
+        "batch-gate record",
+        "corrected usage.md"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/option_ladder.py",
+            "lines": "50-54",
+            "why": "edit: delete the one unused import `from datetime import date, datetime` (line 52; the names occur only in the docstring at 176 and the f-string at 183) \u2014 that single line is the whole change, leave the rest of the module untouched"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "180-300",
+            "why": "read-only: the token-table and allowed-in-file instrument shape the new gate mirrors"
+          },
+          {
+            "path": "tests/test_p13_gate.py",
+            "lines": "190-220",
+            "why": "read-only: the allowlist bookkeeping this gate re-checks"
+          },
+          {
+            "path": "usage.md",
+            "lines": "120-200",
+            "why": "edit: the Portfolio dock row and the Portfolio (view-only) workflow section that no longer describe the app"
+          },
+          {
+            "path": "tests/conftest.py",
+            "lines": "100-130",
+            "why": "read-only: the wipe-list bookkeeping check"
+          },
+          {
+            "path": "tests/test_db_schema.py",
+            "lines": "1-40",
+            "why": "read-only: the schema expectations the gate cross-checks"
+          }
+        ],
+        "contracts": [],
+        "architecture_ref": "docs/architecture.md#Non-Functional Approach",
+        "plan_ref": "docs/plan.md#P23-09",
+        "requirement_ids": [
+          "AC-D65.12",
+          "AC-D65.11",
+          "AC-D65.1",
+          "AC-D65.7",
+          "AC-D65.9",
+          "A197",
+          "A201",
+          "S-P23-15",
+          "S-P23-24",
+          "R147"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_residue.py -q",
+        "memory_refs": [],
+        "size": "M",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T14",
+      "title": "Owner-run paper-TWS acceptance record (checklist created, results left pending)",
+      "description": "Create the owner-run acceptance record at docs/archive/probe_records/d65_paper_tws_acceptance.md in the neighbouring probe records' shape: the six AC-D65.19 items as checkboxes with evidence fields, the TWS line-count table, and a dated sign-off or waiver field. Docs only - the build records the checklist and leaves every result pending for the owner, because a fake-client suite is not evidence against a real gateway.",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [
+        "P23-T13"
+      ],
+      "acceptance_criteria": [
+        "Given the phase otherwise green, Then docs/archive/probe_records/d65_paper_tws_acceptance.md exists in the D48/D52 recorded-probe shape: a header naming the paper account and the build commit, the six AC-D65.19 items as checkboxes each with an empty evidence field, a TWS market-data line-count table (before ON / while ON expecting at most 17 / after OFF expecting a return to the pre-ON baseline), a place for screenshots and notes, and a closing statement field for the run date or an explicit recorded waiver - and every item is left PENDING for the owner: the build fabricates no result and marks nothing satisfied.",
+        "Given the record's prose, Then it states the phase's fixed numbers identically to the suites and the canonical documents - at most 16 option lines plus at most one spot line (17), h = max(0.05, one_tick), the displayed sign convention (ASK = long.ask - short.bid, BID = long.bid - short.ask, Delta/Gamma = long - short, negative by design) and the fixtures 7425/7445 and 7340/7320 - and it records the six items in AC-D65.19's order with item (6) naming the zero-order/zero-transmit evidence to collect.",
+        "Given this task, Then no production or test code is edited (a code defect found by the run is escalated as a build finding, never patched here), and the task does not claim AC-D65.19 as satisfied - the phase gate stays open until the owner runs it or records an explicit waiver."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T14-AC1",
+          "linked_acceptance_criterion": "Given the phase otherwise green, Then docs/archive/probe_records/d65_paper_tws_acceptance.md exists in the D48/D52 recorded-probe shape: a header naming the paper account and the build commit, the six AC-D65.19 items as checkboxes each with an empty evidence field, a TWS market-data line-count table (before ON / while ON expecting at most 17 / after OFF expecting a return to the pre-ON baseline), a place for screenshots and notes, and a closing statement field for the run date or an explicit recorded waiver - and every item is left PENDING for the owner: the build fabricates no result and marks nothing satisfied.",
+          "type": "manual",
+          "description": "Owner-run checklist: open the record and confirm header, six checkbox items each with an evidence field, the three-column line-count table and the closing statement field exist and are unchecked/pending.",
+          "expected_result": "Record present and structurally complete, all six items pending for the owner."
+        },
+        {
+          "test_id": "P23-T14-AC2",
+          "linked_acceptance_criterion": "Given the record's prose, Then it states the phase's fixed numbers identically to the suites and the canonical documents - at most 16 option lines plus at most one spot line (17), h = max(0.05, one_tick), the displayed sign convention (ASK = long.ask - short.bid, BID = long.bid - short.ask, Delta/Gamma = long - short, negative by design) and the fixtures 7425/7445 and 7340/7320 - and it records the six items in AC-D65.19's order with item (6) naming the zero-order/zero-transmit evidence to collect.",
+          "type": "manual",
+          "description": "Read the record's stated numbers against the canonical strings used by the suites and docs.",
+          "expected_result": "16/17, the band formula, the sign pair and both fixtures stated identically; item (6) names the order/transmit evidence."
+        },
+        {
+          "test_id": "P23-T14-AC3",
+          "linked_acceptance_criterion": "Given this task, Then no production or test code is edited (a code defect found by the run is escalated as a build finding, never patched here), and the task does not claim AC-D65.19 as satisfied - the phase gate stays open until the owner runs it or records an explicit waiver.",
+          "type": "manual",
+          "description": "Confirm the task's diff touches only the record file and that the gate record still lists AC-D65.19 as open.",
+          "expected_result": "No code edits; AC-D65.19 not claimed satisfied."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/archive/probe_records/d65_paper_tws_acceptance.md (new, items pending)"
+      ],
+      "touches_files": [
+        "docs/archive/probe_records/d65_paper_tws_acceptance.md"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the phase's green state (P23-T13)"
+      ],
+      "outputs": [
+        "docs/archive/probe_records/d65_paper_tws_acceptance.md"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/archive/probe_records/d48_probe_record.md",
+            "lines": "1-60",
+            "why": "read-only: the recorded-probe shape this record copies"
+          },
+          {
+            "path": "docs/archive/probe_records/d52_probe_record.md",
+            "lines": "1-60",
+            "why": "read-only: the second neighbouring record for header/evidence conventions"
+          }
+        ],
+        "contracts": [],
+        "architecture_ref": "docs/architecture.md#Tech Stack Decisions",
+        "plan_ref": "docs/plan.md#P23-10",
+        "requirement_ids": [
+          "AC-D65.19",
+          "A211",
+          "R144",
+          "R150"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_residue.py -q",
+        "memory_refs": [],
+        "size": "S",
+        "needs_graphify": false
+      }
     }
   ]
 }

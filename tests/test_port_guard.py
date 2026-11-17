@@ -1,9 +1,14 @@
-"""D26.5: fail fast unless IBKR_PORT is the live port (7496); the connection
-badge derives from the verified port + account type, never a hardcoded string.
+"""D26.5 fail-fast: IBKR_PORT must be the live port (7496).
 
-AC-D26.5: IBKR_PORT=7497 -> fail-fast; the badge never reads "Live" for a
-non-live configuration.
+S-P23-24: the badge states the connection, not the account. The account
+id/type arrived on the account-summary stream the P23 account-path removal
+deletes (AC-D65.13), so the badge's paper/live derivation retires with it.
+The fail-fast live-port rule is the half of AC-D26.5 that survives —
+untouched — and it proves only the port, never the account, so it licenses no
+"Live" label.
 """
+
+import inspect
 
 import pytest
 
@@ -21,31 +26,51 @@ def test_check_live_port_accepts_live_port(monkeypatch):
     settings.check_live_port()  # must not raise
 
 
-def test_badge_text_paper_account():
+def test_badge_text_connected():
     from ui.main_window import conn_badge_text
 
-    text, _color = conn_badge_text(account_id="DU123456", account_type="INDIVIDUAL")
-    assert text == "● Paper"
+    text, color = conn_badge_text()
+    assert text == "● Connected"
+    assert color == "#34d399"
 
 
-def test_badge_text_demo_account_type():
+def test_badge_text_paused_keeps_d40_wording():
     from ui.main_window import conn_badge_text
 
-    text, _color = conn_badge_text(account_id="U123456", account_type="DEMO")
-    assert text == "● Paper"
+    text, color = conn_badge_text(monitoring_paused=True)
+    assert text == "Monitoring paused — TWS disconnected"
+    assert color == "#fbbf24"
 
 
-def test_badge_text_live_account():
+def test_badge_text_takes_no_account_parameter():
     from ui.main_window import conn_badge_text
 
-    text, _color = conn_badge_text(account_id="U123456", account_type="INDIVIDUAL")
-    assert text == "● Live"
+    assert list(inspect.signature(conn_badge_text).parameters) == [
+        "monitoring_paused"
+    ]
+    # No replacement account source is invented: a port-derived label is the
+    # hardcoded claim AC-D26.5 forbids.
+    text, _color = conn_badge_text()
+    assert "Live" not in text
+    assert "Paper" not in text
 
 
-def test_badge_text_unknown_account_type_still_live():
-    # Port 7496 is fail-fast verified at startup, so an unknown account type
-    # on the live port is still live — never paper.
-    from ui.main_window import conn_badge_text
+def test_update_conn_badge_reads_no_account_state():
+    from ui import main_window
 
-    text, _color = conn_badge_text(account_id="U123456", account_type=None)
-    assert text == "● Live"
+    source = inspect.getsource(main_window.MainWindow._update_conn_badge)
+    # The retired account reads were getattr() probes on window state; the
+    # badge now reads only the window's own pause flag.
+    assert "getattr(" not in source
+    assert "conn_badge_text(monitoring_paused=self._tws_paused)" in source
+
+
+def test_connecting_and_disconnected_texts_untouched():
+    from ui import main_window
+
+    assert 'QLabel("● Connecting")' in inspect.getsource(
+        main_window.MainWindow.__init__
+    )
+    assert '"● Disconnected"' in inspect.getsource(
+        main_window.MainWindow._on_disconnected
+    )

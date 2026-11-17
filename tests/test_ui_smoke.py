@@ -45,7 +45,8 @@ def test_import_all_data_modules():
     import data.drawing_store
     import services.drawing_service
     import services.sound_service
-    assert hasattr(data.models, "Position")
+    assert not hasattr(data.models, "Position")
+    assert not hasattr(data.models, "TradeGroup")
     assert hasattr(data.models, "Drawing")
 
 

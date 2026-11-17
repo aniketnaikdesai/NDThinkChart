@@ -126,9 +126,6 @@ class _StubHost:
         self._req_ids.pop(req_id, None)
 
     # misc session hooks
-    def _record_symbol_price(self, symbol, price):
-        pass
-
     def _guard_md_lines(self, symbol, purpose):
         return True
 

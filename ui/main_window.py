@@ -33,14 +33,19 @@ from ibkr.market_data import MarketDataManager, TIMEFRAME_CONFIG
 from ibkr.realtime_bars import RealtimeBarsManager
 from ibkr.contracts import (
     get_contract_for_symbol,
+    get_index_contract,
+    get_option_contract,
     get_probe_contract,
     is_futures_root,
+    select_zero_dte_series,
+    today_expiry_yyyymmdd,
+    SPX_OPTION_SYMBOL,
 )
 from ibkr.error_codes import IBKRNotReady
 from ibkr.utils import parse_ibkr_date
-from ibkr.id_manager import id_manager
 from ibkr.pacing import PacingExceeded
 from ibkr.subscription_manager import (
+    OPTION_LEGS,
     RT_BARS,
     S0_TICKS,
     SubscriptionManager,
@@ -73,11 +78,22 @@ from ui.studies_dialog import StudiesDialog, DEFAULT_STUDIES
 from ui.alarm_dialog import AlarmDialog
 from ui.drawing_groups_dialog import DrawingGroupsDialog
 from ui.visual_conventions import apply_toolbar_stylesheet, set_button_active
-from ui.active_portfolio_panel import ActivePortfolioPanel
+from ui.option_spreads_panel import OptionSpreadsPanel
+from services.option_ladder import (
+    LegKey,
+    SIDE_CCS,
+    SIDE_PCS,
+    format_ask,
+    format_bid,
+    format_delta,
+    format_gamma,
+    ladder_pairs,
+)
+from services.option_spread_engine import SpreadEngine
 from ui.toast import Toast
 from ui.ticker_session import TickerSession
 from data.alarm_store import AlarmStore
-from data.models import Bar, Position
+from data.models import Bar
 from data.bar_cache import BarCache
 from data.bar_aggregator import BarAggregator, TIMEFRAME_SECONDS
 from data.study_store import StudyStore
@@ -140,6 +156,26 @@ TIMEZONE_MODES = ("UTC", "Eastern Time")
 #: a silent UTC default.
 DEFAULT_TIMEZONE_MODE = "Eastern Time"
 
+# ── D65 option-spread wiring (P23-05) ───────────────────────────────────────
+#: One cadence evaluation per second (AC-D65.14): the only thing that moves the
+#: ladder. Tick traffic and greeks coalesce into the zero-delay refresh instead.
+OPTION_EVAL_INTERVAL_MS = 1000
+
+#: AP-P23-21: the 16:15 ET cutoff is a window constant because
+#: ``services/market_calendar.py`` models no SPX-option session; adding one is a
+#: later phase's work, and the assumption stays visible here.
+OPTION_CUTOFF_ET = (16, 15)
+OPTION_CUTOFF_MESSAGE = (
+    "The 0DTE SPXW chain is closed after 16:15 ET; the ladders are empty."
+)
+OPTION_CUTOFF_EMPTY_STATE = "0DTE chain closed (after 16:15 ET)"
+OPTION_NO_0DTE_TEXT = "No 0DTE expiry today"
+OPTION_EMPTY_TEXT = "No option spreads"
+OPTION_CHAIN_REFUSED_MESSAGE = (
+    "The 0DTE SPXW chain request was refused; the ladders are empty."
+)
+OPTION_ENGINE_MIXED_TEXT = "no Delta/Gamma value is shown."
+
 
 def read_persisted_timezone() -> str:
     """Return the persisted timezone mode, validated (S-P22-2).
@@ -198,17 +234,16 @@ def chart_engine_failure_message(engine_name: str) -> str:
 
 
 
-def conn_badge_text(
-    account_id: str | None,
-    account_type: str | None,
-    monitoring_paused: bool = False,
-) -> tuple[str, str]:
-    """D26.5: derive the connection badge from the verified port + account.
+def conn_badge_text(monitoring_paused: bool = False) -> tuple[str, str]:
+    """S-P23-24: the badge states the connection, not the account.
 
-    The port is fail-fast verified at startup (settings.check_live_port), so
-    reaching this point means the live port — but the account itself may still
-    be paper/demo (IBKR paper accounts carry DU-prefixed IDs). Returns
-    (text, stylesheet-color); never a hardcoded claim.
+    D26.5's paper/live derivation retired with the account path: the account
+    id/type arrived on the account-summary stream this phase deletes
+    (AC-D65.13), so no account source survives. The fail-fast live-port guard
+    (``settings.check_live_port``) proves only that the *port* is the live one
+    — a paper/demo account can sit on it — so a port-derived "Live" label
+    would be exactly the hardcoded claim AC-D26.5 forbids. Returns
+    (text, stylesheet-color).
 
     D40: ``monitoring_paused`` adds the owner-approved monitoring state —
     "Monitoring paused — TWS disconnected". Amber (warning), never green:
@@ -216,11 +251,7 @@ def conn_badge_text(
     """
     if monitoring_paused:
         return "Monitoring paused — TWS disconnected", "#fbbf24"
-    acct_id = (account_id or "").upper()
-    acct_type = (account_type or "").upper()
-    if acct_id.startswith("DU") or "DEMO" in acct_type or "PAPER" in acct_type:
-        return "● Paper", "#fbbf24"
-    return "● Live", "#34d399"
+    return "● Connected", "#34d399"
 
 
 def _ibkr_end_date(ts: int) -> str:
@@ -627,19 +658,19 @@ class MainWindow(QMainWindow):
             self._on_watchlist_collapsed_changed
         )
 
-        # ── Single right dock: Portfolio-only (D41 / S6) ────────────────────
-        # The Active Trader panel (DOM ladder + order-entry ticket), the
-        # two-section container and the depth machinery are removed: the right
-        # region is now ONE ``QDockWidget`` hosting the retained Portfolio panel
-        # directly. Its title **and** objectName are ``"Portfolio"`` — the
-        # region's stable title-keyed handle — and its title-bar widget IS the
-        # panel's ``summary_label``, so exactly one label is visible and it is
-        # the hide/show toggle (AC-D41.7 / AC-D21.13.1).
-        self.portfolio_panel = ActivePortfolioPanel()
-        self.right_dock = QDockWidget("Portfolio", self)
-        self.right_dock.setObjectName("Portfolio")
-        self.right_dock.setWidget(self.portfolio_panel)
-        self.right_dock.setTitleBarWidget(self.portfolio_panel.summary_label)
+        # ── Single right dock: Option Spreads (D65 / S-P23-1) ───────────────
+        # The Active Trader panel, the two-section container and the depth
+        # machinery are gone: the right region is ONE ``QDockWidget`` hosting the
+        # Option Spreads panel directly. Its title **and** objectName are
+        # ``"Option Spreads"`` — the region's stable lookup handle — and its
+        # title-bar widget IS the panel's ``header_button``, so exactly one
+        # header is visible and it is the hide/show toggle
+        # (AC-D65.1 / AC-D21.13.1).
+        self.option_spreads_panel = OptionSpreadsPanel()
+        self.right_dock = QDockWidget("Option Spreads", self)
+        self.right_dock.setObjectName("Option Spreads")
+        self.right_dock.setWidget(self.option_spreads_panel)
+        self.right_dock.setTitleBarWidget(self.option_spreads_panel.header_button)
         self.right_dock.setFeatures(
             QDockWidget.DockWidgetFeature.DockWidgetMovable |
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
@@ -652,6 +683,19 @@ class MainWindow(QMainWindow):
         # D18 Phase 4: in-memory-only right-region width. Never persisted — no new
         # QSettings key (AC-D18.7 / A36), matching D10's volume-toggle precedent.
         self._right_dock_width = RIGHT_DOCK_MIN_WIDTH
+        # D65/S-P23-16: the panel's preferred width is a *remembered launch
+        # request* (in-memory only, never persisted — the D17.4 analogue).
+        # ``_deferred_dock_setup`` clamps it through ``plan_dock_widths`` once,
+        # against the real chart area, and ``_right_dock_width`` keeps tracking
+        # the live dock width from then on (AC-D65.9).
+        self._right_launch_width = OptionSpreadsPanel.PREFERRED_WIDTH
+        # True until the first post-show clamp consumes the launch request: the
+        # region's own ``visibilityChanged`` clamp reads the dock's pre-resize
+        # width, so while the request is pending every ``None`` right-request
+        # means "the remembered launch width", never that stale reading. After
+        # it is consumed, applies track the live dock width again (so a user
+        # drag is never undone) and nothing is ever persisted (AC-D65.9).
+        self._right_launch_pending = True
         # D21.13/S6: the retained panel's hide/show state. With one section the
         # collapsed state IS the region-collapse state and the collapsed strip is
         # that single button.
@@ -659,7 +703,7 @@ class MainWindow(QMainWindow):
         self._right_dock_collapsed_min_width = (
             self._compute_right_dock_collapsed_min_width()
         )
-        self.portfolio_panel.summary_label.toggled.connect(
+        self.option_spreads_panel.header_button.toggled.connect(
             self._on_right_panel_toggled
         )
         # The right region participates in the shared clamp via resizeEvent and a
@@ -763,8 +807,6 @@ class MainWindow(QMainWindow):
         self.watchlist_panel.set_market_data_manager(self.md_manager)
         # D27.3: the panel type-tags its live subs for the reconnect replay.
         self.watchlist_panel.set_subscription_manager(self.sub_manager)
-        # D27.5: watchlist ticks feed the central symbol -> last_price map.
-        self.watchlist_panel.set_price_sink(self._record_symbol_price)
 
         # Drawing overlay wiring — through the seam: the default engine's
         # controller proxies wrap its Qt overlay, and the LWC driver exposes
@@ -839,20 +881,56 @@ class MainWindow(QMainWindow):
         # D37 S0 substrate: generic/string/news ticks, routed by reqId.
         b.realtime_bar.connect(self._on_realtime_bar)
 
-        # Account & portfolio signals
-        b.account_summary.connect(self._on_account_summary)
-        b.account_summary_end.connect(self._on_account_summary_end)
-        b.position_update.connect(self._on_position_update)
-        b.position_end.connect(self._on_position_end)
-
-        # Initialize empty portfolio display
-        self.portfolio_panel.set_account_summary({})
-        self.portfolio_panel.set_positions([])
-        # D27.6: not subscribed until the first connect.
-        self.portfolio_panel.set_account_unavailable(True)
-
-        # D45: the Portfolio panel is view-only — its close/flatten/SL-TP
-        # signals are no longer connected (the order path is gone).
+        # ── D65 option-spread wiring (S-P23-9…S-P23-11, S-P23-17/-18) ───────
+        # AC-D65.1: a restart launches OFF at Target 1.00. The panel shell's own
+        # construction default is ON; the window flips it here *without* a
+        # toggle_clicked emission (set_toggle_state never echoes).
+        self.option_spreads_panel.set_toggle_state(False)
+        self.option_spreads_panel.set_target_value(1.00)
+        self.option_spreads_panel.set_status("")
+        self.option_spreads_panel.set_empty_state(OPTION_EMPTY_TEXT)
+        # The pure engine owns every decision; the window only applies its plan.
+        self._option_engine = SpreadEngine()
+        self._option_active = False
+        self._option_cutoff = False
+        self._option_expiry = ""
+        # reqId ⇄ leg routing, and the leg → reqId mirror (line identity).
+        self._option_req_ids: dict[int, LegKey] = {}
+        self._option_leg_req: dict[LegKey, int] = {}
+        self._option_leg_quotes: dict[LegKey, dict] = {}
+        # The one dedicated SPX spot line (AC-D65.15 tier 3b).
+        self._option_spot_req_id: int | None = None
+        # Chain discovery: the bounded lookup's reqId and the sec-def request.
+        self._option_chain_lookup_id: int | None = None
+        self._option_chain_req_id: int | None = None
+        self._option_chain_params: list = []
+        # Chain-discovery reqIds are option-owned: their errors never reach the
+        # generic ``Error [code]`` status line.
+        self._option_quiet_ids: set[int] = set()
+        # Turn state: the last latched message, the empty-state text, the seed
+        # transition flag and the coalescing gate.
+        self._option_status: str | None = None
+        self._option_empty_text: str | None = None
+        self._option_seed_was_active = False
+        self._option_refresh_pending = False
+        self._option_refresh_count = 0
+        # AC-D65.14: the 1 s cadence evaluation — the ladder's only mover.
+        self._option_eval_timer = QTimer(self)
+        self._option_eval_timer.setInterval(OPTION_EVAL_INTERVAL_MS)
+        self._option_eval_timer.timeout.connect(self._on_option_eval_timeout)
+        # Panel → engine decisions.
+        self.option_spreads_panel.toggle_clicked.connect(
+            self._on_option_toggle_clicked
+        )
+        self.option_spreads_panel.target_committed.connect(
+            self._on_option_target_committed
+        )
+        # Chain discovery, per-leg quotes/greeks (strictly additive signals).
+        b.option_params.connect(self._on_option_params)
+        b.option_params_end.connect(self._on_option_params_end)
+        b.option_computation.connect(self._on_option_computation)
+        # The watchlist keeps its own tick_price slot; Qt fans out to both.
+        b.tick_price.connect(self._on_option_tick_price)
 
         # State
         # D28.2: per-symbol sessions. Chart data-plane state (_rt_req_id,
@@ -887,30 +965,6 @@ class MainWindow(QMainWindow):
         # test compatibility.
         # D28.2: studies config lives on TickerSession (_current_studies facade
         # below delegates to the current symbol's session).
-        # D27.5: central symbol -> last_price map (chart + watchlist feeds).
-        # Position market prices look up the position's own symbol here —
-        # never the chart's _last_chart_price.
-        self._symbol_last_prices: dict[str, float] = {}
-        # D27.6: account-data subscription state (positions + summary).
-        self._account_subscribed: bool = False
-        self._account_summary_req_id: int | None = None
-        # ESC-043: the account(s) the current account-summary subscription has
-        # reported. `reqAccountSummary(..., "All", ...)` can stream several
-        # accounts, so this is a set, not a single id. Empty means "not yet
-        # known" — the position render/prune must not act on a guess.
-        self._live_accounts: set[str] = set()
-        # ESC-052: `_live_accounts` is only AUTHORITATIVE once the
-        # account-summary stream has completed (`_on_account_summary_end`).
-        # `position_end` (from reqPositions) and `accountSummaryEnd` (from
-        # reqAccountSummary) are independent streams with no ordering
-        # guarantee, so a non-empty-but-incomplete set must never drive the
-        # destructive foreign-row prune — it may hold only SOME of the user's
-        # accounts, and deleting the rest would destroy real rows.
-        self._account_summary_complete: bool = False
-        # ESC-052: whether `_on_position_end` has already loaded/rendered the
-        # persisted rows this session — lets the summary completion re-render
-        # so the panel converges on the now-complete live set.
-        self._positions_rendered: bool = False
         # D27.4: RT retry timer. The StreamHealth object itself lives on the
         # TickerSession now (self._stream_health delegates to the primary
         # session); this timer stays window-level.
@@ -1037,12 +1091,16 @@ class MainWindow(QMainWindow):
     def _md_line_count(self) -> int:
         """Active market-data lines (owns the §7 accounting — C37.1).
 
-        Counts RT-bar lines and watchlist rows explicitly.
+        Counts RT-bar lines, watchlist rows, and every D65 option-spread line —
+        the live per-leg lines plus the single dedicated SPX spot line
+        (AC-D65.15: option ≤ 16, total ≤ 17).
         """
         rt = sum(1 for s in self._sessions.values()
                  if s.rt_req_id is not None)
         watchlist = self.watchlist_panel.active_row_count()
-        return rt + watchlist
+        option_lines = len(getattr(self, "_option_req_ids", {}) or {})
+        spot_lines = 1 if getattr(self, "_option_spot_req_id", None) is not None else 0
+        return rt + watchlist + option_lines + spot_lines
 
     def _guard_md_lines(self, symbol: str, purpose: str) -> bool:
         """Warn (never silently drop) near the 100-line cap; refuse past it.
@@ -1643,17 +1701,12 @@ class MainWindow(QMainWindow):
     # ── Connection slots ──────────────────────────────────────────────────────
 
     def _update_conn_badge(self):
-        """D26.5: badge text/color derive from the verified port + account.
+        """S-P23-24: the badge states the connection, not the account.
 
         D40: while TWS is gone the badge shows the paused monitoring
         state (owner-approved wording), never a green "connected".
         """
-        summary = getattr(self, "_account_summary", {}) or {}
-        text, color = conn_badge_text(
-            getattr(self, "_account_id", None),
-            summary.get("AccountType"),
-            monitoring_paused=self._tws_paused,
-        )
+        text, color = conn_badge_text(monitoring_paused=self._tws_paused)
         self.conn_badge.setText(text)
         self.conn_badge.setStyleSheet(f"color: {color};")
 
@@ -1672,8 +1725,12 @@ class MainWindow(QMainWindow):
         self.load_btn.setEnabled(True)
         self.status_bar.showMessage(f"Connected — IBKR port {settings.IBKR_PORT}")
         self._restore_watchlist()
+        # D65/AC-D65.14 (iii): resume the frozen option walk from the SAME
+        # anchor before the replay re-issues its lines; the replay's rebind
+        # hooks then repoint every leg's reqId (no re-seed).
+        if self._option_active:
+            self._option_engine.on_reconnected()
         self._replay_subscriptions()
-        self._subscribe_account_data()
         # D24.9: restore pop-outs after connect (lazy attach, cache-first).
         self._restore_popouts()
         # D40.3: resume from a TWS-gone pause — the D27 replay above
@@ -1697,38 +1754,6 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(
                 self.alarm_monitor.format_gap_report(_gaps), 30000
             )
-
-    def _subscribe_account_data(self):
-        """D27.6: subscribe positions + account summary on (re)connect.
-
-        The whole signal chain (EWrapper -> bridge -> panel) already exists;
-        only the subscription calls were missing, leaving the portfolio
-        panel permanently empty.
-        """
-        # ESC-043: a fresh subscription invalidates the previous live-account
-        # set — it is unknown again until the first account-summary callback.
-        self._live_accounts = set()
-        # ESC-052: ... and it is not COMPLETE until this subscription's
-        # `accountSummaryEnd` arrives. Never prune on a partial set.
-        self._account_summary_complete = False
-        self._positions_rendered = False
-        try:
-            self.ib_client.reqPositions()
-        except Exception as exc:  # pragma: no cover - transport-level
-            _LOG.warning("reqPositions failed: %s", exc)
-        try:
-            req_id = id_manager.get_id()
-            self.ib_client.reqAccountSummary(
-                req_id,
-                "All",
-                "AccountType,AvailableFunds,BuyingPower,"
-                "TotalCashValue,NetLiquidation",
-            )
-            self._account_summary_req_id = req_id
-        except Exception as exc:  # pragma: no cover - transport-level
-            _LOG.warning("reqAccountSummary failed: %s", exc)
-        self._account_subscribed = True
-        self.portfolio_panel.set_account_unavailable(False)
 
     def _restore_watchlist(self):
         """Repopulate the panel from the DB, idempotently (AC-D22.7.2).
@@ -1771,6 +1796,19 @@ class MainWindow(QMainWindow):
         D39.1: search-result selections share the bounded lookup; they are
         keyed in ``_pending_search_select`` and branch to chart loading.
         """
+        # D65: the SPX underlying index lookup feeds the chain request; its
+        # conId is the only thing the sec-def call needs from contract details.
+        if (self._option_chain_lookup_id is not None
+                and request_id == self._option_chain_lookup_id):
+            self._option_chain_lookup_id = None
+            details = self._contract_lookup.take_details(request_id)
+            if not ok or details is None:
+                self._option_chain_failed(reason)
+                return
+            underlying = getattr(details, "contract", None)
+            con_id = int(getattr(underlying, "conId", 0) or 0)
+            self._option_issue_chain(con_id)
+            return
         if request_id in self._pending_probes:
             self._on_probe_lookup_finished(request_id, symbol, ok, reason)
             return
@@ -1960,7 +1998,9 @@ class MainWindow(QMainWindow):
 
         Chart RT bars and S0 generic-tick subscriptions replay through the
         subscription registry, which rebinds the new reqIds into the routing
-        state.
+        state. D65 option legs replay through the same registry under the
+        ``OPTION_LEGS`` tag, each with a ``reissue`` (a fresh ``reqMktData``)
+        and a ``rebind`` that repoints the engine's leg → reqId map.
         Watchlist market-data is re-issued by ``_restore_watchlist``'s
         clear+re-add path (pinned by AC-D22.7.2), so MARKET_DATA stays
         excluded here — replaying it too would double-subscribe every row.
@@ -1971,7 +2011,7 @@ class MainWindow(QMainWindow):
         """
         try:
             self.sub_manager.replay_all(
-                include_types={RT_BARS, S0_TICKS})
+                include_types={RT_BARS, S0_TICKS, OPTION_LEGS})
         except PacingExceeded as e:
             self.status_bar.showMessage(
                 f"Subscription replay pacing-limited, "
@@ -1981,6 +2021,564 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(
                 int(e.wait_seconds * 1000), self._replay_subscriptions
             )
+
+    # ── D65 option spreads: the live wiring (P23-05) ──────────────────────
+    #
+    # The engine is pure: it emits an ``Actions`` plan and the window applies
+    # it. Every leg (and the single spot line) lives in ``self.sub_manager``
+    # under the panel's tag with a ``reissue`` hook (a fresh ``reqMktData``)
+    # and a ``rebind`` hook that repoints the engine's leg → reqId map, so the
+    # D27.3 replay re-issues option lines without duplicating a subscription.
+    # Nothing here ever reaches an order call: option data is display-only.
+
+    def _on_option_toggle_clicked(self, on: bool) -> None:
+        """The panel's Red/OFF↔Green/ON toggle drives the engine lifecycle."""
+        if on:
+            self._option_start()
+        else:
+            self._option_stop()
+
+    def _option_start(self) -> None:
+        """Switch ON: chain discovery, the spot tier, the 1 s cadence."""
+        if self._option_active:
+            return
+        self._option_active = True
+        self._option_cutoff = False
+        self._option_engine.toggle_on()
+        self.option_spreads_panel.set_status("")
+        self._option_empty_text = None
+        self._option_status = None
+        self._option_seed_was_active = False
+        if self._option_cutoff_reached():
+            self._option_enter_cutoff()
+            return
+        # Tier 3a pushes the chart's own price; tier 3b opens the one line.
+        self._option_sync_spot_source()
+        self._option_ensure_spot()
+        self._option_request_chain()
+        self._option_eval_timer.start()
+
+    def _option_stop(self) -> None:
+        """Switch OFF: release every option line and the spot line (zero left)."""
+        self._option_active = False
+        self._option_cutoff = False
+        self._option_eval_timer.stop()
+        self._option_engine.toggle_off()
+        for leg in list(self._option_leg_req):
+            self._option_cancel_leg(leg)
+        self._option_cancel_spot()
+        if self._option_chain_lookup_id is not None:
+            self._contract_lookup.cancel(self._option_chain_lookup_id)
+            self._option_chain_lookup_id = None
+        self._option_chain_req_id = None
+        self._option_chain_params = []
+        self._option_leg_quotes.clear()
+        self._option_engine.take_messages()
+        self._option_status = None
+        self._option_empty_text = None
+        self._option_seed_was_active = False
+        self.option_spreads_panel.set_status("")
+        self.option_spreads_panel.apply_snapshot([], [])
+        self.option_spreads_panel.set_empty_state(OPTION_EMPTY_TEXT)
+
+    # ── The 16:15 ET cutoff (AC-D65.8) ───────────────────────────────────
+
+    def _option_et_now(self) -> datetime:
+        """The ET clock the cutoff reads (a seam the tests can pin)."""
+        return datetime.now(_EASTERN)
+
+    def _option_cutoff_reached(self) -> bool:
+        now = self._option_et_now()
+        return (int(now.hour), int(now.minute)) >= OPTION_CUTOFF_ET
+
+    def _option_enter_cutoff(self) -> None:
+        """The post-16:15-ET state: no chain, no lines, empty ladders."""
+        if self._option_cutoff:
+            return
+        self._option_cutoff = True
+        self._option_eval_timer.stop()
+        self._option_engine.toggle_off()
+        for leg in list(self._option_leg_req):
+            self._option_cancel_leg(leg)
+        self._option_cancel_spot()
+        self._option_leg_quotes.clear()
+        self._option_empty_text = OPTION_CUTOFF_EMPTY_STATE
+        self.option_spreads_panel.apply_snapshot([], [])
+        self.option_spreads_panel.set_empty_state(OPTION_CUTOFF_EMPTY_STATE)
+        self.option_spreads_panel.set_status(OPTION_CUTOFF_MESSAGE)
+
+    # ── Chain discovery (SPX IND conId → reqSecDefOptParams) ─────────────
+
+    def _option_request_chain(self) -> None:
+        """Resolve the SPX index conId, then ask for its option chain."""
+        if not self._option_active or self._option_cutoff:
+            return
+        self._option_chain_params = []
+        self._option_chain_req_id = None
+        try:
+            underlying = get_index_contract(SPX_OPTION_SYMBOL)
+        except ValueError:
+            self._option_chain_failed("unknown index")
+            return
+        try:
+            lookup_id = int(
+                self._contract_lookup.request(SPX_OPTION_SYMBOL, underlying)
+            )
+        except PacingExceeded as exc:
+            QTimer.singleShot(
+                max(int(exc.wait_seconds * 1000), 250), self._option_request_chain
+            )
+            return
+        except IBKRNotReady:
+            self._option_chain_failed("not connected")
+            return
+        self._option_chain_lookup_id = lookup_id
+        # Chain-discovery errors never reach the generic status line.
+        self._option_quiet_ids.add(lookup_id)
+
+    def _option_chain_failed(self, reason: str = "") -> None:
+        """One panel message; the ladders stay empty (no chain, no rows)."""
+        self._option_chain_lookup_id = None
+        self._option_chain_req_id = None
+        self._option_empty_text = OPTION_NO_0DTE_TEXT
+        self.option_spreads_panel.set_empty_state(OPTION_NO_0DTE_TEXT)
+        self.option_spreads_panel.set_status(OPTION_CHAIN_REFUSED_MESSAGE)
+
+    def _option_issue_chain(self, con_id: int) -> None:
+        """Issue the one ``reqSecDefOptParams`` for the resolved underlying."""
+        if not self._option_active or self._option_cutoff:
+            return
+        try:
+            req_id = int(
+                self.md_manager.req_sec_def_opt_params(
+                    SPX_OPTION_SYMBOL, "", "IND", int(con_id)
+                )
+            )
+        except PacingExceeded as exc:
+            QTimer.singleShot(
+                max(int(exc.wait_seconds * 1000), 250),
+                lambda: self._option_issue_chain(con_id),
+            )
+            return
+        except (IBKRNotReady, ValueError):
+            self._option_chain_failed("not connected")
+            return
+        self._option_chain_req_id = req_id
+        self._option_quiet_ids.add(req_id)
+
+    def _on_option_params(self, req_id: int, params) -> None:
+        if self._option_chain_req_id != req_id:
+            return  # late / foreign chain response
+        self._option_chain_params.append(params)
+
+    def _on_option_params_end(self, req_id: int) -> None:
+        if self._option_chain_req_id != req_id:
+            return
+        self._option_chain_req_id = None
+        collected = self._option_chain_params
+        self._option_chain_params = []
+        series = select_zero_dte_series(
+            collected, today_expiry_yyyymmdd()
+        )
+        if series is None:
+            # AC-D65.8: the chain-level empty state, one latched message.
+            self._option_engine.on_no_expiry()
+            self._option_empty_text = OPTION_NO_0DTE_TEXT
+        else:
+            self._option_engine.on_chain(series)
+            self._option_expiry = str(series.expiry)
+            self._option_empty_text = None
+        self._option_eval_step()
+
+    # ── The spot line and its three tiers (AC-D65.15) ────────────────────
+
+    def _option_chart_spot(self) -> float | None:
+        """Tier 3a's source: the chart's own price, ONLY on SPX itself.
+
+        On any other charted symbol that value is another instrument's price
+        and is *not* a spot source — an SPX ``TickerSession`` in the background
+        does not change that.
+        """
+        symbol = str(getattr(self, "_current_symbol", "") or "").strip().upper()
+        if symbol != SPX_OPTION_SYMBOL:
+            return None
+        try:
+            value = float(self._last_chart_price)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+
+    def _option_spot_needed(self) -> bool:
+        """True when tier 3b applies (no usable chart price)."""
+        return self._option_chart_spot() is None
+
+    def _option_sync_spot_source(self) -> None:
+        """Keep the engine's spot on tier 3a and never alongside a chart price."""
+        chart = self._option_chart_spot()
+        if chart is None:
+            return
+        self._option_engine.on_spot(chart)
+        if self._option_spot_req_id is not None:
+            self._option_cancel_spot()
+
+    def _option_ensure_spot(self) -> None:
+        """Open the ONE dedicated SPX line when tier 3b applies (never two)."""
+        if not self._option_active or self._option_cutoff:
+            return
+        if self._option_chart_spot() is not None:
+            return  # tier 3a: the chart's own last price IS the spot
+        if self._option_spot_req_id is not None:
+            return
+        if not self._guard_md_lines(SPX_OPTION_SYMBOL, "option spot"):
+            return
+        try:
+            req_id = int(
+                self.md_manager.req_mkt_data(
+                    get_index_contract(SPX_OPTION_SYMBOL)
+                )
+            )
+        except PacingExceeded as exc:
+            QTimer.singleShot(
+                max(int(exc.wait_seconds * 1000), 250), self._option_ensure_spot
+            )
+            return
+        except (IBKRNotReady, ValueError):
+            return
+        self._option_spot_req_id = req_id
+        self.sub_manager.subscribe(
+            SPX_OPTION_SYMBOL,
+            req_id,
+            OPTION_LEGS,
+            reissue=self._option_reissue_spot,
+            rebind=self._option_rebind_spot,
+        )
+
+    def _option_reissue_spot(self) -> int:
+        req_id = int(
+            self.md_manager.req_mkt_data(get_index_contract(SPX_OPTION_SYMBOL))
+        )
+        self._option_spot_req_id = req_id
+        return req_id
+
+    def _option_rebind_spot(self, new_req_id: int) -> None:
+        self._option_spot_req_id = int(new_req_id)
+
+    def _option_cancel_spot(self) -> None:
+        req_id = self._option_spot_req_id
+        if req_id is None:
+            return
+        self._option_spot_req_id = None
+        self.sub_manager.unsubscribe(req_id)
+        self.md_manager.cancel_mkt_data(req_id)
+
+    # ── Per-leg lines ────────────────────────────────────────────────────
+
+    def _option_subscribe_leg(self, leg: LegKey) -> None:
+        if leg in self._option_leg_req or self._option_cutoff:
+            return
+        if leg not in self._option_engine.live_legs():
+            return  # a deferred retry whose window has since moved on
+        if not self._guard_md_lines(SPX_OPTION_SYMBOL, "option leg"):
+            return
+        try:
+            contract = get_option_contract(
+                SPX_OPTION_SYMBOL, self._option_expiry, leg.strike, leg.right
+            )
+            req_id = int(self.md_manager.req_mkt_data(contract))
+        except PacingExceeded as exc:
+            # Q-41 / D28.1: never drop a leg on pacing — defer and retry (the
+            # engine still holds the leg's line, so this cannot double-subscribe).
+            QTimer.singleShot(
+                max(int(exc.wait_seconds * 1000), 250),
+                lambda leg=leg: self._option_subscribe_leg(leg),
+            )
+            return
+        except (IBKRNotReady, ValueError):
+            return
+        self._option_leg_req[leg] = req_id
+        self._option_req_ids[req_id] = leg
+        self.sub_manager.subscribe(
+            f"{SPX_OPTION_SYMBOL} {leg.right} {float(leg.strike):g}",
+            req_id,
+            OPTION_LEGS,
+            reissue=lambda leg=leg: self._option_reissue_leg(leg),
+            rebind=lambda new_id, leg=leg: self._option_rebind_leg(leg, new_id),
+        )
+
+    def _option_reissue_leg(self, leg: LegKey) -> int:
+        """The replay hook: one fresh ``reqMktData`` for the same contract."""
+        contract = get_option_contract(
+            SPX_OPTION_SYMBOL, self._option_expiry, leg.strike, leg.right
+        )
+        req_id = int(self.md_manager.req_mkt_data(contract))
+        old = self._option_leg_req.get(leg)
+        if old is not None and old != req_id:
+            self._option_req_ids.pop(old, None)
+        self._option_leg_req[leg] = req_id
+        self._option_req_ids[req_id] = leg
+        return req_id
+
+    def _option_rebind_leg(self, leg: LegKey, new_req_id: int) -> None:
+        """The rebind hook: repoint the engine's leg → reqId map."""
+        new_req_id = int(new_req_id)
+        old = self._option_leg_req.get(leg)
+        if old is not None and old != new_req_id:
+            self._option_req_ids.pop(old, None)
+        self._option_leg_req[leg] = new_req_id
+        self._option_req_ids[new_req_id] = leg
+        self._option_engine.rebind_leg(leg, new_req_id)
+
+    def _option_cancel_leg(self, leg: LegKey) -> None:
+        req_id = self._option_leg_req.pop(leg, None)
+        if req_id is None:
+            return
+        self._option_req_ids.pop(req_id, None)
+        self.sub_manager.unsubscribe(req_id)
+        self.md_manager.cancel_mkt_data(req_id)
+
+    def _option_cancel_pair(self, leg: LegKey) -> None:
+        """A ``200`` dropped the pair for the session — release both its lines."""
+        side = SIDE_CCS if leg.right == "C" else SIDE_PCS
+        anchor = self._option_engine.anchor(side)
+        if anchor is not None:
+            for short, long in ladder_pairs(anchor, side):
+                if (abs(float(leg.strike) - float(short)) < 1e-9
+                        or abs(float(leg.strike) - float(long)) < 1e-9):
+                    for strike in (short, long):
+                        self._option_cancel_leg(
+                            LegKey(right=leg.right, strike=float(strike))
+                        )
+                    return
+        self._option_cancel_leg(leg)
+
+    # ── Tick routing (quotes, greeks, spot) + coalescing ─────────────────
+
+    def _on_option_tick_price(self, req_id: int, tick_type: int, price: float) -> None:
+        """Route BID/ASK ticks to the engine's quote store, LAST to the spot."""
+        leg = self._option_req_ids.get(req_id)
+        if leg is not None:
+            if tick_type not in (1, 2):
+                return
+            state = self._option_leg_quotes.setdefault(
+                leg, {"bid": None, "ask": None, "bid_seen": False, "ask_seen": False}
+            )
+            if tick_type == 1:
+                state["bid"], state["bid_seen"] = price, True
+            else:
+                state["ask"], state["ask_seen"] = price, True
+            self._option_engine.on_quote(
+                leg,
+                state["bid"],
+                state["ask"],
+                state["bid_seen"],
+                state["ask_seen"],
+            )
+            self._option_schedule_refresh()
+            return
+        if (self._option_spot_req_id is not None
+                and req_id == self._option_spot_req_id
+                and tick_type == 4):
+            self._option_engine.on_spot(price)
+            self._option_schedule_refresh()
+
+    def _on_option_computation(self, req_id: int, tick_type: int,
+                               delta, gamma) -> None:
+        """Route one leg's option computation (greeks) to the engine."""
+        leg = self._option_req_ids.get(req_id)
+        if leg is None:
+            return
+        self._option_engine.on_greek(leg, tick_type, delta, gamma)
+        self._option_schedule_refresh()
+
+    def _option_schedule_refresh(self) -> None:
+        """Coalesce a burst of ticks into ONE refresh per event-loop turn."""
+        if self._option_refresh_pending or not self._option_active:
+            return
+        self._option_refresh_pending = True
+        QTimer.singleShot(0, self._option_refresh)
+
+    def _option_refresh(self) -> None:
+        self._option_refresh_pending = False
+        if not self._option_active:
+            return
+        self._option_refresh_count += 1
+        self._option_finish_turn()
+
+    # ── The 1 s cadence evaluation ───────────────────────────────────────
+
+    def _on_option_eval_timeout(self) -> None:
+        self._option_eval_step()
+
+    def _option_eval_step(self, now: float | None = None) -> None:
+        """One cadence turn: evaluate, drive the seed, apply, then render once."""
+        if not self._option_active:
+            return
+        if self._option_cutoff_reached():
+            self._option_enter_cutoff()
+            return
+        if self._option_engine.walk_frozen:
+            # Disconnected: nothing moves and nothing is cancelled; the cells
+            # keep their last values marked STALE.
+            self._option_render()
+            return
+        now = float(time.monotonic() if now is None else now)
+        self._option_sync_spot_source()
+        if self._option_engine.seed_state().active and self._option_spot_needed():
+            self._option_ensure_spot()
+        self._option_absorb(self._option_engine.evaluate(now))
+        # The seed advances in bounded units; the timer is its clock.
+        for _ in range(64):
+            if not self._option_engine.seed_state().active:
+                break
+            step = self._option_engine.seed_actions()
+            self._option_absorb(step)
+            if not (step.actions or step.subscribes or step.cancels
+                    or step.spot_subscribe or step.spot_cancel
+                    or step.messages):
+                break
+        seed_active = bool(self._option_engine.seed_state().active)
+        if self._option_seed_was_active and not seed_active:
+            # AC-D65.15: the dedicated spot line is cancelled when the seed
+            # completes; the engine keeps its last price for ranking.
+            self._option_cancel_spot()
+        self._option_seed_was_active = seed_active
+        self._option_finish_turn()
+
+    def _option_absorb(self, acts) -> None:
+        """Apply one plan: cancels BEFORE subscribes, then spot, then messages."""
+        if acts is None:
+            return
+        for leg in getattr(acts, "cancels", ()) or ():
+            self._option_cancel_leg(leg)
+        for leg in getattr(acts, "subscribes", ()) or ():
+            self._option_subscribe_leg(leg)
+        if getattr(acts, "spot_cancel", False):
+            self._option_cancel_spot()
+        if (getattr(acts, "spot_subscribe", False)
+                and self._option_spot_needed()
+                and self._option_engine.seed_state().active):
+            # AC-D65.15: the spot exists to centre the seed and is released when
+            # the seed completes, so the engine's post-seed subscription wish is
+            # not acted on (opening it now would undo that release).
+            self._option_ensure_spot()
+        if getattr(acts, "empty_state", None):
+            # While the chain request is still in flight the engine's "no-0DTE"
+            # read is just "no series yet" — never show the empty state early.
+            if (self._option_chain_req_id is None
+                    and self._option_chain_lookup_id is None):
+                self._option_empty_text = OPTION_NO_0DTE_TEXT
+        for message in getattr(acts, "messages", ()) or ():
+            self._option_status = message
+
+    def _option_finish_turn(self) -> None:
+        """Surface the turn's messages, render, then surface render-latched ones.
+
+        ``rows()`` itself can latch a cause (a mixed-source pair), so the drain
+        runs on both sides of the render — never a turn later.
+        """
+        if self._option_status is not None:
+            self.option_spreads_panel.set_status(self._option_status)
+            self._option_status = None
+        self._option_render()
+        latched = self._option_engine.take_messages()
+        if latched:
+            self.option_spreads_panel.set_status(latched[-1])
+
+    # ── Rendering ────────────────────────────────────────────────────────
+
+    def _option_render(self) -> None:
+        """Render the engine's rows; absent cells stay empty (no value)."""
+        panel = self.option_spreads_panel
+        if not self._option_active:
+            panel.apply_snapshot([], [])
+            panel.set_empty_state(OPTION_EMPTY_TEXT)
+            return
+        rows = self._option_engine.rows()
+        stale = self._option_engine.stale_legs()
+        ccs_rows = rows.get(SIDE_CCS, [])
+        pcs_rows = rows.get(SIDE_PCS, [])
+        panel.apply_snapshot(
+            [self._option_cells(row) for row in ccs_rows],
+            [self._option_cells(row) for row in pcs_rows],
+        )
+        self._option_mark_stale(panel.ccs_table, ccs_rows, stale)
+        self._option_mark_stale(panel.pcs_table, pcs_rows, stale)
+        if ccs_rows or pcs_rows:
+            panel.set_empty_state(None)
+        elif self._option_empty_text:
+            panel.set_empty_state(self._option_empty_text)
+
+    @staticmethod
+    def _option_cells(row) -> list:
+        """One panel row: name, ASK, BID, Delta, Gamma — the owner's values."""
+        return [
+            row.display_name,
+            format_ask(row.display_ask),
+            format_bid(row.display_bid),
+            format_delta(row.delta),
+            format_gamma(row.gamma),
+        ]
+
+    def _option_mark_stale(self, table, rows, stale) -> None:
+        """Mark every cell of a stale row STALE (the last value is kept)."""
+        right = "C" if table is self.option_spreads_panel.ccs_table else "P"
+        for index, row in enumerate(rows):
+            legs = (
+                LegKey(right=right, strike=float(row.short)),
+                LegKey(right=right, strike=float(row.long)),
+            )
+            if not any(leg in stale for leg in legs):
+                continue
+            for column in range(table.columnCount()):
+                item = table.item(index, column)
+                if item is not None:
+                    item.setToolTip("STALE")
+
+    # ── Per-line error routing + the Target field ────────────────────────
+
+    def _on_option_error(self, req_id: int, error_code: int,
+                         error_string: str) -> bool:
+        """Apply the option-owned error class; True when the reqId was ours.
+
+        Option legs route to the engine's per-line classes (200/10197/354/162/
+        other) and the spot line tolerates a refusal (tier 3c). Chain-discovery
+        reqIds stay quiet. Everything else returns False so ``_on_error`` keeps
+        its existing generic ``Error [code]`` line.
+        """
+        leg = self._option_req_ids.get(req_id)
+        if leg is not None:
+            self._option_engine.on_leg_error(leg, error_code)
+            if int(error_code) == 200:
+                self._option_cancel_pair(leg)
+            self._option_finish_turn()
+            return True
+        if (self._option_spot_req_id is not None
+                and req_id == self._option_spot_req_id):
+            self._option_cancel_spot()
+            self._option_finish_turn()
+            return True
+        if (self._option_chain_req_id is not None
+                and req_id == self._option_chain_req_id):
+            self._option_chain_req_id = None
+            self._option_engine.on_no_expiry()
+            self._option_empty_text = OPTION_NO_0DTE_TEXT
+            self.option_spreads_panel.set_status(OPTION_CHAIN_REFUSED_MESSAGE)
+            self._option_render()
+            return True
+        return req_id in self._option_quiet_ids
+
+    def _on_option_target_committed(self, value: float) -> None:
+        """One accepted Target edit: retarget, then re-evaluate at once."""
+        try:
+            self._option_engine.set_target(float(value))
+        except ValueError:
+            return
+        self.option_spreads_panel.set_status("")
+        if not self._option_active or self._option_cutoff:
+            return
+        # AC-D65.17: the accepted edit starts an immediate re-evaluation from
+        # the settled window (one 5-point step toward the new minimiser).
+        self._option_eval_step()
 
     # ── Stream health (D27.4) ───────────────────────────────────────────────
 
@@ -2062,14 +2660,12 @@ class MainWindow(QMainWindow):
 
     def _on_disconnected(self):
         self._ibkr_connected = False
-        # D27.6: the transport drop kills the server-side account subs.
-        self._account_subscribed = False
-        # ESC-043: the live-account set is no longer known after a drop.
-        self._live_accounts = set()
-        # ESC-052: nor is the summary stream complete.
-        self._account_summary_complete = False
-        self._positions_rendered = False
-        self.portfolio_panel.set_account_unavailable(True)
+        # D65/AC-D65.14 (iii): a transport drop freezes the walk and marks every
+        # option cell STALE; nothing is cancelled and the engine adds no
+        # reconnect mechanism of its own (``on_reconnected`` resumes it).
+        if self._option_active and not self._option_cutoff:
+            self._option_engine.on_disconnected()
+            self._option_finish_turn()
         self.watchlist_panel.set_add_enabled(False)
         # D39.1: search disabled while disconnected (box greys out).
         self.watchlist_panel.set_search_enabled(False)
@@ -2196,6 +2792,11 @@ class MainWindow(QMainWindow):
                 "%s acknowledgement ignored (no status-bar error).",
                 reqId, errorCode,
             )
+            return
+        # D65/AC-D65.14 (vi): option-owned reqIds never reach the generic
+        # ``Error [code]`` line — the pair's own error class owns the state and
+        # the one message (SPXW chain-discovery reqIds stay quiet too).
+        if self._on_option_error(reqId, errorCode, errorString):
             return
         # D28.2: session-owned reqIds (RT, priming, wave members) route via
         # the table; the session owns the priming/wave/error semantics.
@@ -3379,11 +3980,6 @@ class MainWindow(QMainWindow):
             bar, is_new_candle
         )
 
-    def _record_symbol_price(self, symbol: str | None, price: float) -> None:
-        """D27.5: record a last price in the central symbol -> price map."""
-        if symbol and price and price > 0:
-            self._symbol_last_prices[symbol.upper()] = float(price)
-
     def _on_session_alarm_triggered(self, symbol: str, triggered: list) -> None:
         """Toast + sound exactly once per trigger event (A57).
 
@@ -3582,13 +4178,13 @@ class MainWindow(QMainWindow):
     def _compute_right_dock_collapsed_min_width(self) -> int:
         """D21.13: minimum width of the region once the panel is collapsed.
 
-        The collapsed region is a vertical strip holding the Portfolio
-        (Account Summary) header button, so its width is that button's
+        The collapsed region is a vertical strip holding the Option Spreads
+        header button, so its width is that button's
         ``sizeHint`` plus the standard margins, floored at
         :data:`RIGHT_DOCK_COLLAPSED_MIN_WIDTH`. Never raises.
         """
         try:
-            button = getattr(self.portfolio_panel, "summary_label", None)
+            button = getattr(self.option_spreads_panel, "header_button", None)
             content = button.sizeHint().width() if button is not None else 0
             return max(
                 RIGHT_DOCK_COLLAPSED_MIN_WIDTH,
@@ -3603,7 +4199,7 @@ class MainWindow(QMainWindow):
     def _right_region_is_collapsed(self) -> bool:
         """True when the right-region panel is collapsed to its button."""
         try:
-            return bool(self.portfolio_panel.is_collapsed())
+            return bool(self.option_spreads_panel.is_collapsed())
         except Exception as exc:
             # Q-43: layout probe best-effort — logged, treated as expanded.
             _LOG.debug("Right-region collapse probe failed: %s: %s",
@@ -3635,7 +4231,7 @@ class MainWindow(QMainWindow):
         right_dock = getattr(self, "right_dock", None)
         widgets = (
             right_dock,
-            getattr(self, "portfolio_panel", None),
+            getattr(self, "option_spreads_panel", None),
         )
         if collapsed:
             collapsed_w = self._right_dock_collapsed_min_width
@@ -3892,6 +4488,19 @@ class MainWindow(QMainWindow):
 
             if use_right:
                 current_right = right_dock.width()
+                if (
+                    requested_right is None
+                    and getattr(self, "_right_launch_pending", False)
+                ):
+                    # S-P23-16: the one-shot launch request. Consumed by the
+                    # first clamp that actually plans the region (every earlier
+                    # call runs before the dock area is laid out), so a stale
+                    # pre-resize width can never stomp it.
+                    self._right_launch_pending = False
+                    requested_right = int(
+                        getattr(self, "_right_launch_width",
+                                OptionSpreadsPanel.PREFERRED_WIDTH)
+                    )
                 base_right = (
                     current_right
                     if requested_right is None
@@ -4044,12 +4653,21 @@ class MainWindow(QMainWindow):
             if getattr(self, "_dock_splitter", None) is None:
                 self._dock_splitter = self._acquire_dock_splitter()
             # Re-apply the persisted request (not just the provisional clamp) so
-            # the restore honours AC-D17.4 against the now-real chart area.
+            # the restore honours AC-D17.4 against the now-real chart area. The
+            # right dock's request is the panel's preferred width, clamped here
+            # through the unchanged ``plan_dock_widths`` clamp once (AC-D65.9).
             self._apply_dock_widths(
                 requested_left=getattr(
                     self, "_persisted_watchlist_width", DEFAULT_WATCHLIST_WIDTH
-                )
+                ),
+                requested_right=getattr(
+                    self, "_right_launch_width", OptionSpreadsPanel.PREFERRED_WIDTH
+                ),
             )
+            # The region's own ``visibilityChanged`` clamp is queued by the same
+            # first layout pass and reads the dock's *pre-resize* width; the
+            # one-shot ``_right_launch_pending`` request above is what keeps it
+            # from pinning the region to that stale value.
             # Q-66: the layout is now real — force the toolbar back to its left
             # edge unless the user has deliberately scrolled it.
             self._reset_toolbar_scroll_if_untouched()
@@ -4330,265 +4948,6 @@ class MainWindow(QMainWindow):
         AlarmStore.delete(alarm_id)
         self._reload_current_alarms()
         self.status_bar.showMessage("Alarm deleted.", 2000)
-
-    def _on_account_summary(self, reqId: int, account: str, tag: str, value: str):
-        """Collect account summary key/values."""
-        self._account_id = account  # D26.5: feeds the connection badge
-        # ESC-043: "All" can stream several accounts — accumulate the set so
-        # the position render/prune knows exactly which accounts are live.
-        if account:
-            self._live_accounts.add(account)
-        summary = dict(getattr(self, "_account_summary", {}))
-        summary[tag] = value
-        # ESC-045: IBKR sends no 'Account' tag — the account id is the callback
-        # argument. Persist it so the panel's Account field shows the same id
-        # the connection badge uses (only when known; never fabricated).
-        if account:
-            summary["Account"] = account
-        self._account_summary = summary
-        self.portfolio_panel.set_account_id(account or None)
-        self.portfolio_panel.set_account_summary(summary)
-        self._update_conn_badge()
-
-    def _on_account_summary_end(self, reqId: int):
-        """Finalize account summary once IBKR signals the end marker."""
-        summary = getattr(self, "_account_summary", None)
-        if summary is not None:
-            self.portfolio_panel.set_account_summary(dict(summary))
-            self.status_bar.showMessage(
-                f"Account summary received for {self._current_symbol or '—'}", 4000
-            )
-        # ESC-052: the end marker is the ONLY signal that the live account set
-        # is complete. Before it, `_live_accounts` may hold only SOME of the
-        # user's accounts, so the destructive foreign-row prune must not have
-        # run and must not run now until we are sure this is the CURRENT
-        # subscription's end (ignore a stale end from a superseded one).
-        expected = getattr(self, "_account_summary_req_id", None)
-        if expected is not None and reqId != expected:
-            return
-        self._account_summary_complete = True
-        self._prune_foreign_positions()
-        # ESC-052: `position_end` can beat `accountSummaryEnd`, in which case
-        # the panel rendered only the accounts known at that moment. Re-render
-        # so it converges on every live account now that the set is complete.
-        if getattr(self, "_positions_rendered", False):
-            self._on_position_end()
-
-    def _prune_foreign_positions(self) -> None:
-        """Delete persisted rows whose ``account`` is not in the live set.
-
-        ESC-052: this is a DESTRUCTIVE write to the real ``positions`` table.
-        Callers MUST only invoke it once the account-summary stream has
-        completed (``self._account_summary_complete``) — a non-empty but
-        partial ``_live_accounts`` would otherwise delete a real account's
-        persisted rows merely because its summary callback has not arrived
-        yet. No-ops when the live set is empty (nothing is known).
-        """
-        from data.db import db
-
-        live = getattr(self, "_live_accounts", set())
-        if not live:
-            return
-        placeholders = ",".join("?" for _ in live)
-        db.conn.execute(
-            f"DELETE FROM positions WHERE account NOT IN ({placeholders})",
-            tuple(live),
-        )
-        db.conn.commit()
-
-    def _on_position_update(self, account: str, contract, pos: float, avg_cost: float):
-        """Persist and render a single position update."""
-        import sys
-
-        from ibkr.account import build_position_from_ib
-        from data.db import db
-
-        # ESC-043: once the live account(s) are known, an update for any other
-        # account is not a real broker position — it must be neither persisted
-        # nor rendered (otherwise a stray probe write re-leaks a foreign row).
-        # While the live set is still unknown (no account-summary callback yet)
-        # the update is accepted, exactly as before.
-        # ESC-054: `_live_accounts` is AUTHORITATIVE only once the
-        # account-summary stream has COMPLETED. In the window between the first
-        # `account_summary` callback and `accountSummaryEnd` the set may hold
-        # only SOME of the user's accounts, so gating the early-return on a
-        # non-empty-but-PARTIAL set would silently discard a real second
-        # account's update (neither persisted nor rendered, unrecoverable for
-        # the session). A partial set scopes the render only — it never
-        # discards a real account's data. The completed-set gate ESC-043/ESC-052
-        # established still drops a foreign update AFTER completion.
-        if (
-            self._live_accounts
-            and self._account_summary_complete
-            and account not in self._live_accounts
-        ):
-            return
-
-        # ESC-044 / AC-D27.6: read the REAL `ibapi.Contract` attribute names.
-        # `class_` / `lastDateOrMonth` / `putCall` do NOT exist on the contract
-        # (it has `secType` / `lastTradeDateOrContractMonth` / `right`), so every
-        # option/future used to be persisted as 'stock' with a blank expiry and
-        # ibapi's UNSET_DOUBLE sentinel strike. This forward mapping reads
-        # ibapi's own attribute names — the only names the broker sends.
-        sec_type = (getattr(contract, "secType", "") or "").upper()
-        contract_type = {"OPT": "option", "FUT": "future"}.get(sec_type, "stock")
-        multiplier = float(getattr(contract, "multiplier", 1.0) or 1.0)
-        expiry = getattr(contract, "lastTradeDateOrContractMonth", None) or None
-        strike = getattr(contract, "strike", None)
-        # ibapi's UNSET_DOUBLE (sys.float_info.max) means "no strike" — never
-        # persist the sentinel; the model/panel vocabulary is None.
-        if strike is not None and strike == sys.float_info.max:
-            strike = None
-        right = getattr(contract, "right", None)
-        right = "P" if right == "P" else ("C" if right == "C" else None)
-
-        position = build_position_from_ib(
-            symbol=getattr(contract, "localSymbol", None) or getattr(contract, "symbol", ""),
-            account=account,
-            con_id=getattr(contract, "conId", None),
-            contract_type=contract_type,
-            local_symbol=getattr(contract, "localSymbol", ""),
-            multiplier=multiplier,
-            expiry=expiry,
-            strike=strike,
-            right=right,
-            avg_cost=avg_cost,
-            qty=pos,
-        )
-        # D27.5: the position's OWN symbol price — never the chart's price.
-        # Unknown symbol -> 0.0 (honest unknown), not a wrong symbol's price.
-        position.market_price = self._symbol_last_prices.get(
-            (position.symbol or "").upper(), 0.0
-        )
-        # ESC-032 / P2-T27 (ESC-062): stamp the REAL `positions.id` row key on the
-        # object before it reaches the panel. Strategy/Group derivation keys on
-        # `pos.id`, so an id-less object renders '—' in both columns — the live
-        # path must carry the row key, not an absent/None placeholder.
-        position.id = self._upsert_position(position)
-        self.portfolio_panel.add_position(position)
-
-    def _on_position_end(self):
-        """Load the persisted positions for the LIVE account(s) after streaming.
-
-        ESC-043: the whole ``positions`` table used to be loaded and rendered
-        with no account filter, so junk rows persisted by non-hermetic probes
-        (e.g. ``HELD``/``DU123``, ``H``/``DU1``) showed up in the portfolio
-        panel. Now only rows whose ``account`` is one of the live accounts are
-        rendered. When the live account set is not yet known every row is
-        rendered (unchanged).
-
-        ESC-052: the destructive foreign-row prune runs ONLY once the
-        account-summary stream has completed (``_account_summary_complete``).
-        A non-empty-but-partial ``_live_accounts`` (a ``position_end`` that
-        fired before every ``account_summary`` callback arrived) still scopes
-        the render — foreign rows stay hidden — but must never delete, or it
-        would destroy the persisted rows of a real account whose own summary
-        callback has not arrived yet.
-        """
-        import sqlite3
-
-        from data.db import db
-
-        # ESC-032 / P2-T27 (ESC-062): `id` MUST be selected too — without it
-        # every loaded Position is id-less, so the Strategy/Group columns
-        # render '—' (the bulk path is degraded, not fixed).
-        columns = (
-            "symbol, qty, avg_cost, contract_type, con_id, account, "
-            "local_symbol, multiplier, expiry, strike, right, "
-            "trade_group_id, id"
-        )
-        # D46 / S48 (DG85): the rows are read BY NAME, never by position. The
-        # dropped stop/target columns shift every later index, and such a shift
-        # fails silently (a stop value in the Group column reads as a
-        # strategy-detection bug), so a dedicated Row cursor removes the
-        # positional contract entirely.
-        cursor = db.conn.cursor()
-        cursor.row_factory = sqlite3.Row
-        live = getattr(self, "_live_accounts", set())
-        complete = getattr(self, "_account_summary_complete", False)
-        if live and complete:
-            # AC2: address the foreign rows in the table itself, not just hide
-            # them in the render — safe ONLY now that the summary stream has
-            # completed and `live` is the full account set. Live-account rows
-            # are untouched.
-            self._prune_foreign_positions()
-        if live:
-            # AC1: render only the accounts the summary has reported. A partial
-            # set still scopes the render (hiding foreign rows); it just must
-            # not delete (see ESC-052 above).
-            placeholders = ",".join("?" for _ in live)
-            rows = cursor.execute(
-                f"SELECT {columns} FROM positions "
-                f"WHERE account IN ({placeholders})",
-                tuple(live),
-            ).fetchall()
-        else:
-            # AC2: live set unknown -> prune is a no-op; render unchanged.
-            rows = cursor.execute(
-                f"SELECT {columns} FROM positions"
-            ).fetchall()
-        positions = [Position(
-            symbol=row["symbol"], qty=row["qty"], avg_cost=row["avg_cost"],
-            contract_type=row["contract_type"], con_id=row["con_id"],
-            account=row["account"], local_symbol=row["local_symbol"],
-            multiplier=row["multiplier"], expiry=row["expiry"],
-            strike=row["strike"], right=row["right"],
-            trade_group_id=row["trade_group_id"], id=row["id"],
-        ) for row in rows]
-        self.portfolio_panel.set_positions(positions)
-        self._positions_rendered = True
-
-    def _upsert_position(self, position: Position) -> int:
-        """Persist a position update (upsert by symbol + con_id).
-
-        ESC-032 / P2-T27: returns the ``positions.id`` DB row key so the caller
-        can stamp it on the object it hands the panel. ``RETURNING id`` yields
-        the existing row's id on the DO UPDATE branch and the new rowid on the
-        insert branch (SQLite >= 3.35; this env is 3.53.1).
-        """
-        from data.db import db
-
-        cursor = db.conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO positions
-                (symbol, account, con_id, contract_type, qty, avg_cost,
-                 local_symbol, multiplier, expiry, strike, right,
-                 trade_group_id, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(symbol, con_id) DO UPDATE SET
-                account=excluded.account,
-                contract_type=excluded.contract_type,
-                qty=excluded.qty,
-                avg_cost=excluded.avg_cost,
-                local_symbol=excluded.local_symbol,
-                multiplier=excluded.multiplier,
-                expiry=excluded.expiry,
-                strike=excluded.strike,
-                right=excluded.right,
-                trade_group_id=excluded.trade_group_id,
-                updated_at=excluded.updated_at
-            RETURNING id
-            """,
-            (
-                position.symbol,
-                position.account,
-                position.con_id,
-                position.contract_type,
-                position.qty,
-                position.avg_cost,
-                position.local_symbol,
-                position.multiplier,
-                position.expiry,
-                position.strike,
-                position.right,
-                position.trade_group_id,
-                int(__import__("time").time()),
-            ),
-        )
-        row = cursor.fetchone()
-        db.conn.commit()
-        return int(row[0]) if row is not None else None
 
     #: D28.5: bound for joining the ibkr-reader thread at close.
     READER_JOIN_TIMEOUT_S = 5.0

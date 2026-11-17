@@ -559,7 +559,6 @@ class TickerSession(QObject):
         if not self.monitoring_paused:
             self._evaluate_burst_alarms(bar, is_new_candle)
         self._last_chart_price = bar.close
-        self._host._record_symbol_price(self.symbol, bar.close)
         self.bar_updated.emit(bar, is_new_candle)
 
     # ── Alarms ─────────────────────────────────────────────────────────
