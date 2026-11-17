@@ -2,159 +2,197 @@
 
 **Status: APPROVED**
 
-**Pass type:** targeted re-validation of `RC-11`–`RC-13` (revision 3, `retry_3_of_3`) + full
-Validation Method. **Lint backstop:** `plan_lint.py --phase P23` → `LINT PASS: P23 (canonical
-sections); 0 failure(s), 0 warning(s)` — carried in the preamble and re-run after this pass's
-editorial corrections, still PASS.
+**Pass type:** `retry_1_of_3` under the owner's decision on **RC-16 = MERGE** (Plan's pass-8 revision
+notes, `docs/plan.md:5524-5595`). Scope run: the RC-16 landing check first (the four questions the
+Orchestrator named), then the full Validation Method — coverage, completeness, consistency, plan
+quality, readiness, existing-repo compliance, frozen interfaces, map quality, doc sync — because the
+merge moved ten production deletions and two exit conditions, and this is the last gate before Task
+Manager (no second implementation-plan review; owner-waived).
 
-**Decision:** APPROVED. `docs/plan.md` § *Phase P23* is flipped to
-`Status: READY_FOR_TASK_MANAGER`; `docs/architecture.md` § *Phase P23* is activated as written.
-Four editorial line-anchor/statement corrections were applied at activation (listed below) —
-no architectural decision was made, removed or re-interpreted by this review.
+**Lint backstop:** the preamble carried no `plan_lint.py` result, so it was re-run here —
+`plan_lint.py --phase P23` → `LINT PASS: P23 (canonical sections); 0 failure(s), 0 warning(s)`.
 
-**Phase gate:** open — `docs/code_review/review_log_P22.md` ends `Status: REVIEW_COMPLETE`,
-newer than `docs/build/build_log.md`'s last `Status: READY_FOR_REVIEW` (line 7222). This is
-therefore a finalizing pass, not a provisional one.
+**Phase gate:** open — `docs/code_review/review_log_P22.md` ends `Status: REVIEW_COMPLETE` after
+`docs/build/build_log.md`'s last terminal build status; no `PROVISIONAL` review is outstanding, so
+this pass finalises. `docs/plan.md` § P23 ends `Status: READY_FOR_VALIDATION`; the P23 architecture
+section carries the pass-8 revision note.
 
-**Stamps:** `pipeline_state.py hash-section --file docs/plan.md --phase P23` and the
-`architecture.md` twin both still return `ERROR: no '## Phase P23' section` (the script's
-`PHASE_HDR_RE` does not match this repo's `## Phase P23 — …` headings). Re-confirmed this
-pass; freshness falls back to the mtime rule (`plan.md` and `architecture.md` are now newer
-than every input: `requirements.md` 14:30, this review-cycle start 15:00). Tooling defect, not
-a P23 defect.
+**Stamps (unavailable — tooling, not Plan):** `pipeline_state.py hash-section --file docs/plan.md
+--phase P23` and the `architecture.md` twin still return `ERROR: no '## Phase P23' section`
+(`PHASE_HDR_RE` does not match this repo's `## Phase P23 — …` headings; unchanged across four
+passes, an Orchestrator-script observation, not routed). Freshness falls back to mtime and points
+the right way: **`requirements.md` 16:03:34 → `architecture.md` 16:55:07 / `plan.md` 16:56:07** —
+both canonical sections are newer than the requirements text they implement, and requirements.md has
+not moved since the retry-3 review (no drift).
 
 ---
 
-## Retry scope — pass-4 (`retry 2`) Required Changes, item by item
+## RC-16 landing check (owner-decided MERGE)
 
-| Item | Verdict | Independent evidence in the tree (re-checked this pass, not accepted from the plan) |
+| # | What the decision required | Verdict | Evidence verified this pass |
+|---|---|---|---|
+| (a) | All **ten** call sites are **P23-01's**, each with a **per-site disposition** | **YES** | Per-site table at `plan.md:5538-5546` (revision note) and again in the wave's deliverable (`:5710-5718`), ten statements at the ten named lines. Tree-verified: `grep -n "portfolio_panel" ui/main_window.py` returns **18** occurrences — the import `:76`, the dock block `:638,641,642,662`, the three probes `:3591,3606,3638`, and exactly ten API calls at `:849,850,852,1731,2072,4349,4350,4357,4468,4538`. The five methods are spelled nowhere else in the window (`set_account_summary` ×3, `set_account_unavailable` ×3, `set_positions` ×2, `set_account_id` ×1, `add_position` ×1 = the same ten). Each disposition is *delete, not re-point*, with the surviving owner named: nothing at `__init__`; the subscription body at `:1731` → P23-06; the state clears at `:2066-2071` → P23-06; each handler's own body → P23-06; the stranded `positions` local → P23-06. |
+| (b) | **P23-06 no longer claims them**, and its exit is **true when it fires** | **YES** | P23-06's goal/deliverable now open with "the panel that consumed it is already gone (P23-01, which also removed every panel call the window made)" and say so explicitly (`plan.md:6238-6254`); its audit row records the narrowing (`:6622`). Exit re-grepped token by token against the tree: `reqPositions`/`reqAccountSummary` survive only at `main_window` `:1716-1729` + the `:890-913` comment block (both this wave's) and in `test_d45_removal._stub_account_calls` (`:494,496`, removed here) and the four D27 suites (deleted in P23-01); `_account_id` only at `:1653,4336` (this wave's badge edit + handler); `_live_accounts`/`_positions_rendered` only in `main_window`; `_symbol_last_prices` at `:893,3385,4460`; `_record_symbol_price`'s five test stubs are the exact five named in RC-13; `set_price_sink`/`_price_sink` have no test carrier. The bridge/client `account_summary`/`position_update` and `data/db.py:189` are excluded **by name** and owned by P23-07/-08. No row reads a panel symbol. |
+| (c) | The window stays **constructible between the two waves**, and the named proof suites really execute `:1731` and `:2072` | **YES** | `_subscribe_account_data` (`:1701-1731`) has no early return, so its tail runs on every connect; `_on_disconnected` (`:2063-2072`) has no return before the panel line. `tests/test_d27_reconnect.py:170-172` is the hide-loop row this wave re-points, and its body `:183-215` calls `win._on_connected()` → `_subscribe_account_data` → `win._on_disconnected()` → `win._on_connected()` on a real `MainWindow` — both lines executed. `tests/test_d41_removal.py:356` and `tests/test_d40_tws_lifecycle.py:437` confirmed as the two further connect/disconnect walks; `tests/test_d45_removal.py:556` confirms `walkthrough` calls `_on_connected()`. **Ran it:** `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d27_reconnect.py -q` → **7 passed** on today's tree, so the harness that proves the wave's connect/drop path is live, not hypothetical. After P23-01 the only change on that path is the deleted tail line, so the same suites construct and walk the window. The four handlers' call sites are driven by no surviving test — all `account_summary`/`position_update`/`position_end` emitters in `tests/` are inside the four D27 suites this wave deletes plus `test_d45_removal.py:605,617`, whose emits this wave removes. |
+| (d) | **No handler deleted that still has behaviour to remove later** | **YES** | P23-01 deletes *calls only*; all four handlers survive with their account-path bodies intact, verified in the tree: `_on_account_summary` keeps `_account_id`/`_live_accounts`/summary collection/`_update_conn_badge`; `_on_account_summary_end` keeps the status line and the ESC-052 prune guard; `_on_position_update` keeps the build + `_upsert_position`; `_on_position_end` keeps the bulk read and `_positions_rendered`. The one deliberate intermediate — `_on_position_end`'s `positions` local left with no reader — is recorded (`plan.md:5555-5560`, `:5721-5724`) and assigned to P23-06 with the read it dies with (`:6251`); it is a local name, not a forbidden token, no exit reads it, and the repo has no F841-class lint gate (no ruff/flake8 config in the tree — `pytest.ini` only), so it cannot redden a wave. |
+
+Nothing else moved: the forbidden-token sweep's `portfolio_panel` row is now **P23-01-only** with
+every carrier line named (`:5488`), both exit-audit rows record the merge (`:6617`, `:6622`), the
+serialisation note states P23-01 leaves no dereference behind and P23-06 introduces none
+(`:6571-6579`), and the deletion inventory's panel row carries the ten sites with the reason they are
+deletions (`:6642`). Architecture side: `S-P23-1`, `S-P23-12` wave (0), the `[revises D41]` bullet,
+the `ui/main_window.py` component entry and the Codebase Summary all name the ten sites, and the
+failure mode is **AR-P23-24**.
+
+**Coverage closed, not just claimed.** Every `"Portfolio"` string literal in `tests/` today sits in a
+file the plan schedules: the 8 book files, the 20 lookup modules, and the 6 D27 suites
+(deleted) + `test_d41_portfolio_dock.py` (deleted) — enumerated one by one against
+`grep -rn '"Portfolio"' tests/ --include='*.py'`, no orphan. Likewise `grep "Account Summary" ui/`
+returns exactly `ui/main_window.py:3586` (the RC-15 docstring) and the panel module (deleted), and
+`grep "ActivePortfolioPanel"` outside `tests/` returns only `main_window:76,638`, the class itself and
+`ibkr/account.py:39`'s comment (P23-07).
+
+## Validation Summary
+
+The merge landed and it is mechanically sound, which is the point the last three reviews kept failing
+on: a rename is a definition, so every surviving dereference of it had to die in the same wave — and
+now it does, at ten sites, each with a named surviving owner. The reasoning in the revision note is
+the right one and is stated where a worker will read it (the new panel has none of the five methods,
+so "renaming" those lines would raise on the *new* panel instead), and the window-constructibility
+claim is backed by suites that actually walk connect→drop→reconnect rather than by prose. The
+badge decision from retry 3 is intact and still coherent with `AC-D26.5`. Everything else in the
+phase is unchanged from the retry-3 pass, where it was verified sound.
+
+## Requirements Coverage
+
+All nineteen criteria and both journeys remain represented; the merge changed one wave mapping and
+nothing else. Re-read the changed row and spot-checked the rest against the waves.
+
+| Criterion | Waves | Verdict |
 |---|---|---|
-| **RC-11** — the whole title-keyed lookup surface scheduled; predicate re-keyed to `objectName` | **ADDRESSED** | Grep of `tests/` returns **22** modules carrying `windowTitle() in ("Portfolio",)`. Six of them are D27 suites P23-01 **deletes** (account_subs, account_scoping, account_partial_window, position_id, position_prices — 5 — plus flat_rows elsewhere), leaving exactly **17** surviving loop modules = the plan's rows 1–15 + rows 16–17. With the three module-constant forms (rows 18–20) that is **20**, and the plan's 20-row table matches file-for-file and line-for-line. `"Portfolio"` appears in **34** test files: 20 lookups + 7 book files that hold it + 7 deletions = 34, so the exit's "cover every file that holds the old identity" holds. All 15 uniform-loop files import `QDockWidget` exactly twice (import + the loop), so "the predicate only" is the correct edit and creates no unused import. Rows 18/19 line anchors verified (`:42`/`:60`, `:309`/`:323`). |
-| **RC-11's contested third hard-fail site** | **HOLDS** — my previous count of 19 was wrong | `tests/test_dock_widths_d17.py`: `:40` `_RIGHT_DOCKS = ("Portfolio",)`, `:77` the predicate, and `assert hidden == 1` — this suite hard-fails at P23-01, it is not a silent no-op. Plan's count (three hard-fail: `test_history_backfill_loadpath.py:177`, `test_d42_depth_floor.py:189`, `test_dock_widths_d17.py:83`) is correct. **Correction recorded below.** |
-| **RC-12** — `test_dock_d18_region.py` re-anchored incl. `T48-T03` | **ADDRESSED, and the plan's anchors beat my review's** | Tree: `:32` module import; `test_T48_T01` at `:77`; `test_T48_T02` at `:106`; the collapsed-width floor `assert region.width() <= win._right_dock_collapsed_min_width + 2` is at **`:133`, inside `T48-T02`**; `test_T48_T03_panel_present_and_summary_signals_exposed` at **`:154`** through `:181` (`:158` isinstance, `:172-173` the two `hasattr` probes, `:177` the `_receiver_count` call); `_receiver_count` at `:184-194`. Exactly as the plan now states — so **my previous "`:150-172` is the head of T48-T03" anchor was right about T48-T03 but wrong about the floor's anchor**; the plan's version is the accurate one. |
-| **RC-13** — five `_record_symbol_price` stubs scheduled | **ADDRESSED** | Tree has exactly five test-side carriers, at the plan's lines: `test_p7_w4_streaming.py:141`, `test_d39_burst_search.py:334`, `test_lwc_popouts.py:129`, `test_p13_fanout.py:104`, `test_p9_alarm_persistence.py:39`. Only caller is `ui/ticker_session.py:562`; `ui/main_window.py:767`/`:3382` hold the sink. Plan's "no other reader" claims verified: `host.prices` only at `:140-141`; `_StubHost.recorded` only at `:332`/`:335`; p9's `_stub_host()` namespace really does become empty. Same-wave deletion means no `AttributeError` window. |
-| **Root-cause finds folded in** | **CORRECT** | `tests/test_ui_smoke.py:48` is `assert hasattr(data.models, "Position")` (hard failure the moment P23-06 lands; `:49` `Drawing` untouched). P23-04's fake-client account recorders are real (the window still calls `reqPositions`/`reqAccountSummary` on connect until P23-05) and P23-05 names their removal. |
+| `AC-D65.1` shell/columns/toggle/no-Portfolio dock | P23-01, P23-05, P23-09 | COVERED |
+| `AC-D65.2` geometry/naming/fixtures | P23-01, P23-02 | COVERED |
+| `AC-D65.3` anchor on credit bases + three tie-breaks | P23-03 | COVERED |
+| `AC-D65.4` one step / stop rules / tick band | P23-01, P23-03, P23-04 | COVERED |
+| `AC-D65.5` displayed formulas + greek precedence | P23-01, -02, -04, -05 | COVERED |
+| `AC-D65.6` ≤16 option lines, shared legs, guard | P23-03, -04, -05 | COVERED |
+| `AC-D65.7` maintenance, zero orders | P23-05, P23-09 | COVERED |
+| `AC-D65.8` degraded/empty/cutoff | P23-02, -03, -04, -05 | COVERED |
+| `AC-D65.9` 360 px launch, elide+tooltip, two re-baselines | P23-01, P23-09 | COVERED — both re-baseline sites verified in the tree (`test_dock_widths_d18.py:437-438`, `test_dock_widths_d18_impl.py:328-329`) |
+| `AC-D65.10` coalesced repaint | P23-05 | COVERED |
+| `AC-D65.11` history intact + the three recorded edits + S-P23-24's consequence | P23-09 | COVERED |
+| `AC-D65.12` residue gate, seeded-red | P23-08, P23-09 | COVERED |
+| `AC-D65.13` displaced stack absent; **panel + its ten call sites** in P23-01, residue in P23-06 | P23-01, -06, -07, -08; gate P23-09 | COVERED — the traceability row now names the ten call sites (`plan.md:5613`) |
+| `AC-D65.14` lifecycle, replay, four error classes | P23-04, P23-05 | COVERED |
+| `AC-D65.15` seed ladder, spot 3a/3b/3c, 3 s, 10 s/12-pair | P23-03, P23-05 | COVERED |
+| `AC-D65.16` quote validity/sentinels | P23-01, P23-03 | COVERED |
+| `AC-D65.17` Target `0.05…19.95` | P23-01, P23-05 | COVERED |
+| `AC-D65.18` verified backup + full file set | P23-06, P23-08 | COVERED |
+| `AC-D65.19` owner-run paper-TWS gate | P23-10; P23-09 records it open | COVERED |
+| Journeys 62, 63 | 62 → P23-01/03/05; 63 → P23-02/04/05 | COVERED |
 
-## Independent sample of the new exit-condition audit table
+## Architecture Findings
 
-Two rows picked without reference to what the plan emphasises, verified against the tree:
+**Completeness — passes.** Tech stack (four `Constrained:` rows first), labelled components, data
+model, integration points, frozen interfaces, non-functional approach, 24 architecture risks
+(`AR-P23-24` added for the merge), 24 decision rows each with rationale and rejected alternatives,
+every one relationship-labelled. The pass-8 revision note (`architecture.md:9002-9012`) states the
+merge's design consequence and its failure mode.
 
-**P23-05 row (sampled 1).** The eleven-token tree-wide exit is now literally true: `_upsert_position`,
-`_positions_rendered`, `_symbol_last_prices`, `set_price_sink` and `_price_sink` occur in **no**
-`tests/` file today; `_record_symbol_price` occurs only in the five stubs this wave deletes;
-`account_summary` occurs in the four D27 suites P23-01 deletes plus `test_dock_d18_region.py`'s
-`T48-T03` probes (P23-01); `position_update` only in the four D27 suites P23-01 deletes plus
-`test_d45_removal.py:605,617` (P23-01's walkthrough rework). Production carriers are exactly the
-sinks the wave deletes (`ui/main_window.py`, `ui/watchlist_panel.py`, `ui/ticker_session.py`).
-The row's verdict is right because every subject it reads is owned in that wave or gone earlier.
+**Consistency — passes.** The merge reads identically in six places: `S-P23-1`, `S-P23-12` wave (0),
+the `[revises D41]` bullet (`:9029-9032`), the `ui/main_window.py` component entry
+(`:9504-9519`), `AR-P23-24`, and the plan's own tables. `S-P23-12`'s rejected-alternatives list now
+carries both escape hatches by name (leave the name until P23-06; re-point the calls). The badge
+decision (`S-P23-24`) is unchanged and its `[revises D26]` label is present. No new contradiction
+between the architectures's account-path inventory and the plan's wave split.
 
-**P23-07 row (sampled 2).** `tests/conftest.py:105-124`'s autouse `_isolate_test_db` really does
-`DELETE FROM position_group_map/positions/trade_groups` after every test (the "whole suite
-errors at teardown" claim is exact, not rhetorical); `EXPECTED_TABLES` at `test_db_schema.py:15-26`
-really names all three; block (g) is `:939-1001` over `_PRE_P5_DDL` (`:803`) /
-`_write_pre_p5_db` (`:837`); `_ALLOWED_IN_FILE` `:220`, `_allowed_in` **`:271`**, `_EXEMPT_TOKENS`
-`:1010`, `_drop_column_subject_nodes` `:1013`, the narrowness test `:1047` — and every
-`_EXEMPT_TOKENS`/`_drop_column_subject_nodes` use is inside the region the plan deletes. Readers
-of the three tables are the six D27 suites (P23-01) + `test_d45_removal.py` (this wave) +
-`conftest.py`/`test_db_schema.py` (this wave) + the `ui/main_window.py` handlers (P23-05): no
-surviving suite is left reading a dropped table. Row verdict correct.
+## Plan Findings
 
-*(Also re-sampled, less fully: P23-01's row — the 20/8/7 coverage arithmetic above; P23-02's —
-the four account `EWrapper` overrides really are still present at `ibkr/client.py:453-466` and are
-P23-06's; P23-06's — `test_account.py`/`test_strategy_detection.py` exist and carry
-`build_position_from_ib`/`detect_and_group`/`OptionLeg`, and the exit's emptiness is reachable
-once they and `test_d45_removal.py`'s block (d) go in that wave.)*
+Ten milestone-level waves, S/M, dependencies declared, no task-level decomposition, no dependency
+graph, no per-task test specs. The exit-condition audit's P23-01 row now checks what a wave *breaks*
+as well as what it reads (`plan.md:6617`); the P23-06 row is narrowed to the residue and says so. The
+serialisation note is exact about the three `ui/main_window.py` waves and which blocks each owns.
+P23-10 remains correctly shaped (docs-only, owner-run, exit = the record or a recorded waiver; P23-09
+forbidden from claiming it).
 
-## The deliberate carve-out (verified narrow)
+## Existing Repo Compliance
 
-P23-01's exit and P23-08's re-run exclude the **forbidden-token tables only**:
-`tests/test_d45_removal.py`'s `_FORBIDDEN` (`:90`, a tuple of string literals) and `_SURVIVORS`
-(`:187`, a frozenset), plus `tests/test_d65_residue.py`'s displaced-token list created in P23-08.
-Checked for leakage:
-
-- Those are the only places the retired spellings survive **after** P23-01: the file's live
-  uses (`:502`, `:610-613`, `:671`, `:712-719`) are all scheduled in P23-01, and its prose is
-  re-pointed with the code.
-- At P23-01's own exit the carve-out is not even needed yet (the tables do not spell the exit's
-  tokens today); it exists so P23-07's additions cannot make P23-08's re-run redden on itself.
-- The carve-out covers literal data structures, never an import, attribute access or assertion
-  subject; the plan says so and the tree agrees — `_FORBIDDEN`/`_SURVIVORS` are data, and the
-  existing instrument scans **production** source (`_source_files()` over `_SOURCE_DIRS`), so a
-  test-side literal cannot legitimise a live use.
-- It does not excuse P23-07's `_PRE_P5_DDL` (which spells `positions`/`trade_groups`): none of
-  the exit's five greps or three symbols match those strings, and bare `positions` is not in
-  `S-P23-15`'s displaced list.
-
-## Validation Method — step results
-
-| Step | Verdict |
+| Check (step 7) | Verdict |
 |---|---|
-| **1 Requirements coverage** | **PASS** — `AC-D65.1`–`AC-D65.13`, Journeys 62–63, A186–A201, R138–R149 and DG117–DG123 each trace to an `S-P23-*` decision and at least one wave; DG122 stays unplanned on the requirements' instruction. `AC-D65.9` measurable end to end (tracked launch value, rebuilt window, 1600×900 legibility, 900×700 elide). No criterion narrowed. |
-| **2 Architecture completeness** | **PASS** — stack, components, responsibilities, relationships, data model, integrations, frozen boundaries, non-functional approach (cadence/streaming/threading/16-line accounting), risks `AR-P23-1…15`, each decision with rationale and alternatives. |
-| **3 Consistency** | **PASS** — window-step primitive / monotone sweep / shared-leg / 16-line accounting agree across S-P23-5, AP-P23-6/11/12 and *Non-Functional*; no `probe`/`scan_anchor`/`next_step`/`O(log n)` survives as live design. |
-| **4 Plan quality** | **PASS** — eight milestone waves, S/M only, ordering forced and justified (panel live before the account path dies; each signal with its only emitter; each test with its subject; token set last). No task-level graph, no per-task test spec. |
-| **5 Task Manager readiness** | **PASS** — a valid task graph is derivable without a new architectural decision (see below). |
-| **6 Scope integrity** | **PASS** — no scope added or removed; the one behaviour change (D18 launch width) is owner-authorised (`A201`) with exactly two re-baselined sites; `FI-P23-1`/`RG-P23-1` closed. |
-| **7 Existing-repo compliance** | **PASS** — Codebase Summary substantive and line-anchored (the `data/db.py` "no upsert/read helper" correction stands); existing stack first, nothing replaced; labels complete; additive-only apart from Q110(a)'s flagged removal; summary consistent with the proposal. |
-| **8 Frozen Interfaces** | **PASS** — 14 entries, all `[existing]`, each verbatim and re-verified this pass: `req_mkt_data`/`cancel_mkt_data` (`ibkr/market_data.py:93,112`), `assess` (`md_line_guard.py:20`), `classify_error` (`error_codes.py:10`, returns `'info'`/`'warning'`/`'fatal'`), `IBApiClient.error(self, *args, **kwargs)` (`client.py:269`), `PacingManager.throttle` + `PacingExceeded` (`pacing.py:68,7,15`), `is_trading_day` (`market_calendar.py:149`), `right_dock_max_width`/`plan_dock_widths` + the three constants (`dock_layout.py:21,34,40,56,92`), `DiagonalStrikeButton`/`set_button_active`/`ACTIVE_PROPERTY`, `ContractLookupService.request` (`:101`), `get_index_contract`/`get_contract_for_symbol` (`contracts.py:166,262`), `get_bars` (`ticker_session.py:429`), the three bridge signals (`bridge.py:6-8`). NOT-frozen list covers everything created/changed; no duplicate; every owning module exists. |
-| **9 Codebase map** | **PASS** — P23 note matches the material (new modules un-backticked, three deleted modules read as history, `md_line_guard` becoming live), the twenty-lookup selection note lists all twenty by file, the six deleted suites are named, and the `test_d45_removal.py` four-wave split is recorded. No stale or pre-deleted entries; index-sized. |
-| **10 Pending doc sync** | **PASS** — `docs/pending_doc_sync.md` absent; the four quick-lane changes are folded into the architecture summary. |
+| Codebase Summary present and substantive | **PASS** — `architecture.md:9072-9360`, updated for the merge; key anchors re-verified this pass (`main_window:76,638,849-852,1731,2072,4349-4358,4468,4538`) |
+| Existing stack respected; nothing replaced unforced; current stack first | **PASS** — four `Constrained:` rows open the table; only Q110(a)/A200-authorised replacements |
+| `[existing]`/`[new]`/`[new/changed]` labels present | **PASS** |
+| Additive-only; nothing redesigned beyond the requirement | **PASS** — `ui/dock_layout.py`, `ui/visual_conventions.py`, `subscription_manager` (one constant), `MarketDataManager` (one method) explicitly untouched |
+| Codebase Summary consistent with the proposal's `[existing]` claims | **PASS** |
+| Current Tech Stack present in `requirements.md` | **PASS** — no requirements escalation |
 
-**Inputs:** `requirements.md` § P23 ends `READY_FOR_PLAN`; no open escalation routed to `PLAN`
-(106 entries scanned, none open); `plan_notes.md` `RG-P23-1` is `addressed` (A201,
-2026-11-17); requirements not modified since the prior review.
+## Frozen Interfaces
 
-## Corrections to my own earlier reviews (recorded, not re-failed against Plan)
+| Check (step 8) | Verdict |
+|---|---|
+| Verbatim contracts, not prose | **PASS** — grep-verified this pass against the tree: `req_mkt_data` (`market_data.py:93`), `cancel_mkt_data` (`:112`), `assess` (`md_line_guard.py:20`; caps `:16-17`), `right_dock_max_width` (`dock_layout.py:56`), `plan_dock_widths` (`:92`), constants `:21,34,40`, `subscribe`/`unsubscribe`/`replay_all` (`subscription_manager.py:54,68,94`; tags `:35-37`), `get_bars` (`ticker_session.py:428`), `ContractLookupService.request` (`:101`), `get_index_contract`/`get_contract_for_symbol` (`contracts.py:166,262`), `throttle` (`pacing.py:68`), `classify_error` (`error_codes.py:10`), `get_user_data_path`/`get_db_path` (`paths.py:90,102`), `DiagonalStrikeButton`/`set_button_active` (`visual_conventions.py:109,80`) |
+| Nothing under construction is frozen | **PASS** — every entry `[existing]`/unmodified; the panel, the renamed attribute, the ladder/engine, `db_backup`, the tag and the badge are all in the **NOT frozen** list (`:9719-9731`) |
+| Nothing frozen is missing | **PASS** — the badge and its two fields are correctly *not* frozen (deleted); `get_bars` present with its "not read by the panel" note |
+| Owning module resolves | **PASS** |
+| No duplicates | **PASS** |
 
-1. **Lookup-surface count: 20, not 19.** My retry-2 review missed
-   `tests/test_dock_widths_d17.py`, a third hard-fail site. The plan's figure stands.
-2. **`test_dock_d18_region.py` anchors.** My retry-2 finding named `:150-172` for the
-   collapsed-floor assertion; the floor is `:133` inside `T48-T02`, and `T48-T03` is `:154-181`.
-   The revised plan states both correctly.
-3. **`test_dock_widths_d17.py:82` → `:83`.** The `assert hidden == 1` statement begins at `:83`
-   (`:82` is the preceding comment). Corrected in both documents at activation.
+## Codebase Map
 
-## Editorial corrections applied at activation
+| Check (step 9) | Verdict |
+|---|---|
+| Every module section resolves | **PASS** — P23 note (`:156-183`), 20 lookup harnesses (`:500`), the six deleted suites (`:498`), three new modules named without backticks (`:162-167`) |
+| Key files exist | **PASS** — `ui/active_portfolio_panel.py`, `ibkr/subscription_manager.py`, `data/models.py`, `services/strategy_detection.py` |
+| No stale entries for deleted modules | **PASS** — `:231` carries `[deleted in P23]`; `:491` lists the deletions |
+| Status labels current | **PASS** — `[deleted in P23]`, `[new in P23]` (`data/db_backup.py`), `[changed in P23]` on the edited modules |
+| Index-sized | **PASS** |
 
-No architectural content changed; each is a line-anchor or an arithmetic/wording correction to
-evidence text, verified against the tree this pass:
+## Pending Doc Sync
 
-1. `docs/plan.md` lookup table row 20 and the "three hard-fail" paragraph: `:82` → `:83`
-   (`test_dock_widths_d17.py`); same in `docs/architecture.md` (three occurrences).
-2. `docs/plan.md` P23-07: `_allowed_in` helper `:276` → `:271` (the definition line; `:276` is
-   inside its docstring).
-3. `docs/plan.md` P23-06 exit: the parenthetical "the two deleted suites are the only carriers"
-   replaced with the accurate carrier list for today's tree — `tests/test_account.py` and
-   `tests/test_strategy_detection.py` (deleted here), `tests/test_d27_position_id.py` (deleted
-   in P23-01), `tests/test_d45_removal.py` (imports + block (d) here). The exit's claim itself is
-   unchanged and was already true at P23-06.
-4. `docs/architecture.md` Codebase Summary: "**fifteen** test modules assert
-   `self.portfolio_panel` — the eight P23-01 edits, `test_d45_removal.py`, and the six D27
-   suites" double-counted `test_d45_removal.py` (it is one of the eight) and included
-   `test_p13_gate.py`, which references `active_portfolio_panel.py` by filename only.
-   Corrected to **fourteen** = the seven P23-01 edits that read the attribute +
-   `test_d41_portfolio_dock.py` (deleted) + the six D27 suites.
+`docs/pending_doc_sync.md` is **absent** — nothing unapplied between phases.
+
+## Required Changes
+
+None.
+
+## Requirements Escalations
+
+None. No new question is raised; `AC-D65.13`/A194/R143 already license the deletion, and the badge
+retirement is a recorded consequence, not a requirements edit.
+
+## Findings owned outside Plan
+
+None. Two observations, neither routed and neither a defect:
+
+- `docs/implementation_plan_P23.md`'s **SUPERSEDED banner is honest, not a fig leaf.** It states that
+  the owner's 2026-11-17 review folded into `AC-D65.14`–`AC-D65.19` and then into the 10-wave
+  revision including RC-16's merge, that `docs/plan.md`/`docs/architecture.md` are authoritative, and
+  that the file is the record of what was reviewed. Its content matches that description: it *is* the
+  8-wave document the owner reviewed (its own line 12 says "8 waves"), and the one way a reader
+  could be misdirected — following its now-stale wave numbers (its P23-04 is today's P23-05, etc.) or
+  its flat-0.05 band — is warned against in bold before the first sentence of content, and the banner
+  is the first thing in the file. No reader who reads the top of the file can follow it as guidance.
+  Kept as-is; the file is the Orchestrator's, and nothing in it contradicts the approved plan
+  silently.
+- `architecture.md`'s `S-P23-15` parenthetical token list is a **shorter subset** of `plan.md`'s
+  P23-08 `_FORBIDDEN` additions (it omits `_parse_contract_type`, `OptionLeg`, `Account Summary`,
+  `_account_id`, `_price_sink`). The operative list is the plan's, which is complete and matches the
+  sweep table; the decision row is a summary, not the schedule, and no wave reads the architecture for
+  its token set. Cosmetic, not a blocker — recording it so a later reader does not mistake it for a
+  contradiction.
 
 ## Task Manager Readiness
 
-**Ready.** Architecture, data model, integrations, the frozen set, the 16-line budget, the fault
-model, the deletion inventory, the per-wave file scope and the four-wave `test_d45_removal.py`
-split are all explicit; the exit-condition audit now lets a worker verify each wave's stop rule
-instead of re-deriving it. Nothing in the material requires a decision only Plan may make.
-
-**Owner-process note (not a readiness defect):** the phase section records that, after approval,
-the Orchestrator produces the human-reviewable implementation plan for the owner instead of
-invoking Task Manager (`docs/memory.md`, 2026-11-17). That is the Orchestrator's routing choice;
-this review's handoff status is the standard `READY_FOR_TASK_MANAGER`.
+**Ready.** The gate is *"can Task Manager create a valid task graph without making a new architectural
+decision?"* — yes. Every wave names its files, its tests, its decisions and its exit; the ten call-site
+deletions are site-by-site with the surviving owner named, so no task has to choose between deleting
+another wave's subject, keeping an alias that resurrects a displaced token, or leaving a broken
+constructor. The token→carrier→wave sweep, the exit-condition audit, the serialisation note, the
+deletion inventory by member group and the frozen interfaces are all sufficient to decompose from.
 
 ## Final Decision
 
-**Status: APPROVED**
-
-- `RC-11`, `RC-12`, `RC-13` verified addressed — revision 3 is a real fix, and two of its claims
-  corrected this review's own earlier counts.
-- The exit-condition audit was sampled independently at P23-05 and P23-07 (plus P23-01/02/06) and
-  is correct; the forbidden-token carve-out is narrow and cannot legitimise live residue.
-- No open requirements escalation; no `PLAN`-routed Code Reviewer escalation open.
-- `docs/plan.md` § *Phase P23*: `Status: READY_FOR_TASK_MANAGER`.
-- No further Plan revision required.
+**Status: APPROVED.** No PLAN-owned, REQUIREMENTS, BUILD or TASK_MANAGER items are open. Activation
+performed: `docs/plan.md` § *Phase P23* now ends `Status: READY_FOR_TASK_MANAGER`; the architecture
+section needed no editorial change (its cumulative entries are already under § Phase P23 with their
+relationship labels). No `plan_notes.md` entry is added — the phase's only note
+(`RG-P23-1`) is already `addressed`.

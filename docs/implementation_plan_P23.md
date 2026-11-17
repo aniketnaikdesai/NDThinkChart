@@ -1,5 +1,12 @@
 # P23 — Implementation Plan: Option Spreads panel
 
+> **SUPERSEDED — historical record, do not follow.** The owner reviewed this document on 2026-11-17 and its findings
+> were folded into the requirements (AC-D65.14–19) and then into a 10-wave plan revision (RC-1…RC-16, including the
+> owner-decided merge of the panel rename with its ten consumers). The authoritative build order is
+> `docs/plan.md` § Phase P23 + `docs/architecture.md` § Phase P23. The owner waived a second implementation-plan review,
+> so this file is kept as the record of what was reviewed, not as guidance.
+
+
 **Status:** ready for owner review · **Author:** Orchestrator (one-off, written by hand — not an agent output)
 **Basis:** `docs/plan.md` § Phase P23 (validated, `READY_FOR_TASK_MANAGER`), `docs/architecture.md` § Phase P23, `docs/requirements/requirements.md` D65, `docs/plan_review_P23.md`
 **Scope:** 8 waves · sizes S/M · no new dependency, no schema additions (one destructive drop), zero order code

@@ -5257,7 +5257,7 @@ Status: READY_FOR_TASK_MANAGER
 ## Phase P23 — Option Spreads panel in the right dock (D65) — drafted 2026-11-17
 
 > Companion: `docs/architecture.md` § *Phase P23* (Codebase Summary, tech-stack decisions,
-> S-P23-1…S-P23-23, frozen interfaces, non-functional approach, AR-P23-1…AR-P23-22).
+> S-P23-1…S-P23-24, frozen interfaces, non-functional approach, AR-P23-1…AR-P23-23).
 > Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) —
 > Phase P23 (D65), Journeys 62–63, **`AC-D65.1`–`AC-D65.19` FINAL** (Q106–Q112 answered
 > 2026-11-17; `AC-D65.9` amended by A201 with `AC-D65.11`; **`AC-D65.14`–`AC-D65.19` added
@@ -5393,47 +5393,244 @@ Status: READY_FOR_TASK_MANAGER
 > **Wave count 8 → 10** (the engine splits into measurement and maintenance/lifecycle; the
 > acceptance run gets its own wave). Every renumbering is applied through the exit-condition
 > audit, the deletion inventory and the serialisation note — no wave's exit now reads a
-> subject another wave owns. **Two literal-vs-tree conflicts are flagged, not papered over:**
-> **FI-P23-2** (`AC-D65.15`(ii)'s spot tier 2 names `_symbol_last_prices`, which
-> `AC-D65.13`/`AC-D65.18`/A198 delete) and **FI-P23-3** (`AC-D65.14`(ii)'s `MARKET_DATA` tag
-> would double-subscribe every watchlist row under the pinned AC-D22.7.2 exclusion). Both
-> carry a recommended resolution, and the waves are written against it.
+> subject another wave owns. **The two literal-vs-tree conflicts this pass surfaced were
+> resolved in the requirement text on 2026-11-17**: **FI-P23-2** (`AC-D65.15`'s spot source is
+> now the phase-stable chain 3a/3b/3c — `_symbol_last_prices` is explicitly *not* a source and
+> `AC-D65.13`/`AC-D65.18` still delete it) and **FI-P23-3** (`AC-D65.14`(ii) now names the
+> **`OPTION_LEGS`** tag verbatim, with `AC-D22.7.2`'s `MARKET_DATA` replay exclusion unchanged).
+> The waves are written against the amended text, not against a recommendation.
+>
+> **Revision notes (pass 6, 2026-11-17 — against `docs/plan_review_P23.md` `RC-1`–`RC-7`).**
+> **RC-1** — the spot chain is now exactly `AC-D65.15`'s three tiers, tier for tier:
+> **3a** the chart's `_last_chart_price` **only when the charted symbol is SPX**; **3b**
+> otherwise **exactly one** dedicated SPX spot line (counted, cancelled when the seed
+> completes); **3c** refused/unavailable ⇒ **no** spot, the coarse probe runs region-less and
+> the seed still completes. The two invented tiers (an existing SPX `TickerSession`'s last
+> close, then an engine-level memory tier ahead of the line) are **deleted**, and the stream
+> suite's expectation is inverted to the AC's: chart on SPX ⇒ **zero** spot lines; chart on
+> any other symbol ⇒ **exactly one**. Rewritten: **AP-P23-15**, **AP-P23-2**, **AP-P23-16**,
+> P23-05's spot deliverable, its stream-suite spot group and its exit, the `AC-D65.15`
+> traceability row, *Flagged Issues*; in `docs/architecture.md` the Summary, the Tech Stack
+> *Spot source* row, Integration Points, the *seeding* paragraph, and **S-P23-13**,
+> **S-P23-18**, **AR-P23-12**.
+> **RC-2** — the leg tag is **`OPTION_LEGS`** (`AC-D65.14`(ii); value `"option_legs"`, matching
+> the module's lowercase tag strings) and the conflict framing is gone: AP-P23-14, P23-05's
+> registry deliverable, *Flagged Issues* (FI-P23-1/-2/-3 all recorded **resolved 2026-11-17**),
+> and the architecture's component list, S-P23-17, AR-P23-16 and the `[revises D27.3 …]`
+> bullet name the constant and the replay include set as the AC states them.
+> **RC-3** — P23-06's exit now names only tokens that are gone when it fires: the
+> `ui/`-scoped handler/state tokens, `reqPositions`/`reqAccountSummary` and the price-sink
+> chain. The bridge's `account_summary`/`position_update` (which survive in
+> `ibkr/bridge.py:43-46` until P23-07) and `data/db.py:189`'s `_upsert_position` comment (which
+> dies with the unique index in P23-08) are no longer claimed by P23-06; **P23-07's exit gains
+> the explicit four-token grep**, and the audit table's P23-06 row is corrected.
+> **RC-4** — the traceability table's *Phase* column is re-derived against the ten waves
+> (nine rows corrected, two omissions filled).
+> **RC-5** — P23-09's ban list is A212's actual typos, `7425/7435` (10-wide) and `7315/7435`
+> (inverted PCS). `7435/7455` is a legal 20-wide pair and `AC-D65.9`(i)'s own width example, so
+> it is no longer banned.
+> **RC-6** — the `docs/architecture.md` header restates the ten-wave reality
+> (`AC-D65.1`–`AC-D65.19`, A186–A212, R138–R153, Q106–Q112, three resolved flagged issues) and
+> the registry tag anchor reads `:35-37`.
+> **RC-7** — `docs/codebase-map.md` gives `ui/active_portfolio_panel.py` a
+> **`[deleted in P23]`** status, names the tag **`OPTION_LEGS`**, and re-cuts the two stale
+> wave numbers in its P23 test-impact note.
+>
+> **Same-defect-class sweep (RC-3 / RC-5's rule: an exit must not redden on text it requires).**
+> P23-08's instrument re-baseline no longer tokenises the **three dropped table names**: the
+> one-time `DROP TABLE IF EXISTS …` in `data/db.py` and the absence assertions in
+> `test_db_schema.py`/block (g) must spell the names they drop and prove gone, so adding them to
+> `_FORBIDDEN` would make the re-baselined instrument red on the migration it describes. Their
+> absence is measured by the **schema case** (`sqlite_master`), and `data/db.py:189`'s
+> `_upsert_position` comment (the one surviving spelling of a token that *is* forbidden, which
+> would otherwise redden `data/db.py`) is deleted with the unique index in P23-08. The
+> `_ALLOWED_IN_FILE` stop/target carve-out still goes: the columns it existed to exempt are
+> dropped, so it has no subject left.
+>
+> **Revision notes (pass 7, 2026-11-17 — retry 3, against `docs/plan_review_P23.md` `RC-14`–`RC-15`).**
+> Both are the same defect class the phase has been fighting — a claim (or an exit) outliving the
+> subject it reads — now at the one place outside the deletion inventory: the connection badge.
+> **RC-14 — the badge is the account path's last surviving reader, and it is now scheduled.**
+> Decided in `docs/architecture.md` **S-P23-24** (`[revises D26]`): the badge states the
+> **connection**, not the account. (i) `_update_conn_badge` (`:1645-1659`) is rewritten in
+> **P23-06** to `conn_badge_text(monitoring_paused=self._tws_paused)`; `conn_badge_text`
+> (`:201-223`) loses its `account_id`/`account_type` parameters and the `DU`/`DEMO`/`PAPER`
+> branch, returning `"● Connected"`/`#34d399` when connected and D40's paused wording amber while
+> `_tws_paused`; `"● Connecting"` (construction) and `"● Disconnected"` (`:2087`) are untouched.
+> **Why no surviving source:** both account-typed inputs arrive on the account-summary stream this
+> phase deletes, and the fail-fast port guard proves the *port* only — D26.5's own note allows a
+> paper account on it — so a port-derived "Live" would be the hardcoded claim `AC-D26.5` forbade;
+> per the review, no source is invented. The retirement is a **recorded consequence** of
+> `AC-D65.13`/A194 (P23-06's deliverable, P23-09's gate record, `_account_id` in P23-08's token
+> list, the *Flagged Issues* note), **not** a fourth `AC-D65.11` edit. *(ii)* `_account_id` — which
+> has no declaration, only the write at `:4336` and the read at `:1653` — is deleted with its
+> writer in P23-06 and joins the residue tokens; `_account_summary` goes with `_on_account_summary`.
+> No write-less attribute survives. *(iii)* The `account_summary` call site at `:1651` is **changed
+> in P23-06** (the preferred route — it is that wave's subject), so P23-07's four-token grep over
+> `ui/` is true when it fires; P23-06's exit gains `_account_id`/`_account_summary` so the edit is
+> asserted, not implied. The two architecture claims that called the badge "reused unchanged"
+> (`Integration Points`, **S-P23-10**) now say re-pointed; **S-P23-24** and **AR-P23-23** record
+> the decision and its failure mode.
+> **RC-15 — the last `Account Summary` in `ui/` is scheduled with the wave that edits its function.**
+> **P23-01** rewrites `_compute_right_dock_collapsed_min_width`'s docstring (`:3585-3587`,
+> *"the Portfolio (Account Summary) header button"* → the `Option Spreads` header button) beside
+> the code re-point it already owned, re-points `tests/test_right_dock_d21.py`'s module docstring
+> (`:7`) with `:75`'s text assertion, and `tests/test_watchlist_nonregression_d22.py:161`'s text
+> assertion; P23-01's exit now greps `ui/` for `Account Summary`, so the token is genuinely absent
+> before P23-08 adds it to `_FORBIDDEN`.
+> **Same-class sweep — every forbidden token → its last carrier → the wave that removes it** (scope:
+> the instrument reads `ui/ services/ data/ ibkr/ config/` as AST identifiers + string constants and
+> `ui/` again as raw text; `tests/` is covered by the waves' own greps). Verified in the tree today:
+>
+> | Token | Last carrier after that wave's edit | Wave |
+> |---|---|---|
+> | `ActivePortfolioPanel` | `ui/active_portfolio_panel.py:34`, `ui/main_window.py:76,638`, `ibkr/account.py:39` (comment) | P23-01 (panel + import + attr); P23-07 (`ibkr/account.py` whole file) |
+> | `portfolio_panel` | **every** site dies here (RC-16): the dock block `:638,641,642,662`, the three probes `:3591,3606,3638`, and the ten `ActivePortfolioPanel` API calls `:849,850,852,1731,2072,4349,4350,4357,4468,4538` | **P23-01 only** — the rename, the probes and all ten call sites, so the token is absent from `ui/` when the wave ends |
+> | `positions_table` | `ui/active_portfolio_panel.py` only | P23-01 |
+> | `Account Summary` | `ui/main_window.py:3586` (docstring), the panel's header string | P23-01 (RC-15) |
+> | `account_summary` | `ui/main_window.py:1651` (badge) + handlers/init; `ibkr/bridge.py:43`, `ibkr/client.py:455` | P23-06 (`ui/`); P23-07 (`ibkr/`) |
+> | `account_summary_end` | `ui/main_window.py:844,4353`; `ibkr/bridge.py:44`, `ibkr/client.py:459` | P23-06; P23-07 |
+> | `position_update` | `ui/main_window.py:845,4399`; `ibkr/bridge.py:45`, `ibkr/client.py:463` | P23-06; P23-07 |
+> | `position_end` | `ui/main_window.py:846,4371,4470,4482`; `ibkr/bridge.py:46`, `ibkr/client.py:467` | P23-06; P23-07 |
+> | `build_position_from_ib` | `ui/main_window.py:4403`; `ibkr/account.py:51` | P23-06; P23-07 |
+> | `_parse_contract_type` | `ibkr/account.py:46,70` | P23-07 |
+> | `detect_and_group` | `ui/active_portfolio_panel.py:23,252`; `services/strategy_detection.py:166` | P23-01; P23-07 |
+> | `OptionLeg` | `services/strategy_detection.py` | P23-07 |
+> | `strategy_detection` | `ui/active_portfolio_panel.py:23`; `services/strategy_detection.py` | P23-01; P23-07 |
+> | `Position` | `ui/main_window.py:80,904,4493,4530,4541` **and the comment at `:891`**; `data/models.py:74`, `ibkr/account.py`, `services/strategy_detection.py` | P23-06 (the `:891` comment is now named with `_symbol_last_prices`); P23-07 |
+> | `TradeGroup` | `data/models.py:91` | P23-07 |
+> | `_upsert_position` | `ui/main_window.py:4467,4541`; `data/db.py:189` (comment) | P23-06; P23-08 |
+> | `_symbol_last_prices` | `ui/main_window.py:893,3385,4460` (+ its `:890-892` D27.5 comment) | P23-06 |
+> | `_record_symbol_price` | `ui/main_window.py:767,3382`, `ui/ticker_session.py:562`, five test stubs | P23-06 |
+> | `set_price_sink` | `ui/main_window.py:767`, `ui/watchlist_panel.py:954` | P23-06 |
+> | `_price_sink` | `ui/watchlist_panel.py:391,956,1149,1152` | P23-06 |
+> | `reqAccountSummary` | `ui/main_window.py:1721,1729`; `ui/active_portfolio_panel.py:43,173` | P23-06; P23-01 |
+> | `reqPositions` | `ui/main_window.py:1716,1718` | P23-06 |
+> | `_account_id` | `ui/main_window.py:1653` (badge read), `:4336` (write); panel `:46,170,179,233` | P23-06; P23-01 |
+>
+> Three carriers the sweep added to the schedule, all in waves that already edit the file:
+> `ui/main_window.py:891`'s comment (spells `Position`, and points at `_last_chart_price` as
+> "never" the source — stale twice over) now leaves **with `_symbol_last_prices` in P23-06**;
+> `tests/test_port_guard.py`'s four badge cases (`:25-51`) are replaced in **P23-06** with the new
+> connected/paused contract (its two port-guard cases at `:13-21` are untouched — that rule is
+> exactly what survives); and the dock block's own `Portfolio`-naming comments
+> (`ui/main_window.py:630-634`, and `:854-855` — *(RC-16: corrected — these describe the replaced
+> panel and leave with it in P23-01, not with P23-06's block)*) go with the code they describe.
+> `Portfolio` on its own is **not** a forbidden token, so `ui/dock_layout.py`'s
+> two "(Portfolio) dock" comments are deliberately left: that module is frozen and unchanged this
+> phase, and neither comment is a title, an `objectName` or a lookup key (`AC-D65.1`'s measurable is
+> `tests/`-wide).
+>
+> **Revision notes (pass 8, 2026-11-17 — retry 4, against `docs/plan_review_P23.md` `RC-16`,
+> owner-decided: MERGE).** The panel-swap wave (**P23-01**) performs the rename **and** resolves
+> every dereference of the renamed attribute, so no code path can reach the old name. The owner's
+> decision is applied as the review's first option, and it is also the only mechanically sound
+> one: after the rename the attribute **does not exist**, and the ten calls address
+> `ActivePortfolioPanel`'s own API (`set_account_summary`, `set_account_id`,
+> `set_account_unavailable`, `set_positions`, `add_position`) — the new panel has **none** of those
+> methods — so "renaming" those lines would raise `AttributeError` on the *new* panel instead of
+> the old attribute. They are **deletions**, not re-points, and they belong to the wave that
+> retires their receiver.
+>
+> **Per-site disposition — ten call statements at the eight locations RC-16 names, all in
+> `ui/main_window.py`:**
+>
+> | Site | Today | Here (P23-01) | Stays, and whose |
+> |---|---|---|---|
+> | `:849`, `:850`, `:852` in `__init__` (block `:848-855`, with the `D27.6`/`D45` comments) | `set_account_summary({})`, `set_positions([])`, `set_account_unavailable(True)` | **deleted with the block** — no panel state to initialise, no availability flag to set | nothing: the block's whole subject is the deleted panel. The four `b.*` connects above it (`:842-846`) are **P23-06's** |
+> | `:1731`, last statement of `_subscribe_account_data` | `set_account_unavailable(False)` | **deleted** (one line) | the method's own body — `reqPositions()`/`reqAccountSummary(...)`, `_account_subscribed = True` — unchanged, **P23-06's** deletion |
+> | `:2072`, `_on_disconnected` | `set_account_unavailable(True)` | **deleted** (one line) | the account state clears above it (`:2066-2071`) are **P23-06's** |
+> | `:4349`, `:4350`, `_on_account_summary` | `set_account_id(account or None)`, `set_account_summary(summary)` | **deleted** (two lines) | the handler keeps its behaviour — the `_account_summary`/`_live_accounts`/`_account_id` collection and the `_update_conn_badge()` call — and dies whole in **P23-06** |
+> | `:4357`, `_on_account_summary_end` | `set_account_summary(dict(summary))` | **deleted** (one line) | the status line and the ESC-052 prune guard stay with the handler, which dies in **P23-06** |
+> | `:4468`, `_on_position_update` | `add_position(position)` | **deleted** (one line) | the position build and `_upsert_position` stay with the handler, which dies in **P23-06** |
+> | `:4538`, `_on_position_end` | `set_positions(positions)` | **deleted** (one line) | the bulk read and `_positions_rendered = True` stay; **P23-06** deletes the read whole, including the `positions` local this deletion strands |
+>
+> **No handler is deleted in P23-01.** None of the four is panel-only: each is account-path work
+> whose subject (the account-summary stream, the position stream, the prune, the bulk read) is
+> P23-06's, so the merge removes their **panel calls** and leaves each handler's real subject with
+> the wave that deletes it. That is the merge's whole shape — **P23-01 owns the receiver** (the
+> rename and every line that addresses the old attribute), **P23-06 owns the account path** those
+> handlers exist for.
+>
+> **One recorded intermediate, not a leak:** after P23-01, `_on_position_end`'s
+> `positions = [Position(...) for row in rows]` (`:4530-4537`) has no reader until P23-06 deletes
+> the bulk read whole. It is deliberately left — deleting it here would strand `rows` one level up
+> and would take that wave's subject — it is a **local name**, not one of P23-08's forbidden
+> tokens, and no exit in this phase reads it (every exit is a token grep or a suite, and the
+> render assertion that would have read it is P23-06's subject there).
+>
+> **P23-06 shrinks to the residue it still owns:** the four `b.*` connects (`:842-846`),
+> `_subscribe_account_data` and its connect-time call (`:1676`), the handlers' bodies and their
+> mutual helpers (`_on_account_summary`, `_on_account_summary_end`, `_on_position_update`,
+> `_on_position_end`, `_prune_foreign_positions`, `_upsert_position`, the bulk DB read), the six
+> state fields and their comment block (`:890-913`), the account state clears (`:2066-2071`), the
+> status line, the two dead imports, and the price-sink chain — plus S-P23-24's badge block. Its
+> deliverable no longer claims the panel initialisers, its deletion-inventory row no longer lists
+> them, and its exit reads none of them.
+>
+> **The plan's own "survives until P23-06" claim was false and is corrected** (P23-01's six-D27-suites
+> bullet, and P23-06's deliverable): the account-path *behaviour* survives only in its
+> subscription/state/bookkeeping half; its panel half cannot survive the rename and does not.
+>
+> **What proves a window still works between the two waves** (named in P23-01's exit):
+> `tests/test_d65_option_panel.py` (constructs, and rebuilds, a real window and asserts the launch
+> width); `tests/test_d45_removal.py`'s reworked `walkthrough` and
+> `test_zero_transmit_walkthrough` (a real window driven through the surviving affordances);
+> **`tests/test_d27_reconnect.py:183-215`** — the one surviving suite that walks
+> `_on_connected()` → `_subscribe_account_data` → `_on_disconnected()` → `_on_connected()` on a
+> real window, so `:1731` **and** `:2072` are both executed; `tests/test_d41_removal.py:355` and
+> `tests/test_d40_tws_lifecycle.py:437` (two more `_on_connected`/`_on_disconnected` walks); plus
+> the eight book suites and the twenty lookup modules, every one of which builds a window. The four
+> handlers' deleted call sites are reached by **no** surviving test after this wave — the four
+> suites that drove them (`test_d27_account_subs`, `test_d27_account_scoping`,
+> `test_d27_account_partial_window`, `test_d27_position_id`) are deleted in this same wave — so
+> they are dead-but-importable until P23-06, never a red suite.
+>
+> **Also updated for the merge:** the forbidden-token sweep's `portfolio_panel` row (now
+> P23-01-only, every carrier line named), P23-01's `ui/main_window.py` deliverable / `Touches` /
+> exit, P23-06's goal / deliverable / `Touches` / exit, both exit-audit rows, the serialisation
+> note, two deletion-inventory rows, **AP-P23-8**'s sizing line, the `AC-D65.13` traceability row,
+> and in `docs/architecture.md` the `[revises D41]` bullet, the `ui/main_window.py` component
+> entry, the Codebase Summary's account-path inventory, **S-P23-12**'s wave list, and a new
+> **AR-P23-24**.
 
 ### Traceability (requirement → architecture → phase)
 
 | Requirement / input | Architecture section | Phase |
 |---|---|---|
-| `AC-D65.1` (panel shell, sub-headers, columns, Target, red/green toggle, **and the title/`objectName` search asserting no `Portfolio` dock remains**) + Journey 62 steps 1–3 + A194 | S-P23-1, S-P23-11; Tech stack (toggle colour); Frozen (VIS-D21, `dock_layout`) | P23-01 (shell + the 20 dock lookups), P23-08 (re-run on the finished tree) |
+| `AC-D65.1` (panel shell, sub-headers, columns, Target, red/green toggle, **and the title/`objectName` search asserting no `Portfolio` dock remains**) + Journey 62 steps 1–3 + A194 | S-P23-1, S-P23-11; Tech stack (toggle colour); Frozen (VIS-D21, `dock_layout`) | P23-01 (shell + the 20 dock lookups), P23-09 (the re-run on the finished tree) |
 | `AC-D65.2` (20-wide ladder, one offset formula, short-leg-first naming, listed strikes, SPX not the charted symbol, today's expiry) + Journey 62 steps 5,7 + A186/A187 + DG120 | S-P23-2, S-P23-6, S-P23-14; Data Model (`OptionSeries`) | P23-01 (geometry/naming), P23-02 (chain/expiry) |
 | `AC-D65.3` (anchor minimises three-basis `d` **on credit bases**, three tie-breaks, selected through the seed ladder) + Journey 62 step 5 + A188 + A207 | S-P23-3 (credit vs displayed), S-P23-5 (window step + leases), S-P23-13, S-P23-18 (seed) | P23-03 |
-| `AC-D65.4` (one 5-point step both legs, decided direction, stop rules, no oscillation, chain-edge message, **`h = max(0.05, one_tick)` pinned at both levels**) + Journey 62 step 6 + A189/A191/A204 + R139/R153 + DG117 | S-P23-4, S-P23-20 (band); Non-functional (cadence) | P23-01 (band function), P23-03 (rule) |
-| `AC-D65.5` (**owner's displayed formulas** `ASK = long.ask − short.bid`, `BID = long.bid − short.ask`, `Δ/Γ = long − short`; greek precedence model → last → bid/ask mean; **never mixed across legs**; `—` on partial legs; no polling) + A190/A202/A203 + DG118 | S-P23-8, S-P23-3 (sign pair), S-P23-19 (validity); Non-functional (streaming fidelity) | P23-01 (basis/formatter pair), P23-02 (intake), P23-03 (precedence), P23-05 (render) |
-| `AC-D65.6` (**≤16 option lines**, drop/cancel timing, shared legs, guard, **probe leases are capacity-neutral**) + Journey 62 postconditions + A196/A206 + R138/R150 + DG123 | S-P23-5 (window step + leases), S-P23-9 (16 + 1); Non-functional (line accounting); Frozen (`assess`, `req_mkt_data`) | P23-03 (leases + sweep), P23-05 (issuance + spot line) |
-| `AC-D65.7` (maintenance semantics; zero orders in any state) + D45/D46 | S-P23-9, S-P23-15; Frozen (order absence) | P23-04, P23-08 |
-| `AC-D65.8` (degraded states, one message per cause, `No 0DTE expiry today`, **post-16:15 cutoff state**, recovery) + Journey 63 + Q107(b) + A193/A205 + R140/R144 | S-P23-10, S-P23-6, S-P23-9; AR-P23-6/AR-P23-11 | P23-03 (latches), P23-05 (surfacing + cutoff) |
-| `AC-D65.9` (360 px preferred launch width = `clamp(360, 200, right_dock_max_width(chart_area))`, names legible at launch, elide + tooltip below it, every dock rule intact, the two owner-authorised D18 re-baselines) + A201 + DG119 + A194 | S-P23-16, S-P23-1; Frozen (`dock_layout`, `right_dock_max_width`) | P23-01 (launch width, shell, elide), P23-08 (gate) |
-| `AC-D65.10` (coalesced repaint, no GUI-thread stalls) | S-P23-11; Non-functional (threading) | P23-04 |
-| `AC-D65.11` (history intact; only the three recorded pre-P23 edits — the D41 title re-points, A194's supersession, and A201's D18 launch-width amendment with its two re-baselines) | Frozen Interfaces; no new decision | P23-08 |
-| `AC-D65.12` (no unused residue — standing gate, seeded-fixture-proven) + A197 | S-P23-15; AR-P23-10 | P23-08 |
-| `AC-D65.13` (displaced stack absent **across the full file set AC-D65.18 names**; KEEP reasons present; three tables dropped) + A198/A200/A210 + DG121 + R146 | S-P23-12, S-P23-13, S-P23-15 | P23-01 (panel + the six D27 suites + the title-keyed lookup surface), P23-06, P23-07, P23-08, P23-09 |
+| `AC-D65.4` (one 5-point step both legs, decided direction, stop rules, no oscillation, chain-edge message, **`h = max(0.05, one_tick)` pinned at both levels**) + Journey 62 step 6 + A189/A191/A204 + R139/R153 + DG117 | S-P23-4, S-P23-20 (band); Non-functional (cadence) | P23-01 (band function), P23-03 (the rule), P23-04 (ordered steps, stop rules, stationary feed, no oscillation) |
+| `AC-D65.5` (**owner's displayed formulas** `ASK = long.ask − short.bid`, `BID = long.bid − short.ask`, `Δ/Γ = long − short`; greek precedence model → last → bid/ask mean; **never mixed across legs**; `—` on partial legs; no polling) + A190/A202/A203 + DG118 | S-P23-8, S-P23-3 (sign pair), S-P23-19 (validity); Non-functional (streaming fidelity) | P23-01 (basis/formatter pair), P23-02 (intake), P23-04 (greek source precedence + never-mixed), P23-05 (render) |
+| `AC-D65.6` (**≤16 option lines**, drop/cancel timing, shared legs, guard, **probe leases are capacity-neutral**) + Journey 62 postconditions + A196/A206 + R138/R150 + DG123 | S-P23-5 (window step + leases), S-P23-9 (16 + 1); Non-functional (line accounting); Frozen (`assess`, `req_mkt_data`) | P23-03 (leases + sweep), P23-04 (the shared-leg rule on a re-anchor), P23-05 (issuance + spot line) |
+| `AC-D65.7` (maintenance semantics; zero orders in any state) + D45/D46 | S-P23-9, S-P23-15; Frozen (order absence) | P23-05 (ON→move→OFF→ON, zero orders), P23-09 (the order-absence sweep) |
+| `AC-D65.8` (degraded states, one message per cause, `No 0DTE expiry today`, **post-16:15 cutoff state**, recovery) + Journey 63 + Q107(b) + A193/A205 + R140/R144 | S-P23-10, S-P23-6, S-P23-9; AR-P23-6/AR-P23-11 | P23-02 (chain-level), P23-03 (latches), P23-04 (lifecycle causes), P23-05 (surfacing + cutoff) |
+| `AC-D65.9` (360 px preferred launch width = `clamp(360, 200, right_dock_max_width(chart_area))`, names legible at launch, elide + tooltip below it, every dock rule intact, the two owner-authorised D18 re-baselines) + A201 + DG119 + A194 | S-P23-16, S-P23-1; Frozen (`dock_layout`, `right_dock_max_width`) | P23-01 (launch width, shell, elide), P23-09 (the gate) |
+| `AC-D65.10` (coalesced repaint, no GUI-thread stalls) | S-P23-11; Non-functional (threading) | P23-05 |
+| `AC-D65.11` (history intact; only the three recorded pre-P23 edits — the D41 title re-points, A194's supersession, and A201's D18 launch-width amendment with its two re-baselines — **plus one recorded phase-internal consequence: S-P23-24, the D26.5 badge derivation retiring with the account path, which changes no `requirements.md` text and is therefore not a fourth edit**) | Frozen Interfaces; S-P23-24 | P23-09 (the gate record, including the S-P23-24 consequence) |
+| `AC-D65.12` (no unused residue — standing gate, seeded-fixture-proven) + A197 | S-P23-15; AR-P23-10 | P23-08 (the displaced-token half), P23-09 (the gate + its seeded-red fixture) |
+| `AC-D65.13` (displaced stack absent **across the full file set AC-D65.18 names**; KEEP reasons present; three tables dropped) + A198/A200/A210 + DG121 + R146 | S-P23-12, S-P23-13, S-P23-15, **S-P23-24** (the badge, the account plane's last reader) | P23-01 (panel, **its ten call sites**, the six D27 suites + the title-keyed lookup surface), P23-06 (the account-path residue **and the badge's account read**), P23-07, P23-08, P23-09 |
 | `AC-D65.14` (connection lifecycle: `STALE` + frozen walk on disconnect; registry replay on reconnect; per-line errors **200 / 10197 / 354 / 162 / other** with the defined re-seat rules; ON/OFF never survives a restart) + Journey 63 steps 4–5 + A193/A209/Q111 + R150 | S-P23-17 (registry tag + replay), S-P23-10 (error classes), S-P23-9; Non-functional (lifecycle); Frozen (`SubscriptionManager.subscribe`/`replay_all`) | P23-04 (engine states + classes), P23-05 (registry, replay, wiring) |
-| `AC-D65.15` (seed ladder: session anchor → ≤6 coarse probes/side at 20-pt spacing → 5-pt refine; spot is an accelerator with **at most one** line ⇒ **16 + 1 = 17**; 3 s leg timeout ⇒ pending and ineligible; sweep **10 s or 12 scored pairs**) + A206/A207/A208 + Q112 + R150/R151 | S-P23-18, S-P23-5 (leases), S-P23-13 (spot chain); Non-functional (seeding, line accounting) | P23-03 (seed tiers + bounds + leases), P23-05 (spot line + routing + guard) |
+| `AC-D65.15` (seed ladder: session anchor → ≤6 coarse probes/side at 20-pt spacing → 5-pt refine; spot is an accelerator on the **3a/3b/3c** chain — chart price **only when the chart is on SPX**, otherwise **exactly one** dedicated spot line, otherwise none ⇒ **16 + 1 = 17**; 3 s leg timeout ⇒ pending and ineligible; sweep **10 s or 12 scored pairs**) + A206/A207/A208 + Q112 + R150/R151 | S-P23-18, S-P23-5 (leases), S-P23-13 (spot chain); Non-functional (seeding, line accounting) | P23-03 (seed tiers + bounds + leases), P23-05 (spot tiers 3a/3b/3c + routing + guard) |
 | `AC-D65.16` (zero bid is live; `-1`/`1.7976931348623157e+308`/no-tick zero absent; one-sided pairs never match; sentinel transition) + A202/A208 | S-P23-19; Non-functional (streaming fidelity) | P23-01 (`usable_quote`), P23-03 (scoring gate) |
 | `AC-D65.17` (Target `0.05 ≤ T ≤ 19.95`; blank/0/negative/NaN/Inf/≥20 rejected with one message and **no state change**) + Journey 63 step 6 | S-P23-23 (panel gate), S-P23-20 (band, for the accepted range's own behaviour) | P23-01 (range + message + revert + no emit), P23-05 (no ladder change in-window) |
-| `AC-D65.18` (verified pre-drop backup, abort on failure; **full deletion file set** incl. `ui/watchlist_panel.py` and `ui/ticker_session.py`) + A210 + R152 | S-P23-21 (backup), S-P23-12 (file set); Codebase Summary (paths/migration seam) | P23-08 (backup + drop + file-set grep) |
+| `AC-D65.18` (verified pre-drop backup, abort on failure; **full deletion file set** incl. `ui/watchlist_panel.py` and `ui/ticker_session.py`) + A210 + R152 | S-P23-21 (backup), S-P23-12 (file set); Codebase Summary (paths/migration seam) | P23-06 (the two modules beyond `main_window`), P23-08 (backup + drop + file-set grep) |
 | `AC-D65.19` (owner-run paper-TWS acceptance; six checklist items; recorded like D48/D52; a phase gate, waivable only by record) + A211 + R144 | S-P23-22 | P23-10 |
-| DG117 (chain edge) / DG118 (price-only ladder) / DG119 (D41 supersession) / DG120 (strike grid) / DG121 (data drop + `_symbol_last_prices`) | S-P23-4 / S-P23-3+8 / S-P23-1 / S-P23-14 / S-P23-12+13 | P23-03 / P23-03–04 / P23-01 / P23-01–02 / P23-05–07 |
+| DG117 (chain edge) / DG118 (price-only ladder) / DG119 (D41 supersession) / DG120 (strike grid) / DG121 (data drop + `_symbol_last_prices`) | S-P23-4 / S-P23-3+8 / S-P23-1 / S-P23-14 / S-P23-12+13 | P23-03 / P23-03–04 / P23-01 / P23-01–02 / P23-06–08 |
 | DG123 (single-consumer code must not be born dead) | S-P23-7, S-P23-15; Tech stack (payload minimalism) | P23-01…P23-04 |
 | DG122 (P22 orphan sweep) | **not planned** — standalone follow-up (out of P23 scope) | — |
-| R147 (naive scan vs name-invoked callbacks) / R149 (empty on weekends) | S-P23-15 / S-P23-6 | P23-08 / P23-02+04 |
+| R147 (naive scan vs name-invoked callbacks) / R149 (empty on weekends) | S-P23-15 / S-P23-6 | P23-09 / P23-02+04 |
 
 Every `AC-D65.*` expectation — `AC-D65.1` through `AC-D65.19` — is addressed somewhere above;
-nothing is narrowed or reinterpreted. The one criterion that contradicted a shipped D18 default
-(`AC-D65.9`) was escalated as **FI-P23-1** and resolved by the owner (`A201`); the two
-conflicts the amended requirements introduced are surfaced as **FI-P23-2** and **FI-P23-3**
-with the resolution the waves are written against, and no Plan assumption replaces a
-requirement's *outcome* — only its literal wording where the tree makes the wording
-impossible.
+nothing is narrowed or reinterpreted. All three conflicts this phase raised are **resolved in
+the requirement text on 2026-11-17** and the waves implement the amended text verbatim: the
+one that contradicted a shipped D18 default (`AC-D65.9`) by the owner (`A201`/`RG-P23-1`), the
+spot chain (`FI-P23-2` → `AC-D65.15`'s phase-stable 3a/3b/3c tiers, A206), and the leg tag
+(`FI-P23-3` → `AC-D65.14`(ii)'s `OPTION_LEGS`, with `AC-D22.7.2`'s `MARKET_DATA` replay
+exclusion untouched). No Plan assumption replaces a requirement's *outcome* any more; the
+remaining interpretive readings are stated as assumptions (AP-P23-11, -18, -21) and none
+changes a criterion's measure.
 
 ### Phases
 
@@ -5491,12 +5688,41 @@ points.
     Gamma 4 significant digits). **No polarity is computed at a call site** — the two helpers
     are the only place a sign is decided, which is what makes the ASK↔`credit_bid` label swap
     testable.
-  - `[new/changed] ui/main_window.py` — dock block only: `OptionSpreadsPanel`; dock title
-    **and** `objectName` `Option Spreads`; title-bar widget = the panel's `header_button`;
+  - `[new/changed] ui/main_window.py` — **the dock block, the rename, and every dereference of the
+    renamed attribute (RC-16's merge — this wave owns both halves)**: `OptionSpreadsPanel`; dock
+    title **and** `objectName` `Option Spreads`; title-bar widget = the panel's `header_button`;
     `setMinimumWidth(RIGHT_DOCK_MIN_WIDTH)` unchanged; the window attribute renamed
     `portfolio_panel` → `option_spreads_panel` (the old name is a displaced token — S-P23-15);
-    the three collapse-probe re-points; the `toggled` connection; **the launch width per
-    S-P23-16**: `self._right_launch_width = OptionSpreadsPanel.PREFERRED_WIDTH` at
+    **the three collapse-probe re-points, docstrings included** — `_compute_right_dock_collapsed_min_width`
+    (`:3583-3597`) re-points its code to `option_spreads_panel.header_button` **and its docstring**
+    (`:3585-3587`, today *"The collapsed region is a vertical strip holding the Portfolio
+    (Account Summary) header button"*) to the `Option Spreads` header button: it is the **last
+    full-word `Account Summary` spelling in `ui/`**, and P23-08's token list reads docstrings, so
+    leaving it would redden that wave on text it does not own (RC-15); the same treatment applies
+    to the block's own `Portfolio`/`Portfolio panel` comments at `:630-634`, re-pointed with the
+    code they describe; the `toggled` connection;
+    **and the ten `ActivePortfolioPanel` API calls are deleted in this same wave** — not renamed,
+    because the new panel has **none** of those methods (`set_account_summary`, `set_account_id`,
+    `set_account_unavailable`, `set_positions`, `add_position`) and the old attribute no longer
+    exists, so a dereference left behind is an `AttributeError` on the first window that reaches
+    it. Exactly the eight locations RC-16 names, and what stays with which wave:
+
+    | Site | Today | Here | Stays (owner) |
+    |---|---|---|---|
+    | `:849`,`:850`,`:852` in `__init__` (the `:848-855` block) | `set_account_summary({})`, `set_positions([])`, `set_account_unavailable(True)` | deleted with the block and its `D27.6`/`D45` comments | — the block's only subject is the deleted panel; the four `b.*` connects (`:842-846`) are **P23-06**'s |
+    | `:1731` (`_subscribe_account_data`'s tail) | `set_account_unavailable(False)` | deleted | the subscription body (`reqPositions`/`reqAccountSummary`, `_account_subscribed = True`) — **P23-06** |
+    | `:2072` (`_on_disconnected`) | `set_account_unavailable(True)` | deleted | the account state clears (`:2066-2071`) — **P23-06** |
+    | `:4349`,`:4350` (`_on_account_summary`) | `set_account_id(account or None)`, `set_account_summary(summary)` | deleted | the handler's collection and its `_update_conn_badge()` call — **P23-06** |
+    | `:4357` (`_on_account_summary_end`) | `set_account_summary(dict(summary))` | deleted | the status line and the ESC-052 prune guard — **P23-06** |
+    | `:4468` (`_on_position_update`) | `add_position(position)` | deleted | the position build and `_upsert_position` — **P23-06** |
+    | `:4538` (`_on_position_end`) | `set_positions(positions)` | deleted | the bulk read, and the `positions` local it strands — **P23-06** |
+
+    **No handler is deleted here** — none of the four is panel-only, so each keeps its
+    account-path body for P23-06 and loses only its panel call. **`_on_position_end`'s
+    `positions = [...]` (`:4530-4537`) is deliberately left unread** until P23-06 deletes the bulk
+    read whole: removing it here would strand `rows` one level up and would take that wave's
+    subject; it is a local name, not a forbidden token, and no exit reads it.
+    **The launch width per S-P23-16**: `self._right_launch_width = OptionSpreadsPanel.PREFERRED_WIDTH` at
     construction (a *remembered launch request*, in-memory only, no new key — the
     `_persisted_watchlist_width` analogue, D17.4) and `_deferred_dock_setup` passing
     `requested_right=self._right_launch_width` alongside the persisted watchlist request, so
@@ -5516,7 +5742,12 @@ points.
       `win.option_spreads_panel`; `summary_label` → `header_button` with the text
       `Option Spreads`; the collapse/expand, `body.isVisible()` and
       `minimumWidth() == RIGHT_DOCK_MIN_WIDTH` assertions follow the renamed members
-      (behaviour unchanged).
+      (behaviour unchanged). **Its module docstring is part of the edit** — `:7`'s
+      *"the retained ``summary_label`` — a ``DiagonalStrikeButton("Account Summary")``"* names
+      the retired spelling, so it is re-worded with the code (RC-15), the in-body comments at
+      `:60-66` follow, and `:75`'s `pf_btn.text() == "Account Summary"` becomes
+      `header_button.text() == "Option Spreads"`. The file is the RENAME's own doc, so leaving a
+      stale sentence there would contradict both its subject and P23-08's token list.
     - `tests/test_dock_d18_region.py` — re-pointed in all four of its groups, its module
       import removed, and its docstring (`:1-16`) rewritten; this is the rename's most
       load-bearing single file:
@@ -5559,7 +5790,10 @@ points.
     - `tests/test_dock_widths_d18_impl.py` — the wide-content case (:265-270) rebuilt on the
       new panel's table and **the re-baselines at :328-329** (see below).
     - `tests/test_watchlist_nonregression_d22.py` — the D21.13 header/collapse probe
-      (:147-180) renamed to the new panel (`header_button`, `is_collapsed`, `body`).
+      (:147-180) renamed to the new panel (`header_button`, `is_collapsed`, `body`), **and its
+      text assertion `:161` (`btn.text() == "Account Summary"`) re-pointed to
+      `"Option Spreads"`** — the panel's header string is the token's last `tests/` carrier
+      outside the instrument's own token tables.
       *(Not touched: `tests/test_dock_widths_collapsed_d44.py` — it exercises the **left**
       watchlist dock only, and its strip/restore assertions are unaffected by the right
       dock's launch width.)*
@@ -5610,10 +5844,13 @@ points.
       and the rest assert rendered rows (e.g. `test_d27_account_subs.py:101-102`,
       `test_d27_position_id.py:129-134`). Leaving them for P23-06 would leave this wave's
       exit condition ("no `portfolio_panel` reference left in `tests/`") false for four waves
-      by construction. The account-path *behaviour* they also touched (`_account_subscribed`,
-      the reqId bookkeeping) does survive until P23-06, but it is scheduled for deletion
-      there, nothing in P23-02…P23-05 changes it, and its own removal gate is P23-06's
-      residue grep — so no live behaviour goes unguarded in between. Recorded as
+      by construction. The account-path *behaviour* they also touched survives in its
+      **subscription/state/bookkeeping half only** — `_account_subscribed`, the reqId
+      bookkeeping, the four connects, the bulk read — which nothing in P23-02…P23-05 changes and
+      whose removal gate is P23-06's residue grep, so no live behaviour goes unguarded in
+      between. Its **panel half does not survive**: those calls address `ActivePortfolioPanel`'s
+      API, which the new panel does not have, and the panel they render into is gone in this
+      wave, so the ten call sites are deleted here (RC-16). Recorded as
       subject-follows-test on the P5 precedent (`AP-D46-6`).
     - **The dock-lookup surface — twenty surviving modules, all edited in this wave (RC-11).**
       `S-P23-1` renames the dock's title **and** `objectName`; `A198`'s DELETE list already
@@ -5712,19 +5949,41 @@ points.
     `match_band` = `max(0.05, …)` at each), **the validity table** (`0` bid live; `-1`,
     `1.7976931348623157e+308`, `NaN`, unreceived side, `bid > ask` each ⇒ absent),
     three-basis arithmetic, snapping, `window_legs(anchor_short)` per anchor).
+  - **Window-constructibility between this wave and P23-06 (RC-16's second half).** Because the
+    rename and all ten of its dereferences land here, the suites that build and drive a real
+    `MainWindow` must still pass in this wave, and they are the proof that no dereference
+    survived: `tests/test_d65_option_panel.py` (construct + rebuild — the first test to build a
+    window after the swap), `tests/test_d45_removal.py`'s `walkthrough` and
+    `test_zero_transmit_walkthrough` (connect path → `_subscribe_account_data`),
+    **`tests/test_d27_reconnect.py:183-215`** (`_on_connected` → `_on_disconnected` →
+    `_on_connected`, the only surviving suite that executes both `:1731` and `:2072`),
+    `tests/test_d41_removal.py:355` and `tests/test_d40_tws_lifecycle.py:437`, and the sixty-odd
+    other surviving modules whose fixtures construct a window. The four handlers' deleted calls
+    are driven by no surviving test in this wave (the four suites that did are deleted here), so
+    they are unreachable until P23-06 — no suite is left to discover them.
 - **Dependencies:** none (first wave).
 - **Touches:** `ui/option_spreads_panel.py` (new), `services/option_ladder.py` (new),
-  `ui/main_window.py` (dock block + the launch-width line + `_deferred_dock_setup`'s one
-  added argument), `ui/active_portfolio_panel.py` (delete) + the eight book test files, the
-  **twenty lookup modules** in the table above, and the six D27 suites (delete).
-  Serialisation: `ui/main_window.py` (later waves edit other blocks).
+  `ui/main_window.py` (the dock block, the rename, **the ten `ActivePortfolioPanel` call-site
+  deletions**, the launch-width line and `_deferred_dock_setup`'s one added argument),
+  `ui/active_portfolio_panel.py` (delete) + the eight book test files, the **twenty lookup
+  modules** in the table above, and the six D27 suites (delete).
+  Serialisation: `ui/main_window.py` against P23-05/P23-06 (distinct blocks — this wave's are the
+  dock block, the three probes and the ten call sites; P23-06 never names `option_spreads_panel`).
 - **Exit condition:** the shell, ladder-math and `AC-D65.9` groups are green; the two D18
   re-baselines pass and a diff of the two suites shows **only** the four lines of those two
   assertions; **the retired dock identity is gone from `tests/` as code** — all of these
   return nothing over `tests/ --include='*.py'`: the keyed-lookup forms
   `windowTitle() in ("Portfolio"`, `windowTitle() == "Portfolio"`,
   `findChild(QDockWidget, "Portfolio")`, `objectName() == "Portfolio"` and `("Portfolio",)`;
-  and the symbols `portfolio_panel`, `positions_table`, `ActivePortfolioPanel` — with **one
+  and the symbols `portfolio_panel`, `positions_table`, `ActivePortfolioPanel`; **and
+  `portfolio_panel` is gone from `ui/` as well** — all **eighteen** spellings are this wave's (the
+  module import at `:76`, the dock block `:638,641,642,662`, the three probes `:3591,3606,3638`,
+  and the ten deleted calls at `:849,850,852,1731,2072,4349,4350,4357,4468,4538`), so the grep is
+  true when the wave ends rather than five waves later, and the five `ActivePortfolioPanel` methods
+  (`set_account_summary`, `set_account_id`, `set_account_unavailable`, `set_positions`,
+  `add_position`) are spelled by no line of `ui/main_window.py`; **and `Account
+  Summary` is gone from `ui/`** (the panel's header string and `:3586`'s docstring — the token
+  P23-08 will add), so the later wave inherits a clean tree instead of an exception — with **one
   documented carve-out**: the **forbidden-token tables** (`tests/test_d45_removal.py`'s
   `_FORBIDDEN`/`_SURVIVORS`, and from P23-09 `tests/test_d65_residue.py`'s displaced-token
   list) are the only place those spellings may survive, because a token that is forbidden has
@@ -5740,7 +5999,16 @@ points.
   and `_receiver_count` gone with it; the reworked walkthrough is green — a real window driven
   through every surviving affordance, recording every step with zero transmit/cancel and no
   unhandled slot exception; `tests/test_p13_gate.py` is green with the repaired allowlist;
-  `import ui.main_window` is clean. **No expectation outside the two A201 re-baseline sites
+  `import ui.main_window` is clean. **The window still works after the rename — asserted, not
+  assumed:** the connection half is proved by the suites that build a real `MainWindow` and walk
+  it, `tests/test_d65_option_panel.py` (construct + rebuild, the launch-width group),
+  `tests/test_d41_removal.py:355` and `tests/test_d40_tws_lifecycle.py:437` (`_on_connected` /
+  `_on_disconnected`), and — the only one that walks both — `tests/test_d27_reconnect.py:183-215`
+  (`_on_connected` → `_on_disconnected` → `_on_connected`, i.e. `_subscribe_account_data`'s tail
+  and `_on_disconnected`'s clear both executed), plus the sixty-odd surviving modules that
+  construct a window in their fixtures; the four handlers' deleted calls are reached by no
+  surviving test (the four suites that drove them are deleted here), so nothing can trip them
+  between this wave and P23-06. **No expectation outside the two A201 re-baseline sites
   moves** — if any of the twenty suites needs a numeric change to go green, that is a
   stop-and-escalate, not an in-wave re-baseline (owner authorisation covers exactly those two
   sites).
@@ -5882,8 +6150,10 @@ points.
   rule asserted on real reqIds**; `AC-D65.7` (ON→move→OFF→ON, zero orders); **`AC-D65.14`**'s
   wiring half (registry registration with `reissue`/`rebind`, the one tag in
   `_replay_subscriptions`, disconnect ⇒ `STALE` + frozen walk, reconnect ⇒ replay, per-line
-  error routing); **`AC-D65.15`**'s spot half (the single SPX line, its routing, its cancel, the
-  refused-line branch, **17 = 16 + 1**); `AC-D65.8` in-window (injected faults, reconnect while
+  error routing); **`AC-D65.15`**'s spot half — tier **3a** (the chart's own price when the
+  charted symbol is SPX, so **no** line), tier **3b** (otherwise the **single** SPX line, its
+  routing, its cancel when the seed completes), tier **3c** (the refused/never-quoting branch),
+  **17 = 16 + 1**; `AC-D65.8` in-window (injected faults, reconnect while
   ON, empty state, **post-16:15 cutoff**); **`AC-D65.17`**'s in-window half (a rejected Target
   changes no anchor and no line); `AC-D65.10`; `AC-D65.9`'s collapse-while-ON edge; Journey 62
   steps 3–7, Journey 63 steps 4–7; R138/R139/R140/R144/R150/R151.
@@ -5895,18 +6165,25 @@ points.
     the engine's `Actions`; **every leg registered in `self.sub_manager` under the panel's tag
     with `reissue=lambda: market_data.req_mkt_data(contract)` and
     `rebind=lambda new_id: engine.rebind_leg(leg, new_id)`**, and the matching
-    `unsubscribe` on cancel; **`_replay_subscriptions`'s `include_types` gains that one tag**;
-    the **single SPX spot line** (`get_index_contract("SPX")` → `req_mkt_data` →
-    `engine.on_spot`, registered the same way, cancelled when the seed completes, refused-line
-    tolerated); `self._option_req_ids` routing for `tick_price`, `option_computation` **and the
-    spot line's last price**; the 1 s evaluation `QTimer`; the coalesced
+    `unsubscribe` on cancel; **`_replay_subscriptions`'s `include_types` gains that one tag**
+    (`AC-D65.14`(ii): `replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS})`);
+    the **one** dedicated SPX spot line, opened **only when tier 3a yields no price** — the
+    charted symbol is not SPX, or it is SPX with no chart price yet — and therefore never
+    alongside a usable chart price (`get_index_contract("SPX")` → `req_mkt_data` →
+    `engine.on_spot`, registered the same way, counted, cancelled when the seed completes, a
+    refusal tolerated); `self._option_req_ids` routing for `tick_price`, `option_computation`
+    **and the spot line's last price**; the 1 s evaluation `QTimer`; the coalesced
     `_refresh_option_panel`; `_md_line_count` += live option lines **and the spot line**; the
     `_on_error` option-owned-reqId branch forwarding `(reqId, code, text)` to
     `engine.on_leg_error`; `connected`/`disconnected` hooks →
-    `engine.on_reconnected()`/`on_disconnected()`; the spot precedence reads (chart
-    `_last_chart_price` when the chart is on SPX, an existing SPX session's last close).
-  - `[new/changed] ibkr/subscription_manager.py` — **one added module-level type tag**
-    (FI-P23-3's recommended `option_legs`); no method changes.
+    `engine.on_reconnected()`/`on_disconnected()`; **the spot tiers exactly as `AC-D65.15`
+    states them** — tier **3a** reads the chart's `_last_chart_price` **only when
+    `self._current_symbol` is `SPX`** (on any other symbol that value is another instrument's
+    price and is *not* a spot source), tier **3b** is the one dedicated line above, tier **3c**
+    runs the seed with **no** spot at all when that line is refused or never quotes.
+  - `[new/changed] ibkr/subscription_manager.py` — **one added module-level type tag,
+    `OPTION_LEGS`** (`AC-D65.14`(ii); value `"option_legs"`, matching the module's
+    `rt_bars`/`market_data`/`s0_ticks` tag strings); no method changes.
   - **New tests:** `tests/test_d65_option_stream.py` — offscreen with a fake client:
     ON → 8 rows with exact **displayed (negative)** values; partial-leg `—`; **a Target change
     from a settled ladder lands on the new minimiser with every leg present in both ladders
@@ -5920,9 +6197,14 @@ points.
     `reqMktData` per leg (no duplicate subscription) with the ladder resuming from the same
     anchor; **the error-code group** — one case per class (200 non-anchor / 200 anchor /
     10197 / 354 / 162 / other) asserting the row, the single message and the re-seat behaviour
-    end-to-end through `_on_error`; **the spot group** — the spot line opens only when no SPX
-    price is in memory (a case with the chart on SPX and a case with an SPX session assert
-    **zero** spot lines), is counted, is cancelled after the seed, and a refusal still seeds;
+    end-to-end through `_on_error`; **the spot group — `AC-D65.15`'s three tiers, asserted one
+    for one**: a chart on **SPX** **with a last price** opens **zero** spot lines (tier 3a —
+    the chart's own last price *is* the spot); a chart on **any other symbol** — **including** a
+    window holding a
+    live SPX `TickerSession`, which is *not* a spot source — opens **exactly one** dedicated
+    SPX line (tier 3b: one, never two and never zero), which is counted, whose last price is
+    routed to `engine.on_spot`, and which is cancelled after the seed; a refused or never-
+    quoting line leaves **no** spot and the seed still completes (tier 3c);
     **total-lines assertion** (`option ≤ 16`, `total ≤ 17`) at every recorded step; the cutoff
     state; a rejected Target changing no anchor and no line, **and an accepted Target edit
     emitting once and starting an immediate re-seed**; **a restart case asserting launch is OFF
@@ -5943,27 +6225,39 @@ points.
 - **Exit condition:** the stream suite is green; `AC-D65.6`'s reqId-set assertions hold exactly
   (≤16 option lines at every recorded step, the same `reqId` for every shared leg across a
   re-anchor, the expected diff on the leaving legs, 0 after OFF); `AC-D65.14`'s replay case
-  proves **one** replay per leg and **no** duplicate subscription; `AC-D65.15`'s spot case
-  proves the 16 + 1 ceiling and the zero-spot branches; the burst case shows one refresh per
+  proves **one** replay per leg and **no** duplicate subscription; `AC-D65.15`'s spot cases
+  prove the 16 + 1 ceiling tier by tier — **zero** spot lines when the chart shows SPX **and
+  has a price**, **exactly one** otherwise (any other symbol, or SPX with no chart price yet),
+  **none** when the line is refused — plus no more than
+  16 option lines at any recorded step; the burst case shows one refresh per
   event-loop turn; the **watchlist suite is green unchanged** (the registry change is one tag);
   a fresh `import main` is clean.
 
 ### P23-06 — Account/position window path removal — size S
 
 - **Goal:** the window no longer subscribes to, receives, persists or renders account or
-  position data — the panel that consumed it is already gone (P23-01) and the new panel is
-  live (P23-05), so the dock is never empty mid-batch.
+  position data — the panel that consumed it is already gone (P23-01, which also removed every
+  panel call the window made) and the new panel is live (P23-05), so the dock is never empty
+  mid-batch. This wave removes the **residue** the panel swap left: the subscription, the four
+  connects, the state, the handlers' bodies and the price-sink chain.
 - **Covers:** `AC-D65.13`'s window-consumer group; **`AC-D65.18`'s file set** for the two
   modules beyond `main_window`; `AC-D65.11`'s "no behavioural assertion weakened" bookkeeping;
-  DG121.
-- **Deliverables (delete only):** `ui/main_window.py` — the four `b.*` connects and the
-  panel initialisers (`:842-854`); `_subscribe_account_data` and its connect-time call
+  **S-P23-24** (the badge re-point that closes the account plane's last reader); DG121.
+- **Deliverables (deletions, plus the badge re-point named below):** `ui/main_window.py` — the four `b.*` connects (`:842-846`)
+  *(the panel initialisers and every other dereference of the renamed attribute are **not** here:
+  P23-01 deleted them with the panel — RC-16)*; `_subscribe_account_data` and its connect-time call
   (`:1676`); `_on_account_summary` / `_on_account_summary_end` / `_on_position_update` /
-  `_on_position_end` / `_prune_foreign_positions` / `_upsert_position` and the bulk DB read;
+  `_on_position_end` / `_prune_foreign_positions` / `_upsert_position` and the bulk DB read
+  (**including the `positions` local the panel-call deletion stranded in P23-01**);
   the state (`_account_subscribed`, `_account_summary_req_id`, `_account_summary`,
-  `_live_accounts`, `_account_summary_complete`, `_positions_rendered`, `_positions_*`);
-  the disconnect-time clears; the "Account summary received for …" status line; the dead
-  imports at `:80` (`Position`) and `:4403`; `_symbol_last_prices`, `_record_symbol_price`
+  `_live_accounts`, `_account_summary_complete`, `_positions_rendered`, `_positions_*`) **and
+  the ESC-043/ESC-052 comment blocks that document them (`:890-913`)**; the disconnect-time
+  account state clears (`:2066-2071` — the panel availability call at `:2072` left in P23-01);
+  the "Account summary received for …" status line; the dead
+  imports at `:80` (`Position`) and `:4403`; `_symbol_last_prices` **and its D27.5 comment at
+  `:890-892`** (it spells `Position` and names `_last_chart_price` as a source the panel is
+  "never" to use — stale twice over, and `Position` joins P23-08's token list; it goes with the
+  attribute it describes), `_record_symbol_price`
   and its `set_price_sink` registration (`:767`); **`ui/watchlist_panel.py`'s `set_price_sink`
   (`:954`), `_price_sink` (`:391`, `:1149-1152`) and its call site**; **`ui/ticker_session.py:562`**'s
   host call. **All three files are `AC-D65.18`'s named file set, not just `main_window`** —
@@ -5994,25 +6288,65 @@ points.
   - **The stream suite's two account recorders** (`tests/test_d65_option_stream.py`, added in
     P23-05 because the window still subscribed on connect) leave here with the calls they
     absorb.
+  - **`[new/changed] ui/main_window.py` — the connection badge's account read is re-pointed in
+    this wave (S-P23-24, RC-14(i)/(ii)).** `_update_conn_badge` (`:1645-1659`) is the account
+    plane's last surviving reader; it loses `getattr(self, "_account_summary", {})` (`:1651`)
+    and `getattr(self, "_account_id", None)` (`:1653`) and calls
+    `conn_badge_text(monitoring_paused=self._tws_paused)`; `conn_badge_text` (`:201-223`) loses
+    its `account_id`/`account_type` parameters and the `DU`/`DEMO`/`PAPER` branch, returning
+    `"● Connected"`/`#34d399` while connected and the **unchanged** D40 paused wording (amber)
+    while `_tws_paused`; the `"● Connecting"` construction default (`:418`),
+    `_on_disconnected`'s `"● Disconnected"` (`:2087`) and the fail-fast port guard are
+    untouched. **`_account_id` is deleted with its only writer (`:4336`)** and `_account_summary`
+    with `_on_account_summary` — neither is left write-less, and the badge's docstring says what
+    it now claims. Doing it here rather than later is what makes P23-07's `account_summary`
+    grep true when it fires (RC-14(iii)); a worker may **not** invent a replacement source
+    (S-P23-24's rejected alternatives) or keep the two fields alive.
+  - **`[new/changed] tests/test_port_guard.py`** — the four badge cases (`:25-51`) test the
+    account-typed contract that retires, so they are replaced: connected ⇒ `"● Connected"` with
+    the green colour, and a paused window ⇒ the D40 paused wording with amber. The module
+    docstring is re-worded to name S-P23-24. **The two port-guard cases (`:13-21`) are
+    untouched** — the fail-fast live-port rule is exactly the half of `AC-D26.5` that survives.
 - **Dependencies:** P23-05 (the panel must be live first).
 - **Touches:** `ui/main_window.py`, `ui/watchlist_panel.py`, `ui/ticker_session.py`,
   `tests/test_d45_removal.py`, `tests/test_d65_option_stream.py`,
   `tests/test_p7_w4_streaming.py`, `tests/test_d39_burst_search.py`,
   `tests/test_lwc_popouts.py`, `tests/test_p13_fanout.py`,
-  `tests/test_p9_alarm_persistence.py`. Serialisation: `ui/main_window.py` against
-  P23-01/05 (separate blocks).
-- **Exit condition:** a residue grep for the wave's own tokens (`account_summary`,
-  `position_update`, `_upsert_position`, `reqPositions`, `reqAccountSummary`,
-  `_live_accounts`, `_positions_rendered`, `_symbol_last_prices`, `_record_symbol_price`,
-  `set_price_sink`, `_price_sink`) over `ui/`, `ibkr/`, `services/`, `data/` **and `tests/`**
-  is empty — the five stub deletions above are why that is literally true rather than true
-  of production only, and `_price_sink`/`set_price_sink` appear in no test file at all
-  (verified, which is why no watchlist test needs editing); **the same grep over the
-  `AC-D65.18` file list (`ui/main_window.py`, `ui/watchlist_panel.py`, `ui/ticker_session.py`,
-  `ui/active_portfolio_panel.py`, `ibkr/account.py`, `ibkr/bridge.py`, `ibkr/client.py`,
-  `data/db.py`, `data/models.py`, `services/strategy_detection.py`) is empty for this wave's
-  tokens** (the later waves' tokens are P23-07/-08's); `_md_line_count` still returns
-  RT + watchlist; the watchlist suite is green unchanged; `import main` is clean.
+  `tests/test_p9_alarm_persistence.py`, `tests/test_port_guard.py`. Serialisation:
+  `ui/main_window.py` against P23-01/05 (separate blocks; **P23-01 has already removed the panel
+  calls this wave's blocks sit beside, so no line of this wave names `option_spreads_panel`**),
+  `tests/test_port_guard.py` by this wave only.
+- **Exit condition:** the wave's **window-side** tokens are gone: a grep for `reqPositions`,
+  `reqAccountSummary`, `_account_id`, `_account_summary`, `_live_accounts`,
+  `_positions_rendered`, `_symbol_last_prices`,
+  `_record_symbol_price`, `set_price_sink` and `_price_sink` over `ui/`, `ibkr/`, `services/`,
+  `data/` **and `tests/`** is empty — `_account_summary` covers
+  `_account_summary_req_id`/`_account_summary_complete` as substrings and does not touch the
+  bridge's un-prefixed `account_summary`, which is P23-07's; **and the badge asserts its new
+  contract**: `conn_badge_text` takes no account parameter, `_update_conn_badge` reads no
+  account state, and `tests/test_port_guard.py` passes on the connected/paused pair. The five
+  stub deletions and the two stream-suite
+  recorders above are why that is literally true rather than true of production only, and
+  `_price_sink`/`set_price_sink` appear in no test file at all (verified, which is why no
+  watchlist test needs editing); the **handler/state** tokens are gone from `ui/`, their only
+  home (`_on_account_summary`, `_on_account_summary_end`, `_on_position_update`,
+  `_on_position_end`, `_prune_foreign_positions`, `_upsert_position`); **the same greps over
+  the `AC-D65.18` file list** (`ui/main_window.py`, `ui/watchlist_panel.py`,
+  `ui/ticker_session.py`, `ui/active_portfolio_panel.py`, `ibkr/account.py`, `ibkr/bridge.py`,
+  `ibkr/client.py`, `data/db.py`, `data/models.py`, `services/strategy_detection.py`) are empty
+  for **this wave's** tokens. **Two token families are deliberately not this wave's, so the
+  exit is true when it fires:** `account_summary`/`account_summary_end` and `position_update`
+  survive in `ibkr/bridge.py:43-46` and `ibkr/client.py:455-463` — the signals and the
+  overrides are **P23-07's**, and P23-07's exit asserts those four absent; and
+  `data/db.py:189`'s D27.5 comment still names `_upsert_position` because it documents the
+  unique index **P23-08** deletes — the comment goes with the index in P23-08. No wave claims
+  a token before its last occurrence dies. **The panel API the account path once called is
+  likewise not this wave's:** `set_account_summary`, `set_account_id`, `set_account_unavailable`,
+  `set_positions`, `add_position` and the attribute `portfolio_panel` are already absent from
+  `ui/` — P23-01 deleted the ten call sites with the panel (RC-16) — so this wave neither claims
+  them nor leaves a dereference of `option_spreads_panel` behind; the `positions` local it
+  inherits from that deletion dies with the bulk read above. `_md_line_count` still returns RT + watchlist; the
+  watchlist suite is green unchanged; `import main` is clean.
 
 ### P23-07 — Broker boundary, modules and models removal — size S
 
@@ -6060,8 +6394,15 @@ points.
   `tests/test_d27_position_id.py`, deleted in P23-01 with the panel, and
   `tests/test_d45_removal.py`, whose `ibkr.account` imports and block (d) go in this wave;
   the forbidden-token
-  tables are excluded, per the convention in the exit-condition audit); the four bridge
-  signals and four overrides are absent; block (d) of
+  tables are excluded, per the convention in the exit-condition audit); **the four bridge
+  signals and four overrides are absent — asserted, not inferred**: a wave-local grep for
+  `account_summary`, `account_summary_end`, `position_update` and `position_end` (plus
+  `accountSummary`, `accountSummaryEnd`, `positionEnd`) over `ui/`, `ibkr/`, `services/`,
+  `data/` and `tests/` is empty, which is the claim P23-06 could not make and did not; **the one
+  `ui/` carrier it could not see — the badge's `_account_summary`/`_account_id` read — was
+  removed by P23-06's re-point (S-P23-24), so this grep now has no exception and no narrowed
+  scope**; block
+  (d) of
   `test_p5_end_state_all_removed_members_absent` is green with its
   `models.Position`/`models.TradeGroup` absence assertions and no existence loop left; the
   suite is green.
@@ -6088,7 +6429,11 @@ points.
     `backup_before_drop` first, only when at least one of the three tables still exists**, and
     **aborts the whole drop if it raises**; then `DROP TABLE IF EXISTS position_group_map` →
     `positions` → `trade_groups` (child first), idempotent on a fresh DB and on every later
-    open; the D46 stop/target `ALTER TABLE … DROP COLUMN` loop deleted with its only subject.
+    open; the D46 stop/target `ALTER TABLE … DROP COLUMN` loop deleted with its only subject;
+    **the D27.5 comment at `:189` that names `_upsert_position` goes with the unique index it
+    documents** — it is the index's own justification, and leaving it would redden the
+    re-baselined instrument on `data/db.py` the moment `_upsert_position` joins `_FORBIDDEN`
+    (below).
   - **New tests:** `tests/test_db_backup.py` — the backup exists at the expected name, opens
     read-only, passes `integrity_check` and reports the three row counts for a DB with rows; a
     **failure-injection** case (unreadable/corrupt copy source and a missing-table source) in
@@ -6109,12 +6454,26 @@ points.
     table-absence case**: `sqlite_master` holds none of the three tables; a legacy DB built
     with the pre-P23 `_PRE_P5_DDL` loses them all on first open; a second open is a no-op.
     (Block (d)'s models half is already P23-07's — nothing of it is deferred to this wave.)
-    `_SURVIVORS` loses `Position`/`positions`/`TradeGroup`/
-    `trade_groups`; the `_ALLOWED_IN_FILE` stop/target carve-out (`:220`), its `_allowed_in`
-    helper (`:271`), the `_drop_column_subject_nodes` AST helper (`:1013-1046`),
-    `_EXEMPT_TOKENS` (`:1010`) and `test_allowed_in_file_is_narrow_and_named_not_used`
-    (`:1047+`) are **deleted with the columns they existed to migrate**; the new displaced
-    tokens join `_FORBIDDEN`.
+    `_FORBIDDEN` gains this phase's **symbol and module** tokens (`ActivePortfolioPanel`,
+    `portfolio_panel`, `Account Summary`, `account_summary`, `account_summary_end`,
+    `position_update`, `position_end`, `build_position_from_ib`, `_parse_contract_type`,
+    `detect_and_group`, `OptionLeg`, `strategy_detection`, `Position`, `TradeGroup`,
+    `_upsert_position`, `_symbol_last_prices`, `_record_symbol_price`, `set_price_sink`,
+    `_price_sink`, `reqAccountSummary`, `reqPositions`, `_account_id`) — every one is dead by the
+    end of this wave. **`_account_id` is the badge's token** (S-P23-24): it had no declaration,
+    only the write in `_on_account_summary` and the read in `_update_conn_badge`, both removed in
+    P23-06, so forbidding it here is what stops a future wave from resurrecting an account-typed
+    badge source. **The three table names are deliberately *not* tokens** (`positions`, `trade_groups`,
+    `position_group_map` are absent from `_FORBIDDEN` today and stay that way — they are not in
+    `_SURVIVORS` today either): the one-time `DROP TABLE IF EXISTS …` in `data/db.py` and the
+    absence assertions in `test_db_schema.py` and block (g) **must spell** the names they drop
+    and prove gone, so tokenising them would redden the instrument on the very migration it
+    describes — the same principle the token-table convention states below. Their absence is
+    measured by the schema case, never by a token grep. The `_ALLOWED_IN_FILE` stop/target
+    carve-out (`:220`), its `_allowed_in` helper (`:271`), the `_drop_column_subject_nodes` AST
+    helper (`:1013-1046`), `_EXEMPT_TOKENS` (`:1010`) and
+    `test_allowed_in_file_is_narrow_and_named_not_used` (`:1047+`) are **deleted with the
+    columns they existed to migrate** — with the columns gone the exemption has no subject.
 - **Dependencies:** P23-07 (nothing may read the tables when they drop).
 - **Touches:** `data/db_backup.py` (new), `data/db.py`, `tests/test_db_backup.py` (new),
   `tests/test_db_schema.py`, `tests/conftest.py`, `tests/test_d45_removal.py`.
@@ -6150,7 +6509,11 @@ points.
     `### D41`–`### D64` section presence; the record of **all three** owner-authorised
     pre-P23 edits (the D41 title re-points, A194's supersession, **A201's D18 launch-width
     amendment with its two re-baselines** — asserted by a `git log`/diff note in the gate
-    record, not by a test); **`AC-D65.9` observably closed** (the P23-01 group green: exact
+    record, not by a test), **plus the recorded phase-internal consequence of S-P23-24** —
+    D26.5's paper/live badge derivation retired with the account path, its reason stated: the
+    badge's only account-typed inputs died in P23-06, the port guard proves the port alone, and
+    `"● Connected"` is the honest claim (it edits no `requirements.md` text, so `AC-D65.11`'s
+    three records stand as three); **`AC-D65.9` observably closed** (the P23-01 group green: exact
     tracked launch width, the two re-baselines, the wide-fixture legibility and the narrow
     elide case); the bookkeeping checks — `tests/conftest.py` names no dropped table,
     `tests/test_p13_gate.py`'s allowlist holds `option_spreads_panel.py` and not
@@ -6159,7 +6522,9 @@ points.
     asserting that `16` (option), `17` (with spot), `h = max(0.05, one_tick)`, the credit-vs-
     displayed pair and the canonical fixtures `7425/7445` / `7340/7320` are stated **identically
     in `docs/plan.md`, `docs/architecture.md`, the five new suites and the P23-10 record
-    template**, with no surviving `7435/7455` example and no surviving flat-`0.05`-band
+    template**, with no surviving `7425/7435` or `7315/7435` example (A212's two typos — the
+    10-wide pair and the inverted PCS; `7435/7455` is a **legal** 20-wide pair and
+    `AC-D65.9`(i)'s own width example, so it is *not* banned) and no surviving flat-`0.05`-band
     phrasing; **`AC-D65.1`'s own measurable re-run against the finished tree** — a
     `tests/`-wide search finds no `Portfolio` dock title/`objectName` and no title-keyed
     right-dock lookup, using **P23-01's greps and its documented carve-out** (the
@@ -6174,8 +6539,8 @@ points.
 - **Exit condition:** the gate is green on the tree and red on the seeded fixture; the full
   suite is green at teardown (conftest clean); every `AC-D65.*` the build can observe is
   satisfied, including `AC-D65.9`, and `AC-D65.19` is **recorded as still open** rather than
-  claimed; no D1–P22 behaviour or wording regressed beyond the three recorded edits; no
-  `PLAN`-routed escalation open.
+  claimed; no D1–P22 behaviour or wording regressed beyond the three recorded edits **and
+  S-P23-24's recorded badge consequence**; no `PLAN`-routed escalation open.
 
 ### P23-10 — Owner-run paper-TWS acceptance — size S (owner-run gate, docs only)
 
@@ -6203,10 +6568,16 @@ points.
   date — **or** an explicit recorded owner waiver of the whole gate. Nothing in the automated
   suite may satisfy this exit; the wave is the owner's, and P23-09 may not claim it.
 
-**Wave note (serialisation).** `ui/main_window.py` is edited in **P23-01** (dock block +
-the launch-width seed and `_deferred_dock_setup`'s one added argument), **P23-05** (option
-wiring + the one added tag in `_replay_subscriptions`) and **P23-06** (account path) — distinct
-blocks, serialised in that order. `ibkr/subscription_manager.py` is edited **only in P23-05**
+**Wave note (serialisation).** `ui/main_window.py` is edited in **P23-01** (dock block + the
+rename **and the ten `ActivePortfolioPanel` call-site deletions** + the launch-width seed and
+`_deferred_dock_setup`'s one added argument), **P23-05** (option wiring + the one added tag in
+`_replay_subscriptions`) and **P23-06** (the account-path residue **and the badge block,
+`conn_badge_text` included**) — distinct blocks, serialised in that order. **P23-01 leaves no
+dereference of the renamed attribute behind** (eighteen spellings, all its own: the module import,
+the dock block, the three probes and the ten calls) and **P23-06 introduces none** (it names
+`option_spreads_panel` nowhere and no longer owns the panel initialisers), which is what makes the
+two consecutive rather than parallel.
+`tests/test_port_guard.py` is edited **only in P23-06** (the badge contract); `ibkr/subscription_manager.py` is edited **only in P23-05**
 (one constant); `ibkr/client.py` and `ibkr/bridge.py` in **P23-02** (additions) and **P23-07**
 (deletions); `services/option_spread_engine.py` across **P23-03** then **P23-04** (same new
 module, second half — one worker per wave, never parallel); `data/models.py` only in P23-07;
@@ -6243,15 +6614,15 @@ accesses or assertion subjects. Without the carve-out the gate would redden on i
 
 | Wave | What its exit condition reads | Owner of that subject | Verdict |
 |---|---|---|---|
-| **P23-01** | `test_d65_option_panel.py`, `test_d65_option_ladder.py` (new); the 8 edited book suites (incl. `test_dock_d18_region.py` and `T48-T03`); the **20** lookup modules; the 2 D18 re-baseline sites; `test_d41_portfolio_dock.py` + the 6 D27 suites (deleted); `test_d45_removal.py`'s walkthrough group; `OptionSpreadsPanel`, `option_ladder` (incl. `usable_quote`, `option_tick`, `match_band`, the sign pair), `main_window`'s dock block, `active_portfolio_panel.py` (deleted) | **all of them, this wave** | **PASS** — the exit's greps are satisfiable exactly because the 20 lookups, the 8 book files and the 7 deletions are all here; the Target-validation and fixture-guard groups read only the panel and the ladder module this wave creates |
+| **P23-01** | `test_d65_option_panel.py`, `test_d65_option_ladder.py` (new); the 8 edited book suites (incl. `test_dock_d18_region.py` and `T48-T03`); the **20** lookup modules; the 2 D18 re-baseline sites; `test_d41_portfolio_dock.py` + the 6 D27 suites (deleted); `test_d45_removal.py`'s walkthrough group; `OptionSpreadsPanel`, `option_ladder` (incl. `usable_quote`, `option_tick`, `match_band`, the sign pair), `main_window`'s dock block **and its ten `ActivePortfolioPanel` call sites (deleted here — RC-16)**, `active_portfolio_panel.py` (deleted) | **all of them, this wave** | **PASS** — the exit's greps are satisfiable exactly because the 20 lookups, the 8 book files, the 10 call sites and the 7 deletions are all here; the Target-validation and fixture-guard groups read only the panel and the ladder module this wave creates; **and the rename does not outrun its consumers**: the ten dereferences die in the wave that renames the attribute, so the first `MainWindow()` after it constructs, connects and disconnects clean (`test_d27_reconnect.py:183-215`, `test_d65_option_panel.py`, the reworked walkthrough) instead of raising at `:849` |
 | **P23-02** | `test_d65_option_chain.py` (new); the **persistence** of the four account `EWrapper` overrides; the three new overrides/signals; "no production caller outside `ibkr/`" | new suite here; the account overrides are **P23-07**'s, untouched | **PASS** — the exit asserts they still exist, which is true until P23-07, and no test it reads dies later |
 | **P23-03** | `test_d65_spread_engine.py` (new, part 1); `option_ladder` (P23-01), `OptionSeries`/`LegKey` (P23-02) | new here; earlier waves, unmodified | **PASS** — pure engine, reads no test that moves; the seed/lease cases read only this wave's module |
 | **P23-04** | `test_d65_spread_engine.py` (new, part 2 — same file, second wave); the module P23-03 created | **this wave** for the half it adds; P23-03's half is already green | **PASS** — the file is *appended to* by this wave and the exit names only its own groups; the module was created one wave earlier and is not renamed |
 | **P23-05** | `test_d65_option_stream.py` (new); `main_window`'s option blocks + `_replay_subscriptions`; `ibkr/subscription_manager.py`'s one tag; the **still-live account path** (`reqPositions`/`reqAccountSummary` on connect) | option blocks, the tag and the spot line here; the account calls and the fake client's two recorders **P23-06** | **PASS** — the one cross-wave test surface is retired in the wave that deletes its subject (named in P23-06); the watchlist suite is read as *unchanged*, which is exactly what the tag edit must not disturb |
-| **P23-06** | the 11 window/price-sink tokens over `ui/`, `ibkr/`, `services/`, `data/`; `_stub_account_calls`; the **5 inert `_record_symbol_price` stubs**; the 2 stream-suite account recorders; **the `AC-D65.18` file list** for this wave's tokens | **all here** | **PASS** — the tree-wide grep claim is literally true, and the file-set grep reads only files this wave edits (the others' tokens are later waves') |
-| **P23-07** | block (d) + `import inspect`; **`test_ui_smoke.py:48`** (mandatory); `test_account.py`/`test_strategy_detection.py` (deleted); `Position`/`TradeGroup`; `ibkr/account.py`; `services/strategy_detection.py`; the instrument's token lists naming this wave's tokens | **all here** | **PASS** — the smoke edit is an edit, not a judgement call |
+| **P23-06** | the window-side tokens (`reqPositions`, `reqAccountSummary`, **`_account_id`**, **`_account_summary`**, `_live_accounts`, `_positions_rendered`, `_symbol_last_prices`, `_record_symbol_price`, `set_price_sink`, `_price_sink`) over `ui/`, `ibkr/`, `services/`, `data/` and `tests/`; the handler/state tokens over `ui/`; **the badge re-point and `tests/test_port_guard.py`'s new contract**; `_stub_account_calls`; the **5 inert `_record_symbol_price` stubs**; the 2 stream-suite account recorders; **the `AC-D65.18` file list** for this wave's tokens | **all here — and only the residue**: the panel calls these handlers made left in P23-01 | **PASS (corrected, RC-3; extended, RC-14; narrowed, RC-16)** — every token on the list is gone when the wave ends, verified in the tree: the bridge/client `account_summary`/`position_update` and `data/db.py`'s `_upsert_position` comment are **excluded by name** and asserted by P23-07/-08, the waves that delete them; the badge's `:1651`/`:1653` reads — the one carrier the previous cut left standing — are removed by this wave's own edit (S-P23-24); and **no row of this exit reads the panel**: `portfolio_panel` and the five panel methods are already gone from `ui/` (P23-01), so the row claims nothing a different wave owns |
+| **P23-07** | block (d) + `import inspect`; **`test_ui_smoke.py:48`** (mandatory); `test_account.py`/`test_strategy_detection.py` (deleted); `Position`/`TradeGroup`; `ibkr/account.py`; `services/strategy_detection.py`; **the four bridge/client account tokens** (`account_summary`, `account_summary_end`, `position_update`, `position_end` + the three camel-case overrides), absent tree-wide; the instrument's token lists naming this wave's tokens | **all here** | **PASS** — the smoke edit is an edit, not a judgement call, and the four account tokens are gone exactly here: `ibkr/bridge.py:43-46` and `ibkr/client.py:455-463` are this wave's deletions, so its grep is true when it fires |
 | **P23-08** | `data/db_backup.py` (new) + `tests/test_db_backup.py` (new); `tests/conftest.py`; `test_db_schema.py` `EXPECTED_TABLES`; block (g) + `_PRE_P5_DDL`/`_write_pre_p5_db`; `_ALLOWED_IN_FILE`, `_allowed_in`, `_drop_column_subject_nodes`, `_EXEMPT_TOKENS`, `test_allowed_in_file_is_narrow_and_named_not_used` | **all here** | **PASS** — the backup module is created and called in the same wave as the drop, so no wave reads a backup that does not exist yet; verified the three tables' only other readers were the 6 deleted D27 suites + `test_d45_removal.py`, so no surviving suite breaks at teardown |
-| **P23-09** | the full suite; `test_d65_residue.py` (new); P23-01's `AC-D65.9` group and its dock-identity greps **plus their token-table carve-out**; the conftest/p13/d45 bookkeeping; the 16+1 / sign / band consistency greps over the phase's own documents and suites | owned here / artifacts of earlier waves | **PASS** — a verification wave owns no subject it outlives; the one place it *writes* a retired token (its own forbidden list, and P23-08's additions to `test_d45_removal.py`'s) is excluded by the carve-out stated above; **and it explicitly records `AC-D65.19` as open** rather than claiming an owner-run criterion |
+| **P23-09** | the full suite; `test_d65_residue.py` (new); P23-01's `AC-D65.9` group and its dock-identity greps **plus their token-table carve-out**; the conftest/p13/d45 bookkeeping; **the S-P23-24 consequence record**; the 16+1 / sign / band consistency greps over the phase's own documents and suites | owned here / artifacts of earlier waves | **PASS** — a verification wave owns no subject it outlives; the one place it *writes* a retired token (its own forbidden list, and P23-08's additions to `test_d45_removal.py`'s) is excluded by the carve-out stated above; **and it explicitly records `AC-D65.19` as open** rather than claiming an owner-run criterion |
 | **P23-10** | **`AC-D65.19` only** — the six checklist items, their evidence, the TWS line-count table, the dated run/waiver; the phase's green state is P23-09's verdict, read as an input | **this wave (the owner's run)** | **PASS** — the wave owns its one subject and edits nothing in the tree but its own record; a code defect found by the run is escalated as a build finding rather than patched here |
 
 **The invariant this table checks.** A wave's exit may only assert on (i) files it edits or
@@ -6268,12 +6639,12 @@ states it as open rather than satisfied.
 
 | Member group | Members | Wave | Absence token(s) asserted |
 |---|---|---|---|
-| Panel module + dock wiring | `ui/active_portfolio_panel.py`; dock title/`objectName` `Portfolio`; title-bar widget; the three collapse probes' panel references; **the 20 surviving title-keyed dock lookups (re-pointed to `objectName()`)**; `tests/test_d41_portfolio_dock.py`; the six D27 account/position suites (every one reads `win.portfolio_panel` or imports the module) | P23-01 | `ActivePortfolioPanel`, `portfolio_panel`, `Portfolio` (dock title and any lookup keyed on it), `Account Summary` |
-| Window consumers | 4 connects + 2 initialisers; `_subscribe_account_data`; `_on_account_summary`/`_on_account_summary_end`/`_on_position_update`/`_on_position_end`/`_prune_foreign_positions`/`_upsert_position`; bulk DB read; 6 state fields; disconnect clears; the account status line; 2 dead imports | P23-06 | `account_summary`, `position_update`, `_upsert_position`, `reqPositions`, `reqAccountSummary`, `_live_accounts`, `_positions_rendered` |
-| Displacement chain | `_symbol_last_prices`; `_record_symbol_price`; `set_price_sink`/`_price_sink`; the `ticker_session` host call (**the `AC-D65.18` file set: `ui/watchlist_panel.py`, `ui/ticker_session.py`**) | P23-06 | `_symbol_last_prices`, `_record_symbol_price`, `set_price_sink`, `_price_sink` |
-| Broker boundary | 4 `EWrapper` overrides; 4 bridge signals | P23-07 | `accountSummary`, `accountSummaryEnd`, `positionEnd`, `account_summary_end`, `position_end` |
+| Panel module + dock wiring | `ui/active_portfolio_panel.py`; dock title/`objectName` `Portfolio`; title-bar widget; the three collapse probes' panel references; **the ten `ActivePortfolioPanel` API call sites in `ui/main_window.py`** (`:849,850,852,1731,2072,4349,4350,4357,4468,4538` — deleted, not re-pointed: the new panel has none of those methods, RC-16); **the 20 surviving title-keyed dock lookups (re-pointed to `objectName()`)**; `tests/test_d41_portfolio_dock.py`; the six D27 account/position suites (every one reads `win.portfolio_panel` or imports the module) | P23-01 | `ActivePortfolioPanel`, `portfolio_panel`, `Portfolio` (dock title and any lookup keyed on it), `Account Summary`, and the five panel method names (`set_account_summary`, `set_account_id`, `set_account_unavailable`, `set_positions`, `add_position`) absent from `ui/main_window.py` |
+| Window consumers | 4 connects (`:842-846` — the panel initialisers and every other panel call are **P23-01's**, in the row above); `_subscribe_account_data`; `_on_account_summary`/`_on_account_summary_end`/`_on_position_update`/`_on_position_end`/`_prune_foreign_positions`/`_upsert_position`; bulk DB read (with the `positions` local P23-01's deletion stranded); 6 state fields; the account state clears (`:2066-2071`); the account status line; 2 dead imports; **the badge's account read** (`_update_conn_badge`'s `_account_summary`/`_account_id`; `conn_badge_text`'s two account parameters and the `DU`/`DEMO`/`PAPER` branch) | P23-06 | `reqPositions`, `reqAccountSummary`, `_account_id`, `_account_summary`, `_live_accounts`, `_positions_rendered`, `_upsert_position`, `_on_account_summary`, `_on_position_update` — all absent **tree-wide** by the end of the wave, with one documented exception: `data/db.py:189`'s D27.5 comment names `_upsert_position` and goes with the unique index in **P23-08**. The two broker-boundary spellings are **not** this row's: `account_summary`/`position_update` die in **P23-07** |
+| Displacement chain | `_symbol_last_prices` **and the D27.5 comment at `:890-892` that documents it**; `_record_symbol_price`; `set_price_sink`/`_price_sink`; the `ticker_session` host call (**the `AC-D65.18` file set: `ui/watchlist_panel.py`, `ui/ticker_session.py`**) | P23-06 | `_symbol_last_prices`, `_record_symbol_price`, `set_price_sink`, `_price_sink` |
+| Broker boundary | 4 `EWrapper` overrides; 4 bridge signals | P23-07 | `accountSummary`, `accountSummaryEnd`, `positionEnd`, `account_summary`, `account_summary_end`, `position_update`, `position_end` |
 | Modules + models | `ibkr/account.py`; `services/strategy_detection.py`; `data.models.Position`/`TradeGroup`; `tests/test_account.py`; `tests/test_strategy_detection.py` | P23-07 | `build_position_from_ib`, `_parse_contract_type`, `detect_and_group`, `OptionLeg`, `TradeGroup`, `strategy_detection` |
-| Data path | `positions`/`trade_groups`/`position_group_map` DDL + rows; the unique index; the D46 column-drop loop; `test_db_schema` expectations; the instrument carve-out; **preceded by the verified backup** | P23-08 | `trade_groups`, `position_group_map`, `idx_positions_symbol_con_id`, the `stop_loss`/`take_profit` carve-out |
+| Data path | `positions`/`trade_groups`/`position_group_map` DDL + rows; the unique index; the D46 column-drop loop; `test_db_schema` expectations; the instrument carve-out; **preceded by the verified backup** | P23-08 | the **schema case** (`sqlite_master` holds none of the three; the table names are spelled by the migration and by the absence assertions, so they are **not** grep tokens), `idx_positions_symbol_con_id`, and the `stop_loss`/`take_profit` carve-out |
 | Test bookkeeping (suite-wide) | `tests/conftest.py`'s autouse wipe list; `tests/test_p13_gate.py`'s `ui/*.py` allowlist entry; the per-wave splits of `tests/test_d45_removal.py` | P23-01 (the panel-member test + its tuple, the walkthrough rework, the eight-column test), P23-06 (`_stub_account_calls` + its call site), P23-07 (block (d) → the two model-absence assertions), P23-08 (the `conftest.py` wipe list, block (g) → the table-absence case, the carve-out) | `position_group_map` absent from `conftest.py`, `active_portfolio_panel.py` absent from the p13 allowlist, `_REMOVED_PANEL_MEMBERS`, `_ALLOWED_IN_FILE`, `_stub_account_calls`, `test_positions_table_is_eight_columns` and any `portfolio_panel`/`positions_table` reference in `tests/` all absent (forbidden-token tables excepted, as above) |
 
 **Not a deletion, but part of the same dangerous step:** `data/db_backup.py` (P23-08) is
@@ -6295,71 +6666,72 @@ directory); the bar/session/chart stack (untouched). **Nothing is retained-and-i
 | # | Assumption | Rationale |
 |---|---|---|
 | AP-P23-1 | Both sides use the **same** rung offsets (1 = +10, 2 = +5, 3 = anchor, 4 = −5) with the short leg written first, so PCS row 1 is `anchor+10` (`7350/7330` in the owner's example) | A187/Q109(a): only this reading makes all eight worked numbers the same four 20-wide spreads; the mirrored reading is the typo the owner's own example contradicts |
-| AP-P23-2 | Tie-break 3 (short strike nearer the underlying's last price) uses the **same spot chain as the seed** (S-P23-13/AP-P23-15): chart `_last_chart_price` when the chart is on SPX, else an existing SPX session's last close, else the engine's `last_spot_price`; when none yields a price the tie-break is skipped and the lower short strike wins | One precedence chain shared by the seed and the tie-break means one implementation and one set of cases; `_symbol_last_prices` is not revived (A198/`AC-D65.18`); it is the last of three tie-breaks and its AC cases feed the price, so measurability is unaffected. S-P23-13 / AR-P23-12 |
+| AP-P23-2 | Tie-break 3 (short strike nearer the underlying's last price) reads the **same spot chain as the seed** (S-P23-13/AP-P23-15): the chart's `_last_chart_price` when the charted symbol is SPX, else the price the **one** dedicated SPX line has delivered (tier 3b), else no price — the tie-break is skipped and the lower short strike wins | `AC-D65.15`'s chain is the only phase-stable source set, and sharing it means one implementation and one set of cases; `_symbol_last_prices` is not revived (A198/`AC-D65.18`) and no `TickerSession` bar read is added, because neither is a source the AC has. It is the last of three tie-breaks and its AC cases feed the price, so measurability is unaffected. S-P23-13 / AR-P23-12 |
 | AP-P23-3 | Quote and greek sentinels are screened as `None`, `-1`, `1.7976931348623157e+308`, `NaN`/`±inf` **and** an unreceived side before use | The pinned client and older `ibapi` shapes differ on the "no value" encoding, and `AC-D65.16` names three encodings explicitly; screening them at one helper (`usable_quote`/the greek screen) is the only version-proof reading. A received `0` bid is **not** a sentinel — it is a price |
 | AP-P23-4 | Launch state is Target `1.00`, toggle OFF, no persisted value, no QSettings key, no chain cache across restarts | A192/A209/Q111; a persisted ON state would subscribe lines before the user looks (FS25 remains the persistence suggestion) |
 | AP-P23-5 | Option-owned TWS errors are routed by `_on_error` into the engine's latch and surfaced on the **panel** status label, not the window status bar; every other reqId keeps the generic line. The four classes are the engine's table, not `_on_error`'s | AC-D65.8/AC-D65.14(iii) count one message per cause; two surfaces would read as two errors, and keeping the classification in the pure engine is what makes all four branches testable without a window. The generic path is otherwise untouched (A198 KEEP) |
 | AP-P23-6 | Every anchor change — a maintenance step, a Target change's refine, the OFF→ON seed's refine, an unusable-anchor correction — is **one window step**: the leaving leg pair is cancelled *before* the arriving pair is subscribed (2 + 2 per side), so the live **option** count is 16 → 14 → 16 and a leg held by both windows is never cancelled. The seed's coarse tier is **leases only** (2 lines against free capacity, released on score) — never a second pool, never a leg the live window holds | The only shape that satisfies the shared-leg rule *and* the option-line cap while still measuring a cold start: a lease is capacity-neutral, so the cap holds by construction rather than by luck. `S-P23-5` states the contiguity argument (a leg belongs to a contiguous range of anchors) |
 | AP-P23-7 | The visual gate (AC-G.1) needs no new reference: the only new visual is the red/green toggle the owner specified, and every other control reuses VIS-D21 | Same reuse precedent as AP-P22-5/AP-P21-6 |
-| AP-P23-8 | Sizes: P23-01, P23-03 and P23-05 are M; P23-02, P23-04, P23-06…P23-10 are S. P23-01 also carries the dock identity's **twenty-lookup surface** (A198's "every title-keyed lookup" clause); P23-03/P23-04 are the two halves of one new module (never parallel) | Each wave is bounded by one member group; no wave exceeds M, which is what keeps the delete-only waves inside a worker's step budget (R146). The engine split follows the pass-5 additions (seed/validity vs lifecycle/errors), so neither half is L. The twenty lookups are one predicate line each inside the panel-swap member group the wave already owns — splitting them into their own wave is impossible in either order (after the rename it leaves the rename's wave red; before it, the key does not exist yet) |
+| AP-P23-8 | Sizes: P23-01, P23-03 and P23-05 are M; P23-02, P23-04, P23-06…P23-10 are S. P23-01 also carries the dock identity's **twenty-lookup surface** (A198's "every title-keyed lookup" clause) and the **ten `ActivePortfolioPanel` call-site deletions** (RC-16); P23-03/P23-04 are the two halves of one new module (never parallel) | Each wave is bounded by one member group; no wave exceeds M, which is what keeps the delete-only waves inside a worker's step budget (R146). The engine split follows the pass-5 additions (seed/validity vs lifecycle/errors), so neither half is L. The twenty lookups are one predicate line each inside the panel-swap member group the wave already owns — splitting them into their own wave is impossible in either order (after the rename it leaves the rename's wave red; before it, the key does not exist yet). **The ten call-site deletions are the same argument one step further:** a dereference of the renamed attribute cannot wait for P23-06 (the first `MainWindow()` raises), and cannot be re-pointed instead (the new panel has none of the five methods), so they are one-line deletions inside the member group the wave already owns and the wave stays M |
 | AP-P23-9 | `position_group_map` and the `_symbol_last_prices` price-sink chain are **inventory completions** under A198 clause 3 ("every helper only it called"), not scope expansion — and `AC-D65.18` names the same file set | Verified: `position_group_map` has zero readers/writers and is a FK child of a dropped table; the price sink's only reader is the deleted position render. Leaving either would violate the rule P23 is gated on |
 | AP-P23-10 | The residue-instrument re-baseline touches only `tests/test_d45_removal.py`'s declared token lists, its per-wave test removals and the schema case; no behavioural assertion is weakened | AC-D65.11/AC-D65.13; the P5 precedent (re-baseline recorded, not softened) |
 | AP-P23-11 | `AC-D65.3`'s scan is read as *(a)* the seed's bounded measurement, then *(b)* the ordered candidate list explored **by a monotone sweep** (the minimiser found by the neighbour rule), which is exact because a 20-wide credit vertical's net bid/ask are monotone in strike distance from the money (`d` quasi-convex); a chain observed to break that switches to the full ordered sweep, which visits every window in one direction | Reaching a better pair *past* a plateau would require re-requesting legs of the previous ladder, which `AC-D65.6` forbids — so the two criteria are jointly satisfiable only under quasi-convexity, which the plan states instead of hiding. The ordered sweep is the exact-coverage fallback and keeps the same accounting; the 10 s / 12-pair bound (S-P23-18) applies to both |
 | AP-P23-12 | A seed is a bounded, explicitly triggered sequence, not a tick loop: one probe lease per event-loop turn, then one window step per turn, paced by `PacingManager.throttle()`; the 1 s cadence (A191) governs **maintenance** decisions and re-arms a bounded seed | A191's 1 s debounce exists to stop tick-driven thrash; a seed is triggered by ON / a Target change / an unusable anchor. The alternative — an atomic wholesale cancel+refill — is the `AC-D65.6` violation RC-5 removed. Blank rows are never shown: every intermediate window is a real, quoted ladder |
 | AP-P23-13 | The `AC-D65.9` launch width is derived, never stored: `_right_launch_width` holds the panel's preferred width from construction and `_deferred_dock_setup` applies it once (the D17.4 pattern), clamped through `plan_dock_widths`; no QSettings key is added and `_right_dock_width` keeps tracking the live width | `A201`/`A192`; "nothing is persisted — a restart returns the launch width" is asserted on the tracked value at launch and after a rebuild. The two D18 re-baseline sites change only their expected constant (A201), and the rendered line keeps the file's existing `+1` slack-distribution convention |
-| AP-P23-14 | The option legs register under a **new** type tag in `ibkr/subscription_manager.py` (`option_legs`), not `MARKET_DATA`, and `_replay_subscriptions`'s `include_types` gains that tag | `AC-D65.14`(ii) requires the existing registry and `replay_all` — which is type-tagged. Every watchlist row already carries `MARKET_DATA` **with** a `reissue` hook (`ui/watchlist_panel.py:1003-1015`), so adding MARKET_DATA would re-issue every row on top of `_restore_watchlist`'s pinned clear+re-add (AC-D22.7.2). One constant + one include-set entry is the whole change, and the watchlist suite is asserted green unchanged. **Flagged as FI-P23-3** because the AC names `MARKET_DATA` literally |
-| AP-P23-15 | Spot tier 2 is "an SPX price already in memory": the chart's `_last_chart_price` (chart on SPX), else an existing SPX `TickerSession`'s last close, else the engine's `last_spot_price` — **not** `MainWindow._symbol_last_prices` | `AC-D65.15`(ii) names `_symbol_last_prices`, but `AC-D65.13`/`AC-D65.18`/A198 delete that map **and its only writer** (`_record_symbol_price` via `ui/ticker_session.py:562`), so retaining it would leave a map that can never be filled — a dead store the standing rule forbids. The precedence *intent* (memory before a line) is met by the three sources above, all of which exist after P23-06. **Flagged as FI-P23-2** |
-| AP-P23-16 | The single spot line is opened **only when all three memory tiers are empty**, is registered in the same registry, is cancelled when the seed completes, and a refusal is tolerated; `last_spot_price` then satisfies the later seeds of the session | A206/Q112 ("only when nothing is in memory"); keeping the line open would spend a line on every launch, and the in-memory price it produced is exactly what the next seed needs — so the line is paid at most once per session |
+| AP-P23-14 | The option legs register under a **new** type tag in `ibkr/subscription_manager.py` — **`OPTION_LEGS`** — and `_replay_subscriptions`'s `include_types` gains that tag: `replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS})` | `AC-D65.14`(ii) states exactly this (a new `OPTION_LEGS` tag beside `RT_BARS`/`MARKET_DATA`/`S0_TICKS`, added to the include set at the single call site, legs **never** registered as `MARKET_DATA`). Every watchlist row already carries `MARKET_DATA` **with** a `reissue` hook (`ui/watchlist_panel.py:1003-1015`), so widening that tag would re-issue every row on top of `_restore_watchlist`'s pinned clear+re-add (AC-D22.7.2, unchanged). One constant + one include-set entry is the whole change, and the watchlist suite is asserted green unchanged. FI-P23-3 raised this and was **fixed in the requirement text 2026-11-17** |
+| AP-P23-15 | The spot source is `AC-D65.15`'s chain and nothing else: **3a** the chart's `_last_chart_price` **only when the charted symbol is SPX** (on any other symbol that value is another instrument's price); **3b** otherwise — tier 3a yields no price: not on SPX, or on SPX with no chart price yet — **exactly one** dedicated SPX spot line, counted and cancelled when the seed completes; **3c** refused/unavailable ⇒ **no** spot, the coarse probe runs region-less and the seed still completes. `MainWindow._symbol_last_prices`, an SPX `TickerSession`'s last close and any engine-level memory tier are **not** spot sources | `AC-D65.15`/A206 name a phase-stable chain: `_symbol_last_prices` and its only writer die in this phase (`AC-D65.13`/`AC-D65.18`/A198), and a session-bar read would be a source the AC does not have — so the plan implements the AC tier for tier rather than inventing intermediate tiers ahead of the line. Spot only picks the probe's starting region, never a quote or a scored value, so a stale chart price cannot corrupt a credit. FI-P23-2 was **fixed in the requirement text 2026-11-17** |
+| AP-P23-16 | The one spot line is opened **whenever tier 3a yields no price** — the charted symbol is not SPX, or it is SPX with no chart price yet — regardless of any other price in memory; it is registered in the same registry, counted in `_md_line_count`, cancelled when the seed completes, and a refusal is tolerated (tier 3c). The price it delivers is kept by the engine as the line's own last value (`last_spot_price`), which is a cache of 3b, never a precedence step ahead of it | `AC-D65.15`(3)/A206/Q112: with 3a defined as the chart's own price, "nothing in memory" is exactly "no chart price is usable" — that is when 3b pays its one line, and the AC requires **one**, not zero. Keeping the line open would spend a line on every launch and make 17 the standing footprint rather than the ceiling |
 | AP-P23-17 | A pair is scorable/matched only when **both** legs have usable quotes; a leg past the 3 s timeout stays `pending` (cells `—`) rather than being treated as rejected, and the sweep's pair budget counts **scored** pairs only | `AC-D65.15`(ii) excludes partial pairs from scoring; A208 sets 3 s. Counting scored (not attempted) pairs is what makes the 12-pair bound meaningful when a chain has unquoted strikes, and a pending leg is not an error, so it must not consume an error latch |
 | AP-P23-18 | `one_tick` is derived from the **Target's level** (`option_tick(T)`), not from a wobbling quote, and the market-rule branch of `AC-D65.4`'s parenthetical is not taken | Attribute-built OPT contracts (`S-P23-7`) carry no `marketRuleIds`, and a per-leg `reqContractDetails` round-trip is the throttled cost R141 warns about; A204 records the 0.05/0.10 rule as owner knowledge, unverified. Deriving from `T` keeps the band stable (a quote-derived band would itself be a hysteresis source) and matches the AC's measurable, which pins `h` by `T`. Both levels are pinned in the suite; a live disagreement is one constant |
 | AP-P23-19 | `snap_rung`'s tie (equidistant listed strikes) resolves to the strike **nearer the anchor**, and a rung that cannot form a listed 20-wide pair renders `—` with a once-only shortfall message — it never requests an unlisted strike | DG120/`AC-D65.2`; an unlisted strike is a guaranteed error 200, and dropping the row would break the panel's fixed four-row shape, so `—` is the honest absence |
 | AP-P23-20 | The canvas of the acceptance record is `docs/archive/probe_records/d65_paper_tws_acceptance.md` (beside `d48`/`d52`), not the legacy `docs/d48_probe_record.md` path the AC cites | The three existing probe records live in `docs/archive/probe_records/`; pointing the new one at the cited path would put it somewhere no other record lives. The **shape** is what the AC asks for, and the shape is `archive/probe_records`' |
 | AP-P23-21 | The post-cutoff state uses a panel-owned constant `16:15 ET` because `services/market_calendar.py` models no option session (RTH close `16:00`, ext `20:00`, verified) | A205 says the calendar wins **if** it models an SPX-option session; today it does not, so the panel carries the constant and the assumption is visible. Adding an option session to the calendar is a later phase's work, not a quiet P23 change |
+| AP-P23-22 | The connection badge states the **connection**, not the account: after P23-06 it reads `"● Connected"` (green) while connected and keeps D40's paused wording and the `"● Disconnected"`/`"● Connecting"` texts, with **no** paper/live claim; `conn_badge_text` keeps no account parameter and `_account_id`/`_account_summary` are deleted with their writer | `AC-D65.13`/A194/R143 accept the deletion of the whole account plane, and the badge's two paper/live inputs (`_account_id`, `AccountType`) are exactly that plane; `settings.check_live_port` proves the *port* only — D26.5's own docstring allows a paper account on it — so a port-derived `"Live"` is the hardcoded claim `AC-D26.5` forbade, and no other source exists to name. S-P23-24 decides it, P23-06 executes it, P23-09 records it, so the retirement is a decision on the record rather than a silent regression; it edits no `requirements.md` text and is therefore not a fourth `AC-D65.11` edit |
 
 ### Flagged Issues
 
-**Two open — both narrow, both literal-text-vs-tree conflicts, both with a recommended
-resolution the waves are already written against.** Neither changes scope, and neither can be
-fixed by an architecture choice: in each case two pieces of the amended requirement text point
-at mutually exclusive code.
+**None open.** All three conflicts this phase raised are **resolved in the requirement text on
+2026-11-17**, and the waves implement the amended criteria verbatim — nothing is carried into
+the build as a recommendation, and no Plan assumption replaces a requirement's wording.
 
-- **FI-P23-2 — `AC-D65.15`(ii)'s spot tier 2 names a map that `AC-D65.13`/`AC-D65.18` delete.**
-  Requirement: spot precedence is "`_last_chart_price` … else `MainWindow._symbol_last_prices['SPX']`
-  … else one dedicated SPX line". Conflict: `AC-D65.13` and `AC-D65.18` (with A198/A210) delete
-  `_symbol_last_prices`, `_record_symbol_price` **and** its only writer
-  (`ui/ticker_session.py:562`), so after the deletion the map can never be populated — tier 2
-  would be permanently empty, and a retained-but-unfillable map is precisely the dead store the
-  standing Unused-Code Rule forbids. **Suggested direction (what the plan implements, AP-P23-15):**
-  read tier 2 as "an SPX price already in memory" and source it from an existing SPX
-  `TickerSession`'s last bar close plus the engine's own `last_spot_price`; the precedence intent
-  — memory before a market-data line — is preserved exactly, and no deleted symbol returns. If
-  the owner instead wants `_symbol_last_prices` kept, then `AC-D65.18`'s file set must lose
-  `ui/ticker_session.py`'s price callback and the deletion inventory must gain a KEEP entry —
-  the owner's call, not the plan's.
-- **FI-P23-3 — `AC-D65.14`(ii)'s `MARKET_DATA` tag double-subscribes the watchlist.**
-  Requirement: each leg is "registered as a `MARKET_DATA` entry carrying a `reissue` hook … so
-  the existing `replay_all` covers it". Conflict: `replay_all` is **type-tagged** and
-  `_replay_subscriptions` deliberately excludes `MARKET_DATA`
-  (`ui/main_window.py:1965-1974`), because every watchlist row is registered `MARKET_DATA`
-  **with** a reissue hook (`ui/watchlist_panel.py:1003-1015`) and re-issued by
-  `_restore_watchlist`'s pinned clear+re-add (AC-D22.7.2); adding `MARKET_DATA` to the include
-  set would therefore re-issue every watchlist row twice. **Suggested direction (what the plan
-  implements, AP-P23-14/S-P23-17):** give the legs their own tag (`option_legs`) with the same
-  `reissue`/`rebind` shape and add only that tag to the include set — the AC's operative
-  requirement (registry replay, no panel-local reconnect path, no duplicate subscription) is met
-  exactly; only the literal tag name differs. If the literal name is mandatory, the watchlist's
-  reconnect division of labour must be re-cut first, which is an AC-D22.7.2 change and outside
-  P23's authorised edits.
+**One recorded consequence, not an issue.** `Q110(a)`/A194 deletes the whole account plane, and
+the connection badge was its last reader (`_update_conn_badge` reading `_account_summary` and
+`_account_id`), so `AC-D26.5`'s paper/live derivation retires with it — decided in
+**S-P23-24**, executed in **P23-06**, recorded in **P23-09**'s gate record and stated in
+**AP-P23-22**. It is a direct consequence of the deletion the owner authorised (R143's accepted
+loss of the account view), not a new requirement and not a silent regression; no source is
+invented, and the fail-fast live-port guard — the half of `AC-D26.5` that protects the account —
+is untouched.
 
-`FI-P23-1` (the `AC-D65.9` default-width contradiction) was **resolved 2026-11-17** by the owner
-(`A201`, recorded in `docs/plan_notes.md` as `RG-P23-1` *addressed*): the right dock's
-**launch** width becomes the panel's preferred 360 px clamped to
-`[200, right_dock_max_width(chart_area)]`, with the minimum, the 40 % cap, the 400 px chart
-minimum, the D21.13 collapse and the D44 strip unchanged, and exactly two D18 assertions
-re-baselined by owner authorisation (`tests/test_dock_widths_d18.py:437`,
-`tests/test_dock_widths_d18_impl.py:328`) — their not-persisted semantics untouched. The
-criterion's ellipsis + tooltip case now has a real meaning (any width below 360 px), and the
-plan's work for it is P23-01's `AC-D65.9` group.
+- **FI-P23-1 — `AC-D65.9`'s default dock width contradicted the shipped D18 default. RESOLVED
+  2026-11-17 by the owner** (`A201`, recorded in `docs/plan_notes.md` as `RG-P23-1`
+  *addressed*): the right dock's **launch** width becomes the panel's preferred 360 px clamped
+  to `[200, right_dock_max_width(chart_area)]`, with the minimum, the 40 % cap, the 400 px
+  chart minimum, the D21.13 collapse and the D44 strip unchanged, and exactly two D18
+  assertions re-baselined by owner authorisation (`tests/test_dock_widths_d18.py:437`,
+  `tests/test_dock_widths_d18_impl.py:328`) — their not-persisted semantics untouched. The
+  criterion's ellipsis + tooltip case now has a real meaning (any width below 360 px), and the
+  plan's work for it is P23-01's `AC-D65.9` group (S-P23-16).
+- **FI-P23-2 — the spot chain named a map this same phase deletes. RESOLVED 2026-11-17 in
+  `AC-D65.15`/A206.** The spot source is now the phase-stable three-tier chain: **(3a)** the
+  chart's own SPX last price, **only when the charted symbol is SPX** (on any other symbol that
+  value is another instrument's price); **(3b)** when 3a is unavailable, **exactly one**
+  dedicated SPX spot line, counted (ceiling `16 + 1 = 17`), cancelled when the seed completes;
+  **(3c)** when that line is refused or never quotes, **no spot at all** — the coarse probe
+  runs region-less and the seed still completes. `_symbol_last_prices` and its only writer
+  (`ui/ticker_session.py:562`) are explicitly **not** a spot source and stay deleted
+  (`AC-D65.13`/`AC-D65.18`, A198). **AP-P23-15, AP-P23-2 and AP-P23-16 plus P23-05's spot
+  group are that text, tier for tier**: the stream suite asserts **zero** spot lines on a chart
+  showing SPX and **exactly one** on any other symbol (including a window holding an SPX
+  session), and none when the line is refused.
+- **FI-P23-3 — the literal `MARKET_DATA` tag would double-subscribe the watchlist. RESOLVED
+  2026-11-17 in `AC-D65.14`(ii).** The AC now names the **new `OPTION_LEGS` tag verbatim** —
+  "beside `RT_BARS`/`MARKET_DATA`/`S0_TICKS`", added to the include set at the single call site
+  (`replay_all(include_types={RT_BARS, S0_TICKS, OPTION_LEGS})`) — and states that option legs
+  must **not** be registered as `MARKET_DATA`, whose exclusion under `AC-D22.7.2` "stays as
+  written and no behavioural assertion moves". **AP-P23-14 and S-P23-17 are that text**: the
+  constant is `OPTION_LEGS` (value `"option_legs"`, matching the module's lowercase tag
+  strings), and replay, `rebind` and the watchlist's untouched clear+re-add are unchanged.
 
 The interpretive readings the plan records rather than hides are **AP-P23-11** (the seed's
 bounded measurement plus the quasi-convexity basis and its ordered-sweep fallback), **AP-P23-18**
@@ -6367,4 +6739,4 @@ bounded measurement plus the quasi-convexity basis and its ordered-sweep fallbac
 attribute-built contract) and **AP-P23-21** (the 16:15 ET constant, because the calendar models
 no option session) — none changes a criterion's outcome and none is a re-scope.
 
-Status: READY_FOR_VALIDATION
+Status: READY_FOR_TASK_MANAGER
