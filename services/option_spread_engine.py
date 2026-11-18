@@ -1631,7 +1631,3 @@ class SpreadEngine:
     def take_messages(self) -> List[str]:
         """Drain the latched messages without emitting an action plan."""
         return self._drain()
-
-
-#: The contract's name for the engine (``P23-T7`` called it ``SpreadEngine``).
-OptionSpreadEngine = SpreadEngine

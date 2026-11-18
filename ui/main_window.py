@@ -2058,12 +2058,23 @@ class MainWindow(QMainWindow):
         self._option_request_chain()
         self._option_eval_timer.start()
 
+    def _option_reset_engine(self) -> None:
+        """Return the engine to its clean pre-ON session state (AC-D65.9).
+
+        ``SpreadEngine`` keeps every piece of session state on ``__init__``, so
+        re-initialising the same instance is the reset: no leased or subscribed
+        leg, window, anchor, quote, stale flag, seed state or reconnect state
+        survives, and the next ON re-seeds and re-subscribes from scratch. The
+        instance identity is preserved for any holder of ``_option_engine``, and
+        the Target (an owner setting rather than session state) carries over.
+        """
+        self._option_engine.__init__(target=self._option_engine.target)
+
     def _option_stop(self) -> None:
-        """Switch OFF: release every option line and the spot line (zero left)."""
+        """Switch OFF: release every line and discard the session engine."""
         self._option_active = False
         self._option_cutoff = False
         self._option_eval_timer.stop()
-        self._option_engine.toggle_off()
         for leg in list(self._option_leg_req):
             self._option_cancel_leg(leg)
         self._option_cancel_spot()
@@ -2073,7 +2084,11 @@ class MainWindow(QMainWindow):
         self._option_chain_req_id = None
         self._option_chain_params = []
         self._option_leg_quotes.clear()
+        # A retry queued by a PacingExceeded before OFF must not open a line
+        # after it; _option_subscribe_leg/_option_ensure_spot re-check the
+        # panel state on every deferred call.
         self._option_engine.take_messages()
+        self._option_reset_engine()
         self._option_status = None
         self._option_empty_text = None
         self._option_seed_was_active = False
@@ -2097,11 +2112,21 @@ class MainWindow(QMainWindow):
             return
         self._option_cutoff = True
         self._option_eval_timer.stop()
-        self._option_engine.toggle_off()
         for leg in list(self._option_leg_req):
             self._option_cancel_leg(leg)
         self._option_cancel_spot()
+        if self._option_chain_lookup_id is not None:
+            self._contract_lookup.cancel(self._option_chain_lookup_id)
+            self._option_chain_lookup_id = None
+        self._option_chain_req_id = None
+        self._option_chain_params = []
         self._option_leg_quotes.clear()
+        self._option_engine.take_messages()
+        # AC-D65.8: the cutoff ends the session just like OFF -- the engine's
+        # legs, anchors and quotes are discarded so no stale price survives and
+        # no deferred retry can re-open a line after 16:15 ET.
+        self._option_reset_engine()
+        self._option_seed_was_active = False
         self._option_empty_text = OPTION_CUTOFF_EMPTY_STATE
         self.option_spreads_panel.apply_snapshot([], [])
         self.option_spreads_panel.set_empty_state(OPTION_CUTOFF_EMPTY_STATE)
@@ -2274,7 +2299,12 @@ class MainWindow(QMainWindow):
     # ── Per-leg lines ────────────────────────────────────────────────────
 
     def _option_subscribe_leg(self, leg: LegKey) -> None:
-        if leg in self._option_leg_req or self._option_cutoff:
+        if not self._option_active or self._option_cutoff:
+            # A QTimer.singleShot retry queued by a PacingExceeded can fire
+            # after the panel went OFF or crossed the cutoff; it must never
+            # open a line while the panel is off (AC-D65.9).
+            return
+        if leg in self._option_leg_req:
             return
         if leg not in self._option_engine.live_legs():
             return  # a deferred retry whose window has since moved on

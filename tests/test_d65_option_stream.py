@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import QDockWidget
 
 from ibkr.client import IBApiClient
 from ibkr.contracts import today_expiry_yyyymmdd
+from ibkr.pacing import PacingExceeded
 from ibkr.subscription_manager import MARKET_DATA, OPTION_LEGS, RT_BARS, S0_TICKS
 from services.option_ladder import LegKey
 
@@ -485,6 +486,115 @@ def test_P23_T9_AC2_budget_refusal_is_one_message_and_no_over_cap_subscribe(
 
 
 # ---------------------------------------------------------------------------
+# ESC-117 — OFF is a clean pre-ON session; a same-session ON re-subscribes
+# ---------------------------------------------------------------------------
+
+
+def test_P23_T9_AC2_second_on_rebuilds_the_session_and_streams_fresh_values(
+        monkeypatch, qapp):
+    """ESC-117: OFF discards the engine's session, so ON re-subscribes afresh."""
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        _toggle_on(win, fake)
+        _deliver_chain(win, fake)
+        _settle(win, fake)
+
+        assert len(win._option_engine.live_legs()) == 16
+        before = _cells(win, "CCS", 2)
+        assert before[1] != "" and before[2] != ""
+        engine = win._option_engine
+
+        # OFF returns the engine to a clean pre-ON session: no live legs, no
+        # rows, no reqIds and no lines on the wire.
+        win.option_spreads_panel.toggle_button.click()
+        assert win.option_spreads_panel.toggle_state() is False
+        assert win._option_engine is engine  # the same engine, reset
+        assert engine.live_legs() == set()
+        assert engine.rows() == {}
+        assert win._option_engine.live_legs() == set()
+        assert win._option_leg_req == {}
+        assert win._option_req_ids == {}
+        assert win._option_spot_req_id is None
+        assert win.sub_manager.entries_of_type(OPTION_LEGS) == []
+        assert fake.counts() == (0, 0)
+        assert win._md_line_count() == 0
+        for side in ("CCS", "PCS"):
+            for index in range(4):
+                assert _cells(win, side, index)[1:] == ["", "", "", ""]
+
+        # A same-session ON re-seeds and re-subscribes from scratch.
+        event_floor = len(fake.events)
+        _toggle_on(win, fake)
+        _deliver_chain(win, fake)
+        _settle(win, fake)
+
+        subscribes = {
+            req_id
+            for kind, req_id, contract in fake.events[event_floor:]
+            if kind == "subscribe" and getattr(contract, "secType", "") == "OPT"
+        }
+        assert len(subscribes) >= 16, "the second ON issued no fresh leg lines"
+        assert len(win._option_engine.live_legs()) == 16
+        live = fake.live_of("OPT")
+        assert len(live) == 16
+        assert {req_id for req_id, _contract in live} <= subscribes, (
+            "a live row is backed by a pre-OFF line")
+        assert max(option for option, _spot in fake.steps) <= 16
+        assert max(option + spot for option, spot in fake.steps) <= 17
+        assert win._md_line_count() <= 17
+
+        # Every row is backed by a live line: a changed bid reaches the cell
+        # (a stale pre-OFF row would silently keep its old value).
+        _feed_leg(win, fake, 7350.0, "C", bid=_price(7350.0, "C") + 0.05)
+        qapp.processEvents()
+        assert _cells(win, "CCS", 2)[1] == f"{-_credit(7350.0) + 0.05:.2f}"
+        assert set(win._option_engine.stale_legs()) == set()
+        assert fake.orders == []
+    finally:
+        win.close()
+
+
+def test_P23_T9_AC2_deferred_leg_retry_after_off_opens_no_line(
+        monkeypatch, qapp):
+    """A PacingExceeded retry queued before OFF opens nothing once OFF."""
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        real_req = win.md_manager.req_mkt_data
+        attempted: list[tuple[str, float]] = []
+
+        def _refuse(contract):
+            if getattr(contract, "secType", "") == "OPT":
+                attempted.append((str(contract.right), float(contract.strike)))
+                raise PacingExceeded(0.3)
+            return real_req(contract)
+
+        win.md_manager.req_mkt_data = _refuse
+        _toggle_on(win, fake)
+        _deliver_chain(win, fake)  # the chain reply drives the first eval step
+
+        assert attempted, "no leg subscribe reached the client"
+        leg = LegKey(right=attempted[0][0], strike=attempted[0][1])
+        # The pacing refusal deferred the line: the leg is still unbound, and
+        # the engine still believes it holds a live line (the retry's premise).
+        assert leg not in win._option_leg_req
+        assert fake.live_of("OPT") == []
+        assert leg in win._option_engine.live_legs()
+        win.md_manager.req_mkt_data = real_req
+
+        # OFF, then the queued QTimer.singleShot retry lands.
+        win.option_spreads_panel.toggle_button.click()
+        assert win.option_spreads_panel.toggle_state() is False
+        assert fake.live_of("OPT") == []
+        win._option_subscribe_leg(leg)
+
+        assert win._option_leg_req == {}
+        assert fake.live_of("OPT") == []
+        assert fake.orders == []
+    finally:
+        win.close()
+
+
+# ---------------------------------------------------------------------------
 # AC3 — the replay include set, STALE freeze, one replay per leg
 # ---------------------------------------------------------------------------
 
@@ -829,6 +939,45 @@ def test_P23_T9_AC5_post_1615_cutoff_state(monkeypatch, qapp):
         for side in ("CCS", "PCS"):
             for index in range(4):
                 assert _cells(win, side, index)[1:] == ["", "", "", ""]
+        assert fake.orders == []
+    finally:
+        win.close()
+
+
+def test_P23_T9_AC5_cutoff_discards_the_session_and_blocks_deferred_lines(
+        monkeypatch, qapp):
+    """Crossing 16:15 ET clears the session exactly like OFF (ESC-117)."""
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        _toggle_on(win, fake)
+        _deliver_chain(win, fake)
+        _settle(win, fake)
+        assert len(win._option_engine.live_legs()) == 16
+        engine = win._option_engine
+
+        # The live session crosses the cutoff while the panel stays ON.
+        win._option_et_now = lambda: datetime(2026, 11, 17, 16, 20)
+        win._option_eval_step(time.monotonic() + 1.0)
+
+        assert win._option_cutoff is True
+        assert win._option_engine is engine
+        assert engine.live_legs() == set()
+        assert win._option_engine.live_legs() == set()
+        assert win._option_engine.rows() == {}
+        assert win._option_leg_req == {}
+        assert win._option_req_ids == {}
+        assert win._option_spot_req_id is None
+        assert fake.counts() == (0, 0)
+        assert win._md_line_count() == 0
+        for side in ("CCS", "PCS"):
+            for index in range(4):
+                assert _cells(win, side, index)[1:] == ["", "", "", ""]
+
+        # Neither a deferred leg retry nor the spot tier may open a line.
+        win._option_subscribe_leg(LegKey(right="C", strike=7360.0))
+        win._option_ensure_spot()
+        assert win._option_leg_req == {}
+        assert fake.counts() == (0, 0)
         assert fake.orders == []
     finally:
         win.close()

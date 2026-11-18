@@ -209,3 +209,97 @@ dependency order is identical. `check_tasks.py` re-run so `execution_graph.json`
 **Verification.** `check_tasks.py`: `OK: 14 tasks validated, execution_graph.json written` (warnings
 only — the usual "pure-output file" pack notes, unchanged in kind). Metadata left at
 `"status": "READY_FOR_BUILD"`.
+
+## ESC-116 — the two stale D65 option-chain contracts now have a phase-final owner
+
+**Source:** `docs/code_review/escalations.json` ESC-116 (blocking, `routed_to: TASK_MANAGER`,
+`task_id: P23-T6`). Full-suite verification (`docs/code_review/test_verification.json`, verdict fail,
+exit 1) reddens exactly two cases in `tests/test_d65_option_chain.py`, and the reviewer's adjudication is
+accepted as given — no re-diagnosis here: both are stale *wave-scoped* contracts, not regressions.
+`test_no_production_caller_outside_ibkr` exempts only `ibkr/` in its sweep, so P23-T9's designed live
+wiring in `ui/main_window.py` (7 hits: imports 37-41, the three signal connects 929-931, and the call
+sites at 2153, 2180-2181, 2284, 2310) reads as an offender; `test_account_and_position_overrides_and_signals_remain`
+asserts the presence of the four EWrapper overrides and four bridge signals that P23-T11-AC1 deleted by
+owner decision. Root cause, accepted: P23-T6-AC5 was worded "Given this wave … yet / still present", true
+at T6's wave and false at phase end, and no task owned the phase-final form — P23-T13's "full suite
+green" AC has no footprint over that file and its gate record honestly deferred the two cases to "that
+contract's owner".
+
+**Changes — three, all in `docs/tasks/task-graph.json`.**
+
+1. **P23-T6-AC5 is now explicitly the interim snapshot.** The AC (and its test's
+   `linked_acceptance_criterion`, description and `expected_result`) states that it holds *at T6's wave
+   only* and names P23-T15-AC1/AC2 as the phase-final owners of the polarity. No other T6 field changed:
+   `touches_files`, `tests`, `status` (`done`) and its context pack (whose `ibkr/client.py` entry already
+   said "this wave must leave present") are untouched. T6 was **not** reset: re-running it would re-do four
+   production modules for a test-only re-point, and it is the dependency edge under T7/T9/T13.
+2. **P23-T13-AC3 now names what it cannot reach.** "the full offscreen suite is green" becomes "green
+   apart from exactly the two ESC-116 cases …, which are red at this wave only because no task in this
+   phase can reach that file — P23-T15 owns and re-points them, and the gate record names those two cases
+   and their owning task instead of claiming a green suite, while any other red case fails this AC". The
+   AC's other clauses (marker grep, section presence, the three owner-authorised edits, S-P23-24,
+   bookkeeping, AC-D65.19 open) are byte-intact. This closes the "gate that cannot see the file" hole
+   without weakening the gate: any *other* red case still fails.
+3. **New task P23-T15 — the BUILD rework, `status: not_started`.** "Re-point the D65 option-chain
+   contract suite to the phase-final invariants (ESC-116)", `build_worker`, `size: M`, deps
+   `[P23-T6, P23-T9, P23-T13]`, `touches_files` `[tests/test_d65_option_chain.py,
+   tests/test_d65_residue.py]`, three ACs each with one test:
+   - **AC1** — the caller sweep admits exactly two kinds of hit: modules under `ibkr/`, and the *named*
+     designed P23-T9 wiring in `ui/main_window.py`. The AC is invariant-shaped and stays discriminating:
+     a seeded offender in a temporary non-`ibkr`, non-`main_window` tree must still be reported, so the
+     assertion cannot be satisfied by deleting or emptying the sweep.
+   - **AC2** — the four overrides (`accountSummary`, `accountSummaryEnd`, `position`, `positionEnd`) and
+     the four signals (`account_summary`, `account_summary_end`, `position_update`, `position_end`) are
+     **absent** (`getattr(...) is None` / `hasattr(...) is False`), matching P23-T11-AC1 and
+     `tests/test_ui_smoke.py`'s established absence block; no presence assertion survives in the suite.
+   - **AC3** — the suite's docstring AC5 bullet states the phase-final invariants (no "yet"/"still
+     present" wording, no "P23-T11 deletes them" future tense) and the `TOKEN_CARVE_OUT` entry for the
+     file is dropped or re-justified against what the file now contains, with the residue suite's
+     `carve-out-entries-spell-a-token` check green either way (that check forbids dropping the entry while
+     the file still spells a token, which absence assertions do — hence "dropped *or* corrected").
+   Pack: 8 `read_files` entries over 4 distinct files (the two suites, the three admitted
+   `ui/main_window.py` slices, `tests/test_ui_smoke.py` read-only), 3 existing `contracts` refs, test
+   command `… pytest tests/test_d65_option_chain.py tests/test_d65_residue.py -q`. Nothing in the pack
+   contradicts the ACs: the `read_files` whys mark every `ui/main_window.py` slice read-only, and each
+   stated guarantee names its enforcing test (AC1 → `P23-T15-AC1`'s seeded offender; AC2 → `P23-T15-AC2`;
+   AC3 → `P23-T15-AC3` plus the residue suite's own check).
+
+**ESC-117 / ESC-118 — cascade only, no substance here.** Both stay open and BUILD-routed to their own
+tasks; their diagnosis, footprints and suggested fixes are untouched by this pass. This pass only had to
+leave them *dispatchable*: P23-T9 (ESC-117) and P23-T13 (ESC-118) both remain `done` in the graph with
+every one of their own dependencies `done`, so neither was reset or newly gated, and no dependency of
+either points at `P23-T15`. P23-T15 sits *after* both (`P23-T15 ← P23-T9`, `P23-T15 ← P23-T13`), so the
+two reworks land first and the contract suite is re-pointed against their finished state — including
+against `tests/test_d65_residue.py` as ESC-118's rework leaves it.
+
+**Verification.** `check_tasks.py`: `OK: 15 tasks validated, execution_graph.json written` (warnings are
+the pre-existing "pure-output file" pack notes; P23-T15 raises none — all three of its `touches_files`
+appear in its pack). Metadata left at `"status": "READY_FOR_BUILD"`.
+
+## Footprint fix — P23-T13 / ESC-118 (post-rework consolidation)
+
+ESC-118's rework deleted `OptionSpreadEngine = SpreadEngine` from
+`services/option_spread_engine.py`, but that file was not in P23-T13's `touches_files`, so the worker's
+self-check stamp reported `tests: pass, footprint_ok: false` and the result consolidated as `blocked` —
+the edit is correct, only its declared footprint was short. Two-line graph fix, no AC/test/dependency
+change:
+
+- `touches_files` += `services/option_spread_engine.py` (the alias's deletion site; `SpreadEngine` itself
+  is untouched at line 278). The file was already deleted from the tree at this point — this makes the
+  footprint true, it does not widen scope: `tests/test_d65_residue.py` (allowlist entry +
+  `test_census_allowlist_cites_a_live_site` tightening) and `usage.md` remain the task's other writes.
+- `context.read_files` += `services/option_spread_engine.py` lines `1600-1633`, `why` naming the deleted
+  alias and stating it is the only change in that file — so the write is pack-backed and the worker is
+  told not to reintroduce the alias. Pack now 7 entries (budget ~8), no entry dropped.
+- `status`: `blocked` → `not_started`, so the corrected result can consolidate on re-run.
+
+**Dependency verdict (P23-T15 / ESC-116).** `P23-T15 ← {P23-T6 done, P23-T9 done, P23-T13 not_started}`.
+T13's own dependencies `P23-T1..P23-T12` are all `done`, so T13 is the current frontier (dispatchable
+now) and T15 becomes dispatchable the moment T13 re-consolidates as `done`. No cycle: T13's transitive
+ancestors (13 nodes) never reach T15, and T15 is downstream of T13 by construction, so the wave order is
+T13 → T15 with no deadlock and no new edge needed. T14 is already `done` despite depending on T13 (it
+consolidated before the ESC-118 rework re-blocked T13); it gates nothing and is left as-is.
+
+**Verification.** `check_tasks.py`: `OK: 15 tasks validated, execution_graph.json written` (exit 0,
+`graph_struct_sha256` regenerated); the only P23-T13 warning is the pre-existing "pure-output file" note
+for the new `tests/test_d65_residue.py`. Metadata left at `"status": "READY_FOR_BUILD"`.

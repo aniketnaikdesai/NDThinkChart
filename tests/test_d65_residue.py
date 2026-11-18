@@ -7,7 +7,8 @@ different places and each needs its own net:
    P23 tree *and* re-run over a seeded fixture so the gate is proven capable of
    going red before anyone trusts it green:
 
-   (i)   every P23 symbol has a production caller or a cited registration site;
+   (i)   every P23 symbol has a production caller or a cited **code**
+         registration site (a document mention never counts);
    (ii)  every P23 test helper is referenced in its own file;
    (iii) no unused import / unreached branch / ``if False`` / ``noqa``-silenced
          import / commented-out implementation block / ``__all__``-only export /
@@ -106,22 +107,24 @@ P23_AUTHORED_FILES = P23_NEW_MODULES + P23_SUITES
 # Clause (i) — the census allowlist, each entry with its cited site
 # ---------------------------------------------------------------------------
 
-#: Symbols that are live *because a framework or a contract invokes them by
-#: name*, never because Python code calls them. Every value is the citation,
-#: and every citation is re-checked by the suite (see
-#: ``test_census_allowlist_cites_a_live_site``) — a stale entry fails.
-CENSUS_ALLOWLIST = {
-    "services/option_spread_engine.py": {
-        # The published contract names the engine `OptionSpreadEngine`
-        # (`docs/tasks/task-graph.json`, P23-T7's signature). The module keeps
-        # that name as an alias of the class it renamed to `SpreadEngine`; the
-        # comment above the alias records the same thing.
-        "OptionSpreadEngine": (
-            "docs/tasks/task-graph.json P23-T7 signature "
-            "`class OptionSpreadEngine`"
-        ),
-    },
-}
+#: Clause (i)'s exemption: a symbol that only framework machinery invokes *by
+#: name*, so no Python call site exists for the census to find. Every value is
+#: the citation, and every citation must be a **code** registration site of the
+#: exact shape ``"<repo-relative .py>:<line> — <how it is invoked>"`` —
+#: ``test_census_allowlist_cites_a_live_site`` re-checks that the cited line
+#: really invokes or registers the symbol by name (a call argument, a
+#: ``connect``/``emit``, a name-keyed registry entry, or a base class).
+#:
+#: A *document* mention is never a site: ``docs/tasks/task-graph.json`` naming a
+#: class in a task signature registers nothing, so it cannot keep a symbol
+#: "live". A symbol kept only because a planning document names it is exactly
+#: the keep-for-later residue clause (iii) forbids (ESC-118), and the allowlist
+#: must never exist for that purpose.
+#:
+#: No P23 symbol needs the exemption today — the EWrapper/Qt callbacks have
+#: their own clause-(v) tables below — so the mapping is empty. An entry is
+#: added only with a real registration site, never to excuse an unused alias.
+CENSUS_ALLOWLIST: dict[str, dict[str, str]] = {}
 
 #: Clause (v) — EWrapper callbacks: ibapi's reader thread dispatches by method
 #: name, so no Python call site exists to find. The registration site is the
@@ -196,6 +199,9 @@ DISPLACED_TOKENS = (
 TOKEN_CARVE_OUT = (
     "tests/test_d45_removal.py",
     "tests/test_d65_residue.py",
+    # Its AC5 case proves the four deleted bridge signals absent, so it must
+    # spell `account_summary`, `account_summary_end`, `position_update` and
+    # `position_end`; no positive-polarity mention survives there.
     "tests/test_d65_option_chain.py",
     "tests/test_d65_option_panel.py",
     "tests/test_ui_smoke.py",
@@ -614,22 +620,125 @@ def test_every_p23_symbol_has_a_caller_or_a_cited_registration_site():
     )
 
 
+#: A citation must name a **Python** file, a line in it, and how the symbol is
+#: invoked there. `docs/…json` and `docs/…md` cannot match the path group, so a
+#: planning-document signature can never pass (ESC-118).
+_REGISTRATION_RE = re.compile(
+    r"^(?P<path>[A-Za-z0-9_./-]+\.py):(?P<line>\d+)\s*"
+    r"(?:—|–|-{1,2})\s*(?P<how>\S.*)$"
+)
+
+
+def _invokes_by_name(source: str, symbol: str, lineno: int) -> bool:
+    """True when the statement at ``lineno`` invokes/registers ``symbol``.
+
+    Three shapes count, and only these: the symbol passed as a call argument or
+    keyword value (a signal ``connect``/``emit``, a dispatch-table insert, a
+    callback handed to a framework), the symbol as a class base (a virtual-slot
+    implementation), and the symbol as a **string constant** argument (a
+    name-keyed registry such as ibapi's). A bare mention — an import, a
+    docstring, the definition itself — registers nothing, which is what makes
+    the citation evidence instead of prose.
+    """
+    module = ast.parse(source)
+    for node in ast.walk(module):
+        start = getattr(node, "lineno", None)
+        end = getattr(node, "end_lineno", None) or start
+        if start is None or not (start <= lineno <= end):
+            continue
+        if isinstance(node, ast.ClassDef):
+            for base in node.bases:
+                if isinstance(base, ast.Name) and base.id == symbol:
+                    return True
+                if isinstance(base, ast.Attribute) and base.attr == symbol:
+                    return True
+        if isinstance(node, ast.Call):
+            for value in [*node.args, *(kw.value for kw in node.keywords)]:
+                if isinstance(value, ast.Name) and value.id == symbol:
+                    return True
+                if isinstance(value, ast.Attribute) and value.attr == symbol:
+                    return True
+                if isinstance(value, ast.Constant) and value.value == symbol:
+                    return True
+    return False
+
+
+def citation_violation(
+    module: str, symbol: str, citation: str, tree: dict[str, str]
+) -> str | None:
+    """Why ``citation`` fails to register ``symbol`` at a live code site, or None."""
+    text = (citation or "").strip()
+    if not text:
+        return f"{module}:{symbol} has an empty citation"
+    match = _REGISTRATION_RE.match(text)
+    if match is None:
+        return (
+            f"{module}:{symbol} cites {citation!r}, which is not "
+            "'<repo-relative .py>:<line> — <how it is invoked>'; a document "
+            "mention registers nothing"
+        )
+    path, lineno = match.group("path"), int(match.group("line"))
+    if path not in tree:
+        return (
+            f"{module}:{symbol} cites {path!r}, which is not a Python source the "
+            "gate scans — only a code site can register a symbol"
+        )
+    if not 1 <= lineno <= len(tree[path].splitlines()):
+        return f"{module}:{symbol} cites {path}:{lineno}, which is outside the file"
+    if not _invokes_by_name(tree[path], symbol, lineno):
+        return (
+            f"{module}:{symbol} is cited at {path}:{lineno}, but that site does "
+            "not invoke or register the symbol by name"
+        )
+    if symbol not in tree.get(module, ""):
+        return f"{module}:{symbol} is allowlisted but the module no longer defines it"
+    return None
+
+
 def test_census_allowlist_cites_a_live_site():
-    """No allowlist entry may be a bare name — each citation must resolve."""
+    """No allowlist entry may be a bare name — each citation must resolve to code."""
     tree = sources()
     candidates = _census_candidates(tree)
+    violations = []
     for module, entries in CENSUS_ALLOWLIST.items():
-        assert module in candidates, f"allowlist names an unscanned module: {module}"
+        if module not in candidates:
+            violations.append(f"allowlist names an unscanned module: {module}")
+            continue
         for symbol, citation in entries.items():
-            assert citation.strip(), f"{module}:{symbol} has an empty citation"
-            assert symbol in _text("docs/tasks/task-graph.json"), (
-                f"{module}:{symbol} cites {citation!r}, but the contract does "
-                "not name it"
-            )
-            assert symbol in _text(module), (
-                f"{module}:{symbol} is allowlisted but the module no longer "
-                "defines it"
-            )
+            problem = citation_violation(module, symbol, citation, tree)
+            if problem:
+                violations.append(problem)
+    assert not violations, f"census allowlist is not evidence: {violations}"
+
+
+def test_census_allowlist_rejects_a_document_mention():
+    """ESC-118, proven red: a task-graph signature is not a registration site."""
+    tree = {
+        "sample.py": (
+            "def handler(value):\n"
+            "    return value\n"
+            "\n"
+            "\n"
+            "class Owner:\n"
+            "    def wire(self, signal):\n"
+            "        signal.connect(handler)\n"
+        ),
+    }
+    mentioned = (
+        "docs/tasks/task-graph.json P23-T7 signature `class OptionSpreadEngine`"
+    )
+    assert citation_violation("sample.py", "handler", mentioned, tree), (
+        "a document mention satisfied the allowlist"
+    )
+    assert citation_violation(
+        "sample.py", "handler", "docs/plan.md:12 — named in the plan", tree
+    ), "a non-Python citation satisfied the allowlist"
+    assert citation_violation(
+        "sample.py", "handler", "sample.py:1 — the definition itself", tree
+    ), "a definition line must not count as a registration site"
+    assert citation_violation(
+        "sample.py", "handler", "sample.py:7 — signal connect", tree
+    ) is None, "a real connect site was rejected"
 
 
 # ---------------------------------------------------------------------------

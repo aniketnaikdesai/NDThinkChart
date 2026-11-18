@@ -800,7 +800,7 @@
         "Given SPX's option-parameter response and an ET clock, Then today_expiry_yyyymmdd returns today's ET date in YYYYMMDD, select_zero_dte_series returns the SPXW series carrying exactly that expiry (ignoring a later expiry that is also present) or None when no series carries today, OptionSeries carries trading_class/exchange/expiry/con_id/strikes_by_right, and option_chain_strikes returns sorted strike lists per right.",
         "Given the market-data manager, When req_sec_def_opt_params is called, Then it runs the readiness check first (raising IBKRNotReady), allocates its reqId through id_manager.get_id(), calls pacing_manager.throttle() and never sleeps - PacingExceeded propagates for the caller to defer - and then issues reqSecDefOptParams for SPX's IND conId.",
         "Given tickOptionComputation for a leg, Then the override emits option_computation with exactly the reqId, tick type and delta/gamma, passing tick types 13 (model), 12 (last) and 10/11 (bid/ask) through unchanged and passing None, -1, 1.7976931348623157e+308 and NaN delta/gamma through UNMODIFIED - no screening happens in the bridge or the client; tickPrice bid/ask sentinels likewise reach the engine untouched, and securityDefinitionOptionParameter(+End) emit option_params/option_params_end with only the fields the panel uses.",
-        "Given this wave, Then no production module outside ibkr/ calls the new helpers yet, the four account/position EWrapper overrides and their four bridge signals are still present (they are P23-T11's deletions), and no order-building or transmit call is added anywhere."
+        "Given the T6 wave only, Then the boundary is closed only where the phase has not reached yet: no production module outside ibkr/ calls the six new chain helpers or the three new bridge signals, the four account/position EWrapper overrides and their four bridge signals are still present because P23-T11 has not run, and no order-building or transmit call is added anywhere - this is the wave-scoped interim snapshot, explicitly superseded at phase end by P23-T15-AC1 and P23-T15-AC2, which own the phase-final polarity (ui/main_window.py as the single designed caller; the four overrides and their four signals absent)."
       ],
       "tests": [
         {
@@ -833,10 +833,10 @@
         },
         {
           "test_id": "P23-T6-AC5",
-          "linked_acceptance_criterion": "Given this wave, Then no production module outside ibkr/ calls the new helpers yet, the four account/position EWrapper overrides and their four bridge signals are still present (they are P23-T11's deletions), and no order-building or transmit call is added anywhere.",
+          "linked_acceptance_criterion": "Given the T6 wave only, Then the boundary is closed only where the phase has not reached yet: no production module outside ibkr/ calls the six new chain helpers or the three new bridge signals, the four account/position EWrapper overrides and their four bridge signals are still present because P23-T11 has not run, and no order-building or transmit call is added anywhere - this is the wave-scoped interim snapshot, explicitly superseded at phase end by P23-T15-AC1 and P23-T15-AC2, which own the phase-final polarity (ui/main_window.py as the single designed caller; the four overrides and their four signals absent).",
           "type": "unit",
-          "description": "Import-graph assertion that only ibkr/ modules and the new test module reference the new helpers, that the four account overrides/signals still exist, and a grep for placeOrder/cancelOrder/ reqGlobalCancel additions.",
-          "expected_result": "No production caller outside ibkr/; account overrides intact; zero order calls added."
+          "description": "Interim wave snapshot, not the phase-final contract: sweep production modules outside ibkr/ for the helper and signal names as of this wave, assert the four account/position overrides and their bridge signals are still declared, and grep ibkr/ for placeOrder/cancelOrder/reqGlobalCancel. P23-T15 re-points the sweep and inverts the presence case on the finished tree.",
+          "expected_result": "At this wave: no production caller outside ibkr/, the account/position overrides still present, zero order calls added. Superseded at phase end by P23-T15-AC1/AC2."
         }
       ],
       "expected_artifacts": [
@@ -1945,7 +1945,7 @@
       "acceptance_criteria": [
         "Given the finished tree, Then tests/test_d65_residue.py implements the standing gate's five clauses - every P23 symbol has a production caller or a cited registration site, every P23 test helper is referenced in its file, no unused import / unreached branch / if False / noqa-silenced import / commented-out block / __all__-only export / keep-for-later module remains, every new signal is both emitted and connected, and EWrapper/Qt name-invoked callbacks are allowlisted with their registration site - and the gate is RED on a seeded dead-symbol fixture while green on the real tree.",
         "Given the displaced-token sweep, Then every token P23-T12 added is absent from the tree except in the forbidden-token tables carve-out (tests/test_d45_removal.py's _FORBIDDEN/_SURVIVORS and this suite's own displaced-token list), every KEEP entry carries its recorded reason naming the surviving consumer, and AC-D65.1's own measurable is re-run on the finished tree: no Portfolio dock title or objectName and no title-keyed right-dock lookup remains, with the same documented carve-out.",
-        "Given the batch gate, Then the full offscreen suite is green; AC-D65.11's marker grep and the D41-D64 section presence hold; the gate record names all three owner-authorised pre-P23 edits (the D41 title re-points, A194's supersession and A201's D18 launch-width amendment with its two re-baselines) plus S-P23-24's recorded phase-internal consequence (D26.5's paper/live badge derivation retiring with the account path, editing no requirements text); the bookkeeping checks pass (tests/conftest.py names no dropped table, the p13 allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, tests/test_d45_removal.py holds no test whose subject is deleted); and the record states explicitly that AC-D65.19 is still OPEN and owned by P23-T14.",
+        "Given the batch gate, Then the full offscreen suite is green apart from exactly the two ESC-116 cases in tests/test_d65_option_chain.py (test_no_production_caller_outside_ibkr and test_account_and_position_overrides_and_signals_remain), which are red at this wave only because no task in this phase can reach that file - P23-T15 owns and re-points them, and the gate record names those two cases and their owning task instead of claiming a green suite, while any other red case fails this AC; AC-D65.11's marker grep and the D41-D64 section presence hold; the gate record names all three owner-authorised pre-P23 edits (the D41 title re-points, A194's supersession and A201's D18 launch-width amendment with its two re-baselines) plus S-P23-24's recorded phase-internal consequence (D26.5's paper/live badge derivation retiring with the account path, editing no requirements text); the bookkeeping checks pass (tests/conftest.py names no dropped table, the p13 allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, tests/test_d45_removal.py holds no test whose subject is deleted); and the record states explicitly that AC-D65.19 is still OPEN and owned by P23-T14.",
         "Given the consistency re-check, Then 16 option lines, 17 with the spot line, h = max(0.05, one_tick), the credit-vs-displayed sign pair and the canonical fixtures 7425/7445 and 7340/7320 are stated identically in docs/plan.md, docs/architecture.md and the five new phase suites, no 7425/7435 or 7315/7435 example survives (7435/7455 is a legal 20-wide pair and is not banned), and no flat-0.05 band phrasing remains.",
         "Given usage.md, Then its UI overview row and its Portfolio workflow section no longer advertise a Portfolio/Account Summary panel or the removed strategy auto-detection; they describe the Option Spreads panel (Target 0.05-19.95, ON/OFF, display-only, no order entry) instead - and no other user-facing doc still claims a Portfolio view."
       ],
@@ -1966,10 +1966,10 @@
         },
         {
           "test_id": "P23-T13-AC3",
-          "linked_acceptance_criterion": "Given the batch gate, Then the full offscreen suite is green; AC-D65.11's marker grep and the D41-D64 section presence hold; the gate record names all three owner-authorised pre-P23 edits (the D41 title re-points, A194's supersession and A201's D18 launch-width amendment with its two re-baselines) plus S-P23-24's recorded phase-internal consequence (D26.5's paper/live badge derivation retiring with the account path, editing no requirements text); the bookkeeping checks pass (tests/conftest.py names no dropped table, the p13 allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, tests/test_d45_removal.py holds no test whose subject is deleted); and the record states explicitly that AC-D65.19 is still OPEN and owned by P23-T14.",
+          "linked_acceptance_criterion": "Given the batch gate, Then the full offscreen suite is green apart from exactly the two ESC-116 cases in tests/test_d65_option_chain.py (test_no_production_caller_outside_ibkr and test_account_and_position_overrides_and_signals_remain), which are red at this wave only because no task in this phase can reach that file - P23-T15 owns and re-points them, and the gate record names those two cases and their owning task instead of claiming a green suite, while any other red case fails this AC; AC-D65.11's marker grep and the D41-D64 section presence hold; the gate record names all three owner-authorised pre-P23 edits (the D41 title re-points, A194's supersession and A201's D18 launch-width amendment with its two re-baselines) plus S-P23-24's recorded phase-internal consequence (D26.5's paper/live badge derivation retiring with the account path, editing no requirements text); the bookkeeping checks pass (tests/conftest.py names no dropped table, the p13 allowlist holds option_spreads_panel.py and not active_portfolio_panel.py, tests/test_d45_removal.py holds no test whose subject is deleted); and the record states explicitly that AC-D65.19 is still OPEN and owned by P23-T14.",
           "type": "integration",
-          "description": "Run the full offscreen suite, the marker/section greps and the three bookkeeping checks; read the gate record for the three edits plus the S-P23-24 consequence and the open AC-D65.19 statement.",
-          "expected_result": "Suite green; markers present; bookkeeping clean; record complete and AC-D65.19 declared open."
+          "description": "Run the full offscreen suite, the marker/section greps and the three bookkeeping checks; read the gate record for the three edits plus the S-P23-24 consequence and the open AC-D65.19 statement. Assert the only red cases are the two named ESC-116 cases in tests/test_d65_option_chain.py and that the record names them and P23-T15 as their owner.",
+          "expected_result": "No red case other than the two named ESC-116 cases (owned by P23-T15); markers present; bookkeeping clean; record complete, naming those two cases, with AC-D65.19 declared open."
         },
         {
           "test_id": "P23-T13-AC4",
@@ -1994,7 +1994,8 @@
       "touches_files": [
         "tests/test_d65_residue.py",
         "usage.md",
-        "services/option_ladder.py"
+        "services/option_ladder.py",
+        "services/option_spread_engine.py"
       ],
       "doc_required": true,
       "inputs": [
@@ -2009,6 +2010,11 @@
       "size": "M",
       "context": {
         "read_files": [
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "1600-1633",
+            "why": "edit: ESC-118 \u2014 the tail where the dead alias `OptionSpreadEngine = SpreadEngine` sat; delete it (every caller already uses `SpreadEngine`, defined at line 278) and reintroduce none \u2014 this file is in `touches_files` for that single deletion and nothing else"
+          },
           {
             "path": "services/option_ladder.py",
             "lines": "50-54",
@@ -2138,6 +2144,143 @@
         "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_residue.py -q",
         "memory_refs": [],
         "size": "S",
+        "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T15",
+      "title": "Re-point the D65 option-chain contract suite to the phase-final invariants (ESC-116)",
+      "description": "tests/test_d65_option_chain.py still carries P23-T6's wave-scoped AC5 snapshots, both false on the finished tree: the caller sweep forbids P23-T9's designed ui/main_window.py wiring (7 hits) and the presence case asserts the four account/position overrides and signals P23-T11 deleted. Re-point the sweep to admit exactly ibkr/ plus the named ui/main_window.py caller, invert the presence case to the absence assertions P23-T11-AC1 requires, and restate both phase-final invariants in the suite's docstring and in tests/test_d65_residue.py's carve-out rationale. Test-only: the sweep takes its root as a parameter so its seeded-offender control runs over a temporary tree, and no production file changes.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T6",
+        "P23-T9",
+        "P23-T13"
+      ],
+      "acceptance_criteria": [
+        "Given the finished tree, When the caller sweep enumerates every production module (tests/, docs/, .venv and tooling excluded), Then a hit is admissible only in ibkr/ or in the designed P23-T9 wiring in ui/main_window.py - its get_option_contract / select_zero_dte_series / today_expiry_yyyymmdd imports, its option_params / option_params_end / option_computation connects and its on-chain, submit-leg and ensure-spot call sites - so the sweep passes on the real tree, and it stays discriminating: a seeded offender in a temporary non-ibkr, non-main_window production tree is still reported, so the assertion names the one designed caller instead of being emptied or deleted.",
+        "Given the finished tree, Then the four account/position EWrapper overrides (accountSummary, accountSummaryEnd, position, positionEnd) and their four bridge signals (account_summary, account_summary_end, position_update, position_end) are ABSENT - getattr(IBApiClient, name, None) is None and hasattr(IBBridge, signal_name) is False for every one, matching P23-T11-AC1 and tests/test_ui_smoke.py's absence block - and no presence assertion for them survives anywhere in this suite.",
+        "Given the suite's module docstring and tests/test_d65_residue.py's TOKEN_CARVE_OUT, Then the docstring's AC5 bullet states the two phase-final invariants (no wave-scoped 'yet' / 'still present' wording and no 'P23-T11 deletes them' future tense), and the tests/test_d65_option_chain.py carve-out entry is either dropped or kept with a reason that describes what the file now contains (absence assertions spelling the dropped signal names), with tests/test_d65_residue.py's carve-out-entries-spell-a-token check green either way."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T15-AC1",
+          "linked_acceptance_criterion": "Given the finished tree, When the caller sweep enumerates every production module (tests/, docs/, .venv and tooling excluded), Then a hit is admissible only in ibkr/ or in the designed P23-T9 wiring in ui/main_window.py - its get_option_contract / select_zero_dte_series / today_expiry_yyyymmdd imports, its option_params / option_params_end / option_computation connects and its on-chain, submit-leg and ensure-spot call sites - so the sweep passes on the real tree, and it stays discriminating: a seeded offender in a temporary non-ibkr, non-main_window production tree is still reported, so the assertion names the one designed caller instead of being emptied or deleted.",
+          "type": "unit",
+          "description": "Run the re-pointed caller sweep over the repo root and assert ui/main_window.py's hits are admitted by the named-caller rule with no other module reported; then run the same sweep over a temporary tree holding ibkr/ plus one non-ibkr module that references get_option_contract and assert it is reported.",
+          "expected_result": "Real tree clean (ibkr/ and the named ui/main_window.py wiring admitted); the seeded non-ibkr offender still reported."
+        },
+        {
+          "test_id": "P23-T15-AC2",
+          "linked_acceptance_criterion": "Given the finished tree, Then the four account/position EWrapper overrides (accountSummary, accountSummaryEnd, position, positionEnd) and their four bridge signals (account_summary, account_summary_end, position_update, position_end) are ABSENT - getattr(IBApiClient, name, None) is None and hasattr(IBBridge, signal_name) is False for every one, matching P23-T11-AC1 and tests/test_ui_smoke.py's absence block - and no presence assertion for them survives anywhere in this suite.",
+          "type": "unit",
+          "description": "For each of the four overrides and four signals assert getattr(IBApiClient, method, None) is None and hasattr(IBBridge, signal_name) is False; assert the test module's own source carries no remaining presence assertion for those names.",
+          "expected_result": "All four overrides and their four signals absent; no positive-polarity assertion left in the suite."
+        },
+        {
+          "test_id": "P23-T15-AC3",
+          "linked_acceptance_criterion": "Given the suite's module docstring and tests/test_d65_residue.py's TOKEN_CARVE_OUT, Then the docstring's AC5 bullet states the two phase-final invariants (no wave-scoped 'yet' / 'still present' wording and no 'P23-T11 deletes them' future tense), and the tests/test_d65_option_chain.py carve-out entry is either dropped or kept with a reason that describes what the file now contains (absence assertions spelling the dropped signal names), with tests/test_d65_residue.py's carve-out-entries-spell-a-token check green either way.",
+          "type": "unit",
+          "description": "Read the suite's docstring AC5 bullet and the TOKEN_CARVE_OUT entry; assert the bullet names ui/main_window.py as the single designed caller and states the account/position set absent with no 'yet'/'still present' wording, and that the carve-out entry is gone or its reason matches the file's absence assertions; run tests/test_d65_residue.py's carve-out checks.",
+          "expected_result": "Docstring states the phase-final invariants; carve-out entry justified or dropped; residue carve-out checks green."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d65_option_chain.py: AC5 block re-pointed (caller sweep admits ibkr/ plus the named ui/main_window.py caller; seeded-offender control retained)",
+        "tests/test_d65_option_chain.py: presence case inverted to the four-overrides/four-signals absence assertion",
+        "tests/test_d65_option_chain.py: module docstring AC5 bullet restated in phase-final form",
+        "tests/test_d65_residue.py: TOKEN_CARVE_OUT entry for tests/test_d65_option_chain.py dropped or its rationale corrected"
+      ],
+      "touches_files": [
+        "tests/test_d65_option_chain.py",
+        "tests/test_d65_residue.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P23-T6's tests/test_d65_option_chain.py AC5 block (the wave-scoped snapshot)",
+        "P23-T9's designed wiring in ui/main_window.py",
+        "P23-T11's deletions of the four overrides and four signals",
+        "P23-T13's tests/test_d65_residue.py TOKEN_CARVE_OUT"
+      ],
+      "outputs": [
+        "tests/test_d65_option_chain.py re-pointed to the phase-final invariants",
+        "tests/test_d65_residue.py carve-out rationale corrected"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d65_option_chain.py",
+            "lines": "1-19",
+            "why": "edit: the module docstring's AC5 bullet that repeats the wave-scoped snapshot"
+          },
+          {
+            "path": "tests/test_d65_option_chain.py",
+            "lines": "444-509",
+            "why": "edit: the AC5 block - _NEW_HELPERS, _SKIP_PARTS, the caller sweep, the presence case and the order-call case"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "37-41",
+            "why": "read-only: the helper import block the re-pointed sweep must admit - do not change"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "925-935",
+            "why": "read-only: the three P23-T9 signal connects (option_params, option_params_end, option_computation) the sweep must admit"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2150-2320",
+            "why": "read-only: the designed caller sites - req_sec_def_opt_params:2153, select_zero_dte_series/today_expiry_yyyymmdd:2180-2181, get_option_contract:2284 and :2310"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "190-205",
+            "why": "edit: the TOKEN_CARVE_OUT tuple entry and its rationale"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "845-880",
+            "why": "read-only: the carve-out scans and the entries-spell-a-token check the edit must keep green"
+          },
+          {
+            "path": "tests/test_ui_smoke.py",
+            "lines": "40-55",
+            "why": "read-only: P23-T11's established absence block the inverted case mirrors"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/contracts.py:get_option_contract",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/market_data.py:req_sec_def_opt_params",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_option_subscribe_leg",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-02",
+        "requirement_ids": [
+          "AC-D65.2",
+          "AC-D65.5",
+          "AC-D65.9",
+          "A186",
+          "A202",
+          "A203",
+          "R141",
+          "R149"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_chain.py tests/test_d65_residue.py -q",
+        "memory_refs": [],
+        "size": "M",
         "needs_graphify": false
       }
     }

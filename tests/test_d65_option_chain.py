@@ -13,14 +13,19 @@ Offscreen tests (no live TWS), all deterministic:
 * AC4 — fake-client routing: ``tickOptionComputation`` tick-type and sentinel
   passthrough (``None``/``-1``/DBL_MAX/NaN — unmodified), ``tickPrice``
   bid/ask sentinels, and the two chain overrides emitting only used fields.
-* AC5 — nothing outside ``ibkr/`` calls the new helpers yet, the four
-  account/position overrides + signals are intact (P23-T11 deletes them),
+* AC5 — the caller sweep admits ``ibkr/`` plus the single designed caller,
+  ``ui/main_window.py``'s P23-T9 wiring (its three helper imports, its three
+  chain-signal connects and its on-chain / submit-leg call sites), reporting
+  every other production module; the four account/position EWrapper overrides
+  (``accountSummary``, ``accountSummaryEnd``, ``position``, ``positionEnd``)
+  and their four bridge signals (``account_summary``,
+  ``account_summary_end``, ``position_update``, ``position_end``) are ABSENT;
   and no order call has been added.
 """
 
 from __future__ import annotations
 
-import inspect
+import ast
 import math
 import re
 import time
@@ -32,6 +37,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from ibapi.contract import Contract
+from ibapi.wrapper import EWrapper
 
 from ibkr.bridge import IBBridge
 from ibkr.client import IBApiClient
@@ -442,7 +448,7 @@ def test_new_bridge_signals_are_declared():
 
 
 # ---------------------------------------------------------------------------
-# AC5 — no caller outside ibkr/, account overrides intact, no order calls
+# AC5 — one designed caller, the account plane absent, no order calls
 # ---------------------------------------------------------------------------
 
 _NEW_HELPERS = (
@@ -463,8 +469,45 @@ _SKIP_PARTS = {
 }
 
 
-def _production_modules():
-    root = Path(__file__).resolve().parents[1]
+_MAIN_WINDOW = "ui/main_window.py"
+
+#: The P23-T9 wiring is the only production caller admitted outside ``ibkr/``,
+#: and only at these named sites: the three ``ibkr.contracts`` imports, the
+#: three chain-signal connects, the on-chain request and the two per-leg call
+#: sites (the submit and the replay re-issue). A mention anywhere else in that
+#: file is reported too, so the rule names the designed caller instead of
+#: exempting a file.
+_ADMITTED_MAIN_WINDOW_LINES: dict[str, tuple[str, ...]] = {
+    "get_option_contract": (
+        r"^\s+get_option_contract,$",
+        r"^\s*contract = get_option_contract\($",
+    ),
+    "today_expiry_yyyymmdd": (
+        r"^\s+today_expiry_yyyymmdd,$",
+        r"^\s*collected, today_expiry_yyyymmdd\(\)$",
+    ),
+    "select_zero_dte_series": (
+        r"^\s+select_zero_dte_series,$",
+        r"^\s*series = select_zero_dte_series\($",
+    ),
+    "req_sec_def_opt_params": (
+        r"^\s*self\.md_manager\.req_sec_def_opt_params\($",
+    ),
+    "option_params": (
+        r"^\s*b\.option_params\.connect\(self\._on_option_params\)$",
+    ),
+    "option_params_end": (
+        r"^\s*b\.option_params_end\.connect\(self\._on_option_params_end\)$",
+    ),
+    "option_computation": (
+        r"^\s*b\.option_computation\.connect\(self\._on_option_computation\)$",
+    ),
+}
+
+
+def _production_modules(root: Path):
+    """Every production module under ``root`` — tests/docs/tooling excluded."""
+    root = Path(root)
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root)
         if rel.parts and rel.parts[0] == "ibkr":
@@ -474,28 +517,148 @@ def _production_modules():
         yield rel, path
 
 
-def test_no_production_caller_outside_ibkr():
-    offenders = []
-    for rel, path in _production_modules():
+def _scan_callers(root: Path) -> tuple[list[str], set[str]]:
+    """Return ``(unadmitted hits, names admitted in the designed caller)``."""
+    offenders: list[str] = []
+    admitted: set[str] = set()
+    for rel, path in _production_modules(root):
+        rel_name = rel.as_posix()
         text = path.read_text(encoding="utf-8", errors="ignore")
         for name in _NEW_HELPERS:
-            if re.search(rf"\b{re.escape(name)}\b", text):
-                offenders.append(f"{rel}:{name}")
+            pattern = re.compile(rf"\b{re.escape(name)}\b")
+            if not pattern.search(text):
+                continue
+            if rel_name != _MAIN_WINDOW:
+                offenders.append(f"{rel_name}:{name}")
+                continue
+            allowed = _ADMITTED_MAIN_WINDOW_LINES.get(name, ())
+            for lineno, line in enumerate(text.splitlines(), 1):
+                if not pattern.search(line):
+                    continue
+                if any(re.match(site, line) for site in allowed):
+                    admitted.add(name)
+                else:
+                    offenders.append(f"{rel_name}:{lineno}:{name}")
+    return offenders, admitted
+
+
+def test_no_unadmitted_production_caller():
+    offenders, admitted = _scan_callers(Path(__file__).resolve().parents[1])
+
     assert offenders == []
+    # Every helper the designed wiring uses is admitted at a named site, so
+    # this case proves the sweep looks at its one caller instead of passing
+    # because it found nothing.
+    assert admitted == set(_ADMITTED_MAIN_WINDOW_LINES)
 
 
-def test_account_and_position_overrides_and_signals_remain():
-    pairs = (
-        ("accountSummary", "account_summary"),
-        ("accountSummaryEnd", "account_summary_end"),
-        ("position", "position_update"),
-        ("positionEnd", "position_end"),
+def test_seeded_non_ibkr_caller_is_still_reported(tmp_path):
+    (tmp_path / "ibkr").mkdir()
+    (tmp_path / "ibkr" / "contracts.py").write_text(
+        "def get_option_contract():\n    return None\n", encoding="utf-8"
     )
-    for method_name, signal_name in pairs:
-        method = getattr(IBApiClient, method_name, None)
-        assert callable(method), f"{method_name} override is missing"
-        assert hasattr(IBBridge, signal_name), f"{signal_name} signal is missing"
-        assert signal_name in inspect.getsource(method)
+    (tmp_path / "ui").mkdir()
+    (tmp_path / "ui" / "rogue.py").write_text(
+        "from ibkr.contracts import get_option_contract\n\n"
+        "contract = get_option_contract()\n",
+        encoding="utf-8",
+    )
+
+    offenders, admitted = _scan_callers(tmp_path)
+
+    assert admitted == set()
+    assert "ui/rogue.py:get_option_contract" in offenders
+
+
+def test_seeded_mention_outside_the_admitted_lines_is_still_reported(tmp_path):
+    (tmp_path / "ui").mkdir()
+    (tmp_path / "ui" / "main_window.py").write_text(
+        "today_expiry_yyyymmdd = None\n", encoding="utf-8"
+    )
+
+    offenders, admitted = _scan_callers(tmp_path)
+
+    assert admitted == set()
+    assert offenders == ["ui/main_window.py:1:today_expiry_yyyymmdd"]
+
+
+#: The account/position plane P23-T11 deleted: one (EWrapper override, bridge
+#: signal) pair per member. ABSENCE is the phase-final truth.
+_ACCOUNT_PAIRS = (
+    ("accountSummary", "account_summary"),
+    ("accountSummaryEnd", "account_summary_end"),
+    ("position", "position_update"),
+    ("positionEnd", "position_end"),
+)
+
+
+def test_account_and_position_overrides_and_signals_are_absent():
+    for method_name, signal_name in _ACCOUNT_PAIRS:
+        # ``IBApiClient`` inherits ``EWrapper``, whose base stubs are ibapi's
+        # dispatch machinery and are never ``None``; "the override is absent"
+        # therefore means the class no longer defines it, and the name still
+        # resolves to that untouched base stub rather than to app code.
+        assert method_name not in vars(IBApiClient), (
+            f"{method_name} override survived the P23 deletion"
+        )
+        assert getattr(IBApiClient, method_name) is getattr(EWrapper, method_name)
+        assert hasattr(IBBridge, signal_name) is False, (
+            f"{signal_name} signal survived the P23 deletion"
+        )
+
+
+def test_no_presence_assertion_for_the_dropped_account_names_survives():
+    dropped = tuple(name for pair in _ACCOUNT_PAIRS for name in pair)
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    presence: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assert):
+            continue
+        claim = ast.unparse(node.test)
+        if claim.startswith("not ") or re.search(r"\bis (?:None|False)\b", claim):
+            continue  # an absence claim — the phase-final polarity
+        if any(re.search(rf"\b{re.escape(name)}\b", claim) for name in dropped):
+            presence.append(claim)
+    assert presence == [], (
+        f"presence assertions for deleted account/position members: {presence}"
+    )
+
+
+def test_docstring_states_the_phase_final_ac5_invariants():
+    docstring = __doc__ or ""
+    assert "AC5 —" in docstring, "the AC5 bullet is missing"
+    ac5 = docstring.split("AC5 —", 1)[1]
+
+    assert "ui/main_window.py" in ac5
+    assert "single designed caller" in ac5
+    assert "ABSENT" in ac5
+    for stale in ("yet", "still present", "P23-T11", "deletes"):
+        assert re.search(rf"\b{re.escape(stale)}\b", ac5) is None, (
+            f"the AC5 bullet still carries wave-scoped wording: {stale!r}"
+        )
+
+
+def test_residue_carve_out_entry_is_earned_or_gone():
+    residue = Path(__file__).resolve().parent / "test_d65_residue.py"
+    tree = ast.parse(residue.read_text(encoding="utf-8"))
+    carve_out = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "TOKEN_CARVE_OUT"
+            for target in node.targets
+        ):
+            carve_out = tuple(ast.literal_eval(node.value))
+    assert carve_out is not None, "TOKEN_CARVE_OUT is missing"
+
+    if "tests/test_d65_option_chain.py" not in carve_out:
+        return  # dropped: nothing to justify
+    text = Path(__file__).read_text(encoding="utf-8")
+    for signal_name in ("account_summary", "account_summary_end",
+                        "position_update", "position_end"):
+        assert signal_name in text, (
+            "this file keeps a carve-out entry but no longer spells "
+            f"{signal_name} in its absence assertions"
+        )
 
 
 def test_no_order_building_or_transmit_call_added():
