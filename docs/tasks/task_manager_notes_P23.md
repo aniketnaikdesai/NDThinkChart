@@ -303,3 +303,99 @@ consolidated before the ESC-118 rework re-blocked T13); it gates nothing and is 
 **Verification.** `check_tasks.py`: `OK: 15 tasks validated, execution_graph.json written` (exit 0,
 `graph_struct_sha256` regenerated); the only P23-T13 warning is the pre-existing "pure-output file" note
 for the new `tests/test_d65_residue.py`. Metadata left at `"status": "READY_FOR_BUILD"`.
+
+## ESC-119 — engine-owned session reset, live `toggle_off()`, no constructor re-entry
+
+**Source:** `docs/code_review/escalations.json` ESC-119 (should-fix, `routed_to: TASK_MANAGER`,
+`task_id: P23-T9`). Diagnosis accepted as given — ESC-117's rework reset the engine from
+`ui/main_window.py::_option_reset_engine` by re-running `SpreadEngine.__init__`, which orphaned
+`SpreadEngine.toggle_off()` (zero tree-wide callers) and would silently drop the `clock=` seam on
+re-entry. The root cause the escalation names is a breakdown omission, not a build defect:
+`services/option_spread_engine.py` was never in the owning task's `touches_files`, so the engine half
+of the reset had no home and the worker reached through the constructor. Owner-approved direction
+("yes" and "fix it", 2026-11-18): `reset_session()` on the engine, `toggle_off()` delegating to it,
+and the UI calling those instead of re-initialising.
+
+**Scoping decision — a new task, not a T9 footprint patch.** The fix is production work in two
+modules, and `P23-T9` is `done` and is the dependency edge under T10–T15; resetting it would re-run
+an M task (chain discovery, registry replay, spot tiers, cadence) to add ~20 lines, and would make its
+record claim writes it never made. So the owning task is **new `P23-T16`**, whose `touches_files`
+**does** include `services/option_spread_engine.py` — that is the escalation's footprint point
+resolved at the task that owns the fix, not retro-fitted onto a task whose work is finished and whose
+rework already landed. `P23-T9` itself is unchanged (status stays `done`).
+
+**New task `P23-T16` — "Engine-owned session reset … (ESC-119)", `build_worker`, `size: M`,
+`status: not_started`, deps `[P23-T9]`.** Three ACs, one test each; `touches_files`
+`[services/option_spread_engine.py, ui/main_window.py, tests/test_d65_spread_engine.py,
+tests/test_d65_option_stream.py]`.
+
+- **AC1 — `reset_session()` is the single owner of a session clear.** Built as
+  `SpreadEngine(clock=<injected>, target=<t>)` and driven through a full session (ON, chain, quotes,
+  spot, greeks, leased/subscribed legs, reqIds, window and both anchors, a seed, a latched message, a
+  dropped pair, a stale leg, a frozen walk with a pending re-seat), every field `__init__` initialises
+  is back at its `__init__` value **except the injected clock and the Target**; `_now()` still reads
+  the same clock and `target` is unchanged (so the reset performs no `set_target` invalidation). Test
+  `P23-T16-AC1` (unit, `tests/test_d65_spread_engine.py`) asserts that state set plus the clock/Target
+  preservation via the suite's existing `Clock` helper.
+- **AC2 — `toggle_off()` stays live and delegates.** It produces exactly AC1's clean state (not the
+  old two-flag stub), `ui/main_window.py`'s OFF path calls it, `_option_reset_engine` is gone, no
+  production module calls `SpreadEngine.__init__` on an existing engine, and the class docstring's
+  public-API list names both `toggle_off()` and `reset_session()`. Test `P23-T16-AC2` (unit) asserts
+  the identical clean state from `toggle_off()` **and** the discriminating source shape — this is the
+  mechanical form of the escalation's "no dead symbol, methods included": a re-orphaned `toggle_off()`
+  or a reintroduced `.__init__` reach-through fails it.
+- **AC3 — OFF and cutoff are the same clean engine, with no re-`__init__`.** On a live window with 16
+  streamed legs and a non-default Target, `_option_stop()` empties the session through `toggle_off()`
+  and `_option_enter_cutoff()` through `reset_session()`, keeping the same engine instance, the Target
+  and the injected clock object, with `SpreadEngine.__init__` executing zero further times
+  (counter installed after the window is built). Test `P23-T16-AC3` (integration,
+  `tests/test_d65_option_stream.py`) drives the real toggle and the real cutoff.
+- **Pack** (7 `read_files` entries over 4 distinct files): the engine's `__init__` field list +
+  lifecycle (`278-400`), its docstring public-API list (`76-92`), the UI edit sites (`2055-2140`), the
+  engine's construction site read-only (`885-900`, showing `SpreadEngine()` takes no clock so the seam
+  is on the instance), the `Clock`/`seed_engine` conventions (`40-150`), and the two stream-test
+  groups this task extends or must keep green (`493-600`, `920-985`). Five contracts: three `new`
+  (`reset_session(self) -> None`; `toggle_off(self) -> None  # body: self.reset_session()`;
+  the two UI call shapes) and two `existing` refs (`_option_stop`, `_option_enter_cutoff`). No pack
+  prose contradicts an AC: the reset's preservation rule is stated once in AC1 and restated as the
+  pack's `why` for `278-400`, and each guarantee names its enforcing test (AC1 → `P23-T16-AC1`,
+  AC2 → `P23-T16-AC2`, AC3 → `P23-T16-AC3`).
+- `doc_required: false` — the OFF/cutoff states the user sees are unchanged; this removes a
+  constructor reach-through and gives the reset an owner, it does not alter documented behaviour.
+  `architecture.md:9462` already lists `toggle_on()`/`toggle_off()`; adding `reset_session()` does not
+  contradict it (it is a public-surface list, not a closed set) and no Plan-owned doc is edited here.
+
+**Dependency verdict.** `P23-T16 ← P23-T9` (its edit sites, and the OFF/cutoff wiring whose reset it
+replaces). It needs no edge to T7/T8 (`SpreadEngine`'s session fields) because T9 already depends on
+both, and none to T13 (the residue gate enumerates module-level symbols only, so a live method is
+invisible to it) or T15 (disjoint files, no shared contract). No cycle: T16 is a leaf.
+
+## ESC-120 — `P23-T15-AC2` restated as the discriminating predicate
+
+**Source:** `docs/code_review/escalations.json` ESC-120 (nice-to-have, `routed_to: TASK_MANAGER`,
+`task_id: P23-T15`). `IBApiClient(EWrapper, EClient)` inherits `EWrapper`'s base stubs, so the AC's
+`getattr(IBApiClient, name, None) is None` is unsatisfiable for the four deleted overrides — a green
+tree cannot satisfy its own AC. Owner-approved: assert the class does not **override** them.
+
+**Change, `P23-T15` only — AC2 wording (and the matching test's `linked_acceptance_criterion`,
+`description` and `expected_result`).** AC2 now states: `name not in vars(IBApiClient)` and
+`getattr(IBApiClient, name) is getattr(EWrapper, name)` for each of the four callbacks (the attribute
+resolves only because `IBApiClient` inherits the base stub), `hasattr(IBBridge, signal_name) is False`
+for each of the four signals, and the AC says in words that the `getattr(..., None) is None` form is
+unsatisfiable here and is not used. Intent unchanged: "the app no longer supplies these callbacks".
+
+**No re-dispatch, no status change.** `P23-T15` stays `done`: the delivered case
+(`tests/test_d65_option_chain.py:595-607`, verified on the live tree) already asserts exactly this
+discriminating form — `name not in vars(IBApiClient)`, identity with the `EWrapper` stub, and the
+absent signals — so the tree needs no edit and the AC is being brought to what the test enforces, not
+the other way round. No other T15 field changed (`touches_files`, `expected_artifacts`, contracts,
+dependencies, `status` all untouched).
+
+**Carry-forward note for future packs.** Do not phrase an "is absent" predicate as
+`getattr(cls, name, None) is None` for any `EWrapper`/`EClient` callback: ibapi's base stubs make it
+unsatisfiable. The discriminating form is "not in `vars(cls)` and identical to the base stub".
+
+**Verification.** `check_tasks.py`: `OK: 16 tasks validated, execution_graph.json written` (exit 0;
+warnings are only the pre-existing "pure-output file" pack notes — `P23-T16` raises none, as all four
+of its `touches_files` appear in its pack). `graph_struct_sha256` regenerated. Metadata left at
+`"status": "READY_FOR_BUILD"`; `P23-T16` is the only `not_started` task, so it is the next frontier.

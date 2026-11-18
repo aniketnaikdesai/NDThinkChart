@@ -80,7 +80,7 @@ The second half (``P23-T8``) adds the maintenance surface on the same class:
 Public API::
 
     SpreadEngine(clock=None, target=1.00)
-    toggle_on() / toggle_off() / set_target(target)
+    toggle_on() / toggle_off() / reset_session() / set_target(target)
     on_chain(series) / on_no_expiry() / on_quote(leg, bid, ask, rb, ra) /
     on_spot(price)
     begin_seed(now) / seed_actions() / seed_state() / evaluate(now)
@@ -276,7 +276,12 @@ def _q(value: float) -> float:
 
 
 class SpreadEngine:
-    """The pure option-spread seeding state machine (D65, part 1)."""
+    """The pure option-spread seeding state machine (D65, part 1).
+
+    The engine's OFF entry point is :meth:`toggle_off`, and the whole session
+    reset lives in :meth:`reset_session`; both preserve the injected clock and
+    the Target.
+    """
 
     def __init__(self, clock: Optional[Callable[[], float]] = None, target: float = 1.00):
         self._clock = clock
@@ -362,8 +367,55 @@ class SpreadEngine:
         self._on = True
 
     def toggle_off(self) -> None:
+        """The OFF entry point: discard the session, keeping clock and Target."""
+        self.reset_session()
+
+    def reset_session(self) -> None:
+        """Return the engine to its clean pre-ON session state (``AC-D65.9``).
+
+        Every field :meth:`__init__` initialises is restored to its initial
+        value **except** the injected clock (``_clock``) and the Target
+        (``_target``): the clock seam survives the reset, and the Target is an
+        owner setting rather than session state -- :meth:`set_target` stays its
+        only writer, so this reset performs no Target invalidation. No leased or
+        subscribed leg, window, anchor, quote, spot, greek, reqId, stale flag,
+        dropped pair, seed state, re-seat queue, latched message or reconnect
+        state survives, so the next ON re-seeds and re-subscribes from scratch.
+        """
         self._on = False
+        self._now_value = None
+        self._series = None
+        self._expiry = ""
+        self._symbol = "SPX"
+        self._quotes = {}
+        self._spot = None
+        self._spot_subscribed = False
+        self._leased = set()
+        self._subscribed = set()
+        self._subscribed_at = {}
+        self._window_legs = {}
+        self._anchors = {}
+        self._session_anchor = {}
+        self._session_anchor_expiry = ""
         self._seed_active = False
+        self._seed_started = 0.0
+        self._seed_scored = 0
+        self._seed_bounded = None
+        self._seed_sides = {}
+        self._latched = set()
+        self._pending_messages = []
+        self._req_ids = {}
+        self._greeks = {}
+        self._dropped = set()
+        self._no_value = set()
+        self._stale = set()
+        self._stale_after = {}
+        self._walk_frozen = False
+        self._disconnected_at = None
+        self._reconnect_at = None
+        self._reseed_done = False
+        self._pending_reseat = {}
+        self._reseat_counts = {}
 
     @property
     def target(self) -> float:

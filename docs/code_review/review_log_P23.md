@@ -166,4 +166,91 @@ until the owner runs it or records an explicit waiver. The repository documentat
 (`docs/phase-changelog.md` has no D65/P23 entry yet; `plan.md`/`architecture.md` as-built sync) is
 also owner-gated and outside this review.
 
+# Code Review — P23 rework pass (ESC-116 / ESC-117 / ESC-118 closed)
+
+**Pass:** phase-final, **full pass** (phase-final always full; and the verification artefact handed to this pass was stale, so nothing was tiered down).
+**Scope (incremental):** P23-T9, P23-T13, P23-T15 — the three results newer than this log's previous `REVIEW_COMPLETE` marker (`precheck.json` scope, 0 `fail_fast`, 0 unattributed tree changes, one informational overlap: `tests/test_d65_residue.py` used by both T13 and T15).
+**Tree:** `bb5d540`, clean; `git show --stat` = 2 production files + 3 test files + coordination docs. No footprint violation.
+**Verdict:** all three reworks hold on the live tree; **ESC-116, ESC-117, ESC-118 flipped to `addressed`** after independent re-verification. Two **new, non-blocking** findings are opened: **ESC-119** (should-fix, TASK_MANAGER — the ESC-117 fix orphaned `SpreadEngine.toggle_off()`, and the standing gate cannot see dead methods) and **ESC-120** (nice-to-have, TASK_MANAGER — P23-T15-AC2 states a predicate that is unsatisfiable). The owner gates (AC-D65.19, phase changelog) are unchanged and still pending.
+
+---
+
+## 0. Verification provenance — the handed suite verdict was STALE (no action, but do not trust that file again)
+
+`docs/code_review/test_verification.json` (mtime **18:29:59**) predates both the rework results (`19:01`–`19:10`) and commit `bb5d540` (**19:10:31**), and still reported `verdict: fail` on the two ESC-116 cases. It was older than `build_log.md` (19:10:26), so per the standalone fallback I re-ran the verifier myself:
+
+```
+verify_tests.py --command ".venv/bin/python -m pytest -q -m 'not webengine'"
+-> VERIFY: pass  exit=0  85.0s   (rewrote docs/code_review/test_verification.json)
+```
+
+Ground truth: **the full suite is green on the committed tree.** The stage handed the reviewer a pre-rework verdict while asserting "precheck clean"; that combination is the one that could have closed a red phase as green, so it is recorded here as a process hazard. Per-task attribution, also run by me: `tests/test_d65_option_stream.py` → 27 passed; `tests/test_d65_option_chain.py tests/test_d65_residue.py` → 71 passed.
+
+## 1. ESC-116 — CLOSED (`addressed`)
+
+Both stale contracts were re-pointed by **P23-T15** (the task ESC-116 asked Task Manager to create), not softened:
+
+- `test_no_unadmitted_production_caller` now scans through `_scan_callers`, admitting only `ibkr/` plus a **line-level** allowlist of seven named P23-T9 wiring sites in `ui/main_window.py` (3 helper imports, `req_sec_def_opt_params`, the `option_params` / `option_params_end` / `option_computation` connects). It additionally asserts `admitted == set(_ADMITTED_MAIN_WINDOW_LINES)`, so it cannot pass by finding nothing. Discrimination is proven twice in-tree: `test_seeded_non_ibkr_caller_is_still_reported` (`ui/rogue.py` offender reported) and `test_seeded_mention_outside_the_admitted_lines_is_still_reported` (a `main_window.py` mention outside the admitted lines reported).
+- `test_account_and_position_overrides_and_signals_are_absent` asserts `name not in vars(IBApiClient)` + identity with the inherited `EWrapper` stub + `hasattr(IBBridge, signal) is False`, for all four pairs; `test_no_presence_assertion_for_the_dropped_account_names_survives` AST-walks the suite's own asserts so a presence assertion cannot creep back.
+- The AC5 docstring bullet states the phase-final truth with no `yet` / `still present` / `deletes` wording, machine-enforced by `test_docstring_states_the_phase_final_ac5_invariants`; the residue carve-out rationale was corrected and is enforced by `test_residue_carve_out_entry_is_earned_or_gone`.
+
+Framework fact checked by me: `class IBApiClient(EWrapper, EClient)` (`ibkr/client.py:46`) — `getattr(IBApiClient, name, None)` is **never** `None` for the four callbacks, which is why AC2 was reworded (see ESC-120). No test was deleted or weakened.
+
+## 2. ESC-117 — CLOSED (`addressed`), with the reset's home tracked as ESC-119
+
+Re-verified by reading the code and running the three new cases (all green):
+
+| requirement | evidence |
+|---|---|
+| OFF → `live_legs()` empty, rows cleared, zero reqIds | `test_P23_T9_AC2_second_on_rebuilds_the_session_and_streams_fresh_values`: `live_legs()==set()`, `rows()=={}`, `_option_leg_req=={}`, `_option_req_ids=={}`, `_option_spot_req_id is None`, `entries_of_type(OPTION_LEGS)==[]`, fake counts `(0,0)`, `_md_line_count()==0`, every CCS/PCS cell cleared |
+| deferred retry cannot open a line | `_option_subscribe_leg` now returns unless `_option_active and not _option_cutoff` (before the reqId/window gates); `test_P23_T9_AC2_deferred_leg_retry_after_off_opens_no_line`; `_option_ensure_spot` already carried the guard |
+| 16:15 cutoff behaves like OFF | `_option_enter_cutoff` now also drops the chain lookup/reqId/params, drains messages and resets; `test_P23_T9_AC5_cutoff_discards_the_session_and_blocks_deferred_lines` |
+| same-session ON re-seeds from fresh values, ≤16 + 1 | `>=16` fresh `OPT` subscribes with every live row's reqId in the post-OFF subscribe set, `max option <= 16`, `option+spot <= 17`, and a changed bid reaches the cell |
+
+**Red-by-construction:** the second-ON case's first assertion after OFF is `live_legs()==set()` — the exact state ESC-117 measured as `16` pre-fix — so it discriminates; the deferred-retry case is red pre-fix for the same reason.
+
+**Soundness of resetting by re-initialising the same instance** (asked explicitly; `services/option_spread_engine.py` was outside T9's footprint):
+
+- **Identity:** preserved trivially — `_option_engine` has exactly one holder (`ui/main_window.py:893`); `ui/option_spreads_panel.py` holds no engine reference. The test asserts object identity.
+- **Target:** survives explicitly (`__init__(target=self._option_engine.target)`); `_target` is the only owner setting on the engine.
+- **No orphaned Qt timer/signal:** `SpreadEngine` is a plain Python class (`:278`, no `QObject`, no `pyqtSignal`, no `QTimer`), and all its session state is assigned in `__init__`, so re-running `__init__` creates nothing to leak or double-connect.
+- **Nothing else dropped today:** production builds `SpreadEngine()` with no clock, and no test injects a clock through `MainWindow`.
+- **Post-OFF pollution:** the two engine lifecycle hooks are gated (`_on_disconnected` on `_option_active and not _option_cutoff`; `on_reconnected` on `_option_active`), so the fresh post-reset engine cannot be re-polluted while OFF.
+
+**Judgement, as requested: an engine-level `reset_session()` is the better home and should be the follow-up.** The UI-side `__init__` re-entry is a private-API reach-through, would silently drop the `clock=` seam if one were ever injected, and — concretely — left `SpreadEngine.toggle_off()` with **zero callers**. That is ESC-119.
+
+## 3. ESC-118 — CLOSED (`addressed`)
+
+- `OptionSpreadEngine` has **0** occurrences in any `.py`; remaining mentions are planning records only (`task-graph.json` P23-T7 signature / P23-T13 pack text, build log, wave packs, this log) — no definition, no importer.
+- `CENSUS_ALLOWLIST == {}` (`tests/test_d65_residue.py:127`); the carve-out no longer exists to excuse anything, and its comment states the standard (a code registration site, never a document mention).
+- The check is now evidence-based: `citation_violation()` requires `<repo-relative .py>:<line> — <how it is invoked>` (a `.json`/`.md` path cannot match), the path must be gate-scanned, the line must be in range, and `_invokes_by_name()` AST-verifies a call argument/keyword value, a class base, or a name-keyed string constant at that line.
+- Seeded-red proof runs in-tree: `test_census_allowlist_rejects_a_document_mention` feeds the **exact** task-graph string from the escalation plus a `docs/plan.md` citation plus a bare definition line and rejects all three while accepting a real `signal.connect(handler)` site; the dead-symbol, unconnected-signal and red-then-green fixture cases still assert RED. Count: 36 passed (was 35).
+- Scope note (not a re-open): clause (i) enumerates **module-level** public names only (`_defined_symbols` walks `ast.parse(text).body`), so dead methods are invisible to it — folded into ESC-119.
+
+## 4. New finding — ESC-119 (should-fix, TASK_MANAGER): the ESC-117 fix orphaned a documented public method
+
+`SpreadEngine.toggle_off()` (`services/option_spread_engine.py:364`) now has **zero callers** (tree-wide grep: the def, the class docstring `:83`, and `docs/architecture.md:9462` / `docs/plan.md:6070`, which still document it as the engine's OFF entry point). Pre-rework both `_option_stop` and `_option_enter_cutoff` called it, so `bb5d540` created the dead symbol.
+
+**Root cause is the breakdown, not the worker.** ESC-117's own `suggested_direction` said "Add an explicit engine session reset … call it from `_option_stop` and `_option_enter_cutoff`" and warned that the engine file sat outside P23-T9's `touches_files`. T9's footprint was **not** extended, and the P23-T13 rework pack scoped `services/option_spread_engine.py` to "that single deletion and nothing else", so the worker had no footprint for the engine-side reset and reached through `__init__` from the UI.
+
+**Why TASK_MANAGER and not BUILD:** this is a second case of the invariant ESC-118 was opened for ("no unused code; the gate must mechanically catch it") — one invariant, one task-definition fix, not a third BUILD patch. The gate as built cannot see it: `_defined_symbols` walks only top-level nodes. ESC-119 asks Task Manager to either make `toggle_off()` the engine-side reset (preferred: restores the documented caller, removes the `__init__` reach-through, keeps the clock seam) or delete it with the Plan-owned surfaces synced, **and** to state whether clause (i) is meant to cover class methods.
+
+## 5. New finding — ESC-120 (nice-to-have, TASK_MANAGER): P23-T15-AC2 asserts an impossible predicate
+
+AC2 says the overrides are absent when "`getattr(IBApiClient, name, None) is None`". `IBApiClient(EWrapper, EClient)` inherits ibapi's base stubs, so that is never `None`. Measured on the tree: `getattr(...) is None` → **False ×4**, `name in vars(IBApiClient)` → **False ×4**, `getattr(...) is getattr(EWrapper, ...)` → **True ×4**, signals absent → **False ×4**. The delivered case asserts the truthful, stronger form and documents the deviation; only the AC wording needs correcting so a later reader cannot mistake a green case for one that fails its own AC. No rework required.
+
+## 6. Full-pass duties
+
+- **Mock/fake/stub scan (B.6, blocking invariant).** Grepped the rework diff (`bb5d540`) for `mock|fake|stub|simulat` × `endpoint|client|service|server|api|harness`: all hits are in `docs/` prose, in `tests/` fixtures (`_make_window`, `fake`), and one test comment explaining the `EWrapper` base stub. Production files changed are exactly `ui/main_window.py` and `services/option_spread_engine.py`; no mock endpoint, fake client/service, or harness in production, and no production module imports a test fake. **Clean.**
+- **Usage docs (ruling for T13's `doc_required_unmet`).** `usage.md` **is** the project's user doc and it documents the phase's user-facing change: UI-overview row at `:128` ("Option Spreads (Right Dock) … Target credit field (0.05–19.95) and an ON/OFF switch … no order entry, close or cancel controls") and the workflow section at `:189`. This rework changed **no** user-facing behaviour (a dead alias deletion, a UI-side session reset, test re-points), so no doc update was required in this diff. **Ruling: met — nothing to do.** `USAGE.txt` correctly untouched (quick-start pointer, no panel inventory).
+- **Pack-prose spot-check.** P23-T15's pack prose vs its ACs surfaced ESC-120 (an AC whose stated predicate contradicts the framework, not a prose/AC disagreement and not a guarantee without a test — every T15 guarantee names its enforcing case). The first-task and guarantee-word sample (T1, T8, T10, T12) was checked last pass with no contradiction; T13's "state that AC-D65.19 is open rather than claiming it" is honoured in the delivered summary/gate record.
+- **Residue gate on the tree.** `tests/test_d65_residue.py` 36 passed as part of my run; its own seeded fixtures still assert RED (a green suite is the pair's required second half).
+- **AC-D65.19 owner gate.** `docs/archive/probe_records/d65_paper_tws_acceptance.md`: **6** `Result: PENDING`, **0** checked boxes, every evidence field empty, sign-off blank, and the file states in prose that nothing on the page may be read as a pass. **Nothing was fabricated.** Still owner-gated.
+- **`docs/phase-changelog.md`.** No `D65` / `P23` / "Option Spread" entry (grep: 0 hits; last modified Oct 28). Unchanged and correctly owner-gated — this review did not touch it.
+- **Escalation close-out.** The three open entries (`ESC-116/117/118`) were the only open items; each is now `addressed` in place with its re-verification evidence. `precheck.json`'s `escalation_updates` (all three `changed_since_last_review: true`) matched reality.
+
+## 7. For the Orchestrator / owner
+
+The three reworks are **closed and verified**; the phase's production behaviour is sound and the suite is green on `bb5d540`. Two new items remain open, both TASK_MANAGER-owned and **neither blocking**: **ESC-119** (should-fix — decide `toggle_off()`'s fate / clause (i)'s method scope; this is also the answer to "should `reset_session()` be an engine-side follow-up": yes) and **ESC-120** (nice-to-have — one AC's wording). Unchanged owner gates: the **paper-TWS acceptance** (`AC-D65.19`, P23-T14, all six items PENDING) and the repository documentation gate (`docs/phase-changelog.md` has no D65 entry; `plan.md`/`architecture.md` as-built sync).
+
 Status: REVIEW_COMPLETE

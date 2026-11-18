@@ -2058,18 +2058,6 @@ class MainWindow(QMainWindow):
         self._option_request_chain()
         self._option_eval_timer.start()
 
-    def _option_reset_engine(self) -> None:
-        """Return the engine to its clean pre-ON session state (AC-D65.9).
-
-        ``SpreadEngine`` keeps every piece of session state on ``__init__``, so
-        re-initialising the same instance is the reset: no leased or subscribed
-        leg, window, anchor, quote, stale flag, seed state or reconnect state
-        survives, and the next ON re-seeds and re-subscribes from scratch. The
-        instance identity is preserved for any holder of ``_option_engine``, and
-        the Target (an owner setting rather than session state) carries over.
-        """
-        self._option_engine.__init__(target=self._option_engine.target)
-
     def _option_stop(self) -> None:
         """Switch OFF: release every line and discard the session engine."""
         self._option_active = False
@@ -2088,7 +2076,10 @@ class MainWindow(QMainWindow):
         # after it; _option_subscribe_leg/_option_ensure_spot re-check the
         # panel state on every deferred call.
         self._option_engine.take_messages()
-        self._option_reset_engine()
+        # The engine owns the reset (AC-D65.9): the same instance drops its
+        # whole session while its clock seam and Target survive, so OFF never
+        # re-enters SpreadEngine.__init__.
+        self._option_engine.toggle_off()
         self._option_status = None
         self._option_empty_text = None
         self._option_seed_was_active = False
@@ -2124,8 +2115,9 @@ class MainWindow(QMainWindow):
         self._option_engine.take_messages()
         # AC-D65.8: the cutoff ends the session just like OFF -- the engine's
         # legs, anchors and quotes are discarded so no stale price survives and
-        # no deferred retry can re-open a line after 16:15 ET.
-        self._option_reset_engine()
+        # no deferred retry can re-open a line after 16:15 ET. The engine's own
+        # reset keeps the clock seam and the Target and never re-runs __init__.
+        self._option_engine.reset_session()
         self._option_seed_was_active = False
         self._option_empty_text = OPTION_CUTOFF_EMPTY_STATE
         self.option_spreads_panel.apply_snapshot([], [])

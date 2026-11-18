@@ -1118,3 +1118,108 @@ def test_P23_T9_AC6_no_order_call_in_any_state(monkeypatch, qapp):
         assert fake.orders == []
     finally:
         win.close()
+
+
+# ---------------------------------------------------------------------------
+# ESC-119 — the engine owns the reset: OFF and the 16:15 cutoff never re-init
+# ---------------------------------------------------------------------------
+
+
+def _counting_init(monkeypatch):
+    """Count every SpreadEngine construction from here on (must stay 0)."""
+    from services.option_spread_engine import SpreadEngine
+
+    calls: list[object] = []
+    real_init = SpreadEngine.__init__
+
+    def counting_init(self, *args, **kwargs):
+        calls.append(self)
+        return real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(SpreadEngine, "__init__", counting_init)
+    return calls
+
+
+def _assert_empty_engine(engine, *, clock, target, live):
+    """AC1's empty-session state on the live engine, clock and Target intact."""
+    assert engine.live_legs() == set()
+    assert engine.rows() == {}
+    assert all(engine.req_id(item) is None for item in live)
+    assert engine.anchor("CCS") is None and engine.anchor("PCS") is None
+    assert engine.seed_state().active is False
+    assert engine.walk_frozen is False
+    assert engine.stale_legs() == set()
+    assert engine.take_messages() == []
+    assert engine.latched_causes() == []
+    assert engine.target == target
+    assert engine._clock is clock
+
+
+def test_P23_T16_AC3_off_and_cutoff_empty_the_live_engine_without_reinit(
+        monkeypatch, qapp):
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        _toggle_on(win, fake)
+        _deliver_chain(win, fake)
+        _settle(win, fake)
+
+        engine = win._option_engine
+        live = set(engine.live_legs())
+        assert len(live) == 16
+        bound = sorted(live, key=lambda key: (key.right, key.strike))[0]
+        engine.rebind_leg(bound, 7777)
+        assert engine.req_id(bound) == 7777
+        win._option_engine.set_target(2.00)
+        clock = lambda: 424242.0
+        engine._clock = clock
+
+        calls = _counting_init(monkeypatch)
+        win.option_spreads_panel.toggle_button.click()  # OFF
+
+        assert win.option_spreads_panel.toggle_state() is False
+        assert calls == []
+        assert win._option_engine is engine
+        _assert_empty_engine(engine, clock=clock, target=2.00, live=live)
+        assert win._option_leg_req == {}
+        assert win._option_req_ids == {}
+        assert win._option_spot_req_id is None
+        assert fake.counts() == (0, 0)
+        assert win._md_line_count() == 0
+        assert fake.orders == []
+    finally:
+        win.close()
+
+    # The cutoff path on a freshly opened live window: the same empty session
+    # through reset_session(), the same instance, no further __init__.
+    win2, fake2 = _make_window(monkeypatch, qapp)
+    try:
+        _toggle_on(win2, fake2)
+        _deliver_chain(win2, fake2)
+        _settle(win2, fake2)
+
+        engine2 = win2._option_engine
+        live2 = set(engine2.live_legs())
+        assert len(live2) == 16
+        bound2 = sorted(live2, key=lambda key: (key.right, key.strike))[0]
+        engine2.rebind_leg(bound2, 7778)
+        assert engine2.req_id(bound2) == 7778
+        win2._option_engine.set_target(2.00)
+        clock2 = lambda: 515151.0
+        engine2._clock = clock2
+
+        calls.clear()
+        win2._option_enter_cutoff()
+
+        assert win2._option_cutoff is True
+        assert calls == []
+        assert win2._option_engine is engine2
+        _assert_empty_engine(engine2, clock=clock2, target=2.00, live=live2)
+        assert win2._option_leg_req == {}
+        assert win2._option_req_ids == {}
+        assert win2._option_spot_req_id is None
+        assert fake2.counts() == (0, 0)
+        assert win2._md_line_count() == 0
+        assert fake2.orders == []
+    finally:
+        win2.close()
+

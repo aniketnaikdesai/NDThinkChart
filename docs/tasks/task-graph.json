@@ -2160,7 +2160,7 @@
       ],
       "acceptance_criteria": [
         "Given the finished tree, When the caller sweep enumerates every production module (tests/, docs/, .venv and tooling excluded), Then a hit is admissible only in ibkr/ or in the designed P23-T9 wiring in ui/main_window.py - its get_option_contract / select_zero_dte_series / today_expiry_yyyymmdd imports, its option_params / option_params_end / option_computation connects and its on-chain, submit-leg and ensure-spot call sites - so the sweep passes on the real tree, and it stays discriminating: a seeded offender in a temporary non-ibkr, non-main_window production tree is still reported, so the assertion names the one designed caller instead of being emptied or deleted.",
-        "Given the finished tree, Then the four account/position EWrapper overrides (accountSummary, accountSummaryEnd, position, positionEnd) and their four bridge signals (account_summary, account_summary_end, position_update, position_end) are ABSENT - getattr(IBApiClient, name, None) is None and hasattr(IBBridge, signal_name) is False for every one, matching P23-T11-AC1 and tests/test_ui_smoke.py's absence block - and no presence assertion for them survives anywhere in this suite.",
+        "Given the finished tree, Then IBApiClient no longer OVERRIDES the four account/position EWrapper callbacks (accountSummary, accountSummaryEnd, position, positionEnd) - for every one, name not in vars(IBApiClient) and getattr(IBApiClient, name) is getattr(EWrapper, name), so the attribute still resolves only because IBApiClient inherits EWrapper's base stub - and the four bridge signals (account_summary, account_summary_end, position_update, position_end) are absent from IBBridge (hasattr(IBBridge, signal_name) is False for every one), matching P23-T11-AC1 and tests/test_ui_smoke.py's absence block. The predicate is the discriminating one: an inherited ibapi stub is never None, so `getattr(..., None) is None` would be unsatisfiable and is not used; and no presence assertion for these names survives anywhere in this suite.",
         "Given the suite's module docstring and tests/test_d65_residue.py's TOKEN_CARVE_OUT, Then the docstring's AC5 bullet states the two phase-final invariants (no wave-scoped 'yet' / 'still present' wording and no 'P23-T11 deletes them' future tense), and the tests/test_d65_option_chain.py carve-out entry is either dropped or kept with a reason that describes what the file now contains (absence assertions spelling the dropped signal names), with tests/test_d65_residue.py's carve-out-entries-spell-a-token check green either way."
       ],
       "tests": [
@@ -2173,10 +2173,10 @@
         },
         {
           "test_id": "P23-T15-AC2",
-          "linked_acceptance_criterion": "Given the finished tree, Then the four account/position EWrapper overrides (accountSummary, accountSummaryEnd, position, positionEnd) and their four bridge signals (account_summary, account_summary_end, position_update, position_end) are ABSENT - getattr(IBApiClient, name, None) is None and hasattr(IBBridge, signal_name) is False for every one, matching P23-T11-AC1 and tests/test_ui_smoke.py's absence block - and no presence assertion for them survives anywhere in this suite.",
+          "linked_acceptance_criterion": "Given the finished tree, Then IBApiClient no longer OVERRIDES the four account/position EWrapper callbacks (accountSummary, accountSummaryEnd, position, positionEnd) - for every one, name not in vars(IBApiClient) and getattr(IBApiClient, name) is getattr(EWrapper, name), so the attribute still resolves only because IBApiClient inherits EWrapper's base stub - and the four bridge signals (account_summary, account_summary_end, position_update, position_end) are absent from IBBridge (hasattr(IBBridge, signal_name) is False for every one), matching P23-T11-AC1 and tests/test_ui_smoke.py's absence block. The predicate is the discriminating one: an inherited ibapi stub is never None, so `getattr(..., None) is None` would be unsatisfiable and is not used; and no presence assertion for these names survives anywhere in this suite.",
           "type": "unit",
-          "description": "For each of the four overrides and four signals assert getattr(IBApiClient, method, None) is None and hasattr(IBBridge, signal_name) is False; assert the test module's own source carries no remaining presence assertion for those names.",
-          "expected_result": "All four overrides and their four signals absent; no positive-polarity assertion left in the suite."
+          "description": "For each of the four callbacks assert `name not in vars(IBApiClient)` and `getattr(IBApiClient, name) is getattr(EWrapper, name)` (the inherited base stub is what a correctly deleted override leaves behind; `getattr(..., None) is None` is unsatisfiable because IBApiClient inherits EWrapper), and for each of the four signals assert `hasattr(IBBridge, signal_name) is False`; then assert the test module's own source carries no remaining presence assertion for those names.",
+          "expected_result": "None of the four callbacks is defined by IBApiClient - each resolves to EWrapper's inherited stub, asserted by identity - and none of the four signals exists on IBBridge; no positive-polarity assertion left in the suite."
         },
         {
           "test_id": "P23-T15-AC3",
@@ -2282,6 +2282,142 @@
         "memory_refs": [],
         "size": "M",
         "needs_graphify": false
+      }
+    },
+    {
+      "id": "P23-T16",
+      "title": "Engine-owned session reset: SpreadEngine.reset_session(), live toggle_off(), no constructor re-entry from the UI (ESC-119)",
+      "description": "ESC-117's rework reset the engine by re-running SpreadEngine.__init__ from ui/main_window.py (_option_reset_engine), which left toggle_off() with zero callers and drops the clock= seam on re-entry. Give the reset a proper engine-level home: add SpreadEngine.reset_session() that clears the session state while preserving the injected clock and the Target; have toggle_off() delegate its clearing to it and stay the engine's live OFF entry point; and change ui/main_window.py so _option_stop() calls toggle_off() and _option_enter_cutoff() calls reset_session(), deleting _option_reset_engine so no production path re-initialises the object. No behaviour change to the user-visible OFF/cutoff states: they already discard the session.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [
+        "P23-T9"
+      ],
+      "acceptance_criteria": [
+        "Given a SpreadEngine built as SpreadEngine(clock=<injected callable>, target=<t>) and driven through a full session - ON, a chain, quotes, a spot, greeks, leased and subscribed legs, reqIds, a window and both anchors, a seed in progress, a latched message, a dropped pair, a stale leg and a frozen walk with a pending re-seat - When reset_session() is called, Then every field __init__ initialises is back at its __init__ value EXCEPT the injected clock and the Target: not ON, no series or expiry, live_legs() == set(), rows() == {}, req_id(leg) is None, both anchors gone, seed_state() active is False, walk_frozen is False, stale_legs() == set(), take_messages() == [] and latched_causes() == [], while _now() still reads the same injected clock and target is unchanged (set_target remains the only Target writer, so the reset performs no Target invalidation).",
+        "Given the same fully-driven engine, When toggle_off() is called, Then it delegates the whole clear to reset_session() and the engine ends in exactly the state AC1 describes (every session field at its __init__ value, clock and Target preserved), so the OFF entry point is a live method rather than a two-flag stub - and the tree keeps it live: ui/main_window.py's OFF path calls toggle_off() on the engine, the _option_reset_engine constructor re-entry is gone, no production module calls SpreadEngine.__init__ on an existing engine, and the class docstring's public-API list names both toggle_off() and reset_session().",
+        "Given a live window with 16 streamed option legs and a Target other than 1.00, When the panel is switched OFF (_option_stop()), Then the engine's session is empty by AC1's definition (zero live legs, zero rows, no reqIds, zero option and spot lines on the wire, no messages) through toggle_off(), with the Target and the engine's clock object intact, and When _option_enter_cutoff() runs on a live window, Then the same empty session results through reset_session(); on both paths SpreadEngine.__init__ executes zero further times on the live engine and the window keeps the same engine instance."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T16-AC1",
+          "linked_acceptance_criterion": "Given a SpreadEngine built as SpreadEngine(clock=<injected callable>, target=<t>) and driven through a full session - ON, a chain, quotes, a spot, greeks, leased and subscribed legs, reqIds, a window and both anchors, a seed in progress, a latched message, a dropped pair, a stale leg and a frozen walk with a pending re-seat - When reset_session() is called, Then every field __init__ initialises is back at its __init__ value EXCEPT the injected clock and the Target: not ON, no series or expiry, live_legs() == set(), rows() == {}, req_id(leg) is None, both anchors gone, seed_state() active is False, walk_frozen is False, stale_legs() == set(), take_messages() == [] and latched_causes() == [], while _now() still reads the same injected clock and target is unchanged (set_target remains the only Target writer, so the reset performs no Target invalidation).",
+          "type": "unit",
+          "description": "Build SpreadEngine(clock=Clock(), target=2.00) with the suite's existing helpers, drive it into full session state (seed fixture, a latched cause, a dropped pair, a stale leg, a frozen walk and a pending re-seat), call reset_session(), then assert the AC1 state set - live_legs(), rows(), req_id(leg), anchor() per side, seed_state().active, walk_frozen, stale_legs(), take_messages(), latched_causes() - and that _now() returns the injected Clock's value after advancing it, with target still 2.00.",
+          "expected_result": "Every __init__ initialised field is back at its initial value except the injected clock and the Target; _now() follows the injected clock; target reads 2.00 with no set_target call in the reset."
+        },
+        {
+          "test_id": "P23-T16-AC2",
+          "linked_acceptance_criterion": "Given the same fully-driven engine, When toggle_off() is called, Then it delegates the whole clear to reset_session() and the engine ends in exactly the state AC1 describes (every session field at its __init__ value, clock and Target preserved), so the OFF entry point is a live method rather than a two-flag stub - and the tree keeps it live: ui/main_window.py's OFF path calls toggle_off() on the engine, the _option_reset_engine constructor re-entry is gone, no production module calls SpreadEngine.__init__ on an existing engine, and the class docstring's public-API list names both toggle_off() and reset_session().",
+          "type": "unit",
+          "description": "Drive a second engine into the same full session state, call toggle_off(), and assert the identical clean state with clock and Target intact; then parse ui/main_window.py and services/option_spread_engine.py and assert _option_reset_engine is absent, the OFF path calls _option_engine.toggle_off(), no .__init__( call targets an engine object outside __init__ itself, and the module docstring's public-API list names both toggle_off() and reset_session().",
+          "expected_result": "toggle_off() leaves AC1's clean state with clock and Target intact; the source shape shows a live OFF caller, no constructor re-entry, and both names in the documented public API."
+        },
+        {
+          "test_id": "P23-T16-AC3",
+          "linked_acceptance_criterion": "Given a live window with 16 streamed option legs and a Target other than 1.00, When the panel is switched OFF (_option_stop()), Then the engine's session is empty by AC1's definition (zero live legs, zero rows, no reqIds, zero option and spot lines on the wire, no messages) through toggle_off(), with the Target and the engine's clock object intact, and When _option_enter_cutoff() runs on a live window, Then the same empty session results through reset_session(); on both paths SpreadEngine.__init__ executes zero further times on the live engine and the window keeps the same engine instance.",
+          "type": "integration",
+          "description": "Offscreen window + fake client: toggle ON, deliver the chain and stream all 16 legs, set win._option_engine.set_target(2.00) and install a local callable clock on win._option_engine._clock, then (after the window exists) wrap SpreadEngine.__init__ with a counter; click the panel toggle OFF and assert the AC1 clean engine state, win._option_engine is the same instance, target == 2.00, the clock object is identical and the __init__ counter is 0; repeat the counter/clock/target assertions for win._option_enter_cutoff() on a freshly opened live window.",
+          "expected_result": "OFF and cutoff each leave an empty engine session through toggle_off()/reset_session(), with the same instance, the Target and the clock object preserved and zero __init__ re-entry."
+        }
+      ],
+      "expected_artifacts": [
+        "services/option_spread_engine.py: SpreadEngine.reset_session(); toggle_off() delegating to it; the class docstring's public-API list naming both",
+        "ui/main_window.py: _option_reset_engine deleted; _option_stop() calls toggle_off(), _option_enter_cutoff() calls reset_session()",
+        "tests/test_d65_spread_engine.py: reset_session() and toggle_off() state-cleanliness cases (clock seam and Target preserved) plus the no-constructor-re-entry/dead-method source check",
+        "tests/test_d65_option_stream.py: OFF and cutoff leave a clean engine with no __init__ re-entry, Target and clock preserved"
+      ],
+      "touches_files": [
+        "services/option_spread_engine.py",
+        "ui/main_window.py",
+        "tests/test_d65_spread_engine.py",
+        "tests/test_d65_option_stream.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the engine's session state and lifecycle (P23-T7/T8)",
+        "the OFF/cutoff wiring and _option_reset_engine (P23-T9, and ESC-117's rework in ui/main_window.py)"
+      ],
+      "outputs": [
+        "SpreadEngine.reset_session() as the single owner of a session clear",
+        "a live toggle_off() called from the OFF path",
+        "no constructor re-entry from UI code"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "278-400",
+            "why": "edit: __init__'s field list is the exact set reset_session() must restore (every field except _clock and _target), and toggle_on/toggle_off plus target/set_target show the Target ownership the reset must not duplicate"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "76-92",
+            "why": "edit: the docstring's public-API list must name reset_session() beside the existing toggle_off()"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "2055-2140",
+            "why": "edit: delete _option_reset_engine; _option_stop() calls _option_engine.toggle_off(), _option_enter_cutoff() calls _option_engine.reset_session(); keep the take_messages() calls that precede the reset"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "885-900",
+            "why": "read-only: the engine is constructed as SpreadEngine() with no clock, so the clock seam lives on the instance and a re-__init__ would silently drop it"
+          },
+          {
+            "path": "tests/test_d65_spread_engine.py",
+            "lines": "40-150",
+            "why": "build target and conventions: the Clock helper and seed_engine fixture the two reset cases reuse; append the new cases at the end of this Qt-free/ibapi-free suite"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "493-600",
+            "why": "edit: the existing 'second ON rebuilds the session' case is the OFF-cleanup contract this task must keep green; follow its _toggle_on/_deliver_chain/_settle conventions"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "920-985",
+            "why": "edit: the cutoff group's conventions for driving _option_enter_cutoff on a live window"
+          }
+        ],
+        "contracts": [
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "def reset_session(self) -> None  # restores every field __init__ initialises to its __init__ value, except self._clock and self._target"
+          },
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "def toggle_off(self) -> None  # body: self.reset_session() - the engine's OFF entry point, still listed in the class docstring's public API"
+          },
+          {
+            "status": "new",
+            "module": "ui/main_window.py",
+            "signature": "self._option_engine.toggle_off()      # _option_stop()\nself._option_engine.reset_session()    # _option_enter_cutoff()"
+          },
+          {
+            "ref": "ui/main_window.py:_option_stop",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:_option_enter_cutoff",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-05",
+        "requirement_ids": [
+          "AC-D65.8",
+          "AC-D65.9"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_spread_engine.py tests/test_d65_option_stream.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
       }
     }
   ]

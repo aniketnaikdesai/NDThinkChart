@@ -11,8 +11,10 @@ long.bid``, so a 20-wide CCS pair's three bases are chosen here by picking the
 two legs' quotes.
 """
 
+import ast
 import inspect
 import math
+import re
 import subprocess
 import sys
 import textwrap
@@ -1116,3 +1118,142 @@ def test_module_is_qt_free_and_ibapi_free():
     source = MODULE_PATH.read_text(encoding="utf-8")
     for forbidden in ("import PyQt6", "import PyQt5", "import pyqtgraph", "import ibapi", "from ibapi"):
         assert forbidden not in source
+
+
+# ── P23-T16 (ESC-119): the engine owns the session reset ────────────────────
+
+
+def drive_full_session(target=2.00):
+    """Drive a fresh engine through every piece of session state AC1 names."""
+    clock = Clock()
+    engine, _batches = seed_engine(AC1_TABLE, clock, target=target)
+    ccs_anchor = engine.anchor("CCS")
+    assert ccs_anchor is not None and engine.anchor("PCS") is not None
+    live = set(engine.live_legs())
+    assert len(live) == MAX_OPTION_LINES
+    assert engine._leased and engine._subscribed_at  # leased and subscribed legs
+    assert engine.spot == 7330.0
+
+    # The committed window's pairs, in issue order (each pair is short, long).
+    legs = engine._window_legs["CCS"]
+    pairs = [(legs[index], legs[index + 1]) for index in range(0, len(legs), 2)]
+    anchor_pair = [pair for pair in pairs if pair[0].strike == ccs_anchor][0]
+    others = [pair for pair in pairs if pair != anchor_pair]
+
+    # Greeks and line identity (reqIds) on the committed window.
+    for item in (anchor_pair[0], anchor_pair[1], others[0][0], others[0][1]):
+        engine.on_greek(item, 13, 0.40, 0.02)
+    assert engine.row_greeks(
+        "CCS", anchor_pair[0].strike, anchor_pair[1].strike
+    ) is not None
+    for index, item in enumerate(sorted(live, key=lambda key: (key.right, key.strike))):
+        engine.rebind_leg(item, 500 + index)
+    assert all(engine.req_id(item) is not None for item in live)
+
+    # A seed in progress, a dropped pair, a transient stale leg, latched
+    # messages and a pending re-seat left behind by a frozen walk.
+    engine.begin_seed(clock())
+    engine.on_leg_error(others[0][0], 200)      # non-anchor pair: dropped
+    engine.on_leg_error(others[1][0], 162)      # transient: STALE after the timeout
+    engine.on_leg_error(anchor_pair[0], 200)    # anchor pair: one pending re-seat
+    engine.on_disconnected()                    # frozen walk, every cell STALE
+    assert engine.seed_state().active is True
+    assert engine.pair_dropped("CCS", others[0][0].strike) is True
+    assert engine.walk_frozen is True
+    assert engine.stale_legs() != set()
+    assert engine.latched_causes() != []
+    assert engine._pending_reseat
+    return engine, clock, live
+
+
+
+def assert_session_reset(engine, clock, target, live):
+    """AC1's state set: every __init__ field back, clock and Target untouched."""
+    fresh = SpreadEngine(clock=clock, target=target)
+    expected = {
+        name: value
+        for name, value in vars(fresh).items()
+        if name not in ("_clock", "_target")
+    }
+    actual = {
+        name: value
+        for name, value in vars(engine).items()
+        if name not in ("_clock", "_target")
+    }
+    assert actual == expected
+
+    # The named AC1 reads, through the public surface.
+    assert engine.live_legs() == set()
+    assert engine.rows() == {}
+    assert all(engine.req_id(item) is None for item in live)
+    assert engine.anchor("CCS") is None and engine.anchor("PCS") is None
+    assert engine.seed_state().active is False
+    assert engine.walk_frozen is False
+    assert engine.stale_legs() == set()
+    assert engine.take_messages() == []
+    assert engine.latched_causes() == []
+
+    # The clock seam and the Target survive: set_target is the only writer.
+    assert engine._clock is clock
+    assert engine._now() == clock()
+    clock.advance(11.0)
+    assert engine._now() == clock()
+    assert engine.target == target
+
+
+def test_P23_T16_AC1_reset_session_restores_every_init_field_but_clock_and_target():
+    engine, clock, live = drive_full_session(target=2.00)
+
+    engine.reset_session()
+
+    assert_session_reset(engine, clock, 2.00, live)
+    assert engine.target == 2.00
+
+
+def test_P23_T16_AC2_toggle_off_delegates_and_the_tree_has_no_constructor_reentry():
+    engine, clock, live = drive_full_session(target=2.00)
+
+    engine.toggle_off()
+
+    assert_session_reset(engine, clock, 2.00, live)
+
+    # The tree keeps the OFF entry point live and never re-runs the constructor.
+    window_source = (REPO_ROOT / "ui" / "main_window.py").read_text(encoding="utf-8")
+    engine_source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "_option_reset_engine" not in window_source
+    assert re.search(r"_option_engine\.__init__\s*\(", window_source) is None
+    assert ".__init__(" not in engine_source  # no call anywhere, only the def
+
+    window_tree = ast.parse(window_source)
+    main_class = next(
+        node
+        for node in window_tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "MainWindow"
+    )
+    methods = {
+        node.name: node
+        for node in main_class.body
+        if isinstance(node, ast.FunctionDef)
+    }
+    assert "_option_reset_engine" not in methods
+    off_source = ast.get_source_segment(window_source, methods["_option_stop"])
+    cutoff_source = ast.get_source_segment(
+        window_source, methods["_option_enter_cutoff"]
+    )
+    assert "_option_engine.toggle_off()" in off_source
+    assert "_option_engine.reset_session()" in cutoff_source
+
+    # Both names are in the documented public API.
+    module_doc = ast.get_docstring(ast.parse(engine_source)) or ""
+    assert "toggle_off()" in module_doc
+    assert "reset_session()" in module_doc
+    class_doc = ast.get_docstring(
+        next(
+            node
+            for node in ast.walk(ast.parse(engine_source))
+            if isinstance(node, ast.ClassDef) and node.name == "SpreadEngine"
+        )
+    ) or ""
+    assert "toggle_off" in class_doc
+    assert "reset_session" in class_doc
+
