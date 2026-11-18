@@ -1278,6 +1278,50 @@ def test_P23_T23_AC5_improvement_below_the_band_never_moves_the_ladder():
     assert engine.anchor("CCS") == 7330 and engine.anchor("PCS") == 7330
 
 
+def test_P23_T23_ESC124_a_refused_install_leaves_the_session_anchor_with_the_live_one():
+    # The walk table warrants both steps, so evaluate() will try to install
+    # them. Two option lines are parked on a lease the step cannot reclaim
+    # first: after the leaving legs are released the pool still holds all 16
+    # lines, so _install_windows reports its capacity refusal (it cancels the
+    # leaving legs and stops before it updates the committed window).
+    engine, clock = walk_engine(WALK_TABLE)
+    assert engine.anchor("CCS") == 7330 and engine.anchor("PCS") == 7330
+    assert engine._session_anchor == {"CCS": 7330.0, "PCS": 7330.0}
+    assert engine._step_candidate("CCS", 7330) == 7325
+    assert engine._step_candidate("PCS", 7330) == 7335
+
+    parked = [leg("C", 7000), leg("P", 6950)]
+    engine._leased.update(parked)
+    refused = engine.evaluate(clock())
+
+    # The refusal really happened: nothing was subscribed and the leaving legs
+    # went before the refusal, so the live window is two lines short.
+    assert refused.subscribes == []
+    assert len(engine.live_legs()) == MAX_OPTION_LINES - 2
+    assert engine.anchor("CCS") == 7330 and engine.anchor("PCS") == 7330
+
+    # The session anchor follows the install, not the request: a refused
+    # install leaves it at the pair the live window still holds.
+    assert engine._session_anchor == {"CCS": 7330.0, "PCS": 7330.0}
+
+    # Free the parked lines: the same step now installs and both anchors move.
+    engine._leased.difference_update(parked)
+    installed = engine.evaluate(clock())
+    assert set(installed.subscribes) == {leg("C", 7320), leg("P", 7345)}
+    assert engine.anchor("CCS") == 7325 and engine.anchor("PCS") == 7335
+    assert engine._session_anchor == {"CCS": 7325.0, "PCS": 7335.0}
+
+    # The 200 re-seat path installs a one-rung window too, under the same guard.
+    reseat, reseat_clock = walk_engine()
+    reseat.on_leg_error(leg("C", 7330), 200)
+    reseat._leased.update(parked)
+    refused_reseat = reseat.evaluate(reseat_clock())
+    assert refused_reseat.subscribes == []
+    assert reseat.anchor("CCS") == 7330 and reseat.anchor("PCS") == 7330
+    assert reseat._session_anchor == {"CCS": 7330.0, "PCS": 7330.0}
+    reseat._leased.difference_update(parked)
+
+
 def test_P23_T23_AC6_parallel_walk_api_is_gone_and_the_live_helpers_survive():
     removed = [
         "window" + "_step",

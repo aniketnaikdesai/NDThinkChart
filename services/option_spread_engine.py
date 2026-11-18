@@ -993,9 +993,9 @@ class SpreadEngine:
             if anchor is None:
                 state.phase = "done"
                 return "finished"
-            self._install_window(acts, side, anchor)
-            self._session_anchor[side] = float(anchor)
-            self._session_anchor_expiry = self._expiry
+            if self._install_window(acts, side, anchor):
+                self._session_anchor[side] = float(anchor)
+                self._session_anchor_expiry = self._expiry
             state.phase = "done"
             return "finished"
 
@@ -1200,9 +1200,10 @@ class SpreadEngine:
             targets = {side: self._pending_reseat.pop(side) for side in list(self._pending_reseat)}
             for side, target in targets.items():
                 self._reseat_counts[side] = self._reseat_counts.get(side, 0) + 1
-                self._session_anchor[side] = float(target)
-                self._session_anchor_expiry = self._expiry
-            self._install_windows(acts, targets)
+            if self._install_windows(acts, targets):
+                for side, target in targets.items():
+                    self._session_anchor[side] = float(target)
+                    self._session_anchor_expiry = self._expiry
             if not self._spot_subscribed:
                 self._spot_subscribed = True
                 acts.spot_subscribe = True
@@ -1222,8 +1223,7 @@ class SpreadEngine:
                 candidate = self._step_candidate(side, float(anchor))
                 if candidate is not None:
                     targets[side] = candidate
-            if targets:
-                self._install_windows(acts, targets)
+            if targets and self._install_windows(acts, targets):
                 for side, anchor in targets.items():
                     self._session_anchor[side] = float(anchor)
                     self._session_anchor_expiry = self._expiry

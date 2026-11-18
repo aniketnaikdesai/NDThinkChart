@@ -392,3 +392,98 @@ Third, a consequence for AC3: "a same-named method on a class with no such base 
 **Outside this review, unchanged:** the **owner-run paper-TWS acceptance** (`AC-D65.19`, P23-T14: six items `PENDING`, no evidence, no signature) and the owner-gated **`docs/phase-changelog.md` D65 entry** (absent; `plan.md`/`architecture.md` as-built sync rides with it). The phase's production behaviour is sound and its suite is green on `a6800b2`; those two owner actions are what remain before the phase can be called done.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Code Review — P23 pass 5 (the ESC-121/ESC-122 fix round: deletions, AC-D65.4 wiring, gate hardening, live-TWS record)
+
+**Pass:** phase-final, **full pass** (phase-final is always full; the scope also carries shared-file overlaps — `services/option_spread_engine.py` by T22+T23 and three shared test files — which forbids a light tier).
+**Scope (incremental):** the ten results newer than this log's `REVIEW_COMPLETE` marker — **P23-T17 … P23-T26** (`precheck.json` scope; `fail_fast: []`; `escalation_entries: []`; 0 unattributed tree changes; all flags informational overlap leads). Tree: commit **`39856b0`**, clean; `build_log.md` terminal `Status: READY_FOR_REVIEW`.
+**Inputs consumed:** `precheck.json` (17:01:43), `test_verification.json` (**pass, exit 0, 239.38 s — mtime 17:09:52, i.e. AFTER the 17:05:52 commit; the two stale-verification passes this log records do not repeat here**), `build_log.md`, the ten archived results, `task-graph.json` (P23-T17..T26 ACs), `requirements.md` AC-D65.4/AC-D65.12(i)/AC-D65.19, `plan.md`/`architecture.md`, and `escalations.json`.
+**Verdict:** **The round does what it was asked to do.** ESC-121 is closed by a genuinely production-only, class-bound clause (i) plus the removal of every symbol it listed; ESC-122 is closed by a per-entry invariant with a separate phase snapshot; AC-D65.4 is now implemented **in the live path** and the two red-first cases really are red on the pre-change engine and green on this one; the acceptance record is the live-TWS read-only checklist, six items `PENDING`, with nothing fabricated. I opened **one should-fix** (the acceptance record names a build commit that predates AC-D65.4 — ESC-123), **one nice-to-have** latent guard loss in `evaluate()` (ESC-124), and **one should-fix PLAN doc-sync** (ESC-125: plan/architecture still say paper-TWS and still describe `window_step`). No blocking finding.
+
+---
+
+## 0. What I re-derived rather than trusted
+
+- **The deletions are real and dead.** 24 function definitions removed (commit message says 18; measured with `git show --numstat` + a def-by-def count: **2 module-level**, **15 engine** — 11 accessors + `window_step`/`_requested_targets`/`_walk_candidate`/`_best_neighbour` — and **7 panel**). Production grep (ui/, services/, data/, ibkr/, config/, main.py) returns **0** hits for every one of them. The only bare-name residues are unrelated members on other classes (`WatchlistPanel.set_collapsed`/`toggle_collapsed`) and the `Action("release")` kind string / `release_rt` / `release_resources` — none is a reader of a deleted member.
+- **The red-first evidence is real.** I loaded `services/option_spread_engine.py` **as of `39856b0^`** into a probe module, swapped it in for the current class in `tests/test_d65_spread_engine.py`, and ran the two cases the owner's rule is supposed to make red:
+  - `test_P23_T23_AC4_disagreeing_bases_decide_no_direction` — **OLD: AssertionError** (`acts.actions == []`; the old `_best_neighbour` path stepped on a mixed-base anchor) / **NEW: pass**.
+  - `test_P23_T23_AC5_improvement_below_the_band_never_moves_the_ladder` — **OLD: AssertionError** (`d` improved by 0.03, below `h`, and the old path stepped) / **NEW: pass**.
+  Neither passes for a loosened reason: AC4 asserts the deciding bases and both `d` values (`0.60/1.40/1.00`, `d = 0.10` vs neighbour `0.05`) and only then that nothing moved; AC5 asserts the exact 0.03 improvement and that the anchor is unchanged.
+- **The gate discriminates.** My own probes against `tests/test_d65_residue.py`'s scanner (not its test cases) are listed in §1.
+- **The full P23 surface passes.** `pytest` over the eight touched suites (spread 27, stream 29, panel 23, residue 47, ladder 77, chain 34, acceptance 5, d45-removal 9 = **251 cases**) → **exit 0** on `39856b0`.
+
+## 1. ESC-121 — CLOSED (`addressed`): production-only, class-bound, and the 15 symbols are gone
+
+| claim | my probe | result |
+|---|---|---|
+| clause (i)'s pool is production-only | added `zzz_probe_helper` to a copy of `services/option_ladder.py`, referenced it **only** from `tests/test_d65_residue.py` → `['services/option_ladder.py:zzz_probe_helper']`; added one production reference → gone. `scan_unreferenced_symbols` defaults to `_production_subset(tree)`; the only override of `reachability_tree` in the whole file is the fixture case that proves the parameter is honoured verbatim (line 1977) — nothing widens the real-tree check. | **pass** |
+| a method key is class-bound at both ends | appended `def close(self)` to `SpreadEngine` in a tree copy → `services/option_spread_engine.py:SpreadEngine.close` reported **even though `close` occurs in production elsewhere** (`data/db_backup.py`: `conn.close()`) — exactly the hole ESC-121 measured (19 of 23 sampled names were invisible before); adding `self.close()` inside the class cleared it. A seeded `class ZzzUnrelated: def sizeHint` in a production module → reported, with no exemption entry, because the clause-(v) check is now consulted *after* a failed reachability test instead of returning early. | **pass** |
+| the seeded fixtures still separate red from green | two-module fixture reports exactly `fixture_module.py:Owner.orphan_method`; removing the caller's `owner.used_method()` adds `Owner.used_method`; the real tree is `[]` in the same run. With `FRAMEWORK_CALLBACKS` passed, my seeded tree's only violation was the symbol I seeded — the two real Qt callbacks are still rescued through their cited `(declaring class, registering base)` entries. | **pass** |
+| the 15 listed symbols are resolved, not exempted | 0 production hits for `target_value`, `toggle_colour`, `toggle_state`, `preferred_width`, `elided_name`, `latched_causes`, `pair_score`, `pair_eligible`, `pending_legs`, `pair_dropped`, `reseat_count`, `window_step`, `_requested_targets`, `_walk_candidate`, `_best_neighbour`, `validate_spread`, `option_chain_strikes`; `set_collapsed`/`toggle_collapsed` survive only as unrelated **`WatchlistPanel`** members (`ui/watchlist_panel.py:628`/`:636`, a different class, never imported here); no `.lease(`/`.release(` production call (the bare-name hits are `Action("release")` and `release_rt`/`release_resources`). `CENSUS_ALLOWLIST` is `{}` on the finished tree. | **pass** |
+| the requirement and the gate now agree | the docstring/AC language is production-only + class-bound, and the tree is green under that stricter rule — so the gate is not weaker than `AC-D65.12(i)` any more; nothing needed amending in `requirements.md`. | **pass** |
+
+## 2. The deletions — re-pointed, not softened
+
+Read every removed assertion in `tests/test_d65_spread_engine.py`, `tests/test_d65_option_stream.py`, `tests/test_d65_option_panel.py`, `tests/test_d65_option_ladder.py`, `tests/test_d65_option_chain.py`, `tests/test_d45_removal.py`:
+
+- `pair_eligible(...) is False` → `_score_pair_complete(...) is None` — the helper *was* `is not None`, so this is identical, not weaker. `pair_score` → `_score_pair_complete`; `pending_legs()` → `{leg for leg in _subscribed if leg_state(leg) == "pending"}` (a verbatim copy of the deleted body, hoisted to a test helper); `target`/`spot`/`req_id`/`latched_causes`/`pair_dropped`/`reseat_count` → `_target`/`_spot`/`_req_ids`/`sorted(_latched)`/`LegKey in _dropped`/`_reseat_counts.get(side, 0)`.
+- Panel: `target_value()` → `target_edit.text()` + `_last_valid_target`; `toggle_state()`/`toggle_colour()` → `isChecked()` + the `spread_state` property + the button palette colour read directly (strictly *stronger* than the constant-returning helper); `toggle_collapsed()` → `header_button.click()`; `set_collapsed()` → `header_button.setChecked()`; `preferred_width()` → `PREFERRED_WIDTH` + `sizeHint().width() == 360`; `elided_name()` → a test-local `QFontMetrics.elidedText(...ElideRight...)` against the table's own metrics. The D45 zero-transmit walkthrough now collapses through `header_button.click()` and keeps both collapsed/restored assertions.
+- `validate_spread` → a **verbatim** `_fixture_guard` in `tests/test_d65_option_ladder.py` (rejects 10-wide and both inverted PCSs, accepts 7435/7455, 7425/7445, 7340/7320 and every canonical `ladder_pairs()` pair). `option_chain_strikes`'s dedicated case goes with its subject as the AC permits, and `select_zero_dte_series` still returns sorted per-right strikes (retained assertion from an unsorted payload).
+- **Nothing was deleted to make something pass.** The one case whose *concept* disappeared (`window_step({"CCS": target})` alternating-target oscillation) has a live analogue that survived the refactor: the equal-`d` three-rung table evaluated six times in `test_P23_T8_AC1` asserts **0 actions and an unchanged anchor**, and the exactly-`h` refusal is asserted twice (T23-AC1's second evaluation, T23-AC3's parametrized `(1.00, 0.05, False)` / `(3.00, 0.10, False)`).
+
+## 3. AC-D65.4 in `evaluate()` — the rule, not a proxy
+
+`_step_candidate(side, live)` (services/option_spread_engine.py:1133) against the AC text:
+
+- **one rung, decided direction** — `candidate = live ± STRIKE_STEP`; below-`T` bases → CCS down / PCS up, above-`T` → CCS up / PCS down, mixed → `None`. Matches AC-D65.4's "toward-the-money (CCS: both strikes down; PCS: both strikes up) … away (CCS: up; PCS: down)".
+- **all-bases veto** — `all(< T)` / `all(> T)` with a bare `else: return None`; verified red on the old engine (§0).
+- **strict `> h`** — installs only when `nxt.distance < current.distance - band - 1e-9`; `band = match_band(target) = max(0.05, option_tick(target))` (services/option_ladder.py:219) — exactly `h = max(0.05, one_tick)`. The 1e-9 tightens, never loosens, so "exactly `h`" cannot install.
+- **matched pair never moves** — `current.distance <= band + 1e-9` (the same predicate as `_anchor_matched`, which survives for the `_seed_bounded` branch). The ask-basis-only case (`d = 0`) is asserted.
+- **listed / quoting / chain edge** — unlisted decided rung latches `CAUSE_WALK_CHAIN_EDGE` naming the current anchor (via `_latch`, which is per-cause once-only, so later evaluations cannot repeat it — asserted); unquoted arriving rung returns `None`.
+- **monotonicity** — each installed step strictly lowers `d` by `> h`, and `d` is a function of the quotes, so a two-rung oscillation is structurally impossible (the AC's own measurable list asks for that case; the equal-`d`/exactly-`h` refusals are what pin it).
+- **fixture faithfulness (P23-T25)** — the stream fixture's CCS mid now falls `0.02`/point and PCS rises `0.02`/point (`f(x)-f(x+20) = 1.00 - 0.02x`; verified algebraically against the new `_price` polynomials), so one 5-point rung moves `d` by **0.10** at `T < 3.00`, with bases at `mid ∓ 0.10`. That is the economically faithful shape, and it is the *data* that moved — `band`, the strict comparison and the veto are untouched. The re-pointed target-commit cases now step CCS **down** to 7345 and PCS **up** to 7355 at `T = 1.20`, keep the reqId/one-out-one-in/≤16-line registry assertions, and add a second evaluation that moves nothing.
+
+## 4. ESC-122 — CLOSED (`addressed`): per-entry invariant, phase snapshot separate
+
+`assert CENSUS_ALLOWLIST == {}` is gone. `scan_census_allowlist` holds each entry to three halves simultaneously — citation resolves to a live `<.py>:<line>` registration site, the key is a clause-(i) candidate, the key is one the scanner would otherwise report, and `_has_python_call_site` finds no production call — and the phase's zero-exemption state survives as one separate `assert not CENSUS_ALLOWLIST` whose message says "phase-scoped, not the standing rule … no P23 symbol needs a census exemption today". My probes: legitimate connect-site entry → `[]`; the same citation for a genuinely-called method → *"has a Python call site"*; a document citation → *"a document mention registers nothing"*; a non-candidate → rejected; empty → `[]` over both a fixture and the real tree. `test_census_allowlist_state_is_phase_scoped_not_a_blanket_rule` reads the suite's own AST and self-tests its detector on both forms, so the absence claim is not a grep of prose.
+
+## 5. P23-T26 — the acceptance record is honest
+
+Read in full. Live TWS on **`127.0.0.1:7496`**, read-only by construction (zero order code; `reqSecDefOptParams` / `reqMktData` / `cancelMktData` only), observation-only, the D48/D52 precedent cited; no "paper port", no paper-account field, no "never the live port"; the six AC-D65.19 checks appear in order, each with **`**Result:** PENDING`** (count = 6), an empty evidence placeholder, and no `Result: PASS` anywhere; the sign-off block is blank; the no-order rule is stated twice and no item asks the owner to place/modify/cancel an order (the only cancel is a market-data line). `INDEX.md` carries the matching three-column row naming AC-D65.19 / A211, P23-T26, and **PENDING**. The residue gate's `GATE_RECORD` paragraph now describes the live-TWS run owned by P23-T26 and keeps "still OPEN / NOT claimed". One defect found — the header's build commit (§7, ESC-123).
+
+## 6. Full-pass duties (whole phase, not just the slice)
+
+- **Mock-endpoint containment (B.6, blocking invariant).** Production diff = `ibkr/contracts.py`, `services/option_ladder.py`, `services/option_spread_engine.py`, `ui/option_spreads_panel.py`; grep of that diff for `mock|fake|stub|simulat` → **no hits**; no production module imports anything from `tests/`. The only fakes are the stream suite's recorder client, which lives in `tests/`. **Clean.**
+- **Usage docs.** `doc_required: false` on all ten tasks, and rightly so: nothing here changes the user-facing contract. In fact the docs are now *more* correct than before — `usage.md:197-198` already promised "the ladder steps toward the listed 20-wide credit spread in 5-point moves, one step per evaluation, and stops when the credit is inside one tick's band of the Target", which is what the code now does for the first time. `USAGE.txt` is a feature index and needs nothing. Ruling: **met, no doc change**.
+- **Pack-prose spot-check.** Phase-first task P23-T1 was sampled in pass 2 and is unchanged; this pass sampled the tasks whose packs carry guarantee words — **T18** ("never a bare name"), **T25** ("never exceeds 16"), **T26** ("all six items stay PENDING"). No prose contradicts an AC, and every guarantee names its enforcing case (T18-AC2's fixture + the `SpreadEngine.close` appended-method case; T25-AC2's `max(option…) <= 16` + second-evaluation stop; T26-AC2's six-PENDING parse). **No TASK_MANAGER routing needed.**
+- **Residue gate on the tree.** 47 cases (was 41), green, with its seeded dead-symbol / dead-method / unconnected-signal fixtures still proven red.
+
+## 7. New findings (none blocking)
+
+- **ESC-123 (BUILD, consistency, should-fix)** — `d65_paper_tws_acceptance.md` names `Build commit: c04cc03`, which **predates** the AC-D65.4 wiring: `git show c04cc03:services/option_spread_engine.py` has **0** `_step_candidate` and **1** `def window_step`; the phase tree is `39856b0` (2 / 0). Checklist item (3) exercises exactly the step decision that changed, so the owner's evidence would be attributed to a tree without the behaviour being accepted. One-line header fix; the existing test accepts any well-formed sha.
+- **ESC-124 (BUILD, quality, nice-to-have)** — `evaluate()` dropped the deleted `window_step`'s guard: the old code advanced `_session_anchor` only `if … self._install_windows(acts, steps)` returned True; the new code advances unconditionally after the call. On the `_install_windows` budget-refusal branch (returns False *before* setting `_anchors`, after already cancelling the leaving legs) the remembered session anchor would disagree with the live one. **Not reachable today** — a one-rung step swaps 1 leg per side (stale 2, added 2, free `16-14 = 2`), so I am labelling it latent, not paging. The partial-teardown-on-refusal behaviour itself predates this commit and is *not* part of the finding.
+- **ESC-125 (PLAN, consistency, should-fix)** — canonical docs still describe the superseded phase shape: `plan.md` 5388 / 5619 / 6497 / 6545 / 6547 and `architecture.md` 8968 / 9389 / 9885 all call AC-D65.19 a **paper-TWS** run (requirements.md amended it on 2026-11-18 to the owner's **live** TWS, read-only, on 7496 — the owner stated "there is no paper-TWS"), and `plan.md:6116` still lists `window_step(target_anchor)` as the engine's walk API. Docs-only; the Orchestrator is holding this sync until the review lands, so the escalation is its trigger.
+
+**Not a finding, for the record:** the commit message says "18 test-only symbols"; the measured count is **24** function removals (26 `def`/`@property` lines). The code is right; the message undercounts.
+
+## 8. Escalation close-out
+
+- **ESC-121 → `addressed`.** Re-verified the invariant myself (§1), not from the task-graph edit: production-only pool, class-bound method evidence, exemption consulted independently of reachability, and all 15 named symbols deleted with their facts re-pointed to production surfaces.
+- **ESC-122 → `addressed`.** Per-entry invariant with three halves, a discriminating detector self-test, and a separate phase-scoped snapshot (§4); my probes redden a bad citation and an entry for a called symbol.
+- **PRE-021 (P23-T22) → `addressed`.** The residue was a missing selfcheck stamp; the archived result now carries `selfcheck.verdict = pass`, `footprint_ok: true`, `violations: []` for this task id, its three manifest tests pass, and the post-commit full suite (plus my 251-case scoped run) is green.
+- **PRE-022 (P23-T26) → `addressed`.** Same residue; `selfcheck.verdict = pass` at 16:59:17Z with its own two-suite run exit 0, four manifest tests pass, footprint clean, and this round's precheck reports no fail-fast/mechanical entries.
+- **Opened:** ESC-123 (BUILD), ESC-124 (BUILD), ESC-125 (PLAN).
+
+## 9. For the Orchestrator / owner
+
+**The phase's code is sound and its instrument is now honest.** AC-D65.4 exists in the live path with red-first proof; the no-dead-code rule has a gate strong enough to enforce it and no exemptions; the acceptance record is a real live-TWS checklist.
+
+**Two actions stay outside this review and the phase cannot close without them:**
+1. **The owner-run live-TWS acceptance** — `AC-D65.19`, still **6/6 PENDING**, no evidence, no signature. The build records no result and marks nothing satisfied; only the owner's run fills it (and ESC-123 should land first so the evidence names the tree it was collected on).
+2. **The owner-gated `docs/phase-changelog.md` D65 entry** — still absent (grep for `D65`/`P23`/`Option Spread`: 0 hits).
+
+**Third gate, routed not owner-run:** **ESC-125** — the `plan.md`/`architecture.md` doc sync (paper-TWS → live-TWS, and `window_step` → `evaluate()`'s step decision). I agree with the hold and have made it a PLAN escalation so it cannot be lost.
+
+Status: REVIEW_COMPLETE

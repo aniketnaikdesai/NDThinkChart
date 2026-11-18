@@ -174,6 +174,32 @@ OPTION_EMPTY_TEXT = "No option spreads"
 OPTION_CHAIN_REFUSED_MESSAGE = (
     "The 0DTE SPXW chain request was refused; the ladders are empty."
 )
+#: Q-74: a chain-discovery ERROR is not an empty expiry. The status line names
+#: the IB error code (the only hard evidence a terminal run leaves behind) and
+#: the empty label states the failure instead of claiming "No 0DTE expiry
+#: today" — a factual claim about the chain that an error does not support.
+OPTION_CHAIN_FAILED_MESSAGE = (
+    "The 0DTE SPXW chain request failed (code {code}); the ladders are empty."
+)
+OPTION_CHAIN_FAILED_EMPTY_STATE = "0DTE chain request failed"
+#: Q-74: every ``_option_chain_failed`` cause gets its own wording — never the
+#: no-0DTE claim, and never "refused" when the truth is "not connected".
+OPTION_CHAIN_UNKNOWN_INDEX_MESSAGE = (
+    "The SPX index contract is unknown, so the 0DTE SPXW chain was not "
+    "requested; the ladders are empty."
+)
+OPTION_CHAIN_UNKNOWN_INDEX_EMPTY_STATE = (
+    "0DTE chain unavailable (unknown SPX index)"
+)
+OPTION_CHAIN_NOT_CONNECTED_MESSAGE = (
+    "Not connected to TWS, so the 0DTE SPXW chain was not requested; "
+    "the ladders are empty."
+)
+OPTION_CHAIN_NOT_CONNECTED_EMPTY_STATE = "0DTE chain unavailable (not connected)"
+OPTION_CHAIN_LOOKUP_FAILED_MESSAGE = (
+    "The 0DTE SPXW chain request could not be completed; the ladders are empty."
+)
+OPTION_CHAIN_LOOKUP_FAILED_EMPTY_STATE = "0DTE chain unavailable (lookup failed)"
 OPTION_ENGINE_MIXED_TEXT = "no Delta/Gamma value is shown."
 
 
@@ -904,6 +930,10 @@ class MainWindow(QMainWindow):
         self._option_chain_lookup_id: int | None = None
         self._option_chain_req_id: int | None = None
         self._option_chain_params: list = []
+        # Q-74: True once chain discovery has failed. The 1 s evaluation keeps
+        # turning, and its "no series yet" read must never be relabelled as the
+        # factual "No 0DTE expiry today" claim after an error.
+        self._option_chain_error: bool = False
         # Chain-discovery reqIds are option-owned: their errors never reach the
         # generic ``Error [code]`` status line.
         self._option_quiet_ids: set[int] = set()
@@ -2049,6 +2079,7 @@ class MainWindow(QMainWindow):
         self._option_empty_text = None
         self._option_status = None
         self._option_seed_was_active = False
+        self._option_chain_error = False
         if self._option_cutoff_reached():
             self._option_enter_cutoff()
             return
@@ -2083,6 +2114,7 @@ class MainWindow(QMainWindow):
         self._option_status = None
         self._option_empty_text = None
         self._option_seed_was_active = False
+        self._option_chain_error = False
         self.option_spreads_panel.set_status("")
         self.option_spreads_panel.apply_snapshot([], [])
         self.option_spreads_panel.set_empty_state(OPTION_EMPTY_TEXT)
@@ -2119,6 +2151,7 @@ class MainWindow(QMainWindow):
         # reset keeps the clock seam and the Target and never re-runs __init__.
         self._option_engine.reset_session()
         self._option_seed_was_active = False
+        self._option_chain_error = False
         self._option_empty_text = OPTION_CUTOFF_EMPTY_STATE
         self.option_spreads_panel.apply_snapshot([], [])
         self.option_spreads_panel.set_empty_state(OPTION_CUTOFF_EMPTY_STATE)
@@ -2154,12 +2187,37 @@ class MainWindow(QMainWindow):
         self._option_quiet_ids.add(lookup_id)
 
     def _option_chain_failed(self, reason: str = "") -> None:
-        """One panel message; the ladders stay empty (no chain, no rows)."""
+        """One panel message naming the actual cause; the ladders stay empty.
+
+        Q-74: a discovery failure is not an empty expiry. Each cause gets its
+        own empty-state text and status line (never the no-0DTE claim, and
+        never "refused" for a missing connection), and the reason is logged
+        once. The 16:15 ET cutoff owns the panel state, so a late failure must
+        not overwrite the cutoff message with a failure.
+        """
         self._option_chain_lookup_id = None
         self._option_chain_req_id = None
-        self._option_empty_text = OPTION_NO_0DTE_TEXT
-        self.option_spreads_panel.set_empty_state(OPTION_NO_0DTE_TEXT)
-        self.option_spreads_panel.set_status(OPTION_CHAIN_REFUSED_MESSAGE)
+        if self._option_cutoff:
+            return
+        cause = str(reason or "").strip()
+        folded = cause.lower()
+        if "not connected" in folded:
+            empty_text = OPTION_CHAIN_NOT_CONNECTED_EMPTY_STATE
+            message = OPTION_CHAIN_NOT_CONNECTED_MESSAGE
+        elif "unknown index" in folded:
+            empty_text = OPTION_CHAIN_UNKNOWN_INDEX_EMPTY_STATE
+            message = OPTION_CHAIN_UNKNOWN_INDEX_MESSAGE
+        else:
+            empty_text = OPTION_CHAIN_LOOKUP_FAILED_EMPTY_STATE
+            message = OPTION_CHAIN_LOOKUP_FAILED_MESSAGE
+        self._option_chain_error = True
+        self._option_empty_text = empty_text
+        _LOG.warning(
+            "0DTE SPXW chain discovery failed (%s).",
+            cause or "no cause given",
+        )
+        self.option_spreads_panel.set_empty_state(empty_text)
+        self.option_spreads_panel.set_status(message)
 
     def _option_issue_chain(self, con_id: int) -> None:
         """Issue the one ``reqSecDefOptParams`` for the resolved underlying."""
@@ -2486,8 +2544,11 @@ class MainWindow(QMainWindow):
         if getattr(acts, "empty_state", None):
             # While the chain request is still in flight the engine's "no-0DTE"
             # read is just "no series yet" — never show the empty state early.
+            # After a chain-discovery failure (Q-74) it is not an empty expiry
+            # either: the failure's own state owns the label.
             if (self._option_chain_req_id is None
-                    and self._option_chain_lookup_id is None):
+                    and self._option_chain_lookup_id is None
+                    and not self._option_chain_error):
                 self._option_empty_text = OPTION_NO_0DTE_TEXT
         for message in getattr(acts, "messages", ()) or ():
             self._option_status = message
@@ -2582,9 +2643,19 @@ class MainWindow(QMainWindow):
         if (self._option_chain_req_id is not None
                 and req_id == self._option_chain_req_id):
             self._option_chain_req_id = None
-            self._option_engine.on_no_expiry()
-            self._option_empty_text = OPTION_NO_0DTE_TEXT
-            self.option_spreads_panel.set_status(OPTION_CHAIN_REFUSED_MESSAGE)
+            self._option_chain_error = True
+            self._option_empty_text = OPTION_CHAIN_FAILED_EMPTY_STATE
+            # Q-74: keep the evidence — the code is the only way to tell error
+            # 200 from 354 from 10197 after the fact, and the empty label must
+            # not claim an empty expiry the error cannot prove. One log line
+            # per error: the reqId is no longer the chain id afterwards.
+            _LOG.warning(
+                "0DTE SPXW chain request %s failed: TWS error %s: %s",
+                req_id, error_code, error_string,
+            )
+            self.option_spreads_panel.set_status(
+                OPTION_CHAIN_FAILED_MESSAGE.format(code=int(error_code))
+            )
             self._option_render()
             return True
         return req_id in self._option_quiet_ids

@@ -5385,8 +5385,9 @@ Status: READY_FOR_TASK_MANAGER
 > abort-on-failure, `AC-D65.18`).
 > **(8) full file set** → **P23-06** (the price sink in `ui/watchlist_panel.py` and
 > `ui/ticker_session.py:562`, already scheduled) + **P23-08**'s file-set-wide residue grep.
-> **(9) paper-TWS acceptance** → new **P23-10**, an explicit owner-run gate with a recorded
-> checklist (`AC-D65.19`), which the residue gate in **P23-09** explicitly does *not* claim.
+> **(9) live-TWS, read-only acceptance** → new **P23-10**, an explicit owner-run gate against
+> `127.0.0.1:7496` with a recorded checklist (`AC-D65.19`; observation-only, no order-shaped
+> call exists or is possible), which the residue gate in **P23-09** explicitly does *not* claim.
 > **(10) fixture convention** → **P23-01** (canonical `7425/7445` and `7340/7320` plus the
 > guard that rejects any 10-wide pair or inverted PCS row, `AC-D65.2`/A212) and the fence on
 > every fixture in **P23-03/05**.
@@ -5616,7 +5617,7 @@ Status: READY_FOR_TASK_MANAGER
 | `AC-D65.16` (zero bid is live; `-1`/`1.7976931348623157e+308`/no-tick zero absent; one-sided pairs never match; sentinel transition) + A202/A208 | S-P23-19; Non-functional (streaming fidelity) | P23-01 (`usable_quote`), P23-03 (scoring gate) |
 | `AC-D65.17` (Target `0.05 ≤ T ≤ 19.95`; blank/0/negative/NaN/Inf/≥20 rejected with one message and **no state change**) + Journey 63 step 6 | S-P23-23 (panel gate), S-P23-20 (band, for the accepted range's own behaviour) | P23-01 (range + message + revert + no emit), P23-05 (no ladder change in-window) |
 | `AC-D65.18` (verified pre-drop backup, abort on failure; **full deletion file set** incl. `ui/watchlist_panel.py` and `ui/ticker_session.py`) + A210 + R152 | S-P23-21 (backup), S-P23-12 (file set); Codebase Summary (paths/migration seam) | P23-06 (the two modules beyond `main_window`), P23-08 (backup + drop + file-set grep) |
-| `AC-D65.19` (owner-run paper-TWS acceptance; six checklist items; recorded like D48/D52; a phase gate, waivable only by record) + A211 + R144 | S-P23-22 | P23-10 |
+| `AC-D65.19` (owner-run live-TWS, **read-only** acceptance on `127.0.0.1:7496` — observation-only, no order-shaped call exists or is possible; six checklist items; recorded like D48/D52; a phase gate, waivable only by record) + A211 + R144 | S-P23-22 | P23-10 (built as P23-T26) |
 | DG117 (chain edge) / DG118 (price-only ladder) / DG119 (D41 supersession) / DG120 (strike grid) / DG121 (data drop + `_symbol_last_prices`) | S-P23-4 / S-P23-3+8 / S-P23-1 / S-P23-14 / S-P23-12+13 | P23-03 / P23-03–04 / P23-01 / P23-01–02 / P23-06–08 |
 | DG123 (single-consumer code must not be born dead) | S-P23-7, S-P23-15; Tech stack (payload minimalism) | P23-01…P23-04 |
 | DG122 (P22 orphan sweep) | **not planned** — standalone follow-up (out of P23 scope) | — |
@@ -6113,8 +6114,12 @@ points.
   **source precedence and the never-mixed rule**, `AC-D65.8`'s latches for the lifecycle causes,
   Journey 62 step 6 edges and Journey 63 steps 1–5; A193/A203; R139/R148.
 - **Deliverables:**
-  - `[new/changed] services/option_spread_engine.py` (second half) — `window_step(target_anchor)
-    → Actions` (`cancels` before `subscribes`, never both halves of a shared leg),
+  - `[new/changed] services/option_spread_engine.py` (second half) — `evaluate()` decides and
+    installs the step itself: `_step_candidate(side, live)` returns the one 5-point rung
+    `AC-D65.4` allows (direction from the anchor pair's three credit bases, the rung's `d` must
+    beat the anchor's by more than `h`, otherwise no move; an unlisted rung latches the
+    chain-edge message), and `_install_windows(acts, targets)` emits the `Actions` diff
+    (`cancels` before `subscribes`, never both halves of a shared leg),
     `on_greek(leg, tick_type, delta, gamma)` with the per-row source agreement check,
     `on_leg_error(leg, code)` with the four-class table, `on_disconnected()`,
     `on_reconnected()`, `rebind_leg(leg, new_req_id)`, and the `walk_frozen` gate inside
@@ -6494,7 +6499,8 @@ points.
 
 - **Goal:** the standing Unused-Code Rule is machine-checked from now on, and every
   `AC-D65.*` criterion **the build can observe** is satisfied with nothing else changed —
-  `AC-D65.19` excluded, because it is the owner's recorded paper-TWS run and P23-10 owns it.
+  `AC-D65.19` excluded, because it is the owner's recorded live-TWS, **read-only** run and
+  P23-10 (built as P23-T26) owns it.
 - **Covers:** `AC-D65.12` (the gate, proven red on a seeded dead-symbol fixture);
   `AC-D65.11` (history intact); **the 16 + 1 / sign / band consistency re-check** across every
   place those numbers are stated; the full-suite gate; `AC-D65.7`'s order-absence sweep;
@@ -6542,23 +6548,29 @@ points.
   claimed; no D1–P22 behaviour or wording regressed beyond the three recorded edits **and
   S-P23-24's recorded badge consequence**; no `PLAN`-routed escalation open.
 
-### P23-10 — Owner-run paper-TWS acceptance — size S (owner-run gate, docs only)
+### P23-10 — Owner-run live-TWS, read-only acceptance (built as P23-T26) — size S (owner-run gate, docs only)
 
-- **Goal:** the only evidence against a real gateway is produced and recorded: a paper-TWS
-  acceptance run whose checklist is mechanical and whose evidence is written down.
+- **Goal:** the only evidence against a real gateway is produced and recorded: an owner-run
+  live-TWS, **read-only** acceptance on `127.0.0.1:7496` (there is no paper account — A211) whose
+  checklist is mechanical, observation-only, and whose evidence is written down.
 - **Covers:** **`AC-D65.19` in full** (A211): (1) eight rows populate for today's SPXW expiry;
   (2) Delta/Gamma arrive from model greeks; (3) a Target change steps the ladder and re-reads
   the Target; (4) **OFF cancels every option line**, verified against TWS's own line count;
   (5) a forced disconnect marks values `STALE` and freezes the walk, reconnect replays and
-  recovers; (6) no order code is touched (no order line in TWS, no transmit). R144/R150.
+  recovers; (6) the display-only guarantee holds **observationally** — TWS's Orders pane stays
+  empty for the whole session and the session log shows no order-shaped call, matching the static
+  residue guard (zero order code: no order-shaped call exists or is possible). R144/R150.
 - **Deliverables:**
   - `[new] docs/archive/probe_records/d65_paper_tws_acceptance.md` — the recorded-probe shape
-    of the neighbouring `d48_probe_record.md`/`d52_probe_record.md`: a header naming the
-    paper account and the build commit, the six items as checkboxes each with an **evidence
-    field** (what was seen, where), a **TWS market-data line count before ON, while ON and
-    after OFF** table (expecting ≤17 while ON and a return to the pre-ON baseline after OFF),
-    a place for screenshots/notes, and a closing statement recording the run date or the
-    owner's explicit waiver.
+    of the neighbouring `d48_probe_record.md`/`d52_probe_record.md`: a header naming the live
+    host/port `127.0.0.1:7496` (read-only by construction — zero order code; only
+    `reqSecDefOptParams`/`reqMktData`/`cancelMktData` are issued) and the build commit, the six
+    items as checkboxes each with an **evidence field** (what was seen, where), a **TWS
+    market-data line count before ON, while ON and after OFF** table (expecting ≤17 while ON and
+    a return to the pre-ON baseline after OFF), a place for screenshots/notes, and a closing
+    statement recording the run date or the owner's explicit waiver. The file name is retained so
+    existing references resolve; the record's own head block states that the path predates the
+    2026-11-18 amendment and that the run is live.
 - **Dependencies:** P23-09 (the phase must otherwise be green).
 - **Touches:** `docs/archive/probe_records/d65_paper_tws_acceptance.md` (new). **No production
   or test-code edits** — a code change discovered by the run is escalated as a build finding,

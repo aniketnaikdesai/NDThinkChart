@@ -20,6 +20,7 @@ Bid = price, ask = price + 0.10, so a pair's three credit bases are
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime
 from types import SimpleNamespace
@@ -1305,6 +1306,129 @@ def test_P23_T25_AC1_pair_mids_fall_rise_and_seed_at_7350(monkeypatch, qapp):
             assert cells[1] == ask, (side, index, cells)
             assert cells[2] == bid, (side, index, cells)
             assert float(cells[1]) < 0 and float(cells[2]) < 0
+        assert fake.orders == []
+    finally:
+        win.close()
+
+
+# ---------------------------------------------------------------------------
+# Q-74 — a refused chain request is not an empty expiry, and it leaves evidence
+# ---------------------------------------------------------------------------
+
+
+def _resolve_lookup_and_issue_chain(win, fake) -> int:
+    """Answer only the SPX contract lookup; return the chain request's reqId."""
+    assert fake.contract_details, "the SPX index lookup was never issued"
+    lookup_id = fake.contract_details[-1]
+    bridge = win.ib_client.bridge
+    bridge.contract_details.emit(
+        lookup_id, SimpleNamespace(contract=SimpleNamespace(conId=12345)))
+    bridge.contract_details_end.emit(lookup_id)
+    assert fake.sec_def, "reqSecDefOptParams was never issued"
+    return fake.sec_def[-1][0]
+
+
+def test_Q74_chain_error_surfaces_code_and_never_claims_no_0dte(
+        monkeypatch, qapp, caplog):
+    from ui.main_window import (
+        OPTION_CHAIN_FAILED_EMPTY_STATE,
+        OPTION_CHAIN_FAILED_MESSAGE,
+        OPTION_NO_0DTE_TEXT,
+    )
+
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        log = _StatusLog(win)
+        _toggle_on(win, fake)
+        chain_id = _resolve_lookup_and_issue_chain(win, fake)
+
+        with caplog.at_level(logging.WARNING, logger="ui.main_window"):
+            win._on_error(chain_id, 354, "not subscribed")
+            qapp.processEvents()
+            # The cadence keeps turning; its "no series yet" read must not
+            # relabel the failure as the factual no-0DTE claim.
+            win._option_eval_step(time.monotonic() + 1.0)
+            qapp.processEvents()
+
+        # The status line names the IB error code — the only evidence a
+        # terminal run leaves behind.
+        assert log.matching(OPTION_CHAIN_FAILED_MESSAGE.format(code=354)), (
+            log.messages)
+        assert len(log.matching("failed (code 354)")) == 1, log.messages
+        # Never the empty-expiry claim, in either the status or the label.
+        assert not log.matching("No 0DTE SPXW expiry is listed today"), (
+            log.messages)
+        assert win.option_spreads_panel.empty_label.text() == (
+            OPTION_CHAIN_FAILED_EMPTY_STATE)
+        assert win.option_spreads_panel.empty_label.text() != OPTION_NO_0DTE_TEXT
+
+        # Exactly one warning, carrying reqId, code and error string.
+        warnings = [
+            record.getMessage() for record in caplog.records
+            if "0DTE SPXW chain request" in record.getMessage()
+        ]
+        assert len(warnings) == 1, warnings
+        assert str(chain_id) in warnings[0]
+        assert "354" in warnings[0]
+        assert "not subscribed" in warnings[0]
+        assert fake.orders == []
+    finally:
+        win.close()
+
+
+def test_Q74_chain_failed_names_each_cause_and_never_says_refused(
+        monkeypatch, qapp):
+    from ui.main_window import (
+        OPTION_CHAIN_NOT_CONNECTED_EMPTY_STATE,
+        OPTION_CHAIN_UNKNOWN_INDEX_EMPTY_STATE,
+        OPTION_NO_0DTE_TEXT,
+    )
+
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        log = _StatusLog(win)
+
+        win._option_chain_failed("not connected")
+        assert log.messages[-1] == (
+            "Not connected to TWS, so the 0DTE SPXW chain was not requested; "
+            "the ladders are empty."
+        )
+        assert "refused" not in log.messages[-1].lower()
+        assert win.option_spreads_panel.empty_label.text() == (
+            OPTION_CHAIN_NOT_CONNECTED_EMPTY_STATE)
+        assert win.option_spreads_panel.empty_label.text() != OPTION_NO_0DTE_TEXT
+
+        win._option_chain_failed("unknown index")
+        assert log.messages[-1] == (
+            "The SPX index contract is unknown, so the 0DTE SPXW chain was "
+            "not requested; the ladders are empty."
+        )
+        assert win.option_spreads_panel.empty_label.text() == (
+            OPTION_CHAIN_UNKNOWN_INDEX_EMPTY_STATE)
+        assert (win.option_spreads_panel.empty_label.text()
+                != OPTION_CHAIN_NOT_CONNECTED_EMPTY_STATE)
+        assert fake.orders == []
+    finally:
+        win.close()
+
+
+def test_Q74_chain_error_never_overwrites_the_post_1615_cutoff(
+        monkeypatch, qapp):
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        win._option_et_now = lambda: datetime(2026, 11, 17, 16, 20)
+        win.option_spreads_panel.toggle_button.click()
+
+        cutoff = win.option_spreads_panel.status_label.text()
+        assert "16:15 ET" in cutoff
+        assert win.option_spreads_panel.empty_label.text() == (
+            "0DTE chain closed (after 16:15 ET)")
+
+        # A late discovery failure must leave the cutoff state alone.
+        win._option_chain_failed("not connected")
+        assert win.option_spreads_panel.status_label.text() == cutoff
+        assert win.option_spreads_panel.empty_label.text() == (
+            "0DTE chain closed (after 16:15 ET)")
         assert fake.orders == []
     finally:
         win.close()

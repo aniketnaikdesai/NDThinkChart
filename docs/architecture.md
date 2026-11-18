@@ -8965,8 +8965,9 @@ call sites, the toolbar label-field sizing, and the toggle persistence wiring.
 > **(G) pre-drop backup** — **S-P23-21**: `[new] data/db_backup.py`, verified copy, drop aborts on
 > failure. **(H)** the deletion's file set is `AC-D65.18`'s full list (watchlist price sink +
 > `ui/ticker_session.py` included) and is now asserted by a **file-set-wide** residue grep in the
-> schema wave. **(I) the paper-TWS acceptance run** — **S-P23-22**, its own owner-run wave, record
-> in `docs/archive/probe_records/`. **(J) fixture convention** — `AC-D65.2`'s canonical
+> schema wave. **(I) the live-TWS, read-only acceptance run** — **S-P23-22**, its own owner-run wave
+> against `127.0.0.1:7496` (observation-only: zero order code, so no order-shaped call exists or is
+> possible), record in `docs/archive/probe_records/`. **(J) fixture convention** — `AC-D65.2`'s canonical
 > `SPX Nov17 7425/7445` (CCS) and `SPX Nov17 7340/7320` (PCS) with a guard that rejects any
 > 10-wide pair and any PCS row whose long strike is above its short. **Both literal-vs-tree
 > conflicts the earlier passes surfaced were resolved in the requirement text on 2026-11-17,
@@ -9386,7 +9387,8 @@ every value **`STALE`** and freezes the walk, a reconnect replays the same lines
 account/position signals and overrides, the persistence path and the
 `positions`/`trade_groups`/`position_group_map` tables and rows — is **deleted**, not unhooked,
 behind a **verified pre-drop SQLite backup**, in waves split by member group, closed by a
-standing residue gate and then by an **owner-run paper-TWS acceptance record**. No order code
+standing residue gate and then by an **owner-run live-TWS, read-only acceptance record** (live
+`127.0.0.1:7496`, observation-only: no order-shaped call exists or is possible). No order code
 exists anywhere.
 
 ### Tech Stack Decisions
@@ -9882,7 +9884,7 @@ overrides, `ibkr/account.py`, `data.models.Position`/`TradeGroup`,
 | AR-P23-19 — The 10 s / 12-pair seed bound parks the ladder on a merely-adequate pair and the owner reads it as a wrong answer (R151) | M / M | The bound emits **one** message naming both the bound and the best value it kept, the row still shows real quotes, and the seed re-arms at the next cadence tick — so the ladder converges afterwards rather than settling wrong; the warm-anchor path (ON→OFF→ON) never probes at all |
 | AR-P23-20 — The tick rule under `h` is unverified, so `h` is wrong at one level: too narrow ⇒ a move per quote, too wide ⇒ a rung parked up to one tick off target (R153) | M / M | `h = max(0.05, option_tick(T))` is one pure function, and the suite pins **both** levels (`T = 1.00` ⇒ 0.05, `T = 3.00` ⇒ 0.10) plus a `T = 2.95` boundary case; a live disagreement with TWS's displayed increment is one constant to change, not a redesign (A204 records it as unverified) |
 | AR-P23-21 — The pre-drop backup is taken but is not a backup (copy truncated, integrity fails, tables missing) yet the drop proceeds (AC-D65.18, R152) | H / L | Verification is a hard gate **before** the DROP, with the failure path injected in the suite (corrupt copy / missing table ⇒ raise ⇒ the three tables are still present afterwards); the copy is opened read-only and never through the app's `DB`, so the ESC-043 opt-in is respected; the row counts are recorded in the build result |
-| AR-P23-22 — The paper-TWS acceptance run is skipped, so a real gateway is never exercised and the phase closes on fakes alone (R144; AC-D65.19) | H / M | Its own wave with the record as the exit condition, the checklist items pre-written (so "ran it" is checkable against evidence), the TWS line counts recorded before/after OFF, and a waiver only by an explicit recorded owner statement — the gate cannot be satisfied by the suite |
+| AR-P23-22 — The live-TWS, read-only acceptance run (`127.0.0.1:7496`, observation-only) is skipped, so a real gateway is never exercised and the phase closes on fakes alone (R144; AC-D65.19) | H / M | Its own wave with the record as the exit condition, the checklist items pre-written (so "ran it" is checkable against evidence), the TWS line counts recorded before/after OFF, and a waiver only by an explicit recorded owner statement — the gate cannot be satisfied by the suite |
 | AR-P23-23 — The connection badge's paper/live claim is silently downgraded by the account-path deletion, and a worker either re-invents an account source, leaves a `getattr` on a deleted field, or keeps the field alive to satisfy `_update_conn_badge` (RC-14) | L / M | S-P23-24 decides the post-P23 behaviour before build (`"● Connected"`, D40's paused branch intact), P23-06 owns the edit **and** the `_account_id`/`_account_summary` greps in its exit, `_account_id` joins P23-08's forbidden set, and P23-09 records the retirement — so all three divergent outcomes the review named are closed by one scheduled edit instead of being left to a worker's judgement |
 | AR-P23-24 — The panel rename outruns one of its own consumers: an `ActivePortfolioPanel`-shaped dereference survives wave 0, so every `MainWindow()` raises `AttributeError` at construction and the panel wave's exit is false when it fires (RC-16 — the phase's recurring defect, "an edit that outlives a subject another wave owns") | H / M | The rename and **all ten** of its dereferences are one wave's (S-P23-12 wave 0; P23-01's deliverable names each site and what it becomes), the panel wave's exit greps `portfolio_panel` over `ui/` **and** `tests/` in that same wave rather than five waves later, a worker may not re-point a call to the new attribute (the new panel has none of the five methods, so the merge is a deletion, not a rename), and the connection paths are proved by suites that build and drive a real window in that wave (`test_d27_reconnect.py:183-215` walks connect → drop → reconnect). The two escape hatches are closed by name: leaving the old attribute name until P23-06 breaks wave 0's own test book (seven suites re-pointed to `win.option_spreads_panel`), and re-pointing the calls breaks on the new panel's missing methods |
 
