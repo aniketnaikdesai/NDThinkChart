@@ -2419,6 +2419,147 @@
         "needs_graphify": false,
         "size": "M"
       }
+    },
+    {
+      "id": "P23-T17",
+      "title": "Extend the residue gate's clause (i) census to class methods, with cited framework exemptions and a seeded dead-method fixture (ESC-119)",
+      "description": "ESC-119's code half landed in P23-T16 (reset_session()/toggle_off() live), but the standing gate still cannot see the defect class it was raised for: tests/test_d65_residue.py clause (i) enumerates only module-level names (ast.parse(text).body), so a method nothing calls passes, and the module docstring claims 'every P23 symbol'. Extend the census to class methods (walking ast.ClassDef.body, decorated accessors included) with the reachability evidence the census already accepts carried onto methods; keep framework-invoked callbacks (Qt virtuals, EWrapper/EClient overrides) exempt only through a citation that resolves to their registration/override site in code; prove the extended clause reddens on a seeded dead method and stays green on the real tree; and correct the gate's docstring so its scope claim states what it implements. No production symbol is expected to change: the pre-scoping census over the four P23 modules and every P23-added class reported zero dead methods, so if the implemented census reports one, the scan is broader than this AC or the tree changed - report it, never allowlist it.",
+      "agent": "build_worker",
+      "task_type": "test",
+      "dependencies": [
+        "P23-T13",
+        "P23-T16"
+      ],
+      "acceptance_criteria": [
+        "Given the P23 tree, When clause (i)'s census runs, Then its candidate set is every module-level name it censuses today PLUS every method of every class defined in the four P23 new modules and of every class P23 added to an existing module - sync and async, @property/@staticmethod/@classmethod accessors included - each method keyed as Module:Class.method so a method can never be confused with a module-level name of the same spelling, excluding only names that begin and end with __ (dunder protocol hooks, the one exclusion, stated in the gate's own docstring); reachability is judged with exactly the evidence the census accepts today, carried onto methods: a load or attribute access in any scanned file, a use beyond the definition inside its own module (so self.x(...) counts), a string constant equal to the name (so getattr(obj, 'x') and name-keyed registrations count), an import alias, or a .connect(...)/registration site; and the census is green on the tree with no exemption added for any symbol that has a call site, while clauses (ii)-(v), the seeded dead-symbol and unconnected-signal fixtures and the token/batch half keep their current strictness with no assertion deleted or relaxed.",
+        "Given a seeded two-module fixture in which a class defines a method its caller calls and a method nothing calls, When the census runs, Then it reports exactly the uncalled one as fixture_module.py:Owner.orphan_method and not the called one, and When the caller module's call of the second method is then removed, Then a violation for that method appears too - proving the method census answers call sites rather than flagging every method or none - while the same run over the real tree stays green.",
+        "Given a method that only framework machinery invokes by name - a Qt virtual slot/handler (paintEvent, sizeHint, initStyleOption, a data/decoration override) or an EWrapper/EClient callback override - When the census evaluates it, Then it is exempt only through an entry that names the declaring class AND the base class whose attribute registers that name, and the check verifies that base really declares it, so the entry supplies the registration/override site that a Python call site cannot; the exemption is scoped per (module, class, method, registering base), so a same-named method on a class with no such base is still censused, and a document or task-graph string satisfies neither the base-class check nor the cited-site form, exempting nothing; and the tree's own P23 framework callbacks (initStyleOption, sizeHint) stay green through that form.",
+        "Given tests/test_d65_residue.py's own prose, Then its module docstring's clause-(i) statement and the census functions' docstrings describe exactly the implemented scope - module-level public names AND class methods, with the dunder exclusion and the clause-(v) cited-site exemption named as the only exclusions - the module-level-only claim is gone, and every surviving scope sentence is backed by the candidate map it describes (the assertions that name methods over that same map are what make the sentence true)."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T17-AC1",
+          "linked_acceptance_criterion": "Given the P23 tree, When clause (i)'s census runs, Then its candidate set is every module-level name it censuses today PLUS every method of every class defined in the four P23 new modules and of every class P23 added to an existing module - sync and async, @property/@staticmethod/@classmethod accessors included - each method keyed as Module:Class.method so a method can never be confused with a module-level name of the same spelling, excluding only names that begin and end with __ (dunder protocol hooks, the one exclusion, stated in the gate's own docstring); reachability is judged with exactly the evidence the census accepts today, carried onto methods: a load or attribute access in any scanned file, a use beyond the definition inside its own module (so self.x(...) counts), a string constant equal to the name (so getattr(obj, 'x') and name-keyed registrations count), an import alias, or a .connect(...)/registration site; and the census is green on the tree with no exemption added for any symbol that has a call site, while clauses (ii)-(v), the seeded dead-symbol and unconnected-signal fixtures and the token/batch half keep their current strictness with no assertion deleted or relaxed.",
+          "type": "unit",
+          "description": "Build the candidate map over the real tree: assert services/option_spread_engine.py:SpreadEngine.toggle_off, services/option_spread_engine.py:SpreadEngine.reset_session, the @property accessor services/option_spread_engine.py:SpreadEngine.target and the @staticmethod helpers ui/option_spreads_panel.py:OptionSpreadsPanel._cells_for and ui/option_spreads_panel.py:OptionSpreadsPanel._table_item appear as Class.method candidates; assert data/db_backup.py:VerifiedBackupPath.__new__ does not (the dunder exclusion); assert scan_unreferenced_symbols over the tree returns []. The three pre-existing seeded-fixture cases stay in the suite unmodified beside the new ones.",
+          "expected_result": "Methods - decorated accessors included - are candidates under a Class.method key, dunders are not, and the census is green on the real tree; the pre-existing fixture cases are untouched and remain green (test hygiene supporting AC1's strictness clause, not a new red-green)."
+        },
+        {
+          "test_id": "P23-T17-AC2",
+          "linked_acceptance_criterion": "Given a seeded two-module fixture in which a class defines a method its caller calls and a method nothing calls, When the census runs, Then it reports exactly the uncalled one as fixture_module.py:Owner.orphan_method and not the called one, and When the caller module's call of the second method is then removed, Then a violation for that method appears too - proving the method census answers call sites rather than flagging every method or none - while the same run over the real tree stays green.",
+          "type": "unit",
+          "description": "Write a two-file fixture (fixture_module.py defines class Owner with used_method and orphan_method; caller_module.py calls owner.used_method()) and run the census: assert the violations are exactly ['fixture_module.py:Owner.orphan_method']; then rewrite caller_module.py without that call and assert the violations are exactly both methods; also assert the real tree's census stays empty in the same test.",
+          "expected_result": "Exactly the uncalled method is reported, and removing the remaining call site adds exactly that method - the extended clause discriminates on call sites and does not flag every method or none - while the real tree stays green."
+        },
+        {
+          "test_id": "P23-T17-AC3",
+          "linked_acceptance_criterion": "Given a method that only framework machinery invokes by name - a Qt virtual slot/handler (paintEvent, sizeHint, initStyleOption, a data/decoration override) or an EWrapper/EClient callback override - When the census evaluates it, Then it is exempt only through an entry that names the declaring class AND the base class whose attribute registers that name, and the check verifies that base really declares it, so the entry supplies the registration/override site that a Python call site cannot; the exemption is scoped per (module, class, method, registering base), so a same-named method on a class with no such base is still censused, and a document or task-graph string satisfies neither the base-class check nor the cited-site form, exempting nothing; and the tree's own P23 framework callbacks (initStyleOption, sizeHint) stay green through that form.",
+          "type": "unit",
+          "description": "Fixture A: a class whose base is QStyledItemDelegate, defining sizeHint with no call site anywhere, carrying an exemption entry naming its declaring class and that base -> no violation. Fixture B: an unrelated class defining the same method name, with no registering base and no entry -> reported. Fixture C: the same exemption expressed as a document mention (docs/tasks/task-graph.json ...) satisfies neither the base-class check nor the cited-site form -> the method is still reported. Assert the real tree's initStyleOption/sizeHint exemptions still resolve against QStyledItemDelegate.",
+          "expected_result": "A framework-invoked method is exempt only through a resolving (declaring class, registering base) entry; the same name on another class is still censused; a document mention exempts nothing; the tree's own P23 callbacks stay green."
+        },
+        {
+          "test_id": "P23-T17-AC4",
+          "linked_acceptance_criterion": "Given tests/test_d65_residue.py's own prose, Then its module docstring's clause-(i) statement and the census functions' docstrings describe exactly the implemented scope - module-level public names AND class methods, with the dunder exclusion and the clause-(v) cited-site exemption named as the only exclusions - the module-level-only claim is gone, and every surviving scope sentence is backed by the candidate map it describes (the assertions that name methods over that same map are what make the sentence true).",
+          "type": "unit",
+          "description": "Read the suite's own module docstring and the census functions' docstrings: assert the clause-(i) bullet names class methods and names the dunder exclusion and the clause-(v) cited-site exemption; assert no clause-(i) sentence claims a module-level-only or top-level-only scope; and re-check the claim against the same candidate map the docstring describes (a real-tree method key present, the dunder key absent).",
+          "expected_result": "The docstring's scope claim names methods, its only exclusions are the two the implementation has, no narrower claim survives, and the claim is checked against the candidate map rather than asserted in prose alone."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d65_residue.py: clause (i)'s candidate builder censes class methods as Class.method alongside the unchanged module-level names, dunders excluded by name shape",
+        "tests/test_d65_residue.py: the framework exemption carried onto methods, scoped per (module, class, method, registering base) and verified against the base attribute that registers the name",
+        "tests/test_d65_residue.py: a seeded dead-method fixture plus its call-site-removal mutation, proving the extended clause reddens on an uncalled method and stays green on the tree",
+        "tests/test_d65_residue.py: the corrected module and scanner docstrings stating the implemented scope, its dunder exclusion and its clause-(v) exemption form"
+      ],
+      "touches_files": [
+        "tests/test_d65_residue.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the standing gate as P23-T13/T15 left it: clause (i)'s module-level census, the citation checker (_invokes_by_name/citation_violation) and the clause-(v) EWrapper/Qt tables",
+        "the ESC-119 code half as P23-T16 left it: SpreadEngine.reset_session() and a live toggle_off() called from ui/main_window.py's OFF path"
+      ],
+      "outputs": [
+        "a clause (i) that censes class methods, so a dead method can no longer pass the gate",
+        "a seeded dead-method fixture (and its mutation) proving that capability before the tree is trusted green",
+        "a docstring scope claim that matches what the gate implements"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "1-41",
+            "why": "edit: the module docstring's clause-(i) bullet claims 'every P23 symbol' while the implementation censes module-level names only - this is the scope claim to correct"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "106-156",
+            "why": "edit: the CENSUS_ALLOWLIST comment (a document mention never counts) and the clause-(v) EWrapper/QT tables are the exemption machinery the method census must reuse and scope to a declaring class plus a registering base"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "296-402",
+            "why": "edit: _defined_symbols walks ast.parse(text).body only; _load_names/_mention_names/scan_unreferenced_symbols define the reachability evidence the method census must carry onto methods unchanged"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "598-620",
+            "why": "edit: _census_candidates plus the tree case - the candidate map whose keys gain 'Class.method' entries"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "623-695",
+            "why": "read-only in shape: citation_violation/_invokes_by_name are the citation evidence a method exemption must satisfy - a registration site, never a document string"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "834-886",
+            "why": "edit: the clause-(v) tests (EWrapper/Qt base-attribute checks) that must keep passing and that the method exemption is modelled on"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "888-940",
+            "why": "edit: the seeded fixtures and the red-then-green case - the dead-method fixture and its call-site-removal mutation land beside them, leaving the existing cases unmodified"
+          }
+        ],
+        "contracts": [
+          {
+            "status": "new",
+            "module": "tests/test_d65_residue.py",
+            "signature": "_census_candidates(tree: dict[str, str]) -> dict[str, tuple[str, ...]]  # module path -> symbols; a module-level name stays bare, a method is \"<Class>.<method>\", and a violation reads \"<module>:<Class>.<method>\""
+          },
+          {
+            "status": "new",
+            "module": "tests/test_d65_residue.py",
+            "signature": "CENSUS_ALLOWLIST[module][\"<Class>.<method>\"] = \"<repo-relative .py>:<line> - <how it is invoked>\"  # a method exemption must resolve to a cited code site; framework callbacks cite their registering base class instead"
+          },
+          {
+            "ref": "tests/test_d65_residue.py:scan_unreferenced_symbols",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_d65_residue.py:citation_violation",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_d65_residue.py:_defined_symbols",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-09",
+        "requirement_ids": [
+          "AC-D65.12",
+          "A197"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_residue.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
     }
   ]
 }

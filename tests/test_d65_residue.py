@@ -8,7 +8,16 @@ different places and each needs its own net:
    going red before anyone trusts it green:
 
    (i)   every P23 symbol has a production caller or a cited **code**
-         registration site (a document mention never counts);
+         registration site (a document mention never counts). The candidate
+         set is every public module-level name the four P23 modules offer
+         **and** every method of every P23 class — sync and async, the
+         ``@property``/``@staticmethod``/``@classmethod`` accessors included —
+         each method keyed ``Class.method`` so it can never be confused with a
+         module-level name of the same spelling. Two exclusions exist and no
+         others: a name that begins and ends with ``__`` (a dunder, Python's
+         own protocol hook) is not censused, and a clause-(v) framework
+         callback is exempt only through the cited declaring-class /
+         registering-base entry below;
    (ii)  every P23 test helper is referenced in its own file;
    (iii) no unused import / unreached branch / ``if False`` / ``noqa``-silenced
          import / commented-out implementation block / ``__all__``-only export /
@@ -48,7 +57,7 @@ from pathlib import Path
 
 import pytest
 
-from PyQt6.QtWidgets import QStyledItemDelegate
+from PyQt6.QtWidgets import QStyledItemDelegate, QWidget
 
 from ibapi.wrapper import EWrapper
 
@@ -144,10 +153,23 @@ EWRAPPER_CALLBACKS = {
 }
 
 #: Clause (v) — Qt callbacks: the view invokes these through the delegate's
-#: virtual slots, not from Python. The base-class attribute is the registry.
-QT_CALLBACKS = {
-    ("ui/option_spreads_panel.py", "initStyleOption"): QStyledItemDelegate,
-    ("ui/option_spreads_panel.py", "sizeHint"): QStyledItemDelegate,
+#: virtual slots, not from Python. The key names the **declaring class** and the
+#: method; the value is the **registering base class**. The census verifies that
+#: the declaring class really inherits that base and that the base declares the
+#: name, which is the registration site a Python call site cannot supply.
+#:
+#: The entry is scoped per (module, declaring class, method, registering base):
+#: the same method name on another class, or under another base, is still
+#: censused. A document mention is not a base class, so it exempts nothing —
+#: the clause-(i) citation check below requires a live .py site for the same
+#: reason.
+FRAMEWORK_CALLBACKS: dict[tuple[str, str, str], type] = {
+    ("ui/option_spreads_panel.py", "_ElideNameDelegate", "initStyleOption"):
+        QStyledItemDelegate,
+    # OptionSpreadsPanel subclasses QWidget directly, so QWidget — not the
+    # delegate's base — is the class whose attribute registers sizeHint for it.
+    ("ui/option_spreads_panel.py", "OptionSpreadsPanel", "sizeHint"):
+        QWidget,
 }
 
 #: Clause (iv) — the signals P23 added, and the two files at either end.
@@ -328,6 +350,33 @@ def _defined_symbols(text: str) -> tuple[str, ...]:
     return tuple(names)
 
 
+def _class_methods(
+    text: str, class_names: set[str] | None = None
+) -> tuple[str, ...]:
+    """``Class.method`` for every method the module's classes define.
+
+    Decorated accessors are ordinary ``FunctionDef`` nodes, so
+    ``@property``/``@staticmethod``/``@classmethod`` methods are included. The
+    one exclusion is a dunder name (``__x__``): Python invokes those through the
+    protocol, never through a call site of ours. A method key carries its
+    declaring class, so it cannot collide with a module-level name of the same
+    spelling. Getter/setter pairs collapse onto one key.
+    """
+    names: list[str] = []
+    for node in ast.walk(ast.parse(text)):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if class_names is not None and node.name not in class_names:
+            continue
+        for child in node.body:
+            if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if child.name.startswith("__") and child.name.endswith("__"):
+                continue
+            names.append(f"{node.name}.{child.name}")
+    return tuple(dict.fromkeys(names))
+
+
 def _load_names(text: str) -> set[str]:
     """Names the file *uses*: loaded names, attribute names, import aliases.
 
@@ -372,30 +421,99 @@ def _mention_names(text: str) -> set[str]:
     return mentioned
 
 
+def _class_node(text: str, class_name: str) -> ast.ClassDef | None:
+    """The ``ClassDef`` named ``class_name`` in ``text``, or None."""
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return node
+    return None
+
+
+def _base_names(node: ast.ClassDef) -> set[str]:
+    """The last name of every declared base (``Qt.X`` counts as ``X``)."""
+    names: set[str] = set()
+    for base in node.bases:
+        if isinstance(base, ast.Name):
+            names.add(base.id)
+        elif isinstance(base, ast.Attribute):
+            names.add(base.attr)
+    return names
+
+
+def _framework_callback_exempt(
+    module: str,
+    declaring_class: str,
+    method: str,
+    entries: dict[tuple[str, str, str], object],
+    tree: dict[str, str],
+) -> bool:
+    """True only for a validating (declaring class, registering base) entry.
+
+    The entry exempts a method only when its value is a class, that class
+    declares ``method``, the declaring class really inherits it, and the class
+    body defines the method. A document string is not a class, so it exempts
+    nothing.
+    """
+    base = entries.get((module, declaring_class, method))
+    if not isinstance(base, type) or not hasattr(base, method):
+        return False
+    text = tree.get(module)
+    if text is None:
+        return False
+    class_node = _class_node(text, declaring_class)
+    if class_node is None or base.__name__ not in _base_names(class_node):
+        return False
+    return any(
+        isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and child.name == method
+        for child in class_node.body
+    )
+
+
 def scan_unreferenced_symbols(
     tree: dict[str, str],
     candidates: dict[str, tuple[str, ...]],
     allowlist: dict[str, dict[str, str]] | None = None,
+    framework_callbacks: dict[tuple[str, str, str], object] | None = None,
 ) -> list[str]:
     """Clause (i): `module:symbol` for every candidate nothing references.
 
-    "Referenced" means a load/attribute/import mention in any *other* file, or
-    a use inside its own module beyond the definition itself. An allowlisted
-    symbol needs a cited registration site instead, and the caller checks the
-    citation.
+    Module-level names and class methods (keyed ``Class.method``) are judged
+    with exactly the same evidence: a load/attribute/import mention in any
+    *other* file, or a use inside its own module beyond the definition itself
+    (so ``self.helper()`` counts); a string constant equal to the name counts
+    as a mention, which is how ``getattr(obj, "name")`` and name-keyed
+    registrations become evidence. An allowlisted symbol needs a citation that
+    resolves to a live code site; a framework callback needs a declared
+    (declaring class, registering base) entry that verifies against the tree.
+    A document string satisfies neither, and dunder method names are never
+    candidates.
     """
     allowlist = allowlist or {}
+    framework_callbacks = framework_callbacks or {}
     used = {path: _load_names(text) for path, text in tree.items()}
     mentioned = {path: _mention_names(text) for path, text in tree.items()}
     violations: list[str] = []
     for module, symbols in candidates.items():
         for symbol in symbols:
-            if symbol in allowlist.get(module, {}):
+            citation = allowlist.get(module, {}).get(symbol)
+            if citation is not None and citation_violation(
+                module, symbol, citation, tree
+            ) is None:
                 continue
-            if symbol in used.get(module, set()):
+            if "." in symbol:
+                declaring_class, method = symbol.rsplit(".", 1)
+            else:
+                declaring_class, method = "", symbol
+            probe = method
+            if probe in used.get(module, set()):
                 continue
             if any(
-                symbol in mentioned[path] for path in tree if path != module
+                probe in mentioned[path] for path in tree if path != module
+            ):
+                continue
+            if declaring_class and _framework_callback_exempt(
+                module, declaring_class, method, framework_callbacks, tree
             ):
                 continue
             violations.append(f"{module}:{symbol}")
@@ -601,23 +719,128 @@ def _negative_assertion(line: str) -> bool:
 
 
 def _census_candidates(tree: dict[str, str]) -> dict[str, tuple[str, ...]]:
+    """The clause-(i) candidate map: module-level names and ``Class.method``.
+
+    The four P23 modules contribute their public top-level names plus every
+    method of every class they define; a module P23 extended contributes the
+    explicitly listed symbols plus the methods of any class among them. Both
+    halves are judged with the same bare-name reachability evidence.
+    """
     candidates: dict[str, tuple[str, ...]] = {}
     for module in P23_NEW_MODULES:
-        candidates[module] = _defined_symbols(tree[module])
+        candidates[module] = (
+            _defined_symbols(tree[module]) + _class_methods(tree[module])
+        )
     for module, extra in P23_ADDED_SYMBOLS.items():
-        candidates[module] = tuple(candidates.get(module, ())) + extra
+        candidates[module] = (
+            tuple(candidates.get(module, ()))
+            + extra
+            + _class_methods(tree[module], set(extra))
+        )
     return candidates
 
 
 def test_every_p23_symbol_has_a_caller_or_a_cited_registration_site():
     tree = sources()
     violations = scan_unreferenced_symbols(
-        tree, _census_candidates(tree), CENSUS_ALLOWLIST
+        tree, _census_candidates(tree), CENSUS_ALLOWLIST, FRAMEWORK_CALLBACKS
     )
     assert not violations, (
         "P23 symbols with no caller and no cited registration site: "
         f"{violations}"
     )
+
+
+def test_method_census_covers_p23_classes_and_excludes_dunders():
+    """AC1: every P23 class method is a ``Class.method`` candidate; dunders are not."""
+    tree = sources()
+    candidates = _census_candidates(tree)
+    engine = candidates["services/option_spread_engine.py"]
+    for key in (
+        "SpreadEngine.toggle_off",
+        "SpreadEngine.reset_session",
+        "SpreadEngine.target",
+    ):
+        assert key in engine, f"{key} missing from the method census"
+    panel = candidates["ui/option_spreads_panel.py"]
+    for key in (
+        "OptionSpreadsPanel._cells_for",
+        "OptionSpreadsPanel._table_item",
+    ):
+        assert key in panel, f"{key} missing from the method census"
+    for module in P23_NEW_MODULES:
+        for node in ast.walk(ast.parse(tree[module])):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for child in node.body:
+                if not isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                key = f"{node.name}.{child.name}"
+                dunder = child.name.startswith("__") and child.name.endswith("__")
+                assert (key in candidates[module]) is not dunder, (
+                    f"{module}:{key} must be censused unless it is a dunder"
+                )
+    backup = _class_node(tree["data/db_backup.py"], "VerifiedBackupPath")
+    assert backup is not None, "VerifiedBackupPath is gone from data/db_backup.py"
+    assert any(child.name == "__new__" for child in backup.body if isinstance(
+        child, (ast.FunctionDef, ast.AsyncFunctionDef)
+    )), "the fixture's dunder exclusion subject is gone"
+    assert "VerifiedBackupPath.__new__" not in candidates["data/db_backup.py"], (
+        "a dunder is the one exclusion and must not be censused"
+    )
+    assert CENSUS_ALLOWLIST == {}, (
+        "the tree is green on reachability; no exemption may stand in for a "
+        "symbol that has a call site"
+    )
+    assert scan_unreferenced_symbols(
+        tree, candidates, CENSUS_ALLOWLIST, FRAMEWORK_CALLBACKS
+    ) == []
+
+
+def test_docstring_states_the_implemented_census_scope():
+    """AC4: the prose names the real scope and its two exclusions."""
+    module = ast.parse(_text("tests/test_d65_residue.py"))
+    module_doc = ast.get_docstring(module) or ""
+    bullet = re.search(r"\(i\)\s+(.*?)\n\s{0,6}\(ii\)", module_doc, re.S)
+    assert bullet is not None, "the module docstring lost its clause-(i) bullet"
+    claim = bullet.group(1)
+    assert "method" in claim.lower(), "clause (i) does not name class methods"
+    assert "dunder" in claim.lower(), "clause (i) does not name the dunder exclusion"
+    assert re.search(r"clause-?\(v\)", claim), (
+        "clause (i) does not name the clause-(v) cited-site exemption"
+    )
+    for narrow in (
+        "module-level names only",
+        "module-level only",
+        "top-level names only",
+        "only module-level",
+        "only top-level",
+    ):
+        assert narrow not in module_doc.lower(), f"stale scope claim: {narrow!r}"
+    functions = {
+        node.name: ast.get_docstring(node) or ""
+        for node in module.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for name in (
+        "_class_methods", "_census_candidates", "scan_unreferenced_symbols",
+    ):
+        assert "method" in functions[name].lower(), (
+            f"{name}'s docstring does not describe the method census"
+        )
+    assert "dunder" in functions["_class_methods"].lower(), (
+        "_class_methods does not name the dunder exclusion"
+    )
+    assert "Class.method" in functions["_census_candidates"], (
+        "_census_candidates does not state the method key shape"
+    )
+    candidates = _census_candidates(sources())
+    assert "SpreadEngine.reset_session" in candidates["services/option_spread_engine.py"], (
+        "a docstring method claim is not backed by the candidate map"
+    )
+    assert not any(
+        key.endswith(".__new__") for key in candidates["data/db_backup.py"]
+    ), "the docstring's dunder exclusion is not backed by the candidate map"
 
 
 #: A citation must name a **Python** file, a line in it, and how the symbol is
@@ -632,14 +855,17 @@ _REGISTRATION_RE = re.compile(
 def _invokes_by_name(source: str, symbol: str, lineno: int) -> bool:
     """True when the statement at ``lineno`` invokes/registers ``symbol``.
 
-    Three shapes count, and only these: the symbol passed as a call argument or
-    keyword value (a signal ``connect``/``emit``, a dispatch-table insert, a
-    callback handed to a framework), the symbol as a class base (a virtual-slot
-    implementation), and the symbol as a **string constant** argument (a
-    name-keyed registry such as ibapi's). A bare mention — an import, a
-    docstring, the definition itself — registers nothing, which is what makes
-    the citation evidence instead of prose.
+    ``symbol`` is a bare module-level name or a ``Class.method`` key; a method
+    key is matched by its method name (the declaring-class check is
+    ``citation_violation``'s). Three shapes count, and only these: the symbol
+    passed as a call argument or keyword value (a signal ``connect``/``emit``, a
+    dispatch-table insert, a callback handed to a framework), the symbol as a
+    class base (a virtual-slot implementation), and the symbol as a **string
+    constant** argument (a name-keyed registry such as ibapi's). A bare mention
+    — an import, a docstring, the definition itself — registers nothing, which
+    is what makes the citation evidence instead of prose.
     """
+    probe = symbol.rpartition(".")[2] or symbol
     module = ast.parse(source)
     for node in ast.walk(module):
         start = getattr(node, "lineno", None)
@@ -648,19 +874,33 @@ def _invokes_by_name(source: str, symbol: str, lineno: int) -> bool:
             continue
         if isinstance(node, ast.ClassDef):
             for base in node.bases:
-                if isinstance(base, ast.Name) and base.id == symbol:
+                if isinstance(base, ast.Name) and base.id == probe:
                     return True
-                if isinstance(base, ast.Attribute) and base.attr == symbol:
+                if isinstance(base, ast.Attribute) and base.attr == probe:
                     return True
         if isinstance(node, ast.Call):
             for value in [*node.args, *(kw.value for kw in node.keywords)]:
-                if isinstance(value, ast.Name) and value.id == symbol:
+                if isinstance(value, ast.Name) and value.id == probe:
                     return True
-                if isinstance(value, ast.Attribute) and value.attr == symbol:
+                if isinstance(value, ast.Attribute) and value.attr == probe:
                     return True
-                if isinstance(value, ast.Constant) and value.value == symbol:
+                if isinstance(value, ast.Constant) and value.value == probe:
                     return True
     return False
+
+
+def _defines_symbol(module: str, symbol: str, tree: dict[str, str]) -> bool:
+    """True when ``module`` still defines ``symbol`` (a method or a bare name)."""
+    text = tree.get(module, "")
+    if "." not in symbol:
+        return symbol in text
+    declaring_class, method = symbol.rsplit(".", 1)
+    class_node = _class_node(text, declaring_class)
+    return class_node is not None and any(
+        isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and child.name == method
+        for child in class_node.body
+    )
 
 
 def citation_violation(
@@ -690,7 +930,7 @@ def citation_violation(
             f"{module}:{symbol} is cited at {path}:{lineno}, but that site does "
             "not invoke or register the symbol by name"
         )
-    if symbol not in tree.get(module, ""):
+    if not _defines_symbol(module, symbol, tree):
         return f"{module}:{symbol} is allowlisted but the module no longer defines it"
     return None
 
@@ -875,14 +1115,121 @@ def _ewrapper_overrides() -> list[str]:
 
 
 def test_qt_callbacks_are_allowlisted_with_their_registration_site():
-    for (module, name), base in QT_CALLBACKS.items():
-        assert hasattr(base, name), (
-            f"{module}:{name} is cited as a {base.__name__} override, but the "
-            "base class no longer declares it"
+    tree = sources()
+    for (module, declaring_class, method), base in FRAMEWORK_CALLBACKS.items():
+        assert hasattr(base, method), (
+            f"{module}:{declaring_class}.{method} is cited as a "
+            f"{base.__name__} override, but the base class no longer declares it"
         )
-        assert re.search(rf"def {re.escape(name)}\(", _text(module)), (
-            f"{module}:{name} is allowlisted but no longer defined"
+        class_node = _class_node(tree[module], declaring_class)
+        assert class_node is not None, (
+            f"{module}:{declaring_class} is cited as the declaring class but "
+            "is not defined there"
         )
+        assert base.__name__ in _base_names(class_node), (
+            f"{module}:{declaring_class} does not inherit {base.__name__}, so "
+            f"the entry does not name {method}'s registration site"
+        )
+        assert any(
+            isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and child.name == method
+            for child in class_node.body
+        ), f"{module}:{declaring_class}.{method} is allowlisted but not defined"
+
+
+def _framework_fixture_tree() -> dict[str, str]:
+    """Two classes with the same name-invoked method, one under the Qt base."""
+    return {
+        "fixture_module.py": (
+            "from PyQt6.QtWidgets import QStyledItemDelegate\n"
+            "\n"
+            "\n"
+            "class Panel(QStyledItemDelegate):\n"
+            "    def sizeHint(self, option, index):\n"
+            "        return None\n"
+            "\n"
+            "\n"
+            "class Plain:\n"
+            "    def sizeHint(self, option, index):\n"
+            "        return None\n"
+        ),
+    }
+
+
+def test_framework_callback_exempt_only_through_declaring_class_and_base():
+    """AC3: a cited (declaring class, registering base) entry and nothing less."""
+    tree = _framework_fixture_tree()
+    candidates = {"fixture_module.py": _class_methods(tree["fixture_module.py"])}
+    unexempted = [
+        "fixture_module.py:Panel.sizeHint",
+        "fixture_module.py:Plain.sizeHint",
+    ]
+    assert scan_unreferenced_symbols(tree, candidates) == unexempted
+    entry = {("fixture_module.py", "Panel", "sizeHint"): QStyledItemDelegate}
+    assert scan_unreferenced_symbols(
+        tree, candidates, framework_callbacks=entry
+    ) == ["fixture_module.py:Plain.sizeHint"], (
+        "the entry must exempt the class that inherits the registering base "
+        "and leave the same-named method on the unrelated class censused"
+    )
+    assert scan_unreferenced_symbols(
+        tree,
+        candidates,
+        framework_callbacks={("fixture_module.py", "Panel", "sizeHint"): object},
+    ) == unexempted, "a base class that does not declare the name exempts nothing"
+
+    class DeclaresSizeHint:
+        def sizeHint(self, option, index):
+            return None
+
+    assert scan_unreferenced_symbols(
+        tree,
+        candidates,
+        framework_callbacks={
+            ("fixture_module.py", "Panel", "sizeHint"): DeclaresSizeHint
+        },
+    ) == unexempted, "a base the declaring class does not inherit exempts nothing"
+
+    document = "docs/tasks/task-graph.json — AC3 registers Panel.sizeHint"
+    assert citation_violation(
+        "fixture_module.py", "Panel.sizeHint", document, tree
+    ), "a document mention satisfied the method citation check"
+    assert scan_unreferenced_symbols(
+        tree,
+        candidates,
+        allowlist={"fixture_module.py": {"Panel.sizeHint": document}},
+    ) == unexempted, "a document mention in the allowlist must exempt nothing"
+    assert scan_unreferenced_symbols(
+        tree,
+        candidates,
+        framework_callbacks={
+            ("fixture_module.py", "Panel", "sizeHint"): document
+        },
+    ) == unexempted, "a string is not a base class, so it cannot exempt a method"
+
+
+def test_p23_framework_callbacks_stay_green_through_their_cited_form():
+    """AC3: the tree's own initStyleOption/sizeHint resolve against their base."""
+    tree = sources()
+    candidates = _census_candidates(tree)
+    assert set(FRAMEWORK_CALLBACKS) == {
+        ("ui/option_spreads_panel.py", "_ElideNameDelegate", "initStyleOption"),
+        ("ui/option_spreads_panel.py", "OptionSpreadsPanel", "sizeHint"),
+    }
+    assert FRAMEWORK_CALLBACKS[
+        ("ui/option_spreads_panel.py", "_ElideNameDelegate", "initStyleOption")
+    ] is QStyledItemDelegate
+    assert FRAMEWORK_CALLBACKS[
+        ("ui/option_spreads_panel.py", "OptionSpreadsPanel", "sizeHint")
+    ] is QWidget
+    for (module, declaring_class, method), base in FRAMEWORK_CALLBACKS.items():
+        assert _framework_callback_exempt(
+            module, declaring_class, method, FRAMEWORK_CALLBACKS, tree
+        ), f"{module}:{declaring_class}.{method} does not resolve against its base"
+        assert f"{declaring_class}.{method}" in candidates[module]
+    assert scan_unreferenced_symbols(
+        tree, candidates, CENSUS_ALLOWLIST, FRAMEWORK_CALLBACKS
+    ) == []
 
 
 # ---------------------------------------------------------------------------
@@ -937,6 +1284,62 @@ def test_gate_is_green_on_the_tree_only_after_it_is_red_on_the_fixture(dead_fixt
     assert not scan_unreferenced_symbols(
         sources(), _census_candidates(sources()), CENSUS_ALLOWLIST
     ), "the real tree must be green"
+
+
+@pytest.fixture()
+def dead_method_fixture(tmp_path):
+    """A two-module tree: a class method its caller calls, one nothing calls."""
+    fixture_source = (
+        "class Owner:\n"
+        "    def used_method(self):\n"
+        "        return 1\n"
+        "\n"
+        "    def orphan_method(self):\n"
+        "        return 2\n"
+    )
+    caller_source = (
+        "from fixture_module import Owner\n"
+        "\n"
+        "\n"
+        "def drive(owner):\n"
+        "    return owner.used_method()\n"
+    )
+    (tmp_path / "fixture_module.py").write_text(fixture_source, encoding="utf-8")
+    (tmp_path / "caller_module.py").write_text(caller_source, encoding="utf-8")
+    return {
+        "fixture_module.py": fixture_source,
+        "caller_module.py": caller_source,
+    }
+
+
+def test_gate_is_red_on_a_seeded_dead_method_and_follows_the_call_site(
+    dead_method_fixture,
+):
+    """AC2: the method census answers call sites, not class membership."""
+    candidates = {
+        "fixture_module.py": _class_methods(
+            dead_method_fixture["fixture_module.py"]
+        )
+    }
+    assert scan_unreferenced_symbols(dead_method_fixture, candidates) == [
+        "fixture_module.py:Owner.orphan_method"
+    ], "exactly the method nothing calls must be reported"
+    mutated = dict(dead_method_fixture)
+    mutated["caller_module.py"] = (
+        "from fixture_module import Owner\n"
+        "\n"
+        "\n"
+        "def drive(owner):\n"
+        "    return owner\n"
+    )
+    assert scan_unreferenced_symbols(mutated, candidates) == [
+        "fixture_module.py:Owner.orphan_method",
+        "fixture_module.py:Owner.used_method",
+    ], "removing the only call site must add exactly the called method"
+    assert not scan_unreferenced_symbols(
+        sources(), _census_candidates(sources()), CENSUS_ALLOWLIST,
+        FRAMEWORK_CALLBACKS,
+    ), "the real tree must stay green in the same run"
 
 
 # ---------------------------------------------------------------------------

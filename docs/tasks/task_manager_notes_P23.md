@@ -399,3 +399,100 @@ unsatisfiable. The discriminating form is "not in `vars(cls)` and identical to t
 warnings are only the pre-existing "pure-output file" pack notes — `P23-T16` raises none, as all four
 of its `touches_files` appear in its pack). `graph_struct_sha256` regenerated. Metadata left at
 `"status": "READY_FOR_BUILD"`; `P23-T16` is the only `not_started` task, so it is the next frontier.
+
+## ESC-119 (second half) — the gate's clause (i) census extended to class methods
+
+**Source:** `docs/code_review/escalations.json` ESC-119 (`should-fix`, `routed_to: TASK_MANAGER`,
+`task_id: P23-T9`, `status: open`). The code half is closed: `P23-T16` landed
+`SpreadEngine.reset_session()` + a live `toggle_off()` (both `done`, verified by the reviewer/`P23-T16`
+result), so `toggle_off` is no longer orphaned. What remained is the enforcement gap ESC-119 named —
+`tests/test_d65_residue.py` clause (i) enumerates **module-level** public names only
+(`_defined_symbols` walks `ast.parse(text).body`), while `AC-D65.12(i)` requires "every module, class,
+function, **method** …". A dead method passes the standing gate, which is the exact defect class
+ESC-119 was raised for, and the suite docstring still claims "every P23 symbol".
+
+**Owner decision (2026-11-18, verbatim):** "Extend the gate to class methods". Direction taken as
+given: extend, never narrow `AC-D65.12`; the gate must carry clause-(v) exemptions for
+framework-invoked callbacks (Qt slots/handlers, `EWrapper`/`EClient` overrides) cited at their
+registration/override site (never a task-graph string); a seeded dead-method fixture must prove the
+clause reddens; the docstring scope claim gets corrected; and a genuine dead method found by the
+extended census is deleted, never allowlisted.
+
+**Scoping decision — one new task, test-only.** The whole deliverable lives in
+`tests/test_d65_residue.py` (the same file `P23-T13` authored and `P23-T15` re-pointed, both `done`):
+the candidate builder, the reachability scanner, the exemption machinery and its docstrings are one
+instrument, so splitting them would create two owners of one scanner. **New `P23-T17`**, `size: M`,
+`status: not_started`, `task_type: test`, deps `[P23-T13, P23-T16]`, `touches_files`
+`[tests/test_d65_residue.py]`, `doc_required: false`.
+
+**No production file is in the footprint — verified, not assumed.** Before scoping I ran the extended
+census over the tree with the very semantics the task specifies (all methods, public **and**
+single-underscore, of every class in the four P23 new modules and of every class named in
+`P23_ADDED_SYMBOLS`, reachability = load/attribute/string-constant/import mention in any scanned file
+or any use beyond the definition in its own module): **zero dead methods**. `OptionSeries` is a plain
+dataclass with no methods; `db_backup.VerifiedBackupPath` has only `__new__` (a dunder). So this run
+expects no production edit; the task's description says a violation reported by the *implemented*
+census means the scan is broader than `P23-T17-AC1` (fix the scan) or the tree changed since this
+scoping (report, do not allowlist). If a later run does find one, the owning module joins
+`touches_files` in that run and the method is **deleted**, per the owner's rule.
+
+**Census scope decisions encoded in the ACs.**
+
+1. **Dunders are the single exclusion** (names that both begin and end with `__`): Python/Qt machinery
+   invokes them implicitly (`__new__`, `__init__`, `__eq__`), and exempting them by name shape is
+   cheaper and more honest than a citation table for the data model. Single-underscore methods **are**
+   censused — that is stricter than the module-level rule (which skips leading-underscore names, left
+   untouched here), and it is what makes ESC-119's shape catchable: `toggle_off` had zero callers
+   tree-wide, and an internal helper with zero callers is dead by the same rule.
+2. **Keys are qualified**, `Module:Class.method` — a method name cannot be satisfied by a module-level
+   symbol of the same spelling, and the violation string names the class.
+3. **Reachability is the evidence the gate already accepts**, carried onto methods: load/attribute
+   access in any scanned file, a use beyond the definition inside its own module (`self.x(...)`),
+   a string constant equal to the name (`getattr(obj, "x")`, a name-keyed registry — added for the
+   own-module direction, where today's scanner only reads loads), an import alias, and
+   `.connect(...)`/registration sites. No new discovery machinery: `_load_names`/`_mention_names`
+   stay the evidence.
+4. **Clause (v) carried onto methods, scoped harder than today.** A framework-invoked method is exempt
+   only through an entry naming the declaring class **and** the base class whose attribute registers
+   the name, with the check verifying that base really declares it — so `sizeHint` on the delegate is
+   exempt while the same name on a class with no such base is still censused. A document/task-graph
+   string satisfies neither the base-class check nor the `citation_violation` cited-site form
+   (`_REGISTRATION_RE` requires a `.py` path + line), keeping ESC-118's evidence rule intact.
+5. **Nothing is weakened.** `P23-T17-AC1` states that clauses (ii)–(v), the seeded dead-symbol and
+   unconnected-signal fixtures and the token/batch half keep their current strictness, with no
+   assertion deleted or relaxed; the three pre-existing fixture cases are named as staying in place
+   unmodified, and their test's `expected_result` says so in hygiene terms (no invented RED→GREEN).
+
+**Why the dependency edges.** `P23-T17 ← P23-T13` (it edits the gate `P23-T13` authored — the
+scanner, the citation checker and the clause-(v) tables) and `P23-T17 ← P23-T16` (its discriminating
+assertions name the post-ESC-119 engine surface — `SpreadEngine.toggle_off` and `reset_session` — and
+the census must be green on the state `P23-T16` leaves; before T16, `toggle_off` really was dead and
+this task's green AC would be unsatisfiable). No edge to `P23-T15` (it re-pointed this file earlier
+and is `done`; nothing it wrote is a contract this task consumes — including it would only remove
+parallelism, which is moot now that it is complete). No edge to `P23-T3`/`T9` (file-disjoint from this
+task, and their subjects are stable). `P23-T17` is a leaf.
+
+**Size justification — `M`, ~18 steps.** Two scanners touched (`_defined_symbols` gains the method
+walk; `_census_candidates` gains qualified keys), one exemption path (table + base check) reused from
+clause (v), four new tests (candidate map, dead-method fixture + mutation, exemption fixture trio,
+docstring scope) and the docstring correction — comfortably inside the ~20-step target, and one file,
+so no split. Not `S`: the exemption scoping is a real design decision, not a mechanical edit.
+
+**Pack.** 7 `read_files` entries over **one** file (the budget counts files), each with a range and a
+`why` marking edit vs read-only; 5 contracts — two `new` (the `Class.method` candidate-key format and
+the method exemption entry form, i.e. exactly what the tests assert) and three `existing` refs
+(`scan_unreferenced_symbols`, `citation_violation`, `_defined_symbols`). No pack prose contradicts an
+AC: the exclusion rule appears once (`AC1`) and is restated only as the docstring deliverable (`AC4`),
+and each guarantee names its enforcing test (AC1 → `P23-T17-AC1`, AC2 → `P23-T17-AC2`, AC3 →
+`P23-T17-AC3`, AC4 → `P23-T17-AC4`). `test_command` is the suite's own:
+`QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_residue.py -q`.
+
+**Not done here.** `docs/code_review/escalations.json` is Code Reviewer's file — ESC-119 stays `open`
+for the Reviewer's verification pass after this rework lands; this run did not edit it, nor
+`requirements.md`, `plan.md` or `architecture.md` (`AC-D65.12` already requires methods; `S-P23-15`
+already says "every symbol added by P23", so neither needed a change and neither is mine to make).
+
+**Verification.** `check_tasks.py`: `OK: 17 tasks validated, execution_graph.json written` (exit 0;
+warnings are only the pre-existing "pure-output file" pack notes — `P23-T17` raises none, as its one
+`touches_files` entry is in its pack). `graph_struct_sha256` regenerated. Metadata left at
+`"status": "READY_FOR_BUILD"`; `P23-T17` is the only `not_started` task, so it is the next frontier.
