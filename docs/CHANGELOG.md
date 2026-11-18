@@ -593,3 +593,33 @@ Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
 - 65bc3e7 P19: scroll-triggered backfill prefetch (D58, owner-accepted trigger table)
 - b39fdf2 P18: go-to-latest chevron + fresh per-timeframe framing (D57, Q92-95 answered)
 - e50a759 P17: silence retry for historical chunks (D56, Q88-91 answered)
+## P24 — 2026-11-18
+
+Build: Status: READY_FOR_REVIEW; review: REVIEW_COMPLETE; findings logged: 0.
+
+### Done
+- P24-T1 — Per-side row-ordered RUNG_OFFSETS with ladder_pairs reading tuple order (never sorted); retired the shared dict {1:10,2:5,3:0,4:-5}, sorted(RUNG_OFFSETS)==[1,2,3,4], the 'both sides' prose, the PCS [10,5,0,-5] expectation, test_P23_T1_AC1_one_offset_table_on_both_sides (replaced by a per-side no-second-table test), PCS canonical 7340/7320 (now 7330/7310, 7325/7305, 7320/7300, 7315/7295 at anchor 7325) and PCS window_legs anchor 7340 (now 7325); ladder suite 89 tests green.
+- P24-T2 — Re-derived both PCS fixture suites to the per-side +5/0/-5/-10 table (per-fixture quote-coverage and both-anchor assertions, split EXPECTED_SHORTS_CCS/PCS, PCS row indices up one, re-anchor sets leave P7320/arrive P7360 keeping P7340); no PCS anchor moved -- every re-derived value equals the strike-based P23 anchor; two suites and all seven tests/test_d65_* suites green; this wave's diff is the two test files (the working-tree diff also carries P24-01's services/option_ladder.py)
+- P24-T3 — Panel PCS fixture re-baselined to SPX Nov17 7325/7305, residue CANONICAL_FIXTURES PCS entry re-pointed to 7325/7305 (constant+comment only; gate body/holders/ban lists byte-identical), and tests/test_d66_delta_fence.py green with all five [revises P23, 2026-11-18 markers asserted by site; delta scope recorded.
+
+### Recent commits (unscoped)
+- 246e5df P24: PCS per-side offsets + reversed row order (D66); fixtures re-derived, delta fence
+- f9bb73c P24: requirements + plan approved (D66 PCS ordering delta); ESC-123/124/125 closed; acceptance record names db21672
+- db21672 P23 rework: restore the install guard (ESC-124); surface the IB chain error code and stop claiming no-0DTE on failure (Q-74)
+- 39856b0 P23 cleanup: delete 18 test-only symbols, wire AC-D65.4 into evaluate(), harden the residue gate (ESC-121/122), live-TWS acceptance record
+- c04cc03 Q-73: usage docs cover the D65 badge, STALE/freeze and no-0DTE empty state
+- a6800b2 P23 T17: residue gate censuses class methods with cited framework exemptions
+- c2fc2af P23 T16: engine-owned reset_session, live toggle_off, no constructor re-entry
+- bb5d540 P23 rework: ESC-116 contract re-point, ESC-117 OFF/cutoff session reset, ESC-118 dead alias + allowlist tighten
+- 82b82fd P23 build: Option Spreads panel, chain/greeks, engine, live wiring, Portfolio stack removal, schema drop (10 waves)
+- 4bb01e9 P23: plan approved after owner review (10 waves, RC-1..RC-16)
+- e27c03b D65 amended for owner review; plan revised to 10 waves (FI-P23-2/3 resolved)
+- 337221e Q-72: CI parity gate reads the archived matrix path
+- 153c317 Archive reference docs; D65 amended per owner review (Q-71)
+- 99bd362 Archive review logs, plan reviews and probe records (Q-68..Q-70)
+- 697d940 Q-69: archive probe records and re-point their gate tests
+- d572047 P23: option spreads plan approved; implementation plan for owner review
+- 4d8f628 Q-67: hide the collapsed-watchlist handle while expanded (covered 'Sy' header text)
+- 015e77d Q-66: toolbar scroll opens at its left edge (startup offset fix)
+- 1953386 Q-65: style the horizontal toolbar scrollbar to match the dark theme
+- 4ea1482 Q-64: derive toolbar row height from content sizeHint (36px floor)
