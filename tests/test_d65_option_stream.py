@@ -10,9 +10,12 @@ per-line fault routed end-to-end through ``_on_error``.
 No test connects to TWS and no test can record an order call: the fake client's
 order surface is a recorder that every case asserts empty.
 
-Synthetic quotes: a 20-wide pair's credit is ``1.00 + 0.01 * (short - 7350)``
-for both sides, so the Target's minimiser is a known strike and the displayed
-(negative) pair is exactly assertable. Bid = price, ask = price + 0.10.
+Synthetic quotes: a 20-wide pair's credit mid is ``1.00 - 0.02 * (short - 7350)``
+for CCS and ``1.00 + 0.02 * (short - 7350)`` for PCS, so one 5-point rung moves
+the mid by 0.10 -- above ``h = 0.05`` at T < 3.00 -- and the Target's minimiser is
+a known strike with the displayed (negative) pair exactly assertable.
+Bid = price, ask = price + 0.10, so a pair's three credit bases are
+``mid - 0.10``, ``mid`` and ``mid + 0.10``.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ from ibkr.client import IBApiClient
 from ibkr.contracts import today_expiry_yyyymmdd
 from ibkr.pacing import PacingExceeded
 from ibkr.subscription_manager import MARKET_DATA, OPTION_LEGS, RT_BARS, S0_TICKS
-from services.option_ladder import LegKey
+from services.option_ladder import LegKey, match_band
 
 TODAY = today_expiry_yyyymmdd()
 SPOT = 7350.0
@@ -47,14 +50,19 @@ UNFED = {7380.0}
 def _price(strike: float, right: str) -> float:
     x = float(strike) - SPOT
     if right == "C":
-        # f(x) - f(x+20) = 1.00 + 0.01x — the CCS credit curve.
-        return 100.0 - 0.045 * x - 0.00025 * x * x
-    # g(x) - g(x-20) = 1.00 + 0.01x — the PCS credit curve.
-    return 100.0 + 0.055 * x + 0.00025 * x * x
+        # f(x) - f(x+20) = 1.00 - 0.02x — the CCS credit mid falls 0.02/point,
+        # so one 5-point rung changes d by 0.10 (above h = 0.05).
+        return 100.0 - 0.06 * x + 0.0005 * x * x
+    # g(x) - g(x-20) = 1.00 + 0.02x — the PCS credit mid rises 0.02/point.
+    return 100.0 + 0.06 * x + 0.0005 * x * x
 
 
-def _credit(short: float) -> float:
-    return 1.00 + 0.01 * (float(short) - SPOT)
+def _credit(short: float, side: str) -> float:
+    """The pair's credit mid on ``side``: CCS falls 0.02/point, PCS rises."""
+    points = float(short) - SPOT
+    if side == "CCS":
+        return 1.00 - 0.02 * points
+    return 1.00 + 0.02 * points
 
 
 def _delta(strike: float) -> float:
@@ -65,9 +73,9 @@ def _gamma(strike: float) -> float:
     return 0.01 + 0.00002 * (float(strike) - SPOT)
 
 
-def _expected_display(short: float) -> tuple[str, str]:
-    credit = _credit(short)
-    return f"{-credit + 0.10:.2f}", f"{-credit - 0.10:.2f}"
+def _expected_display(short: float, side: str) -> tuple[str, str]:
+    mid = _credit(short, side)
+    return f"{-mid + 0.10:.2f}", f"{-mid - 0.10:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +267,7 @@ def _toggle_on(win, fake, *, spot: float | None = SPOT) -> None:
     """Click the panel's toggle ON and feed the spot (tier 3b by default)."""
     panel = win.option_spreads_panel
     panel.toggle_button.click()
-    assert panel.toggle_state() is True
+    assert panel.toggle_button.isChecked() is True
     if spot is not None:
         _feed_spot(win, fake, spot)
 
@@ -333,7 +341,7 @@ def test_P23_T9_AC1_on_populates_both_ladders_negative_and_partial_legs(
                     # 7380 never ticked: a partial leg shows no value.
                     assert cells[1:] == ["", "", "", ""], cells
                     continue
-                ask, bid = _expected_display(short)
+                ask, bid = _expected_display(short, side)
                 assert cells[1] == ask, (side, index, cells)
                 assert cells[2] == bid, (side, index, cells)
                 assert cells[3] == delta_text, (side, index, cells)
@@ -354,10 +362,10 @@ def test_P23_T9_AC1_launch_is_off_at_default_target(monkeypatch, qapp):
     win, fake = _make_window(monkeypatch, qapp)
     try:
         panel = win.option_spreads_panel
-        assert panel.toggle_state() is False
-        assert panel.target_value() == pytest.approx(1.00)
+        assert panel.toggle_button.isChecked() is False
+        assert panel._last_valid_target == pytest.approx(1.00)
         assert panel.target_edit.text() == "1.00"
-        assert win._option_engine.target == pytest.approx(1.00)
+        assert win._option_engine._target == pytest.approx(1.00)
         assert win._option_leg_req == {}
         assert win._option_spot_req_id is None
         assert fake.mkt_data == []
@@ -377,7 +385,7 @@ def test_P23_T9_AC2_registry_shared_legs_ordering_budget_and_off(monkeypatch, qa
         assert OPTION_LEGS == "option_legs"
         _toggle_on(win, fake)
         _deliver_chain(win, fake)
-        _settle(win, fake)
+        now = _settle(win, fake)
 
         assert win._option_engine.anchor("CCS") == 7350.0
         assert win._option_engine.anchor("PCS") == 7350.0
@@ -398,30 +406,34 @@ def test_P23_T9_AC2_registry_shared_legs_ordering_budget_and_off(monkeypatch, qa
         cancel_floor = len(fake.cancels)
         event_floor = len(fake.events)
 
-        # A Target change moves the anchor one 5-point step toward it.
+        # A Target change moves each anchor exactly one AC-D65.4 rung in its
+        # decided direction: the 0.02/point curve puts T=1.20 on the *lower*
+        # CCS strike (7345: bases 1.00/1.10/1.20) and the *higher* PCS strike
+        # (7355: bases 1.00/1.10/1.20); 7350's bases are 0.90/1.00/1.10.
         edits: list[float] = []
         win.option_spreads_panel.target_committed.connect(edits.append)
         win.option_spreads_panel.target_edit.setText("1.20")
         win.option_spreads_panel.target_edit.editingFinished.emit()
 
         assert edits == [pytest.approx(1.20)]
-        assert win._option_engine.target == pytest.approx(1.20)
-        assert win._option_engine.anchor("CCS") == 7355.0
+        assert win._option_engine._target == pytest.approx(1.20)
+        assert win._option_engine.anchor("CCS") == 7345.0
         assert win._option_engine.anchor("PCS") == 7355.0
 
         after = fake.leg_reqs()
         # Shared legs keep their original reqId (never cancelled + re-requested).
-        for key in (("C", 7360.0), ("C", 7355.0), ("C", 7350.0),
-                    ("C", 7380.0), ("C", 7375.0), ("C", 7370.0), ("C", 7365.0),
+        # CCS 7350 -> 7345 keeps 7360 as a long; PCS 7350 -> 7355 keeps 7345.
+        for key in (("C", 7360.0), ("C", 7355.0), ("C", 7350.0), ("C", 7345.0),
+                    ("C", 7375.0), ("C", 7370.0), ("C", 7365.0),
                     ("P", 7360.0), ("P", 7355.0), ("P", 7350.0), ("P", 7345.0),
                     ("P", 7340.0), ("P", 7335.0), ("P", 7330.0)):
             assert after[key] == before[key], key
-        # The leaving legs are gone; the arriving ones are new lines.
-        assert ("C", 7345.0) not in after
+        # Exactly one leg leaves and one arrives per side.
+        assert ("C", 7380.0) not in after
         assert ("P", 7325.0) not in after
-        assert before[("C", 7345.0)] in fake.cancels
+        assert before[("C", 7380.0)] in fake.cancels
         assert before[("P", 7325.0)] in fake.cancels
-        assert after[("C", 7385.0)] not in before.values()
+        assert after[("C", 7340.0)] not in before.values()
         assert after[("P", 7365.0)] not in before.values()
         # ... and each leaving leg was cancelled BEFORE its side's arrival.
         new_events = fake.events[event_floor:]
@@ -435,11 +447,19 @@ def test_P23_T9_AC2_registry_shared_legs_ordering_budget_and_off(monkeypatch, qa
         )
         assert leaving_index < arriving_index
         assert max(option for option, _spot in fake.steps) <= 16
-        assert len(fake.cancels) - cancel_floor == 2  # C7345 + P7325 only
+        assert len(fake.cancels) - cancel_floor == 2  # C7380 + P7325 only
+
+        # A second evaluation moves nothing: both new anchors are matched (d=0).
+        cancels_after_step = len(fake.cancels)
+        win._option_eval_step(now + 1.0)
+        assert win._option_engine.anchor("CCS") == 7345.0
+        assert win._option_engine.anchor("PCS") == 7355.0
+        assert fake.leg_reqs() == after
+        assert len(fake.cancels) == cancels_after_step
 
         # OFF releases every option line and the spot line.
         win.option_spreads_panel.toggle_button.click()
-        assert win.option_spreads_panel.toggle_state() is False
+        assert win.option_spreads_panel.toggle_button.isChecked() is False
         assert win._option_req_ids == {}
         assert win._option_leg_req == {}
         assert win._option_spot_req_id is None
@@ -463,7 +483,8 @@ def test_P23_T9_AC2_budget_refusal_is_one_message_and_no_over_cap_subscribe(
         # holding no live line at all.
         for index in range(8):
             short = 7000.0 + 40.0 * index
-            assert win._option_engine.lease("CCS", short, short + 20.0)
+            assert win._option_engine._lease_pair(
+                None, "CCS", short, short + 20.0, reason="manual")
 
         _toggle_on(win, fake)
         _deliver_chain(win, fake)
@@ -507,7 +528,7 @@ def test_P23_T9_AC2_second_on_rebuilds_the_session_and_streams_fresh_values(
         # OFF returns the engine to a clean pre-ON session: no live legs, no
         # rows, no reqIds and no lines on the wire.
         win.option_spreads_panel.toggle_button.click()
-        assert win.option_spreads_panel.toggle_state() is False
+        assert win.option_spreads_panel.toggle_button.isChecked() is False
         assert win._option_engine is engine  # the same engine, reset
         assert engine.live_legs() == set()
         assert engine.rows() == {}
@@ -547,7 +568,7 @@ def test_P23_T9_AC2_second_on_rebuilds_the_session_and_streams_fresh_values(
         # (a stale pre-OFF row would silently keep its old value).
         _feed_leg(win, fake, 7350.0, "C", bid=_price(7350.0, "C") + 0.05)
         qapp.processEvents()
-        assert _cells(win, "CCS", 2)[1] == f"{-_credit(7350.0) + 0.05:.2f}"
+        assert _cells(win, "CCS", 2)[1] == f"{-_credit(7350.0, 'CCS') + 0.05:.2f}"
         assert set(win._option_engine.stale_legs()) == set()
         assert fake.orders == []
     finally:
@@ -583,7 +604,7 @@ def test_P23_T9_AC2_deferred_leg_retry_after_off_opens_no_line(
 
         # OFF, then the queued QTimer.singleShot retry lands.
         win.option_spreads_panel.toggle_button.click()
-        assert win.option_spreads_panel.toggle_state() is False
+        assert win.option_spreads_panel.toggle_button.isChecked() is False
         assert fake.live_of("OPT") == []
         win._option_subscribe_leg(leg)
 
@@ -672,7 +693,7 @@ def test_P23_T9_AC3_disconnect_marks_stale_freezes_and_replays_once(
         assert rebound[("C", 7350.0)] != reqs_before[("C", 7350.0)]
         _feed_leg(win, fake, 7350.0, "C")
         qapp.processEvents()
-        ask, bid = _expected_display(7350.0)
+        ask, bid = _expected_display(7350.0, "CCS")
         assert _cells(win, "CCS", 2)[1] == ask
         assert _cells(win, "CCS", 2)[2] == bid
         assert fake.orders == []
@@ -694,14 +715,14 @@ def test_P23_T9_AC4_tier_3a_chart_on_spx_with_price_opens_zero_spot_lines(
         _toggle_on(win, fake, spot=None)  # tier 3a: the chart's own price
         assert fake.live_of("IND") == []
         assert win._md_line_count() == 0
-        assert win._option_engine.spot == pytest.approx(SPOT)
+        assert win._option_engine._spot == pytest.approx(SPOT)
 
         _deliver_chain(win, fake)
         _settle(win, fake)
         assert fake.live_of("IND") == []
         assert max(option for option, _spot in fake.steps) <= 16
         assert max(option + spot for option, spot in fake.steps) <= 17
-        ask, bid = _expected_display(7350.0)
+        ask, bid = _expected_display(7350.0, "CCS")
         assert _cells(win, "CCS", 2)[1] == ask
         assert _cells(win, "CCS", 2)[2] == bid
         assert fake.orders == []
@@ -723,7 +744,7 @@ def test_P23_T9_AC4_tier_3b_other_symbol_opens_exactly_one_counted_spot(
         spot_req = spots[0][0]
         assert win._md_line_count() == 1  # the one spot line is counted
         win.ib_client.bridge.tick_price.emit(spot_req, 4, 7351.0)
-        assert win._option_engine.spot == pytest.approx(7351.0)
+        assert win._option_engine._spot == pytest.approx(7351.0)
 
         _deliver_chain(win, fake)
         _settle(win, fake)
@@ -732,7 +753,7 @@ def test_P23_T9_AC4_tier_3b_other_symbol_opens_exactly_one_counted_spot(
         assert spot_req in fake.cancels
         assert len(fake.live_of("OPT")) == 16  # 16 live legs, one spot ever
         assert win._md_line_count() == 16
-        ask, bid = _expected_display(7350.0)
+        ask, bid = _expected_display(7350.0, "CCS")
         assert _cells(win, "CCS", 2)[1] == ask
         assert fake.orders == []
     finally:
@@ -888,7 +909,7 @@ def test_P23_T9_AC5_162_keeps_the_line_then_goes_stale(monkeypatch, qapp):
         assert win._option_engine.leg_stale(leg) is False
         assert len(log.matching("kept")) == 1
         # The row keeps its last value until the timeout elapses.
-        ask, _bid = _expected_display(7355.0)
+        ask, _bid = _expected_display(7355.0, "CCS")
         assert _cells(win, "CCS", 1)[1] == ask
         assert req_id in fake.live
 
@@ -1021,7 +1042,7 @@ def test_P23_T9_AC6_rejected_target_changes_nothing_accepted_edit_moves_once(
         panel.target_edit.setText("99.00")
         panel.target_edit.editingFinished.emit()
         assert edits == []
-        assert win._option_engine.target == pytest.approx(1.00)
+        assert win._option_engine._target == pytest.approx(1.00)
         assert {side: win._option_engine.anchor(side)
                 for side in ("CCS", "PCS")} == anchors
         assert fake.leg_reqs() == reqs
@@ -1030,14 +1051,17 @@ def test_P23_T9_AC6_rejected_target_changes_nothing_accepted_edit_moves_once(
         assert "Target must be between" in panel.status_label.text()
 
         # An accepted edit emits once and re-evaluates immediately. T=1.20 is
-        # outside 7350's three credit bases [0.90, 1.10] but on 7355's ask
-        # basis [0.95, 1.15] -> the one-step move is warranted.
+        # outside 7350's three credit bases [0.90, 1.00, 1.10] but on the lower
+        # CCS strike's ask basis (7345: 1.00/1.10/1.20) and the higher PCS
+        # strike's ask basis (7355: 1.00/1.10/1.20) -> one rung each, opposite
+        # strike directions.
         panel.target_edit.setText("1.20")
         panel.target_edit.editingFinished.emit()
         assert edits == [pytest.approx(1.20)]
-        assert win._option_engine.target == pytest.approx(1.20)
-        assert win._option_engine.anchor("CCS") == 7355.0
-        assert fake.leg_reqs()[("C", 7355.0)] == reqs[("C", 7355.0)]
+        assert win._option_engine._target == pytest.approx(1.20)
+        assert win._option_engine.anchor("CCS") == 7345.0
+        assert win._option_engine.anchor("PCS") == 7355.0
+        assert fake.leg_reqs()[("C", 7345.0)] == reqs[("C", 7345.0)]
         assert fake.orders == []
     finally:
         win.close()
@@ -1051,7 +1075,7 @@ def test_P23_T9_AC6_collapse_while_on_keeps_streaming(monkeypatch, qapp):
         _deliver_chain(win, fake)
         _settle(win, fake)
 
-        panel.set_collapsed(True)
+        panel.header_button.setChecked(False)
         assert panel.is_collapsed() is True
         before = win._option_refresh_count
         win._option_eval_timer.stop()  # isolate the coalesced tick refresh
@@ -1060,7 +1084,7 @@ def test_P23_T9_AC6_collapse_while_on_keeps_streaming(monkeypatch, qapp):
         qapp.processEvents()
 
         assert win._option_refresh_count > before
-        assert _cells(win, "CCS", 3)[1] == f"{-_credit(7345.0) + 0.05:.2f}"
+        assert _cells(win, "CCS", 3)[1] == f"{-_credit(7345.0, 'CCS') + 0.05:.2f}"
         assert fake.orders == []
     finally:
         win.close()
@@ -1094,8 +1118,8 @@ def test_P23_T9_AC6_restart_launches_off_at_target_1_with_zero_lines(
         monkeypatch, qapp):
     win, fake = _make_window(monkeypatch, qapp)
     try:
-        assert win.option_spreads_panel.toggle_state() is False
-        assert win.option_spreads_panel.target_value() == pytest.approx(1.00)
+        assert win.option_spreads_panel.toggle_button.isChecked() is False
+        assert win.option_spreads_panel._last_valid_target == pytest.approx(1.00)
         assert win.option_spreads_panel.target_edit.text() == "1.00"
         assert win._option_req_ids == {}
         assert win._option_spot_req_id is None
@@ -1144,14 +1168,14 @@ def _assert_empty_engine(engine, *, clock, target, live):
     """AC1's empty-session state on the live engine, clock and Target intact."""
     assert engine.live_legs() == set()
     assert engine.rows() == {}
-    assert all(engine.req_id(item) is None for item in live)
+    assert all(engine._req_ids.get(item) is None for item in live)
     assert engine.anchor("CCS") is None and engine.anchor("PCS") is None
     assert engine.seed_state().active is False
     assert engine.walk_frozen is False
     assert engine.stale_legs() == set()
     assert engine.take_messages() == []
-    assert engine.latched_causes() == []
-    assert engine.target == target
+    assert sorted(engine._latched) == []
+    assert engine._target == target
     assert engine._clock is clock
 
 
@@ -1168,7 +1192,7 @@ def test_P23_T16_AC3_off_and_cutoff_empty_the_live_engine_without_reinit(
         assert len(live) == 16
         bound = sorted(live, key=lambda key: (key.right, key.strike))[0]
         engine.rebind_leg(bound, 7777)
-        assert engine.req_id(bound) == 7777
+        assert engine._req_ids.get(bound) == 7777
         win._option_engine.set_target(2.00)
         clock = lambda: 424242.0
         engine._clock = clock
@@ -1176,7 +1200,7 @@ def test_P23_T16_AC3_off_and_cutoff_empty_the_live_engine_without_reinit(
         calls = _counting_init(monkeypatch)
         win.option_spreads_panel.toggle_button.click()  # OFF
 
-        assert win.option_spreads_panel.toggle_state() is False
+        assert win.option_spreads_panel.toggle_button.isChecked() is False
         assert calls == []
         assert win._option_engine is engine
         _assert_empty_engine(engine, clock=clock, target=2.00, live=live)
@@ -1202,7 +1226,7 @@ def test_P23_T16_AC3_off_and_cutoff_empty_the_live_engine_without_reinit(
         assert len(live2) == 16
         bound2 = sorted(live2, key=lambda key: (key.right, key.strike))[0]
         engine2.rebind_leg(bound2, 7778)
-        assert engine2.req_id(bound2) == 7778
+        assert engine2._req_ids.get(bound2) == 7778
         win2._option_engine.set_target(2.00)
         clock2 = lambda: 515151.0
         engine2._clock = clock2
@@ -1223,3 +1247,64 @@ def test_P23_T16_AC3_off_and_cutoff_empty_the_live_engine_without_reinit(
     finally:
         win2.close()
 
+
+# ---------------------------------------------------------------------------
+# P23-T25 — the fixture's credit curves are faithful to the approved rule
+# ---------------------------------------------------------------------------
+
+
+def test_P23_T25_AC1_pair_mids_fall_rise_and_seed_at_7350(monkeypatch, qapp):
+    """CCS mid falls / PCS mid rises 0.02 per point; one rung moves d by 0.10.
+
+    At T = 1.00 the seeded anchor is 7350 on both sides. A single 5-point rung
+    moves the pair's credit mid by 0.10 — twice h = 0.05 — so AC-D65.4's strict
+    "more than h" rule can actually step on this feed.
+    """
+    win, fake = _make_window(monkeypatch, qapp)
+    try:
+        _toggle_on(win, fake)
+        _deliver_chain(win, fake)
+        _settle(win, fake)
+
+        engine = win._option_engine
+        assert engine.anchor("CCS") == 7350.0
+        assert engine.anchor("PCS") == 7350.0
+        assert match_band(1.00) == pytest.approx(0.05)
+
+        ccs_7350 = engine._score_pair_complete("CCS", 7350.0, 7370.0)
+        ccs_7345 = engine._score_pair_complete("CCS", 7345.0, 7365.0)
+        pcs_7350 = engine._score_pair_complete("PCS", 7350.0, 7330.0)
+        pcs_7355 = engine._score_pair_complete("PCS", 7355.0, 7335.0)
+        for score in (ccs_7350, ccs_7345, pcs_7350, pcs_7355):
+            assert score is not None
+
+        assert ccs_7350.credit_mid == pytest.approx(1.00)
+        assert ccs_7345.credit_mid == pytest.approx(1.10)
+        assert pcs_7350.credit_mid == pytest.approx(1.00)
+        assert pcs_7355.credit_mid == pytest.approx(1.10)
+
+        # One rung moves the mid by 0.10, which is strictly more than the band,
+        # in the decided direction on each side (CCS down, PCS up).
+        assert ccs_7345.credit_mid - ccs_7350.credit_mid == pytest.approx(0.10)
+        assert pcs_7355.credit_mid - pcs_7350.credit_mid == pytest.approx(0.10)
+        assert abs(ccs_7345.credit_mid - ccs_7350.credit_mid) > match_band(1.00)
+        assert abs(pcs_7355.credit_mid - pcs_7350.credit_mid) > match_band(1.00)
+
+        # The three credit bases bracket the mid by one tick each way.
+        for score in (ccs_7350, ccs_7345, pcs_7350, pcs_7355):
+            assert score.credit_bid == pytest.approx(score.credit_mid - 0.10)
+            assert score.credit_ask == pytest.approx(score.credit_mid + 0.10)
+
+        # Every displayed cell is computed from those mids.
+        for side, index, short in (
+            ("CCS", 2, 7350.0), ("CCS", 3, 7345.0),
+            ("PCS", 2, 7350.0), ("PCS", 1, 7355.0),
+        ):
+            ask, bid = _expected_display(short, side)
+            cells = _cells(win, side, index)
+            assert cells[1] == ask, (side, index, cells)
+            assert cells[2] == bid, (side, index, cells)
+            assert float(cells[1]) < 0 and float(cells[2]) < 0
+        assert fake.orders == []
+    finally:
+        win.close()

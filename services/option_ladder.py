@@ -6,8 +6,7 @@ option-geometry and arithmetic rule the panel and its engine share:
 * the 20-wide ladder, built from **one** offset table applied identically on
   both sides (:data:`SPREAD_WIDTH`, :data:`STRIKE_STEP`, :data:`RUNG_OFFSETS`,
   :func:`ladder_pairs`);
-* the short-leg-first row name and its fixture-convention guard
-  (:func:`format_instrument`, :func:`validate_spread`);
+* the short-leg-first row name (:func:`format_instrument`);
 * the displayed/credit sign pair -- the module's only sign decision
   (:func:`display_bases`, :func:`credit_bases`);
 * the tick-derived match band (:func:`option_tick`, :func:`match_band`);
@@ -30,7 +29,6 @@ Public API::
     ladder_pairs(anchor_short, side="CCS")             -> list[tuple[float, float]]
     window_legs(anchor_short, side="CCS")              -> list[LegKey]
     format_instrument(symbol, expiry, short, long)     -> str
-    validate_spread(side, short, long)                 -> None (raises ValueError)
     display_bases(bid_s, ask_s, bid_l, ask_l)          -> (display_ask, display_bid)
     credit_bases(bid_s, ask_s, bid_l, ask_l)           -> (credit_bid, credit_ask, credit_mid)
     option_tick(target) / match_band(target)           -> float
@@ -131,36 +129,6 @@ def ladder_pairs(anchor_short: float, side: str = SIDE_CCS) -> List[Tuple[float,
             long = short - SPREAD_WIDTH
         pairs.append((short, long))
     return pairs
-
-
-def validate_spread(side: str, short: float, long: float) -> None:
-    """The fixture-convention guard: raise ``ValueError`` on an illegal pair.
-
-    A legal pair is exactly :data:`SPREAD_WIDTH` wide and points the way its
-    side does: a CCS has its long strike *above* its short (7425/7445), a PCS
-    has its long strike *below* its short (7340/7320).  So a 10-wide 7425/7435
-    is rejected, and so is an inverted PCS such as 7315/7435; the legal 20-wide
-    7435/7455 is accepted.
-    """
-    key = _side_key(side)
-    short_value = float(short)
-    long_value = float(long)
-    width = long_value - short_value
-    if not math.isclose(abs(width), SPREAD_WIDTH, abs_tol=1e-9):
-        raise ValueError(
-            f"{key} pair {short_value:g}/{long_value:g} is {abs(width):g} wide, "
-            f"not {SPREAD_WIDTH}"
-        )
-    if key == SIDE_CCS and width <= 0:
-        raise ValueError(
-            f"CCS pair {short_value:g}/{long_value:g} has its long strike "
-            "below its short strike"
-        )
-    if key == SIDE_PCS and width >= 0:
-        raise ValueError(
-            f"PCS pair {short_value:g}/{long_value:g} has its long strike "
-            "above its short strike"
-        )
 
 
 # ── Naming ───────────────────────────────────────────────────────────────────

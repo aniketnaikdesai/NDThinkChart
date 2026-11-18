@@ -6,13 +6,12 @@ tables (``CCS`` and ``PCS``), a Target field with its own validation gate
 
 This module is deliberately self-contained: it declares the panel's
 ``toggle_clicked`` / ``target_committed`` signals and exposes the members the
-dock drives (``header_button``, ``body``, ``is_collapsed``/``set_collapsed``/
-``toggle_collapsed``) without wiring any engine or window.  The signals receive
-their engine receivers in P23-09.
+dock drives (``header_button`` — the dock's title-bar widget and collapse
+control — ``body`` and :meth:`OptionSpreadsPanel.is_collapsed`) without wiring
+any engine or window.  The signals receive their engine receivers in P23-09.
 
 Sizing follows ``AC-D65.9``: the panel advertises :data:`PREFERRED_WIDTH` (360 px)
-through both :meth:`OptionSpreadsPanel.preferred_width` and
-:meth:`OptionSpreadsPanel.sizeHint`, while its horizontal size policy is
+through :meth:`OptionSpreadsPanel.sizeHint`, while its horizontal size policy is
 ``Ignored`` so the dock model (``ui/dock_layout``) keeps the width clamp.  The
 instrument-name column elides right with a trailing ellipsis and carries the
 full name as its tooltip, so a narrow dock never hard-truncates a name into an
@@ -24,7 +23,7 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFontMetrics, QPalette
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -332,10 +331,6 @@ class OptionSpreadsPanel(QWidget):
 
     # ── Target field (S-P23-23 validation gate) ─────────────────────────────
 
-    def target_value(self) -> float:
-        """The last accepted Target value."""
-        return self._last_valid_target
-
     def set_target_value(self, value: float) -> None:
         """Set the Target programmatically, keeping the same gate (no emit)."""
         parsed = self._parse_target(str(value))
@@ -377,14 +372,6 @@ class OptionSpreadsPanel(QWidget):
 
     # ── Spread toggle (red off / green on) ──────────────────────────────────
 
-    def toggle_state(self) -> bool:
-        """True while the spread toggle is ON (``spread_state == "on"``)."""
-        return self.toggle_button.property("spread_state") == "on"
-
-    def toggle_colour(self) -> str:
-        """The colour constant the current toggle state renders."""
-        return COLOUR_ON if self.toggle_state() else COLOUR_OFF
-
     def set_toggle_state(self, on: bool) -> None:
         """Programmatically flip the toggle (property, colour, palette, text)."""
         self._apply_toggle_state(bool(on))
@@ -421,34 +408,8 @@ class OptionSpreadsPanel(QWidget):
         """True while the body is hidden behind the header button."""
         return self._collapsed
 
-    def set_collapsed(self, collapsed: bool) -> None:
-        """Programmatically collapse/restore the body, syncing the header."""
-        collapsed = bool(collapsed)
-        self.header_button.setChecked(not collapsed)
-        # ``setChecked`` only emits ``toggled`` on a change; apply explicitly so
-        # the body/state flip even when the checked state is unchanged.
-        self._on_header_toggled(not collapsed)
-
-    def toggle_collapsed(self) -> None:
-        """Flip the collapsed state (the dock's convenience handle)."""
-        self.set_collapsed(not self._collapsed)
-
     # ── Sizing ──────────────────────────────────────────────────────────────
-
-    def preferred_width(self) -> int:
-        """The width the dock model should request at launch (360 px)."""
-        return PREFERRED_WIDTH
 
     def sizeHint(self) -> QSize:  # noqa: N802 (Qt name)
         hint = super().sizeHint()
         return QSize(PREFERRED_WIDTH, hint.height())
-
-    # ── Name-cell elision ───────────────────────────────────────────────────
-
-    def elided_name(self, text: str, width: int) -> str:
-        """*text* elided right with a trailing ellipsis to fit *width* px."""
-        width = max(int(width), 1)
-        metrics = QFontMetrics(self.font())
-        return metrics.elidedText(
-            str(text), Qt.TextElideMode.ElideRight, width
-        )

@@ -1,8 +1,7 @@
-# D65 paper-TWS acceptance record (AC-D65.19, P23-T14)
+# D65 live-TWS read-only acceptance record (AC-D65.19, P23-T26)
 
 Status: **PENDING — owner-run gate. No result recorded yet; every item below is unchecked.**
-Build commit: `4bb01e9` (`4bb01e9227d49a9806ef34820fa3106b9677d148`) — the build that produced this checklist.
-Paper account: __________________________________ — owner records the paper TWS account the run was performed on (this build asserts none).
+Build commit: `c04cc03` (`c04cc03c0a12e60a4c10a34dab44810efbc960a4`) — the build tree this checklist describes.
 Date (UTC): ____________________________________ — owner records the run date at sign-off.
 
 **AC-D65.19 is OPEN.** This file is the checklist and the evidence container: the checkbox
@@ -10,16 +9,45 @@ results, the evidence fields, the line counts and the closing statement belong t
 No automated suite and nothing in this build satisfies the criterion. Nothing on this page
 may be read as a pass until the owner has checked the box and filled the evidence field.
 
-## Method (paper TWS only, owner-run)
+_File-name note: the `d65_paper_tws_acceptance.md` path is retained so existing references
+resolve. Its content describes AC-D65.19 as amended on 2026-11-18: the owner's live TWS,
+read-only, on `127.0.0.1:7496`._
 
-- Paper TWS (or IB Gateway paper) on its **paper** port only — never the live port.
-  One client session, the application's normal startup path; no throwaway scripts, no
-  extra subscriptions beyond what the panel opens.
-- Note TWS's own **market-data line count** *before* switching the spread panel ON
+## Environment (owner's live TWS, 127.0.0.1:7496)
+
+- **Venue:** the owner's **live TWS on `127.0.0.1:7496`** — the same endpoint the application
+  is normally run against. There is no paper account and no alternate venue for this
+  acceptance run; the checklist is written for the live session, and every step below is
+  safe to perform there because the run is read-only by construction.
+- **Read-only by construction.** The application holds **zero order code**:
+  `placeOrder`, `cancelOrder`, `reqGlobalCancel` and every order-shaped call are absent from
+  the tree, so the run cannot transmit an order even by mistake. The Option Spreads panel
+  issues exactly three requests — `reqSecDefOptParams` (the chain skeleton), `reqMktData`
+  (one line per displayed leg, plus at most one SPX spot line) and `cancelMktData` (releasing
+  a line) — and nothing else.
+- **The only cancel in the run is a market-data line.** `cancelMktData` cancels a quote
+  subscription; it is not, and cannot be, an order cancel. Nothing in the checklist asks the
+  owner to place, modify or cancel an order: the run is **observation-only**, and no step
+  below requires any trading action of any kind. The Orders pane and the session log are
+  read, never exercised.
+- **Precedent:** the D48 and D52 probes (`d48_probe_record.md`, `d52_probe_record.md`) ran
+  read-only against live TWS on `127.0.0.1:7496` — a live port, a requests-only client, and
+  no orders. AC-D65.19 follows that shape: the live gateway, an observation-only checklist,
+  and a recorded result.
+
+## Method (live TWS, read-only, owner-run)
+
+- Connect the application to the live TWS session on `127.0.0.1:7496` — one client session,
+  the application's normal startup path; no throwaway scripts, no extra subscriptions beyond
+  what the panel opens.
+- Note TWS's own **market-data line count** *before* switching the Option Spreads panel ON
   (the baseline), *while* it is ON, and *after* switching it OFF. TWS displays this count
   in its data-connection/status area; write the three numbers into the table below.
 - Work through the six items in the recorded order (1)–(6) and capture a screenshot for each
   numbered item where the evidence is visual.
+- Every step is an observation. Nothing on this page asks the owner to place, modify or
+  cancel an order; the only cancel the run performs is a `cancelMktData` market-data line,
+  issued by the panel itself when it releases a leg or the spot line.
 - This run is observational. If the run exposes a code defect, **record it here and escalate
   it as a build finding** — do not patch code from this record, and do not mark the item
   passing on the strength of a later fix.
@@ -70,7 +98,8 @@ exactly; a run that sees different numbers has found a defect, not a variant.
 
 - [ ] **Switching the panel OFF cancels every option line**, verified against TWS's own
   line count — the after-OFF count returns to the pre-ON baseline recorded in the table
-  below, and no option line lingers.
+  below, and no option line lingers. OFF cancels market-data lines only (`cancelMktData`);
+  no order is involved on this path.
   **Evidence:** _(empty — owner records the three line counts from the table and any lingering line)_
 
 **Result:** PENDING
@@ -79,13 +108,16 @@ exactly; a run that sees different numbers has found a defect, not a variant.
 
 - [ ] **A forced disconnect marks the values `STALE` and freezes the walk**; **reconnect
   replays and recovers** (values refresh, the walk resumes, no duplicate lines left behind).
+  Force the disconnect at the connection (stop TWS, or drop the socket) — an observation
+  step, never a trading action.
   **Evidence:** _(empty — owner records how the disconnect was forced, what the display showed while down, and what recovery looked like)_
 
 **Result:** PENDING
 
 ### (6) No order code is touched — zero orders, zero transmit
 
-- [ ] **No order code is touched.** Collect and record all four pieces of evidence:
+- [ ] **No order code is touched.** Collect and record all four pieces of evidence, all of
+  them read-only observations:
   - TWS **Orders** pane / trade log shows **zero order lines** for the whole session
     (empty before and after the run, no order row, no `Transmitted` status);
   - the application log for the session shows **no `placeOrder` / `cancelOrder` / transmit
@@ -145,6 +177,6 @@ recorded as waived, not satisfied.
 
 ---
 
-_Recorded by Build Worker P23-T14 on 2026-11-17: docs only, no production or test code
-edited, no result fabricated. The phase gate stays open until this file carries a filled
-sign-off or an explicit recorded waiver._
+_Recorded by Build Worker P23-T26 on 2026-11-18: checklist rewrite only, no result
+fabricated. Every item remains PENDING; the phase gate stays open until this file carries a
+filled sign-off or an explicit recorded waiver._

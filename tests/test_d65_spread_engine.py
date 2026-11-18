@@ -36,6 +36,7 @@ from services.option_spread_engine import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODULE_PATH = REPO_ROOT / "services" / "option_spread_engine.py"
+TEST_PATH = Path(__file__).resolve()
 
 # 7300..7360 in 5-point steps: the narrow chain whose probe window is three
 # pairs wide (7310, 7330, 7350) and whose refine ring is 7325/7335.
@@ -95,6 +96,11 @@ def both_sides(table):
     plan.update(quotes_for("CCS", table))
     plan.update(quotes_for("PCS", mirror_table(table)))
     return plan
+
+
+def pending_from_state(engine):
+    """The pending-leg fact, read through the live pool it was derived from."""
+    return {item for item in engine._subscribed if engine.leg_state(item) == "pending"}
 
 
 def feed(engine, plan):
@@ -305,19 +311,19 @@ def test_P23_T7_AC3_pending_leg_three_seconds_and_both_legs_required():
 
     clock.advance(PENDING_SECONDS - 0.1)
     assert engine.leg_state(long_leg) == "awaiting"
-    assert engine.pair_eligible("CCS", 7310, 7330) is False
-    assert engine.pending_legs() == set()
+    assert engine._score_pair_complete("CCS", 7310, 7330) is None
+    assert pending_from_state(engine) == set()
 
     clock.advance(0.1)  # exactly 3.0 s since the subscription
     assert engine.leg_state(long_leg) == "pending"
-    assert engine.pending_legs() == {long_leg}
-    assert engine.pair_eligible("CCS", 7310, 7330) is False
+    assert pending_from_state(engine) == {long_leg}
+    assert engine._score_pair_complete("CCS", 7310, 7330) is None
     assert engine.seed_state().scored == 0
 
-    # Both legs quoting makes the pair eligible (and only then).
+    # Both legs quoting makes the pair scoreable (and only then).
     engine.on_quote(long_leg, 5.00, 5.05, True, True)
     assert engine.leg_state(long_leg) == "quoted"
-    assert engine.pair_eligible("CCS", 7310, 7330) is True
+    assert engine._score_pair_complete("CCS", 7310, 7330) is not None
 
     # A received zero bid is a live price that still scores.
     zero_clock = Clock()
@@ -327,14 +333,14 @@ def test_P23_T7_AC3_pending_leg_three_seconds_and_both_legs_required():
     zero.on_spot(7330.0)
     zero.on_quote(leg("C", 7330), 0.0, 0.60, True, True)
     zero.on_quote(leg("C", 7350), 0.0, 0.00, True, True)
-    score = zero.pair_score("CCS", 7330, 7350)
+    score = zero._score_pair_complete("CCS", 7330, 7350)
     assert score is not None
     assert score.credit_bid == 0.0
     assert zero.leg_state(leg("C", 7330)) == "quoted"
 
     # One side absent: the pair never scores, even with a live other side.
     zero.on_quote(leg("C", 7350), 0.0, 0.00, True, False)
-    assert zero.pair_eligible("CCS", 7330, 7350) is False
+    assert zero._score_pair_complete("CCS", 7330, 7350) is None
 
 
 # ── P23-T7-AC4: sentinels never reach the metric ─────────────────────────────
@@ -363,12 +369,14 @@ def test_P23_T7_AC4_sentinels_absent_and_good_to_sentinel_transition(monkeypatch
     for sentinel in sentinels:
         engine.on_quote(leg("C", 7330), sentinel, 5.05, True, True)
         engine.on_quote(leg("C", 7350), 3.95, 4.00, True, True)
-        assert engine.pair_eligible("CCS", 7330, 7350) is False
-        assert engine.pair_score("CCS", 7330, 7350) is None
+        # Both wrapper facts -- eligibility and score -- are one internal read
+        # now, so the pair is asserted unscoreable twice on purpose.
+        assert engine._score_pair_complete("CCS", 7330, 7350) is None
+        assert engine._score_pair_complete("CCS", 7330, 7350) is None
         assert engine.leg_state(leg("C", 7330)) == "idle"
     # A no-tick zero (received flags false) is absent too.
     engine.on_quote(leg("C", 7330), 0.0, 0.0, False, False)
-    assert engine.pair_eligible("CCS", 7330, 7350) is False
+    assert engine._score_pair_complete("CCS", 7330, 7350) is None
 
     # No sentinel reached the distance helper.
     for call in recorded:
@@ -386,7 +394,7 @@ def test_P23_T7_AC4_sentinels_absent_and_good_to_sentinel_transition(monkeypatch
     assert before.short == 7330
     assert before.display_ask is not None and before.display_bid is not None
     assert before.matched is True
-    assert live.pair_eligible("CCS", 7330, 7350) is True
+    assert live._score_pair_complete("CCS", 7330, 7350) is not None
 
     live.on_quote(leg("C", 7330), -1.0, 5.05, True, True)
     acts = live.evaluate(clock())
@@ -395,7 +403,7 @@ def test_P23_T7_AC4_sentinels_absent_and_good_to_sentinel_transition(monkeypatch
     assert stale.display_ask is None
     assert stale.display_bid is None
     assert stale.matched is False
-    assert live.pair_eligible("CCS", 7330, 7350) is False
+    assert live._score_pair_complete("CCS", 7330, 7350) is None
     assert acts.status in ("live", "seeding", "bounded")
 
 
@@ -441,7 +449,7 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
         clock = Clock()
         engine, _ = seed_engine(table, clock)
         assert engine.anchor("CCS") == 7330, name
-        score = engine.pair_score("CCS", 7330, 7350)
+        score = engine._score_pair_complete("CCS", 7330, 7350)
         assert score is not None and score.distance == 0.0
         if name == "mid":
             assert score.credit_mid == pytest.approx(1.00)
@@ -466,8 +474,8 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     }
     clock = Clock()
     engine1, batches1 = seed_engine(tie1, clock)
-    low = engine1.pair_score("CCS", 7310, 7330)
-    better = engine1.pair_score("CCS", 7330, 7350)
+    low = engine1._score_pair_complete("CCS", 7310, 7330)
+    better = engine1._score_pair_complete("CCS", 7330, 7350)
     assert low is not None and better is not None
     assert low.distance == 0.0 and better.distance == 0.0
     assert abs(better.credit_mid - 1.00) < abs(low.credit_mid - 1.00)
@@ -489,8 +497,8 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     }
     clock = Clock()
     engine2, batches2 = seed_engine(tie2, clock)
-    high = engine2.pair_score("CCS", 7310, 7330)
-    below = engine2.pair_score("CCS", 7330, 7350)
+    high = engine2._score_pair_complete("CCS", 7310, 7330)
+    below = engine2._score_pair_complete("CCS", 7330, 7350)
     assert high is not None and below is not None
     assert high.distance == pytest.approx(0.10)
     assert below.distance == pytest.approx(0.10)
@@ -514,12 +522,12 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     }
     clock = Clock()
     near, near_batches = seed_engine(tie3, clock, spot=7328.0)
-    left = near.pair_score("CCS", 7310, 7330)
-    right = near.pair_score("CCS", 7330, 7350)
+    left = near._score_pair_complete("CCS", 7310, 7330)
+    right = near._score_pair_complete("CCS", 7330, 7350)
     assert left is not None and right is not None
     assert left.distance == pytest.approx(0.10) == pytest.approx(right.distance)
     assert left.credit_mid == pytest.approx(right.credit_mid)
-    assert near.spot == 7328.0
+    assert near._spot == 7328.0
     assert near.anchor("CCS") == 7330
     near_probes = {
         action.pair[0]
@@ -531,7 +539,7 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     # Tie 3b: no price exists -> the lower short strike wins.
     clock = Clock()
     no_spot, _ = seed_engine(tie3, clock, spot=None)
-    assert no_spot.spot is None
+    assert no_spot._spot is None
     assert no_spot.anchor("CCS") == 7310
 
     # The displayed negative values never enter the metric: the recorded
@@ -611,15 +619,14 @@ def test_P23_T7_AC7_action_vocabulary_line_budget_and_per_cause_messages():
     engine, batches = seed_engine(AC1_TABLE, clock)
     assert engine.anchor("CCS") == 7330
 
-    # Re-anchor both sides to 7335: the stale leg goes first, so the live line
-    # count dips to 14 before the new lines arrive.
-    for side in ("CCS", "PCS"):
-        engine.on_quote(leg(side_right(side), 7330), -1.0, 5.05, True, True)
+    # Re-anchor through the live step decision: the walk table's credit bases sit
+    # below the Target, so CCS steps down and PCS up, one rung each.
+    feed(engine, both_sides(WALK_TABLE))
     acts = engine.evaluate(clock())
     batches.append(acts)
-    assert engine.anchor("CCS") == 7335
+    assert engine.anchor("CCS") == 7325
     # The put ladder mirrors the call ladder around the anchor strike.
-    assert engine.anchor("PCS") == 7325
+    assert engine.anchor("PCS") == 7335
 
     leased = set()
     subscribed = set()
@@ -789,20 +796,20 @@ def greeks_row(engine, side, short):
 
 def test_P23_T8_AC1_one_step_per_side_in_the_decided_direction_with_stops():
     engine, clock = walk_engine(WALK_TABLE)
-    current = engine.pair_score("CCS", 7330, 7350)
+    current = engine._score_pair_complete("CCS", 7330, 7350)
     assert current is not None and current.distance == pytest.approx(0.70)
-    assert engine.pair_score("CCS", 7335, 7355).distance == pytest.approx(0.75)
-    assert engine.pair_score("CCS", 7325, 7345).distance == pytest.approx(0.55)
+    assert engine._score_pair_complete("CCS", 7335, 7355).distance == pytest.approx(0.75)
+    assert engine._score_pair_complete("CCS", 7325, 7345).distance == pytest.approx(0.55)
 
-    # The direction veto: all three credit bases (0.30) sit below the Target and
-    # the up-neighbour carries less credit (0.25), so no step goes that way.
-    veto = engine.window_step({"CCS": 7335})
-    assert veto.actions == [] and veto.cancels == [] and veto.subscribes == []
-    assert engine.anchor("CCS") == 7330
+    # Direction is decided by the anchor pair's own bases, not a requested
+    # anchor: all three (0.30) sit below the Target, so the decided rung is the
+    # toward-the-money one (CCS strikes down), never the worse up-neighbour.
+    assert engine._step_candidate("CCS", 7330) == 7325
+    assert engine._step_candidate("PCS", 7330) == 7335
 
-    # The step: both sides move exactly one 5-point rung, each toward the
-    # neighbour in the AC-D65.4 direction its own quotes decide.
-    acts = engine.window_step({"CCS": 7325, "PCS": 7335})
+    # The step, through evaluate(): both sides move exactly one 5-point rung in
+    # their own decided direction.
+    acts = engine.evaluate(clock())
     assert engine.anchor("CCS") == 7325
     assert engine.anchor("PCS") == 7335
     assert len(acts.cancels) == 2 and len(acts.subscribes) == 2
@@ -817,66 +824,53 @@ def test_P23_T8_AC1_one_step_per_side_in_the_decided_direction_with_stops():
     first_subscribe = min(index for index, kind in enumerate(kinds) if kind == "subscribe")
     assert last_cancel < first_subscribe
 
-    # One step per call, never a jump: a target two rungs away still moves one.
-    # A bare float is the same anchor for both sides, and each side still decides
-    # for itself -- the put ladder's own credit direction vetoes the step.
-    jump, _ = walk_engine(WALK_TABLE)
-    jump.window_step(7320)
-    assert jump.anchor("CCS") == 7325
-    assert jump.anchor("PCS") == 7330
-
-    # "no neighbour improves d by more than h": 7320's 0.50 is exactly h better
-    # than 7325's 0.55, so the walk stays.
-    engine2, _ = walk_engine(WALK_TABLE)
-    engine2.window_step({"CCS": 7325})
-    assert engine2.anchor("CCS") == 7325
-    stay = engine2.window_step({"CCS": 7320})
+    # One step per evaluation, never a jump: 7320's 0.50 improves 7325's 0.55 by
+    # exactly h, so the next evaluation installs nothing.
+    stay = engine.evaluate(clock())
     assert stay.actions == [] and stay.cancels == [] and stay.subscribes == []
-    assert engine2.anchor("CCS") == 7325
+    assert engine.anchor("CCS") == 7325 and engine.anchor("PCS") == 7335
 
-    # The up-walk: away from the money first (2.00 -> 0.20), then toward it
-    # (0.20 -> 0.60), then the chain edge at 7345 (7365 is not listed).
-    up, _ = walk_engine(UP_TABLE)
-    up.window_step({"CCS": 7335})
+    # The up-walk: an all-above-target anchor steps away from the money (CCS up,
+    # from a 2.00 credit to 0.20) and then stops, because the toward-the-money
+    # rung its new bases decide is worse.
+    up, up_clock = walk_engine(UP_TABLE)
+    up.evaluate(up_clock())
     assert up.anchor("CCS") == 7335
-    up.window_step({"CCS": 7340})
-    assert up.anchor("CCS") == 7340
-    edge = up.window_step({"CCS": 7345})
-    assert edge.actions == [] and up.anchor("CCS") == 7340
-    edge_messages = [message for message in edge.messages if "Chain edge" in message]
-    assert len(edge_messages) == 1
-    assert "7340" in edge_messages[0]
+    assert up._score_pair_complete("CCS", 7335, 7355).credit_mid == pytest.approx(0.20)
+    up_again = up.evaluate(up_clock())
+    assert up_again.actions == [] and up.anchor("CCS") == 7335
 
-    # A stationary feed moves nothing and does not repeat the message.
-    frozen_feed = up.window_step({"CCS": 7350})
+    # A stationary feed moves nothing and repeats nothing.
+    frozen_feed = up.evaluate(up_clock())
     assert frozen_feed.actions == [] and frozen_feed.messages == []
-    assert up.window_step({"CCS": 7350}).actions == []
+    assert up.evaluate(up_clock()).actions == []
 
     # A pair matched on the ask only (credit_ask = 1.00) is matched: no move.
-    ask_only, _ = walk_engine(WALK_TABLE)
+    ask_only, ask_clock = walk_engine(WALK_TABLE)
     ask_only.on_quote(leg("C", 7330), 4.95, 5.00, True, True)
     ask_only.on_quote(leg("C", 7350), 4.00, 4.05, True, True)
-    scored = ask_only.pair_score("CCS", 7330, 7350)
+    scored = ask_only._score_pair_complete("CCS", 7330, 7350)
     assert scored is not None
     assert scored.credit_ask == pytest.approx(1.00)
     assert scored.distance == pytest.approx(0.0)
-    matched = ask_only.window_step({"CCS": 7325})
-    assert matched.actions == [] and ask_only.anchor("CCS") == 7330
+    matched = ask_only.evaluate(ask_clock())
+    assert not any(item.right == "C" for item in matched.cancels + matched.subscribes)
+    assert ask_only.anchor("CCS") == 7330
 
-    # Equal-d neighbours (all three rungs 0.55): the credit-mid tie resolves and
-    # the walk stays, so alternating targets can never oscillate.
+    # Equal-d neighbours (all three rungs 0.55): the decided rung improves
+    # nothing, so repeated evaluations can never oscillate.
     tie_table = dict(WALK_TABLE)
     tie_table[7325] = (1.45, 1.45)
     tie_table[7330] = (1.45, 1.45)
     tie_table[7335] = (1.45, 1.45)
-    tie, _ = walk_engine(tie_table)
+    tie, tie_clock = walk_engine(tie_table)
     for side_anchor in (7330, 7335, 7325):
-        assert tie.pair_score("CCS", side_anchor, side_anchor + 20).distance == pytest.approx(
-            0.55
-        )
+        assert tie._score_pair_complete(
+            "CCS", side_anchor, side_anchor + 20
+        ).distance == pytest.approx(0.55)
     moves = 0
-    for target in (7335, 7325, 7335, 7325, 7335, 7325):
-        moves += len(tie.window_step({"CCS": target}).actions)
+    for _ in range(6):
+        moves += len(tie.evaluate(tie_clock()).actions)
     assert moves == 0
     assert tie.anchor("CCS") == 7330
 
@@ -885,7 +879,7 @@ def test_P23_T8_AC1_one_step_per_side_in_the_decided_direction_with_stops():
 
 
 def test_P23_T8_AC2_shared_leg_untouched_and_the_line_budget_holds():
-    engine, _ = walk_engine(WALK_TABLE)
+    engine, clock = walk_engine(WALK_TABLE)
     bound: dict = {}
     next_id = 500
     for live in sorted(engine.live_legs(), key=lambda item: (item.right, item.strike)):
@@ -894,7 +888,7 @@ def test_P23_T8_AC2_shared_leg_untouched_and_the_line_budget_holds():
         next_id += 1
     assert len(bound) == MAX_OPTION_LINES
 
-    acts = engine.window_step({"CCS": 7325, "PCS": 7335})
+    acts = engine.evaluate(clock())
     leaving = {leg("C", 7360), leg("P", 7305)}
     arriving = {leg("C", 7320), leg("P", 7345)}
     assert set(acts.cancels) == leaving
@@ -907,11 +901,11 @@ def test_P23_T8_AC2_shared_leg_untouched_and_the_line_budget_holds():
         # and the reqId it already held is the same one.
         assert live not in acts.cancels
         assert live not in acts.subscribes
-        assert engine.req_id(live) == bound[live]
+        assert engine._req_ids.get(live) == bound[live]
     for gone in leaving:
-        assert engine.req_id(gone) is None
+        assert engine._req_ids.get(gone) is None
     for fresh in arriving:
-        assert engine.req_id(fresh) is None
+        assert engine._req_ids.get(fresh) is None
 
     peak, low = peak_lines(bound, acts)
     assert peak <= MAX_OPTION_LINES
@@ -991,7 +985,8 @@ def test_P23_T8_AC4_disconnect_stale_freeze_and_reconnect_resume():
     assert lost.actions == [] and lost.subscribes == [] and lost.cancels == []
     assert lost.spot_subscribe is False and lost.spot_cancel is False
     assert len([message for message in lost.messages if "STALE" in message]) == 1
-    assert engine.window_step({"CCS": 7325}).actions == []
+    frozen_again = engine.evaluate(clock())
+    assert frozen_again.actions == [] and frozen_again.cancels == []
     assert engine.anchor("CCS") == 7330 and engine.anchor("PCS") == 7330
     after = {
         (side, row.short): (row.display_ask, row.display_bid)
@@ -1039,12 +1034,12 @@ def test_P23_T8_AC5_line_error_classes_each_own_state_one_message():
     first = dropped.evaluate(clock())
     row = greeks_row(dropped, "CCS", 7335)
     assert row.display_ask is None and row.display_bid is None
-    assert dropped.pair_dropped("CCS", 7335) is True
-    assert dropped.reseat_count("CCS") == 0
+    assert LegKey(right="C", strike=7335.0) in dropped._dropped
+    assert dropped._reseat_counts.get("CCS", 0) == 0
     assert len([message for message in first.messages if "200" in message]) == 1
     # The dead line is gone from the pool and is never re-subscribed.
     assert leg("C", 7335) not in dropped.live_legs()
-    dropped.window_step({"CCS": 7330})
+    dropped.evaluate(clock())
     assert leg("C", 7335) not in dropped.live_legs()
 
     # 10197, 354 and an unclassified code: no value, no re-seat, one message each.
@@ -1055,8 +1050,8 @@ def test_P23_T8_AC5_line_error_classes_each_own_state_one_message():
         healthy = set(blank.live_legs())
         row = greeks_row(blank, "CCS", 7335)
         assert row.display_ask is None and row.display_bid is None, code
-        assert blank.pair_dropped("CCS", 7335) is False, code
-        assert blank.reseat_count("CCS") == 0, code
+        assert LegKey(right="C", strike=7335.0) not in blank._dropped, code
+        assert blank._reseat_counts.get("CCS", 0) == 0, code
         assert leg("C", 7335) in healthy, code  # no cancel
         said = [message for message in acts.messages if str(code) in message]
         assert len(said) == 1, code
@@ -1067,12 +1062,12 @@ def test_P23_T8_AC5_line_error_classes_each_own_state_one_message():
     reseated.on_leg_error(leg("C", 7330), 200)
     move = reseated.evaluate(reseat_clock())
     assert reseated.anchor("CCS") == 7335  # one step, toward the larger credit mid
-    assert reseated.reseat_count("CCS") == 1
+    assert reseated._reseat_counts.get("CCS", 0) == 1
     assert len([message for message in move.messages if "re-seating" in message]) == 1
     # The same error again: the single re-seat is spent, nothing moves again.
     reseated.on_leg_error(leg("C", 7335), 200)
     stopped = reseated.evaluate(reseat_clock())
-    assert reseated.reseat_count("CCS") == 1
+    assert reseated._reseat_counts.get("CCS", 0) == 1
     assert len([message for message in stopped.messages if "spent" in message]) == 1
 
     # 162 is transient: the line is kept, values go STALE after the timeout.
@@ -1088,10 +1083,324 @@ def test_P23_T8_AC5_line_error_classes_each_own_state_one_message():
     assert transient.leg_stale(leg("C", 7335)) is True
     assert transient.leg_stale(leg("C", 7355)) is True
     assert leg("C", 7335) in transient.live_legs()  # no cancel
-    assert transient.reseat_count("CCS") == 0
+    assert transient._reseat_counts.get("CCS", 0) == 0
     # A fresh tick is the recovery.
     transient.on_quote(leg("C", 7335), 3.95, 4.05, True, True)
     assert transient.leg_stale(leg("C", 7335)) is False
+
+
+# ── P23-T23: the AC-D65.4 step lives in evaluate() ──────────────────────────
+
+
+def _step_fixture(target, delta):
+    """An anchor pair 0.50 below ``target`` and a decided rung ``delta`` nearer.
+
+    Bid equals ask on every leg, so each pair's three credit bases collapse to
+    one number: the anchor pair's is ``target - 0.50`` and the decided rung's is
+    ``delta`` closer to the Target.
+    """
+    anchor_credit = target - 0.50
+    rung_credit = anchor_credit + delta
+    return {
+        7350: (1.00, 1.00),
+        7330: (1.00 + anchor_credit, 1.00 + anchor_credit),
+        7345: (1.00, 1.00),
+        7325: (1.00 + rung_credit, 1.00 + rung_credit),
+    }
+
+
+def test_P23_T23_AC1_evaluate_steps_one_rung_per_side_in_the_decided_direction():
+    clock = Clock()
+    engine, _ = seed_engine(AC1_TABLE, clock)
+    feed(engine, both_sides(WALK_TABLE))
+
+    anchor = engine._score_pair_complete("CCS", 7330, 7350)
+    toward = engine._score_pair_complete("CCS", 7325, 7345)
+    away = engine._score_pair_complete("CCS", 7335, 7355)
+    assert anchor.credit_mid == pytest.approx(0.30)
+    assert anchor.distance == pytest.approx(0.70)
+    assert toward.distance == pytest.approx(0.55)
+    assert away.distance == pytest.approx(0.75)
+
+    acts = engine.evaluate(clock())
+    assert engine.anchor("CCS") == 7325
+    assert engine.anchor("PCS") == 7335
+    assert len(acts.cancels) == 2 and len(acts.subscribes) == 2
+    assert set(acts.cancels) == {leg("C", 7360), leg("P", 7305)}
+    assert set(acts.subscribes) == {leg("C", 7320), leg("P", 7345)}
+    kinds = [action.kind for action in acts.actions]
+    assert max(index for index, kind in enumerate(kinds) if kind == "cancel") < min(
+        index for index, kind in enumerate(kinds) if kind == "subscribe"
+    )
+
+    # The next rung improves d by exactly h (0.55 -> 0.50 at T = 1.00), so the
+    # second evaluation on unchanged quotes installs nothing.
+    next_rung = engine._score_pair_complete("CCS", 7320, 7340)
+    assert engine.band == pytest.approx(0.05)
+    assert toward.distance - next_rung.distance == pytest.approx(engine.band)
+    second = engine.evaluate(clock())
+    assert second.actions == [] and second.subscribes == [] and second.cancels == []
+    assert engine.anchor("CCS") == 7325 and engine.anchor("PCS") == 7335
+
+    # An all-above-target anchor steps CCS one rung up (away from the money) and
+    # stops: its new bases decide the down rung, whose d is worse.
+    up_clock = Clock()
+    up, _ = seed_engine(AC1_TABLE, up_clock)
+    feed(up, both_sides(UP_TABLE))
+    up_anchor = up._score_pair_complete("CCS", 7330, 7350)
+    assert up_anchor.credit_mid == pytest.approx(2.00)
+    up.evaluate(up_clock())
+    assert up.anchor("CCS") == 7335
+    assert up._score_pair_complete("CCS", 7335, 7355).credit_mid == pytest.approx(0.20)
+    stopped = up.evaluate(up_clock())
+    assert stopped.actions == [] and up.anchor("CCS") == 7335
+
+
+def test_P23_T23_AC2_every_refusal_leaves_the_anchor_and_emits_nothing():
+    # (a) matched on the ask basis only: credit_ask == T, so d = 0.
+    ask_only, ask_clock = walk_engine()
+    ask_only.on_quote(leg("C", 7330), 4.95, 5.00, True, True)
+    ask_only.on_quote(leg("C", 7350), 4.00, 4.05, True, True)
+    score = ask_only._score_pair_complete("CCS", 7330, 7350)
+    assert score is not None and score.credit_ask == pytest.approx(1.00)
+    assert score.distance == pytest.approx(0.0)
+    matched = ask_only.evaluate(ask_clock())
+    assert not any(item.right == "C" for item in matched.cancels + matched.subscribes)
+    assert ask_only.anchor("CCS") == 7330
+
+    # (b) the decided rung is not a listed pair: no option action, one chain-edge
+    # message naming the current anchor, and no repeat on the next evaluation.
+    edge, edge_clock = walk_engine(WALK_TABLE)
+    edge.on_chain(make_series([7350, 7355, 7360], [7350, 7355, 7360]))
+    first = edge.evaluate(edge_clock())
+    assert first.actions == [] and first.subscribes == [] and first.cancels == []
+    chain_edge = [message for message in first.messages if "Chain edge" in message]
+    assert len(chain_edge) == 1
+    assert "7330" in chain_edge[0]
+    assert edge.anchor("CCS") == 7330 and edge.anchor("PCS") == 7330
+    second = edge.evaluate(edge_clock())
+    assert [message for message in second.messages if "Chain edge" in message] == []
+
+    # (c) the decided rung quoted as a sentinel leaves the anchor unchanged.
+    unquoted, unquoted_clock = walk_engine(WALK_TABLE)
+    for right, strike in (("C", 7325), ("C", 7345), ("P", 7335), ("P", 7315)):
+        unquoted.on_quote(leg(right, strike), -1.0, -1.0, True, True)
+    sentinel = unquoted.evaluate(unquoted_clock())
+    assert sentinel.actions == []
+    assert unquoted.anchor("CCS") == 7330 and unquoted.anchor("PCS") == 7330
+
+    # (d) a stationary feed produces zero option actions after the first step.
+    steady, steady_clock = walk_engine(WALK_TABLE)
+    steady.evaluate(steady_clock())
+    assert steady.anchor("CCS") == 7325
+    for _ in range(5):
+        still = steady.evaluate(steady_clock())
+        assert still.actions == [] and still.subscribes == [] and still.cancels == []
+
+
+@pytest.mark.parametrize(
+    "target, delta, moves",
+    [
+        (1.00, 0.05, False),
+        (1.00, 0.10, True),
+        (3.00, 0.10, False),
+        (3.00, 0.15, True),
+    ],
+)
+def test_P23_T23_AC3_the_step_gate_is_the_band_at_both_tick_tiers(target, delta, moves):
+    engine, clock = walk_engine()
+    engine.set_target(target)
+    feed(engine, both_sides(_step_fixture(target, delta)))
+    anchor = engine._score_pair_complete("CCS", 7330, 7350)
+    rung = engine._score_pair_complete("CCS", 7325, 7345)
+    assert anchor is not None and rung is not None
+    assert anchor.credit_mid == pytest.approx(target - 0.50)
+    assert rung.credit_mid == pytest.approx(target - 0.50 + delta)
+    assert anchor.distance - rung.distance == pytest.approx(delta)
+    assert engine.band == pytest.approx(match_band(target))
+    engine.evaluate(clock())
+    assert engine.anchor("CCS") == (7325 if moves else 7330)
+
+
+def test_P23_T23_AC4_disagreeing_bases_decide_no_direction():
+    clock = Clock()
+    engine, _ = seed_engine(AC1_TABLE, clock, target=0.90)
+    assert engine.anchor("CCS") == 7330
+
+    # credit_bid 0.60, credit_ask 1.40, mid 1.00 at T = 0.90: two bases above
+    # the Target and one below, so no direction is decided.
+    fixture = {
+        7330: (1.40, 2.20),
+        7350: (0.80, 0.80),
+        7325: (0.95, 1.15),
+        7345: (0.20, 0.20),
+    }
+    feed(engine, both_sides(fixture))
+    anchor = engine._score_pair_complete("CCS", 7330, 7350)
+    neighbour = engine._score_pair_complete("CCS", 7325, 7345)
+    assert anchor is not None and neighbour is not None
+    assert anchor.credit_bid == pytest.approx(0.60)
+    assert anchor.credit_ask == pytest.approx(1.40)
+    assert anchor.credit_mid == pytest.approx(1.00)
+    assert anchor.distance == pytest.approx(0.10)
+    assert neighbour.distance == pytest.approx(0.05)
+    assert neighbour.distance < anchor.distance
+
+    acts = engine.evaluate(clock())
+    assert acts.actions == []
+    assert engine.anchor("CCS") == 7330 and engine.anchor("PCS") == 7330
+
+
+def test_P23_T23_AC5_improvement_below_the_band_never_moves_the_ladder():
+    # Red before this change: the pre-change evaluation stepped to any rung with
+    # a strictly smaller d. This rung's 0.03 improvement is below h, so it must
+    # not move anything.
+    clock = Clock()
+    engine, _ = seed_engine(AC1_TABLE, clock)
+    fixture = {
+        7350: (1.00, 1.00),
+        7330: (1.30, 1.30),
+        7345: (1.00, 1.00),
+        7325: (1.33, 1.33),
+    }
+    feed(engine, both_sides(fixture))
+    anchor = engine._score_pair_complete("CCS", 7330, 7350)
+    rung = engine._score_pair_complete("CCS", 7325, 7345)
+    assert anchor.credit_mid == pytest.approx(0.30)
+    assert anchor.distance == pytest.approx(0.70)
+    assert rung.credit_mid == pytest.approx(0.33)
+    assert rung.distance == pytest.approx(0.67)
+    assert anchor.distance - rung.distance == pytest.approx(0.03)
+    assert engine.band == pytest.approx(0.05)
+
+    acts = engine.evaluate(clock())
+    assert acts.actions == []
+    assert engine.anchor("CCS") == 7330 and engine.anchor("PCS") == 7330
+
+
+def test_P23_T23_AC6_parallel_walk_api_is_gone_and_the_live_helpers_survive():
+    removed = [
+        "window" + "_step",
+        "_requested" + "_targets",
+        "_walk" + "_candidate",
+        "_best" + "_neighbour",
+    ]
+    for name in removed:
+        assert not hasattr(SpreadEngine, name), name
+
+    engine_source = MODULE_PATH.read_text(encoding="utf-8")
+    for name in removed:
+        assert name not in engine_source, name
+
+    # No module under ui/, services/, data/, ibkr/ or config/ -- and not main.py
+    # or tests/ -- references any of the deleted names.
+    roots = [
+        REPO_ROOT / "ui",
+        REPO_ROOT / "services",
+        REPO_ROOT / "data",
+        REPO_ROOT / "ibkr",
+        REPO_ROOT / "config",
+        REPO_ROOT / "tests",
+    ]
+    paths = [path for root in roots for path in root.rglob("*.py")]
+    main_path = REPO_ROOT / "main.py"
+    if main_path.exists():
+        paths.append(main_path)
+    assert paths
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for name in removed:
+            assert name not in text, (str(path), name)
+
+    tree = ast.parse(engine_source)
+    engine_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "SpreadEngine"
+    )
+    class_doc = ast.get_docstring(engine_class) or ""
+    assert "evaluate" in class_doc
+    assert "step" in class_doc
+    for name in removed:
+        assert name not in class_doc, name
+    module_doc = ast.get_docstring(tree) or ""
+    assert "evaluate" in module_doc
+    assert "step decision" in module_doc
+
+    for name in (
+        "_score_at",
+        "_score_pair_complete",
+        "_pair_listed",
+        "_anchor_matched",
+        "_install_windows",
+        "_latch",
+        "_rank",
+        "_best_of",
+        "evaluate",
+        "band",
+    ):
+        assert hasattr(SpreadEngine, name), name
+    assert isinstance(SpreadEngine.band, property)
+
+
+def test_P23_T23_AC7_spread_suite_passes_on_the_live_path_without_the_deleted_api():
+    source = TEST_PATH.read_text(encoding="utf-8")
+    assert "window" + "_step" not in source
+
+    tree = ast.parse(source)
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+    expected = {
+        "test_P23_T8_AC1_one_step_per_side_in_the_decided_direction_with_stops": (
+            'leg("C", 7360)',
+            'leg("C", 7320)',
+            "engine.evaluate(",
+        ),
+        "test_P23_T8_AC2_shared_leg_untouched_and_the_line_budget_holds": (
+            "engine._req_ids.get(live) == bound[live]",
+            "engine.evaluate(",
+            "MAX_OPTION_LINES",
+        ),
+        "test_P23_T8_AC4_disconnect_stale_freeze_and_reconnect_resume": (
+            'lost.status == "stale"',
+            "engine.evaluate(",
+        ),
+        "test_P23_T8_AC5_line_error_classes_each_own_state_one_message": (
+            "dropped.evaluate(",
+            "blank.evaluate(",
+            "reseated.evaluate(",
+        ),
+        "test_P23_T7_AC7_action_vocabulary_line_budget_and_per_cause_messages": (
+            "peak == MAX_OPTION_LINES",
+            "dip == MAX_OPTION_LINES - 2",
+            "engine.evaluate(",
+        ),
+    }
+    for name, fragments in expected.items():
+        assert name in functions, name
+        segment = ast.get_source_segment(source, functions[name]) or ""
+        for fragment in fragments:
+            assert fragment in segment, (name, fragment)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(TEST_PATH),
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "-k",
+            "not P23_T23_AC7",
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert result.returncode == 0, (result.stdout + result.stderr)[-4000:]
 
 
 # ── Module purity (the P23-03 exit condition) ────────────────────────────────
@@ -1132,7 +1441,7 @@ def drive_full_session(target=2.00):
     live = set(engine.live_legs())
     assert len(live) == MAX_OPTION_LINES
     assert engine._leased and engine._subscribed_at  # leased and subscribed legs
-    assert engine.spot == 7330.0
+    assert engine._spot == 7330.0
 
     # The committed window's pairs, in issue order (each pair is short, long).
     legs = engine._window_legs["CCS"]
@@ -1148,7 +1457,7 @@ def drive_full_session(target=2.00):
     ) is not None
     for index, item in enumerate(sorted(live, key=lambda key: (key.right, key.strike))):
         engine.rebind_leg(item, 500 + index)
-    assert all(engine.req_id(item) is not None for item in live)
+    assert all(engine._req_ids.get(item) is not None for item in live)
 
     # A seed in progress, a dropped pair, a transient stale leg, latched
     # messages and a pending re-seat left behind by a frozen walk.
@@ -1158,10 +1467,10 @@ def drive_full_session(target=2.00):
     engine.on_leg_error(anchor_pair[0], 200)    # anchor pair: one pending re-seat
     engine.on_disconnected()                    # frozen walk, every cell STALE
     assert engine.seed_state().active is True
-    assert engine.pair_dropped("CCS", others[0][0].strike) is True
+    assert (others[0][0] in engine._dropped) is True
     assert engine.walk_frozen is True
     assert engine.stale_legs() != set()
-    assert engine.latched_causes() != []
+    assert sorted(engine._latched) != []
     assert engine._pending_reseat
     return engine, clock, live
 
@@ -1185,20 +1494,20 @@ def assert_session_reset(engine, clock, target, live):
     # The named AC1 reads, through the public surface.
     assert engine.live_legs() == set()
     assert engine.rows() == {}
-    assert all(engine.req_id(item) is None for item in live)
+    assert all(engine._req_ids.get(item) is None for item in live)
     assert engine.anchor("CCS") is None and engine.anchor("PCS") is None
     assert engine.seed_state().active is False
     assert engine.walk_frozen is False
     assert engine.stale_legs() == set()
     assert engine.take_messages() == []
-    assert engine.latched_causes() == []
+    assert sorted(engine._latched) == []
 
     # The clock seam and the Target survive: set_target is the only writer.
     assert engine._clock is clock
     assert engine._now() == clock()
     clock.advance(11.0)
     assert engine._now() == clock()
-    assert engine.target == target
+    assert engine._target == target
 
 
 def test_P23_T16_AC1_reset_session_restores_every_init_field_but_clock_and_target():
@@ -1207,7 +1516,7 @@ def test_P23_T16_AC1_reset_session_restores_every_init_field_but_clock_and_targe
     engine.reset_session()
 
     assert_session_reset(engine, clock, 2.00, live)
-    assert engine.target == 2.00
+    assert engine._target == 2.00
 
 
 def test_P23_T16_AC2_toggle_off_delegates_and_the_tree_has_no_constructor_reentry():
@@ -1256,4 +1565,78 @@ def test_P23_T16_AC2_toggle_off_delegates_and_the_tree_has_no_constructor_reentr
     ) or ""
     assert "toggle_off" in class_doc
     assert "reset_session" in class_doc
+
+
+# ── P23-T22 (ESC-121): the eleven test-only accessors are gone ──────────────
+#
+# The surface that only the tests ever read was deleted, not allowlisted
+# (AC-D65.12(i)). The two tests below are the standing gate: the class no
+# longer carries the accessors, its documented API block no longer lists them,
+# and neither engine suite references one. Each name is assembled from
+# fragments so this suite never spells a name it also forbids.
+
+
+def _deleted_accessor_names():
+    """The eleven deleted accessors, assembled so the suite never spells one."""
+    return [
+        "latched" + "_causes",
+        "pair" + "_score",
+        "pair" + "_eligible",
+        "lease",
+        "release",
+        "pending" + "_legs",
+        "pair" + "_dropped",
+        "reseat" + "_count",
+        "target",
+        "spot",
+        "req" + "_id",
+    ]
+
+
+def _accessor_call(block, name):
+    """True when ``block`` documents or calls ``name`` as an entry of its own.
+
+    A plain substring search is not the fact being asserted: the surviving
+    surface legitimately contains these words as signature parameters
+    (``set_target(target)``, ``on_spot(price)``) and as the tail of a longer
+    name (``rebind_leg(..., new_req_id)``). The accessor shape is the name as a
+    standalone call or property entry, so the two lookarounds and the ``(``/``->``
+    that follow it are the whole test.
+    """
+    return re.search(rf"(?<![\w.]){name}\s*(?:\(|->)", block) is not None
+
+
+def test_P23_T22_AC1_deleted_accessors_absent_from_the_class_and_its_api():
+    names = _deleted_accessor_names()
+    for name in names:
+        assert name not in vars(SpreadEngine), name
+
+    # The surviving production surface is intact.
+    for name in (
+        "toggle_on",
+        "toggle_off",
+        "reset_session",
+        "set_target",
+        "live_legs",
+        "anchor",
+        "rows",
+        "evaluate",
+        "seed_actions",
+        "take_messages",
+    ):
+        assert callable(getattr(SpreadEngine, name)), name
+
+    module_doc = inspect.getdoc(engine_module) or ""
+    api_block = module_doc.split("Public API::", 1)[1].split("\n\nNo PyQt6", 1)[0]
+    for block in (inspect.getdoc(SpreadEngine) or "", api_block):
+        for name in names:
+            assert not _accessor_call(block, name), name
+
+
+def test_P23_T22_AC3_neither_engine_suite_references_a_deleted_accessor():
+    names = _deleted_accessor_names()
+    for path in (TEST_PATH, REPO_ROOT / "tests" / "test_d65_option_stream.py"):
+        text = path.read_text(encoding="utf-8")
+        for name in names:
+            assert re.search(rf"\.{name}\b", text) is None, (path.name, name)
 

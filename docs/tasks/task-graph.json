@@ -2560,6 +2560,1155 @@
         "needs_graphify": false,
         "size": "M"
       }
+    },
+    {
+      "id": "P23-T18",
+      "title": "Make the residue gate's clause (i) evidence production-only and class-bound for methods (ESC-121)",
+      "description": "ESC-121 measured that clause (i) accepts a reference from tests/ as a 'production caller' and probes a Class.method key by its bare name, so a test-only accessor and a method whose name occurs anywhere both pass. Strengthen the gate's evidence, not its enumeration: clause (i)'s reachability pool becomes production-only (tests/ may still serve clause (ii)'s helper-in-its-own-file rule and the clause (iii) sweeps), and a method reference must resolve to the declaring class's member (an attribute access through a name/alias/attribute bound to that class, or self/cls inside the class), never a bare name, string constant, argument name or an unrelated object's same-named attribute. The framework-callback exemption keeps its (declaring class, registering base) form and is consulted independently of reachability. This task also removes the gate's stale references to the symbols the sibling deletion tasks remove and proves the finished tree green. One existing real-tree green call (the dead-symbol fixture's 'tree must be green' leg) currently omits the framework table and is saved only by bare-name mentions of sizeHint/initStyleOption; it must pass FRAMEWORK_CALLBACKS after this change, since a class-bound method with a Qt base is no longer rescued by a bare-name mention. The method-map case's key list is corrected, not merely pruned: the deleted SpreadEngine.target expectation becomes SpreadEngine.set_target and SpreadEngine.band, with a dunder and a synthetic non-member kept as negatives so the case still discriminates.",
+      "agent": "build_worker",
+      "task_type": "test",
+      "dependencies": [
+        "P23-T19",
+        "P23-T20",
+        "P23-T21",
+        "P23-T23",
+        "P23-T25"
+      ],
+      "acceptance_criteria": [
+        "Given the residue gate's clause (i) on the finished P23 tree, When it judges reachability, Then the reachability pool is production-only - every scanned file under ui/, services/, data/, ibkr/ and config/ plus main.py - so a reference that exists only in a file under tests/ never satisfies a production caller; clause (ii)'s helper scan and clause (iii)'s token/import sweeps keep the full tree; and the rule is proven on fixtures: a symbol referenced only from a tests/ file is reported, while a symbol used in its own production module or another production module is not.",
+        "Given a Class.method candidate, When clause (i) judges its reachability, Then the evidence must resolve to that declaring class's member - an attribute access whose base resolves to the class (a name bound by Name = Class(...), a self.<attr> or other.<attr> bound to Class(...), an annotated parameter, the class name itself, or self.method / cls.method inside the declaring class) - and a bare name, a string constant, a function argument name, or a same-named attribute on an unrelated object is not evidence, so a common method name cannot hide an orphaned method and a method key cannot be satisfied by a module-level symbol of the same spelling.",
+        "Given a method that only framework machinery invokes, When it is exempted, Then the exemption still requires the (module, declaring class, method, registering base) entry with the base-declares-the-name check, and that check is consulted independently of reachability: an unrelated class that defines the same method name with no such base is censused and reported when nothing calls it, so a seeded sizeHint or paintEvent on an unrelated class is no longer green.",
+        "Given the gate suite on the finished tree, When it runs, Then the census reports no P23 symbol with CENSUS_ALLOWLIST empty; the method-map case's key list names only members its declaring class actually defines today - SpreadEngine.set_target and SpreadEngine.band stand where the deleted SpreadEngine.target stood - and the case stays discriminating rather than widened to whatever happens to pass: it also asserts a dunder (SpreadEngine.__init__) and a synthetic non-member key are absent from that class's census; and the gate's candidate list and prose name no other symbol this phase deleted (validate_spread in the stale prose), while the seeded dead-symbol, dead-method and unconnected-signal fixtures still prove the gate red.",
+        "Given the gate's module and scanner docstrings, When they state clause (i)'s evidence, Then they say it is production-only and, for methods, class-bound at both ends, with the dunder exclusion and the clause-(v) cited-base exemption as the only exclusions; the module-level-only and bare-name claims are gone.",
+        "Given P23_ADDED_SYMBOLS, When the census inventory is checked, Then every name it lists resolves to a symbol that still exists in the module it is filed under - a module-level definition or a class member of that module - so a deleted symbol cannot leave an entry standing on its own self-mention: option_chain_strikes (deleted from ibkr/contracts.py by P23-T21) is absent from the ibkr/contracts.py tuple, every remaining name still resolves, and a seeded phantom name is reported."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T18-AC1",
+          "linked_acceptance_criterion": "Given the residue gate's clause (i) on the finished P23 tree, When it judges reachability, Then the reachability pool is production-only - every scanned file under ui/, services/, data/, ibkr/ and config/ plus main.py - so a reference that exists only in a file under tests/ never satisfies a production caller; clause (ii)'s helper scan and clause (iii)'s token/import sweeps keep the full tree; and the rule is proven on fixtures: a symbol referenced only from a tests/ file is reported, while a symbol used in its own production module or another production module is not.",
+          "type": "unit",
+          "description": "Build a fixture tree with a production module defining `leftover_helper`, a production caller module and a `tests/test_user.py` that references only `leftover_helper`; run the scanner and assert `leftover_helper` is reported. Add a production call of the helper and assert it disappears; add a second helper used only inside its own production module and assert it is green. Then run the real tree's clause-(ii) helper scan and a token sweep and assert they still read tests/ (a P23 test helper is still found by the clause-(ii) scan).",
+          "expected_result": "tests/-only reference is reported, production and own-module references are green, and clause (ii)/(iii) keep their full-tree scope."
+        },
+        {
+          "test_id": "P23-T18-AC2",
+          "linked_acceptance_criterion": "Given a Class.method candidate, When clause (i) judges its reachability, Then the evidence must resolve to that declaring class's member - an attribute access whose base resolves to the class (a name bound by Name = Class(...), a self.<attr> or other.<attr> bound to Class(...), an annotated parameter, the class name itself, or self.method / cls.method inside the declaring class) - and a bare name, a string constant, a function argument name, or a same-named attribute on an unrelated object is not evidence, so a common method name cannot hide an orphaned method and a method key cannot be satisfied by a module-level symbol of the same spelling.",
+          "type": "unit",
+          "description": "Fixture module defines Owner.close and Other.close. A production user module references Other().close() and a bare `close` argument; assert exactly Owner.close is reported. Then add `owner = Owner(); owner.close()` and assert Owner.close is green. Separately append `def close(self): return None` to a copy of services/option_spread_engine.py's SpreadEngine source and run the scanner over that copy; assert SpreadEngine.close is reported even though `close` occurs elsewhere in the tree.",
+          "expected_result": "Only the declaring class's own bound member counts; a same-named attribute on an unrelated class, a bare name and a string argument cannot satisfy a method key."
+        },
+        {
+          "test_id": "P23-T18-AC3",
+          "linked_acceptance_criterion": "Given a method that only framework machinery invokes, When it is exempted, Then the exemption still requires the (module, declaring class, method, registering base) entry with the base-declares-the-name check, and that check is consulted independently of reachability: an unrelated class that defines the same method name with no such base is censused and reported when nothing calls it, so a seeded sizeHint or paintEvent on an unrelated class is no longer green.",
+          "type": "unit",
+          "description": "Fixture with a QStyledItemDelegate subclass defining sizeHint and an unrelated Plain class defining sizeHint; with the one (module, Panel, sizeHint, QStyledItemDelegate) entry, assert Panel.sizeHint is green and Plain.sizeHint is reported. Assert the same result when the exemption is consulted after a failed reachability check (the seeded unrelated class has no entry). Run the real tree's FRAMEWORK_CALLBACKS cases and assert _ElideNameDelegate.initStyleOption and OptionSpreadsPanel.sizeHint remain exempt through their entries.",
+          "expected_result": "Framework exemptions still validate against their declaring class and base; a same-named method on an unrelated class is reported, not exempted."
+        },
+        {
+          "test_id": "P23-T18-AC4",
+          "linked_acceptance_criterion": "Given the gate suite on the finished tree, When it runs, Then the census reports no P23 symbol with CENSUS_ALLOWLIST empty; the method-map case's key list names only members its declaring class actually defines today - SpreadEngine.set_target and SpreadEngine.band stand where the deleted SpreadEngine.target stood - and the case stays discriminating rather than widened to whatever happens to pass: it also asserts a dunder (SpreadEngine.__init__) and a synthetic non-member key are absent from that class's census; and the gate's candidate list and prose name no other symbol this phase deleted (validate_spread in the stale prose), while the seeded dead-symbol, dead-method and unconnected-signal fixtures still prove the gate red.",
+          "type": "integration",
+          "description": "Run the full tests/test_d65_residue.py suite on the finished tree. Assert the census over the real production pool returns [] with the empty allowlist; compute `_census_candidates(tree)` and assert services/option_spread_engine.py's key list carries `SpreadEngine.set_target` and `SpreadEngine.band` (both verified against the module today) and carries neither `SpreadEngine.target`, `SpreadEngine.__init__` nor a synthetic `SpreadEngine.not_a_method` key - so the case proves real class members are censused and is not widened to whatever happens to pass; assert the stale `validate_spread` prose is gone; assert the seeded fixture cases still fail red before the real-tree green is accepted.",
+          "expected_result": "The finished tree is green under the strengthened evidence, every gate reference to a deleted symbol is removed, and the seeded fixtures still prove the gate can fail."
+        },
+        {
+          "test_id": "P23-T18-AC5",
+          "linked_acceptance_criterion": "Given the gate's module and scanner docstrings, When they state clause (i)'s evidence, Then they say it is production-only and, for methods, class-bound at both ends, with the dunder exclusion and the clause-(v) cited-base exemption as the only exclusions; the module-level-only and bare-name claims are gone.",
+          "type": "unit",
+          "description": "Parse the module docstring and the _census_candidates / scan_unreferenced_symbols docstrings with ast.get_docstring; assert each clause-(i) statement says production-only and names class-bound resolution for methods, names the dunder exclusion and the clause-(v) cited-base exemption, and that the old 'module-level only' / bare-name wording is absent.",
+          "expected_result": "The prose states the evidence the scanner now implements; no stale module-level-only or bare-name claim survives."
+        },
+        {
+          "test_id": "P23-T18-AC6",
+          "linked_acceptance_criterion": "Given P23_ADDED_SYMBOLS, When the census inventory is checked, Then every name it lists resolves to a symbol that still exists in the module it is filed under - a module-level definition or a class member of that module - so a deleted symbol cannot leave an entry standing on its own self-mention: option_chain_strikes (deleted from ibkr/contracts.py by P23-T21) is absent from the ibkr/contracts.py tuple, every remaining name still resolves, and a seeded phantom name is reported.",
+          "type": "unit",
+          "description": "Parse P23_ADDED_SYMBOLS and assert each listed name is defined in that module's source (an ast module-level definition or a member of a class defined there); assert `option_chain_strikes` is absent from the ibkr/contracts.py tuple. Then add a phantom name to a copy of the dict and assert the same check reports it. The check is red on today's dict, whose ibkr/contracts.py tuple still carries the deleted `option_chain_strikes`.",
+          "expected_result": "Every inventory entry resolves to a symbol that exists; the deleted `option_chain_strikes` entry is gone; a seeded phantom entry fails the check."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d65_residue.py: clause (i) reachability pool filtered to production sources, with tests/ excluded from evidence and retained for clause (ii)/(iii)",
+        "tests/test_d65_residue.py: class-bound method resolution (attribute access through a class-bound name, self/cls, class name, imported class alias) plus the seeded same-name and real-module `close` cases",
+        "tests/test_d65_residue.py: the method-map key list corrected to members that exist today (SpreadEngine.set_target and SpreadEngine.band replacing the deleted SpreadEngine.target, with a dunder and a synthetic non-member kept as negatives) and the stale prose updated, and P23_ADDED_SYMBOLS left naming only symbols that exist",
+        "tests/test_d65_residue.py: corrected module/scanner docstrings stating production-only, class-bound evidence",
+        "tests/test_d65_residue.py: the inventory-truth check (every P23_ADDED_SYMBOLS entry resolves in its module, with a phantom-entry fixture)"
+      ],
+      "touches_files": [
+        "tests/test_d65_residue.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the P23-T17 gate: sources(), _census_candidates(), scan_unreferenced_symbols(), the citation checker and the framework-callback tables",
+        "the production tree after P23-T19..T23 and P23-T25 delete the 21 dead members"
+      ],
+      "outputs": [
+        "a gate whose clause (i) judges the standard AC-D65.12(i) states: a production caller, class-bound for methods",
+        "seeded fixtures for the tests/-only and same-name-collision defects",
+        "a green finished tree with no allowlist entry",
+        "a P23_ADDED_SYMBOLS inventory that lists only symbols that exist, and a check that keeps it so"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "1-60",
+            "why": "edit: the module docstring's clause-(i) scope claim - production-only and class-bound wording"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "80-100",
+            "why": "edit: P23_ADDED_SYMBOLS at :85-97 still lists option_chain_strikes (deleted by P23-T21) - remove it; the inventory-truth case checks every remaining entry resolves"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "115-180",
+            "why": "edit: the CENSUS_ALLOWLIST comment and the clause-(v) tables the exemption check reuses"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "315-520",
+            "why": "edit: sources(), _defined_symbols(), _load_names(), _mention_names(), scan_unreferenced_symbols() - the pool split and the method resolver live here"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "716-800",
+            "why": "edit: _census_candidates() and the method-map case whose key list still names SpreadEngine.target - replace it with SpreadEngine.set_target and SpreadEngine.band and keep a dunder/non-member negative; the inventory-truth case lands beside the census case at :753"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "840-985",
+            "why": "read-only: citation_violation()/_invokes_by_name() are the exemption evidence; the new per-entry test must keep using them"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "1235-1345",
+            "why": "edit: the seeded dead-symbol/dead-method fixtures - the new tests/-only and same-name cases land beside them, leaving the existing cases unmodified"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "1345-1440",
+            "why": "read-only: the token sweep/carve-out half that keeps the full tree"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "1700-1730",
+            "why": "edit: the fixture-consistency case's prose still cites validate_spread(...) in the comma form - update the stale sentence after P23-T20 deletes the helper"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_d65_residue.py:scan_unreferenced_symbols",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_d65_residue.py:citation_violation",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_d65_residue.py:_census_candidates",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_d65_residue.py:sources",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_d65_residue.py",
+            "signature": "scan_unreferenced_symbols(tree, candidates, allowlist=None, framework_callbacks=None, reachability_tree=None) -> list[str]  # reachability_tree defaults to the production subset of tree: paths whose first segment is not 'tests'"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-09",
+        "requirement_ids": [
+          "AC-D65.12",
+          "A197"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_residue.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P23-T19",
+      "title": "Delete the Option Spreads panel's seven test-only accessors and re-point their assertions (ESC-121)",
+      "description": "ESC-121 verified against the tree that OptionSpreadsPanel.target_value, toggle_colour, toggle_state, toggle_collapsed, set_collapsed, preferred_width and elided_name have no production reader (production reads the Target field, the toggle button's checked/property/palette state, the header button, OptionSpreadsPanel.PREFERRED_WIDTH/sizeHint and the table's ElideRight mode). Under the owner's standing no-dead-code rule (AC-D65.12(i)) they are deleted, not allowlisted. toggle_colour is the only caller of toggle_state and toggle_collapsed the only caller of set_collapsed, so each pair goes together. The assertions those helpers carried are re-pointed to the production surfaces (plus a test-local QFontMetrics elide check); no expectation is weakened.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given ui/option_spreads_panel.py, When the Option Spreads panel's surface is inspected, Then OptionSpreadsPanel no longer defines target_value, toggle_colour, toggle_state, toggle_collapsed, set_collapsed, preferred_width or elided_name, the module docstring no longer names them, and no replacement helper is added for any of them.",
+        "Given the behaviours those accessors asserted, When the P23 suites assert them after the deletion, Then every fact is still asserted through the production surface the app uses: the accepted Target via target_edit.text()/_last_valid_target, the toggle state via toggle_button.isChecked() and its spread_state property plus the palette colour, collapse via header_button.click()/setChecked() plus is_collapsed(), the 360 px width via PREFERRED_WIDTH and sizeHint().width(), and right-elision via the table's ElideRight mode plus a test-local QFontMetrics elide check; no expectation is deleted or weakened, and the D45 walkthrough drives the header button instead of toggle_collapsed().",
+        "Given tests/test_d65_option_panel.py, tests/test_d65_option_stream.py and tests/test_d45_removal.py, When they run after the deletion, Then they pass and no test references a deleted member."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T19-AC1",
+          "linked_acceptance_criterion": "Given ui/option_spreads_panel.py, When the Option Spreads panel's surface is inspected, Then OptionSpreadsPanel no longer defines target_value, toggle_colour, toggle_state, toggle_collapsed, set_collapsed, preferred_width or elided_name, the module docstring no longer names them, and no replacement helper is added for any of them.",
+          "type": "unit",
+          "description": "Import OptionSpreadsPanel and assert `name not in vars(OptionSpreadsPanel)` for each of the seven names; parse the module's docstring and assert none of the seven is named; assert the surviving production members (set_target_value, set_toggle_state, is_collapsed, PREFERRED_WIDTH, sizeHint) still exist.",
+          "expected_result": "All seven helpers are gone, their docstring mentions are gone, and the production surface is intact."
+        },
+        {
+          "test_id": "P23-T19-AC2",
+          "linked_acceptance_criterion": "Given the behaviours those accessors asserted, When the P23 suites assert them after the deletion, Then every fact is still asserted through the production surface the app uses: the accepted Target via target_edit.text()/_last_valid_target, the toggle state via toggle_button.isChecked() and its spread_state property plus the palette colour, collapse via header_button.click()/setChecked() plus is_collapsed(), the 360 px width via PREFERRED_WIDTH and sizeHint().width(), and right-elision via the table's ElideRight mode plus a test-local QFontMetrics elide check; no expectation is deleted or weakened, and the D45 walkthrough drives the header button instead of toggle_collapsed().",
+          "type": "integration",
+          "description": "Run the re-pointed cases in tests/test_d65_option_panel.py (target default/gate, toggle state/property/palette in both directions, collapse round trip via header_button, PREFERRED_WIDTH/sizeHint, elide mode + tooltip + a test-local QFontMetrics elide helper), the stream suite's panel-state assertions, and the D45 walkthrough's collapse/restore steps driven by header_button.click(); assert each original fact is present.",
+          "expected_result": "Every assertion the deleted helpers carried still runs against the production surface; the D45 walkthrough collapses and restores through the header button."
+        },
+        {
+          "test_id": "P23-T19-AC3",
+          "linked_acceptance_criterion": "Given tests/test_d65_option_panel.py, tests/test_d65_option_stream.py and tests/test_d45_removal.py, When they run after the deletion, Then they pass and no test references a deleted member.",
+          "type": "integration",
+          "description": "Run `pytest tests/test_d65_option_panel.py tests/test_d65_option_stream.py tests/test_d45_removal.py -q` and assert exit 0; assert the three files contain no reference to any of the seven deleted names.",
+          "expected_result": "All three suites pass and no deleted member is referenced."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/option_spreads_panel.py: the seven accessors deleted and the module docstring updated to the surviving surface",
+        "tests/test_d65_option_panel.py: target/toggle/collapse/width/elision assertions re-pointed to production surfaces",
+        "tests/test_d65_option_stream.py: panel-state assertions re-pointed",
+        "tests/test_d45_removal.py: the collapse/restore walkthrough driven by header_button.click()"
+      ],
+      "touches_files": [
+        "ui/option_spreads_panel.py",
+        "tests/test_d65_option_panel.py",
+        "tests/test_d65_option_stream.py",
+        "tests/test_d45_removal.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the ESC-121 production-caller measurement for the seven panel members",
+        "the existing panel/stream/D45 cases that call them"
+      ],
+      "outputs": [
+        "a panel with no test-only accessors",
+        "the same assertions expressed through the production widgets"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/option_spreads_panel.py",
+            "lines": "1-20",
+            "why": "edit: the module docstring names set_collapsed/toggle_collapsed and preferred_width - update to the surviving surface"
+          },
+          {
+            "path": "ui/option_spreads_panel.py",
+            "lines": "330-454",
+            "why": "edit: target_value/toggle_state/toggle_colour/set_collapsed/toggle_collapsed/preferred_width/elided_name are deleted from here; is_collapsed/sizeHint/set_target_value/set_toggle_state stay"
+          },
+          {
+            "path": "tests/test_d65_option_panel.py",
+            "lines": "105-320",
+            "why": "edit: the target, toggle, width/elision and collapse cases that call the deleted helpers"
+          },
+          {
+            "path": "tests/test_d65_option_panel.py",
+            "lines": "515-550",
+            "why": "edit: the narrow-dock elision case that calls elided_name - replace with a test-local QFontMetrics check plus the table's ElideRight/tooltip assertions"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "250-365",
+            "why": "edit: target_value/toggle_state call sites"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "1040-1110",
+            "why": "edit: set_collapsed/target_value/toggle_state call sites"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "535-660",
+            "why": "edit: the walkthrough's toggle_collapsed() steps and the snapshot's collapsed read"
+          },
+          {
+            "path": "tests/test_d45_removal.py",
+            "lines": "680-695",
+            "why": "edit: the messages naming toggle_collapsed()"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/option_spreads_panel.py:is_collapsed",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/option_spreads_panel.py:set_toggle_state",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/option_spreads_panel.py:set_target_value",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/option_spreads_panel.py:OptionSpreadsPanel.sizeHint",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-01",
+        "requirement_ids": [
+          "AC-D65.12",
+          "AC-D65.1",
+          "AC-D65.9",
+          "AC-D65.17"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_panel.py tests/test_d65_option_stream.py tests/test_d45_removal.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      },
+      "generation": 2
+    },
+    {
+      "id": "P23-T20",
+      "title": "Delete the unused option-ladder validate_spread helper and keep the fixture guard test-local (ESC-121)",
+      "description": "ESC-121 verified that services/option_ladder.py::validate_spread is imported or called by no production module - only tests/test_d65_option_ladder.py uses it. It is deleted under the owner's no-dead-code rule (AC-D65.12(i)); AC-D65.2's fixture-convention guard stays as a test-local guard so a 10-wide pair and an inverted PCS are still rejected and the canonical/legal 20-wide pairs accepted.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given services/option_ladder.py, When its surface is inspected, Then validate_spread is gone, the module docstring's API list no longer names it, no production module imports or calls it, and no replacement production helper is added.",
+        "Given AC-D65.2's fixture-convention guard, When tests/test_d65_option_ladder.py asserts it, Then a 10-wide CCS pair and an inverted PCS are still rejected and the canonical and legal 20-wide pairs are still accepted, using a guard implemented in the test file itself."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T20-AC1",
+          "linked_acceptance_criterion": "Given services/option_ladder.py, When its surface is inspected, Then validate_spread is gone, the module docstring's API list no longer names it, no production module imports or calls it, and no replacement production helper is added.",
+          "type": "unit",
+          "description": "Assert `not hasattr(option_ladder, 'validate_spread')`, that the module docstring no longer contains 'validate_spread', and that no production module (ui/, services/, data/, ibkr/, config/, main.py) imports or references it.",
+          "expected_result": "The dead helper and its docstring entry are gone; no production reference remains."
+        },
+        {
+          "test_id": "P23-T20-AC2",
+          "linked_acceptance_criterion": "Given AC-D65.2's fixture-convention guard, When tests/test_d65_option_ladder.py asserts it, Then a 10-wide CCS pair and an inverted PCS are still rejected and the canonical and legal 20-wide pairs are still accepted, using a guard implemented in the test file itself.",
+          "type": "unit",
+          "description": "Run the re-pointed test that rejects 7425/7435 (10-wide) and 7315/7435 and 7435/7455 (inverted PCS) and accepts 7435/7455, 7425/7445 and 7340/7320, plus every canonical ladder_pairs() pair, through the test-local guard.",
+          "expected_result": "The fixture-convention guard still rejects the two banned shapes and accepts the legal/canonical pairs, with no production helper."
+        }
+      ],
+      "expected_artifacts": [
+        "services/option_ladder.py: validate_spread deleted and the API list updated",
+        "tests/test_d65_option_ladder.py: the fixture-convention guard implemented test-locally"
+      ],
+      "touches_files": [
+        "services/option_ladder.py",
+        "tests/test_d65_option_ladder.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the ESC-121 production-caller measurement for validate_spread",
+        "AC-D65.2's fixture-convention guard"
+      ],
+      "outputs": [
+        "a ladder module with no unused helper",
+        "the guard preserved at its test"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/option_ladder.py",
+            "lines": "1-45",
+            "why": "edit: the module docstring's API list names validate_spread"
+          },
+          {
+            "path": "services/option_ladder.py",
+            "lines": "100-165",
+            "why": "edit: delete validate_spread; _side_key/SPREAD_WIDTH stay"
+          },
+          {
+            "path": "tests/test_d65_option_ladder.py",
+            "lines": "30-60",
+            "why": "edit: the import block that imports validate_spread"
+          },
+          {
+            "path": "tests/test_d65_option_ladder.py",
+            "lines": "120-175",
+            "why": "edit: the AC2 fixture-guard case - re-point it to a test-local guard with the same accept/reject set"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/option_ladder.py:ladder_pairs",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_ladder.py:format_instrument",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-01",
+        "requirement_ids": [
+          "AC-D65.12",
+          "AC-D65.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_ladder.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P23-T21",
+      "title": "Delete the unused option_chain_strikes helper and its dedicated case (ESC-121)",
+      "description": "ESC-121 verified that ibkr/contracts.py::option_chain_strikes has no production caller: the engine consumes the series' strikes_by_right directly. It is deleted under AC-D65.12(i); the chain suite's helper sweep drops the name and its dedicated case goes with its subject. select_zero_dte_series continues to return the sorted per-right strikes production uses.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given ibkr/contracts.py, When its surface is inspected, Then option_chain_strikes is gone, no production module references it, and tests/test_d65_option_chain.py's helper sweep no longer lists it.",
+        "Given tests/test_d65_option_chain.py, When it runs, Then the dedicated option_chain_strikes case is removed with its subject and the suite passes, while select_zero_dte_series still returns the sorted per-right strikes the production engine consumes through strikes_by_right."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T21-AC1",
+          "linked_acceptance_criterion": "Given ibkr/contracts.py, When its surface is inspected, Then option_chain_strikes is gone, no production module references it, and tests/test_d65_option_chain.py's helper sweep no longer lists it.",
+          "type": "unit",
+          "description": "Assert `not hasattr(contracts, 'option_chain_strikes')`; assert no production module (ui/, services/, data/, ibkr/, config/, main.py) contains the name; parse the chain suite's _NEW_HELPERS and assert the name is absent.",
+          "expected_result": "The helper, its production references and its sweep entry are all gone."
+        },
+        {
+          "test_id": "P23-T21-AC2",
+          "linked_acceptance_criterion": "Given tests/test_d65_option_chain.py, When it runs, Then the dedicated option_chain_strikes case is removed with its subject and the suite passes, while select_zero_dte_series still returns the sorted per-right strikes the production engine consumes through strikes_by_right.",
+          "type": "integration",
+          "description": "Run the chain suite; assert the removed case's name is no longer collected; drive select_zero_dte_series with an unsorted SimpleNamespace payload and assert series.strikes_by_right['C'] == [5000.0, 5200.0] and that the engine's _listed/strike consumption path still reads it.",
+          "expected_result": "The suite passes without the deleted case's subject, and select_zero_dte_series still supplies sorted strikes per right."
+        }
+      ],
+      "expected_artifacts": [
+        "ibkr/contracts.py: option_chain_strikes deleted",
+        "tests/test_d65_option_chain.py: the dedicated case and the _NEW_HELPERS entry removed"
+      ],
+      "touches_files": [
+        "ibkr/contracts.py",
+        "tests/test_d65_option_chain.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the ESC-121 production-caller measurement for option_chain_strikes",
+        "the engine's direct use of series.strikes_by_right"
+      ],
+      "outputs": [
+        "a contracts module with no unused helper",
+        "a chain suite without the removed subject"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "ibkr/contracts.py",
+            "lines": "380-427",
+            "why": "edit: OptionSeries and option_chain_strikes - delete the helper, keep the dataclass"
+          },
+          {
+            "path": "tests/test_d65_option_chain.py",
+            "lines": "30-60",
+            "why": "edit: the import block that imports option_chain_strikes"
+          },
+          {
+            "path": "tests/test_d65_option_chain.py",
+            "lines": "250-275",
+            "why": "edit: the dedicated option_chain_strikes case - delete it"
+          },
+          {
+            "path": "tests/test_d65_option_chain.py",
+            "lines": "440-475",
+            "why": "edit: the _NEW_HELPERS tuple and its caller sweep"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ibkr/contracts.py:select_zero_dte_series",
+            "status": "existing"
+          },
+          {
+            "ref": "ibkr/contracts.py:OptionSeries",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-02",
+        "requirement_ids": [
+          "AC-D65.12",
+          "AC-D65.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_chain.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P23-T22",
+      "title": "Delete SpreadEngine's eleven test-only accessors and re-point the engine tests to the state they read (ESC-121)",
+      "description": "ESC-121 verified that SpreadEngine.latched_causes, pair_score, pair_eligible, lease, release, pending_legs, pair_dropped, reseat_count, target, spot and req_id have no production reader (the live path uses take_messages, _score_pair_complete, _lease_pair, evaluate's inline pending check, _dropped, _reseat_counts and the private fields). Under AC-D65.12(i) they are deleted, not allowlisted. The tests re-point to the same fact through the engine's internal state or the production method each wrapper wrapped; release has no caller at all and is deleted without a replacement.",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given services/option_spread_engine.py, When SpreadEngine's surface is inspected, Then latched_causes, pair_score, pair_eligible, lease, release, pending_legs, pair_dropped, reseat_count, target, spot and req_id are absent and the class docstring's Public API list no longer names them.",
+        "Given every test that used those accessors, When it is re-pointed, Then it asserts the same fact through the production method or internal state the accessor wrapped - _score_pair_complete, _lease_pair, _subscribed with leg_state, _dropped with LegKey, _reseat_counts, _target, _spot, _req_ids and sorted(_latched) - with no expectation deleted or weakened; release has no caller anywhere and is deleted without a replacement.",
+        "Given tests/test_d65_spread_engine.py and tests/test_d65_option_stream.py, When they run, Then they pass."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T22-AC1",
+          "linked_acceptance_criterion": "Given services/option_spread_engine.py, When SpreadEngine's surface is inspected, Then latched_causes, pair_score, pair_eligible, lease, release, pending_legs, pair_dropped, reseat_count, target, spot and req_id are absent and the class docstring's Public API list no longer names them.",
+          "type": "unit",
+          "description": "Assert `name not in vars(SpreadEngine)` for the eleven names; assert the class docstring's Public API block does not contain any of them; assert the surviving production surface (toggle_on/off/reset_session/set_target/live_legs/anchor/rows/evaluate/seed_actions/take_messages) still exists.",
+          "expected_result": "All eleven accessors are gone from the class and its docstring; the live surface is intact."
+        },
+        {
+          "test_id": "P23-T22-AC2",
+          "linked_acceptance_criterion": "Given every test that used those accessors, When it is re-pointed, Then it asserts the same fact through the production method or internal state the accessor wrapped - _score_pair_complete, _lease_pair, _subscribed with leg_state, _dropped with LegKey, _reseat_counts, _target, _spot, _req_ids and sorted(_latched) - with no expectation deleted or weakened; release has no caller anywhere and is deleted without a replacement.",
+          "type": "integration",
+          "description": "Run the re-pointed engine suite: AC3 pending/both-legs (pending_legs -> _subscribed + leg_state), AC4 sentinel transitions (pair_eligible/pair_score -> _score_pair_complete), AC5 metric/tie-breaks (pair_score -> _score_pair_complete), AC2 budget refusal (lease -> _lease_pair), AC5 line errors (pair_dropped/reseat_count -> _dropped/_reseat_counts), T16 reset/session reads (target/spot/req_id/latched_causes -> _target/_spot/_req_ids/sorted(_latched)), and the stream suite's lease/latched/target/spot/req_id assertions; assert each original expectation is still present and compares the same values.",
+          "expected_result": "Every deleted accessor's assertion still runs, through the production method or the internal state it wrapped, with the same expected values."
+        },
+        {
+          "test_id": "P23-T22-AC3",
+          "linked_acceptance_criterion": "Given tests/test_d65_spread_engine.py and tests/test_d65_option_stream.py, When they run, Then they pass.",
+          "type": "integration",
+          "description": "Run `pytest tests/test_d65_spread_engine.py tests/test_d65_option_stream.py -q` and assert exit 0; assert neither suite references a deleted accessor.",
+          "expected_result": "Both suites pass and no deleted accessor is referenced."
+        }
+      ],
+      "expected_artifacts": [
+        "services/option_spread_engine.py: the eleven accessors deleted and the Public API docstring updated",
+        "tests/test_d65_spread_engine.py: the affected cases re-pointed to _score_pair_complete/_leased/_dropped/_reseat_counts/_target/_spot/_req_ids/_latched",
+        "tests/test_d65_option_stream.py: the lease/latched/target/spot/req_id assertions re-pointed"
+      ],
+      "touches_files": [
+        "services/option_spread_engine.py",
+        "tests/test_d65_spread_engine.py",
+        "tests/test_d65_option_stream.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the ESC-121 production-caller measurement for the eleven engine members",
+        "the engine's live surface as P23-T9/T16 left it"
+      ],
+      "outputs": [
+        "an engine with no test-only accessors",
+        "the engine tests asserting the same facts through the production/internal surface"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "76-100",
+            "why": "edit: the Public API docstring block names all eleven accessors"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "350-430",
+            "why": "edit: latched_causes and the target property - delete both; _latch/_drain/_target stay"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "495-585",
+            "why": "edit: spot, pair_score and pair_eligible - delete; _score_pair_complete and _score_at stay"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "670-690",
+            "why": "edit: lease and release - delete; _lease_pair/_release_pair stay"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "830-845",
+            "why": "edit: pending_legs - delete; leg_state stays (evaluate uses it)"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "1450-1465",
+            "why": "edit: req_id - delete; _req_ids stays"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "1665-1685",
+            "why": "edit: pair_dropped and reseat_count - delete; _dropped/_reseat_counts stay"
+          },
+          {
+            "path": "tests/test_d65_spread_engine.py",
+            "lines": "290-540",
+            "why": "edit: AC3/AC4/AC5 cases calling pair_eligible/pair_score/pending_legs/spot"
+          },
+          {
+            "path": "tests/test_d65_spread_engine.py",
+            "lines": "900-925",
+            "why": "edit: the req_id assertions"
+          },
+          {
+            "path": "tests/test_d65_spread_engine.py",
+            "lines": "1030-1215",
+            "why": "edit: the pair_dropped/reseat_count/latched_causes/target/req_id assertions"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "455-475",
+            "why": "edit: the lease budget-refusal call"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "1140-1210",
+            "why": "edit: the reset/session latched_causes/target/req_id assertions"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/option_spread_engine.py:SpreadEngine",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:evaluate",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:take_messages",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:anchor",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-03",
+        "requirement_ids": [
+          "AC-D65.12",
+          "AC-D65.3",
+          "AC-D65.5",
+          "AC-D65.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_spread_engine.py tests/test_d65_option_stream.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      },
+      "generation": 4
+    },
+    {
+      "id": "P23-T23",
+      "title": "Point evaluate()'s live step at AC-D65.4 and delete the parallel window-walk API (ESC-121 + owner decision)",
+      "description": "evaluate()'s unmatched-anchor branch steps to the best of {anchor-5, anchor, anchor+5} with no improvement threshold and no direction veto, so the approved AC-D65.4 rule exists only in the production-unused window_step API. This task implements that rule once, in the live path: a private _step_candidate reads the anchor pair's three credit bases (all below T -> the toward-the-money rung, CCS down and PCS up; all above -> the away rung; otherwise no step) and returns the single rung an evaluation may install, only when the rung is a listed, quoting pair whose d beats the anchor's by more than h = band. Then it deletes window_step, _requested_targets, _walk_candidate and _best_neighbour as genuinely unreachable and re-points their cases onto evaluate(); the stream suite's two target-commit cases are the separate P23-T25 (they stay red until it lands, so this task's test command is the spread suite).",
+      "agent": "build_worker",
+      "task_type": "code",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given an ON engine whose anchor pair is quoted and unmatched, When evaluate() runs, Then it installs at most one 5-point rung per side, chosen by the anchor pair's three credit bases (all three below T: the toward-the-money rung, CCS strikes down and PCS strikes up; all three above T: the away-from-the-money rung, CCS up and PCS down), and it installs that rung only when the rung is a listed pair, its pair scores, and its d is strictly less than the anchor pair's d by more than h; a rung improving d by exactly h or less installs nothing.",
+        "Given an evaluation whose step is refused, When the cause is a matched anchor pair (d <= h, including a pair matched on its ask basis only), an unlisted decided rung, an unquoted arriving rung, or a stationary feed, Then the anchor is unchanged and no action is emitted, and the unlisted decided rung latches exactly one chain-edge message naming the current anchor as the best reachable value, never repeated by later evaluations.",
+        "Given the same step decision, When T is below 3.00 (h = 0.05) or at or above it (h = 0.10), Then a rung improving d by exactly that tier's h installs nothing and a rung improving it by more installs the step, so the threshold is the band and never a constant.",
+        "Given an anchor pair whose three credit bases do not all sit on the same side of T, When evaluate() runs, Then no step is installed even though an adjacent listed and quoting pair has a strictly smaller d, because no direction is decided.",
+        "Given an anchor pair whose three bases all sit on one side of T and whose decided rung improves d by less than h, When evaluate() runs, Then no step is installed; the pre-change evaluate() steps to any rung with a smaller d, so this case is red before the change.",
+        "Given services/option_spread_engine.py, When its surface and docstring are inspected, Then window_step, _requested_targets, _walk_candidate and _best_neighbour are absent, no module under ui/, services/, data/, ibkr/ and config/ plus main.py and tests/ references any of them, and the docstring describes the walk as evaluate()'s step decision rather than a separate API; the helpers the live path needs (_score_at, _score_pair_complete, _pair_listed, _anchor_matched, _install_windows, _latch, band, and _rank/_best_of for seeding) are retained.",
+        "Given the spread suite and the engine paths this change touches, When the spread suite runs, Then it passes with no case calling window_step: the T8 AC1, AC2, AC4, AC5 and T7 AC7 cases reach their step through evaluate() (or _install_windows for the shared-leg and budget facts) and keep their original assertions at full strength."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T23-AC1",
+          "linked_acceptance_criterion": "Given an ON engine whose anchor pair is quoted and unmatched, When evaluate() runs, Then it installs at most one 5-point rung per side, chosen by the anchor pair's three credit bases (all three below T: the toward-the-money rung, CCS strikes down and PCS strikes up; all three above T: the away-from-the-money rung, CCS up and PCS down), and it installs that rung only when the rung is a listed pair, its pair scores, and its d is strictly less than the anchor pair's d by more than h; a rung improving d by exactly h or less installs nothing.",
+          "type": "integration",
+          "description": "Seed at T=1.00 on the AC1 fixture, feed the hand-computed walk table to both sides, then call engine.evaluate(clock()) once: both ladders move exactly one rung in their own decided direction (CCS 7330 -> 7325, PCS 7330 -> 7335), every cancel precedes every subscribe, and the leaving/arriving legs are exactly what the window math produces (C7360 out, C7320 in; P7305 out, P7345 in). A second evaluate() on unchanged quotes installs nothing, because the next rung improves d by exactly h. Then an all-above-target fixture steps CCS one rung up (away from the money) and stops. Read d and the credit mids through _score_pair_complete, not pair_score, which P23-T22 deletes.",
+          "expected_result": "One decided-direction rung per evaluation; the rung that improves d by exactly h installs nothing."
+        },
+        {
+          "test_id": "P23-T23-AC2",
+          "linked_acceptance_criterion": "Given an evaluation whose step is refused, When the cause is a matched anchor pair (d <= h, including a pair matched on its ask basis only), an unlisted decided rung, an unquoted arriving rung, or a stationary feed, Then the anchor is unchanged and no action is emitted, and the unlisted decided rung latches exactly one chain-edge message naming the current anchor as the best reachable value, never repeated by later evaluations.",
+          "type": "integration",
+          "description": "On the walk fixture assert each stop separately: (a) a pair matched on its ask basis only (credit_ask == T, d = 0) does not move; (b) a chain whose strikes end at the anchor leaves the decided rung unlisted, so evaluate() emits no option action and exactly one message containing 'Chain edge' and the current anchor, and a following evaluate() repeats neither; (c) the decided rung quoted as a sentinel (-1) leaves the anchor unchanged; (d) five evaluate() calls on unchanged quotes produce zero option actions after the first step.",
+          "expected_result": "Each stop leaves the anchor unchanged with no action; the chain-edge message appears exactly once and names the anchor."
+        },
+        {
+          "test_id": "P23-T23-AC3",
+          "linked_acceptance_criterion": "Given the same step decision, When T is below 3.00 (h = 0.05) or at or above it (h = 0.10), Then a rung improving d by exactly that tier's h installs nothing and a rung improving it by more installs the step, so the threshold is the band and never a constant.",
+          "type": "unit",
+          "description": "Parametrize (target, decided-rung mid delta, moves): (1.00, 0.05, False), (1.00, 0.10, True), (3.00, 0.10, False), (3.00, 0.15, True) on fixtures whose anchor bases all sit below T, so direction is toward the money and d - d_rung equals the mid delta. Assert evaluate() installs the rung only where moves is True.",
+          "expected_result": "The step gate is the band at both tick tiers: 0.05 below 3.00 and 0.10 at or above it."
+        },
+        {
+          "test_id": "P23-T23-AC4",
+          "linked_acceptance_criterion": "Given an anchor pair whose three credit bases do not all sit on the same side of T, When evaluate() runs, Then no step is installed even though an adjacent listed and quoting pair has a strictly smaller d, because no direction is decided.",
+          "type": "integration",
+          "description": "Quote the anchor pair wide so its bases straddle T (credit_bid 0.60, credit_ask 1.40, mid 1.00 at T=0.90: d = 0.10 > h, one base below and two above) and an adjacent listed pair tight with d = 0.05. Assert _score_pair_complete shows the neighbour's smaller d, then assert evaluate() installs nothing and the anchor is unchanged. Run this case before the engine change and record that it fails there (today's evaluate() moves to the smaller-d rung).",
+          "expected_result": "Disagreeing bases install no step; a neighbour's smaller d is not sufficient on its own."
+        },
+        {
+          "test_id": "P23-T23-AC5",
+          "linked_acceptance_criterion": "Given an anchor pair whose three bases all sit on one side of T and whose decided rung improves d by less than h, When evaluate() runs, Then no step is installed; the pre-change evaluate() steps to any rung with a smaller d, so this case is red before the change.",
+          "type": "integration",
+          "description": "On a fixture whose anchor bases all sit below T (mid 0.30 at T=1.00, d = 0.70), give the decided rung mid 0.33 (d = 0.67, an improvement of 0.03 < h). Assert evaluate() installs nothing and the anchor stays. Run this case before the engine change and record that it fails there (today's evaluate() steps to any rung with a smaller d).",
+          "expected_result": "A neighbour improving d by less than h never moves the ladder."
+        },
+        {
+          "test_id": "P23-T23-AC6",
+          "linked_acceptance_criterion": "Given services/option_spread_engine.py, When its surface and docstring are inspected, Then window_step, _requested_targets, _walk_candidate and _best_neighbour are absent, no module under ui/, services/, data/, ibkr/ and config/ plus main.py and tests/ references any of them, and the docstring describes the walk as evaluate()'s step decision rather than a separate API; the helpers the live path needs (_score_at, _score_pair_complete, _pair_listed, _anchor_matched, _install_windows, _latch, band, and _rank/_best_of for seeding) are retained.",
+          "type": "unit",
+          "description": "Assert each of window_step, _requested_targets, _walk_candidate and _best_neighbour is absent from vars(SpreadEngine); scan ui/, services/, data/, ibkr/, config/, main.py and tests/ for the four names and assert no hit; parse the class docstring and assert it no longer names a separate walk API and does name evaluate() as the step decision; assert the retained surface (_score_at, _score_pair_complete, _pair_listed, _anchor_matched, _install_windows, _latch, band, _rank, _best_of, evaluate) still exists.",
+          "expected_result": "The parallel walk API is gone from the class, the tree and the docstring, and every helper the live path needs survives."
+        },
+        {
+          "test_id": "P23-T23-AC7",
+          "linked_acceptance_criterion": "Given the spread suite and the engine paths this change touches, When the spread suite runs, Then it passes with no case calling window_step: the T8 AC1, AC2, AC4, AC5 and T7 AC7 cases reach their step through evaluate() (or _install_windows for the shared-leg and budget facts) and keep their original assertions at full strength.",
+          "type": "integration",
+          "description": "Run the spread suite and assert exit 0; assert 'window_step' does not appear in tests/test_d65_spread_engine.py and that the re-pointed T8 AC1/AC2/AC4/AC5 and T7 AC7 cases still assert their original legs, reqIds, message counts, peak/dip line counts and anchors.",
+          "expected_result": "The spread suite passes on the live path with no case calling the deleted API and no assertion weakened."
+        }
+      ],
+      "expected_artifacts": [
+        "services/option_spread_engine.py: evaluate()'s unmatched branch installs the AC-D65.4 rung through a single _step_candidate(side, live) decision",
+        "services/option_spread_engine.py: window_step, _requested_targets, _walk_candidate and _best_neighbour deleted; class docstring's walk bullet rewritten to the live decision",
+        "tests/test_d65_spread_engine.py: T8 AC1, AC2, AC4, AC5 and T7 AC7 re-pointed to evaluate(); the sub-h and disagreeing-bases cases added; the two-tier h case added"
+      ],
+      "touches_files": [
+        "services/option_spread_engine.py",
+        "tests/test_d65_spread_engine.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the AC-D65.4 rule as window_step/_walk_candidate implemented it (direction veto, > h stop, listed-pair latch)",
+        "evaluate()'s live cadence path as P23-T9/T16 left it",
+        "the owner decision of 2026-11-18: 'Wire evaluate() to AC-D65.4 (recommended)'"
+      ],
+      "outputs": [
+        "an engine whose only walk is the live evaluate() step decision, implementing AC-D65.4",
+        "the spread suite green on the live path, with the two red-first cases proving the sub-h and disagreement stops"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "76-100",
+            "why": "edit: the docstring's 'window walk' bullet and the Public API block name window_step"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "1167-1330",
+            "why": "edit: evaluate()'s unmatched branch becomes the AC-D65.4 step; window_step/_requested_targets/_walk_candidate are deleted from this block"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "579-610",
+            "why": "edit: _best_neighbour is deleted once evaluate() stops calling it; _score_at/_rank/_best_of stay for seeding"
+          },
+          {
+            "path": "services/option_spread_engine.py",
+            "lines": "691-720",
+            "why": "read-only: _install_windows is the production install path every step and the re-pointed shared-leg case goes through - do not change it"
+          },
+          {
+            "path": "tests/test_d65_spread_engine.py",
+            "lines": "690-900",
+            "why": "edit: the walk fixtures and the T8 AC1 case (fixtures stay, the case is rewritten onto evaluate())"
+          },
+          {
+            "path": "tests/test_d65_spread_engine.py",
+            "lines": "900-1080",
+            "why": "edit: the T8 AC2/AC4/AC5 window_step calls"
+          },
+          {
+            "path": "tests/test_d65_spread_engine.py",
+            "lines": "606-645",
+            "why": "edit: T7 AC7's step is driven by a sentinel anchor pair today, which AC-D65.4 refuses; re-quote the ladder to a compliant step and keep the peak/dip assertions"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/option_spread_engine.py:evaluate",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:_anchor_matched",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:_pair_listed",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:_score_at",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:band",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:_install_windows",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:_latch",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "services/option_spread_engine.py",
+            "signature": "def _step_candidate(self, side: str, live: float) -> Optional[float]  # None unless: bases all below/above T (else no direction), rung listed (else latch CAUSE_WALK_CHAIN_EDGE naming live), rung scores, nxt.distance < cur.distance - band; one rung, direction = toward/away from the money per side"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-04",
+        "requirement_ids": [
+          "AC-D65.4",
+          "AC-D65.6",
+          "AC-D65.12",
+          "AC-D65.14"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_spread_engine.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P23-T25",
+      "title": "Make the option-stream credit curves faithful so a target change steps one AC-D65.4 rung (owner decision)",
+      "description": "The stream fixture's CCS credit curve rises 0.01 per strike point, so one 5-point rung changes d by exactly h = 0.05 and AC-D65.4's strict 'more than h' rule can never step there; the two target-commit cases therefore pin a 7355 CCS move that the approved rule does not permit. Make the fixture economically faithful (CCS mid falls 0.02 per point, PCS mid rises 0.02 per point, both from the per-leg premium functions the fixture feeds), then re-point the two cases onto the decided directions at T=1.20 (CCS 7350 -> 7345, PCS 7350 -> 7355) with their registry assertions intact.",
+      "agent": "build_worker",
+      "task_type": "test",
+      "dependencies": [
+        "P23-T23"
+      ],
+      "acceptance_criteria": [
+        "Given the option-stream fixture, When its ladder is driven through a settled ON session, Then a CCS pair's credit mid decreases by 0.02 per strike point and a PCS pair's increases by 0.02 per point (0.10 per 5-point rung, above h = 0.05 at T < 3.00), every displayed cell and match expectation is computed from those mids, and the seeded anchor at T = 1.00 is 7350 on both sides.",
+        "Given the two target-commit cases, When 1.20 is committed, Then one evaluation moves each ladder exactly one AC-D65.4 rung in its decided direction (CCS down to 7345, PCS up to 7355), a second evaluation moves nothing, and the registry invariants hold across the step: every leg in both windows keeps its reqId, each leaving leg is cancelled before the arriving leg is requested, exactly one leg leaves and one arrives per side, and the option line count never exceeds 16.",
+        "Given the stream and spread suites, When they run after this task, Then both pass and no case references window_step."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T25-AC1",
+          "linked_acceptance_criterion": "Given the option-stream fixture, When its ladder is driven through a settled ON session, Then a CCS pair's credit mid decreases by 0.02 per strike point and a PCS pair's increases by 0.02 per point (0.10 per 5-point rung, above h = 0.05 at T < 3.00), every displayed cell and match expectation is computed from those mids, and the seeded anchor at T = 1.00 is 7350 on both sides.",
+          "type": "integration",
+          "description": "Open the live window, deliver the chain, settle the seed at T=1.00, then read the engine's scored pairs through _score_pair_complete: CCS mids at 7350 / 7345 are 1.00 / 1.10, PCS mids at 7350 / 7355 are 1.00 / 1.10, and each one-rung d change is 0.10. Assert the seeded anchors are 7350 on both sides and that the displayed cells still equal _expected_display(short, side).",
+          "expected_result": "The fixture's CCS mid falls and PCS mid rises 0.02 per point, one rung changes d by 0.10, and the seeded anchor and every display stay consistent."
+        },
+        {
+          "test_id": "P23-T25-AC2",
+          "linked_acceptance_criterion": "Given the two target-commit cases, When 1.20 is committed, Then one evaluation moves each ladder exactly one AC-D65.4 rung in its decided direction (CCS down to 7345, PCS up to 7355), a second evaluation moves nothing, and the registry invariants hold across the step: every leg in both windows keeps its reqId, each leaving leg is cancelled before the arriving leg is requested, exactly one leg leaves and one arrives per side, and the option line count never exceeds 16.",
+          "type": "integration",
+          "description": "In the two target-commit cases, commit 1.20 and drive one cadence step: assert CCS moves 7350 -> 7345 and PCS 7350 -> 7355 (one rung each, opposite strike directions), that a further evaluation moves nothing, that every leg in both windows keeps its reqId, that exactly one leg leaves and one arrives per side with the cancel before the subscribe, and that the option line count never exceeds 16.",
+          "expected_result": "One AC-D65.4 step per side in the decided direction, then a stop, with reqId preservation and the 16-line ceiling intact."
+        },
+        {
+          "test_id": "P23-T25-AC3",
+          "linked_acceptance_criterion": "Given the stream and spread suites, When they run after this task, Then both pass and no case references window_step.",
+          "type": "integration",
+          "description": "Run `pytest tests/test_d65_option_stream.py tests/test_d65_spread_engine.py -q` and assert exit 0; assert 'window_step' appears in neither suite.",
+          "expected_result": "Both suites pass on the live AC-D65.4 path with no reference to the deleted walk API."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d65_option_stream.py: faithful per-leg premium curves (CCS mid -0.02/point, PCS mid +0.02/point) and a side-aware _expected_display",
+        "tests/test_d65_option_stream.py: T9 AC2 and AC6 re-pointed to the decided-direction step (CCS 7345, PCS 7355) with the registry assertions re-derived"
+      ],
+      "touches_files": [
+        "tests/test_d65_option_stream.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "evaluate()'s AC-D65.4 step decision as P23-T23 lands it",
+        "the stream fixture's premium/mid identity (_price -> _credit -> _expected_display)"
+      ],
+      "outputs": [
+        "a stream fixture whose one-rung improvement exceeds h, so the live step it asserts is the approved one",
+        "the two target-commit cases green against AC-D65.4's decided directions"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "40-75",
+            "why": "edit: _price/_credit/_expected_display - the curves, the side argument, the mid identity"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "225-250",
+            "why": "read-only: _feed_leg feeds bid = price and ask = price + 0.10, so the pair mid must stay the curve value - do not change the feed"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "300-350",
+            "why": "edit: the seeded display sweep's _expected_display(short) call site"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "380-450",
+            "why": "edit: T9 AC2's target-commit step, shared-reqId list, leaving/arriving legs and cancel count"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "660-745",
+            "why": "edit: the _expected_display call sites in the disconnect/rebound cases"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "880-900",
+            "why": "edit: the last _expected_display call site"
+          },
+          {
+            "path": "tests/test_d65_option_stream.py",
+            "lines": "1005-1050",
+            "why": "edit: T9 AC6's accepted-edit step and its moved-to-leg reqId assertion"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "services/option_spread_engine.py:evaluate",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:_score_pair_complete",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:anchor",
+            "status": "existing"
+          },
+          {
+            "ref": "services/option_spread_engine.py:_install_windows",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_d65_option_stream.py",
+            "signature": "def _expected_display(short: float, side: str) -> tuple[str, str]  # CCS mid = 1.00 - 0.02*(short - 7350); PCS mid = 1.00 + 0.02*(short - 7350); display = (-mid + 0.10, -mid - 0.10)"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-04",
+        "requirement_ids": [
+          "AC-D65.4",
+          "AC-D65.6"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_stream.py tests/test_d65_spread_engine.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P23-T24",
+      "title": "Replace the allowlist's wave-local whole-dict literal with a per-entry invariant (ESC-122)",
+      "description": "tests/test_d65_residue.py's method-census case ends with `assert CENSUS_ALLOWLIST == {}` ('no exemption may stand in for a symbol that has a call site') - a wave-local current-instance literal that forbids every future legitimate exemption and would make its own message wrong for one. Replace it with the standing structural invariant: every entry must cite a resolving registration site and must be a symbol the scanner would otherwise report, so empty passes trivially and a legitimate cited entry can be added. The phase's zero-exemption state is kept only as a separate, phase-scoped statement.",
+      "agent": "build_worker",
+      "task_type": "test",
+      "dependencies": [
+        "P23-T18"
+      ],
+      "acceptance_criteria": [
+        "Given CENSUS_ALLOWLIST, When the suite checks it, Then it does not forbid every entry as a literal: each entry is validated per entry - its citation resolves through citation_violation to a live code registration site, and the symbol is one the scanner would otherwise report - so an empty allowlist passes trivially, a legitimate cited entry passes, and an entry naming a symbol that already has a production caller fails.",
+        "Given the phase's current zero-exemption state, When it is recorded, Then it is a separate assertion whose message says no P23 symbol needs an exemption today, and it is not the standing invariant that forbids all future exemptions."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T24-AC1",
+          "linked_acceptance_criterion": "Given CENSUS_ALLOWLIST, When the suite checks it, Then it does not forbid every entry as a literal: each entry is validated per entry - its citation resolves through citation_violation to a live code registration site, and the symbol is one the scanner would otherwise report - so an empty allowlist passes trivially, a legitimate cited entry passes, and an entry naming a symbol that already has a production caller fails.",
+          "type": "unit",
+          "description": "Fixture tree with a handler registered at a real connect site: run the per-entry invariant with an entry for the handler and assert it passes (the citation resolves and the symbol would otherwise be reported). Add a symbol that has a production caller and an allowlist entry for it; assert the invariant rejects it. Run the empty allowlist over the real tree and assert it passes.",
+          "expected_result": "A legitimate cited entry is accepted, an entry for a reachable symbol is rejected, and the empty allowlist passes trivially."
+        },
+        {
+          "test_id": "P23-T24-AC2",
+          "linked_acceptance_criterion": "Given the phase's current zero-exemption state, When it is recorded, Then it is a separate assertion whose message says no P23 symbol needs an exemption today, and it is not the standing invariant that forbids all future exemptions.",
+          "type": "unit",
+          "description": "Assert the suite no longer contains the whole-dict `CENSUS_ALLOWLIST == {}` assertion with the 'no exemption may stand in for a symbol that has a call site' message, and that the phase-scoped statement exists with a message naming the current zero-exemption state as phase-scoped.",
+          "expected_result": "The blanket literal is gone; the current state is recorded only as a phase-scoped statement."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_d65_residue.py: the per-entry allowlist invariant (citation resolves + the symbol is one the scan would report)",
+        "tests/test_d65_residue.py: the phase-scoped zero-exemption statement replacing the blanket literal"
+      ],
+      "touches_files": [
+        "tests/test_d65_residue.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "ESC-122's measurement of the wave-local literal",
+        "citation_violation() and scan_unreferenced_symbols() as P23-T18 leaves them"
+      ],
+      "outputs": [
+        "an allowlist gate that asserts the invariant per entry, not the current instance"
+      ],
+      "status": "done",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "115-140",
+            "why": "edit: the allowlist's comment states the exemption policy - align it with the per-entry invariant"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "750-800",
+            "why": "edit: the method-census case's `assert CENSUS_ALLOWLIST == {}` literal is replaced"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "840-985",
+            "why": "read-only: citation_violation() and the citation tests the per-entry invariant reuses"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "tests/test_d65_residue.py:citation_violation",
+            "status": "existing"
+          },
+          {
+            "ref": "tests/test_d65_residue.py:scan_unreferenced_symbols",
+            "status": "existing"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-09",
+        "requirement_ids": [
+          "AC-D65.12",
+          "A197"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_residue.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P23-T26",
+      "title": "Rewrite the AC-D65.19 acceptance record as a live-TWS read-only checklist and list it in the probe-records index (A211 revised)",
+      "description": "The record at docs/archive/probe_records/d65_paper_tws_acceptance.md still tells the reader to use a paper port and 'never the live port', but the owner stated verbatim 'there is no paper-TWS' and AC-D65.19 was amended on 2026-11-18 to an owner-run live-TWS, read-only acceptance on 127.0.0.1:7496. Rewrite the file as that checklist - the same six checks, observation-only, no order-shaped call - following the D48/D52 probe precedent, add the record's missing row to docs/archive/probe_records/INDEX.md, and re-point the residue gate's AC-D65.19 paragraph (which still says paper-TWS and names P23-T14) at the live run and this task. All six items stay PENDING: the owner has not run it.",
+      "agent": "build_worker",
+      "task_type": "doc",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given docs/archive/probe_records/d65_paper_tws_acceptance.md, When it states the run's environment, Then it names the owner's live TWS on 127.0.0.1:7496, read-only by construction (the app holds zero order code; the panel issues only reqSecDefOptParams, reqMktData and cancelMktData) and observation-only, the file contains no paper port, no paper-account field and no 'never the live port' instruction, and it states that no checklist item may ask the owner to place, modify or cancel an order - the only cancel in the run is a market-data line.",
+        "Given the record's checklist, When it is read, Then it carries the same six AC-D65.19 checks in AC-D65.19's order, each still PENDING with an empty evidence field (the build records no result and marks nothing satisfied), plus the TWS line-count table (baseline / while ON at most 16 option lines + at most 1 spot line = 17 / after OFF back to the baseline), the fixed numbers stated identically to the suites and the canonical documents (h = max(0.05, one_tick); ASK = long.ask - short.bid; BID = long.bid - short.ask; Delta/Gamma = long - short, negative by design; fixtures 7425/7445 and 7340/7320), the screenshot/notes slots, the ACCEPTED/REJECTED/WAIVED sign-off block, and a header naming the build commit the checklist describes and citing the D48/D52 live-127.0.0.1:7496 read-only precedent.",
+        "Given docs/archive/probe_records/INDEX.md, When the probe records are listed, Then it carries a row for d65_paper_tws_acceptance.md in the same three-column shape as the d48/d52/p13 rows, naming AC-D65.19 / A211, this task (P23-T26), the run as the owner's live-TWS read-only acceptance, and its state as PENDING with no result recorded.",
+        "Given tests/test_d65_residue.py's GATE_RECORD, When it states AC-D65.19's status, Then that paragraph describes a live-TWS read-only acceptance owned by P23-T26 (not a paper run, not P23-T14), keeps its 'still OPEN' and 'NOT claimed' statements, the case that asserts it matches the new wording, and the residue suite passes with no case anywhere asserting a paper session."
+      ],
+      "tests": [
+        {
+          "test_id": "P23-T26-AC1",
+          "linked_acceptance_criterion": "Given docs/archive/probe_records/d65_paper_tws_acceptance.md, When it states the run's environment, Then it names the owner's live TWS on 127.0.0.1:7496, read-only by construction (the app holds zero order code; the panel issues only reqSecDefOptParams, reqMktData and cancelMktData) and observation-only, the file contains no paper port, no paper-account field and no 'never the live port' instruction, and it states that no checklist item may ask the owner to place, modify or cancel an order - the only cancel in the run is a market-data line.",
+          "type": "unit",
+          "description": "Read the record and assert it contains '127.0.0.1:7496', 'read-only', 'observation-only', 'cancelMktData' and 'zero order code', and that it contains none of 'paper port', 'never the live port', 'Paper account' or 'IB Gateway paper'; assert the prose forbids asking the owner to place, modify or cancel an order.",
+          "expected_result": "The environment is the live port, read-only and observation-only, with the paper wording gone and the no-order rule stated."
+        },
+        {
+          "test_id": "P23-T26-AC2",
+          "linked_acceptance_criterion": "Given the record's checklist, When it is read, Then it carries the same six AC-D65.19 checks in AC-D65.19's order, each still PENDING with an empty evidence field (the build records no result and marks nothing satisfied), plus the TWS line-count table (baseline / while ON at most 16 option lines + at most 1 spot line = 17 / after OFF back to the baseline), the fixed numbers stated identically to the suites and the canonical documents (h = max(0.05, one_tick); ASK = long.ask - short.bid; BID = long.bid - short.ask; Delta/Gamma = long - short, negative by design; fixtures 7425/7445 and 7340/7320), the screenshot/notes slots, the ACCEPTED/REJECTED/WAIVED sign-off block, and a header naming the build commit the checklist describes and citing the D48/D52 live-127.0.0.1:7496 read-only precedent.",
+          "type": "unit",
+          "description": "Parse the record: assert six '### (n)' item headings in order 1-6, six '**Result:** PENDING' lines, an empty evidence placeholder on each of the six items, the line-count table's three rows with 'at most 17' and 'returns to the pre-ON baseline', the strings 'h = max(0.05, one_tick)', 'ASK = long.ask - short.bid', 'BID = long.bid - short.ask', 'long - short', '7425/7445', '7340/7320', the screenshots table, and the ACCEPTED/REJECTED/WAIVED closers.",
+          "expected_result": "All six checks present, ordered and PENDING, with the numbers, tables and sign-off block the canonical documents state."
+        },
+        {
+          "test_id": "P23-T26-AC3",
+          "linked_acceptance_criterion": "Given docs/archive/probe_records/INDEX.md, When the probe records are listed, Then it carries a row for d65_paper_tws_acceptance.md in the same three-column shape as the d48/d52/p13 rows, naming AC-D65.19 / A211, this task (P23-T26), the run as the owner's live-TWS read-only acceptance, and its state as PENDING with no result recorded.",
+          "type": "unit",
+          "description": "Read INDEX.md and assert one table row mentions 'd65_paper_tws_acceptance.md', 'AC-D65.19', 'P23-T26', 'live' and 'PENDING'; assert the row sits in the same pipe-delimited three-column table as the d48/d52/p13 rows.",
+          "expected_result": "The record is indexed like its neighbours, naming its criterion, task, environment and pending state."
+        },
+        {
+          "test_id": "P23-T26-AC4",
+          "linked_acceptance_criterion": "Given tests/test_d65_residue.py's GATE_RECORD, When it states AC-D65.19's status, Then that paragraph describes a live-TWS read-only acceptance owned by P23-T26 (not a paper run, not P23-T14), keeps its 'still OPEN' and 'NOT claimed' statements, the case that asserts it matches the new wording, and the residue suite passes with no case anywhere asserting a paper session.",
+          "type": "integration",
+          "description": "Run 'pytest tests/test_d65_acceptance_record.py tests/test_d65_residue.py -q' and assert exit 0; assert GATE_RECORD names P23-T26 and 'live-TWS', and that no string 'paper-TWS acceptance run' survives in either file.",
+          "expected_result": "The gate's AC-D65.19 paragraph and its asserting case describe the live run, and both suites pass."
+        }
+      ],
+      "expected_artifacts": [
+        "docs/archive/probe_records/d65_paper_tws_acceptance.md: rewritten as the live-TWS read-only checklist, all six items PENDING",
+        "docs/archive/probe_records/INDEX.md: the D65 row",
+        "tests/test_d65_acceptance_record.py: the three record/index assertions",
+        "tests/test_d65_residue.py: GATE_RECORD's AC-D65.19 paragraph and the case asserting it re-pointed at the live run and P23-T26"
+      ],
+      "touches_files": [
+        "docs/archive/probe_records/d65_paper_tws_acceptance.md",
+        "docs/archive/probe_records/INDEX.md",
+        "tests/test_d65_acceptance_record.py",
+        "tests/test_d65_residue.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "AC-D65.19 as amended 2026-11-18 (live-TWS, read-only, on 127.0.0.1:7496; A211 revised)",
+        "the owner's verbatim statement: there is no paper-TWS",
+        "the D48/D52 probe records as the live read-only precedent"
+      ],
+      "outputs": [
+        "an acceptance record the owner can actually run, on the port that exists",
+        "an INDEX entry for it",
+        "a residue gate whose AC-D65.19 statement matches the amended criterion"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "docs/archive/probe_records/d65_paper_tws_acceptance.md",
+            "lines": "1-150",
+            "why": "edit: the whole record - environment block, method, six items, tables, closing statement; the filename is retained for existing references, only the content changes"
+          },
+          {
+            "path": "docs/archive/probe_records/INDEX.md",
+            "lines": "1-20",
+            "why": "edit: the three-column table - add the D65 row after the p13 row"
+          },
+          {
+            "path": "docs/archive/probe_records/d48_probe_record.md",
+            "lines": "1-40",
+            "why": "read-only: the live 127.0.0.1:7496, requests-only, no-orders probe shape the method block must copy"
+          },
+          {
+            "path": "docs/archive/probe_records/d52_probe_record.md",
+            "lines": "1-32",
+            "why": "read-only: the second precedent for the header/method/outcomes shape"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "310-328",
+            "why": "edit: GATE_RECORD's AC-D65.19 paragraph - the paper-TWS run owned by P23-T14 becomes the live-TWS run owned by P23-T26"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "1694-1705",
+            "why": "edit: test_record_declares_ac_d65_19_open_and_owned asserts the owner line - re-point it with the prose"
+          },
+          {
+            "path": "tests/test_d65_residue.py",
+            "lines": "36-42",
+            "why": "edit: the module docstring's still-open paper-TWS criterion phrase"
+          }
+        ],
+        "contracts": [],
+        "architecture_ref": "docs/architecture.md#Phase P23",
+        "plan_ref": "docs/plan.md#P23-10",
+        "requirement_ids": [
+          "AC-D65.19",
+          "A211",
+          "R144",
+          "R150"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_acceptance_record.py tests/test_d65_residue.py -q",
+        "memory_refs": [],
+        "needs_graphify": false,
+        "size": "M"
+      }
     }
   ]
 }

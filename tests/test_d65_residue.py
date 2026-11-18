@@ -13,11 +13,26 @@ different places and each needs its own net:
          **and** every method of every P23 class — sync and async, the
          ``@property``/``@staticmethod``/``@classmethod`` accessors included —
          each method keyed ``Class.method`` so it can never be confused with a
-         module-level name of the same spelling. Two exclusions exist and no
-         others: a name that begins and ends with ``__`` (a dunder, Python's
-         own protocol hook) is not censused, and a clause-(v) framework
-         callback is exempt only through the cited declaring-class /
-         registering-base entry below;
+         module-level name of the same spelling. Clause (i)'s evidence is
+         **production-only**: a reference only counts as a production caller
+         when it lives outside ``tests/`` — in ``ui/``, ``services/``,
+         ``data/``, ``ibkr/``, ``config/`` or ``main.py`` — while clause (ii)'s
+         helper scan and clause (iii)'s token/import sweeps keep the full tree.
+         A method key is additionally **class-bound** at both ends: its
+         evidence must resolve to the declaring class's own member — a
+         ``Class.method`` attribute access, a name/alias/attribute bound to
+         ``Class(...)``, an annotated parameter, or ``self.method`` /
+         ``cls.method`` inside the declaring class — never a bare name, a
+         string constant, an argument name or an unrelated object's same-named
+         attribute. Two exclusions exist and no others: a name that begins and
+         ends with ``__`` (a dunder, Python's own protocol hook) is not
+         censused, and a clause-(v) framework callback is exempt only through
+         the cited declaring-class / registering-base entry below, consulted
+         independently of reachability — and the clause-(i) allowlist itself is
+         held per entry: the key must be one the census would otherwise report,
+         it must have no *production* Python call site, and its citation must
+         resolve — never a whole-dict literal, and never anything that forbids
+         a legitimate exemption the phase's snapshot does not have yet;
    (ii)  every P23 test helper is referenced in its own file;
    (iii) no unused import / unreached branch / ``if False`` / ``noqa``-silenced
          import / commented-out implementation block / ``__all__``-only export /
@@ -35,7 +50,7 @@ different places and each needs its own net:
    from the tree, the KEEP ledger names each surviving consumer, AC-D65.1's own
    dock measurable is re-run, the D41–D64 history is intact, and the gate record
    names the three owner-authorised pre-P23 edits, S-P23-24's recorded
-   consequence and the still-open paper-TWS criterion.
+   consequence and the still-open live-TWS criterion.
 
    The token sweep carries **one narrow carve-out**, and the carve-out is
    machine-checked rather than a blanket amnesty: an entry must actually contain
@@ -88,7 +103,7 @@ P23_ADDED_SYMBOLS = {
     "ibkr/market_data.py": ("req_sec_def_opt_params",),
     "ibkr/contracts.py": (
         "OptionSeries", "get_option_contract", "today_expiry_yyyymmdd",
-        "select_zero_dte_series", "option_chain_strikes",
+        "select_zero_dte_series",
         "SPX_OPTION_SYMBOL", "SPX_OPTION_TRADING_CLASS", "SPX_OPTION_EXCHANGE",
         "SPX_OPTION_CURRENCY", "SPX_OPTION_MULTIPLIER",
     ),
@@ -117,11 +132,11 @@ P23_AUTHORED_FILES = P23_NEW_MODULES + P23_SUITES
 # ---------------------------------------------------------------------------
 
 #: Clause (i)'s exemption: a symbol that only framework machinery invokes *by
-#: name*, so no Python call site exists for the census to find. Every value is
-#: the citation, and every citation must be a **code** registration site of the
-#: exact shape ``"<repo-relative .py>:<line> — <how it is invoked>"`` —
-#: ``test_census_allowlist_cites_a_live_site`` re-checks that the cited line
-#: really invokes or registers the symbol by name (a call argument, a
+#: name*, so no production Python call site exists for the census to find. Every
+#: value is the citation, and every citation must be a **code** registration
+#: site of the exact shape ``"<repo-relative .py>:<line> — <how it is
+#: invoked>"`` — ``test_census_allowlist_cites_a_live_site`` re-checks that the
+#: cited line really invokes or registers the symbol by name (a call argument, a
 #: ``connect``/``emit``, a name-keyed registry entry, or a base class).
 #:
 #: A *document* mention is never a site: ``docs/tasks/task-graph.json`` naming a
@@ -130,9 +145,21 @@ P23_AUTHORED_FILES = P23_NEW_MODULES + P23_SUITES
 #: the keep-for-later residue clause (iii) forbids (ESC-118), and the allowlist
 #: must never exist for that purpose.
 #:
-#: No P23 symbol needs the exemption today — the EWrapper/Qt callbacks have
-#: their own clause-(v) tables below — so the mapping is empty. An entry is
-#: added only with a real registration site, never to excuse an unused alias.
+#: The mapping's safety property is asserted **per entry**, never as a literal of
+#: the whole dict (ESC-122): ``scan_census_allowlist`` holds every entry to all
+#: three halves at once — the key is one ``scan_unreferenced_symbols`` would
+#: otherwise report, no *production* Python call site invokes the symbol, and the
+#: citation resolves to a live registration site. An empty mapping therefore
+#: passes trivially, and a legitimate entry (a duck-typed surface, or a callback
+#: whose only caller is a name-keyed registration) can be added later without
+#: rewriting an assertion that forbids every exemption.
+#:
+#: Phase-initial snapshot, not a rule: P23 closed with this mapping empty — no
+#: P23 symbol needed the exemption, because the EWrapper/Qt callbacks have their
+#: own clause-(v) tables below. That zero-exemption state is recorded as its own
+#: phase-scoped assertion in the method-census case below; the standing
+#: invariant above is what decides whether an entry is earned, so adding one
+#: updates the snapshot rather than failing the rule.
 CENSUS_ALLOWLIST: dict[str, dict[str, str]] = {}
 
 #: Clause (v) — EWrapper callbacks: ibapi's reader thread dispatches by method
@@ -306,9 +333,12 @@ Bookkeeping (each re-checked by a case in this suite)
     * AC-D65.11's marker grep and the D41–D64 history sections hold.
 
 Open criterion — NOT claimed by this gate
-    AC-D65.19 (the owner's paper-TWS acceptance run) is still OPEN and is owned
-    by P23-T14. The build can observe every other AC-D65.* criterion; it cannot
-    observe a live paper-TWS session, and this record claims exactly that.
+    AC-D65.19 (the owner's live-TWS, read-only acceptance run) is still OPEN and
+    is owned by P23-T26. The build can observe every other AC-D65.* criterion; it
+    cannot observe a live TWS session, and this record claims exactly that. The
+    run is read-only by construction — the panel issues only reqSecDefOptParams,
+    reqMktData and cancelMktData — and no checklist item asks the owner to place,
+    modify or cancel an order.
 """
 
 # ---------------------------------------------------------------------------
@@ -323,7 +353,14 @@ def _text(rel: str) -> str:
 
 
 def sources() -> dict[str, str]:
-    """Every Python source the gate measures, keyed by repo-relative path."""
+    """Every Python source the gate measures, keyed by repo-relative path.
+
+    Clause (ii)'s helper scan and clause (iii)'s token/import sweeps read this
+    full map (production directories, ``main.py`` and ``tests/``). Clause (i)'s
+    reachability is narrower by construction: ``_production_subset`` drops every
+    path whose first segment is ``tests``, so a test-only reference is never a
+    production caller.
+    """
     global _SOURCE_CACHE
     if _SOURCE_CACHE is None:
         out: dict[str, str] = {}
@@ -332,8 +369,25 @@ def sources() -> dict[str, str]:
                 out[path.relative_to(REPO).as_posix()] = path.read_text(
                     encoding="utf-8"
                 )
+        entry_point = REPO / "main.py"
+        if entry_point.is_file():
+            out["main.py"] = entry_point.read_text(encoding="utf-8")
         _SOURCE_CACHE = out
     return _SOURCE_CACHE
+
+
+def _production_subset(tree: dict[str, str]) -> dict[str, str]:
+    """Clause (i)'s reachability pool: every path that is not under ``tests/``.
+
+    That is ``ui/``, ``services/``, ``data/``, ``ibkr/``, ``config/`` and the
+    ``main.py`` entry point in the real tree, and every non-test module in a
+    fixture tree. Clause (ii) and clause (iii) keep scanning the full tree.
+    """
+    return {
+        path: text
+        for path, text in tree.items()
+        if path.split("/")[0] != TEST_DIR
+    }
 
 
 def _defined_symbols(text: str) -> tuple[str, ...]:
@@ -348,6 +402,58 @@ def _defined_symbols(text: str) -> tuple[str, ...]:
                 if isinstance(target, ast.Name) and not target.id.startswith("_"):
                     names.append(target.id)
     return tuple(names)
+
+
+def _module_definitions(text: str) -> set[str]:
+    """Every name a module defines: its top-level names and its class members.
+
+    An inventory entry is only evidence of a live symbol when the module really
+    defines it — a module-level ``def``/``class``/constant or a member of a
+    class defined there. A name that only *mentions* itself somewhere is not a
+    definition, which is what lets a deleted symbol's stale entry fail.
+    """
+    module = ast.parse(text)
+    defined: set[str] = set()
+
+    def add_targets(target: ast.AST) -> None:
+        if isinstance(target, ast.Name):
+            defined.add(target.id)
+
+    for node in module.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defined.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                add_targets(target)
+        elif isinstance(node, ast.AnnAssign):
+            add_targets(node.target)
+    for node in ast.walk(module):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for child in node.body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined.add(child.name)
+            elif isinstance(child, ast.Assign):
+                for target in child.targets:
+                    add_targets(target)
+            elif isinstance(child, ast.AnnAssign):
+                add_targets(child.target)
+    return defined
+
+
+def _inventory_gaps(
+    tree: dict[str, str], inventory: dict[str, tuple[str, ...]]
+) -> list[str]:
+    """``module:name`` for every inventory entry its module does not define."""
+    gaps: list[str] = []
+    for module, names in inventory.items():
+        text = tree.get(module)
+        if text is None:
+            gaps.append(f"{module}: (module is not scanned)")
+            continue
+        defined = _module_definitions(text)
+        gaps.extend(f"{module}:{name}" for name in names if name not in defined)
+    return gaps
 
 
 def _class_methods(
@@ -440,6 +546,115 @@ def _base_names(node: ast.ClassDef) -> set[str]:
     return names
 
 
+def _annotation_name(node: ast.AST | None) -> str | None:
+    """The class an annotation names, for ``X: Class`` / ``X: Optional[Class]``."""
+    if node is None:
+        return None
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Subscript):
+        wrapper = _annotation_name(node.value)
+        if wrapper in ("Optional", "Union"):
+            return _annotation_name(node.slice)
+    return None
+
+
+def _base_key(node: ast.AST) -> str | None:
+    """A textual key for an expression used as an attribute base.
+
+    ``engine`` -> ``"engine"``; ``self.engine`` -> ``"self.engine"``;
+    ``SpreadEngine()`` -> ``"SpreadEngine"`` (its constructor names the class).
+    Anything else (a call result, a subscript, arithmetic) keys to ``None``,
+    so it can never resolve as an instance of a class.
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _base_key(node.value)
+        return f"{prefix}.{node.attr}" if prefix else None
+    if isinstance(node, ast.Call):
+        return _base_key(node.func)
+    return None
+
+
+def _class_bound_names(text: str, class_name: str) -> set[str]:
+    """Expression keys in ``text`` that hold the class or one of its instances.
+
+    The class name itself is always a valid base (``Class.method``). Names,
+    annotated parameters and attribute targets then join the set by assignment
+    (``name = Class(...)``, ``self.attr = Class(...)``) or by annotation
+    (``engine: Class``, ``self.attr: Class``), and the fixed point follows
+    aliases (``panel = self.option_spreads_panel``), so an access through a name
+    or an attribute bound to an instance resolves — and a same-named attribute
+    on an unrelated object does not.
+    """
+    bound: set[str] = {class_name}
+    nodes = list(ast.walk(ast.parse(text)))
+    changed = True
+    while changed:
+        changed = False
+        for node in nodes:
+            if isinstance(node, ast.arg):
+                key = node.arg
+                if _annotation_name(node.annotation) == class_name and key not in bound:
+                    bound.add(key)
+                    changed = True
+            elif isinstance(node, ast.AnnAssign):
+                if _annotation_name(node.annotation) == class_name:
+                    key = _base_key(node.target)
+                    if key and key not in bound:
+                        bound.add(key)
+                        changed = True
+            elif isinstance(node, ast.Assign):
+                if _base_key(node.value) not in bound:
+                    continue
+                for target in node.targets:
+                    key = _base_key(target)
+                    if key and key not in bound:
+                        bound.add(key)
+                        changed = True
+    return bound
+
+
+def _method_evidence(
+    tree: dict[str, str], module: str, declaring_class: str, method: str
+) -> bool:
+    """True when some file references ``declaring_class.method`` class-bound.
+
+    Two shapes count, and only these:
+
+    * an attribute access ``<base>.method`` whose base resolves through
+      ``_class_bound_names`` to the declaring class (the class itself, an
+      instance it constructs, an annotated parameter, an alias, or an
+      attribute holding one); and
+    * ``self.method`` / ``cls.method`` inside the declaring class body — the
+      method's own receiver, which no external binding can express.
+
+    A bare name, a string constant, a function argument name that is not
+    annotated with the class, and a same-named attribute on an unrelated
+    object's instance are therefore not evidence.
+    """
+    for text in tree.values():
+        bounds = _class_bound_names(text, declaring_class)
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.Attribute) and node.attr == method:
+                if _base_key(node.value) in bounds:
+                    return True
+    class_node = _class_node(tree.get(module, ""), declaring_class)
+    if class_node is not None:
+        for node in ast.walk(class_node):
+            if not isinstance(node, ast.Attribute) or node.attr != method:
+                continue
+            receiver = node.value
+            if isinstance(receiver, ast.Name) and receiver.id in ("self", "cls"):
+                return True
+    return False
+
+
 def _framework_callback_exempt(
     module: str,
     declaring_class: str,
@@ -475,24 +690,44 @@ def scan_unreferenced_symbols(
     candidates: dict[str, tuple[str, ...]],
     allowlist: dict[str, dict[str, str]] | None = None,
     framework_callbacks: dict[tuple[str, str, str], object] | None = None,
+    reachability_tree: dict[str, str] | None = None,
 ) -> list[str]:
     """Clause (i): `module:symbol` for every candidate nothing references.
 
-    Module-level names and class methods (keyed ``Class.method``) are judged
-    with exactly the same evidence: a load/attribute/import mention in any
-    *other* file, or a use inside its own module beyond the definition itself
-    (so ``self.helper()`` counts); a string constant equal to the name counts
-    as a mention, which is how ``getattr(obj, "name")`` and name-keyed
-    registrations become evidence. An allowlisted symbol needs a citation that
-    resolves to a live code site; a framework callback needs a declared
-    (declaring class, registering base) entry that verifies against the tree.
-    A document string satisfies neither, and dunder method names are never
-    candidates.
+    Reachability is **production-only**: ``reachability_tree`` defaults to the
+    production subset of ``tree`` (``_production_subset`` — every path whose
+    first segment is not ``tests``), so a reference that exists only in a test
+    file is never a production caller. Clause (ii)'s helper scan and clause
+    (iii)'s token/import sweeps are untouched; they keep reading the full tree.
+
+    A module-level name is evidenced by a load/attribute/import mention inside
+    its own module beyond the definition or in another *production* file. A
+    ``Class.method`` key is evidenced only **class-bound** at both ends: an
+    attribute access on the declaring class itself, on a name/alias/attribute
+    bound to ``Class(...)`` (an annotated parameter included), or
+    ``self.method`` / ``cls.method`` inside the declaring class — never a bare
+    name, a string constant, an argument name or an unrelated object's
+    same-named attribute.
+
+    Two exclusions exist and no others. An allowlisted symbol needs a citation
+    that resolves to a live code site. A **clause-(v) cited-base exemption** is
+    the one other way out: it must name the (declaring class, registering base)
+    entry, and the base must actually declare the method, so a same-named
+    method on a class without that base is censused and reported; that check is
+    consulted independently of reachability, after a failed reachability test.
+    A document string satisfies neither, a method key is never satisfied by a
+    module-level symbol of the same spelling, and dunder method names are never
+    candidates (the dunder exclusion lives in ``_class_methods``).
     """
     allowlist = allowlist or {}
     framework_callbacks = framework_callbacks or {}
+    reach = (
+        _production_subset(tree)
+        if reachability_tree is None
+        else reachability_tree
+    )
     used = {path: _load_names(text) for path, text in tree.items()}
-    mentioned = {path: _mention_names(text) for path, text in tree.items()}
+    mentioned = {path: _mention_names(text) for path, text in reach.items()}
     violations: list[str] = []
     for module, symbols in candidates.items():
         for symbol in symbols:
@@ -506,12 +741,18 @@ def scan_unreferenced_symbols(
             else:
                 declaring_class, method = "", symbol
             probe = method
-            if probe in used.get(module, set()):
-                continue
-            if any(
-                probe in mentioned[path] for path in tree if path != module
-            ):
-                continue
+            if declaring_class:
+                if _method_evidence(reach, module, declaring_class, method):
+                    continue
+            else:
+                if probe in used.get(module, set()):
+                    continue
+                if any(
+                    probe in mentioned[path]
+                    for path in reach
+                    if path != module
+                ):
+                    continue
             if declaring_class and _framework_callback_exempt(
                 module, declaring_class, method, framework_callbacks, tree
             ):
@@ -723,8 +964,20 @@ def _census_candidates(tree: dict[str, str]) -> dict[str, tuple[str, ...]]:
 
     The four P23 modules contribute their public top-level names plus every
     method of every class they define; a module P23 extended contributes the
-    explicitly listed symbols plus the methods of any class among them. Both
-    halves are judged with the same bare-name reachability evidence.
+    explicitly listed symbols plus the methods of any class among them.
+
+    Both halves are judged against a **production-only** reachability pool: a
+    reference from a file under ``tests/`` is not a production caller (clause
+    (ii)'s helper scan and clause (iii)'s sweeps still read the full tree). A
+    ``Class.method`` key is additionally **class-bound** at both ends — its
+    evidence must be an attribute access on the declaring class itself or on a
+    name/alias/attribute bound to ``Class(...)`` (an annotated parameter
+    included), or ``self.method`` / ``cls.method`` inside the declaring class —
+    never a bare name, a string constant, an argument name or an unrelated
+    object's same-named attribute. The only exclusions are the dunder exclusion
+    (a ``__x__`` protocol hook, see ``_class_methods``) and a clause-(v)
+    framework callback cited with its (declaring class, registering base)
+    entry.
     """
     candidates: dict[str, tuple[str, ...]] = {}
     for module in P23_NEW_MODULES:
@@ -759,9 +1012,22 @@ def test_method_census_covers_p23_classes_and_excludes_dunders():
     for key in (
         "SpreadEngine.toggle_off",
         "SpreadEngine.reset_session",
-        "SpreadEngine.target",
+        # The deleted ``SpreadEngine.target`` property's slot is held by two
+        # members the class really defines today (ESC-121: the case must name
+        # real members, not whatever happens to pass).
+        "SpreadEngine.set_target",
+        "SpreadEngine.band",
     ):
         assert key in engine, f"{key} missing from the method census"
+    for absent in (
+        # The property P23 deleted; a census that re-adopts it would be stale.
+        "SpreadEngine.target",
+        # A dunder is the one exclusion and a synthetic non-member never was a
+        # candidate, so both negatives keep the case discriminating.
+        "SpreadEngine.__init__",
+        "SpreadEngine.not_a_method",
+    ):
+        assert absent not in engine, f"{absent} must not be in the method census"
     panel = candidates["ui/option_spreads_panel.py"]
     for key in (
         "OptionSpreadsPanel._cells_for",
@@ -788,26 +1054,63 @@ def test_method_census_covers_p23_classes_and_excludes_dunders():
     assert "VerifiedBackupPath.__new__" not in candidates["data/db_backup.py"], (
         "a dunder is the one exclusion and must not be censused"
     )
-    assert CENSUS_ALLOWLIST == {}, (
-        "the tree is green on reachability; no exemption may stand in for a "
-        "symbol that has a call site"
+    # The standing invariant (ESC-122): each entry earns itself against the
+    # same census it stands beside — the key is one the scanner would otherwise
+    # report, no production call site invokes it, and its citation resolves to
+    # a live registration site. Never a whole-dict literal: that form would
+    # forbid a legitimate exemption along with the unsafe ones and would make
+    # its own message wrong for one.
+    problems = scan_census_allowlist(tree, candidates=candidates)
+    assert not problems, (
+        "a census exemption must earn itself (a key the scanner would "
+        "otherwise report, no production call site, a resolving registration "
+        f"citation): {problems}"
+    )
+    # Phase snapshot (ESC-122), recorded separately and phase-scoped — NEVER
+    # the standing rule. P23 closed with no exemption needed; if a symbol needs
+    # one later, the entry above is what decides whether it is earned, and this
+    # snapshot is updated with it rather than forbidding it.
+    assert not CENSUS_ALLOWLIST, (
+        "P23 phase snapshot (phase-scoped, not the standing rule): no P23 "
+        "symbol needs a census exemption today. If one does, cite it and "
+        "update this snapshot; scan_census_allowlist decides whether the "
+        "entry is earned."
     )
     assert scan_unreferenced_symbols(
         tree, candidates, CENSUS_ALLOWLIST, FRAMEWORK_CALLBACKS
     ) == []
+    # Composed, never spelled literally: the searched name would otherwise
+    # occur in this assertion's own source line and message and could never
+    # pass. The gate's candidate list and prose must not name the helper
+    # P23-T20 deleted.
+    stale_helper = "validate" + "_spread"
+    assert stale_helper not in _text("tests/test_d65_residue.py"), (
+        f"the gate still names {stale_helper}, which P23-T20 deleted"
+    )
 
 
 def test_docstring_states_the_implemented_census_scope():
-    """AC4: the prose names the real scope and its two exclusions."""
+    """AC5: production-only evidence, class-bound methods, two exclusions."""
     module = ast.parse(_text("tests/test_d65_residue.py"))
     module_doc = ast.get_docstring(module) or ""
     bullet = re.search(r"\(i\)\s+(.*?)\n\s{0,6}\(ii\)", module_doc, re.S)
     assert bullet is not None, "the module docstring lost its clause-(i) bullet"
     claim = bullet.group(1)
     assert "method" in claim.lower(), "clause (i) does not name class methods"
+    assert "production-only" in claim.lower(), (
+        "clause (i) does not state that its reachability evidence is "
+        "production-only"
+    )
+    assert "class-bound" in claim.lower(), (
+        "clause (i) does not state that a method's evidence is class-bound"
+    )
     assert "dunder" in claim.lower(), "clause (i) does not name the dunder exclusion"
     assert re.search(r"clause-?\(v\)", claim), (
         "clause (i) does not name the clause-(v) cited-site exemption"
+    )
+    assert "independently of reachability" in claim.lower(), (
+        "clause (i) does not state that the framework exemption is consulted "
+        "independently of reachability"
     )
     for narrow in (
         "module-level names only",
@@ -815,6 +1118,8 @@ def test_docstring_states_the_implemented_census_scope():
         "top-level names only",
         "only module-level",
         "only top-level",
+        "bare-name",
+        "bare name counts",
     ):
         assert narrow not in module_doc.lower(), f"stale scope claim: {narrow!r}"
     functions = {
@@ -827,6 +1132,23 @@ def test_docstring_states_the_implemented_census_scope():
     ):
         assert "method" in functions[name].lower(), (
             f"{name}'s docstring does not describe the method census"
+        )
+    for name in ("_census_candidates", "scan_unreferenced_symbols"):
+        doc = functions[name]
+        assert "production-only" in doc.lower(), (
+            f"{name} does not state that clause (i)'s evidence is production-only"
+        )
+        assert "class-bound" in doc.lower(), (
+            f"{name} does not state that a method's evidence is class-bound"
+        )
+        assert "dunder" in doc.lower(), (
+            f"{name} does not name the dunder exclusion"
+        )
+        assert re.search(r"clause-?\(v\)", doc), (
+            f"{name} does not name the clause-(v) cited-base exemption"
+        )
+        assert "bare-name" not in doc.lower(), (
+            f"{name} still carries the old bare-name claim"
         )
     assert "dunder" in functions["_class_methods"].lower(), (
         "_class_methods does not name the dunder exclusion"
@@ -841,6 +1163,34 @@ def test_docstring_states_the_implemented_census_scope():
     assert not any(
         key.endswith(".__new__") for key in candidates["data/db_backup.py"]
     ), "the docstring's dunder exclusion is not backed by the candidate map"
+
+
+def test_p23_added_symbols_resolve_to_real_definitions():
+    """AC6: every inventory entry names a symbol the module still defines."""
+    tree = sources()
+    contracts = P23_ADDED_SYMBOLS["ibkr/contracts.py"]
+    assert "option_chain_strikes" not in contracts, (
+        "the inventory still files option_chain_strikes, which P23-T21 deleted "
+        "from ibkr/contracts.py"
+    )
+    assert _inventory_gaps(
+        tree, {"ibkr/contracts.py": ("option_chain_strikes",)}
+    ) == ["ibkr/contracts.py:option_chain_strikes"], (
+        "the inventory check must report the deleted symbol, not accept its own "
+        "self-mention"
+    )
+    assert not _inventory_gaps(tree, P23_ADDED_SYMBOLS), (
+        "a P23_ADDED_SYMBOLS entry names a symbol its module no longer defines: "
+        f"{_inventory_gaps(tree, P23_ADDED_SYMBOLS)}"
+    )
+    phantom = {
+        module: tuple(names) + ("phantom_symbol",)
+        for module, names in P23_ADDED_SYMBOLS.items()
+    }
+    gaps = _inventory_gaps(tree, phantom)
+    assert len(gaps) == len(P23_ADDED_SYMBOLS) and all(
+        gap.endswith(":phantom_symbol") for gap in gaps
+    ), f"a seeded phantom inventory entry was not reported: {gaps}"
 
 
 #: A citation must name a **Python** file, a line in it, and how the symbol is
@@ -935,6 +1285,112 @@ def citation_violation(
     return None
 
 
+def _has_python_call_site(tree: dict[str, str], symbol: str) -> bool:
+    """True when a *production* file calls ``symbol`` (``f(...)`` or ``x.f(...)``).
+
+    The clause-(i) exemption exists for a symbol nothing in production Python
+    calls — a registration site or the framework invokes it by name instead.
+    The pool is ``_production_subset(tree)``, the same one the census judges
+    reachability against: a reference that exists only under ``tests/`` is not a
+    production caller (P23-T18), so a test exercising a name-invoked surface
+    does not make its exemption amnesty.
+
+    Naming the symbol as an argument, a base class or a string is a
+    registration, not a call, so only an ``ast.Call`` whose callee carries the
+    name counts here. The name is matched the way the census matches it: by the
+    last component, so a ``Class.method`` key is probed by ``method``.
+    """
+    probe = symbol.rpartition(".")[2] or symbol
+    for text in _production_subset(tree).values():
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, ast.Call):
+                continue
+            callee = node.func
+            if isinstance(callee, ast.Name) and callee.id == probe:
+                return True
+            if isinstance(callee, ast.Attribute) and callee.attr == probe:
+                return True
+    return False
+
+
+def _tree_candidates(tree: dict[str, str]) -> dict[str, tuple[str, ...]]:
+    """A fixture tree's own census candidates: public names + ``Class.method``.
+
+    The real tree passes ``_census_candidates`` (which knows the P23 inventory);
+    a seeded fixture has no inventory, so its candidate set is what it defines.
+    """
+    return {
+        module: _defined_symbols(text) + _class_methods(text)
+        for module, text in tree.items()
+    }
+
+
+def scan_census_allowlist(
+    tree: dict[str, str],
+    allowlist: dict[str, dict[str, str]] | None = None,
+    candidates: dict[str, tuple[str, ...]] | None = None,
+    framework_callbacks: dict[tuple[str, str, str], object] | None = None,
+) -> list[str]:
+    """Clause (i)'s exemption property, checked per entry rather than per dict.
+
+    Every entry must earn all three halves at once, and an empty mapping passes
+    trivially — the property says nothing about how many exemptions exist:
+
+    * **the scanner would otherwise report it** — ``scan_unreferenced_symbols``
+      with no exemptions lists ``module:symbol``, so the entry covers a key the
+      census really needs an answer for; an entry over a symbol production
+      already references is dead weight, whatever its citation says;
+    * **no production Python call site** — ``_has_python_call_site`` finds no
+      ``f(...)`` or ``x.f(...)`` for the symbol in ``_production_subset(tree)``,
+      so the entry covers only what a registration site can invoke by name; an
+      entry over a symbol Python really calls is amnesty; and
+    * **a cited registration site** — ``citation_violation`` resolves the
+      citation to a live line that invokes or registers the symbol by name (a
+      call argument, a ``connect``/``emit``, a name-keyed registry entry, a base
+      class), which a document mention never does.
+
+    A legitimate entry — a duck-typed surface, or a framework-invoked shape a
+    clause-(v) base cannot express — passes all three; that is exactly the
+    entry a whole-dict ``== {}`` assertion forbids and this check must allow
+    (ESC-122).
+    """
+    allowlist = CENSUS_ALLOWLIST if allowlist is None else allowlist
+    if candidates is None:
+        candidates = _tree_candidates(tree)
+    unexempted = set(
+        scan_unreferenced_symbols(tree, candidates, {}, framework_callbacks)
+    )
+    problems: list[str] = []
+    for module, entries in allowlist.items():
+        for symbol, citation in entries.items():
+            key = f"{module}:{symbol}"
+            problem = citation_violation(module, symbol, citation, tree)
+            if problem is not None:
+                problems.append(problem)
+                continue
+            if symbol not in candidates.get(module, ()):
+                problems.append(
+                    f"{key} is allowlisted but is not a clause-(i) census "
+                    "candidate; only a symbol the scanner would otherwise "
+                    "report can be exempted"
+                )
+                continue
+            if key not in unexempted:
+                problems.append(
+                    f"{key} is allowlisted but the scanner would not report "
+                    "it: production already references the symbol, so no "
+                    "exemption is needed"
+                )
+                continue
+            if _has_python_call_site(tree, symbol):
+                problems.append(
+                    f"{key} is allowlisted but has a Python call "
+                    "site; an exemption is for a symbol only a registration "
+                    "site invokes by name"
+                )
+    return problems
+
+
 def test_census_allowlist_cites_a_live_site():
     """No allowlist entry may be a bare name — each citation must resolve to code."""
     tree = sources()
@@ -979,6 +1435,196 @@ def test_census_allowlist_rejects_a_document_mention():
     assert citation_violation(
         "sample.py", "handler", "sample.py:7 — signal connect", tree
     ) is None, "a real connect site was rejected"
+
+
+def test_census_allowlist_entries_are_each_earned():
+    """ESC-122: the property is per entry, so an empty mapping passes trivially.
+
+    The seeded cases below are why this is not a whole-dict ``CENSUS_ALLOWLIST
+    == {}`` literal: a literal of the whole dict forbids the legitimate entry
+    (case a) along with the unsafe ones, so it makes an exemption impossible
+    instead of proving one unsafe. Each entry is held to its own three halves:
+    the key is one the scanner would otherwise report (case d is the negative),
+    no production call site invokes it (case b), and the citation resolves to a
+    registration site (case c).
+    """
+    tree = sources()
+    candidates = _census_candidates(tree)
+    # (0) An empty mapping over the real tree passes trivially: the invariant
+    # says nothing about how many exemptions a phase needs. The phase's own
+    # zero-exemption state is a separate, phase-scoped assertion elsewhere.
+    assert scan_census_allowlist(tree, {}, candidates=candidates) == [], (
+        "an empty allowlist must pass the per-entry invariant trivially"
+    )
+    problems = scan_census_allowlist(tree, candidates=candidates)
+    assert not problems, (
+        "census allowlist entries that do not earn their exemption: "
+        f"{problems}"
+    )
+    fixture = {
+        "fixture_module.py": (
+            "class Owner:\n"
+            "    def called(self):\n"
+            "        return 1\n"
+            "\n"
+            "    def handler(self, value):\n"
+            "        return value\n"
+        ),
+        "caller_module.py": (
+            "def drive(owner):\n"
+            "    return owner.called()\n"
+            "\n"
+            "\n"
+            "def wire(owner, signal):\n"
+            "    signal.connect(owner.handler)\n"
+            "    signal.connect(owner.called)\n"
+        ),
+    }
+    # (a) A handler registered at a real connect site: the legitimate entry
+    # ESC-122 requires the gate to accept.
+    legitimate = {
+        "fixture_module.py": {
+            "Owner.handler": "caller_module.py:6 — passed to signal.connect()"
+        }
+    }
+    assert scan_census_allowlist(fixture, legitimate) == [], (
+        "a name-invoked handler with a resolving connect-site citation must be "
+        "allowlistable — the standing invariant is per entry, not 'no exemptions'"
+    )
+    # (b) The same citation shape, but for a method Python really calls: an
+    # exemption may not stand in for a symbol that has a production call site.
+    amnesty = {
+        "fixture_module.py": {
+            "Owner.called": "caller_module.py:7 — passed to signal.connect()"
+        }
+    }
+    problems = scan_census_allowlist(fixture, amnesty)
+    assert len(problems) == 1 and "Owner.called" in problems[0] and (
+        "call site" in problems[0]
+    ), f"a call site must be reported, not exempted: {problems}"
+    # (c) A document mention satisfies none of the halves: no .py site resolves.
+    documented = {
+        "fixture_module.py": {
+            "Owner.handler": (
+                "docs/tasks/task-graph.json P23-T17 signature"
+            )
+        }
+    }
+    problems = scan_census_allowlist(fixture, documented)
+    assert len(problems) == 1 and "document" in problems[0], (
+        f"a document mention must exempt nothing: {problems}"
+    )
+    # (d) A well-cited entry for a symbol production already references: the
+    # scanner would not report it, so the exemption is dead weight, not amnesty.
+    redundant_tree = {
+        "fixture_module.py": (
+            "class Owner:\n"
+            "    def swept(self):\n"
+            "        return 3\n"
+        ),
+        "caller_module.py": (
+            "def drive(owner: Owner):\n"
+            "    return owner.swept()\n"
+            "\n"
+            "\n"
+            "def wire(owner, signal):\n"
+            "    signal.connect(owner.swept)\n"
+        ),
+    }
+    redundant = {
+        "fixture_module.py": {
+            "Owner.swept": "caller_module.py:6 — passed to signal.connect()"
+        }
+    }
+    problems = scan_census_allowlist(redundant_tree, redundant)
+    assert len(problems) == 1 and "Owner.swept" in problems[0] and (
+        "would not report" in problems[0]
+    ), f"an exemption production does not need must be reported: {problems}"
+    # (e) The legitimate entry and the empty mapping are the two shapes an
+    # exemption can take; the phase snapshot that records "none today" is
+    # asserted separately (``test_census_allowlist_state_is_phase_scoped``).
+    assert scan_census_allowlist(fixture, {}, candidates=None) == [], (
+        "a fixture tree with no exemptions must pass trivially too"
+    )
+
+
+def _compares_allowlist_to_empty_dict(node: ast.AST) -> bool:
+    """True when ``node`` is a comparison between ``CENSUS_ALLOWLIST`` and ``{}``."""
+    if not isinstance(node, ast.Compare):
+        return False
+    operands = [node.left, *node.comparators]
+    has_allowlist = any(
+        isinstance(op, ast.Name) and op.id == "CENSUS_ALLOWLIST" for op in operands
+    )
+    has_empty_dict = any(
+        isinstance(op, ast.Dict) and not op.keys and not op.values
+        for op in operands
+    )
+    return has_allowlist and has_empty_dict
+
+
+def test_census_allowlist_state_is_phase_scoped_not_a_blanket_rule():
+    """AC2 (ESC-122): the zero-exemption state is a snapshot, not the rule.
+
+    Two claims about this suite, both read off its own AST: the wave-local
+    whole-dict literal — ``CENSUS_ALLOWLIST == {}`` paired with the "no
+    exemption may stand in for a symbol that has a call site" message — is
+    gone, and the current zero-exemption state survives only as a separate,
+    phase-scoped assertion whose message says no P23 symbol needs an exemption
+    today and names itself as a snapshot rather than the standing invariant.
+    """
+    source = _text("tests/test_d65_residue.py")
+    blanket_message = "no exemption may " + "stand in for"
+    # The detector itself must be discriminating, or the absence check below
+    # proves nothing: the banned form matches, the phase-scoped form does not.
+    # The sample is composed so this file never spells the banned literal in a
+    # form a grep could mistake for a live assertion.
+    banned_sample = ast.parse(
+        "assert CENSUS_ALLOWLIST " + "== {}, 'x'"
+    ).body[0]
+    phase_sample = ast.parse("assert not CENSUS_ALLOWLIST, 'x'").body[0]
+    assert _compares_allowlist_to_empty_dict(banned_sample.test), (
+        "the whole-dict detector misses the form it exists to ban"
+    )
+    assert not _compares_allowlist_to_empty_dict(phase_sample.test), (
+        "the whole-dict detector would flag the phase-scoped snapshot"
+    )
+    whole_dict: list[str] = []
+    phase_scoped: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Assert):
+            continue
+        expression = ast.unparse(node.test)
+        message = "" if node.msg is None else ast.unparse(node.msg)
+        if _compares_allowlist_to_empty_dict(node.test):
+            whole_dict.append(expression)
+            assert blanket_message not in message, (
+                "the suite still carries the blanket whole-dict assertion "
+                f"({expression}) with its 'no exemption' message"
+            )
+        if (
+            "CENSUS_ALLOWLIST" in expression
+            and "phase-scoped" in message.lower()
+            and "not the standing" in message.lower()
+            and "no P23 symbol needs a census exemption today" in message
+        ):
+            assert blanket_message not in message, (
+                "the phase-scoped snapshot still carries the prohibitive "
+                "message it replaced"
+            )
+            phase_scoped.append(expression)
+    assert not whole_dict, (
+        "the suite still compares CENSUS_ALLOWLIST to an empty dict literal "
+        f"({whole_dict}); the invariant is per entry, and the phase state is a "
+        "separate snapshot"
+    )
+    assert len(phase_scoped) == 1, (
+        "the phase's zero-exemption state is not recorded as exactly one "
+        f"separate, phase-scoped assertion: {phase_scoped}"
+    )
+    assert "scan_census_allowlist" in source, (
+        "the standing per-entry invariant is gone, leaving only the snapshot"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1208,6 +1854,51 @@ def test_framework_callback_exempt_only_through_declaring_class_and_base():
     ) == unexempted, "a string is not a base class, so it cannot exempt a method"
 
 
+def test_framework_exemption_is_consulted_independently_of_reachability():
+    """AC3: a bare/string mention rescues nothing; the entry still exempts."""
+    tree = _framework_fixture_tree()
+    tree["loose_mentions.py"] = (
+        "LABEL = \"sizeHint\"\n"
+        "\n"
+        "\n"
+        "def note(sizeHint):\n"
+        "    return sizeHint\n"
+    )
+    candidates = {"fixture_module.py": _class_methods(tree["fixture_module.py"])}
+    entry = {("fixture_module.py", "Panel", "sizeHint"): QStyledItemDelegate}
+    assert scan_unreferenced_symbols(tree, candidates) == [
+        "fixture_module.py:Panel.sizeHint",
+        "fixture_module.py:Plain.sizeHint",
+    ], "a string constant and a bare argument name are not method evidence"
+    assert scan_unreferenced_symbols(
+        tree, candidates, framework_callbacks=entry
+    ) == ["fixture_module.py:Plain.sizeHint"], (
+        "the exemption is consulted independently of reachability: it exempts "
+        "the class that inherits the base and still censuses the unrelated one"
+    )
+    real_tree = sources()
+    assert _framework_callback_exempt(
+        "ui/option_spreads_panel.py",
+        "_ElideNameDelegate",
+        "initStyleOption",
+        FRAMEWORK_CALLBACKS,
+        real_tree,
+    ), "_ElideNameDelegate.initStyleOption must stay exempt through its entry"
+    assert _framework_callback_exempt(
+        "ui/option_spreads_panel.py",
+        "OptionSpreadsPanel",
+        "sizeHint",
+        FRAMEWORK_CALLBACKS,
+        real_tree,
+    ), "OptionSpreadsPanel.sizeHint must stay exempt through its entry"
+    assert scan_unreferenced_symbols(
+        real_tree,
+        _census_candidates(real_tree),
+        CENSUS_ALLOWLIST,
+        FRAMEWORK_CALLBACKS,
+    ) == [], "the real tree must be green with the framework table supplied"
+
+
 def test_p23_framework_callbacks_stay_green_through_their_cited_form():
     """AC3: the tree's own initStyleOption/sizeHint resolve against their base."""
     tree = sources()
@@ -1235,6 +1926,155 @@ def test_p23_framework_callbacks_stay_green_through_their_cited_form():
 # ---------------------------------------------------------------------------
 # The gate must be RED on a seeded fixture before it is trusted green
 # ---------------------------------------------------------------------------
+
+
+def test_clause_i_reachability_is_production_only():
+    """AC1: a reference that lives only under tests/ is never a caller."""
+    production = {
+        "prod_module.py": (
+            "def leftover_helper(value):\n"
+            "    return value\n"
+            "\n"
+            "\n"
+            "def own_module_helper(value):\n"
+            "    return value\n"
+            "\n"
+            "\n"
+            "def own_caller():\n"
+            "    return own_module_helper(2)\n"
+        ),
+        "tests/test_user.py": (
+            "from prod_module import leftover_helper\n"
+            "\n"
+            "\n"
+            "def test_it():\n"
+            "    assert leftover_helper(1) == 1\n"
+        ),
+    }
+    candidates = {"prod_module.py": ("leftover_helper", "own_module_helper")}
+    assert scan_unreferenced_symbols(production, candidates) == [
+        "prod_module.py:leftover_helper"
+    ], "a reference that exists only under tests/ must not satisfy a caller"
+    assert scan_unreferenced_symbols(
+        production, {"prod_module.py": ("own_module_helper",)}
+    ) == [], "a helper used inside its own production module is green"
+    with_production_caller = dict(production)
+    with_production_caller["prod_caller.py"] = (
+        "from prod_module import leftover_helper\n"
+        "\n"
+        "\n"
+        "def poke():\n"
+        "    return leftover_helper(3)\n"
+    )
+    assert scan_unreferenced_symbols(with_production_caller, candidates) == [], (
+        "a production caller must clear the symbol"
+    )
+    # The pool is the parameter: naming the tests file explicitly is the only
+    # way a tests/ reference can count, and the default never includes it.
+    assert scan_unreferenced_symbols(
+        production,
+        {"prod_module.py": ("leftover_helper",)},
+        reachability_tree={
+            **production,
+            "tests/test_user.py": production["tests/test_user.py"],
+        },
+    ) == [], "reachability_tree is the pool, and it is honoured verbatim"
+    tree = sources()
+    assert any(path.startswith(TEST_DIR + "/") for path in tree), (
+        "the full tree must still carry tests/ for clauses (ii) and (iii)"
+    )
+    assert all(suite in tree for suite in P23_SUITES), (
+        "clause (ii)'s suites are tests/ files and must stay in the scanned tree"
+    )
+    assert _unreferenced_helpers("def _orphan_helper():\n    return 1\n") == [
+        "_orphan_helper"
+    ], "clause (ii) must still find a helper in a test-file source"
+    assert _token_offences(_text("tests/test_d65_residue.py")), (
+        "clause (iii)'s token sweep must still read tests/"
+    )
+
+
+def test_clause_i_method_evidence_is_class_bound():
+    """AC2: only the declaring class's own bound member is evidence."""
+    fixture = {
+        "fixture_module.py": (
+            "class Owner:\n"
+            "    def close(self):\n"
+            "        return None\n"
+            "\n"
+            "\n"
+            "class Other:\n"
+            "    def close(self):\n"
+            "        return None\n"
+        ),
+        "user_module.py": (
+            "from fixture_module import Other\n"
+            "\n"
+            "\n"
+            "def close():\n"
+            "    return None\n"
+            "\n"
+            "\n"
+            "def poke(close):\n"
+            "    Other().close()\n"
+            "    return close\n"
+        ),
+    }
+    candidates = {"fixture_module.py": _class_methods(fixture["fixture_module.py"])}
+    assert scan_unreferenced_symbols(fixture, candidates) == [
+        "fixture_module.py:Owner.close"
+    ], (
+        "a same-named attribute on an unrelated class, a bare name, an argument "
+        "name and a module-level symbol of the same spelling are not evidence "
+        "for Owner.close"
+    )
+    bound = dict(fixture)
+    bound["user_module.py"] += (
+        "\n\n"
+        "def wire():\n"
+        "    owner = Owner()\n"
+        "    owner.close()\n"
+    )
+    assert scan_unreferenced_symbols(bound, candidates) == [], (
+        "owner = Owner(); owner.close() must resolve to Owner's member"
+    )
+    annotated = dict(fixture)
+    annotated["user_module.py"] = (
+        "from fixture_module import Owner\n"
+        "\n"
+        "\n"
+        "def drive(owner: Owner):\n"
+        "    owner.close()\n"
+    )
+    assert scan_unreferenced_symbols(
+        annotated, {"fixture_module.py": ("Owner.close", "Other.close")}
+    ) == ["fixture_module.py:Other.close"], (
+        "an annotated parameter is class-bound evidence; the other class is not"
+    )
+    string_only = dict(fixture)
+    string_only["user_module.py"] = (
+        "from fixture_module import Other\n"
+        "\n"
+        "\n"
+        "def poke():\n"
+        "    return getattr(Other(), \"close\")\n"
+    )
+    assert scan_unreferenced_symbols(
+        string_only, {"fixture_module.py": ("Owner.close", "Other.close")}
+    ) == ["fixture_module.py:Other.close", "fixture_module.py:Owner.close"], (
+        "a string constant is not method evidence under the class-bound rule"
+    )
+    tree = dict(sources())
+    engine_module = "services/option_spread_engine.py"
+    tree[engine_module] += "\n    def close(self):\n        return None\n"
+    assert "conn.close()" in tree["data/db_backup.py"], (
+        "the fixture's premise: `close` occurs elsewhere in the tree"
+    )
+    assert scan_unreferenced_symbols(
+        tree, {engine_module: ("SpreadEngine.close",)}
+    ) == [f"{engine_module}:SpreadEngine.close"], (
+        "a common method name elsewhere cannot hide an orphaned method"
+    )
 
 
 @pytest.fixture()
@@ -1282,7 +2122,10 @@ def test_gate_is_green_on_the_tree_only_after_it_is_red_on_the_fixture(dead_fixt
         dead_fixture, {"dead_module.py": ("leftover_helper",)}
     ), "seeded fixture did not make the gate red"
     assert not scan_unreferenced_symbols(
-        sources(), _census_candidates(sources()), CENSUS_ALLOWLIST
+        sources(),
+        _census_candidates(sources()),
+        CENSUS_ALLOWLIST,
+        FRAMEWORK_CALLBACKS,
     ), "the real tree must be green"
 
 
@@ -1301,7 +2144,7 @@ def dead_method_fixture(tmp_path):
         "from fixture_module import Owner\n"
         "\n"
         "\n"
-        "def drive(owner):\n"
+        "def drive(owner: Owner):\n"
         "    return owner.used_method()\n"
     )
     (tmp_path / "fixture_module.py").write_text(fixture_source, encoding="utf-8")
@@ -1329,7 +2172,7 @@ def test_gate_is_red_on_a_seeded_dead_method_and_follows_the_call_site(
         "from fixture_module import Owner\n"
         "\n"
         "\n"
-        "def drive(owner):\n"
+        "def drive(owner: Owner):\n"
         "    return owner\n"
     )
     assert scan_unreferenced_symbols(mutated, candidates) == [
@@ -1547,10 +2390,22 @@ def test_record_names_the_s_p23_24_consequence():
 def test_record_declares_ac_d65_19_open_and_owned():
     assert "AC-D65.19" in GATE_RECORD
     assert "still OPEN" in GATE_RECORD
-    assert "owned\n    by P23-T14" in GATE_RECORD, (
-        "the record must name P23-T14 as AC-D65.19's owner"
+    assert "live-TWS" in GATE_RECORD, (
+        "the record must describe AC-D65.19 as the live-TWS acceptance run"
+    )
+    assert "owned by P23-T26" in GATE_RECORD, (
+        "the record must name P23-T26 as AC-D65.19's owner"
     )
     assert "NOT claimed" in GATE_RECORD
+    # Built from two pieces so this assertion does not spell the retired phrase
+    # in the very file it checks: a plain literal would trip its own grep.
+    retired = "paper" + "-TWS acceptance run"
+    assert retired not in GATE_RECORD
+    for rel in (
+        "tests/test_d65_residue.py",
+        "tests/test_d65_acceptance_record.py",
+    ):
+        assert retired not in _text(rel), rel
 
 
 def test_requirements_history_marker_and_sections_hold():
@@ -1711,10 +2566,9 @@ def test_canonical_fixtures_survive_and_the_typos_do_not():
             assert required in holders, (
                 f"{required} no longer states the canonical fixture {fixture}"
             )
-    # `7435/7455` is AC-D65.9(i)'s **legal** 20-wide pair and the ladder suite
-    # exercises it in the comma form (`validate_spread("CCS", 7435, 7455)`);
-    # only A212's two typos are banned. Guard the ban list itself so a later
-    # tidy cannot widen it to a legal pair.
+    # `7435/7455` is AC-D65.9(i)'s **legal** 20-wide pair, exercised by the
+    # ladder suite's own pair cases; only A212's two typos are banned. Guard the
+    # ban list itself so a later tidy cannot widen it to a legal pair.
     assert LEGAL_NON_BANNED_PAIR not in BANNED_EXAMPLES
     assert not violations, f"fixture drift: {violations}"
 

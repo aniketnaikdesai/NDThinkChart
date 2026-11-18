@@ -496,3 +496,369 @@ already says "every symbol added by P23", so neither needed a change and neither
 warnings are only the pre-existing "pure-output file" pack notes — `P23-T17` raises none, as its one
 `touches_files` entry is in its pack). `graph_struct_sha256` regenerated. Metadata left at
 `"status": "READY_FOR_BUILD"`; `P23-T17` is the only `not_started` task, so it is the next frontier.
+
+## ESC-121 + ESC-122 — production-only, class-bound residue evidence, and the dead members it exposes (owner-approved rework, 2026-11-18)
+
+**Source:** `docs/code_review/escalations.json` ESC-121 (should-fix, `routed_to: TASK_MANAGER`,
+`task_id: P23-T17`) and ESC-122 (nice-to-have, `routed_to: BUILD`, `task_id: P23-T17`). Owner
+instruction: "fix everything". The reviewer's diagnosis is accepted as given; the 15-symbol list was
+**re-verified against the tree**, not copied.
+
+**What was measured here (not assumed).** Every clause-(i) candidate in the four P23 new modules and
+every P23-added class was checked against the production tree (`ui/`, `services/`, `data/`, `ibkr/`,
+`config/`, `main.py`) for an attribute access, a name load, an import alias and own-module use. The
+current bare-name gate goes green on all 15; production has **no reader** for any of them. The
+substitution in each case is a real production surface, not a plan string:
+
+| Symbol | Production surface that actually carries the fact |
+|---|---|
+| `OptionSpreadsPanel.target_value` | `target_edit.text()` / `_last_valid_target`; production calls `set_target_value` only |
+| `OptionSpreadsPanel.toggle_colour` | `toggle_button` palette colour + `spread_state` stylesheet (both already asserted) |
+| `OptionSpreadsPanel.toggle_collapsed` | `header_button` click/`setChecked` + `is_collapsed()` (production path) |
+| `OptionSpreadsPanel.preferred_width` | `OptionSpreadsPanel.PREFERRED_WIDTH` (main_window:691/4524/4686) and `sizeHint()` |
+| `OptionSpreadsPanel.elided_name` | `_ElideNameDelegate.initStyleOption` + the table's `ElideRight` mode + tooltip |
+| `option_ladder.validate_spread` | AC-D65.2's guard is a test-side convention; no production caller |
+| `SpreadEngine.latched_causes` | `take_messages()` (the live drain) and `_latched` internally |
+| `SpreadEngine.pair_score` / `pair_eligible` | `_score_pair_complete` / `_score_at` (the live scoring path) |
+| `SpreadEngine.lease` / `release` | `_lease_pair` / `_release_pair` (the live lease path) |
+| `SpreadEngine.pending_legs` | `evaluate()`'s inline `leg_state(leg) == "pending"` check |
+| `SpreadEngine.window_step` | the live cadence is `evaluate()`; `main_window` never calls the walk API |
+| `SpreadEngine.pair_dropped` / `reseat_count` | `_dropped` / `_reseat_counts` (live state) |
+| `option_chain_strikes` | the engine reads `series.strikes_by_right` directly |
+
+**Verdict on the 15: all fifteen are genuinely unused; none has a production caller the scan
+mis-modelled.** No allowlist entry is added for any of them (ESC-121's explicit prohibition).
+
+**Six additional members the bare-name gate was hiding (found by the class-bound rule, not in the
+reviewer's 15).** These were reachable only through a same-named thing elsewhere or through another
+dead member, so the reviewer's bare-name measurement could not see them; the strengthened gate will:
+
+- `OptionSpreadsPanel.toggle_state` — its only caller is `toggle_colour`, itself dead; production sets
+  `spread_state` but never reads the accessor. Deleted with `toggle_colour`.
+- `OptionSpreadsPanel.set_collapsed` — its only caller is `toggle_collapsed`, itself dead; the live
+  collapse path is the header button. Deleted with `toggle_collapsed`.
+- `SpreadEngine.target` / `SpreadEngine.spot` — properties with no production reader; production reads
+  `_target` / `_spot` and calls `set_target`.
+- `SpreadEngine.release` — no caller anywhere (the engine uses `_release_pair`).
+- `SpreadEngine.req_id` — no production reader; production uses `_req_ids` and `rebind_leg`.
+
+**Scoping — seven new tasks (P23-T18..T24), grouped by member group, sizes S/M.**
+
+| Task | Group | Size | Deps | Files |
+|---|---|---|---|---|
+| **P23-T19** | panel's 7 dead accessors (+ the 2 cascades, so one owner per pair) | M | — | `ui/option_spreads_panel.py`, 3 suites |
+| **P23-T20** | `validate_spread` | S | — | `services/option_ladder.py`, its suite |
+| **P23-T21** | `option_chain_strikes` | S | — | `ibkr/contracts.py`, its suite |
+| **P23-T22** | engine's 11 scalar/observability accessors | M | — | engine + 2 suites |
+| **P23-T23** | engine's `window_step` walk API (+ its 2 private helpers) | M | — | engine + spread suite |
+| **P23-T18** | gate evidence: production-only pool + class-bound methods (ESC-121) | M | T19–T23 | `tests/test_d65_residue.py` |
+| **P23-T24** | allowlist per-entry invariant (ESC-122) | S | T18 | `tests/test_d65_residue.py` |
+
+No size exception is taken: the largest task (T18) is one instrument, one file, ~24 honest steps —
+the scanner change plus five seeded cases; T22/T23 are member-group deletions, not whole-module
+rewrites. The deletions are deliberately **not** in T18: a single task that strengthens the scanner and
+deletes all 21 members would exceed the step budget and mix a test instrument with four production
+modules.
+
+**Scheduling facts.** T19–T23 have no dependencies (all prerequisites are `done`); Build serializes
+T19/T22 on `tests/test_d65_option_stream.py` and T22/T23 on the engine + spread suite via
+`touches_files`, so the first frontier runs them one at a time. T18 is the phase-final green: it
+depends on every deletion, and T24 follows T18. The gate edits for deleted symbols live **only** in
+T18 (drop `option_chain_strikes` from `P23_ADDED_SYMBOLS`, drop `SpreadEngine.target` from the
+method-map key list, fix the stale `validate_spread` prose) so no deletion task has to edit the gate
+file and there is exactly one owner of the census. Consequence: between a deletion task and T18 the
+gate's own candidate/key lists are stale for `option_chain_strikes`/`target`; that is a transient in
+the wave order, not a task-level red — no deletion task's `test_command` runs the residue suite, and
+T18's AC4 is the phase-final green proof.
+
+**The evidence design T18 encodes.** Clause (i)'s reachability pool is production-only (`ui/`,
+`services/`, `data/`, `ibkr/`, `config/`, `main.py`); `tests/` remains in the tree for clause (ii)'s
+helper-in-its-own-file rule and clause (iii)'s token/import sweeps. A `Class.method` reference must
+resolve at both ends: the candidate key is `Module:Class.method`, and the evidence is an attribute
+access whose base resolves to that class (a name bound by `Name = Class(...)`, a `self.<attr>` /
+`other.<attr>` bound to `Class(...)`, an annotated parameter, the class name, or `self`/`cls` inside
+the declaring class). Bare names, string constants, argument names and unrelated-object attributes do
+not count. The framework-callback exemption keeps its `(module, declaring class, method, registering
+base)` validation and is consulted independently of reachability — the third measured consequence
+(the unrelated `sizeHint`/`paintEvent` green without an entry) is closed by the same rule.
+
+**ESC-122.** The wave-local `assert CENSUS_ALLOWLIST == {}` is replaced by a per-entry invariant:
+every entry's citation resolves through `citation_violation` and the symbol is one the scanner would
+otherwise report (so empty passes trivially, a legitimate cited entry passes, an entry for a reachable
+symbol fails). The phase's zero-exemption state survives only as a separate phase-scoped statement
+whose message says "no P23 symbol needs an exemption today".
+
+**Residual finding recorded for Code Reviewer (not resolved here).** `window_step` was the only
+implementation of AC-D65.4's direction/`h` walk, and its dedicated cases (`test_P23_T8_AC1...` and the
+walk legs of AC2/AC4/AC5) are removed with it. The live cadence path is `evaluate()` →
+`_best_neighbour`, which selects among `anchor-5/anchor/anchor+5` by distance and does **not**
+implement the `> h` stop or the all-three-bases direction veto that AC-D65.4 states. The live path does
+have coverage (`tests/test_d65_option_stream.py`'s target-driven one-step cases and the `evaluate()`
+cases in the spread suite). Deleting dead code does not create that gap — it exposes it. If the
+reviewer judges AC-D65.4 under-covered, the follow-up is to point `evaluate()`'s walk at an AC-D65.4
+implementation (a behaviour fix), not to resurrect `window_step` as dead API.
+
+**Verification.** `check_tasks.py`: `OK: 24 tasks validated, execution_graph.json written` (exit 0;
+warnings are the pre-existing "pure-output file" pack notes on earlier tasks — none on T18–T24).
+`graph_struct_sha256` regenerated: `9a5472a34fb0643ed6603ebdbe46abfe7ef3d6582a6690ea37e9969cfa6c0ed4`.
+Metadata left at `"status": "READY_FOR_BUILD"`; T19–T23 are the first frontier, T18 next, T24 last.
+
+**Not done here.** `docs/code_review/escalations.json` is Code Reviewer's file — ESC-121/ESC-122 stay
+`open` for the reviewer's verification pass; this run did not edit it. No edit to
+`requirements.md`, `plan.md` or `architecture.md` (the deletions are code, and the architecture's API
+list is Plan-owned sync material); no `docs/requirements/open_questions.md` flag was needed — the
+requirements are not ambiguous here.
+
+## Owner decision — wire `evaluate()` to AC-D65.4 (2026-11-18)
+
+**Direction, verbatim:** "Wire evaluate() to AC-D65.4 (recommended)". This supersedes this file's
+earlier "Residual finding recorded for Code Reviewer" entry (the one that kept `window_step` as dead
+API and left AC-D65.4 to the live `_best_neighbour` walk). That entry is retained above as history;
+it is no longer the plan.
+
+**What was measured in the tree (not re-derived).** `evaluate()`'s unmatched branch
+(`services/option_spread_engine.py:1213-1224`) called `_best_neighbour(side, anchor)` (`:602`), which
+takes the best of `{anchor-5, anchor, anchor+5}` by `_rank` — no improvement threshold, no direction
+rule, and unlisted rungs silently dropped (so no chain-edge message). The AC-D65.4 rule —
+`> h` improvement, all-bases direction, once-only chain-edge latch, one rung — existed only in
+`window_step`/`_walk_candidate` (`:1232-1330`), which no production code calls.
+
+**The transposition, stated so the reviewer can check it.** `_walk_candidate` took its *direction*
+from its `wanted` argument and used the three credit bases only as a veto on that direction. The
+live path has no caller-supplied anchor — `evaluate()`'s only input is the cadence clock — so the
+direction must come from AC-D65.4's own sentence: all three bases below `T` ⇒ the toward-the-money
+rung (CCS strikes down, PCS strikes up), all three above ⇒ the away rung, otherwise no direction.
+That is the one interpretive step in this change; everything after it is `_walk_candidate`'s code:
+listed (else latch `CAUSE_WALK_CHAIN_EDGE` once, naming the current anchor as the best reachable
+value), quoting, then `nxt.distance < cur.distance - band`. The veto's third state — bases that
+straddle `T` — is the owner's explicit "refuse when the three bases disagree" case.
+
+**Deletions this makes genuinely unreachable.** `window_step`, `_requested_targets`,
+`_walk_candidate`, and `_best_neighbour` (its only caller was the branch being replaced). Kept, and
+required by the live path: `_score_at`, `_score_pair_complete`, `_pair_listed`, `_anchor_matched`,
+`_install_windows`, `_latch`, `band`, and `_rank`/`_best_of` (seeding). The class docstring's walk
+bullet is rewritten to describe `evaluate()`'s decision.
+
+**Cases that pinned the unapproved behaviour, and what happens to them.**
+
+| Case | Was asserting | Now |
+|---|---|---|
+| T8 AC1 (`test_P23_T8_AC1_…`) | caller-directed `window_step` steps, including an up-step that the mid-curve allowed but the AC's strike direction does not | rewritten onto `evaluate()`: decided direction, one rung, exact-`h` stop, ask-only match, stationary feed, tie/no-oscillation |
+| T8 AC2 (shared leg/reqId/budget) | `window_step` step | same facts through one `evaluate()` step (or `_install_windows`); legs, reqIds, peak/dip unchanged |
+| T8 AC4 (freeze) | `window_step` no-op while frozen | second `evaluate()` no-op while frozen |
+| T8 AC5 (error classes) | `window_step` after a dropped pair | `evaluate()` after the drop |
+| T7 AC7 (vocabulary/budget) | re-anchored 7330→7335 by killing the anchor legs | **a dead anchor pair has no bases, so AC-D65.4 refuses** — the case now re-quotes the ladder to a compliant step and keeps its peak/dip assertions |
+| T9 AC2 / AC6 (stream, owner of the live wiring) | a Target change to 1.20 moving CCS **7355** | moved to a separate task (P23-T25): the fixture cannot support that move (below) |
+
+**Why the stream suite needed its own task.** The stream fixture's CCS credit curve *rises* 0.01 per
+strike point (`_price`/`_credit` in `tests/test_d65_option_stream.py`), so one 5-point rung changes
+`d` by exactly `h = 0.05` — under AC-D65.4's strict "more than `h`" rule the live ladder can never
+step on that fixture at any target. Its two target-commit cases therefore pin a step the approved
+rule does not permit, and no target value repairs that. P23-T25 makes the fixture economically
+faithful (CCS mid falls, PCS mid rises, 0.02/point ⇒ 0.10 per rung) and re-points the two cases onto
+the decided directions at `T = 1.20`: **CCS 7350→7345, PCS 7350→7355** — opposite strike directions,
+which is exactly the case `window_step`'s dict-shaped `target_anchor` existed for.
+
+**Task changes.** P23-T23 revised (behaviour + deletion + its cases). P23-T25 added (stream fixture
+and the two target-commit cases, `dependencies: ["P23-T23"]`). P23-T18's dependencies extended to
+`T19, T20, T21, T22, T23, T25` so both gates (T18, then T24) still see the final tree. T19, T20,
+T21, T22 and T24 are unchanged: they are independent dead-symbol deletions. Build already serializes
+T22/T23/T25 on the engine and the two suites; no new dependency was added for file overlap alone.
+
+**AC → test mapping (which clause each test proves).**
+
+| AC-D65.4 clause | Test |
+|---|---|
+| one 5-point step on both legs, toward the adjoining rung with the smaller `d` | P23-T23-AC1 (CCS 7330→7325, PCS 7330→7335 in one evaluation) |
+| toward the money (all three bases below `T`; CCS down, PCS up) | P23-T23-AC1 |
+| away from the money (all three above `T`; CCS up, PCS down) | P23-T23-AC1 (away leg) |
+| stops when the pair is matched (incl. **matched on the ask basis only**) | P23-T23-AC2 (a) |
+| stops when no neighbour improves `d` by more than `h` — exactly `h` included | P23-T23-AC1 (second evaluation) |
+| stops when no neighbour improves `d` by more than `h` — strictly less than `h` | P23-T23-AC5 (red on the pre-change engine) |
+| `h = max(0.05, one_tick)`: both levels pinned | P23-T23-AC3 (0.05 at `T<3.00`; 0.10 at `T≥3.00`; exact-`h` vs above-`h` in each) |
+| stops when the improving rung is not a listed pair + **once-only chain-edge message naming the best reachable value** | P23-T23-AC2 (b) |
+| equal-`d` neighbours break on the credit mid then stay; a stationary feed produces no further moves (no two-rung oscillation) | P23-T23-AC2 (d) + P23-T23-AC1 (second evaluation) |
+| one step per evaluation (≤1 per A191 cadence, never a jump) | P23-T23-AC1 + re-pointed T7 AC7 (peak/dip 16→14→16) |
+| the bases disagree about the direction ⇒ no step (owner's wording) | P23-T23-AC4 (red on the pre-change engine) |
+| AC-D65.12(i): the parallel walk API is dead and removed | P23-T23-AC6 |
+| AC-D65.6 shared leg keeps its line and reqId across a step | re-pointed T8 AC2 + P23-T25-AC2 |
+| the live wiring carries the step (Target change, registry, ceiling) | P23-T25-AC2 |
+
+**Red-first evidence.** P23-T23-AC4 and P23-T23-AC5 are written against the current engine first:
+today's `evaluate()` steps to `0.05`-smaller `d` (AC5) and to a smaller-`d` rung regardless of where
+the bases sit (AC4), so both fail before the change. Their `expected_result` says so; the worker is
+instructed to run both before the engine edit and record the failure.
+
+**Step-fit note (size exception, P23-T23).** T23 is the wave's largest task at an honest ~26–30
+steps, above the ~20 target and inside the ~32 cap. It is taken because the change is one invariant
+with one owner — the step decision — and because splitting the two red-first cases into a later task
+would destroy the RED evidence the owner asked for (a test added after the behaviour exists can only
+prove green). The production edit is one branch plus one helper plus four deletions.
+
+**Transient red, by construction.** Between T23 and T25 the stream suite's two target-commit cases
+are red (they assert the pre-change move). That is why T23's `test_command` is the spread suite
+alone, T25 depends on T23, and T25's command runs both suites. This mirrors the phase's existing
+"gate lists are stale between a deletion task and T18" transient, not a task-level red.
+
+**Doc note for Plan (not edited here).** `docs/plan.md#P23-04` still lists
+`window_step(target_anchor) → Actions` as the deliverable for this half of the engine. That line is
+stale after T23 (the rule lives in `evaluate()`'s decision now); `docs/architecture.md` S-P23-4 never
+named the API, so it stands. `plan.md` is Plan/Validator-owned — recorded for the doc-sync path, not
+changed by this run.
+
+**Verification.** `python3 ~/.config/opencode/scripts/check_tasks.py`: `OK: 25 tasks validated,
+execution_graph.json written` (exit 0; no warning on T18, T23 or T25 — the remaining warnings are the
+pre-existing "pure-output file" pack notes on earlier tasks). New
+`graph_struct_sha256`: `099fc3cd185b5baf6ae41c281fbbbebbd95ee6c6284e91bca6eda428f536555f`.
+Metadata left at `"status": "READY_FOR_BUILD"`; frontier is unchanged (T19–T23), then T25, then
+T18, then T24.
+
+**Not done here.** No edit to `services/option_spread_engine.py` or any test (this run only revises
+the graph and its packs); no edit to `docs/code_review/escalations.json` (ESC-121 stays `open` for
+the reviewer's verification pass); no edit to `requirements.md`, `plan.md` or `architecture.md`; no
+`open_questions.md` flag — AC-D65.4 is unambiguous, and the owner supplied the one decision the
+architecture did not (where the rule lives).
+
+## Wave 8 (2026-11-18) — three owed items: T22's stale block, the census inventory entry, the paper-TWS record
+
+### 1. P23-T22's `blocked` status — nothing invented, and the gate no longer waits on it
+
+**What the graph says now, and why.**
+
+- **T22's status is untouched** (`blocked`, exactly as its worker reported it). `build_wave.py reset`
+  refuses blocked tasks ("those go through Code Reviewer"), so the graph cannot clear the block by
+  flipping a string, and choosing a status for a blocked task is the reviewer's disposition, not
+  mine. No status was invented and T22's criteria, tests and pack are unchanged.
+- **P23-T18's dependencies changed** from `[T19, T20, T21, T22, T23, T25]` to
+  `[T19, T20, T21, T23, T25, T26]` — the `T22` edge dropped, the new `T26` edge added (§3).
+- **Why the drop is a factual correction, not a way round a blocked task.** The edge asserted "the
+  gate cannot be green until T22 is `done`". T22's *subject* — the eleven `SpreadEngine` accessors
+  deleted and both engine suites re-pointed at the production/internal surface they wrapped — is
+  already in the tree: `services/option_spread_engine.py`, `tests/test_d65_spread_engine.py` and
+  `tests/test_d65_option_stream.py` carry it uncommitted, and all eighteen deleted member names are
+  absent from both modules. What the worker reported was two **pre-existing** stream-suite walk
+  assertions (T9 AC2 registry :409, T9 AC6 rejected-target :1039, both 7350 vs 7355) red on P23-T23's
+  new strict `> h` step rule — outside T22's subject. P23-T25 has since made the stream fixture
+  faithful (0.10 per 5-point rung), and the four suites then reported **88 passed**
+  (`tests/test_d65_option_panel.py tests/test_d65_option_stream.py tests/test_d45_removal.py
+  tests/test_d65_spread_engine.py`). So the edge's premise is true and its only remaining effect was
+  to hold the gate hostage to a status string.
+- **What is kept.** T18 still depends on T19 (in progress — its seven panel-accessor deletions must
+  land), T20, T21, T23 and T25: the landed deletions and the step rule whose tree the gate certifies.
+  The list is "whose output the gate actually needs", not "every task that ever ran".
+- **Consequence for the reviewer.** T22 now has **no dependents**, so it cannot stall the frontier; it
+  stays visible in the graph and in the notes for the reviewer's pass, which may re-run it and reset
+  it (subject landed → `done`) or open an escalation. Both are outside my remit.
+
+### 2. The census inventory entry — folded into P23-T18 as an invariant, not one deleted string
+
+**Facts.** `tests/test_d65_residue.py:93` still lists `option_chain_strikes` in
+`P23_ADDED_SYMBOLS["ibkr/contracts.py"]`, although P23-T21 deleted that helper from `ibkr/contracts.py`.
+Nothing fails: the census only asks whether a *candidate* has a caller, so a name that no longer exists
+is simply never reported, and an inventory value that only mentions itself is invisible to it. The gate
+therefore certifies an inventory of something that is gone.
+
+**Change.** T18 gains **AC6** and **P23-T18-AC6**: every `P23_ADDED_SYMBOLS` name must resolve to a
+symbol that still exists in the module it is filed under (a module-level definition or a class member
+of that module), with a seeded phantom-entry fixture; `option_chain_strikes` must be absent from the
+`ibkr/contracts.py` tuple. Invariant-shaped on purpose — the deleted symbol is the instance, "the
+inventory describes what exists" is the rule — and it is **red on today's dict**, so removing the
+entry is not the whole task. AC4's parenthetical was narrowed to `SpreadEngine.target` and
+`validate_spread` so each AC keeps one subject; T18's pack gained the `80-100` read range for the
+inventory block, an `outputs` line, and a `716-800` why naming where the new case lands.
+
+### 3. P23-T26 — the acceptance record rewritten as a live-TWS, read-only checklist
+
+**Facts.** `docs/archive/probe_records/d65_paper_tws_acceptance.md` instructs the reader to use a
+**paper** port and says "never the live port". There is no paper TWS (owner, verbatim: *"there is no
+paper-TWS"*), and AC-D65.19 was amended 2026-11-18 to an owner-run **live-TWS, read-only** acceptance
+on `127.0.0.1:7496` (A211 revised). As written the record cannot be executed, and the phase gate it
+belongs to is therefore unreachable.
+
+**Task.** P23-T26 (`doc`, size M, no dependencies, `touches_files`: the record, `INDEX.md`,
+`tests/test_d65_acceptance_record.py`, `tests/test_d65_residue.py`) rewrites the record as that
+checklist: live `127.0.0.1:7496`, read-only by construction (zero order code; only
+`reqSecDefOptParams` / `reqMktData` / `cancelMktData`), observation-only, no checklist item may ask the
+owner to place, modify or cancel an order — the only cancel in the run is a market-data line. The same
+six checks, the 16+1 = 17 line-count table, the fixed numbers (`h = max(0.05, one_tick)`, the sign
+pair, the `7425/7445` and `7340/7320` fixtures), the screenshots/notes slots and the
+ACCEPTED/REJECTED/WAIVED closers are carried over in the D48/D52 recorded-probe shape. **All six items
+stay PENDING** — the owner has not run it, and the build records no result.
+
+**Decisions recorded (each one deliberate).**
+
+- **Filename retained** (`d65_paper_tws_acceptance.md`) even though "paper" is now false:
+  `docs/architecture.md` (the acceptance-evidence row at :9415 and S-P23-22) and `docs/plan.md#P23-10`
+  name that path, and both files are Plan/Validator-owned. A rename would leave canonical references
+  dangling for a wave that may not edit them. The record's H1 states the live environment and its head
+  block says the filename predates the 2026-11-18 amendment.
+- **Plan-vs-requirements divergence, resolved by the requirement.** `docs/plan.md#P23-10`'s heading and
+  goal still say "paper-TWS" (as does S-P23-22's sentence). AC-D65.19/A211 were amended on 2026-11-18
+  and the owner's instruction for this run names the live run. I decomposed the *amended requirement* —
+  a plan section cannot make an unsatisfiable environment executable — and record the divergence here
+  rather than editing `plan.md`. **Doc note for Plan:** P23-10 and S-P23-22 need the paper→live
+  correction on the doc-sync path.
+- **The residue gate's own prose moves with it.** `tests/test_d65_residue.py`'s `GATE_RECORD` still
+  says "the owner's paper-TWS acceptance run … owned by P23-T14" (:319-321) and
+  `test_record_declares_ac_d65_19_open_and_owned` asserts "owned by P23-T14" (:1701), plus the module
+  docstring's "still-open paper-TWS criterion" (:40). Left alone, the phase would ship a gate certifying
+  the wrong environment and the wrong owner. T26 therefore declares that file and re-points those three
+  sites at the live run and P23-T26.
+- **T18 now depends on T26.** T18 turns the gate green and its AC4 certifies that file's prose, so it
+  must see T26's wording. T24 already depends on T18, so the order is **T26 → T18 → T24**, serialised
+  by the dependency, not merely by the file overlap.
+- **A small dedicated suite** (`tests/test_d65_acceptance_record.py`, three doc assertions) rather than
+  more cases in the residue gate: it keeps the gate's subject the census, and follows the existing
+  `test_d48_gate.py` / `test_p12_gate.py` precedent of asserting a probe record's content.
+
+Size note: T26 is M at ~14-18 steps (four file writes, two suite runs) — inside the ~20 target, no
+size exception needed.
+
+**Verification.** `python3 ~/.config/opencode/scripts/check_tasks.py`: `OK: 26 tasks validated,
+execution_graph.json written` (exit 0). The only new warning is T26's `tests/test_d65_acceptance_record.py`
+"not in read_files (ok if pure-output file)" — correct, it is created, not read. New
+`graph_struct_sha256`: `a2f8e949cd3abd936ea45fab135a3f392464666249fc8f76dbc763c37e88eaa4`. Frontier
+after this run: **T26 ready now**; T18 waits on T19 and T26; T24 after T18; T22 blocked with no
+dependents. Metadata left at `"status": "READY_FOR_BUILD"`.
+
+**Not done here.** No edit to P23-T19, T20, T21, T23, T25 or T17, and none to their packs; T22's status,
+criteria, tests and pack untouched; no production or test code edited (this run revises the graph, its
+packs and this file); `docs/code_review/escalations.json` untouched; `requirements.md`, `plan.md` and
+`architecture.md` untouched; no new `open_questions.md` flag — AC-D65.19 is answered and unambiguous.
+
+---
+
+## Correction run — census-key fix moved into P23-T18; T18 unblocked from P23-T26
+
+**Why.** P23-T26 reported blocked on one red outside its footprint:
+`tests/test_d65_residue.py::test_method_census_covers_p23_classes_and_excludes_dunders` (:777) still expects
+`SpreadEngine.target` in the method census. P23-T22 deleted that property (it is on T22's deletion list);
+the engine defines `set_target` (`services/option_spread_engine.py:422`) and the `band` property (:432-433),
+no `target`. The key list is the *gate's* inventory, not a fact T26 introduced — T18 already owns that file,
+already has AC6 on inventory truth, and its AC4 named `SpreadEngine.target` as a deleted symbol the gate must
+stop naming. So the correction is a defect in the gate, filed under T18.
+
+**T18 AC4 amended (prose and test).** The case must still prove the census covers real P23 members, so the
+stale key is replaced rather than deleted: `SpreadEngine.set_target` and `SpreadEngine.band` (both verified
+in the tree above) now stand where `SpreadEngine.target` stood. To keep the case discriminating rather than
+widened to whatever passes, AC4 and P23-T18-AC4 also require that `SpreadEngine.target`, the dunder
+`SpreadEngine.__init__` and a synthetic non-member key (`SpreadEngine.not_a_method`) are *absent* from
+services/option_spread_engine.py's census. The pack's `read_files` `why` for :716-800 states the same
+(an edit instruction, not a contradiction). No footprint change: T18's `touches_files` is still just
+`tests/test_d65_residue.py`.
+
+**Dependency edge dropped.** T18's `dependencies` no longer include P23-T26 (now T19, T20, T21, T23, T25 —
+all done). The edge existed only for T26's `GATE_RECORD` prose, and that prose is already in the tree
+(T26 completed it); keeping the edge serialised the gate behind a task the gate itself unblocks. With the
+edge gone T18 is dispatchable now; T24 stays dependent on T18, so the phase tail is T18 → T24.
+
+**T26 untouched.** Its `status` field is left exactly as found (the file reads `in_progress`; the wave
+reported it `blocked`) — Task Manager does not resolve a blocked task. T26's blocked status therefore stays
+visible to the Code Reviewer, who owns resolving it; its four AC cases pass and its work is in the tree, so
+the only thing outstanding is the gate red T18 now fixes.
+
+**Verification.** `python3 ~/.config/opencode/scripts/check_tasks.py`: `OK: 26 tasks validated,
+execution_graph.json written` (exit 0). New `graph_struct_sha256`:
+`c5b7fcf47fadea644cb999108db514ff0b1368ad59ec3ffe9c9181ceb22562a8`. Metadata `"status":
+"READY_FOR_BUILD"` (unchanged). No edit to T19/T20/T21/T23/T25/T26, no status change anywhere, no
+production or test code edited.

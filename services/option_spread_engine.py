@@ -3,8 +3,9 @@
 This module is the first half of the Option Spreads decision layer: the state
 machine that *finds* the anchor by measurement and owns the lease accounting.
 It is fed a chain and leg quotes and emits an :class:`Actions` plan -- it never
-touches Qt, a window, IBKR or the network. The second half (the walk, the
-lifecycle and the error classes) is P23-T8's and extends the same module.
+touches Qt, a window, IBKR or the network. The second half (the walk's step
+decision, the lifecycle and the error classes) is P23-T8's and extends the
+same module.
 
 What lives here
 ---------------
@@ -56,13 +57,16 @@ What lives here
 
 The second half (``P23-T8``) adds the maintenance surface on the same class:
 
-* **The window walk** (``AC-D65.4``) -- :meth:`SpreadEngine.window_step` emits at
-  most one 5-point step per side toward the requested anchor, in the
-  toward-the-money / away-from-the-money direction the live pair's credit bases
-  decide, only when that step improves ``d`` by more than ``h``; it stops on a
-  matched pair, on a step that does not improve enough, and on a rung that is
-  not a listed pair (one chain-edge message). Every step cancels before it
-  subscribes, and a leg present in both windows keeps its line and its reqId.
+* **The step decision** (``AC-D65.4``) -- :meth:`SpreadEngine.evaluate` is the
+  walk: each evaluation installs at most one 5-point rung per side, in the
+  toward-the-money direction (CCS strikes down, PCS strikes up) when the anchor
+  pair's three credit bases all sit below the Target and the away-from-the-money
+  direction (CCS up, PCS down) when all sit above; bases that disagree decide no
+  direction and install nothing. The rung is installed only when it is a listed
+  20-wide pair, both its legs quote, and its ``d`` beats the anchor's by more
+  than ``h``; an unlisted rung latches one chain-edge message naming the anchor
+  as the best reachable value. Every step cancels before it subscribes, and a
+  leg present in both windows keeps its line and its reqId.
 * **The greek sources** (``AC-D65.5``) -- :meth:`SpreadEngine.row_greeks` reads a
   row from the model greek (13) when both legs carry one, else last (12) for
   both, else the mean of bid (10) and ask (11) for both; the legs are never
@@ -85,15 +89,11 @@ Public API::
     on_spot(price)
     begin_seed(now) / seed_actions() / seed_state() / evaluate(now)
     live_legs() -> set[LegKey]
-    lease(side, short, long) -> bool / release(side, short, long)
-    pair_score(side, short, long) / pair_eligible(side, short, long)
     leg_state(leg) / rows() / band
-    window_step(target_anchor) -> Actions
     on_greek(leg, tick_type, delta, gamma) / row_greeks(side, short, long)
     on_leg_error(leg, code) / on_disconnected() / on_reconnected() /
     rebind_leg(leg, new_req_id)
-    req_id(leg) / leg_stale(leg) / stale_legs() / walk_frozen /
-    pair_dropped(side, short) / reseat_count(side) / take_messages()
+    leg_stale(leg) / stale_legs() / walk_frozen / take_messages()
 
 No PyQt6/pyqtgraph/Qt import appears anywhere in this module, and no ``ibapi``
 import either: the chain is consumed duck-typed (``expiry`` and
@@ -278,6 +278,12 @@ def _q(value: float) -> float:
 class SpreadEngine:
     """The pure option-spread seeding state machine (D65, part 1).
 
+    The walk (``AC-D65.4``) is :meth:`evaluate`'s own step decision: one
+    evaluation installs at most one listed, quoting 5-point rung per side when
+    the anchor pair's three credit bases agree on a direction and the rung
+    improves ``d`` by more than :attr:`band`; there is no separate walk entry
+    point.
+
     The engine's OFF entry point is :meth:`toggle_off`, and the whole session
     reset lives in :meth:`reset_session`; both preserve the injected clock and
     the Target.
@@ -357,10 +363,6 @@ class SpreadEngine:
         self._pending_messages.clear()
         return messages
 
-    def latched_causes(self) -> List[str]:
-        """The causes whose one message has been latched, in no particular order."""
-        return sorted(self._latched)
-
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
     def toggle_on(self) -> None:
@@ -416,10 +418,6 @@ class SpreadEngine:
         self._reseed_done = False
         self._pending_reseat = {}
         self._reseat_counts = {}
-
-    @property
-    def target(self) -> float:
-        return self._target
 
     def set_target(self, target: float) -> None:
         """Set the Target; a new Target invalidates the session's measurement."""
@@ -500,10 +498,6 @@ class SpreadEngine:
             return
         self._spot = value
 
-    @property
-    def spot(self) -> Optional[float]:
-        return self._spot
-
     # ── Geometry helpers ─────────────────────────────────────────────────────
 
     def _listed(self, side: str) -> List[float]:
@@ -568,14 +562,6 @@ class SpreadEngine:
             distance=distance(self._target, credit_bid, credit_ask, credit_mid),
         )
 
-    def pair_score(self, side: str, short: float, long: float) -> Optional[PairScore]:
-        """Public probe: the pair's score, or ``None`` when it is not scoreable."""
-        return self._score_pair_complete(side, short, long)
-
-    def pair_eligible(self, side: str, short: float, long: float) -> bool:
-        """True only when both legs quote and the pair can be scored and matched."""
-        return self._score_pair_complete(side, short, long) is not None
-
     def _score_at(self, side: str, short: float) -> Optional[PairScore]:
         return self._score_pair_complete(side, float(short), self._long_for(side, float(short)))
 
@@ -598,14 +584,6 @@ class SpreadEngine:
         if not usable:
             return None
         return min(usable, key=self._rank)
-
-    def _best_neighbour(self, side: str, anchor: float) -> Optional[PairScore]:
-        candidates = []
-        for short in (anchor - STRIKE_STEP, anchor, anchor + STRIKE_STEP):
-            if not self._pair_listed(side, short):
-                continue
-            candidates.append(self._score_at(side, short))
-        return self._best_of([score for score in candidates if score is not None])
 
     # ── Lease pool ───────────────────────────────────────────────────────────
 
@@ -674,14 +652,6 @@ class SpreadEngine:
                 self._emit(
                     acts, Action("release", (leg,), side, (float(short), float(long)), reason)
                 )
-
-    def lease(self, side: str, short: float, long: float) -> bool:
-        """Public lease: ``False`` when the live window occupies the capacity."""
-        return self._lease_pair(None, side, short, long, reason="manual")
-
-    def release(self, side: str, short: float, long: float) -> None:
-        """Public release of a leased pair."""
-        self._release_pair(None, side, short, long, reason="manual")
 
     def _window_legs_for(self, side: str, anchor: float) -> List[LegKey]:
         """The side's eight window legs in the deterministic issue order (3,2,4,1)."""
@@ -834,10 +804,6 @@ class SpreadEngine:
         if subscribed_at is not None and self._now() - subscribed_at >= PENDING_SECONDS:
             return "pending"
         return "awaiting"
-
-    def pending_legs(self) -> Set[LegKey]:
-        """Every subscribed leg that has been silent for at least 3 s."""
-        return {leg for leg in self._subscribed if self.leg_state(leg) == "pending"}
 
     # ── Seed ladder ──────────────────────────────────────────────────────────
 
@@ -1164,6 +1130,47 @@ class SpreadEngine:
         acts.messages = self._drain()
         return acts
 
+    def _step_candidate(self, side: str, live: float) -> Optional[float]:
+        """The one 5-point rung :meth:`evaluate` may install for ``side``, or ``None``.
+
+        ``AC-D65.4`` decides the direction from the anchor pair's three credit
+        bases: all three below the Target steps **toward the money** (CCS strikes
+        down, PCS strikes up), all three above steps **away from the money** (CCS
+        strikes up, PCS strikes down), and bases that disagree decide no
+        direction at all. The rung is returned only when it is a listed 20-wide
+        pair, both its legs quote, and its ``d`` beats the anchor's by **more
+        than** ``h`` (:attr:`band`) -- a rung improving ``d`` by exactly ``h`` or
+        less never moves the ladder. An unlisted rung latches exactly one
+        chain-edge message naming the anchor as the best reachable value.
+        """
+        current = self._score_at(side, live)
+        if current is None:
+            return None  # the anchor pair is not quoting, so nothing is measured
+        if current.distance <= self.band + 1e-9:
+            return None  # stop: the anchor pair is matched, a matched pair never moves
+        bases = (current.credit_bid, current.credit_ask, current.credit_mid)
+        if all(value < self._target for value in bases):
+            step = -STRIKE_STEP if side == SIDE_CCS else STRIKE_STEP
+        elif all(value > self._target for value in bases):
+            step = STRIKE_STEP if side == SIDE_CCS else -STRIKE_STEP
+        else:
+            return None  # stop: the bases disagree, so no direction is decided
+        candidate = float(live) + step
+        if not self._pair_listed(side, candidate):
+            self._latch(
+                CAUSE_WALK_CHAIN_EDGE,
+                f"Chain edge: the {side} step from {float(live):g} needs the rung "
+                f"{candidate:g}, which is not a listed 20-wide pair; the best "
+                f"reachable value is {float(live):g}.",
+            )
+            return None  # stop: the decided rung is not a listed pair
+        nxt = self._score_at(side, candidate)
+        if nxt is None:
+            return None  # the arriving pair has not quoted yet
+        if nxt.distance >= current.distance - self.band - 1e-9:
+            return None  # stop: no rung improves d by more than h
+        return candidate
+
     def evaluate(self, now: float) -> Actions:
         """One cadence evaluation: seed if needed, match, move, subscribe the spot."""
         self._now_value = float(now)
@@ -1212,11 +1219,9 @@ class SpreadEngine:
         else:
             targets: Dict[str, float] = {}
             for side, anchor in list(self._anchors.items()):
-                if self._anchor_matched(side):
-                    continue
-                best = self._best_neighbour(side, anchor)
-                if best is not None and best.short != anchor:
-                    targets[side] = best.short
+                candidate = self._step_candidate(side, float(anchor))
+                if candidate is not None:
+                    targets[side] = candidate
             if targets:
                 self._install_windows(acts, targets)
                 for side, anchor in targets.items():
@@ -1226,108 +1231,6 @@ class SpreadEngine:
             self._spot_subscribed = True
             acts.spot_subscribe = True
         return self._out(acts)
-
-    # ── Part 2: the window walk (AC-D65.4) ───────────────────────────────────
-
-    def window_step(self, target_anchor) -> Actions:
-        """Emit at most one 5-point window step per side toward ``target_anchor``.
-
-        ``target_anchor`` is the anchor the caller wants: a single strike applied
-        to both sides, or a ``{"CCS": strike, "PCS": strike}`` mapping when the
-        two ladders are headed in different strike directions (which the two
-        sides' quote profiles usually are).
-
-        The step is *one rung*, never a jump, and it is emitted only when
-        ``AC-D65.4`` warrants it:
-
-        * the live anchor pair is not matched (a matched pair never moves);
-        * the rung one step toward the requested anchor carries a credit mid in
-          the AC-D65.4 direction -- **toward the money** (a higher credit mid)
-          when all three of the live pair's credit bases sit below the Target,
-          **away from the money** (a lower credit mid) when all three sit above;
-        * that rung improves ``d`` by **more than** ``h``. Equal-``d`` neighbours
-          therefore resolve to staying -- the total order's credit-mid tie-break
-          decides which pair is better, and the strict ``> h`` rule is what makes
-          a two-rung oscillation impossible;
-        * the rung is a listed 20-wide pair. A step whose required rung is not
-          listed latches exactly one chain-edge message naming the best reachable
-          value and moves nothing.
-
-        Every emitted step cancels the legs leaving the window before it
-        subscribes the legs arriving, and a leg present in both the old and the
-        new window is neither cancelled nor subscribed -- it keeps its reqId.
-        """
-        acts = Actions()
-        if self._walk_frozen:
-            return self._out(acts, "stale")
-        if not self._on:
-            return self._out(acts, "off")
-        if self._series is None:
-            return self._out(acts, "no-0DTE")
-        if self._seed_active:
-            return self._out(acts, "seeding")
-        targets = self._requested_targets(target_anchor)
-        steps: Dict[str, float] = {}
-        for side in SIDES:
-            live = self._anchors.get(side)
-            wanted = targets.get(side)
-            if live is None or wanted is None:
-                continue
-            candidate = self._walk_candidate(side, live, wanted)
-            if candidate is not None:
-                steps[side] = float(candidate)
-        if steps and self._install_windows(acts, steps):
-            for side, anchor in steps.items():
-                self._session_anchor[side] = float(anchor)
-                self._session_anchor_expiry = self._expiry
-        return self._out(acts)
-
-    @staticmethod
-    def _requested_targets(target_anchor) -> Dict[str, float]:
-        """Normalise ``window_step``'s argument to one anchor per side."""
-        if isinstance(target_anchor, dict):
-            out: Dict[str, float] = {}
-            for key, value in target_anchor.items():
-                name = str(key).strip().upper()
-                if name in SIDES:
-                    out[name] = float(value)
-            return out
-        return {side: float(target_anchor) for side in SIDES}
-
-    def _walk_candidate(
-        self, side: str, live: float, wanted: float
-    ) -> Optional[float]:
-        """The one-rung anchor a step may move to, or ``None`` when a stop holds."""
-        if math.isclose(float(wanted), float(live), abs_tol=1e-9):
-            return None
-        if self._anchor_matched(side):
-            return None  # stop: the pair is matched, a matched pair never moves
-        current = self._score_at(side, live)
-        if current is None:
-            return None  # the live anchor pair is not quoting
-        step = STRIKE_STEP if float(wanted) > float(live) else -STRIKE_STEP
-        candidate = float(live) + step
-        if not self._pair_listed(side, candidate):
-            self._latch(
-                CAUSE_WALK_CHAIN_EDGE,
-                f"Chain edge: the window step from {float(live):g} needs the rung "
-                f"{candidate:g}, which is not a listed 20-wide pair; the best "
-                f"reachable value is {float(live):g}.",
-            )
-            return None  # stop: the improving neighbour is not a listed pair
-        nxt = self._score_at(side, candidate)
-        if nxt is None:
-            return None  # the arriving pair has not quoted yet
-        bases = (current.credit_bid, current.credit_ask, current.credit_mid)
-        below = all(value < self._target for value in bases)
-        above = all(value > self._target for value in bases)
-        if below and nxt.credit_mid <= current.credit_mid:
-            return None  # AC-D65.4: toward the money (a higher credit mid)
-        if above and nxt.credit_mid >= current.credit_mid:
-            return None  # AC-D65.4: away from the money (a lower credit mid)
-        if nxt.distance >= current.distance - self.band:
-            return None  # stop: no neighbour improves d by more than h
-        return candidate
 
     # ── Part 2: greek sources (AC-D65.5) ─────────────────────────────────────
 
@@ -1452,10 +1355,6 @@ class SpreadEngine:
         self._stale.discard(leg)
         self._stale_after.pop(leg, None)
         self._no_value.discard(leg)
-
-    def req_id(self, leg: LegKey) -> Optional[int]:
-        """The reqId bound to ``leg``'s live line, or ``None``."""
-        return self._req_ids.get(leg)
 
     @property
     def walk_frozen(self) -> bool:
@@ -1670,15 +1569,6 @@ class SpreadEngine:
         return None
 
     # ── Part 2: read-only state ──────────────────────────────────────────────
-
-    def pair_dropped(self, side: str, short: float) -> bool:
-        """True when the pair at ``short`` was dropped for the session by a ``200``."""
-        right = _right(side)
-        return LegKey(right=right, strike=float(short)) in self._dropped
-
-    def reseat_count(self, side: str) -> int:
-        """How many anchor re-seats a ``200`` on this side's anchor has caused."""
-        return self._reseat_counts.get(side, 0)
 
     def take_messages(self) -> List[str]:
         """Drain the latched messages without emitting an action plan."""

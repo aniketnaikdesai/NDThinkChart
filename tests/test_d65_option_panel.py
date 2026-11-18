@@ -21,11 +21,12 @@ names' absence from ``ui/`` and the deletions' completion.
 """
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPalette
+from PyQt6.QtGui import QFontMetrics, QPalette
 from PyQt6.QtWidgets import QDockWidget, QHeaderView, QSizePolicy
 
 from ui.dock_layout import (
@@ -60,6 +61,23 @@ def _headers(table):
     return tuple(
         table.horizontalHeaderItem(column).text()
         for column in range(table.columnCount())
+    )
+
+
+def _button_colour(panel):
+    """The toggle button's rendered text colour, lower-cased (``#rrggbb``)."""
+    return (
+        panel.toggle_button.palette()
+        .color(QPalette.ColorRole.ButtonText)
+        .name()
+        .lower()
+    )
+
+
+def _elide_right(text, metrics, width):
+    """The test-local elide check standing in for the deleted panel helper."""
+    return metrics.elidedText(
+        str(text), Qt.TextElideMode.ElideRight, max(int(width), 1)
     )
 
 
@@ -119,7 +137,7 @@ def test_P23_T2_AC2_target_default_toggle_placement_state_and_colour(qapp):
     try:
         # Target field shows 1.00 and reads back as a float.
         assert panel.target_edit.text() == "1.00"
-        assert panel.target_value() == pytest.approx(DEFAULT_TARGET)
+        assert panel._last_valid_target == pytest.approx(DEFAULT_TARGET)
 
         # The toggle's left edge is to the right of the Target field's right
         # edge (same controls-row parent, so geometry is comparable).
@@ -130,17 +148,10 @@ def test_P23_T2_AC2_target_default_toggle_placement_state_and_colour(qapp):
         assert panel.toggle_button.isCheckable()
 
         # Default: ON / green.
-        assert panel.toggle_state() is True
+        assert panel.toggle_button.isChecked() is True
         assert panel.toggle_button.property("spread_state") == "on"
         assert panel.toggle_button.text() == "ON"
-        assert panel.toggle_colour() == COLOUR_ON
-        assert (
-            panel.toggle_button.palette()
-            .color(QPalette.ColorRole.ButtonText)
-            .name()
-            .lower()
-            == COLOUR_ON
-        )
+        assert _button_colour(panel) == COLOUR_ON
         # Both colour constants live in the state-keyed stylesheet.
         sheet = panel.toggle_button.styleSheet()
         assert '[spread_state="off"]' in sheet and COLOUR_OFF in sheet
@@ -152,24 +163,17 @@ def test_P23_T2_AC2_target_default_toggle_placement_state_and_colour(qapp):
         panel.toggle_button.click()
         qapp.processEvents()
         assert seen == [False]
-        assert panel.toggle_state() is False
+        assert panel.toggle_button.isChecked() is False
         assert panel.toggle_button.property("spread_state") == "off"
         assert panel.toggle_button.text() == "OFF"
-        assert panel.toggle_colour() == COLOUR_OFF
-        assert (
-            panel.toggle_button.palette()
-            .color(QPalette.ColorRole.ButtonText)
-            .name()
-            .lower()
-            == COLOUR_OFF
-        )
+        assert _button_colour(panel) == COLOUR_OFF
 
         # Programmatic flip: property/colour follow, no extra toggle_clicked.
         panel.set_toggle_state(True)
         qapp.processEvents()
-        assert panel.toggle_state() is True
+        assert panel.toggle_button.isChecked() is True
         assert panel.toggle_button.property("spread_state") == "on"
-        assert panel.toggle_colour() == COLOUR_ON
+        assert _button_colour(panel) == COLOUR_ON
         assert seen == [False]
     finally:
         panel.close()
@@ -204,7 +208,7 @@ def test_P23_T2_AC3_target_gate(qapp, typed, accepted):
         if accepted:
             assert len(seen) == 1, seen
             assert seen[0] == pytest.approx(float(typed))
-            assert panel.target_value() == pytest.approx(float(typed))
+            assert panel._last_valid_target == pytest.approx(float(typed))
             # The typed value is kept (normalised to 2 dp).
             assert panel.target_edit.text() == f"{float(typed):.2f}"
         else:
@@ -212,7 +216,7 @@ def test_P23_T2_AC3_target_gate(qapp, typed, accepted):
             assert seen == []
             # The field is restored to the last valid value…
             assert panel.target_edit.text() == "1.00"
-            assert panel.target_value() == pytest.approx(DEFAULT_TARGET)
+            assert panel._last_valid_target == pytest.approx(DEFAULT_TARGET)
             # …and the status label holds ONE message naming the range.
             status = panel.status_label.text()
             assert status == TARGET_RANGE_MESSAGE
@@ -230,7 +234,6 @@ def test_P23_T2_AC4_width_policy_tooltip_and_elision(qapp):
 
     panel = _panel(qapp)
     try:
-        assert panel.preferred_width() == 360
         assert panel.sizeHint().width() == 360
         assert (
             panel.sizePolicy().horizontalPolicy()
@@ -260,12 +263,12 @@ def test_P23_T2_AC4_width_policy_tooltip_and_elision(qapp):
         qapp.processEvents()
         narrow_width = panel.ccs_table.columnWidth(0)
         assert narrow_width <= 44
-        elided = panel.elided_name(name, narrow_width)
+        elided = _elide_right(name, panel.ccs_table.fontMetrics(), narrow_width)
         assert elided != name
         assert elided.endswith("\u2026")
         assert len(elided) < len(name)
         # Wide enough: the full name is returned unchanged.
-        assert panel.elided_name(name, 2000) == name
+        assert _elide_right(name, panel.ccs_table.fontMetrics(), 2000) == name
     finally:
         panel.close()
 
@@ -283,7 +286,7 @@ def test_P23_T2_AC5_collapse_round_trip(qapp):
         assert panel.header_button.isChecked()
 
         # Collapse: body hidden, header unchecked (and struck by VIS-D21.1).
-        panel.toggle_collapsed()
+        panel.header_button.click()
         qapp.processEvents()
         assert panel.is_collapsed() is True
         assert not panel.body.isVisible()
@@ -291,7 +294,7 @@ def test_P23_T2_AC5_collapse_round_trip(qapp):
         assert panel.header_button.is_struck()
 
         # Expand: body restored, header checked again, every row still there.
-        panel.toggle_collapsed()
+        panel.header_button.click()
         qapp.processEvents()
         assert panel.is_collapsed() is False
         assert panel.body.isVisible()
@@ -301,12 +304,13 @@ def test_P23_T2_AC5_collapse_round_trip(qapp):
         assert panel.ccs_table.item(0, 0).text() == "row"
         assert panel.pcs_table.item(0, 0).text() == "row"
 
-        # set_collapsed is symmetric with toggle_collapsed.
-        panel.set_collapsed(True)
+        # ``header_button.setChecked`` is the programmatic form of the same
+        # contract (the header's ``toggled`` slot owns the body flip).
+        panel.header_button.setChecked(False)
         qapp.processEvents()
         assert panel.is_collapsed() is True
         assert not panel.body.isVisible()
-        panel.set_collapsed(False)
+        panel.header_button.setChecked(True)
         qapp.processEvents()
         assert panel.is_collapsed() is False
         assert panel.body.isVisible()
@@ -536,7 +540,7 @@ def test_P23_T3_AC4_wide_and_narrow_fixtures(monkeypatch, qapp):
         # margin, and the tooltip still carries the full name.
         metrics = table.fontMetrics()
         assert metrics.horizontalAdvance(name) > narrow_name_column
-        elided = panel.elided_name(name, narrow_name_column)
+        elided = _elide_right(name, metrics, narrow_name_column)
         assert elided != name
         assert elided.endswith("\u2026")
         assert table.item(0, 0).toolTip() == name
@@ -591,3 +595,151 @@ def test_P23_T3_AC6_deletions_and_allowlist():
     import ui.main_window as main_window
 
     assert hasattr(main_window, "MainWindow")
+
+
+# ── P23-T19 — the seven test-only accessors are gone (ESC-121) ───────────────
+#
+# Under AC-D65.12(i) no member without a production reader survives: the
+# assertions these helpers carried moved to the production surfaces the app
+# itself uses (the Target field, the toggle button, the header button,
+# ``PREFERRED_WIDTH``/``sizeHint`` and the table's own elide mode).
+
+_DELETED_PANEL_ACCESSORS = (
+    "target_value",
+    "toggle_colour",
+    "toggle_state",
+    "toggle_collapsed",
+    "set_collapsed",
+    "preferred_width",
+    "elided_name",
+)
+
+_P23_T19_SUITES = (
+    REPO_ROOT / "tests" / "test_d65_option_panel.py",
+    REPO_ROOT / "tests" / "test_d65_option_stream.py",
+    REPO_ROOT / "tests" / "test_d45_removal.py",
+)
+
+
+def test_P23_T19_AC1_seven_test_only_accessors_are_deleted():
+    import ui.option_spreads_panel as module
+
+    # Not one of the seven is a panel member any more.
+    for name in _DELETED_PANEL_ACCESSORS:
+        assert name not in vars(OptionSpreadsPanel), name
+
+    # The module docstring no longer names them…
+    doc = module.__doc__ or ""
+    for name in _DELETED_PANEL_ACCESSORS:
+        assert re.search(rf"\b{name}\b", doc) is None, name
+
+    # …and no replacement helper re-introduces one. A word boundary keeps the
+    # surviving ``set_toggle_state`` / ``set_target_value`` from matching.
+    source = (_UI_DIR / "option_spreads_panel.py").read_text(encoding="utf-8")
+    for name in _DELETED_PANEL_ACCESSORS:
+        assert re.search(rf"\b{name}\b", source) is None, name
+
+    # The production surface the app uses is intact.
+    for name in (
+        "set_target_value",
+        "set_toggle_state",
+        "is_collapsed",
+        "sizeHint",
+        "PREFERRED_WIDTH",
+    ):
+        assert name in vars(OptionSpreadsPanel), name
+
+
+def test_P23_T19_AC2_every_fact_still_asserted_on_the_production_surface(qapp):
+    panel = _panel(qapp)
+    try:
+        # The accepted Target: the field's text and the last accepted value.
+        assert panel.target_edit.text() == "1.00"
+        assert panel._last_valid_target == pytest.approx(DEFAULT_TARGET)
+        panel.set_target_value(2.00)
+        assert panel.target_edit.text() == "2.00"
+        assert panel._last_valid_target == pytest.approx(2.00)
+
+        # The toggle: isChecked(), the spread_state property, the palette.
+        assert panel.toggle_button.isChecked() is True
+        assert panel.toggle_button.property("spread_state") == "on"
+        assert _button_colour(panel) == COLOUR_ON
+        panel.toggle_button.click()
+        assert panel.toggle_button.isChecked() is False
+        assert panel.toggle_button.property("spread_state") == "off"
+        assert _button_colour(panel) == COLOUR_OFF
+        panel.set_toggle_state(True)
+        assert panel.toggle_button.isChecked() is True
+        assert panel.toggle_button.property("spread_state") == "on"
+        assert _button_colour(panel) == COLOUR_ON
+
+        # Collapse: header_button click / setChecked + is_collapsed().
+        assert panel.is_collapsed() is False
+        panel.header_button.click()
+        assert panel.is_collapsed() is True
+        assert not panel.body.isVisible()
+        panel.header_button.click()
+        assert panel.is_collapsed() is False
+        assert panel.body.isVisible()
+        panel.header_button.setChecked(False)
+        assert panel.is_collapsed() is True
+        assert not panel.body.isVisible()
+        panel.header_button.setChecked(True)
+        assert panel.is_collapsed() is False
+        assert panel.body.isVisible()
+
+        # The 360 px width: the class constant and the size hint.
+        assert OptionSpreadsPanel.PREFERRED_WIDTH == 360
+        assert OptionSpreadsPanel.PREFERRED_WIDTH == PREFERRED_WIDTH
+        assert panel.sizeHint().width() == 360
+
+        # Right-elision: the table's own mode, its tooltip, and a test-local
+        # QFontMetrics check in place of the deleted helper.
+        name = "SPX Nov17 7425/7445"
+        panel.apply_snapshot(
+            [[name, "1.00", "1.10", "0.500", "0.0123"]], []
+        )
+        table = panel.ccs_table
+        assert table.textElideMode() == Qt.TextElideMode.ElideRight
+        assert panel.pcs_table.textElideMode() == Qt.TextElideMode.ElideRight
+        assert table.item(0, 0).text() == name
+        assert table.item(0, 0).toolTip() == name
+        narrow = QFontMetrics(table.font()).horizontalAdvance("SPX Nov17 74")
+        elided = _elide_right(name, table.fontMetrics(), narrow)
+        assert elided != name
+        assert elided.endswith("\u2026")
+        assert len(elided) < len(name)
+        assert _elide_right(name, table.fontMetrics(), 2000) == name
+    finally:
+        panel.close()
+
+
+def test_P23_T19_AC2_d45_walkthrough_drives_the_header_button():
+    text = (REPO_ROOT / "tests" / "test_d45_removal.py").read_text(
+        encoding="utf-8"
+    )
+    assert "option_spreads_panel.header_button.click()" in text
+    assert "toggle_collapsed" not in text
+    assert "set_collapsed" not in text
+
+
+def test_P23_T19_AC3_suites_reference_no_deleted_member():
+    """The exit-0 half is the task's own ``pytest`` command; this is the
+    no-reference half, measured on attribute/name use (a string that merely
+    names a retired member in the guard list is not a reference)."""
+    offenders: list[str] = []
+    for path in _P23_T19_SUITES:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        used: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                used.add(node.attr)
+            elif isinstance(node, ast.Name):
+                used.add(node.id)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                used.add(node.name)
+        for name in _DELETED_PANEL_ACCESSORS:
+            if name in used:
+                offenders.append(f"{path.name}:{name}")
+    assert not offenders, offenders
+

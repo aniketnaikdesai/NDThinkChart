@@ -417,11 +417,3 @@ def select_zero_dte_series(params: list, today: str) -> OptionSeries | None:
             strikes_by_right={"C": list(strikes), "P": list(strikes)},
         )
     return None
-
-
-def option_chain_strikes(series: OptionSeries) -> dict[str, list[float]]:
-    """Sorted strikes per right for a series (ascending, one list per right)."""
-    return {
-        right: sorted(float(s) for s in (strikes or []))
-        for right, strikes in series.strikes_by_right.items()
-    }

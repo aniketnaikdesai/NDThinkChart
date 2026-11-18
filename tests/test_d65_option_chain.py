@@ -5,9 +5,8 @@ Offscreen tests (no live TWS), all deterministic:
 * AC1 — ``get_option_contract`` is attribute-complete for both rights and
   several strikes, and issues zero contract-details round trips.
 * AC2 — ``today_expiry_yyyymmdd`` across ET dates (including a UTC instant
-  that is the previous ET date), ``select_zero_dte_series`` (SPXW-today,
-  later-expiry-only, non-SPXW class, no 0DTE) and ``option_chain_strikes``
-  ordering.
+  that is the previous ET date) and ``select_zero_dte_series`` (SPXW-today,
+  later-expiry-only, non-SPXW class, no 0DTE).
 * AC3 — ``req_sec_def_opt_params`` request shape, reqId source, readiness
   gate, ``PacingExceeded`` propagation and "never sleeps".
 * AC4 — fake-client routing: ``tickOptionComputation`` tick-type and sentinel
@@ -44,7 +43,6 @@ from ibkr.client import IBApiClient
 from ibkr.contracts import (
     OptionSeries,
     get_option_contract,
-    option_chain_strikes,
     select_zero_dte_series,
     today_expiry_yyyymmdd,
 )
@@ -254,23 +252,6 @@ def test_select_zero_dte_series_reads_attribute_payloads():
     assert series.strikes_by_right["C"] == [5000.0, 5200.0]
 
 
-def test_option_chain_strikes_sorted_per_right():
-    series = OptionSeries(
-        trading_class="SPXW",
-        exchange="CBOE",
-        expiry="20261117",
-        con_id=416904,
-        strikes_by_right={"C": [5200.0, 5000.0, 5100.0], "P": [5150.5, 5050.0]},
-    )
-
-    strikes = option_chain_strikes(series)
-
-    assert strikes["C"] == [5000.0, 5100.0, 5200.0]
-    assert strikes["P"] == [5050.0, 5150.5]
-    assert strikes["C"] == sorted(strikes["C"])
-    assert strikes["P"] == sorted(strikes["P"])
-
-
 # ---------------------------------------------------------------------------
 # AC3 — req_sec_def_opt_params: readiness, id, pacing, no sleep
 # ---------------------------------------------------------------------------
@@ -455,7 +436,6 @@ _NEW_HELPERS = (
     "get_option_contract",
     "today_expiry_yyyymmdd",
     "select_zero_dte_series",
-    "option_chain_strikes",
     "OptionSeries",
     "req_sec_def_opt_params",
     "option_params",

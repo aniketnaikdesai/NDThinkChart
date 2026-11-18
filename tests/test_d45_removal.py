@@ -641,9 +641,9 @@ def walkthrough(monkeypatch, qapp):
                 popout.close()
             snap("pop-out close")
 
-            win.option_spreads_panel.toggle_collapsed()
+            win.option_spreads_panel.header_button.click()
             snap("panel collapse")
-            win.option_spreads_panel.toggle_collapsed()
+            win.option_spreads_panel.header_button.click()
             snap("panel restore")
 
             win._on_error(1, 201, "Order rejected (walkthrough)")
@@ -685,9 +685,9 @@ def test_zero_transmit_walkthrough(walkthrough):
 
     collapsed = {label: snap["collapsed"] for label, snap in record["steps"]}
     assert collapsed["panel collapse"] is True, (
-        "toggle_collapsed() did not collapse the Option Spreads panel")
+        "the header button did not collapse the Option Spreads panel")
     assert collapsed["panel restore"] is False, (
-        "toggle_collapsed() did not restore the Option Spreads panel")
+        "the header button did not restore the Option Spreads panel")
 
     bad = [r for r in walkthrough["recorder"].records
            if r[0] in (AttributeError, TypeError)]

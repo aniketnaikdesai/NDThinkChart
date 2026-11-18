@@ -1490,5 +1490,31 @@
     "status": "open",
     "opened": "2026-11-18T07:26:25.079860+00:00",
     "suggested_direction": "Replace 'assert CENSUS_ALLOWLIST == {}' with a per-entry invariant: for module, entries in CENSUS_ALLOWLIST.items(): for symbol, citation in entries.items(): assert citation_violation(module, symbol, citation, sources()) is None and f'{module}:{symbol}' not in scan_unreferenced_symbols(sources(), {module: (symbol,)}) - i.e. the entry exists only for a symbol the scan would otherwise report. If P23's 'zero exemptions today' claim is wanted, keep it as a separate, clearly phase-scoped assertion with a message that says 'no P23 symbol needs an exemption today', not one that forbids all exemptions."
+  },
+  {
+    "id": "PRE-021",
+    "task_id": "P23-T22",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "[precheck] selfcheck stamp rejected: selfcheck stamp verdict is not pass \u2014 a done claim is accepted only with a genuine worker_selfcheck stamp for this task",
+    "expected": "selfcheck stamp fails validation",
+    "suggested_direction": "run worker_selfcheck.py for this task and attach its genuine stamp",
+    "status": "open",
+    "source": "precheck",
+    "opened": "2026-11-18T16:54:08.791479+00:00"
+  },
+  {
+    "id": "PRE-022",
+    "task_id": "P23-T26",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "[precheck] selfcheck stamp rejected: selfcheck stamp verdict is not pass \u2014 a done claim is accepted only with a genuine worker_selfcheck stamp for this task",
+    "expected": "selfcheck stamp fails validation",
+    "suggested_direction": "run worker_selfcheck.py for this task and attach its genuine stamp",
+    "status": "open",
+    "source": "precheck",
+    "opened": "2026-11-18T16:54:08.791484+00:00"
   }
 ]

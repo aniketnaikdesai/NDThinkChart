@@ -12,6 +12,7 @@ snapping, the four-rung window legs, the row/leg fields and the cell formatters
 """
 
 import ast
+import math
 import re
 import subprocess
 import sys
@@ -43,7 +44,6 @@ from services.option_ladder import (
     option_tick,
     snap_rung,
     usable_quote,
-    validate_spread,
     window_legs,
 )
 
@@ -117,6 +117,39 @@ def test_P23_T1_AC1_unknown_side_rejected():
     assert ladder_pairs(7425.0) == ladder_pairs(7425.0, "ccs")
 
 
+# ── P23-T20 AC1: the unused production fixture guard is deleted ─────────────
+
+_PRODUCTION_DIRS = ("ui", "services", "data", "ibkr", "config")
+
+
+def _production_sources():
+    """Every production ``.py`` source under the repository root."""
+    root = Path(__file__).resolve().parent.parent
+    paths = []
+    for name in _PRODUCTION_DIRS:
+        paths.extend(sorted((root / name).rglob("*.py")))
+    main_module = root / "main.py"
+    if main_module.exists():
+        paths.append(main_module)
+    return paths
+
+
+def test_P23_T20_AC1_validate_spread_is_gone():
+    # The helper is gone from the module surface, including its docstring API list.
+    assert not hasattr(ladder, "validate_spread")
+    assert "validate_spread" not in (ladder.__doc__ or "")
+
+    # No production module imports or references it, and no replacement helper
+    # was added under the same name.
+    root = Path(__file__).resolve().parent.parent
+    offenders = [
+        str(path.relative_to(root))
+        for path in _production_sources()
+        if "validate_spread" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
 # ── AC2: short-leg-first naming and the fixture-convention guard ─────────────
 
 
@@ -147,27 +180,59 @@ def test_P23_T1_AC2_name_carries_exactly_twenty_points(side, short, long, expect
     assert abs(float(name_long) - float(name_short)) == pytest.approx(SPREAD_WIDTH)
 
 
-def test_P23_T1_AC2_fixture_guard_rejects_and_accepts():
+def _fixture_guard(side, short, long):
+    """The AC-D65.2 fixture convention, held here in the test file itself.
+
+    A legal pair is exactly :data:`SPREAD_WIDTH` wide and points the way its
+    side does: a CCS has its long strike *above* its short (7425/7445), a PCS
+    has its long strike *below* its short (7340/7320).  So a 10-wide 7425/7435
+    is rejected, and so is an inverted PCS such as 7315/7435; the legal 20-wide
+    7435/7455 is accepted.
+    """
+    key = str(side).strip().upper()
+    if key not in ("CCS", "PCS"):
+        raise ValueError(f"unknown option side {side!r}: expected CCS or PCS")
+    short_value = float(short)
+    long_value = float(long)
+    width = long_value - short_value
+    if not math.isclose(abs(width), SPREAD_WIDTH, abs_tol=1e-9):
+        raise ValueError(
+            f"{key} pair {short_value:g}/{long_value:g} is {abs(width):g} wide, "
+            f"not {SPREAD_WIDTH}"
+        )
+    if key == "CCS" and width <= 0:
+        raise ValueError(
+            f"CCS pair {short_value:g}/{long_value:g} has its long strike "
+            "below its short strike"
+        )
+    if key == "PCS" and width >= 0:
+        raise ValueError(
+            f"PCS pair {short_value:g}/{long_value:g} has its long strike "
+            "above its short strike"
+        )
+
+
+def test_P23_T20_AC2_fixture_guard_rejects_and_accepts():
     # A 10-wide pair is not a ladder spread.
     with pytest.raises(ValueError):
-        validate_spread("CCS", 7425, 7435)
+        _fixture_guard("CCS", 7425, 7435)
 
     # An inverted PCS (long strike above the short) is not a PCS -- both the
     # canonical 120-wide example and a 20-wide inversion are rejected.
     with pytest.raises(ValueError):
-        validate_spread("PCS", 7315, 7435)
+        _fixture_guard("PCS", 7315, 7435)
     with pytest.raises(ValueError):
-        validate_spread("PCS", 7435, 7455)
+        _fixture_guard("PCS", 7435, 7455)
 
     # The legal 20-wide pairs are accepted, canonical fixtures included.
-    validate_spread("CCS", 7435, 7455)
-    validate_spread("CCS", 7425, 7445)
-    validate_spread("PCS", 7340, 7320)
+    _fixture_guard("CCS", 7435, 7455)
+    _fixture_guard("CCS", 7425, 7445)
+    _fixture_guard("PCS", 7340, 7320)
 
     # Every canonical ladder pair passes the guard.
     for side, anchor in (("CCS", 7425.0), ("PCS", 7340.0)):
         for short, long in ladder_pairs(anchor, side):
-            validate_spread(side, short, long)
+            _fixture_guard(side, short, long)
 
 
 # ── AC3: the displayed / credit sign pair ────────────────────────────────────

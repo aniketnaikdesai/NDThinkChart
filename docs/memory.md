@@ -263,3 +263,8 @@
 **Category:** Technical Note
 **Finding:** The implementation-plan review gate is NOT a standing process change. It was a one-time owner request for P23 only: the Orchestrator writes `docs/implementation_plan_P23.md` itself (no agent) after Plan + Validator approve, then pauses for review. The pipeline contract is unchanged — P24 onward go Validator → Task Manager as normal.
 **Source:** Owner message, P23 scoping
+
+### [2026-11-18] — discovered during P23 build (wave 5)
+**Category:** Known Gotcha
+**Finding:** `build_wave.py advance` checks `touches_files` overlap only against tasks selected in the *current* advance, not against tasks left `in_progress` by an earlier wave. A held-back task therefore gets republished on the next advance while the worker it was held for is still running, so two workers can be dispatched onto the same file. Reset such a task (`build_wave.py reset --keep-halt <id>`) and let it re-dispatch only after the overlapping worker's result consolidates.
+**Source:** P23-T22 vs P23-T23 (shared `services/option_spread_engine.py`)
