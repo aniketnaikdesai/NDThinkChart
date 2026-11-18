@@ -1695,3 +1695,28 @@ history of the choice.
 - **Why it matters:** the panel needs a chain skeleton fetch (`reqSecDefOptParams`), an option-contract builder, an expiry/strike selector for the ladder, a per-leg subscription set and a chain cache — every one of them with exactly one consumer (the panel). That is acceptable (a feature's own helpers are used while the feature is used), but the rule bites on the edges: a strike-rounding helper kept "for the chain browser we might add", a contract builder branch for a secType the panel never requests, or a cache eviction path nothing triggers are all dead on arrival, and the panel's future (Q106/Q107 answers, a possible underlying selector in FS21-style follow-ups) is not a licence to pre-build them.
 - **Suggested resolution:** build only the branches the panel exercises; where a general shape is genuinely cheaper (e.g. one contract-builder entry point taking side/expiry/strike), give each branch a test in the same file; extend `ibkr/market_data.py::req_mkt_data` rather than adding a parallel subscribe path, and retire one of them if both end up existing.
 - **Status:** open (non-blocking — `AC-D65.12` is the gate; `AC-D65.2`'s listed-strike rule pins the contract-builder branches).
+
+## DG124 — P24: the reference image the owner names ("as shown in image by the arrow") is not in the workspace — **CLOSED 2026-11-18**
+- **Where it shows up:** Phase P24 / D66 / `AC-D66.3`; the owner's sentence *"the ON/OFF icon should be to the right of the panel as shown in image by the arrow"*.
+- **Resolution (owner, 2026-11-18, verbatim):** *"Right of the Target row (as built)"* — the control stays **right-aligned in the Target row**, to the right of the Target field; it is not moved to the title bar. The image is no longer needed for placement, and the glyph remains design's (no criterion depends on it). Recorded in `AC-D66.3`/A213 and `open_questions.md` Q116.
+- **Residual:** the exact glyph (icon vs checkable switch) and its vertical alignment are unchanged from P23; no requirement or test depends on either.
+- **Status:** **resolved** (non-blocking; A213 confirmed by Q116).
+
+## DG125 — P24: the running app's option rows are ISO-dated, but HEAD's formatter already emits `MmmDD`
+- **Where it shows up:** Phase P24 / D66 / `AC-D66.1`; the earlier reported rendering `SPX 20261118 7360/7380` vs `services/option_ladder.py::_format_expiry` → `Nov17`.
+- **Resolution (verified 2026-11-18 on HEAD `db21672`):** the tree in play renders `MmmDD` (`_format_expiry` :142 / `format_instrument` :161); the ISO-dated rendering came from a tree that is no longer in play. **Do not edit the formatter.** `AC-D66.1` asserts the rendered name and `AC-D66.8` freezes it against drift.
+- **Residual:** if a later build ever renders ISO, the `AC-D66.1` regex fails — that is the guard, not a source comment.
+- **Status:** **resolved** (verification; R155 downgraded to a low-severity drift risk).
+
+## DG126 — P24 / Q114 = reading B: the two side-by-side tables anchor on different rows (PCS Target on row 2, CCS on row 3), which can read like a bug
+- **Where it shows up:** Phase P24 / D66 / `AC-D66.2` (FINAL, Q114 = B); the relationship between `CCS` row 3 and `PCS` row 2 as the Target row.
+- **Owner's row-label rule (2026-11-18, verbatim):** *"1: PCS rows are labelled 4,3,2,1."* plus *"Order only, no numbers"* (Q117) — PCS rows top→bottom are logically `4, 3, 2, 1` with short strikes `S3+5, S3, S3−5, S3−10`; CCS rows stay `1, 2, 3, 4` with `S3+10, S3+5, S3, S3−5`. **No digits or number column are rendered.** The asymmetry is therefore **decided, not accidental**.
+- **Why it matters:** the panel's whole promise is "spread 3 is at the Target" under two sub-headers. With the Target on row 3 on one side and row 2 on the other, a user (or a reviewer) scanning across will conclude one table is off by a rung unless the anchor row is visibly identifiable.
+- **Suggested resolution (optional):** mark the anchor row on both sides with an existing visual convention (the D21 active-row tone, or a small `◀ Target` marker in the instrument cell) so the anchor is legible without reading row numbers; state it in the phase's acceptance capture. No criterion or test semantics change.
+- **Status:** open (non-blocking; Q114 = B and Q117 = no rendered numbers are both answered and `AC-D66.2` is FINAL, so this is a legibility refinement only — a row marker, not a numbering column, and not a decision).
+
+## DG127 — P24: the geometry helper's own docstring/comments still claim one shared table after the PCS delta
+- **Where it shows up:** Phase P24 / D66 / `AC-D66.2`, A219; `services/option_ladder.py:60` (`RUNG_OFFSETS`, documented *"Applied identically on both sides -- there is no mirrored copy of this table"*) and the module docstring's *"one offset table applied identically on both sides"*.
+- **Why it matters:** after P24, both statements are false for PCS. A stale invariant in a comment is how the next change gets built on the wrong model — and the P23 slice carried the same sentence, which is exactly what this phase had to revise in five places. Leaving the code comment behind repeats the defect at the source.
+- **Suggested resolution:** change the comment/docstring in the same edit as the table (one per-side table, named), and let `AC-D66.2`'s test names carry the per-side rule. No behaviour.
+- **Status:** open (non-blocking; cosmetic-but-mandatory alongside the delta — a stale comment contradicts the shipped rule).

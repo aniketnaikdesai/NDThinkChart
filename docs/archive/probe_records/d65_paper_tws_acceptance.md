@@ -1,7 +1,7 @@
 # D65 live-TWS read-only acceptance record (AC-D65.19, P23-T26)
 
 Status: **PENDING — owner-run gate. No result recorded yet; every item below is unchecked.**
-Build commit: `c04cc03` (`c04cc03c0a12e60a4c10a34dab44810efbc960a4`) — the build tree this checklist describes.
+Build commit: `db21672` (`db216721b7f45f42cfb92d3f968de58093e238e9`) — the build tree this checklist describes.
 Date (UTC): ____________________________________ — owner records the run date at sign-off.
 
 **AC-D65.19 is OPEN.** This file is the checklist and the evidence container: the checkbox

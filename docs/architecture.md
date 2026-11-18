@@ -8969,7 +8969,11 @@ call sites, the toolbar label-field sizing, and the toggle persistence wiring.
 > against `127.0.0.1:7496` (observation-only: zero order code, so no order-shaped call exists or is
 > possible), record in `docs/archive/probe_records/`. **(J) fixture convention** — `AC-D65.2`'s canonical
 > `SPX Nov17 7425/7445` (CCS) and `SPX Nov17 7340/7320` (PCS) with a guard that rejects any
-> 10-wide pair and any PCS row whose long strike is above its short. **Both literal-vs-tree
+> 10-wide pair and any PCS row whose long strike is above its short. **[Superseded for PCS by P24,
+> 2026-11-18 — Q114/Q115: the canonical PCS pair is now the owner's corrected anchor row
+> `SPX Nov17 7325/7305` (`7330/7310, 7325/7305, 7320/7300, 7315/7295` at `S3 = 7325`); the CCS pair,
+> the 20-wide rule and the short-leg-first rule are unchanged. See `AC-D66.2`/S-P24-1, § Phase P24.]**
+> **Both literal-vs-tree
 > conflicts the earlier passes surfaced were resolved in the requirement text on 2026-11-17,
 > and this section implements the amended text:** **FI-P23-2** — `AC-D65.15`'s spot source is
 > now the phase-stable chain **3a** chart price **only when the charted symbol is SPX** /
@@ -9442,7 +9446,9 @@ exists anywhere.
   with an ellipsis when the column is narrower than the text.
 - `[new] services/option_ladder.py` — pure, Qt-free, `ibapi`-free: `SPREAD_WIDTH = 20`,
   `STRIKE_STEP = 5`, rung offsets `{1: +10, 2: +5, 3: 0, 4: −5}` (one formula, both sides —
-  A187), `ladder_pairs(anchor_short)`, `format_instrument(symbol, expiry, short, long)`
+  A187) **[superseded for PCS by P24, 2026-11-18 — the table is now per side, PCS
+  `+5 / 0 / −5 / −10` with the anchor on row 2; CCS is unchanged. See `AC-D66.2`/S-P24-1,
+  § Phase P24.]**, `ladder_pairs(anchor_short)`, `format_instrument(symbol, expiry, short, long)`
   (`SPX Nov17 7425/7445`, short leg first, **exactly 20 wide** — A212), **the two basis pairs,
   named so they cannot be mixed**: `display_bases(bid_s, ask_s, bid_l, ask_l) ->
   (display_ask, display_bid)` (A202: `long.ask − short.bid`, `long.bid − short.ask` — negative
@@ -9893,7 +9899,7 @@ overrides, `ibkr/account.py`, `data.models.Position`/`TradeGroup`,
 | # | Decision | Relationship |
 |---|---|---|
 | S-P23-1 | **Panel swap, dock model untouched, launch width from the panel.** `ActivePortfolioPanel` → `OptionSpreadsPanel`; dock title **and** `objectName` become `Option Spreads`; the panel's `DiagonalStrikeButton("Option Spreads")` (`header_button`) becomes the dock's title-bar widget; the window attribute is renamed `portfolio_panel` → `option_spreads_panel` **and the ten `ActivePortfolioPanel` API calls that dereference it are deleted in the same wave** (RC-16: `:849,850,852,1731,2072,4349,4350,4357,4468,4538` — a deletion, since the new panel has none of those five methods and the old attribute is gone); the three panel-coupled collapse probes (`_compute_right_dock_collapsed_min_width`, `_right_region_is_collapsed`, `_sync_right_dock_collapse`'s widget tuple) are re-pointed; every other dock width/collapse/visibility path is untouched, and the **launch width is S-P23-16's** one-line request through the unchanged clamp. **The rename also re-points the twenty surviving dock lookups** (Codebase Summary) in the same wave, to `dock.objectName() in ("Option Spreads",)` — `objectName`, not the title, because once `setTitleBarWidget(header_button)` replaces the title bar the title string is not rendered at all (it is chrome), while `objectName` is the identity `findChild(QDockWidget, …)` already resolves the dock by in the two asserting suites; the three sentinel assertions (`test_history_backfill_loadpath.py:177`, `test_d42_depth_floor.py:189`, `test_dock_widths_d17.py:83`) keep theirs on the new key so a future rename fails loudly instead of silently. Rationale: D18/D21.13/D44 keep working with zero behavioural change beyond the owner-authorised launch width (AC-D65.9) and the collapse strip keeps a visible handle, and `A198`'s "every title-keyed lookup resolving it" is satisfied in the wave that creates the need. Alternative: a QTabWidget with two panels (rejected — Q110(a)); a plain dock title with no title-bar widget (rejected — the D44 strip and D21.13 strike would have to be rebuilt); re-keying the twenty lookups to the new title string (rejected — it re-creates the same coupling that made this rename break them, and a later header rewording would desync them a third time); `win.right_dock.hide()` in all twenty (rejected — it would make the `QDockWidget` import unused in fifteen files for no gain, and it would leave the three D19 sentinel assertions with no key to test). | `[revises D41: "the right dock is Portfolio-only"]` (A194/DG119) + `[extends D21.13/D44: panel-provided collapse header]` |
-| S-P23-2 | **Ladder geometry and naming: one formula, both sides, and one canonical fixture pair per side.** Rung 1 = anchor + 10, rung 2 = +5, rung 3 = anchor, rung 4 = −5, applied to **both** legs so every spread stays exactly **20** wide; the short leg is always written first; names read `SPX MmmDD short/long` from the expiry traded. Canonical fixtures (A212): **CCS `SPX Nov17 7425/7445`** = short 7425 call **below** long 7445; **PCS `SPX Nov17 7340/7320`** = short 7340 put **above** long 7320 — and a guard rejects any pair whose width is not 20 or any PCS row whose long strike is above its short, so the owner's 10-wide `7425/7435` / `7315/7435` rows can never re-enter as fixtures. Rationale: only this reading makes all eight of the owner's worked numbers the same four spreads (A187); one formula means one implementation and one test table, and one canonical pair per side means every suite (ladder, engine, stream, probe record) speaks the same strikes. Alternative: per-side mirrored offsets (rejected — that is the typo reading Q109(a) resolved); per-side name formats (rejected — A187); keeping the owner's literal example rows (rejected — A212 bans them, they are 10 wide and the PCS one is inverted). | `[new in P23]` — implements A187/A212 |
+| S-P23-2 | **Ladder geometry and naming: one formula, both sides, and one canonical fixture pair per side.** Rung 1 = anchor + 10, rung 2 = +5, rung 3 = anchor, rung 4 = −5, applied to **both** legs so every spread stays exactly **20** wide; the short leg is always written first; names read `SPX MmmDD short/long` from the expiry traded. Canonical fixtures (A212): **CCS `SPX Nov17 7425/7445`** = short 7425 call **below** long 7445; **PCS `SPX Nov17 7340/7320`** = short 7340 put **above** long 7320 — and a guard rejects any pair whose width is not 20 or any PCS row whose long strike is above its short, so the owner's 10-wide `7425/7435` / `7315/7435` rows can never re-enter as fixtures. Rationale: only this reading makes all eight of the owner's worked numbers the same four spreads (A187); one formula means one implementation and one test table, and one canonical pair per side means every suite (ladder, engine, stream, probe record) speaks the same strikes. Alternative: per-side mirrored offsets (rejected — that is the typo reading Q109(a) resolved); per-side name formats (rejected — A187); keeping the owner's literal example rows (rejected — A212 bans them, they are 10 wide and the PCS one is inverted). **[Superseded for PCS by P24, 2026-11-18 — Q114 = reading B: PCS uses its own offsets `{4:+5, 3:0, 2:−5, 1:−10}` with the Target on row 2 and its own canonical `7330/7310, 7325/7305, 7320/7300, 7315/7295`; the CCS decision, the naming rule, the 20-wide rule, the short-leg-first rule and the fixture guard all stand. See `AC-D66.2`/A215/S-P24-1.]** | `[new in P23]` — implements A187/A212 |
 | S-P23-3 | **Three-basis metric on the credit bases, with the owner's displayed sign stated in the same function pair.** *Credit bases* (what the Target measures and the walk steers on): `credit_bid = bid_s − ask_l`, `credit_ask = ask_s − bid_l`, `credit_mid = (credit_bid + credit_ask)/2`; `d = min(|credit_mid−T|, |credit_ask−T|, |credit_bid−T|)`; matched iff `d ≤ h` with `h = max(0.05, option_tick(T))` (S-P23-20's band: 0.05 below 3.00, 0.10 at or above). *Displayed values* (A202, what the cells show, negative for a credit spread by design): `display_ask = ask_l − bid_s = −credit_bid`, `display_bid = bid_l − ask_s = −credit_ask`, so the **ASK cell pairs with `credit_bid` and the BID cell with `credit_ask`** — a swap that is stated once here and implemented only inside `display_bases`/`credit_bases`. The anchor is the listed 20-wide pair from S-P23-19's seed minimising `d`, ties broken (1) smaller `|credit_mid−T|`, (2) `credit_mid ≥ T`, (3) short strike nearer the underlying's last price. Rationale: the owner's test is three-basis, so the *same* quantity must drive match and movement — otherwise the ladder declares a match and walks away from it; and because the display is the negative of the steering quantity, one named helper per direction is the only shape in which a sign cannot be mixed. Alternative: mid-only (rejected — Q108(b) overrode it); steering on mid while testing on three bases (rejected — the circularity above); a positive-credit display (rejected — contradicts A202 and the owner's screenshot); ad-hoc negations at each call site (rejected — the ASK/BID swap makes them unverifiable). | `[new in P23]` — implements Q108(b)/A188/A189/A202 |
 | S-P23-4 | **The two neighbours are already displayed — a step costs two swaps, and the step band is tick-derived.** The pairs one 5-point step either side of the anchor are exactly rungs 2 and 4, so both neighbours' `d` is computed from legs already streamed: a step decision needs **no** new subscription, and a step cancels the rung that leaves the window and subscribes the rung that enters it (2 + 2 per side; shared legs untouched). Direction: toward the toward-the-money rung when all three **credit** bases are below `T` (CCS strikes **down**, PCS **up**), the reverse when all are above; **move only when `d(neighbour) < d(current) − h`**, stop when matched (`d ≤ h`), when no neighbour improves by more than `h`, or when the improving neighbour is not a listed pair (once-only chain-edge message naming the best reachable value); equal-`d` neighbours break on the credit mid closer to `T`, then stay. `h = max(0.05, option_tick(T))` — **never narrower than one tick** (0.05 below 3.00, 0.10 at or above), pinned at both levels. One 5-point step per evaluation on **both** legs, evaluations ≤ 1/s. Rationale: this is what makes AC-D65.4 affordable under a 16-line option cap and makes AC-D65.6's shared-leg rule exact; credit is monotone in strike distance, so each rung has one improving direction and a stationary feed cannot oscillate; a 0.05 band above 3.00 would be narrower than a tick, so the ladder could never settle. Alternative: subscribing the neighbours as extra pairs (rejected — 4 more lines and churn for information the ladder already streams); a flat 0.05 band (rejected — AC-D65.4's ≥3.00 case fails, and a sub-tick band cannot settle); re-scanning on every move (rejected — violates A191/R139). | `[new in P23]` — implements the `### Direction Rule (Q108(b))`/A189/A204 |
 | S-P23-5 | **One movement primitive — a `reqId`-preserving window step — plus leases for the bounded seed probe.** A *window* is the four-rung ladder around one anchor (8 legs per side, 16 for both sides = the whole **option** cap). Every anchor change — a maintenance step, a Target change's refine, an OFF→ON seed's refine, an unusable-anchor correction — is a **window step**: the engine diffs the target window against the live window and issues the leaving leg pair's cancels **before** the arriving pair's subscribes (2 cancels + 2 subscribes per side, 4 each for both sides in one turn), so the live option count runs 16 → 14 → 16 and never exceeds 16 at any instant. **A leg in both the old and the new window is never cancelled** — it is not in the leaving set by construction, so it keeps its `reqId`. The seed's coarse tier (S-P23-18) is **not** a second line pool: each probe pair is a **lease of 2 lines against free capacity**, held only until the pair is scored, released immediately after, and refused outright when the live window already occupies the budget — so a leg already live is never leased, and the option count still never exceeds 16. The refine tier is then a **one-directional sweep** of window steps that **stops at the winner**, so `AC-D65.6`'s shared-leg rule holds on a re-anchor. Shared-leg preservation is a contiguity property: a leg (right, strike `S`) belongs to a **contiguous** range of anchors (a short strike to `anchor ∈ {S−10 … S+5}`, a long strike to `anchor ∈ {S+10 … S+25}`), so a sweep that visits anchors in one direction and ends at the winner never drops a leg the winner also holds. Coverage: a 20-wide credit vertical's net bid/ask are monotone in strike distance from the money, so `d` is quasi-convex along the ordered candidate list and the improving-direction sweep terminates **on** the minimiser; a chain observed to break that (the walk stops with a still-improving neighbour one plateau over) switches the session to the **full ordered sweep**, which visits every window in one direction — exact coverage with the same accounting, at `n` steps, bounded by the chain's width **and** by S-P23-18's 10 s / 12-pair bound. Rationale: this is the only shape that satisfies both `AC-D65.6`'s shared-leg rule and the option-line cap while still measuring a cold start instead of crawling to it — a lease is capacity-neutral, so the cap holds by construction rather than by luck. Alternative: a bounded binary probe with wholesale cancel/refill (rejected — the `AC-D65.6` violation above); a parallel probe pool beside the ladder (rejected — exceeds the cap and orphans live legs); a local walk with no seed measurement (rejected — A207's exact complaint, and a walk from a far guess stalls); `calculateOptionPrice`/IV model pricing (rejected — `AC-D65.5` forbids polling, and the owner asked for TWS quotes). | `[new in P23]` — mechanism for AC-D65.3 *with* AC-D65.6/AC-D65.15 (supersedes pass 1's probe scan and pass 4's median-only seed) |
@@ -9918,4 +9924,287 @@ is a recorded consequence rather than a silent one. Rationale: AC-D65.8/AC-D65.1
 | S-P23-22 | **The acceptance run is its own owner-run wave, and the suite cannot satisfy it.** A final wave produces (and then fills) `docs/archive/probe_records/d65_paper_tws_acceptance.md` in the recorded-probe shape beside `d48`/`d52`: the six `AC-D65.19` items pre-written as checkboxes with an evidence field each, and the TWS market-data line count recorded **before and after** OFF. Its exit is the recorded run (or an explicit recorded owner waiver); no other wave may claim it, and the residue gate's "every `AC-D65.*` satisfied" statement explicitly excludes it. Rationale: every automated test uses fakes, so a real gateway is the only evidence that quotes/greeks arrive and that OFF releases lines (A211/R144). Alternative: a gating live test in CI (rejected — repo rule); treating the fake-client suite as proof (rejected — R144's exact failure mode). | `[new in P23]` — implements AC-D65.19/A211 |
 | S-P23-23 | **Target validation is a gate in the panel, not a filter in the ladder.** The panel's commit path accepts `0.05 ≤ T ≤ 19.95` (a 20-wide spread's maximum worth is 20.00, so `≥ 20.00` cannot occur) and rejects blank / unparsable / `0` / negative / `NaN` / `Inf` / `≥ 20.00` with **one** message stating the accepted range in the status label, the field restored to the last valid value, and **no `target_committed` emitted**. A valid edit emits once and is applied by re-seeding immediately (then at the next cadence). Rationale: AC-D65.17 requires "no ladder state changes" — emitting nothing is the only shape in which a downstream engine cannot move; putting the range in the widget keeps one gate instead of two. Alternative: validate in the engine too (rejected — two truths for one bound, and the engine cannot restore the field); clamp silently (rejected — "reject with a message" is the AC). | `[new in P23]` — implements AC-D65.17 |
 | S-P23-24 | **The connection badge states the connection, not the account: D26.5's paper/live derivation retires with the account path.** `_update_conn_badge` (`ui/main_window.py:1645-1659`) is the account plane's **last surviving reader** — it reads `_account_summary` (`:1651`) and `_account_id` (`:1653`), both written only by `_on_account_summary` (`:4336`, `:4348`, deleted in P23-06). P23-06 rewrites it to `conn_badge_text(monitoring_paused=self._tws_paused)`; `conn_badge_text` (`:201-223`) loses its `account_id`/`account_type` parameters and the `DU`/`DEMO`/`PAPER` branch and returns **`"● Connected"` / `#34d399`** while connected and the unchanged D40 paused wording amber while `_tws_paused`; the `"● Connecting"` construction default (`:418`) and `_on_disconnected`'s `"● Disconnected"` (`:2087`) are untouched, and the fail-fast live-port guard (`settings.check_live_port`) stays. `_account_id` and `_account_summary` are deleted **with** their writer — no write-less attribute outlives the wave. Rationale: every account-typed input the badge had (`_account_id`, `AccountType`) arrives on the account-summary stream this phase deletes (`AC-D65.13`/A194/R143), so no surviving source exists: the port guard proves only that the **port** is the live one and D26.5's own docstring notes an account may still be paper/demo on it, so a port-derived "Live" would be exactly the hardcoded claim `AC-D26.5` forbade, and inventing another account source would be a new requirement rather than a plan decision. The retirement is **recorded** (this decision, P23-06's deliverable, P23-09's gate record, the `_account_id` forbidden token) so it cannot read as an accident and is not counted among `AC-D65.11`'s three `requirements.md` edits. Alternative: derive paper/live from `settings.IBKR_PORT` (rejected — false for a paper account on the live port, which is the case D26.5's derivation existed for); keep the two fields alive for the badge (rejected — a read of a deleted stream plus retained-and-inert state, which clause 4 of the Unused-Code Rule forbids); call `conn_badge_text(None, None)` and let it print `"● Live"` (rejected — a silent hardcoded claim in a function whose contract says it never makes one); ask requirements for a new paper/live source (rejected — A194/R143 already accepted the loss of every account-derived view, and the badge asserts a connection, not an account). | `[revises D26: the badge derives paper/live from the verified account id]` — recorded consequence of `AC-D65.13`/A194, not a `requirements.md` edit |
+
+## Phase P24 — Option Spreads panel: owner-restated display contract, PCS ordering delta (D66) — drafted 2026-11-18
+
+> Companion: `docs/plan.md` § *Phase P24* (traceability, three waves, assumptions, flagged issues).
+> Requirements input: `docs/requirements/requirements.md` (`Status: READY_FOR_PLAN`) — Phase P24 (D66),
+> Journey 64, **`AC-D66.1`–`AC-D66.8` FINAL** (Q114 = reading B, Q115 = `7315/7295`, Q116, Q117 answered
+> 2026-11-18), A213–A219, R154–R159, `design_gaps.md` DG124–DG127, `open_questions.md` Q114–Q117.
+> **Baseline: HEAD `db21672`**, where P23/D65 is present, wired and green (seven `tests/test_d65_*` suites,
+> 246 tests). **This is a display-contract delta, not a rebuild** (A216/R157): no clause here asks any
+> agent to restore, re-plan or re-open P23 — D1–P23 are read-only inputs and every P23 criterion carries
+> forward except the one offset rule `AC-D66.2` revises.
+> Existing-repo run: every item below carries `[existing]`, `[new]` or `[new/changed]`; every decision
+> carries `[new in P24]`, `[revises P23: …]` or `[extends P23: …]`. Sizes S/M only.
+
+### Relationship to prior phases
+
+One rule changes and one fixture convention follows it. Composition, stated once so nothing is
+silently revised:
+
+- **`[revises P23: S-P23-2's "one formula, both sides" and its PCS canonical fixture 7340/7320]`** —
+  Q114 = reading B / Q115 / A215. `services/option_ladder.py::RUNG_OFFSETS` stops being one rung→offset
+  table shared by both sides and becomes a **per-side** table in row order: CCS `(1,+10) (2,+5) (3,0)
+  (4,−5)` (unchanged), PCS `(4,+5) (3,0) (2,−5) (1,−10)`. Consequently the **Target (anchor, offset 0)
+  sits on row 3 for CCS and row 2 for PCS**, and the canonical PCS pair becomes the owner's corrected
+  `SPX Nov17 7330/7310, 7325/7305, 7320/7300, 7315/7295` at `S3 = 7325` (CCS's `7435/7455 …
+  7420/7440` at `S3 = 7425` is untouched). S-P24-1 owns the table, S-P24-4 owns the fixtures.
+- **`[extends P23: the geometry helper's public surface]`** — the call surface does not move:
+  `ladder_pairs(anchor_short, side="CCS") -> list[tuple[float, float]]` and
+  `window_legs(anchor_short, side="CCS") -> list[LegKey]` keep their names, parameters, defaults,
+  row-order output (four pairs / eight legs, top row first) and the `_side_key` normalisation;
+  `window_legs` keeps delegating to `ladder_pairs`. Only which offsets `ladder_pairs` reads changes,
+  and only for PCS.
+- **`[extends P23: the engine's anchor and row contract]`** — the anchor stays *the pair whose offset is
+  0* (label 3 on both sides), so `_session_anchor`, `_install_windows`, `_step_candidate`, `evaluate`
+  and `rows()` keep their semantics; what moves is the **row position** that pair occupies on PCS.
+  S-P24-2 (issue order) and S-P24-3 (`SpreadRow.rung`) record the two consequences rather than leaving
+  them to be discovered.
+- **`[extends P23: the panel]`** — the panel is a renderer: it fills its rows in the order it receives
+  them (`apply_snapshot` → `_populate`) and computes no geometry. It changes **zero lines**; the PCS
+  table simply receives a different four-row list. Q116 (toggle right-aligned in the Target row) and
+  Q117 (no rendered row numbers) are both already true at HEAD and are frozen by AC-D66.3/AC-D66.8.
+- **`[revises P23: the ladder module's documented "one table on both sides" invariant (DG127)]`** — the ladder module's docstring and
+  the `RUNG_OFFSETS`/`ladder_pairs` comments assert "one offset table applied identically on both
+  sides" (`:7`, `:59-60`, `:112-119`). Those sentences are **false for PCS** the moment S-P24-1 lands,
+  so they change in the same edit (S-P24-6). This is the code-side counterpart of the five
+  `[revises P23, 2026-11-18 …]` notes the requirements analyst already appended in `requirements.md`
+  (AC-D65.2, A187, A212, the P23 glossary's anchor entry, R142) — those are **kept verbatim**, never
+  re-deleted or re-worded.
+- **`[new in P24]` — the architecture-side supersession markers.** `requirements.md` records the
+  revision; this document holds three normative sentences that now contradict the shipped rule (the
+  pass-5 summary's item J, the System Components entry for `services/option_ladder.py`, and S-P23-2's
+  decision row). Each gets an **appended one-line marker** pointing at `AC-D66.2`/S-P24-1. No P23
+  sentence is rewritten, no P23 decision is withdrawn wholesale, and `docs/plan.md`'s P23 section keeps
+  its `READY_FOR_TASK_MANAGER` status: the P23 increment is *built and correct for CCS*, which is what
+  those sentences were about.
+- **`[existing]` — unchanged and consulted, never reshaped:** the whole P23 engine (seed, leases, window steps,
+  connection lifecycle, per-line error classes, message latch), the panel's Target gate and red/green
+  toggle, `format_instrument`/`_format_expiry` (already `MmmDD` — DG125 verified, do not edit), the
+  16-option + 1-spot line budget, `ibkr/` in full, `ui/main_window.py`'s option wiring, and the
+  D45/D46 order-code absence (no order path exists and none is touched).
+
+An unlabeled decision below is `[new in P24]`.
+
+### Codebase Summary (existing repository — P24 surface; pointer + deltas)
+
+The module index lives in `docs/codebase-map.md` (P24 note appended; no new production module, so the
+generated skeleton is unchanged). What this phase touches, and what each site currently *encodes*:
+
+| Site | What it encodes today | P24 disposition |
+|---|---|---|
+| `services/option_ladder.py` `:54-60` | `SPREAD_WIDTH = 20`, `STRIKE_STEP = 5`, and the single `RUNG_OFFSETS = {1: 10, 2: 5, 3: 0, 4: -5}` commented "Applied identically on both sides — there is no mirrored copy of this table" | `[new/changed]` per-side table (S-P24-1); comment and module docstring rewritten (DG127) |
+| `services/option_ladder.py` `:109-131` | `ladder_pairs` iterates `sorted(RUNG_OFFSETS)` and offsets from the anchor; docstring states "the same offset table on both sides" and names PCS canonical `7340/7320` | `[new/changed]` body + docstring; signature and 20-wide/side-direction rule unchanged |
+| `services/option_ladder.py` `:334-347` | `window_legs` — eight legs, short then long, per rung, delegating to `ladder_pairs` | `[existing]` unchanged code; output changes for PCS as a consequence |
+| `services/option_spread_engine.py` `:145-148` | `_WINDOW_ISSUE_ORDER = (4, 5, 2, 3, 6, 7, 0, 1)` documented "rungs 3, 2, 4, 1" — index order, anchor first in P23 | `[existing]` unchanged; S-P24-2 records that it is no longer anchor-first on PCS |
+| `services/option_spread_engine.py` `:728-760` | `rows()` enumerates `ladder_pairs(anchor, side)` with `start=1`, so `SpreadRow.rung` is the **1-based display row** | `[existing]` unchanged; S-P24-3 fixes the field's documented meaning |
+| `services/option_ladder.py` `:83-95` | `SpreadRow(rung, short, long, …)`; its docstring says only "one displayed ladder row", so `rung`'s meaning is implicit in `rows()`'s `enumerate(..., start=1)` | `[existing]` fields unchanged; the docstring gains the display-row vs label distinction (`:84`, P24-01 deliverable 3 / S-P24-3) |
+| `services/option_spread_engine.py` `:1133`, `:1174`, `:1454-1477` | `_step_candidate` (neighbours = anchor ± 5), `evaluate`, `_pair_for_leg` — all anchor-and-strike based, never row-index based | `[existing]` unchanged; verified no row-index dependency |
+| `ui/option_spreads_panel.py` | `DEFAULT_TARGET = 1.00` (`:58`), `COLOUR_OFF/ON` (`:66-67`), toggle in `controls_row` right of the Target field (`:166-193`), `apply_snapshot`/`_populate` render in received order, no number column anywhere | `[existing]` unchanged — the AC-D66.3–D66.6, D66.8 facts are already built |
+| `tests/test_d65_option_ladder.py` | the shared-table suite: `RUNG_OFFSETS` shape (`:57-62`), `[10,5,0,-5]` for **both** sides (`:65-79`), `one_offset_table_on_both_sides` + its two forbidden-name strings (`:82-94`), canonical PCS `7340/7320` (`:97-110`), PCS `window_legs` at anchor 7340 (`:495-520`) | `[new/changed]` — the invariant test is replaced, not deleted silently (S-P24-4) |
+| `tests/test_d65_spread_engine.py` | `MIRROR = 2 * 7330` + `mirror_table` (`:86-97`) manufacture a symmetric PCS quote profile index-for-index with CCS; `AC1_TABLE` (`:146-157`) covers it | `[new/changed]` — the mirror model must cover the shifted PCS window (S-P24-4) |
+| `tests/test_d65_option_stream.py` | `EXPECTED_SHORTS = [7360, 7355, 7350, 7345]` (`:41`) used for **both** sides (`:338`); PCS row indices asserted at `:1295-1309`; kept/arriving PCS legs at anchor 7355 (`:426-445`) | `[new/changed]` — splits per side; PCS row indices shift one up (S-P24-4) |
+| `tests/test_d65_option_panel.py` | `pcs_name = "SPX Nov17 7340/7320"` (`:484`) as the panel's snapshot fixture | `[new/changed]` — re-baselined to the corrected PCS table (S-P24-4) |
+| `tests/test_d65_residue.py` | the D65 residue gate: `CANONICAL_FIXTURES = ("7425/7445", "7340/7320")` (`:273`) must each still appear in `docs/plan.md`, `docs/architecture.md`, the ladder suite **and** the panel suite (`:2536-2573`); `BANNED_EXAMPLES` / `LEGAL_NON_BANNED_PAIR` (`:274-275`) guard the ban list itself | `[new/changed]` — the PCS canonical entry is **re-pointed** to the corrected anchor pair `7325/7305` in the same wave as the panel fixture; gate body, holder list and ban lists untouched (S-P24-4) |
+| `tests/test_d65_option_chain.py`, `tests/test_d65_acceptance_record.py` | chain discovery, the D65 acceptance record | `[existing]` unchanged — no P24 token enters the forbidden set; the acceptance record is not re-run (ESC-123's stale commit hash is out of this phase) |
+| `docs/requirements/*`, `docs/plan.md`, `docs/architecture.md`, `docs/codebase-map.md` | the records | `[new/changed]` — notes already applied by the analyst; Plan adds the P24 sections, the three architecture markers and the map note |
+
+### Summary
+
+P24 is one table and the fixtures that encode it. `services/option_ladder.py::RUNG_OFFSETS` becomes a
+per-side, row-ordered table of `(logical label, offset-from-anchor)` pairs — CCS unchanged, PCS
+`+5 / 0 / −5 / −10` — and `ladder_pairs` reads it in row order; every other production file is
+untouched, and the engine, panel, seed, walk, lifecycle and line budget behave exactly as they do at
+HEAD. The four suites that hard-coded the shared table, and the residue suite whose canonical-fixture
+gate pins one pair of it, are re-baselined to the owner's corrected PCS fixture set; one new fence suite
+re-asserts the restated contract (name format, width, colours, `1.00`, no number column, history
+markers), and the module's own stale "one table on both sides" comments — and the `SpreadRow` docstring —
+change with the table.
+
+### Tech Stack Decisions
+
+Constrained (existing) choices first — every one is a hard input, none is re-opened:
+
+| Decision | Choice | Rationale | Alternatives considered |
+|---|---|---|---|
+| Language / runtime | `[existing]` Python 3.11+ in the repo `.venv`, macOS arm64; **no new dependency** | the change is one literal and the code that reads it | — |
+| GUI | `[existing]` `PyQt6>=6.6`; the panel is untouched | Q116/Q117 confirm HEAD's panel is already the owner's contract | re-building the panel from the restated prose (rejected — A216/R157: the tree is green) |
+| Broker / transport | `[existing]` official `ibapi` (`ibapi-latest==10.51.1`), live TWS **7496 only, no paper mode**, bridge-only | the request shape does not change: same eight legs per window, same tick types, same pacing | a `calculateOptionPrice`/model-pricing path (rejected — `AC-D65.5` forbids polling; carried forward); any second data path (rejected — P23 non-goal carried forward) |
+| Chart / storage | `[existing]` the P6 LWC chart stack; SQLite at `get_db_path()` | neither is involved | — |
+| Test harness | `[existing]` pytest + `pytest-qt`, offscreen, no live TWS required | the new fence suite needs no new harness: constants, pure functions, a doc read and a rendered-table count | a live-TWS check (rejected — AC-D66.8 is a suite-level fence) |
+| Ladder table shape `[new in P24]` | one constant, per side, **row-ordered tuples of `(logical label, offset)`**: `RUNG_OFFSETS = {SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)), SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10))}` | the two things a reader must be able to check — row order and label — are both in the literal; iteration is `for label, offset in RUNG_OFFSETS[key]`, so row order can never be re-derived from the label | a dict keyed by label (`{4: 5, 3: 0, 2: -5, 1: -10}`) with `sorted()` iteration (rejected — **PCS labels descend**, so `sorted()` would silently print `1,2,3,4` and reverse the PCS rows; the exact defect AR-P24-2 measures); two module-level tables (`RUNG_OFFSETS` + `PCS_RUNG_OFFSETS`) (rejected — A219/R154: a forked table is how the two sides drift apart again, and the ladder suite already forbids those two names); a per-side `if` inside `ladder_pairs` (rejected — a call-site special case in the one function that must stay table-driven) |
+| PCS fixture model in the engine suite `[new in P24]` | keep `mirror_table`, re-centre it on the anchor each fixture drives, and extend the profile to every strike the shifted PCS window touches | one model, one assertion of coverage; re-centring beats hand-writing a second quote table per case | a second hand-written PCS table per fixture (rejected — duplicates eight values per case and hides which strikes are covered); keeping `MIRROR = 2*7330` and silently leaving `7300` (the new PCS long) unquoted (rejected — a fixture hole that reads as a passing test, AR-P24-3) |
+| Record layering `[new in P24]` | `requirements.md` notes (analyst-applied, kept verbatim) + appended architecture markers + code comments changed with the table | AC-D66.7 names the requirements notes; DG127 names the comments; the architecture markers close the same drift one layer up (ESC-066/ESC-069 precedent) | rewriting the P23 sentences (rejected — they are correct for CCS and the phase is built); leaving the architecture silent (rejected — that is the drift ESC-066 exists for) |
+
+### System Components
+
+- `[new/changed] services/option_ladder.py` — the **per-side offset table** (S-P24-1), the `SpreadRow`
+  docstring's meaning paragraph (`:84`, S-P24-3/P24-01) and the three docstring/comment blocks that
+  assert the retired invariant (`:7`, `:59-60`, `:112-119`). Nothing else
+  in the module moves: `format_instrument`/`_format_expiry`/`_format_strike`, `display_bases`,
+  `credit_bases`, `option_tick`, `match_band`, `_usable_price`/`usable_quote`, `distance`, `_net`/
+  `net_greeks`, `_has_partner`/`snap_rung`, the four cell formatters and the Qt-free import set are
+  byte-identical.
+- `[existing] services/option_spread_engine.py` — **unchanged**, and that is a designed outcome
+  (AC-D66.8): it consumes `ladder_pairs`/`window_legs` and derives every row, anchor and neighbour from
+  strikes, never from row indices. Its `rows()` therefore returns the PCS list in the new row order
+  automatically, with `SpreadRow.rung` counting positions 1..4 as before.
+- `[existing] ui/option_spreads_panel.py` — unchanged; a renderer of received rows. The Target row moves
+  on PCS because the row *it receives* moves, not because the panel changes.
+- `[existing] ui/main_window.py` — unchanged; `_option_cancel_pair` (`:2419-2434`) re-derives a pair
+  from `ladder_pairs(anchor, side)`, so it follows the table with no edit.
+- `[existing]` the seven `tests/test_d65_*` suites — **five** carry re-baselines (ladder, engine, stream,
+  panel, residue), **two** are untouched (chain, acceptance record).
+- `[new] tests/test_d66_delta_fence.py` — one small suite that pins the restated contract (AC-D66.1,
+  D66.3–D66.8): the constants, the name regex and its ISO zero-padded-day rejection, the absence of a
+  rendered number column, the `[revises P23, 2026-11-18` markers in `requirements.md`, and the
+  no-shared-table source assertion that replaces P23's "one offset table" test.
+
+### Data Model
+
+- **Offset table** `[new]` — `RUNG_OFFSETS: dict[str, tuple[tuple[int, int], ...]]`, one entry per
+  side, **row order = tuple order**, each element `(logical label, short-strike offset from the anchor
+  short strike)`. CCS `((1, 10), (2, 5), (3, 0), (4, -5))`; PCS `((4, 5), (3, 0), (2, -5), (1, -10))`.
+  The offset-0 entry is the anchor on both sides (label 3, row 3 on CCS / row 2 on PCS). The labels are
+  specification data only: nothing renders them (Q117).
+- **`LegKey(right, strike)` / `SpreadRow(rung, short, long, display_name, display_ask, display_bid,
+  delta, gamma, matched)`** `[existing]` — fields, order and types unchanged. `rung` is the 1-based
+  **display row**, and the dataclass docstring (`services/option_ladder.py:84`, edited by P24-01
+  deliverable 3) says so: the row is the position top→bottom (`1..4`), the owner's **labels** are
+  specification data only and run `4,3,2,1` against those positions on PCS (`1,2,3,4` on CCS), and
+  nothing renders a digit or a row-number column (S-P24-3, Q117).
+- **`[existing]` no persistent entity changes**: nothing is added to, removed from or migrated in SQLite; no state is
+  persisted by the panel (A192/Q111 unchanged).
+
+### Integration Points
+
+- `[existing]` **TWS via `ibapi`** — no new request type, no new line, no new pacing cost: the window
+  is still four pairs (eight legs) per side, built by attributes, subscribed through
+  `MarketDataManager.req_mkt_data`, registered under `OPTION_LEGS` and replayed on reconnect. Only the
+  *strikes* of the PCS legs change (each 5 points lower than P23's), so `reqSecDefOptParams` /
+  chain-discovery behaviour and the listed-strike snap rule are untouched.
+- `[existing]` **Order path** — none. No order-shaped call exists in the tree (D45/D46) and P24 adds
+  none; AC-D66.5's zero-order assertion is re-asserted, not extended.
+- No new external service, credential, endpoint or dependency of any kind.
+
+### Frozen Interfaces
+
+Every entry is `[existing]` and **unmodified by this phase** (nothing new is frozen). Task Manager gives
+workers these contracts verbatim, never the implementation.
+
+- `services/option_ladder.py` — `format_instrument`, verbatim:
+  `def format_instrument(symbol: str, expiry, short: float, long: float) -> str:` — returns
+
+  ```
+  f"{str(symbol).strip()} {_format_expiry(expiry)} {_format_strike(short)}/{_format_strike(long)}"
+  ```
+
+  i.e. short leg first, `MmmDD` expiry (`Nov17`, never ISO, never zero-padded), whole strikes as `7425`
+  else `:g`; raises `TypeError` for an unsupported expiry. **Do not edit** (DG125). Owner:
+  `services/option_ladder.py`.
+- `services/option_ladder.py` — the two row/leg dataclasses, verbatim field lists:
+  `LegKey(right, strike)`; `SpreadRow(rung, short, long, display_name, display_ask, display_bid, delta,
+  gamma, matched)`. Field names and order are asserted by the ladder suite and are **frozen**; only the
+  `SpreadRow` docstring's prose is edited (P24-01 deliverable 3 / S-P24-3), and `rung`'s meaning is
+  documented there — its name and position do not change. Owner: `services/option_ladder.py`.
+- `services/option_ladder.py` — the arithmetic surface, verbatim signatures, all byte-identical:
+  `def display_bases(bid_s: float, ask_s: float, bid_l: float, ask_l: float) -> Tuple[float, float]:`
+  (`(display_ask, display_bid)` = `(ask_l - bid_s, bid_l - ask_s)`) ·
+  `def credit_bases(bid_s: float, ask_s: float, bid_l: float, ask_l: float) -> Tuple[float, float, float]:`
+  (`(-display_ask, -display_bid, their mean)`, the module's only sign decision) ·
+  `def option_tick(target: float) -> float:` (0.05 below 3.00, 0.10 from it) ·
+  `def match_band(target: float) -> float:` (`max(MIN_BAND, option_tick(target))`) ·
+  `def usable_quote(bid, ask, received_bid, received_ask) -> Tuple[Optional[float], Optional[float]]:`
+  (a received `0` bid is live; `-1`/`sys.float_info.max`/NaN/±inf/unreceived/crossed ⇒ `(None, None)`) ·
+  `def distance(target: float, credit_bid: float, credit_ask: float, credit_mid: float) -> float:` ·
+  `def net_greeks(delta_s, delta_l, gamma_s, gamma_l) -> Tuple[Optional[float], Optional[float]]:` ·
+  `def snap_rung(strike: float, listed: Sequence[float], anchor: float) -> Optional[float]:` ·
+  `def format_ask(value)` / `format_bid(value)` (`.2f`) / `format_delta(value)` (`.3f`) /
+  `format_gamma(value)` (`.4g`) — `""` for an absent side. Owner: `services/option_ladder.py`.
+- `services/option_ladder.py` — the two geometry constants, verbatim: `SPREAD_WIDTH = 20`,
+  `STRIKE_STEP = 5` (`SPREAD_WIDTH == 4 * STRIKE_STEP`). Owner: `services/option_ladder.py`.
+- `services/option_ladder.py` — `window_legs`, verbatim signature:
+  `def window_legs(anchor_short: float, side: str = SIDE_CCS) -> List[LegKey]:` — eight legs, per row
+  short then long, the side's right (`"C"` / `"P"`), row order from `ladder_pairs`. Its **signature,
+  row count, ordering and right-by-side rule** are frozen; its *strikes for PCS* are this phase's
+  output, so no worker may pin them from P23's numbers. Owner: `services/option_ladder.py`.
+- `services/option_spread_engine.py` — `rows` and `anchor`, verbatim:
+  `def rows(self) -> Dict[str, List[SpreadRow]]:` (four rows per committed side, top row first, absent
+  cells left `None`/unmatched) and `def anchor(self, side: str) -> Optional[float]:` (the committed
+  anchor **short strike**, not a row number). Neither is edited. Owner:
+  `services/option_spread_engine.py`.
+- `ui/option_spreads_panel.py` — verbatim: `DEFAULT_TARGET = 1.00`, `TARGET_MIN = 0.05`,
+  `TARGET_MAX = 19.95`, `COLOUR_OFF = "#ef4444"`, `COLOUR_ON = "#22c55e"`, `MIN_ROWS = 4`,
+  `def apply_snapshot(self, ccs_rows, pcs_rows) -> None:` (fills both tables in received order, keeps
+  `MIN_ROWS`, clears the empty state once rows arrive), `def set_toggle_state(self, on: bool) -> None:`
+  (property + colour + palette + text, no echoed signal), `def set_target_value(self, value: float) -> None:`.
+  The toggle stays **right-aligned in the Target row** (Q116). Owner: `ui/option_spreads_panel.py`.
+- `ui/main_window.py` and `services/option_spread_engine.py` — the pair-lookup loop, verbatim in both
+  places: `for short, long in ladder_pairs(anchor, side):` inside `_option_cancel_pair`
+  (`ui/main_window.py` `:2419`) and inside `_pair_for_leg` (`services/option_spread_engine.py` `:1454`)
+  — both re-derive the live pair from the table, so neither is edited and neither may cache P23's
+  strikes. Owners: `ui/main_window.py`, `services/option_spread_engine.py`.
+
+**NOT frozen (changed or created this phase; no worker may assume the old contract):** the offset table
+itself, the three docstring/comment blocks that describe it and the `SpreadRow` docstring's meaning
+paragraph (S-P24-1, S-P24-3, S-P24-6 — the dataclass's field list stays frozen, its prose does not);
+`ladder_pairs`'s **body and documented offsets** (signature, parameters and row-count contract
+unchanged); the **five** re-baselined suites' PCS expectations (ladder, engine, stream, panel) and the
+residue gate's PCS canonical entry (residue); the new fence suite; the three appended `architecture.md`
+markers and the `docs/codebase-map.md` P24 note.
+
+### Non-Functional Approach
+
+- **Line budget and pacing (AC-D66.5, AC-D66.8; P23's AC-D65.6/AC-D65.15 carried forward).** The window
+  is still eight legs per side, 16 in total, plus at most one spot line — the PCS long legs sit five
+  points lower but their **count** is unchanged, so no other budget or guard statement moves. A window
+  step still diffs to two cancels + two subscribes per side, and a leg shared between the old and new
+  PCS window is still never cancelled.
+- **The sweep's coverage proof still holds — with shifted intervals.** P23's shared-leg argument rests
+  on each leg belonging to a *contiguous* range of anchors. Per side that range is table-derived: a PCS
+  **short** `S` is in the window for `anchor ∈ {S−5 … S+10}` and a PCS **long** for
+  `anchor ∈ {S+15 … S+30}` (CCS keeps `{S−10 … S+5}` / its own long range). Contiguity — the only
+  property the one-directional sweep and the `AC-D65.6` shared-leg rule need — is preserved, so no
+  engine change is implied by the new table. This is the check that keeps "nothing else moves" honest
+  rather than hopeful.
+- **Evaluation cadence.** Unchanged: ≤1 evaluation per second, zero extra subscriptions for a step
+  decision. The neighbours a step considers are `anchor ± STRIKE_STEP` by strike (never by row index),
+  and both are already displayed rows on either side — rows 2 and 4 on CCS, rows 1 and 3 on PCS (the
+  rows immediately above and below the anchor row in each case). The extra PCS row 4 (`S3−10`) is
+  displayed but never a step candidate, exactly as P23's row 1 was not. Nothing in the change touches
+  timers, coalescing or repaint.
+- **Determinism and testability.** The table is a literal and `ladder_pairs` is pure, so the delta is
+  fully covered by unit assertions with no Qt, no clock and no network; the five re-baselined suites
+  keep their existing fake chain/quote doubles (the residue gate reads text files, not quotes).
+- **Doc consistency as a first-class output (DG127, AC-D66.7).** A stale invariant in a comment is how
+  the next change gets built on the wrong model, so the three code sentences change **in the same edit
+  as the table** and the fence suite asserts the five `requirements.md` revision markers exist and that
+  the retired phrases are gone from the ladder module.
+- **Security / privacy / ops.** No new I/O, credential, endpoint or order path; nothing persisted; no
+  migration; no change to the 90/100 line guard, the pacing manager or the reconnect replay.
+
+### Architecture Risks
+
+| Risk | Severity | Likelihood | Mitigation |
+|---|---|---|---|
+| AR-P24-1 — the two sides' offsets diverge later (one side edited, the other forgotten) | M | M | one constant, both sides in one literal, one test per side in the ladder suite, and a source assertion that no second module-level offset table exists (A219) |
+| AR-P24-2 — PCS row order is silently reversed by label-keyed iteration (`sorted()` over descending labels) | H | M | row-ordered tuples, iteration in tuple order, plus a test that asserts the PCS row order **and** the label order separately from the offset order |
+| AR-P24-3 — the engine suite's mirrored quote model no longer covers the shifted PCS window, so a partially unquoted window passes as green | H | M | re-centre `mirror_table` per fixture and assert **coverage**: every leg of both committed windows appears in the quote plan before the seed is driven |
+| AR-P24-4 — an index-based expectation in the stream suite (PCS row index, `EXPECTED_SHORTS`, kept/arriving legs) is re-baselined by hand and misses one site | M | M | the re-baselines are named per site in the wave, the wave exits on all seven D65 suites green, and the anchor-row change is asserted explicitly (PCS Target row 2, CCS row 3) |
+| AR-P24-5 — the panel suite's PCS snapshot string stays at `7340/7320` and quietly re-encodes the retired model — or the panel fixture moves alone and the residue gate reddens the phase | M | M | the panel fixture **and** the residue gate's PCS canonical entry are re-baselined in the same wave (panel first, AP-P24-9); the ladder suite's canonical fixtures and the new fence name the corrected table (R156) |
+| AR-P24-6 — `_WINDOW_ISSUE_ORDER` is no longer anchor-first on PCS | L | L | recorded in S-P24-2: all eight subscribes are issued in one plan, so the cost is one pacing slot on one side; no criterion observes issue order; changing it would be an unrequested behaviour change |
+| AR-P24-7 — the P23 architecture sentences contradict the shipped rule | M | M | the three appended markers (S-P24-6) + AC-D66.7-inspired grep in the fence; no P23 sentence rewritten |
+| AR-P24-8 — the delta is read as "P23 again" and scope creeps back (formatter, toggle, dock, engine) | M | M | AC-D66.8's verified-unchanged fence, the non-goals, and the delta-scope record in P24-03 (R158) |
+
+### Architecture Decisions (relationship-labelled)
+
+| # | Decision | Relationship |
+|---|---|---|
+| S-P24-1 | **One per-side, row-ordered offset table; `ladder_pairs` reads it in row order.** `RUNG_OFFSETS = {SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)), SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10))}` — keyed by the normalised side, each entry a tuple of `(logical label, short-strike offset from the anchor)`, **tuple order = display order top→bottom**. `ladder_pairs` iterates that tuple (never `sorted()`), so PCS reads `S3+5, S3, S3−5, S3−10` on rows 1–4 with the anchor on row 2, while CCS is byte-for-byte P23's geometry. The long leg stays `short ± SPREAD_WIDTH` by side. The old shared literal is **deleted, not kept** (the Unused-Code Rule, A197), and no second offset table may exist under any name. Rationale: A219/AC-D66.2 require exactly one decision point per side, and putting label **and** row position in the literal is what makes the descending PCS label order impossible to re-derive wrongly; a dict keyed by label loses the row order. Alternative: dict keyed by label + `sorted()` (rejected — `sorted()` orders PCS labels `1,2,3,4` = rows reversed); `RUNG_OFFSETS` + `PCS_RUNG_OFFSETS`, or a mirrored second table (rejected — A219/R154 and the ladder suite's existing name guard); branching inside `ladder_pairs` on `key == SIDE_PCS` (rejected — the call-site special case the requirements forbid); shifting the PCS *anchor* instead of the table (rejected — `AC-D66.2` keeps the anchor at label 3, and an anchor shift would move CCS). | `[revises P23: S-P23-2 "one formula, both sides" + RUNG_OFFSETS]` — implements `AC-D66.2`/A215/A219 |
+| S-P24-2 | **The engine's window issue order stays one fixed index order; anchor-first is not a contract.** `_WINDOW_ISSUE_ORDER = (4, 5, 2, 3, 6, 7, 0, 1)` is unchanged and its comment ("rungs 3, 2, 4, 1") stays literally true as **row indices**; on PCS the anchor pair (row 2) is therefore the second pair in the plan rather than the first. Every subscribe of an install is issued in a single `Actions` batch anyway, so the observable difference is one pacing slot on one side, and no criterion (`AC-D66.*`, nor `AC-D65.4`/`AC-D65.14`) observes issue order. Rationale: A216/AC-D66.8 — the phase's diff is the table and its fixtures; deriving a per-side anchor-first order would be an unrequested behaviour change to a green engine. Alternative: derive a per-side order that puts the offset-0 row first (rejected — new engine logic, no measurable gain, and it would change CCS's order too if written as "anchor first, then the rest"); freeze `_WINDOW_ISSUE_ORDER` as a contract (rejected — it is an internal pacing nicety, not a contract). | `[extends P23: the engine is unchanged]` — recorded consequence of S-P24-1 |
+| S-P24-3 | **`SpreadRow.rung` is the 1-based display row, and the owner's labels stay specification-only.** `rows()` enumerates `ladder_pairs(anchor, side)` with `start=1`, so `rung` counts positions top→bottom (1..4) on **both** sides; PCS's logical labels are the table entries' first element and run `4,3,2,1` against those positions. The dataclass field keeps its name and position (the ladder suite asserts the field list; nothing reads `rung` for display), and its docstring — the **implementing site is P24-01 deliverable 3, `services/option_ladder.py:84`** — states the distinction explicitly: `rung` is the display position top→bottom (`1..4`), the labels are specification-only `4,3,2,1` against those positions on PCS, and no digit or row-number column is ever rendered (Q117/AC-D66.2). Rationale: renaming the field would be production churn outside AC-D66.8's delta for a documentation win, and Q117 makes the labels unobservable in the UI. Alternative: rename `rung` → `row` (rejected — outside the delta, and it buys nothing the docstring does not); add a `label` field to `SpreadRow` (rejected — a production field nothing renders, which the Unused-Code Rule would flag); re-key rows by label (rejected — it would make PCS's row list non-ordered and put the label in the render path). | `[extends P23: the engine's row contract]` — implements `AC-D66.2`/Q117 |
+| S-P24-4 | **The fixtures are re-derived, not patched — five suites, named site by site, with a coverage assertion.** `tests/test_d65_option_ladder.py`: `RUNG_OFFSETS`'s shape, the per-side offsets, `one_offset_table_on_both_sides` **replaced** by a per-side test (CCS unchanged; PCS `+5/0/−5/−10` with the anchor on row 2; the corrected canonical names; the two forbidden-name strings kept as the "no second table" guard), and the PCS `window_legs` fixture moved to the owner's table. `tests/test_d65_spread_engine.py`: `mirror_table` re-centred per fixture and its profile extended so **every leg of both committed windows is quoted** — the shifted PCS window reaches the table keys at `anchor + 10` (the mirror of the new row-4 short) and `anchor + 30` (the mirror of the new row-4 long), neither of which P23's model needed (`anchor + 25` was its edge). `tests/test_d65_option_stream.py`: `EXPECTED_SHORTS` splits into a CCS list (unchanged `7360, 7355, 7350, 7345`) and a PCS list (`7355, 7350, 7345, 7340` at `SPOT 7350`), the PCS row-index expectations move up one (`("PCS", 1, 7350.0)` — the anchor is now row 2), and the re-anchor case's kept/arriving leg sets are re-derived at its new anchors. `tests/test_d65_option_panel.py`: the snapshot fixture becomes the corrected PCS **anchor pair `7325/7305`** (pinned, so the canonical pair is one name everywhere). `tests/test_d65_residue.py`: the **canonical-fixture gate** is re-pointed — `CANONICAL_FIXTURES`' PCS entry `7340/7320` becomes the corrected anchor pair `7325/7305`, with the gate body, its four required holders, `BANNED_EXAMPLES` and `LEGAL_NON_BANNED_PAIR` untouched, in the same wave as the panel fixture (panel first) because the gate can only pass once that suite carries the new pair. This is R156's "no silent retirement" applied to the suite that *enforces* fixture survival: re-stating the corrected pair in the docs while leaving the gate on the retired pair would leave the phase with the only two options being a red gate or a deleted gate — so the pair is **moved**, in one edit, everywhere it is canonical. The two **banned** typo pairs `AC-D66.2` names — the 120-wide and the 80-wide restatement at strike 7315, **described here rather than quoted**, because the residue gate scans this file for a banned string presented outside a claim-marker window — are absent from every **positive** fixture: no committed quotable fixture, seed quote plan, probe record or canonical example presents them, while the shipped **negative guards** that assert them absent (`test_d65_residue.py`'s `BANNED_EXAMPLES` and its ban-list self-guard, the ladder suite's `_fixture_guard` docstring) are permitted mentions that keep asserting absence for real fixtures and must not be deleted, and every P23 expectation that is retired is named in the wave's result (A201/R156). Rationale: R156 — a silently retired expectation is how the old and new models get confused; the coverage assertion is what stops the mirrored-profile change from passing with an unquoted window. Alternative: patch only the failing assertions until green (rejected — hides coverage holes, and AR-P24-3 is exactly that failure); keep the old fixture set and add new cases beside it (rejected — two models in one suite, and P23's numbers would still encode a rule that no longer ships). | `[revises P23: the PCS fixture set]` — implements `AC-D66.2`/A212's revision + R156 |
+| S-P24-5 | **The restated-but-unchanged contract is fenced in one new suite rather than re-argued.** `tests/test_d66_delta_fence.py` asserts, one assertion per artefact (AC-D66.1, D66.3–D66.8): `DEFAULT_TARGET == 1.00`, `TARGET_MIN/MAX`, `COLOUR_OFF/ON`, `SPREAD_WIDTH == 20`, the eight rendered names match the `MmmDD short/long` regex and an ISO/zero-padded name is rejected, the four-row count per side, **no** row-number column or digit in the instrument cell, the greek/STALE/error-class constants the panel and engine expose, the five `requirements.md` revision notes present at their named sites and the retired phrases absent from the ladder module, and the delta-scope record (below). The **delta-scope check is a build-record artefact, not a standing test**: the wave records `git diff --name-only db21672` and requires it to be a subset of {`services/option_ladder.py`} ∪ the five re-baselined suites ∪ the new suite ∪ the docs; a test pinned to a commit hash would redden every later phase. Rationale: AC-D66.8 asks for one assertion per named artefact **plus** a diff-scope check; separating the two forms keeps the standing suite stable while still producing the evidence. Alternative: a hash-pinned `git diff` assertion inside pytest (rejected — a landmine for P25+); relying on review prose (rejected — R158/AC-D66.8 want a measurable). | `[new in P24]` — implements `AC-D66.1`/`AC-D66.3`–`AC-D66.8` |
+| S-P24-6 | **The retired invariant is retired everywhere it is written, in three layers.** (i) `requirements.md` keeps the analyst's five `[revises P23, 2026-11-18 …]` notes **verbatim** (AC-D65.2, A187, A212, the P23 glossary's anchor entry, R142) — P24 neither re-deletes nor rewrites them; (ii) `architecture.md` gets three **appended one-line markers** (`[superseded for PCS by P24 — AC-D66.2/S-P24-1]`) at the pass-5 summary's item J, the `services/option_ladder.py` System Components entry, and S-P23-2's decision row, with no P23 sentence rewritten and no P23 status changed; (iii) the ladder module's own module-docstring bullet, `RUNG_OFFSETS` comment and `ladder_pairs` docstring change **in the same commit as the table** (DG127). Rationale: ESC-066/ESC-069 established that a canonical doc sentence superseded without a marker is a defect; DG127 establishes the same for code comments, and a comment left behind is the cheapest way to rebuild the wrong model. Alternative: rewrite the P23 sentences in place (rejected — they are true for CCS and the phase is built; rewriting loses the decision lineage); markers only in requirements (rejected — the architecture doc is what Task Manager reads). | `[revises P23: the invariant's written record]` + `[extends P23: the record-layering convention]` — implements `AC-D66.7`/DG127 |
 

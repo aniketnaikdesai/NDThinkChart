@@ -487,3 +487,79 @@ Read in full. Live TWS on **`127.0.0.1:7496`**, read-only by construction (zero 
 **Third gate, routed not owner-run:** **ESC-125** — the `plan.md`/`architecture.md` doc sync (paper-TWS → live-TWS, and `window_step` → `evaluate()`'s step decision). I agree with the hold and have made it a PLAN escalation so it cannot be lost.
 
 Status: REVIEW_COMPLETE
+
+---
+
+# Pass 6 — escalation close-out (P23 @ `db21672`)
+
+**Pass:** phase-final, escalation close-out. **Tier:** full (phase-final). **Scope:** the three open entries only — ESC-123 (BUILD, P23-T26), ESC-124 (BUILD, P23-T23), ESC-125 (PLAN, P23-T26). No task is re-reviewed: nothing in `docs/build/results/` is newer than the last marker, and no result was re-consolidated after `db21672`.
+
+**Verification state — read before the verdict.** `precheck.json` (12:01 local) and the previous `test_verification.json` (12:09 local) both **predate** HEAD `db21672` (14:58 local), so I re-ran the suite myself (`verify_tests.py`, `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/ -q`). **The working tree is not the committed tree:** another session is writing the P24/D66 docs into it while this pass runs (`docs/requirements/{requirements,design_gaps,open_questions}.md`, `docs/plan.md`, `docs/architecture.md`, `docs/codebase-map.md` are modified; one residue violation moved `plan.md:6893 → :6897 → clear` between two of my own runs). Measured separately:
+
+| tree | run | result |
+|---|---|---|
+| clean worktree at `db21672` | seven `tests/test_d65_*` + `test_d45_removal` + both requirements guards | **257 passed, 0 failed** |
+| clean worktree at `db21672` | full `tests/` | 1737 tests, 3 failed — all three **missing-untracked-artifact** failures (`docs/build/approvals/P7-T06-1min.md` and `docs/build/results/_archive/` are untracked, so a pristine checkout lacks them); in the real tree those modules are **21 passed, 0 failed** |
+| working tree (P24 docs uncommitted) | full `tests/` (`test_verification.json`) | **fail, exit 1** — exactly `test_d60_follow_offset::test_p21_t3_ac2_history_intact` and `test_p20_proxy_guard::test_p20_t3_ac2_history_intact`, both `docs/requirements/requirements.md differs from HEAD`; re-checked at close: 2 failures, the same two |
+
+**Ruling:** the committed phase tree `db21672` **is green**. The working tree's two failures are HEAD-baseline freeze guards reddened by uncommitted P24 amendments to `requirements.md`; they clear when that doc is committed. No P23 code is implicated and no task reopens. Heads-up for P24 (not a P23 finding, no escalation opened): while the P24 plan section was mid-write, `tests/test_d65_residue.py::test_canonical_fixtures_survive_and_the_typos_do_not` flagged `docs/plan.md: banned example 7315/7435 presented live` — the P24 exit-condition sentence that names `7315/7435` falls inside the gate's 3-line claim window. It cleared as the doc changed; if the committed P24 text keeps that sentence in a claim context, the P23 fixture gate will be red at P24 build (rephrase the sentence, or widen the gate's "named as forbidden" exemption).
+
+**Mock-endpoint scan (full-pass duty; `db21672` production diff = `services/option_spread_engine.py`, `ui/main_window.py`):** `mock|fake|stub|simulat` → no hits; no production module imports from `tests/`. **Clean.**
+
+## ESC-124 → `addressed` (BUILD, P23-T23)
+
+- **Both named sites are guarded on the live tree.** `services/option_spread_engine.py:1203-1206` (200 re-seat branch) reads `if self._install_windows(acts, targets):` and only then advances `_session_anchor[side]` / `_session_anchor_expiry`; `:1226-1229` (step branch) reads `if targets and self._install_windows(acts, targets):` with the identical guarded body.
+- **A third site the entry did not name is fixed too:** the seed commit path `:996-998` now wraps `_install_window(acts, side, anchor)` before advancing the anchor. `_finish_bound`'s `:1026` call is unguarded but advances no session anchor, so it cannot desync.
+- **Source proof it was the fix:** `git show db21672 -- services/option_spread_engine.py` shows the unconditional `self._install_windows(acts, targets)` + unguarded assignment (and the reseat branch's assignment-above-the-call form) replaced by exactly these guards.
+- **Behavioural probe (monkeypatched mutant — no file edited):** forcing `SpreadEngine._install_windows` to return False leaves the step path at `_session_anchor == {CCS: 7330.0, PCS: 7330.0}` with `_anchors` unchanged and 0 actions, and leaves the 200 re-seat path (pending reseat `{CCS: 7335.0}`) also at `{CCS: 7330, PCS: 7330}`. Pre-guard both would have advanced.
+- **Guard case:** `tests/test_d65_spread_engine.py:1281::test_P23_T23_ESC124_a_refused_install_leaves_the_session_anchor_with_the_live_one` drives the real capacity refusal (`subscribes == []`, `live_legs == MAX_OPTION_LINES - 2`, both anchors stay at 7330), then frees the lines and asserts both anchors move to 7325/7335, then repeats under the re-seat path. Passes; 257/257 with the phase suites in a clean `db21672` checkout.
+
+## ESC-125 → `addressed` (PLAN, P23-T26)
+
+- **Grep:** `paper-TWS`, `paper TWS`, `window_step` → **0 hits in `docs/plan.md`** and **0 hits in `docs/architecture.md`**.
+- **AC-D65.19 now reads as the live-TWS run, owned by P23-T26:** `plan.md:5388` "(9) live-TWS, read-only acceptance → new P23-10 … against `127.0.0.1:7496`"; `:5619-5620` the AC-D65.19 matrix row ("owner-run live-TWS, **read-only** acceptance on `127.0.0.1:7496` … P23-10 (built as P23-T26)"); `:6502-6503` "the owner's recorded live-TWS, **read-only** run and P23-10 (built as P23-T26) owns it"; `:6551` heading "P23-10 — Owner-run live-TWS, read-only acceptance (built as P23-T26)"; `:6554` "live-TWS, **read-only** … on `127.0.0.1:7496` (there is no paper account — A211)". `architecture.md:8968-8969` "(I) the live-TWS, read-only acceptance run … against `127.0.0.1:7496`"; `:9390-9391` "owner-run live-TWS, **read-only** acceptance record (live `127.0.0.1:7496`, observation-only)"; `:9887` AR-P23-22 "The live-TWS, read-only acceptance run (`127.0.0.1:7496`, observation-only)".
+- **Step decision is `evaluate()`'s own:** `plan.md:6104-6121` (P23-04) now says "`evaluate()` decides and installs the step itself: `_step_candidate(side, live)` … `_install_windows(acts, targets)`" — the `window_step(target_anchor)` entry is gone.
+- **Residual, deliberate, not a violation:** the record's **filename** `d65_paper_tws_acceptance.md` is still referenced (`plan.md:6564/6575/6699`, `architecture.md:9417/9918`). `plan.md:6564-6566` and the record's own head note (lines 12-14) state the name is retained so existing references resolve and that its content describes the live-TWS run — a recorded naming decision, not a paper-TWS description of the criterion.
+- `requirements.md` AC-D65.19/A211 at HEAD already read the live-TWS, read-only acceptance, so all three canonical documents now agree.
+
+## ESC-123 → stays `open` (BUILD, P23-T26)
+
+- **The defect is still on the tree:** `docs/archive/probe_records/d65_paper_tws_acceptance.md:4` still reads ``Build commit: `c04cc03` (`c04cc03c0a12e60a4c10a34dab44810efbc960a4`) — the build tree this checklist describes.``
+- **Measured:** `c04cc03` is HEAD~2 (`git rev-list --count c04cc03..HEAD` = 2). At `c04cc03`: `_step_candidate` **0** hits, `def window_step` **1**. At HEAD `db21672`: **2** and **0**. The record was added at `39856b0` already naming `c04cc03`, so it was stale when authored and is two commits stale now.
+- **Why it is not acceptable as-is:** the header's own words attribute the checklist to a build tree, and the acceptance will be run against the shipped tree. `db21672` additionally changes `ui/main_window.py`'s chain-failure behaviour (surfaces the IB chain error code and stops claiming no-0DTE on failure) — precisely what item (1) (eight rows populate) and the no-0DTE empty state observe — so evidence attributed to `c04cc03` comes from a tree that neither steps the ladder (item 3) nor reports chain failure the way the shipped app does.
+- **Exact fix (one line, BUILD, `P23-T26`):** replace line 4 with
+  ``Build commit: `db21672` (`db216721b7f45f42cfb92d3f968de58093e238e9`) — the build tree this checklist describes.``
+  Verified compatible with `tests/test_d65_acceptance_record.py::test_header_names_the_build_commit_and_the_d48_d52_precedent`: the regex matches and the short-is-long-prefix invariant holds (I ran the test's own regex over the exact replacement line). **No test change needed.**
+
+## Escalation close-out
+
+- **ESC-124 → `addressed`** (verified above, not from the commit message).
+- **ESC-125 → `addressed`** (verified above).
+- **ESC-123 → left `open`**, with the exact one-line change above. No other entry is open: ESC-121/122 and PRE-021/022 were closed in pass 5 and are not reopened.
+
+## For the Orchestrator
+
+1. **ESC-123 first, then the owner's run** — the acceptance record must name `db21672` before it collects evidence, or the phase's only live-gate evidence is attributed to a tree without AC-D65.4.
+2. **The working tree's red suite is P24 doc state, not P23** — `docs/requirements/requirements.md` (plus `design_gaps`/`open_questions`) is uncommitted, so the two `*_history_intact` freeze guards compare against a stale HEAD. Commit (or stash) the doc sync and the suite is green again; the committed `db21672` tree measured 257/257 on the phase suites and 1737 tests with only the three untracked-artifact failures in a pristine checkout.
+3. **P24 warning (no escalation opened):** the P24 plan sentence naming `7315/7435` trips `test_d65_residue`'s fixture ban while it sits in a claim window — fix the wording or the gate's exemption before P24's build gate.
+
+Status: REVIEW_COMPLETE
+
+---
+
+# Pass 7 — single-escalation close-out (ESC-123, P23-T26 @ `db21672` + Q-75)
+
+**Pass:** phase-final, single-escalation re-verify. **Tier:** light (one documentation line, no scoped task changed, phase suites unchanged since pass 6).
+
+Q-75 applied the pass-6 required change to `docs/archive/probe_records/d65_paper_tws_acceptance.md`. Verified on the live tree, not from Q-75's word:
+
+1. **The line is exact.** Line 4 is ``Build commit: `db21672` (`db216721b7f45f42cfb92d3f968de58093e238e9`) — the build tree this checklist describes.`` — byte-identical to the required replacement; short sha is the long sha's prefix, the long sha is 40 hex and equals `git rev-parse HEAD`.
+2. **It is the only change.** `git diff -- docs/archive/probe_records/d65_paper_tws_acceptance.md` is one hunk with exactly one removed (`c04cc03` / `c04cc03c0a12e60a4c10a34dab44810efbc960a4`) and one added line. No other line of the record differs, so no meaning was altered.
+3. **The record is still an open gate.** Status line unchanged ("PENDING — owner-run gate. No result recorded yet; every item below is unchecked."), `**AC-D65.19 is OPEN.**` present, **9 unchecked / 0 checked** boxes, `**Result:** PENDING` ×6, **zero** PASS results, sign-off date line still blank.
+4. **The header invariant holds.** `tests/test_d65_acceptance_record.py` — **5 passed, 0 failed**, including `test_header_names_the_build_commit_and_the_d48_d52_precedent` (regex + short=long-prefix); no test change was needed.
+
+**ESC-123 → `addressed`.** The evidence header now names the shipped code tree, so the owner's run will be attributable to the tree that contains AC-D65.4 and the `db21672` chain-failure behaviour. The edit is still uncommitted in the working tree, which is harmless: the header names the code tree, not the doc's own commit.
+
+No other entry is open. No production code or other docs were touched.
+
+Status: REVIEW_COMPLETE

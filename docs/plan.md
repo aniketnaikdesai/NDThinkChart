@@ -6752,3 +6752,281 @@ attribute-built contract) and **AP-P23-21** (the 16:15 ET constant, because the 
 no option session) — none changes a criterion's outcome and none is a re-scope.
 
 Status: READY_FOR_TASK_MANAGER
+
+## Phase P24 — Option Spreads panel: owner-restated display contract, PCS ordering delta (D66) — drafted 2026-11-18
+
+> Companion: `docs/architecture.md` § *Phase P24* (Relationship to prior phases, Codebase Summary,
+> tech-stack decisions, S-P24-1…S-P24-6, frozen interfaces, non-functional approach,
+> AR-P24-1…AR-P24-8). Requirements input: `docs/requirements/requirements.md`
+> (`Status: READY_FOR_PLAN`) — **Phase P24 (D66), Journey 64, `AC-D66.1`–`AC-D66.8` FINAL**
+> (Q114 = reading B, Q115 = `7315/7295`, Q116, Q117 answered 2026-11-18), A213–A219, R154–R159,
+> `design_gaps.md` DG124–DG127, `open_questions.md` Q114–Q117.
+>
+> **Baseline: HEAD `db21672`.** P23/D65 is present, wired and green there (seven `tests/test_d65_*`
+> suites, 246 tests) and this phase is a **delta, not a rebuild** — A216/R157 withdraw the
+> deleted-implementation premise, and no work item below restores, re-plans or re-accepts any P23
+> artefact. The whole diff is: **one production table** (`services/option_ladder.py`), **five
+> re-baselined suites**, **one new fence suite**, and the records.
+>
+> Hard constraints: D1–P23 are read-only inputs; **no order code of any kind**; no change to CCS
+> geometry, naming, width, streaming, error states, dock width or the toggle's placement/colour;
+> **no row-number column or digit** (Q117); sizes S/M only.
+
+### Revision notes (re-validation against `docs/plan_review_P24.md`, 2026-11-18)
+
+- **RC-P24-1 — the residue suite is inside the delta.** `tests/test_d65_residue.py` is now the **fifth
+  re-baselined suite**: P24-03 re-points its `CANONICAL_FIXTURES` PCS entry `7340/7320` → `7325/7305`
+  (the corrected table's **anchor pair** — the same pair the ladder suite and the panel fixture carry),
+  in the same wave as the panel fixture and after it, so the gate is never left unsatisfiable; the gate
+  body, its holder list, `BANNED_EXAMPLES` and `LEGAL_NON_BANNED_PAIR` are untouched. Every "four
+  suites" count, the P24-03 diff-scope allowlist, the architecture's Codebase Summary / System
+  Components / S-P24-4 / NOT-frozen block, and the `docs/codebase-map.md` P24 note + test-impact row now
+  say five.
+- **RC-P24-2 — the forbidden-string condition now matches `AC-D66.2`, and the docs stop quoting the
+  pairs.** (i) P24-03's exit condition and S-P24-4 are scoped to **positive** use: no committed quotable
+  fixture, seed quote plan, probe record or canonical example may present the two **banned** typo pairs
+  `AC-D66.2` names, while the shipped **negative guards** that assert them absent
+  (`test_d65_residue.py`'s `BANNED_EXAMPLES` and its ban-list self-guard, the ladder suite's
+  `_fixture_guard` docstring) are permitted mentions that keep asserting absence for real fixtures and
+  must not be deleted. Every retired *expectation* is still named in the wave result. (ii) **The plan and
+  architecture now describe those pairs instead of quoting them** — "the 120-wide and the 80-wide
+  restatement at strike 7315, as `AC-D66.2` writes them". Reason: the residue gate scans its
+  `CONSISTENCY_FILES` for a banned string presented *outside* a claim-marker window (measured: the line
+  plus the three before it), so a canonical-doc quotation is only safe while a marker word sits in that
+  window — a prose-level trap for every later edit. Describing the pairs removes the dependency on that
+  heuristic; the literal strings stay where the gate does **not** scan (`requirements.md`) and in the
+  guards themselves. The alternative — widening the gate's "named as forbidden" exemption — was passed
+  over: it edits a guard `AC-D65.2`/`AC-D65.13` own, to serve a doc's convenience.
+- **RC-P24-3 — `S-P24-3` now has an implementing deliverable.** P24-01's deliverable 3 edits the
+  `SpreadRow` docstring (`services/option_ladder.py:84`) to state that `rung` is the 1-based **display
+  row** (top→bottom, `1..4`), that the owner's **labels** are specification-only and run `4,3,2,1`
+  against those positions on PCS (`1,2,3,4` on CCS), and that nothing renders a digit (Q117); P24-01's
+  exit condition asserts the docstring names both terms.
+
+**Unchanged by this revision:** the delta itself (PCS `S3+5, S3, S3−5, S3−10` on rows 1–4 with the Target
+on row 2; CCS unchanged with the Target on row 3), `AC-D66.8`'s freeze fence and delta-scope record, the
+zero-production-change panel rule, the Frozen Interfaces block, and the D1–P23 read-only premise.
+
+### Traceability (requirement → architecture → wave)
+
+| Requirement / journey | Architecture | Wave |
+|---|---|---|
+| **AC-D66.2** — THE DELTA: PCS rows `4,3,2,1` with `S3+5, S3, S3−5, S3−10` (Target row 2); CCS unchanged (Target row 3); offsets read from a **per-side** table; no rendered number column | *Relationship* `[revises P23: S-P23-2]`; **S-P24-1** (table), **S-P24-2** (issue order), **S-P24-3** (`rung` = display row), *Data Model* | **P24-01** (table + ladder suite), **P24-02** (engine/stream fixtures), **P24-03** (no-column fence; panel fixture; residue gate) |
+| **AC-D66.1** — four rows per side, `SPX MmmDD short/long`, short leg first, CCS `long = short+20` / PCS `long = short−20`, width 20, listed strikes | *Frozen Interfaces* (`format_instrument`, `SPREAD_WIDTH`/`STRIKE_STEP`, `snap_rung`); **S-P24-5** | **P24-01** (canonical names/width), **P24-03** (regex + ISO-rejection fence) |
+| **AC-D66.3** — toggle right-aligned in the Target row, red OFF / green ON, both directions, not moved to the title bar | *Frozen Interfaces* (`COLOUR_OFF`/`COLOUR_ON`, `set_toggle_state`); **S-P24-5** | **P24-03** |
+| **AC-D66.4** — Target `1.00` default, `0.05 ≤ T ≤ 19.95`, one message + last valid value, never persisted | *Frozen Interfaces* (`DEFAULT_TARGET`, `TARGET_MIN/MAX`, `apply_snapshot`); **S-P24-5** | **P24-03** |
+| **AC-D66.5** — updates until OFF, then `—` and every line released; zero orders | *Non-Functional* (line budget/cadence); *Relationship* (engine unchanged) | **P24-02** (stream suite re-baselined, same lifecycle assertions) |
+| **AC-D66.6** — `—` exactly in the gap cells, `STALE` on disconnect, one message per cause, recovery | *Non-Functional*; **S-P24-5** | **P24-03** (constant/behaviour assertions; the engine's own cases already exist) |
+| **AC-D66.7** — D41–D65 and A186–A212 intact except the five `[revises P23, 2026-11-18 …]` notes; tech-stack section untouched | *Relationship* `[new in P24]` markers; **S-P24-6** | **P24-01** (code comments), **P24-03** (marker grep) |
+| **AC-D66.8** — everything else verified-not-changed, plus a diff-scope check | *Relationship*; **S-P24-5** (fence + build-record scope check); *System Components* (`[existing]` engine/panel/window) | **P24-03** |
+| **Journey 64** — read the delta on the live panel (header → ON → eight rows → Target edit → step → OFF) | *Relationship*; *Non-Functional* | **P24-02** (row sets + step direction), **P24-03** (header/panel facts) |
+| A213/A216/A218/A219, R154–R159, DG125/DG127 | *Relationship*; **S-P24-1**, **S-P24-4**, **S-P24-6** | all three waves |
+| DG126 (anchor legibility, non-blocking) | *Flagged Issues* (FI-P24-1) | — (owner decision, out of scope) |
+
+### Phases
+
+Dependency shape: **P24-01 → P24-02**, **P24-01 → P24-03** (02 and 03 are independent of each other and
+may run in either order once 01 has landed). 01 is the only wave that touches production code.
+
+#### P24-01 — Per-side offset table + the retired invariant's words — size S
+
+- **Covers:** AC-D66.2 (table half), AC-D66.1 (canonical names), AC-D66.7 (the code-comment half), DG127.
+- **Depends on:** nothing (first wave).
+- **Files:** `services/option_ladder.py`; `tests/test_d65_option_ladder.py`. Nothing else.
+- **Deliverables:**
+  1. **Replace the shared literal** (`RUNG_OFFSETS = {1: 10, 2: 5, 3: 0, 4: -5}`, `:60`) with the
+     per-side, row-ordered table of S-P24-1 — `{SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)),
+     SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10))}` — and **delete** the old literal (no retained
+     copy, no second table under any name; A197/A219).
+  2. **`ladder_pairs` reads the side's tuple in tuple order** (never `sorted()`), keeping its signature,
+     default side, `_side_key` normalisation, four-pair/row-order output and `long = short ±
+     SPREAD_WIDTH` by side. Update its docstring: CCS canonical `ladder_pairs(7425)[2] == (7425, 7445)`;
+     PCS canonical `ladder_pairs(7325, SIDE_PCS)[1] == (7325, 7305)` with the anchor on **row 2**.
+  3. **Retire the invariant's words in the same edit** (DG127): the module docstring's bullet 1
+     (`:6-8`), the `RUNG_OFFSETS` comment (`:58-59`, "Applied identically on both sides — there is no
+     mirrored copy of this table") and the `ladder_pairs` docstring's "the same offset table on both
+     sides, never a mirrored copy of it" (`:112-115`). Replace with the per-side rule stated once, the
+     row order and the anchor row per side. **Also the `SpreadRow` docstring** (`:84`, today only "One
+     displayed ladder row -- the engine's unit, the panel's row payload") — S-P24-3's implementing site.
+     It must say, in the dataclass's own prose: `rung` is the **1-based display row** (the row's position
+     top→bottom, `1..4`, on both sides); the owner's **logical labels** are specification data only and
+     run `4,3,2,1` against those positions on PCS (`1,2,3,4` on CCS); and nothing renders a digit or a
+     row-number column (Q117). Fields, field names, their order and their types are unchanged.
+  4. **Re-baseline the ladder suite**, naming each retired expectation in the result:
+     `test_P23_T1_AC1_constants` (new shape; keep `SPREAD_WIDTH == 4 * STRIKE_STEP` and the
+     whole-step check per side), `test_P23_T1_AC1_four_pairs_per_side` (per-side offset lists —
+     CCS `[10, 5, 0, -5]`, PCS `[5, 0, -5, -10]`), `test_P23_T1_AC1_one_offset_table_on_both_sides`
+     **replaced** by a per-side test (CCS provably unchanged; PCS offsets and label order; the anchor
+     row per side; **the two forbidden-name strings kept** as the "no second module-level table"
+     guard), `test_P23_T1_AC1_canonical_fixtures` (CCS `7425/7445`; PCS `7330/7310, 7325/7305,
+     7320/7300, 7315/7295`), `test_P23_T1_AC7_window_legs_eight_per_anchor`'s PCS half (anchor 7325).
+     Add one assertion per side that the **row order** and the **label order** are read independently
+     (the `sorted()` trap, AR-P24-2).
+- **Exit condition:** `pytest tests/test_d65_option_ladder.py` green; the ladder module still imports
+  with no Qt module loaded (its existing isolated-interpreter test); `grep -n "both sides"
+  services/option_ladder.py` returns nothing; no second offset table exists in production code —
+  `RUNG_OFFSETS_PCS` / `PCS_RUNG_OFFSETS` appear nowhere in `services/`, `ui/`, `ibkr/`, `data/`,
+  `config/` (the ladder suite's own *negative* string guards necessarily spell them, as the P23 carve-out
+  pattern allows) — and the `SpreadRow` docstring names both terms, **"display row"** and **"label"**, so
+  S-P24-3 is a measurable rather than a prose intention.
+- **Do not:** touch `services/option_spread_engine.py`, `ui/`, `ibkr/`, or any suite other than the two
+  named above. In particular leave the ladder suite's formatter and `_fixture_guard` legality examples
+  (`:158`, `:171`, `:188`, `:230`, `:246` — all `7340/7320`) alone: they assert the 20-wide /
+  short-leg-first rules, not the rung table, and they keep the residue suite's canonical-fixture gate
+  green (`CANONICAL_FIXTURES` still holds `7340/7320` until P24-03 re-points it, RC-P24-1), so no wave
+  exits red on a suite it did not touch.
+
+#### P24-02 — Engine + stream fixture re-derivation (no production change) — size M
+
+- **Covers:** AC-D66.2 (fixture half), AC-D66.5, Journey 64's row sets and step direction.
+- **Depends on:** P24-01.
+- **Files:** `tests/test_d65_spread_engine.py`; `tests/test_d65_option_stream.py`. **No production
+  file** — if a production edit looks necessary here, stop and escalate: that is the boundary
+  AC-D66.8 draws.
+- **Deliverables:**
+  1. **`mirror_table`/`MIRROR`** (`test_d65_spread_engine.py:86-97`): re-centre the mirror on the
+     anchor each fixture drives and extend its profile to **every strike the shifted PCS window
+     touches** — the new row-4 short mirrors to the table key at `anchor + 10` and the new row-4 long
+     to `anchor + 30`, neither of which P23's model needed (the old window stopped at `anchor + 25`).
+     Choose the added values so each fixture's chosen anchor does **not** move, and prove it with the
+     existing anchor assertions rather than assuming it. Add an explicit **coverage assertion** per
+     fixture: every leg of both committed windows appears in the quote plan before the seed is driven
+     (AR-P24-3), so a future table change cannot leave a silently unquoted row.
+  2. **Re-derive the PCS expectations** the shared table encoded: the seed's anchor is a **strike** and
+     the probe/refine search is strike-based, so the same anchors can still win — the wave **confirms**
+     them through the existing anchor assertions rather than assuming they are unchanged, and a fixture
+     whose PCS anchor legitimately moves is a recorded re-derivation, not a production defect. The same
+     holds for `_step_candidate("PCS", 7330) == 7335` (PCS steps **up**): the mechanics are
+     `live ± STRIKE_STEP`, so the direction is unchanged, while the *quotes* that decide it come from
+     the re-derived fixture. Every case that reads a PCS **row set** must be re-checked against the new
+     table (window legs, kept/cancelled legs on a re-seat, chain-edge cases).
+  3. **`test_d65_option_stream.py`**: split `EXPECTED_SHORTS` (`:41`) into `EXPECTED_SHORTS_CCS`
+     (unchanged `[7360, 7355, 7350, 7345]` at `SPOT 7350`) and `EXPECTED_SHORTS_PCS`
+     (`[7355, 7350, 7345, 7340]`), and use the right list per side at `:338`; move the PCS row-index
+     expectations up one (`("PCS", 1, 7350.0)` — the anchor is now row 2, `:1295-1309`); re-derive the
+     kept/arriving/cancelled PCS leg sets at the re-anchor case (`:392-445`, anchor `7350 → 7355`);
+     keep every lifecycle/budget/zero-order assertion untouched (AC-D66.5).
+- **Exit condition:** `pytest tests/test_d65_spread_engine.py tests/test_d65_option_stream.py` green,
+  then **all seven** `tests/test_d65_*` suites green in one run; `git diff --name-only` shows no
+  production file from this wave; the result names every retired P23 PCS expectation (R156/A201). The
+  residue suite is green here because P24-01 left the ladder suite's `7340/7320` legality examples in
+  place and P24-03 has not yet moved the panel fixture — the gate flips in the same wave as that fixture
+  (AP-P24-9), never between waves.
+- **Do not:** weaken a case to make it pass (e.g. dropping the coverage assertion, or asserting `>= 4`
+  rows where `== 4`/exact names were asserted); re-derive by deleting assertions.
+
+#### P24-03 — Restated-contract fence, panel fixture, delta record — size S
+
+- **Covers:** AC-D66.1, AC-D66.3–AC-D66.8, Journey 64's header/panel facts, DG125 (do-not-edit), Q116/Q117.
+- **Depends on:** P24-01 (02 not required).
+- **Files:** `tests/test_d65_option_panel.py`; `tests/test_d65_residue.py` (its canonical-fixture
+  constant and comment only); a new fence suite in `tests/`; the wave's own result record. **No
+  production file.**
+- **Deliverables:**
+  1. **Panel fixture re-baseline:** `pcs_name` / its row (`test_d65_option_panel.py:484-492`, `:522`)
+     becomes the corrected PCS **anchor pair** `SPX Nov17 7325/7305` — pinned, not "`7330/7310` as the
+     first row": the residue gate (deliverable 2) and the ladder suite's canonical test must name one and
+     the same pair, and the anchor pair is the P23 precedent — so the suite stops re-encoding the retired
+     model (AR-P24-5).
+  2. **Residue gate re-point (RC-P24-1):** in `tests/test_d65_residue.py`, change `CANONICAL_FIXTURES`
+     (`:273`) from `("7425/7445", "7340/7320")` to `("7425/7445", "7325/7305")` and update its comment
+     (`:265-267`) to say the PCS canonical is `AC-D66.2`'s **anchor** pair at `S3 = 7325`. **Do not**
+     change the gate body (`:2536-2573`): its holder list (`docs/plan.md`, `docs/architecture.md`, the
+     ladder suite, the panel suite) and its intent — each canonical fixture must still exist in every
+     named file — stay exactly as they are. `BANNED_EXAMPLES` (`:274`) and `LEGAL_NON_BANNED_PAIR`
+     (`:275`) stay intact: they are the negative guards RC-P24-2 keeps. This step **must land in this
+     wave, after deliverable 1** — the gate can only pass once the panel suite carries the new pair, and
+     moving the constant before the fixture would redden all seven suites.
+  3. **The fence suite** (S-P24-5), one assertion per named artefact: `DEFAULT_TARGET == 1.00`,
+     `TARGET_MIN`/`TARGET_MAX`, `COLOUR_OFF`/`COLOUR_ON` and `SPREAD_WIDTH == 20`; the eight rendered
+     names match `AC-D66.1`'s regex verbatim, `^SPX (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:[1-9]|[12]\d|3[01]) \d+(?:\.\d+)?/\d+(?:\.\d+)?$`,
+     with an ISO-dated and a zero-padded-day name **rejected**; four rows per side with the PCS anchor
+     on **row 2** and the CCS anchor on **row 3**; **no** row-number column and no digit in the
+     instrument cell (Q117); the toggle's alignment relative to the Target field and the panel's content
+     edge, its `spread_state` dynamic property reading `on`/`off`, and an ON→OFF→ON sequence
+     (Q116/AC-D66.3); the Target's accepted/rejected cases (the never-persisted restart case stays in
+     the existing panel suite, unchanged); the `[revises P23, 2026-11-18` notes present at their **five named sites**
+     (AC-D65.2, A187, A212, the P23 glossary's anchor entry, R142) — asserted **by site**, not by raw
+     occurrence count, because the P24 header sentence also names them — plus the retired phrases
+     absent from the ladder module (AC-D66.7).
+  4. **Delta-scope record** (AC-D66.8, S-P24-5): the wave records `git diff --name-only db21672` and
+     requires it to be a subset of `services/option_ladder.py` + the **five** re-baselined suites
+     (`test_d65_option_ladder`, `test_d65_spread_engine`, `test_d65_option_stream`, `test_d65_option_panel`,
+     `test_d65_residue`) + the new fence suite + `docs/` (the phase's own records). Recorded as evidence
+     in the result, **not** as a hash-pinned test.
+- **Exit condition:** all seven `tests/test_d65_*` suites **plus** the fence suite green in one run; the
+  recorded diff-scope listing matches the allowlist exactly; no production file changed outside
+  `services/option_ladder.py`; the two **banned** typo pairs are absent from every **positive** fixture —
+  no committed quotable fixture, seed quote plan, probe record or canonical example presents them, and
+  no doc quotes them either (they are described, not spelled, in this phase's plan/architecture text,
+  which the residue gate scans) — while the shipped **negative guards** that assert them absent
+  (`tests/test_d65_residue.py`'s `BANNED_EXAMPLES` and its ban-list self-guard, the ladder suite's
+  `_fixture_guard` docstring) are permitted mentions and must stay; every retired expectation is named
+  in the wave result (A201/R156).
+- **Do not:** edit `format_instrument`/`_format_expiry` (DG125), the panel, the engine, or
+  `docs/requirements/*` (the analyst's notes are input, not build output); do not touch the residue
+  gate's body, its holder list, `BANNED_EXAMPLES` or `LEGAL_NON_BANNED_PAIR` (only its PCS canonical
+  entry and comment change), and do not delete any negative guard that names a banned typo pair.
+
+### Assumptions
+
+- **AP-P24-1 — baseline and diff.** The build starts from HEAD `db21672` (or a descendant that changes
+  nothing this phase reads). The delta is `services/option_ladder.py` + **five** test suites
+  (`test_d65_option_ladder`, `test_d65_spread_engine`, `test_d65_option_stream`, `test_d65_option_panel`,
+  `test_d65_residue`) + one new suite; the phase's docs are excluded from AC-D66.8's "production file"
+  wording and are listed in the record explicitly so the scope check cannot read as ambiguous.
+- **AP-P24-2 — the constant keeps its name.** `RUNG_OFFSETS` stays the single module-level offset
+  table and changes shape (per side, row-ordered). No second table, no per-call special case (A219).
+- **AP-P24-3 — canonical fixtures.** PCS examples use the owner's corrected table at `S3 = 7325`;
+  CCS uses `S3 = 7425`. The **canonical** PCS pair is that table's **anchor** pair `7325/7305` — the one
+  pair the ladder suite's canonical test, the panel fixture and the residue gate all name (P23's
+  precedent made `7340/7320`, its own anchor pair, canonical). The stream suite's own anchors (`SPOT
+  7350`, re-anchor to `7355`) are its fixtures' business: the wave derives the per-side row lists from
+  the engine and asserts the **anchor row** explicitly, and the lists written here are the expected
+  starting point, not a substitute for running the suite.
+- **AP-P24-4 — the window issue order does not change.** `_WINDOW_ISSUE_ORDER` stays a single fixed
+  index order; on PCS the anchor pair is issued second rather than first (one pacing slot, no criterion
+  observes it; S-P24-2).
+- **AP-P24-5 — `SpreadRow.rung` keeps its name and gains a documented meaning** (1-based display row);
+  the owner's logical labels live only in the table and in test names (Q117/S-P24-3).
+- **AP-P24-6 — no live-TWS run this phase.** AC-D66.8 is a suite-level fence; AC-D65.19's acceptance
+  record stands as delivered, and ESC-123's stale commit hash inside that record is BUILD-routed and
+  out of P24's scope.
+- **AP-P24-7 — the requirements record is input.** The five `[revises P23, 2026-11-18 …]` notes and
+  A213–A219 already exist in `requirements.md`; the build greps them, never rewrites them (AC-D66.7).
+- **AP-P24-8 — no user-doc change is due.** `USAGE.md`'s Option Spreads section (items 1–6) describes the
+  panel's behaviour and never states a rung offset or a row ordering (verified), so the delta makes
+  nothing there stale; `docs/pending_doc_sync.md` does not exist, so there is nothing to fold. If the
+  owner later wants the ordering documented for users, that is a separate doc request, not a silent
+  P24 edit — AC-D66.2's labels are deliberately unrendered.
+- **AP-P24-9 — the residue gate moves in one step, not two.** `test_d65_residue.py`'s
+  `CANONICAL_FIXTURES` and the panel suite's snapshot fixture are edited in the same wave (P24-03, panel
+  fixture first), and P24-01/P24-02 leave the ladder suite's `7340/7320` legality examples in place, so
+  the old gate holds until the new one takes over. No wave may exit with the residue suite red, and no
+  wave before P24-03 edits the residue constant.
+
+### Flagged Issues
+
+- **FI-P24-1 — DG126: the two side-by-side tables anchor on different rows, with no numbers to say so
+  (non-blocking, owner decision).** After this delta the PCS Target sits on row 2 and the CCS Target on
+  row 3, while Q117 forbids any rendered digit — so the asymmetry is decided but not legible. No
+  criterion requires a marker and P24's non-goals exclude UI changes, so nothing in this plan adds one.
+  Suggested direction if the owner wants it: a non-numeric anchor marker (the D21 active-row tone, or a
+  `◀ Target` suffix in the instrument cell) as a separate micro-request — **not** a numbering column.
+- **FI-P24-2 — ESC-125 re-verified clean while drafting (PLAN-routed, should-fix, `open`).** The
+  canonical docs no longer describe the superseded paper-TWS acceptance or the deleted window-walk API:
+  the only surviving `scan_anchor`/`next_step` occurrences are **negative** statements in historical
+  revision notes (`docs/plan.md` P23 pass-3, `docs/architecture.md`'s P23 as-built note: "there is
+  **no** `scan_anchor`/`next_step` helper"), and no `paper-TWS`/`7497` text remains in
+  `docs/plan.md` or `docs/architecture.md`. Nothing to re-plan; recorded so the Validator can close it
+  rather than re-derive it. (This section was planned against what is there, not against an assumption
+  that it was fixed.)
+- **FI-P24-3 — the architecture-doc revision is Plan's judgement, not an AC (non-blocking).** AC-D66.7
+  scopes the recorded revision to `requirements.md`; three normative sentences in `docs/architecture.md`
+  (the P23 pass-5 summary's item J, the P23 System Components entry, S-P23-2's row) would otherwise
+  contradict the shipped rule, which ESC-066/ESC-069 treated as a defect. S-P24-6 therefore appends
+  one-line supersession markers there **without** rewriting a P23 sentence or touching P23's
+  `READY_FOR_TASK_MANAGER` status. Flagged so the Validator can confirm the treatment rather than
+  discover it.
+
+Status: READY_FOR_TASK_MANAGER
