@@ -24,7 +24,7 @@ from types import SimpleNamespace
 import pytest
 
 import services.option_spread_engine as engine_module
-from services.option_ladder import LegKey, match_band
+from services.option_ladder import LegKey, match_band, window_legs
 from services.option_spread_engine import (
     MAX_OPTION_LINES,
     PENDING_SECONDS,
@@ -83,19 +83,56 @@ def quotes_for(side, table):
 
 # A put credit spread is the call spread mirrored around the anchor strike: the
 # put's long leg sits 20 *below* its short, so the same credit needs the price
-# profile mirrored. 14660 = 2 * 7330 keeps every mirrored strike on the chain.
-MIRROR = 2 * 7330
+# profile mirrored. The centre is twice the anchor the fixture drives (7330 by
+# default), so every mirrored strike stays on the 5-point chain being fed.
+DEFAULT_ANCHOR = 7330
 
 
-def mirror_table(table):
-    return {MIRROR - strike: value for strike, value in table.items()}
+def mirror_table(table, anchor=DEFAULT_ANCHOR):
+    """The put profile: the call profile mirrored around ``anchor``."""
+    centre = 2 * anchor
+    return {centre - strike: value for strike, value in table.items()}
 
 
-def both_sides(table):
+def both_sides(table, anchor=DEFAULT_ANCHOR):
     plan = {}
     plan.update(quotes_for("CCS", table))
-    plan.update(quotes_for("PCS", mirror_table(table)))
+    plan.update(quotes_for("PCS", mirror_table(table, anchor)))
     return plan
+
+
+def assert_window_coverage(table, anchor=DEFAULT_ANCHOR, plan=None):
+    """Every leg of both committed windows is quoted before the seed is driven.
+
+    The per-side table puts PCS's row-4 short at ``anchor - 10`` and its row-4
+    long at ``anchor - 30``; their mirrors are the call profile's ``anchor + 10``
+    and ``anchor + 30`` keys -- the two strikes P23's model (which stopped at
+    ``anchor + 25``) never quoted. A missing key would leave a displayed row
+    unquoted while the case passed, so coverage is asserted, never assumed
+    (AR-P24-3).
+    """
+    if plan is None:
+        plan = both_sides(table, anchor)
+    for side in ("CCS", "PCS"):
+        legs = window_legs(anchor, side)
+        assert len(legs) == 8, (side, anchor, legs)
+        missing = [key for key in legs if key not in plan]
+        assert not missing, (side, anchor, missing)
+    mirrored = set(mirror_table(table, anchor))
+    assert anchor - 10 in mirrored, (anchor, sorted(mirrored))
+    assert anchor - 30 in mirrored, (anchor, sorted(mirrored))
+    return plan
+
+
+def assert_committed_windows_quoted(engine, plan):
+    """The windows the seed actually committed are every leg the case displays."""
+    for side in ("CCS", "PCS"):
+        committed = engine.anchor(side)
+        assert committed is not None, side
+        missing = [
+            key for key in window_legs(committed, side) if key not in plan
+        ]
+        assert not missing, (side, committed, missing)
 
 
 def pending_from_state(engine):
@@ -132,28 +169,39 @@ def messages(batches):
     return [message for batch in batches for message in batch.messages]
 
 
-def seed_engine(table, clock, target=1.00, spot=7330.0):
+def seed_engine(table, clock, target=1.00, spot=7330.0, anchor=DEFAULT_ANCHOR):
     engine = SpreadEngine(clock=clock, target=target)
     engine.toggle_on()
     engine.on_chain(make_series())
     if spot is not None:
         engine.on_spot(spot)
+    plan = assert_window_coverage(table, anchor)
     engine.begin_seed(clock())
-    batches = drive(engine, both_sides(table), clock)
+    batches = drive(engine, plan, clock)
+    assert_committed_windows_quoted(engine, plan)
     return engine, batches
 
 
 # The AC1 fixture: probe 7310 is far, 7330 is the strict best (d = 0), 7350 is
-# far, and the 7325/7335 refine ring is worse than 7330.
+# far, and the 7325/7335 refine ring is worse than 7330. The extra strikes above
+# 7335 are quiet on the seed ladder (never probed or refined) and only quote the
+# committed windows: AC1's own row-1 CCS legs (7340/7360) and, at the PCS anchor
+# 7350 the T=1.60/T=2.00 fixtures commit, every leg of that window (7305..7340).
 AC1_TABLE = {
+    7305: (2.35, 2.40),
     7310: (6.65, 6.70),
-    7330: (5.00, 5.05),
-    7350: (3.95, 4.00),
-    7370: (0.00, 0.00),
+    7315: (2.60, 2.65),
+    7320: (4.30, 4.35),
     7325: (2.95, 3.05),
-    7345: (2.45, 2.55),
+    7330: (5.00, 5.05),
     7335: (3.95, 4.05),
+    7340: (2.45, 2.55),
+    7345: (2.45, 2.55),
+    7350: (3.95, 4.00),
     7355: (2.45, 2.55),
+    7360: (1.00, 1.05),
+    7365: (2.45, 2.55),
+    7370: (0.00, 0.00),
 }
 
 
@@ -167,6 +215,12 @@ def test_P23_T7_AC1_seed_ladder_tiers_and_one_final_rung():
     assert state.active is False
     assert engine.anchor("CCS") == 7330
     assert engine.anchor("PCS") == 7330
+    # The committed windows, re-derived from the per-side table: CCS is P23's
+    # +10/+5/0/-5 around 7330, PCS is +5/0/-5/-10, so the PCS anchor is row 2.
+    assert len(engine.rows()["CCS"]) == 4
+    assert len(engine.rows()["PCS"]) == 4
+    assert [row.short for row in engine.rows()["CCS"]] == [7340, 7335, 7330, 7325]
+    assert [row.short for row in engine.rows()["PCS"]] == [7335, 7330, 7325, 7320]
     assert state.probes["CCS"] <= PROBES_PER_SIDE
     assert state.probes["PCS"] <= PROBES_PER_SIDE
 
@@ -221,9 +275,14 @@ def test_P23_T7_AC1_seed_ladder_tiers_and_one_final_rung():
     for right in ("C", "P"):
         refused.on_quote(leg(right, 7310), -1.0, 6.70, True, True)
     refused.begin_seed(refused_clock())
-    refused_batches = drive(refused, both_sides(AC1_TABLE), refused_clock)
+    refused_plan = assert_window_coverage(AC1_TABLE)
+    refused_batches = drive(refused, refused_plan, refused_clock)
     assert refused.seed_state().active is False
     assert refused.anchor("CCS") == 7335
+    # PCS re-derives to the mirror anchor 7350 at T = 1.60 (its 7310 probe is
+    # refused on both sides; the put window is the call window mirrored).
+    assert refused.anchor("PCS") == 7350
+    assert_committed_windows_quoted(refused, refused_plan)
     assert any("Probe refused for capacity" in message for message in messages(refused_batches))
 
 
@@ -242,12 +301,16 @@ def test_P23_T7_AC2_sweep_bound_is_one_message_and_rearms_at_cadence():
     engine.toggle_on()
     engine.on_chain(make_series(WIDE_CHAIN, WIDE_CHAIN))
     engine.on_spot(7350.0)
+    plan = assert_window_coverage(WIDE_TABLE, anchor=7350)
     engine.begin_seed(clock())
-    batches = drive(engine, both_sides(WIDE_TABLE), clock)
+    batches = drive(engine, plan, clock)
     state = engine.seed_state()
     assert state.active is False
     assert state.bounded == "pairs"
     assert state.scored == SCORED_PAIR_LIMIT
+    assert engine.anchor("CCS") == 7350
+    assert engine.anchor("PCS") == 7350
+    assert_committed_windows_quoted(engine, plan)
     bound_messages = [message for message in messages(batches) if "Seed bound" in message]
     assert len(bound_messages) == 1
     assert "12" in bound_messages[0]
@@ -390,6 +453,7 @@ def test_P23_T7_AC4_sentinels_absent_and_good_to_sentinel_transition(monkeypatch
     clock = Clock()
     live, _ = seed_engine(AC1_TABLE, clock)
     assert live.anchor("CCS") == 7330
+    assert live.anchor("PCS") == 7330
     before = live.rows()["CCS"][2]
     assert before.short == 7330
     assert before.display_ask is not None and before.display_bid is not None
@@ -445,10 +509,16 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
             7345: (0.00, 0.00),
             7335: (0.20, 0.25),
             7355: (0.00, 0.00),
+            # The shifted window's outer legs: never probed or refined, quoted
+            # only so AC1's coverage holds (7340/7360 are row 1 of the CCS
+            # window and the mirrors of PCS 7320/7300).
+            7340: (0.00, 0.00),
+            7360: (0.00, 0.00),
         }
         clock = Clock()
         engine, _ = seed_engine(table, clock)
         assert engine.anchor("CCS") == 7330, name
+        assert engine.anchor("PCS") == 7330, name
         score = engine._score_pair_complete("CCS", 7330, 7350)
         assert score is not None and score.distance == 0.0
         if name == "mid":
@@ -471,6 +541,8 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
         7350: (3.95, 4.00),
         7370: (0.00, 0.00),
         **_tie_refine_filler(None),
+        7340: (0.00, 0.00),
+        7360: (0.00, 0.00),
     }
     clock = Clock()
     engine1, batches1 = seed_engine(tie1, clock)
@@ -480,6 +552,7 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     assert low.distance == 0.0 and better.distance == 0.0
     assert abs(better.credit_mid - 1.00) < abs(low.credit_mid - 1.00)
     assert engine1.anchor("CCS") == 7330
+    assert engine1.anchor("PCS") == 7330
     probed = {
         action.pair[0]
         for action in actions(batches1)
@@ -494,6 +567,12 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
         7350: (4.15, 4.30),
         7370: (0.00, 0.00),
         **_tie_refine_filler("7305"),
+        7315: (0.00, 0.00),
+        7320: (0.00, 0.00),
+        7340: (0.00, 0.00),
+        7345: (0.00, 0.00),
+        7355: (0.00, 0.00),
+        7360: (0.00, 0.00),
     }
     clock = Clock()
     engine2, batches2 = seed_engine(tie2, clock)
@@ -505,6 +584,9 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     assert abs(high.credit_mid - 1.00) == pytest.approx(abs(below.credit_mid - 1.00))
     assert high.credit_mid >= 1.00 > below.credit_mid
     assert engine2.anchor("CCS") == 7310
+    # The PCS side takes the mirror probe 7350: its credit_mid (the 7310 probe's
+    # mirror) is the one >= T, so the re-derived put anchor is 7350, not 7310.
+    assert engine2.anchor("PCS") == 7350
     probed2 = {
         action.pair[0]
         for action in actions(batches2)
@@ -519,6 +601,13 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
         7350: (3.75, 3.90),
         7370: (0.00, 0.00),
         **_tie_refine_filler(None),
+        # The no-spot tie lands on CCS 7310: quote that window's inner legs and
+        # the shifted PCS window's outer ones (a membership fixture, not a score).
+        7305: (0.00, 0.00),
+        7315: (0.00, 0.00),
+        7320: (0.00, 0.00),
+        7340: (0.00, 0.00),
+        7360: (0.00, 0.00),
     }
     clock = Clock()
     near, near_batches = seed_engine(tie3, clock, spot=7328.0)
@@ -529,6 +618,7 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     assert left.credit_mid == pytest.approx(right.credit_mid)
     assert near._spot == 7328.0
     assert near.anchor("CCS") == 7330
+    assert near.anchor("PCS") == 7330
     near_probes = {
         action.pair[0]
         for action in actions(near_batches)
@@ -541,6 +631,9 @@ def test_P23_T7_AC5_metric_on_credit_bases_all_three_tie_breaks(monkeypatch):
     no_spot, _ = seed_engine(tie3, clock, spot=None)
     assert no_spot._spot is None
     assert no_spot.anchor("CCS") == 7310
+    # The put side keeps the anchor it already chose (7330); it is not the call
+    # side's mirror here because the no-spot tie-break is "lower short strike".
+    assert no_spot.anchor("PCS") == 7330
 
     # The displayed negative values never enter the metric: the recorded
     # distance arguments for the anchor pair are its credit bases, all positive.
@@ -570,6 +663,8 @@ def _headline_table(credit_bid, credit_ask):
         7345: (0.00, 0.00),
         7335: (0.20, 0.25),
         7355: (0.00, 0.00),
+        7340: (0.00, 0.00),
+        7360: (0.00, 0.00),
     }
 
 
@@ -595,6 +690,8 @@ def test_P23_T7_AC6_band_arithmetic_gates_match_and_never_follows_a_quote(monkey
     for target, credits, expected_band, expected_matched in cases:
         clock = Clock()
         engine, _ = seed_engine(_headline_table(*credits), clock, target=target)
+        assert engine.anchor("CCS") == 7330
+        assert engine.anchor("PCS") == 7330
         assert engine.band == pytest.approx(expected_band), (target, credits)
         assert engine.band == pytest.approx(real_band(target))
         row = engine.rows()["CCS"][2]
@@ -618,6 +715,7 @@ def test_P23_T7_AC7_action_vocabulary_line_budget_and_per_cause_messages():
     clock = Clock()
     engine, batches = seed_engine(AC1_TABLE, clock)
     assert engine.anchor("CCS") == 7330
+    assert engine.anchor("PCS") == 7330
 
     # Re-anchor through the live step decision: the walk table's credit bases sit
     # below the Target, so CCS steps down and PCS up, one rung each.
@@ -682,13 +780,18 @@ def test_P23_T7_AC7_action_vocabulary_line_budget_and_per_cause_messages():
     ]
     assert len(rung_messages) == 1
     assert shortfall.anchor("CCS") is None
+    assert shortfall.anchor("PCS") is None
 
     # budget refusal: the live window holds all 16 lines, so no probe fits.
     refused_clock = Clock()
     refused, _ = seed_engine(AC1_TABLE, refused_clock)
     refused.set_target(1.60)
     refused.begin_seed(refused_clock())
-    refused_batches = drive(refused, both_sides(AC1_TABLE), refused_clock)
+    refused_plan = assert_window_coverage(AC1_TABLE)
+    refused_batches = drive(refused, refused_plan, refused_clock)
+    assert refused.anchor("CCS") == 7310
+    assert refused.anchor("PCS") == 7350
+    assert_committed_windows_quoted(refused, refused_plan)
     refusal_messages = [
         message
         for message in messages(refused_batches)
@@ -702,8 +805,12 @@ def test_P23_T7_AC7_action_vocabulary_line_budget_and_per_cause_messages():
     bound.toggle_on()
     bound.on_chain(make_series(WIDE_CHAIN, WIDE_CHAIN))
     bound.on_spot(7350.0)
+    bound_plan = assert_window_coverage(WIDE_TABLE, anchor=7350)
     bound.begin_seed(bound_clock())
-    bound_batches = drive(bound, both_sides(WIDE_TABLE), bound_clock)
+    bound_batches = drive(bound, bound_plan, bound_clock)
+    assert bound.anchor("CCS") == 7350
+    assert bound.anchor("PCS") == 7350
+    assert_committed_windows_quoted(bound, bound_plan)
     bound_messages = [message for message in messages(bound_batches) if "Seed bound" in message]
     assert len(bound_messages) == 1
 
@@ -813,10 +920,10 @@ def test_P23_T8_AC1_one_step_per_side_in_the_decided_direction_with_stops():
     assert engine.anchor("CCS") == 7325
     assert engine.anchor("PCS") == 7335
     assert len(acts.cancels) == 2 and len(acts.subscribes) == 2
-    # A CCS step down leaves 7360 and arrives at 7320; the mirrored put step up
-    # leaves 7305 and arrives at 7345.
-    assert set(acts.cancels) == {leg("C", 7360), leg("P", 7305)}
-    assert set(acts.subscribes) == {leg("C", 7320), leg("P", 7345)}
+    # A CCS step down leaves 7360 and arrives at 7320; the put step up leaves
+    # the row-4 long 7300 and arrives at the new row-1 short 7340.
+    assert set(acts.cancels) == {leg("C", 7360), leg("P", 7300)}
+    assert set(acts.subscribes) == {leg("C", 7320), leg("P", 7340)}
 
     # Leaving pair cancelled before the arriving pair subscribes.
     kinds = [action.kind for action in acts.actions]
@@ -889,8 +996,8 @@ def test_P23_T8_AC2_shared_leg_untouched_and_the_line_budget_holds():
     assert len(bound) == MAX_OPTION_LINES
 
     acts = engine.evaluate(clock())
-    leaving = {leg("C", 7360), leg("P", 7305)}
-    arriving = {leg("C", 7320), leg("P", 7345)}
+    leaving = {leg("C", 7360), leg("P", 7300)}
+    arriving = {leg("C", 7320), leg("P", 7340)}
     assert set(acts.cancels) == leaving
     assert set(acts.subscribes) == arriving
 
@@ -1126,8 +1233,8 @@ def test_P23_T23_AC1_evaluate_steps_one_rung_per_side_in_the_decided_direction()
     assert engine.anchor("CCS") == 7325
     assert engine.anchor("PCS") == 7335
     assert len(acts.cancels) == 2 and len(acts.subscribes) == 2
-    assert set(acts.cancels) == {leg("C", 7360), leg("P", 7305)}
-    assert set(acts.subscribes) == {leg("C", 7320), leg("P", 7345)}
+    assert set(acts.cancels) == {leg("C", 7360), leg("P", 7300)}
+    assert set(acts.subscribes) == {leg("C", 7320), leg("P", 7340)}
     kinds = [action.kind for action in acts.actions]
     assert max(index for index, kind in enumerate(kinds) if kind == "cancel") < min(
         index for index, kind in enumerate(kinds) if kind == "subscribe"
@@ -1226,6 +1333,7 @@ def test_P23_T23_AC4_disagreeing_bases_decide_no_direction():
     clock = Clock()
     engine, _ = seed_engine(AC1_TABLE, clock, target=0.90)
     assert engine.anchor("CCS") == 7330
+    assert engine.anchor("PCS") == 7330
 
     # credit_bid 0.60, credit_ask 1.40, mid 1.00 at T = 0.90: two bases above
     # the Target and one below, so no direction is decided.
@@ -1307,7 +1415,7 @@ def test_P23_T23_ESC124_a_refused_install_leaves_the_session_anchor_with_the_liv
     # Free the parked lines: the same step now installs and both anchors move.
     engine._leased.difference_update(parked)
     installed = engine.evaluate(clock())
-    assert set(installed.subscribes) == {leg("C", 7320), leg("P", 7345)}
+    assert set(installed.subscribes) == {leg("C", 7320), leg("P", 7340)}
     assert engine.anchor("CCS") == 7325 and engine.anchor("PCS") == 7335
     assert engine._session_anchor == {"CCS": 7325.0, "PCS": 7335.0}
 
@@ -1480,6 +1588,8 @@ def drive_full_session(target=2.00):
     """Drive a fresh engine through every piece of session state AC1 names."""
     clock = Clock()
     engine, _batches = seed_engine(AC1_TABLE, clock, target=target)
+    assert engine.anchor("CCS") == 7310
+    assert engine.anchor("PCS") == 7350
     ccs_anchor = engine.anchor("CCS")
     assert ccs_anchor is not None and engine.anchor("PCS") is not None
     live = set(engine.live_legs())

@@ -1559,5 +1559,18 @@
     "opened": "2026-11-18T17:23:58.043222+00:00",
     "verified": "2026-11-18 (P23 escalation close-out, tree db21672). Independently re-verified on the live tree, not the worker's word. GREP: `paper-TWS`, `paper TWS`, `window_step` -> 0 hits in docs/plan.md and 0 hits in docs/architecture.md. LIVE-TWS DESCRIPTION: plan.md:5388 '(9) live-TWS, read-only acceptance -> new P23-10 ... against 127.0.0.1:7496'; :5619-5620 the AC-D65.19 matrix row 'owner-run live-TWS, read-only acceptance on 127.0.0.1:7496 ... P23-10 (built as P23-T26)'; :6502-6503 'the owner's recorded live-TWS, read-only run and P23-10 (built as P23-T26) owns it'; :6551 heading 'P23-10 - Owner-run live-TWS, read-only acceptance (built as P23-T26)'; :6554 'live-TWS, read-only ... on 127.0.0.1:7496 (there is no paper account - A211)'. STEP DECISION: plan.md:6104-6121 (P23-04) now says '`evaluate()` decides and installs the step itself: `_step_candidate(side, live)` ... `_install_windows(acts, targets)`' - no window_step(target_anchor). ARCHITECTURE: :8968-8969 '(I) the live-TWS, read-only acceptance run ... against 127.0.0.1:7496'; :9390-9391 'owner-run live-TWS, read-only acceptance record (live 127.0.0.1:7496, observation-only)'; :9887 AR-P23-22 'The live-TWS, read-only acceptance run (127.0.0.1:7496, observation-only)'. RESIDUAL, DELIBERATE AND NOT A VIOLATION: the record's filename d65_paper_tws_acceptance.md is still referenced (plan.md:6564/6575/6699, architecture.md:9417/9918), and plan.md:6564-6566 plus the record's own head note (lines 12-14) state the name is retained so existing references resolve and that its content describes the live-TWS run - a recorded naming decision, not a paper-TWS description of AC-D65.19. requirements.md AC-D65.19/A211 at HEAD already read the live-TWS, read-only acceptance, so all three canonical documents agree.",
     "suggested_direction": "Docs-only edit, no code and no AC change: re-point the six paper-TWS mentions (plan.md 5388/5619/6497/6545/6547, architecture.md 8968/9389/9885) at the live-TWS read-only run and at P23-T26, and rewrite plan.md:6116's window_step(target_anchor) entry as evaluate()'s decided-direction step. The Orchestrator is holding the D65 doc sync until this review lands, so this escalation is its trigger; tests/test_d65_residue.py::test_derived_phrases_are_absent_from_the_* sweeps do not currently cover these files, so add or extend a sweep if a guard is wanted."
+  },
+  {
+    "id": "PRE-021",
+    "task_id": "P24-T3",
+    "routed_to": "BUILD",
+    "category": "bug",
+    "severity": "blocking",
+    "observed": "[orchestrator] T3 blocked on AC-D66.7: R142 carried [REOPENED AND RE-DECIDED ...] instead of the pinned [revises P23, 2026-11-18 marker. Requirements Analyst normalised R142 (5/5 markers now, one-line diff), so the fence should pass.",
+    "expected": "tests/test_d66_delta_fence.py green with all five revision markers present; T3 finalizes done.",
+    "suggested_direction": "re-run T3 once now that R142 conforms",
+    "status": "open",
+    "source": "orchestrator",
+    "opened": "2026-11-18T21:18:11.155111+00:00"
   }
 ]

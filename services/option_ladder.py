@@ -3,9 +3,11 @@
 This module is the decision layer behind the Option Spreads dock. It owns every
 option-geometry and arithmetic rule the panel and its engine share:
 
-* the 20-wide ladder, built from **one** offset table applied identically on
-  both sides (:data:`SPREAD_WIDTH`, :data:`STRIKE_STEP`, :data:`RUNG_OFFSETS`,
-  :func:`ladder_pairs`);
+* the 20-wide ladder, built from **one per-side, row-ordered** offset table:
+  rows read top to bottom as ``+10, +5, 0, -5`` on a CCS (anchor on row 3) and
+  ``+5, 0, -5, -10`` on a PCS (anchor on row 2), each offset measured from the
+  anchor short strike (:data:`SPREAD_WIDTH`, :data:`STRIKE_STEP`,
+  :data:`RUNG_OFFSETS`, :func:`ladder_pairs`);
 * the short-leg-first row name (:func:`format_instrument`);
 * the displayed/credit sign pair -- the module's only sign decision
   (:func:`display_bases`, :func:`credit_bases`);
@@ -55,14 +57,21 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 SPREAD_WIDTH = 20
 #: Distance between adjacent listed strikes, in index points.
 STRIKE_STEP = 5
-#: The single offset table: rung number -> short-strike offset from the anchor.
-#: Applied identically on both sides -- there is no mirrored copy of this table.
-RUNG_OFFSETS = {1: 10, 2: 5, 3: 0, 4: -5}
 
 #: The two sides, exactly as the panel labels them.
 SIDE_CCS = "CCS"
 SIDE_PCS = "PCS"
 SIDES = (SIDE_CCS, SIDE_PCS)
+
+#: The single per-side offset table, in display-row order (top row first): each
+#: side maps to a 4-tuple of (logical label, short-strike offset from the anchor
+#: short strike).  CCS rows read +10, +5, 0, -5 with the anchor on row 3; PCS
+#: rows read +5, 0, -5, -10 with the anchor on row 2.  There is no second
+#: offset table under any other name.
+RUNG_OFFSETS = {
+    SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)),
+    SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10)),
+}
 
 #: Option tick tiers: below 3.00 the tick is 0.05, at and above it 0.10.
 TICK_BREAK = 3.00
@@ -82,7 +91,14 @@ class LegKey:
 
 @dataclass
 class SpreadRow:
-    """One displayed ladder row -- the engine's unit, the panel's row payload."""
+    """One displayed ladder row -- the engine's unit, the panel's row payload.
+
+    ``rung`` is the 1-based **display row**: the row's position top to bottom
+    (``1..4``) on either side.  The owner's logical labels are specification
+    data only and run ``4, 3, 2, 1`` against those positions on a PCS
+    (``1, 2, 3, 4`` on a CCS).  Nothing renders a label digit or a row-number
+    column.
+    """
 
     rung: int
     short: float
@@ -107,22 +123,25 @@ def _side_key(side: str) -> str:
 
 
 def ladder_pairs(anchor_short: float, side: str = SIDE_CCS) -> List[Tuple[float, float]]:
-    """The four 20-wide spreads of one side, rungs 1..4, top row first.
+    """The four 20-wide spreads of one side, in display-row order, top row first.
 
-    Rung ``r``'s short strike is ``anchor_short + RUNG_OFFSETS[r]`` -- the same
-    offset table on both sides, never a mirrored copy of it.  The long leg sits
-    exactly :data:`SPREAD_WIDTH` away in the side's direction: above the short
-    for a CCS (short below long), below it for a PCS (short above long).
+    Row ``n``'s short strike is ``anchor_short`` plus that side's offset from
+    :data:`RUNG_OFFSETS`, read in tuple order and never sorted by label: a CCS
+    reads ``+10, +5, 0, -5`` (anchor on row 3), a PCS ``+5, 0, -5, -10``
+    (anchor on row 2).  The long leg sits exactly :data:`SPREAD_WIDTH` away in
+    the side's direction: above the short for a CCS (short below long), below
+    it for a PCS (short above long).
 
-    The anchor short strike is rung 3, so the canonical CCS ``7425/7445`` is
-    ``ladder_pairs(7425)[2]`` and the canonical PCS ``7340/7320`` is
-    ``ladder_pairs(7340, SIDE_PCS)[2]``.
+    The anchor short strike is the offset-0 row, so the canonical CCS
+    ``7425/7445`` is ``ladder_pairs(7425)[2]`` (anchor on row 3) and the
+    canonical PCS ``7325/7305`` is ``ladder_pairs(7325, SIDE_PCS)[1]`` (anchor
+    on row 2).
     """
     anchor = float(anchor_short)
     key = _side_key(side)
     pairs: List[Tuple[float, float]] = []
-    for rung in sorted(RUNG_OFFSETS):
-        short = anchor + RUNG_OFFSETS[rung]
+    for _label, offset in RUNG_OFFSETS[key]:
+        short = anchor + offset
         if key == SIDE_CCS:
             long = short + SPREAD_WIDTH
         else:

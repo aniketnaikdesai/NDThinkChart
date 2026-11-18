@@ -264,13 +264,14 @@ _TOKEN_MIN_SUBSTRING = 6
 _TOKEN_SPLIT = re.compile(r"[^0-9A-Za-z_]+")
 
 # The consistency claims — stated identically in the plan, the architecture and
-# the new suites (AC-D65.4/.6/.2/.3).
+# the new suites (AC-D65.4/.6/.2/.3).  The PCS canonical is AC-D66.2's anchor
+# pair at S3 = 7325 (the PCS Target row is row 2).
 CONSISTENCY_FILES = (
     "docs/plan.md",
     "docs/architecture.md",
 ) + P23_SUITES[:-1]
 
-CANONICAL_FIXTURES = ("7425/7445", "7340/7320")
+CANONICAL_FIXTURES = ("7425/7445", "7325/7305")
 BANNED_EXAMPLES = ("7425/7435", "7315/7435")
 LEGAL_NON_BANNED_PAIR = "7435/7455"
 OPTION_CAP = 16

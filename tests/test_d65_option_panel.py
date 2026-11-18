@@ -481,7 +481,7 @@ def test_P23_T3_AC3_launch_width_derived(monkeypatch, qapp):
 
 def test_P23_T3_AC4_wide_and_narrow_fixtures(monkeypatch, qapp):
     name = "SPX Nov17 7425/7445"
-    pcs_name = "SPX Nov17 7340/7320"
+    pcs_name = "SPX Nov17 7325/7305"
     row = [name, "1.00", "1.10", "0.500", "0.0123"]
     pcs_row = [pcs_name, "0.90", "1.00", "0.400", "0.0100"]
 

@@ -3,15 +3,17 @@
 ``services/option_ladder`` is pure Python by design: these tests must not
 require a QApplication and the module under test imports no Qt.
 
-Coverage: the 20-wide ladder from one offset table (AC1), the short-leg-first
-row name and its fixture-convention guard (AC2), the displayed/credit sign pair
-and its single sign source (AC3), the tick-derived band (AC4), the quote
-validity screen (AC5), the three-basis distance and net greeks (AC6), and
-snapping, the four-rung window legs, the row/leg fields and the cell formatters
-(AC7).
+Coverage: the 20-wide ladder from one per-side, row-ordered offset table (AC1),
+the short-leg-first row name and its fixture-convention guard (AC2), the
+displayed/credit sign pair and its single sign source (AC3), the tick-derived
+band (AC4), the quote validity screen (AC5), the three-basis distance and net
+greeks (AC6), and snapping, the four-rung window legs, the row/leg fields and
+the cell formatters (AC7).  P24 (D66) re-baselines the AC1 geometry onto the
+per-side table and adds the display-row/label prose checks.
 """
 
 import ast
+import inspect
 import math
 import re
 import subprocess
@@ -48,50 +50,90 @@ from services.option_ladder import (
 )
 
 
-# ── AC1: geometry from one offset table ──────────────────────────────────────
+# ── AC1: geometry from one per-side, row-ordered offset table ────────────────
 
 
 def test_P23_T1_AC1_constants():
     assert SPREAD_WIDTH == 20
     assert STRIKE_STEP == 5
-    assert RUNG_OFFSETS == {1: 10, 2: 5, 3: 0, 4: -5}
-    # A spread spans exactly four strike steps, and every rung offset is a
-    # whole number of steps.
+    assert RUNG_OFFSETS == {
+        "CCS": ((1, 10), (2, 5), (3, 0), (4, -5)),
+        "PCS": ((4, 5), (3, 0), (2, -5), (1, -10)),
+    }
+    # A spread spans exactly four strike steps, and every offset on either side
+    # is a whole number of steps.
     assert SPREAD_WIDTH == 4 * STRIKE_STEP
-    assert all(offset % STRIKE_STEP == 0 for offset in RUNG_OFFSETS.values())
-    assert sorted(RUNG_OFFSETS) == [1, 2, 3, 4]
+    for side in ("CCS", "PCS"):
+        rows = RUNG_OFFSETS[side]
+        assert isinstance(rows, tuple) and len(rows) == 4
+        assert all(
+            isinstance(label, int) and isinstance(offset, int)
+            for label, offset in rows
+        )
+        assert all(offset % STRIKE_STEP == 0 for _, offset in rows)
+        # The offset-0 row -- the anchor -- is label 3 on each side.
+        assert [label for label, offset in rows if offset == 0] == [3]
 
 
 @pytest.mark.parametrize("side", ["CCS", "PCS"])
-@pytest.mark.parametrize("anchor", [7425.0, 7340.0, 5000.0, 123.5])
+@pytest.mark.parametrize("anchor", [7425.0, 7325.0, 7330.0])
 def test_P23_T1_AC1_four_pairs_per_side(side, anchor):
     pairs = ladder_pairs(anchor, side)
     assert len(pairs) == 4
     direction = 1 if side == "CCS" else -1
 
-    # Rung numbering runs 1..4 top row first, each short leg offset from the
-    # anchor rung by the shared table.
+    # The side's offsets are read in tuple order, top row first.
     shorts = [short for short, _ in pairs]
-    assert [short - anchor for short in shorts] == [10, 5, 0, -5]
+    assert [short - anchor for short in shorts] == (
+        [10, 5, 0, -5] if side == "CCS" else [5, 0, -5, -10]
+    )
 
-    for index, (short, long) in enumerate(pairs, start=1):
-        assert short == pytest.approx(anchor + RUNG_OFFSETS[index])
+    for index, (short, long) in enumerate(pairs):
+        _label, offset = RUNG_OFFSETS[side][index]
+        assert short == pytest.approx(anchor + offset)
         assert long == pytest.approx(short + direction * SPREAD_WIDTH)
         assert abs(long - short) == pytest.approx(SPREAD_WIDTH)
 
 
-@pytest.mark.parametrize("anchor", [7425.0, 7340.0])
-def test_P23_T1_AC1_one_offset_table_on_both_sides(anchor):
-    """The same table, not a mirrored copy: both sides share the short strikes."""
-    ccs_shorts = [short for short, _ in ladder_pairs(anchor, "CCS")]
-    pcs_shorts = [short for short, _ in ladder_pairs(anchor, "PCS")]
-    assert ccs_shorts == pcs_shorts
-    assert ccs_shorts == [anchor + 10, anchor + 5, anchor, anchor - 5]
+def test_P24_T1_AC1_per_side_table_and_no_second_copy():
+    """One table, one entry per side: row order and anchor row are both literal."""
+    # CCS keeps P23's offsets; PCS reads its own row-ordered tuple.
+    assert [offset for _, offset in RUNG_OFFSETS["CCS"]] == [10, 5, 0, -5]
+    assert [offset for _, offset in RUNG_OFFSETS["PCS"]] == [5, 0, -5, -10]
+    assert [short - 7425.0 for short, _ in ladder_pairs(7425.0, "CCS")] == [
+        10,
+        5,
+        0,
+        -5,
+    ]
+    assert [short - 7325.0 for short, _ in ladder_pairs(7325.0, "PCS")] == [
+        5,
+        0,
+        -5,
+        -10,
+    ]
 
-    # A mirrored offset table would offset PCS rungs the other way.
+    # The anchor (offset 0, label 3) is row 3 on CCS and row 2 on PCS.
+    assert RUNG_OFFSETS["CCS"][2] == (3, 0)
+    assert RUNG_OFFSETS["PCS"][1] == (3, 0)
+    assert ladder_pairs(7425.0, "CCS")[2] == (7425.0, 7445.0)
+    assert ladder_pairs(7325.0, "PCS")[1] == (7325.0, 7305.0)
+
+    # No second offset table exists under either forbidden name.
     source = Path(ladder.__file__).read_text()
     assert "RUNG_OFFSETS_PCS" not in source
     assert "PCS_RUNG_OFFSETS" not in source
+
+
+def test_P24_T1_AC1_no_second_table_in_production():
+    """The forbidden names occur nowhere in the production tree either."""
+    offenders = [
+        str(path.relative_to(Path(__file__).resolve().parent.parent))
+        for path in _production_sources()
+        if "RUNG_OFFSETS_PCS" in path.read_text(encoding="utf-8")
+        or "PCS_RUNG_OFFSETS" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
 
 
 def test_P23_T1_AC1_canonical_fixtures():
@@ -100,14 +142,41 @@ def test_P23_T1_AC1_canonical_fixtures():
     # CCS: short below long.
     assert ccs[2][0] < ccs[2][1]
 
-    pcs = ladder_pairs(7340.0, "PCS")
-    assert pcs[2] == (7340.0, 7320.0)
-    # PCS: short above long.
-    assert pcs[2][0] > pcs[2][1]
+    pcs = ladder_pairs(7325.0, "PCS")
+    assert pcs == [
+        (7330.0, 7310.0),
+        (7325.0, 7305.0),
+        (7320.0, 7300.0),
+        (7315.0, 7295.0),
+    ]
+    # PCS: short above long, and the anchor pair is display row 2.
+    assert pcs[1] == (7325.0, 7305.0)
+    assert pcs[1][0] > pcs[1][1]
 
-    # The same holds for every rung of either side.
+    # The same holds for every row of either side.
     assert all(short < long for short, long in ccs)
     assert all(short > long for short, long in pcs)
+
+
+def test_P24_T1_AC3_row_order_and_label_order_are_read_independently():
+    """Tuple order is the row order; label order is separate specification data."""
+    ccs = RUNG_OFFSETS["CCS"]
+    pcs = RUNG_OFFSETS["PCS"]
+
+    assert [label for label, _ in ccs] == [1, 2, 3, 4]
+    assert [offset for _, offset in ccs] == [10, 5, 0, -5]
+
+    assert [label for label, _ in pcs] == [4, 3, 2, 1]
+    assert [offset for _, offset in pcs] == [5, 0, -5, -10]
+
+    pcs_shorts = [short for short, _ in ladder_pairs(7325.0, "PCS")]
+    assert pcs_shorts == [7330.0, 7325.0, 7320.0, 7315.0]
+    assert pcs_shorts == sorted(pcs_shorts, reverse=True)
+
+    # A label-sorted iteration would reverse the PCS rows -- observably wrong.
+    label_sorted_offsets = [offset for _, offset in sorted(pcs, key=lambda row: row[0])]
+    assert label_sorted_offsets == [-10, -5, 0, 5]
+    assert [7325.0 + offset for offset in label_sorted_offsets] != pcs_shorts
 
 
 def test_P23_T1_AC1_unknown_side_rejected():
@@ -115,6 +184,47 @@ def test_P23_T1_AC1_unknown_side_rejected():
         ladder_pairs(7425.0, "IC")
     # The side is case-insensitive and defaults to CCS.
     assert ladder_pairs(7425.0) == ladder_pairs(7425.0, "ccs")
+
+
+@pytest.mark.parametrize("side", ["CCS", "PCS"])
+@pytest.mark.parametrize("anchor", [7425.0, 7325.0, 7330.0])
+def test_P24_T1_AC2_tuple_order_per_side(side, anchor):
+    pairs = ladder_pairs(anchor, side)
+    direction = 1 if side == "CCS" else -1
+    expected_offsets = [10, 5, 0, -5] if side == "CCS" else [5, 0, -5, -10]
+
+    assert [short - anchor for short, _ in pairs] == expected_offsets
+    assert all(long == short + direction * SPREAD_WIDTH for short, long in pairs)
+
+    if side == "CCS":
+        # CCS geometry is byte-identical to P23's shared-table output.
+        assert pairs == [
+            (anchor + 10.0, anchor + 30.0),
+            (anchor + 5.0, anchor + 25.0),
+            (anchor, anchor + 20.0),
+            (anchor - 5.0, anchor + 15.0),
+        ]
+
+
+def test_P24_T1_AC2_canonical_pairs_signature_and_errors():
+    assert ladder_pairs(7325.0, "PCS") == [
+        (7330.0, 7310.0),
+        (7325.0, 7305.0),
+        (7320.0, 7300.0),
+        (7315.0, 7295.0),
+    ]
+    assert ladder_pairs(7325.0, "PCS")[1] == (7325.0, 7305.0)
+    assert ladder_pairs(7425.0)[2] == (7425.0, 7445.0)
+
+    # The default side is CCS, the signature is unchanged and an unknown side
+    # still raises ValueError.
+    signature = inspect.signature(ladder_pairs)
+    assert list(signature.parameters) == ["anchor_short", "side"]
+    assert signature.parameters["side"].default == "CCS"
+    assert signature.return_annotation == "List[Tuple[float, float]]"
+    assert ladder_pairs(7425.0) == ladder_pairs(7425.0, "ccs")
+    with pytest.raises(ValueError):
+        ladder_pairs(7425.0, "IC")
 
 
 # ── P23-T20 AC1: the unused production fixture guard is deleted ─────────────
@@ -502,13 +612,13 @@ def test_P23_T1_AC7_window_legs_eight_per_anchor():
         LegKey("C", 7420.0), LegKey("C", 7440.0),
     ]
 
-    pcs_legs = window_legs(7340.0, "PCS")
+    pcs_legs = window_legs(7325.0, "PCS")
     assert len(pcs_legs) == 8
     assert pcs_legs == [
-        LegKey("P", 7350.0), LegKey("P", 7330.0),
-        LegKey("P", 7345.0), LegKey("P", 7325.0),
-        LegKey("P", 7340.0), LegKey("P", 7320.0),
-        LegKey("P", 7335.0), LegKey("P", 7315.0),
+        LegKey("P", 7330.0), LegKey("P", 7310.0),
+        LegKey("P", 7325.0), LegKey("P", 7305.0),
+        LegKey("P", 7320.0), LegKey("P", 7300.0),
+        LegKey("P", 7315.0), LegKey("P", 7295.0),
     ]
 
     # Every anchor yields its own pair-per-rung window: short then long.
@@ -592,3 +702,81 @@ def test_P23_T1_AC7_module_is_qt_free():
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+# ── P24 AC4/AC5: the prose that states the per-side rule ────────────────────
+
+
+def _rung_offsets_comment() -> str:
+    """The comment block immediately above ``RUNG_OFFSETS``."""
+    lines = Path(ladder.__file__).read_text(encoding="utf-8").splitlines()
+    start = next(
+        index for index, line in enumerate(lines) if line.startswith("RUNG_OFFSETS =")
+    )
+    block = []
+    index = start - 1
+    while index >= 0 and lines[index].lstrip().startswith("#"):
+        block.append(lines[index])
+        index -= 1
+    return "\n".join(reversed(block))
+
+
+def test_P24_T1_AC4_retired_invariant_is_gone():
+    source = Path(ladder.__file__).read_text(encoding="utf-8")
+    assert "both sides" not in source
+    assert "identically on both sides" not in source
+    assert "same offset table on both sides" not in source
+
+
+@pytest.mark.parametrize(
+    "block_name",
+    ["module docstring", "offset table comment", "ladder_pairs docstring"],
+)
+def test_P24_T1_AC4_per_side_rule_stated(block_name):
+    blocks = {
+        "module docstring": inspect.getdoc(ladder) or "",
+        "offset table comment": _rung_offsets_comment(),
+        "ladder_pairs docstring": inspect.getdoc(ladder_pairs) or "",
+    }
+    text = blocks[block_name]
+
+    # The per-side rule, the PCS offsets and the anchor row per side.
+    assert "CCS" in text and "PCS" in text
+    assert "per-side" in text or "that side's offset" in text
+    assert "+5" in text and "-10" in text
+    assert "row 3" in text
+    assert "row 2" in text
+
+
+def test_P24_T1_AC4_ladder_pairs_docstring_names_canonical_rows():
+    doc = inspect.getdoc(ladder_pairs) or ""
+    assert "7425/7445" in doc
+    assert "ladder_pairs(7425)[2]" in doc
+    assert "7325/7305" in doc
+    assert "ladder_pairs(7325, SIDE_PCS)[1]" in doc
+    # The PCS anchor sits on row 2, the CCS anchor on row 3.
+    assert "row 2" in doc and "row 3" in doc
+
+
+def test_P24_T1_AC5_spread_row_docstring_names_display_row_and_label():
+    doc = inspect.getdoc(SpreadRow) or ""
+    assert "display row" in doc
+    assert "1-based" in doc
+    assert "label" in doc
+    assert "4, 3, 2, 1" in doc
+    assert "1, 2, 3, 4" in doc
+    assert "row-number" in doc
+    assert "Nothing renders" in doc
+
+    # The frozen field list, in order, with rung still first.
+    assert [field.name for field in fields(SpreadRow)] == [
+        "rung",
+        "short",
+        "long",
+        "display_name",
+        "display_ask",
+        "display_bid",
+        "delta",
+        "gamma",
+        "matched",
+    ]

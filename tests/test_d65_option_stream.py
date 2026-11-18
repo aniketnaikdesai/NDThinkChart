@@ -37,8 +37,11 @@ from services.option_ladder import LegKey, match_band
 TODAY = today_expiry_yyyymmdd()
 SPOT = 7350.0
 STRIKES = [7000.0 + 5.0 * i for i in range(121)]  # 7000 … 7600
-#: The committed window at either anchor (rungs 1..4, top row first).
-EXPECTED_SHORTS = [7360.0, 7355.0, 7350.0, 7345.0]
+#: The committed window at either anchor (rungs 1..4, top row first). Each side
+#: reads its own per-row offsets: CCS keeps P23's +10/+5/0/-5, so its anchor is
+#: row 3; PCS is +5/0/-5/-10, so its anchor is row 2 and the row-4 short is new.
+EXPECTED_SHORTS_CCS = [7360.0, 7355.0, 7350.0, 7345.0]
+EXPECTED_SHORTS_PCS = [7355.0, 7350.0, 7345.0, 7340.0]
 #: The one window leg AC1 leaves unquoted (the partial-leg case).
 UNFED = {7380.0}
 
@@ -327,15 +330,16 @@ def test_P23_T9_AC1_on_populates_both_ladders_negative_and_partial_legs(
         _deliver_chain(win, fake)
         _settle(win, fake, skip=UNFED)
 
-        # Eight rows: four per side, rung order 7360/7355/7350/7345.
-        assert win.option_spreads_panel.ccs_table.rowCount() >= 4
-        assert win.option_spreads_panel.pcs_table.rowCount() >= 4
+        # Eight rows: four per side. CCS reads 7360/7355/7350/7345; PCS reads
+        # 7355/7350/7345/7340 (the per-side table's anchor is row 2 on PCS).
+        assert win.option_spreads_panel.ccs_table.rowCount() == 4
+        assert win.option_spreads_panel.pcs_table.rowCount() == 4
 
-        for side, delta_text, gamma_text in (
-            ("CCS", "-0.020", "0.0004"),
-            ("PCS", "0.020", "-0.0004"),
+        for side, shorts, delta_text, gamma_text in (
+            ("CCS", EXPECTED_SHORTS_CCS, "-0.020", "0.0004"),
+            ("PCS", EXPECTED_SHORTS_PCS, "0.020", "-0.0004"),
         ):
-            for index, short in enumerate(EXPECTED_SHORTS):
+            for index, short in enumerate(shorts):
                 cells = _cells(win, side, index)
                 assert cells[0].startswith("SPX "), cells
                 if side == "CCS" and index == 0:
@@ -423,19 +427,22 @@ def test_P23_T9_AC2_registry_shared_legs_ordering_budget_and_off(monkeypatch, qa
 
         after = fake.leg_reqs()
         # Shared legs keep their original reqId (never cancelled + re-requested).
-        # CCS 7350 -> 7345 keeps 7360 as a long; PCS 7350 -> 7355 keeps 7345.
+        # CCS 7350 -> 7345 keeps 7360 as a long and leaves 7380 for 7340. PCS
+        # 7350 -> 7355 keeps seven legs -- including 7340, which moves from the
+        # row-4 short to the row-1 long -- and swaps only its row-4 long 7320
+        # for the new row-1 short 7360.
         for key in (("C", 7360.0), ("C", 7355.0), ("C", 7350.0), ("C", 7345.0),
                     ("C", 7375.0), ("C", 7370.0), ("C", 7365.0),
-                    ("P", 7360.0), ("P", 7355.0), ("P", 7350.0), ("P", 7345.0),
-                    ("P", 7340.0), ("P", 7335.0), ("P", 7330.0)):
+                    ("P", 7355.0), ("P", 7350.0), ("P", 7345.0), ("P", 7340.0),
+                    ("P", 7335.0), ("P", 7330.0), ("P", 7325.0)):
             assert after[key] == before[key], key
         # Exactly one leg leaves and one arrives per side.
         assert ("C", 7380.0) not in after
-        assert ("P", 7325.0) not in after
+        assert ("P", 7320.0) not in after
         assert before[("C", 7380.0)] in fake.cancels
-        assert before[("P", 7325.0)] in fake.cancels
+        assert before[("P", 7320.0)] in fake.cancels
         assert after[("C", 7340.0)] not in before.values()
-        assert after[("P", 7365.0)] not in before.values()
+        assert after[("P", 7360.0)] not in before.values()
         # ... and each leaving leg was cancelled BEFORE its side's arrival.
         new_events = fake.events[event_floor:]
         leaving_index = next(
@@ -448,7 +455,7 @@ def test_P23_T9_AC2_registry_shared_legs_ordering_budget_and_off(monkeypatch, qa
         )
         assert leaving_index < arriving_index
         assert max(option for option, _spot in fake.steps) <= 16
-        assert len(fake.cancels) - cancel_floor == 2  # C7380 + P7325 only
+        assert len(fake.cancels) - cancel_floor == 2  # C7380 + P7320 only
 
         # A second evaluation moves nothing: both new anchors are matched (d=0).
         cancels_after_step = len(fake.cancels)
@@ -1296,16 +1303,21 @@ def test_P23_T25_AC1_pair_mids_fall_rise_and_seed_at_7350(monkeypatch, qapp):
             assert score.credit_bid == pytest.approx(score.credit_mid - 0.10)
             assert score.credit_ask == pytest.approx(score.credit_mid + 0.10)
 
-        # Every displayed cell is computed from those mids.
+        # Every displayed cell is computed from those mids. The anchor row on
+        # each side: PCS 7350 is row index 1 (display row 2, the anchor of the
+        # per-side table's +5/0/-5/-10), CCS 7350 is row index 2 (row 3 of
+        # +10/+5/0/-5); the rung above each anchor carries the same values.
         for side, index, short in (
             ("CCS", 2, 7350.0), ("CCS", 3, 7345.0),
-            ("PCS", 2, 7350.0), ("PCS", 1, 7355.0),
+            ("PCS", 1, 7350.0), ("PCS", 0, 7355.0),
         ):
             ask, bid = _expected_display(short, side)
             cells = _cells(win, side, index)
             assert cells[1] == ask, (side, index, cells)
             assert cells[2] == bid, (side, index, cells)
             assert float(cells[1]) < 0 and float(cells[2]) < 0
+        assert _cells(win, "PCS", 1)[0].endswith("7350/7330")
+        assert _cells(win, "CCS", 2)[0].endswith("7350/7370")
         assert fake.orders == []
     finally:
         win.close()
