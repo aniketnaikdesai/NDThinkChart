@@ -116,6 +116,12 @@ no engine switch and no opt-in — one engine, always on.
    - ✅ Read-Only API (optional, for safety)
 4. **Market Data Subscriptions** — ensure you have subscriptions for symbols you'll chart (e.g., US Equities, Options)
 
+**Connection badge.** The toolbar badge reports the connection, not the account: while connected it reads
+`● Connected` (green). There is no `Live` or `Paper` badge — the account-type label was retired with the
+account-summary stream it derived from, and the app is live-only anyway. When TWS goes away the badge shows
+the amber `Monitoring paused — TWS disconnected` described below; a brief drop shows a red `● Disconnected`
+until it reconnects.
+
 ---
 
 ## UI Overview
@@ -195,6 +201,14 @@ no engine switch and no opt-in — one engine, always on.
    right-click action, no close/flatten control and no order entry, and the ON/OFF state is never persisted
 4. Switch **OFF** to release every leg; to place, close or cancel anything, do it in **TWS** — the app places, cancels
    and closes nothing
+5. **On a disconnect** the quotes keep their last values, each cell flagged STALE (the cell tooltip reads `STALE`), and
+   the ladder freezes: the walk takes no step while frozen and nothing is cancelled. On reconnect the app replays the
+   option legs and the ladder resumes from the same anchor — a fresh quote clears that leg's STALE flag, and a leg
+   still silent 3 seconds after reconnect triggers the single re-seed
+6. **No 0DTE expiry today** — when today's SPXW chain lists no 0DTE expiry (a weekend or holiday), the panel shows the
+   explicit empty state `No 0DTE expiry today` with zero option lines; it never falls back to another expiry. After
+   16:15 ET the chain is closed for the day and the panel instead shows `0DTE chain closed (after 16:15 ET)` with empty
+   ladders
 
 ---
 
@@ -212,7 +226,10 @@ Tables:
 - `studies` — per-symbol study configs
 - The D65 portfolio tables (`positions`, `trade_groups`, `position_group_map`) are gone: the account/position stack was
   removed in P23, so a pre-P23 database has them dropped the first time this version opens it (after a verified backup
-  copy is written) and a fresh database never creates them
+  copy is written) and a fresh database never creates them. The pre-drop copy goes to
+  `~/Library/Application Support/NDThinkChart/backups/` as `charting_app_pre-D65_<YYYYMMDD-HHMMSS>.sqlite3`; verification
+  (an integrity check plus the three tables and their row counts) must pass before the drop runs — if it fails, all three
+  tables and their rows stay intact and the drop is retried on the next open
 
 ---
 

@@ -59,6 +59,6 @@ Next steps
 ----------
 
 Full workflows and feature docs (pop-outs, alarms, drawings,
-volume-burst alerts, TWS daily lifecycle, timeframes),
-configuration, database paths, and troubleshooting: see usage.md.
+option spreads panel, volume-burst alerts, TWS daily lifecycle,
+timeframes), configuration, database paths, and troubleshooting: see usage.md.
 What shipped per phase: see docs/phase-changelog.md.

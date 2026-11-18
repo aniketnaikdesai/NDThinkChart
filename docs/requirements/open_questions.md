@@ -1888,11 +1888,12 @@
 - **Affected requirement section:** Phase P23 / D65 / `AC-D65.1`, `AC-D65.9`, `AC-D65.11`; A194; R143; `design_gaps.md` DG119.
 - **⚠ Owner constraint added 2026-11-17 (widens what this answer decides):** *"Also, I want to ensure that I don't keep unused code/functions in the app."* Under the new standing **Unused-Code Rule** (`requirements.md` P23, `### Unused-Code Rule (standing)`; A197), choosing **(a) replace** also settles the fate of the displaced stack: the whole Portfolio/account-position subsystem is production-orphaned (verified 2026-11-17: `ActivePortfolioPanel` is imported only by `ui/main_window.py`; `services/strategy_detection.py` only by that panel; `build_position_from_ib` only from `main_window`; `trade_groups` only in `data/db.py`), so the rule requires it **deleted in P23** — module, dock wiring, bridge signals, `ibkr/account.py`, `data.models.Position`/`TradeGroup`, the `positions`/`trade_groups` writes (and possibly the tables), `strategy_detection`, and the panel-scoped tests — leaving the app with **no account or position data at all**. Choosing **(b) keep as a tab** retires that whole question (everything keeps a consumer). If you want (a) but not the data-path deletion, say which part must survive and why; `design_gaps.md` **DG121** records the table/row decision that the rule cannot make for you.
 
-# Open Questions — P23 amendment (Q111–Q112 — ANSWERED 2026-11-17, both owner-confirmed defaults)
+# Open Questions — P23 amendment (Q111–Q112 ANSWERED 2026-11-17, both owner-confirmed defaults; Q113 ANSWERED 2026-11-18 — no paper account, gate runs live read-only)
 
 > Raised by the owner's review of the generated plan and **both answered 2026-11-17 (the recommended defaults
-> were confirmed)**: Q111 = no ON/OFF persistence, Q112 = one spot line only when nothing is in memory. **No open
-> question remains; P23 carries `Status: READY_FOR_PLAN`.**
+> were confirmed)**: Q111 = no ON/OFF persistence, Q112 = one spot line only when nothing is in memory. **Q113**
+> (2026-11-18) is the owner's *"there is no paper-TWS"* statement amending `AC-D65.19` to a live-TWS read-only
+> run — also answered. **No open question remains; P23 carries `Status: READY_FOR_PLAN`.**
 
 ## Q111 — D65 / A(iv): should the panel's ON/OFF state survive an app restart?
 - **Status:** **answered 2026-11-17 — owner confirmed the default. Verbatim: *"No - launch is always OFF, Target 1.00 (Recommended)"*.** ON/OFF never survives a restart (A192/A209; launch is always Target `1.00` + toggle **OFF**).
@@ -1907,3 +1908,10 @@
 - **Recommended default (a):** one line, only when needed. Rationale: the cost is one line, released at OFF, and it removes the "above/below spot with no spot" gap the review found; (b) is available if the watchlist is already near the 90-line warning.
 - **What a different answer would change:** `AC-D65.15`(i)'s third seed branch and A206 (one clause) plus the line-budget ceiling in the Constraints; the probe bound and the final rung are unchanged either way.
 - **Affected requirement section:** Phase P23 / D65 / `AC-D65.15`(i); A206; R150.
+
+## Q113 — D65 / I: there is no paper account — may the acceptance gate run on live TWS, read-only?
+- **Status:** **ANSWERED 2026-11-18 by owner statement. Verbatim: *"there is no paper-TWS"*.** The gate is amended, not deleted: `AC-D65.19` is now an owner-run **live-TWS, read-only** acceptance on `127.0.0.1:7496` (A211 revised). Nothing blocking — the amendment is decided.
+- **Why it was raised:** `AC-D65.19` (and A211) required an **owner-run paper-TWS** acceptance. With no paper account that environment cannot be stood up, so the criterion as written could never be satisfied and would have blocked the phase gate at sign-off. The paper wording also contradicted the repo's own connection truth (Current Tech Stack + Q85: live port 7496 only, no paper mode).
+- **Resolution:** environment changes to the owner's **live TWS on `127.0.0.1:7496`**, read-only by construction — the app contains **zero order code** (D45/D46) and the panel issues only `reqSecDefOptParams` / `reqMktData` / `cancelMktData`. The run is **observation-only**: no order-shaped call is made or possible, and no checklist item may ask the owner to place, modify or cancel an order. **All six checks are unchanged** (eight rows; greeks arrive; a Target change steps and re-reads; OFF cancels every option/spot line back to the pre-ON TWS line count; a disconnect marks `STALE` and freezes with reconnect replaying and recovering; the display-only guarantee holds observationally, with the line budget ≤16 option + 1 spot = 17). The **D48/D52 probe precedent** (live `127.0.0.1:7496`, historical/market-data requests only, no orders — `docs/archive/probe_records/d48_probe_record.md`, `d52_probe_record.md`) is the model. **A paper run remains acceptable if a paper account ever exists.**
+- **Affected requirement section:** Phase P23 / D65 / `AC-D65.19`; A211; Goals bullet D65.19.
+- **Follow-up outside requirements:** the acceptance record `docs/archive/probe_records/d65_paper_tws_acceptance.md` (P23-T14) still describes a paper-port-only method and a "Paper account" field — it is a **record file**, not a requirement, so the analyst leaves it; it needs a **Task Manager** follow-up to reissue the checklist for live TWS (see the analyst's reply, 2026-11-18).

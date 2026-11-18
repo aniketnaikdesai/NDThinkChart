@@ -314,4 +314,81 @@ Neither branch was taken:
 
 **Owner gates unchanged and outside this review:** the **paper-TWS acceptance** (`AC-D65.19`, `P23-T14`: all six items `PENDING`, no evidence, no signature) and the repository documentation gate (`docs/phase-changelog.md` has no D65/P23 entry; `plan.md`/`architecture.md` as-built sync). The phase's production behaviour is sound and its suite is green on `c2fc2af`; the phase cannot be called *done* until those two owner actions are recorded.
 
+# Code Review — P23 pass 4 (P23-T17, ESC-119 answered)
+
+**Pass:** phase-final, **full pass** (phase-final always full).
+**Scope (incremental):** **P23-T17** only — the single result newer than this log's previous `REVIEW_COMPLETE` marker (`precheck.json` `scope: ["P23-T17"]`, `fail_fast: []`, `overlaps: []`, 0 unattributed tree changes, `flags: []`, `doc_candidates` all `touched: false`).
+**Inputs consumed:** `precheck.json` (fresh, 02:18:02), `build_log.md` wave 359, `docs/build/results/_archive/wave359_P23-T17.json` (`done`, 4/4 pass, `footprint_flags: []`, `files_changed: ["tests/test_d65_residue.py"]` — matches git), the task graph (`P23-T17` AC1–AC4), `requirements.md` AC-D65.12(i), and the committed tree **`a6800b2`** (clean).
+**Verdict:** **P23-T17 delivers all four of its ACs on the live tree, and ESC-119's enumerated ask is closed.** ESC-119 flipped to `addressed` after independent re-verification (§2). Two **new, non-blocking** findings are opened with measurements: **ESC-121** (should-fix, TASK_MANAGER — clause (i)'s *evidence* standard is weaker than the requirement it enforces: test-file references count as "production callers", and method keys are probed by bare name) and **ESC-122** (nice-to-have, BUILD — a wave-local `CENSUS_ALLOWLIST == {}` literal). Neither is a P23-T17 defect; both were found by trying to falsify the extension rather than by reading it.
+
+---
+
+## 0. Verification provenance — the handed suite verdict was STALE, second pass in a row
+
+`docs/code_review/test_verification.json` had mtime **01:40:31** — older than `build_log.md` (02:18:02), older than commit `a6800b2` (02:18:02) and older than the P23-T17 result (02:17:45). It was the *previous* pass's run and could not speak for this tree. Per the standalone fallback I ran the verifier myself:
+
+```
+verify_tests.py --command ".venv/bin/python -m pytest -q -m 'not webengine'"
+-> VERIFY: pass  exit=0  88.9 s   (rewrote docs/code_review/test_verification.json)
+```
+
+Ground truth: **the full suite is green on `a6800b2`.** This is the second consecutive pass handed a verification artifact that predates the commit it is supposed to cover (see §0 of the previous entry); the freshly written file now post-dates `a6800b2`, so this pass is not resting on it. Task-attribution run by me: `tests/test_d65_residue.py` → **41 passed** (was 36).
+
+## 1. P23-T17 — the five things I was asked to verify
+
+| # | claim | how I verified it | result |
+|---|---|---|---|
+| 1 | the census enumerates class methods, keyed so a message names the class | Read `_class_methods` / `_census_candidates` and ran them over the live tree: **102** method candidates; `SpreadEngine.target` (`@property`) and `OptionSpreadsPanel._cells_for` (`@staticmethod`) are candidates; no key ends in a dunder; `VerifiedBackupPath.__new__` absent. `ast.walk` finds `ClassDef` nodes (not just module body), each body's `FunctionDef`/`AsyncFunctionDef` children are taken, key is `Class.method`, and a violation renders `module:Class.method`. | **pass** |
+| 2 | the seeded dead-method fixture is discriminating | Ran the fixture through the gate's own `scan_unreferenced_symbols`: exactly `['fixture_module.py:Owner.orphan_method']`. Removed the caller's `owner.used_method()` → exactly `[orphan, used]`. Also ran the **reverse** mutation the suite does not: adding `owner.orphan_method()` to the caller → `[]`. Not flag-everything, not flag-nothing. | **pass** |
+| 3 | the clause-(v) exemption needs a cited declaring class **and** a verified registering base | `FRAMEWORK_CALLBACKS` is keyed `(module, declaring class, method) -> base class`; `_framework_callback_exempt` requires `isinstance(base, type)`, `hasattr(base, method)`, the declaring class to really inherit that base (name check over `ClassDef.bases`), and the class body to define the method. Measured on the tree: `QStyledItemDelegate.initStyleOption` → `True`, `QWidget.sizeHint` → `True`, both entries resolve, and the two declaring classes do inherit those bases. A document/task-graph string is not a `type`, so it exempts nothing — asserted twice (allowlist value and framework value). | **pass** |
+| 4 | the real tree and the full suite are green, and no clause was weakened | Residue suite **41 passed**; full suite `pass`, exit 0, 88.9 s on `a6800b2`. Deleted lines in the diff: 19, each replaced by a strictly wider or equivalent form (`QT_CALLBACKS` → `FRAMEWORK_CALLBACKS` gains the declaring class; `symbol not in tree[module]` → `_defines_symbol`; the old bare allowlist skip → a verified citation). `_defined_symbols` byte-identical; the seeded dead-symbol, unconnected-signal and red-then-green cases untouched. | **pass** |
+| 5 | the docstring/scope claim matches the implementation | Module docstring's clause-(i) bullet now names class methods, the dunder exclusion and the clause-(v) cited-site exemption, and the module-level-only claim is gone; `test_docstring_states_the_implemented_census_scope` checks each sentence against the same candidate map (a real method key present, the dunder key absent) rather than asserting prose alone. I re-read the bullet against `_class_methods`/`_census_candidates`: "every method of every P23 class" is accurate — the four new modules are wholly P23, and `OptionSeries` is the only P23 class added to a pre-existing module (the other three extended modules' classes are pre-P23, verified). | **pass** |
+
+Digits: method candidates **102**; new suite cases **5** (method-census, docstring-scope, dead-method fixture, framework-exemption, real-tree framework callbacks); suite **36 → 41**.
+
+## 2. ESC-119 — CLOSED (`addressed`)
+
+The escalation's own `expected` had five parts; all are delivered, and I re-verified each against the tree rather than the worker's summary:
+
+- **"record whether clause (i) is meant to cover class methods"** — recorded by doing it: `AC-D65.12(i)` names *method*, the gate now censuses methods, and the docstring states the scope. No "no" branch was needed.
+- **"extend `_defined_symbols`/`scan_unreferenced_symbols` with an explicit exemption list for Qt/EWrapper name-invoked and duck-typed public surfaces"** — `FRAMEWORK_CALLBACKS` is that list, and it is verified against the base class rather than trusted.
+- **"no dead symbol, methods included"** — a method with no reference anywhere is now reported: measured by stripping *every* `toggle_off` mention outside the engine (production + tests) → `services/option_spread_engine.py:SpreadEngine.toggle_off` appears. The exact symbol ESC-119 named is caught when it is actually orphaned.
+- **footprint** — `touches_files: ["tests/test_d65_residue.py"]`, and the diff is that file plus coordination docs; no production edit.
+- **engine reset / regression case** — inherited from P23-T16 and still green (§1 row 4).
+
+**Why closing is not a waiver:** while trying to break the extension I measured two ways the gate is still weaker than the requirement reads. They are a *different claim* from this entry's enumeration scope — they apply to module-level names too and pre-date P23-T17 — so they are carried by **ESC-121**, and the wave-local literal by **ESC-122**. The `verified` field on ESC-119 says exactly that.
+
+## 3. New finding — ESC-121 (should-fix, TASK_MANAGER): clause (i)'s evidence is weaker than AC-D65.12(i)
+
+`AC-D65.12(i)` says *every module, class, function, **method**, constant and signal added by P23 has a **production** caller*. The gate's reference pool is `sources()`, which includes `tests/`, so a test call satisfies it. Measured on the live tree by re-running every clause-(i) candidate against production files only:
+
+- **15 P23 symbols have no production reference at all** while the census reports `[]`: `OptionSpreadsPanel.{target_value, toggle_colour, toggle_collapsed, preferred_width, elided_name}`, `validate_spread`, `SpreadEngine.{latched_causes, pair_score, pair_eligible, lease, pending_legs, window_step, pair_dropped, reseat_count}`, `option_chain_strikes`.
+- `elided_name` is the clean example: production elides through `_ElideNameDelegate.initStyleOption` setting `option.textElideMode` (`ui/option_spreads_panel.py:103-105`) and never calls the panel helper (`:448`) — only tests do. `preferred_width` duplicates the `PREFERRED_WIDTH` constant that `sizeHint` (`:442-444`) actually reads. `validate_spread` is imported by no production module.
+
+Second, measured: for a method key the probe is `probe = method` — the **bare method name** — so any `Name`/`Attribute`/`Constant`/`arg` occurrence anywhere counts. Seeding one dead method at a time into a copy of `services/option_spread_engine.py` and running the gate's own scanner: **caught** `_zzz_orphan_marker`, `refresh`; **not caught** `close`, `update`, `run`, `start`, `stop`, `size`, `target`, `reset`, `clear`, `handle`, `name`, `value`, `items`, `set`, `get`, `emit`, `connect`, `_out`, `_drain`, `paintEvent`, `sizeHint` — **19 of 23 sampled**. Consequence for the exact ESC-119 scenario: deleting `ui/main_window.py:2082` (`self._option_engine.toggle_off()`) leaves the gate green because `tests/test_d65_spread_engine.py:1216` still calls it.
+
+Third, a consequence for AC3: "a same-named method on a class with no such base is still censused" is true in the isolated two-class fixture but not on a real tree, because the reachability check returns before the exemption is consulted — a seeded unrelated class defining `sizeHint`/`paintEvent` is green with no exemption entry. The AC wording and the AC1-mandated evidence standard are in tension; that is a Task Manager decision, not a Build patch (repeat-invariant rule: one invariant, one escalation).
+
+## 4. New finding — ESC-122 (nice-to-have, BUILD): a wave-local literal in a standing gate
+
+`test_method_census_covers_p23_classes_and_excludes_dunders` ends with `assert CENSUS_ALLOWLIST == {}` ("no exemption may stand in for a symbol that has a call site"). That forbids *every* entry, including a legitimate one — e.g. the duck-typed public surface ESC-119 itself contemplated, which `FRAMEWORK_CALLBACKS` cannot express because that path needs a base class declaring the name (ESC-121's 15 symbols are exactly that shape). `docs/memory.md` records this defect shape from D47/P6 ("assert the invariant … rather than the current instance count or a literal list" — five wave-local expectations broke in one batch). Green today, so hygiene only.
+
+## 5. Full-pass duties
+
+- **Mock/fake/stub scan (B.6, blocking invariant).** The `a6800b2` diff touches one test file plus coordination docs; no production file changed (`git show --stat`). Grep of the diff for `mock|fake|stub|simulat` × `endpoint|client|service|server|api|harness`: **no hits**. No production module imports a test fake; no mock endpoint, client or harness anywhere outside tests. **Clean.**
+- **Usage docs.** `precheck.json` `doc_candidates` = `USAGE.txt`, `docs/`, `usage.md`, all **`touched: false`**; `P23-T17` carries `doc_required: false`, which is right — this is a test-only change to the residue instrument, with no user-facing behaviour. Ruling: **met — nothing to do.**
+- **Pack-prose spot-check.** Sampled task P23-T17 (new; its description carries "never allowlist it"). Its prose does not contradict AC1–AC4: "no production symbol is expected to change … if the implemented census reports one, report it, never allowlist it" matches AC1's green-with-no-exemption clause and AC3's cited-site rule, and every stated guarantee names its enforcing case (AC1→the candidate-map case, AC2→the fixture + mutation, AC3→the three-shape fixture, AC4→the docstring case). No prose/AC contradiction, no unenforced guarantee. (The earlier passes' sample — T1, T8, T10, T12 — is unchanged.)
+- **Residue gate on the tree.** 41 passed, and its seeded fixtures still assert RED (the green tree remains paired with a proven-red fixture; the gate was not emptied).
+- **AC-D65.19 owner gate.** `docs/archive/probe_records/d65_paper_tws_acceptance.md`: **6** `**Result:** PENDING`, **0** `Result: PASS`, every item unchecked, evidence fields empty, sign-off blank, header still "No result recorded yet". **Nothing fabricated. Still owner-gated.**
+- **`docs/phase-changelog.md`.** Grep for `D65` / `P23` / "Option Spread": **0 hits** — unchanged and correctly owner-gated (`docs/CHANGELOG.md` is `gen_changelog.py`'s output, not that gate).
+- **Escalation close-out.** One open entry came in (**ESC-119**); re-verified and flipped to `addressed` with fresh evidence (§2). No `PRE-*` entries were open. Two entries added (**ESC-121**, **ESC-122**) with their measurements.
+
+## 6. For the Orchestrator / owner
+
+**Closed this pass:** ESC-119 — the gate now enumerates class methods, its Qt/EWrapper exemptions resolve against a declaring class *and* a registering base, a dead method with no reference anywhere is caught, and the docstring states the implemented scope.
+
+**Open, non-blocking:** **ESC-121** (should-fix, TASK_MANAGER) — decide whether a test reference is a "production caller" and whether a method's evidence must name its class; the 15 symbols it lists are the immediate decision set. **ESC-122** (nice-to-have, BUILD) — make the allowlist's safety a per-entry invariant. Neither blocks the phase's functional ACs; both are about the standing instrument the next phases inherit.
+
+**Outside this review, unchanged:** the **owner-run paper-TWS acceptance** (`AC-D65.19`, P23-T14: six items `PENDING`, no evidence, no signature) and the owner-gated **`docs/phase-changelog.md` D65 entry** (absent; `plan.md`/`architecture.md` as-built sync rides with it). The phase's production behaviour is sound and its suite is green on `a6800b2`; those two owner actions are what remain before the phase can be called done.
+
 Status: REVIEW_COMPLETE
