@@ -46,6 +46,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
+from PyQt6.QtCore import QEvent
 from PyQt6.QtWidgets import QApplication
 
 from data.models import Bar
@@ -54,7 +55,24 @@ from services.market_calendar import first_session_open
 from ui.lwc_view import LwcChartView
 from ui.ticker_session import TickerSession
 
-_APP = QApplication.instance() or QApplication([])
+
+@pytest.fixture(scope="session", autouse=True)
+def _qt_app():
+    """The session ``QApplication``, created at test time.
+
+    It must not exist at *import* time: ``tests/test_lwc_render_smoke.py``
+    imports ``PyQt6.QtWebEngineWidgets`` at module scope, which raises when a
+    ``QCoreApplication`` already exists. Creating it here (test time, after
+    every test module is imported) keeps that suite importable while still
+    giving ``LwcChartView`` the app a ``QWidget`` requires. A real ``argv[0]``
+    matches the smoke suite's session app (Chromium hard-aborts on an empty
+    argv).
+    """
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(["pytest"])
+    return app
+
 
 # 2026-06-01 00:00 ET — Monday and month start (week + month bucket).
 P = 1_780_286_400
@@ -564,6 +582,11 @@ def test_ac6_seam_main_window_wall_now_is_late_bound(monkeypatch, qapp):
     finally:
         win.close()
         win.deleteLater()
+        # ``processEvents`` alone leaves the deferred delete queued, so the
+        # window (and the WebEngine page it owns) would outlive the session
+        # ``QApplication`` and crash the interpreter at exit when another test
+        # module has imported QtWebEngine.
+        qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         qapp.processEvents()
 
 
