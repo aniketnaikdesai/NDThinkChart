@@ -2030,6 +2030,10 @@ class LwcChartView(QWidget):
         # update_live_bar — the first failure per series warns, repeats
         # drop to debug until the map is healthy again.
         self._extend_fallback_warned = False
+        # S-P25-2/S-P25-3: the forming bar's partial state the page has been
+        # told about (the one marker's time, or None). Only a transition of
+        # this pair emits a ``set_partial`` directive.
+        self._partial_ts: int | None = None
         self._host = None
         # Q-19/S3a: the host was parented to this view but never added to a
         # layout, so it kept Qt's default widget size (measured 100x30 inside
@@ -2537,12 +2541,20 @@ class LwcChartView(QWidget):
         # rebuild would frame the previous series (or nothing on first load).
         fresh_frame = (self.fresh_frame_ops()
                        if fresh_requested else None)
-        self._bridge.send_ops(build_series_ops(
+        rows_ops = build_series_ops(
             mode, self._plotted, self._cmap, self._logical, period,
             same_symbol=continuity) + (
             [viewport_restore_op(
                 fresh_frame["range"], fresh_frame["following"])]
-            if fresh_frame is not None else []))
+            if fresh_frame is not None else [])
+        # S-P25-2: a full replace re-states the marker in the same op batch,
+        # against the replacement's last row — so the page never keeps a mark
+        # on a candle that is no longer the forming one.
+        partial_op = self._advance_partial(
+            self._bars[-1] if self._bars else None)
+        if partial_op is not None:
+            rows_ops.append(partial_op)
+        self._bridge.send_ops(rows_ops)
         # A wholesale bar replacement invalidates the study cache (the
         # incremental path assumes the same series), exactly as the default
         # engine's chart panel does on a load.
@@ -2641,21 +2653,33 @@ class LwcChartView(QWidget):
                 # the missing periods keep their whitespace slots. The tick's
                 # single update_bar cannot carry placeholders. Same-symbol
                 # live extension, so the replace preserves (S-P11-3).
-                self._bridge.send_ops(build_series_ops(
+                ops = build_series_ops(
                     self._mode, self._plotted, self._cmap, self._logical,
                     TIMEFRAME_SECONDS.get(self._timeframe or ""),
-                    same_symbol=True))
+                    same_symbol=True)
+                partial_op = self._advance_partial(bar)
+                if partial_op is not None:
+                    ops.append(partial_op)
+                self._bridge.send_ops(ops)
                 self._render_studies()
                 self._render_overlays()
                 return
         else:
             self._plotted[-1] = bar
         tick = self._tick_candle_cols(bar)
-        self._bridge.send_ops([
+        ops = [
             {"op": "update_bar", "series": "candles", "cols": tick},
             {"op": "update_bar", "series": "volume",
              "cols": {"ts": [int(bar.ts)], "value": [float(bar.volume)]}},
-        ])
+        ]
+        # S-P25-2/S-P25-3: every emitting tick drives the one marker toward
+        # the forming bar's state — including the new_period branch above,
+        # where a rollover moves the mark off the just-completed candle onto
+        # the new forming bar, or clears it when that bar is complete.
+        partial_op = self._advance_partial(bar)
+        if partial_op is not None:
+            ops.append(partial_op)
+        self._bridge.send_ops(ops)
         # Studies follow the tick — a new candle is served by the cache's
         # incremental path, an intra-bar tick takes the full path (the
         # forming bar's study value has no cache state to replay from).
@@ -2664,6 +2688,31 @@ class LwcChartView(QWidget):
             # A new period changes the axis' span: the session bands' clip,
             # the gap staircase's extension and the VIX label anchor all move.
             self._render_overlays()
+
+    def _advance_partial(self, bar) -> dict | None:
+        """Drive the page's one marker toward ``(forming ts, bar.partial)``.
+
+        S-P25-2/S-P25-3: the directive is emitted only on a transition — a
+        partial bar moves the mark to its ``ts``; a complete bar clears the
+        mark at the currently marked ``ts``; an unmarked complete bar emits
+        nothing. ``bar`` is ``None`` for an empty full replace (clears any
+        mark). Returns the op to append after the rows, or ``None``.
+        """
+        if bar is None:
+            target = None
+        else:
+            target = int(bar.ts) if getattr(bar, "partial", False) else None
+        if target == self._partial_ts:
+            return None
+        if target is not None:
+            op = {"op": "set_partial", "ts": target, "partial": True}
+        elif self._partial_ts is not None:
+            op = {"op": "set_partial", "ts": self._partial_ts,
+                  "partial": False}
+        else:
+            return None
+        self._partial_ts = target
+        return op
 
     # ── P6-06 study overlays (shared model + one cache) ─────────────
 

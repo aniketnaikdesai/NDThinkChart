@@ -31,6 +31,10 @@
     return Object.prototype.toString.call(x) === "[object Array]";
   }
 
+  function isInteger(x) {
+    return typeof x === "number" && isFinite(x) && Math.floor(x) === x;
+  }
+
   function validateEnvelope(env) {
     if (env === null || typeof env !== "object" || isArray(env)) {
       return { ok: false, error: "envelope must be an object" };
@@ -72,6 +76,18 @@
           !isFinite(op.range.from) || !isFinite(op.range.to)) {
         return "range.from/to must be finite numbers";
       }
+      return null;
+    }
+    /* S-P25-2 (D67.2): the partial-marker directive rides the bar envelope
+     * beside the fresh frame — it annotates one candle, so it is not a
+     * series op and carries no ``series``/``cols``. Accepted here so the
+     * envelope carrying rows + marker validates; chart.js ``applyOps``
+     * lifts it out before the series application. */
+    if (op.op === "set_partial") {
+      if (!isInteger(op.ts)) return "ts must be an integer";
+      if (typeof op.partial !== "boolean") return "partial must be a boolean";
+      if ("series" in op) return "set_partial must not carry series";
+      if ("cols" in op) return "set_partial must not carry cols";
       return null;
     }
     if (typeof op.series !== "string" || op.series.length === 0) {
@@ -135,10 +151,27 @@
     return rows;
   }
 
+  /* S-P25-6 (D70): a whitespace row is not a bar — one rule for both
+   * branches, mirroring Python's ``apply_ops_to_bars``. Candles test the
+   * value slots (open/close null), volume tests ``value``; a row whose
+   * slots are null is the Q-20 placeholder that renders as ``{time}`` only.
+   * On a replace it is skipped; on an upsert it removes that time. */
+  function isWhitespaceRow(series, row) {
+    if (!row) return true;
+    if (series === "volume") {
+      return row.value === null || row.value === undefined;
+    }
+    return (row.open === null || row.open === undefined ||
+            row.close === null || row.close === undefined);
+  }
+
   /* Idempotent replay: fold an op list onto a base row array keyed by time.
    * set_bars/set_volume replace the series; update_bar upserts one row;
-   * clear empties it. Replaying the same log twice yields the same array —
-   * the replay-identity property the Python side asserts in T13. */
+   * clear empties it. A whitespace row is not a bar in either branch (skip
+   * on a replace, delete its time on an upsert), so the fold agrees with
+   * the Python reconstruction and with ``lwSnapshot()``. Replaying the same
+   * log twice yields the same array — the replay-identity property the
+   * Python side asserts in T13. */
   function mergeRows(base, ops) {
     var byTime = {};
     var k;
@@ -150,10 +183,17 @@
       } else if (op.op === "set_bars" || op.op === "set_volume") {
         var rows = rowsOf(op);
         byTime = {};
-        for (k = 0; k < rows.length; k++) byTime[rows[k].time] = rows[k];
+        for (k = 0; k < rows.length; k++) {
+          if (isWhitespaceRow(op.series, rows[k])) continue;
+          byTime[rows[k].time] = rows[k];
+        }
       } else if (op.op === "update_bar") {
         var one = rowsOf(op)[0];
-        byTime[one.time] = one;
+        if (isWhitespaceRow(op.series, one)) {
+          delete byTime[one.time];
+        } else {
+          byTime[one.time] = one;
+        }
       }
     }
     var times = Object.keys(byTime).map(Number).sort(function (a, b) { return a - b; });

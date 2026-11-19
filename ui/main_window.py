@@ -1075,6 +1075,9 @@ class MainWindow(QMainWindow):
         session = self._sessions.get(key)
         if session is None:
             session = TickerSession(key, self)
+            # P25 (S-P25-1/S-P25-3): late-bound clock for period-base
+            # adoption and the partial flag — wired before any set_bars path.
+            session._wall_now = lambda: self._now_ts()
             # DEC-1: alarm triggers are window-global. The main window
             # toasts + sounds for ANY session's alarms (even when the main
             # chart shows another ticker); only the badge is primary-only.

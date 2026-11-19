@@ -1,506 +1,841 @@
 {
   "meta": {
-    "phase": "P24",
-    "plan_ref": "docs/plan.md#Phase P24",
-    "architecture_ref": "docs/architecture.md#Phase P24",
-    "requirements_ref": "docs/requirements/requirements.md#Phase P24",
-    "notes": "docs/tasks/task_manager_notes_P24.md",
+    "phase": "P25",
+    "plan_ref": "docs/plan.md#Phase P25",
+    "architecture_ref": "docs/architecture.md#Phase P25",
+    "requirements_ref": "docs/requirements/requirements.md#Phase P25",
+    "notes": "docs/tasks/task_manager_notes_P25.md",
     "status": "READY_FOR_BUILD"
   },
   "tasks": [
     {
-      "id": "P24-T1",
-      "title": "Per-side row-ordered rung table, ladder_pairs in tuple order, and the retired 'one table on both sides' prose",
-      "description": "Replace services/option_ladder.py's single shared RUNG_OFFSETS dict (line 60) with the per-side, row-ordered tuple table of S-P24-1 -- {SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)), SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10))} -- and make ladder_pairs read the side's tuple in tuple order (never sorted()), so PCS displays S3+5, S3, S3-5, S3-10 on rows 1-4 with the anchor (offset 0, label 3) on row 2 while CCS stays byte-identical. In the same edit retire the 'one offset table applied identically on both sides' invariant in the module docstring (line 7), the RUNG_OFFSETS comment (lines 59-60) and the ladder_pairs docstring (lines 112-119), and rewrite the SpreadRow docstring (line 85) to state that rung is the 1-based display row while the owner's labels are specification-only. Then re-baseline the five named ladder-suite cases; this is the phase's only production edit.",
+      "id": "P25-T1",
+      "title": "D67 part 1 \u2014 the page and the bridge accept set_partial, rendered as one series marker",
+      "description": "Land the transport half of S-P25-2 so the emitter P25-T2 adds cannot be rejected by an unknown op (AR-P25-3). Page: envelope.js::validateOp accepts {\"op\":\"set_partial\",\"ts\":<int>,\"partial\":<bool>} as a directive with no series/cols; chart.js::applyOps lifts it before describeOp (mirroring the set_visible_range branch), keeps one marked time in closure state, and re-applies one guarded createSeriesMarkers(candleSeries, [...]) entry after every rows application. Bridge: _check_op_shape accepts the directive and apply_ops_to_bars ignores it explicitly. Do NOT restructure _stage/flush (P25-T4 owns the emission order), do NOT change mergeRows (P25-T4 owns its whitespace rule) and do not touch ENVELOPE_VERSION, COALESCE_MS, LIVE_OPS or CHANNELS.",
       "agent": "build_worker",
-      "task_type": "code",
+      "task_type": "build",
       "dependencies": [],
       "acceptance_criteria": [
-        "Given services/option_ladder.py, When RUNG_OFFSETS is inspected, Then it is the single module-level offset table and equals {SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)), SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10))} -- one entry per normalised side, each a 4-tuple of (logical label, short-strike offset from the anchor short strike) in display order top to bottom -- every offset is a whole multiple of STRIKE_STEP, the offset-0 entry is labelled 3 on both sides, SPREAD_WIDTH == 20 / STRIKE_STEP == 5 / SPREAD_WIDTH == 4 * STRIKE_STEP still hold, and neither RUNG_OFFSETS_PCS nor PCS_RUNG_OFFSETS occurs anywhere in services/, ui/, ibkr/, data/ or config/.",
-        "Given any anchor short strike A and either side, When ladder_pairs(A, side) is called, Then it returns exactly four (short, long) pairs in the side's tuple order -- CCS shorts A+10, A+5, A, A-5 and PCS shorts A+5, A, A-5, A-10 -- with each long exactly SPREAD_WIDTH away in the side's direction (short + 20 for CCS, short - 20 for PCS), the CCS output is identical to P23's for every anchor, ladder_pairs(7325, SIDE_PCS) is [(7330, 7310), (7325, 7305), (7320, 7300), (7315, 7295)] with the anchor pair on the second row (display row 2), ladder_pairs(7425)[2] is still (7425, 7445), and the signature ladder_pairs(anchor_short: float, side: str = SIDE_CCS) -> List[Tuple[float, float]], the _side_key normalisation and the ValueError for an unknown side are unchanged.",
-        "Given the ladder table's two readable facts, When the PCS row list is inspected, Then row order comes from tuple order and the label order from the label element independently: the PCS labels read [4, 3, 2, 1] top to bottom while the offsets read [5, 0, -5, -10] and the shorts descend, so a label-sorted iteration (which would yield labels 1, 2, 3, 4 = rows reversed) is observably different from the shipped sequence; CCS reads labels [1, 2, 3, 4] with offsets [10, 5, 0, -5].",
-        "Given the ladder module's prose, When it is read, Then the retired invariant is gone -- the module docstring bullet, the RUNG_OFFSETS comment and the ladder_pairs docstring state the per-side rule once with the row order and the anchor row per side (CCS anchor row 3, PCS anchor row 2) -- the string 'both sides' no longer occurs in services/option_ladder.py, and the ladder_pairs docstring names the canonical fixtures ladder_pairs(7425)[2] == (7425, 7445) and ladder_pairs(7325, SIDE_PCS)[1] == (7325, 7305) with the anchor on row 2.",
-        "Given the SpreadRow dataclass, When its docstring is read, Then it states that rung is the 1-based display row (the row's position top to bottom, 1..4, on both sides), that the owner's logical labels are specification data only and run 4, 3, 2, 1 against those positions on PCS (1, 2, 3, 4 on CCS), and that nothing renders a digit or a row-number column; the docstring contains both terms 'display row' and 'label'; and the field list, names, order and types are unchanged (rung, short, long, display_name, display_ask, display_bid, delta, gamma, matched) with rung still the first field.",
-        "Given tests/test_d65_option_ladder.py, When it is run, Then it is green and its five shared-table cases are re-baselined rather than weakened -- test_P23_T1_AC1_constants asserts the new per-side shape (keeping SPREAD_WIDTH == 4 * STRIKE_STEP and a whole-step check per side), test_P23_T1_AC1_four_pairs_per_side asserts the per-side offset lists (CCS [10, 5, 0, -5], PCS [5, 0, -5, -10]), test_P23_T1_AC1_one_offset_table_on_both_sides is replaced by a per-side test that keeps the two forbidden-name strings as the no-second-table guard and adds the anchor row per side, test_P23_T1_AC1_canonical_fixtures asserts CCS 7425/7445 and PCS 7330/7310, 7325/7305, 7320/7300, 7315/7295, and the PCS half of test_P23_T1_AC7_window_legs_eight_per_anchor uses anchor 7325 -- every other case in the suite passes unchanged, the module-is-Qt-free check still passes, the ladder suite's _fixture_guard legality examples (7340/7320) are left in place, and the wave result names each retired expectation."
+        "Given the page's validateOp/validateEnvelope (chart_assets/lwc/envelope.js), When {\"op\":\"set_partial\",\"ts\":<int>,\"partial\":<bool>} is validated, Then it is accepted as a directive carrying no series and no cols key, and an op with a missing or non-integer ts, a non-boolean partial, or any series/cols key is rejected with a non-null message, while an unknown op kind still rejects the whole envelope.",
+        "Given the page's applyOps (chart_assets/lwc/chart.js), When set_partial {ts, partial:true} is applied, Then exactly one series marker exists for that candle -- position \"aboveBar\", shape \"circle\", and the one named colour constant whose value differs from LW_UP_COLOR and LW_DOWN_COLOR -- and that marker is re-applied after every later rows application: a set_bars replace, an update_bar upsert, and a full re-apply of the op log.",
+        "Given the page's applyOps, When set_partial {ts:A, partial:false} is applied, Then the marker is cleared only when A equals the marked time; a second partial:true for a different ts moves the single mark (never two marks at once); a mark whose time is absent from the current rows is not applied; and no marker exists when no directive has arrived.",
+        "Given ui/lwc_bridge.py, When _check_op_shape validates a set_partial op, Then it requires an integer ts and a boolean partial and rejects any series/cols key with ValueError, while apply_ops_to_bars over an op list containing set_partial returns exactly the same [(ts, open, high, low, close)] list as the same list without it (the directive carries no series, so the reconstruction is unchanged, and the docstring says so)."
       ],
       "tests": [
         {
-          "test_id": "P24-T1-AC1",
-          "linked_acceptance_criterion": "Given services/option_ladder.py, When RUNG_OFFSETS is inspected, Then it is the single module-level offset table and equals {SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)), SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10))} -- one entry per normalised side, each a 4-tuple of (logical label, short-strike offset from the anchor short strike) in display order top to bottom -- every offset is a whole multiple of STRIKE_STEP, the offset-0 entry is labelled 3 on both sides, SPREAD_WIDTH == 20 / STRIKE_STEP == 5 / SPREAD_WIDTH == 4 * STRIKE_STEP still hold, and neither RUNG_OFFSETS_PCS nor PCS_RUNG_OFFSETS occurs anywhere in services/, ui/, ibkr/, data/ or config/.",
+          "test_id": "P25-T1-AC1",
+          "linked_acceptance_criterion": "Given the page's validateOp/validateEnvelope (chart_assets/lwc/envelope.js), When {\"op\":\"set_partial\",\"ts\":<int>,\"partial\":<bool>} is validated, Then it is accepted as a directive carrying no series and no cols key, and an op with a missing or non-integer ts, a non-boolean partial, or any series/cols key is rejected with a non-null message, while an unknown op kind still rejects the whole envelope.",
           "type": "unit",
-          "description": "In tests/test_d65_option_ladder.py assert RUNG_OFFSETS equals the per-side tuple table exactly, that each side's entry is a 4-tuple of (label, offset), that every offset is a whole multiple of STRIKE_STEP, that the offset-0 entry is label 3 per side, and the SPREAD_WIDTH/STRIKE_STEP relationships; then scan the source of services/, ui/, ibkr/, data/ and config/ for the names RUNG_OFFSETS_PCS and PCS_RUNG_OFFSETS.",
-          "expected_result": "All shape assertions pass; the production-tree scan finds neither forbidden name. The old dict shape and its sorted(RUNG_OFFSETS) == [1, 2, 3, 4] line are retired (the keys are now the two side names), and the retirement is named in the wave result."
+          "description": "In chart_assets/lwc/envelope.test.js, drive the real validateOp/validateEnvelope over the valid directive and over the malformed variants (missing ts, ts:1.5, ts:\"5\", partial:1, partial:\"yes\", and a directive carrying series and cols); keep the existing unknown-op rejection case.",
+          "expected_result": "The valid directive returns a null error; each malformed variant returns a non-null message; a set_partial inside {v:1, ops:[...]} validates; an unknown op kind still rejects the whole envelope. RED before the change (validateOp currently rejects any kind it does not enumerate)."
         },
         {
-          "test_id": "P24-T1-AC2",
-          "linked_acceptance_criterion": "Given any anchor short strike A and either side, When ladder_pairs(A, side) is called, Then it returns exactly four (short, long) pairs in the side's tuple order -- CCS shorts A+10, A+5, A, A-5 and PCS shorts A+5, A, A-5, A-10 -- with each long exactly SPREAD_WIDTH away in the side's direction (short + 20 for CCS, short - 20 for PCS), the CCS output is identical to P23's for every anchor, ladder_pairs(7325, SIDE_PCS) is [(7330, 7310), (7325, 7305), (7320, 7300), (7315, 7295)] with the anchor pair on the second row (display row 2), ladder_pairs(7425)[2] is still (7425, 7445), and the signature ladder_pairs(anchor_short: float, side: str = SIDE_CCS) -> List[Tuple[float, float]], the _side_key normalisation and the ValueError for an unknown side are unchanged.",
+          "test_id": "P25-T1-AC2",
+          "linked_acceptance_criterion": "Given the page's applyOps (chart_assets/lwc/chart.js), When set_partial {ts, partial:true} is applied, Then exactly one series marker exists for that candle -- position \"aboveBar\", shape \"circle\", and the one named colour constant whose value differs from LW_UP_COLOR and LW_DOWN_COLOR -- and that marker is re-applied after every later rows application: a set_bars replace, an update_bar upsert, and a full re-apply of the op log.",
           "type": "unit",
-          "description": "Parametrized over side x anchor [7425.0, 7325.0, 7330.0]: assert four pairs in the side's tuple order (shorts minus anchor == [10, 5, 0, -5] on CCS, [5, 0, -5, -10] on PCS), each long exactly SPREAD_WIDTH away in the side's direction, the CCS output equal to P23's values for the same anchors, ladder_pairs(7325, 'PCS') == [(7330, 7310), (7325, 7305), (7320, 7300), (7315, 7295)] with the anchor pair at index 1, ladder_pairs(7425)[2] == (7425, 7445), and that the default side is CCS, the signature is unchanged and an unknown side still raises ValueError.",
-          "expected_result": "Every parametrized case passes: the PCS rows are the corrected table's, the CCS rows are P23's unchanged values, and the signature/default/ValueError assertions pass."
+          "description": "In chart_assets/lwc/chart.test.js extend the fake chart/series harness with a recording createSeriesMarkers (setMarkers), then apply set_partial {ts:T, partial:true}, a set_bars replace containing T, an update_bar for T, and finally the whole op log again through lwApplyOps.",
+          "expected_result": "After each of the four steps exactly one marker entry exists with time T, position \"aboveBar\", shape \"circle\", and a colour equal to the module's marker colour constant and different from LW_UP_COLOR and LW_DOWN_COLOR; lwSnapshot() is unchanged by the directive."
         },
         {
-          "test_id": "P24-T1-AC3",
-          "linked_acceptance_criterion": "Given the ladder table's two readable facts, When the PCS row list is inspected, Then row order comes from tuple order and the label order from the label element independently: the PCS labels read [4, 3, 2, 1] top to bottom while the offsets read [5, 0, -5, -10] and the shorts descend, so a label-sorted iteration (which would yield labels 1, 2, 3, 4 = rows reversed) is observably different from the shipped sequence; CCS reads labels [1, 2, 3, 4] with offsets [10, 5, 0, -5].",
+          "test_id": "P25-T1-AC3",
+          "linked_acceptance_criterion": "Given the page's applyOps, When set_partial {ts:A, partial:false} is applied, Then the marker is cleared only when A equals the marked time; a second partial:true for a different ts moves the single mark (never two marks at once); a mark whose time is absent from the current rows is not applied; and no marker exists when no directive has arrived.",
           "type": "unit",
-          "description": "Assert the three orders separately for each side: extract the labels, the offsets and the shorts from RUNG_OFFSETS[side] plus ladder_pairs(anchor, side); require PCS labels [4, 3, 2, 1] with offsets [5, 0, -5, -10] and descending shorts, CCS labels [1, 2, 3, 4] with offsets [10, 5, 0, -5]; and require the PCS short sequence to differ from the sequence a label-sorted iteration would produce.",
-          "expected_result": "Passes; on PCS the shipped row sequence is the reverse of the label-sorted one, so a sorted()-by-label regression fails this case while the offset and label assertions also hold."
+          "description": "In chart_assets/lwc/chart.test.js drive the clear / move / absent-time / no-directive sequences through applyOps (partial:false with the marked and with an unmarked ts; a second partial:true for a new ts; a mark for a ts absent from the rows).",
+          "expected_result": "partial:false for the marked ts clears it (zero entries); for a different ts it leaves it; a second partial:true for a new ts leaves exactly one marker, at the new ts; a mark for a ts absent from the rows produces no marker; with no directive setMarkers is never called with a non-empty list."
         },
         {
-          "test_id": "P24-T1-AC4",
-          "linked_acceptance_criterion": "Given the ladder module's prose, When it is read, Then the retired invariant is gone -- the module docstring bullet, the RUNG_OFFSETS comment and the ladder_pairs docstring state the per-side rule once with the row order and the anchor row per side (CCS anchor row 3, PCS anchor row 2) -- the string 'both sides' no longer occurs in services/option_ladder.py, and the ladder_pairs docstring names the canonical fixtures ladder_pairs(7425)[2] == (7425, 7445) and ladder_pairs(7325, SIDE_PCS)[1] == (7325, 7305) with the anchor on row 2.",
+          "test_id": "P25-T1-AC4",
+          "linked_acceptance_criterion": "Given ui/lwc_bridge.py, When _check_op_shape validates a set_partial op, Then it requires an integer ts and a boolean partial and rejects any series/cols key with ValueError, while apply_ops_to_bars over an op list containing set_partial returns exactly the same [(ts, open, high, low, close)] list as the same list without it (the directive carries no series, so the reconstruction is unchanged, and the docstring says so).",
           "type": "unit",
-          "description": "Read Path(ladder.__file__).read_text() and assert 'both sides', 'identically on both sides' and 'same offset table on both sides' are absent; read inspect.getdoc(ladder), inspect.getdoc(ladder_pairs) and the comment block immediately above RUNG_OFFSETS, and assert the per-side rule is stated with the PCS offsets and the anchor row per side, and that the ladder_pairs docstring contains both canonical literals 7425/7445 and 7325/7305 and names row 2 (PCS anchor) and row 3 (CCS anchor).",
-          "expected_result": "Passes: the three retired phrases are absent, the per-side rule is stated, and both canonical fixtures and both anchor rows appear where AC4 requires them."
-        },
-        {
-          "test_id": "P24-T1-AC5",
-          "linked_acceptance_criterion": "Given the SpreadRow dataclass, When its docstring is read, Then it states that rung is the 1-based display row (the row's position top to bottom, 1..4, on both sides), that the owner's logical labels are specification data only and run 4, 3, 2, 1 against those positions on PCS (1, 2, 3, 4 on CCS), and that nothing renders a digit or a row-number column; the docstring contains both terms 'display row' and 'label'; and the field list, names, order and types are unchanged (rung, short, long, display_name, display_ask, display_bid, delta, gamma, matched) with rung still the first field.",
-          "type": "unit",
-          "description": "Read inspect.getdoc(SpreadRow) and assert it contains 'display row', 'label', the PCS label run 4, 3, 2, 1 and a no-rendered-digit / no-row-number statement; assert [f.name for f in fields(SpreadRow)] is exactly the frozen nine-field list in order.",
-          "expected_result": "Passes: the docstring names both terms and the display-row/label distinction, and the field list, names and order are unchanged, so the frozen dataclass contract still holds."
-        },
-        {
-          "test_id": "P24-T1-AC6",
-          "linked_acceptance_criterion": "Given tests/test_d65_option_ladder.py, When it is run, Then it is green and its five shared-table cases are re-baselined rather than weakened -- test_P23_T1_AC1_constants asserts the new per-side shape (keeping SPREAD_WIDTH == 4 * STRIKE_STEP and a whole-step check per side), test_P23_T1_AC1_four_pairs_per_side asserts the per-side offset lists (CCS [10, 5, 0, -5], PCS [5, 0, -5, -10]), test_P23_T1_AC1_one_offset_table_on_both_sides is replaced by a per-side test that keeps the two forbidden-name strings as the no-second-table guard and adds the anchor row per side, test_P23_T1_AC1_canonical_fixtures asserts CCS 7425/7445 and PCS 7330/7310, 7325/7305, 7320/7300, 7315/7295, and the PCS half of test_P23_T1_AC7_window_legs_eight_per_anchor uses anchor 7325 -- every other case in the suite passes unchanged, the module-is-Qt-free check still passes, the ladder suite's _fixture_guard legality examples (7340/7320) are left in place, and the wave result names each retired expectation.",
-          "type": "integration",
-          "description": "Run the whole re-baselined suite: QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_ladder.py -q, including the module-is-Qt-free isolated-interpreter case and the untouched formatter / _fixture_guard cases.",
-          "expected_result": "Exit 0 with no skips and no xfails; the five named AC1 cases are re-baselined as AC6 lists, the per-side replacement test exists in place of the one-table test, every other case is unchanged, and the worker's result names each retired expectation and the test total."
+          "description": "Add one case to tests/test_lwc_bridge.py that calls _check_op_shape on the valid directive and on three malformed ones, and compares apply_ops_to_bars over a log with and without a set_partial op.",
+          "expected_result": "The valid directive raises nothing; ts:None, partial:\"yes\" and a directive carrying series/cols each raise ValueError; the two reconstructions are equal element-for-element."
         }
       ],
       "expected_artifacts": [
-        "services/option_ladder.py: per-side row-ordered RUNG_OFFSETS, tuple-order ladder_pairs, rewritten module docstring / RUNG_OFFSETS comment / ladder_pairs docstring, SpreadRow docstring meaning paragraph",
-        "tests/test_d65_option_ladder.py: the five AC1 cases re-baselined plus the per-side replacement test, green"
+        "chart_assets/lwc/envelope.js \u2014 validateOp accepts the set_partial directive",
+        "chart_assets/lwc/chart.js \u2014 lifted directive, one guarded createSeriesMarkers marker re-applied after every rows application, one named colour constant",
+        "chart_assets/lwc/envelope.test.js and chart_assets/lwc/chart.test.js \u2014 the node cases above",
+        "ui/lwc_bridge.py \u2014 _check_op_shape acceptance and the apply_ops_to_bars docstring note",
+        "tests/test_lwc_bridge.py \u2014 one shape + reconstruction case"
       ],
       "touches_files": [
-        "services/option_ladder.py",
-        "tests/test_d65_option_ladder.py"
+        "chart_assets/lwc/envelope.js",
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/envelope.test.js",
+        "chart_assets/lwc/chart.test.js",
+        "ui/lwc_bridge.py",
+        "tests/test_lwc_bridge.py"
       ],
       "doc_required": false,
       "inputs": [
-        "requirements.md AC-D66.2 / AC-D66.1 / AC-D66.7, A213-A219, DG127 (via plan_ref and the ACs above)",
-        "P23's shipped services/option_ladder.py at HEAD (the file being changed)"
+        "docs/architecture.md \u00a7 Phase P25 S-P25-2 (directive op + marker)",
+        "the frozen page contract in \u00a7 Frozen Interfaces"
       ],
       "outputs": [
-        "services/option_ladder.py",
-        "tests/test_d65_option_ladder.py"
-      ],
-      "status": "done",
-      "size": "S",
-      "context": {
-        "read_files": [
-          {
-            "path": "services/option_ladder.py",
-            "lines": "1-135",
-            "why": "the edit sites: module docstring bullet (5-8), geometry block with RUNG_OFFSETS (52-65), SpreadRow (83-95), _side_key (101-107), ladder_pairs (109-131)"
-          },
-          {
-            "path": "services/option_ladder.py",
-            "lines": "330-350",
-            "why": "read-only: window_legs keeps delegating to ladder_pairs, so its eight-leg output follows the table with no edit - do not change it"
-          },
-          {
-            "path": "tests/test_d65_option_ladder.py",
-            "lines": [
-              "50-112",
-              "150-250",
-              "490-525"
-            ],
-            "why": "the five shared-table cases to re-baseline (50-112); read-only _fixture_guard legality examples that must stay at 7340/7320 (150-250); the PCS window_legs half that moves to anchor 7325 (490-525)"
-          }
-        ],
-        "contracts": [
-          {
-            "ref": "services/option_ladder.py:format_instrument",
-            "status": "existing"
-          },
-          {
-            "ref": "services/option_ladder.py:window_legs",
-            "status": "existing"
-          },
-          {
-            "ref": "services/option_ladder.py:ladder_pairs",
-            "status": "existing"
-          },
-          {
-            "ref": "services/option_ladder.py:SpreadRow",
-            "status": "existing"
-          },
-          {
-            "status": "new",
-            "module": "services/option_ladder.py",
-            "signature": "RUNG_OFFSETS = {SIDE_CCS: ((1, 10), (2, 5), (3, 0), (4, -5)), SIDE_PCS: ((4, 5), (3, 0), (2, -5), (1, -10))}"
-          }
-        ],
-        "architecture_ref": "docs/architecture.md#Phase P24",
-        "plan_ref": "docs/plan.md#P24-01",
-        "requirement_ids": [
-          "AC-D66.2",
-          "AC-D66.1",
-          "AC-D66.7"
-        ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_option_ladder.py -q",
-        "memory_refs": [],
-        "needs_graphify": false,
-        "size": "S"
-      }
-    },
-    {
-      "id": "P24-T2",
-      "title": "Re-derive the engine and stream PCS fixtures for the shifted window (no production change)",
-      "description": "Re-derive the PCS fixtures in tests/test_d65_spread_engine.py and tests/test_d65_option_stream.py from the per-side table: re-centre the MIRROR/mirror_table quote model on the anchor each fixture drives and extend its profile so every strike the shifted PCS window touches is quoted (P23's model stopped at anchor + 25; the shifted window reaches anchor + 10 and anchor + 30), add the per-fixture coverage assertion, split EXPECTED_SHORTS per side, move the PCS row indices up one, and re-derive the re-anchor case's kept / arriving / cancelled PCS leg sets. This wave changes no production file -- if a production edit looks necessary, stop and escalate, because that is the boundary AC-D66.8 draws.",
-      "agent": "build_worker",
-      "task_type": "test",
-      "dependencies": [
-        "P24-T1"
-      ],
-      "acceptance_criteria": [
-        "Given every engine-suite fixture that drives a seed, When its quote plan is built, Then every leg of both windows that fixture will display -- eight CCS LegKeys and eight PCS LegKeys for the anchor each side commits -- is present in the plan before the seed is driven, asserted explicitly per fixture (the coverage assertion), and the mirrored profile is centred on the anchor that fixture drives and covers the strikes P23's model never quoted (the table keys at anchor + 10 and anchor + 30, i.e. the new PCS row-4 short's mirror and the new row-4 long's mirror), so no displayed row can be left unquoted while the case passes.",
-        "Given each engine-suite fixture that commits a seed, When the seed completes, Then the anchor it drives is asserted explicitly through engine.anchor('CCS') and engine.anchor('PCS') instead of assumed, the fixture's chosen CCS anchor is unchanged, and where a re-derivation legitimately moves a PCS anchor the new value is asserted and named in the wave result as a re-derivation rather than reported as a production defect.",
-        "Given every engine-suite case that reads a PCS row set -- window legs, kept and cancelled legs on a re-seat, chain-edge cases and the step direction -- When it runs, Then its expectations are re-derived against the per-side table and asserted exactly (four rows, exact strikes, _step_candidate('PCS', 7330) == 7335 because PCS still steps up by STRIKE_STEP), no case is weakened (no '>= 4' where exact rows were asserted, no deleted assertion), and the scored cases keep their exact credit figures.",
-        "Given tests/test_d65_option_stream.py, When EXPECTED_SHORTS is read, Then it is split into EXPECTED_SHORTS_CCS = [7360, 7355, 7350, 7345] (unchanged, at SPOT 7350) and EXPECTED_SHORTS_PCS = [7355, 7350, 7345, 7340], and the both-ladders case asserts each side's rendered rows against its own list.",
-        "Given the stream suite's PCS row-index expectations, When the panel is populated at the seeded anchor, Then they move up one so the PCS anchor row (7350) is row index 1 / display row 2 while the CCS anchor row stays row index 2 / display row 3, and both anchor rows are asserted explicitly.",
-        "Given the stream suite's re-anchor case (anchor 7350 -> 7355), When each side steps one rung, Then the PCS kept, arriving and cancelled leg sets are re-derived from the new window and asserted exactly -- every leg present in both windows keeps its original reqId and is never cancelled, each leaving leg is cancelled before its side's arrival, and exactly one PCS leg leaves and one arrives -- with the CCS sets re-checked the same way.",
-        "Given the stream suite's lifecycle, budget and zero-order assertions, When the suite runs, Then they are untouched and pass: 16 option lines and at most 17 with one spot line at every subscribe step, fake.orders == [] in every ON, OFF, disconnect and cutoff state, the reconnect replay carries the three tags, and the stale/freeze behaviour is unchanged (AC-D66.5).",
-        "Given the wave's diff and suites, When the wave completes, Then git diff --name-only lists no production file (nothing under services/, ui/, ibkr/, data/ or config/), the two re-derived suites pass together, and all seven tests/test_d65_* suites pass in one run -- the residue suite staying green because the ladder suite's 7340/7320 legality examples remain and the panel fixture has not moved yet (AP-P24-9)."
-      ],
-      "tests": [
-        {
-          "test_id": "P24-T2-AC1",
-          "linked_acceptance_criterion": "Given every engine-suite fixture that drives a seed, When its quote plan is built, Then every leg of both windows that fixture will display -- eight CCS LegKeys and eight PCS LegKeys for the anchor each side commits -- is present in the plan before the seed is driven, asserted explicitly per fixture (the coverage assertion), and the mirrored profile is centred on the anchor that fixture drives and covers the strikes P23's model never quoted (the table keys at anchor + 10 and anchor + 30, i.e. the new PCS row-4 short's mirror and the new row-4 long's mirror), so no displayed row can be left unquoted while the case passes.",
-          "type": "unit",
-          "description": "For every engine-suite fixture that drives a seed, build the plan the seed will be fed (the same construction both_sides()/drive() use), compute the eight CCS and eight PCS LegKeys of the anchors that fixture commits, and assert each is a key of the plan before drive() starts; also assert the mirrored profile's strike set includes the shifted window's outer strikes (the mirrors of the table keys at anchor + 10 and anchor + 30).",
-          "expected_result": "Passes for every fixture: no committed-window leg is missing from the quote plan before the seed runs, and the newly reached outer strikes are quoted, so an unquoted displayed row fails the assertion instead of reading as a passing case."
-        },
-        {
-          "test_id": "P24-T2-AC2",
-          "linked_acceptance_criterion": "Given each engine-suite fixture that commits a seed, When the seed completes, Then the anchor it drives is asserted explicitly through engine.anchor('CCS') and engine.anchor('PCS') instead of assumed, the fixture's chosen CCS anchor is unchanged, and where a re-derivation legitimately moves a PCS anchor the new value is asserted and named in the wave result as a re-derivation rather than reported as a production defect.",
-          "type": "unit",
-          "description": "After each fixture's seed completes, assert engine.anchor('CCS') and engine.anchor('PCS') against the strikes that fixture drives, so the fixture proves which anchor it seeded; where a fixture's PCS anchor moves, assert the new strike and record it as a re-derivation.",
-          "expected_result": "Passes with every fixture's anchors asserted explicitly; the CCS anchors are P23's values, and any PCS anchor that moved is asserted at its new value and named in the wave result."
-        },
-        {
-          "test_id": "P24-T2-AC3",
-          "linked_acceptance_criterion": "Given every engine-suite case that reads a PCS row set -- window legs, kept and cancelled legs on a re-seat, chain-edge cases and the step direction -- When it runs, Then its expectations are re-derived against the per-side table and asserted exactly (four rows, exact strikes, _step_candidate('PCS', 7330) == 7335 because PCS still steps up by STRIKE_STEP), no case is weakened (no '>= 4' where exact rows were asserted, no deleted assertion), and the scored cases keep their exact credit figures.",
-          "type": "unit",
-          "description": "Re-derive and run every engine-suite case that reads a PCS row set: window legs from ladder_pairs/window_legs, the kept and cancelled leg sets on a re-seat, the chain-edge cases, and the step direction (_step_candidate('PCS', 7330) == 7335).",
-          "expected_result": "Passes with exact expectations (four rows, exact strikes, the exact credit figures), PCS stepping up by STRIKE_STEP, and no case weakened by a loosened comparison or a removed assertion."
-        },
-        {
-          "test_id": "P24-T2-AC4",
-          "linked_acceptance_criterion": "Given tests/test_d65_option_stream.py, When EXPECTED_SHORTS is read, Then it is split into EXPECTED_SHORTS_CCS = [7360, 7355, 7350, 7345] (unchanged, at SPOT 7350) and EXPECTED_SHORTS_PCS = [7355, 7350, 7345, 7340], and the both-ladders case asserts each side's rendered rows against its own list.",
-          "type": "unit",
-          "description": "Assert the split constants exist with the stated values and that the both-ladders case indexes each side's rows with its own list (CCS [7360, 7355, 7350, 7345], PCS [7355, 7350, 7345, 7340] at SPOT 7350), then run that case.",
-          "expected_result": "Passes: each side's rendered instrument cells match its own short list, tick by tick, with the CCS partial-leg row left unfed exactly as before."
-        },
-        {
-          "test_id": "P24-T2-AC5",
-          "linked_acceptance_criterion": "Given the stream suite's PCS row-index expectations, When the panel is populated at the seeded anchor, Then they move up one so the PCS anchor row (7350) is row index 1 / display row 2 while the CCS anchor row stays row index 2 / display row 3, and both anchor rows are asserted explicitly.",
-          "type": "unit",
-          "description": "In the pair-mid case, assert the displayed row that holds each anchor: ('PCS', 1, 7350.0) for the PCS anchor and ('CCS', 2, 7350.0) for the CCS anchor, keeping the cell-value assertions on those rows.",
-          "expected_result": "Passes: the PCS anchor renders on row index 1 (display row 2) and the CCS anchor on row index 2 (display row 3), with the same displayed ask/bid values as before."
-        },
-        {
-          "test_id": "P24-T2-AC6",
-          "linked_acceptance_criterion": "Given the stream suite's re-anchor case (anchor 7350 -> 7355), When each side steps one rung, Then the PCS kept, arriving and cancelled leg sets are re-derived from the new window and asserted exactly -- every leg present in both windows keeps its original reqId and is never cancelled, each leaving leg is cancelled before its side's arrival, and exactly one PCS leg leaves and one arrives -- with the CCS sets re-checked the same way.",
-          "type": "unit",
-          "description": "Run the re-anchor case (Target edit moving each anchor one rung, 7350 -> 7355 on PCS) and assert the re-derived PCS kept / arriving / cancelled leg sets: each leg in both windows keeps its reqId, each leaving leg appears once in fake.cancels, each arriving leg has a fresh reqId, one leg leaves and one arrives, and the cancel precedes the arrival in fake.events.",
-          "expected_result": "Passes with the re-derived sets: no shared PCS leg is cancelled, exactly one PCS leg leaves and one arrives, the cancel is ordered before the subscribe, and the CCS sets behave the same way."
-        },
-        {
-          "test_id": "P24-T2-AC7",
-          "linked_acceptance_criterion": "Given the stream suite's lifecycle, budget and zero-order assertions, When the suite runs, Then they are untouched and pass: 16 option lines and at most 17 with one spot line at every subscribe step, fake.orders == [] in every ON, OFF, disconnect and cutoff state, the reconnect replay carries the three tags, and the stale/freeze behaviour is unchanged (AC-D66.5).",
-          "type": "integration",
-          "description": "Run the whole stream suite unchanged in its lifecycle/budget/zero-order half: 16 option lines and at most 17 with the spot, fake.orders == [] in the ON, OFF, disconnect and cutoff cases, the three-tag replay, and the stale/freeze cases.",
-          "expected_result": "Passes with those assertions unmodified: the ceilings hold at every step, no order call is recorded in any state, and the replay and stale behaviour are unchanged."
-        },
-        {
-          "test_id": "P24-T2-AC8",
-          "linked_acceptance_criterion": "Given the wave's diff and suites, When the wave completes, Then git diff --name-only lists no production file (nothing under services/, ui/, ibkr/, data/ or config/), the two re-derived suites pass together, and all seven tests/test_d65_* suites pass in one run -- the residue suite staying green because the ladder suite's 7340/7320 legality examples remain and the panel fixture has not moved yet (AP-P24-9).",
-          "type": "integration",
-          "description": "Run the two re-derived suites together, then all seven tests/test_d65_* suites in one run, and record git diff --name-only for the wave.",
-          "expected_result": "Both suites exit 0; the seven-suite run exits 0 with the residue suite green; the diff lists only tests/test_d65_spread_engine.py and tests/test_d65_option_stream.py and no production file."
-        }
-      ],
-      "expected_artifacts": [
-        "tests/test_d65_spread_engine.py: re-centred mirror_table/MIRROR profile extended to the shifted PCS window, per-fixture coverage assertion, re-derived PCS row-set expectations, green",
-        "tests/test_d65_option_stream.py: EXPECTED_SHORTS_CCS / EXPECTED_SHORTS_PCS split, PCS row indices moved up one, re-derived re-anchor leg sets, green"
-      ],
-      "touches_files": [
-        "tests/test_d65_spread_engine.py",
-        "tests/test_d65_option_stream.py"
-      ],
-      "doc_required": false,
-      "inputs": [
-        "P24-T1's shipped per-side table (dependency)",
-        "requirements.md AC-D66.2 / AC-D66.5 and Journey 64's row sets and step direction (via plan_ref and the ACs above)"
-      ],
-      "outputs": [
-        "tests/test_d65_spread_engine.py",
-        "tests/test_d65_option_stream.py"
+        "a page that accepts and renders the set_partial directive",
+        "a bridge that accepts it on the bar path"
       ],
       "status": "done",
       "size": "M",
       "context": {
         "read_files": [
           {
-            "path": "tests/test_d65_spread_engine.py",
-            "lines": "40-160",
-            "why": "the fixture model to re-derive: CHAIN (40), MIRROR / mirror_table / both_sides (83-98), feed / drive / seed_engine (114-146) and AC1_TABLE (146-160)"
+            "path": "chart_assets/lwc/envelope.js",
+            "lines": "30-120",
+            "why": "validateEnvelope/validateOp enumerate the accepted kinds \u2014 the directive is added here, before describeOp exists downstream"
           },
           {
-            "path": "tests/test_d65_spread_engine.py",
-            "lines": "160-260",
-            "why": "the AC1 seed case that drives AC1_TABLE and asserts the tiers, anchors and final rung the re-derivation must keep green"
+            "path": "chart_assets/lwc/envelope.test.js",
+            "lines": "1-80",
+            "why": "node test conventions for the validateOp cases (plain node:test + assert, module.exports factory)"
           },
           {
-            "path": "tests/test_d65_spread_engine.py",
-            "lines": "790-930",
-            "why": "read-only: the step-direction and shared-leg cases (one step per side, the PCS direction, the untouched shared leg) whose PCS expectations are re-checked, not weakened"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "1495-1560",
+            "why": "applyOps and its set_visible_range lift \u2014 the pattern the set_partial lift must mirror; also the rows-application order"
           },
           {
-            "path": "tests/test_d65_option_stream.py",
-            "lines": "36-82",
-            "why": "the constants and quote model: SPOT, STRIKES, EXPECTED_SHORTS (41), _credit / _delta / _gamma / _expected_display"
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "1650-1700",
+            "why": "applyRows / upsertRow / setSnapshot \u2014 the three places a rows application ends and the marker must be re-applied"
           },
           {
-            "path": "tests/test_d65_option_stream.py",
-            "lines": "318-460",
-            "why": "the both-ladders row loop that indexes EXPECTED_SHORTS (338) and the AC2 re-anchor case whose kept / arriving / cancelled PCS legs are re-derived"
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "1-100",
+            "why": "the fake chart/series harness that gains createSeriesMarkers/setMarkers"
           },
           {
-            "path": "tests/test_d65_option_stream.py",
-            "lines": "1255-1330",
-            "why": "the pair-mid case whose PCS row-index expectations move up one (anchor on row index 1 / display row 2)"
+            "path": "ui/lwc_bridge.py",
+            "lines": "100-160",
+            "why": "_check_op_shape \u2014 accept the directive beside set_visible_range (int ts, bool partial, no series/cols)"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "208-242",
+            "why": "apply_ops_to_bars \u2014 must ignore the directive explicitly; put the reason in its docstring"
+          },
+          {
+            "path": "tests/test_lwc_bridge.py",
+            "lines": "1-80",
+            "why": "the bridge suite's conventions for a shape case; the file gains exactly one case"
           }
         ],
         "contracts": [
           {
-            "ref": "services/option_ladder.py:ladder_pairs",
+            "ref": "ui/lwc_bridge.py:_check_op_shape",
             "status": "existing"
           },
           {
-            "ref": "services/option_spread_engine.py:rows",
-            "status": "existing"
-          },
-          {
-            "ref": "services/option_spread_engine.py:anchor",
+            "ref": "ui/lwc_bridge.py:apply_ops_to_bars",
             "status": "existing"
           },
           {
             "status": "new",
-            "module": "tests/test_d65_option_stream.py",
-            "signature": "EXPECTED_SHORTS_CCS = [7360.0, 7355.0, 7350.0, 7345.0]\nEXPECTED_SHORTS_PCS = [7355.0, 7350.0, 7345.0, 7340.0]"
+            "module": "chart_assets/lwc/envelope.js",
+            "signature": "validateOp(op) accepts {\"op\": \"set_partial\", \"ts\": <int>, \"partial\": <bool>} \u2014 a directive: no series, no cols; any other key shape is rejected"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/chart.js",
+            "signature": "applyOps lifts {\"op\": \"set_partial\", \"ts\": <int>, \"partial\": <bool>} before describeOp; one marked time in closure state; marker = createSeriesMarkers(candleSeries, [{time: <marked ts>, position: \"aboveBar\", shape: \"circle\", color: <MARKER_COLOR>}]), re-applied after every rows application, guarded by typeof createSeriesMarkers === \"function\""
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/chart.js",
+            "signature": "one named module colour constant for the marker whose value differs from LW_UP_COLOR (\"#34d399\") and LW_DOWN_COLOR (\"#f87171\")"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P24",
-        "plan_ref": "docs/plan.md#P24-02",
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#P25-01",
         "requirement_ids": [
-          "AC-D66.2",
-          "AC-D66.5",
-          "Journey 64"
+          "AC-D67.2"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d65_spread_engine.py tests/test_d65_option_stream.py -q",
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_lwc_bridge.py -q -m \"not webengine\" && node --test chart_assets/lwc/",
         "memory_refs": [
-          "worker step budget"
+          "LWC"
         ],
         "needs_graphify": false,
         "size": "M"
       }
     },
     {
-      "id": "P24-T3",
-      "title": "Panel fixture + residue-gate re-point, the D66 restated-contract fence, and the delta-scope record",
-      "description": "Re-baseline the panel suite's PCS snapshot fixture to SPX Nov17 7325/7305 and, after it in the same task, re-point tests/test_d65_residue.py's CANONICAL_FIXTURES PCS entry from 7340/7320 to 7325/7305 (constant and its comment only; gate body, holder list, BANNED_EXAMPLES and LEGAL_NON_BANNED_PAIR untouched) -- the gate can only pass once the panel suite carries the new pair (AP-P24-9). Then add tests/test_d66_delta_fence.py with one assertion per restated-contract artefact (AC-D66.1, AC-D66.3-AC-D66.8), and record the phase's git diff --name-only db21672 scope in the result. The fence's history half checks the five '[revises P23, 2026-11-18' notes already present in docs/requirements/requirements.md at their named sites -- the P23 glossary's anchor entry (line 6567), AC-D65.2 (6595), A187 (6616), A212 (6641) and R142 (6650) -- by reading that file at run time; nothing under docs/requirements/ is edited. No production file changes.",
+      "id": "P25-T2",
+      "title": "D67 part 2 \u2014 period base, first_ts covering rule, partial flag, skipped week/month prime, marker leg",
+      "description": "Give the forming 1 week / 1 month candle a real source (S-P25-1/S-P25-3). data/models.py gains the transient Bar.partial. data/bar_aggregator.py gains _AggState.first_ts (written in push at the one state-creation site), adopt_period_base(bar), drop_period_base() and a covering_since property, leaving push's observable contract, _last_pushed_ts and TIMEFRAME_SECONDS alone. services/market_calendar.py gains first_session_open(). ui/ticker_session.py adopts the last bar as the base in set_bars when its bucket is the current period, drops a stale base otherwise, returns False from prime_aggregator without issuing a request when a current-period base exists (fresh and retrying=True), updates the Per-span priming table while keeping the '1 week'/'1 month' tokens, stamps partial on the forming bar in _on_aggregated_bar, and gains the _wall_now seam. ui/main_window.py gets exactly one line in get_or_create_session (session._wall_now = lambda: self._now_ts(), late-bound, before any set_bars). ui/lwc_view.py drives one marker toward (forming ts, forming.partial) in update_live_bar on every emitting tick (including its new_period branch) and in set_series against rows[-1]. tests/test_d48_mode_parity.py restates its prime-carve-out docstring sentence only. P25-T1 must already be done: the directive op must validate before this task emits it.",
       "agent": "build_worker",
-      "task_type": "test",
+      "task_type": "build",
       "dependencies": [
-        "P24-T1",
-        "P24-T2"
+        "P25-T1"
       ],
       "acceptance_criteria": [
-        "Given tests/test_d65_option_panel.py, When its PCS snapshot fixture is inspected, Then it names the corrected PCS anchor pair SPX Nov17 7325/7305 (pinned, not '7330/7310 as the first row'), every use of that fixture carries the new pair, no other assertion in the panel suite is changed, and the suite passes.",
-        "Given tests/test_d65_residue.py, When its canonical-fixture constants are inspected, Then CANONICAL_FIXTURES is ('7425/7445', '7325/7305') with its comment stating that the PCS canonical is AC-D66.2's anchor pair at S3 = 7325, while the gate body, its four required holders (docs/plan.md, docs/architecture.md, the ladder suite, the panel suite), BANNED_EXAMPLES and LEGAL_NON_BANNED_PAIR are byte-identical; the constant moves only after the panel fixture carries the new pair in the same task, and the suite passes only with both in place.",
-        "Given tests/test_d66_delta_fence.py, When it is run, Then it pins the live modules' constants: DEFAULT_TARGET == 1.00, TARGET_MIN == 0.05, TARGET_MAX == 19.95, COLOUR_OFF and COLOUR_ON, MIN_ROWS == 4, SPREAD_WIDTH == 20 and STRIKE_STEP == 5.",
-        "Given the fence suite, When the eight rendered instrument names are checked, Then each matches AC-D66.1's regex verbatim ^SPX (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:[1-9]|[12]\\d|3[01]) \\d+(?:\\.\\d+)?/\\d+(?:\\.\\d+)?$ as rendered short-leg-first by format_instrument, and an ISO-dated name (SPX 2026-11-17 7330/7310) and a zero-padded-day name (SPX Nov07 7330/7310) are both rejected by the same regex.",
-        "Given the fence suite, When the rendered tables are inspected, Then each side shows four rows with the PCS anchor pair on row 2 and the CCS anchor pair on row 3, the table carries exactly the five columns HEADERS names (Financial instrument, ASK, BID, Delta, Gamma), and no row-number column or digit prefix exists in any instrument cell (Q117).",
-        "Given the fence suite, When the toggle and the Target are inspected, Then the toggle sits in the Target row to the right of the Target field and at the panel's content edge, its spread_state dynamic property reads 'on', then 'off' on OFF and 'on' again through ON -> OFF -> ON, the OFF colour is COLOUR_OFF and the ON colour COLOUR_ON, and the Target accepts 0.05 and 19.95 while rejecting 0.04 and 19.96 with one message and the last valid value retained (AC-D66.3 / AC-D66.4).",
-        "Given the fence suite, When the history record is checked, Then the marker prefix '[revises P23, 2026-11-18' is present at its five named sites in docs/requirements/requirements.md -- AC-D65.2, A187, A212, the P23 glossary's anchor entry and R142 -- asserted by site identifier rather than by raw occurrence count, and the retired phrases ('both sides', 'identically on both sides', 'same offset table on both sides') are absent from services/option_ladder.py (AC-D66.7).",
-        "Given the finished phase, When git diff --name-only db21672 is recorded, Then the listing is a subset of services/option_ladder.py + the five re-baselined suites (test_d65_option_ladder, test_d65_spread_engine, test_d65_option_stream, test_d65_option_panel, test_d65_residue) + tests/test_d66_delta_fence.py + docs/, and no production file outside services/option_ladder.py is listed (AC-D66.8).",
-        "Given the phase's suites, When they are run, Then the seven tests/test_d65_* suites plus the fence suite pass in one run, and the two banned typo pairs appear in no positive fixture, seed quote plan, probe record or canonical example, while the shipped negative guards that assert them absent (test_d65_residue.py's BANNED_EXAMPLES and its ban-list self-guard, the ladder suite's _fixture_guard docstring) still exist and still name them."
+        "Given a 1 week and a 1 month chart whose cached series holds a current-period row built as the aggregate of an explicit component list, When the chart renders, Then the forming candle's open equals the first in-period component's open, its high and low are those components' extremes, its close is the latest close, its volume is the sum, its Bar.partial is False, and no set_partial op is emitted for it.",
+        "Given the cache cannot cover the period (empty or pruned) and a prime is injected through TickerSession.on_historical_bar into BarAggregator.push, When the forming candle is emitted, Then its open/high/low/close/volume equal the aggregate of exactly the injected bars, Bar.partial is True, and exactly one set_partial op names that forming ts -- never a value derived from an unmarked window.",
+        "Given every cached or primed bar is at or after the period's first session open (the period begins today), When the forming candle is emitted, Then its values are the full aggregate of those bars, Bar.partial is False, and no set_partial op is emitted.",
+        "Given a current-period base exists for 1 week or 1 month, When prime_aggregator runs on both the fresh and the retrying=True entry, Then it returns False, issues no historical request, and the caller may attach the live feed; Given no base exists, Then the issued (bar_size, duration) pair is inside the accepted set (5 secs within [60 S, 3600 S]; 1 min within [60 S, 1 D]), no pair outside that set is ever issued, and a rejected pair is never re-issued as-is.",
+        "Given the forming candle is marked, When a live bar in the next period arrives, Then exactly one new candle is appended (the completed period's candle is never duplicated) and the envelope carries exactly one set_partial naming the new forming ts, or {old_ts, partial:false} when the new forming bar is complete; Given a base is adopted after live bars were pushed, When the same 5-second ts is redelivered, Then the base-derived volume is unchanged while a genuinely newer ts still merges into it.",
+        "Given a full series replacement whose last row is the partial forming bar, When set_series emits it, Then exactly one set_partial op follows the rows in that batch and it names that last row's ts; Given MainWindow.get_or_create_session creates a session, Then session._wall_now() returns the window's _now_ts() value, a MainWindow._now_ts replacement made after creation is honoured (the seam is late-bound), and TickerSession's default _wall_now is time.time."
       ],
       "tests": [
         {
-          "test_id": "P24-T3-AC1",
-          "linked_acceptance_criterion": "Given tests/test_d65_option_panel.py, When its PCS snapshot fixture is inspected, Then it names the corrected PCS anchor pair SPX Nov17 7325/7305 (pinned, not '7330/7310 as the first row'), every use of that fixture carries the new pair, no other assertion in the panel suite is changed, and the suite passes.",
-          "type": "unit",
-          "description": "Run the panel suite after changing its PCS snapshot fixture to 'SPX Nov17 7325/7305' (the pcs_row and every apply_snapshot call that uses it), leaving the wide/narrow elision assertions and every other case intact.",
-          "expected_result": "Exit 0: the fixture names the corrected anchor pair everywhere it is used and no other assertion in the suite changed."
-        },
-        {
-          "test_id": "P24-T3-AC2",
-          "linked_acceptance_criterion": "Given tests/test_d65_residue.py, When its canonical-fixture constants are inspected, Then CANONICAL_FIXTURES is ('7425/7445', '7325/7305') with its comment stating that the PCS canonical is AC-D66.2's anchor pair at S3 = 7325, while the gate body, its four required holders (docs/plan.md, docs/architecture.md, the ladder suite, the panel suite), BANNED_EXAMPLES and LEGAL_NON_BANNED_PAIR are byte-identical; the constant moves only after the panel fixture carries the new pair in the same task, and the suite passes only with both in place.",
+          "test_id": "P25-T2-AC1",
+          "linked_acceptance_criterion": "Given a 1 week and a 1 month chart whose cached series holds a current-period row built as the aggregate of an explicit component list, When the chart renders, Then the forming candle's open equals the first in-period component's open, its high and low are those components' extremes, its close is the latest close, its volume is the sum, its Bar.partial is False, and no set_partial op is emitted for it.",
           "type": "integration",
-          "description": "Point CANONICAL_FIXTURES' PCS entry at '7325/7305', update only its comment, then run the residue suite and the gate test test_canonical_fixtures_survive_and_the_typos_do_not; diff the file against HEAD to confirm only the constant and its comment moved.",
-          "expected_result": "The suite passes with the new pair held by all four required files; the diff shows the constant and comment as the only changes, with the gate body, holder list, BANNED_EXAMPLES and LEGAL_NON_BANNED_PAIR unchanged."
+          "description": "New tests/test_d67_forming_candle.py, parametrized over 1 week and 1 month: seed the series with a current-period row built as the aggregate of an explicit component list, drive the real set_bars path, and read the emitted forming bar (values + partial) and any set_partial op through a headless LwBridge.",
+          "expected_result": "The forming bar's open/high/low/close/volume equal the independently computed aggregate of the component list, Bar.partial is False, and the emitted op list contains no set_partial."
         },
         {
-          "test_id": "P24-T3-AC3",
-          "linked_acceptance_criterion": "Given tests/test_d66_delta_fence.py, When it is run, Then it pins the live modules' constants: DEFAULT_TARGET == 1.00, TARGET_MIN == 0.05, TARGET_MAX == 19.95, COLOUR_OFF and COLOUR_ON, MIN_ROWS == 4, SPREAD_WIDTH == 20 and STRIKE_STEP == 5.",
-          "type": "unit",
-          "description": "In tests/test_d66_delta_fence.py assert the constants imported from ui.option_spreads_panel and services.option_ladder: DEFAULT_TARGET, TARGET_MIN, TARGET_MAX, COLOUR_OFF, COLOUR_ON, MIN_ROWS, SPREAD_WIDTH and STRIKE_STEP.",
-          "expected_result": "All eight constants match the values AC3 lists, taken from the live modules (no copied literals)."
-        },
-        {
-          "test_id": "P24-T3-AC4",
-          "linked_acceptance_criterion": "Given the fence suite, When the eight rendered instrument names are checked, Then each matches AC-D66.1's regex verbatim ^SPX (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:[1-9]|[12]\\d|3[01]) \\d+(?:\\.\\d+)?/\\d+(?:\\.\\d+)?$ as rendered short-leg-first by format_instrument, and an ISO-dated name (SPX 2026-11-17 7330/7310) and a zero-padded-day name (SPX Nov07 7330/7310) are both rejected by the same regex.",
-          "type": "unit",
-          "description": "Render the eight names with format_instrument on an offscreen panel snapshot for CCS 7425-based and PCS 7325-based rows, match each against NAME_RE (the AC's regex, verbatim), and assert the ISO-dated and zero-padded-day strings fail the same regex.",
-          "expected_result": "All eight rendered names match; both malformed names are rejected, so the MmmDD / short-leg-first convention is pinned as a regex rather than prose."
-        },
-        {
-          "test_id": "P24-T3-AC5",
-          "linked_acceptance_criterion": "Given the fence suite, When the rendered tables are inspected, Then each side shows four rows with the PCS anchor pair on row 2 and the CCS anchor pair on row 3, the table carries exactly the five columns HEADERS names (Financial instrument, ASK, BID, Delta, Gamma), and no row-number column or digit prefix exists in any instrument cell (Q117).",
-          "type": "unit",
-          "description": "Drive apply_snapshot with four CCS and four PCS rows using the anchors, assert rowCount() == 4 per side, that the PCS anchor pair renders in row 2 and the CCS anchor pair in row 3, that columnCount() == 5 with HEADERS' labels, and that no instrument cell carries a row-number prefix or a leading digit.",
-          "expected_result": "Passes: four rows per side, anchors on rows 2 and 3, five named columns, and no rendered digit outside the strikes in the instrument cell."
-        },
-        {
-          "test_id": "P24-T3-AC6",
-          "linked_acceptance_criterion": "Given the fence suite, When the toggle and the Target are inspected, Then the toggle sits in the Target row to the right of the Target field and at the panel's content edge, its spread_state dynamic property reads 'on', then 'off' on OFF and 'on' again through ON -> OFF -> ON, the OFF colour is COLOUR_OFF and the ON colour COLOUR_ON, and the Target accepts 0.05 and 19.95 while rejecting 0.04 and 19.96 with one message and the last valid value retained (AC-D66.3 / AC-D66.4).",
-          "type": "unit",
-          "description": "In the offscreen panel, assert the toggle's x position is right of the Target field and its right edge meets the content edge, then drive ON -> OFF -> ON and read the spread_state property and colours at each step; commit Target values 0.05, 19.95, 0.04 and 19.96 and assert the accepted/rejected outcomes.",
-          "expected_result": "Passes: the toggle is right-aligned in the Target row, its property runs on/off/on with COLOUR_ON/COLOUR_OFF, and the two boundary values are accepted while the two out-of-range values are rejected with one message and the last valid value retained."
-        },
-        {
-          "test_id": "P24-T3-AC7",
-          "linked_acceptance_criterion": "Given the fence suite, When the history record is checked, Then the marker prefix '[revises P23, 2026-11-18' is present at its five named sites in docs/requirements/requirements.md -- AC-D65.2, A187, A212, the P23 glossary's anchor entry and R142 -- asserted by site identifier rather than by raw occurrence count, and the retired phrases ('both sides', 'identically on both sides', 'same offset table on both sides') are absent from services/option_ladder.py (AC-D66.7).",
-          "type": "unit",
-          "description": "Read docs/requirements/requirements.md in the fence and assert the '[revises P23, 2026-11-18' marker sits in each of the five named sites (the AC-D65.2 criterion, the A187 entry, the A212 entry, the P23 glossary's anchor entry and the R142 risk row), matching by the site's identifier line rather than counting occurrences; assert the three retired phrases are absent from services/option_ladder.py.",
-          "expected_result": "Passes: each of the five sites contains the marker in its own line/entry, and none of the retired phrases survives in the ladder module."
-        },
-        {
-          "test_id": "P24-T3-AC8",
-          "linked_acceptance_criterion": "Given the finished phase, When git diff --name-only db21672 is recorded, Then the listing is a subset of services/option_ladder.py + the five re-baselined suites (test_d65_option_ladder, test_d65_spread_engine, test_d65_option_stream, test_d65_option_panel, test_d65_residue) + tests/test_d66_delta_fence.py + docs/, and no production file outside services/option_ladder.py is listed (AC-D66.8).",
-          "type": "manual",
-          "description": "Record the phase's diff scope in the wave result: git diff --name-only db21672, compared against the allowlist (services/option_ladder.py, the five re-baselined suites, tests/test_d66_delta_fence.py, docs/).",
-          "expected_result": "The recorded listing is a subset of the allowlist and names no production file other than services/option_ladder.py. (docs/ entries already present between db21672 and HEAD are inside the allowlist.)"
-        },
-        {
-          "test_id": "P24-T3-AC9",
-          "linked_acceptance_criterion": "Given the phase's suites, When they are run, Then the seven tests/test_d65_* suites plus the fence suite pass in one run, and the two banned typo pairs appear in no positive fixture, seed quote plan, probe record or canonical example, while the shipped negative guards that assert them absent (test_d65_residue.py's BANNED_EXAMPLES and its ban-list self-guard, the ladder suite's _fixture_guard docstring) still exist and still name them.",
+          "test_id": "P25-T2-AC2",
+          "linked_acceptance_criterion": "Given the cache cannot cover the period (empty or pruned) and a prime is injected through TickerSession.on_historical_bar into BarAggregator.push, When the forming candle is emitted, Then its open/high/low/close/volume equal the aggregate of exactly the injected bars, Bar.partial is True, and exactly one set_partial op names that forming ts -- never a value derived from an unmarked window.",
           "type": "integration",
-          "description": "Run the fence suite with the five re-baselined suites and the two untouched ones in one offscreen invocation, including the residue gate's ban-list self-guard and the ladder suite's _fixture_guard case.",
-          "expected_result": "All eight suites exit 0 in one run; the negative guards still exist and still name the two banned typo pairs, while no positive fixture presents them."
+          "description": "Same suite: empty/pruned cache, then inject a prime through TickerSession.on_historical_bar (the real write path into BarAggregator.push) and read the forming bar plus the envelope.",
+          "expected_result": "The forming bar's four values plus volume equal the aggregate of exactly the injected bars, Bar.partial is True, and exactly one set_partial names that forming ts."
+        },
+        {
+          "test_id": "P25-T2-AC3",
+          "linked_acceptance_criterion": "Given every cached or primed bar is at or after the period's first session open (the period begins today), When the forming candle is emitted, Then its values are the full aggregate of those bars, Bar.partial is False, and no set_partial op is emitted.",
+          "type": "integration",
+          "description": "Same suite: every bar at or after the period's first session open (the 'period begins today' leg).",
+          "expected_result": "Full aggregate values, Bar.partial is False, and no set_partial op is emitted."
+        },
+        {
+          "test_id": "P25-T2-AC4",
+          "linked_acceptance_criterion": "Given a current-period base exists for 1 week or 1 month, When prime_aggregator runs on both the fresh and the retrying=True entry, Then it returns False, issues no historical request, and the caller may attach the live feed; Given no base exists, Then the issued (bar_size, duration) pair is inside the accepted set (5 secs within [60 S, 3600 S]; 1 min within [60 S, 1 D]), no pair outside that set is ever issued, and a rejected pair is never re-issued as-is.",
+          "type": "unit",
+          "description": "Same suite: a fake md_manager recording (bar_size, duration); call prime_aggregator with a current-period base present (fresh and retrying=True), then without a base for both calendar timeframes; also simulate a rejected pair with an already-issued pair recorded.",
+          "expected_result": "With a base: returns False and the recorded request list is empty (both entry modes). Without a base: exactly one request whose pair is inside the accepted set (5 secs in [60 S,3600 S] or 1 min in [60 S,1 D]); over the whole suite no pair outside the set is issued and a rejected pair never re-appears as-is."
+        },
+        {
+          "test_id": "P25-T2-AC5",
+          "linked_acceptance_criterion": "Given the forming candle is marked, When a live bar in the next period arrives, Then exactly one new candle is appended (the completed period's candle is never duplicated) and the envelope carries exactly one set_partial naming the new forming ts, or {old_ts, partial:false} when the new forming bar is complete; Given a base is adopted after live bars were pushed, When the same 5-second ts is redelivered, Then the base-derived volume is unchanged while a genuinely newer ts still merges into it.",
+          "type": "integration",
+          "description": "Same suite, rollover leg: mark the forming candle, then push a live bar in the next bucket through on_realtime_bar; assert the appended series and the emitted directive.",
+          "expected_result": "Exactly one new candle is appended, the completed period's candle appears once in the series, and exactly one set_partial names the new forming ts (or {old_ts, partial:false} when that bar is complete)."
+        },
+        {
+          "test_id": "P25-T2-AC5-REPLAY",
+          "linked_acceptance_criterion": "Given the forming candle is marked, When a live bar in the next period arrives, Then exactly one new candle is appended (the completed period's candle is never duplicated) and the envelope carries exactly one set_partial naming the new forming ts, or {old_ts, partial:false} when the new forming bar is complete; Given a base is adopted after live bars were pushed, When the same 5-second ts is redelivered, Then the base-derived volume is unchanged while a genuinely newer ts still merges into it.",
+          "type": "unit",
+          "description": "Same suite, replay-guard leg: push a live 5-second bar, adopt a current-period base via set_bars, then re-push the same ts, then push a newer ts.",
+          "expected_result": "The base-derived volume is unchanged by the redelivered ts (no re-count) while the newer ts merges into the same candle; the candle's first_ts/covering_since still names the period start."
+        },
+        {
+          "test_id": "P25-T2-AC6",
+          "linked_acceptance_criterion": "Given a full series replacement whose last row is the partial forming bar, When set_series emits it, Then exactly one set_partial op follows the rows in that batch and it names that last row's ts; Given MainWindow.get_or_create_session creates a session, Then session._wall_now() returns the window's _now_ts() value, a MainWindow._now_ts replacement made after creation is honoured (the seam is late-bound), and TickerSession's default _wall_now is time.time.",
+          "type": "integration",
+          "description": "Same suite, marker-replacement leg: a full replace whose last row is a partial bar through a real LwcChartView and a headless LwBridge; assert one set_partial after the rows op(s) in that batch and its ts.",
+          "expected_result": "Exactly one set_partial, ordered after the set_bars/set_volume ops, naming the last row's ts."
+        },
+        {
+          "test_id": "P25-T2-AC6-SEAM",
+          "linked_acceptance_criterion": "Given a full series replacement whose last row is the partial forming bar, When set_series emits it, Then exactly one set_partial op follows the rows in that batch and it names that last row's ts; Given MainWindow.get_or_create_session creates a session, Then session._wall_now() returns the window's _now_ts() value, a MainWindow._now_ts replacement made after creation is honoured (the seam is late-bound), and TickerSession's default _wall_now is time.time.",
+          "type": "unit",
+          "description": "Same suite: build the real MainWindow offscreen, call get_or_create_session, then replace MainWindow._now_ts and re-read session._wall_now(); also check TickerSession's default.",
+          "expected_result": "session._wall_now() equals win._now_ts() before and after the replacement (late-bound); a fresh TickerSession._wall_now() equals time.time()'s value within a second."
         }
       ],
       "expected_artifacts": [
-        "tests/test_d65_option_panel.py: PCS snapshot fixture = SPX Nov17 7325/7305, nothing else changed",
-        "tests/test_d65_residue.py: CANONICAL_FIXTURES PCS entry + its comment re-pointed; gate body and ban lists byte-identical",
-        "tests/test_d66_delta_fence.py (new): constants, name regex + rejections, row/anchor rows, no-digit, toggle, Target, five history markers, retired phrases",
-        "the wave result's delta-scope record (git diff --name-only db21672)"
+        "data/models.py \u2014 the transient Bar.partial field",
+        "data/bar_aggregator.py \u2014 _AggState.first_ts, adopt_period_base, drop_period_base, covering_since",
+        "services/market_calendar.py \u2014 first_session_open (session_windows untouched)",
+        "ui/ticker_session.py \u2014 base adoption in set_bars, suppressed week/month prime, partial stamping, _wall_now seam",
+        "ui/main_window.py \u2014 the one-line clock wiring in get_or_create_session",
+        "ui/lwc_view.py \u2014 the marker leg in update_live_bar and set_series",
+        "tests/test_d48_mode_parity.py \u2014 one restated docstring sentence, assertions unchanged",
+        "tests/test_d67_forming_candle.py \u2014 the new suite"
       ],
       "touches_files": [
-        "tests/test_d65_option_panel.py",
-        "tests/test_d65_residue.py",
-        "tests/test_d66_delta_fence.py"
+        "data/models.py",
+        "data/bar_aggregator.py",
+        "services/market_calendar.py",
+        "ui/ticker_session.py",
+        "ui/main_window.py",
+        "ui/lwc_view.py",
+        "tests/test_d48_mode_parity.py",
+        "tests/test_d67_forming_candle.py"
       ],
       "doc_required": false,
       "inputs": [
-        "requirements.md AC-D66.1, AC-D66.3-AC-D66.8, Journey 64, A213-A219, DG124-DG127 (via plan_ref and the ACs above)",
-        "P24-T1's shipped per-side table and rewritten ladder prose (dependency)",
-        "P24-T2's consolidated fixtures (the residue gate scans those two suites as text)"
+        "P25-T1's accepted set_partial directive",
+        "docs/architecture.md \u00a7 Phase P25 S-P25-1/S-P25-3 and Data Model",
+        "the verified TWS 1 min ceiling (1 D accepted; 2 D/7 D rejected 321) and oldest-first arrival"
       ],
       "outputs": [
-        "tests/test_d65_option_panel.py",
-        "tests/test_d65_residue.py",
-        "tests/test_d66_delta_fence.py",
-        "the delta-scope listing recorded in the wave result"
+        "a forming week/month candle whose values are the period aggregate or an exactly-aggregated partial",
+        "one marker directive per forming-state change",
+        "no week/month prime when a base exists"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "data/bar_aggregator.py",
+            "lines": "28-60",
+            "why": "_AggState's fields \u2014 first_ts is added here and set at the one state-creation site"
+          },
+          {
+            "path": "data/bar_aggregator.py",
+            "lines": "100-215",
+            "why": "BarAggregator.push (the dedup guard and bucket rollover that must not change) and current_bar; the adoption entry points sit beside them"
+          },
+          {
+            "path": "data/models.py",
+            "lines": "1-15",
+            "why": "Bar's field list in order \u2014 append partial, change nothing else"
+          },
+          {
+            "path": "services/market_calendar.py",
+            "lines": "140-216",
+            "why": "is_trading_day / trading_days / session_windows \u2014 first_session_open is a sibling of session_windows, which stays byte-identical"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "460-505",
+            "why": "aggregator_for / set_bars / _append_bar \u2014 adoption runs inside set_bars, the single series-replacement choke point"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "566-620",
+            "why": "on_realtime_bar / _on_aggregated_bar \u2014 where partial is stamped on the bar the session emits"
+          },
+          {
+            "path": "ui/ticker_session.py",
+            "lines": "1454-1582",
+            "why": "prime_aggregator and its Per-span priming table docstring (test_d48_gate.py greps the tokens within 2,000 characters)"
+          },
+          {
+            "path": "ui/lwc_view.py",
+            "lines": "2480-2620",
+            "why": "set_series and update_live_bar \u2014 the two sites that drive the marker; the new_period branch is the rollover edge"
+          },
+          {
+            "path": "ui/main_window.py",
+            "lines": "1070-1090",
+            "why": "get_or_create_session \u2014 the one-line, late-bound clock wiring, placed before any set_bars path"
+          },
+          {
+            "path": "tests/test_d48_mode_parity.py",
+            "lines": "1-40",
+            "why": "the prime-carve-out docstring sentence to restate; its assertions must not change"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "data/models.py:Bar",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_aggregator.py:BarAggregator",
+            "status": "existing"
+          },
+          {
+            "ref": "data/bar_aggregator.py:TIMEFRAME_SECONDS",
+            "status": "existing"
+          },
+          {
+            "ref": "services/market_calendar.py:session_windows",
+            "status": "existing"
+          },
+          {
+            "ref": "services/market_calendar.py:trading_days",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/ticker_session.py:TickerSession",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_view.py:LwcChartView",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/main_window.py:MainWindow",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "data/models.py",
+            "signature": "partial: bool = field(default=False, compare=False, repr=False)  # transient, presentation-only, never persisted"
+          },
+          {
+            "status": "new",
+            "module": "data/bar_aggregator.py",
+            "signature": "def adopt_period_base(self, bar) -> None:  # sets the open candle's OHLCV from one rendered period row, first_ts = period_start, records base-derived; leaves _last_pushed_ts untouched"
+          },
+          {
+            "status": "new",
+            "module": "data/bar_aggregator.py",
+            "signature": "def drop_period_base(self) -> None:  # clears a base-derived state only"
+          },
+          {
+            "status": "new",
+            "module": "data/bar_aggregator.py",
+            "signature": "@property\ndef covering_since(self) -> int:  # the earliest bar folded into the open candle (first_ts)"
+          },
+          {
+            "status": "new",
+            "module": "data/bar_aggregator.py",
+            "signature": "_AggState.first_ts: int  # written as ts in push() where the state is created; period_start when adopted"
+          },
+          {
+            "status": "new",
+            "module": "services/market_calendar.py",
+            "signature": "def first_session_open(period_start: int, now_ts: int, ext_hours: bool) -> int | None:  # first ET session open in [period_start, now_ts], holiday-aware; None before any open"
+          },
+          {
+            "status": "new",
+            "module": "ui/ticker_session.py",
+            "signature": "_wall_now: Callable[[], int]  # default time.time; assigned at session creation as lambda: self._now_ts()"
+          },
+          {
+            "status": "new",
+            "module": "ui/ticker_session.py",
+            "signature": "partial = agg.covering_since > first_session_open(agg.period_start, now_ts, ext_hours)  # stamped on the forming Bar for '1 week'/'1 month' with the load's mode; False for every other timeframe"
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_view.py",
+            "signature": "_partial_ts: int | None  # emits {\"op\": \"set_partial\", \"ts\": <int>, \"partial\": <bool>} after the rows when the forming bar's (ts, partial) differs from the mark"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#P25-01",
+        "requirement_ids": [
+          "AC-D67.1",
+          "AC-D67.2",
+          "AC-D67.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d67_forming_candle.py -q",
+        "memory_refs": [
+          "IBKR"
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P25-T3",
+      "title": "D68 \u2014 a pop-out releases at most the one RT hold it acquired",
+      "description": "Move the acquisition state from attach's local into a pop-out-local latch (S-P25-4). PopoutChartWindow gains self._hold_acquired (True only on the else branch where ensure_rt_subscribed() returned) and self._closed (set first in detach, consulted by _retry_rt_subscribe); attach's unwind reads the attribute instead of the local, detach releases only when it is set and then clears it, and a retry that fires after close acquires nothing. TickerSession.ensure_rt_subscribed / release_rt / _rt_holders and every signature stay frozen \u2014 tests/test_p13_hold_fix.py fences them. Comment each write site with D68 and state the P13 fence reason.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Given a main chart holding one RT hold and a pop-out whose ensure_rt_subscribed() raised PacingExceeded, When the pop-out is closed before its retry fires, Then no release happens: the session's holder count equals its pre-open value, the fake realtime manager records no unsubscribe for the main reqId, and the pop-out's own _hold_acquired is False.",
+        "Given a pop-out that acquired its hold, When it closes, Then exactly one release_rt is recorded, _hold_acquired is cleared, and a second detach() releases nothing further.",
+        "Given two pop-outs on the same symbol, one of them pacing-deferred, When they are closed in either order, Then the holder count returns to its pre-open value, closing one while the main chart stays open leaves the main's hold intact, and no window releases a hold it never acquired.",
+        "Given a deferred pop-out closed before its retry fires, When _retry_rt_subscribe runs, Then it returns without calling ensure_rt_subscribed (the closed latch), so the subscribe and unsubscribe logs are unchanged by the retry.",
+        "Given the main chart is closed first, When the pop-out's hold is the only one left, Then the subscription stays live (no unsubscribe for its reqId) until the pop-out closes, at which point exactly one release is recorded.",
+        "Given the phase's change, When tests/test_p13_hold_fix.py runs, Then the session hold API is still a plain integer refcount with [\"self\"] parameters and no acquire_rt / release_rt_for / _rt_owners, and PopoutChartWindow.attach/detach/closeEvent signatures are unchanged."
+      ],
+      "tests": [
+        {
+          "test_id": "P25-T3-AC1",
+          "linked_acceptance_criterion": "Given a main chart holding one RT hold and a pop-out whose ensure_rt_subscribed() raised PacingExceeded, When the pop-out is closed before its retry fires, Then no release happens: the session's holder count equals its pre-open value, the fake realtime manager records no unsubscribe for the main reqId, and the pop-out's own _hold_acquired is False.",
+          "type": "integration",
+          "description": "New tests/test_d68_hold_balance.py: a real MainWindow/host with the fake realtime manager recording subscribe/unsubscribe per reqId, a real TickerSession holding one hold for the main chart, and a pop-out whose first ensure_rt_subscribed raises PacingExceeded; close the pop-out before the retry fires.",
+          "expected_result": "Session holder count == its pre-open value; no unsubscribe recorded for the main reqId; the manager's live set is unchanged; the pop-out's _hold_acquired is False. RED before the fix (detach releases unconditionally and consumes the main hold)."
+        },
+        {
+          "test_id": "P25-T3-AC2",
+          "linked_acceptance_criterion": "Given a pop-out that acquired its hold, When it closes, Then exactly one release_rt is recorded, _hold_acquired is cleared, and a second detach() releases nothing further.",
+          "type": "integration",
+          "description": "Same suite: an acquired pop-out closes, then detach() is called a second time.",
+          "expected_result": "Exactly one release_rt for the first detach (holder count drops by exactly one), _hold_acquired is False afterwards, and the second detach records no further release."
+        },
+        {
+          "test_id": "P25-T3-AC3",
+          "linked_acceptance_criterion": "Given two pop-outs on the same symbol, one of them pacing-deferred, When they are closed in either order, Then the holder count returns to its pre-open value, closing one while the main chart stays open leaves the main's hold intact, and no window releases a hold it never acquired.",
+          "type": "integration",
+          "description": "Same suite, parametrized over both close orders: two pop-outs on one symbol, one pacing-deferred, with the main chart open.",
+          "expected_result": "In both orders the holder count returns to its pre-open value at the end; after closing one window the main's hold still exists (count unchanged, no unsubscribe); no window releases a hold it did not acquire."
+        },
+        {
+          "test_id": "P25-T3-AC4",
+          "linked_acceptance_criterion": "Given a deferred pop-out closed before its retry fires, When _retry_rt_subscribe runs, Then it returns without calling ensure_rt_subscribed (the closed latch), so the subscribe and unsubscribe logs are unchanged by the retry.",
+          "type": "unit",
+          "description": "Same suite: close a deferred pop-out, then call _retry_rt_subscribe() directly.",
+          "expected_result": "ensure_rt_subscribed is never called by the retry (subscribe log unchanged) and no release is recorded, because the closed latch returns first."
+        },
+        {
+          "test_id": "P25-T3-AC5",
+          "linked_acceptance_criterion": "Given the main chart is closed first, When the pop-out's hold is the only one left, Then the subscription stays live (no unsubscribe for its reqId) until the pop-out closes, at which point exactly one release is recorded.",
+          "type": "integration",
+          "description": "Same suite: main chart closes first, then the pop-out closes.",
+          "expected_result": "Between the two closes no unsubscribe is recorded for the pop-out's reqId (its hold keeps the feed alive); on the pop-out's close exactly one release is recorded and the manager's live set drops that reqId."
+        },
+        {
+          "test_id": "P25-T3-AC6",
+          "linked_acceptance_criterion": "Given the phase's change, When tests/test_p13_hold_fix.py runs, Then the session hold API is still a plain integer refcount with [\"self\"] parameters and no acquire_rt / release_rt_for / _rt_owners, and PopoutChartWindow.attach/detach/closeEvent signatures are unchanged.",
+          "type": "integration",
+          "description": "Run the pre-existing fence suite after the change; it is the regression floor, not re-baselined.",
+          "expected_result": "tests/test_p13_hold_fix.py is green with its own absence and signature assertions unchanged (no acquire_rt, no release_rt_for, no _rt_owners, [\"self\"] parameters)."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/popout_window.py \u2014 the _hold_acquired and _closed latches, read by attach's unwind, detach and _retry_rt_subscribe",
+        "tests/test_d68_hold_balance.py \u2014 the new suite"
+      ],
+      "touches_files": [
+        "ui/popout_window.py",
+        "tests/test_d68_hold_balance.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "docs/architecture.md \u00a7 Phase P25 S-P25-4",
+        "tests/test_p13_hold_fix.py's frozen session-hold shape"
+      ],
+      "outputs": [
+        "a pop-out whose close can never consume another owner's RT hold"
       ],
       "status": "done",
       "size": "S",
       "context": {
         "read_files": [
           {
-            "path": "tests/test_d65_option_panel.py",
-            "lines": "478-553",
-            "why": "the snapshot fixture to re-baseline: pcs_name (484), pcs_row (486), its apply_snapshot uses (492, 522) and the wide/narrow case that must otherwise stay unchanged"
+            "path": "ui/popout_window.py",
+            "lines": "335-490",
+            "why": "attach: the local hold_acquired, the pacing/error branches that schedule the retry, and the unwind that must read the instance latch"
           },
           {
-            "path": "tests/test_d65_residue.py",
-            "lines": "258-280",
-            "why": "the constants to re-point: CONSISTENCY_FILES (268-271), CANONICAL_FIXTURES (273) and its comment (266-267), BANNED_EXAMPLES / LEGAL_NON_BANNED_PAIR (274-275)"
+            "path": "ui/popout_window.py",
+            "lines": "489-550",
+            "why": "_retry_rt_subscribe (the membership guard and the acquire) and detach (the unconditional release_rt to replace)"
           },
           {
-            "path": "tests/test_d65_residue.py",
-            "lines": "2534-2575",
-            "why": "read-only: the canonical-fixture gate body and its four required holders - byte-identical, do not change"
+            "path": "tests/test_p13_hold_fix.py",
+            "lines": "60-160",
+            "why": "read-only: the P13 fence that forbids an owner-keyed session API and pins the [\"self\"] parameters \u2014 do not change it"
           },
           {
-            "path": "ui/option_spreads_panel.py",
-            "lines": "40-100",
-            "why": "read-only: HEADERS (45), MIN_ROWS (51), TARGET_MIN/MAX (54-55), DEFAULT_TARGET (58), COLOUR_OFF/ON (66-67) and the spread_state stylesheet (72-90) the fence pins - do not edit"
-          },
-          {
-            "path": "ui/option_spreads_panel.py",
-            "lines": "160-240",
-            "why": "read-only: controls_row with target_edit then toggle_button (the alignment facts) and _build_table's header labels"
-          },
-          {
-            "path": "ui/option_spreads_panel.py",
-            "lines": "276-400",
-            "why": "read-only: apply_snapshot / _populate (received order, MIN_ROWS), set_target_value and set_toggle_state - the behaviour the fence asserts"
-          },
-          {
-            "path": "services/option_ladder.py",
-            "lines": "1-135",
-            "why": "read-only: P24-T1's per-side table and replacement prose - the fence asserts the retired phrases absent from this file; do not edit it"
+            "path": "tests/test_d24_popouts.py",
+            "lines": "1-60",
+            "why": "read-only: the fake realtime manager convention (win.rt_manager.subscribe patched to an id source) the new suite reuses"
           }
         ],
         "contracts": [
           {
-            "ref": "ui/option_spreads_panel.py:DEFAULT_TARGET",
+            "ref": "ui/popout_window.py:PopoutChartWindow",
             "status": "existing"
           },
           {
-            "ref": "ui/option_spreads_panel.py:apply_snapshot",
-            "status": "existing"
-          },
-          {
-            "ref": "ui/option_spreads_panel.py:set_toggle_state",
-            "status": "existing"
-          },
-          {
-            "ref": "services/option_ladder.py:format_instrument",
-            "status": "existing"
-          },
-          {
-            "ref": "services/option_ladder.py:ladder_pairs",
+            "ref": "ui/ticker_session.py:TickerSession",
             "status": "existing"
           },
           {
             "status": "new",
-            "module": "tests/test_d65_residue.py",
-            "signature": "CANONICAL_FIXTURES = (\"7425/7445\", \"7325/7305\")"
+            "module": "ui/popout_window.py",
+            "signature": "self._hold_acquired: bool  # True only where ensure_rt_subscribed() returned; cleared where released; read by attach's unwind and by detach"
           },
           {
             "status": "new",
-            "module": "tests/test_d66_delta_fence.py",
-            "signature": "NAME_RE = r\"^SPX (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(?:[1-9]|[12]\\d|3[01]) \\d+(?:\\.\\d+)?/\\d+(?:\\.\\d+)?$\""
+            "module": "ui/popout_window.py",
+            "signature": "self._closed: bool  # set first in detach(); consulted by _retry_rt_subscribe before it acquires"
           }
         ],
-        "architecture_ref": "docs/architecture.md#Phase P24",
-        "plan_ref": "docs/plan.md#P24-03",
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#P25-02",
         "requirement_ids": [
-          "AC-D66.1",
-          "AC-D66.3",
-          "AC-D66.4",
-          "AC-D66.5",
-          "AC-D66.6",
-          "AC-D66.7",
-          "AC-D66.8"
+          "AC-D68.1",
+          "AC-D68.2"
         ],
-        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d66_delta_fence.py tests/test_d65_option_panel.py tests/test_d65_residue.py -q",
-        "memory_refs": [],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d68_hold_balance.py -q",
+        "memory_refs": [
+          "offscreen"
+        ],
+        "needs_graphify": false,
+        "size": "S"
+      }
+    },
+    {
+      "id": "P25-T4",
+      "title": "D69 + D70 \u2014 arrival-ordered flush with one replace per series, and one whitespace rule on both sides",
+      "description": "Stamp every staged op with a monotonic sequence and emit data ops in arrival order (S-P25-5): per series keep only the last full replace (set_bars / set_volume / clear) and drop that series' ops with a smaller seq, then append the non-series directives (set_visible_range, set_partial) in arrival order. _op_log, replay_log and the counters keep plain arrival order. Apply the whitespace rule in both reconstruction branches (S-P25-6): apply_ops_to_bars's update_bar branch removes a None-close ts and writes nothing; envelope.js::mergeRows skips a whitespace row on set_bars/set_volume and deletes that time on update_bar; chart.js::upsertRow sends {time} only for a whitespace row. Prove the parity through the page's real lwApplyOps + lwSnapshot() over both fixtures, never a hand-written JS mirror. Do not change ENVELOPE_VERSION, COALESCE_MS, LIVE_OPS, the op shapes, seriesRows/barRows, the viewport block in applyOps or any counter.",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P25-T1",
+        "P25-T2"
+      ],
+      "acceptance_criteria": [
+        "Given one coalesce window in which an update_bar for a candle is staged before a set_bars that replaces the series, When flush() runs, Then the emitted envelope carries no op for that series older than the replace and apply_ops_to_bars over it yields exactly the set_bars rows; Given the same two ops staged in the reverse order, Then the update applies last; every surviving op appears exactly once, a series carries at most one full replace per envelope, and set_visible_range/set_partial still follow the rows.",
+        "Given a window holding updates for several series and one replace per series, Then every op that survives coalescing is emitted exactly once, per-series arrival order is preserved, an older replace is dropped in favour of the later one, and _op_log / replay_log still carry every accepted op in arrival order with unchanged fidelity.",
+        "Given a replay log containing an update_bar whose close is None, When it is reconstructed by apply_ops_to_bars, Then the series contains no row for that timestamp and an existing row for it is removed; the same whitespace row delivered through set_bars is excluded too (one rule, two branches), and both fixtures yield the same expected series.",
+        "Given the page's real lwApplyOps and window.lwSnapshot(), When the same op lists are applied in the page, Then the whitespace row is absent from the page's bar series for both the update_bar and the set_bars fixture, the page's series equals apply_ops_to_bars's output element-for-element, and a whitespace row reaches the library as a {time} placeholder only -- never a null-valued point.",
+        "Given clear followed by update_bar, Then the series is one bar; Given an update_bar that arrived before a replace which removed its timestamp, Then supersession drops it and the removed bar does not come back, while an update_bar that arrived after the replace applies normally; Given an empty flush, Then no envelope is emitted (flush returns None)."
+      ],
+      "tests": [
+        {
+          "test_id": "P25-T4-AC1",
+          "linked_acceptance_criterion": "Given one coalesce window in which an update_bar for a candle is staged before a set_bars that replaces the series, When flush() runs, Then the emitted envelope carries no op for that series older than the replace and apply_ops_to_bars over it yields exactly the set_bars rows; Given the same two ops staged in the reverse order, Then the update applies last; every surviving op appears exactly once, a series carries at most one full replace per envelope, and set_visible_range/set_partial still follow the rows.",
+          "type": "unit",
+          "description": "New tests/test_d69_d70_bridge_contract.py: a headless LwBridge (no Qt event loop, explicit flush), stage update_bar(bar 50) then a set_bars replacing the series, flush, reconstruct; then the same two ops in the reverse arrival order.",
+          "expected_result": "In the update-then-replace order the envelope carries no op for that series older than the replace and apply_ops_to_bars yields exactly the set_bars rows; in the replace-then-update order the update is the last data op for that series and applies last; both reconstructions equal an independently computed expected series."
+        },
+        {
+          "test_id": "P25-T4-AC2",
+          "linked_acceptance_criterion": "Given a window holding updates for several series and one replace per series, Then every op that survives coalescing is emitted exactly once, per-series arrival order is preserved, an older replace is dropped in favour of the later one, and _op_log / replay_log still carry every accepted op in arrival order with unchanged fidelity.",
+          "type": "unit",
+          "description": "Same suite: one window with updates for bars 1..3 plus one replace per series (candles and volume), including two replaces of the same series.",
+          "expected_result": "Each surviving op appears exactly once, a series carries at most one replace per envelope (the later one), per-series arrival order holds, and _op_log/replay_log still list every accepted op in arrival order with the same contents (no new key, no reordering)."
+        },
+        {
+          "test_id": "P25-T4-AC3",
+          "linked_acceptance_criterion": "Given a replay log containing an update_bar whose close is None, When it is reconstructed by apply_ops_to_bars, Then the series contains no row for that timestamp and an existing row for it is removed; the same whitespace row delivered through set_bars is excluded too (one rule, two branches), and both fixtures yield the same expected series.",
+          "type": "unit",
+          "description": "Same suite: the same whitespace row (close None) delivered once via update_bar, once via set_bars, each reconstructed with apply_ops_to_bars; assert against one shared expected series.",
+          "expected_result": "Neither branch contains a row for that timestamp; an existing row for it is removed by the update; both fixtures produce the same expected series."
+        },
+        {
+          "test_id": "P25-T4-AC4",
+          "linked_acceptance_criterion": "Given the page's real lwApplyOps and window.lwSnapshot(), When the same op lists are applied in the page, Then the whitespace row is absent from the page's bar series for both the update_bar and the set_bars fixture, the page's series equals apply_ops_to_bars's output element-for-element, and a whitespace row reaches the library as a {time} placeholder only -- never a null-valued point.",
+          "type": "integration",
+          "description": "Same suite: drive the same two fixtures through node with the real lwApplyOps and read window.lwSnapshot(); compare with apply_ops_to_bars. envelope.test.js adds the fold's own unit case (skipped on replace, deleted on upsert, replayed twice identically).",
+          "expected_result": "The page's snapshot equals the Python reconstruction element-for-element for both fixtures, the whitespace timestamp is absent from the page's candles, and the library received a {time} placeholder only (no null-valued point)."
+        },
+        {
+          "test_id": "P25-T4-AC5",
+          "linked_acceptance_criterion": "Given clear followed by update_bar, Then the series is one bar; Given an update_bar that arrived before a replace which removed its timestamp, Then supersession drops it and the removed bar does not come back, while an update_bar that arrived after the replace applies normally; Given an empty flush, Then no envelope is emitted (flush returns None).",
+          "type": "unit",
+          "description": "Same suite, edge legs: clear then update_bar; an update_bar for ts X staged before a set_bars that does not contain X; an update_bar for X staged after that set_bars; an empty flush.",
+          "expected_result": "clear+update yields one bar; the update that arrived before the replace is dropped so X never reappears; the update that arrived after the replace applies as the last data op; an empty flush returns None and emits nothing."
+        }
+      ],
+      "expected_artifacts": [
+        "ui/lwc_bridge.py \u2014 sequence-stamped staging, supersession rule, arrival-ordered emission, directive ordering, one whitespace rule in apply_ops_to_bars",
+        "chart_assets/lwc/envelope.js \u2014 mergeRows applies the whitespace rule in both branches",
+        "chart_assets/lwc/chart.js \u2014 upsertRow sends {time} only for a whitespace row",
+        "chart_assets/lwc/envelope.test.js and chart_assets/lwc/chart.test.js \u2014 the fold and parity cases",
+        "tests/test_d69_d70_bridge_contract.py \u2014 the new suite"
+      ],
+      "touches_files": [
+        "ui/lwc_bridge.py",
+        "chart_assets/lwc/envelope.js",
+        "chart_assets/lwc/chart.js",
+        "chart_assets/lwc/envelope.test.js",
+        "chart_assets/lwc/chart.test.js",
+        "tests/test_d69_d70_bridge_contract.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "P25-T1's accepted set_partial directive",
+        "docs/architecture.md \u00a7 Phase P25 S-P25-5/S-P25-6"
+      ],
+      "outputs": [
+        "an arrival-ordered envelope with one replace per series",
+        "a whitespace rule the Python reconstruction and the page's bar series share"
+      ],
+      "status": "done",
+      "size": "M",
+      "context": {
+        "read_files": [
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "290-400",
+            "why": "_outbox/_live_buf/_stage/_arm_timer/flush \u2014 the staging and emission to restructure (coalesce key and last-tick-wins stay)"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "208-242",
+            "why": "apply_ops_to_bars \u2014 the update_bar branch and the docstring that must state one rule for both branches"
+          },
+          {
+            "path": "chart_assets/lwc/envelope.js",
+            "lines": "118-170",
+            "why": "rowsOf and mergeRows \u2014 the page's fold, where the whitespace rule is applied in both branches"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "1650-1700",
+            "why": "applyRows and upsertRow \u2014 the snapshot fold and the display upsert ({time} only for a whitespace row)"
+          },
+          {
+            "path": "chart_assets/lwc/chart.test.js",
+            "lines": "1-100",
+            "why": "the node harness (and the createSeriesMarkers fake P25-T1 added) the parity case rides"
+          },
+          {
+            "path": "chart_assets/lwc/envelope.test.js",
+            "lines": "1-60",
+            "why": "node test conventions for the fold's own unit case"
+          },
+          {
+            "path": "tests/test_d57_joint.py",
+            "lines": "220-250",
+            "why": "the _run_node harness pattern (shell out to node, parse JSON) the parity case reuses \u2014 read-only"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/lwc_bridge.py:LwBridge",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:ENVELOPE_VERSION",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:LIVE_OPS",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:apply_ops_to_bars",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_bridge.py",
+            "signature": "flush(): one staged list; per series keep only the last full replace (set_bars / set_volume / clear) and drop that series' ops with a smaller seq; emit survivors in ascending seq; append the non-series directives (set_visible_range, set_partial) in arrival order; returns None when nothing is staged"
+          },
+          {
+            "status": "new",
+            "module": "ui/lwc_bridge.py",
+            "signature": "apply_ops_to_bars: update_bar with close None -> by_ts.pop(ts, None), write nothing (set_bars keeps its if c is not None filter)"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/envelope.js",
+            "signature": "mergeRows(base, ops): set_bars/set_volume SKIP a whitespace row (candles: open/close null; volume: value null); update_bar DELETES that time; signature and dispatch otherwise unchanged"
+          },
+          {
+            "status": "new",
+            "module": "chart_assets/lwc/chart.js",
+            "signature": "upsertRow(series, row): a whitespace row is sent to the library as {time} only, never a null-valued point"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#P25-03",
+        "requirement_ids": [
+          "AC-D69.1",
+          "AC-D69.2",
+          "AC-D70.1",
+          "AC-D70.2"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_d69_d70_bridge_contract.py -q && node --test chart_assets/lwc/",
+        "memory_refs": [
+          "LWC"
+        ],
+        "needs_graphify": false,
+        "size": "M"
+      }
+    },
+    {
+      "id": "P25-T5",
+      "title": "P25 fence suite, delta-scope record and the named owner gates",
+      "description": "Add tests/test_p25_fence.py \u2014 one assertion per named artefact of AC-D70.3 plus the module constants the phase relies on \u2014 and record the phase's delta scope. The D41-D66 assertion is presence per id in a heading, never a literal ### D<n> prefix (the record is mixed). Read the bridge constants off the module (ui.lwc_bridge.ENVELOPE_VERSION / .COALESCE_MS / .LIVE_OPS), never off LwBridge, and assert the marker colour constant exists in chart.js and differs from the up/down candle colours. Record git diff --name-only 94d6119 in the wave result against the phase allowlist; list gates G1 and G2 as owner-run and do not claim them. Publish no literal counts of files, lines or ops (a later phase must not redden this fence).",
+      "agent": "build_worker",
+      "task_type": "build",
+      "dependencies": [
+        "P25-T1",
+        "P25-T2",
+        "P25-T3",
+        "P25-T4"
+      ],
+      "acceptance_criteria": [
+        "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D66 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D67-D70 entries are present, Journey 65-Journey 67 are present, AC-D1.1-AC-D66.8 and AC-D67.1-AC-D70.3 are present, A1-A219 plus A220-A224 are present, R1-R159 plus R160-R164 are present, and the Current Tech Stack section is present.",
+        "Given the live modules, When the fence reads them, Then ui.lwc_bridge.ENVELOPE_VERSION == 1, ui.lwc_bridge.COALESCE_MS == 33 and ui.lwc_bridge.LIVE_OPS == frozenset({\"update_bar\"}) are read off the module (not off LwBridge), and chart_assets/lwc/chart.js defines the marker colour constant whose value differs from its up and down candle colours.",
+        "Given the phase's build record, When the wave result is read, Then git diff --name-only 94d6119 is a subset of the phase allowlist (data/models.py, data/bar_aggregator.py, services/market_calendar.py, ui/ticker_session.py, ui/lwc_view.py, ui/lwc_bridge.py, ui/popout_window.py, ui/main_window.py, chart_assets/lwc/envelope.js, chart_assets/lwc/chart.js, chart_assets/lwc/chart.test.js, chart_assets/lwc/envelope.test.js, the four new suites, tests/test_d48_mode_parity.py and docs/), and gates G1 and G2 are listed as owner-run -- named, not claimed as satisfied.",
+        "Given the phase's complete change set, When the full offscreen suite runs, Then it is green."
+      ],
+      "tests": [
+        {
+          "test_id": "P25-T5-AC1",
+          "linked_acceptance_criterion": "Given docs/requirements/requirements.md, When the fence inspects it, Then \"This is an existing repository.\" is present, every id in D41-D66 is present in a heading (presence per id, not a literal ### D<n> prefix), the #### D67-D70 entries are present, Journey 65-Journey 67 are present, AC-D1.1-AC-D66.8 and AC-D67.1-AC-D70.3 are present, A1-A219 plus A220-A224 are present, R1-R159 plus R160-R164 are present, and the Current Tech Stack section is present.",
+          "type": "unit",
+          "description": "Read docs/requirements/requirements.md from the repo root and assert the marker sentence, presence per id for D41-D66 in a heading, the #### D67-D70 headings, Journey 65-Journey 67, the AC id ranges, the A and R id ranges, and the Current Tech Stack section.",
+          "expected_result": "Every named artefact is present; the suite contains no literal count of files, lines or ops. RED only if the phase edited the requirements record."
+        },
+        {
+          "test_id": "P25-T5-AC2",
+          "linked_acceptance_criterion": "Given the live modules, When the fence reads them, Then ui.lwc_bridge.ENVELOPE_VERSION == 1, ui.lwc_bridge.COALESCE_MS == 33 and ui.lwc_bridge.LIVE_OPS == frozenset({\"update_bar\"}) are read off the module (not off LwBridge), and chart_assets/lwc/chart.js defines the marker colour constant whose value differs from its up and down candle colours.",
+          "type": "unit",
+          "description": "Import the live modules and read the three constants plus the page's marker colour constant from chart.js's source.",
+          "expected_result": "ui.lwc_bridge.ENVELOPE_VERSION == 1, COALESCE_MS == 33, LIVE_OPS == frozenset({\"update_bar\"}) read off the module; chart.js defines the marker constant and its value differs from LW_UP_COLOR and LW_DOWN_COLOR."
+        },
+        {
+          "test_id": "P25-T5-AC3",
+          "linked_acceptance_criterion": "Given the phase's build record, When the wave result is read, Then git diff --name-only 94d6119 is a subset of the phase allowlist (data/models.py, data/bar_aggregator.py, services/market_calendar.py, ui/ticker_session.py, ui/lwc_view.py, ui/lwc_bridge.py, ui/popout_window.py, ui/main_window.py, chart_assets/lwc/envelope.js, chart_assets/lwc/chart.js, chart_assets/lwc/chart.test.js, chart_assets/lwc/envelope.test.js, the four new suites, tests/test_d48_mode_parity.py and docs/), and gates G1 and G2 are listed as owner-run -- named, not claimed as satisfied.",
+          "type": "manual",
+          "description": "The build record, not a test: run git diff --name-only 94d6119 at the end of the phase and list the result in the wave result beside the allowlist, with G1/G2 named as owner-run.",
+          "expected_result": "The diff is a subset of the allowlist (the seven production modules, ui/main_window.py, the two page sources, the four new suites, tests/test_d48_mode_parity.py, docs/); anything else is recorded as a scope breach to escalate, not justified. G1 and G2 appear as named, not run."
+        },
+        {
+          "test_id": "P25-T5-AC4",
+          "linked_acceptance_criterion": "Given the phase's complete change set, When the full offscreen suite runs, Then it is green.",
+          "type": "integration",
+          "description": "Run the full offscreen suite once at the end of the phase and record the result.",
+          "expected_result": "The full offscreen suite passes (a clean full-suite run, not an incremental one)."
+        }
+      ],
+      "expected_artifacts": [
+        "tests/test_p25_fence.py \u2014 the fence suite",
+        "the wave result's delta-scope record (git diff --name-only 94d6119 vs the allowlist) and the G1/G2 named-gates line"
+      ],
+      "touches_files": [
+        "tests/test_p25_fence.py"
+      ],
+      "doc_required": false,
+      "inputs": [
+        "the four preceding tasks' change set",
+        "docs/requirements/requirements.md (read-only input)"
+      ],
+      "outputs": [
+        "a fence that pins the requirements record and the phase's constants without pinning a count",
+        "the phase's delta-scope record"
+      ],
+      "status": "in_progress",
+      "size": "S",
+      "context": {
+        "read_files": [
+          {
+            "path": "tests/test_d66_delta_fence.py",
+            "lines": "1-110",
+            "why": "the P24 fence precedent: REQUIREMENTS path, marker grep, presence-per-id style and the delta-record-is-not-a-test note"
+          },
+          {
+            "path": "tests/test_d66_delta_fence.py",
+            "lines": "240-300",
+            "why": "read-only: how the precedent asserts requirements presence and keeps later phases green"
+          },
+          {
+            "path": "chart_assets/lwc/chart.js",
+            "lines": "55-70",
+            "why": "read-only: LW_UP_COLOR / LW_DOWN_COLOR, the two colours the marker constant must differ from"
+          },
+          {
+            "path": "ui/lwc_bridge.py",
+            "lines": "80-100",
+            "why": "read-only: the three module-level constants the fence reads (never off LwBridge)"
+          }
+        ],
+        "contracts": [
+          {
+            "ref": "ui/lwc_bridge.py:ENVELOPE_VERSION",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:COALESCE_MS",
+            "status": "existing"
+          },
+          {
+            "ref": "ui/lwc_bridge.py:LIVE_OPS",
+            "status": "existing"
+          },
+          {
+            "status": "new",
+            "module": "tests/test_p25_fence.py",
+            "signature": "one assertion per named artefact: the requirements marker sentence, D41-D66 presence per id in a heading, #### D67-D70, Journey 65-67, AC-D1.1-AC-D66.8 + AC-D67.1-AC-D70.3, A1-A219 + A220-A224, R1-R159 + R160-R164, the Current Tech Stack section, and the three bridge constants + the marker colour constant"
+          }
+        ],
+        "architecture_ref": "docs/architecture.md#Phase P25",
+        "plan_ref": "docs/plan.md#P25-04",
+        "requirement_ids": [
+          "AC-D70.3"
+        ],
+        "test_command": "QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests/test_p25_fence.py -q",
+        "memory_refs": [
+          "offscreen"
+        ],
         "needs_graphify": false,
         "size": "S"
       }

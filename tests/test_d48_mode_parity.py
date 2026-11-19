@@ -21,11 +21,13 @@ exactly one wave chunk on the first load, proving the write path also
 uses the canonical key. Bar timestamps are presence seeds, not calendar
 bucket anchors — mode treatment, not aggregation anchoring, is under test.
 
-Prime carve-out: a mid-session load still issues the existing forming-bar
-priming request (unchanged S-P8-5 behaviour); it is a live-feed prime,
-not a backfill request, so the "no extra requests" assertion counts
-**wave** calls (``bar_size`` == the timeframe) and separately asserts
-every prime call is canonical too.
+Prime carve-out: a week/month load whose series already holds the current
+period row primes **nothing** (S-P25-1: that rendered row is the aggregator's
+base), so no forming-bar request is issued for those timeframes; any prime
+still issued for another timeframe is a live-feed prime, not a backfill
+request. The "no extra requests" assertion therefore counts **wave** calls
+(``bar_size`` == the timeframe) and separately asserts every prime call that
+does issue is canonical too.
 """
 
 from __future__ import annotations

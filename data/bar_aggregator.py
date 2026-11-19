@@ -39,6 +39,11 @@ class _AggState:
     low: float
     close: float
     volume: float
+    # S-P25-1/S-P25-3: the earliest bar folded into this candle. Written as
+    # the pushed ``ts`` at the one place a state is created (``push``), and
+    # as ``period_start`` when the candle was adopted from a rendered period
+    # row — so ``covering_since`` answers "is the period's head in here?".
+    first_ts: int = 0
 
 
 # D27.8: timeframes whose aggregation anchors to America/New_York wall time
@@ -138,10 +143,70 @@ class BarAggregator:
         self._on_bar_update = on_bar_update
         self._state: Optional[_AggState] = None
         self._last_pushed_ts: Optional[int] = None
+        # S-P25-1: True while ``_state`` came from ``adopt_period_base`` (a
+        # rendered period row) rather than from live/prime pushes. Only such
+        # a state may be dropped by ``drop_period_base``.
+        self._state_from_base: bool = False
 
     def period_start(self, ts: int) -> int:
         """Start of the candle period containing ``ts`` (D27.9 priming)."""
         return _bucket_start(ts, self._period_seconds, self.timeframe)
+
+    @property
+    def covering_since(self) -> int:
+        """The earliest bar folded into the open candle (``first_ts``).
+
+        ``0`` when no candle is open. A base-backed candle reports its
+        ``period_start`` (the rendered row already covers the period's head);
+        a live/primed candle reports the first ``ts`` it folded in.
+        """
+        if self._state is None:
+            return 0
+        return int(self._state.first_ts)
+
+    @property
+    def has_period_base(self) -> bool:
+        """True when the open candle was adopted from a rendered period row."""
+        return self._state is not None and self._state_from_base
+
+    def adopt_period_base(self, bar) -> None:
+        """Seed the open candle from one rendered calendar-period row.
+
+        S-P25-1: the ``1 week`` / ``1 month`` forming candle is IBKR's own
+        aggregation of the open period — the row the chart already renders.
+        Adoption **replaces** the state (it never adds to it, so a base can
+        never double-count bars the row already covers), records
+        ``first_ts = period_start`` (a base covers the head by construction)
+        and deliberately leaves ``_last_pushed_ts`` untouched: a base's data
+        is older than the next live tick and arrival is oldest-first, so the
+        duplicate-bar guard still rejects a redelivered bar (already counted
+        by the base or by the state it replaced) while a genuinely newer
+        tick merges.
+        """
+        ps = _bucket_start(int(bar.ts), self._period_seconds, self.timeframe)
+        self._state = _AggState(
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            period_start=ps,
+            open=float(bar.open),
+            high=float(bar.high),
+            low=float(bar.low),
+            close=float(bar.close),
+            volume=float(bar.volume),
+            first_ts=ps,
+        )
+        self._state_from_base = True
+
+    def drop_period_base(self) -> None:
+        """Clear a base-derived state that no longer matches this period.
+
+        Only a state adopted from a rendered row is dropped; a candle built
+        by live/prime pushes is left alone. ``_last_pushed_ts`` is untouched
+        (the replay guard outlives any adoption).
+        """
+        if self._state is not None and self._state_from_base:
+            self._state = None
+            self._state_from_base = False
 
     def push(self, ts: int, o: float, h: float, l: float, c: float, vol: float):
         """Feed one 5-second bar from IBKR into the aggregator.
@@ -162,7 +227,10 @@ class BarAggregator:
                 timeframe=self.timeframe,
                 period_start=ps,
                 open=o, high=h, low=l, close=c, volume=vol,
+                # S-P25-1: the one place a first bar's ts exists.
+                first_ts=ts,
             )
+            self._state_from_base = False
         else:
             # Still within the same candle — merge
             self._state.high = max(self._state.high, h)

@@ -26,6 +26,8 @@ import logging
 import math
 import time
 
+from typing import Callable
+
 from PyQt6.QtCore import QObject, pyqtSignal as Signal, QTimer
 
 from config import settings
@@ -42,6 +44,7 @@ from ibkr.subscription_manager import RT_BARS
 from ibkr.utils import parse_ibkr_date
 from services.alarm_service import evaluate_alarms, evaluate_volume_burst
 from services.backfill_service import floor_bar_budget  # D42/S18 cap budget
+from services.market_calendar import first_session_open
 from services.volume_baseline import (
     VolumeBaselineService,
     minutes_for_timeframe,
@@ -61,6 +64,11 @@ _PRIME_MAX_SPAN_S = 3_600
 # They prime with `'1 min'` bars instead — IBKR accepts a `'1 min'` duration up
 # to `'1 D'` — with the duration clamped into [60 S, 1 D].
 _PRIME_MAX_SPAN_1MIN_S = 86_400
+
+# S-P25-1/S-P25-3: the two calendar-bucketed timeframes whose forming candle
+# is based on the period row the chart already renders (weeks anchor to
+# Monday 00:00 ET, months to the calendar boundary — S-P8-2).
+_PERIOD_BASE_TIMEFRAMES = frozenset({"1 week", "1 month"})
 
 _LOG = logging.getLogger(__name__)
 
@@ -188,6 +196,13 @@ class TickerSession(QObject):
         # ── Data plane (3b-1) ──────────────────────────────────────────
         self._aggregators: dict[str, BarAggregator] = {}
         self._bars: dict[str, list[Bar]] = {}
+        # S-P25-1/S-P25-3: the wall clock that decides "is this row the
+        # current period?" and stamps the forming bar's partial flag. Default
+        # ``time.time``; MainWindow wires it at session creation to its
+        # ``_now_ts`` seam (late-bound) — before either ``set_bars`` path —
+        # so a test that replaces the window clock drives adoption and the
+        # partial rule deterministically.
+        self._wall_now: Callable[[], int] = time.time
         self._rt_req_id: int | None = None
         self._rt_holders: int = 0
         self._last_chart_price: float | None = None
@@ -482,12 +497,47 @@ class TickerSession(QObject):
         D42/S18: the cap is the floor-aware :func:`floor_bar_budget` for the
         session's mode, not the flat ``SESSION_BAR_CAP`` — otherwise the
         ``AC-D16.8`` 30-session floor would be trimmed back out of memory.
+
+        S-P25-1: this is the single series-replacement choke point, so it is
+        also where a ``1 week`` / ``1 month`` aggregator adopts the series'
+        current-period row as its base (or drops a stale one). The signature
+        and the ``bars_refreshed`` emit contract are unchanged.
         """
         cap = floor_bar_budget(timeframe, self._wave_extended_hours)
         if len(bars) > cap:
             bars = bars[-cap:]
         self._bars[timeframe] = list(bars)
+        self._adopt_period_base(timeframe, self._bars[timeframe])
         self.bars_refreshed.emit(timeframe, self._bars[timeframe])
+
+    def _adopt_period_base(self, timeframe: str, bars: list[Bar]) -> None:
+        """Adopt (or drop) the calendar period base from a replacement series.
+
+        S-P25-1: for ``1 week`` / ``1 month`` only, and only into an
+        aggregator that already exists (``prepare_load`` creates it before
+        every ``set_bars`` path). The series' last row is adopted when its
+        bucket equals the current period under ``_wall_now``; any other last
+        row drops a base-derived state so a stale base can never be re-applied
+        over fresher wave rows.
+        """
+        if timeframe not in _PERIOD_BASE_TIMEFRAMES:
+            return
+        agg = self._aggregators.get(timeframe)
+        if agg is None:
+            return
+        if not bars:
+            agg.drop_period_base()
+            return
+        last = bars[-1]
+        try:
+            row_period = agg.period_start(int(last.ts))
+            current_period = agg.period_start(int(self._wall_now()))
+        except (TypeError, ValueError):
+            return
+        if row_period == current_period:
+            agg.adopt_period_base(last)
+        else:
+            agg.drop_period_base()
 
     def _append_bar(self, timeframe: str, bar: Bar, is_new_candle: bool) -> None:
         """Fold an aggregated bar into the series (capped)."""
@@ -575,9 +625,38 @@ class TickerSession(QObject):
         for agg in self._aggregators.values():
             agg.push(ts, o, h, l, c, vol)
 
+    def _stamp_partial(self, bar: Bar) -> None:
+        """Mark the forming calendar-period bar when its head is uncovered.
+
+        S-P25-3: one comparison — the earliest bar folded into the candle
+        (``covering_since``) against the period's first session open, in the
+        load's mode (``_wave_extended_hours``) so RTH and ETH are never mixed.
+        A base-backed candle covers its head by construction
+        (``covering_since == period_start``); a prime/live-only candle is
+        covered exactly when its first bar is at or before that open. Every
+        other timeframe stamps ``False``. The flag is transient presentation
+        state, so no signal gains a slot.
+        """
+        if bar.timeframe not in _PERIOD_BASE_TIMEFRAMES:
+            bar.partial = False
+            return
+        agg = self._aggregators.get(bar.timeframe)
+        if agg is None:
+            bar.partial = False
+            return
+        first_open = first_session_open(
+            agg.period_start(int(bar.ts)),
+            int(self._wall_now()),
+            self._wave_extended_hours,
+        )
+        bar.partial = bool(
+            first_open is not None and agg.covering_since > first_open
+        )
+
     def _on_aggregated_bar(self, bar: Bar, is_new_candle: bool) -> None:
         """BarAggregator callback (main thread). Data-plane update + per-
         session alarm evaluation (DEC-1: fires even with zero views)."""
+        self._stamp_partial(bar)
         self._append_bar(bar.timeframe, bar, is_new_candle)
         # P9 (S-P9-3): flush persistence retries first, so a recovered DB
         # marks still-pending IDs before this bar's evaluation.
@@ -1470,6 +1549,12 @@ class TickerSession(QObject):
         '4 hours' / '1 day' spans (<= 86400 s) ..... '1 min' / [60 S, 1 D]
         '1 week' spans (<= 604800 s) .............. '1 min' / [60 S, 1 D]
         '1 month' spans (~2.6 Ms) ................. '1 min' / [60 S, 1 D]
+        '1 week' / '1 month' with a current-period base .. no request (S-P25-1)
+
+        A week/month load whose series already holds the current period row
+        primes **nothing**: the rendered row is the period's own aggregation
+        (S-P25-1), so there is no seed-plus-fetch overlap to de-duplicate and
+        the caller may attach the live feed immediately.
 
         ``retrying=True`` marks the single deferred re-entry (Q-3/Q-12). It is
         an explicit argument, never inferred from instance state: a retry that
@@ -1491,6 +1576,15 @@ class TickerSession(QObject):
             self._prime_retry_args = None
         agg = self._aggregators.get(timeframe)
         if agg is None:
+            return False
+        # S-P25-1/S-P25-3 (AC-D67.3): a current-period base already covers
+        # the forming candle, so no request is issued — on the first entry
+        # and on the deferred retry alike, so a retry can never resurrect it.
+        # False tells the caller to attach the live feed, exactly as at a
+        # period boundary.
+        base_candle = agg.current_bar() if agg.has_period_base else None
+        if (base_candle is not None
+                and agg.period_start(now_ts) == base_candle.ts):
             return False
         period_s = TIMEFRAME_SECONDS.get(timeframe, 300)
         if period_s <= 5:

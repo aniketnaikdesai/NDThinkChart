@@ -11,6 +11,12 @@ class Bar:
     low: float
     close: float
     volume: float
+    # P25 (S-P25-2/S-P25-3): transient presentation-only marker state. True
+    # only on a *forming* calendar-period bar whose period head is not
+    # covered. Never persisted (BarCache enumerates its columns), never read
+    # back from the cache, and excluded from equality/repr so no existing
+    # fixture changes meaning.
+    partial: bool = field(default=False, compare=False, repr=False)
 
 
 @dataclass

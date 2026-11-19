@@ -119,3 +119,132 @@ describe("envelope contract {v:1, ops:[]} with column arrays", () => {
     assert.equal(forming.close, 2, "last tick wins on the forming bar");
   });
 });
+
+// S-P25-2 (D67.2, P25-T1-AC1): the partial-marker directive's wire shape.
+// It annotates one candle, so it carries no series and no cols; the page
+// rejects any other shape (AR-P25-3 — one unknown op rejects the envelope).
+describe("set_partial directive shape (P25-T1)", () => {
+  const directive = (patch) =>
+    Object.assign({ op: "set_partial", ts: 1763000000, partial: true }, patch);
+
+  it("accepts {op, ts:int, partial:bool} with no series and no cols", () => {
+    const op = directive();
+    assert.equal("series" in op, false, "the directive carries no series");
+    assert.equal("cols" in op, false, "the directive carries no cols");
+    assert.equal(LwEnvelope.validateOp(op), null);
+    assert.equal(
+      LwEnvelope.validateEnvelope({ v: 1, ops: [op] }).ok,
+      true,
+      "a set_partial inside {v:1, ops:[...]} validates",
+    );
+    assert.equal(LwEnvelope.validateOp(directive({ partial: false })), null);
+  });
+
+  it("rejects a missing or non-integer ts", () => {
+    const missing = directive();
+    delete missing.ts;
+    for (const bad of [missing, directive({ ts: 1.5 }), directive({ ts: "5" })]) {
+      assert.notEqual(LwEnvelope.validateOp(bad), null, JSON.stringify(bad));
+    }
+  });
+
+  it("rejects a non-boolean partial", () => {
+    for (const partial of [1, "yes", null, undefined]) {
+      const bad = directive({ partial });
+      assert.notEqual(
+        LwEnvelope.validateOp(bad),
+        null,
+        `partial ${JSON.stringify(partial)} must be rejected`,
+      );
+    }
+  });
+
+  it("rejects any series/cols key on the directive", () => {
+    assert.notEqual(
+      LwEnvelope.validateOp(
+        directive({ series: "candles", cols: { ts: [1763000000], open: [1], high: [1], low: [1], close: [1] } }),
+      ),
+      null,
+    );
+    assert.notEqual(LwEnvelope.validateOp(directive({ series: "candles" })), null);
+    assert.notEqual(LwEnvelope.validateOp(directive({ cols: {} })), null);
+  });
+
+  it("an unknown op kind still rejects the whole envelope", () => {
+    const env = {
+      v: 1,
+      ops: [
+        { op: "set_bars", series: "candles", cols: { ts: [1000], open: [1], high: [2], low: [0.5], close: [1.5] } },
+        { op: "not_a_kind", series: "candles" },
+      ],
+    };
+    assert.equal(LwEnvelope.validateEnvelope(env).ok, false);
+  });
+});
+
+// S-P25-6 (D70, P25-T4): one whitespace rule for both branches — a row whose
+// value slots are null is a placeholder, not a bar. Skipped on a replace,
+// deleted (and only deleted) on an upsert; the fold stays replay-stable.
+// This mirrors Python's apply_ops_to_bars.
+describe("whitespace rows are not bars (P25-T4)", () => {
+  const T0 = 1700000000;
+  const T1 = T0 + 300;
+  const T2 = T0 + 600;
+  const realBar = (t, c) => ({ ts: t, open: c - 0.5, high: c + 1, low: c - 1, close: c });
+  const wsBar = (t) => ({ ts: t, open: null, high: null, low: null, close: null });
+  const candleCols = (rows) => ({
+    ts: rows.map((b) => b.ts),
+    open: rows.map((b) => b.open),
+    high: rows.map((b) => b.high),
+    low: rows.map((b) => b.low),
+    close: rows.map((b) => b.close),
+  });
+  const times = (rows) => rows.map((r) => r.time);
+
+  it("set_bars skips a whitespace row", () => {
+    const ops = [{
+      op: "set_bars", series: "candles",
+      cols: candleCols([realBar(T0, 10), wsBar(T1), realBar(T2, 12)]),
+    }];
+    assert.deepEqual(times(LwEnvelope.mergeRows([], ops)), [T0, T2]);
+  });
+
+  it("update_bar deletes the time a whitespace row names", () => {
+    const seeded = LwEnvelope.mergeRows([], [{
+      op: "set_bars", series: "candles",
+      cols: candleCols([realBar(T0, 10), realBar(T1, 11)]),
+    }]);
+    const once = LwEnvelope.mergeRows(seeded, [{
+      op: "update_bar", series: "candles", cols: candleCols([wsBar(T1)]),
+    }]);
+    assert.deepEqual(times(once), [T0], "the existing bar is removed");
+    const twice = LwEnvelope.mergeRows(once, [{
+      op: "update_bar", series: "candles", cols: candleCols([wsBar(T1)]),
+    }]);
+    assert.deepEqual(times(twice), [T0], "deleting an absent time is a no-op");
+    assert.deepEqual(twice, once, "replay stays stable");
+  });
+
+  it("a whitespace update never writes a null-valued row", () => {
+    const ops = [{
+      op: "update_bar", series: "candles", cols: candleCols([wsBar(T1)]),
+    }];
+    assert.deepEqual(LwEnvelope.mergeRows([], ops), []);
+  });
+
+  it("volume applies the same rule (null value)", () => {
+    const ops = [{
+      op: "set_volume", series: "volume",
+      cols: { ts: [T0, T1, T2], value: [5, null, 7] },
+    }];
+    assert.deepEqual(times(LwEnvelope.mergeRows([], ops)), [T0, T2]);
+    const seeded = LwEnvelope.mergeRows([], [{
+      op: "set_volume", series: "volume",
+      cols: { ts: [T0, T1], value: [5, 6] },
+    }]);
+    const after = LwEnvelope.mergeRows(seeded, [{
+      op: "update_bar", series: "volume", cols: { ts: [T1], value: [null] },
+    }]);
+    assert.deepEqual(times(after), [T0]);
+  });
+});

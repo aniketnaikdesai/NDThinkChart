@@ -58,6 +58,11 @@ var LwChartModes = ["candles", "hollow", "heikin", "line", "area"];
 var LW_UP_COLOR = "#34d399";
 var LW_DOWN_COLOR = "#f87171";
 
+/* S-P25-2 (D67.2): one named colour for the "forming period is partial"
+ * series marker — deliberately outside the up/down candle vocabulary so the
+ * annotation is never read as a value treatment. */
+var PARTIAL_MARKER_COLOR = "#fbbf24";
+
 function lwIsMode(value) {
   return LwChartModes.indexOf(value) !== -1;
 }
@@ -349,6 +354,13 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
    * plain UTC math through the scalar (boot seed compatible). */
   var tzMode = "UTC";
   var snapshot = { candles: [], volume: [] }; // last applied rows per series
+  /* S-P25-2 (D67.2): one marked time for the partial marker — moved by
+   * ``set_partial {partial: true}``, cleared by ``partial: false`` only on a
+   * match, and re-applied after every rows application. The plugin handle is
+   * kept so repeated applications replace the markers instead of stacking
+   * primitives on the series. */
+  var partialMarkedTs = null;
+  var partialMarkersApi = null;
   /* Q-20 probe state: the labels the axis formatter actually produced. */
   var lastTickLabels = [];
 
@@ -1492,6 +1504,45 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     return ok;
   }
 
+  /* S-P25-2 (D67.2): the one partial-marker surface. The marked time is a
+   * page-local integer or null; a mark whose time is absent from the current
+   * candle rows is not applied (nothing is drawn for a bar that is not
+   * there). Guarded on the pinned bundle's ``createSeriesMarkers`` so an
+   * older page can never throw. */
+  function partialMarkerEntries(ts) {
+    if (ts === null || !candleSeries) return [];
+    for (var i = 0; i < snapshot.candles.length; i++) {
+      if (snapshot.candles[i].time === ts) {
+        return [{
+          time: ts,
+          position: "aboveBar",
+          shape: "circle",
+          color: PARTIAL_MARKER_COLOR,
+        }];
+      }
+    }
+    return [];
+  }
+
+  function applyPartialMarker() {
+    var lib = (typeof LightweightCharts !== "undefined") ? LightweightCharts : null;
+    if (!lib || typeof lib.createSeriesMarkers !== "function") return;
+    if (!candleSeries) return;
+    var entries = partialMarkerEntries(partialMarkedTs);
+    try {
+      if (!partialMarkersApi) {
+        partialMarkersApi = lib.createSeriesMarkers(candleSeries, entries);
+      } else if (typeof partialMarkersApi.setMarkers === "function") {
+        partialMarkersApi.setMarkers(entries);
+      } else {
+        partialMarkersApi = lib.createSeriesMarkers(candleSeries, entries);
+      }
+    } catch (err) {
+      /* A page whose bundle lacks the primitive keeps rendering bars. */
+      partialMarkersApi = null;
+    }
+  }
+
   /* Apply one envelope idempotently; returns { applied, error }.
    * set_bars/set_volume replace the series snapshot; update_bar upserts
    * one row through `series.update` (the live path — history untouched);
@@ -1528,6 +1579,19 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       if (op && typeof op === "object" && op.op === "set_visible_range" &&
           op.range && typeof op.range === "object") {
         freshFrame = op;
+        applied++;
+        continue;
+      }
+      /* S-P25-2 (D67.2): the partial-marker directive is lifted before the
+       * series application, mirroring the fresh-frame branch — it names one
+       * time and a boolean, never a series. `partial: true` moves the single
+       * mark; `partial: false` clears it only on a matching time. */
+      if (op && typeof op === "object" && op.op === "set_partial") {
+        if (op.partial === true) {
+          partialMarkedTs = op.ts;
+        } else if (partialMarkedTs !== null && op.ts === partialMarkedTs) {
+          partialMarkedTs = null;
+        }
         applied++;
         continue;
       }
@@ -1652,6 +1716,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       newBarsSinceAway = true;
     }
     updateChevron(); // S-P18-1: the envelope moved the viewport — re-derive
+    /* S-P25-2: a directive-only envelope (the marker moves, no rows) still
+     * re-applies the single marker; rows applications above already did. */
+    applyPartialMarker();
     return { applied: applied, error: null };
   }
 
@@ -1667,10 +1734,16 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     if (series === "candles" && (activeMode === "line" || activeMode === "area")) {
       applyMode(activeMode); // refresh the derived close-leg series
     }
+    /* S-P25-2: a replace restores the one marker over the new rows. */
+    if (series === "candles") applyPartialMarker();
   }
 
   function upsertRow(series, row) {
     if (series === "candles") {
+      /* S-P25-6 (D70): a whitespace row is not a bar. The fold removes its
+       * time (envelope.js::mergeRows) and the library receives the `{time}`
+       * placeholder only — never a null-valued point. */
+      var whitespace = isWhitespaceRow("candles", row);
       var next = window.LwEnvelope.mergeRows(snapshot.candles, [
         {
           op: "update_bar",
@@ -1686,16 +1759,20 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
       ]);
       setSnapshot("candles", next);
       var target = seriesFor("candles");
-      if (target) target.update(row);
+      if (target) target.update(whitespace ? { time: row.time } : row);
       if (activeMode === "line" || activeMode === "area") {
         var derived = seriesFor("candles");
         if (derived && derived !== target) {
-          derived.update({ time: row.time, value: row.close });
+          derived.update(whitespace
+            ? { time: row.time }
+            : { time: row.time, value: row.close });
         } else if (target) {
           // Single shared snapshot: the visible derived series follows.
           applyMode(activeMode);
         }
       }
+      /* S-P25-2: an upsert re-applies the one marker over the new rows. */
+      applyPartialMarker();
     } else {
       var vnext = window.LwEnvelope.mergeRows(
         snapshot.volume.map(function (r) {
@@ -1718,11 +1795,17 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
             break;
           }
         }
-        volumeSeries.update({
-          time: row.time,
-          value: row.value,
-          color: candle ? volumeBarColor(candle.open, candle.close) : LW_UP_COLOR,
-        });
+        /* S-P25-6: a whitespace volume row is a `{time}` placeholder too —
+         * never a null-valued point. */
+        if (isWhitespaceRow("volume", row)) {
+          volumeSeries.update({ time: row.time });
+        } else {
+          volumeSeries.update({
+            time: row.time,
+            value: row.value,
+            color: candle ? volumeBarColor(candle.open, candle.close) : LW_UP_COLOR,
+          });
+        }
       }
     }
   }
@@ -1898,6 +1981,7 @@ if (typeof module !== "undefined" && module.exports) {
     freeLinePrice: freeLinePrice,
     EASTERN_TZ: EASTERN_TZ,
     EASTERN_EDT_OFFSET: EASTERN_EDT_OFFSET,
+    PARTIAL_MARKER_COLOR: PARTIAL_MARKER_COLOR,
     barGeometry: barGeometry,
     describeOp: describeOp,
     isFollowingSlot: isFollowingSlot,

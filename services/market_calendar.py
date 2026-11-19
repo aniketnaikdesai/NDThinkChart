@@ -214,3 +214,23 @@ def session_windows(start_ts: int, end_ts: int, ext_hours: bool) -> List[Dict[st
         if clipped_end > clipped_start:
             windows.append({"start_ts": clipped_start, "end_ts": clipped_end})
     return windows
+
+
+def first_session_open(period_start: int, now_ts: int,
+                       ext_hours: bool) -> int | None:
+    """First ET session open in ``[period_start, now_ts]``; ``None`` before one.
+
+    S-P25-3: the comparison anchor for "is this period's head covered?".
+    Holiday-aware via :func:`trading_days`; the session opens at 04:00 ET when
+    ``ext_hours`` is True and at 09:30 ET otherwise (the same mode-scoped
+    boundaries :func:`session_windows` uses). ``None`` when no session has
+    opened inside the range yet (or when ``now_ts < period_start``).
+    """
+    if now_ts < period_start:
+        return None
+    open_h, open_m = _EXT_OPEN if ext_hours else _RTH_OPEN
+    for day in trading_days(period_start, now_ts):
+        open_ts = _ts_at_et(day, open_h, open_m)
+        if period_start <= open_ts <= now_ts:
+            return int(open_ts)
+    return None

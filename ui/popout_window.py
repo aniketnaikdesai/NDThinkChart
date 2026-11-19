@@ -235,6 +235,17 @@ class PopoutChartWindow(QWidget):
         self._geo_timer.setInterval(500)
         self._geo_timer.timeout.connect(self._save_geometry)
         self._popout_id: int | None = None
+        # D68 / S-P25-4: the ONE RT hold this pop-out acquired, if any.
+        # Written only where ``ensure_rt_subscribed()`` returned; cleared
+        # wherever it is released; read by attach's unwind and by detach.
+        # The session's hold API is a plain integer refcount whose
+        # ``release_rt`` takes no owner (tests/test_p13_hold_fix.py fences
+        # that), so the pop-out — not the session — must remember whether it
+        # owns a hold: never "improve" this into an owner-keyed API.
+        self._hold_acquired: bool = False
+        # D68: set first in ``detach``; consulted by ``_retry_rt_subscribe``
+        # so a deferred retry that fires after close acquires nothing.
+        self._closed: bool = False
         # P6-11/DG90: per-pop-out memory account (ledger key + last report).
         self.memory_id: int = next(_popout_serials)
         self.memory: dict = {}
@@ -340,8 +351,9 @@ class PopoutChartWindow(QWidget):
         """Attach to the symbol's session (initial full sync + RT refcount).
 
         Transactional (S-P13-2, D49.2): each step records what it acquired
-        — connected signals, attached view, RT hold (set ONLY where
-        ``ensure_rt_subscribed`` returned), registration, resources — and
+        — connected signals, attached view, RT hold (``_hold_acquired``, set
+        ONLY where ``ensure_rt_subscribed`` returned — D68), registration,
+        resources — and
         ANY failure unwinds exactly what this attach acquired: disconnect
         connected signals first (R97, so a concurrent session update never
         iterates a half-detached view), detach the view via the frozen
@@ -360,7 +372,6 @@ class PopoutChartWindow(QWidget):
         self._session = session
         connected: list = []
         view_attached = False
-        hold_acquired = False
         registered = False
         resources_acquired = False
         try:
@@ -417,7 +428,13 @@ class PopoutChartWindow(QWidget):
                 )
                 QTimer.singleShot(5000, self._retry_rt_subscribe)
             else:
-                hold_acquired = True
+                # D68 / S-P25-4: this is the one write site that observes a
+                # hold — ``ensure_rt_subscribed()`` returned (created the
+                # subscription or bumped the refcount). The session's
+                # ``release_rt`` takes no owner (plain integer refcount,
+                # fenced by tests/test_p13_hold_fix.py), so the pop-out keeps
+                # the acquisition here for its own release path.
+                self._hold_acquired = True
             # Track for the MAX_POPOUTS cap and persistence.
             self._host._register_popout(self)
             registered = True
@@ -437,7 +454,8 @@ class PopoutChartWindow(QWidget):
                 "Pop-out %s attach failed (%s: %s); unwinding "
                 "signals=%d view=%s hold=%s registered=%s resources=%s",
                 self.symbol, type(exc).__name__, exc, len(connected),
-                view_attached, hold_acquired, registered, resources_acquired,
+                view_attached, self._hold_acquired, registered,
+                resources_acquired,
             )
             # R97: disconnect-signals-first — a concurrent session update
             # must never iterate a half-detached view.
@@ -457,7 +475,13 @@ class PopoutChartWindow(QWidget):
                         "Pop-out %s unwind detach_view failed: %s: %s",
                         self.symbol, type(detach_exc).__name__, detach_exc,
                     )
-            if hold_acquired:
+            if self._hold_acquired:
+                # D68 / S-P25-4: unwind releases exactly the hold this attach
+                # acquired — never another view's. Reads the instance latch
+                # (not a local) so the acquisition state and the releasable
+                # state cannot diverge; cleared before the call so a failing
+                # release is not retried into a double release.
+                self._hold_acquired = False
                 try:
                     session.release_rt()
                 except Exception as release_exc:
@@ -491,7 +515,11 @@ class PopoutChartWindow(QWidget):
 
         Skips if the pop-out was closed while the retry was pending.
         """
-        if self not in self._host._popouts:
+        # D68: the closed latch is consulted first — a retry that fires after
+        # close acquires nothing, so it can never take a hold this pop-out has
+        # no view to release. (The membership guard below stays: it also
+        # covers a pop-out that was unregistered without detach() running.)
+        if self._closed or self not in self._host._popouts:
             return
         try:
             self._session.ensure_rt_subscribed()
@@ -512,9 +540,18 @@ class PopoutChartWindow(QWidget):
                 15000,
             )
             QTimer.singleShot(5000, self._retry_rt_subscribe)
+        else:
+            # D68 / S-P25-4: the retry's acquisition is recorded exactly where
+            # ensure_rt_subscribed() returned, so detach() can release it. The
+            # session stays a plain integer refcount (release_rt takes no
+            # owner — tests/test_p13_hold_fix.py fences it).
+            self._hold_acquired = True
 
     def detach(self) -> None:
-        """Release the session (RT refcount + view)."""
+        """Release the session (the one RT hold it acquired + the view)."""
+        # D68: close latch first — a deferred retry that fires from here on
+        # acquires nothing.
+        self._closed = True
         try:
             session = getattr(self, "_session", None)
             if session is not None:
@@ -542,7 +579,17 @@ class PopoutChartWindow(QWidget):
                 except (RuntimeError, TypeError) as exc:
                     _LOG.debug("Pop-out %s drawings_changed disconnect: %s",
                                self.symbol, exc)
-                session.release_rt()
+                # D68 / S-P25-4: release AT MOST the one hold this pop-out
+                # acquired — never the main chart's. The session's
+                # ``release_rt`` takes no owner (plain integer refcount, and
+                # tests/test_p13_hold_fix.py pins its ``["self"]`` parameter),
+                # so the pop-out's own latch is the acquisition record: a
+                # pop-out that never acquired (pacing-deferred, or a retry
+                # that never fired) releases nothing. Clearing before the call
+                # makes a second detach() release nothing further.
+                if self._hold_acquired:
+                    self._hold_acquired = False
+                    session.release_rt()
                 session.detach_view(self.chart)
         finally:
             self._host._unregister_popout(self)

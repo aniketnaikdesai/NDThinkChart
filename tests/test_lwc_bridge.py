@@ -387,3 +387,37 @@ class TestRendererBoundary:
             src = (REPO / rel).read_text(encoding="utf-8")
             assert "get_bars" not in src and "save_bars" not in src, rel
             assert "BarCache" not in src and "session_service" not in src, rel
+
+
+# ── P25-T1 · set_partial directive (S-P25-2 transport half) ────────────────
+
+
+class TestPartialDirective:
+    def test_set_partial_shape_and_reconstruction(self):
+        valid = {"op": "set_partial", "ts": 1_700_000_000, "partial": True}
+        LB._check_op_shape(valid)  # the valid directive raises nothing
+
+        malformed = [
+            {"op": "set_partial", "ts": None, "partial": True},
+            {"op": "set_partial", "ts": 1_700_000_000, "partial": "yes"},
+            {
+                "op": "set_partial", "ts": 1_700_000_000, "partial": True,
+                "series": "candles",
+            },
+            {
+                "op": "set_partial", "ts": 1_700_000_000, "partial": True,
+                "cols": {"ts": [1_700_000_000]},
+            },
+        ]
+        for bad in malformed:
+            with pytest.raises(ValueError):
+                LB._check_op_shape(bad)
+
+        bars = _bars()
+        ops = [LB.candles_set_op(bars), LB.candle_update_op(bars[-1])]
+        with_marker = ops + [
+            {"op": "set_partial", "ts": bars[-1].ts, "partial": True},
+            {"op": "set_partial", "ts": bars[-1].ts, "partial": False},
+        ]
+        # The directive carries no series: the reconstruction is identical.
+        assert LB.apply_ops_to_bars(with_marker) == LB.apply_ops_to_bars(ops)

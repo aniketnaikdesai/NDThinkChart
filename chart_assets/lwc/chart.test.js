@@ -20,6 +20,9 @@ const read = (name) => readFileSync(path.join(DIR, name), "utf8");
 // frames every loaded bar.
 const _fakeScaleState = { range: null };
 const _fakeChartState = { count: 0 };
+// S-P25-2: the fake bundle records the series markers it is handed, so the
+// node suite can read back exactly what the page asked the library to draw.
+const _markerState = { calls: 0 };
 function _fakeTimeScale() {
   return {
     getVisibleLogicalRange() {
@@ -92,6 +95,15 @@ const _fakeEl = {
 };
 globalThis.LightweightCharts = {
   createChart() { return _fakeChart(); },
+  createSeriesMarkers(series, markers) {
+    _markerState.calls += 1;
+    series._markers = markers.slice();
+    return {
+      setMarkers(next) {
+        series._markers = next.slice();
+      },
+    };
+  },
   CandlestickSeries: {},
   LineSeries: {},
   AreaSeries: {},
@@ -575,5 +587,182 @@ describe("Q-78 resize coalescing (kills the loop warning)", () => {
       if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
       else globalThis.requestAnimationFrame = prevRaf;
     }
+  });
+});
+
+// S-P25-2 (D67.2, P25-T1): the partial marker is one page-local marked time
+// rendered as exactly one series marker through the pinned bundle's
+// `createSeriesMarkers`, re-applied after every rows application.
+describe("S-P25-2 set_partial marker (P25-T1)", () => {
+  const T = 1700000000 + 10 * 300;
+  const COLOR = LwChart.PARTIAL_MARKER_COLOR;
+
+  const setBarsOp = (times) => ({
+    op: "set_bars", series: "candles",
+    cols: {
+      ts: times,
+      open: times.map(() => 100),
+      high: times.map(() => 101),
+      low: times.map(() => 99),
+      close: times.map(() => 100.5),
+    },
+  });
+  const partialOp = (ts, partial) => ({ op: "set_partial", ts, partial });
+  const apply = (ops) => {
+    const res = page.lwApplyOps({ v: 1, ops });
+    assert.equal(res.error, null, JSON.stringify(ops));
+    return res;
+  };
+  const markers = () => page.lwHandles().candles._markers || [];
+  const assertOne = (ts) => {
+    const list = markers();
+    assert.equal(list.length, 1, `one marker entry (got ${JSON.stringify(list)})`);
+    assert.equal(list[0].time, ts, "marker names the marked candle");
+    assert.equal(list[0].position, "aboveBar");
+    assert.equal(list[0].shape, "circle");
+    assert.equal(list[0].color, COLOR, "the module's marker colour");
+    assert.notEqual(list[0].color, "#34d399", "not the up colour");
+    assert.notEqual(list[0].color, "#f87171", "not the down colour");
+  };
+  const assertNone = () => {
+    assert.equal(markers().length, 0, "no marker entry");
+  };
+
+  it("AC2: one marker, re-applied after replace, upsert and replay", () => {
+    const times = [T - 300, T, T + 300];
+    apply([setBarsOp(times)]);
+    assert.equal(page.lwSnapshot().candles.length, 3);
+    const before = page.lwSnapshot();
+    apply([partialOp(T, true)]);
+    assert.deepEqual(page.lwSnapshot(), before, "the directive changes no bar");
+    assertOne(T);
+
+    apply([setBarsOp(times)]); // a set_bars replace containing T
+    assertOne(T);
+
+    apply([{ // an update_bar upsert for T
+      op: "update_bar", series: "candles",
+      cols: { ts: [T], open: [100], high: [102], low: [99], close: [101] },
+    }]);
+    assertOne(T);
+
+    apply([ // the whole op log again through the real page entry
+      setBarsOp(times),
+      partialOp(T, true),
+      {
+        op: "update_bar", series: "candles",
+        cols: { ts: [T], open: [100], high: [102], low: [99], close: [101] },
+      },
+    ]);
+    assertOne(T);
+
+    apply([partialOp(T, false)]); // leave the closure cleared for the next case
+    assertNone();
+  });
+
+  it("AC3: clears only on a matching ts, and moves on a second mark", () => {
+    const other = T + 600;
+    apply([setBarsOp([T - 300, T, T + 300, other])]);
+
+    apply([partialOp(T, true)]);
+    assertOne(T);
+    apply([partialOp(other, false)]);
+    assertOne(T); // an unmarked time does not clear the mark
+    apply([partialOp(T, false)]);
+    assertNone();
+
+    apply([partialOp(T, true)]);
+    assertOne(T);
+    apply([partialOp(other, true)]); // the single mark moves
+    assertOne(other);
+    assert.equal(_markerState.calls >= 1, true, "the library primitive was used");
+    apply([partialOp(other, false)]);
+    assertNone();
+  });
+
+  it("AC3: a mark for a time absent from the rows is not applied", () => {
+    apply([setBarsOp([T - 300, T])]);
+    apply([partialOp(T + 600, true)]);
+    assertNone();
+    // ...and it lands once the rows carry that time.
+    apply([{
+      op: "update_bar", series: "candles",
+      cols: { ts: [T + 600], open: [100], high: [101], low: [99], close: [100.5] },
+    }]);
+    assertOne(T + 600);
+    apply([partialOp(T + 600, false)]);
+    assertNone();
+  });
+
+  it("AC3: no marker exists when no directive has arrived", () => {
+    apply([setBarsOp([T - 300, T, T + 300])]);
+    assertNone();
+    assert.equal(
+      markers().some((m) => m && m.time !== undefined),
+      false,
+      "setMarkers never received a non-empty list",
+    );
+  });
+});
+
+// S-P25-6 (D70, P25-T4): the page's own fold (envelope.js::mergeRows through
+// lwApplyOps) and display path (upsertRow / seriesRows) apply the one
+// whitespace rule, so `lwSnapshot()` equals the Python reconstruction. A
+// whitespace row is a `{time}` placeholder in the library, never a bar.
+describe("S-P25-6 whitespace parity through the real page (P25-T4)", () => {
+  const T0 = 1700000000;
+  const T1 = T0 + 300;
+  const T2 = T0 + 600;
+  const candleCols = (ts, open, high, low, close) => ({ ts, open, high, low, close });
+  const wsCols = (t) => candleCols([t], [null], [null], [null], [null]);
+  const apply = (ops) => {
+    const res = page.lwApplyOps({ v: 1, ops });
+    assert.equal(res.error, null, JSON.stringify(ops));
+    return res;
+  };
+  const candleTimes = () => page.lwSnapshot().candles.map((r) => r.time);
+  const libraryRows = () => page.lwHandles().candles._rows;
+
+  it("a whitespace update_bar deletes the bar and paints {time} only", () => {
+    apply([{
+      op: "set_bars", series: "candles",
+      cols: candleCols([T0, T1, T2], [9.5, 10.5, 11.5],
+        [11, 12, 13], [9, 10, 11], [10, 11, 12]),
+    }]);
+    apply([{ op: "update_bar", series: "candles", cols: wsCols(T2) }]);
+    assert.deepEqual(candleTimes(), [T0, T1],
+      "the whitespace timestamp is absent from the page's bar series");
+    const rows = libraryRows();
+    assert.deepEqual(rows[rows.length - 1], { time: T2 },
+      "the library receives a {time} placeholder, never a null-valued point");
+  });
+
+  it("a whitespace row inside set_bars never enters the snapshot", () => {
+    apply([{
+      op: "set_bars", series: "candles",
+      cols: candleCols([T0, T1, T2], [9.5, null, 11.5],
+        [11, null, 13], [9, null, 11], [10, null, 12]),
+    }]);
+    assert.deepEqual(candleTimes(), [T0, T2]);
+    const rows = libraryRows();
+    assert.deepEqual(rows.map((r) => r.time), [T0, T1, T2],
+      "the display fold keeps the hole slot (AC-D21.4.4)");
+    assert.deepEqual(rows[1], { time: T1 }, "as a {time} placeholder only");
+  });
+
+  it("replaying the same op list twice leaves the same series", () => {
+    const ops = [
+      {
+        op: "set_bars", series: "candles",
+        cols: candleCols([T0, T1, T2], [9.5, 10.5, 11.5],
+          [11, 12, 13], [9, 10, 11], [10, 11, 12]),
+      },
+      { op: "update_bar", series: "candles", cols: wsCols(T1) },
+    ];
+    apply(ops);
+    const once = page.lwSnapshot();
+    apply(ops);
+    assert.deepEqual(page.lwSnapshot(), once);
+    assert.deepEqual(once.candles.map((r) => r.time), [T0, T2]);
   });
 });

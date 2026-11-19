@@ -404,6 +404,14 @@ feature work and restyling are **explicitly revised (dated 2026-10-16)** rather 
 
 ## Existing Repository
 
+**Current work in this run (updated 2026-11-19 — navigation only, no criteria changed).** The open work is the
+**Batch 38** defect record (D67–D104), delivered as phases **P25–P30**. It is a **defect-only batch against the
+existing tree**: no new feature area, no stack change, and **no order path** (D45/D46 remain the end state). The
+existing-repo facts above — including the **`ibapi` 10.51.1 pin, live-only port 7496, LWC-only chart engine and
+the user-space SQLite database** — are exactly what this batch must preserve; where a defect touches them (the
+port guard's wording, the startup path's backup, the engine's docstrings) the change is to make the description
+match the code, never to change the stack.
+
 This is an existing repository. NDThinkChart is a stabilization/extension run against an
 already-built PyQt6 + pyqtgraph + `ibapi` desktop trading terminal (development build:
 `python main.py`; bundled: PyInstaller windowed `.app`, bundle id `com.ndthinkchart.app`).
@@ -566,14 +574,6 @@ repository files, which remain authoritative if the two disagree.
   duration/bar size) → `IBApiClient.historicalData` → `_on_historical_bar` /
   `_on_historical_data_end` → `BarCache.save_bars` → `ChartPanel.update_chart` →
   `ChartPanel._refresh_candles` (shared by the price **and** volume panels).
-
-**Current work in this run (updated 2026-11-19 — navigation only, no criteria changed).** The open work is the
-**Batch 38** defect record (D67–D104), delivered as phases **P25–P30**. It is a **defect-only batch against the
-existing tree**: no new feature area, no stack change, and **no order path** (D45/D46 remain the end state). The
-existing-repo facts above — including the **`ibapi` 10.51.1 pin, live-only port 7496, LWC-only chart engine and
-the user-space SQLite database** — are exactly what this batch must preserve; where a defect touches them (the
-port guard's wording, the startup path's backup, the engine's docstrings) the change is to make the description
-match the code, never to change the stack.
 
 ## Constraints
 

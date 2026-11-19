@@ -41,8 +41,16 @@ Behaviour:
 * **whitespace placeholders** — a candle/volume column may hold ``None`` in a
   value slot (never in ``ts``). The row is a whitespace point: it occupies one
   index slot so a within-session hole renders as empty space
-  (AC-D21.4.4), and it is not a bar (``apply_ops_to_bars`` skips it,
-  ``chart_assets/lwc/chart.js`` sends ``{time}`` only to the series).
+  (AC-D21.4.4), and it is not a bar on either side (S-P25-6): the Python
+  reconstruction never writes it and removes that ``ts`` when an
+  ``update_bar`` names it, and ``chart_assets/lwc/chart.js`` sends ``{time}``
+  only to the series — never a null-valued point.
+* **arrival-ordered emission** — every staged op carries a monotonic
+  sequence; ``flush`` emits data ops in that order, keeps only the last full
+  replace (``set_bars`` / ``set_volume`` / ``clear``) per series and drops
+  that series' older ops, then appends the non-series directives
+  (``set_visible_range``, ``set_partial``) after the rows. ``_op_log`` and
+  every replay keep plain arrival order and full fidelity.
 
 **Page → Python messages (Q-20).** Every call below is a ``pyqtSlot`` whose
 single argument is a JSON string — the mirror of :attr:`opsJson`, so no
@@ -98,6 +106,15 @@ CHANNELS = ("studies", "interaction", "alarms", "drawings", "overlays")
 _CANDLE_COLS = ("ts", "open", "high", "low", "close")
 _VOLUME_COLS = ("ts", "value")
 
+#: Data ops that replace a whole series. S-P25-5's supersession rule keeps
+#: only the last one staged per series in a window and drops that series'
+#: ops with a smaller sequence.
+_REPLACE_OPS = frozenset({"set_bars", "set_volume", "clear"})
+
+#: Non-series directives. They annotate or frame the chart and always ride
+#: after the data rows, in their own arrival order.
+_DIRECTIVE_OPS = frozenset({"set_visible_range", "set_partial"})
+
 
 def _check_op_shape(op) -> None:
     """Raise ``ValueError`` when ``op`` is not a well-formed column-array op."""
@@ -123,6 +140,23 @@ def _check_op_shape(op) -> None:
             raise ValueError("op['range'] from/to must be numbers")
         if not (math.isfinite(from_) and math.isfinite(to)):
             raise ValueError("op['range'] from/to must be finite")
+        return
+    if kind == "set_partial":
+        # S-P25-2 (D67.2): the partial-marker directive rides the bar
+        # envelope beside the fresh frame — it annotates one candle, so it
+        # carries no ``series``/``cols``. Accepted here so ``send_ops``
+        # stages rows + marker in one envelope; the page's ``applyOps``
+        # lifts it before the series application and
+        # ``apply_ops_to_bars`` ignores it.
+        if "series" in op:
+            raise ValueError("set_partial must not carry series")
+        if "cols" in op:
+            raise ValueError("set_partial must not carry cols")
+        ts = op.get("ts")
+        if not isinstance(ts, int) or isinstance(ts, bool):
+            raise ValueError("op['ts'] must be an integer")
+        if not isinstance(op.get("partial"), bool):
+            raise ValueError("op['partial'] must be a boolean")
         return
     if not isinstance(series, str) or not series:
         raise ValueError("op['series'] must be a non-empty string")
@@ -210,17 +244,35 @@ def apply_ops_to_bars(ops) -> list:
     """Reconstruct the candle series from an op list (replay-identity check).
 
     ``set_bars`` replaces, ``update_bar`` upserts by ``ts``, ``clear`` empties
-    (volume ops are ignored — this is the candle-series reconstruction). A
-    whitespace placeholder (a row whose ``close`` is ``None``, Q-20) is not a
-    bar and is skipped. The result is ``[(ts, open, high, low, close)]``
-    sorted by ``ts`` with no duplicates. Mirrors ``mergeRows`` in
+    (volume ops are ignored — this is the candle-series reconstruction).
+
+    **One whitespace rule for both branches (S-P25-6).** A row whose
+    ``close`` is ``None`` is a whitespace placeholder, not a bar (Q-20): the
+    ``set_bars`` branch skips it, and an ``update_bar`` naming that ``ts``
+    removes any existing row for it and writes nothing. The two branches
+    therefore agree with each other and with the page's bar series
+    (``chart_assets/lwc/envelope.js``'s ``mergeRows`` and
+    ``window.lwSnapshot()``), so the reconstruction equals what the chart
+    renders.
+
+    Directive ops carry no series and no bar data — the map/viewport
+    directive ``set_visible_range`` and the marker directive
+    ``set_partial`` — so they are skipped explicitly and the reconstruction is
+    unchanged by their presence. The result is ``[(ts, open, high, low,
+    close)]`` sorted by ``ts`` with no duplicates. Mirrors ``mergeRows`` in
     ``chart_assets/lwc/envelope.js``.
     """
     by_ts: dict = {}
     for op in ops or []:
-        if not isinstance(op, dict) or op.get("series") != "candles":
+        if not isinstance(op, dict):
             continue
         kind = op.get("op")
+        # S-P25-2: directives annotate or frame the chart; they never name a
+        # series, so they contribute no bar to the reconstruction.
+        if kind in _DIRECTIVE_OPS:
+            continue
+        if op.get("series") != "candles":
+            continue
         if kind == "clear":
             by_ts = {}
         elif kind == "set_bars":
@@ -236,6 +288,11 @@ def apply_ops_to_bars(ops) -> list:
         elif kind == "update_bar":
             cols = op["cols"]
             ts = cols["ts"][0]
+            if cols["close"][0] is None:
+                # S-P25-6: a whitespace update is not a bar — it removes the
+                # time it names (never a no-op write of a null-valued row).
+                by_ts.pop(ts, None)
+                continue
             by_ts[ts] = (ts, cols["open"][0], cols["high"][0],
                          cols["low"][0], cols["close"][0])
     return [by_ts[ts] for ts in sorted(by_ts)]
@@ -295,8 +352,9 @@ class LwBridge(QObject):
         self._ready = False
         self._op_log: list = []     # every op ever accepted, in order
         self._queued: list = []     # accepted while not ready (order kept)
-        self._outbox: list = []     # staged non-live ops for the next flush
-        self._live_buf: dict = {}   # (series, ts) -> update_bar op (coalesced)
+        self._outbox: list = []     # staged non-live ops: [(seq, op)]
+        self._live_buf: dict = {}   # (series, ts) -> (seq, update_bar op)
+        self._seq = 0               # monotonic arrival stamp, one per op
         self._counters = {
             "received": 0,
             "queued": 0,
@@ -351,14 +409,22 @@ class LwBridge(QObject):
         self._stage(ops)
 
     def _stage(self, ops: list) -> None:
+        """Stamp each accepted op with its arrival sequence and buffer it.
+
+        Live ops (``update_bar``) coalesce last-tick-wins per
+        ``(series, ts)`` — the merged op keeps the newest sequence — and
+        everything else waits in ``_outbox``. ``flush`` is the only reader.
+        """
         for op in ops:
+            self._seq += 1
+            seq = self._seq
             if op["op"] in LIVE_OPS:
                 key = (op["series"], op["cols"]["ts"][0])
                 if key in self._live_buf:
                     self._counters["coalesced"] += 1
-                self._live_buf[key] = op
+                self._live_buf[key] = (seq, op)
             else:
-                self._outbox.append(op)
+                self._outbox.append((seq, op))
         self._arm_timer()
 
     def _arm_timer(self) -> None:
@@ -378,16 +444,55 @@ class LwBridge(QObject):
             self._timer.start()
 
     def flush(self):
-        """Cross one envelope now; returns it (``None`` when nothing staged)."""
+        """Cross one envelope now; returns it (``None`` when nothing staged).
+
+        S-P25-5 (D69): the two buffers are one arrival-ordered stream, not
+        an arbitrary concatenation. Every op was stamped by :meth:`_stage`;
+        the emitted envelope is built in three steps:
+
+        1. per series, keep only its **last** full replace (``set_bars`` /
+           ``set_volume`` / ``clear``) and drop that series' ops with a
+           smaller sequence — so a replace supersedes an older update for
+           the same series, while an update that arrived *after* the replace
+           still applies;
+        2. emit the surviving data ops in ascending sequence (arrival order);
+        3. append the non-series directives (``set_visible_range``,
+           ``set_partial``) in their own arrival order, after the rows
+           (P18's frame-after-rows rule is preserved by kind).
+
+        ``_op_log`` — and therefore every replay — is untouched: it keeps
+        every accepted op in plain arrival order with full fidelity.
+        """
         staged = list(self._outbox)
         staged.extend(self._live_buf.values())
         self._outbox.clear()
         self._live_buf.clear()
         if not staged:
             return None
-        env = {"v": ENVELOPE_VERSION, "ops": staged}
+        # `staged` holds (seq, op); a dict key of 0 is impossible because the
+        # counter starts at 1.
+        staged.sort(key=lambda item: item[0])
+        last_replace: dict = {}
+        for seq, op in staged:
+            kind = op.get("op")
+            if kind in _REPLACE_OPS:
+                last_replace[op.get("series")] = seq
+        data_ops: list = []
+        directives: list = []
+        for seq, op in staged:
+            if op.get("op") in _DIRECTIVE_OPS:
+                directives.append(op)
+                continue
+            cutoff = last_replace.get(op.get("series"))
+            if cutoff is not None and seq < cutoff:
+                continue  # superseded by a later full replace of its series
+            data_ops.append(op)
+        ops = data_ops + directives
+        if not ops:
+            return None
+        env = {"v": ENVELOPE_VERSION, "ops": ops}
         self._emit(env)
-        self._counters["emitted"] += len(staged)
+        self._counters["emitted"] += len(ops)
         self._counters["emissions"] += 1
         return env
 
