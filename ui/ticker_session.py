@@ -108,6 +108,54 @@ def per_load_historical_cap() -> int:
     return max(1, int(settings.MAX_HISTORICAL_PER_600S) // 4)
 
 
+# Q-77: silence-retry bound is shape-aware, not a single constant. A measured
+# 30 D / 1 min SPX request delivers its first bar at ~42.5 s while the same
+# span at 5 mins answers in ~0.1 s; the old fixed 30 s bound cancelled healthy
+# 1-min requests (observed "silent 30.0s; retried as …", then 162 acks and a
+# full shortfall). The measured-slow shape gets a 90 s bound; every other
+# shape keeps the 30 s bound.
+_SILENCE_RETRY_SLOW_SHAPE_S = 90.0
+_SILENCE_RETRY_SLOW_DURATION_DAYS = 30.0
+_DURATION_UNIT_DAYS = {"S": 1.0 / 86_400.0, "D": 1.0, "W": 7.0,
+                       "M": 30.0, "Y": 365.0}
+
+
+def _duration_in_days(duration: object) -> float | None:
+    """Parse an IBKR duration string ("30 D", "60 S", …) into days.
+
+    Returns ``None`` when the value is unrecognised, so callers keep the
+    default bound rather than guessing.
+    """
+    if not isinstance(duration, str):
+        return None
+    parts = duration.strip().upper().split()
+    if len(parts) != 2:
+        return None
+    number, unit = parts
+    try:
+        value = float(number)
+    except ValueError:
+        return None
+    factor = _DURATION_UNIT_DAYS.get(unit)
+    if factor is None or value < 0:
+        return None
+    return value * factor
+
+
+def silence_retry_bound_s(bar_size: object, duration: object) -> float:
+    """Q-77: per-plan silence bound in seconds.
+
+    ``90.0`` for the measured-slow shape (``bar_size == '1 min'`` with a
+    duration of at least 30 D); ``30.0`` for every other or unrecognised
+    shape. Pure — no settings, no clock, no Qt.
+    """
+    if isinstance(bar_size, str) and bar_size.strip().lower() == "1 min":
+        days = _duration_in_days(duration)
+        if days is not None and days >= _SILENCE_RETRY_SLOW_DURATION_DAYS:
+            return _SILENCE_RETRY_SLOW_SHAPE_S
+    return _SILENCE_RETRY_AFTER_S
+
+
 class TickerSession(QObject):
     """Per-symbol data plane. One instance per uppercase symbol per process."""
 
@@ -955,7 +1003,8 @@ class TickerSession(QObject):
             stamp = self._history_req_last_activity.get(req_id)
             if stamp is None:
                 continue
-            if now - stamp >= _SILENCE_RETRY_AFTER_S:
+            bound = silence_retry_bound_s(plan.bar_size, plan.duration)
+            if now - stamp >= bound:
                 self._retry_silent_chunk(req_id)
 
     def _retry_silent_chunk(self, req_id: int) -> None:
@@ -1035,7 +1084,8 @@ class TickerSession(QObject):
         self._refresh_silence_sweeper()
         _LOG.warning(
             "Historical request %s silent %ss; retried as %s",
-            req_id, _SILENCE_RETRY_AFTER_S, new_req_id,
+            req_id, silence_retry_bound_s(plan.bar_size, plan.duration),
+            new_req_id,
         )
 
     def _on_prime_timeout(self) -> None:

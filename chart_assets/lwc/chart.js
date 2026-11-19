@@ -291,6 +291,41 @@ function chevronVisible(following, newBarsSinceAway) {
   return !following;
 }
 
+/* Q-78: coalesce the resize-observer work out of the observation callback.
+ * The callback itself must stay O(1) — mutating chart layout synchronously
+ * inside it is what produces Chrome's repeated "ResizeObserver loop
+ * completed with undelivered notifications". The first hit of a burst arms
+ * exactly one deferred run of `runBody` (next animation frame; a zero
+ * timeout where rAF is missing); every further hit before that frame is a
+ * no-op. The scheduled run clears the pending bit *before* invoking the
+ * body and never re-schedules itself — a body that resizes the chart may
+ * legitimately provoke a fresh observation, which starts a new burst. */
+function createResizeCoalescer(runBody, scheduler) {
+  var pending = false;
+  var schedule = (typeof scheduler === "function") ? scheduler : function (fn) {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(fn);
+    } else if (typeof setTimeout === "function") {
+      setTimeout(fn, 0);
+    } else {
+      fn();
+    }
+  };
+  function hit() {
+    if (pending) return false;
+    pending = true;
+    schedule(function () {
+      pending = false;
+      runBody();
+    });
+    return true;
+  }
+  hit.isPending = function () {
+    return pending;
+  };
+  return hit;
+}
+
 /* ── browser glue (browser only; node loads just the pure core) ─── */
 if (typeof window !== "undefined" && typeof document !== "undefined") (function () {
   "use strict";
@@ -366,6 +401,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   var chartHeightPx = 0;
   var fitRetryTimer = null;
   var fitRetryCount = 0;
+  /* Q-78: one coalesced deferred body per resize-observation burst. The
+   * observer callback below only calls this; the layout work happens on the
+   * next frame (see `runResizeWork`). */
+  var resizeHit = createResizeCoalescer(runResizeWork);
 
   var HOLLOW_STYLE = {
     upColor: "rgba(52,211,153,0.05)",
@@ -813,29 +852,11 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
      * no resize event at all. */
     if (typeof ResizeObserver !== "undefined") {
       new ResizeObserver(function () {
-        var size = ensureChartSize();
-        if (size.width < MIN_FIT_WIDTH_PX || size.height < 1) return;
-        if (needsFit && size.width >= MIN_FIT_WIDTH_PX && size.height >= 1) {
-          landDeferred();
-          return;
-        }
-        /* S-P18-4 (ESC-104): the library preserves bar spacing across a
-         * container resize, so a range landed at boot width strands the
-         * viewport in empty space at full width (framed 0..81 at 1.6px
-         * extends to -472 — every drag anchor clamps to bar 0). Re-assert
-         * the current range so spacing rescales to the new width. The
-         * slots are unchanged, so this is viewport-preserving, never a
-         * yank: follow/away derivation reads slots, not pixels. */
-        var cur = null;
-        try { cur = chart.timeScale().getVisibleLogicalRange(); } catch (err) { cur = null; }
-        if (cur && isFinite(Number(cur.from)) && isFinite(Number(cur.to)) &&
-            Number(cur.to) > Number(cur.from)) {
-          try {
-            chart.timeScale().setVisibleLogicalRange(
-              { from: Number(cur.from), to: Number(cur.to) });
-          } catch (err) { /* keep the pre-resize range */ }
-        }
-        updateChevron(); // S-P18-1: a resize may move follow/away geometry
+        /* Q-78: the observation callback stays O(1) — it only arms the
+         * coalesced run. The layout work (resize / deferred landing / range
+         * re-assert / chevron) executes once on the next frame in
+         * `runResizeWork`, never synchronously inside this callback. */
+        resizeHit();
       }).observe(el);
     }
     ensureChartSize();
@@ -1329,6 +1350,37 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
     return size;
   }
 
+  /* Q-78: the deferred resize body. Behaviour is the pre-Q-78 observation
+   * handler verbatim (needsFit/landDeferred branch, the ESC-104 range
+   * re-assert, updateChevron) — only its execution context moved off the
+   * observation callback. It never re-schedules itself. */
+  function runResizeWork() {
+    if (!chart) return;
+    var size = ensureChartSize();
+    if (size.width < MIN_FIT_WIDTH_PX || size.height < 1) return;
+    if (needsFit && size.width >= MIN_FIT_WIDTH_PX && size.height >= 1) {
+      landDeferred();
+      return;
+    }
+    /* S-P18-4 (ESC-104): the library preserves bar spacing across a
+     * container resize, so a range landed at boot width strands the
+     * viewport in empty space at full width (framed 0..81 at 1.6px
+     * extends to -472 — every drag anchor clamps to bar 0). Re-assert
+     * the current range so spacing rescales to the new width. The
+     * slots are unchanged, so this is viewport-preserving, never a
+     * yank: follow/away derivation reads slots, not pixels. */
+    var cur = null;
+    try { cur = chart.timeScale().getVisibleLogicalRange(); } catch (err) { cur = null; }
+    if (cur && isFinite(Number(cur.from)) && isFinite(Number(cur.to)) &&
+        Number(cur.to) > Number(cur.from)) {
+      try {
+        chart.timeScale().setVisibleLogicalRange(
+          { from: Number(cur.from), to: Number(cur.to) });
+      } catch (err) { /* keep the pre-resize range */ }
+    }
+    updateChevron(); // S-P18-1: a resize may move follow/away geometry
+  }
+
   /* Fit the series once the container has a real size.
    *
    * ``fitContent()`` at width 0 is a no-op that leaves the library with a
@@ -1766,6 +1818,15 @@ if (typeof window !== "undefined" && typeof document !== "undefined") (function 
   window.lwChevronVisible = function () {
     return updateChevron();
   };
+  /* Q-78: the coalesced resize entry the ResizeObserver invokes, plus its
+   * pending bit — offscreen evidence that a burst of observations defers
+   * exactly one body run to the next frame. */
+  window.lwResizeObserverHit = function () {
+    return resizeHit();
+  };
+  window.lwResizeWorkPending = function () {
+    return resizeHit.isPending();
+  };
   /* S-P21-4 (D60.5): per-instance remembered-gap probe — offscreen only.
    * The gap is never sent over the bridge (report/emit payloads carry no
    * gap field), so each page instance holding its own value is what keeps
@@ -1842,6 +1903,7 @@ if (typeof module !== "undefined" && module.exports) {
     isFollowingSlot: isFollowingSlot,
     replacePreservesViewport: replacePreservesViewport,
     chevronVisible: chevronVisible,
+    createResizeCoalescer: createResizeCoalescer,
     volumeBarColor: volumeBarColor,
     visibleVolumeMax: visibleVolumeMax,
     volumeCeiling: volumeCeiling,

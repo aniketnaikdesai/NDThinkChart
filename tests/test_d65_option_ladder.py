@@ -780,3 +780,30 @@ def test_P24_T1_AC5_spread_row_docstring_names_display_row_and_label():
         "gamma",
         "matched",
     ]
+
+
+# ── Q-76: IB compact and ISO expiry strings render as Nov19 ─────────────────
+
+
+@pytest.mark.parametrize(
+    "expiry,expected",
+    [
+        # IB's compact chain expiry.
+        ("20261119", "Nov19"),
+        # ISO date string.
+        ("2026-11-19", "Nov19"),
+        # A date object still renders the same way.
+        (date(2026, 11, 19), "Nov19"),
+        # A single-digit day is not zero-padded.
+        ("20261105", "Nov5"),
+    ],
+)
+def test_Q76_compact_expiry_renders_month_day(expiry, expected):
+    assert format_instrument("SPX", expiry, 7315, 7335) == f"SPX {expected} 7315/7335"
+
+
+def test_Q76_preformatted_and_unparseable_strings_pass_through():
+    # A deliberate pre-formatted label is untouched.
+    assert format_instrument("SPX", "Nov17", 7425, 7445) == "SPX Nov17 7425/7445"
+    # A string that is neither IB nor ISO is still returned verbatim.
+    assert format_instrument("SPX", "NOV", 7425, 7445) == "SPX NOV 7425/7445"

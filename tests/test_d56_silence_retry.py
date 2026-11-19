@@ -92,6 +92,10 @@ def _plan(end: str) -> Plan:
     return Plan(endDateTime=end, bar_size="5 mins", duration="5 D")
 
 
+def _shape_plan(end: str, bar_size: str, duration: str) -> Plan:
+    return Plan(endDateTime=end, bar_size=bar_size, duration=duration)
+
+
 # ---------------------------------------------------------------------------
 # T11 / AC1 — zero-bar-silent chunk: cancel + exactly-once identical re-issue
 # ---------------------------------------------------------------------------
@@ -231,3 +235,56 @@ def test_t14_zero_bar_silent_until_just_before_bound_then_bar_no_retry(
         assert len(session._pending_bars) == 1
     finally:
         win.close()
+
+
+# ---------------------------------------------------------------------------
+# Q-77 — the silence bound is shape-aware, not a fixed 30 s
+# ---------------------------------------------------------------------------
+def test_q77_slow_shape_not_retried_at_31s_but_at_91s(monkeypatch, qapp):
+    win, session, stub, clock = _make_session(monkeypatch, qapp, "T77A")
+    try:
+        plan = _shape_plan("20260105-20:00:00", "1 min", "30 D")
+        (old_id,) = _issue(session, stub, [plan])
+
+        # 31 s of silence is inside the measured-slow 90 s bound: healthy.
+        clock["t"] += 31.0
+        session._sweep_silent_chunks()
+        assert stub.cancelled == []
+        assert len(stub.calls) == 1
+        assert session._history_req_ids == {old_id}
+
+        # Past 90 s the chunk is genuinely silent: cancel + retry exactly once.
+        clock["t"] += 60.0  # 91 s since issue
+        session._sweep_silent_chunks()
+        assert stub.cancelled == [old_id]
+        assert len(stub.calls) == 2
+        assert plan in session._retried_plans
+    finally:
+        win.close()
+
+
+def test_q77_fast_shape_still_retried_at_31s(monkeypatch, qapp):
+    win, session, stub, clock = _make_session(monkeypatch, qapp, "T77B")
+    try:
+        plan = _shape_plan("20260105-20:00:00", "5 mins", "30 D")
+        (old_id,) = _issue(session, stub, [plan])
+
+        clock["t"] += 31.0
+        session._sweep_silent_chunks()
+
+        assert stub.cancelled == [old_id]
+        assert len(stub.calls) == 2
+        assert plan in session._retried_plans
+    finally:
+        win.close()
+
+
+def test_q77_helper_bound_by_shape():
+    from ui.ticker_session import silence_retry_bound_s
+
+    assert silence_retry_bound_s("1 min", "30 D") == 90.0
+    assert silence_retry_bound_s("5 mins", "30 D") == 30.0
+    # Unrecognised inputs keep the default bound.
+    assert silence_retry_bound_s("1 min", "10 D") == 30.0
+    assert silence_retry_bound_s("1 min", "nonsense") == 30.0
+    assert silence_retry_bound_s(None, None) == 30.0

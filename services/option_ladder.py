@@ -49,6 +49,7 @@ from __future__ import annotations
 import math
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 # ── Geometry ─────────────────────────────────────────────────────────────────
@@ -159,9 +160,30 @@ _MONTH_ABBREVIATIONS = (
 
 
 def _format_expiry(expiry) -> str:
-    """``Nov17`` from a date/datetime (or pass an already-formatted string)."""
+    """``Nov17`` from a date/datetime, an IB/ISO date string, or a label string.
+
+    The IB option chain supplies its expiry as a compact ``YYYYMMDD`` string and
+    other callers may pass ISO ``YYYY-MM-DD``; both are rendered ``MmmDD``
+    (``20261119`` -> ``Nov19``, day not zero-padded), exactly like a date.  Only
+    a string that parses as neither is returned verbatim, so a deliberate
+    pre-formatted ``Nov17`` still passes through.
+    """
     if isinstance(expiry, str):
-        return expiry.strip()
+        text = expiry.strip()
+        parsed = None
+        if len(text) == 8 and text.isdigit():
+            try:
+                parsed = datetime.strptime(text, "%Y%m%d")
+            except ValueError:
+                parsed = None
+        elif len(text) == 10 and text[4] == "-" and text[7] == "-":
+            try:
+                parsed = datetime.strptime(text, "%Y-%m-%d")
+            except ValueError:
+                parsed = None
+        if parsed is None:
+            return text
+        expiry = parsed
     month = getattr(expiry, "month", None)
     day = getattr(expiry, "day", None)
     if month is not None and day is not None:

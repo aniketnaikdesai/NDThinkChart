@@ -489,3 +489,91 @@ describe("S-P18-1 chevron visibility: away-only (P18-T1-T12)", () => {
     assert.equal(page.lwAffordanceVisible(), false, "badge disarmed (unchanged)");
   });
 });
+
+// Q-78: a burst of ResizeObserver hits must produce exactly one deferred
+// body run. Mutating layout inside the observation callback is what emits
+// Chrome's "ResizeObserver loop completed with undelivered notifications";
+// the callback now only arms a next-frame run.
+describe("Q-78 resize coalescing (kills the loop warning)", () => {
+  it("two synchronous observer hits run the body exactly once after the frame", () => {
+    const frames = [];
+    const runs = [];
+    const hit = LwChart.createResizeCoalescer(
+      () => runs.push(1),
+      (fn) => frames.push(fn),
+    );
+    assert.equal(hit(), true, "first hit arms the run");
+    assert.equal(hit(), false, "second hit is coalesced");
+    assert.equal(hit(), false, "third hit is coalesced");
+    assert.equal(frames.length, 1, "exactly one frame scheduled");
+    assert.equal(runs.length, 0, "no work inside the observation callback");
+    frames[0]();
+    assert.equal(runs.length, 1, "body ran exactly once after the frame");
+    assert.equal(hit.isPending(), false, "pending cleared after the run");
+    // A later observation starts a fresh burst — one more deferred run.
+    assert.equal(hit(), true);
+    assert.equal(frames.length, 2, "a new burst schedules a new frame");
+    frames[1]();
+    assert.equal(runs.length, 2);
+  });
+
+  it("the deferred body never reschedules itself (no infinite loop)", () => {
+    const frames = [];
+    const hit = LwChart.createResizeCoalescer(() => {}, (fn) => frames.push(fn));
+    hit();
+    frames[0]();
+    assert.equal(frames.length, 1, "flushing the frame queues nothing further");
+    assert.equal(hit.isPending(), false);
+  });
+
+  it("the deferred body still re-asserts the visible range on a width change", () => {
+    // Seed a real series so needsFit is false and the re-assert leg runs.
+    const n = 60;
+    const ts = [], open = [], high = [], low = [], close = [];
+    for (let i = 0; i < n; i++) {
+      ts.push(1700000000 + i * 300);
+      open.push(100 + i * 0.1);
+      high.push(100 + i * 0.1 + 0.25);
+      low.push(100 + i * 0.1 - 0.25);
+      close.push(100 + i * 0.1 + 0.05);
+    }
+    assert.equal(page.lwApplyOps({
+      v: 1,
+      ops: [{ op: "set_bars", series: "candles", cols: { ts, open, high, low, close } }],
+    }).error, null);
+
+    const frames = [];
+    const prevRaf = globalThis.requestAnimationFrame;
+    const prevWidth = _fakeEl.clientWidth;
+    const scale = page.lwHandles().chart.timeScale();
+    const originalSet = scale.setVisibleLogicalRange;
+    const sets = [];
+    globalThis.requestAnimationFrame = (fn) => { frames.push(fn); return 1; };
+    scale.setVisibleLogicalRange = function (r) {
+      sets.push({ from: Number(r.from), to: Number(r.to) });
+      originalSet.call(scale, r);
+    };
+    try {
+      _fakeScaleState.range = { from: 3, to: 20 };
+      _fakeEl.clientWidth = 700; // a real width change
+      assert.equal(page.lwResizeObserverHit(), true);
+      assert.equal(page.lwResizeObserverHit(), false, "burst coalesced");
+      assert.equal(frames.length, 1, "one frame for the burst");
+      assert.equal(sets.length, 0, "no layout work inside the callback");
+      frames[0]();
+      assert.equal(sets.length, 1, "deferred body re-asserts the range once");
+      assert.deepEqual(sets[0], { from: 3, to: 20 },
+        "the pre-resize range is preserved (ESC-104)");
+      assert.equal(frames.length, 1, "the body did not reschedule itself");
+      assert.equal(page.lwResizeWorkPending(), false);
+    } finally {
+      scale.setVisibleLogicalRange = originalSet;
+      _fakeEl.clientWidth = prevWidth;
+      // Resync the page's cached size with the restored container width.
+      page.lwResizeObserverHit();
+      if (frames.length) frames[frames.length - 1]();
+      if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+      else globalThis.requestAnimationFrame = prevRaf;
+    }
+  });
+});
